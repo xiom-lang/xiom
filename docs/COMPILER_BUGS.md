@@ -3327,6 +3327,33 @@ itself verified working); smoke_alloc_basic needs `use xiom.ptr;`;
 smoke_hash_folder needs `use xiom.convert.toint;`.
 ---
 
+## 2026-09-09 -- R2 FIXED: module-level mutable arrays with literal initializers
+
+Stdlib report R2 (M58 residual): `var _tbl: [256]Int = [256 literals];`
+emitted `store [N x T] %tmp (type 'ptr')` at the module-init store --
+the runtime-init ctor ran compile_expr on the array literal, which
+lowers to an i8* heap buffer (a 'ptr'), stored into the [N x T] global.
+
+Fix (codegen):
+- expr_is_const_init (decl.rs) accepts ARRAY literals whose elements are
+  all const-init -> such vars skip the runtime-init path entirely.
+- global_const_init (lib.rs; types.rs copy kept in sync) renders an
+  all-constant array literal as an LLVM constant aggregate
+  (`@sym = global [N x T] [T c0, T c1, ...]`), with recursive element
+  rendering (scalar typing + nested arrays) and defensive pad/truncate
+  to the declared extent. The global is now emitted directly with its
+  constant initializer -- no @llvm.global_ctors entry.
+- Mixed/runtime-element array literals still take the runtime-init path
+  (pre-existing limitation for runtime-filled fixed module arrays;
+  no stdlib module needs that shape -- tables are const).
+
+Regression: tests/regression/m60_module_array_literal.xi +
+e2e_m60_module_array_literal (Int sums, negative elements, 256-literal
+extent, index writes into the literal-backed global). Note: fixed-array
+element reads type as Int in the checker (pre-existing), so the Float64
+array variant was excluded from the regression. Full e2e + feature-reg
++ stdlib-exec run at doc time.
+
 ## 2026-09-09 -- R4 FIXED: guard-arena escape via outer-Vec growth (compiler lane)
 
 The CSPRNG-flip blocker (stdlib report R4; probes r4c_single5000 /
@@ -3416,3 +3443,44 @@ documented as NOT a CSPRNG) is committed and locked by
 smoke_stress_crypto_secure_random_seeded. Flip the moment this lands;
 direction: second-call Vec return-value slot clobbering (compare the
 single-call vs double-call IR of the caller frame).
+
+## 2026-09-09 (stdlib lane, evening) -- R4 FIXED (041e8bb3); CSPRNG flip landed (7148b615)
+
+The stdlib lane flipped secure_random_bytes -> os_secure_random_bytes
+after verifying the guard-arena escape fix on the current binary: probes
+p_os_direct20 / p_os_double / p_os_twoframes all green with differing
+draws; 5000-byte multi-draws (the true trigger shape) pass; crypto smoke
+battery + consumers green. Lock smoke strengthened accordingly
+(smoke_stress_crypto_secure_random_seeded). Their root-cause correction
+(confined-block capacity growth past 16 bytes, not second-call) is
+recorded in the flip commit.
+
+### R5. xiom.net.address cross-module struct-Str returns corrupt (all fields empty)
+Compiled via smoke_net_address + probes p_addr_probe/p_addr_dbg/p_addr_dbg2
+(and p_addr_full): the ENTIRE address.xi, compiled as a standalone program
+(module p_addr_full), parses "example.com:8080" and reads host/port/family
+correctly. Imported as xiom.net.address, address_parse returns
+Some(Address) with ALL fields empty (host=[], port=0, family=[]);
+address_host/address_port (same-module readers, called cross-module) also
+return empties. NOT a cache issue (--force identical). NOT reproducible
+with minimal replicas (Option[struct], tuple (Str, Int), cross-module
+xiom.net.ip classify calls, full-function replicas -- all pass) nor with
+other struct-Str cross-module returns (io IOError e.message, net.mime
+MimeType kind/subtype after the keyword rename). Shape-specific: a
+3-segment dotted module whose exported fn returns Option[struct{Str x2,
+Int}] built from tuple-sourced locals. Direction: compare the imported-
+module vs main-module codegen of address_parse (module-boundary struct
+return lowering). smoke_net_address stays compilefail-BLOCKED as a
+flip-green lock. Stdlib-side candidate when root-caused: none (code is
+correct -- full-file probe proves it).
+
+### R6. smoke_net_http2 graph: invalid getelementptr indices at codegen
+Progressing past the keyword defects exposed a codegen crash in the
+smoke's module graph (mime/multipart/sse consumers; IR line ~39539,
+"invalid getelementptr indices", clang exit 1). The mime field renames
+did not change struct layout (kind kept position 2/3), so this is
+pre-existing: smoke_net_http2 had never compiled past P001 before today.
+Isolated mime_parse consumer (p_mime_lock2: kind/subtype/params reads)
+compiles and runs green, so the crash is in a later graph node (suspect
+multipart_parse or the sse section). Needs an IR pass on their side;
+smoke stays compilefail-BLOCKED.
