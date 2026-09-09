@@ -278,6 +278,11 @@ impl IrEmitter {
         match value {
             Expr::Int(..) | Expr::Bool(..) | Expr::Float(..) | Expr::Char(..) => true,
             Expr::Unary(UnaryOp::Neg, inner, _) => matches!(inner.as_ref(), Expr::Int(..)),
+            // R2 (M58 residual): an all-constant ARRAY literal is a valid
+            // compile-time initializer -- global_const_init renders it as an
+            // LLVM constant aggregate. Mixed/runtime elements still take the
+            // runtime-init path.
+            Expr::Array(items, _) => items.iter().all(|e| Self::expr_is_const_init(e)),
             _ => false,
         }
     }

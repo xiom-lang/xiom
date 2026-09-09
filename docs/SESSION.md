@@ -66,6 +66,31 @@ honesty R16c: sort-consistent SMT, UNKNOWN != false, bounded z3; quick wins:
 module-prefix arity check, warnings-not-dropped, MAX_EXPR_DEPTH 128) ->
 Stage 2 structural foundations per docs/COMPILER_READINESS_PLAN.md.
 
+### Round-21d (2026-09-09): R2 FIXED -- module-level array literal initializers
+
+Compiler lane, fourth bug (stdlib report R2, M58 residual; done while the
+stdlib session runs its 933-smoke sweep + CSPRNG flip).
+
+Root cause: expr_is_const_init rejected Expr::Array, so `var _tbl:
+[256]Int = [literals]` took the runtime-init path; the ginit ctor's
+compile_expr on an array literal lowers to an i8* heap buffer and the
+store into the [N x T] global was invalid IR ("%tmp defined with type
+'ptr' but expected '[4 x i64]'").
+
+Fix: expr_is_const_init accepts all-const array literals; global_const_init
+renders the LLVM constant aggregate with typed/recursive elements
+(decl.rs + lib.rs; types.rs duplicate kept in sync). The global is now
+emitted directly with its constant initializer; no ctor entry.
+
+Regression: tests/regression/m60_module_array_literal.xi +
+e2e_m60_module_array_literal (red pre-fix: compile error; green after).
+Checker limitation noted: fixed-array element reads type as Int, so
+Float64 literal arrays stay out of scope. Full e2e + feature-reg +
+stdlib-exec running at doc time.
+
+NEXT compiler-lane: R1 (byte_at contextual OOB), then the delegation
+crash family (deleg1/deleg2 probes), then Stage 2c / Stage 4 queue.
+
 ### Round-21c (2026-09-09): R4 FIXED -- guard-arena escape (CSPRNG-flip blocker)
 
 Compiler lane, third bug. The stdlib session's R4 (cross-module OS-entropy

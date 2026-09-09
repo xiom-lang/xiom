@@ -4427,6 +4427,9 @@ fn e2e_safety_probe() {
 // M59 (stdlib R4): guard-arena escape -- outer-Vec growth inside a confined
 // block must stay on the main heap (runtime xiom_guard_realloc membership fix).
 #[test] fn e2e_m59_guard_arena_escape() { assert_eq!(compile_and_run("tests\\regression\\m59_guard_arena_escape.xi"), Some(0)); }
+// M60 (stdlib R2): module-level var arrays with all-constant literal
+// initializers lower to LLVM constant aggregates (pointer-store IR fixed).
+#[test] fn e2e_m60_module_array_literal() { assert_eq!(compile_and_run("tests\\regression\\m60_module_array_literal.xi"), Some(0)); }
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }
