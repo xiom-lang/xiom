@@ -3325,3 +3325,39 @@ BUG 38 (is-Some + match double-check binds 0 -- BUG 30 #1/#2 family).
 Bounded/Ord impls (generic bounded fns, no impls -- interface dispatch
 itself verified working); smoke_alloc_basic needs `use xiom.ptr;`;
 smoke_hash_folder needs `use xiom.convert.toint;`.
+## 2026-09-09 (stdlib lane) -- re-verified on round-20 binary (HEAD 223603ce + stdlib T007/io fixes): two items still OPEN
+
+### R1. byte_at contextual OOB read STILL BROKEN (state-dependent bound check)
+The r17 partial fix (isolated byte_at OOB returns 0) does NOT hold once a
+case-mapping/slicing preamble runs first. Fresh probe:
+probe_byte_at_context2.xi (preamble: str_lower/str_upper on multibyte +
+str_slice, then byte_at("", 999) / byte_at(s, len) / byte_at(s, -1)).
+Result: byte_at("", 999) returns 4 (adjacent bytes) instead of 0; the same
+call before any preamble returns 0. The contextual assert in
+smoke_string_bytecopy_locks stays gated. Fix direction: the builtin bound
+check depends on prior string-op state (stale length/adjacency); the OOB
+clamp must be a pure function of (str, index).
+
+### R2. M58 residual: module-level mutable-array LITERAL INITIALIZER still emits invalid IR
+M58 (index reads/writes through the real global) is fixed, but a module-level
+`var _tbl: [256]Int = [ ... 256 literals ... ];` still fails to compile:
+`store [256 x i64] %tmp (type 'ptr') -> expected [256 x i64]` at the
+module-init store (the initializer materializes as a pointer, not the array
+value). Probe: probe_m58_tbl.xi. No stdlib module currently needs this shape
+(all tables are const); documenting so the fix can land without a stdlib
+blocker. Recommended direction: fold the array literal into an @.init
+global constant and memcpy/aggregate-store it, or GEP+elementwise store.
+
+### R3. Catalog-body checker noise to expect during Item A maturation (stdlib lane triage notes)
+These W000s appear on EVERY compile of the affected modules and are catalog
+limitations, not stdlib defects (code compiles and runs correctly):
+- "undefined variable 'io'/'string'/'size_of'/'alloc'" -- module-qualified
+  / intrinsic resolution gaps inside catalog body typing (thread.xi spawn
+  size_of[T], io.fs io.* calls).
+- "unknown type 'fn() -> T' -- defaulting to i64" (generic fn-typed params).
+- "non-exhaustive match ... YamlValue variant not covered" at 0:0 spans in
+  serialize/yaml_lite consumers (line mapping unavailable; may be real --
+  flagged for sweep triage, not yet stdlib-actioned).
+When Item A flips warnings to hard errors, the T007 class is CLEARED
+(128 whole-body-unsafe fns now carry requires); the classes above will
+still fire and need checker-side resolution or span-level triage.
