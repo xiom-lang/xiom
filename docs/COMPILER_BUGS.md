@@ -3327,6 +3327,47 @@ itself verified working); smoke_alloc_basic needs `use xiom.ptr;`;
 smoke_hash_folder needs `use xiom.convert.toint;`.
 ---
 
+## 2026-09-10 -- json heap layer: PART 1 FIXED (write stride); PART 2 (Option[Enum] typing + map value read) queued
+
+The flaky json family (kat_serialize_json_minimal, json_nested /
+json_parse_nested / jsonvalue_get startup-or-exit AVs) has three layers.
+One is fixed and gated; two are catalogued for Stage 2c.
+
+FIXED -- ctor mono substitution (call.rs Vec.new / with_capacity):
+`Map.new`'s mono'd body calls `Vec[V].new()`; the expression-level type
+arg kept the RAW generic param "V", which resolved as unknown -> elem
+size 8. Map[Str, JsonValue] values were stored at 8-byte strides
+(112-byte JsonValue truncated). The type arg now substitutes through
+mono.current_type_map -> stride 112 (IR-pinned by
+e2e_m65a_json_values_stride). Eco fixture test_json.xi stays green.
+
+ATTEMPTED THEN REVERTED -- Option/Result enum payloads
+(lib.rs concrete_type_for, M18 gate): removing the enum exclusion made
+catalog json_get return %struct.Option__JsonValue (fixes j3b), BUT it
+regressed the ecosystem test_json fixture (its OWN json_get ->
+Option[JsonValue] is coherent under the 8-byte-handle ABI, including
+the scalar map-value read). The concrete-Option typing must land
+TOGETHER with the map-value READ fix (below) in one coherent Stage 2c
+change.
+
+QUEUED (Stage 2c) -- map VALUE READ: the value read inside json_get
+still scalar-loads 8 bytes then inttoptrs them as %struct.JsonValue*
+(IR: %tmp86 = inttoptr i64 %tmp82 to %struct.JsonValue*). The map's
+values-Vec index read must resolve the registered value type and use
+the struct load path (bitcast + full load at the Vec's stride) --
+needs payload-type propagation through generic Map signatures, plus the
+M18-gate removal re-applied with it. json_get("name") on a STRING value
+happens to survive (field-1 handle), which is why probes differ;
+json_type/get chains on non-string values AV until this lands.
+
+Regression: e2e_m65a_json_values_stride (IR check, red pre-fix).
+tests/regression/m65_json_map_enum_payload.xi is the PART-2 runtime
+regression (register compile_and_run when Part 2 lands). Full e2e +
+feature-reg + stdlib-exec run at doc time. STDLIB LANE:
+kat_serialize_json_minimal stays gated until PART 2.
+
+## 2026-09-10 -- opt-level flag landed; -O0/-O1 floor REMOVED (re-verified)
+
 ## 2026-09-10 -- opt-level flag landed; -O0/-O1 floor REMOVED (re-verified)
 
 The driver hardcoded -O2 debug / -O3 release because of a 2026-08-08

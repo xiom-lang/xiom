@@ -706,12 +706,24 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     eprintln!("[vecnew] type_arg={type_arg:?}");
                                 }
                                 let type_name = match type_arg {
-                                    Expr::Ident(id) => id.name.clone(),
+                                    Expr::Ident(id) => {
+                                        let n = id.name.clone();
+                                        // json heap layer fix (2026-09-10): a mono'd
+                                        // generic ctor (Map.new's body calling
+                                        // `Vec[V].new()`) keeps the RAW generic param
+                                        // as the expression-level type arg -- V
+                                        // resolved as unknown -> elem_size 8, so
+                                        // Map[_, JsonValue] values truncated to
+                                        // 8-byte slots (flaky json parse heap
+                                        // corruption / exit-time AVs).
+                                        self.mono.current_type_map.get(&n).cloned().unwrap_or(n)
+                                    }
                                     Expr::Tuple(elems, _) => {
                                         let mut parts: Vec<String> = Vec::new();
                                         for e in elems.iter() {
                                             if let Expr::Ident(id) = e {
-                                                parts.push(id.name.clone());
+                                                parts.push(self.mono.current_type_map
+                                                    .get(&id.name).cloned().unwrap_or_else(|| id.name.clone()));
                                             } else {
                                                 parts.clear();
                                                 break;
@@ -792,12 +804,24 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             let cap_i64 = self.val_to_i64(&cap_val, &cap_ty);
                             let elem_size: i64 = if let Some(type_arg) = type_arg {
                                 let type_name = match type_arg {
-                                    Expr::Ident(id) => id.name.clone(),
+                                    Expr::Ident(id) => {
+                                        let n = id.name.clone();
+                                        // json heap layer fix (2026-09-10): a mono'd
+                                        // generic ctor (Map.new's body calling
+                                        // `Vec[V].new()`) keeps the RAW generic param
+                                        // as the expression-level type arg -- V
+                                        // resolved as unknown -> elem_size 8, so
+                                        // Map[_, JsonValue] values truncated to
+                                        // 8-byte slots (flaky json parse heap
+                                        // corruption / exit-time AVs).
+                                        self.mono.current_type_map.get(&n).cloned().unwrap_or(n)
+                                    }
                                     Expr::Tuple(elems, _) => {
                                         let mut parts: Vec<String> = Vec::new();
                                         for e in elems.iter() {
                                             if let Expr::Ident(id) = e {
-                                                parts.push(id.name.clone());
+                                                parts.push(self.mono.current_type_map
+                                                    .get(&id.name).cloned().unwrap_or_else(|| id.name.clone()));
                                             } else {
                                                 parts.clear();
                                                 break;
