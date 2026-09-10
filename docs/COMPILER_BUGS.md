@@ -3869,3 +3869,20 @@ Stdlib state: clause removed with an in-file PENDING note (body guard
 unchanged); a correct in-range clause should be re-added once contract
 codegen distinguishes the free fn from the builtin method and supports
 free-fn calls in contracts.
+
+### R7 follow-up -- REGRESSION (r20 green -> r29 compile-fail): erased Option slot for concrete Option[JsonValue]
+
+smoke_stress_serialize_large_json compiled and exited 0 on the r20 sweep
+(7.7s). On r29 it fails at codegen:
+  xiominput.ll:5780: error: '%tmp135' defined with type
+  '%struct.Option__JsonValue = { i64, %struct.JsonValue }' but expected
+  '%struct.Option = { i64, i64 }'
+  store %struct.Option %tmp135, %struct.Option* %tmp131
+Shape: 20+ repeated `arr = json.json_array_push(arr, json.json_number(n))`
+statements -- a concrete Option[JsonValue] temporary is stored into an
+ERASED Option {i64,i64} slot. Same class as round-28's "concrete
+container payloads no longer unboxed as erased i64" (fixed for the
+shapes they tested; this repeated-temp shape still erases). REGRESSION
+vs r20 -- worth a gate addition (stdlib-exec should include this smoke).
+Probe/repro: examples/stdlib_smoke/smoke_stress_serialize_large_json.xi
+(compile-only failure).
