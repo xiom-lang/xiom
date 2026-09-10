@@ -114,6 +114,14 @@ pub struct Checker {
     /// map to the codegen, whose bare-call alias resolution must not see
     /// plain module-name entries.
     local_module_paths: HashMap<String, String>,
+    /// R5 (2026-09-10): per-MODULE imported dotted paths
+    /// (module "smoke_net_address" -> {"xiom.net.address", ...}). Used by
+    /// get_type's bare-name collision fallback so a bare `Address` resolves
+    /// to a type of a module THIS unit actually imports, instead of the
+    /// global local_module_paths accumulator (which let unrelated catalog
+    /// modules' same-named types shadow the correct one -- `Future` in
+    /// smoke_async).
+    module_import_paths: HashMap<String, HashSet<String>>,
     /// 5c-R: Counter for emitted errors -- enables `has_errors()` gate for
     /// "stop on first error" discipline (rustc lesson: ErrorGuaranteed).
     error_count: usize,
@@ -200,6 +208,7 @@ impl Checker {
             submodule_aliases: HashMap::new(),
             peeked_resolved: HashSet::new(),
             local_module_paths: HashMap::new(),
+            module_import_paths: HashMap::new(),
             current_receiver: None,
             current_generic_bounds: HashMap::new(),
             error_count: 0,
@@ -613,6 +622,28 @@ impl Checker {
             let prefixed = format!("{}.{}", module, name);
             if self.types.contains_key(&prefixed) {
                 return self.types.get(&prefixed);
+            }
+        }
+        // R5 checker face (2026-09-10): a BARE type name can collide across
+        // catalog modules (e.g. `Address` exists in both
+        // xiom.net.address {host,port,family} and benchmark.types
+        // {city,street,zip}). The bare registration is first-wins, so a
+        // user module that imported xiom.net.address saw the WRONG fields
+        // ("type 'Address' has no field 'host'", order-sensitive). Before
+        // the bare fallback, prefer the qualified type of a module the
+        // CURRENT module actually imports (module_import_paths); ambiguous
+        // hits keep the bare fallback rather than guessing. Scoping to the
+        // current module's imports is required -- scanning the global
+        // local_module_paths accumulator regressed smoke_async (`Future`
+        // resolved to another module's same-named type).
+        let mkey = self.current_module.clone().unwrap_or_default();
+        if let Some(paths) = self.module_import_paths.get(&mkey) {
+            let mut hits: Vec<&String> = paths.iter()
+                .filter(|full| self.types.contains_key(&format!("{}.{}", full, name)))
+                .collect();
+            hits.sort();
+            if hits.len() == 1 {
+                return self.types.get(&format!("{}.{}", hits[0], name));
             }
         }
         self.types.get(name)
@@ -2970,6 +3001,17 @@ impl Checker {
         self.build_module_map(&cached.program.items)
     }
 
+    /// R5 (2026-09-10): record `dotted` as an import of the CURRENT module
+    /// ("" for the program root) for the bare-name collision fallback in
+    /// `get_type`.
+    fn record_module_import(&mut self, dotted: &str) {
+        if dotted.is_empty() {
+            return;
+        }
+        let key = self.current_module.clone().unwrap_or_default();
+        self.module_import_paths.entry(key).or_default().insert(dotted.to_string());
+    }
+
     fn process_use(&mut self, ud: &UseDecl) {
         if ud.path.is_empty() {
             return;
@@ -3076,6 +3118,10 @@ impl Checker {
         }
 
         if ud.glob {
+            // R5: record the glob module path for the current module's
+            // bare-name collision fallback (get_type).
+            let full_dotted = effective_path.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(".");
+            self.record_module_import(&full_dotted);
             // `use module.*;` -- import all pub items
             for (name, export) in current {
                 if matches!(export, ModuleExport::SubModule(_)) { continue; }
@@ -3105,6 +3151,7 @@ impl Checker {
                             .map(|a| a.name.clone())
                             .unwrap_or_else(|| item_name.clone());
                         self.local_module_paths.insert(local_name.clone(), full_path.join("."));
+                        self.record_module_import(&full_path.join("."));
                         let export = ModuleExport::SubModule(module_exports);
                         self.modules.entry(local_name.clone()).or_insert_with(|| {
                             if let ModuleExport::SubModule(ref s) = export { s.clone() } else { HashMap::new() }
@@ -3149,6 +3196,7 @@ impl Checker {
             {
                 let full: Vec<String> = effective_path.iter().map(|p| p.name.clone()).collect();
                 self.local_module_paths.insert(local_name.clone(), full.join("."));
+                self.record_module_import(&full.join("."));
             }
             // Register SubModules in both imported_items (for type paths)
             // and modules (for expression paths like `async.Executor.new()`)

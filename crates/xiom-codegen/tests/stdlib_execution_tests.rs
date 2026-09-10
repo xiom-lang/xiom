@@ -319,6 +319,22 @@ fn stdlib_exec_net_runs() {
     assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_net.xi"), Some(0), "net smoke failed to run/return 0");
 }
 
+// R5/R6 (2026-09-10 compiler round): the catalog's fuzzy module lookup used
+// to misload `benchmark.memory` for a missing `xiom.memory` prefix, dragging
+// the benchmark graph (and its colliding bare `Address` type) into every
+// stdlib compile. smoke_net_address was T001/empty-field blocked and
+// smoke_net_http2 died on invalid getelementptr indices; both are now green
+// strict locks.
+#[test]
+fn stdlib_exec_net_address_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_net_address.xi"), Some(0), "net.address smoke failed to run/return 0");
+}
+
+#[test]
+fn stdlib_exec_net_http2_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_net_http2.xi"), Some(0), "net.http2 smoke failed to run/return 0");
+}
+
 #[test]
 fn stdlib_exec_os_runs() {
     assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_os.xi"), Some(0), "os smoke failed to run/return 0");

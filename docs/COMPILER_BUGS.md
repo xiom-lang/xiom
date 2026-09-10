@@ -3671,13 +3671,47 @@ UPDATE 2026-09-10 (round-25 binary): TWO distinct faces bisected:
    faces are independent; fixing either alone leaves the smoke red.
 Note: CRT-layout fix 4b7dc529 did not affect either face.
 
-### R6. smoke_net_http2 graph: invalid getelementptr indices at codegen
-Progressing past the keyword defects exposed a codegen crash in the
-smoke's module graph (mime/multipart/sse consumers; IR line ~39539,
-"invalid getelementptr indices", clang exit 1). The mime field renames
-did not change struct layout (kind kept position 2/3), so this is
-pre-existing: smoke_net_http2 had never compiled past P001 before today.
-Isolated mime_parse consumer (p_mime_lock2: kind/subtype/params reads)
-compiles and runs green, so the crash is in a later graph node (suspect
-multipart_parse or the sse section). Needs an IR pass on their side;
-smoke stays compilefail-BLOCKED.
+FIXED 2026-09-10 (round-27, compiler lane). ROOT CAUSE (both faces):
+the catalog's fuzzy `index_lookup` matched ANY module ending in
+`.<last-segment>` for MULTI-segment requests. The checker's transitive
+worklist therefore resolved the prefix `[xiom, memory]` (pushed by
+`use xiom.memory.alloc`) to `examples/benchmark/bench_memory.xi`
+(declared `module benchmark.memory`). Loading it pulled
+`use benchmark.main.BenchResult` -> `benchmark.main` ->
+`use benchmark.types` -> the whole benchmark graph into EVERY stdlib
+compile. `benchmark.types.Address = {city, street, zip}` then claimed
+the BARE name `Address` ahead of `xiom.net.address.Address`
+(`{family, host, port}`) in both registries (first-wins):
+- CHECKER: get_type('Address') fell back to the bare entry ->
+  "no field 'host'" (order-sensitive because the winner depended on
+  load order).
+- CODEGEN: field-name lookup used benchmark's names while the struct
+  layout came from the same first-wins entry -- `a.host` had no field
+  index and fell to the generic `0` fallback -> all fields empty.
+
+FIXES:
+1. catalog.rs `index_lookup`: multi-segment fuzzy resolution is now
+   ROOT-SCOPED (candidate must start with the requested first segment)
+   and unique; single-segment leaf resolution (`use types.run_all` ->
+   benchmark.types) stays unique-leaf. `[xiom, memory]` no longer
+   resolves to `benchmark.memory`; `use xiom.slice` still resolves
+   `xiom.string.slice` (regression caught by
+   e2e_m47_round14b_multibyte_chars on the first, stricter attempt).
+2. xiom-check `get_type`: before the bare-name fallback, prefer the
+   qualified type of a module the CURRENT module actually imports
+   (new per-module `module_import_paths`, recorded in process_use).
+   Scoping to the current module is required -- a global import scan
+   regressed smoke_async (`Future` resolved to another module's
+   same-named type).
+Locked by stdlib_exec_net_address_runs and stdlib_exec_net_http2_runs
+(new strict Some(0) locks). smoke_net_address exits 0 (was T001/AV);
+R6 below is fixed by the same root cause.
+
+### R6. smoke_net_http2 graph: invalid getelementptr indices at codegen -- FIXED
+
+FIXED 2026-09-10 (round-27): same root cause as R5 -- the benchmark
+graph pollution (its same-named types shadowing stdlib types in the
+codegen registry) produced mismatched struct field indices in the
+mime/multipart/sse consumer graph. With the catalog lookup root-scoped,
+smoke_net_http2 compiles and exits 0 (verified + stdlib_exec_net_http2_
+runs lock). No separate getelementptr fix was needed.
