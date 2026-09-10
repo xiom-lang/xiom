@@ -101,6 +101,29 @@ REMAINING QUEUE (pre-scoped for the next compiler session):
    from here).
 6. Stages 6-7: perf program + selfhost gate checklist.
 
+### Round-29 (2026-09-10): stack-cookie/KDF family -- pbkdf2 fixed; Vec accessor builtins
+
+Compiler lane. Four codegen roots (full map in COMPILER_BUGS.md):
+1. `.len()` on a `&Str` param loaded the POINTER BITS as the length
+   (`load i64, i8**`) -- pbkdf2's `while pi < password.len()` ran away
+   until the Vec cap trap (0xC000001D). Fix: i8** receiver loads the
+   handle then xiom_str_len.
+2. `&Str` receiver passed to a by-value Str param passed the SLOT ADDRESS
+   to char_at -> contract abort at string.xi:236. Fix: receiver coercion
+   derefs i8** -> i8* when p0 == i8*.
+3. `&"literal"` args to `&Str` (i8**) params were bitcast from the string
+   data instead of materialized into a handle slot (BUG 52 gate removed).
+4. Vec/Slice `.as_ptr()`/`.as_mut_ptr()` did not exist -> auto-stub ret 0,
+   then the arg coercion passed a 1-BYTE stack temp as a 4096-byte buffer
+   DEST (io BufReader/os/brotli). Fix: real builtins (data pointer) +
+   checker signatures + pointer-call return inference in coerce_arg.
+Flips: smoke_stress_crypto_pbkdf2 (+_iterations) -> stdlib_exec locks;
+smoke_os stays green. STDLIB-SIDE remainders: io_bufreader (BufReader
+passes FD 0 as FILE* to fread -> fail-fast), argon2_basic (6 args vs 5),
+math_edge (traps; next round).
+Gates: e2e 2306/2306, feature-reg 510/510, stdlib-exec 77/77 (+2 ign),
+checker 182/182.
+
 ### Round-28 (2026-09-10): CRT-family AV flips -- Slice builtin, reborrow, concrete payloads, mono ABI
 
 Compiler lane. Four independent roots (full map in COMPILER_BUGS.md):

@@ -301,6 +301,22 @@ fn stdlib_exec_regex_find_runs() {
     assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_stress_regex_find.xi"), Some(0), "regex_find smoke failed to run/return 0");
 }
 
+// Stack-cookie / KDF family (2026-09-10 compiler round):
+// pbkdf2 trapped on a runaway `while i < password.len()` loop -- `.len()` on
+// a `&Str` param loaded the POINTER BITS as the length (i8** -> load i64);
+// `password.char_at(i)` passed the slot ADDRESS to a by-value Str param;
+// `&"literal"` args to `&Str` params were bitcast instead of materialized
+// into a handle slot. All three fixed in codegen.
+#[test]
+fn stdlib_exec_pbkdf2_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_stress_crypto_pbkdf2.xi"), Some(0), "pbkdf2 smoke failed to run/return 0");
+}
+
+#[test]
+fn stdlib_exec_pbkdf2_iterations_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_stress_crypto_pbkdf2_iterations.xi"), Some(0), "pbkdf2 iterations smoke failed to run/return 0");
+}
+
 // ============================================================================
 // smoke_simd is #[ignore] (2026-08-17): a LATENT MSVC-CRT miscompile
 // (0xC0000005 inside a security-cookie'd CRT date/strtod-family function:

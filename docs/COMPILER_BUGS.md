@@ -3327,6 +3327,57 @@ itself verified working); smoke_alloc_basic needs `use xiom.ptr;`;
 smoke_hash_folder needs `use xiom.convert.toint;`.
 ---
 
+## 2026-09-10 -- stack-cookie/KDF family: &Str len/receiver/ref-arg + Vec accessor builtins
+
+smoke_stress_crypto_pbkdf2 (+_iterations) FIXED; smoke_os stays green;
+the family's remaining members are stdlib-side (below). Four codegen roots,
+all red-green proven via tmp/bug_probes/p_pbk_iter.xi, p_pbk_rep.xi (a
+user-module replica that always worked -- catalog-body-only failure), and
+p_sha_leak.xi (600x sha256 clean, ruling out the counter-leak theory):
+
+1. `.len()` on a `&Str` param (i8**) hit the generic pointer-typed branch
+   and emitted `load i64, i8**` -- the string POINTER BITS as the length.
+   `while pi < password.len()` then ran ~forever pushing bytes until the
+   Vec cap trap (0xC000001D). Fix: an i8** receiver loads the HANDLE
+   (i8*) and calls xiom_str_len.
+
+2. `password.char_at(pi)` with `password: &Str` passed the SLOT ADDRESS
+   (i8**) to char_at's by-value Str param (i8*): opaque pointers made the
+   call type-check silently and char_at read the slot bytes as the string
+   -> its ensures (`pos < s.char_count()`) aborted with a contract
+   violation. Fix: method-receiver coercion loads the handle when
+   p0 == i8* and recv_llvm_ty == i8**.
+
+3. `crypto.pbkdf2(&"password", ...)`: the `&"literal"` arg to the `i8**`
+   `&Str` param was BITCAST from the string data pointer instead of being
+   materialized into a handle slot -- the callee read the literal's first
+   8 bytes as the Str handle (str_len AV at -1). The BUG 52 materialization
+   path was gated on `lvalue.is_none()`, which a Ref-of-literal fails; the
+   gate is removed (ref-locals carry i8** already and never match).
+
+4. Vec/Slice `.as_ptr()`/`.as_mut_ptr()` did not exist anywhere in the
+   stdlib, so calls were auto-stubbed to `ret i64 0`; the arg coercion then
+   materialized the 0 as a 1-BYTE stack temp passed as a buffer DEST with
+   size 4096 (io BufReader fread -> 0xC0000409 stack overrun; same shape in
+   os.read/write, brotli fwrite). Fix: real builtins returning field 0
+   (data pointer) for Vec (alloca + GEP) and Slice (extractvalue), plus
+   checker signatures so they resolve. Also hardened coerce_arg_for_param:
+   a CALL returning a raw pointer resolves via infer_call_return_xiom so it
+   inttoptrs instead of being truncated to a byte.
+
+Locked: stdlib_exec_pbkdf2_runs, stdlib_exec_pbkdf2_iterations_runs.
+Gates at commit: e2e 2306/2306, feature-reg 510/510, stdlib-exec 77/77
+(+2 ign), checker 182/182.
+
+STDLIB LANE NOTES (these cannot pass compiler-side):
+- smoke_stress_io_bufreader: BufReader stores `io.stdin()` (FD 0) and
+  passes `self.inner as *UInt8` to fread as the FILE* -> null stream
+  (0xC0000409 fail-fast). Use xiom_stdin()/fd->FILE mapping.
+- smoke_stress_crypto_argon2_basic: calls crypto.argon2 with 6 args; the
+  signature has 5 (no key_len).
+- smoke_math_edge still traps (0xC000001D) -- next round.
+
+
 ## 2026-09-10 -- CRT-family AV flips: Slice builtin, `&*p` reborrow, concrete payloads, mono ABI
 
 Three of the four remaining CRT-family AV smokes are fixed (array_slice,
