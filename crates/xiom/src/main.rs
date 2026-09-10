@@ -367,6 +367,11 @@ fn real_main() {
     let do_run = args.iter().any(|a| a == "--run");
     let check_only = args.iter().any(|a| a == "--check");
     let release = args.iter().any(|a| a == "--release");
+    // 2026-09-10: explicit optimization level (--opt-level 0..=3). The old
+    // -O2 floor existed because pre-CRT-layout IR miscompiled at -O0/-O1
+    // (i128 loops + inlined Vec ops); the floor is now overridable.
+    let opt_level: Option<u8> = args.iter().position(|a| a == "--opt-level")
+        .and_then(|i| args.get(i + 1).and_then(|v| v.parse::<u8>().ok()));
     let target = parse_target(&args);
     let check_contracts = !args.iter().any(|a| a == "--no-contracts") && !release;
     let runtime_contracts = args.iter().any(|a| a == "--runtime-contracts");
@@ -658,6 +663,7 @@ fn real_main() {
             do_run,
             check_only,
             release,
+            opt_level,
             check_contracts,
             diagnostics_json,
             strict_mode,
@@ -975,6 +981,7 @@ fn real_main() {
                     lto: false,
                     parallel_codegen: false,
                     enable_unsafe_direct: enable_unsafe_direct,
+                    opt_level: config.opt_level,
                 };
                 let result = xiom::compile_with_diagnostics(&check_config, &[path.clone()]);
                 let source = std::fs::read_to_string(path).unwrap_or_default();
@@ -1028,6 +1035,7 @@ fn real_main() {
                     lto: false,
                     parallel_codegen: false,
                     enable_unsafe_direct: enable_unsafe_direct,
+                    opt_level: config.opt_level,
                 };
                 let result = xiom::compile_with_diagnostics(&check_config, &[path.clone()]);
                 let source = std::fs::read_to_string(path).unwrap_or_default();

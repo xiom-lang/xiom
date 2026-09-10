@@ -3327,6 +3327,25 @@ itself verified working); smoke_alloc_basic needs `use xiom.ptr;`;
 smoke_hash_folder needs `use xiom.convert.toint;`.
 ---
 
+## 2026-09-10 -- opt-level flag landed; -O0/-O1 floor REMOVED (re-verified)
+
+The driver hardcoded -O2 debug / -O3 release because of a 2026-08-08
+note ("clang miscompiles native Int128 loops + inlined Vec ops at
+-O0/-O1; i128 loop + Vec.push crashes"). After the CRT-layout family
+fixes (closure env malloc under-allocation + MutRef array elem
+addresses -- the exact classes of invalid IR that -O2's mem2reg used to
+mask), a 9-probe matrix (m20_stress_big_loop, m20_stress_int_overflow,
+m32_int_0400, m63, m64, m59, m37_u128, crt_full, m62) now passes at ALL
+of -O0/-O1/-O2/-O3.
+
+Change (crates/xiom): new --opt-level 0..=3 flag
+(CompileConfig.opt_level, main.rs parse + resolve_source_files skip
+list); both the opt-pass invocation AND the clang link step honor it.
+Default unchanged (-O2/-O3). A user can now produce honest -O0 debug
+builds and -O3/-Os-style tuned builds instead of the silent floor.
+
+Gates: full e2e + feature-reg + stdlib-exec run at doc time.
+
 ## 2026-09-10 -- CRT-layout family FIXED: two root causes (closure env size + MutRef array elem addresses)
 
 The documented clang -O2/MSVC-CRT layout family (smoke_iter_collect /

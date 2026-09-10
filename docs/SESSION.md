@@ -66,6 +66,26 @@ honesty R16c: sort-consistent SMT, UNKNOWN != false, bounded z3; quick wins:
 module-prefix arity check, warnings-not-dropped, MAX_EXPR_DEPTH 128) ->
 Stage 2 structural foundations per docs/COMPILER_READINESS_PLAN.md.
 
+### Round-24 (2026-09-10): --opt-level flag + -O0/-O1 floor removed
+
+Compiler lane, eighth item. The driver's hardcoded -O2/-O3 (D1 note,
+2026-08-08: "i128 loop + Vec.push crashes at -O0/-O1") was RE-VERIFIED
+after the CRT-layout fixes: a 9-probe matrix passes at ALL optimization
+levels -- the floor's underlying invalid-IR class is gone. Landed the
+--opt-level 0..=3 flag (CompileConfig.opt_level; opt passes AND clang
+link both honor it; resolve_source_files skips the value). Default
+remains -O2 debug / -O3 release. Honest -O0 debug builds are now
+possible for sanitizer/ABI work.
+
+Full e2e + feature-reg + stdlib-exec running at doc time.
+
+NEXT compiler-lane: Stage 4 leftovers (json heap layer, stack cookies,
+clang variants -- retest now that the layout family is down), then
+Stage 5 remainder (watchdog cancellation, LSP UTF-16 + poison recovery,
+fmt comment preservation, JSON diagnostics schema, workspace version
+policy, cargo-fuzz + ASAN/UBSAN CI), Stage 2c structural
+TypeId/interning, Stages 6-7.
+
 ### Round-23 (2026-09-10): CRT-layout family FIXED -- closure env size + MutRef array elem addresses
 
 Compiler lane, seventh bug -- the biggest remaining cluster (clang
