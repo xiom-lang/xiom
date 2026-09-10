@@ -139,8 +139,14 @@ impl IrEmitter {
             // handle -- passing the handle itself as i8** made `*key` read
             // the string's first 8 BYTES as a pointer (garbage -> strcmp AV;
             // Map.get with Str keys crashed for Int AND enum values alike).
-            // Skip when the arg is already an address (ref-locals: i8**).
-            if param_ty == "i8**" && pre_ty == "i8*" && lvalue.is_none() {
+            // Arg forms covered: a plain Str value AND `&"literal"` / `&(expr)`
+            // (the Ref arm yields the i8* literal value, pre_ty i8*). Ref-LOCALS
+            // and `&str_local` already carry the ADDRESS (pre_ty i8**) and skip
+            // this. The old `lvalue.is_none()` gate let `&"password"` through
+            // as a BITCAST of the string bytes -- crypto.pbkdf2 then read the
+            // literal's first 8 bytes as the Str handle (str_len AV at -1;
+            // the standalone replica with a local password worked).
+            if param_ty == "i8**" && pre_ty == "i8*" {
                 let tmp = self.fresh_tmp();
                 self.emitln(&format!("  {tmp} = alloca i8*"));
                 self.emitln(&format!("  store i8* {pre_val}, i8** {tmp}"));
@@ -168,7 +174,16 @@ impl IrEmitter {
                     let arg_xiom = if let Expr::Ident(id) = arg_expr {
                         self.xiom_type_of_local(&id.name)
                     } else {
+                        // Stack-cookie family (2026-09-10): a CALL returning a
+                        // raw pointer carries POINTER BITS in i64 form, but
+                        // infer_value_xiom_type does not resolve call returns --
+                        // such an arg was "materialized" as a single i8 (trunc +
+                        // 1-byte alloca) and passed as a buffer DEST with a
+                        // 4096-byte size -> stack overrun (0xC0000409). Resolve
+                        // the callee's declared return so pointer-valued calls
+                        // inttoptr like pointer-valued locals.
                         Self::infer_value_xiom_type(arg_expr)
+                            .or_else(|| self.infer_call_return_xiom(arg_expr))
                     };
                     let arg_is_ptr_valued = arg_xiom.as_deref().map_or(false, |t| {
                         t == "Str" || t.starts_with('*')

@@ -1664,6 +1664,43 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         }
                     }
                 }
+                // Vec.as_ptr() / Vec.as_mut_ptr() (and Slice): return the DATA
+                // pointer (field 0). The stdlib (io BufReader, os.read/write,
+                // brotli) passes these accessors as raw-buffer arguments to
+                // fread/fgets/xiom_read/fwrite. Without the builtin the calls
+                // were auto-stubbed to `ret i64 0` and the arg coercion
+                // materialized the 0 as a 1-BYTE stack temp -- fread then
+                // wrote up to 4096 bytes into it (stack-cookie fail-fast
+                // 0xC0000409 family).
+                if (fn_name == "as_ptr" || fn_name == "as_mut_ptr") && args.is_empty() {
+                    if let Some(receiver) = receiver_expr {
+                        let recv_ty = self.infer_llvm_type(receiver);
+                        let is_vecish = self.is_container_vec_field(receiver)
+                            || Self::is_llvm_struct_named(&recv_ty, "Vec")
+                            || Self::is_llvm_struct_named(&recv_ty, "Slice");
+                        if is_vecish {
+                            let (recv_raw, recv_raw_ty) = self.compile_expr(receiver)?;
+                            // Slice = { data, len } -- field 0 is the pointer.
+                            if Self::is_llvm_struct_named(&recv_raw_ty, "Slice")
+                                && recv_raw_ty.starts_with("%struct.")
+                                && !recv_raw_ty.ends_with('*')
+                            {
+                                let dp = self.fresh_tmp();
+                                self.emitln(&format!("  {dp} = extractvalue {recv_raw_ty} {recv_raw}, 0"));
+                                return Ok((dp, "i8*".to_string()));
+                            }
+                            let (recv_val, _) = self.resolve_vec_receiver(receiver, &recv_raw, &recv_raw_ty);
+                            let va = self.fresh_tmp();
+                            self.emitln(&format!("  {va} = alloca %struct.Vec"));
+                            self.emit_vec_store_fields(&recv_val, &va);
+                            let dg = self.fresh_tmp();
+                            let data = self.fresh_tmp();
+                            self.emitln(&format!("  {dg} = getelementptr %struct.Vec, %struct.Vec* {va}, i32 0, i32 0"));
+                            self.emitln(&format!("  {data} = load i8*, i8** {dg}"));
+                            return Ok((data, "i8*".to_string()));
+                        }
+                    }
+                }
                 // Vec.len(vec)
                 if fn_name == "len" && args.is_empty() {
                     if let Some(receiver) = receiver_expr {
@@ -1792,6 +1829,21 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             self.emitln(&format!("  {lg} = getelementptr %struct.Vec, %struct.Vec* {va}, i32 0, i32 1"));
                             self.emitln(&format!("  {lv} = load i64, i64* {lg}"));
                             return Ok((lv, LLVM_I64.to_string()));
+                        }
+                        // &Str receiver (`password: &Str` param, ref-local): the
+                        // slot holds the Str HANDLE -- load it, then xiom_str_len.
+                        // The generic pointer branch below emitted
+                        // `load i64, i8**` (the POINTER BITS as the length), so
+                        // `while i < password.len()` ran ~forever pushing bytes
+                        // until the Vec cap trap (crypto.pbkdf2 -> 0xC000001D;
+                        // the standalone replica with a Str local worked).
+                        if recv_ty == "i8**" {
+                            let (recv_val, _) = self.compile_expr(receiver)?;
+                            let handle = self.fresh_tmp();
+                            self.emitln(&format!("  {handle} = load i8*, i8** {recv_val}"));
+                            let tmp = self.fresh_tmp();
+                            self.emitln(&format!("  {tmp} = call i64 @xiom_str_len(i8* {handle})"));
+                            return Ok((tmp, LLVM_I64.to_string()));
                         }
                         // Pointer-typed array references from monomorphised generics
                         // (e.g. &Slice[Int] -> i64*): length is at buf[0].
@@ -3859,7 +3911,19 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // expects a struct value. Emit inttoptr + load to
                             // dereference the heap-allocated struct.
                             let (recv_val, recv_llvm_ty) = if let Some(p0) = callee_pts.as_ref().and_then(|p| p.first().cloned()) {
-                                if p0.starts_with("%struct.") && recv_llvm_ty == "i64" {
+                                // &Str receiver passed to a by-value Str param
+                                // (`password.char_at(i)` with password: &Str):
+                                // the slot (i8**) holds the string HANDLE --
+                                // deref once. Passing the slot address made
+                                // char_at read the slot bytes as the string and
+                                // its ensures (`pos < s.char_count()`) fail
+                                // (crypto.pbkdf2 contract abort; the replica
+                                // with a Str local passed).
+                                if p0 == "i8*" && recv_llvm_ty == "i8**" {
+                                    let handle = self.fresh_tmp();
+                                    self.emitln(&format!("  {handle} = load i8*, i8** {recv_val}"));
+                                    (handle, "i8*".to_string())
+                                } else if p0.starts_with("%struct.") && recv_llvm_ty == "i64" {
                                     if p0.ends_with('*') {
                                         // 5c.30: callee expects a POINTER receiver
                                         // (this-based method): the i64 heap box IS

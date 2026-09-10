@@ -387,6 +387,21 @@ impl Checker {
             generics: vec![],
             uses_implicit_this: false,
         });
+        // Stack-cookie family (2026-09-10): Vec/Slice raw-buffer accessors.
+        // The stdlib passes them to fread/fgets/xiom_read/fwrite; without the
+        // signature the checker treated the calls as unknown (catalog bodies
+        // only warned) and codegen auto-stubbed them to `ret i64 0`.
+        for (recv_ty, method) in [("Vec", "as_ptr"), ("Vec", "as_mut_ptr"),
+                                  ("Slice", "as_ptr"), ("Slice", "as_mut_ptr")] {
+            self.functions.insert(format!("{recv_ty}.{method}"), FnSig {
+                params: vec![
+                    ("self".to_string(), CheckedType::Named(recv_ty.into())),
+                ],
+                return_type: Some(CheckedType::Named("_".into())),
+                generics: vec![],
+                uses_implicit_this: false,
+            });
+        }
         self.functions.insert("Vec.pop".to_string(), FnSig {
             params: vec![
                 ("self".to_string(), CheckedType::Named("Vec".into())),
