@@ -5161,7 +5161,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
     /// match (`store void 0, void*` was invalid IR; Ok(()) on
     /// Result[Unit, FmtError] -> "void type only allowed for function
     /// results").
-    fn field_llvm_ty(&self, xiom_ty: &str) -> String {
+    pub(crate) fn field_llvm_ty(&self, xiom_ty: &str) -> String {
         let t = self.llvm_type_for(xiom_ty).unwrap_or_else(|_| "i64".to_string());
         if t == "void" { "i64".to_string() } else { t }
     }

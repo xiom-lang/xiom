@@ -148,6 +148,17 @@ impl IrEmitter {
                 .or_else(|| self.local.local_xiom_types.get(&cid.name).cloned()
                     .and_then(|t| t.strip_prefix("Vec[").and_then(|r| r.strip_suffix(']')).map(|s| s.to_string()))),
             Expr::Field(base, fname, _) => {
+                // R7 (2026-09-10): generic instantiations FIRST -- the
+                // registered type_meta for a generic type keeps its RAW
+                // params ("keys" -> "Vec[K]"), so the direct path returned
+                // the bare "K" for `entries.keys` on Map[Str,JsonValue]; the
+                // escape arg then materialized a 1-byte temp (keys garbage).
+                // The substitution path resolves the base's CONCRETE args
+                // (Map[Str, JsonValue] -> "Str") and only returns None when
+                // nothing changed (raw generic body -- direct path follows).
+                if let Some(sub) = self.substituted_generic_field_vec_elem(base, &fname.name) {
+                    return Some(sub);
+                }
                 let base_ty = self.infer_struct_type_name(base)?;
                 let meta_key = self.types.type_meta.keys().into_iter()
                     .find(|k| k.ends_with(&base_ty) || k.as_str() == base_ty)?;

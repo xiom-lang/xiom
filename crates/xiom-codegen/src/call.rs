@@ -3026,8 +3026,15 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         // infer the ENUM type -- the old `_ => "Int"`
                                         // arm sent Map.insert[K,V] to
                                         // insert_Str_Int (payload dropped -> AV).
+                                        // R7 (2026-09-10): a module-qualified ctor
+                                        // call (`json.json_number(1.0)` ->
+                                        // JsonValue) is NOT an enum-variant base --
+                                        // resolve the CALLEE's declared return
+                                        // before defaulting to Int (Map[Str,
+                                        // JsonValue].insert mono'd as _Str_Int and
+                                        // truncated the 112-byte value to its tag).
                                         Expr::Call(f, _, _) | Expr::GenericCall(f, _, _, _) => {
-                                            if let Expr::Field(base, _, _) = f.as_ref() {
+                                            let variant_base = if let Expr::Field(base, _, _) = f.as_ref() {
                                                 let base_name = match base.as_ref() {
                                                     Expr::Ident(bid) => bid.name.clone(),
                                                     Expr::Field(_, bf, _) => bf.name.clone(),
@@ -3039,12 +3046,30 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                             .any(|k| k.ends_with(&format!(".{base_name}")))
                                                         || self.types.types.contains_key(&base_name))
                                                 {
-                                                    base_name
+                                                    Some(base_name)
                                                 } else {
-                                                    "Int".to_string()
+                                                    None
                                                 }
                                             } else {
-                                                "Int".to_string()
+                                                None
+                                            };
+                                            variant_base
+                                                .or_else(|| self.infer_call_return_xiom(arg_expr))
+                                                .unwrap_or_else(|| "Int".to_string())
+                                        }
+                                        Expr::Index(container, _, _) => {
+                                            // R7 (2026-09-10): an ELEMENT read as a
+                                            // generic arg (`entries.insert(k,
+                                            // old.values[i])`) must infer the
+                                            // element type -- the old `_ => "Int"`
+                                            // arm mono'd Map.insert as _Str_Int and
+                                            // truncated the 112-byte JsonValue to
+                                            // its 8-byte tag (nested json red).
+                                            let elem = self.resolve_vec_elem_xiom(container);
+                                            match elem {
+                                                Some(e) if !e.is_empty()
+                                                    && !(e.len() == 1 && e.chars().next().map_or(false, |c| c.is_ascii_uppercase())) => e,
+                                                _ => "Int".to_string(),
                                             }
                                         }
                                         Expr::Ident(id) => {
@@ -3103,11 +3128,25 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         }
                                     }
                                 }
-                                // Nested generic: e.g. `Option[T]` -> extract T from type args
+                                // Nested generic: e.g. `Option[T]` -> extract T from type args.
+                                // R7 (2026-09-10): resolve the arg's container args for
+                                // `Vec[V]` params (`push_v[V](v: &mut Vec[V], x: V)` called
+                                // with a Vec[JsonValue]) BEFORE falling back to the old
+                                // hardcoded "Int". The old break-out sent the whole mono to
+                                // push_v_Int, so the 112-byte JsonValue arg was coerced to its
+                                // i64 tag and stored 8 bytes (json nested round-trip red).
+                                // Unresolved containers now CONTINUE scanning the remaining
+                                // params (a later direct `x: V` param can still infer).
                                 let arg_names = Self::extract_type_arg_names(&param.ty);
-                                if let Some(_pos) = arg_names.iter().position(|a| a == &gp.name.name) {
-                                    let concrete_ty = "Int".to_string();
-                                    concrete_types.push(concrete_ty);
+                                if arg_names.iter().any(|a| a == &gp.name.name) {
+                                    // Prefer the arg's concrete container args; when the
+                                    // container can't be resolved, keep the historical
+                                    // "Int" fallback and break -- continuing to later
+                                    // params let the outer-type fallback pick a bogus
+                                    // non-type ("Box") as V (m35_t28/m35_o06 AVs).
+                                    let ct = self.infer_generic_arg_from_container(&param.ty, &gp.name.name, arg_expr)
+                                        .unwrap_or_else(|| "Int".to_string());
+                                    concrete_types.push(ct);
                                     inferred = true;
                                     break;
                                 }

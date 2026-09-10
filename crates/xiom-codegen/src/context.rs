@@ -164,6 +164,10 @@ pub struct TypeContext {
     pub types: SyncRegistry<String, Vec<String>>,
     /// Full type metadata: name -> TypeMeta
     pub type_meta: SyncRegistry<String, TypeMeta>,
+    /// M65 R7 (2026-09-10): concrete type names whose `%struct.X = type`
+    /// definition was already emitted by the type-decl pass. Used to avoid
+    /// re-emitting them when a body-time creation is appended at module end.
+    pub emitted_type_defs: HashSet<String>,
     /// Names of types declared with generic params
     pub generic_type_names: HashSet<String>,
     /// BUG 52 (2026-08-18): GENERIC type decls' field types WITH their type
