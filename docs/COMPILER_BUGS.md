@@ -3886,3 +3886,32 @@ shapes they tested; this repeated-temp shape still erases). REGRESSION
 vs r20 -- worth a gate addition (stdlib-exec should include this smoke).
 Probe/repro: examples/stdlib_smoke/smoke_stress_serialize_large_json.xi
 (compile-only failure).
+
+## R9. Delegation residual: full-path calls without a module import corrupt at runtime
+
+Found 2026-09-10 while verifying the dedup shims under r29 (same on r25:
+reproduced with both binaries). The m62 delegation fix resolved qualified
+calls when the target module is registered; the following shapes still
+crash 0xC0000409 (stack cookie) deterministically:
+
+1. CALLER full-path without import: a module calling
+   `xiom.string.glob.glob_match(...)` (or xiom.string.soundex.soundex,
+   xiom.string.levenshtein.levenshtein_distance) WITHOUT `use` of that
+   module crashes. Repros p_x1/x2/x4/x6 (glob), p_sdx_shim_first,
+   p_lev_shim_first. If the SAME program first calls the canonical module
+   directly (xiom.misc.glob.glob_match), the later shim call works
+   (p_x5, p_glob_trace, smoke_misc_soundex_parity) -- i.e. registration
+   by a direct call masks the bug.
+2. SHIM-INTERNAL missing import: the string.glob shim's body called
+   `xiom.misc.glob.glob_match` while the shim itself never imported
+   xiom.misc.glob. Consumers importing only the shim crashed
+   (smoke_string_glob). Stdlib-side FIXED (all shims now `use` their
+   target; commit 1e099b84), but the underlying resolver behavior remains:
+   an unresolved/never-registered full-path call should be a hard
+   compile/link error, never a runtime stack corruption.
+
+Impact: dedup parity smokes must use the sanctioned twin-vs-vectors style
+(kat_convert_base64_parity); dual-module side-by-side full-path calling is
+unsafe until fixed. Current stdlib/examples all import their targets, so
+the shipping corpus is clean; treat as a latent landmine + fix target for
+the resolver's missing-import fallback.
