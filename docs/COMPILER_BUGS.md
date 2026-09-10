@@ -3626,6 +3626,18 @@ return lowering). smoke_net_address stays compilefail-BLOCKED as a
 flip-green lock. Stdlib-side candidate when root-caused: none (code is
 correct -- full-file probe proves it).
 
+UPDATE 2026-09-10 (round-25 binary): TWO distinct faces bisected:
+1. CHECKER face (T001 "type 'Address' has no field 'host'"): occurs only
+   when net.ip or net.header is imported AFTER net.address (smoke order
+   address->ip->header; p_addr_ba address->ip T001; p_addr_bb
+   address->header T001; p_addr_bd ip->address COMPILES; p_addr_bc
+   address->convert COMPILES). Import-order-sensitive field resolution --
+   suspect per-module type registration/ID reuse in the catalog.
+2. CODEGEN face (values empty): persists in every order and with any
+   import set (p_addr_bc/p_addr_bd compile but host mismatches). The two
+   faces are independent; fixing either alone leaves the smoke red.
+Note: CRT-layout fix 4b7dc529 did not affect either face.
+
 ### R6. smoke_net_http2 graph: invalid getelementptr indices at codegen
 Progressing past the keyword defects exposed a codegen crash in the
 smoke's module graph (mime/multipart/sse consumers; IR line ~39539,
