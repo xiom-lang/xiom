@@ -1193,7 +1193,11 @@ impl IrEmitter {
         } else {
             params_str.join(", ")
         };
-        self.emitln(&format!("define {ret_llvm} @{emit_symbol}({}){}{inline_attr} {{", main_sig, dbg_attach));
+        // LLVM define-line grammar: function ATTRIBUTES come before metadata
+        // attachments, so `!dbg !N` must follow `alwaysinline` -- the old
+        // `){dbg}{attrs} {` order made clang reject honest -g builds
+        // ("expected '{' in function body" at the define line).
+        self.emitln(&format!("define {ret_llvm} @{emit_symbol}({}){inline_attr}{} {{", main_sig, dbg_attach));
 
         // Recursion depth check
         let entry_block = self.fresh_block("entry");
