@@ -66,6 +66,30 @@ honesty R16c: sort-consistent SMT, UNKNOWN != false, bounded z3; quick wins:
 module-prefix arity check, warnings-not-dropped, MAX_EXPR_DEPTH 128) ->
 Stage 2 structural foundations per docs/COMPILER_READINESS_PLAN.md.
 
+### Round-25 (2026-09-10): json heap layer PART 1 -- Map value WRITE stride
+
+Compiler lane, ninth item. Three layers in the flaky json family:
+(1) FIXED: Vec.new() inside mono'd Map.new kept the raw generic param
+"V" as the ctor's type arg -> Map[_, JsonValue] values stored at
+8-byte strides (112-byte JsonValue truncated); now substituted through
+mono.current_type_map (call.rs, both Vec.new and with_capacity).
+IR-pinned by e2e_m65a_json_values_stride; eco test_json.xi stays green.
+(2) ATTEMPTED+REVERTED: removing the M18 enum exclusion for concrete
+Option/Result payloads fixed catalog json_get (j3b) but regressed the
+ecosystem fixture (its own json_get is coherent under the handle ABI) --
+the Option typing must land WITH the read-side fix as one Stage 2c
+change (documented in COMPILER_BUGS.md).
+(3) QUEUED: map VALUE READ (scalar 8-byte load + inttoptr as
+%struct.JsonValue*) -- first Stage 2c deliverable.
+
+Full e2e + feature-reg + stdlib-exec running at doc time.
+
+NEXT compiler-lane: json heap layer PART 2 (map value read struct path
++ M18-gate removal together -- first Stage 2c deliverable), then stack
+cookies, clang variants, Stage 5 remainder, full Stage 2c, Stages 6-7.
+
+### Round-24 (2026-09-10): --opt-level flag + -O0/-O1 floor removed
+
 ### Round-24 (2026-09-10): --opt-level flag + -O0/-O1 floor removed
 
 Compiler lane, eighth item. The driver's hardcoded -O2/-O3 (D1 note,
