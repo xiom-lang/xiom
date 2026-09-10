@@ -101,6 +101,28 @@ REMAINING QUEUE (pre-scoped for the next compiler session):
    from here).
 6. Stages 6-7: perf program + selfhost gate checklist.
 
+### Round-28 (2026-09-10): CRT-family AV flips -- Slice builtin, reborrow, concrete payloads, mono ABI
+
+Compiler lane. Four independent roots (full map in COMPILER_BUGS.md):
+1. Slice[T] was unknown to codegen -- registered the canonical builtin
+   %struct.Slice {data,len}, kept it through mono substitution and at the
+   mono CALL SITE, and taught .len() to read the 2-field struct (was:
+   as_slice returned i64 and len ran xiom_str_len on the length).
+2. `&*p` reborrow compiled as a pointee LOAD -- now yields the pointer
+   (Box.get returned the boxed 42 and got dereferenced).
+3. Mono this-based method ABI: elide a receiver-typed explicit param whose
+   ident the body never uses (Box.get[T](b: &Box[T]) duplicate param) and
+   resolve &T returns to {pointee}* at the call site.
+4. Result/Option `.value`/`.error` on a CONCRETE container no longer
+   unboxes the inline struct payload as an erased i64 heap box.
+Flips: smoke_array_slice, smoke_core_box, smoke_stress_regex_find ->
+stdlib_exec locks; smoke_convert_url no longer AVs (fixture mojibake --
+input ASCII vs %C3%A4 expectation; stdlib lane to restore the non-ASCII
+input bytes).
+Gates: e2e 2306/2306, feature-reg 510/510, stdlib-exec 75/75 (+2 ign),
+checker 182/182. NEXT: stack-cookie family (io_bufreader 0xC0000409,
+pbkdf2/_iterations 0xC000001D, argon2_basic compile failure).
+
 ### Round-27 (2026-09-10): R5 + R6 FIXED -- catalog module-resolution root cause
 
 Compiler lane. The stdlib report's R5 (smoke_net_address: T001

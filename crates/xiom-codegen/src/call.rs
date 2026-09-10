@@ -1680,6 +1680,22 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             || Self::is_llvm_struct_named(&recv_ty, "Vec")
                             || Self::is_llvm_struct_named(&recv_ty, "Slice")
                             || (recv_ty == "i64" && self.is_container_vec_field(receiver));
+                        // Slice[T] = { data: *T, len: Int } -- a 2-field struct,
+                        // NOT a %struct.Vec header (no cap/elem_size fields).
+                        // The Vec path below would emit extractvalue 2/3 on a
+                        // 2-field struct (invalid IR); read the len field
+                        // directly. smoke_array_slice: the erased-i64 Slice
+                        // return made `s.len()` hit the Str.len builtin
+                        // (xiom_str_len on the LENGTH 5 -> AV).
+                        if Self::is_llvm_struct_named(&recv_ty, "Slice")
+                            && recv_ty.starts_with("%struct.")
+                            && !recv_ty.ends_with('*')
+                        {
+                            let (recv_val, _) = self.compile_expr(receiver)?;
+                            let lv = self.fresh_tmp();
+                            self.emitln(&format!("  {lv} = extractvalue {recv_ty} {recv_val}, 1"));
+                            return Ok((lv, LLVM_I64.to_string()));
+                        }
                         if !is_vec_field {
                             // Not a Vec/Slice receiver -- fall through to Str.len() below
                         } else {
@@ -3416,7 +3432,31 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     // "Result[Env, Str]" so BUG 41's
                                     // concrete_container_llvm can build the
                                     // Result__Env__Str key.
+                                    // &T return (Box.get -> &Int): the mono
+                                    // def returns a REAL pointer ({pointee}*);
+                                    // type_from_ast STRIPS the & and the call
+                                    // was emitted as i64 against the i64* def
+                                    // (clang ABI mismatch; smoke_core_box
+                                    // dereferenced the boxed VALUE 42).
+                                    // computed directly, bypassing the name
+                                    // paths below.
+                                    let ref_ret_llvm: Option<String> = match &subst {
+                                        Type::Ref(inner) => {
+                                            let iname = Self::type_from_ast(inner);
+                                            let il = self.llvm_type_for(&iname).unwrap_or_else(|_| "i64".to_string());
+                                            Some(format!("{il}*"))
+                                        }
+                                        _ => None,
+                                    };
                                     let name = match &subst {
+                                        // Slice[T]: keep the CONTAINER name.
+                                        // type_from_ast STRIPS Slice to its
+                                        // element type ("Int"), so the call was
+                                        // emitted as i64 while the monomorphised
+                                        // def returns %struct.Slice (clang ABI
+                                        // mismatch; smoke_array_slice read the
+                                        // wrong value).
+                                        Type::Slice(_) => "Slice".to_string(),
                                         Type::Named(id, args) if !args.is_empty() => {
                                             let parts: Vec<String> = args.iter()
                                                 .map(|a| Self::type_from_ast(a))
@@ -3447,6 +3487,9 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     // callee emits %struct.Result__Env__Str
                                     // -> invalid IR (m34_y15/y20 compile
                                     // failures, deterministic after BUG 40).
+                                    if let Some(ptr_llvm) = ref_ret_llvm {
+                                        ptr_llvm
+                                    } else {
                                     let llvm = match self.concrete_container_llvm(&name) {
                                         Some(concrete) => concrete,
                                         None => self.llvm_type_for(&name).unwrap_or_else(|_| generic_ret.clone()),
@@ -3464,6 +3507,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         llvm
                                     } else {
                                         generic_ret
+                                    }
                                     }
                                 } else {
                                     generic_ret.clone()
