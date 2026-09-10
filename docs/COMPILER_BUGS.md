@@ -3327,6 +3327,37 @@ itself verified working); smoke_alloc_basic needs `use xiom.ptr;`;
 smoke_hash_folder needs `use xiom.convert.toint;`.
 ---
 
+## 2026-09-10 -- CRT-layout family FIXED: two root causes (closure env size + MutRef array elem addresses)
+
+The documented clang -O2/MSVC-CRT layout family (smoke_iter_collect /
+smoke_array_sort_by startup AVs, m34_y15/y20, "flips with unrelated
+stdlib code") had TWO distinct root causes, both now fixed:
+
+1. CLOSURE ENV MALLOC UNDER-ALLOCATION (expr.rs PipeClosure +
+   block-Closure arms): the env struct malloc'd 8 bytes PER CAPTURE
+   regardless of the captured LLVM type. Capturing a STRUCT
+   (%struct.Range = 16B; %struct.Vec = 32B) overflowed the malloc'd
+   tail by (size-8), corrupting the heap -- iter.range(0,0).collect()
+   alone AV'd at startup (the capture stores the Range struct into a
+   16-byte env allocation). Fix: env size = 8 + sum of
+   llvm_type_byte_size per capture field (existing helper).
+2. `&mut [N]T` PARAM ELEMENT-ADDRESS LOWERING (expr.rs Ref arm +
+   lib.rs mono param registration): the Ref arm's fixed-array address
+   branch requires a by-value `[N x T]` slot; a `&mut [N]T` param's
+   slot is the bare data pointer (i64*). The fallback loaded the
+   element VALUE and passed it as the ADDRESS -- the comparator thunk
+   derefed small ints (5,3,1,4,2) -> 0xC0000005 in smoke_array_sort_by.
+   Fixes: (1) MutRef array params now register local_array_elem like
+   Ref ones (lib.rs mono binding, Type::Ref | Type::MutRef);
+   (2) the Ref arm emits GEP + ptrtoint for pointer-typed array params
+   (is_array_elem_param detection).
+
+Regressions: tests/regression/m63_crt_closure_env_struct.xi (empty+
+full range collect) + m64_crt_sortby_refargs.xi (sort_by comparator).
+Both red pre-fix (-1073741819), green after. Full e2e + feature-reg +
+stdlib-exec run at doc time. Note: smoke_iter_collect / smoke_array_
+sort_by now exit 0 -- the e2e fixtures can be re-unified if desired.
+
 ## 2026-09-09 -- Delegation crash FIXED: qualified calls bind catalog fns despite local shadows
 
 stdlib-audit #3 (the crash that forced the stdlib's copy-paste base64/

@@ -3105,6 +3105,42 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         }
                     }
                 }
+                // CRT-layout / sort_by fix (2026-09-10): `&arr[i]` where arr is
+                // a POINTER-typed fixed-array local (`&mut [N]T` param -- its
+                // slot holds the data base address as `i64*`, not a by-value
+                // `[N x T]` alloca). The by-value branch above only fires for
+                // `[N x T]` slots; for the param shape the fallback loaded the
+                // element VALUE and passed it as the address -- the comparator
+                // thunk derefed small ints -> 0xC0000005 in smoke_array_sort_by
+                // (same family as the closure-env-size CRT-layout bug).
+                if let Expr::Index(container, index, _) = inner.as_ref() {
+                    if let Expr::Ident(id) = container.as_ref() {
+                        if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
+                            if self.is_array_elem_param(container)
+                                && (slot_ty.ends_with('*') || slot_ty == "i64")
+                            {
+                                if let Some(elem_llvm) = self.local.local_array_elem.get(&id.name).cloned() {
+                                    let (idx_raw, idx_ty) = self.compile_expr(index)?;
+                                    let idx = self.val_to_i64(&idx_raw, &idx_ty);
+                                    let base = if slot_ty.ends_with('*') {
+                                        let b = self.fresh_tmp();
+                                        self.emitln(&format!("  {b} = load {slot_ty}, {slot_ty}* {slot}"));
+                                        b
+                                    } else {
+                                        let b = self.fresh_tmp();
+                                        self.emitln(&format!("  {b} = inttoptr i64 {slot} to i8*"));
+                                        b
+                                    };
+                                    let gep = self.fresh_tmp();
+                                    self.emitln(&format!("  {gep} = getelementptr {elem_llvm}, {slot_ty} {base}, i64 {idx}"));
+                                    let ptr_val = self.fresh_tmp();
+                                    self.emitln(&format!("  {ptr_val} = ptrtoint {elem_llvm}* {gep} to i64"));
+                                    return Ok((ptr_val, LLVM_I64.to_string()));
+                                }
+                            }
+                        }
+                    }
+                }
                 // &x: return a pointer to x's storage.
                 // For struct-typed idents, return the alloca pointer directly
                 // (this-based methods receive a proper pointer receiver).
@@ -3802,7 +3838,17 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 
                 // At the closure creation site: malloc env, store captures, return ptr
                 let env_ptr = self.fresh_tmp();
-                let env_size = 8 * (1 + captures.len()); // 8 bytes per field
+                // CRT-layout fix (2026-09-09): the env size was 8 bytes PER
+                // CAPTURE -- struct captures (%struct.Range = 16B, %struct.Vec
+                // = 32B, ...) overflowed the malloc'd tail by (struct_size-8),
+                // corrupting the heap: the whole clang -O2/MSVC-CRT layout
+                // family (startup AVs in smoke_iter_collect / smoke_array_sort_by,
+                // m34_y15/y20; "flips with unrelated stdlib code" = adjacent
+                // allocation shifts). Size from the REAL LLVM field types.
+                let env_size: usize = 8 + captures
+                    .iter()
+                    .map(|(_name, ty)| Self::llvm_type_byte_size(ty, &self.types.type_meta))
+                    .sum::<usize>();
                 let malloc_call = self.fresh_tmp();
                 self.emitln(&format!("  {malloc_call} = call i8* @malloc(i64 {env_size})"));
                 self.emitln(&format!("  {env_ptr} = bitcast i8* {malloc_call} to %struct.{env_name}*"));
@@ -3990,7 +4036,13 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 } else {
                     self.output.push_str(&env_def);
                 }
-                let env_size = 8 * (1 + captures.len());
+                // CRT-layout fix (2026-09-09): real field sizes, not 8B/capture
+                // (struct captures overflowed the malloc'd tail -- see the
+                // PipeClosure arm above).
+                let env_size: usize = 8 + captures
+                    .iter()
+                    .map(|(_name, ty)| Self::llvm_type_byte_size(ty, &self.types.type_meta))
+                    .sum::<usize>();
                 let env_ptr = self.fresh_tmp(); let mc = self.fresh_tmp();
                 self.emitln(&format!("  {mc} = call i8* @malloc(i64 {env_size})"));
                 self.emitln(&format!("  {env_ptr} = bitcast i8* {mc} to %struct.{env_name}*"));

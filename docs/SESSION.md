@@ -66,6 +66,33 @@ honesty R16c: sort-consistent SMT, UNKNOWN != false, bounded z3; quick wins:
 module-prefix arity check, warnings-not-dropped, MAX_EXPR_DEPTH 128) ->
 Stage 2 structural foundations per docs/COMPILER_READINESS_PLAN.md.
 
+### Round-23 (2026-09-10): CRT-layout family FIXED -- closure env size + MutRef array elem addresses
+
+Compiler lane, seventh bug -- the biggest remaining cluster (clang
+-O2/MSVC-CRT layout family). Two distinct root causes:
+
+1. Closure env malloc'd 8B per capture; struct captures (%struct.Range)
+   overflowed the tail -> heap corruption -> iter.range(0,0).collect()
+   startup AV. Fix: real llvm_type_byte_size per field (both closure
+   arms in expr.rs).
+2. `&mut [N]T` param: the Ref arm needed a by-value [N x T] slot for
+   &arr[i] addresses; the param slot is i64* -> element VALUE was
+   passed as the address -> sort_by comparator derefed small ints ->
+   AV. Fix: MutRef array params register local_array_elem (lib.rs) +
+   Ref arm emits GEP+ptrtoint for pointer-typed array params.
+
+Regressions m63/m64 red pre-fix (-1073741819), green after.
+smoke_iter_collect + smoke_array_sort_by now exit 0. Full e2e +
+feature-reg + stdlib-exec running at doc time.
+
+NEXT compiler-lane: re-check the remaining Stage 4 members now that the
+layout family is down (json heap layer, stack cookies, clang variants,
+-O0/-O1 miscompile root cause -- the -O2 floor may now be honest or
+liftable), then Stage 5 remainder (watchdog cancellation, LSP UTF-16 +
+poison recovery, fmt comment preservation, JSON diagnostics schema,
+workspace version policy, cargo-fuzz + ASAN/UBSAN CI), Stage 2c
+structural TypeId/interning, Stages 6-7.
+
 ### Round-22 (2026-09-09): Delegation crash FIXED -- qualified calls beat local shadows
 
 Compiler lane, sixth bug. stdlib-audit #3, the crash that forced the

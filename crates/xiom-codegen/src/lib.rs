@@ -5836,7 +5836,7 @@ impl IrEmitter {
                 // name comes from the SUBSTITUTED type ("UInt8", not the
                 // LLVM-width "Int8") so unsigned elements ZERO-extend
                 // (probe_arr8b: 200 as UInt8 must read 200, not -56).
-                if let Type::Ref(inner) = &param.ty {
+                if let Type::Ref(inner) | Type::MutRef(inner) = &param.ty {
                     if let Type::Array(_, elem) = inner.as_ref() {
                         let subst_elem = Self::substitute_type(elem, elem, &type_map);
                         let elem_xiom = Self::type_from_ast(&subst_elem);
