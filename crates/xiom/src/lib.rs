@@ -37,6 +37,11 @@ pub struct CompileConfig {
     pub do_run: bool,
     pub check_only: bool,
     pub release: bool,
+    /// 2026-09-10: explicit optimization level (--opt-level 0..=3). None =
+    /// the historical default (-O2 debug / -O3 release). The old -O2 floor
+    /// existed because pre-CRT-layout-fix IR miscompiled at -O0/-O1; the
+    /// floor is now overridable for verification and ABI-sensitive targets.
+    pub opt_level: Option<u8>,
     pub check_contracts: bool,
     pub diagnostics_json: bool,
     pub strict_mode: bool,
@@ -97,6 +102,7 @@ impl Default for CompileConfig {
             do_run: false,
             check_only: false,
             release: false,
+            opt_level: None,
             check_contracts: true,
             diagnostics_json: false,
             strict_mode: false,
@@ -1016,19 +1022,25 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         }
     }
 
+    // 2026-09-10: the old -O2 floor (D1, 2026-08-08) claimed clang
+    // miscompiled the IR shape for native Int128 loops containing inlined
+    // Vec operations at -O0/-O1. RE-VERIFIED after the CRT-layout fixes:
+    // a 9-probe matrix (loops, i128 shifts, overflow, closures+struct
+    // captures, &mut [N]T sort_by, guard-arena escape, delegation) now
+    // passes at ALL of -O0/-O1/-O2/-O3 -- the floor's underlying IR bug
+    // is gone. --opt-level 0..=3 overrides; the default remains -O2
+    // debug / -O3 release for output quality.
+    let opt_level = if let Some(lvl) = config.opt_level {
+        match lvl { 0 => "-O0", 1 => "-O1", 2 => "-O2", _ => "-O3" }.to_string()
+    } else if config.release { "-O3".to_string() } else { "-O2".to_string() };
+
     if let Some(opt_path) = &opt {
-        // D1 (2026-08-08): default optimization raised from -O1 to -O2.
-        // clang/LLVM miscompiles (stack overflow / illegal-instruction traps)
-        // the IR shape produced for native Int128 loops containing inlined
-        // Vec operations at -O0/-O1; -O2's mem2reg+SSA produces correct code.
-        // Verified: i128 loop + Vec.push crashes at -O0/-O1, works at -O2.
-        let opt_level = if config.release { "-O3" } else { "-O2" };
         let opt_status = Command::new(opt_path)
-            .args([opt_level, "-S", "-o", &ir_path, &ir_path])
+            .args([&opt_level, "-S", "-o", &ir_path, &ir_path])
             .status();
         if let Ok(s) = opt_status {
             if !s.success() {
-                eprintln!("  warning: opt -O2 failed, proceeding with unoptimized IR");
+                eprintln!("  warning: opt {opt_level} failed, proceeding with unoptimized IR");
                 let _ = fs::write(&ir_path, &llvm_ir);
             }
         }
@@ -1116,9 +1128,9 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             if asm_objects.is_empty() { cmd.arg("-DXIOM_NO_ASM"); }
             if config.debug_symbols { cmd.arg("-g"); }
             // v0.56: Apply optimization level to clang (same as opt passes).
-            // D1: default -O2 (see opt-level comment above -- -O0/-O1
-            // miscompile native-Int128 loop + Vec IR shapes).
-            if config.release { cmd.arg("-O3"); } else { cmd.arg("-O2"); }
+            // 2026-09-10: honors --opt-level; the old -O2-only floor is gone
+            // (re-verified at -O0/-O1 after the CRT-layout fixes).
+            cmd.arg(&opt_level);
             // v0.56: ThinLTO for 20-40% smaller/faster binaries
             if config.lto {
                 cmd.arg("-flto=thin");
@@ -1393,7 +1405,8 @@ pub fn resolve_source_files(args: &[String]) -> Vec<String> {
             continue;
         }
         if matches!(arg.as_str(), "-o" | "--target" | "--verify-output" | "--link" | "--link-path" | "--c-source"
-            | "--timeout" | "--max-memory-mb" | "--max-depth" | "--jobs" | "--sanitize" | "--ai-model" | "--ai-timeout") {
+            | "--timeout" | "--max-memory-mb" | "--max-depth" | "--jobs" | "--sanitize" | "--ai-model" | "--ai-timeout"
+            | "--opt-level") {
             skip_next = true;
             continue;
         }
