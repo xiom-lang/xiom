@@ -4448,6 +4448,10 @@ fn e2e_safety_probe() {
 // M62 (stdlib-audit #3 delegation crash): qualified calls bind the catalog fn
 // despite a local same-name shadow (injection dedups by qualified key now).
 #[test] fn e2e_m62_delegation_shadow() { assert_eq!(compile_and_run("tests\\regression\\m62_delegation_shadow.xi"), Some(0)); }
+// M63 (CRT-layout #1): closure env struct malloc under-allocation (struct captures).
+#[test] fn e2e_m63_crt_closure_env_struct() { assert_eq!(compile_and_run("tests\\regression\\m63_crt_closure_env_struct.xi"), Some(0)); }
+// M64 (CRT-layout #2): &mut [N]T param element-address lowering in Ref args.
+#[test] fn e2e_m64_crt_sortby_refargs() { assert_eq!(compile_and_run("tests\\regression\\m64_crt_sortby_refargs.xi"), Some(0)); }
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }
