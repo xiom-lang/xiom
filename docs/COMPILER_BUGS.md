@@ -3327,6 +3327,62 @@ itself verified working); smoke_alloc_basic needs `use xiom.ptr;`;
 smoke_hash_folder needs `use xiom.convert.toint;`.
 ---
 
+## 2026-09-10 -- CRT-family AV flips: Slice builtin, `&*p` reborrow, concrete payloads, mono ABI
+
+Three of the four remaining CRT-family AV smokes are fixed (array_slice,
+core_box, regex_find); convert_url no longer AVs (fixture issue, below).
+Four independent roots, all red-green proven:
+
+1. Slice[T] was UNKNOWN to codegen (only the checker had a permissive
+   builtin). `array.as_slice`'s %struct.Slice return was erased to i64 by
+   the mono type-substitution fallback (type_from_ast STRIPS Slice to its
+   element), and `s.len()` then ran the Str.len builtin on the returned
+   LENGTH (xiom_str_len(5) -> AV at 0x5). Fixes: (a) register the
+   canonical builtin `%struct.Slice = { i8*, i64 }` in compile_program
+   (the stale stdlib `type Slice[T] = {data: Vec[T]; invariant}` decl
+   must not win; builtin first-wins); (b) `Type::Slice(_) =>
+   "%struct.Slice"` in the mono subst_type; (c) the mono CALL-SITE ret
+   name keeps "Slice" (was element -> i64); (d) the `.len()` builtin
+   handler reads field 1 of a %struct.Slice directly (the Vec path would
+   extractvalue 2/3 out of a 2-field struct).
+
+2. `&*p` / `&mut *p` REBORROW compiled as a LOAD of the pointee. Box.get's
+   `return &*ptr` returned the boxed VALUE 42; smoke_core_box then
+   dereferenced 42 (AV at 0x2a). Fix: Ref/MutRef of a Deref yields the
+   deref OPERAND's value (the pointee address). Handled in both AST shapes
+   (Expr::Ref/Expr::MutRef and Unary::Ref over Unary::Deref).
+
+3. Mono method ABI for this-based methods whose explicit param NAMES the
+   receiver (Box.get[T](b: &Box[T])): the def carried a DUPLICATE
+   receiver-type param (`%param1`) the call never passes, and the `&T`
+   return resolved to i64 at the call site while the def returns i64*.
+   Fixes: (a) elide a receiver-typed explicit param from the mono def
+   ONLY when the body never references its ident (a genuine
+   `eq(other: &Foo)` that the body uses is kept); (b) the call-site ret
+   computation maps Type::Ref to {pointee}*.
+
+4. Result/ Option payload field reads on a CONCRETE container
+   (Result__Uri__Str) applied the ERASED-i64 override: the inline
+   %struct.Uri payload was unboxed as if the first 8 bytes were a heap
+   pointer (uri_normalize -> _lower -> xiom_str_len AV at 0x50544854;
+   smoke_stress_regex_find same class). Fix: the payload override only
+   fires when the static field type IS i64 (`static_payload_i64`).
+
+Locked: stdlib_exec_array_slice_runs, stdlib_exec_core_box_runs,
+stdlib_exec_regex_find_runs. Gates at commit: e2e 2306/2306,
+feature-reg 510/510, stdlib-exec 75/75 (+2 ign), checker 182/182.
+
+STDLIB LANE NOTES:
+- smoke_convert_url now produces the CORRECT output (exit 27 only because
+  the fixture input is ASCII "https://example.com/path" while the
+  expectation still contains "%C3%A4": the `chore(encoding): strip UTF-8
+  mojibake` sweep (42b94404) turned the original non-ASCII "a-umlaut" input into ASCII but left
+  the expectation). Restore the non-ASCII input bytes to flip it; the
+  compiler warrants it.
+- Still open (next round): stack-cookie family -- smoke_stress_io_bufreader
+  (0xC0000409), smoke_stress_crypto_pbkdf2 (+_iterations, 0xC000001D),
+  smoke_stress_crypto_argon2_basic (compile failure).
+
 ## 2026-09-10 -- json heap layer: PART 1 + PART 2 FIXED (Stage 2c entry landed)
 
 The flaky json family (kat_serialize_json_minimal, json_nested /

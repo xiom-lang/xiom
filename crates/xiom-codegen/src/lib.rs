@@ -3554,6 +3554,24 @@ impl IrEmitter {
                 derives: Vec::new(),
                 invariants: Vec::new(),
             });
+            // Slice[T]: register the canonical 2-field layout {data: *T, len: Int}.
+            // Before this, Slice was unknown to codegen (llvm_type_for -> i64), so
+            // `array.as_slice` erased its %struct.Slice return to i64 and callers
+            // ran the Str.len builtin on the returned LENGTH (smoke_array_slice
+            // AV at address 5). The stdlib's stale `type Slice[T] = {data: Vec[T];
+            // invariant}` decl (collections.xi) must NOT override the builtin --
+            // first-wins or_insert_with keeps this canonical layout.
+            self.types.types.or_insert_with("Slice".to_string(), || {
+                vec!["data".to_string(), "len".to_string()]
+            });
+            self.types.type_meta.or_insert_with("Slice".to_string(), || TypeMeta {
+                fields: vec![
+                    ("data".to_string(), "*UInt8".to_string()),
+                    ("len".to_string(), "Int".to_string()),
+                ],
+                derives: Vec::new(),
+                invariants: Vec::new(),
+            });
         }
 
         // 5e.3: Register Layout as a builtin type so its struct definition
@@ -5532,6 +5550,13 @@ impl IrEmitter {
                             "%struct.Option".to_string()
                         }
                     }
+                    // Slice[T] keeps the canonical 2-field %struct.Slice. The
+                    // type_from_ast fallback STRIPS Slice to its ELEMENT type
+                    // ("Int" -> i64), which erased struct returns from mono'd
+                    // fns like array.as_slice -- the caller received the data
+                    // pointer as i64 and `s.len()` ran xiom_str_len on the
+                    // pointer/length (smoke_array_slice AV at 0x5).
+                    Type::Slice(_) => "%struct.Slice".to_string(),
                     Type::Named(id, args) => {
                         // Parameterized generic types like Result[T, E] or
                         // Option[Entity] must resolve to the CONCRETE struct
@@ -5745,8 +5770,21 @@ impl IrEmitter {
             if let Some(ref st) = self_llvm_ty {
                 specialized_param_types.push(st.clone());
             }
+            // Box.get[T](b: &Box[T]): the explicit param NAMES the receiver
+            // (this-based style). When the receiver is already prepended as
+            // %param_self, such a param is a DUPLICATE -- the call site
+            // (`b.get()`) passes only the receiver and the body reads bare
+            // receiver fields (`ptr`). Elide it ONLY when the body never
+            // references the ident; a genuine second param like
+            // `eq(other: &Foo)` that the body uses stays.
+            let is_receiver_dup = |pname: &str, pty: &Type| -> bool {
+                self_llvm_ty.is_some()
+                    && fd.receiver.as_ref().map_or(false, |r| Self::type_from_ast(pty) == r.name)
+                    && !fd.body.as_ref().map_or(false, |b| Self::block_mentions_any_ident(b, &[pname]))
+            };
             let explicit_param_types: Vec<String> = fd.params.iter()
                 .filter(|p| !(self_llvm_ty.is_some() && p.name.name == "self"))
+                .filter(|p| !is_receiver_dup(&p.name.name, &p.ty))
                 .map(|p| subst_type(&p.ty))
                 .collect();
             specialized_param_types.extend(explicit_param_types);
@@ -5781,6 +5819,7 @@ impl IrEmitter {
             }
             let explicit_params_str: Vec<String> = fd.params.iter()
                 .filter(|p| !(self_offset == 1 && p.name.name == "self"))
+                .filter(|p| !is_receiver_dup(&p.name.name, &p.ty))
                 .enumerate()
                 .map(|(i, p)| {
                     let llvm_ty = subst_type(&p.ty);
@@ -5889,6 +5928,11 @@ impl IrEmitter {
                 // the receiver already bound the struct `self`; it is also filtered
                 // from the signature, so `match self` uses the real struct receiver.
                 if self_offset == 1 && param.name.name == "self" {
+                    continue;
+                }
+                // Receiver-duplicate param (Box.get[T](b: &Box[T])) -- elided
+                // from the signature above; no %paramN exists for it.
+                if is_receiver_dup(&param.name.name, &param.ty) {
                     continue;
                 }
                 let llvm_ty = subst_type(&param.ty);

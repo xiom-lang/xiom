@@ -277,6 +277,30 @@ fn stdlib_exec_error_runs() {
     assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_error.xi"), Some(0), "error smoke failed to run/return 0");
 }
 
+// CRT-family AV flips (2026-09-10 compiler round):
+// - array_slice: Slice[T] was unknown to codegen (mono returns erased to
+//   i64; `s.len()` ran xiom_str_len on the length) -> canonical
+//   %struct.Slice {data,len} builtin + type-aware .len().
+// - core_box: Box.get's `return &*ptr` reborrow compiled as a LOAD (the
+//   boxed value 42 was dereferenced) + the mono ABI carried a duplicate
+//   receiver param and an i64 return against the i64* def.
+// - regex_find: Result.value on a CONCRETE container unboxed the inline
+//   struct payload as if it were an erased i64 heap box.
+#[test]
+fn stdlib_exec_array_slice_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_array_slice.xi"), Some(0), "array_slice smoke failed to run/return 0");
+}
+
+#[test]
+fn stdlib_exec_core_box_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_core_box.xi"), Some(0), "core_box smoke failed to run/return 0");
+}
+
+#[test]
+fn stdlib_exec_regex_find_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_stress_regex_find.xi"), Some(0), "regex_find smoke failed to run/return 0");
+}
+
 // ============================================================================
 // smoke_simd is #[ignore] (2026-08-17): a LATENT MSVC-CRT miscompile
 // (0xC0000005 inside a security-cookie'd CRT date/strtod-family function:

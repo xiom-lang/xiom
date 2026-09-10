@@ -1056,6 +1056,18 @@ impl IrEmitter {
                 }
             }
             Expr::Unary(op, inner, _) => {
+                // `&*p` / `&mut *p` is a REBORROW: it must yield p's VALUE
+                // (the pointee address), not load through it. The Deref arm
+                // loads the pointee, so compiling `&(*p)` as one unit
+                // returned the loaded value -- Box.get's `return &*ptr`
+                // returned the boxed 42 instead of the box address
+                // (smoke_core_box dereferenced 42 -> AV at 0x2a). Peek BEFORE
+                // compiling `inner` so no dead load is emitted.
+                if matches!(op, UnaryOp::Ref | UnaryOp::MutRef) {
+                    if let Expr::Unary(UnaryOp::Deref, ref_inner, _) = inner.as_ref() {
+                        return self.compile_expr(ref_inner);
+                    }
+                }
                 let (val, inner_ty) = self.compile_expr(inner)?;
                 let tmp = self.fresh_tmp();
                 match op {
@@ -2357,7 +2369,17 @@ impl IrEmitter {
                                     // -> 8-byte element load -> 0xC0000005.
                                     let is_payload_field = (is_option || is_result)
                                         && (field.name == "value" || field.name == "error");
-                                    if is_payload_field {
+                                    // R7 (2026-09-10): the payload override exists to
+                                    // REINTERPRET an ERASED i64 slot. In a CONCRETE
+                                    // container (Result__Uri__Str) the field already has
+                                    // the full payload type (%struct.Uri, inline) -- the
+                                    // static read is correct. Applying the box unbox
+                                    // (inttoptr the first 8 bytes as a struct pointer)
+                                    // read the scheme string POINTER as a box address
+                                    // (uri_normalize -> _lower -> str_len AV at
+                                    // 0x50544854).
+                                    let static_payload_i64 = field_llvm_ty == "i64";
+                                    if is_payload_field && static_payload_i64 {
                                         if let Some(px) = self.field_payload_xiom(obj, &field.name) {
                                             payload_reinterpret = true;
                                             match px.as_str() {
@@ -2880,6 +2902,18 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 self.compile_expr(inner)
             }
             Expr::Ref(inner, _) | Expr::MutRef(inner, _) => {
+                // `&*p` / `&mut *p` is a REBORROW: it must yield p's VALUE
+                // (the pointee address), not load through it. Box.get's
+                // `return &*ptr` returned the boxed 42 instead of the box
+                // address -> smoke_core_box dereferenced 42 (AV at 0x2a).
+                if let Expr::Unary(UnaryOp::Deref, ref_inner, _) = inner.as_ref() {
+                    return self.compile_expr(ref_inner);
+                }
+                if let Expr::Paren(p, _) = inner.as_ref() {
+                    if let Expr::Unary(UnaryOp::Deref, ref_inner, _) = p.as_ref() {
+                        return self.compile_expr(ref_inner);
+                    }
+                }
                 // When `&this.field` (or `&self.field`) appears inside a method body,
                 // the field was registered as a GEP pointer during the prologue.
                 // Return that pointer directly instead of compiling the inner
