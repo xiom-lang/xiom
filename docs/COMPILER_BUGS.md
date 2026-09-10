@@ -3823,6 +3823,67 @@ mime/multipart/sse consumer graph. With the catalog lookup root-scoped,
 smoke_net_http2 compiles and exits 0 (verified + stdlib_exec_net_http2_
 runs lock). No separate getelementptr fix was needed.
 
+## 2026-09-10 -- R7 FIXED: generic container mono for large aggregate V
+
+Root-caused and fixed. The nested json round-trip is now deterministic
+(8/8 runs) and the whole serialize-json family is green (kat_serialize_
+json_minimal, nested, large_json, parse_valid/nested, jsonvalue_get/index,
+object/array/number/string/bool/null, detect_format, is_valid, convert_json).
+
+Seven interacting defects, all fixed in codegen:
+
+1. GENERIC ARG INFERENCE from container params: `push_v[V](v: &mut
+   Vec[V], x: V)` with a Vec[JsonValue] arg hit the nested-generic branch,
+   which hardcoded "Int" and broke BEFORE `x: V` could infer JsonValue --
+   the 112-byte arg was coerced to its i64 tag and stored 8 bytes. New
+   `infer_generic_arg_from_container` resolves the concrete container args
+   (local_xiom_types string, Vec/Slice LLVM elem, call returns); on failure
+   it keeps the historical "Int" fallback (continuing let an outer-type
+   fallback pick a bogus non-type -- m35_t28/m35_o06 AVs).
+2. CALL/INDEX args as generic args: `Map.insert` V inference treated
+   `json.json_number(..)` and `old.values[i]` as Int. The ctor arm now
+   falls back to `infer_call_return_xiom` for module-qualified calls, and a
+   new Index arm resolves the element type via `resolve_vec_elem_xiom`
+   (entries.insert(k, old.values[i]) mono'd _Str_JsonValue).
+3. `resolve_vec_elem_xiom` Field arm: the registered generic type_meta
+   keeps RAW params ("keys" -> "Vec[K]"), so `entries.keys` returned "K"
+   and escape args materialized a 1-BYTE temp (garbage keys). The
+   substituted generic-instantiation path now runs FIRST
+   (`substituted_generic_field_vec_elem`), with the direct type_meta arm as
+   fallback for non-generic structs.
+4. CONTAINER-FIELD BINDINGS keep the element type: `var vals = m.values;`
+   dropped the record, so `vals[i]` scalar-loaded the tag. The let/var
+   inheritance path now resolves Field initializers through
+   `resolve_vec_elem_xiom`.
+5. ANNOTATED LOCAL SLOTS use `concrete_type_for` (Option__JsonValue /
+   Result__Payload__Int) instead of the erased `llvm_type_for`, fixing the
+   opaque-slot vs concrete-ctor store mismatch. Their definitions are
+   PRE-REGISTERED before the type-decl emission (`collect_annotation_types`
+   walks params/returns/let/var annotations + nested blocks) because clang
+   requires SIZED types at alloca/GEP parse time -- a trailing definition is
+   too late. A body-time deferred list remains as a fallback for both the
+   serial and parallel compile paths (driver uses the serial path).
+6. OPAQUE->CONCRETE container conversion in coerce_value: a ctor built
+   while the expected type was the erased base (`Ok(...)` in a fn returning
+   Int) stored into a concretely-annotated slot. The conversion copies the
+   tag and unboxes/repoints each payload field, GUARDED by the tag branch --
+   inactive payloads hold 0, and an unguarded inttoptr 0 trapped
+   (m21_result_option_013 / m35_o06). Discriminants: Some/Ok = 1, Err = 0.
+7. Str ELEMENT args to i8* params inttoptr: `_json_escape_impl(entries
+   .keys[i])` truncated the handle to a byte (the Index arg did not resolve
+   its element type in coerce_arg_for_param).
+
+Verified: p_gp_a/b/c, p_map_json, p_json_min2, p_json_nested_dbg green;
+smoke_stress_serialize_json_nested deterministic x8; e2e 2306/2306,
+feature-reg 510/510, stdlib-exec 79/79 (+2 ign), checker 182/182.
+Locks: stdlib_exec_serialize_json_nested_runs,
+stdlib_exec_serialize_large_json_runs.
+
+R8 REMAINS OPEN (compiler side): contract clauses using free-fn
+method syntax (`s.char_count()`) evaluate to 0, and free-fn ensures
+attached to the method-position builtin `.char_at` corrupt the stack
+(stdlib clause removed with a PENDING note). Next contract-codegen round.
+
 ## 2026-09-10 (stdlib lane, round-29 verification) -- R7: generic container mono truncates/corrupts large V
 
 Found while verifying the json Part-2 fix. The json nested round-trip
@@ -3843,7 +3904,7 @@ mono of Vec operations for large aggregate V (JsonValue ~112 bytes):
 - Contrast (all green): concrete Vec[JsonValue] creation+push from main
   (p_vect_json: v0=42, v1="second"); json array paths; Map[Str,Str].
 - User-visible: Map[Int,JsonValue]/Map[Str,JsonValue] `.values[i]`
-  stringifies garbage (p_map_key_probe: m7=["��&..."]), while keys (Str)
+  stringifies garbage (p_map_key_probe: m7=[garbage bytes]), while keys (Str)
   are fine. This is the remaining red of smoke_stress_serialize_json_nested
   after the Part-1/2 land (kat_serialize_json_minimal now PASSES).
 Direction: the mono substitution for (a) Vec[V].new() inside generic

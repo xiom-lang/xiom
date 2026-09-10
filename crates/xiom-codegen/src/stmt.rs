@@ -82,6 +82,12 @@ impl IrEmitter {
                     // or resolve from function call return types.
                     let inherited = match value {
                         Expr::Ident(id) => self.local.local_vec_elem.get(&id.name).cloned(),
+                        // R7 (2026-09-10): a CONTAINER-typed FIELD binding
+                        // (`var vals = m.values;`) keeps the element type so
+                        // `vals[i]` takes the struct-load path -- the old
+                        // fallthrough dropped the record and the element read
+                        // scalar-loaded the tag (p_map_json wrong variant).
+                        Expr::Field(..) => self.resolve_vec_elem_xiom(value),
                         Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => {
                             // Inherit from first argument's Vec element type
                             let from_arg = args.first().and_then(|a| {
@@ -199,7 +205,14 @@ impl IrEmitter {
                     self.compile_expr(value)?
                 };
                 let declared_llvm_ty: Option<String> = _ty.as_ref().map(|t| {
-                    let name = Self::type_from_ast(t);
+                    // M65 R7 (2026-09-10): an ANNOTATED local slot must use the
+                    // CONCRETE container type -- `var found: Option[JsonValue];`
+                    // allocated %struct.Option (opaque i64 payload) while the
+                    // assignments/match built Option__JsonValue, so the store
+                    // was an invalid-IR struct mismatch (smoke_stress_serialize_
+                    // large_json clang failure). concrete_type_for keeps scalars
+                    // and non-container types unchanged.
+                    let name = self.concrete_type_for(t);
                     self.llvm_type_for(&name).unwrap_or_else(|_| LLVM_I64.to_string())
                 });
                 // M17: Track XIOM type and signedness for narrow-int widening.
@@ -379,6 +392,8 @@ impl IrEmitter {
                     // 5c.39: Inherit Vec element type for Var binding
                     let inherited = match value {
                         Expr::Ident(id) => self.local.local_vec_elem.get(&id.name).cloned(),
+                        // R7: see the let-binding arm above (m.values -> JsonValue).
+                        Expr::Field(..) => self.resolve_vec_elem_xiom(value),
                         Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => {
                             // BUG 23 #1 fix: inherit from the callee's DECLARED
                             // return type as well as from the first argument --
@@ -473,7 +488,14 @@ impl IrEmitter {
                     return Ok(());
                 }
                 let declared_llvm_ty: Option<String> = _ty.as_ref().map(|t| {
-                    let name = Self::type_from_ast(t);
+                    // M65 R7 (2026-09-10): an ANNOTATED local slot must use the
+                    // CONCRETE container type -- `var found: Option[JsonValue];`
+                    // allocated %struct.Option (opaque i64 payload) while the
+                    // assignments/match built Option__JsonValue, so the store
+                    // was an invalid-IR struct mismatch (smoke_stress_serialize_
+                    // large_json clang failure). concrete_type_for keeps scalars
+                    // and non-container types unchanged.
+                    let name = self.concrete_type_for(t);
                     self.llvm_type_for(&name).unwrap_or_else(|_| LLVM_I64.to_string())
                 });
                 // M17: Track XIOM type and signedness for narrow-int widening.

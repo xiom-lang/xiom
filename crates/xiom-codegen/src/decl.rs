@@ -1675,7 +1675,110 @@ impl IrEmitter {
 
     /// the corresponding `Tuple__Type1__Type2` struct types so their LLVM
     /// definitions are emitted at module level before any function bodies.
+    /// M65 R7: collect every TYPE ANNOTATION reachable in a declaration tree
+    /// (params, returns, local let/var annotations, As casts, nested blocks).
+    /// The emitter then runs concrete_type_for over them so concrete container
+    /// definitions land in the type-decl emission block.
+    fn collect_annotation_types(item: &TopDecl, out: &mut Vec<Type>) {
+        match item {
+            TopDecl::Fn(fd) => {
+                for p in &fd.params { out.push(p.ty.clone()); }
+                if let Some(rt) = &fd.return_type { out.push(rt.clone()); }
+                if let Some(ref body) = fd.body { Self::collect_block_annotations(body, out); }
+            }
+            TopDecl::Module(md) => {
+                for item in &md.items { Self::collect_annotation_types(item, out); }
+            }
+            TopDecl::Type(td) => {
+                for f in &td.fields { out.push(f.ty.clone()); }
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_block_annotations(block: &Block, out: &mut Vec<Type>) {
+        for stmt in &block.stmts {
+            match stmt {
+                StmtOrExpr::Stmt(s) => Self::collect_stmt_annotations(s, out),
+                StmtOrExpr::Expr(e) => Self::collect_expr_annotations(e, out),
+            }
+        }
+    }
+
+    fn collect_stmt_annotations(stmt: &Stmt, out: &mut Vec<Type>) {
+        match stmt {
+                Stmt::Let(_, ty, init, _) | Stmt::Var(_, ty, init, _) => {
+                    if let Some(t) = ty { out.push((**t).clone()); }
+                    Self::collect_expr_annotations(init, out);
+                }
+            Stmt::Assign(l, r, _) => { Self::collect_expr_annotations(l, out); Self::collect_expr_annotations(r, out); }
+            Stmt::If(c, b, elifs, eb, _) => {
+                Self::collect_expr_annotations(c, out);
+                Self::collect_block_annotations(b, out);
+                for (c2, b2) in elifs { Self::collect_expr_annotations(c2, out); Self::collect_block_annotations(b2, out); }
+                if let Some(b2) = eb { Self::collect_block_annotations(b2, out); }
+            }
+            Stmt::While(c, b, _, _, _) => { Self::collect_expr_annotations(c, out); Self::collect_block_annotations(b, out); }
+            Stmt::For(_, it, b, _, _) => { Self::collect_expr_annotations(it, out); Self::collect_block_annotations(b, out); }
+            Stmt::Match(scr, arms, _) => {
+                Self::collect_expr_annotations(scr, out);
+                for arm in arms {
+                    match &arm.body {
+                        MatchBody::Block(b) => Self::collect_block_annotations(b, out),
+                        MatchBody::Expr(e) => Self::collect_expr_annotations(e, out),
+                    }
+                }
+            }
+            Stmt::Return(Some(e), _) | Stmt::Expr(e, _) => Self::collect_expr_annotations(e, out),
+            _ => {}
+        }
+    }
+
+    fn collect_expr_annotations(expr: &Expr, out: &mut Vec<Type>) {
+        match expr {
+            Expr::As(_, ty, _) => { out.push(ty.clone()); }
+            Expr::Tuple(items, _) | Expr::Array(items, _) => { for i in items { Self::collect_expr_annotations(i, out); } }
+            Expr::Call(f, args, _) | Expr::GenericCall(f, _, args, _) => {
+                Self::collect_expr_annotations(f, out);
+                for a in args { Self::collect_expr_annotations(a, out); }
+            }
+            Expr::Binary(a, _, b, _) => { Self::collect_expr_annotations(a, out); Self::collect_expr_annotations(b, out); }
+            Expr::Unary(_, e, _) | Expr::Paren(e, _) | Expr::Ref(e, _) | Expr::MutRef(e, _)
+            | Expr::Some(e, _) | Expr::Ok(e, _) | Expr::Err(e, _) | Expr::Try(e, _) => Self::collect_expr_annotations(e, out),
+            Expr::Field(o, _, _) => Self::collect_expr_annotations(o, out),
+            Expr::Index(a, i, _) => { Self::collect_expr_annotations(a, out); Self::collect_expr_annotations(i, out); }
+            Expr::If(c, b, elifs, eb, _) => {
+                Self::collect_expr_annotations(c, out);
+                Self::collect_block_annotations(b, out);
+                for (c2, b2) in elifs { Self::collect_expr_annotations(c2, out); Self::collect_block_annotations(b2, out); }
+                if let Some(b2) = eb { Self::collect_block_annotations(b2, out); }
+            }
+            Expr::Match(scr, arms, _) => {
+                Self::collect_expr_annotations(scr, out);
+                for arm in arms {
+                    match &arm.body {
+                        MatchBody::Block(b) => Self::collect_block_annotations(b, out),
+                        MatchBody::Expr(e) => Self::collect_expr_annotations(e, out),
+                    }
+                }
+            }
+            Expr::Struct(_, elems, _, _) => { for (_, e) in elems { Self::collect_expr_annotations(e, out); } }
+            _ => {}
+        }
+    }
+
     pub(crate) fn register_expr_tuple_types(&mut self, item: &TopDecl) {
+        // M65 R7: pre-register concrete container types referenced by BODY
+        // ANNOTATIONS before the type-decl emission, so their definitions are
+        // available when clang parses the function bodies (a trailing
+        // definition is too late -- alloca/GEP demand SIZED types at parse
+        // time). `var r: Result[Payload, Int]` must become
+        // %struct.Result__Payload__Int in the decl block.
+        let mut ann_types: Vec<Type> = Vec::new();
+        Self::collect_annotation_types(item, &mut ann_types);
+        for t in &ann_types {
+            let _ = self.concrete_type_for(t);
+        }
         match item {
             TopDecl::Fn(fd) => {
                 if let Some(ref body) = fd.body {

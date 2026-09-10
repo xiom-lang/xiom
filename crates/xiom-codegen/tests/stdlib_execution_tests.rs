@@ -317,6 +317,27 @@ fn stdlib_exec_pbkdf2_iterations_runs() {
     assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_stress_crypto_pbkdf2_iterations.xi"), Some(0), "pbkdf2 iterations smoke failed to run/return 0");
 }
 
+// R7 (2026-09-10): generic container mono for large aggregate V.
+// - `push_v[V](v: &mut Vec[V], x: V)` mono'd as _Int (the nested Vec[V]
+//   branch hardcoded Int and broke before `x: V` could infer JsonValue),
+//   truncating the 112-byte value to its tag.
+// - `Map.insert` V inference from Index args (`old.values[i]`) and from
+//   module-qualified ctor calls (`json.json_number(..)`) resolved Int.
+// - `resolve_vec_elem_xiom` returned the RAW generic "K" for
+//   `entries.keys` (type_meta keeps generic params) -> escape args
+//   materialized a 1-byte temp (garbage keys; nondeterministic by heap).
+// - annotated local slots now use concrete_type_for
+//   (`var found: Option[JsonValue];` allocated opaque %struct.Option).
+#[test]
+fn stdlib_exec_serialize_json_nested_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_stress_serialize_json_nested.xi"), Some(0), "json nested smoke failed to run/return 0");
+}
+
+#[test]
+fn stdlib_exec_serialize_large_json_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_stress_serialize_large_json.xi"), Some(0), "large json smoke failed to run/return 0");
+}
+
 // ============================================================================
 // smoke_simd is #[ignore] (2026-08-17): a LATENT MSVC-CRT miscompile
 // (0xC0000005 inside a security-cookie'd CRT date/strtod-family function:

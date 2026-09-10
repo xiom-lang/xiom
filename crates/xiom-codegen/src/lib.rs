@@ -98,6 +98,14 @@ pub struct IrEmitter {
     /// elements that expression yields ("Float64", "Vec[Point]", ...).
     /// Filled by the outer index arm; consulted by the inner one.
     pub indexed_elem_types: HashMap<String, String>,
+    /// M65 R7 (2026-09-10): concrete container type DEFINITIONS created while
+    /// compiling a FUNCTION BODY (`var r: Result[Payload, Int] = Ok(...)`)
+    /// -- the type-decl emission pass already ran, and per-function emitters
+    /// drop their FunctionContext, so these were never defined (clang:
+    /// "Cannot allocate unsized type %struct.Result__Payload__Int"). Collected
+    /// per function and appended to the merged module (LLVM allows type
+    /// definitions after their first use).
+    pub module_deferred_types: Vec<(String, String)>,
 }
 
 
@@ -125,6 +133,7 @@ impl IrEmitter {
             has_llvm_trap_decl: false,
     guard_heap_depth: 0,
             indexed_elem_types: HashMap::new(),
+            module_deferred_types: Vec::new(),
             unsafe_block_counter: 0,
             closure_counter: 0,
             in_unsafe_block_fn: false,
@@ -1378,6 +1387,69 @@ impl IrEmitter {
 
     /// Extract the name of each type argument from a Type AST node.
     /// For `Option[T]` returns `["T"]`, for `Map[K, V]` returns `["K", "V"]`.
+    /// R7 (2026-09-10): infer one generic type ARG of a CONTAINER param
+    /// (`v: &mut Vec[V]`, `s: Slice[V]`, `o: Option[V]`...) from the concrete
+    /// argument expression, instead of the old hardcoded "Int" fallback.
+    /// Sources, in order: the arg local's recorded container type
+    /// ("Vec[JsonValue]" -> args[pos]), the LLVM-derived element type for
+    /// Vec locals, and a call's inferred container return. Returns None when
+    /// the container args are unknown (caller keeps scanning / falls back).
+    fn infer_generic_arg_from_container(&self, param_ty: &Type, gp: &str, arg_expr: &Expr) -> Option<String> {
+        let arg_names = Self::extract_type_arg_names(param_ty);
+        let pos = arg_names.iter().position(|a| a == gp)?;
+        let mut container_ty = param_ty;
+        while let Type::Ref(i) | Type::MutRef(i) | Type::Ptr(i) = container_ty {
+            container_ty = i.as_ref();
+        }
+        let vec_like = matches!(container_ty, Type::Vec(_) | Type::Slice(_));
+        let container_leaf = match container_ty {
+            Type::Vec(_) => "Vec",
+            Type::Slice(_) => "Slice",
+            Type::Map(_, _) => "Map",
+            Type::Set(_) => "Set",
+            Type::Option(_) => "Option",
+            Type::Result(_, _) => "Result",
+            Type::Named(id, _) => id.name.as_str(),
+            _ => "",
+        };
+        let usable = |cand: &str| -> Option<String> {
+            if cand.is_empty() || cand == gp || cand == container_leaf { None } else { Some(cand.to_string()) }
+        };
+        let inner: &Expr = match arg_expr {
+            Expr::Ref(i, _) | Expr::MutRef(i, _)
+            | Expr::Unary(UnaryOp::Ref, i, _)
+            | Expr::Unary(UnaryOp::MutRef, i, _) => i.as_ref(),
+            other => other,
+        };
+        if let Expr::Ident(id) = inner {
+            // 1. Declared container string kept for ctor-bound locals
+            // ("Vec[JsonValue]" -> args[pos]).
+            if let Some(ty_str) = self.local.local_xiom_types.get(&id.name) {
+                let (base, args) = Self::parse_generic_type_string(ty_str);
+                if let Some(a) = args.get(pos).and_then(|a| usable(a)) {
+                    return Some(a);
+                }
+                let _ = base;
+            }
+            // 2. Vec/Slice locals record their ELEMENT type in the LLVM-derived
+            // resolver; for OTHER containers that resolver returns the container
+            // name itself (useless as V -- p_gp_b regressed to V=Holder).
+            if vec_like {
+                if let Some(elem) = self.resolve_local_xiom_type(&id.name).and_then(|e| usable(&e)) {
+                    return Some(elem);
+                }
+            }
+        }
+        // 3. Call returning a container ("Vec[JsonValue]").
+        if let Some(rt) = self.infer_call_return_xiom(inner) {
+            let (_base, args) = Self::parse_generic_type_string(&rt);
+            if let Some(a) = args.get(pos).and_then(|a| usable(a)) {
+                return Some(a);
+            }
+        }
+        None
+    }
+
     fn extract_type_arg_names(ty: &Type) -> Vec<String> {
         match ty {
             Type::Named(_, args) => args.iter().map(|a| Self::type_from_ast(a)).collect(),
@@ -1640,11 +1712,12 @@ impl IrEmitter {
         ];
         let field_names: Vec<String> = fields.iter().map(|(n, _)| n.clone()).collect();
         self.types.types.insert(concrete_name.clone(), field_names);
-        self.types.type_meta.insert(concrete_name, TypeMeta {
+        self.types.type_meta.insert(concrete_name.clone(), TypeMeta {
             fields,
             derives: vec![],
             invariants: vec![],
         });
+        self.defer_concrete_def_if_in_body(&concrete_name);
     }
 
     /// Create a concrete `Result__Ok__Err` type in type_meta, duplicating the
@@ -1666,11 +1739,31 @@ impl IrEmitter {
         ];
         let field_names: Vec<String> = fields.iter().map(|(n, _)| n.clone()).collect();
         self.types.types.insert(concrete_name.clone(), field_names);
-        self.types.type_meta.insert(concrete_name, TypeMeta {
+        self.types.type_meta.insert(concrete_name.clone(), TypeMeta {
             fields,
             derives: vec![],
             invariants: vec![],
         });
+        self.defer_concrete_def_if_in_body(&concrete_name);
+    }
+
+    /// M65 R7: when a concrete container type is FIRST created while a function
+    /// body is being compiled, its `%struct.X = type {..}` definition must be
+    /// appended to the module (the type-decl pass already ran and the
+    /// per-function emitter is dropped afterwards). Render it from type_meta
+    /// and park it in `module_deferred_types`; the module merge emits it.
+    fn defer_concrete_def_if_in_body(&mut self, concrete_name: &str) {
+        if self.fctx.current_fn.is_none() { return; }
+        if self.module_deferred_types.iter().any(|(n, _)| n == concrete_name) { return; }
+        let struct_ref = format!("%struct.{concrete_name}");
+        let field_llvm: Vec<String> = self.types.type_meta.get(&concrete_name.to_string())
+            .map(|meta| meta.fields.iter().map(|(_, ty_name)| {
+                let t = self.llvm_type_for(ty_name).unwrap_or_else(|_| "i64".to_string());
+                if t == struct_ref { format!("{t}*") } else { t }
+            }).collect())
+            .unwrap_or_default();
+        let body = format!("{{ {} }}", field_llvm.join(", "));
+        self.module_deferred_types.push((concrete_name.to_string(), body));
     }
 
     /// Pre-register all concrete Option/Result monomorphs for every struct type
@@ -2778,9 +2871,22 @@ impl IrEmitter {
     /// Returns a registered struct/enum key, or None for primitives/unknowns
     /// (keeping the scalar element-load path).
     fn resolve_generic_field_vec_elem(&self, base: &Expr, field: &str) -> Option<String> {
+        let subst = self.substituted_generic_field_vec_elem(base, field)?;
+        if !self.is_struct_or_enum_type(&subst) { return None; }
+        Some(self.resolve_type_key(&subst))
+    }
+
+    /// R7 (2026-09-10): substituted element type of a Vec-typed FIELD on a
+    /// generic instantiation -- `entries.values` on `Map[Str, JsonValue]`
+    /// yields "JsonValue" (also non-struct primitives like "Str"). Shared by
+    /// `resolve_generic_field_vec_elem` (struct/enum-only callers) and
+    /// `resolve_vec_elem_xiom` (elem-type/signedness callers) so
+    /// `old.values[i]` inside generic catalog bodies infers V correctly
+    /// (Map.insert[Str, Int] truncated the 112-byte payload otherwise).
+    pub(crate) fn substituted_generic_field_vec_elem(&self, base: &Expr, field: &str) -> Option<String> {
         let base_ty = match base {
             Expr::Ident(id) => self.local.local_xiom_types.get(&id.name).cloned(),
-            Expr::Paren(inner, _) => return self.resolve_generic_field_vec_elem(inner, field),
+            Expr::Paren(inner, _) => return self.substituted_generic_field_vec_elem(inner, field),
             _ => None,
         }?;
         let (base_name, args) = Self::parse_generic_type_string(&base_ty);
@@ -2795,9 +2901,8 @@ impl IrEmitter {
             .and_then(|(_, fields)| fields.iter().find(|(n, _)| n == field).map(|(_, t)| t.clone()))?;
         let inner = ftype.strip_prefix("Vec[")?.strip_suffix(']')?;
         let subst = Self::subst_type_params(inner, &params, &args);
-        if subst == inner { return None; }
-        if !self.is_struct_or_enum_type(&subst) { return None; }
-        Some(self.resolve_type_key(&subst))
+        if subst == inner || subst.is_empty() { return None; }
+        Some(subst)
     }
 
     /// Replace whole IDENTIFIER tokens matching generic parameter names
@@ -3627,8 +3732,12 @@ impl IrEmitter {
             self.register_functions(item);
         }
 
-        // 5c.36: Pre-register expression-level tuple types from function bodies
-        // so their struct definitions are emitted at module level.
+        // 5c.36 + M65 R7: pre-register expression-level tuple types AND the
+        // concrete Option/Result types named by BODY ANNOTATIONS so their
+        // `%struct.X = type` definitions are emitted in the decl block --
+        // clang requires SIZED types when parsing alloca/GEP in the bodies
+        // (body-time creation alone was too late: large_json / m21_004
+        // "Cannot allocate unsized type").
         for item in &program.items {
             self.register_expr_tuple_types(item);
         }
@@ -3691,6 +3800,9 @@ impl IrEmitter {
                 })
                 .collect();
             self.emitln(&format!("%struct.{name} = type {{ {} }}", field_types.join(", ")));
+            // M65 R7: remember which definitions the decl pass emitted so the
+            // trailing body-time flush never duplicates them.
+            self.types.emitted_type_defs.insert(name.clone());
         }
         if !self.types.types.len() == 0 {
             self.emitln("");
@@ -3785,6 +3897,11 @@ impl IrEmitter {
                 self.compile_top_decl(item)?;
             }
         }
+
+        // M65 R7: the SERIAL path creates body-time concrete types on the main
+        // emitter -- flush their definitions before later passes append more
+        // module text (the parallel path already flushed).
+        self.flush_module_deferred_types();
 
         // Emit monomorphised generic function bodies
         self.compile_generic_monomorphisations()?;
@@ -4062,18 +4179,19 @@ impl IrEmitter {
                         let gens = emitter.mono.generic_instantiations.clone();
                         let used = emitter.types.used_builtins.clone();
                         let strs = emitter.fctx.strings.clone();
-                        (*idx, out, gens, used, strs)
+                        let deferred = emitter.module_deferred_types.clone();
+                        (*idx, out, gens, used, strs, deferred)
                     },
-                    Err(e) => (*idx, format!("; ERROR compiling {}: {}\n", fd.name.name, e), Vec::new(), HashSet::new(), Vec::new()),
+                    Err(e) => (*idx, format!("; ERROR compiling {}: {}\n", fd.name.name, e), Vec::new(), HashSet::new(), Vec::new(), Vec::new()),
                 }
             })
             .collect::<Vec<_>>();
 
         // Step 3: Merge outputs in declaration order
         let mut sorted: Vec<_> = outputs.into_iter().collect();
-        sorted.sort_by_key(|(idx, _, _, _, _)| *idx);
+        sorted.sort_by_key(|(idx, _, _, _, _, _)| *idx);
 
-        for (_idx, output, generics, builtins, strings) in sorted {
+        for (_idx, output, generics, builtins, strings, deferred) in sorted {
             self.output.push_str(&output);
             for g in generics {
                 self.mono.generic_instantiations.push(g);
@@ -4084,9 +4202,37 @@ impl IrEmitter {
             for s in strings {
                 self.fctx.strings.push(s);
             }
+            for (name, body) in deferred {
+                if !self.module_deferred_types.iter().any(|(n, _)| n == &name)
+                    && !self.types.emitted_type_defs.contains(&name)
+                {
+                    self.module_deferred_types.push((name, body));
+                }
+            }
         }
+        // M65 R7: definitions created while compiling bodies (the type-decl
+        // pass already ran). LLVM allows definitions after first use, so a
+        // trailing block is well-formed. Covers the PARALLEL path; the serial
+        // path flushes in compile_program after its loop.
+        self.flush_module_deferred_types();
 
         Ok(())
+    }
+
+    /// M65 R7: append `%struct.X = type {..}` definitions for concrete
+    /// container types FIRST created while compiling function bodies (the
+    /// type-decl pass already ran). No-op when empty.
+    fn flush_module_deferred_types(&mut self) {
+        if self.module_deferred_types.is_empty() {
+            return;
+        }
+        let deferred = std::mem::take(&mut self.module_deferred_types);
+        self.output.push('\n');
+        for (name, body) in deferred {
+            if !self.types.emitted_type_defs.contains(&name) {
+                self.output.push_str(&format!("%struct.{name} = type {body}\n"));
+            }
+        }
     }
 
     // Contract runtime checks -> see contracts.rs

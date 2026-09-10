@@ -182,8 +182,16 @@ impl IrEmitter {
                         // 4096-byte size -> stack overrun (0xC0000409). Resolve
                         // the callee's declared return so pointer-valued calls
                         // inttoptr like pointer-valued locals.
+                        // R7 (2026-09-10): an INDEX arg (`entries.keys[i]`) is an
+                        // element VALUE -- resolve the container's element type
+                        // ("Str") so the handle inttoptrs instead of truncating
+                        // to a byte (json stringify keys printed as garbage).
                         Self::infer_value_xiom_type(arg_expr)
                             .or_else(|| self.infer_call_return_xiom(arg_expr))
+                            .or_else(|| match arg_expr {
+                                Expr::Index(container, _, _) => self.resolve_vec_elem_xiom(container),
+                                _ => None,
+                            })
                     };
                     let arg_is_ptr_valued = arg_xiom.as_deref().map_or(false, |t| {
                         t == "Str" || t.starts_with('*')
@@ -387,6 +395,111 @@ impl IrEmitter {
         // (e.g. `return out` where `out: Vec[Float32] = []` is i8*).
         if from == "i8*" && to == "%struct.Vec" {
             return self.val_to_struct(val, from, to);
+        }
+        // Opaque container -> concrete container (M65 R7 / BUG 41 follow-on):
+        // a value built while the expected type was the ERASED base
+        // (`%struct.Result` from an Ok(...) ctor in a fn NOT returning
+        // Result) stored into a concretely-annotated slot
+        // (`var r: Result[Payload, Int]`). The opaque slot keeps an i64
+        // payload (boxed pointer for struct payloads, raw bits otherwise);
+        // the concrete struct expects the real field type. Copy the tag and
+        // rebuild every payload field through the same i64->field rules the
+        // payload override uses.
+        if from.starts_with("%struct.") && to.starts_with("%struct.") && from != to
+            && (to.contains("Result__") || to.contains("Option__"))
+        {
+            let from_name = from.trim_start_matches("%struct.").to_string();
+            let to_name = to.trim_start_matches("%struct.").to_string();
+            let from_field_count = self.types.types.get(&from_name).map(|v| v.len()).unwrap_or(0);
+            let to_fields: Vec<String> = self.types.type_meta.get(&to_name)
+                .map(|m| m.fields.iter().map(|(_, t)| t.clone()).collect())
+                .unwrap_or_default();
+            if !to_fields.is_empty() {
+                let src = self.fresh_tmp();
+                self.emitln(&format!("  {src} = alloca {from}"));
+                self.emitln(&format!("  store {from} {val}, {from}* {src}"));
+                let dst = self.fresh_tmp();
+                self.emitln(&format!("  {dst} = alloca {to}, align 16"));
+                let tag = self.fresh_tmp();
+                let sg0 = self.fresh_tmp();
+                self.emitln(&format!("  {sg0} = getelementptr {from}, {from}* {src}, i32 0, i32 0"));
+                self.emitln(&format!("  {tag} = load i64, i64* {sg0}"));
+                let dg0 = self.fresh_tmp();
+                self.emitln(&format!("  {dg0} = getelementptr {to}, {to}* {dst}, i32 0, i32 0"));
+                self.emitln(&format!("  store i64 {tag}, i64* {dg0}"));
+                // Payload fields: only the ACTIVE variant's slot holds a value
+                // (None/Err store 0) -- dereferencing the inactive slot read
+                // address 0 (m21_result_option_013 / m35_o06 traps). Guard each
+                // payload conversion by its tag branch.
+                for i in 1..to_fields.len() {
+                    let dg = self.fresh_tmp();
+                    self.emitln(&format!("  {dg} = getelementptr {to}, {to}* {dst}, i32 0, i32 {i}"));
+                    let target = self.field_llvm_ty(&to_fields[i]);
+                    if i >= from_field_count {
+                        continue;
+                    }
+                    let sg = self.fresh_tmp();
+                    self.emitln(&format!("  {sg} = getelementptr {from}, {from}* {src}, i32 0, i32 {i}"));
+                    let raw = self.fresh_tmp();
+                    self.emitln(&format!("  {raw} = load i64, i64* {sg}"));
+                    // Some/Ok = tag 1; Result Err = tag 0 (the ctor stores
+                    // discriminant 0 for Err -- see the m21_039 Err arm). Option
+                    // has no tag-0 payload, so the Result-only condition is
+                    // unreachable there.
+                    let active_tag: i64 = if i == 1 { 1 } else { 0 };
+                    let act = self.fresh_tmp();
+                    self.emitln(&format!("  {act} = icmp eq i64 {tag}, {active_tag}"));
+                    let on_b = self.fresh_block("ctr_on");
+                    let off_b = self.fresh_block("ctr_off");
+                    let merge_b = self.fresh_block("ctr_merge");
+                    self.emitln(&format!("  br i1 {act}, label %{on_b}, label %{off_b}"));
+                    self.emitln(&format!("\n{on_b}:"));
+                    let conv = if target.starts_with("%struct.") {
+                        let sp = self.fresh_tmp();
+                        self.emitln(&format!("  {sp} = inttoptr i64 {raw} to {target}*"));
+                        let sv = self.fresh_tmp();
+                        self.emitln(&format!("  {sv} = load {target}, {target}* {sp}"));
+                        sv
+                    } else if target.ends_with('*') {
+                        let sp = self.fresh_tmp();
+                        self.emitln(&format!("  {sp} = inttoptr i64 {raw} to {target}"));
+                        sp
+                    } else if target == "double" {
+                        let bv = self.fresh_tmp();
+                        self.emitln(&format!("  {bv} = bitcast i64 {raw} to double"));
+                        bv
+                    } else if target == "float" {
+                        let t32 = self.fresh_tmp();
+                        self.emitln(&format!("  {t32} = trunc i64 {raw} to i32"));
+                        let bv = self.fresh_tmp();
+                        self.emitln(&format!("  {bv} = bitcast i32 {t32} to float"));
+                        bv
+                    } else {
+                        self.coerce_value(&raw, "i64", &target)
+                    };
+                    self.emitln(&format!("  br label %{merge_b}"));
+                    self.emitln(&format!("\n{off_b}:"));
+                    self.emitln(&format!("  br label %{merge_b}"));
+                    self.emitln(&format!("\n{merge_b}:"));
+                    let default_const = if target.starts_with("%struct.") {
+                        "zeroinitializer".to_string()
+                    } else if target.ends_with('*') {
+                        "null".to_string()
+                    } else if target == "double" || target == "float" {
+                        "0.0".to_string()
+                    } else {
+                        "0".to_string()
+                    };
+                    let phi = self.fresh_tmp();
+                    self.emitln(&format!(
+                        "  {phi} = phi {target} [ {conv}, %{on_b} ], [ {default_const}, %{off_b} ]"
+                    ));
+                    self.emitln(&format!("  store {target} {phi}, {target}* {dg}"));
+                }
+                let out = self.fresh_tmp();
+                self.emitln(&format!("  {out} = load {to}, {to}* {dst}"));
+                return out;
+            }
         }
         // Typed struct value -> struct pointer: allocate a slot, store the value,
         // return the slot pointer.  e.g. `%struct.HttpHeaders -> %struct.HttpHeaders*`

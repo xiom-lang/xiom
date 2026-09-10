@@ -101,6 +101,24 @@ REMAINING QUEUE (pre-scoped for the next compiler session):
    from here).
 6. Stages 6-7: perf program + selfhost gate checklist.
 
+### Round-30 (2026-09-10): R7 FIXED -- generic container mono for large aggregate V
+
+Compiler lane. Seven interacting codegen defects (full map in
+COMPILER_BUGS.md): container-param generic-arg inference (with the Int
+fallback preserved when unresolved); call/Index arg inference for
+Map.insert V; resolve_vec_elem_xiom generic-instantiation substitution
+FIRST (raw "K" was leaking); container-field bindings keep the element
+type; annotated local slots concretize + body annotations pre-registered
+before the type-decl emission (clang needs SIZED types at alloca/GEP
+parse time) + trailing deferred fallback; tag-guarded opaque->concrete
+container conversion (Some/Ok=1, Err=0); Str Index args inttoptr.
+Flips: smoke_stress_serialize_json_nested deterministic (x8) and
+smoke_stress_serialize_large_json green -> stdlib_exec locks; whole
+serialize-json family green. R8 (contract codegen: free-fn method syntax
+evaluates 0; builtin .char_at ensures stack corruption) remains open --
+next contract round. Gates: e2e 2306/2306, feature-reg 510/510,
+stdlib-exec 79/79 (+2 ign), checker 182/182.
+
 ### Round-29 (2026-09-10): stack-cookie/KDF family -- pbkdf2 fixed; Vec accessor builtins
 
 Compiler lane. Four codegen roots (full map in COMPILER_BUGS.md):
