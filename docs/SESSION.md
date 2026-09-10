@@ -85,13 +85,9 @@ Standing gates: e2e 2304/2304, feature-reg 510/510, stdlib-exec 70/70
 stdlib dedup program; geom family green.
 
 REMAINING QUEUE (pre-scoped for the next compiler session):
-1. json heap layer PART 2 (Stage 2c entry point): map VALUE READ still
-   scalar-loads 8 bytes and inttoptrs them as %struct.JsonValue*
-   (j3.ll:4914); land it TOGETHER with removing the M18 enum exclusion
-   in concrete_type_for (lib.rs:1741-1777) -- the Option[Enum] typing
-   alone regresses the ecosystem test_json fixture (handle-ABI
-   coherence). Probes: tmp/bug_probes/j3.xi (AV), j3b.xi (green),
-   m65_json_map_enum_payload.xi (register compile_and_run on landing).
+1. [DONE round 26] json heap layer PART 2 (Stage 2c entry point): map
+   VALUE READ + M18 enum-exclusion removal + pointer-self temporary
+   materialization landed together; j3/j3b/m65/eco all green.
 2. stack cookies (io_bufreader / pbkdf2 / argon2 / math_edge family --
    REPORT_TO_COMPILER_SESSION.md section 5 table).
 3. clang codegen variants (ptr_offset / io_copy x3 / hash_values /
@@ -100,9 +96,40 @@ REMAINING QUEUE (pre-scoped for the next compiler session):
    LSP UTF-16 + mutex-poison recovery, fmt comment/shebang preservation,
    JSON diagnostics v1 schema, workspace version policy, cargo-fuzz +
    ASAN/UBSAN CI.
-5. Stage 2c structural TypeId/interning (json Part 2 is its first
-   deliverable).
+5. Stage 2c structural TypeId/interning (json Part 2 was its first
+   deliverable -- landed round 26; the TypeId/interning refactor resumes
+   from here).
 6. Stages 6-7: perf program + selfhost gate checklist.
+
+### Round-26 (2026-09-10): json heap layer PART 2 FIXED -- Stage 2c entry landed
+
+Compiler lane, tenth item. Three coordinated roots (full map in
+COMPILER_BUGS.md):
+1. M18 gate REMOVED in concrete_type_for (Option + Result arms): enum
+   payloads concretize -- Option[JsonValue] ->
+   %struct.Option__JsonValue { i64, %struct.JsonValue }.
+2. Generic-field Vec element resolution: `entries.values[i]` on
+   `Map[Str, JsonValue]` fell to the 8-byte scalar TAG load. New
+   generic_type_params registry + resolve_generic_field_vec_elem +
+   token-aware subst_type_params; enum-variant bindings record their
+   declared payload XIOM type. The read now memcpy+loads
+   %struct.JsonValue at the runtime stride.
+3. Pointer-self method call on a struct-value temporary
+   (`name.unwrap().as_string()`): the fallback passed the struct VALUE
+   where the callee's %struct* self param expects a pointer -- invalid
+   IR. Materialize the temporary into an alloca (call.rs).
+Also fixed en route (separate commit): honest `xiom -g` builds rejected
+by clang because the define line put !dbg BEFORE alwaysinline (grammar
+order); swapped.
+
+Evidence: pre-fix m65/j3b -1073741819; post-fix j1..j7 + m65 + eco
+test_json all exit 0. Gates: e2e 2306/2306 (+2 new: e2e_m65_json_map_
+enum_payload, e2e_m65b_json_get_concrete_option), feature-reg 510/510,
+stdlib-exec 70/70 (+2 ign), checker 182/182. STDLIB LANE:
+kat_serialize_json_minimal is UNBLOCKED -- re-sweep the json family.
+
+NEXT compiler-lane: stack cookies, clang codegen variants, Stage 5
+remainder, Stage 2c structural TypeId/interning, Stages 6-7.
 
 ### Round-25 (2026-09-10): json heap layer PART 1 -- Map value WRITE stride
 

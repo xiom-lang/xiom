@@ -3782,6 +3782,24 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         let ptr_reg = self.fresh_tmp();
                                         self.emitln(&format!("  {ptr_reg} = inttoptr i64 {addr_val} to {p0}"));
                                         (ptr_reg, p0.clone())
+                                    } else if recv_llvm_ty.starts_with("%struct.")
+                                        && p0 == &format!("{recv_llvm_ty}*")
+                                    {
+                                        // M65 Part 2b (2026-09-10): STRUCT-VALUE
+                                        // temporary receiver with a pointer-self
+                                        // callee (`name.unwrap().as_string()` once
+                                        // Option[JsonValue] became concrete and
+                                        // unwrap yields the 16-byte struct): the
+                                        // old fallback passed the struct VALUE
+                                        // where the signature expects a pointer --
+                                        // INVALID IR (clang used the discriminant
+                                        // register as the self address -> AV at
+                                        // 0x3). Materialize the temporary into an
+                                        // alloca and pass its address.
+                                        let slot = self.fresh_tmp();
+                                        self.emitln(&format!("  {slot} = alloca {recv_llvm_ty}"));
+                                        self.emitln(&format!("  store {recv_llvm_ty} {recv_val}, {recv_llvm_ty}* {slot}"));
+                                        (slot, format!("{recv_llvm_ty}*"))
                                     } else {
                                         (recv_val, recv_llvm_ty)
                                     }

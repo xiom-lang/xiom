@@ -55,6 +55,16 @@ impl IrEmitter {
                 if !prefix.is_empty() {
                     self.types.generic_type_field_types.insert(type_name.clone(), full_fields.clone());
                 }
+                // M65 Part 2: keep the declared parameter ORDER so field
+                // types keeping generic args ("Vec[V]") can be substituted
+                // from a concrete instantiation ("Map[Str, JsonValue]").
+                let param_names: Vec<String> = td.generics.iter()
+                    .map(|g| g.name.name.clone())
+                    .collect();
+                self.types.generic_type_params.insert(bare_name.clone(), param_names.clone());
+                if !prefix.is_empty() {
+                    self.types.generic_type_params.insert(type_name.clone(), param_names);
+                }
             }
             self.types.types.or_insert_with(type_name.clone(), || fields);
             // Use or_insert_with so manual pre-registrations (e.g. Map with
