@@ -101,6 +101,28 @@ REMAINING QUEUE (pre-scoped for the next compiler session):
    from here).
 6. Stages 6-7: perf program + selfhost gate checklist.
 
+### Round-27 (2026-09-10): R5 + R6 FIXED -- catalog module-resolution root cause
+
+Compiler lane. The stdlib report's R5 (smoke_net_address: T001
+"Address has no field host" + all-fields-empty AV) and R6
+(smoke_net_http2 invalid getelementptr) shared ONE root cause: the
+catalog's fuzzy `index_lookup` matched any module ending in
+`.<last-segment>` for multi-segment requests, so the transitive worklist
+prefix `[xiom, memory]` misloaded `benchmark.memory`; its
+`use benchmark.main` pulled the whole benchmark graph into every stdlib
+compile, and `benchmark.types.Address` (city/street/zip) claimed the
+bare `Address` name ahead of `xiom.net.address.Address` in both the
+checker and codegen registries.
+Fixes: (1) index_lookup root-scoped + unique (multi-segment candidates
+must share the requested first segment; single-segment leaf resolution
+unchanged); (2) checker get_type prefers a qualified type from the
+CURRENT module's imports (new per-module module_import_paths) before
+the bare fallback -- a global scan regressed smoke_async (`Future`).
+Both smokes now exit 0; new locks stdlib_exec_net_address_runs and
+stdlib_exec_net_http2_runs.
+Gates: e2e 2306/2306, feature-reg 510/510, stdlib-exec 72/72 (+2 ign),
+checker 182/182. Docs: COMPILER_BUGS.md R5/R6 sections.
+
 ### Round-26 (2026-09-10): json heap layer PART 2 FIXED -- Stage 2c entry landed
 
 Compiler lane, tenth item. Three coordinated roots (full map in

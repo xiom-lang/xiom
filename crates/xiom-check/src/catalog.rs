@@ -117,10 +117,38 @@ impl ModuleCatalog {
             return self.parse_file(file_path, path_segments);
         }
         if let Some(last) = path_segments.last() {
-            for (mod_path, file_path) in &self.module_index {
-                if mod_path.ends_with(&format!(".{}", last)) || mod_path == last.as_str() {
-                    return self.parse_file(file_path, path_segments);
-                }
+            // Short-leaf / submodule resolution:
+            //  - single-segment `use types.run_all` binds the UNIQUE module
+            //    whose declared path ends with `.types` (benchmark.types);
+            //  - multi-segment `use xiom.slice` resolves a DIRECTORIED
+            //    submodule (`xiom.string.slice` -- slice.xi declares
+            //    `xiom.string.slice`, so the short path has no exact file)
+            //    ONLY within the requested ROOT segment (`xiom.*`).
+            // R5 (2026-09-10): the old fallback matched any module ending in
+            // `.<last>` across all roots, so the worklist prefix
+            // `[xiom, memory]` (from `use xiom.memory.alloc`) fuzzy-loaded
+            // `benchmark.memory`, whose `use benchmark.main` dragged the whole
+            // benchmark graph into every stdlib compile -- benchmark.types.
+            // Address then claimed the bare `Address` name ahead of
+            // xiom.net.address.Address. Root-scoping rejects that while
+            // keeping xiom-rooted short submodule paths working. Matches must
+            // also be unique (deterministic).
+            let root = &path_segments[0];
+            let want = format!(".{}", last);
+            let mut hits: Vec<&String> = self.module_index.iter()
+                .filter(|(mod_path, _)| {
+                    if path_segments.len() == 1 {
+                        mod_path.ends_with(&want) || mod_path.as_str() == last.as_str()
+                    } else {
+                        let same_root = mod_path.split('.').next().map_or(false, |r| r == root.as_str());
+                        same_root && (mod_path.ends_with(&want) || mod_path.as_str() == last.as_str())
+                    }
+                })
+                .map(|(_, f)| f)
+                .collect();
+            hits.sort();
+            if hits.len() == 1 {
+                return self.parse_file(hits[0], path_segments);
             }
         }
         None
