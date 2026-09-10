@@ -66,6 +66,44 @@ honesty R16c: sort-consistent SMT, UNKNOWN != false, bounded z3; quick wins:
 module-prefix arity check, warnings-not-dropped, MAX_EXPR_DEPTH 128) ->
 Stage 2 structural foundations per docs/COMPILER_READINESS_PLAN.md.
 
+### Campaign checkpoint (2026-09-10): rounds 21-25 complete -- handoff state
+
+TEN production rounds committed on feat/architect this campaign:
+- 034b65a6 BUG 57 follow-up (nested Vec ctor elem) -- e2e_m57b
+- 223603ce M58 module arrays -- e2e_m58
+- 041e8bb3 R4 guard-arena escape (runtime) -- e2e_m59
+- f8a53632 R2 module array literal inits -- e2e_m60
+- 315a65f6 R1 byte_at/char_at OOB clamps (runtime) -- e2e_m61
+- 71fcf6f5 delegation crash (checker injection) -- e2e_m62
+- 4b7dc529 CRT-layout family: closure env size + MutRef array
+  elem addresses -- e2e_m63/m64
+- e5c7804c --opt-level 0..=3; -O0/-O1 floor removed -- matrix-verified
+- 298ba5af json heap layer Part 1 (Map value stride) -- e2e_m65a (IR)
+
+Standing gates: e2e 2304/2304, feature-reg 510/510, stdlib-exec 70/70
+(+2 ign). All stdlib report R1-R4 closed; delegation unblocked for the
+stdlib dedup program; geom family green.
+
+REMAINING QUEUE (pre-scoped for the next compiler session):
+1. json heap layer PART 2 (Stage 2c entry point): map VALUE READ still
+   scalar-loads 8 bytes and inttoptrs them as %struct.JsonValue*
+   (j3.ll:4914); land it TOGETHER with removing the M18 enum exclusion
+   in concrete_type_for (lib.rs:1741-1777) -- the Option[Enum] typing
+   alone regresses the ecosystem test_json fixture (handle-ABI
+   coherence). Probes: tmp/bug_probes/j3.xi (AV), j3b.xi (green),
+   m65_json_map_enum_payload.xi (register compile_and_run on landing).
+2. stack cookies (io_bufreader / pbkdf2 / argon2 / math_edge family --
+   REPORT_TO_COMPILER_SESSION.md section 5 table).
+3. clang codegen variants (ptr_offset / io_copy x3 / hash_values /
+   convert_escape / regex_captures x4).
+4. Stage 5 remainder: watchdog cancellation (process::exit from thread),
+   LSP UTF-16 + mutex-poison recovery, fmt comment/shebang preservation,
+   JSON diagnostics v1 schema, workspace version policy, cargo-fuzz +
+   ASAN/UBSAN CI.
+5. Stage 2c structural TypeId/interning (json Part 2 is its first
+   deliverable).
+6. Stages 6-7: perf program + selfhost gate checklist.
+
 ### Round-25 (2026-09-10): json heap layer PART 1 -- Map value WRITE stride
 
 Compiler lane, ninth item. Three layers in the flaky json family:
