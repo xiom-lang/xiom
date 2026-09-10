@@ -3822,3 +3822,50 @@ codegen registry) produced mismatched struct field indices in the
 mime/multipart/sse consumer graph. With the catalog lookup root-scoped,
 smoke_net_http2 compiles and exits 0 (verified + stdlib_exec_net_http2_
 runs lock). No separate getelementptr fix was needed.
+
+## 2026-09-10 (stdlib lane, round-29 verification) -- R7: generic container mono truncates/corrupts large V
+
+Found while verifying the json Part-2 fix. The json nested round-trip
+(smoke_stress_serialize_json_nested) still fails: JsonValue values stored
+through generic containers come back garbage, nondeterministically
+(sometimes keys too, depending on heap layout). Bisected to the generic
+mono of Vec operations for large aggregate V (JsonValue ~112 bytes):
+
+- A: concrete `var vs = Vec[JsonValue].new(); push_v(&vs, v)` where
+  `fn push_v[V](v: &mut Vec[V], x: V) { v.push(x); }` -- the push inside
+  the generic fn writes v at the wrong width; reading vs[0] + stringify
+  gives 1.088e-311 (v's bytes misplaced). Probe p_gp_a.
+- B/C: `type Holder[V] = { values: Vec[V]; }` with
+  `fn make_holder[V]() -> Holder[V] { Holder[V]{ values: Vec[V].new() } }`
+  -- the Vec[V].new() inside the generic ctor yields a corrupt vector;
+  a later push (generic OR concrete-from-main) AVs 0xC0000005.
+  Probes p_gp_b / p_gp_c.
+- Contrast (all green): concrete Vec[JsonValue] creation+push from main
+  (p_vect_json: v0=42, v1="second"); json array paths; Map[Str,Str].
+- User-visible: Map[Int,JsonValue]/Map[Str,JsonValue] `.values[i]`
+  stringifies garbage (p_map_key_probe: m7=["��&..."]), while keys (Str)
+  are fine. This is the remaining red of smoke_stress_serialize_json_nested
+  after the Part-1/2 land (kat_serialize_json_minimal now PASSES).
+Direction: the mono substitution for (a) Vec[V].new() inside generic
+fns/ctors and (b) Vec[V].push from inside generic fns -- both must use
+the substituted concrete element size (112), matching the already-fixed
+generic-field READ stride. Probes preserved in the stdlib probes dir.
+
+## R8. char_at contract codegen: wrong-target evaluation + heap/stack corruption
+
+Stdlib finding from the json/glob verification (2026-09-10):
+1. `string.xi char_at`'s ensures used `s.char_count()` -- char_count is a
+   FREE fn; method syntax in a contract evaluates to 0 at runtime, so
+   every Some return tripped "ensures at 236:12" (hit via the json build
+   path; probe p_json_nested_dbg).
+2. Rewriting the clause to the byte-domain `pos < s.len()` (correct for
+   the byte-position body) made method-position `.char_at(...)` calls --
+   the BUILTIN Char-returning overload used by xiom.misc.glob -- corrupt
+   the stack: 0xC0000409 at the first wildcard loop (probe p_glob_trace;
+   same probe green with the clause removed). Suggests the free fn's
+   ensures are attached/evaluated for the method-position builtin call
+   with a result-type mismatch.
+Stdlib state: clause removed with an in-file PENDING note (body guard
+unchanged); a correct in-range clause should be re-added once contract
+codegen distinguishes the free fn from the builtin method and supports
+free-fn calls in contracts.
