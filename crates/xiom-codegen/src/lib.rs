@@ -1738,12 +1738,18 @@ impl IrEmitter {
         match ty {
             Type::Option(inner) => {
                 let inner_name = Self::type_from_ast(inner);
-                // M18: Enums excluded from concrete types until enum layout
-                // supports per-variant field types (shared field names cause
-                // type mismatches between variants).
-                let resolved = self.resolve_type_key(&inner_name);
-                let is_enum = self.types.enum_variants.contains_key(&resolved);
-                if self.is_struct_type_in_registry(&inner_name) && !is_enum {
+                // M18 (removed 2026-09-10, M65 Part 2): ENUM payloads now
+                // concretize too. The old exclusion kept Option[JsonValue]
+                // opaque (8-byte handle ABI), which made the map value read
+                // (scalar tag load) and the concrete-enum struct paths
+                // incoherent -- consumers inttoptr'd the tag. Enum layouts
+                // are real structs (discriminant + deduped payload slots);
+                // concrete Option__T with T = enum is the same shape as any
+                // struct payload and must land WITH the read-side fixes
+                // (resolve_vec_elem_type generic-field resolution + the
+                // pointer-self temporary materialization in call.rs) --
+                // documented in COMPILER_BUGS.md json heap layer Part 2.
+                if self.is_struct_type_in_registry(&inner_name) {
                     let concrete = format!("Option__{}", Self::sanitize_container_arg(&inner_name));
                     if !self.types.type_meta.contains_key(&concrete) {
                         self.ensure_concrete_option(&inner_name);
@@ -1756,12 +1762,10 @@ impl IrEmitter {
             Type::Result(ok, err) => {
                 let ok_name = Self::type_from_ast(ok);
                 let err_name = Self::type_from_ast(err);
-                let ok_resolved = self.resolve_type_key(&ok_name);
-                let err_resolved = self.resolve_type_key(&err_name);
-                let ok_struct = self.is_struct_type_in_registry(&ok_name)
-                    && !self.types.enum_variants.contains_key(&ok_resolved);
-                let err_struct = self.is_struct_type_in_registry(&err_name)
-                    && !self.types.enum_variants.contains_key(&err_resolved);
+                // M18 removal (2026-09-10): enum Ok/Err payloads concretize
+                // (Result__JsonValue__Str) -- see the Option arm above.
+                let ok_struct = self.is_struct_type_in_registry(&ok_name);
+                let err_struct = self.is_struct_type_in_registry(&err_name);
                 if ok_struct || err_struct {
                     let concrete = format!(
                         "Result__{}__{}",
@@ -2728,6 +2732,16 @@ impl IrEmitter {
                 });
         }
         if let Expr::Field(base, field_expr, _) = container {
+            // M65 Part 2 (json heap layer): resolve fields of GENERIC
+            // instantiations with their concrete args -- `entries.values` on
+            // `entries: Map[Str, JsonValue]` whose declared field type is
+            // "Vec[V]". The base's full XIOM type (with args) is tracked for
+            // enum-variant / param bindings; substituting the generic params
+            // yields the real element type (JsonValue), so the index read takes
+            // the struct-load path instead of the scalar tag load.
+            if let Some(elem) = self.resolve_generic_field_vec_elem(base, &field_expr.name) {
+                return Some(elem);
+            }
             let base_ty = self.infer_struct_type_name(base)?;
             for key in self.types.type_meta.keys() {
                 if key.ends_with(&base_ty) || key == base_ty {
@@ -2753,6 +2767,64 @@ impl IrEmitter {
             }
         }
         None
+    }
+
+    /// M65 Part 2 (2026-09-10): resolve the Vec element type of a FIELD on a
+    /// generic instantiation with KNOWN concrete args. The base's full XIOM
+    /// type string ("Map[Str, JsonValue]") must be tracked in
+    /// `local_xiom_types` (enum-variant bindings, params); the field's declared
+    /// type keeps its generic args ("Vec[V]") in `generic_type_field_types`,
+    /// and the type's declared param ORDER comes from `generic_type_params`.
+    /// Returns a registered struct/enum key, or None for primitives/unknowns
+    /// (keeping the scalar element-load path).
+    fn resolve_generic_field_vec_elem(&self, base: &Expr, field: &str) -> Option<String> {
+        let base_ty = match base {
+            Expr::Ident(id) => self.local.local_xiom_types.get(&id.name).cloned(),
+            Expr::Paren(inner, _) => return self.resolve_generic_field_vec_elem(inner, field),
+            _ => None,
+        }?;
+        let (base_name, args) = Self::parse_generic_type_string(&base_ty);
+        if args.is_empty() { return None; }
+        let leaf = |k: &str| k.rsplit('.').next().unwrap_or(k).to_string();
+        let params = self.types.generic_type_params.iter()
+            .find(|(k, _)| leaf(k) == base_name || k.as_str() == base_name)
+            .map(|(_, v)| v.clone())?;
+        if params.len() != args.len() { return None; }
+        let ftype = self.types.generic_type_field_types.iter()
+            .find(|(k, _)| leaf(k) == base_name || k.as_str() == base_name)
+            .and_then(|(_, fields)| fields.iter().find(|(n, _)| n == field).map(|(_, t)| t.clone()))?;
+        let inner = ftype.strip_prefix("Vec[")?.strip_suffix(']')?;
+        let subst = Self::subst_type_params(inner, &params, &args);
+        if subst == inner { return None; }
+        if !self.is_struct_or_enum_type(&subst) { return None; }
+        Some(self.resolve_type_key(&subst))
+    }
+
+    /// Replace whole IDENTIFIER tokens matching generic parameter names
+    /// ("V" -> "JsonValue") -- a plain string replace would corrupt "Vec[V]"
+    /// (the literal "Vec" contains a "V"). Tokens are runs of identifier
+    /// characters; everything else is copied verbatim.
+    fn subst_type_params(s: &str, params: &[String], args: &[String]) -> String {
+        let mut out = String::with_capacity(s.len());
+        let mut ident = String::new();
+        let flush = |ident: &mut String, out: &mut String| {
+            if ident.is_empty() { return; }
+            let replaced = params.iter().zip(args.iter())
+                .find(|(p, _)| *p == ident)
+                .map(|(_, a)| a.clone());
+            out.push_str(replaced.as_deref().unwrap_or(ident.as_str()));
+            ident.clear();
+        };
+        for c in s.chars() {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '.' {
+                ident.push(c);
+            } else {
+                flush(&mut ident, &mut out);
+                out.push(c);
+            }
+        }
+        flush(&mut ident, &mut out);
+        out
     }
 
     /// M33: Given an Expr (typically Expr::Index), resolve the Vec element

@@ -3327,13 +3327,13 @@ itself verified working); smoke_alloc_basic needs `use xiom.ptr;`;
 smoke_hash_folder needs `use xiom.convert.toint;`.
 ---
 
-## 2026-09-10 -- json heap layer: PART 1 FIXED (write stride); PART 2 (Option[Enum] typing + map value read) queued
+## 2026-09-10 -- json heap layer: PART 1 + PART 2 FIXED (Stage 2c entry landed)
 
 The flaky json family (kat_serialize_json_minimal, json_nested /
-json_parse_nested / jsonvalue_get startup-or-exit AVs) has three layers.
-One is fixed and gated; two are catalogued for Stage 2c.
+json_parse_nested / jsonvalue_get startup-or-exit AVs) had three layers,
+all now fixed and gated.
 
-FIXED -- ctor mono substitution (call.rs Vec.new / with_capacity):
+PART 1 -- ctor mono substitution (call.rs Vec.new / with_capacity):
 `Map.new`'s mono'd body calls `Vec[V].new()`; the expression-level type
 arg kept the RAW generic param "V", which resolved as unknown -> elem
 size 8. Map[Str, JsonValue] values were stored at 8-byte strides
@@ -3341,30 +3341,63 @@ size 8. Map[Str, JsonValue] values were stored at 8-byte strides
 mono.current_type_map -> stride 112 (IR-pinned by
 e2e_m65a_json_values_stride). Eco fixture test_json.xi stays green.
 
-ATTEMPTED THEN REVERTED -- Option/Result enum payloads
-(lib.rs concrete_type_for, M18 gate): removing the enum exclusion made
-catalog json_get return %struct.Option__JsonValue (fixes j3b), BUT it
-regressed the ecosystem test_json fixture (its OWN json_get ->
-Option[JsonValue] is coherent under the 8-byte-handle ABI, including
-the scalar map-value read). The concrete-Option typing must land
-TOGETHER with the map-value READ fix (below) in one coherent Stage 2c
-change.
+PART 2 -- the map VALUE READ + Option/Result enum concretization (landed
+TOGETHER this round; the Option-typing alone was attempted and reverted
+in round 25 because it broke the ecosystem fixture's handle-ABI
+coherence -- that break is now root-caused and fixed as (c)):
 
-QUEUED (Stage 2c) -- map VALUE READ: the value read inside json_get
-still scalar-loads 8 bytes then inttoptrs them as %struct.JsonValue*
-(IR: %tmp86 = inttoptr i64 %tmp82 to %struct.JsonValue*). The map's
-values-Vec index read must resolve the registered value type and use
-the struct load path (bitcast + full load at the Vec's stride) --
-needs payload-type propagation through generic Map signatures, plus the
-M18-gate removal re-applied with it. json_get("name") on a STRING value
-happens to survive (field-1 handle), which is why probes differ;
-json_type/get chains on non-string values AV until this lands.
+(a) M18 gate REMOVED (lib.rs concrete_type_for, both Option and Result
+    arms): enum payloads now concretize like any struct --
+    Option[JsonValue] -> `%struct.Option__JsonValue = type { i64,
+    %struct.JsonValue }` (120 bytes) and Result[JsonValue, Str] ->
+    `Result__JsonValue__Str`. Enum layouts are real structs
+    (discriminant + deduped payload slots); the old exclusion made the
+    handle-ABI and concrete-struct paths disagree on the same value.
 
-Regression: e2e_m65a_json_values_stride (IR check, red pre-fix).
-tests/regression/m65_json_map_enum_payload.xi is the PART-2 runtime
-regression (register compile_and_run when Part 2 lands). Full e2e +
-feature-reg + stdlib-exec run at doc time. STDLIB LANE:
-kat_serialize_json_minimal stays gated until PART 2.
+(b) GENERIC-FIELD Vec element resolution (lib.rs/decl.rs/context.rs/
+    stmt.rs): `entries.values[i]` where `entries: Map[Str, JsonValue]`
+    fell to `emit_elem_load` (8-byte scalar = the enum TAG) because
+    resolve_vec_elem_type could not resolve the field type "Vec[V]" of a
+    generic instantiation. New `generic_type_params` registry (declared
+    param ORDER per generic type decl) + `resolve_generic_field_vec_elem`
+    + identifier-token `subst_type_params` (a plain replace corrupts
+    "Vec[V]"), fed by recording the DECLARED payload XIOM type of
+    enum-variant match bindings in local_xiom_types. The read now emits
+    memcpy + `load %struct.JsonValue` at the runtime stride (IR-verified);
+    keys keep the scalar Str-handle path.
+
+(c) POINTER-SELF METHOD ON A STRUCT-VALUE TEMPORARY (call.rs method
+    dispatch): `name.unwrap().as_string()` -- once Option[JsonValue] is
+    concrete, unwrap yields the 16-byte JsonValue VALUE, and the old
+    fallback passed that value where the callee's `%struct...*` self
+    param expects a pointer (INVALID IR: at -O0/clang used the
+    discriminant register as the self address -> ASAN pinned
+    `JsonValue.as_string` reading address 0x3, the String tag; at -O2 the
+    ecosystem fixture AV'd at the test boundary). Fix: materialize the
+    temporary into an alloca and pass its address when
+    p0 == "{recv_llvm_ty}*".
+
+Evidence: pre-fix j3b/m65 exit -1073741819 (0xC0000005); post-fix
+j1..j7 + m65b probes exit 0, m65 exit 0, ecosystem test_json exit 0.
+Gates: e2e 2306/2306 (+2 new: e2e_m65_json_map_enum_payload,
+e2e_m65b_json_get_concrete_option), feature-reg 510/510, stdlib-exec
+70/70 (+2 ign), checker 182/182. IR pins: the 112 stride (m65a), the
+concrete Option layout (m65b), the runtime shape (m65).
+STDLIB LANE: kat_serialize_json_minimal is UNBLOCKED -- re-sweep the
+json family.
+
+### -g follow-up FIXED in the same round (honest debug builds)
+
+While symbolizing the ecosystem AV (ASAN/lldb work above), honest
+`xiom -g` builds failed at clang: "expected '{' in function body" at
+the first define line. Root cause: decl.rs emitted the !dbg attachment
+BEFORE the function attributes --
+`define i64 @main(...) !dbg !5 alwaysinline {`; LLVM's define-line
+grammar requires ATTRIBUTES first, metadata attachments after
+(`... alwaysinline !dbg !5 {`). One-line order swap. Verified: `-g`
+builds of m65/j3b/ecosystem test_json now compile and exit 0; the
+emitted DISubprogram nodes are unchanged. (No e2e covers -g; the
+m65/j3b/eco -g runs are the regression evidence.)
 
 ## 2026-09-10 -- opt-level flag landed; -O0/-O1 floor REMOVED (re-verified)
 

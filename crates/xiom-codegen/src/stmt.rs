@@ -2001,6 +2001,16 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                             if let Some(inner) = fty.strip_prefix("Vec[").and_then(|s| s.strip_suffix(']')) {
                                                 self.local.local_vec_handle.insert(field_ident.name.clone(), inner.to_string());
                                             }
+                                            // M65 Part 2 (json heap layer): record the
+                                            // DECLARED payload type with its generic args
+                                            // ("Map[Str, JsonValue]") so field reads that
+                                            // need concrete args (`entries.values[i]`)
+                                            // resolve through resolve_generic_field_vec_elem.
+                                            // Vec payloads keep local_vec_handle only --
+                                            // avoid double-typing the handle ABI.
+                                            if !fty.starts_with("Vec[") {
+                                                self.local.local_xiom_types.insert(field_ident.name.clone(), fty.to_string());
+                                            }
                                         }
                                     }
                                 }

@@ -4453,12 +4453,25 @@ fn e2e_safety_probe() {
 // M64 (CRT-layout #2): &mut [N]T param element-address lowering in Ref args.
 #[test] fn e2e_m64_crt_sortby_refargs() { assert_eq!(compile_and_run("tests\\regression\\m64_crt_sortby_refargs.xi"), Some(0)); }
 // M65a (json heap layer, write side): Map[Str, JsonValue] values must be
-// sized 112 bytes per slot (ctor mono substitution). IR-level regression --
-// the run-time shape (parse+get) is blocked on the map-value READ path
-// (Stage 2c Part 2; see COMPILER_BUGS.md json heap layer).
+// sized 112 bytes per slot (ctor mono substitution). IR-level regression.
 #[test] fn e2e_m65a_json_values_stride() {
     let ok = compile_and_check_ir("tests\\regression\\m65_json_map_enum_payload.xi", "store i64 112");
     assert!(ok, "Map[Str, JsonValue] values Vec must use 112-byte element stride");
+}
+// M65 (json heap layer Part 2, Stage 2c): enum payloads concretize
+// (Option__JsonValue = { tag, %struct.JsonValue }), the map value read takes
+// the struct-load path (memcpy at the runtime stride), and a pointer-self
+// method on a struct-value temporary materializes an alloca. Red pre-fix:
+// catalog json_get AV'd (0xC0000005) on the scalar tag inttoptr.
+#[test] fn e2e_m65_json_map_enum_payload() {
+    assert_eq!(compile_and_run("tests\\regression\\m65_json_map_enum_payload.xi"), Some(0));
+}
+#[test] fn e2e_m65b_json_get_concrete_option() {
+    let ok = compile_and_check_ir(
+        "tests\\regression\\m65_json_map_enum_payload.xi",
+        "%struct.Option__JsonValue = type { i64, %struct.JsonValue }",
+    );
+    assert!(ok, "Option[JsonValue] must concretize with the full enum payload field");
 }
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }

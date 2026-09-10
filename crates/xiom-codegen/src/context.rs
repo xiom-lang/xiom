@@ -173,6 +173,13 @@ pub struct TypeContext {
     /// so mono'd method bodies can substitute the concrete args ("V"->"MyVal")
     /// for struct/enum Vec-element reads/writes.
     pub generic_type_field_types: HashMap<String, Vec<(String, String)>>,
+    /// M65 Part 2 (2026-09-10): GENERIC type decls' parameter NAMES in
+    /// declaration order ("Map" -> ["K", "V"]), keyed by bare and qualified
+    /// type name. Needed to substitute a field's declared generic args
+    /// ("Vec[V]") when a concrete instantiation's full type string is known
+    /// ("Map[Str, JsonValue]") -- e.g. resolving `entries.values[i]` to the
+    /// JsonValue element type so the read takes the struct-load path.
+    pub generic_type_params: HashMap<String, Vec<String>>,
     /// Known function signatures: name -> (param_llvm_types, return_llvm_type_or_empty)
     pub functions: SyncRegistry<String, (Vec<String>, String)>,
     /// Declared XIOM return type per function key
