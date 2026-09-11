@@ -738,20 +738,14 @@ impl Checker {
                 // sorted wildcard fallback (Option.get before MyRc.get ->
                 // "cannot compare Option with Int").
                 let payload_ty = match (&scrutinee_type, pattern) {
-                    (CheckedType::Named(n), Pattern::Some(..)) if n.starts_with("Option[") => {
-                        Self::parse_generic_type(n)
-                            .and_then(|(_, args)| args.first().cloned())
-                            .map(|s| CheckedType::from_str(&s))
+                    (CheckedType::Named(n), Pattern::Some(..)) => {
+                        Self::container_arg(n, "Option", 0)
                     }
-                    (CheckedType::Named(n), Pattern::Ok(..)) if n.starts_with("Result[") => {
-                        Self::parse_generic_type(n)
-                            .and_then(|(_, args)| args.first().cloned())
-                            .map(|s| CheckedType::from_str(&s))
+                    (CheckedType::Named(n), Pattern::Ok(..)) => {
+                        Self::container_arg(n, "Result", 0)
                     }
-                    (CheckedType::Named(n), Pattern::Err(..)) if n.starts_with("Result[") => {
-                        Self::parse_generic_type(n)
-                            .and_then(|(_, args)| args.get(1).cloned())
-                            .map(|s| CheckedType::from_str(&s))
+                    (CheckedType::Named(n), Pattern::Err(..)) => {
+                        Self::container_arg(n, "Result", 1)
                     }
                     _ => None,
                 };
@@ -815,21 +809,22 @@ impl Checker {
     /// vec for non-tuple types (callers fall back to the old Int binding).
     fn parse_tuple_elem_types(ty: &CheckedType) -> Vec<CheckedType> {
         let CheckedType::Named(n) = ty else { return Vec::new(); };
-        let s = n.trim();
-        if s.starts_with('(') && s.ends_with(')') {
-            let inner = &s[1..s.len() - 1];
-            inner.split(',')
-                .map(|p| CheckedType::from_str(p.trim()))
-                .collect()
-        } else if let Some(rest) = s.strip_prefix("Tuple__") {
-            // registered form: "Tuple__Int__Str" -> [Int, Str] (split on the
-            // "__" separator; the first segment is the "Tuple" marker).
-            rest.split("__")
-                .map(|p| CheckedType::from_str(p))
-                .collect()
-        } else {
-            Vec::new()
+        // Stage 2c slice 2: the shared structural tuple splitter owns both
+        // spellings (parenthesized and the legacy `Tuple__A__B` encoding).
+        crate::structural::tuple_elem_names(n)
+            .map(|parts| parts.iter().map(|p| CheckedType::from_str(p)).collect())
+            .unwrap_or_default()
+    }
+
+    /// Stage 2c slice 2: the idx-th type argument of `base[...]` as a
+    /// CheckedType, decomposed by the shared structural parser. None for
+    /// non-containers, a different base, and out-of-range indexes.
+    fn container_arg(name: &str, base: &str, idx: usize) -> Option<CheckedType> {
+        let (b, args) = crate::structural::container_parts(name)?;
+        if b != base {
+            return None;
         }
+        args.get(idx).map(|a| CheckedType::from_str(a))
     }
 
     /// round-14 (tuple payloads): substitute generic PARAM tokens inside a
@@ -1729,7 +1724,7 @@ impl Checker {
         }
         // Generic containers: Option[T], Result[T,E], Vec[T] -- assume Send
         // for now (they own their data). Full generic analysis deferred.
-        if let Some((base, _params)) = Self::parse_generic_type(type_name) {
+        if let Some((base, _params)) = crate::structural::container_parts(type_name) {
             match base.as_str() {
                 "Option" | "Result" | "Vec" | "Map" | "Set" | "Deque"
                 | "HashMap" | "HashSet" | "BTreeMap" | "PriorityQueue"
@@ -1739,35 +1734,6 @@ impl Checker {
             }
         }
         false
-    }
-
-    /// Parse "Vec[Int]" -> ("Vec", ["Int"]), "Option[Result[Int,Str]]" -> ("Option", ["Result[Int,Str]"])
-    fn parse_generic_type(name: &str) -> Option<(String, Vec<String>)> {
-        if let Some(bracket) = name.find('[') {
-            let base = name[..bracket].to_string();
-            let inner = &name[bracket + 1..name.len() - 1];
-            // Split by top-level commas only
-            let mut params = Vec::new();
-            let mut depth = 0;
-            let mut current = String::new();
-            for ch in inner.chars() {
-                match ch {
-                    '[' => { depth += 1; current.push(ch); }
-                    ']' => { depth -= 1; current.push(ch); }
-                    ',' if depth == 0 => {
-                        params.push(current.trim().to_string());
-                        current.clear();
-                    }
-                    _ => current.push(ch),
-                }
-            }
-            if !current.is_empty() {
-                params.push(current.trim().to_string());
-            }
-            Some((base, params))
-        } else {
-            None
-        }
     }
 
     fn register_fn_signature(&mut self, item: &TopDecl) {
@@ -4124,13 +4090,9 @@ impl Checker {
                 // every name got the WHOLE tuple ("cannot compare
                 // Tuple__Int__Int with Int" on the first use). The codegen
                 // already extracts the fields; the checker must type them.
-                let elem_types: Vec<CheckedType> = match &val_ty {
-                    CheckedType::Named(n) if n.starts_with("Tuple__") => {
-                        let inner = &n["Tuple__".len()..];
-                        inner.split("__").map(|t| CheckedType::from_str(t)).collect()
-                    }
-                    _ => Vec::new(),
-                };
+                // Stage 2c slice 2: parse_tuple_elem_types now owns both the
+                // legacy `Tuple__A__B` and parenthesized spellings.
+                let elem_types: Vec<CheckedType> = Self::parse_tuple_elem_types(&val_ty);
                 if elem_types.len() == names.len() {
                     for (name, ty) in names.iter().zip(elem_types.iter()) {
                         self.add_local(&name.name, ty.clone());
@@ -4230,9 +4192,9 @@ impl Checker {
     /// BUG 23 #7 fix: derive the field map of a tuple type name
     /// ("Tuple__Bool__Bool" -> {_0: Bool, _1: Bool}). Tuple types only register
     /// at tuple-EXPRESSION check sites; catalog fn returns never did.
+    /// Stage 2c slice 2: the shared structural splitter owns both spellings.
     fn tuple_fields_from_name(name: &str) -> Option<HashMap<String, CheckedType>> {
-        let rest = name.strip_prefix("Tuple__")?;
-        let parts: Vec<&str> = rest.split("__").collect();
+        let parts = crate::structural::tuple_elem_names(name)?;
         if parts.len() < 2 {
             return None;
         }
@@ -4670,16 +4632,14 @@ impl Checker {
                 // ? unwraps Result[T,E] -> T or Option[T] -> T.
                 match &inner_ty {
                     CheckedType::Named(n)
-                        if n == "Result" || n == "Option" || n == "_"
-                            || n.starts_with("Result[") || n.starts_with("Option[") => {
+                        if crate::structural::is_result_or_option(n) => {
                         // P2-1: Validate that the enclosing function returns Result/Option.
                         let fn_returns_result_or_option = self.current_return.as_ref()
                             .map_or(false, |ret| match ret {
-                                CheckedType::Named(rn) => rn == "Result" || rn == "Option" || rn == "_"
-                                    || rn.starts_with("Result[") || rn.starts_with("Option["),
+                                CheckedType::Named(rn) => crate::structural::is_result_or_option(rn),
                                 _ => false,
                             });
-                        if !fn_returns_result_or_option && n != "_" {
+                        if !fn_returns_result_or_option && n.trim() != "_" {
                             self.error(
                                 format!("'?' operator used in function that returns '{}' -- must return Result or Option",
                                     self.current_return.as_ref().map_or("void".to_string(), |r| r.name())),
@@ -4983,11 +4943,11 @@ impl Checker {
                             // on ARITY so receiver+method generics (Result[T, E]
                             // methods with their own [F]) don't misalign.
                             if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() && method.name == "first_entry" {
-                                let pg = Self::parse_generic_type(type_name);
-                                eprintln!("[fe] type_name={type_name} generics={:?} ret={} parsed={:?}", sig.generics, ret_ty.name(), pg.map(|(b, a)| (b, a)));
+                                let pg = crate::structural::container_parts(type_name);
+                                eprintln!("[fe] type_name={type_name} generics={:?} ret={} parsed={:?}", sig.generics, ret_ty.name(), pg);
                             }
                             if !sig.generics.is_empty() {
-                                if let Some((_, recv_args)) = Self::parse_generic_type(type_name) {
+                                if let Some((_, recv_args)) = crate::structural::container_parts(type_name) {
                                     if recv_args.len() == sig.generics.len() {
                                         let subst: HashMap<String, CheckedType> = sig.generics.iter()
                                             .zip(recv_args.iter())
@@ -5592,8 +5552,12 @@ impl Checker {
                     // ONE level per index -- `m[1]` of Vec[Vec[Int]] is
                     // Vec[Int]; a SECOND index strips the next level (nested
                     // reads recurse through the nested Expr::Index).
-                    CheckedType::Named(name) if name.starts_with("Vec[") && name.ends_with(']') => {
-                        let inner = &name[4..name.len() - 1];
+                    CheckedType::Named(name) if crate::structural::is_container_base(name, "Vec") => {
+                        // Stage 2c slice 2: the shared structural parser owns
+                        // the bracket extraction (canonical arg rendering).
+                        let inner = crate::structural::container_parts(name)
+                            .and_then(|(_, args)| args.into_iter().next())
+                            .unwrap_or_else(|| name.clone());
                         // BUG 51 (2026-08-18): fn-typed elements
                         // (Vec[fn() -> Int]) must parse into a REAL Fn
                         // CheckedType -- from_str yields a bare Named
@@ -5618,19 +5582,21 @@ impl Checker {
                                 };
                                 CheckedType::Fn(params, Box::new(CheckedType::from_str(ret_part)))
                             } else {
-                                CheckedType::from_str(inner)
+                                CheckedType::from_str(&inner)
                             }
                         } else {
-                            CheckedType::from_str(inner)
+                            CheckedType::from_str(&inner)
                         }
                     }
                     // smoke_array_zip fix (2026-09-11): fixed arrays keep their
                     // element type ("Array[Tuple__Int__Int]"); indexing yields
                     // it so `zipped[0].0` resolves the tuple fields. A bare
                     // "Array" (legacy erasure) stays permissive.
-                    CheckedType::Named(name) if name.starts_with("Array[") && name.ends_with(']') => {
-                        let inner = &name[6..name.len() - 1];
-                        CheckedType::from_str(inner)
+                    CheckedType::Named(name) if crate::structural::is_container_base(name, "Array") => {
+                        crate::structural::container_parts(name)
+                            .and_then(|(_, args)| args.into_iter().next())
+                            .map(|a| CheckedType::from_str(&a))
+                            .unwrap_or(CheckedType::Int)
                     }
                     // BUG 29 (repro_opt_vec): wildcard receiver (`v` from
                     // `o.unwrap()` where o: Option[Vec[Str]]). Indexing must
@@ -7724,6 +7690,30 @@ fn main() -> Int { var x = 42; if true { let r = &x; } return x; }");
 type Wrapper = { val: Int; }\n\
 fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0; }");
         assert!(result.is_err(), "move while borrowed should error");
+    }
+
+    /// Stage 2c slice 2: the checker's compound-name consumers route through
+    /// structural.rs; canonical arg rendering is the observable contract
+    /// (spelling variants compare equal downstream).
+    #[test]
+    fn structural_compound_helpers_canonicalize() {
+        assert_eq!(
+            Checker::parse_tuple_elem_types(&CheckedType::Named("Tuple__Int__Str".into()))
+                .iter().map(|t| t.name()).collect::<Vec<_>>(),
+            vec!["Int".to_string(), "Str".to_string()]
+        );
+        assert_eq!(
+            Checker::parse_tuple_elem_types(&CheckedType::Named("(Int, Str)".into()))
+                .iter().map(|t| t.name()).collect::<Vec<_>>(),
+            vec!["Int".to_string(), "Str".to_string()]
+        );
+        let payload = Checker::container_arg("Option[Result[Int,Str]]", "Option", 0)
+            .expect("payload");
+        assert_eq!(payload.name(), "Result[Int, Str]");
+        assert_eq!(Checker::container_arg("Vec[Int]", "Map", 0), None);
+        assert_eq!(Checker::container_arg("Vec[Int]", "Vec", 1), None);
+        assert!(Checker::tuple_fields_from_name("Tuple__Bool__Bool").is_some());
+        assert!(Checker::tuple_fields_from_name("Int").is_none());
     }
 
     /// 8B/M5: Fuzz harness -- random type combinations, verify TypeArena integrity.

@@ -153,6 +153,21 @@ Locks: stdlib_exec_error2_runs (the former flake is now a permanent gate)
 Gates: e2e 2312/2312, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
 checker 182/182.
 
+### Round-48 (2026-09-11): Stage 2c slice 2 -- single structural parser in the checker
+
+Compiler lane, Stage 2c follow-on. structural.rs grew `container_parts`
+(canonical arg renderings), `is_container_base`, `tuple_elem_names` (both
+the parenthesized and legacy `Tuple__A__B` spellings, depth-aware) and
+`is_result_or_option`; lib.rs deleted its last hand-rolled parser
+(`parse_generic_type`) and routed `is_send`, pattern payload binding
+(`container_arg`), `parse_tuple_elem_types`, the destructure arm,
+`tuple_fields_from_name`, the `?` classifier and the Vec/Array index arms
+through the shared helpers. Compound extraction now feeds canonical
+`", "` spellings into `CheckedType::from_str`, so spelling variants produce
+identical CheckedTypes. 3 new tests. Gates: checker 195/195, feature-reg
+510/510, stdlib-exec 85/85 (+2 ign), e2e 2316/2316. Next 2c slices:
+`CheckedType::Named(TypeId)` storage, then canonical codegen type keys.
+
 ### Round-47 (2026-09-11): LET-array P3 FIXED -- let literals bind fixed arrays
 
 Compiler lane, completing docs/LET_ARRAY_DECISION.md. Unannotated
@@ -384,7 +399,11 @@ What is left is staged readiness work, not bug triage:
    Target: symbol interning + structural type identity so bare-name
    collisions and container-identity edge cases stop needing per-site
    patches (the R5/R6 catalog collision and the container ABI bridges are
-   the current stopgaps).
+   the current stopgaps). [DONE round 39: structural.rs parser + arena
+   core; DONE round 48: single parser wired through every checker consumer
+   (container_parts/tuple_elem_names/is_container_base) + canonical
+   decomposition renderings. REMAINING: `CheckedType::Named(TypeId)`
+   storage, get_type arena routing, canonical codegen type keys.]
 3. ITEM A FLIP (Stage 3): catalog-body findings are still WARNINGS; the
    flip to hard errors is gated on the stdlib corpus being clean
    (~1.5k-4.5k findings per stdlib compile). Shared with the stdlib lane --
@@ -458,19 +477,22 @@ DISCIPLINE TRAPS (learned this campaign, keep honoring):
 
 You are continuing the AXIOM compiler-lane readiness campaign in
 E:\Projects\AXIOM on branch feat/architect. Read docs/SESSION.md
-(the rounds 38-47 entries + COMPILER-LANE REMAINING QUEUE) and
+(the rounds 38-48 entries + COMPILER-LANE REMAINING QUEUE) and
 docs/COMPILER_BUGS.md first; COMPILER_READINESS_PLAN.md holds the stage
 definitions; docs/LET_ARRAY_DECISION.md and docs/JSON_DIAGNOSTICS_V1.md
-are current design records. Current state (HEAD: round-47 LET-array P3):
-all known compiler-catalogue red smokes GREEN, the last flake
+are current design records. Current state (HEAD: round-48 Stage 2c slice
+2): all known compiler-catalogue red smokes GREEN, the last flake
 (smoke_error2 has-mid) root-caused and locked; last gates e2e 2316/2316,
-feature-reg 510/510, stdlib-exec 85/85 (+2 ign), checker 192/192, xiom lib
+feature-reg 510/510, stdlib-exec 85/85 (+2 ign), checker 195/195, xiom lib
 20/20, fmt 83/83, lsp 42/42, jit 5/5. The stdlib session works in parallel
 on stdlib/** only and reports roadblocks in chat + COMPILER_BUGS.md.
 
 DONE since the previous prompt: smoke_error2 (HashMap-ordered type_meta
 suffix shadowing; order-independent field scan), Stage 2c slice 1
-(structural.rs parser + real TypeArena interning), LET-array decision doc
+(structural.rs parser + real TypeArena interning) and slice 2 (single
+parser wired through every checker consumer -- container_parts,
+tuple_elem_names, is_container_base; parse_generic_type deleted; canonical
+decomposition renderings), LET-array decision doc
 + ALL of P1 (annotated [N]T bindings, float element reads), P2 (user-fn
 `&[N]T`/`&mut [N]T` params now element pointers -- a catalog call inside the
 callee no longer mono's the illegal `array.len_[3 x i64]_3` symbol) and P3
@@ -486,7 +508,8 @@ Your task, in order:
 1. Stage 2c follow-on slices: `CheckedType::Named(TypeId)` storage,
    route get_type's bare-name fallback through the arena, move the codegen
    type keys onto the same canonical form (the structural core landed in
-   round 39; keep the container/ABI bridges working).
+   round 39 and the single-parser wiring in round 48; keep the
+   container/ABI bridges working).
 2. Stage 3 ITEM A FLIP: re-measure catalog-body findings after the stdlib
    dedup rounds; flip to hard errors when clean.
 3. Stage 5 remainder: LSP incremental reparse/cross-file index; dbg async

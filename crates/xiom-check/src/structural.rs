@@ -208,6 +208,91 @@ pub fn canonical_type_name(name: &str) -> String {
     parse_type_shape(name).to_string()
 }
 
+/// Container decomposition: `"Option[Result[Int, Str]]"` ->
+/// `("Option", ["Result[Int, Str]"])`. Returns None for non-containers,
+/// bare names, pointers, wildcards, units, malformed ([`TypeShape::Opaque`])
+/// text and tuples. Argument renderings are CANONICAL (structural Display),
+/// which is what makes `"Map[Str,Vec[Int]]"` and `"Map[Str, Vec[Int]]"`
+/// identical to every consumer.
+pub fn container_parts(name: &str) -> Option<(String, Vec<String>)> {
+    match parse_type_shape(name) {
+        TypeShape::Named { base, args } if !args.is_empty() => {
+            Some((base, args.iter().map(|a| a.to_string()).collect()))
+        }
+        _ => None,
+    }
+}
+
+/// True when `name` is a container whose BASE is `base` (`"Vec[Int]"` for
+/// `base = "Vec"`). Bare names and malformed text are false; use
+/// [`TypeShape::base`] when bare forms must also match.
+pub fn is_container_base(name: &str, base: &str) -> bool {
+    matches!(
+        parse_type_shape(name),
+        TypeShape::Named { base: b, args } if !args.is_empty() && b == base
+    )
+}
+
+/// True for the `Result`/`Option` containers (bare or with arguments) plus
+/// the checker's `_` placeholder -- the classifier behind the `?` operator.
+pub fn is_result_or_option(name: &str) -> bool {
+    if name.trim() == "_" {
+        return true;
+    }
+    matches!(
+        parse_type_shape(name),
+        TypeShape::Named { base, .. } if base == "Result" || base == "Option"
+    )
+}
+
+/// Split a tuple type name into its element type renderings, accepting BOTH
+/// spellings the checker produces:
+/// - the parenthesized form `"(Int, Str)"` (depth-aware comma split, so
+///   nested brackets/parens survive);
+/// - the legacy registered form `"Tuple__Int__Str"` (double-underscore
+///   separator, first segment is the `Tuple` marker).
+///
+/// Returns None for non-tuples, malformed text and single-element legacy
+/// text (the historical `< 2` parts guard). Elements are canonical.
+pub fn tuple_elem_names(name: &str) -> Option<Vec<String>> {
+    let text = name.trim();
+    if let Some(inner) = text.strip_prefix('(').and_then(|r| r.strip_suffix(')')) {
+        let mut out = Vec::new();
+        let mut depth = 0i32;
+        let mut current = String::new();
+        for ch in inner.chars() {
+            match ch {
+                '[' | '(' => { depth += 1; current.push(ch); }
+                ']' | ')' => { depth -= 1; current.push(ch); }
+                ',' if depth == 0 => {
+                    let arg = current.trim();
+                    if !arg.is_empty() {
+                        out.push(parse_type_shape(arg).to_string());
+                    }
+                    current.clear();
+                }
+                _ => current.push(ch),
+            }
+        }
+        let arg = current.trim();
+        if !arg.is_empty() {
+            out.push(parse_type_shape(arg).to_string());
+        }
+        if out.is_empty() {
+            return None;
+        }
+        return Some(out);
+    }
+    let rest = text.strip_prefix("Tuple__")?;
+    let parts: Vec<String> = rest.split("__")
+        .map(|p| parse_type_shape(p).to_string())
+        .collect();
+    if parts.len() < 2 {
+        return None;
+    }
+    Some(parts)
+}
+
 /// True when the text is a single uppercase generic parameter name.
 /// Shared with the checker's scalar rules (T, K, V -- not Ty).
 pub fn is_generic_param_name(text: &str) -> bool {
@@ -308,6 +393,44 @@ mod tests {
         assert_eq!(args[1].base(), "Str");
         assert!(parse_type_arg_list("").is_empty());
         assert_eq!(parse_type_arg_list("Int").len(), 1);
+    }
+
+    #[test]
+    fn container_parts_decomposes_and_canonicalizes() {
+        let (base, args) = container_parts("Option[Result[Int,Str]]").expect("container");
+        assert_eq!(base, "Option");
+        assert_eq!(args, vec!["Result[Int, Str]".to_string()]);
+        let (base, args) = container_parts(" Map[ Str ,Vec[Int]] ").expect("container");
+        assert_eq!(base, "Map");
+        assert_eq!(args, vec!["Str".to_string(), "Vec[Int]".to_string()]);
+        assert!(container_parts("Int").is_none());
+        assert!(container_parts("Vec").is_none());
+        assert!(container_parts("*T").is_none());
+        assert!(container_parts("Vec[Int").is_none());
+        assert!(container_parts("Tuple__Int__Str").is_none());
+        assert!(is_container_base("Vec[Int]", "Vec"));
+        assert!(!is_container_base("Vec", "Vec"));
+        assert!(!is_container_base("Vec[Int]", "Map"));
+    }
+
+    #[test]
+    fn tuple_elem_names_both_spellings() {
+        assert_eq!(
+            tuple_elem_names("(Int, Str)").unwrap(),
+            vec!["Int".to_string(), "Str".to_string()]
+        );
+        assert_eq!(
+            tuple_elem_names("Tuple__Int__Str").unwrap(),
+            vec!["Int".to_string(), "Str".to_string()]
+        );
+        // Depth-aware: nested tuple parens survive the split.
+        assert_eq!(
+            tuple_elem_names("(K, (A, B))").unwrap(),
+            vec!["K".to_string(), "(A, B)".to_string()]
+        );
+        assert!(tuple_elem_names("Int").is_none());
+        assert!(tuple_elem_names("Tuple__Int").is_none());
+        assert!(tuple_elem_names("()").is_none());
     }
 
     #[test]
