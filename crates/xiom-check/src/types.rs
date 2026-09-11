@@ -137,7 +137,13 @@ impl CheckedType {
                 let inner_name = CheckedType::from_ast_type(inner).name();
                 CheckedType::Named(format!("*{}", inner_name))
             },
-            Type::Array(_, _) => CheckedType::Named("Array".into()),
+            // smoke_array_zip fix (2026-09-11): keep the ELEMENT type so
+            // `zipped[0]` can resolve the tuple and `.0` type-checks.
+            // Previously every array erased to "Array" and indexing yielded Int.
+            Type::Array(_, elem) => CheckedType::Named(format!(
+                "Array[{}]",
+                CheckedType::from_ast_type(elem).name()
+            )),
             Type::Fn(params, ret) => CheckedType::Fn(
                 params.iter().map(CheckedType::from_ast_type).collect(),
                 Box::new(CheckedType::from_ast_type(ret)),

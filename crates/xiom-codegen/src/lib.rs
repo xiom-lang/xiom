@@ -1565,6 +1565,19 @@ impl IrEmitter {
             Type::Vec(inner) => format!("Vec[{}]", Self::type_from_ast_with_args(inner)),
             Type::Map(k, v) => format!("Map[{},{}]", Self::type_from_ast_with_args(k), Self::type_from_ast_with_args(v)),
             Type::Set(inner) => format!("Set[{}]", Self::type_from_ast_with_args(inner)),
+            // R10 (2026-09-11): preserve Option/Result args so nested
+            // containers in struct fields resolve ("Vec[Option[M2]]" kept the
+            // inner "M2" -- dropping it made `c.groups[i]` memcpy an OPAQUE
+            // %struct.Option (16 bytes) from a 32-byte Option__M2 slot and
+            // then unbox the tag as a pointer -> AV 0x10). llvm_type_for
+            // erases these strings to %struct.Option/%struct.Result for
+            // layout, so this is layout-neutral.
+            Type::Option(inner) => format!("Option[{}]", Self::type_from_ast_with_args(inner)),
+            Type::Result(ok, err) => format!(
+                "Result[{},{}]",
+                Self::type_from_ast_with_args(ok),
+                Self::type_from_ast_with_args(err)
+            ),
             // B-007: keep a "fn(...)" MARKER for fn-typed fields/elements so
             // closure-valued container elements (Vec[fn()]) can be detected at
             // binding/call time -- the ABI still erases to i64.
@@ -2859,6 +2872,20 @@ impl IrEmitter {
                             if fname == &field_expr.name {
                                 if let Some(inner) = ftype.strip_prefix("Vec[") {
                                     if let Some(bare_name) = inner.strip_suffix(']') {
+                                        // R10 (2026-09-11): bracketed CONTAINER
+                                        // elements ("Option[M2]") keep their name
+                                        // -- the index site maps them to the
+                                        // concrete/erased struct. The old
+                                        // types.keys-only lookup returned None
+                                        // and the read fell to the scalar path.
+                                        if bare_name.starts_with("Option[")
+                                            || bare_name.starts_with("Result[")
+                                            || bare_name.starts_with("Vec[")
+                                            || bare_name.starts_with("Map[")
+                                            || bare_name.starts_with("Set[")
+                                        {
+                                            return Some(bare_name.to_string());
+                                        }
                                         // Only return if this is a known struct type
                                         // (not a primitive like Int, Str, Bool, etc.)
                                         if let Some(qualified) = self.types.types.keys().into_iter()
@@ -2871,7 +2898,8 @@ impl IrEmitter {
                             }
                         }
                     }
-                    break;
+                    // Do NOT break on the first matching key: a stale/qualified
+                    // key without the field must not stop the scan (R10).
                 }
             }
         }

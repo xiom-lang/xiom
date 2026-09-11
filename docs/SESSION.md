@@ -101,6 +101,121 @@ REMAINING QUEUE (pre-scoped for the next compiler session):
    from here).
 6. Stages 6-7: perf program + selfhost gate checklist.
 
+### Round-37 (2026-09-11): R8 follow-up + R10 FIXED -- method sugar + nested container args
+
+Compiler lane. R8 follow-up (`s.trim()` -> len=0xFFFFFFFF): codegen routes
+Str method sugar to the canonical stdlib symbols
+(@string.str_trim/@trim.str_trim_start|_end/@lowercase.str_lowercase/
+@uppercase.str_uppercase) with receiver deref; the checker's reference walk
+seeds those leaves so their BODIES survive the injection reachability
+filter; the PRELUDE force-loads xiom.string.trim/lowercase/uppercase.
+R10 (`Vec[Option[struct-with-Str]]` reads AV; Captures.get):
+type_from_ast_with_args now preserves nested Option/Result args in struct
+fields; resolve_vec_elem_type's Field arm returns bracketed container
+elements; the type_meta field scan no longer breaks on the first matching
+key. Flips: smoke_stress_regex_captures_get + p_cap_mirror + p_trim_sugar.
+Locks: e2e_m65_str_method_sugar, e2e_m65_vec_option_struct_str,
+stdlib_exec_regex_captures_get_runs.
+Gates: e2e 2311/2311, feature-reg 510/510, stdlib-exec 84/84 (+2 ign),
+checker 182/182.
+
+### COMPILER-LANE REMAINING QUEUE (post round-37, 2026-09-11)
+
+STATE: every compiler-catalogue red smoke reported by the stdlib lane is
+now GREEN (R1-R10 follow-ups, CRT family, stack-cookie/KDF, json Part 2,
+regex family, ptr_offset, convert_escape, array_zip, hash_values/io arity
+handoffs resolved stdlib-side). No known red compiler smoke remains.
+What is left is staged readiness work, not bug triage:
+
+1. FLAKY smoke_error2 (stdlib lane note: "known flaky error2") -- triage
+   whether codegen/layout nondeterminism is still involved. Probe first.
+2. Stage 2c STRUCTURAL TypeId/interning (audit #6, the last big
+   structural item). json Part 2 / R7 / R10 were its entry deliverables.
+   Target: symbol interning + structural type identity so bare-name
+   collisions and container-identity edge cases stop needing per-site
+   patches (the R5/R6 catalog collision and the container ABI bridges are
+   the current stopgaps).
+3. ITEM A FLIP (Stage 3): catalog-body findings are still WARNINGS; the
+   flip to hard errors is gated on the stdlib corpus being clean
+   (~1.5k-4.5k findings per stdlib compile). Shared with the stdlib lane --
+   re-measure the count after their dedup/cleanup rounds.
+4. Stage 4 remainder:
+   - JIT honesty (#17): implement state migration or honestly descope the
+     claim; guard DLL-unload liveness.
+   - LET-array representation JOINT decision with the stdlib session
+     (let-array-as-Vec vs &[N]T; decision doc requested by their lane).
+5. Stage 5 remainder:
+   - watchdog cancellation (#12: process::exit from worker threads ->
+     cancellation token; xiom.toml timeout-secs CLI-only until then)
+   - LSP UTF-16 positions via the span table + mutex-poison recovery +
+     incremental reparse/cross-file index
+   - fmt: comment/shebang preservation + string-literal escaping on
+     re-emit (trivia now available)
+   - dbg: async MI reader + .xi DWARF mapping
+   - shared JSON diagnostics v1 schema (LSP/MCP/CI)
+   - workspace version policy + MSRV declaration + cargo-deny/vet
+   - cargo-fuzz targets + ASAN/UBSAN CI
+   - supply chain beyond the closed core: ed25519 signatures + trust
+     model, lockfile v2, git installs pinned to commits, authenticated
+     publish (pre-registry)
+   - driver clap-based arg parsing (wasm/arm/riscv filenames currently
+     dropped by the manual parser)
+6. Stage 6 PERFORMANCE program: incremental engine, parallel mono,
+   linker strategy, benchmark CI budgets.
+7. Stage 7 SELFHOST GATE: zero-ICE self-build, >=1M fuzz execs,
+   -O0/-O2/-O3 differential, release-binary suites, Rust-bootstrap
+   equivalence harness.
+8. AFTER readiness: repo split + registry phase (user has the plan and
+   domains; test toolchains/registry in a real environment before the
+   selfhost stage).
+
+DISCIPLINE TRAPS (learned this campaign, keep honoring):
+- Judge checker/codegen changes ONLY on a FRESHLY REBUILT canonical
+  target/debug/xiom.exe; stale binaries produced phantom failures twice.
+- Isolated build: $env:CARGO_TARGET_DIR="$env:TEMP\kilo\tgt_iso"; cargo
+  build -p xiom; Remove-Item Env:CARGO_TARGET_DIR (never disturb the
+  parallel stdlib session's target/).
+- NEVER edit stdlib/** (other lane). Probes go in tmp/bug_probes.
+- Red-green every fix: reproduce red on HEAD, then flip green; add a
+  lock (e2e + stdlib-exec where applicable).
+- Suites sequentially: checker, feature-reg, stdlib-exec, full e2e
+  (~19 min). NEVER run two suites concurrently.
+- ascii_guard on commit may repair stdlib-lane files; leave those
+  unstaged for that lane.
+- Docs coupling: every code change lands with COMPILER_BUGS.md +
+  docs/SESSION.md in the same commit.
+
+### PROMPT FOR THE NEXT COMPILER SESSION (paste-ready)
+
+You are continuing the AXIOM compiler-lane readiness campaign in
+E:\Projects\AXIOM on branch feat/architect. Read docs/SESSION.md
+(COMPILER-LANE REMAINING QUEUE post round-37) and docs/COMPILER_BUGS.md
+first; COMPILER_READINESS_PLAN.md holds the stage definitions. Current
+state: HEAD has all known compiler-catalogue red smokes GREEN (last gates
+e2e 2311/2311, feature-reg 510/510, stdlib-exec 84/84, checker 182/182).
+The stdlib session works in parallel on stdlib/** only and reports
+roadblocks in chat + COMPILER_BUGS.md.
+
+Your task, in order:
+1. Triage the flaky smoke_error2 (reproduce with an isolated build; if it
+   hides a codegen/layout nondeterminism, fix + lock; else document and
+   drop it).
+2. Begin Stage 2c structural TypeId/interning per the readiness plan;
+   keep the container/ABI bridges working (they are the current
+   stopgaps).
+3. Continue the stage queue in order: JIT honesty + LET-array decision,
+   Stage 5 remainder (watchdog, LSP, fmt, dbg, diagnostics, supply
+   chain), Stage 6 perf, Stage 7 selfhost gate.
+
+Working discipline: isolated build
+($env:CARGO_TARGET_DIR="$env:TEMP\kilo\tgt_iso"; cargo build -p xiom;
+Remove-Item Env:CARGO_TARGET_DIR), probes in tmp/bug_probes, red-green
+proofs, atomic conventional commits with docs in the same commit,
+ascii_guard, canonical fresh rebuild before judging any change, suites
+sequentially (checker, feature-reg, stdlib-exec, full e2e), never edit
+stdlib/**. Start by reporting the current git state and the gates at
+HEAD, then continue the queue.
+
 ### Round-36 (2026-09-11): array_zip FIXED -- fixed-array tuple elements
 
 Compiler lane. Three roots (full map in COMPILER_BUGS.md):

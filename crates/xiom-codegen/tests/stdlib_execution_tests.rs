@@ -202,6 +202,15 @@ fn stdlib_exec_array_zip_runs() {
     assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_array_zip.xi"), Some(0), "array zip smoke failed to run/return 0");
 }
 
+// R10 (2026-09-11): Captures.get reads Vec[Option[Match]] elements; the
+// element read used the opaque Option layout and unboxed the tag as a
+// pointer (AV 0x10). Nested container args in struct fields are preserved
+// and the field-element scan spans all matching type_meta keys.
+#[test]
+fn stdlib_exec_regex_captures_get_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_stress_regex_captures_get.xi"), Some(0), "regex captures get smoke failed to run/return 0");
+}
+
 #[test]
 fn stdlib_exec_num_runs() {
     assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_num.xi"), Some(0), "num smoke failed to run/return 0");
