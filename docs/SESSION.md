@@ -153,6 +153,39 @@ Locks: stdlib_exec_error2_runs (the former flake is now a permanent gate)
 Gates: e2e 2312/2312, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
 checker 182/182.
 
+### Round-39 (2026-09-11): Stage 2c STARTED -- structural type identity core
+
+Compiler lane, first Stage 2c slice (audit #6's remaining structural item;
+the json Part 2 / R7 / R10 entry deliverables landed earlier). The checker
+encoded compound types as strings and every consumer split them by hand
+(`split_once('[')`, `contains('[')`), which is the class the R5/R6
+bare-name collisions and the container ABI bridges came from.
+
+Landed:
+- NEW `crates/xiom-check/src/structural.rs`: the single bracket-aware
+  parser for checker type names. `TypeShape` (Named/Pointer/Generic/Unit/
+  Wildcard/Opaque), `parse_type_shape` (whitespace-tolerant, never
+  panics; malformed text -> Opaque so equality stays exact),
+  `parse_type_arg_list` (depth-0 comma split), `canonical_type_name`
+  ("Result[Int,Str]" -> "Result[Int, Str]"), plus 7 unit tests.
+- `TypeArena` is now USED for real: `intern_type_name(name)` canonicalizes
+  structurally and derives `contains_param` from the parsed shape
+  (previously the arena was designed-but-unused infrastructure); 3 tests
+  prove structural dedup ("Result[Int,Str]" == "Result[Int, Str]") and
+  generic-param tracking.
+- `types_compatible`'s same-base container branch and the AUDIT #6
+  promotion helper (`container_args_compatible` -> `type_arg_compatible` /
+  `type_arg_list_compatible`) now run on parsed shapes; the dead
+  `container_base` string hack is DELETED.
+
+Behavior-preserving by construction (the promotion matrix is unchanged);
+proved by the suites. Gates: checker 192/192 (+10 new), feature-reg
+510/510, stdlib-exec 85/85 (+2 ign), e2e 2312/2312.
+
+NEXT 2c slices: intern the checker's `CheckedType::Named` storage itself
+(Named(TypeId)), route `get_type` bare-name fallback through the arena,
+then move the codegen type keys onto the same canonical form.
+
 ### COMPILER-LANE REMAINING QUEUE (post round-38, 2026-09-11)
 
 STATE: every compiler-catalogue red smoke reported by the stdlib lane is

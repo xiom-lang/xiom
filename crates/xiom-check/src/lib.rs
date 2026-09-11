@@ -8,9 +8,11 @@
 
 use xiom_ast::*;
 use std::collections::{HashMap, HashSet};
+use crate::structural::TypeShape;
 use crate::types::{TypeArena, TypeId};
 
 pub mod types;
+pub mod structural;
 pub mod catalog;
 pub mod borrow;
 
@@ -672,19 +674,6 @@ impl Checker {
             }
         }
         self.types.contains_key(name)
-    }
-
-    /// Strip element-type bracket from an encoded container name.
-    /// `"Vec[Int]"` -> `("Vec", Some("Int"))`, `"Vec"` -> `("Vec", None)`.
-    #[allow(dead_code)]
-    fn container_base<'a>(name: &'a str) -> (&'a str, Option<&'a str>) {
-        if let Some(bracket) = name.find('[') {
-            let base = &name[..bracket];
-            let inner = &name[bracket + 1..name.len() - 1]; // strip trailing ']'
-            (base, Some(inner))
-        } else {
-            (name, None)
-        }
     }
 
     fn add_pattern_bindings(&mut self, pattern: &Pattern, scrutinee_type: &CheckedType) {
@@ -6061,87 +6050,46 @@ impl Checker {
         current
     }
 
-    /// AUDIT #6 FIX helper: recursive container-arg agreement with SCALAR
-    /// promotion rules. "Int" vs "UInt8" passes (literal promotion);
-    /// "Int" vs "Str" fails; nested containers recurse. Top-level commas
-    /// are split bracket-aware so Result[Vec[Int], Str] compares correctly.
-    fn container_args_compatible(a: &str, b: &str) -> bool {
-        if a == b { return true; }
-        let split = |s: &str| -> Vec<String> {
-            let mut out = Vec::new();
-            let mut depth = 0i32;
-            let mut cur = String::new();
-            for ch in s.chars() {
-                match ch {
-                    '[' => { depth += 1; cur.push(ch); }
-                    ']' => { depth -= 1; cur.push(ch); }
-                    ',' if depth == 0 => {
-                        let t = cur.trim();
-                        if !t.is_empty() { out.push(t.to_string()); }
-                        cur.clear();
-                    }
-                    _ => cur.push(ch),
-                }
+    /// One structural type argument vs another, mirroring the scalar matrix
+    /// from the AUDIT #6 fix: "Int" vs "UInt8" passes (literal promotion);
+    /// "Int" vs "Str" fails; nested containers recurse. Stage 2c: parsed
+    /// through the single structural parser instead of ad-hoc bracket
+    /// surgery.
+    fn type_arg_compatible(x: &TypeShape, y: &TypeShape) -> bool {
+        // Nested containers recurse; bare-vs-parameterized NESTED args
+        // (Result vs Result[Int, Int]) stay tolerant -- the bare side erased
+        // its args in a legacy flow, mirroring the top-level rule.
+        if x.is_container() || y.is_container() {
+            if x.is_container() && y.is_container() {
+                return x.base() == y.base()
+                    && Self::type_arg_list_compatible(x.args(), y.args());
             }
-            let t = cur.trim();
-            if !t.is_empty() { out.push(t.to_string()); }
-            out
-        };
-        let pa = split(a);
-        let pb = split(b);
-        if pa.len() != pb.len() { return false; }
-        for (x, y) in pa.iter().zip(pb.iter()) {
-            let (x, y) = (x.trim(), y.trim());
-            // nested container -> recurse
-            if x.contains('[') || y.contains('[') {
-                if x.contains('[') && y.contains('[') {
-                    let (bx, ax) = x.split_once('[').unwrap_or((x, ""));
-                    let (by, ay) = y.split_once('[').unwrap_or((y, ""));
-                    if bx != by || !Self::container_args_compatible(ax, ay) {
-                        return false;
-                    }
-                } else {
-                    // Bare-vs-parameterized NESTED arg (Result vs
-                    // Result[Int, Int]): the bare side erased its args in
-                    // a legacy flow -- tolerant, mirroring the top-level
-                    // rule.
-                    continue;
-                }
-                continue;
-            }
-            // Wildcard inner args: Option[_] is context-adaptable.
-            if x == "_" || y == "_" {
-                continue;
-            }
-            // Generic type parameters (T, U, *T): compatible with anything --
-            // mirrors the scalar matrix (math_tower passes Vec[Int] to Vec[T]).
-            let is_generic = |s: &str| -> bool {
-                let inner = s.strip_prefix('*').unwrap_or(s);
-                inner.len() == 1 && inner.chars().next().map_or(false, |c| c.is_ascii_uppercase())
-            };
-            if is_generic(x) || is_generic(y) { continue; }
-            // Empty/unit payloads: bare `None` infers Option[()] -- its
-            // payload is context-adaptable, like integer literals.
-            if x.is_empty() || y.is_empty() || x == "()" || y == "()" {
-                continue;
-            }
-            // Tuple-typed args: broad compat, mirrors the scalar matrix
-            // (the exact tuple shape is a structural-types item).
-            if x.starts_with("Tuple") || y.starts_with("Tuple") { continue; }
-            // Pointer-to-pointer, mirrors the scalar matrix.
-            if (x.starts_with('*') || x == "Ptr") && (y.starts_with('*') || y == "Ptr") {
-                continue;
-            }
-            let cx = CheckedType::from_str(x);
-            let cy = CheckedType::from_str(y);
-            let same = cx == cy;
-            let num_promo = (cx.is_numeric() || cx == CheckedType::Bool)
-                && (cy.is_numeric() || cy == CheckedType::Bool);
-            if !same && !num_promo {
-                return false;
-            }
+            return true;
         }
-        true
+        // Wildcard inner args: Option[_] is context-adaptable.
+        if x.is_wildcard() || y.is_wildcard() { return true; }
+        // Generic type parameters (T, U, *T): compatible with anything --
+        // mirrors the scalar matrix (math_tower passes Vec[Int] to Vec[T]).
+        if x.is_generic_param() || y.is_generic_param() { return true; }
+        // Empty/unit payloads: bare `None` infers Option[()] -- its
+        // payload is context-adaptable, like integer literals.
+        if x.is_empty() || y.is_empty() || x.is_unit() || y.is_unit() { return true; }
+        // Tuple-typed args: broad compat, mirrors the scalar matrix
+        // (the exact tuple shape is a structural-types item).
+        if x.is_tuple_like() || y.is_tuple_like() { return true; }
+        // Pointer-to-pointer, mirrors the scalar matrix.
+        if x.is_pointer_like() && y.is_pointer_like() { return true; }
+        let cx = CheckedType::from_str(&x.scalar_name());
+        let cy = CheckedType::from_str(&y.scalar_name());
+        cx == cy
+            || ((cx.is_numeric() || cx == CheckedType::Bool)
+                && (cy.is_numeric() || cy == CheckedType::Bool))
+    }
+
+    /// Element-wise structural agreement for two parsed argument lists.
+    fn type_arg_list_compatible(a: &[TypeShape], b: &[TypeShape]) -> bool {
+        a.len() == b.len()
+            && a.iter().zip(b.iter()).all(|(x, y)| Self::type_arg_compatible(x, y))
     }
     fn types_compatible(&self, found: &CheckedType, expected: &CheckedType) -> bool {
         // Phase 7E/Feature: Resolve type aliases so newtypes auto-convert
@@ -6176,13 +6124,13 @@ impl Checker {
         // type error, not a silent pass. (Bare-vs-parameterized stays
         // compatible: one side erased its args in a legacy flow.)
         if let (CheckedType::Named(a), CheckedType::Named(b)) = (found, expected) {
-            let (base_a, mut args_a) = a.split_once('[').unwrap_or((a.as_str(), ""));
-            let (base_b, mut args_b) = b.split_once('[').unwrap_or((b.as_str(), ""));
-            args_a = args_a.strip_suffix(']').unwrap_or(args_a);
-            args_b = args_b.strip_suffix(']').unwrap_or(args_b);
-            if base_a == base_b {
-                if !args_a.is_empty() && !args_b.is_empty()
-                    && !Self::container_args_compatible(args_a, args_b)
+            // Stage 2c: structural container identity -- parse once through
+            // the shared bracket-aware parser instead of split_once('[').
+            let sa = crate::structural::parse_type_shape(a);
+            let sb = crate::structural::parse_type_shape(b);
+            if sa.base() == sb.base() {
+                if !sa.args().is_empty() && !sb.args().is_empty()
+                    && !Self::type_arg_list_compatible(sa.args(), sb.args())
                 {
                     return false;
                 }

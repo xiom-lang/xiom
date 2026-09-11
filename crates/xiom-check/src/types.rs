@@ -51,10 +51,38 @@ impl TypeArena {
         &self.names[id.0 as usize]
     }
 
+    /// Stage 2c: intern a type NAME structurally. Whitespace/format variants
+    /// of the same structure ("Result[Int,Str]" vs "Result[Int, Str]") share
+    /// one TypeId, and `contains_param` is derived from the parsed shape
+    /// instead of being supplied by the caller.
+    pub fn intern_type_name(&mut self, name: &str) -> TypeId {
+        let canonical = crate::structural::canonical_type_name(name);
+        let contains = type_shape_contains_param(
+            &crate::structural::parse_type_shape(&canonical)
+        );
+        self.intern(&canonical, contains)
+    }
+
+    /// Canonical spelling of a type name (structural identity form).
+    pub fn canonical_name(name: &str) -> String {
+        crate::structural::canonical_type_name(name)
+    }
+
     /// True when the type (or any nested type) contains a generic parameter.
     /// Monomorphisation skips `contains_param` == false in O(1).
     pub fn contains_param(&self, id: TypeId) -> bool {
         self.contains_param[id.0 as usize]
+    }
+}
+
+/// True when a parsed shape contains a generic parameter anywhere.
+pub fn type_shape_contains_param(shape: &crate::structural::TypeShape) -> bool {
+    use crate::structural::TypeShape;
+    match shape {
+        TypeShape::Generic(_) => true,
+        TypeShape::Pointer(inner) => type_shape_contains_param(inner),
+        TypeShape::Named { args, .. } => args.iter().any(type_shape_contains_param),
+        _ => false,
     }
 }
 
@@ -361,5 +389,38 @@ pub struct CheckError {
 impl fmt::Display for CheckError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} at {}: {}", self.cause, self.span, self.message)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn interning_canonicalizes_structural_variants() {
+        let mut arena = TypeArena::new();
+        let a = arena.intern_type_name("Result[Int,Str]");
+        let b = arena.intern_type_name("Result[Int, Str]");
+        let c = arena.intern_type_name(" Result[ Int , Str ] ");
+        assert_eq!(a, b);
+        assert_eq!(b, c);
+        assert_eq!(arena.name_of(a), "Result[Int, Str]");
+    }
+
+    #[test]
+    fn interning_tracks_generic_params_structurally() {
+        let mut arena = TypeArena::new();
+        let generic = arena.intern_type_name("Vec[Option[T]]");
+        assert!(arena.contains_param(generic));
+        let concrete = arena.intern_type_name("Vec[Option[Int]]");
+        assert!(!arena.contains_param(concrete));
+        assert_ne!(generic, concrete);
+    }
+
+    #[test]
+    fn canonical_name_normalizes_spacing_only() {
+        assert_eq!(TypeArena::canonical_name("Map[Str,Vec[Int]]"), "Map[Str, Vec[Int]]");
+        assert_eq!(TypeArena::canonical_name("Int"), "Int");
+        assert_eq!(TypeArena::canonical_name("*T"), "*T");
     }
 }
