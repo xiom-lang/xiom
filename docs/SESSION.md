@@ -153,6 +153,26 @@ Locks: stdlib_exec_error2_runs (the former flake is now a permanent gate)
 Gates: e2e 2312/2312, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
 checker 182/182.
 
+### Round-51 (2026-09-11): Stage 3 Item A -- corpus measured, flip BLOCKED on import context
+
+Compiler lane. Added the repeatable measurement API
+(`Checker::check_catalog_corpus` -> `CatalogCorpusReport`: synthetic `use`
+of every indexed module, real import graph; plus
+`ModuleCatalog::module_names`) and re-measured the full stdlib corpus:
+**19,287 catalog-body findings, 0 hard errors, 6 other warnings** -- the
+flip to hard errors is NOT landed. Root cause (compiler-side, not stdlib):
+bodies are checked at module-LOAD time and `check_top_decl` has no
+`TopLevel::Use` arm, so each module's own `use` aliases (`math`, `string`,
+`convert`, `io`, `bigint`, `bigfloat`, `geom`) are undefined and ~12k
+cascades follow. Pending gate: ignored test `catalog_corpus_is_clean`
+(prints the top finding classes when run with
+`--ignored --nocapture`). Fix path queued: collect-then-check --
+register-only at load, flush bodies at the end of `resolve_imports`,
+processing each module's own `use` declarations under its module context.
+No compiler behavior change; feature-reg 510/510, stdlib-exec 85/85 (+2
+ign), checker 187/187 (+1 ign), workspace check clean; e2e 2316/2316
+unchanged from 51c81efd.
+
 ### Round-50 (2026-09-11): Stage 2c slice 4 -- canonical registry keys + shared structural module
 
 Completes Stage 2c. `Checker::types` is now keyed by `TypeId` (builtins,
@@ -440,9 +460,17 @@ What is left is staged readiness work, not bug triage:
    keyed by TypeId + structural module shared from xiom-ast + canonical
    codegen type keys. STAGE 2C COMPLETE.]
 3. ITEM A FLIP (Stage 3): catalog-body findings are still WARNINGS; the
-   flip to hard errors is gated on the stdlib corpus being clean
-   (~1.5k-4.5k findings per stdlib compile). Shared with the stdlib lane --
-   re-measure the count after their dedup/cleanup rounds.
+   flip to hard errors is gated on the stdlib corpus being clean.
+   [MEASURED round 51: 19,287 findings / 0 hard errors via the new
+   `Checker::check_catalog_corpus` API; FLIP BLOCKED because catalog bodies
+   are checked at load time and `check_top_decl` has no Use arm, so each
+   module's own `use` aliases are undefined (dominant class; ~12k cascades).
+   STEP 1: collect-then-check -- split `register_external_module` into
+   register-only + queued bodies, flush at the end of `resolve_imports`
+   after the transitive load + prelude, processing each module's own `use`
+   declarations under its module context. STEP 2: re-measure with the
+   ignored gate `catalog_corpus_is_clean` (`--ignored --nocapture`).
+   STEP 3: flip only when clean. No stdlib edits required.]
 4. Stage 4 remainder:
    - [DONE 620576d6, re-verified round 39] JIT honesty (#17): retired modules
      stay loaded under live pointers (unload-liveness guard) + reload path
@@ -515,12 +543,12 @@ E:\Projects\AXIOM on branch feat/architect. Read docs/SESSION.md
 (the rounds 38-50 entries + COMPILER-LANE REMAINING QUEUE) and
 docs/COMPILER_BUGS.md first; COMPILER_READINESS_PLAN.md holds the stage
 definitions; docs/LET_ARRAY_DECISION.md and docs/JSON_DIAGNOSTICS_V1.md
-are current design records. Current state (HEAD: round-50 Stage 2c slice
-4, STAGE 2C COMPLETE): all known compiler-catalogue red smokes GREEN, the
-last flake (smoke_error2 has-mid) root-caused and locked; last gates e2e
-2316/2316, feature-reg 510/510, stdlib-exec 85/85 (+2 ign), checker
-187/187 + xiom-ast 9/9 + codegen lib 11/11 (the 9 structural tests moved
-with the module to xiom-ast), xiom lib 20/20, fmt 83/83, lsp 42/42,
+are current design records. Current state (HEAD: round-51, Stage 2c
+COMPLETE; Item A flip measured and BLOCKED): all known compiler-catalogue
+red smokes GREEN, the last flake (smoke_error2 has-mid) root-caused and
+locked; last gates e2e 2316/2316, feature-reg 510/510, stdlib-exec 85/85
+(+2 ign), checker 187/187 (+1 ign pending gate), xiom-ast 9/9, codegen lib
+11/11, xiom lib 20/20, fmt 83/83, lsp 42/42,
 jit 5/5. The stdlib session works in parallel
 on stdlib/** only and reports roadblocks in chat + COMPILER_BUGS.md.
 
@@ -529,7 +557,9 @@ suffix shadowing; order-independent field scan), Stage 2c slices 1-4
 (structural.rs parser + interning; single parser wired through every
 checker consumer; `CheckedType::Named(TypeId)` interned storage and
 process-global arena; registry keyed by TypeId; structural module shared
-from xiom-ast; canonical codegen type keys),
+from xiom-ast; canonical codegen type keys), Stage 3 Item A measurement
+(corpus report API + root-caused blocker: bodies checked without their own
+use aliases; flip NOT landed),
 LET-array decision doc
 + ALL of P1 (annotated [N]T bindings, float element reads), P2 (user-fn
 `&[N]T`/`&mut [N]T` params now element pointers -- a catalog call inside the
@@ -543,8 +573,17 @@ workspace version/MSRV (1.86) + cargo-deny + CI hygiene (fixed a rotted
 xiom-mcp member), driver target-named files, JSON diagnostics v1 schema.
 
 Your task, in order:
-1. Stage 3 ITEM A FLIP: re-measure catalog-body findings after the stdlib
-   dedup rounds; flip to hard errors when clean.
+1. Stage 3 ITEM A, step 1 -- catalog import context (unblocks the flip):
+   collect-then-check. Split `register_external_module` so it only
+   REGISTERS (types/signatures) and queues the module for body checking;
+   flush the queue at the end of `resolve_imports` (after the transitive
+   catalog load AND the prelude) with `current_module` set per module and
+   its own `use` declarations processed under that context before the body.
+   Then re-measure with `cargo test -p xiom-check catalog_corpus_is_clean
+   -- --ignored --nocapture` (expect the ~19k to collapse to the true
+   findings, likely T007 unsafe-without-requires + a few real type errors).
+   Flip to hard errors only when `CatalogCorpusReport::is_clean()`. Keep
+   the ignored gate and turn it into a real gate on the flip.
 2. Stage 5 remainder: LSP incremental reparse/cross-file index; dbg async
    MI reader + .xi DWARF; cargo-fuzz targets over lexer/parser/CTFE +
    ASAN/UBSAN CI; full clap migration of the driver parser; supply chain

@@ -317,6 +317,42 @@ impl Checker {
         self.current_module = prev_module;
     }
 
+    /// Stage 3 Item A: type-check EVERY indexed catalog module body through
+    /// the NORMAL import pipeline (each synthetic `use` loads the module's
+    /// transitive dependency graph first, so qualified aliases resolve the
+    /// same way they do in a real compile) and return the report.
+    ///
+    /// This is the repeatable measurement that gates the catalog-finding flip
+    /// to hard errors (`report.is_clean()`), and afterwards the full-corpus
+    /// regression gate.
+    pub fn check_catalog_corpus(&mut self) -> crate::types::CatalogCorpusReport {
+        let names = self.catalog.module_names();
+        let mut items: Vec<TopDecl> = Vec::with_capacity(names.len());
+        for name in names {
+            let path: Vec<Ident> = name.split('.')
+                .map(|seg| Ident::new(seg, Span::new(0, 0)))
+                .collect();
+            items.push(TopDecl::Use(UseDecl {
+                path,
+                alias: None,
+                glob: false,
+                span: Span::new(0, 0),
+            }));
+        }
+        let program = Program {
+            items,
+            source_files: Vec::new(),
+            root_dir: None,
+            span: Span::new(0, 0),
+        };
+        let outcome = self.check_program(&program);
+        let warnings = self.take_warnings();
+        let errors = outcome.err().unwrap_or_default();
+        let (findings, warnings) = warnings.into_iter()
+            .partition(|w| w.message.starts_with("catalog body"));
+        crate::types::CatalogCorpusReport { findings, warnings, errors }
+    }
+
     fn register_builtins(&mut self) {
         // All primitive types are known
         for prim in &["Bool", "Int", "Int8", "Int16", "Int32", "Int64", "Int128",
@@ -7706,6 +7742,38 @@ fn main() -> Int { var x = 42; if true { let r = &x; } return x; }");
 type Wrapper = { val: Int; }\n\
 fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0; }");
         assert!(result.is_err(), "move while borrowed should error");
+    }
+
+    /// Stage 3 Item A gate: the catalog corpus must be CLEAN before the
+    /// catalog-body findings flip from warnings to hard errors.
+    ///
+    /// IGNORED (pending gate): the corpus currently reports ~19k findings,
+    /// dominated by catalog bodies checked WITHOUT their own `use` aliases --
+    /// module aliases (`math`, `string`, `convert`, `io`, ...) are undefined
+    /// because `check_top_decl` has no `TopLevel::Use` arm and the body pass
+    /// runs at module-load time, before the import graph is complete. Re-run
+    /// explicitly to re-measure:
+    /// `cargo test -p xiom-check catalog_corpus_is_clean -- --ignored --nocapture`
+    #[test]
+    #[ignore = "blocked: ~19k catalog-body findings until per-module import context lands"]
+    fn catalog_corpus_is_clean() {
+        let mut checker = Checker::new();
+        checker.add_source_dir(project_root().join("stdlib").to_string_lossy().to_string());
+        checker.build_catalog_index();
+        let report = checker.check_catalog_corpus();
+        let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for w in &report.findings {
+            let key: String = w.message.chars().take(72).collect();
+            *counts.entry(key).or_insert(0) += 1;
+        }
+        let mut sorted: Vec<_> = counts.into_iter().collect();
+        sorted.sort_by(|a, b| b.1.cmp(&a.1));
+        for (k, n) in sorted.iter().take(15) {
+            eprintln!("  {n:5}  {k}");
+        }
+        assert!(report.is_clean(),
+            "catalog corpus not clean: {} findings, {} hard errors ({} other warnings)",
+            report.findings.len(), report.errors.len(), report.warnings.len());
     }
 
     /// Stage 2c slice 2: the checker's compound-name consumers route through

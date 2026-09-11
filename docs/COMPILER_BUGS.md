@@ -7,6 +7,44 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-09-11 -- Stage 3 Item A: flip BLOCKED -- corpus re-measured (19,287 findings)
+
+Re-measured the catalog-body findings after the stdlib dedup rounds, with a
+new repeatable API (`Checker::check_catalog_corpus` ->
+`CatalogCorpusReport`): it builds a synthetic program that `use`s every
+indexed module, so the full import graph loads the same way a real compile
+does, and reports `{ findings, warnings, errors }`.
+
+Result on HEAD: **19,287 catalog-body findings, 0 hard errors, 6 other
+warnings**. The flip to hard errors is NOT landed (it is gated on
+`report.is_clean()`, now encoded as the ignored test
+`catalog_corpus_is_clean`; run
+`cargo test -p xiom-check catalog_corpus_is_clean -- --ignored --nocapture`
+to re-measure).
+
+Root cause of the dominant class (NOT stdlib-side): catalog bodies are
+type-checked at module-LOAD time (`register_external_module`), before the
+import graph is complete, and `check_top_decl` has NO `TopLevel::Use` arm --
+so a module's own `use xiom.math;` never registers the `math` alias.
+Qualified calls inside catalog bodies then resolve `math`/`string`/
+`convert`/`io`/`bigint`/`bigfloat`/`geom` as undefined variables and cascade
+("cannot call ... on this expression", "left operand must be numeric, found
+<error>"). Counts: undefined `string` 4318, `math` 1806, `convert` 406,
+`io` 144, plus ~12k cascades. The 1.5k-4.5k previously cited was a partial
+view (only the modules a given smoke compile happens to load).
+
+Fix path (queued, compiler-side, no stdlib edits): split
+`register_external_module` into register-then-check, queue catalog bodies,
+and flush them at the END of `resolve_imports` (after the full transitive
+load + prelude), processing each module's own `use` declarations under its
+module context before its body; only then re-measure and flip.
+
+Slice landed: `CatalogCorpusReport` + `Checker::check_catalog_corpus` +
+`ModuleCatalog::module_names`, the ignored pending gate, and this diagnosis.
+No compiler behavior change; feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
+checker 187/187 (+1 ign), workspace check clean. e2e remains 2316/2316 from
+51c81efd (no codegen/checker-path change since).
+
 ## 2026-09-11 -- Stage 2c slice 4: canonical registry keys + shared structural module
 
 Completes the remaining Stage 2c items:

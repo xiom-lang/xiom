@@ -205,6 +205,14 @@ impl ModuleCatalog {
         names
     }
 
+    /// Every INDEXED dotted module name, sorted (deterministic order).
+    /// Stage 3 Item A: drives the full-corpus body check.
+    pub fn module_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.module_index.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
     /// Returns all cached modules as owned clones (for snapshot iteration).
     pub fn all_cached(&self) -> Vec<CachedModule> {        // BUG 23 #5 fix: deterministic ORDER -- the cache is a HashMap, so
         // iteration order is randomized per process. collect_external_decls
