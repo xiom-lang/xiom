@@ -1456,7 +1456,13 @@ pub fn resolve_source_files(args: &[String]) -> Vec<String> {
         if arg.starts_with('-') {
             continue;
         }
-        if matches!(arg.as_str(), "wasm" | "arm" | "riscv") {
+        if matches!(arg.as_str(), "wasm" | "arm" | "riscv")
+            // Positional target sugar (`xiom build wasm src.xi`) is skipped
+            // ONLY when it is not a real path: a source file literally named
+            // `wasm`/`arm`/`riscv` used to be silently dropped from the
+            // compile set (readiness Stage 5 driver item).
+            && !std::path::Path::new(arg).exists()
+        {
             continue;
         }
         sources.push(arg.clone());

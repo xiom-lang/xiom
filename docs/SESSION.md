@@ -153,6 +153,17 @@ Locks: stdlib_exec_error2_runs (the former flake is now a permanent gate)
 Gates: e2e 2312/2312, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
 checker 182/182.
 
+### Round-45 (2026-09-11): Stage 5 -- driver no longer drops target-named source files
+
+Compiler lane. `resolve_source_files` skipped ANY argument equal to
+`wasm`/`arm`/`riscv` as positional-target sugar, so a real source file with
+one of those names was silently dropped from the compile set. The skip is
+now existence-aware: a path that exists is a source; only a non-existent
+bare token keeps the positional-target meaning (`xiom build wasm src.xi`).
+Regression: crates/xiom/tests/cli_args.rs (real files kept, bare sugar
+skipped). Full clap migration of the manual parser remains queued; this
+closes the documented filename-dropping defect.
+
 ### Round-44 (2026-09-11): Stage 5 -- workspace version policy + MSRV + cargo-deny + broken-member fix
 
 Compiler lane, engineering hygiene:
@@ -355,8 +366,9 @@ What is left is staged readiness work, not bug triage:
    - supply chain beyond the closed core: ed25519 signatures + trust
      model, lockfile v2, git installs pinned to commits, authenticated
      publish (pre-registry)
-   - driver clap-based arg parsing (wasm/arm/riscv filenames currently
-     dropped by the manual parser)
+   - [DONE round 45] driver: target-named source files (wasm/arm/riscv) no
+     longer dropped (existence-aware positional-target skip); full clap
+     migration of the manual parser remains.
 6. Stage 6 PERFORMANCE program: incremental engine, parallel mono,
    linker strategy, benchmark CI budgets.
 7. Stage 7 SELFHOST GATE: zero-ICE self-build, >=1M fuzz execs,
