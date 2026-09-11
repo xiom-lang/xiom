@@ -7,6 +7,30 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-09-11 -- LET-array P1 FIXED: annotated `let [N]T` bindings + float element reads
+
+Two codegen roots surfaced by the LET-array decision doc probes
+(docs/LET_ARRAY_DECISION.md; tmp/bug_probes/letarr1.xi + letarr3.xi):
+
+1. **`let c: [3]Int = [7,8,9]` emitted invalid IR** (`%tmp defined with
+   type 'i64' but expected '[3 x i64]'`): the Stmt::Let array-literal path
+   ALWAYS ran the M33 Vec conversion, then stored the %struct.Vec value
+   into the declared `[N x T]` slot. The Let arm now ports the VAR BUG 53
+   path: allocate the `[N x T]` aggregate, store each element with the
+   declared element width (coerce_value handles narrow/float elements),
+   register the local as an array. Lock: tests/regression/
+   m67_let_array_annotated.xi + e2e_m67_let_array_annotated.
+2. **Float elements read through `[N]T` came back boxed as raw i64 bits**
+   (the by-value and pointer fixed-array index arms ran `val_to_i64` on
+   the loaded element), so the binary-op layer sitofp'd the BIT PATTERN
+   back to double: `f[1] != 2.5` was true for an equal value. Both arms
+   now return `float`/`double`/`fp128` elements as their real LLVM type,
+   mirroring the Vec float-element path.
+
+RED-GREEN: pre-fix letarr1/letarr3 fail to compile (or miscompare);
+post-fix both exit 0. Gates: checker 192/192, feature-reg 510/510,
+stdlib-exec 85/85 (+2 ign), e2e 2313/2313.
+
 ## 2026-09-11 -- smoke_error2 has-mid FIXED: generated type_meta keys shadowed the real type
 
 The long-standing flake (round-13 note: "don't chase, verify via

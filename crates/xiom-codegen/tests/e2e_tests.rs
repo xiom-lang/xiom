@@ -4513,6 +4513,12 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m66_chain_error_has() {
     assert_eq!(compile_and_run("tests\\regression\\m66_chain_error_has.xi"), Some(0));
 }
+// LET-array decision P1 (docs/LET_ARRAY_DECISION.md): annotated fixed arrays
+// `let c: [N]T = [...]` bind [N x T] (var parity) and float elements stay
+// float-typed on the index read (was: val_to_i64 bitcast + sitofp back).
+#[test] fn e2e_m67_let_array_annotated() {
+    assert_eq!(compile_and_run("tests\\regression\\m67_let_array_annotated.xi"), Some(0));
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }

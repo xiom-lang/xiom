@@ -56,8 +56,9 @@ Rationale:
 |---|---|
 | `let a = [1,2,3]; a[0]` + `array.len/first/get(&a)` | WORKS |
 | `var b = [4,5,6]; b[1] = 50;` | WORKS |
-| `var b = [...]; user_fn(&b)` with `fn user_fn(a: &[3]Int)` | COMPILE FAIL: invalid IR (`expected '(' in call`) |
-| `let c: [3]Int = [7,8,9];` | COMPILE FAIL: invalid IR (`%tmp defined with type i64 but expected [3 x i64]`) |
+| `var b = [...]; user_fn(&b)` with `fn user_fn(a: &[3]Int)` | COMPILE FAIL: invalid IR (`expected '(' in call`) -- P2 OPEN |
+| `let c: [3]Int = [7,8,9];` | FIXED round 40 (was invalid IR) |
+| `let f: [2]Float64 = [...]; f[1]` | FIXED round 40 (float elements were bit-boxed) |
 
 Probes: `tmp/bug_probes/letarr1.xi` (annotated let),
 `tmp/bug_probes/letarr2.xi` (user-fn `&[N]T` arg), `letarr_b.xi` (working
@@ -69,15 +70,22 @@ binary -- they are representation gaps, not regressions.
 - **P1 (annotated let):** `let c: [N]T = [literals]` lowers to a fixed-array
   slot whose LLVM type is `[N x T]`; the literal elements use the annotated
   element width. Lock: `e2e_let_array_annotated`.
+  **DONE (round 40):** Let arm ports the VAR BUG 53 direct-store path;
+  float element reads through `[N]T` also return real float types now.
+  Lock: `tests/regression/m67_let_array_annotated.xi` +
+  `e2e_m67_let_array_annotated`.
 - **P2 (user-fn `&[N]T` args):** `&arr` where `arr: [N]T` passed to a user
   (non-catalog) `&[N]T` parameter lowers to the element pointer plus the
   const-N registration the mono path already uses for catalog fns. Lock:
-  `e2e_let_array_user_fn_ref`.
+  `e2e_let_array_user_fn_ref`. **OPEN** -- probe letarr2.xi still fails
+  with invalid IR (`expected '(' in call`).
 - **P3 (delete M33 let->Vec):** unannotated `let a = [...]` binds `[N]T`.
   `&a` to a `&Slice[T]` parameter materializes an explicit Slice view
   (`data = &a[0], len = N`) at the call site, preserving source
   compatibility; `array.as_slice(&a)` remains the explicit form.
-  Lock: `e2e_let_array_slice_bridge`.
+  Lock: `e2e_let_array_slice_bridge`. **OPEN** -- keep the M33 bridge
+  until P2 fixes the `&[N]T` arg ABI and a stdlib re-sweep confirms zero
+  fallout.
 - Order: P1, P2 land independently; P3 last, gated on a stdlib re-sweep
   (zero let sites today, so expected fallout is limited to compiler
   regression fixtures).

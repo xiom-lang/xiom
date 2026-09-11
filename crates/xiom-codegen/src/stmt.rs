@@ -189,6 +189,38 @@ impl IrEmitter {
                     self.local.local_vec_elem.insert(name.name.clone(), elem_ty);
                     return Ok(());
                 }
+                // LET-array P1 (docs/LET_ARRAY_DECISION.md): an ANNOTATED fixed
+                // array (`let c: [3]Int = [7,8,9]`) stores elements DIRECTLY
+                // into the [N x T] slot, mirroring the VAR BUG 53 path. The
+                // M33 Vec conversion below fed a %struct.Vec value into the
+                // declared [3 x i64] slot (invalid IR: `%tmp defined with type
+                // 'i64/pt' but expected '[3 x i64]'`).
+                if let (Expr::Array(elems, _), Some(t)) = (value, _ty.as_ref()) {
+                    if matches!(&**t, Type::Array(..)) {
+                        let type_name = self.concrete_type_for(t);
+                        if let Ok(arr_ty) = self.llvm_type_for(&type_name) {
+                            if arr_ty.starts_with('[') && arr_ty.contains(" x ") {
+                                let elem_llvm = Self::extract_array_elem_ty(&arr_ty);
+                                let slot = self.fresh_tmp();
+                                if self.local.loop_depth > 0 {
+                                    self.local.hoisted_allocas.push((slot.clone(), arr_ty.clone()));
+                                } else {
+                                    self.emitln(&format!("  {slot} = alloca {arr_ty}"));
+                                }
+                                for (i, e) in elems.iter().enumerate() {
+                                    let (v, vt) = self.compile_expr(e)?;
+                                    let cv = self.coerce_value(&v, &vt, &elem_llvm);
+                                    let gep = self.fresh_tmp();
+                                    self.emitln(&format!("  {gep} = getelementptr {arr_ty}, {arr_ty}* {slot}, i64 0, i64 {i}"));
+                                    self.emitln(&format!("  store {elem_llvm} {cv}, {elem_llvm}* {gep}"));
+                                }
+                                self.add_local(&name.name, slot, &arr_ty);
+                                self.local.array_locals.insert(name.name.clone());
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
                 let (val, val_llvm_ty) = if let Expr::Array(elems, _) = value {
                     // M33: Non-empty array literal assigned to a Let binding
                     // -- convert to Vec so `&arr` produces a proper Vec pointer
