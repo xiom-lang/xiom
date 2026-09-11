@@ -409,35 +409,62 @@ DISCIPLINE TRAPS (learned this campaign, keep honoring):
 - Docs coupling: every code change lands with COMPILER_BUGS.md +
   docs/SESSION.md in the same commit.
 
-### PROMPT FOR THE NEXT COMPILER SESSION (paste-ready)
+### PROMPT FOR THE NEXT COMPILER SESSION (paste-ready, updated 2026-09-11 late)
 
 You are continuing the AXIOM compiler-lane readiness campaign in
 E:\Projects\AXIOM on branch feat/architect. Read docs/SESSION.md
-(COMPILER-LANE REMAINING QUEUE post round-37) and docs/COMPILER_BUGS.md
-first; COMPILER_READINESS_PLAN.md holds the stage definitions. Current
-state: HEAD has all known compiler-catalogue red smokes GREEN (last gates
-e2e 2311/2311, feature-reg 510/510, stdlib-exec 84/84, checker 182/182).
-The stdlib session works in parallel on stdlib/** only and reports
-roadblocks in chat + COMPILER_BUGS.md.
+(the rounds 38-46 entries + COMPILER-LANE REMAINING QUEUE) and
+docs/COMPILER_BUGS.md first; COMPILER_READINESS_PLAN.md holds the stage
+definitions; docs/LET_ARRAY_DECISION.md and docs/JSON_DIAGNOSTICS_V1.md
+are current design records. Current state (HEAD 45207602/bb81e08a):
+all known compiler-catalogue red smokes GREEN, the last flake
+(smoke_error2 has-mid) root-caused and locked; last gates e2e 2313/2313,
+feature-reg 510/510, stdlib-exec 85/85 (+2 ign), checker 192/192, xiom lib
+20/20, fmt 83/83, lsp 42/42, jit 5/5. The stdlib session works in parallel
+on stdlib/** only and reports roadblocks in chat + COMPILER_BUGS.md.
+
+DONE since the previous prompt: smoke_error2 (HashMap-ordered type_meta
+suffix shadowing; order-independent field scan), Stage 2c slice 1
+(structural.rs parser + real TypeArena interning), LET-array decision doc
++ P1 (annotated [N]T bindings, float element reads), JIT honesty
+(re-verified, previously 620576d6), watchdog cancellation token +
+manifest timeout-secs, fmt header/shebang/literal-escaping, LSP UTF-16 +
+mutex-poison recovery, workspace version/MSRV (1.86) + cargo-deny + CI
+hygiene (fixed a rotted xiom-mcp member), driver target-named files,
+JSON diagnostics v1 schema.
 
 Your task, in order:
-1. Triage the flaky smoke_error2 (reproduce with an isolated build; if it
-   hides a codegen/layout nondeterminism, fix + lock; else document and
-   drop it).
-2. Begin Stage 2c structural TypeId/interning per the readiness plan;
-   keep the container/ABI bridges working (they are the current
-   stopgaps).
-3. Continue the stage queue in order: JIT honesty + LET-array decision,
-   Stage 5 remainder (watchdog, LSP, fmt, dbg, diagnostics, supply
-   chain), Stage 6 perf, Stage 7 selfhost gate.
+1. LET-array P2 (user-fn `&[N]T` args: tmp/bug_probes/letarr2.xi fails
+   with invalid IR "expected '(' in call") then P3 (delete the M33
+   let->Vec conversion with a call-site Slice bridge) per
+   docs/LET_ARRAY_DECISION.md; red-green with the letarr probes + e2e
+   locks.
+2. Stage 2c follow-on slices: `CheckedType::Named(TypeId)` storage,
+   route get_type's bare-name fallback through the arena, move the codegen
+   type keys onto the same canonical form (the structural core landed in
+   round 39; keep the container/ABI bridges working).
+3. Stage 3 ITEM A FLIP: re-measure catalog-body findings after the stdlib
+   dedup rounds; flip to hard errors when clean.
+4. Stage 5 remainder: LSP incremental reparse/cross-file index; dbg async
+   MI reader + .xi DWARF; cargo-fuzz targets over lexer/parser/CTFE +
+   ASAN/UBSAN CI; full clap migration of the driver parser; supply chain
+   beyond the closed core (ed25519 + trust model, lockfile v2 with an
+   enforced --locked path, git installs pinned to commits -- note git deps
+   are parsed but not yet implemented, authenticated publish); sandbox
+   false-green + randomized temp names.
+5. Stage 6 PERFORMANCE program: incremental engine tiers, parallel mono,
+   linker strategy, benchmark CI budgets.
+6. Stage 7 SELFHOST GATE: zero-ICE self-build, >=1M fuzz execs, -O
+   differential, release-binary suites, Rust-bootstrap equivalence.
 
 Working discipline: isolated build
 ($env:CARGO_TARGET_DIR="$env:TEMP\kilo\tgt_iso"; cargo build -p xiom;
 Remove-Item Env:CARGO_TARGET_DIR), probes in tmp/bug_probes, red-green
-proofs, atomic conventional commits with docs in the same commit,
-ascii_guard, canonical fresh rebuild before judging any change, suites
-sequentially (checker, feature-reg, stdlib-exec, full e2e), never edit
-stdlib/**. Start by reporting the current git state and the gates at
+proofs (pre-fix binary via a path-scoped `git stash push -- <files>` +
+separate target dir), atomic conventional commits with docs in the same
+commit, ascii_guard, canonical fresh rebuild before judging any change,
+suites sequentially (checker, feature-reg, stdlib-exec, full e2e), never
+edit stdlib/**. Start by reporting the current git state and the gates at
 HEAD, then continue the queue.
 
 ### Round-36 (2026-09-11): array_zip FIXED -- fixed-array tuple elements
