@@ -221,11 +221,48 @@ impl IrEmitter {
                         }
                     }
                 }
+                // LET-array P3 (docs/LET_ARRAY_DECISION.md): an UNANNOTATED
+                // array literal binds a FIXED array `[N]T` (var/annotation
+                // parity). The old M33 conversion made `let a = [...]` a
+                // %struct.Vec while annotated/var fixed-array bindings were
+                // `[N x T]`, so the representation depended on the binding
+                // form. Empty literals and explicitly Vec/Slice-annotated
+                // bindings keep the M33 bridge below (the collection API
+                // path); only `let` is flipped -- `var` literals can be
+                // pushed to and stay Vec.
+                if let Expr::Array(elems, _) = value {
+                    if _ty.is_none() && !elems.is_empty() {
+                        let elem_xiom = elems.first()
+                            .and_then(|e| self.infer_struct_type_name(e))
+                            .or_else(|| elems.first().and_then(|e| self.infer_scalar_elem_xiom(e)))
+                            .unwrap_or_else(|| "Int".to_string());
+                        if let Ok(elem_llvm) = self.llvm_type_for(&elem_xiom) {
+                            let arr_ty = format!("[{} x {}]", elems.len(), elem_llvm);
+                            let slot = self.fresh_tmp();
+                            if self.local.loop_depth > 0 {
+                                self.local.hoisted_allocas.push((slot.clone(), arr_ty.clone()));
+                            } else {
+                                self.emitln(&format!("  {slot} = alloca {arr_ty}"));
+                            }
+                            for (i, e) in elems.iter().enumerate() {
+                                let (v, vt) = self.compile_expr(e)?;
+                                let cv = self.coerce_value(&v, &vt, &elem_llvm);
+                                let gep = self.fresh_tmp();
+                                self.emitln(&format!("  {gep} = getelementptr {arr_ty}, {arr_ty}* {slot}, i64 0, i64 {i}"));
+                                self.emitln(&format!("  store {elem_llvm} {cv}, {elem_llvm}* {gep}"));
+                            }
+                            self.add_local(&name.name, slot, &arr_ty);
+                            self.local.array_locals.insert(name.name.clone());
+                            return Ok(());
+                        }
+                    }
+                }
                 let (val, val_llvm_ty) = if let Expr::Array(elems, _) = value {
-                    // M33: Non-empty array literal assigned to a Let binding
-                    // -- convert to Vec so `&arr` produces a proper Vec pointer
-                    // instead of an i8* buffer pointer. Fixes ACCESS_VIOLATION
-                    // on `binary_search(&arr, ...)` where arr is a let-bound array.
+                    // M33 (retained for Vec/Slice-annotated and EMPTY
+                    // literals): convert to Vec so `&arr` produces a proper
+                    // Vec pointer instead of an i8* buffer pointer. Fixes
+                    // ACCESS_VIOLATION on `binary_search(&arr, ...)` where arr
+                    // is a let-bound array.
                     let elem_ty = _ty.as_ref()
                         .and_then(|t| Self::vec_elem_from_type_annotation(t))
                         .or_else(|| {

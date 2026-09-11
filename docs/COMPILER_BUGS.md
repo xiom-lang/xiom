@@ -7,6 +7,53 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-09-11 -- LET-array P3 FIXED: unannotated `let` literals bind fixed arrays
+
+The last migration step of docs/LET_ARRAY_DECISION.md: `Stmt::Let` still ran
+the M33 `compile_array_as_vec` conversion for every unannotated literal, so
+`let a = [...]` was a `%struct.Vec` while `let a: [N]T` / fixed var bindings
+were `[N x T]` -- the representation depended on the binding form.
+
+Fix (crates/xiom-codegen/src/stmt.rs): an unannotated NON-EMPTY `let`
+literal binds a `[N x T]` aggregate (element type inferred from the first
+element, As-aware), exactly like the P1/var path. Empty literals and
+Vec/Slice-annotated bindings keep the M33 conversion; unannotated `var`
+literals stay Vec (they can be pushed to).
+
+Keeping the collection API source-compatible required three adjacent fixes:
+
+1. **Call-site Vec materialization** (crates/xiom-codegen/src/coerce.rs,
+   `array_as_vec_arg`): passing a fixed array (bare, `&a`, `&mut a`) to a
+   by-value `%struct.Vec` param (`&Slice[T]`, `&Vec[T]`, `Vec[T]`)
+   materializes a HEAP-BACKED Vec with the array's elements (malloc +
+   memcpy, len = N, cap = max(N,16), elem_size = size_of(T)); `%struct.Vec*`
+   params get an alloca of the same header. Elements are COPIED, not
+   aliased: a by-value `Vec` param may PUSH (`test_algo` concat:
+   `var result = a; result.push(...)`), and realloc on a stack view
+   corrupted the heap (0xC0000374). Discovered via the ecosystem suite:
+   pre-bridge `binary_search(&arr)` bitcast the `[7 x i64]` slot to
+   `%struct.Vec*` (AV; the callee read element bytes as len/cap/esz).
+2. **Non-generic `&Slice[Int]` ABI** (crates/xiom-codegen/src/lib.rs,
+   `param_llvm_type`): `&Slice[Int]` erased to its ELEMENT (`i64*`), so
+   `core.sum_slice`'s `s.len()` loaded `data[0]` as the length (probe fm5
+   returned 0 pre-fix). It now lowers to the same by-value `%struct.Vec` as
+   the generic Slice params (mono subst arm parity); `sum_slice` returns the
+   real sum.
+3. **`.len()` on fixed arrays** (crates/xiom-codegen/src/call.rs): a
+   `[N x T]` local or a `&[N]T` element-pointer param now returns the const
+   N from `local_array_sizes` (previously fell through to generic dispatch /
+   a 0 stub). Runs before the Str path so narrow (i8*) element arrays are
+   not strlen'd.
+
+RED-GREEN: m69 fixture exits 8 pre-P3 (sum_slice = 0), 0 post-P3; probe fm5
+returns 3 post-P3; test_algo (89 tests) returns 0 on both pre-P3 and the
+final binary -- it caught the stack-view heap corruption mid-slice
+(0xC0000374) before the heap-materialization fix. Locks:
+tests/regression/m69_let_array_slice_bridge.xi +
+`e2e_m69_let_array_slice_bridge` + IR pin `e2e_m69_let_array_fixed_ir`
+(`alloca [5 x i64]`). Gates: checker 192/192, feature-reg 510/510,
+stdlib-exec 85/85 (+2 ign), e2e 2316/2316.
+
 ## 2026-09-11 -- LET-array P2 FIXED: user-fn `&[N]T` / `&mut [N]T` element-pointer ABI
 
 The LET-array decision doc's P2 (docs/LET_ARRAY_DECISION.md) reproduced on a

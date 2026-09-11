@@ -89,8 +89,11 @@ const errors cleanly, for-loop const eval).
 - LET-array representation conflict: written up as a JOINT decision doc FOR the stdlib
   session (design call shared with them; M33 let->Vec vs &[N]T array-module fns).
   [DONE round 39: docs/LET_ARRAY_DECISION.md -- let arrays are FIXED arrays;
-  compiler follow-ups P1 annotated-let IR, P2 user-fn &[N]T arg ABI, P3 delete
-  the M33 let->Vec conversion with a call-site Slice bridge.]
+  P1 annotated-let IR DONE round 40; P2 user-fn &[N]T element-pointer ABI DONE
+  round 46; P3 M33 let->Vec deletion + call-site Vec materialization DONE round
+  47 (`let a = [...]` binds `[N]T`; passing it to a `&Slice[T]`/`Vec[T]`
+  (%struct.Vec) param materializes a heap-backed Vec with the array's elements,
+  so push-taking by-value Vec consumers keep working).]
 
 ## Stage 5 -- Toolchain trust & security (audit #4 #5 #9-13 #18-20 + hygiene)
 
