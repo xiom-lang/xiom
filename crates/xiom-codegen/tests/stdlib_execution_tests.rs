@@ -321,6 +321,18 @@ fn stdlib_exec_error_runs() {
     assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_error.xi"), Some(0), "error smoke failed to run/return 0");
 }
 
+// smoke_error2 has-mid flake FIXED (2026-09-11): `Option[ChainError]` from
+// error_chain_pop registers the generated `Option__ChainError` type_meta key,
+// which suffix-matches `ChainError`; vec_elem_is_str broke on the first
+// matching key, so `e.messages[i]` in chain.error_chain_has loaded the Str
+// handle as i64 (truncated to a byte) whenever HashMap order put the
+// aggregate key first -- the smoke failed on some builds and passed on
+// others. Permanent gate for the former flake.
+#[test]
+fn stdlib_exec_error2_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_error2.xi"), Some(0), "error2 smoke failed to run/return 0");
+}
+
 // CRT-family AV flips (2026-09-10 compiler round):
 // - array_slice: Slice[T] was unknown to codegen (mono returns erased to
 //   i64; `s.len()` ran xiom_str_len on the length) -> canonical

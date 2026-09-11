@@ -119,16 +119,52 @@ stdlib_exec_regex_captures_get_runs.
 Gates: e2e 2311/2311, feature-reg 510/510, stdlib-exec 84/84 (+2 ign),
 checker 182/182.
 
-### COMPILER-LANE REMAINING QUEUE (post round-37, 2026-09-11)
+### Round-38 (2026-09-11): smoke_error2 has-mid FIXED -- generated type_meta keys shadowed the real type
+
+Compiler lane. The long-standing "flaky error2" is root-caused and dead:
+it was CODEGEN nondeterminism, not runtime UB and not stdlib logic.
+`Option[ChainError]` (error_chain_pop) registers the generated concrete
+type_meta key `Option__ChainError`, which ends with the bare registered
+type key `ChainError`. `vec_elem_is_str` matched candidate keys by bare
+suffix and `break`t on the FIRST matching key; `resolve_vec_elem_xiom`'s
+Field arm picked one key with `.find(...)?`. When HashMap iteration order
+(std, randomized per process) put `Option__ChainError` first, the
+`messages` field lookup failed and `e.messages[i]` in
+chain.error_chain_has took the scalar i64 load path -- `@chain.str_eq`
+then received `trunc i64 -> i8` of the Str handle -- so "mid" compared
+false on that build and true on the next.
+
+Evidence: pre-fix isolated binary 20/20 `FAIL: has-mid`; 8 instrumented
+compiles flipped the 6 chain-fn element reads in two groups (26 vs 32
+branch-marked sites); the new m66 fixture was 3/8 red pre-fix. Post-fix
+m66 10/10 + smoke_error2 10/10 green, and the full smoke IR is
+byte-identical across 5 separate compiler processes.
+
+Fix: `IrEmitter::declared_field_type(base_ty, field)` (crates/xiom-codegen/
+src/lib.rs) -- tiered, order-independent field scan: exact/dot-qualified
+keys first, then non-generated bare suffixes (`is_generated_aggregate_key`
+excludes Option__/Result__/Vec__/Slice__/Map__/Set__/Tuple__/_Anon__),
+then any suffix match; returns the first meta that CONTAINS the field,
+never stopping on a miss. `vec_elem_is_str`, `resolve_vec_elem_xiom`
+(vec_abi.rs) and `resolve_vec_elem_type`'s Field arm all route through it.
+
+Locks: stdlib_exec_error2_runs (the former flake is now a permanent gate)
++ tests/regression/m66_chain_error_has.xi / e2e_m66_chain_error_has.
+Gates: e2e 2312/2312, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
+checker 182/182.
+
+### COMPILER-LANE REMAINING QUEUE (post round-38, 2026-09-11)
 
 STATE: every compiler-catalogue red smoke reported by the stdlib lane is
 now GREEN (R1-R10 follow-ups, CRT family, stack-cookie/KDF, json Part 2,
 regex family, ptr_offset, convert_escape, array_zip, hash_values/io arity
-handoffs resolved stdlib-side). No known red compiler smoke remains.
+handoffs resolved stdlib-side), and the last known FLAKE (smoke_error2
+has-mid) is root-caused and locked. No known red compiler smoke remains.
 What is left is staged readiness work, not bug triage:
 
-1. FLAKY smoke_error2 (stdlib lane note: "known flaky error2") -- triage
-   whether codegen/layout nondeterminism is still involved. Probe first.
+1. [DONE round 38] FLAKY smoke_error2 -- codegen/layout nondeterminism
+   (HashMap-ordered type_meta suffix match); fixed + locked. Not runtime
+   UB, not stdlib logic (details in COMPILER_BUGS.md + Round-38 above).
 2. Stage 2c STRUCTURAL TypeId/interning (audit #6, the last big
    structural item). json Part 2 / R7 / R10 were its entry deliverables.
    Target: symbol interning + structural type identity so bare-name

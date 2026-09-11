@@ -7,6 +7,52 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-09-11 -- smoke_error2 has-mid FIXED: generated type_meta keys shadowed the real type
+
+The long-standing flake (round-13 note: "don't chase, verify via
+probe_err_chain2") was reproduced deterministically on a fresh isolated
+HEAD build: `smoke_error2` exited 1 with `FAIL: has-mid` 20/20 runs. The
+emitted IR for `chain.error_chain_has` loaded `e.messages[i]` through the
+SCALAR i64 element path and passed `trunc i64 -> i8` of the Str handle to
+`@chain.str_eq(i8*, i8*)`; the chain-only probe resolved the same read as
+`Str` and passed. No runtime UB, no stdlib logic defect.
+
+Root cause (codegen, HashMap-order dependent): `type_meta` carries the
+generated concrete key `Option__ChainError` (registered by
+`error_chain_pop`'s `Option[ChainError]`), whose name ENDS WITH the bare
+registered type key `ChainError`. Two resolvers matched candidate keys by
+bare suffix:
+
+- `IrEmitter::vec_elem_is_str` iterated `type_meta.keys()` and `break`t on
+  the first key matching the suffix. When `Option__ChainError` came first
+  (std HashMap ordering is randomized per process), its field list
+  (`discriminant`, `value`) lacked `messages`, so the function returned
+  false and the Vec[Str] element fell to the scalar loader.
+- `IrEmitter::resolve_vec_elem_xiom`'s Field arm selected ONE key with
+  `.find(...)?` and returned None when that key lacked the field.
+
+So the same source produced different IR per compiler process --
+deterministic per exe, flipping across builds (8 instrumented compiles
+flipped exactly the 6 chain fns with `e.messages[i]`, 26 vs 32 branch
+markers). This is why "unrelated stdlib code" appeared to change the
+result: it changed which generated keys existed, not the chain logic.
+
+Fix (crates/xiom-codegen/src/lib.rs + vec_abi.rs): new tiered
+`IrEmitter::declared_field_type(base_ty, field)` resolves the field from
+the first meta that CONTAINS it: exact/dot-qualified keys first, then
+non-generated bare suffixes (`is_generated_aggregate_key` excludes
+`Option__`/`Result__`/`Vec__`/`Slice__`/`Map__`/`Set__`/`Tuple__`/
+`_Anon__`), then any suffix match. No scan stops on a key that lacks the
+field. `vec_elem_is_str`, `resolve_vec_elem_xiom`, and
+`resolve_vec_elem_type`'s Field arm all route through it.
+
+Evidence: pre-fix m66 fixture 3/8 red (exit 1 at has-mid); post-fix 10/10
+green; smoke_error2 10/10 green; full smoke IR byte-identical across 5
+separate compiler processes. Locks: `stdlib_exec_error2_runs` (the former
+flake is now a permanent stdlib-exec gate) + tests/regression/
+m66_chain_error_has.xi / `e2e_m66_chain_error_has`. Gates: checker
+182/182, feature-reg 510/510, stdlib-exec 85/85 (+2 ign), e2e 2312/2312.
+
 ## 2026-09-09 -- M58 FIXED: module-level mutable arrays indexed through stack copies
 
 Stdlib finding 3b-2 #8 ("module-level arrays mis-materialized; crc table
