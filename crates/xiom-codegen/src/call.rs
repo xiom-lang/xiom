@@ -211,6 +211,53 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         }
                     }
                 }
+                // R8 follow-up (2026-09-11): the checker promises Str method
+                // sugar (trim/trim_start/trim_end/to_lower/to_upper) but no
+                // `Str.<name>` fn is registered, so codegen auto-stubbed
+                // `Str.trim()` (probe p_strparam2: len=0xFFFFFFFF). Map the
+                // sugar to the canonical stdlib free fn and pass the receiver
+                // as arg 0 (deref a &Str slot when needed).
+                if args.is_empty() {
+                    if let (Some(mname), Some(receiver)) = (fn_name_opt.clone(), receiver_expr.clone()) {
+                        // Canonical stdlib free-fn leaves for the checker's Str
+                        // sugar. Route through the FREE-CALL resolver (module
+                        // aliases / leaf-qualified keys) rather than the
+                        // functions table -- catalog fns like str_trim are not
+                        // registered there, which is why the auto-stub appeared.
+                        let canonical: Option<(&str, &str)> = match mname.as_str() {
+                            "trim" => Some(("string", "str_trim")),
+                            "trim_start" => Some(("trim", "str_trim_start")),
+                            "trim_end" => Some(("trim", "str_trim_end")),
+                            "to_lower" => Some(("lowercase", "str_lowercase")),
+                            "to_upper" => Some(("uppercase", "str_uppercase")),
+                            _ => None,
+                        };
+                        if let Some((module, leaf)) = canonical {
+                            // Emit the canonical stdlib symbol DIRECTLY: the
+                            // recursive module-qualified resolver loses the
+                            // "string" alias in this emitter and fell back to a
+                            // bare auto-stub. The injected definitions are
+                            // leaf-qualified (`@string.str_trim`,
+                            // `@trim.str_trim_start`, ...) and all take/return
+                            // Str (i8*).
+                            let (rv, rt) = self.compile_expr(&receiver)?;
+                            let arg0 = if rt == "i8**" {
+                                let h = self.fresh_tmp();
+                                self.emitln(&format!("  {h} = load i8*, i8** {rv}"));
+                                h
+                            } else if rt == "i64" {
+                                let h = self.fresh_tmp();
+                                self.emitln(&format!("  {h} = inttoptr i64 {rv} to i8*"));
+                                h
+                            } else {
+                                rv
+                            };
+                            let tmp = self.fresh_tmp();
+                            self.emitln(&format!("  {tmp} = call i8* @{module}.{leaf}(i8* {arg0})"));
+                            return Ok((tmp, "i8*".to_string()));
+                        }
+                    }
+                }
                 let fn_name = match fn_name_opt {
                     Some(ref n) => {
                         n.clone()

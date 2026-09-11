@@ -1929,7 +1929,7 @@ impl Checker {
                 // v0.56: Skip type check for zero-initialized globals of complex types
                 // (Array, Map, Vec, etc.) -- the zero is a placeholder, not the real type.
                 let is_zero_default = matches!(&cd.value, Expr::Int(0, _) | Expr::Float(_, _));
-                let is_complex_type = matches!(&decl_ty, CheckedType::Named(n) if n == "Array" || n == "Map" || n == "Vec" || n == "Set");
+                let is_complex_type = matches!(&decl_ty, CheckedType::Named(n) if n.starts_with("Array") || n == "Map" || n == "Vec" || n == "Set");
                 // BUG 29: elided annotation (`var g = FnBox{...}` parses as
                 // Type::Named("_") -> Int here). The real type was inferred from
                 // the initializer in register_global_const; the mismatch check
@@ -2110,6 +2110,14 @@ impl Checker {
                 // registry. NOTE: an on-demand load via a catalog reverse
                 // type-index is the planned refinement (docs/ROADMAP.md).
                 &["xiom", "collections"],
+                // R8 follow-up (2026-09-11): the canonical Str method-sugar
+                // implementations live in string submodules (trim_start/trim_end
+                // in xiom.string.trim, lowercase/uppercase in their own
+                // submodules). Without loading them, `.trim_start()` /
+                // `.to_lower()` sugar emitted zero-arg auto-stubs.
+                &["xiom", "string", "trim"],
+                &["xiom", "string", "lowercase"],
+                &["xiom", "string", "uppercase"],
             ];
             for segs in PRELUDE {
                 let prefix: Vec<String> = segs.iter().map(|s| s.to_string()).collect();
@@ -2722,7 +2730,24 @@ impl Checker {
         fn collect_expr_names(expr: &Expr, out: &mut HashSet<String>) {
             match expr {
                 Expr::Ident(id) => { out.insert(id.name.clone()); }
-                Expr::Field(b, f, _) => { collect_expr_names(b, out); out.insert(f.name.clone()); }
+                Expr::Field(b, f, _) => {
+                    collect_expr_names(b, out);
+                    out.insert(f.name.clone());
+                    // R8 follow-up (2026-09-11): Str method sugar
+                    // (trim/trim_start/trim_end/to_lower/to_upper) resolves to
+                    // canonical stdlib free fns at codegen; seed the
+                    // reachability filter so their BODIES are injected.
+                    // Without this `s.trim()` pruned str_trim and codegen
+                    // emitted a zero-arg auto-stub (len=0xFFFFFFFF).
+                    match f.name.as_str() {
+                        "trim" => { out.insert("str_trim".to_string()); }
+                        "trim_start" => { out.insert("str_trim_start".to_string()); }
+                        "trim_end" => { out.insert("str_trim_end".to_string()); }
+                        "to_lower" => { out.insert("str_lowercase".to_string()); }
+                        "to_upper" => { out.insert("str_uppercase".to_string()); }
+                        _ => {}
+                    }
+                }
                 Expr::Call(f, args, _)
                 | Expr::GenericCall(f, _, args, _) => {
                     collect_expr_names(f, out);
@@ -5610,12 +5635,20 @@ impl Checker {
                             CheckedType::from_str(inner)
                         }
                     }
+                    // smoke_array_zip fix (2026-09-11): fixed arrays keep their
+                    // element type ("Array[Tuple__Int__Int]"); indexing yields
+                    // it so `zipped[0].0` resolves the tuple fields. A bare
+                    // "Array" (legacy erasure) stays permissive.
+                    CheckedType::Named(name) if name.starts_with("Array[") && name.ends_with(']') => {
+                        let inner = &name[6..name.len() - 1];
+                        CheckedType::from_str(inner)
+                    }
                     // BUG 29 (repro_opt_vec): wildcard receiver (`v` from
                     // `o.unwrap()` where o: Option[Vec[Str]]). Indexing must
                     // DEFER to codegen (return `_`), not degrade to Int --
                     // otherwise `v[0] != "hello"` errors "cannot compare Int
                     // with Str" even though codegen lowers it correctly.
-                    CheckedType::Named(name) if name == "_" => CheckedType::Named("_".into()),
+                    CheckedType::Named(name) if name == "_" || name == "Array" => CheckedType::Named("_".into()),
                     _ => CheckedType::Int,
                 }
             }

@@ -3912,6 +3912,44 @@ fns/ctors and (b) Vec[V].push from inside generic fns -- both must use
 the substituted concrete element size (112), matching the already-fixed
 generic-field READ stride. Probes preserved in the stdlib probes dir.
 
+## 2026-09-11 -- R8 follow-up + R10 FIXED (method sugar routing, nested container args)
+
+R8 follow-up -- Str method sugar on a PARAM (`s.trim()` -> len=0xFFFFFFFF):
+three coordinated roots.
+1. CODEGEN (call.rs): context called `Str.trim` (no such fn) and the
+   auto-stub returned garbage. Method sugar for trim/trim_start/trim_end/
+   to_lower/to_upper now emits the canonical stdlib symbols directly
+   (`@string.str_trim`, `@trim.str_trim_start|_end`,
+   `@lowercase.str_lowercase`, `@uppercase.str_uppercase`) with the
+   receiver deref'd from a &Str slot / inttoptr'd from an i64 handle.
+2. CHECKER (collect_expr_names): the injection reachability filter prunes
+   fns by referenced leaf names; a sugar call referenced only "trim", so
+   str_trim's BODY was never injected and codegen stubbed the symbol. The
+   reference walk now seeds the canonical leaves (str_trim, str_trim_start,
+   str_trim_end, str_lowercase, str_uppercase).
+3. CHECKER (PRELUDE): trim_start/trim_end live in the xiom.string.trim
+   submodule and lowercase/uppercase in their own submodules --
+   force-loaded with the prelude alongside xiom.string so the canonical
+   modules exist in every xiom.* program.
+
+R10 -- `Vec[Option[struct-with-Str]]` element reads AV (Captures.get):
+1. `type_from_ast_with_args` only preserved Vec/Map/Set args; a struct
+   field `Vec[Option[M2]]` was registered as "Vec[Option]" so the element
+   read fell to the scalar path. Option/Result args are now preserved
+   (layout-neutral: llvm_type_for erases them to %struct.Option/Result).
+2. `resolve_vec_elem_type`'s Field arm returns bracketed container elements
+   ("Option[M2]") so the index site maps to the concrete/erased struct.
+3. The same scan `break`t on the FIRST type_meta key matching the base
+   name, so a stale/qualified key without the field ended resolution early;
+   it now scans all matching keys.
+
+Locks: e2e_m65_str_method_sugar, e2e_m65_vec_option_struct_str,
+stdlib_exec_regex_captures_get_runs.
+Gates: e2e 2311/2311, feature-reg 510/510, stdlib-exec 84/84 (+2 ign),
+checker 182/182.
+
+
+
 ## 2026-09-11 -- smoke_array_zip FIXED: fixed-array tuple elements
 
 Three roots:
@@ -4167,7 +4205,7 @@ unsafe until fixed. Current stdlib/examples all import their targets, so
 the shipping corpus is clean; treat as a latent landmine + fix target for
 the resolver's missing-import fallback.
 
-## R8 follow-up. Method-position sugar still corrupts for some free fns on Str params
+## R8 follow-up. Method-position sugar still corrupts for some free fns on Str params -- FIXED 2026-09-11 (round 37)
 
 `.trim()` in method position on a Str PARAM returns a corrupt Str:
   fn f(s: Str) -> Int { let t = s.trim(); t.len() }   // -> 4294967295
@@ -4179,7 +4217,7 @@ Probe p_strparam2: `s.len()` / `s.byte_at(0)` / `string.str_slice(s,..)` /
 fix should route method-position sugar through the same resolution the
 free-call path uses, for all free fns -- not per-name.
 
-## R10. Vec[Option[struct-with-Str]] element reads AV (container element coherence)
+## R10. Vec[Option[struct-with-Str]] element reads AV (container element coherence) -- FIXED 2026-09-11 (round 37)
 
 `Vec[Option[Match]].push(Some(m))` succeeds, but reading `v[i]` (or doing
 the read inside a method that returns it) AVs 0xC0000005. Local minimal

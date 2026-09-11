@@ -4495,6 +4495,17 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m65_shift_semantics() {
     assert_eq!(compile_and_run("tests\\regression\\m65_shift_semantics.xi"), Some(0));
 }
+// R8 follow-up: Str method-parity sugar (trim/trim_start/trim_end) on a Str
+// param -- codegen auto-stubbed `Str.trim` and the reachability filter had
+// pruned the canonical free fns (len=0xFFFFFFFF).
+#[test] fn e2e_m65_str_method_sugar() {
+    assert_eq!(compile_and_run("tests\\regression\\m65_str_method_sugar.xi"), Some(0));
+}
+// R10: Vec[Option[struct-with-Str]] element reads (nested container args in
+// struct fields + the type_meta field scan).
+#[test] fn e2e_m65_vec_option_struct_str() {
+    assert_eq!(compile_and_run("tests\\regression\\m65_vec_option_struct_str.xi"), Some(0));
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }
