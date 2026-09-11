@@ -14,9 +14,14 @@ impl IrEmitter {
     /// Expr::Index, not a plain Ident). Used by the Vec::new() element-size
     /// computation so Vec[Vec[T]] allocates 32-byte elements (a Vec struct),
     /// not 8-byte truncated handles.
+    ///
+    /// Stage 2c: the rendered name is CANONICAL (shared structural renderer),
+    /// so codegen registry keys match the checker's interned spellings --
+    /// `Result[Int,Str]` and `Result[Int, Str]` can never split into two
+    /// entries.
     pub(crate) fn type_arg_to_name(e: &Expr) -> String {
         match e {
-            Expr::Ident(id) => id.name.clone(),
+            Expr::Ident(id) => xiom_ast::structural::canonical_type_name(&id.name),
             // R8/regex fix (2026-09-11): render ANY bracketed type argument,
             // not just Vec chains -- `Vec[Option[Match]].new()` kept "Int"
             // for the element (Option/Result fell through), so the Vec was
@@ -28,13 +33,17 @@ impl IrEmitter {
                     Expr::Field(_, f, _) => f.name.clone(),
                     _ => return "Int".to_string(),
                 };
-                format!("{}[{}]", base_name, Self::type_arg_to_name(idx))
+                let rendered = format!("{}[{}]", base_name, Self::type_arg_to_name(idx));
+                xiom_ast::structural::canonical_type_name(&rendered)
             }
             // Multi-argument form `Result[A, B]` parses as a tuple index.
-            Expr::Tuple(elems, _) => elems.iter()
-                .map(Self::type_arg_to_name)
-                .collect::<Vec<_>>()
-                .join(","),
+            Expr::Tuple(elems, _) => {
+                let joined = elems.iter()
+                    .map(Self::type_arg_to_name)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                xiom_ast::structural::canonical_type_name(&joined)
+            }
             _ => "Int".to_string(),
         }
     }
@@ -4754,5 +4763,40 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
         let tmp = self.fresh_tmp();
         self.emitln(&format!("  {tmp} = call {ret_ty} @{impl_fn}({args_str})"));
         Ok((tmp, ret_ty))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ident(name: &str) -> Expr {
+        Expr::Ident(xiom_ast::Ident::new(name, xiom_ast::Span::new(0, 0)))
+    }
+
+    /// Stage 2c: codegen type-argument rendering uses the shared canonical
+    /// spelling, so registry keys are stable across whitespace variants.
+    #[test]
+    fn type_arg_to_name_renders_canonically() {
+        let int = ident("Int");
+        let tuple = Expr::Tuple(
+            vec![int.clone(), ident("Str")],
+            xiom_ast::Span::new(0, 0),
+        );
+        assert_eq!(IrEmitter::type_arg_to_name(&tuple), "Int, Str");
+        let vec_int = Expr::Index(
+            Box::new(ident("Vec")),
+            Box::new(int.clone()),
+            xiom_ast::Span::new(0, 0),
+        );
+        let result = Expr::Index(
+            Box::new(ident("Result")),
+            Box::new(Expr::Tuple(
+                vec![int, vec_int],
+                xiom_ast::Span::new(0, 0),
+            )),
+            xiom_ast::Span::new(0, 0),
+        );
+        assert_eq!(IrEmitter::type_arg_to_name(&result), "Result[Int, Vec[Int]]");
     }
 }

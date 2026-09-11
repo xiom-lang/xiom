@@ -39,7 +39,7 @@ use catalog::{ModuleExport, CachedModule, ModuleCatalog};
 /// The `Checker` is single-threaded by design. Use a fresh instance per compilation unit.
 pub struct Checker {
     /// Known type names -> their field types
-    types: HashMap<String, HashMap<String, CheckedType>>,
+    types: HashMap<TypeId, HashMap<String, CheckedType>>,
     /// Current module context for scoped type lookups
     current_module: Option<String>,
     /// Known function signatures
@@ -322,12 +322,14 @@ impl Checker {
         for prim in &["Bool", "Int", "Int8", "Int16", "Int32", "Int64", "Int128",
                        "UInt", "UInt8", "UInt16", "UInt32", "UInt64", "UInt128",
                        "Float32", "Float64", "Float128", "Char", "Str"] {
-            self.types.insert(prim.to_string(), HashMap::new());
+            let id = self.intern_type_name(prim);
+            self.types.insert(id, HashMap::new());
         }
           // Compound builtin types (empty fields = permissive field access).
           // Map is NOT a builtin -- it's defined in collections.xi.
           for comp in &["Vec", "Set", "Stack", "Slice"] {
-            self.types.insert(comp.to_string(), HashMap::new());
+            let id = self.intern_type_name(comp);
+            self.types.insert(id, HashMap::new());
         }
         // Option with known pseudo-fields (accessors that work as field reads).
         // `.value` returns a wildcard so interface dispatch can resolve method
@@ -337,14 +339,16 @@ impl Checker {
         opt.insert("is_some".to_string(), CheckedType::Bool);
         opt.insert("is_none".to_string(), CheckedType::Bool);
         opt.insert("value".to_string(), CheckedType::Named("_".into()));
-        self.types.insert("Option".to_string(), opt);
+        let opt_id = self.intern_type_name("Option");
+        self.types.insert(opt_id, opt);
         // Result with known pseudo-fields
         let mut res = HashMap::new();
         res.insert("is_ok".to_string(), CheckedType::Bool);
         res.insert("is_err".to_string(), CheckedType::Bool);
         res.insert("value".to_string(), CheckedType::Named("_".into()));
         res.insert("error".to_string(), CheckedType::Named("_".into()));
-        self.types.insert("Result".to_string(), res);
+        let res_id = self.intern_type_name("Result");
+        self.types.insert(res_id, res);
 
         // Vec builtin methods
         self.functions.insert("Vec.new".to_string(), FnSig {
@@ -635,8 +639,11 @@ impl Checker {
     }
 
     fn get_type(&self, name: &str) -> Option<&HashMap<String, CheckedType>> {
+        // Stage 2c: registry keys are interned `TypeId`s, so every lookup is
+        // spelling-insensitive by construction (canonical structural form).
+        let key = self.intern_type_name(name);
         if let Some(ref module) = self.current_module {
-            let prefixed = format!("{}.{}", module, name);
+            let prefixed = self.intern_type_name(&format!("{}.{}", module, name));
             if self.types.contains_key(&prefixed) {
                 return self.types.get(&prefixed);
             }
@@ -655,25 +662,27 @@ impl Checker {
         // resolved to another module's same-named type).
         let mkey = self.current_module.clone().unwrap_or_default();
         if let Some(paths) = self.module_import_paths.get(&mkey) {
-            let mut hits: Vec<&String> = paths.iter()
-                .filter(|full| self.types.contains_key(&format!("{}.{}", full, name)))
+            let mut hits: Vec<TypeId> = paths.iter()
+                .map(|full| self.intern_type_name(&format!("{}.{}", full, name)))
+                .filter(|id| self.types.contains_key(id))
                 .collect();
             hits.sort();
             if hits.len() == 1 {
-                return self.types.get(&format!("{}.{}", hits[0], name));
+                return self.types.get(&hits[0]);
             }
         }
-        self.types.get(name)
+        self.types.get(&key)
     }
 
     fn contains_type(&self, name: &str) -> bool {
+        let key = self.intern_type_name(name);
         if let Some(ref module) = self.current_module {
-            let prefixed = format!("{}.{}", module, name);
+            let prefixed = self.intern_type_name(&format!("{}.{}", module, name));
             if self.types.contains_key(&prefixed) {
                 return true;
             }
         }
-        self.types.contains_key(name)
+        self.types.contains_key(&key)
     }
 
     fn add_pattern_bindings(&mut self, pattern: &Pattern, scrutinee_type: &CheckedType) {
@@ -1288,30 +1297,34 @@ impl Checker {
                 for (name, ty, _) in &td.derived_fields {
                     fields.insert(name.name.clone(), CheckedType::from_ast_type(ty));
                 }
-                let key = if module_path.is_empty() { td.name.name.clone() } else { format!("{}.{}", module_path, td.name.name) };
+                let key_name = if module_path.is_empty() { td.name.name.clone() } else { format!("{}.{}", module_path, td.name.name) };
                 let bare_key = td.name.name.clone();
-                self.types.insert(key.clone(), fields.clone());
+                let key = self.intern_type_name(&key_name);
+                let bare_id = self.intern_type_name(&bare_key);
+                self.types.insert(key, fields.clone());
                 // Register derived methods (clone, eq, etc.)
                 for derive_trait in &td.derives {
                     self.register_derived_method(&td.name.name, module_path, derive_trait);
                 }
                 // Also register with bare name as fallback (don't overwrite existing)
-                if bare_key != key {
-                    self.types.entry(bare_key).or_insert(fields);
+                if bare_id != key {
+                    self.types.entry(bare_id).or_insert(fields);
                 }
                 self.visibility.insert(td.name.name.clone(), td.is_pub);
                 // I1: Track struct field types for Send/Sync auto-derivation
                 let field_types: Vec<(String, String)> = td.fields.iter()
                     .map(|f| (f.name.name.clone(), CheckedType::from_ast_type(&f.ty).name()))
                     .collect();
-                self.struct_field_types.insert(key.clone(), field_types);
+                self.struct_field_types.insert(key_name, field_types);
             }
             TopDecl::Enum(ed) => {
-                let key = if module_path.is_empty() { ed.name.name.clone() } else { format!("{}.{}", module_path, ed.name.name) };
+                let key_name = if module_path.is_empty() { ed.name.name.clone() } else { format!("{}.{}", module_path, ed.name.name) };
                 let bare_key = ed.name.name.clone();
-                self.types.insert(key.clone(), HashMap::new());
-                if bare_key != key {
-                    self.types.entry(bare_key).or_insert(HashMap::new());
+                let key = self.intern_type_name(&key_name);
+                let bare_id = self.intern_type_name(&bare_key);
+                self.types.insert(key, HashMap::new());
+                if bare_id != key {
+                    self.types.entry(bare_id).or_insert(HashMap::new());
                 }
                 self.visibility.insert(ed.name.name.clone(), ed.is_pub);
                 // G-13: register derived methods for enums (clone/eq/hash/...).
@@ -1362,7 +1375,7 @@ impl Checker {
                         (v.name.name.clone(), types)
                     })
                     .collect();
-                self.enum_field_types.insert(key.clone(), enum_field_types);
+                self.enum_field_types.insert(key_name.clone(), enum_field_types);
             }
             TopDecl::Module(md) => {
                 let new_path = if module_path.is_empty() { md.name.name.clone() } else { format!("{}.{}", module_path, md.name.name) };
@@ -1478,11 +1491,12 @@ impl Checker {
                     .map(|f| format!("{}_{}", f.name.name, CheckedType::from_ast_type(&f.ty).name()))
                     .collect();
                 let anon_name = format!("_Anon__{}", parts.join("__"));
-                if !self.types.contains_key(&anon_name) {
+                let anon_id = self.intern_type_name(&anon_name);
+                if !self.types.contains_key(&anon_id) {
                     let field_map: HashMap<String, CheckedType> = fields.iter()
                         .map(|f| (f.name.name.clone(), CheckedType::from_ast_type(&f.ty)))
                         .collect();
-                    self.types.insert(anon_name, field_map);
+                    self.types.insert(anon_id, field_map);
                 }
             }
             // Walk nested type constructs that may contain anonymous structs
@@ -2908,7 +2922,8 @@ impl Checker {
         for item in items {
             match item {
                 TopDecl::Type(td) => {
-                    let key = if prefix.is_empty() { td.name.name.clone() } else { format!("{}.{}", prefix, td.name.name) };
+                    let key_name = if prefix.is_empty() { td.name.name.clone() } else { format!("{}.{}", prefix, td.name.name) };
+                    let key = self.intern_type_name(&key_name);
                     let fields = self.types.get(&key).cloned().unwrap_or_default();
                     map.insert(td.name.name.clone(), ModuleExport::Type { fields, is_pub: td.is_pub });
                 }
@@ -4397,12 +4412,13 @@ impl Checker {
                         .map(|ty| ty.name())
                         .collect();
                     let tuple_name = format!("Tuple__{}", elem_types.join("__"));
-                    if !self.types.contains_key(&tuple_name) {
+                    let tuple_id = self.intern_type_name(&tuple_name);
+                    if !self.types.contains_key(&tuple_id) {
                         let field_map: HashMap<String, CheckedType> = item_types.iter()
                             .enumerate()
                             .map(|(i, ty)| (format!("_{i}"), ty.clone()))
                             .collect();
-                        self.types.insert(tuple_name.clone(), field_map);
+                        self.types.insert(tuple_id, field_map);
                     }
                     CheckedType::named(tuple_name)
                 } else if let Some(item) = items.first() {
@@ -4711,7 +4727,7 @@ impl Checker {
                             // and register on first field access, so cross-module
                             // `t.0` / `t.1` type-check instead of degrading to
                             // <error> (which broke `!t.0`, `240 * t.1`, ...).
-                            self.types.insert(name.name().to_string(), tuple_fields.clone());
+                            self.types.insert(*name, tuple_fields.clone());
                             tuple_fields.get(&field.name).cloned().unwrap_or(CheckedType::Error)
                         } else {
                             CheckedType::Error // unknown type
@@ -4871,7 +4887,7 @@ impl Checker {
                             // if obj is a simple Ident that resolves to a known type,
                             // the call is TypeName.method(args) rather than instance.method(args).
                             let is_static_call = match obj.as_ref() {
-                                Expr::Ident(id) => self.types.contains_key(&id.name),
+                                Expr::Ident(id) => self.types.contains_key(&self.intern_type_name(&id.name)),
                                 _ => false,
                             };
                             // Determine the self-kind of this method:
@@ -5693,7 +5709,7 @@ impl Checker {
                 // If the type exists as a struct specifically in THIS module, use it
                 // Otherwise, prefer enum variant resolution (handles name collisions across modules)
                 let is_local_struct = if let Some(ref module) = self.current_module {
-                    let prefixed = format!("{}.{}", module, name.name);
+                    let prefixed = self.intern_type_name(&format!("{}.{}", module, name.name));
                     self.types.contains_key(&prefixed)
                 } else {
                     is_struct_type

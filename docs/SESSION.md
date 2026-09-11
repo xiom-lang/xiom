@@ -153,6 +153,22 @@ Locks: stdlib_exec_error2_runs (the former flake is now a permanent gate)
 Gates: e2e 2312/2312, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
 checker 182/182.
 
+### Round-50 (2026-09-11): Stage 2c slice 4 -- canonical registry keys + shared structural module
+
+Completes Stage 2c. `Checker::types` is now keyed by `TypeId` (builtins,
+structs, enums, anon structs, tuples, module exports all intern on insert;
+`get_type`/`contains_type` intern the qualified query), so registry identity
+is structural by construction and the R5 qualified-import preference
+compares ids. `structural.rs` moved to `xiom_ast::structural` (xiom-check
+keeps a `pub use` shim) so checker, codegen, driver and LSP share ONE
+canonical parser without inverting the codegen->checker layering; codegen's
+`type_arg_to_name` now renders through it (canonical codegen registry keys;
+new unit test). Test counts move with the module: checker 187/187,
+xiom-ast 9/9, codegen lib 11/11. Full gates: feature-reg 510/510,
+stdlib-exec 85/85 (+2 ign), e2e 2316/2316, xiom lib 20/20, fmt 83/83,
+lsp 42/42, jit 5/5, workspace check clean. Stage 2c has no remaining
+slices; the next readiness item is the Stage 3 Item A flip.
+
 ### Round-49 (2026-09-11): Stage 2c slice 3 -- `CheckedType::Named(TypeId)`
 
 The audit-6 representation flip: `CheckedType::Named` now stores an interned
@@ -420,8 +436,9 @@ What is left is staged readiness work, not bug triage:
    (container_parts/tuple_elem_names/is_container_base) + canonical
    decomposition renderings; DONE round 49: `CheckedType::Named(TypeId)`
    interned storage (process-global append-only arena, canonical
-   spelling-equality, interned-symbol surface). REMAINING: get_type
-   registry canonicalization, canonical codegen type keys.]
+   spelling-equality, interned-symbol surface); DONE round 50: registry
+   keyed by TypeId + structural module shared from xiom-ast + canonical
+   codegen type keys. STAGE 2C COMPLETE.]
 3. ITEM A FLIP (Stage 3): catalog-body findings are still WARNINGS; the
    flip to hard errors is gated on the stdlib corpus being clean
    (~1.5k-4.5k findings per stdlib compile). Shared with the stdlib lane --
@@ -495,24 +512,24 @@ DISCIPLINE TRAPS (learned this campaign, keep honoring):
 
 You are continuing the AXIOM compiler-lane readiness campaign in
 E:\Projects\AXIOM on branch feat/architect. Read docs/SESSION.md
-(the rounds 38-49 entries + COMPILER-LANE REMAINING QUEUE) and
+(the rounds 38-50 entries + COMPILER-LANE REMAINING QUEUE) and
 docs/COMPILER_BUGS.md first; COMPILER_READINESS_PLAN.md holds the stage
 definitions; docs/LET_ARRAY_DECISION.md and docs/JSON_DIAGNOSTICS_V1.md
-are current design records. Current state (HEAD: round-49 Stage 2c slice
-3): all known compiler-catalogue red smokes GREEN, the last flake
-(smoke_error2 has-mid) root-caused and locked; last gates e2e 2316/2316,
-feature-reg 510/510, stdlib-exec 85/85 (+2 ign), checker 196/196, xiom lib
-20/20, fmt 83/83, lsp 42/42, jit 5/5. The stdlib session works in parallel
+are current design records. Current state (HEAD: round-50 Stage 2c slice
+4, STAGE 2C COMPLETE): all known compiler-catalogue red smokes GREEN, the
+last flake (smoke_error2 has-mid) root-caused and locked; last gates e2e
+2316/2316, feature-reg 510/510, stdlib-exec 85/85 (+2 ign), checker
+187/187 + xiom-ast 9/9 + codegen lib 11/11 (the 9 structural tests moved
+with the module to xiom-ast), xiom lib 20/20, fmt 83/83, lsp 42/42,
+jit 5/5. The stdlib session works in parallel
 on stdlib/** only and reports roadblocks in chat + COMPILER_BUGS.md.
 
 DONE since the previous prompt: smoke_error2 (HashMap-ordered type_meta
-suffix shadowing; order-independent field scan), Stage 2c slice 1
-(structural.rs parser + real TypeArena interning), slice 2 (single
-parser wired through every checker consumer -- container_parts,
-tuple_elem_names, is_container_base; parse_generic_type deleted; canonical
-decomposition renderings) and slice 3 (`CheckedType::Named(TypeId)`
-interned storage -- process-global append-only arena, canonical
-spelling-equality, interned-symbol surface, ~190 call sites migrated),
+suffix shadowing; order-independent field scan), Stage 2c slices 1-4
+(structural.rs parser + interning; single parser wired through every
+checker consumer; `CheckedType::Named(TypeId)` interned storage and
+process-global arena; registry keyed by TypeId; structural module shared
+from xiom-ast; canonical codegen type keys),
 LET-array decision doc
 + ALL of P1 (annotated [N]T bindings, float element reads), P2 (user-fn
 `&[N]T`/`&mut [N]T` params now element pointers -- a catalog call inside the
@@ -526,23 +543,18 @@ workspace version/MSRV (1.86) + cargo-deny + CI hygiene (fixed a rotted
 xiom-mcp member), driver target-named files, JSON diagnostics v1 schema.
 
 Your task, in order:
-1. Stage 2c follow-on slices: route get_type's registry lookups through the
-   canonical arena keys and move the codegen type keys onto the same
-   canonical form (structural core round 39, single parser round 48,
-   `Named(TypeId)` storage round 49; keep the container/ABI bridges
-   working).
-2. Stage 3 ITEM A FLIP: re-measure catalog-body findings after the stdlib
+1. Stage 3 ITEM A FLIP: re-measure catalog-body findings after the stdlib
    dedup rounds; flip to hard errors when clean.
-3. Stage 5 remainder: LSP incremental reparse/cross-file index; dbg async
+2. Stage 5 remainder: LSP incremental reparse/cross-file index; dbg async
    MI reader + .xi DWARF; cargo-fuzz targets over lexer/parser/CTFE +
    ASAN/UBSAN CI; full clap migration of the driver parser; supply chain
    beyond the closed core (ed25519 + trust model, lockfile v2 with an
    enforced --locked path, git installs pinned to commits -- note git deps
    are parsed but not yet implemented, authenticated publish); sandbox
    false-green + randomized temp names.
-4. Stage 6 PERFORMANCE program: incremental engine tiers, parallel mono,
+3. Stage 6 PERFORMANCE program: incremental engine tiers, parallel mono,
    linker strategy, benchmark CI budgets.
-5. Stage 7 SELFHOST GATE: zero-ICE self-build, >=1M fuzz execs, -O
+4. Stage 7 SELFHOST GATE: zero-ICE self-build, >=1M fuzz execs, -O
    differential, release-binary suites, Rust-bootstrap equivalence.
 
 Working discipline: isolated build

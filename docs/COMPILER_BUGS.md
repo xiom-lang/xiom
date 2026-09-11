@@ -7,6 +7,37 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-09-11 -- Stage 2c slice 4: canonical registry keys + shared structural module
+
+Completes the remaining Stage 2c items:
+
+- **Checker registry keyed by `TypeId`**: `Checker::types` changed from
+  `HashMap<String, ...>` to `HashMap<TypeId, ...>`. `get_type` /
+  `contains_type` intern the (module-qualified) query through the canonical
+  arena, and every registration site (builtins, structs, enums, anon
+  structs, tuples, module exports) inserts the interned id. Registry
+  identity is structural by construction -- spelling variants can no longer
+  miss, and the R5 qualified-import preference now compares ids.
+- **Shared structural module**: `structural.rs` moved from xiom-check to
+  `xiom_ast::structural` (same implementation; `xiom-check/src/structural.rs`
+  is a `pub use` shim). This removes the layering problem where codegen
+  (which only dev-depends on xiom-check) would have needed the checker in
+  production code: the canonical type-name grammar belongs with the AST.
+- **Codegen canonical keys**: `IrEmitter::type_arg_to_name` renders through
+  `xiom_ast::structural::canonical_type_name`, so codegen registry keys
+  (`types.types`, `type_meta`, concrete-container registrations and the
+  `Vec::new` element-size path) use the checker's canonical spelling
+  (`Result[Int, Str]`, never a second `Result[Int,Str]` entry). New unit test
+  `type_arg_to_name_renders_canonically`.
+
+Test-count note: the 9 structural tests move with the module to xiom-ast, so
+the checker suite is 187 (196 - 9) plus xiom-ast 9/9; the codegen lib suite
+gains the renderer test (11/11).
+
+Gates (fresh canonical binary): checker 187/187, xiom-ast 9/9, codegen lib
+11/11, feature-reg 510/510, stdlib-exec 85/85 (+2 ign), e2e 2316/2316, xiom
+lib 20/20, fmt 83/83, lsp 42/42, jit 5/5, workspace check clean.
+
 ## 2026-09-11 -- Stage 2c slice 3: `CheckedType::Named(TypeId)` interned type identity
 
 The audit-6 representation flip: `CheckedType::Named(String)` carried raw
