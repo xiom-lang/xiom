@@ -3912,7 +3912,39 @@ fns/ctors and (b) Vec[V].push from inside generic fns -- both must use
 the substituted concrete element size (112), matching the already-fixed
 generic-field READ stride. Probes preserved in the stdlib probes dir.
 
-## R8. char_at contract codegen: wrong-target evaluation + heap/stack corruption
+## R8. char_at contract codegen -- FIXED (2026-09-11)
+
+Face A -- METHOD-POSITION FREE-FN CALLS (receiver sugar): `s.char_count()`
+where `char_count(s: Str)` is a free fn was rejected by the checker
+("cannot call 'char_count' on this expression"); in catalog bodies the
+finding is staged, and codegen then compiled the sugar to a constant-0
+stub -- so `string.char_at`'s ensures (`pos < s.char_count()`) evaluated
+0 and aborted EVERY Some return (json/glob verification path).
+FIX (checker, method-call fallback): resolve a registered fn whose LEAF
+matches the method name, whose FIRST parameter's base type equals the
+receiver base (Str/Vec/user type), and whose arity is receiver + args;
+return its declared return type. Codegen already resolved the free fn and
+prepended the receiver (IR-verified: `%tmp5 = call i64 @string.char_count
+(i8* %tmp4)`), so no codegen change was needed. User-space and catalog
+free fns both work (`p_r8_a`, `p_r8_b`, `p_hashcall`).
+
+Face B -- free-fn ensures vs the builtin Char-returning `.char_at` path:
+verified CLEAN against an ISOLATED patched stdlib copy ($XIOM_STDLIB
+override) with the byte-domain clause restored
+(`ensures: result is Some => pos >= 0 && pos < s.len()`): p_globchar
+(`pattern.char_at(1) == '*'`), smoke_string_glob, smoke_convert_url,
+smoke_convert_ascii85, smoke_convert_base32, smoke_stress_serialize_json_
+nested and kat_serialize_json_minimal all exit 0. The stdlib lane can
+re-add the clause (the PENDING note in string.xi is obsolete).
+
+Regression lock: e2e_m65_r8_method_free_fn
+(tests/regression/m65_r8_method_free_fn.xi). Gates: e2e 2307/2307,
+feature-reg 510/510, stdlib-exec 79/79 (+2 ign), checker 182/182.
+OP NOTE: judge checker changes on a FRESHLY REBUILT canonical binary --
+the first run used a stale target/debug/xiom.exe and produced phantom
+failures (same class as the standing "baseline rebuild" discipline).
+
+### R8 ORIGINAL FINDING (stdlib lane, 2026-09-10)
 
 Stdlib finding from the json/glob verification (2026-09-10):
 1. `string.xi char_at`'s ensures used `s.char_count()` -- char_count is a
