@@ -153,6 +153,32 @@ Locks: stdlib_exec_error2_runs (the former flake is now a permanent gate)
 Gates: e2e 2312/2312, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
 checker 182/182.
 
+### Round-41 (2026-09-11): Stage 5 -- watchdog cancellation token (#12) + manifest timeout-secs
+
+Compiler lane. The timeout / memory watchdogs called `std::process::exit(1)`
+from worker threads (no unwinding; atexit handlers racing the compiler's
+own cleanup; library embedders lost control).
+
+- NEW `crates/xiom-codegen/src/cancel.rs`: process-wide cooperative
+  cancellation token (`request_cancel` / `is_cancelled` / `reset`).
+- Codegen observes it at `compile_program` entry, per function in the
+  parallel function loop, and before merging outputs -- a cancelled build
+  returns `Err("compilation cancelled")` instead of a truncated module.
+- The clang child is now spawned and polled (`run_child_cancellable`, with
+  reader threads so a chatty child cannot deadlock the pipe); a watchdog
+  cancellation kills it.
+- Driver: the timeout and memory-budget watchdogs set the token; the MAIN
+  thread reports the error and exits. `real_main` resets the token at start.
+- AUDIT #18 completion: `xiom.toml [compiler] timeout-secs` is now honored
+  as a project default (explicit `--timeout` wins; 0 disables); help text
+  corrected to the actual 300s default.
+
+Verified: `--timeout 1` on smoke_error2 cancels in ~2s with both the
+watchdog message and `codegen: compilation cancelled` (exit 1); a manifest
+with `timeout-secs = 1` times out the same way while `--timeout 60`
+overrides and compiles cleanly; normal compiles unchanged. Gates: checker
+192/192, feature-reg 510/510, stdlib-exec 85/85 (+2 ign), e2e 2313/2313.
+
 ### Round-40 (2026-09-11): LET-array P1 FIXED -- annotated fixed arrays + float element reads
 
 Compiler lane, executing the decision doc from round 39 (docs/
@@ -243,8 +269,10 @@ What is left is staged readiness work, not bug triage:
      docs/LET_ARRAY_DECISION.md. Compiler follow-ups P1 (annotated let),
      P2 (user-fn &[N]T args), P3 (delete M33 let->Vec + Slice bridge).
 5. Stage 5 remainder:
-   - watchdog cancellation (#12: process::exit from worker threads ->
-     cancellation token; xiom.toml timeout-secs CLI-only until then)
+   - [DONE round 41] watchdog cancellation (#12): cooperative token in
+     xiom-codegen; driver watchdogs set it (timeout + memory), clang child
+     is killed on cancel, main thread reports and exits; xiom.toml
+     [compiler] timeout-secs now honored as a project default.
    - LSP UTF-16 positions via the span table + mutex-poison recovery +
      incremental reparse/cross-file index
    - fmt: comment/shebang preservation + string-literal escaping on

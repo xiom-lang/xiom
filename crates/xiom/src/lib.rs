@@ -250,6 +250,49 @@ pub fn expand_sources_with_graph(source_paths: &[String]) -> (Vec<String>, Vec<S
     }
 }
 
+/// Audit #12: run a child process while observing the cooperative
+/// cancellation token. Reader threads drain stdout/stderr so a chatty child
+/// cannot deadlock on a full pipe; the poll loop kills the child when a
+/// watchdog (timeout / memory budget) cancels the build. Mirrors
+/// `Command::output()`'s return shape.
+fn run_child_cancellable(
+    cmd: &mut std::process::Command,
+) -> std::io::Result<std::process::Output> {
+    use std::io::Read;
+    use std::process::Stdio;
+    let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    let mut out_pipe = child.stdout.take();
+    let mut err_pipe = child.stderr.take();
+    let out_handle = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(p) = out_pipe.as_mut() {
+            let _ = p.read_to_end(&mut buf);
+        }
+        buf
+    });
+    let err_handle = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(p) = err_pipe.as_mut() {
+            let _ = p.read_to_end(&mut buf);
+        }
+        buf
+    });
+    let status = loop {
+        match child.try_wait()? {
+            Some(status) => break status,
+            None => {
+                if xiom_codegen::cancel::is_cancelled() {
+                    let _ = child.kill();
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
+    };
+    let stdout = out_handle.join().unwrap_or_default();
+    let stderr = err_handle.join().unwrap_or_default();
+    Ok(std::process::Output { status, stdout, stderr })
+}
+
 /// Production-grade library API: compile XIOM sources and return structured
 /// diagnostics. Never calls `process::exit()`. Safe for use from MCP server,
 /// LSP, debugger, and any long-running process.
@@ -1237,7 +1280,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 }
             }
             cmd.current_dir(&unique_tmp);
-            let clang_output = cmd.output();
+            let clang_output = run_child_cancellable(&mut cmd);
             let _ = std::fs::remove_dir_all(&unique_tmp);
             match clang_output {
                 Ok(out) if out.status.success() => {
