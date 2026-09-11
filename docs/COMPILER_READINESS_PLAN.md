@@ -113,6 +113,9 @@ const errors cleanly, for-loop const eval).
   expect, incremental reparsing, cross-file index.
 - fmt: defer support (todo!() crash today), comment/shebang preservation (needs Stage 2
   trivia), string-literal escaping on re-emit.
+  [Partial round 42: shebang + leading comment/header blocks preserved and
+  string/char literals escaped on re-emit (`xiom_fmt::format_source_text`);
+  body-inline comment trivia attachment remains.]
 - dbg: MI command quoting (injection via evaluate/breakpoints), async MI reader,
   .xi DWARF mapping (enabled by Stage 2 spans).
 - Shared JSON diagnostics v1 schema consumed by LSP/MCP/CI.

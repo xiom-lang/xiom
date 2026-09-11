@@ -6,10 +6,6 @@ use std::env;
 use std::fs;
 use std::process;
 
-use xiom_lexer::Lexer;
-use xiom_parser::Parser;
-use xiom_fmt::Formatter;
-
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mut check_mode = false;
@@ -46,15 +42,8 @@ fn main() {
             process::exit(1);
         });
 
-        let mut lexer = Lexer::new(&source);
-        let tokens = lexer.tokenize();
-
-        let mut parser = Parser::new(tokens);
-        match parser.parse_program() {
-            Ok(program) => {
-                let mut formatter = Formatter::new();
-                let formatted = formatter.format(&program);
-
+        match xiom_fmt::format_source_text(&source) {
+            Ok(formatted) => {
                 if check_mode {
                     if formatted != source {
                         eprintln!("{}: not canonically formatted", file);
@@ -72,7 +61,7 @@ fn main() {
                 }
             }
             Err(e) => {
-                eprintln!("xiom fmt: {}: parse error: {:?}", file, e);
+                eprintln!("xiom fmt: {}: {}", file, e);
                 process::exit(1);
             }
         }
