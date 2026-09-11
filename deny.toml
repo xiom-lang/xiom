@@ -1,0 +1,42 @@
+# cargo-deny configuration -- XIOM workspace supply-chain gate (Stage 5).
+#
+# CI runs: cargo deny check advisories licenses bans sources
+# Local:   cargo install cargo-deny && cargo deny check
+#
+# The allow-list is deliberately explicit: a new dependency with a license
+# outside it fails the gate until a human adds it here. MIT/Apache-2.0 is
+# the project license (see [workspace.package] in Cargo.toml).
+
+[advisories]
+ignore = []
+
+[licenses]
+# Permissive licenses present in the current dependency tree, plus the
+# LLVM exception used by some Rust toolchain-adjacent crates.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "Unlicense",
+    "CC0-1.0",
+    "MPL-2.0",
+]
+confidence-threshold = 0.8
+exceptions = []
+
+[bans]
+# Duplicate major versions are a warning (reviewed during dependency bumps);
+# wildcard dependencies are always rejected.
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "warn"
+unknown-git = "warn"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

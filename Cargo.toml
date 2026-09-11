@@ -22,3 +22,20 @@ members = [
     "crates/xiom-ctfe",
     "crates/xiom-jit",
 ]
+
+# Workspace version policy (Stage 5 hygiene, round 44):
+# - ONE version for every workspace crate; bump here, all crates follow.
+#   Internal path dependencies carry no version requirement, so the bump is
+#   atomic. Before this the workspace carried four schemes (0.58.0 / 0.57.0 /
+#   0.52.1 / 0.1.0), which made release tagging ambiguous.
+# - edition 2024 and MSRV 1.86.0 are declared once; `rust-version.workspace
+#   = true` per crate makes the MSRV machine-checkable (cargo refuses older
+#   toolchains). 1.86 (not 1.85) is the honest floor for THIS lockfile: the
+#   ureq/url -> icu_* dependency chain declares rust-version 1.86.
+# - The workspace is NOT published yet: the repo split + registry phase
+#   (docs/REPO_SPLIT.md) decides which crates become public packages.
+[workspace.package]
+version = "0.58.0"
+edition = "2024"
+rust-version = "1.86.0"
+license = "MIT OR Apache-2.0"

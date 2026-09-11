@@ -153,6 +153,27 @@ Locks: stdlib_exec_error2_runs (the former flake is now a permanent gate)
 Gates: e2e 2312/2312, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
 checker 182/182.
 
+### Round-44 (2026-09-11): Stage 5 -- workspace version policy + MSRV + cargo-deny + broken-member fix
+
+Compiler lane, engineering hygiene:
+
+- Workspace version policy: `[workspace.package]` now carries ONE version
+  (0.58.0), `edition = "2024"`, `rust-version = "1.86.0"` and the license;
+  all 20 member crates inherit via `version.workspace = true` /
+  `edition.workspace = true` / `rust-version.workspace = true`. The four
+  coexisting schemes (0.58.0 / 0.57.0 / 0.52.1 / 0.1.0) are gone. MSRV is
+  1.86, not 1.85, because the ureq/url -> icu_* chain declares 1.86 (found
+  via `cargo metadata`).
+- `cargo check --workspace` exposed a PRE-EXISTING broken member: xiom-mcp
+  failed with E0063 (missing `opt_level` in a CompileConfig literal, rotted
+  since round 24). Fixed; the workspace now checks clean.
+- NEW `deny.toml` (advisories/licenses/bans/sources; explicit permissive
+  allow-list) and a CI `hygiene` job: MSRV `cargo check --workspace
+  --all-targets` (bins + test targets -- the gap that hid the mcp break) and
+  `cargo deny check`.
+- REMAINING hygiene: cargo-fuzz targets over lexer/parser/CTFE (replacing
+  the toy LCG harnesses) + ASAN/UBSAN CI runs.
+
 ### Round-43 (2026-09-11): Stage 5 -- LSP UTF-16 positions + mutex-poison recovery
 
 Compiler lane. Two server-killing classes closed:
@@ -328,7 +349,8 @@ What is left is staged readiness work, not bug triage:
      remains a follow-on slice)
    - dbg: async MI reader + .xi DWARF mapping
    - shared JSON diagnostics v1 schema (LSP/MCP/CI)
-   - workspace version policy + MSRV declaration + cargo-deny/vet
+   - [DONE round 44] workspace version policy + MSRV declaration (1.86,
+     inherited by all 20 crates) + cargo-deny config/CI (vet audits remain)
    - cargo-fuzz targets + ASAN/UBSAN CI
    - supply chain beyond the closed core: ed25519 signatures + trust
      model, lockfile v2, git installs pinned to commits, authenticated
