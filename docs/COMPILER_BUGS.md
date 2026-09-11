@@ -7,6 +7,39 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-09-11 -- Stage 2c slice 2: single structural parser wired through the checker
+
+Stage 2c's structural core (crates/xiom-check/src/structural.rs, round 39)
+was still bypassed by hand-rolled type-string parsing in the checker. This
+slice completes the "no other module parses type strings" mandate:
+
+- structural.rs grows the shared decomposition helpers:
+  - `container_parts` -- `"Option[Result[Int,Str]]"` ->
+    `("Option", ["Result[Int, Str]"])` with CANONICAL argument renderings;
+  - `is_container_base` -- `"Vec[Int]"` for base `"Vec"` (malformed and
+    bare names are false);
+  - `tuple_elem_names` -- both tuple spellings: parenthesized `(Int, Str)`
+    with a DEPTH-AWARE comma split (nested parens/brackets survive), and
+    the legacy `Tuple__Int__Str` encoding;
+  - `is_result_or_option` -- the `?` operator's classifier (Result/Option
+    bare or with args, plus the `_` placeholder).
+- lib.rs retires its local parser: `parse_generic_type` (the last
+  `name.find('[')` splitter with an off-by-one slice on malformed text) is
+  DELETED; `is_send`, the `first_entry` receiver-arg substitution, pattern
+  payload binding (new `container_arg`), `parse_tuple_elem_types`, the
+  destructure arm, `tuple_fields_from_name`, the `?` classification and the
+  Vec/Array element-index arms all route through the shared helpers. No
+  behavior change was intended; because every compound extraction now feeds
+  CANONICAL `", "` renderings into `CheckedType::from_str`, spelling
+  variants (`"Result[Int,Str]"` vs `"Result[Int, Str]"`) yield identical
+  CheckedTypes instead of two structurally-equal values.
+- Tests: 2 new structural unit tests (container/tuple decomposition; the
+  depth-aware nested tuple split) + 1 checker test pinning canonical
+  rendering through `container_arg` / `parse_tuple_elem_types`.
+
+Gates (fresh canonical binary): checker 195/195, feature-reg 510/510,
+stdlib-exec 85/85 (+2 ign), e2e 2316/2316.
+
 ## 2026-09-11 -- LET-array P3 FIXED: unannotated `let` literals bind fixed arrays
 
 The last migration step of docs/LET_ARRAY_DECISION.md: `Stmt::Let` still ran
