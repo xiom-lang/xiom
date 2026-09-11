@@ -7,6 +7,29 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-09-11 -- AUDIT #12 CLOSED: watchdog process::exit -> cooperative cancellation
+
+The timeout and memory-budget watchdogs called `std::process::exit(1)` from
+worker threads: no unwinding, atexit handlers racing the compiler's own
+cleanup, and library embedders (LSP/MCP) could not intercept the exit.
+`xiom.toml [compiler] timeout-secs` was also parsed-but-ignored (audit #18
+remainder).
+
+Fix: `crates/xiom-codegen/src/cancel.rs` adds a process-wide cooperative
+token. Codegen checks it at `compile_program` entry, per function in the
+parallel loop, and before merging outputs; the driver spawns clang through
+`run_child_cancellable` (reader threads drain the pipes; the poll loop kills
+the child on cancellation); the driver watchdogs set the token instead of
+exiting, and `real_main` reports the failure and exits from the main thread.
+Manifest `timeout-secs` is now applied as a project default (explicit
+`--timeout` wins; 0 disables).
+
+Verified: `--timeout 1` on smoke_error2 -> exit 1 in ~2s with both the
+timeout message and `codegen: compilation cancelled`; manifest
+`timeout-secs = 1` likewise, `--timeout 60` overrides and succeeds; no
+suite regressions (checker 192/192, feature-reg 510/510, stdlib-exec 85/85
++2 ign, e2e 2313/2313).
+
 ## 2026-09-11 -- LET-array P1 FIXED: annotated `let [N]T` bindings + float element reads
 
 Two codegen roots surfaced by the LET-array decision doc probes

@@ -17,6 +17,7 @@ use std::sync::Arc;
 use rayon::prelude::*;
 
 pub mod call;
+pub mod cancel;
 pub mod llvm_consts;
 pub mod coerce;
 pub mod context;
@@ -3734,6 +3735,9 @@ impl IrEmitter {
     // ========================================================================
 
     pub fn compile_program(&mut self, program: &Program) -> Result<String, String> {
+        if crate::cancel::is_cancelled() {
+            return Err("compilation cancelled".to_string());
+        }
         // Register builtin types for Option and Result
         if !self.types.types.contains_key(&"Option".to_string()) {
             self.types.types.insert("Option".to_string(), vec!["discriminant".to_string(), "value".to_string()]);
@@ -4297,6 +4301,13 @@ impl IrEmitter {
             .par_iter()
             .zip(assignments)
             .map(|((idx, prefix, fd), (_aidx, sym, snapshot))| {
+                // Audit #12: short-circuit when a watchdog cancelled mid-build
+                // (timeout / memory budget) -- empty output, flagged after the
+                // collect so the caller gets a proper Err instead of a silently
+                // truncated module.
+                if crate::cancel::is_cancelled() {
+                    return (*idx, String::new(), Vec::new(), HashSet::new(), Vec::new(), Vec::new());
+                }
                 let mut emitter = IrEmitter::new();
                 emitter.types = (*type_ctx).clone();
                 emitter.config = (*cfg).clone();
@@ -4341,6 +4352,9 @@ impl IrEmitter {
             .collect::<Vec<_>>();
 
         // Step 3: Merge outputs in declaration order
+        if crate::cancel::is_cancelled() {
+            return Err("compilation cancelled".to_string());
+        }
         let mut sorted: Vec<_> = outputs.into_iter().collect();
         sorted.sort_by_key(|(idx, _, _, _, _, _)| *idx);
 

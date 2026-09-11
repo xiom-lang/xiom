@@ -98,6 +98,10 @@ const errors cleanly, for-loop const eval).
   `xiom.toml [compiler]`, fix sandbox exit-0 false-green (main.rs:763-765), remove
   process::exit from library paths (lib.rs:1232; watchdog thread main.rs:535-542 ->
   cancellation token), randomized temp names.
+  [DONE round 41: watchdog -> cooperative cancellation token in xiom-codegen
+  (clang child killed on cancel, main thread reports); xiom.toml [compiler]
+  timeout-secs honored (CLI wins). clap parsing / sandbox false-green /
+  randomized temp names remain.]
 - Supply chain (HARD PREREQUISITE for the post-split registry phase): client-side
   sha256 verification of every artifact, ed25519 signatures + trust model, lockfile v2
   pinning {name, version, integrity, source} transitively, ureq-only HTTP with TLS +

@@ -176,6 +176,9 @@ fn main() {
 }
 
 fn real_main() {
+    // Audit #12: the timeout / memory watchdogs set this cooperative token
+    // instead of calling process::exit from a worker thread.
+    xiom_codegen::cancel::reset();
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 || args.iter().any(|a| a == "--help") {
         print_usage();
@@ -545,8 +548,24 @@ fn real_main() {
     let link_paths = parse_all_flag_values(&args, "--link-path");
     let c_sources = parse_all_flag_values(&args, "--c-source");
 
+    // Resolved early so the timeout watchdog can consult the project
+    // manifest ([compiler] timeout-secs) before spawning.
+    let source_paths = resolve_source_files(&args);
+
     let timeout_secs: u64 = parse_flag_value(&args, "--timeout")
         .and_then(|v| v.parse().ok())
+        .or_else(|| {
+            // AUDIT #18 (completion): xiom.toml [compiler] timeout-secs is a
+            // project default (explicit --timeout wins). Honored now that the
+            // watchdog uses cooperative cancellation instead of a worker
+            // thread process::exit (audit #12).
+            source_paths.first().and_then(|p| {
+                xiom_graph::manifest::find_and_parse_manifest(std::path::Path::new(p))
+                    .ok()
+                    .and_then(|m| m.compiler.timeout_secs)
+                    .map(|t| t as u64)
+            })
+        })
         .unwrap_or(300);
 
     let max_recursion_depth: u32 = parse_flag_value(&args, "--max-depth")
@@ -559,7 +578,10 @@ fn real_main() {
         std::thread::spawn(move || {
             std::thread::sleep(duration);
             eprintln!("error: compilation timed out after {} seconds", timeout_secs);
-            std::process::exit(1);
+            // Audit #12: cooperative cancellation -- codegen observes this
+            // between functions and the clang child is killed; real_main
+            // reports the failure and exits from the MAIN thread.
+            xiom_codegen::cancel::request_cancel();
         });
     }
 
@@ -580,7 +602,9 @@ fn real_main() {
                             used_bytes / 1024 / 1024,
                             max_memory_mb
                         );
-                        std::process::exit(1);
+                        // Audit #12: cooperative cancellation (see timeout).
+                        xiom_codegen::cancel::request_cancel();
+                        return;
                     }
                 }
             }
@@ -1117,7 +1141,7 @@ fn print_usage() {
     eprintln!("  --ai-model=<name>   Override AI model (default: codellama)");
     eprintln!("  --ai-timeout=<sec>  AI LLM call timeout (default: 10s)");
     eprintln!("  --help-ai           Show AI mode setup and configuration guide");
-    eprintln!("  --timeout <seconds>  Set compilation timeout (default: 60)");
+    eprintln!("  --timeout <seconds>  Set compilation timeout (default: 300; 0 disables)");
     eprintln!("  --max-memory-mb <N>       Set max memory budget in MB (0 = disabled)");
     eprintln!("  --link <name>             Link a native library (repeatable, e.g. vulkan-1)");
     eprintln!("  --link-path <dir>         Add a library search path (repeatable, -L<dir>)");
