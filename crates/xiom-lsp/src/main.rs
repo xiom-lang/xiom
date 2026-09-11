@@ -6,6 +6,7 @@ mod ai;
 mod backend;
 mod diagnostics;
 mod handlers;
+mod position;
 mod resolver;
 mod semantic_tokens;
 mod symbols;

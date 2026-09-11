@@ -21,7 +21,7 @@ pub fn xiom_semantic_token_type(word: &str) -> u32 {
 
 /// Compute semantic tokens for a document. Returns delta-encoded integer array.
 pub fn compute_semantic_tokens(backend: &Backend, uri: &str) -> Vec<u32> {
-    let docs = backend.documents.lock().expect("document store mutex poisoned");
+    let docs = backend.documents();
     let text = match docs.get(uri) {
         Some(t) => t.clone(),
         None => return vec![],

@@ -78,7 +78,7 @@ pub fn handle_did_open(msg: &serde_json::Value, backend: &Backend, responses: &m
     ) {
         let uri = uri.to_string();
         {
-            let mut docs = backend.documents.lock().expect("document store mutex poisoned");
+            let mut docs = backend.documents();
             docs.insert(uri.clone(), text.to_string());
         }
         let diagnostics = backend.publish_diagnostics(&uri);
@@ -96,7 +96,7 @@ pub fn handle_did_change(msg: &serde_json::Value, backend: &Backend, responses: 
         let uri = uri.to_string();
         if let Some(changes) = params["contentChanges"].as_array() {
             {
-                let mut docs = backend.documents.lock().expect("document store mutex poisoned");
+                let mut docs = backend.documents();
                 let text = docs.entry(uri.clone()).or_default();
                 for change in changes {
                     if change.get("range").and_then(|r| r.as_object()).is_some() {
@@ -125,7 +125,7 @@ pub fn handle_did_change(msg: &serde_json::Value, backend: &Backend, responses: 
 pub fn handle_did_close(msg: &serde_json::Value, backend: &Backend) {
     let params = &msg["params"];
     if let Some(uri) = params["textDocument"]["uri"].as_str() {
-        let mut docs = backend.documents.lock().expect("document store mutex poisoned");
+        let mut docs = backend.documents();
         docs.remove(uri);
     }
 }
@@ -142,15 +142,18 @@ pub fn handle_hover(msg: &serde_json::Value, backend: &Backend, responses: &mut 
     let ai_insight = uri.as_ref().and_then(|u| get_ai_insight_for_line(u, line));
 
     let hover = uri.and_then(|u| {
-        let docs = backend.documents.lock().expect("document store mutex poisoned");
+        let docs = backend.documents();
         let text = docs.get(&u)?.clone();
         drop(docs);
         let line_str = text.lines().nth(line)?;
-        let word = extract_word(line_str, character);
+        // LSP character offsets are UTF-16 units; the resolver helpers index
+        // BYTES. Convert once, clamped (multibyte lines used to slice mid-char).
+        let byte_pos = crate::position::utf16_to_byte(line_str, character);
+        let word = extract_word(line_str, byte_pos);
         if word.is_empty() { return None; }
 
         let bytes = line_str.as_bytes();
-        let wstart = word_start_pos(line_str, character);
+        let wstart = word_start_pos(line_str, byte_pos);
         let is_field_access = wstart > 0 && wstart <= bytes.len() && bytes[wstart - 1] == b'.';
 
         if is_field_access {
@@ -277,10 +280,11 @@ pub fn handle_completion(msg: &serde_json::Value, backend: &Backend, responses: 
     let mut items = Vec::new();
 
     let (word_prefix, is_dot_completion, obj_name, member_prefix) = uri.as_ref().and_then(|u| {
-        let docs = backend.documents.lock().expect("document store mutex poisoned");
+        let docs = backend.documents();
         let text = docs.get(u)?;
         let line_str = text.lines().nth(line)?;
-        let before_cursor = &line_str[..character.min(line_str.len())];
+        let byte_pos = crate::position::utf16_to_byte(line_str, character);
+        let before_cursor = &line_str[..byte_pos];
         if let Some(dot_pos) = before_cursor.rfind('.') {
             let mut obj_start = dot_pos;
             let bytes = line_str.as_bytes();
@@ -288,7 +292,7 @@ pub fn handle_completion(msg: &serde_json::Value, backend: &Backend, responses: 
                 obj_start -= 1;
             }
             let obj_name = line_str[obj_start..dot_pos].to_string();
-            let member_prefix = line_str[dot_pos + 1..character].to_string();
+            let member_prefix = line_str[dot_pos + 1..byte_pos].to_string();
             Some((String::new(), true, obj_name, member_prefix))
         } else if before_cursor.ends_with("::") {
             let colon_pos = before_cursor.rfind("::").unwrap_or(0);
@@ -298,10 +302,10 @@ pub fn handle_completion(msg: &serde_json::Value, backend: &Backend, responses: 
                 obj_start -= 1;
             }
             let obj_name = line_str[obj_start..colon_pos].to_string();
-            let member_prefix = line_str[colon_pos + 2..character].to_string();
+            let member_prefix = line_str[colon_pos + 2..byte_pos].to_string();
             Some((String::new(), true, obj_name, member_prefix))
         } else {
-            Some((extract_word(line_str, character), false, String::new(), String::new()))
+            Some((extract_word(line_str, byte_pos), false, String::new(), String::new()))
         }
     }).unwrap_or_default();
 
@@ -364,7 +368,7 @@ pub fn handle_completion(msg: &serde_json::Value, backend: &Backend, responses: 
     }
 
     if let Some(ref u) = uri {
-        let docs = backend.documents.lock().expect("document store mutex poisoned");
+        let docs = backend.documents();
         if let Some(text) = docs.get(u) {
             let mut lexer = xiom_lexer::Lexer::new(text);
             let tokens = lexer.tokenize();
@@ -449,15 +453,15 @@ pub fn handle_definition(msg: &serde_json::Value, backend: &Backend, responses: 
 
     if let Some(ref u) = uri {
         let word = {
-            let docs = backend.documents.lock().expect("document store mutex poisoned");
+            let docs = backend.documents();
             if let Some(text) = docs.get(u) {
                 let line_str = text.lines().nth(line).unwrap_or("");
-                extract_word(line_str, character)
+                extract_word(line_str, crate::position::utf16_to_byte(line_str, character))
             } else { String::new() }
         };
 
         if !word.is_empty() {
-            let docs = backend.documents.lock().expect("document store mutex poisoned");
+            let docs = backend.documents();
             if let Some(text) = docs.get(u) {
                 let mut lexer = xiom_lexer::Lexer::new(text);
                 let tokens = lexer.tokenize();
@@ -489,10 +493,10 @@ pub fn handle_signature_help(msg: &serde_json::Value, backend: &Backend, respons
     let mut signatures = Vec::new();
     let mut active_parameter = 0;
 
-    let docs = backend.documents.lock().expect("document store mutex poisoned");
+    let docs = backend.documents();
     if let Some(text) = docs.get(uri) {
         let line_str = text.lines().nth(line).unwrap_or("");
-        let before_cursor = &line_str[..character.min(line_str.len())];
+        let before_cursor = &line_str[..crate::position::utf16_to_byte(line_str, character)];
         if let Some(paren_pos) = before_cursor.rfind('(') {
             let before_paren = &before_cursor[..paren_pos];
             let fn_name = before_paren.split_whitespace().last().unwrap_or("").trim();
@@ -545,7 +549,7 @@ pub fn handle_document_symbols(msg: &serde_json::Value, backend: &Backend, respo
     let mut symbols = Vec::new();
 
     if let Some(ref u) = uri {
-        let docs = backend.documents.lock().expect("document store mutex poisoned");
+        let docs = backend.documents();
         if let Some(text) = docs.get(u) {
             let mut lexer = xiom_lexer::Lexer::new(text);
             let tokens = lexer.tokenize();
@@ -570,7 +574,7 @@ pub fn handle_references(msg: &serde_json::Value, backend: &Backend, responses: 
 
     let mut locations = Vec::new();
     if let Some(ident) = find_ident_at(backend, uri, line, col) {
-        let docs = backend.documents.lock().expect("document store mutex poisoned");
+        let docs = backend.documents();
         if let Some(text) = docs.get(uri) {
             for (ln, line_text) in text.lines().enumerate() {
                 let mut search_start = 0;
@@ -582,8 +586,8 @@ pub fn handle_references(msg: &serde_json::Value, backend: &Backend, responses: 
                         locations.push(serde_json::json!({
                             "uri": uri,
                             "range": {
-                                "start": {"line": ln, "character": abs_col},
-                                "end": {"line": ln, "character": abs_col + ident.len()}
+                                "start": {"line": ln, "character": crate::position::byte_to_utf16(line_text, abs_col)},
+                                "end": {"line": ln, "character": crate::position::byte_to_utf16(line_text, abs_col + ident.len())}
                             }
                         }));
                     }
@@ -607,7 +611,7 @@ pub fn handle_rename(msg: &serde_json::Value, backend: &Backend, responses: &mut
     let mut edits = Vec::new();
     if !new_name.is_empty() {
         if let Some(ident) = find_ident_at(backend, uri, line, col) {
-            let mut docs = backend.documents.lock().expect("document store mutex poisoned");
+            let mut docs = backend.documents();
             if let Some(text) = docs.get_mut(uri) {
                 let mut text_edits = Vec::new();
                 for (ln, line_text) in text.lines().enumerate() {
@@ -619,8 +623,8 @@ pub fn handle_rename(msg: &serde_json::Value, backend: &Backend, responses: &mut
                         if before && after {
                             text_edits.push(serde_json::json!({
                                 "range": {
-                                    "start": {"line": ln, "character": abs_col},
-                                    "end": {"line": ln, "character": abs_col + ident.len()}
+                                    "start": {"line": ln, "character": crate::position::byte_to_utf16(line_text, abs_col)},
+                                    "end": {"line": ln, "character": crate::position::byte_to_utf16(line_text, abs_col + ident.len())}
                                 },
                                 "newText": new_name
                             }));
@@ -725,7 +729,7 @@ pub fn handle_workspace_symbol(msg: &serde_json::Value, backend: &Backend, respo
     let mut symbols = Vec::new();
 
     {
-        let docs = backend.documents.lock().expect("document store mutex poisoned");
+        let docs = backend.documents();
         for (uri, text) in docs.iter() {
             let items = parse_workspace_document(text);
             for item in &items {
