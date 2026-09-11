@@ -101,6 +101,23 @@ REMAINING QUEUE (pre-scoped for the next compiler session):
    from here).
 6. Stages 6-7: perf program + selfhost gate checklist.
 
+### Round-31 (2026-09-11): R8 FIXED -- method-position free-fn calls + char_at contract
+
+Compiler lane. Face A: `s.char_count()` (free-fn receiver sugar) was
+rejected by the checker and compiled to a constant-0 stub in catalog
+bodies, so `string.char_at`'s ensures evaluated 0 and aborted every Some
+return. Fix in the checker's method-call fallback: resolve a registered fn
+whose leaf matches, whose FIRST param base equals the receiver base, and
+whose arity is receiver+args (codegen already called the free fn with the
+receiver prepended -- IR-verified). Face B (free-fn ensures vs the builtin
+Char `.char_at`) verified clean against an isolated patched stdlib copy
+with the byte-range clause restored: p_globchar, glob, convert_url,
+ascii85, base32, json nested, kat all green -- the stdlib PENDING note is
+obsolete, the clause can be re-added.
+Lock: e2e_m65_r8_method_free_fn (tests/regression/m65_r8_method_free_fn.xi).
+Gates: e2e 2307/2307, feature-reg 510/510, stdlib-exec 79/79 (+2 ign),
+checker 182/182.
+
 ### Round-30 (2026-09-10): R7 FIXED -- generic container mono for large aggregate V
 
 Compiler lane. Seven interacting codegen defects (full map in

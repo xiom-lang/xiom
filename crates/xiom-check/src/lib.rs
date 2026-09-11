@@ -5195,6 +5195,47 @@ impl Checker {
                             }
                         }
                     }
+                    // R8 (2026-09-11): method-position FREE-FN calls --
+                    // `s.char_count()` where `char_count(s: Str)` is a free fn
+                    // (receiver sugar). Resolve a registered fn whose FIRST
+                    // parameter is the receiver type and whose remaining arity
+                    // matches the call args; the receiver stands in for param 0.
+                    // Without this the checker rejected the call and catalog
+                    // bodies compiled it to a constant-0 stub (the json char_at
+                    // ensures evaluated 0 and aborted every Some return).
+                    {
+                        let recv_base = match &obj_ty {
+                            CheckedType::Named(tn) => {
+                                let b = tn.rsplit('.').next().unwrap_or(tn.as_str());
+                                b.split('[').next().unwrap_or(b).trim().to_string()
+                            }
+                            CheckedType::Str => "Str".to_string(),
+                            _ => String::new(),
+                        };
+                        if !recv_base.is_empty() {
+                            let mut rets: Vec<CheckedType> = Vec::new();
+                            for (key, sig) in self.functions.iter() {
+                                let leaf = key.rsplit('.').next().unwrap_or(key.as_str());
+                                if leaf != method.name { continue; }
+                                if sig.params.len() != args.len() + 1 { continue; }
+                                let first = match sig.params.first() {
+                                    Some((_, t)) => t.name(),
+                                    None => continue,
+                                };
+                                let first_base = first.rsplit('.').next().unwrap_or(&first);
+                                let first_base = first_base.split('[').next().unwrap_or(first_base);
+                                if first_base == recv_base || first_base == "_" {
+                                    rets.push(sig.return_type.clone().unwrap_or(CheckedType::Named("_".into())));
+                                }
+                            }
+                            if let Some(first) = rets.first() {
+                                if rets.iter().all(|r| r.name() == first.name()) {
+                                    for arg in args { let _ = self.check_expr(arg); }
+                                    return first.clone();
+                                }
+                            }
+                        }
+                    }
                     // Fallback: unknown call target
                     self.error(
                         format!("cannot call '{}' on this expression", method.name),
