@@ -106,6 +106,11 @@ pub struct IrEmitter {
     /// per function and appended to the merged module (LLVM allows type
     /// definitions after their first use).
     pub module_deferred_types: Vec<(String, String)>,
+    /// M65 regex-family fix (2026-09-11): byte offset in `output` where the
+    /// type-decl block ends. Body-time concrete definitions are spliced there
+    /// at final assembly so clang sees them SIZED before any alloca/GEP use
+    /// (a trailing definition is too late for the IR parser).
+    pub type_decl_splice_offset: usize,
 }
 
 
@@ -134,6 +139,7 @@ impl IrEmitter {
     guard_heap_depth: 0,
             indexed_elem_types: HashMap::new(),
             module_deferred_types: Vec::new(),
+            type_decl_splice_offset: 0,
             unsafe_block_counter: 0,
             closure_counter: 0,
             in_unsafe_block_fn: false,
@@ -2808,6 +2814,16 @@ impl IrEmitter {
             if elem.starts_with("Vec[") {
                 return Some(elem.clone());
             }
+            // R8/regex fix (2026-09-11): CONTAINER elements keep their
+            // bracketed name (`Vec[Option[Int]]` / `Vec[Option[Match]]`) so
+            // the index site can memcpy the right struct (%struct.Option /
+            // %struct.Option__Match). Previously these fell to the scalar
+            // elem_load (tag loaded as i64) -> wrong Option payloads.
+            if elem.starts_with("Option[") || elem.starts_with("Result[")
+                || elem.starts_with("Map[") || elem.starts_with("Set[")
+            {
+                return Some(elem.clone());
+            }
             // BUG 42: ENUM elements (Vec[JsonValue]) must take the struct-
             // element memcpy path too -- enums register in enum_variants,
             // not types. Without this the read fell to the scalar i64 load
@@ -3214,8 +3230,31 @@ impl IrEmitter {
             _ => {
                 if type_name.starts_with("Vec[") && type_name.ends_with(']') { return 32; }
                 if (type_name.starts_with("Map[") || type_name.starts_with("Set[")) && type_name.ends_with(']') { return 64; }
-                if type_name.starts_with("Option[") && type_name.ends_with(']') { return 16; }
-                if type_name.starts_with("Result[") && type_name.ends_with(']') { return 24; }
+                // R8/regex fix (2026-09-11): CONCRETE containers size by their
+                // real payload fields when registered -- Option[Match] is 32
+                // (tag + 24-byte Match), not the erased 16; Result__A__B varies.
+                if type_name.starts_with("Option[") && type_name.ends_with(']') {
+                    let inner = &type_name[7..type_name.len() - 1];
+                    let concrete = format!("Option__{}", Self::sanitize_container_arg(inner));
+                    if self.types.type_meta.contains_key(&concrete) {
+                        return self.vec_elem_storage_size(&concrete);
+                    }
+                    return 16;
+                }
+                if type_name.starts_with("Result[") && type_name.ends_with(']') {
+                    let (_b, args) = Self::parse_generic_type_string(type_name);
+                    if args.len() == 2 {
+                        let concrete = format!(
+                            "Result__{}__{}",
+                            Self::sanitize_container_arg(&args[0]),
+                            Self::sanitize_container_arg(&args[1])
+                        );
+                        if self.types.type_meta.contains_key(&concrete) {
+                            return self.vec_elem_storage_size(&concrete);
+                        }
+                    }
+                    return 24;
+                }
                 // Fixed arrays `[N x T]` -- N elements of the inner size.
                 if type_name.starts_with('[') {
                     if let Some(x_pos) = type_name.find(" x ") {
@@ -3807,6 +3846,9 @@ impl IrEmitter {
         if !self.types.types.len() == 0 {
             self.emitln("");
         }
+        // M65 regex-family fix: remember where the type-decl block ends so
+        // body-time concrete definitions can be spliced in at final assembly.
+        self.type_decl_splice_offset = self.output.len();
 
         // Emit mutable module-level `var` globals (real LLVM globals read via
         // `load` and written via `store`). Registered during register_functions;
@@ -3899,9 +3941,9 @@ impl IrEmitter {
         }
 
         // M65 R7: the SERIAL path creates body-time concrete types on the main
-        // emitter -- flush their definitions before later passes append more
-        // module text (the parallel path already flushed).
-        self.flush_module_deferred_types();
+        // emitter; the final assembly splice below emits their definitions
+        // before any function text.
+        self.splice_deferred_type_defs();
 
         // Emit monomorphised generic function bodies
         self.compile_generic_monomorphisations()?;
@@ -3993,6 +4035,10 @@ impl IrEmitter {
                 self.emitln(def);
             }
         }
+
+        // M65 regex-family fix: any concrete types still created by mono/builtin
+        // emission are spliced into the type-decl block before returning.
+        self.splice_deferred_type_defs();
 
         Ok(self.output.clone())
     }
@@ -4210,29 +4256,32 @@ impl IrEmitter {
                 }
             }
         }
-        // M65 R7: definitions created while compiling bodies (the type-decl
-        // pass already ran). LLVM allows definitions after first use, so a
-        // trailing block is well-formed. Covers the PARALLEL path; the serial
-        // path flushes in compile_program after its loop.
-        self.flush_module_deferred_types();
-
+        // M65 regex-family fix: definitions created while compiling bodies are
+        // spliced into the type-decl block at final assembly (compile_program)
+        // so clang parses them SIZED before any alloca/GEP.
         Ok(())
     }
 
-    /// M65 R7: append `%struct.X = type {..}` definitions for concrete
-    /// container types FIRST created while compiling function bodies (the
-    /// type-decl pass already ran). No-op when empty.
-    fn flush_module_deferred_types(&mut self) {
+    /// M65 regex-family fix (2026-09-11): insert every body-time concrete
+    /// definition at the end of the type-decl block, deduped against the
+    /// decl-pass emissions. Sized-at-parse-time; no trailing definitions.
+    fn splice_deferred_type_defs(&mut self) {
         if self.module_deferred_types.is_empty() {
             return;
         }
         let deferred = std::mem::take(&mut self.module_deferred_types);
-        self.output.push('\n');
+        let mut block = String::new();
         for (name, body) in deferred {
             if !self.types.emitted_type_defs.contains(&name) {
-                self.output.push_str(&format!("%struct.{name} = type {body}\n"));
+                block.push_str(&format!("%struct.{name} = type {body}\n"));
+                self.types.emitted_type_defs.insert(name);
             }
         }
+        if block.is_empty() {
+            return;
+        }
+        let off = self.type_decl_splice_offset.min(self.output.len());
+        self.output.insert_str(off, &block);
     }
 
     // Contract runtime checks -> see contracts.rs

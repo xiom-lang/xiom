@@ -1734,11 +1734,41 @@ impl IrEmitter {
         }
     }
 
+    /// M65 regex-family fix: extract the bracketed type argument of a
+    /// constructor callee -- `Vec[Option[X]].new` parses as
+    /// Field(Index(Ident(Vec), Option[X]), new); also accept Index(Field(..)).
+    fn call_bracket_type_arg(f: &Expr) -> Option<&Expr> {
+        match f {
+            Expr::Field(obj, m, _) if matches!(m.name.as_str(), "new" | "with_capacity" | "fill") => {
+                match obj.as_ref() {
+                    Expr::Index(_, idx, _) => Some(idx.as_ref()),
+                    _ => None,
+                }
+            }
+            Expr::Index(base, idx, _) => match base.as_ref() {
+                Expr::Field(_, m, _) if matches!(m.name.as_str(), "new" | "with_capacity" | "fill") => Some(idx.as_ref()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     fn collect_expr_annotations(expr: &Expr, out: &mut Vec<Type>) {
         match expr {
             Expr::As(_, ty, _) => { out.push(ty.clone()); }
             Expr::Tuple(items, _) | Expr::Array(items, _) => { for i in items { Self::collect_expr_annotations(i, out); } }
             Expr::Call(f, args, _) | Expr::GenericCall(f, _, args, _) => {
+                // M65 regex-family fix: bracketed CONSTRUCTOR type args
+                // (`Vec[Option[VecPayload]].new()`) must pre-register their
+                // concrete Option/Result element types -- otherwise the type
+                // is first created while compiling the body and clang rejects
+                // the alloca ("Cannot allocate unsized type").
+                if let Some(ta) = Self::call_bracket_type_arg(f) {
+                    let rendered = Self::type_arg_to_name(ta);
+                    if rendered.contains('[') {
+                        out.push(Self::synth_type_named(&rendered));
+                    }
+                }
                 Self::collect_expr_annotations(f, out);
                 for a in args { Self::collect_expr_annotations(a, out); }
             }

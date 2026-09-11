@@ -2771,6 +2771,36 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         // struct element so `m[i][j]` / `m[i].len()` work.
                         let struct_ty = if elem_type_name.starts_with("Vec[") {
                             "%struct.Vec".to_string()
+                        } else if elem_type_name.starts_with("Map[") {
+                            "%struct.Map".to_string()
+                        } else if elem_type_name.starts_with("Set[") {
+                            "%struct.Set".to_string()
+                        } else if elem_type_name.starts_with("Option[") {
+                            // R8/regex fix: concrete when registered, else the
+                            // erased two-field base (both 16 bytes for scalars).
+                            let inner = &elem_type_name[7..elem_type_name.len() - 1];
+                            let concrete = format!("Option__{}", Self::sanitize_container_arg(inner));
+                            if self.types.type_meta.contains_key(&concrete) {
+                                format!("%struct.{concrete}")
+                            } else {
+                                "%struct.Option".to_string()
+                            }
+                        } else if elem_type_name.starts_with("Result[") {
+                            let (_b, args) = Self::parse_generic_type_string(&elem_type_name);
+                            let concrete = if args.len() == 2 {
+                                format!(
+                                    "Result__{}__{}",
+                                    Self::sanitize_container_arg(&args[0]),
+                                    Self::sanitize_container_arg(&args[1])
+                                )
+                            } else {
+                                String::new()
+                            };
+                            if !concrete.is_empty() && self.types.type_meta.contains_key(&concrete) {
+                                format!("%struct.{concrete}")
+                            } else {
+                                "%struct.Result".to_string()
+                            }
                         } else {
                             format!("%struct.{elem_type_name}")
                         };
@@ -3267,16 +3297,42 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 let ctor_ret = self.fctx.enclosing_return_type.clone()
                     .unwrap_or_else(|| self.fctx.current_return_type.clone());
                 let ret_is_option = ctor_ret.contains("Option");
-                let opt_ty = if ret_is_option && ctor_ret.starts_with("%struct.") {
+                let mut opt_ty = if ret_is_option && ctor_ret.starts_with("%struct.") {
                     ctor_ret
                 } else {
                     "%struct.Option".to_string()
                 };
-                let struct_name = opt_ty.trim_start_matches("%struct.");
-                let field_type_1 = self.types.type_meta.get(&struct_name.to_string())
+                let mut struct_name = opt_ty.trim_start_matches("%struct.").to_string();
+                let mut field_type_1 = self.types.type_meta.get(&struct_name)
                     .and_then(|m| m.fields.get(1).map(|(_, t)| t.clone()))
                     .unwrap_or_else(|| "Int".to_string());
-                let field_llvm_1 = self.field_llvm_ty(&field_type_1);
+                let mut field_llvm_1 = self.field_llvm_ty(&field_type_1);
+                // R8/regex fix (2026-09-11): a STRUCT payload must use the
+                // concrete Option__T -- the surrounding container (Vec element
+                // size, match binding, return signature under M18) is concrete.
+                // `groups.push(Some(match_obj))` inside a fn returning
+                // Option[Captures] built an Option__Captures holding a Match
+                // (clang: struct.Match vs struct.Captures); the opaque return
+                // case store a boxed handle into a 24-byte concrete slot.
+                if !inner_ty.is_empty() && field_llvm_1 != inner_ty {
+                    if let Some(base) = inner_ty.strip_prefix("%struct.") {
+                        let leaf = base.rsplit('.').next().unwrap_or(base);
+                        let concrete = format!("Option__{}", Self::sanitize_container_arg(leaf));
+                        // Only adopt a concrete Option__T that is ALREADY
+                        // registered (a Vec[Option[T]] ctor or a concrete
+                        // return signature registered it). Creating it here
+                        // would mismatch consumers whose signature stayed
+                        // opaque (net_address Option[Tuple...]).
+                        if self.types.type_meta.contains_key(&concrete) {
+                            opt_ty = format!("%struct.{concrete}");
+                            struct_name = opt_ty.trim_start_matches("%struct.").to_string();
+                            field_type_1 = self.types.type_meta.get(&struct_name)
+                                .and_then(|m| m.fields.get(1).map(|(_, t)| t.clone()))
+                                .unwrap_or_else(|| "Int".to_string());
+                            field_llvm_1 = self.field_llvm_ty(&field_type_1);
+                        }
+                    }
+                }
                 let alloca = self.fresh_tmp();
                 self.emitln(&format!("  {alloca} = alloca {opt_ty}"));
                 let gep0 = self.fresh_tmp();

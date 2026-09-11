@@ -17,18 +17,71 @@ impl IrEmitter {
     pub(crate) fn type_arg_to_name(e: &Expr) -> String {
         match e {
             Expr::Ident(id) => id.name.clone(),
+            // R8/regex fix (2026-09-11): render ANY bracketed type argument,
+            // not just Vec chains -- `Vec[Option[Match]].new()` kept "Int"
+            // for the element (Option/Result fell through), so the Vec was
+            // allocated with 8-byte slots and the generic push wrote an
+            // Option__Captures payload into it (regex captures clang reject).
             Expr::Index(base, idx, _) => {
-                if let Expr::Ident(b) = base.as_ref() {
-                    if b.name == "Vec" {
-                        format!("Vec[{}]", Self::type_arg_to_name(idx))
-                    } else {
-                        "Int".to_string()
-                    }
-                } else {
-                    "Int".to_string()
+                let base_name = match base.as_ref() {
+                    Expr::Ident(b) => b.name.clone(),
+                    Expr::Field(_, f, _) => f.name.clone(),
+                    _ => return "Int".to_string(),
+                };
+                format!("{}[{}]", base_name, Self::type_arg_to_name(idx))
+            }
+            // Multi-argument form `Result[A, B]` parses as a tuple index.
+            Expr::Tuple(elems, _) => elems.iter()
+                .map(Self::type_arg_to_name)
+                .collect::<Vec<_>>()
+                .join(","),
+            _ => "Int".to_string(),
+        }
+    }
+
+    /// R8/regex fix: register the CONCRETE container type for an element name
+    /// ("Option[Match]" -> Option__Match) BEFORE its storage size is computed.
+    /// `vec_elem_storage_size` can then sum the real fields instead of using
+    /// the erased base size (Option[Match] is 32 bytes, not 16).
+    pub(crate) fn ensure_container_named_concrete(&mut self, type_name: &str) {
+        let (base, args) = Self::parse_generic_type_string(type_name);
+        match base.as_str() {
+            "Option" if args.len() == 1 => {
+                if self.is_struct_type_in_registry(&args[0]) {
+                    let t = Type::Option(Box::new(Self::synth_type_named(&args[0])));
+                    let _ = self.concrete_type_for(&t);
                 }
             }
-            _ => "Int".to_string(),
+            "Result" if args.len() == 2 => {
+                if self.is_struct_type_in_registry(&args[0]) || self.is_struct_type_in_registry(&args[1]) {
+                    let t = Type::Result(
+                        Box::new(Self::synth_type_named(&args[0])),
+                        Box::new(Self::synth_type_named(&args[1])),
+                    );
+                    let _ = self.concrete_type_for(&t);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Synthesize a Type node from a rendered type name ("Match", "Vec[Int]").
+    pub(crate) fn synth_type_named(name: &str) -> Type {
+        let (base, args) = Self::parse_generic_type_string(name);
+        if args.is_empty() {
+            return Type::Named(Ident::new(base, Span::new(0, 0)), Vec::new());
+        }
+        let sub: Vec<Type> = args.iter().map(|a| Self::synth_type_named(a)).collect();
+        let mut it = sub.clone().into_iter();
+        match base.as_str() {
+            "Option" => Type::Option(Box::new(it.next().unwrap_or_else(|| Self::synth_type_named("Int")))),
+            "Vec" => Type::Vec(Box::new(it.next().unwrap_or_else(|| Self::synth_type_named("Int")))),
+            "Set" => Type::Set(Box::new(it.next().unwrap_or_else(|| Self::synth_type_named("Int")))),
+            "Result" => Type::Result(
+                Box::new(it.next().unwrap_or_else(|| Self::synth_type_named("Int"))),
+                Box::new(it.next().unwrap_or_else(|| Self::synth_type_named("Str"))),
+            ),
+            _ => Type::Named(Ident::new(base, Span::new(0, 0)), sub),
         }
     }
 
@@ -748,6 +801,9 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 } else {
                                     type_name
                                 };
+                                // R8/regex fix: register Option__Match/Result__A__B
+                                // so the size lookup below can sum real fields.
+                                self.ensure_container_named_concrete(&type_name);
                                 match type_name.as_str() {
                                     // round-14 (BUG 26 #7): Char is a 32-bit
                                     // codepoint -- 4-byte slots (was 1).
@@ -835,6 +891,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     }
                                     _ => "Int".to_string(),
                                 };
+                                self.ensure_container_named_concrete(&type_name);
                                 match type_name.as_str() {
                                     // round-14 (BUG 26 #7): Char is a 32-bit codepoint.
                                     "UInt8" | "Int8" | "Bool" => 1,

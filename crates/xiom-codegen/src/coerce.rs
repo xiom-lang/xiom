@@ -396,6 +396,73 @@ impl IrEmitter {
         if from == "i8*" && to == "%struct.Vec" {
             return self.val_to_struct(val, from, to);
         }
+        // Concrete container -> OPAQUE base (m21_struct_mut_015): a generic
+        // fn param `Option[T]` can mono to the erased `%struct.Option` while
+        // the caller built Option__Data (registered by the ctor/pre-pass).
+        // Rebuild the erased shape: copy the tag and BOX each struct payload
+        // (the opaque ABI stores an i64 handle; scalar payloads copy bits).
+        if from.starts_with("%struct.") && from != to
+            && (to == "%struct.Option" || to == "%struct.Result")
+            && (from.contains("Option__") || from.contains("Result__"))
+        {
+            let from_name = from.trim_start_matches("%struct.").to_string();
+            let from_fields: Vec<String> = self.types.type_meta.get(&from_name)
+                .map(|m| m.fields.iter().map(|(_, t)| t.clone()).collect())
+                .unwrap_or_default();
+            if !from_fields.is_empty() {
+                let src = self.fresh_tmp();
+                self.emitln(&format!("  {src} = alloca {from}"));
+                self.emitln(&format!("  store {from} {val}, {from}* {src}"));
+                let dst = self.fresh_tmp();
+                self.emitln(&format!("  {dst} = alloca {to}"));
+                self.emitln(&format!("  store {to} zeroinitializer, {to}* {dst}"));
+                let tag = self.fresh_tmp();
+                let sg0 = self.fresh_tmp();
+                self.emitln(&format!("  {sg0} = getelementptr {from}, {from}* {src}, i32 0, i32 0"));
+                self.emitln(&format!("  {tag} = load i64, i64* {sg0}"));
+                let dg0 = self.fresh_tmp();
+                self.emitln(&format!("  {dg0} = getelementptr {to}, {to}* {dst}, i32 0, i32 0"));
+                self.emitln(&format!("  store i64 {tag}, i64* {dg0}"));
+                for i in 1..from_fields.len() {
+                    let fty = self.field_llvm_ty(&from_fields[i]);
+                    let sg = self.fresh_tmp();
+                    self.emitln(&format!("  {sg} = getelementptr {from}, {from}* {src}, i32 0, i32 {i}"));
+                    let dg = self.fresh_tmp();
+                    self.emitln(&format!("  {dg} = getelementptr {to}, {to}* {dst}, i32 0, i32 {i}"));
+                    let raw = self.fresh_tmp();
+                    self.emitln(&format!("  {raw} = load {fty}, {fty}* {sg}"));
+                    let as_i64 = if fty.starts_with("%struct.") {
+                        // Box the inline payload: the erased slot holds a pointer.
+                        let slot = self.fresh_tmp();
+                        self.emitln(&format!("  {slot} = alloca {fty}"));
+                        self.emitln(&format!("  store {fty} {raw}, {fty}* {slot}"));
+                        let p = self.fresh_tmp();
+                        self.emitln(&format!("  {p} = ptrtoint {fty}* {slot} to i64"));
+                        p
+                    } else if fty.ends_with('*') {
+                        let p = self.fresh_tmp();
+                        self.emitln(&format!("  {p} = ptrtoint {fty} {raw} to i64"));
+                        p
+                    } else if fty == "double" {
+                        let b = self.fresh_tmp();
+                        self.emitln(&format!("  {b} = bitcast double {raw} to i64"));
+                        b
+                    } else if fty == "float" {
+                        let b = self.fresh_tmp();
+                        self.emitln(&format!("  {b} = bitcast float {raw} to i32"));
+                        let w = self.fresh_tmp();
+                        self.emitln(&format!("  {w} = zext i32 {b} to i64"));
+                        w
+                    } else {
+                        self.coerce_value(&raw, &fty, "i64")
+                    };
+                    self.emitln(&format!("  store i64 {as_i64}, i64* {dg}"));
+                }
+                let out = self.fresh_tmp();
+                self.emitln(&format!("  {out} = load {to}, {to}* {dst}"));
+                return out;
+            }
+        }
         // Opaque container -> concrete container (M65 R7 / BUG 41 follow-on):
         // a value built while the expected type was the ERASED base
         // (`%struct.Result` from an Ok(...) ctor in a fn NOT returning

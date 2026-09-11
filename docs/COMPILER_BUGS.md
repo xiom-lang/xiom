@@ -3912,6 +3912,60 @@ fns/ctors and (b) Vec[V].push from inside generic fns -- both must use
 the substituted concrete element size (112), matching the already-fixed
 generic-field READ stride. Probes preserved in the stdlib probes dir.
 
+## 2026-09-11 -- regex family compile fails FIXED (container element coherence)
+
+The four regex captures smokes + match_count used to fail at clang
+(`%struct.Match` vs `%struct.Captures`) and then AV. The COMPILE failures
+are fixed; the residual runtime AV is a STDLIB call-form bug (below).
+Seven codegen roots:
+
+1. `type_arg_to_name` only rendered `Vec[...]` chains -- `Option[Int]` /
+   `Result[A,B]` / any bracketed ctor arg fell to "Int". It now renders any
+   `Base[args]` (Field bases included) and tuple args
+   ("Result[Int,Str]"). `Vec[Option[Int]].new()` used to store elem_size 8.
+2. `Vec[Option[Match]].new()` needs Option__Match's REAL size (32) -- new
+   `ensure_container_named_concrete` registers Option__T/Result__A__B before
+   sizing, and `vec_elem_storage_size` sums the concrete fields when the
+   name is registered (else keeps the erased 16/24).
+3. `resolve_vec_elem_type` (Ident arm) now returns bracketed CONTAINER
+   elements ("Option[...]", "Result[...]", "Map[...]", "Set[...]") so the
+   index site can memcpy the right struct instead of scalar-loading the tag.
+4. The Index read maps container element names to their LLVM struct
+   (`%struct.Option`/`%struct.Result` or the registered concrete).
+5. The Some ctor adopts an ALREADY-REGISTERED concrete Option__T when the
+   return-derived candidate's payload type mismatches the value
+   (`groups.push(Some(match_obj))` in a fn returning Option[Captures]).
+   Only registered candidates are adopted -- creating one here mismatched
+   consumers whose signature stayed opaque (net_address Option[Tuple...]).
+6. Body-time concrete definitions are SPLICED into the type-decl block at
+   final assembly (`type_decl_splice_offset` + `splice_deferred_type_defs`)
+   so clang parses them SIZED before any alloca/GEP. This replaces the
+   trailing-definition fallback, which was too late for the IR parser.
+   The decl pre-pass also collects Vec/Mono ctor bracket type args
+   (`call_bracket_type_arg`).
+7. `coerce_value` now bridges CONCRETE -> OPAQUE containers (box struct
+   payloads) as well as the R7 opaque -> concrete direction -- a generic
+   `Option[T]` mono param can stay erased while the caller built
+   Option__Data (m21_struct_mut_015).
+
+STDLIB HANDOFF (residual regex AV): engine.xi/regex.xi call
+`pattern.char_at(pos).unwrap()` in METHOD position. XIOM resolves
+method-position `.char_at` to the builtin Char-returning overload (correct
+for glob's `== '*'`), so `.unwrap()` is invalid -- the checker warns
+"cannot compare <error> with Char" and codegen produces garbage
+(ASAN: xiom_str_len(1) in Regex.find_first_match). The free-call form is
+fully supported and correct: `string.char_at(pattern, pos).unwrap()`.
+Probe p_charat_form verifies BOTH forms (free-call -> Option[Char],
+method -> Char). Convert the ~8 method-position sites in
+regex.xi/engine.xi to the free-call form (or compare the Char directly);
+smoke_stress_regex_match_count shares the same root.
+
+Locks: e2e_m65_vec_option_elem (tests/regression/m65_vec_option_elem.xi).
+Gates: e2e 2308/2308, feature-reg 510/510, stdlib-exec 79/79 (+2 ign),
+checker 182/182.
+
+
+
 ## R8. char_at contract codegen -- FIXED (2026-09-11)
 
 Face A -- METHOD-POSITION FREE-FN CALLS (receiver sugar): `s.char_count()`
