@@ -1833,7 +1833,26 @@ impl IrEmitter {
                 let concrete = self.concrete_type_for(ty);
                 self.llvm_type_for(&concrete).unwrap_or_else(|_| "i64".to_string())
             }
-            Type::Ref(inner) => {
+            // LET-array P2 (docs/LET_ARRAY_DECISION.md): `&[N]T` / `&mut [N]T`
+            // params lower to the ELEMENT pointer, exactly like the mono
+            // subst_type Ref-Array arm (i64* for [3]Int, i8* for [3]Int8).
+            // The old pointer-to-array shape (`[3 x i64]*`) disagreed with
+            // catalog generic callees (a `array.len(a)` inside the callee
+            // mono'd as `array.len_[3 x i64]_3` -- `[` is illegal in an
+            // unquoted LLVM symbol, and the call arg type disagreed with the
+            // mono def's i64* element pointer), and `&mut` element writes
+            // emitted a two-index GEP on a pointer-to-pointer -> clang
+            // "invalid getelementptr indices" (probes letarr2b/letarr2c).
+            Type::Ref(inner) | Type::MutRef(inner) => {
+                if let Type::Array(_, elem) = inner.as_ref() {
+                    let elem_name = Self::type_from_ast(elem);
+                    let elem_llvm = self.llvm_type_for(&elem_name).unwrap_or_else(|_| "i64".to_string());
+                    return format!("{elem_llvm}*");
+                }
+                if matches!(ty, Type::MutRef(_)) {
+                    // `&mut T` non-array: unchanged real-pointer lowering.
+                    return self.llvm_type_for(&Self::type_from_ast(ty)).unwrap_or_else(|_| "i64".to_string());
+                }
                 let inner_llvm = self.llvm_type_for(&Self::type_from_ast(inner)).unwrap_or_else(|_| "i64".to_string());
                 // BUG 31: &T params ALWAYS pass the ADDRESS -- scalars included.
                 // `*key` on a `&Int` param derefs (inttoptr + load), so a

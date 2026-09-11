@@ -4519,6 +4519,14 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m67_let_array_annotated() {
     assert_eq!(compile_and_run("tests\\regression\\m67_let_array_annotated.xi"), Some(0));
 }
+// LET-array decision P2 (docs/LET_ARRAY_DECISION.md): user-fn `&[N]T` /
+// `&mut [N]T` params lower to the ELEMENT pointer (catalog generic ABI).
+// Pre-fix: a catalog call inside the callee mono'd as `array.len_[3 x i64]_3`
+// (clang "expected '(' in call") and `&mut` element writes emitted invalid
+// GEP indices. Probes letarr2/2b/2c.
+#[test] fn e2e_m68_let_array_user_fn_ref() {
+    assert_eq!(compile_and_run("tests\\regression\\m68_let_array_user_fn_ref.xi"), Some(0));
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }

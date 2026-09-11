@@ -1343,6 +1343,28 @@ impl IrEmitter {
             // discriminator from a plain T. auto_deref_ref consumes this.
             let xiom_ty_name = Self::ref_preserving_name(&param.ty).unwrap_or(xiom_ty_name.clone());
             self.local.local_xiom_types.insert(param.name.name.clone(), xiom_ty_name.clone());
+            // LET-array P2 (docs/LET_ARRAY_DECISION.md): a `&[N]T` /
+            // `&mut [N]T` param is an ELEMENT pointer (param_llvm_type now
+            // matches the mono catalog ABI), so record the element type and
+            // const N for the body's element reads/writes and const-generic
+            // inference (`array.len(a)` inside the callee -> N=3). Mirrors
+            // the mono Ref-Array binding in compile_generic_monomorphisations.
+            if let Type::Ref(inner) | Type::MutRef(inner) = &param.ty {
+                if let Type::Array(size_expr, elem) = inner.as_ref() {
+                    let elem_xiom = Self::type_from_ast(elem);
+                    let elem_llvm = self.llvm_type_for(&elem_xiom).unwrap_or_else(|_| "i8".to_string());
+                    if !elem_llvm.is_empty()
+                        && !elem_llvm.starts_with('[')
+                        && !elem_llvm.starts_with('%')
+                    {
+                        self.local.local_array_elem.insert(param.name.name.clone(), elem_llvm);
+                        self.local.local_xiom_types.insert(param.name.name.clone(), elem_xiom);
+                    }
+                    if let Expr::Int(n, _) = size_expr.as_ref() {
+                        self.local.local_array_sizes.insert(param.name.name.clone(), *n as i64);
+                    }
+                }
+            }
             // B-007: fn-typed PARAMS hold a closure ENV pointer (field 0 =
             // the fn ptr) -- calling `f(x)` inside the body must go through
             // the M20-A1 closure path (load the fn ptr from the env struct),

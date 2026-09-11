@@ -153,6 +153,27 @@ Locks: stdlib_exec_error2_runs (the former flake is now a permanent gate)
 Gates: e2e 2312/2312, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
 checker 182/182.
 
+### Round-46 (2026-09-11): LET-array P2 FIXED -- user-fn `&[N]T` element-pointer ABI
+
+Compiler lane, executing docs/LET_ARRAY_DECISION.md P2. Non-generic user
+functions lowered `&[N]T` / `&mut [N]T` params to POINTER-TO-ARRAY
+(`[3 x i64]*`) while the mono catalog ABI uses the ELEMENT pointer (`i64*`).
+Two clang failures at HEAD: `array.len(a)` inside `fn takes_arr(a: &[3]Int)`
+mono'd with T = the array slot name -> `array.len_[3 x i64]_3`, an unquoted
+LLVM symbol containing `[`/`]` ("expected '(' in call") whose call arg type
+also disagreed with the mono def; and non-generic `&mut [N]T` element
+writes emitted a two-index GEP on a pointer-to-pointer ("invalid
+getelementptr indices", probe letarr2c). Fix: `param_llvm_type` lowers
+`Ref(Array)`/`MutRef(Array)` to `{elem}*`; `compile_fn` records the element
+type + const N (mirrors the mono Ref-Array binding, so the catalog call
+mono's as `array.len_Int_3`); `resolve_local_xiom_type` resolves
+pointer-to-array slots to their ELEMENT type instead of returning `[N x T]`.
+Lock: tests/regression/m68_let_array_user_fn_ref.xi +
+`e2e_m68_let_array_user_fn_ref` (var + annotated-let, ref forwarding,
+`&mut` writes, Int8 sext / UInt8 zext). Gates: checker 192/192, feature-reg
+510/510, stdlib-exec 85/85 (+2 ign), e2e 2314/2314. P3 (delete M33 let->Vec
++ call-site Slice bridge) is now unblocked and next.
+
 ### Round-45b (2026-09-11): Stage 5 -- shared JSON diagnostics v1 schema
 
 Compiler lane. The `--diagnostics=json` paths each hand-rolled their JSON
@@ -355,8 +376,9 @@ What is left is staged readiness work, not bug triage:
    - [DONE round 39] LET-array representation JOINT decision: DECIDED as
      fixed arrays `[N]T` for `let` literals (same as `var`); full rationale,
      census, current-behavior probe matrix and P1-P3 migration plan in
-     docs/LET_ARRAY_DECISION.md. Compiler follow-ups P1 (annotated let),
-     P2 (user-fn &[N]T args), P3 (delete M33 let->Vec + Slice bridge).
+     docs/LET_ARRAY_DECISION.md. Follow-ups: [DONE round 40] P1 annotated
+     let; [DONE round 46] P2 user-fn `&[N]T` element-pointer ABI; P3
+     (delete M33 let->Vec + call-site Slice bridge) next.
 5. Stage 5 remainder:
    - [DONE round 41] watchdog cancellation (#12): cooperative token in
      xiom-codegen; driver watchdogs set it (timeout + memory), clang child
@@ -416,9 +438,9 @@ E:\Projects\AXIOM on branch feat/architect. Read docs/SESSION.md
 (the rounds 38-46 entries + COMPILER-LANE REMAINING QUEUE) and
 docs/COMPILER_BUGS.md first; COMPILER_READINESS_PLAN.md holds the stage
 definitions; docs/LET_ARRAY_DECISION.md and docs/JSON_DIAGNOSTICS_V1.md
-are current design records. Current state (HEAD 45207602/bb81e08a):
+are current design records. Current state (HEAD: round-46 LET-array P2):
 all known compiler-catalogue red smokes GREEN, the last flake
-(smoke_error2 has-mid) root-caused and locked; last gates e2e 2313/2313,
+(smoke_error2 has-mid) root-caused and locked; last gates e2e 2314/2314,
 feature-reg 510/510, stdlib-exec 85/85 (+2 ign), checker 192/192, xiom lib
 20/20, fmt 83/83, lsp 42/42, jit 5/5. The stdlib session works in parallel
 on stdlib/** only and reports roadblocks in chat + COMPILER_BUGS.md.
@@ -426,19 +448,22 @@ on stdlib/** only and reports roadblocks in chat + COMPILER_BUGS.md.
 DONE since the previous prompt: smoke_error2 (HashMap-ordered type_meta
 suffix shadowing; order-independent field scan), Stage 2c slice 1
 (structural.rs parser + real TypeArena interning), LET-array decision doc
-+ P1 (annotated [N]T bindings, float element reads), JIT honesty
-(re-verified, previously 620576d6), watchdog cancellation token +
++ P1 (annotated [N]T bindings, float element reads) + P2 (user-fn
+`&[N]T`/`&mut [N]T` params now element pointers -- a catalog call inside the
+callee no longer mono's the illegal `array.len_[3 x i64]_3` symbol), JIT
+honesty (re-verified, previously 620576d6), watchdog cancellation token +
 manifest timeout-secs, fmt header/shebang/literal-escaping, LSP UTF-16 +
 mutex-poison recovery, workspace version/MSRV (1.86) + cargo-deny + CI
 hygiene (fixed a rotted xiom-mcp member), driver target-named files,
 JSON diagnostics v1 schema.
 
 Your task, in order:
-1. LET-array P2 (user-fn `&[N]T` args: tmp/bug_probes/letarr2.xi fails
-   with invalid IR "expected '(' in call") then P3 (delete the M33
-   let->Vec conversion with a call-site Slice bridge) per
-   docs/LET_ARRAY_DECISION.md; red-green with the letarr probes + e2e
-   locks.
+1. LET-array P3 (delete the M33 let->Vec conversion; unannotated
+   `let a = [...]` binds `[N]T`; add the call-site Slice bridge
+   `data = &a[0], len = N` for `&a` passed to `&Slice[T]` params) per
+   docs/LET_ARRAY_DECISION.md. P2 landed round 46, so the `&[N]T` ABI is
+   in place; red-green with the letarr_b/letarr2b probes + a new
+   `e2e_let_array_slice_bridge` lock.
 2. Stage 2c follow-on slices: `CheckedType::Named(TypeId)` storage,
    route get_type's bare-name fallback through the arena, move the codegen
    type keys onto the same canonical form (the structural core landed in
