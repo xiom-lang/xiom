@@ -537,6 +537,29 @@ pub struct CheckError {
     pub guaranteed: xiom_ast::ErrorGuaranteed,
 }
 
+/// Stage 3 Item A: the full-catalog body-check report returned by
+/// [`crate::Checker::check_catalog_corpus`].
+///
+/// `findings` is the gate for flipping catalog-body warnings into hard
+/// errors: the flip lands only when this list is EMPTY (and `errors` is
+/// empty, i.e. every module import resolved).
+#[derive(Debug, Clone, Default)]
+pub struct CatalogCorpusReport {
+    /// Catalog-body findings (`message` starts with "catalog body").
+    pub findings: Vec<CheckError>,
+    /// Other warnings collected while checking the corpus.
+    pub warnings: Vec<CheckError>,
+    /// Hard errors (unresolved imports, parse failures, ...).
+    pub errors: Vec<CheckError>,
+}
+
+impl CatalogCorpusReport {
+    /// True when the corpus is clean: no catalog findings and no hard errors.
+    pub fn is_clean(&self) -> bool {
+        self.findings.is_empty() && self.errors.is_empty()
+    }
+}
+
 impl fmt::Display for CheckError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} at {}: {}", self.cause, self.span, self.message)
