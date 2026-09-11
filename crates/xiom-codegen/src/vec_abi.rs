@@ -160,11 +160,10 @@ impl IrEmitter {
                     return Some(sub);
                 }
                 let base_ty = self.infer_struct_type_name(base)?;
-                let meta_key = self.types.type_meta.keys().into_iter()
-                    .find(|k| k.ends_with(&base_ty) || k.as_str() == base_ty)?;
-                self.types.type_meta.get(&meta_key)?.fields.iter()
-                    .find(|(fn2, _)| fn2 == &fname.name)
-                    .map(|(_, ft)| ft.clone())
+                // smoke_error2 has-mid fix: tiered, order-independent field
+                // scan -- a generated aggregate key (`Option__ChainError`)
+                // matching the bare suffix must not send this to None.
+                self.declared_field_type(&base_ty, &fname.name)
                     .and_then(|ft| ft.strip_prefix("Vec[").and_then(|r| r.strip_suffix(']')).map(|s| s.to_string()))
             }
             _ => None,

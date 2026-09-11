@@ -2585,6 +2585,65 @@ impl IrEmitter {
         self.types.by_value_self_methods.contains(fn_key)
     }
 
+    /// smoke_error2 has-mid flake fix (2026-09-11): resolve the DECLARED XIOM
+    /// type of `field` on the type named `base_ty`, independent of HashMap
+    /// iteration order. Generated container aggregates (`Option__ChainError`,
+    /// `Vec__ChainError`, `Result__A__B`, `Tuple__A__B`, ...) match the bare
+    /// suffix `ChainError` but do NOT carry the base type's fields; the old
+    /// scans either broke on the first matching key (vec_elem_is_str) or
+    /// returned None when that key lacked the field (resolve_vec_elem_xiom),
+    /// so the same source compiled to different IR per process (RandomState).
+    /// Search order: exact / dot-qualified keys first, then non-generated bare
+    /// suffixes, then any suffix match -- returning the field from the first
+    /// meta that actually CONTAINS it (round-7: two types can share a leaf
+    /// name; all matching keys are searched, none is skipped on a miss).
+    pub(crate) fn declared_field_type(&self, base_ty: &str, field: &str) -> Option<String> {
+        let qualified = format!(".{base_ty}");
+        let hit = |key: &String| -> Option<String> {
+            self.types.type_meta.get(key).and_then(|meta| {
+                meta.fields.iter()
+                    .find(|(fname, _)| fname == field)
+                    .map(|(_, ftype)| ftype.clone())
+            })
+        };
+        // Tier 1: exact or dot-qualified (the real type key).
+        for key in self.types.type_meta.keys() {
+            if key == base_ty || key.ends_with(&qualified) {
+                if let Some(ft) = hit(&key) {
+                    return Some(ft);
+                }
+            }
+        }
+        // Tier 2: bare suffix matches that are not generated aggregates.
+        for key in self.types.type_meta.keys() {
+            if key.ends_with(base_ty) && !Self::is_generated_aggregate_key(&key) {
+                if let Some(ft) = hit(&key) {
+                    return Some(ft);
+                }
+            }
+        }
+        // Tier 3: any suffix match (legacy registrations).
+        for key in self.types.type_meta.keys() {
+            if key.ends_with(base_ty) {
+                if let Some(ft) = hit(&key) {
+                    return Some(ft);
+                }
+            }
+        }
+        None
+    }
+
+    /// Generated aggregate keys (`Option__X`, `Vec__X`, `Result__A__B`,
+    /// `Tuple__A__B`, `Slice__X`, `Map__A__B`, `Set__X`, `_Anon__..`) must not
+    /// shadow a real type whose name is their suffix (smoke_error2 has-mid).
+    pub(crate) fn is_generated_aggregate_key(key: &str) -> bool {
+        const PREFIXES: &[&str] = &[
+            "Option__", "Result__", "Vec__", "Slice__", "Map__", "Set__",
+            "Tuple__", "_Anon__",
+        ];
+        PREFIXES.iter().any(|p| key.starts_with(p))
+    }
+
     /// BUG 37/36 follow-up (2026-08-17): is this container a `Vec[Str]`?
     /// Vec[Str] elements are STRING HANDLES (LLVM i8*) stored in 8-byte
     /// slots; the generic struct-element path (resolve_vec_elem_type) must
@@ -2601,18 +2660,8 @@ impl IrEmitter {
         }
         if let Expr::Field(base, field_expr, _) = container {
             if let Some(base_ty) = self.infer_struct_type_name(base) {
-                for key in self.types.type_meta.keys() {
-                    if key.ends_with(&base_ty) || key == base_ty {
-                        if let Some(meta) = self.types.type_meta.get(&key) {
-                            for (fname, ftype) in &meta.fields {
-                                if fname == &field_expr.name {
-                                    return ftype == "Vec[Str]";
-                                }
-                            }
-                        }
-                        break;
-                    }
-                }
+                return self.declared_field_type(&base_ty, &field_expr.name)
+                    .map_or(false, |ftype| ftype == "Vec[Str]");
             }
         }
         false
@@ -2865,41 +2914,33 @@ impl IrEmitter {
                 return Some(elem);
             }
             let base_ty = self.infer_struct_type_name(base)?;
-            for key in self.types.type_meta.keys() {
-                if key.ends_with(&base_ty) || key == base_ty {
-                    if let Some(meta) = self.types.type_meta.get(&key) {
-                        for (fname, ftype) in &meta.fields {
-                            if fname == &field_expr.name {
-                                if let Some(inner) = ftype.strip_prefix("Vec[") {
-                                    if let Some(bare_name) = inner.strip_suffix(']') {
-                                        // R10 (2026-09-11): bracketed CONTAINER
-                                        // elements ("Option[M2]") keep their name
-                                        // -- the index site maps them to the
-                                        // concrete/erased struct. The old
-                                        // types.keys-only lookup returned None
-                                        // and the read fell to the scalar path.
-                                        if bare_name.starts_with("Option[")
-                                            || bare_name.starts_with("Result[")
-                                            || bare_name.starts_with("Vec[")
-                                            || bare_name.starts_with("Map[")
-                                            || bare_name.starts_with("Set[")
-                                        {
-                                            return Some(bare_name.to_string());
-                                        }
-                                        // Only return if this is a known struct type
-                                        // (not a primitive like Int, Str, Bool, etc.)
-                                        if let Some(qualified) = self.types.types.keys().into_iter()
-    .find(|k| k.ends_with(&format!(".{}", bare_name)) || k.as_str() == bare_name)
-                                        {
-                                            return Some(qualified);
-                                        }
-                                    }
-                                }
-                            }
-                        }
+            // R10 + smoke_error2 has-mid fix: tiered all-key field scan (the
+            // old single-`.find` scan could pick a generated aggregate key and
+            // drop the real field depending on HashMap order).
+            let ftype = self.declared_field_type(&base_ty, &field_expr.name)?;
+            if let Some(inner) = ftype.strip_prefix("Vec[") {
+                if let Some(bare_name) = inner.strip_suffix(']') {
+                    // R10 (2026-09-11): bracketed CONTAINER
+                    // elements ("Option[M2]") keep their name
+                    // -- the index site maps them to the
+                    // concrete/erased struct. The old
+                    // types.keys-only lookup returned None
+                    // and the read fell to the scalar path.
+                    if bare_name.starts_with("Option[")
+                        || bare_name.starts_with("Result[")
+                        || bare_name.starts_with("Vec[")
+                        || bare_name.starts_with("Map[")
+                        || bare_name.starts_with("Set[")
+                    {
+                        return Some(bare_name.to_string());
                     }
-                    // Do NOT break on the first matching key: a stale/qualified
-                    // key without the field must not stop the scan (R10).
+                    // Only return if this is a known struct type
+                    // (not a primitive like Int, Str, Bool, etc.)
+                    if let Some(qualified) = self.types.types.keys().into_iter()
+    .find(|k| k.ends_with(&format!(".{}", bare_name)) || k.as_str() == bare_name)
+                    {
+                        return Some(qualified);
+                    }
                 }
             }
         }

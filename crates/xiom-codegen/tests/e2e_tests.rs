@@ -4506,6 +4506,13 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m65_vec_option_struct_str() {
     assert_eq!(compile_and_run("tests\\regression\\m65_vec_option_struct_str.xi"), Some(0));
 }
+// smoke_error2 has-mid nondeterminism: generated aggregate type_meta keys
+// (`Option__ErrNode`, `Vec__ErrNode`) suffix-match the base type; the
+// Vec[Str]-element resolver broke on the first matching key, so HashMap
+// order decided whether `n.messages[i]` was a Str or a truncated i64.
+#[test] fn e2e_m66_chain_error_has() {
+    assert_eq!(compile_and_run("tests\\regression\\m66_chain_error_has.xi"), Some(0));
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }
