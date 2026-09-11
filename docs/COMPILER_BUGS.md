@@ -7,6 +7,42 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-09-11 -- Stage 2c slice 3: `CheckedType::Named(TypeId)` interned type identity
+
+The audit-6 representation flip: `CheckedType::Named(String)` carried raw
+spellings, so structurally-equal types could compare unequal
+("Result[Int,Str]" vs "Result[Int, Str]") and every consumer re-parsed
+names. Implementation:
+
+- `TypeArena` is now a zero-sized handle to a PROCESS-GLOBAL, append-only,
+  thread-safe intern table (`OnceLock<RwLock<Interner>>`); interned names are
+  leaked as `&'static str` so rendering never holds the lock (poison
+  recovery via `into_inner()`). `intern_type_name` canonicalizes structurally
+  and derives `contains_param` from the parsed shape; it is the ONLY
+  interning entry point. The raw `intern(name, flag)` API is deleted -- it
+  could mint non-canonical ids.
+- `CheckedType::Named(TypeId)` replaces the String payload. Construction:
+  `CheckedType::named(impl AsRef<str>)`, plus `From<&str>`/`From<String>`
+  for `TypeId`; `from_str` canonicalizes BEFORE primitive classification
+  (so `" Int "` is `Int`, not a named lookalike).
+- Interned-symbol surface (the rustc `Symbol` pattern): `Display`,
+  `PartialEq<str>`, `PartialEq<&str>`, `PartialEq<TypeId> for str`, and
+  `Deref<Target = str>`, so pattern guards and diagnostics read naturally
+  without un-interning boilerplate. `Debug` is manual and renders
+  `Named("Vec[Int]")` -- raw ids never leak into diagnostics.
+- ~190 call sites in lib.rs/catalog.rs migrated: constructions route through
+  `named()`, guard comparisons through the str surface, hash lookups through
+  `.name()`. `TypeId` equality is structural by construction, so
+  `types_compatible`'s named comparisons are now exact rather than
+  spelling-dependent.
+
+RED-GREEN: no behavior change intended; the proof is the full gate set on a
+fresh canonical binary: checker 196/196, feature-reg 510/510, stdlib-exec
+85/85 (+2 ign), e2e 2316/2316, xiom lib 20/20, lsp 42/42, jit 5/5, workspace
+check clean. New tests: `checked_named_equality_is_structural` (spelling
+variants equal, Debug renders names, whitespace primitives classify) and the
+strengthened interner fuzz (canonical variants share an id).
+
 ## 2026-09-11 -- Stage 2c slice 2: single structural parser wired through the checker
 
 Stage 2c's structural core (crates/xiom-check/src/structural.rs, round 39)
