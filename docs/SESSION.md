@@ -153,6 +153,28 @@ Locks: stdlib_exec_error2_runs (the former flake is now a permanent gate)
 Gates: e2e 2312/2312, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
 checker 182/182.
 
+### Round-43 (2026-09-11): Stage 5 -- LSP UTF-16 positions + mutex-poison recovery
+
+Compiler lane. Two server-killing classes closed:
+
+- UTF-16: LSP positions are zero-based lines + UTF-16 code units, but the
+  server mixed scalar columns, bytes and UTF-16 (`line_str[..character]`
+  panicked on any multibyte char; hover/completion/reference ranges used
+  byte columns). NEW `crates/xiom-lsp/src/position.rs` is the single
+  clamped conversion point (`utf16_to_byte`, `byte_to_utf16`,
+  `utf16_to_char`, `span_start_lsp`, `line_utf16_len`); diagnostics ranges,
+  incremental `didChange` (`text_edit::apply_text_edit`), hover,
+  completion, definition, signature help, references, rename and
+  semantic-token positions all route through it. No input can slice
+  mid-char.
+- Poison: the 13 `documents.lock().expect("document store mutex poisoned")`
+  sites meant one panicking handler took the server down for the rest of
+  the session. `Backend::documents()` recovers the guard
+  (`unwrap_or_else(|p| p.into_inner())`); all sites use it.
+- Tests: +4 (`position` clamp/round-trip incl. astral pairs, `text_edit`
+  multibyte/past-end); suite 42/42.
+- REMAINING: incremental reparse/cross-file index (the plan's larger half).
+
 ### Round-42 (2026-09-11): Stage 5 -- fmt header preservation + literal escaping
 
 Compiler lane. The AST pretty-printer dropped everything it could not see:
@@ -297,6 +319,10 @@ What is left is staged readiness work, not bug triage:
      [compiler] timeout-secs now honored as a project default.
    - LSP UTF-16 positions via the span table + mutex-poison recovery +
      incremental reparse/cross-file index
+     [DONE round 43: UTF-16 single conversion point (position.rs) wired
+     through diagnostics/edits/hover/completion/definition/signature/
+     references/rename/semantic-tokens + poison-safe Backend::documents();
+     incremental reparse/cross-file index remains.]
    - [DONE round 42] fmt: comment/shebang preservation + string-literal
      escaping (header/shebang/escapes closed; body-inline comment trivia
      remains a follow-on slice)

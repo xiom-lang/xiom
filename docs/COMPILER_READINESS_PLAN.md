@@ -111,6 +111,9 @@ const errors cleanly, for-loop const eval).
 - LSP: integer severities, UTF-16 positions via span table (fixes multibyte panics),
   bounded Content-Length buffers (64 MiB cap), mutex-poison recovery instead of 15x
   expect, incremental reparsing, cross-file index.
+  [Partial round 43: integer severities + 64 MiB cap (round 16d); UTF-16
+  positions via position.rs and mutex-poison recovery DONE; incremental
+  reparsing + cross-file index remain.]
 - fmt: defer support (todo!() crash today), comment/shebang preservation (needs Stage 2
   trivia), string-literal escaping on re-emit.
   [Partial round 42: shebang + leading comment/header blocks preserved and

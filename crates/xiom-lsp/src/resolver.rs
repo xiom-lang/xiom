@@ -66,11 +66,13 @@ pub fn extract_obj_expr(line: &str, dot_pos: usize) -> String {
 
 /// Find the identifier at a given line/col position.
 pub fn find_ident_at(backend: &Backend, uri: &str, line: usize, col: usize) -> Option<String> {
-    let docs = backend.documents.lock().expect("document store mutex poisoned");
+    let docs = backend.documents();
     let text = docs.get(uri)?;
     let target_line = text.lines().nth(line)?;
 
     let chars: Vec<char> = target_line.chars().collect();
+    // LSP character offsets are UTF-16 units; this scanner indexes chars.
+    let col = crate::position::utf16_to_char(target_line, col);
     if col >= chars.len() { return None; }
 
     let mut start = col;

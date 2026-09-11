@@ -24,9 +24,20 @@ impl Backend {
         }
     }
 
+    /// Poison-safe document store access. A panic in one handler used to
+    /// poison the mutex, after which every later request panicked on the
+    /// 13 `expect("document store mutex poisoned")` sites and the server
+    /// stopped responding. Recovering the guard keeps the session alive
+    /// (audit: mutex-poison recovery).
+    pub(crate) fn documents(
+        &self,
+    ) -> std::sync::MutexGuard<'_, HashMap<String, String>> {
+        self.documents.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     pub fn publish_diagnostics(&self, uri: &str) -> Vec<serde_json::Value> {
         let text = {
-            let docs = self.documents.lock().expect("document store mutex poisoned");
+            let docs = self.documents();
             docs.get(uri).cloned()
         };
         let text = match text {
@@ -45,12 +56,11 @@ impl Backend {
             .collect();
         for tok in &lex_errors {
             if let xiom_lexer::TokenKind::Error(msg) = &tok.kind {
-                let line = if tok.span.line > 0 { tok.span.line - 1 } else { 0 };
-                let col = if tok.span.col > 0 { tok.span.col - 1 } else { 0 };
+                let (line, ch) = crate::position::span_start_lsp(&text, &tok.span);
                 diagnostics.push(serde_json::json!({
                     "range": {
-                        "start": { "line": line, "character": col },
-                        "end": { "line": line, "character": col + 1 }
+                        "start": { "line": line, "character": ch },
+                        "end": { "line": line, "character": ch + 1 }
                     },
                     // AUDIT #9 FIX: LSP severity is an INTEGER (1=Error,
                     // 2=Warning, 3=Information, 4=Hint). The string "Error"
@@ -70,7 +80,7 @@ impl Backend {
         match parser.parse_program() {
             Ok(program) => {
                 for err in parser.errors() {
-                    diagnostics.push(diagnostic_from_parse_error(err));
+                    diagnostics.push(diagnostic_from_parse_error(&text, err));
                 }
                 let mut checker = xiom_check::Checker::new();
                 if let Some(dir) = uri_to_parent_dir(uri) {
@@ -100,12 +110,12 @@ impl Backend {
                 checker.build_catalog_index();
                 if let Err(errors) = checker.check_program(&program) {
                     for err in &errors {
-                        diagnostics.push(diagnostic_from_check_error(err));
+                        diagnostics.push(diagnostic_from_check_error(&text, err));
                     }
                 }
             }
             Err(err) => {
-                diagnostics.push(diagnostic_from_parse_error(&err));
+                diagnostics.push(diagnostic_from_parse_error(&text, &err));
             }
         }
 
