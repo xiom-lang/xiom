@@ -469,14 +469,14 @@ impl ModuleCatalog {
                         fields.insert(field.name.name.clone(), CheckedType::from_ast_type(&field.ty));
                     }
                     let key = if prefix.is_empty() { td.name.name.clone() } else { format!("{}.{}", prefix, td.name.name) };
-                    types.insert(td.name.name.clone(), CheckedType::Named(td.name.name.clone()));
+                    types.insert(td.name.name.clone(), CheckedType::named(td.name.name.clone()));
                     type_fields.insert(td.name.name.clone(), fields);
                     type_fields.insert(key.clone(), type_fields.get(&td.name.name).cloned().unwrap_or_default());
                 }
                 TopDecl::Enum(ed) if ed.is_pub => {
                     let key = if prefix.is_empty() { ed.name.name.clone() } else { format!("{}.{}", prefix, ed.name.name) };
-                    types.insert(ed.name.name.clone(), CheckedType::Named(ed.name.name.clone()));
-                    types.insert(key, CheckedType::Named(ed.name.name.clone()));
+                    types.insert(ed.name.name.clone(), CheckedType::named(ed.name.name.clone()));
+                    types.insert(key, CheckedType::named(ed.name.name.clone()));
                 }
                 TopDecl::Fn(fd) if fd.is_pub && !fd.is_method() => {
                     let mut params: Vec<(String, CheckedType)> = Vec::new();

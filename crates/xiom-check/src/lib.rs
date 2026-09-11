@@ -835,7 +835,7 @@ impl Checker {
     fn substitute_generic_type(ty: &CheckedType, subst: &HashMap<String, CheckedType>) -> Option<CheckedType> {
         match ty {
             CheckedType::Named(n) => {
-                if let Some(c) = subst.get(n) {
+                if let Some(c) = subst.get(n.name()) {
                     return Some(c.clone());
                 }
                 let mut out = String::new();
@@ -1006,13 +1006,13 @@ impl Checker {
 
     // -- Type interning helpers (5c-R) ------------------------------------
 
-    /// Intern a Named type string, returning its TypeId. O(1) after first use.
-    pub fn intern(&mut self, name: &str, contains_param: bool) -> TypeId {
-        self.type_arena.intern(name, contains_param)
+    /// Intern a type name structurally, returning its process-stable TypeId.
+    pub fn intern_type_name(&self, name: &str) -> TypeId {
+        self.type_arena.intern_type_name(name)
     }
 
-    /// Look up the string name for a TypeId.
-    pub fn type_name(&self, id: TypeId) -> &str {
+    /// Look up the canonical name for a TypeId.
+    pub fn type_name(&self, id: TypeId) -> &'static str {
         self.type_arena.name_of(id)
     }
 
@@ -1037,7 +1037,7 @@ impl Checker {
             DeriveTrait::Debug => "fmt",
         };
         let ret_type = match derive_trait {
-            DeriveTrait::Clone => CheckedType::Named(type_name.to_string()),
+            DeriveTrait::Clone => CheckedType::named(type_name),
             DeriveTrait::Eq => CheckedType::Bool,
             DeriveTrait::Display => CheckedType::Str,
             DeriveTrait::Hash => CheckedType::Int,
@@ -1245,7 +1245,7 @@ impl Checker {
     /// The authoritative check is the Const arm of check_top_decl.
     fn infer_global_init_type(expr: &Expr) -> CheckedType {
         match expr {
-            Expr::Struct(name, _, _, _) => CheckedType::Named(name.name.clone()),
+            Expr::Struct(name, _, _, _) => CheckedType::named(name.name.clone()),
             Expr::Some(..) => CheckedType::Named("Option".into()),
             Expr::None(_) => CheckedType::Named("Option".into()),
             Expr::Ok(..) => CheckedType::Named("Result".into()),
@@ -1260,7 +1260,7 @@ impl Checker {
                 let elem_types: Vec<String> = items.iter()
                     .map(|i| Self::infer_global_init_type(i).name())
                     .collect();
-                CheckedType::Named(format!("Tuple__{}", elem_types.join("__")))
+                CheckedType::named(format!("Tuple__{}", elem_types.join("__")))
             }
             // Fallback: unknown -- the Const arm of check_top_decl reports the
             // real type error if the initializer is genuinely invalid.
@@ -3562,7 +3562,7 @@ impl Checker {
             if let Some(parent_name) = parent {
                 let parent_leaf = parent_name.rsplit('.').next().unwrap_or(parent_name);
                 if current_exports.contains_key(parent_leaf) {
-                    return Some(CheckedType::Named(parent_name.clone()));
+                    return Some(CheckedType::named(parent_name.clone()));
                 }
             }
         }
@@ -3572,7 +3572,7 @@ impl Checker {
                 if *is_pub { CheckedType::Named("fn".into()) } else { return None; }
             }
             ModuleExport::Type { is_pub, .. } => {
-                if *is_pub { CheckedType::Named(field.name.clone()) } else { return None; }
+                if *is_pub { CheckedType::named(field.name.clone()) } else { return None; }
             }
             ModuleExport::Const { ty, is_pub, .. } => {
                 if *is_pub { ty.clone() } else { return None; }
@@ -3617,7 +3617,7 @@ impl Checker {
         // For methods, inject the receiver's fields into scope (implicit self)
         if let Some(recv) = fd.receiver.as_ref() {
             // Add self as a variable (for match self { ... } in enum methods)
-            self.add_local("self", CheckedType::Named(recv.name.clone()));
+            self.add_local("self", CheckedType::named(recv.name.clone()));
             // 5c.30: track the receiver type for implicit-self method call
             // resolution (G-10: bare `init()` inside `fn GrpcClient.init()`).
             self.current_receiver = Some(recv.name.clone());
@@ -4318,7 +4318,7 @@ impl Checker {
                 if lookup_name == "_" {
                     CheckedType::Int // wildcard placeholder type
                 } else if ident.name == "null" {
-                    CheckedType::Named("Ptr".to_string())
+                    CheckedType::named("Ptr")
                 } else if let Some(ty) = self.lookup_local(lookup_name) {
                     ty.clone()
                 } else if let Some(ty) = self.global_consts.get(&ident.name) {
@@ -4343,16 +4343,16 @@ impl Checker {
                 {
                     CheckedType::Named("fn".into())
                 } else if self.contains_type(&ident.name) {
-                    CheckedType::Named(ident.name.clone())
+                    CheckedType::named(ident.name.clone())
                 } else if let Some(parent_enum) = self.resolve_enum_variant(&ident.name) {
-                    CheckedType::Named(parent_enum.clone())
+                    CheckedType::named(parent_enum.clone())
                 } else if let Some(parent) = self.enum_variants.get(&ident.name) {
                     // Direct fallback for bare variant names (bypass module-scoped lookup)
-                    CheckedType::Named(parent.clone())
+                    CheckedType::named(parent.clone())
                 } else if let Some(export) = self.imported_items.get(&ident.name) {
                     match export {
                         ModuleExport::Function { .. } => CheckedType::Named("fn".into()),
-                        ModuleExport::Type { .. } => CheckedType::Named(ident.name.clone()),
+                        ModuleExport::Type { .. } => CheckedType::named(ident.name.clone()),
                         ModuleExport::Const { ty, .. } => ty.clone(),
                         ModuleExport::SubModule(_) => CheckedType::Named("module".into()),
                     }
@@ -4404,7 +4404,7 @@ impl Checker {
                             .collect();
                         self.types.insert(tuple_name.clone(), field_map);
                     }
-                    CheckedType::Named(tuple_name)
+                    CheckedType::named(tuple_name)
                 } else if let Some(item) = items.first() {
                     self.check_expr(item)
                 } else {
@@ -4711,7 +4711,7 @@ impl Checker {
                             // and register on first field access, so cross-module
                             // `t.0` / `t.1` type-check instead of degrading to
                             // <error> (which broke `!t.0`, `240 * t.1`, ...).
-                            self.types.insert(name.clone(), tuple_fields.clone());
+                            self.types.insert(name.name().to_string(), tuple_fields.clone());
                             tuple_fields.get(&field.name).cloned().unwrap_or(CheckedType::Error)
                         } else {
                             CheckedType::Error // unknown type
@@ -4798,7 +4798,7 @@ impl Checker {
                             .split('[')
                             .next()
                             .map(|b| b.trim().to_string())
-                            .unwrap_or_else(|| type_name.clone());
+                            .unwrap_or_else(|| type_name.name().to_string());
                         let method_key = format!("{}.{}", base_name, method.name);
                         if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() && method.name == "sum" {
                             eprintln!("[sum] obj_ty={} key={} in_functions={} methods_keys={:?}", type_name, method_key, self.functions.contains_key(&method_key), self.methods.keys().collect::<Vec<_>>());
@@ -4885,7 +4885,7 @@ impl Checker {
                                     pname == "self" || matches!(pty, CheckedType::Named(n) if n == "Self")
                                 });
                             let first_param_matches_receiver = sig.params.first().map_or(false, |(_, pty)| {
-                                matches!(pty, CheckedType::Named(n) if n.as_str() == type_name.as_str())
+                                matches!(pty, CheckedType::Named(n) if n.name() == type_name)
                             });
                             // G-20 fix: `fn V2.lerp(other: V2, t: Float32)` -- a first
                             // param of the receiver TYPE is ambiguous between
@@ -5105,14 +5105,14 @@ impl Checker {
                     let allow_interface_dispatch = match &obj_ty {
                         CheckedType::Named(tn) => {
                             // Direct interface-typed receiver (e.g. self: Error)
-                            self.interfaces.contains_key(tn)
+                            self.interfaces.contains_key(tn.name())
                             || tn == "_"  // wildcard from Option.value / Result.unwrap
                             || (
                                 // Generic param with potential interface bound.
                                 // Look up the current function's generic bounds to
                                 // see if this type parameter has an interface bound
                                 // that declares the called method.
-                                self.current_generic_bounds.get(tn).map_or(false, |bounds| {
+                                self.current_generic_bounds.get(tn.name()).map_or(false, |bounds| {
                                     bounds.iter().any(|b| {
                                         self.interfaces.get(b).map_or(false, |methods| {
                                             methods.iter().any(|(mn, _, _)| mn == &method.name)
@@ -5202,7 +5202,7 @@ impl Checker {
                     {
                         let recv_base = match &obj_ty {
                             CheckedType::Named(tn) => {
-                                let b = tn.rsplit('.').next().unwrap_or(tn.as_str());
+                                let b = tn.rsplit('.').next().unwrap_or(tn.name());
                                 b.split('[').next().unwrap_or(b).trim().to_string()
                             }
                             CheckedType::Str => "Str".to_string(),
@@ -5465,10 +5465,10 @@ impl Checker {
                         // Enum variant constructor with positional args -- typecheck args loosely
                         for arg in args { let _ = self.check_expr(arg); }
                         if let Some(parent) = self.resolve_enum_variant(&name.name) {
-                            return CheckedType::Named(parent.clone());
+                            return CheckedType::named(parent.clone());
                         }
                         if let Some(parent) = self.enum_variants.get(&name.name) {
-                            return CheckedType::Named(parent.clone());
+                            return CheckedType::named(parent.clone());
                         }
                     }
                 }
@@ -5535,9 +5535,9 @@ impl Checker {
                             _ => Vec::new(),
                         };
                         if args_str.is_empty() {
-                            return CheckedType::Named(container_ident.name.clone());
+                            return CheckedType::named(container_ident.name.clone());
                         }
-                        return CheckedType::Named(format!("{}[{}]", container_ident.name, args_str.join(", ")));
+                        return CheckedType::named(format!("{}[{}]", container_ident.name, args_str.join(", ")));
                     }
                 }
                 // Regular index: arr[idx]
@@ -5557,7 +5557,7 @@ impl Checker {
                         // the bracket extraction (canonical arg rendering).
                         let inner = crate::structural::container_parts(name)
                             .and_then(|(_, args)| args.into_iter().next())
-                            .unwrap_or_else(|| name.clone());
+                            .unwrap_or_else(|| name.name().to_string());
                         // BUG 51 (2026-08-18): fn-typed elements
                         // (Vec[fn() -> Int]) must parse into a REAL Fn
                         // CheckedType -- from_str yields a bare Named
@@ -5621,7 +5621,7 @@ impl Checker {
                 // found Option). The container-erasure compatibility rule in
                 // types_compatible keeps both forms interchangeable.
                 let inner_ty = self.check_expr(inner);
-                CheckedType::Named(format!("Option[{}]", inner_ty.name()))
+                CheckedType::named(format!("Option[{}]", inner_ty.name()))
             }
             Expr::None(_) => CheckedType::Named("Option".into()),
             Expr::Ok(inner, _) => {
@@ -5699,11 +5699,11 @@ impl Checker {
                     is_struct_type
                 };
                 if is_local_struct {
-                    CheckedType::Named(name.name.clone())
+                    CheckedType::named(name.name.clone())
                 } else if let Some(parent) = self.resolve_enum_variant(&name.name) {
-                    CheckedType::Named(parent.clone())
+                    CheckedType::named(parent.clone())
                 } else {
-                    CheckedType::Named(name.name.clone())
+                    CheckedType::named(name.name.clone())
                 }
             }
             Expr::Array(items, _) => {
@@ -5952,10 +5952,10 @@ impl Checker {
     /// are covered by the match arms. Reports an error for missing variants.
     fn check_match_exhaustiveness(&mut self, arms: &[xiom_ast::MatchArm], scr_ty: &CheckedType) {
         let type_name = match self.resolve_alias(scr_ty) {
-            CheckedType::Named(n) => n,
+            CheckedType::Named(n) => n.name(),
             _ => return,
         };
-        let variants: Vec<String> = match type_name.as_str() {
+        let variants: Vec<String> = match type_name {
             "Option" => vec!["Some".to_string(), "None".to_string()],
             "Result" => vec!["Ok".to_string(), "Err".to_string()],
             "Bool" => vec!["true".to_string(), "false".to_string()],
@@ -5963,7 +5963,7 @@ impl Checker {
                 // enum_variants maps variant_name -> parent_enum.
                 // Collect all variants whose parent matches type_name.
                 self.enum_variants.iter()
-                    .filter(|(_, parent)| parent.as_str() == type_name.as_str()
+                    .filter(|(_, parent)| parent.as_str() == type_name
                         || parent.ends_with(&format!(".{}", type_name)))
                     .map(|(variant, _)| variant.clone())
                     .collect()
@@ -6005,7 +6005,7 @@ impl Checker {
         loop {
             if depth > 16 { break; } // cycle guard
             if let CheckedType::Named(name) = &current {
-                if let Some(resolved) = self.aliases.get(name.as_str()) {
+                if let Some(resolved) = self.aliases.get(name.name()) {
                     current = resolved.clone();
                     depth += 1;
                     continue;
@@ -6164,7 +6164,7 @@ impl Checker {
             (CheckedType::Named(a), CheckedType::Named(b)) if a == "Self" || b == "Self" => true,
             // Interface/trait names are compatible with their implementor types.
             (CheckedType::Named(a), CheckedType::Named(b))
-                if self.interfaces.contains_key(a) || self.interfaces.contains_key(b) => true,
+                if self.interfaces.contains_key(a.name()) || self.interfaces.contains_key(b.name()) => true,
             // Array[N]T, Slice[T], and Vec[T] share the same runtime layout.
             (CheckedType::Named(a), CheckedType::Named(b))
                 if (a.starts_with("Array") || a.starts_with("Slice") || a.starts_with("Vec")) &&
@@ -7716,12 +7716,12 @@ fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0
         assert!(Checker::tuple_fields_from_name("Int").is_none());
     }
 
-    /// 8B/M5: Fuzz harness -- random type combinations, verify TypeArena integrity.
+    /// 8B/M5: Fuzz harness -- random type names, verify the global interner
+    /// deduplicates exact AND structurally-canonical spellings.
     #[test]
     fn fuzz_type_arena_random_inserts() {
-        let mut arena = crate::TypeArena::new();
+        let arena = crate::TypeArena::new();
         let mut seed: u64 = 99991;
-        let mut names = Vec::new();
         for _ in 0..200 {
             let name_len = (seed % 16 + 1) as usize;
             seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
@@ -7731,11 +7731,14 @@ fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0
                 seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
                 name.push(c);
             }
-            let id = arena.intern(&name, false);
+            let id = arena.intern_type_name(&name);
             // After interning, looking up the same name must return the same id
-            let id2 = arena.intern(&name, false);
+            let id2 = arena.intern_type_name(&name);
             assert_eq!(id, id2, "same name must produce same id");
-            names.push((name, id));
+            // Canonical spelling variants must not create a second entry.
+            let padded = format!("  {name}  ");
+            assert_eq!(arena.intern_type_name(&padded), id,
+                "whitespace variants must share an id");
         }
     }
 

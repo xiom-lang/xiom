@@ -9,58 +9,158 @@
 //! [`CheckError`] for error reporting, and the [`TypeArena`] for type interning.
 
 use xiom_ast::*;
+use std::collections::HashMap;
 use std::fmt;
+use std::sync::{OnceLock, RwLock};
 
 // ============================================================================
-// Type Interning (5c-R: TypeId + arena -- rustc lesson from TyCtxt)
+// Type Interning (Stage 2c: process-global interned type identity)
 // ============================================================================
 
-/// Opaque index into the type arena. O(1) equality, zero heap indirection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Opaque index into the process-global type intern table. Two `TypeId`s are
+/// equal iff their CANONICAL type names are structurally equal, so equality
+/// is O(1) and names carry no spelling variants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TypeId(u32);
 
-/// Arena that interns type names and tracks the `CONTAINS_PARAM` flag.
-/// Named types resolve to TypeIds for O(1) comparison; the flag enables
-/// monomorphisation to skip non-generic types in O(1).
-#[derive(Debug, Clone, Default)]
-pub struct TypeArena {
-    /// Interned type names. Index = TypeId.0.
-    names: Vec<String>,
-    /// Whether each interned type contains a generic parameter somewhere in
-    /// its definition (e.g., `Vec[T]`, `Option[T]`, user-generic `Box[T]`).
+/// Intern table for canonical type names.
+///
+/// Process-global and append-only: `TypeId`s are stable for the lifetime of
+/// the process and resolve from any checker, LSP snapshot or test. The table
+/// is stored once behind an `RwLock`; interned names are leaked (`&'static
+/// str`) so rendering never holds the lock. `contains_param` is derived
+/// structurally (see [`crate::structural`]).
+///
+/// A handle is a zero-sized value: `TypeArena::new()` and
+/// `TypeArena::global()` both refer to the one table, which is what makes
+/// `CheckedType::Named(TypeId)` comparable across checkers.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TypeArena;
+
+#[derive(Default)]
+struct Interner {
+    /// Canonical name -> id.
+    by_name: HashMap<&'static str, TypeId>,
+    /// id -> canonical name (index = TypeId.0).
+    names: Vec<&'static str>,
+    /// id -> whether the type contains a generic parameter anywhere.
     contains_param: Vec<bool>,
 }
 
-impl TypeArena {
-    pub fn new() -> Self { Self { names: Vec::new(), contains_param: Vec::new() } }
+fn interner() -> &'static RwLock<Interner> {
+    static INTERNER: OnceLock<RwLock<Interner>> = OnceLock::new();
+    INTERNER.get_or_init(|| RwLock::new(Interner::default()))
+}
 
-    /// Intern a type name, returning its TypeId. If the name is already
-    /// present, the existing ID is returned (deduplication).
-    pub fn intern(&mut self, name: &str, contains_param: bool) -> TypeId {
-        if let Some(pos) = self.names.iter().position(|n| n == name) {
-            return TypeId(pos as u32);
+/// Lock recovery: an interner panic cannot leave a half-written entry (every
+/// mutation is a push), so poisoning is recoverable state, not a fault.
+fn write_lock() -> std::sync::RwLockWriteGuard<'static, Interner> {
+    interner().write().unwrap_or_else(|e| e.into_inner())
+}
+
+fn read_lock() -> std::sync::RwLockReadGuard<'static, Interner> {
+    interner().read().unwrap_or_else(|e| e.into_inner())
+}
+
+impl TypeId {
+    /// Canonical name of this interned type.
+    pub fn name(self) -> &'static str {
+        TypeArena.name_of(self)
+    }
+
+    /// Process-stable numeric id (for debug output only; do not persist).
+    pub fn as_u32(self) -> u32 {
+        self.0
+    }
+}
+
+/// Canonical structural interning as a conversion: `Named(s.into())` and
+/// `CheckedType::Named(s.into())` intern through the one entry point, so a
+/// `TypeId` can never be built from a non-canonical spelling.
+impl From<&str> for TypeId {
+    fn from(name: &str) -> Self {
+        TypeArena::new().intern_type_name(name)
+    }
+}
+
+impl From<String> for TypeId {
+    fn from(name: String) -> Self {
+        TypeArena::new().intern_type_name(&name)
+    }
+}
+
+/// An interned type id's semantic content IS its canonical name. The
+/// `Display`/`PartialEq<str>`/`Deref<Target = str>` surface is the standard
+/// interned-symbol API (cf. rustc_span::Symbol): pattern matches and
+/// diagnostics can treat the id as the name without un-interning boilerplate.
+impl fmt::Display for TypeId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name())
+    }
+}
+
+impl PartialEq<str> for TypeId {
+    fn eq(&self, other: &str) -> bool {
+        self.name() == other
+    }
+}
+
+impl PartialEq<&str> for TypeId {
+    fn eq(&self, other: &&str) -> bool {
+        self.name() == *other
+    }
+}
+
+impl PartialEq<TypeId> for str {
+    fn eq(&self, other: &TypeId) -> bool {
+        other.name() == self
+    }
+}
+
+impl std::ops::Deref for TypeId {
+    type Target = str;
+    fn deref(&self) -> &str {
+        self.name()
+    }
+}
+
+impl TypeArena {
+    /// Global table handle. Historical name kept for call sites; there is
+    /// exactly one type universe per process.
+    pub fn new() -> Self {
+        TypeArena
+    }
+
+    /// Global table handle.
+    pub fn global() -> &'static TypeArena {
+        static GLOBAL: OnceLock<TypeArena> = OnceLock::new();
+        GLOBAL.get_or_init(TypeArena::new)
+    }
+
+    /// Intern a type name structurally. Whitespace/format variants of the
+    /// same structure share one `TypeId`; `contains_param` is derived from
+    /// the parsed shape. This is the ONLY interning entry point -- raw
+    /// interning would break `TypeId` equality guarantees.
+    pub fn intern_type_name(&self, name: &str) -> TypeId {
+        let canonical = crate::structural::canonical_type_name(name);
+        let contains = type_shape_contains_param(&crate::structural::parse_type_shape(&canonical));
+        let mut table = write_lock();
+        if let Some(id) = table.by_name.get(canonical.as_str()) {
+            return *id;
         }
-        let id = TypeId(self.names.len() as u32);
-        self.names.push(name.to_string());
-        self.contains_param.push(contains_param);
+        // Leak the canonical spelling: the table is append-only, so entries
+        // live for the process and can be handed out without the lock.
+        let leaked: &'static str = Box::leak(canonical.into_boxed_str());
+        let id = TypeId(table.names.len() as u32);
+        table.names.push(leaked);
+        table.contains_param.push(contains);
+        table.by_name.insert(leaked, id);
         id
     }
 
-    /// Look up the string name for a TypeId.
-    pub fn name_of(&self, id: TypeId) -> &str {
-        &self.names[id.0 as usize]
-    }
-
-    /// Stage 2c: intern a type NAME structurally. Whitespace/format variants
-    /// of the same structure ("Result[Int,Str]" vs "Result[Int, Str]") share
-    /// one TypeId, and `contains_param` is derived from the parsed shape
-    /// instead of being supplied by the caller.
-    pub fn intern_type_name(&mut self, name: &str) -> TypeId {
-        let canonical = crate::structural::canonical_type_name(name);
-        let contains = type_shape_contains_param(
-            &crate::structural::parse_type_shape(&canonical)
-        );
-        self.intern(&canonical, contains)
+    /// Canonical name for a `TypeId`.
+    pub fn name_of(&self, id: TypeId) -> &'static str {
+        read_lock().names[id.0 as usize]
     }
 
     /// Canonical spelling of a type name (structural identity form).
@@ -71,7 +171,7 @@ impl TypeArena {
     /// True when the type (or any nested type) contains a generic parameter.
     /// Monomorphisation skips `contains_param` == false in O(1).
     pub fn contains_param(&self, id: TypeId) -> bool {
-        self.contains_param[id.0 as usize]
+        read_lock().contains_param[id.0 as usize]
     }
 }
 
@@ -90,7 +190,7 @@ pub fn type_shape_contains_param(shape: &crate::structural::TypeShape) -> bool {
 // Type representation for the checker
 // ============================================================================
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 /// The canonical type representation in the XIOM type system.
 ///
 /// Covers all XIOM types: primitives (`Int`, `Bool`, `Str`, ...), compound types
@@ -99,7 +199,8 @@ pub fn type_shape_contains_param(shape: &crate::structural::TypeShape) -> bool {
 /// interface types, generic parameters, and `impl Trait` opaque types.
 ///
 /// Notable variants:
-/// - [`CheckedType::Named`] -- user-defined types with optional generic arguments
+/// - [`CheckedType::Named`] -- user-defined/compound types by INTERNED
+///   canonical name ([`TypeId`]); equality is structural and O(1)
 /// - [`CheckedType::Error`] -- poison type used after a type error to suppress cascading errors
 /// - [`CheckedType::Wildcard`] -- the `_` type, compatible with anything
 /// - [`CheckedType::ImplTrait`] -- opaque existential return type
@@ -112,8 +213,8 @@ pub enum CheckedType {
     Str,
     Unit,
     Never,
-    /// A user-defined type by name
-    Named(String),
+    /// A user-defined or compound type by interned canonical name.
+    Named(TypeId),
     /// A generic type parameter (still unresolved)
     Generic(String),
     /// Function pointer type: fn(T, U) -> V
@@ -124,7 +225,52 @@ pub enum CheckedType {
     ImplTrait(Vec<String>),
 }
 
+/// Renders `Named` as `Named("Vec[Int]")` (the derived pre-Stage-2c shape):
+/// diagnostics and traces must not leak raw `TypeId` numbers.
+impl fmt::Debug for CheckedType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CheckedType::Bool => write!(f, "Bool"),
+            CheckedType::Int => write!(f, "Int"),
+            CheckedType::Int8 => write!(f, "Int8"),
+            CheckedType::Int16 => write!(f, "Int16"),
+            CheckedType::Int32 => write!(f, "Int32"),
+            CheckedType::Int64 => write!(f, "Int64"),
+            CheckedType::Int128 => write!(f, "Int128"),
+            CheckedType::UInt => write!(f, "UInt"),
+            CheckedType::UInt8 => write!(f, "UInt8"),
+            CheckedType::UInt16 => write!(f, "UInt16"),
+            CheckedType::UInt32 => write!(f, "UInt32"),
+            CheckedType::UInt64 => write!(f, "UInt64"),
+            CheckedType::UInt128 => write!(f, "UInt128"),
+            CheckedType::Float32 => write!(f, "Float32"),
+            CheckedType::Float64 => write!(f, "Float64"),
+            CheckedType::Float128 => write!(f, "Float128"),
+            CheckedType::Char => write!(f, "Char"),
+            CheckedType::Str => write!(f, "Str"),
+            CheckedType::Unit => write!(f, "Unit"),
+            CheckedType::Never => write!(f, "Never"),
+            CheckedType::Named(id) => write!(f, "Named({:?})", id.name()),
+            CheckedType::Generic(name) => write!(f, "Generic({name:?})"),
+            CheckedType::Fn(params, ret) => {
+                f.debug_tuple("Fn").field(params).field(ret).finish()
+            }
+            CheckedType::Error => write!(f, "Error"),
+            CheckedType::ImplTrait(traits) => {
+                f.debug_tuple("ImplTrait").field(traits).finish()
+            }
+        }
+    }
+}
+
 impl CheckedType {
+    /// Construct a `Named` type from a name, interning its canonical form.
+    /// This is the single construction point for named/compound types:
+    /// `TypeId` equality is structural identity.
+    pub fn named(name: impl AsRef<str>) -> Self {
+        CheckedType::Named(TypeArena::new().intern_type_name(name.as_ref()))
+    }
+
     /// Convert from AST Type to checked type representation
     pub fn from_ast_type(ty: &Type) -> Self {
         match ty {
@@ -137,38 +283,38 @@ impl CheckedType {
             // the `_` wildcard, and method calls on them fell to the sorted
             // wildcard lookup (Option.get before MyRc.get -> "cannot compare
             // Option with Int").
-            Type::Option(inner) => CheckedType::Named(format!("Option[{}]", CheckedType::from_ast_type(inner).name())),
-            Type::Result(ok, err) => CheckedType::Named(format!(
+            Type::Option(inner) => CheckedType::named(format!("Option[{}]", CheckedType::from_ast_type(inner).name())),
+            Type::Result(ok, err) => CheckedType::named(format!(
                 "Result[{}, {}]",
                 CheckedType::from_ast_type(ok).name(),
                 CheckedType::from_ast_type(err).name()
             )),
-            Type::Vec(inner) => CheckedType::Named(format!("Vec[{}]", CheckedType::from_ast_type(inner).name())),
-            Type::Map(k, v) => CheckedType::Named(format!(
+            Type::Vec(inner) => CheckedType::named(format!("Vec[{}]", CheckedType::from_ast_type(inner).name())),
+            Type::Map(k, v) => CheckedType::named(format!(
                 "Map[{}, {}]",
                 CheckedType::from_ast_type(k).name(),
                 CheckedType::from_ast_type(v).name()
             )),
-            Type::Set(inner) => CheckedType::Named(format!("Set[{}]", CheckedType::from_ast_type(inner).name())),
-            Type::Slice(inner) => CheckedType::Named(format!("Slice[{}]", CheckedType::from_ast_type(inner).name())),
+            Type::Set(inner) => CheckedType::named(format!("Set[{}]", CheckedType::from_ast_type(inner).name())),
+            Type::Slice(inner) => CheckedType::named(format!("Slice[{}]", CheckedType::from_ast_type(inner).name())),
             Type::Tuple(types) => {
                 // M20: Include element types in tuple name to avoid collisions
                 // (Int, Str) -> Tuple__Int__Str, not just Tuple2
                 let elem_names: Vec<String> = types.iter()
                     .map(|t| CheckedType::from_ast_type(t).name())
                     .collect();
-                CheckedType::Named(format!("Tuple__{}", elem_names.join("__")))
+                CheckedType::named(format!("Tuple__{}", elem_names.join("__")))
             }
             Type::Ptr(inner) => {
                 // Encode *T as "*Tname" to preserve pointee type for deref resolution.
                 // Previously this was always "Ptr", losing the target struct type.
                 let inner_name = CheckedType::from_ast_type(inner).name();
-                CheckedType::Named(format!("*{}", inner_name))
+                CheckedType::named(format!("*{}", inner_name))
             },
             // smoke_array_zip fix (2026-09-11): keep the ELEMENT type so
             // `zipped[0]` can resolve the tuple and `.0` type-checks.
             // Previously every array erased to "Array" and indexing yielded Int.
-            Type::Array(_, elem) => CheckedType::Named(format!(
+            Type::Array(_, elem) => CheckedType::named(format!(
                 "Array[{}]",
                 CheckedType::from_ast_type(elem).name()
             )),
@@ -183,14 +329,19 @@ impl CheckedType {
                 let parts: Vec<String> = fields.iter()
                     .map(|f| format!("{}_{}", f.name.name, CheckedType::from_ast_type(&f.ty).name()))
                     .collect();
-                CheckedType::Named(format!("_Anon__{}", parts.join("__")))
+                CheckedType::named(format!("_Anon__{}", parts.join("__")))
             },
             Type::Never => CheckedType::Never,
         }
     }
 
     pub fn from_str(s: &str) -> Self {
-        match s {
+        // Stage 2c: every Named value is interned CANONICALLY. Spelling
+        // variants ("Result[Int,Str]" / " Result[ Int , Str ] ") therefore
+        // produce the same TypeId, and primitives with stray whitespace
+        // classify as primitives instead of as named lookalikes.
+        let canonical = crate::structural::canonical_type_name(s);
+        match canonical.as_str() {
             "Bool" => CheckedType::Bool,
             "Int" => CheckedType::Int,
             "Int8" => CheckedType::Int8,
@@ -211,7 +362,7 @@ impl CheckedType {
             "Str" => CheckedType::Str,
             "()" => CheckedType::Unit,
             "_" => CheckedType::Int, // wildcard placeholder
-            _ => CheckedType::Named(s.to_string()),
+            _ => CheckedType::Named(TypeArena::new().intern_type_name(&canonical)),
         }
     }
 
@@ -237,7 +388,7 @@ impl CheckedType {
     /// Return true if this is a pointer-like type: the generic `Ptr` or
     /// a specific `*T` encoded as `"*Tname"`.
     pub fn as_ptr_like(&self) -> bool {
-        matches!(self, CheckedType::Named(s) if s == "Ptr" || s.starts_with('*'))
+        matches!(self, CheckedType::Named(id) if id.name() == "Ptr" || id.name().starts_with('*'))
     }
 
     pub fn name(&self) -> String {
@@ -262,7 +413,7 @@ impl CheckedType {
             CheckedType::Str => "Str".into(),
             CheckedType::Unit => "()".into(),
             CheckedType::Never => "!".into(),
-            CheckedType::Named(s) => s.clone(),
+            CheckedType::Named(id) => id.name().to_string(),
             CheckedType::Fn(params, ret) => {
                 let params_str: Vec<String> = params.iter().map(|p| p.name()).collect();
                 format!("fn({}) -> {}", params_str.join(", "), ret.name())
@@ -296,7 +447,7 @@ impl CheckedType {
             CheckedType::Str => Type::Named(Ident::new("Str", Span::new(0, 0)), vec![]),
             CheckedType::Unit => Type::Named(Ident::new("()", Span::new(0, 0)), vec![]),
             CheckedType::Never => Type::Named(Ident::new("!", Span::new(0, 0)), vec![]),
-            CheckedType::Named(s) => Type::Named(Ident::new(s.clone(), Span::new(0, 0)), vec![]),
+            CheckedType::Named(id) => Type::Named(Ident::new(id.name().to_string(), Span::new(0, 0)), vec![]),
             CheckedType::Fn(params, ret) => Type::Fn(
                 params.iter().map(|p| p.to_ast_type()).collect(),
                 Box::new(ret.to_ast_type()),
@@ -398,7 +549,7 @@ mod tests {
 
     #[test]
     fn interning_canonicalizes_structural_variants() {
-        let mut arena = TypeArena::new();
+        let arena = TypeArena::new();
         let a = arena.intern_type_name("Result[Int,Str]");
         let b = arena.intern_type_name("Result[Int, Str]");
         let c = arena.intern_type_name(" Result[ Int , Str ] ");
@@ -409,7 +560,7 @@ mod tests {
 
     #[test]
     fn interning_tracks_generic_params_structurally() {
-        let mut arena = TypeArena::new();
+        let arena = TypeArena::new();
         let generic = arena.intern_type_name("Vec[Option[T]]");
         assert!(arena.contains_param(generic));
         let concrete = arena.intern_type_name("Vec[Option[Int]]");
@@ -422,5 +573,18 @@ mod tests {
         assert_eq!(TypeArena::canonical_name("Map[Str,Vec[Int]]"), "Map[Str, Vec[Int]]");
         assert_eq!(TypeArena::canonical_name("Int"), "Int");
         assert_eq!(TypeArena::canonical_name("*T"), "*T");
+    }
+
+    #[test]
+    fn checked_named_equality_is_structural() {
+        // Stage 2c: spelling variants produce EQUAL values and the Debug
+        // rendering stays human-readable (never leaks TypeId numbers).
+        let a = CheckedType::named("Map[Str,Vec[Int]]");
+        let b = CheckedType::named(" Map[ Str , Vec [ Int ] ] ");
+        assert_eq!(a, b);
+        assert_eq!(a.name(), "Map[Str, Vec[Int]]");
+        assert_eq!(format!("{a:?}"), "Named(\"Map[Str, Vec[Int]]\")");
+        // Primitive classification ignores stray whitespace.
+        assert_eq!(CheckedType::from_str(" Int "), CheckedType::Int);
     }
 }
