@@ -209,10 +209,15 @@ What is left is staged readiness work, not bug triage:
    (~1.5k-4.5k findings per stdlib compile). Shared with the stdlib lane --
    re-measure the count after their dedup/cleanup rounds.
 4. Stage 4 remainder:
-   - JIT honesty (#17): implement state migration or honestly descope the
-     claim; guard DLL-unload liveness.
-   - LET-array representation JOINT decision with the stdlib session
-     (let-array-as-Vec vs &[N]T; decision doc requested by their lane).
+   - [DONE 620576d6, re-verified round 39] JIT honesty (#17): retired modules
+     stay loaded under live pointers (unload-liveness guard) + reload path
+     honestly reports that global state RESETS (state migration descoped
+     until codegen emits per-module state tables). jit suite 5/5.
+   - [DONE round 39] LET-array representation JOINT decision: DECIDED as
+     fixed arrays `[N]T` for `let` literals (same as `var`); full rationale,
+     census, current-behavior probe matrix and P1-P3 migration plan in
+     docs/LET_ARRAY_DECISION.md. Compiler follow-ups P1 (annotated let),
+     P2 (user-fn &[N]T args), P3 (delete M33 let->Vec + Slice bridge).
 5. Stage 5 remainder:
    - watchdog cancellation (#12: process::exit from worker threads ->
      cancellation token; xiom.toml timeout-secs CLI-only until then)

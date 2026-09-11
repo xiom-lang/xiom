@@ -88,6 +88,9 @@ const errors cleanly, for-loop const eval).
   liveness (dangling symbol pointers on hot reload).
 - LET-array representation conflict: written up as a JOINT decision doc FOR the stdlib
   session (design call shared with them; M33 let->Vec vs &[N]T array-module fns).
+  [DONE round 39: docs/LET_ARRAY_DECISION.md -- let arrays are FIXED arrays;
+  compiler follow-ups P1 annotated-let IR, P2 user-fn &[N]T arg ABI, P3 delete
+  the M33 let->Vec conversion with a call-site Slice bridge.]
 
 ## Stage 5 -- Toolchain trust & security (audit #4 #5 #9-13 #18-20 + hygiene)
 
