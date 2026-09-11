@@ -2928,6 +2928,13 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     if inner_ty.starts_with("%struct.") {
                         return Ok((elem, inner_ty.to_string()));
                     }
+                    // Float elements stay FLOAT-typed -- val_to_i64 bitcasts
+                    // the double to i64 bits and the binary-op layer then
+                    // sitofp'd those bits back (2.5 != 2.5 fired true; m67
+                    // Float64 let-array lock). Mirrors the Vec float path.
+                    if matches!(inner_ty.as_str(), "float" | "double" | "fp128") {
+                        return Ok((elem, inner_ty.to_string()));
+                    }
                     let result = self.val_to_i64(&elem, &inner_ty);
                     return Ok((result, LLVM_I64.to_string()));
                 }
@@ -2951,12 +2958,18 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         self.emitln(&format!("  {elem_ptr} = getelementptr {elem_ty}, {cont_ty} {cont_val}, i64 0, i64 {idx}"));
                         let elem = self.fresh_tmp();
                         self.emitln(&format!("  {elem} = load {inner_ty}, {inner_ty}* {elem_ptr}"));
+                        if matches!(inner_ty.as_str(), "float" | "double" | "fp128") {
+                            return Ok((elem, inner_ty));
+                        }
                         let result = self.val_to_i64(&elem, &inner_ty);
                         return Ok((result, LLVM_I64.to_string()));
                     }
                     self.emitln(&format!("  {elem_ptr} = getelementptr {elem_ty}, {cont_ty} {cont_val}, i64 {idx}"));
                     let elem = self.fresh_tmp();
                     self.emitln(&format!("  {elem} = load {elem_ty}, {elem_ty}* {elem_ptr}"));
+                    if matches!(elem_ty, "float" | "double" | "fp128") {
+                        return Ok((elem, elem_ty.to_string()));
+                    }
                     let result = self.val_to_i64(&elem, &elem_ty);
                     return Ok((result, LLVM_I64.to_string()));
                 }

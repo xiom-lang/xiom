@@ -153,6 +153,30 @@ Locks: stdlib_exec_error2_runs (the former flake is now a permanent gate)
 Gates: e2e 2312/2312, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
 checker 182/182.
 
+### Round-40 (2026-09-11): LET-array P1 FIXED -- annotated fixed arrays + float element reads
+
+Compiler lane, executing the decision doc from round 39 (docs/
+LET_ARRAY_DECISION.md: let arrays are FIXED arrays).
+
+1. **Annotated `let c: [N]T = [literals]`** bound through the M33 Vec
+   conversion, then stored a %struct.Vec/i8* value into the declared
+   `[N x T]` slot -- clang rejected ("defined with type 'i64/pt' but
+   expected '[3 x i64]'"). The Let arm now mirrors the VAR BUG 53 path:
+   aggregate slot, per-element GEP+store with the declared element width,
+   local registered as the array. Lock: tests/regression/
+   m67_let_array_annotated.xi + e2e_m67_let_array_annotated.
+2. **Float elements in `[N]T` index reads were boxed to i64 bits**
+   (`val_to_i64` bitcast + sitofp back in the binary-op layer), so
+   `f[1] != 2.5` fired true for equal values. The by-value and pointer
+   fixed-array arms now return float elements as their real LLVM type
+   (float/double/fp128), mirroring the Vec float path. Discovered by the
+   m67 Float64 case; fixed in the same commit.
+
+P2 (user-fn `&[N]T` args: `var b = [...]; user_fn(&b)` still invalid IR
+"expected '(' in call") and P3 (delete the M33 let->Vec conversion) stay
+queued in the decision doc. Gates: checker 192/192, feature-reg 510/510,
+stdlib-exec 85/85 (+2 ign), e2e 2313/2313.
+
 ### Round-39 (2026-09-11): Stage 2c STARTED -- structural type identity core
 
 Compiler lane, first Stage 2c slice (audit #6's remaining structural item;
