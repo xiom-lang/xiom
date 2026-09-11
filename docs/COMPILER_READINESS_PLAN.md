@@ -100,8 +100,9 @@ const errors cleanly, for-loop const eval).
   cancellation token), randomized temp names.
   [DONE round 41: watchdog -> cooperative cancellation token in xiom-codegen
   (clang child killed on cancel, main thread reports); xiom.toml [compiler]
-  timeout-secs honored (CLI wins). clap parsing / sandbox false-green /
-  randomized temp names remain.]
+  timeout-secs honored (CLI wins). Round 45: target-named source files
+  (wasm/arm/riscv) are no longer dropped. clap parsing / sandbox
+  false-green / randomized temp names remain.]
 - Supply chain (HARD PREREQUISITE for the post-split registry phase): client-side
   sha256 verification of every artifact, ed25519 signatures + trust model, lockfile v2
   pinning {name, version, integrity, source} transitively, ureq-only HTTP with TLS +
