@@ -4488,6 +4488,13 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m65_vec_option_elem() {
     assert_eq!(compile_and_run("tests\\regression\\m65_vec_option_elem.xi"), Some(0));
 }
+// smoke_math_edge fix: math.shl/shr emitted raw LLVM shifts; a count >= 64
+// is poison (clang -O2 trapped shl(1,100) with 0xC000001D). The builtin now
+// emits the stdlib's defined semantics (n<=0 -> a; n>=64 -> 0 / sign; else
+// masked shift). Red pre-fix: smoke_math_edge trap.
+#[test] fn e2e_m65_shift_semantics() {
+    assert_eq!(compile_and_run("tests\\regression\\m65_shift_semantics.xi"), Some(0));
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }

@@ -3912,6 +3912,35 @@ fns/ctors and (b) Vec[V].push from inside generic fns -- both must use
 the substituted concrete element size (112), matching the already-fixed
 generic-field READ stride. Probes preserved in the stdlib probes dir.
 
+## 2026-09-11 -- smoke_math_edge FIXED: defined shl/shr semantics
+
+`math.shl(1, 100)` trapped (0xC000001D) at runtime. Root cause: the
+math bitwise/shift BUILTIN intercept (call.rs, BUG 15 path) emitted a raw
+`shl i64 1, 100`; LLVM shifts with a count >= bit width are POISON, and
+clang -O2 materialized the poison as `ud2`. The stdlib math.shl/shr have
+DEFINED semantics (n <= 0 -> a; n >= 64 -> 0 / sign extension; n == 63
+INT_MIN cases). The builtin now emits exactly those semantics with
+guards:
+
+  neg_n  = icmp sle rv, 0
+  big_n  = icmp sge rv, 64
+  safe_n = and rv, 63                     ; avoids poison entirely
+  shifted = shl/ashr lv, safe_n
+  shl: big = 0;  shr: big = select(lv < 0 ? -1 : 0)
+  res = select big_n, big, shifted
+  res = select neg_n, lv, res
+
+Verified: smoke_math_edge exit 0; p_shift covers shl(1,10)=1024,
+shl(5,-1)=5, shl(1,100)=0, shl(2,63)=0, shl(1,63)=INT_MIN,
+shr(-8,1)=-4, shr(-1,100)=-1, shr(8,1)=4, shr(5,-2)=5,
+shr(-8,63)=-1, shr(7,63)=0 -- all exit 0.
+Locks: stdlib_exec_math_edge_runs, e2e_m65_shift_semantics
+(tests/regression/m65_shift_semantics.xi).
+Gates: e2e 2309/2309, feature-reg 510/510, stdlib-exec 80/80 (+2 ign),
+checker 182/182.
+
+
+
 ## 2026-09-11 -- regex family compile fails FIXED (container element coherence)
 
 The four regex captures smokes + match_count used to fail at clang

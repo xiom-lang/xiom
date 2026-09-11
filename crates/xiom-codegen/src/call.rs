@@ -4321,10 +4321,43 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             self.emitln(&format!("  {result} = xor i64 {lv}, -1"));
                         } else if compiled_args.len() >= 2 {
                             let rv = self.widen_to_i64(&compiled_args[1].0, &compiled_args[1].1);
+                            let is_shl = resolved_fn_key == "shl" || resolved_fn_key.ends_with(".shl");
+                            let is_shr = !is_shl && (resolved_fn_key == "shr" || resolved_fn_key.ends_with(".shr"));
+                            if is_shl || is_shr {
+                                // smoke_math_edge fix (2026-09-11): raw LLVM shl/ashr
+                                // with a count >= 64 is POISON -- clang -O2 turned
+                                // `math.shl(1, 100)` into a trap (0xC000001D). Emit
+                                // the stdlib's DEFINED semantics instead:
+                                //   n <= 0  -> a
+                                //   n >= 64 -> 0 (shl) / -1 iff a < 0 (shr)
+                                //   else    -> shift by (n & 63) (placeholder, guarded)
+                                let neg_n = self.fresh_tmp();
+                                self.emitln(&format!("  {neg_n} = icmp sle i64 {rv}, 0"));
+                                let big_n = self.fresh_tmp();
+                                self.emitln(&format!("  {big_n} = icmp sge i64 {rv}, 64"));
+                                let safe_n = self.fresh_tmp();
+                                self.emitln(&format!("  {safe_n} = and i64 {rv}, 63"));
+                                let shifted = self.fresh_tmp();
+                                let inst = if is_shl { "shl" } else { "ashr" };
+                                self.emitln(&format!("  {shifted} = {inst} i64 {lv}, {safe_n}"));
+                                let big_val = if is_shl {
+                                    "0".to_string()
+                                } else {
+                                    let neg_a = self.fresh_tmp();
+                                    self.emitln(&format!("  {neg_a} = icmp slt i64 {lv}, 0"));
+                                    let bv = self.fresh_tmp();
+                                    self.emitln(&format!("  {bv} = select i1 {neg_a}, i64 -1, i64 0"));
+                                    bv
+                                };
+                                let s1 = self.fresh_tmp();
+                                self.emitln(&format!("  {s1} = select i1 {big_n}, i64 {big_val}, i64 {shifted}"));
+                                let s2 = self.fresh_tmp();
+                                self.emitln(&format!("  {s2} = select i1 {neg_n}, i64 {lv}, i64 {s1}"));
+                                return Ok((s2, LLVM_I64.to_string()));
+                            }
                             let inst = if resolved_fn_key == "bit_and" || resolved_fn_key.ends_with(".bit_and") { "and" }
                                 else if resolved_fn_key == "bit_or" || resolved_fn_key.ends_with(".bit_or") { "or" }
                                 else if resolved_fn_key == "bit_xor" || resolved_fn_key.ends_with(".bit_xor") { "xor" }
-                                else if resolved_fn_key == "shl" || resolved_fn_key.ends_with(".shl") { "shl" }
                                 else { "ashr" };
                             self.emitln(&format!("  {result} = {inst} i64 {lv}, {rv}"));
                         } else {
