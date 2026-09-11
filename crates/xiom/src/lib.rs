@@ -1023,7 +1023,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     };
 
     if config.diagnostics_json {
-        println!(r#"{{"status":"ok"}}"#);
+        println!(r#"{{"schema_version":1,"status":"ok"}}"#);
         return Ok(());
     }
 
