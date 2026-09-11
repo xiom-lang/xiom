@@ -4481,6 +4481,13 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m65_r8_method_free_fn() {
     assert_eq!(compile_and_run("tests\\regression\\m65_r8_method_free_fn.xi"), Some(0));
 }
+// M65 regex-family fix: Vec[Option[Int]] / Vec[Option[Struct]] element
+// sizing + container-element struct reads
+// (type_arg_to_name bracketed args, concrete Option__T elem size,
+// Some ctor payload-context inference).
+#[test] fn e2e_m65_vec_option_elem() {
+    assert_eq!(compile_and_run("tests\\regression\\m65_vec_option_elem.xi"), Some(0));
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }

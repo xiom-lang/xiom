@@ -101,6 +101,31 @@ REMAINING QUEUE (pre-scoped for the next compiler session):
    from here).
 6. Stages 6-7: perf program + selfhost gate checklist.
 
+### Round-32 (2026-09-11): regex family compile fails FIXED -- container element coherence
+
+Compiler lane. Seven codegen roots (full map in COMPILER_BUGS.md):
+bracketed ctor type args render for any container (type_arg_to_name);
+concrete Option__T/Result__A__B element sizing (ensure_container_named_
+concrete + vec_elem_storage_size); bracketed container elements keep their
+name in resolve_vec_elem_type and memcpy the right struct in the index
+read; the Some ctor adopts an ALREADY-REGISTERED concrete Option__T for
+struct payloads (never creates one -- opaque consumers like net_address
+stay coherent); body-time concrete definitions are SPLICED into the
+type-decl block at final assembly (sized before any alloca/GEP) with the
+decl pre-pass collecting ctor bracket args; coerce_value bridges
+CONCRETE->OPAQUE containers (boxed payloads), completing the R7
+opaque->concrete direction (m21_struct_mut_015).
+Resource: smoke_stress_regex_captures x4 now COMPILE; the residual AV is a
+stdlib call-form bug -- engine.xi uses `pattern.char_at(pos).unwrap()` in
+method position, which resolves to the BUILTIN Char overload (correct for
+glob), so `.unwrap()` is invalid (checker warns). Free-call form
+`string.char_at(pattern, pos)` verified correct (p_charat_form). Handed
+to the stdlib lane.
+Lock: e2e_m65_vec_option_elem (Vec[Option[Int]]/Vec[Option[Struct]]
+element sizing + container reads, plus Vec[Option[Struct]] push).
+Gates: e2e 2308/2308, feature-reg 510/510, stdlib-exec 79/79 (+2 ign),
+checker 182/182.
+
 ### Round-31 (2026-09-11): R8 FIXED -- method-position free-fn calls + char_at contract
 
 Compiler lane. Face A: `s.char_count()` (free-fn receiver sugar) was
