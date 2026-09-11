@@ -10,6 +10,31 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  hygiene:
+    name: workspace hygiene (all targets, MSRV 1.86, cargo-deny)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (MSRV)
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.86.0"
+
+      # `cargo check --workspace --all-targets` builds every workspace member
+      # INCLUDING binaries and test targets -- the per-package release build
+      # below does not, which let xiom-mcp rot after a CompileConfig field
+      # was added (E0063, fixed in round 44).
+      - name: Workspace check (MSRV, bins + tests, no run)
+        run: cargo check --workspace --all-targets
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@cargo-deny
+
+      - name: Supply-chain gate (advisories, licenses, bans, sources)
+        run: cargo deny check advisories licenses bans sources
+
   build-and-test:
     name: ${{ matrix.os }} (${{ matrix.target }})
     runs-on: ${{ matrix.os }}

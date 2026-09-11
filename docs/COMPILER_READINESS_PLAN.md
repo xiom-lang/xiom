@@ -125,6 +125,10 @@ const errors cleanly, for-loop const eval).
 - Engineering hygiene: cargo-deny/vet, MSRV declaration, workspace version policy
   (four schemes coexist today), cargo-fuzz targets over lexer/parser/CTFE replacing toy
   LCG harnesses, ASAN/UBSAN runs of the differential suites in CI.
+  [Round 44 DONE: workspace version/edition/MSRV inheritance (1.86) + deny.toml
+  + CI hygiene job (MSRV check --workspace --all-targets + cargo deny); the
+  job also caught and fixed a rotted xiom-mcp member (E0063). REMAINING:
+  cargo-vet audits, cargo-fuzz targets, ASAN/UBSAN CI runs.]
 
 ## Stage 6 -- Performance program (audit sec 8.1)
 
