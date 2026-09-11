@@ -54,6 +54,11 @@ const errors cleanly, for-loop const eval).
    (`Option == Option[T]`, `_ == Int`, alphabetical wildcard method capture); unify the
    two `types_compatible` copies (lib.rs vs compat/mod.rs). Expect array_zip T001
    (checker tuple-element store on `[N](T,U)`) to flip green here.
+   [array_zip T001 flipped green round 36; the orphaned compat/mod.rs copy was
+   deleted round 18; round 39 STARTED the structural core: parser + real
+   TypeArena interning + `types_compatible` on parsed shapes.
+   Follow-on slices: `CheckedType::Named(TypeId)` storage, get_type bare-name
+   fallback through the arena, codegen keys on the same canonical form.]
 3. Move `expand_impl_blocks` out of xiom-ast into a lowering pass (no Span(0,0)
    injection, no whole-program clones); wire ErrorGuaranteed construction into
    parser/checker for real.
