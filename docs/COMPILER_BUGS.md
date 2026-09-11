@@ -3912,6 +3912,30 @@ fns/ctors and (b) Vec[V].push from inside generic fns -- both must use
 the substituted concrete element size (112), matching the already-fixed
 generic-field READ stride. Probes preserved in the stdlib probes dir.
 
+## 2026-09-11 -- smoke_array_zip FIXED: fixed-array tuple elements
+
+Three roots:
+1. `array.zip[T,U,const N]` returns `[N](T,U)`; the mono body's local slot
+   resolved the composite element name RAW ("Tuple__T__U") because
+   llvm_type_for only substituted a single-char generic name. New
+   `subst_type_tokens` replaces whole identifier tokens (with '_' as a
+   separator, so mangled names tokenize) -- the local is now
+   `[3 x %struct.Tuple__Int__Int]`.
+2. Fixed-array indexing always ran `val_to_i64` on the loaded element,
+   BOXING struct elements into a heap handle and returning i64; `.0` then
+   saw i64 and fell to the 0 fallback. Struct elements now return by value.
+3. Computed-value `.0` field access (`zipped[0].0`) only consulted
+   `types.types`; tuple layouts live in `type_meta`. The lookup now falls
+   back to type_meta (exact + suffix) and uses `resolve_field_index` for
+   numeric tuple fields ("0" vs "_0"). The same fallback was added to the
+   struct-value local path.
+
+Lock: `stdlib_exec_array_zip_runs`.
+Gates: e2e 2309/2309, feature-reg 510/510, stdlib-exec 83/83 (+2 ign),
+checker 182/182.
+
+
+
 ## 2026-09-11 -- smoke_ptr_offset + smoke_convert_escape FIXED
 
 1. ptr_offset: `substitute_type` double-wrapped raw pointers -- the

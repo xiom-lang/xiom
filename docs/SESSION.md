@@ -101,6 +101,22 @@ REMAINING QUEUE (pre-scoped for the next compiler session):
    from here).
 6. Stages 6-7: perf program + selfhost gate checklist.
 
+### Round-36 (2026-09-11): array_zip FIXED -- fixed-array tuple elements
+
+Compiler lane. Three roots (full map in COMPILER_BUGS.md):
+`[N](T,U)` composite element names now substitute generic tokens
+(subst_type_tokens, '_' as separator); fixed-array indexing returns
+STRUCT elements by value instead of boxing them into i64; computed-value
+`.0` field access falls back to type_meta field names + resolve_field_index
+(numeric fields). Flips: smoke_array_zip (the last compile-fail).
+Lock: stdlib_exec_array_zip_runs. All previous red compile-fails
+(ptr_offset, convert_escape, array_zip) are now GREEN.
+Gates: e2e 2309/2309, feature-reg 510/510, stdlib-exec 83/83 (+2 ign),
+checker 182/182.
+NEXT (stdlib report): R10 -- Vec[Option[struct-with-Str]] element reads AV
+(blocks Captures.get); R8 follow-up -- method `.trim()` on a Str param
+returns a corrupt Str (len=0xFFFFFFFF) while free-call str_trim works.
+
 ### Round-35 (2026-09-11): ptr_offset + convert_escape FIXED
 
 Compiler lane. Three roots (full map in COMPILER_BUGS.md):

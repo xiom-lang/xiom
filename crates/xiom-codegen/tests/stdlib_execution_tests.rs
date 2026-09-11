@@ -192,6 +192,16 @@ fn stdlib_exec_convert_escape_runs() {
     assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_convert_escape.xi"), Some(0), "convert escape smoke failed to run/return 0");
 }
 
+// smoke_array_zip fix (2026-09-11): `[N](T,U)` arrays need the monomorphic
+// element name substituted inside composite type strings (Tuple__T__U ->
+// Tuple__Int__Int); fixed-array indexing returns STRUCT elements by value
+// (was boxed to i64); and computed-value `.0` field access falls back to
+// type_meta field names with numeric-field resolution.
+#[test]
+fn stdlib_exec_array_zip_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_array_zip.xi"), Some(0), "array zip smoke failed to run/return 0");
+}
+
 #[test]
 fn stdlib_exec_num_runs() {
     assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_num.xi"), Some(0), "num smoke failed to run/return 0");

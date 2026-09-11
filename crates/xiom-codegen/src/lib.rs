@@ -2921,6 +2921,36 @@ impl IrEmitter {
         Some(subst)
     }
 
+    /// Replace whole IDENTIFIER tokens in a rendered type name using a map
+    /// ("Tuple__T__U" + {T:Int, U:Int} -> "Tuple__Int__Int"). Used to resolve
+    /// composite element names inside mono'd bodies.
+    fn subst_type_tokens(s: &str, map: &HashMap<String, String>) -> String {
+        if map.is_empty() { return s.to_string(); }
+        let mut out = String::with_capacity(s.len());
+        let mut ident = String::new();
+        let flush = |ident: &mut String, out: &mut String| {
+            if ident.is_empty() { return; }
+            match map.get(ident.as_str()) {
+                Some(v) => out.push_str(v),
+                None => out.push_str(ident),
+            }
+            ident.clear();
+        };
+        for c in s.chars() {
+            // '_' and '.' are SEPARATORS here: mangled tuple names
+            // ("Tuple__T__U") must tokenize as Tuple/T/U, otherwise the whole
+            // string is one token and generic params never substitute.
+            if c.is_ascii_alphanumeric() {
+                ident.push(c);
+            } else {
+                flush(&mut ident, &mut out);
+                out.push(c);
+            }
+        }
+        flush(&mut ident, &mut out);
+        out
+    }
+
     /// Replace whole IDENTIFIER tokens matching generic parameter names
     /// ("V" -> "JsonValue") -- a plain string replace would corrupt "Vec[V]"
     /// (the literal "Vec" contains a "V"). Tokens are runs of identifier
@@ -2984,14 +3014,22 @@ impl IrEmitter {
                             None => "i64".to_string(),
                         }
                     } else {
-                        self.llvm_type_for(elem_name)
+                        // smoke_array_zip fix (2026-09-11): substitute raw
+                        // generic param TOKENS inside composite element names --
+                        // "[N x Tuple__T__U]" inside a mono body must resolve
+                        // Tuple__Int__Int; only whole single-char names were
+                        // handled before, so the local stayed [3 x i64] while
+                        // the mono def returned [3 x Tuple__Int__Int].
+                        let subst_elem = Self::subst_type_tokens(elem_name, &self.mono.current_type_map);
+                        let lookup_name = if subst_elem != elem_name { subst_elem.as_str() } else { elem_name };
+                        self.llvm_type_for(lookup_name)
                             .or_else(|_| {
-                                match self.mono.current_type_map.get(elem_name) {
+                                match self.mono.current_type_map.get(lookup_name) {
                                     Some(ct) => self.llvm_type_for(ct.as_str()),
-                                    None => Err(format!("unknown elem {elem_name}")),
+                                    None => Err(format!("unknown elem {lookup_name}")),
                                 }
                             })
-                            .unwrap_or_else(|_| Self::xiom_to_llvm_type(elem_name).to_string())
+                            .unwrap_or_else(|_| Self::xiom_to_llvm_type(lookup_name).to_string())
                     };
                     // Literal integer size (e.g. [4 x i64]).
                     if let Ok(n) = n_str.parse::<u64>() {
