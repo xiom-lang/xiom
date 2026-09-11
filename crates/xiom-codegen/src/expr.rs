@@ -2349,14 +2349,30 @@ impl IrEmitter {
                         // types (handled above) so `%struct.X*` never takes this path.
                         if llvm_ty.starts_with("%struct.") && !llvm_ty.ends_with('*') {
                             let type_name = &llvm_ty[8..];
-                            if let Some(field_names) = self.types.types.get(&type_name.to_string())
+                            // smoke_array_zip fix (2026-09-11): tuple/anon structs
+                            // may live ONLY in type_meta (field names), not in
+                            // types.types -- `.0` on a `[N](T,U)` element then
+                            // missed the field map and fell to the i64 fallback
+                            // (dead boxing + literal 0). Fall back to type_meta.
+                            let field_names_opt: Option<Vec<String>> =
+                                self.types.types.get(&type_name.to_string())
                                 .or_else(|| {
                                     let suffix = format!(".{type_name}");
-                                    self.types.types.keys().into_iter().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
-                                        .and_then(|k|self.types.types.get(&k))
+                                    self.types.types.keys().into_iter()
+                                        .find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
+                                        .and_then(|k| self.types.types.get(&k))
                                 })
-                            {
-                                if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
+                                .or_else(|| self.types.type_meta.get(&type_name.to_string())
+                                    .map(|m| m.fields.iter().map(|(n, _)| n.clone()).collect()))
+                                .or_else(|| {
+                                    let suffix = format!(".{type_name}");
+                                    self.types.type_meta.keys().into_iter()
+                                        .find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
+                                        .and_then(|k| self.types.type_meta.get(&k)
+                                            .map(|m| m.fields.iter().map(|(n, _)| n.clone()).collect()))
+                                });
+                            if let Some(field_names) = field_names_opt {
+                                if let Some(field_idx) = IrEmitter::resolve_field_index(&field_names, &field.name) {
                                     // BUG 25 #5 fix: Option/Result `.value`/`.error`
                                     // field reads must use the ACTUAL payload type --
                                     // the static slot type is i64, so Str/Vec/Float
@@ -2542,15 +2558,24 @@ impl IrEmitter {
                             self.emitln(&format!("  {result} = zext i1 {cmp} to i64"));
                             return Ok((result, LLVM_I64.to_string()));
                         }
-                        if let Some(field_names) = self.types.types.get(&type_name.to_string())
+                        let field_names_opt: Option<Vec<String>> =
+                            self.types.types.get(&type_name.to_string())
                             .or_else(|| {
                                 let suffix = format!(".{type_name}");
                                 self.types.types.keys().into_iter().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
                                     .and_then(|k|self.types.types.get(&k))
                             })
-                            
-                        {
-                            if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
+                            .or_else(|| self.types.type_meta.get(&type_name.to_string())
+                                .map(|m| m.fields.iter().map(|(n, _)| n.clone()).collect()))
+                            .or_else(|| {
+                                let suffix = format!(".{type_name}");
+                                self.types.type_meta.keys().into_iter()
+                                    .find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
+                                    .and_then(|k| self.types.type_meta.get(&k)
+                                        .map(|m| m.fields.iter().map(|(n, _)| n.clone()).collect()))
+                            });
+                        if let Some(field_names) = field_names_opt {
+                            if let Some(field_idx) = IrEmitter::resolve_field_index(&field_names, &field.name) {
                                 let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
                                 let struct_alloca = self.fresh_tmp();
                                 self.emitln(&format!("  {struct_alloca} = alloca {ov_ty}"));
@@ -2895,6 +2920,14 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     let inner_ty = Self::extract_array_elem_ty(&cont_ty);
                     let elem = self.fresh_tmp();
                     self.emitln(&format!("  {elem} = load {inner_ty}, {inner_ty}* {elem_ptr}"));
+                    // smoke_array_zip fix (2026-09-11): a STRUCT element (tuple
+                    // array `[N](T,U)`) must be returned BY VALUE -- val_to_i64
+                    // boxed it into a heap handle and returned i64, so the
+                    // following `.0` field access saw i64 and fell to the 0
+                    // fallback (dead boxing + `icmp ne i64 0, 1`).
+                    if inner_ty.starts_with("%struct.") {
+                        return Ok((elem, inner_ty.to_string()));
+                    }
                     let result = self.val_to_i64(&elem, &inner_ty);
                     return Ok((result, LLVM_I64.to_string()));
                 }
