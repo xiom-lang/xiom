@@ -6,6 +6,44 @@
 
 use xiom_ast::*;
 
+/// Re-emit a string literal body with the lexer's escape set so the formatted
+/// source re-parses to the SAME characters. Before this, `"a\"b"` re-emitted
+/// raw and `"line\nbreak"` wrote a real newline inside the literal.
+pub(super) fn escape_str_literal(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\0' => out.push_str("\\0"),
+            '\u{08}' => out.push_str("\\b"),
+            '\u{0C}' => out.push_str("\\f"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\x{:02X}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// Char-literal counterpart of [`escape_str_literal`] (single-quote context).
+pub(super) fn escape_char_literal(c: char) -> String {
+    match c {
+        '\\' => "\\\\".to_string(),
+        '\'' => "\\'".to_string(),
+        '\n' => "\\n".to_string(),
+        '\r' => "\\r".to_string(),
+        '\t' => "\\t".to_string(),
+        '\0' => "\\0".to_string(),
+        '\u{08}' => "\\b".to_string(),
+        '\u{0C}' => "\\f".to_string(),
+        c if (c as u32) < 0x20 || (c as u32) == 0x7F => format!("\\x{:02X}", c as u32),
+        c => c.to_string(),
+    }
+}
+
 impl crate::Formatter {
     pub(super) fn format_expr(&mut self, expr: &Expr) {
         match expr {
@@ -15,12 +53,12 @@ impl crate::Formatter {
             Expr::Bool(b, _) => self.buf.push_str(if *b { "true" } else { "false" }),
             Expr::Str(s, _) => {
                 self.buf.push('"');
-                self.buf.push_str(s);
+                self.buf.push_str(&escape_str_literal(s));
                 self.buf.push('"');
             }
             Expr::Char(c, _) => {
                 self.buf.push('\'');
-                self.buf.push(*c);
+                self.buf.push_str(&escape_char_literal(*c));
                 self.buf.push('\'');
             }
             Expr::Ident(ident) => self.buf.push_str(&ident.name),

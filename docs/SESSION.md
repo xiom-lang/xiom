@@ -153,6 +153,28 @@ Locks: stdlib_exec_error2_runs (the former flake is now a permanent gate)
 Gates: e2e 2312/2312, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
 checker 182/182.
 
+### Round-42 (2026-09-11): Stage 5 -- fmt header preservation + literal escaping
+
+Compiler lane. The AST pretty-printer dropped everything it could not see:
+the shebang line, leading license/comment blocks, and it re-emitted string
+and char literal bodies RAW, so `xiom fmt -i` could corrupt
+`"a\"b"` / `"line\nbreak"` literals.
+
+- NEW `xiom_fmt::format_source_text(source) -> Result<String, String>`:
+  preserves the shebang plus the leading comment/blank block (line and
+  block comments, tracking block state) verbatim, then formats the body.
+  The CLI now routes through it (parse logic de-duplicated).
+- `escape_str_literal` / `escape_char_literal`: re-emit with the lexer's
+  escape set (`\\ \" \' \n \r \t \0 \b \f \xNN`), so formatted source
+  re-parses to the SAME characters. Non-ASCII stays raw UTF-8.
+- Tests: +4 (string/char round-trip through format+re-lex, shebang
+  preserved, leading line/block headers preserved); suite 83/83. CLI
+  spot-check: format of a headered fixture preserves the header and
+  `--check` passes on the output (idempotent).
+- REMAINING (follow-on slice): comments INSIDE the program body still do
+  not survive formatting (trivia attachment to AST nodes by span); the
+  destructive header/shebang cases are closed.
+
 ### Round-41 (2026-09-11): Stage 5 -- watchdog cancellation token (#12) + manifest timeout-secs
 
 Compiler lane. The timeout / memory watchdogs called `std::process::exit(1)`
@@ -275,8 +297,9 @@ What is left is staged readiness work, not bug triage:
      [compiler] timeout-secs now honored as a project default.
    - LSP UTF-16 positions via the span table + mutex-poison recovery +
      incremental reparse/cross-file index
-   - fmt: comment/shebang preservation + string-literal escaping on
-     re-emit (trivia now available)
+   - [DONE round 42] fmt: comment/shebang preservation + string-literal
+     escaping (header/shebang/escapes closed; body-inline comment trivia
+     remains a follow-on slice)
    - dbg: async MI reader + .xi DWARF mapping
    - shared JSON diagnostics v1 schema (LSP/MCP/CI)
    - workspace version policy + MSRV declaration + cargo-deny/vet

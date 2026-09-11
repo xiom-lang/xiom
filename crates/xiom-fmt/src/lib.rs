@@ -540,6 +540,72 @@ pub(crate) fn format_float(f: f64) -> String {
     }
 }
 
+/// Format a source file while PRESERVING the shebang line and the leading
+/// comment/blank block (license headers). The AST pretty-printer used to
+/// drop both, so `xiom fmt -i` was destructive on every headered file.
+/// Comments INSIDE the program body are still dropped (trivia attachment to
+/// AST nodes is the follow-on slice; the leading block is the damaging case).
+pub fn format_source_text(source: &str) -> Result<String, String> {
+    let (prefix, body) = split_leading_trivia(source);
+    let mut lexer = xiom_lexer::Lexer::new(body);
+    let tokens = lexer.tokenize();
+    let mut parser = xiom_parser::Parser::new(tokens);
+    let program = parser.parse_program().map_err(|e| format!("parse error: {e:?}"))?;
+    let mut formatter = Formatter::new();
+    let formatted = formatter.format(&program);
+    if prefix.is_empty() {
+        Ok(formatted)
+    } else {
+        Ok(format!("{prefix}{formatted}"))
+    }
+}
+
+/// Split the shebang and the leading comment/blank block off `source`.
+/// Returns `(prefix including its trailing newline, remaining source)`.
+fn split_leading_trivia(source: &str) -> (String, &str) {
+    let mut cut = 0usize;
+    if source.starts_with("#!") {
+        match source.find('\n') {
+            Some(nl) => cut = nl + 1,
+            None => return (source.to_string(), ""),
+        }
+    }
+    let mut line_start = cut;
+    let mut in_block = false;
+    loop {
+        if line_start >= source.len() {
+            break;
+        }
+        let rest = &source[line_start..];
+        let line_end = rest.find('\n').map(|i| line_start + i + 1).unwrap_or(source.len());
+        let line = &source[line_start..line_end];
+        let trimmed = line.trim_start();
+        if in_block {
+            cut = line_end;
+            line_start = line_end;
+            if line.contains("*/") {
+                in_block = false;
+            }
+            continue;
+        }
+        if trimmed.is_empty() || trimmed.starts_with("//") {
+            cut = line_end;
+            line_start = line_end;
+            continue;
+        }
+        if trimmed.starts_with("/*") {
+            cut = line_end;
+            line_start = line_end;
+            if !trimmed.contains("*/") {
+                in_block = true;
+            }
+            continue;
+        }
+        break;
+    }
+    (source[..cut].to_string(), &source[cut..])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -904,8 +970,49 @@ mod tests {
     // Shebang line preservation
     #[test] fn test_format_shebang() {
         let src = "#!/usr/bin/env xiom\nfn main() -> Int { return 42; }";
-        let formatted = format_source(src);
-        assert!(!formatted.is_empty(), "shebang file should not crash formatter");
+        let formatted = format_source_text(src).unwrap();
+        assert!(formatted.starts_with("#!/usr/bin/env xiom\n"),
+            "shebang must survive formatting: {formatted}");
+        assert!(formatted.contains("fn main()"));
+    }
+
+    #[test] fn test_leading_license_comment_preserved() {
+        let src = "// Copyright (c) 2026 Example\n// Licensed under MIT\n\nfn main() -> Int { return 0; }";
+        let formatted = format_source_text(src).unwrap();
+        assert!(formatted.starts_with("// Copyright (c) 2026 Example\n// Licensed under MIT"),
+            "leading comment block must survive: {formatted}");
+        assert!(formatted.contains("fn main()"));
+    }
+
+    #[test] fn test_block_header_comment_preserved() {
+        let src = "/* header\n   block */\nfn main() -> Int { return 0; }";
+        let formatted = format_source_text(src).unwrap();
+        assert!(formatted.starts_with("/* header\n   block */"),
+            "leading block comment must survive: {formatted}");
+    }
+
+    #[test] fn test_string_literal_escapes_round_trip() {
+        let src = "fn main() -> Int { let s = \"quote \\\" back \\\\ nl \\n tab \\t\"; return 0; }";
+        let formatted = format_source_text(src).unwrap();
+        let tokens = xiom_lexer::Lexer::new(&formatted).tokenize();
+        let value = tokens.iter().find_map(|t| match &t.kind {
+            xiom_lexer::TokenKind::Str(s) => Some(s.clone()),
+            _ => None,
+        }).expect("string literal should re-lex");
+        assert_eq!(value, "quote \" back \\ nl \n tab \t",
+            "escaped literal must round-trip through format+re-lex: {formatted}");
+    }
+
+    #[test] fn test_char_literal_escapes_round_trip() {
+        let src = "fn main() -> Int { let c = '\\''; let n = '\\n'; return 0; }";
+        let formatted = format_source_text(src).unwrap();
+        let tokens = xiom_lexer::Lexer::new(&formatted).tokenize();
+        let chars: Vec<char> = tokens.iter().filter_map(|t| match &t.kind {
+            xiom_lexer::TokenKind::Char(c) => Some(*c),
+            _ => None,
+        }).collect();
+        assert_eq!(chars, vec!['\'', '\n'],
+            "char literals must round-trip: {formatted}");
     }
 
     // Foreign/extern formatting
