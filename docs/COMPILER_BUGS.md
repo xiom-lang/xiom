@@ -4119,3 +4119,29 @@ Impact: dedup parity smokes must use the sanctioned twin-vs-vectors style
 unsafe until fixed. Current stdlib/examples all import their targets, so
 the shipping corpus is clean; treat as a latent landmine + fix target for
 the resolver's missing-import fallback.
+
+## R8 follow-up. Method-position sugar still corrupts for some free fns on Str params
+
+`.trim()` in method position on a Str PARAM returns a corrupt Str:
+  fn f(s: Str) -> Int { let t = s.trim(); t.len() }   // -> 4294967295
+Probe p_strparam2: `s.len()` / `s.byte_at(0)` / `string.str_slice(s,..)` /
+`string.str_trim(s)` all correct on the same param; only method-form
+`.trim()` is corrupt. Same class as the R8 char_at case (fixed by
+20aa3d07 for char_at); trim was not covered. Stdlib avoids the shape
+(io.parse_int/parse_float use string.str_trim with a comment). A general
+fix should route method-position sugar through the same resolution the
+free-call path uses, for all free fns -- not per-name.
+
+## R10. Vec[Option[struct-with-Str]] element reads AV (container element coherence)
+
+`Vec[Option[Match]].push(Some(m))` succeeds, but reading `v[i]` (or doing
+the read inside a method that returns it) AVs 0xC0000005. Local minimal
+repro p_cap_mirror (M2 = {start,end,text:Str}; C2 = {groups:
+Vec[Option[M2]]}; `fn get2(c: C2, i: Int) -> Option[M2] { ...
+c.groups[i] }`): everything up to the get call prints, then AV. Matches
+the earlier round-28 family (concrete container payload unboxing), still
+open for OPTION-wrapped struct elements. User-visible:
+smoke_stress_regex_captures_get (Captures.get) stays red; the other four
+captures smokes are green after the API realignment. Fix direction:
+element load for Option[aggregate] in Vec must use the concrete
+Option__M2 layout, not the erased form.
