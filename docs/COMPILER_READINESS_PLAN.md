@@ -123,6 +123,8 @@ const errors cleanly, for-loop const eval).
 - dbg: MI command quoting (injection via evaluate/breakpoints), async MI reader,
   .xi DWARF mapping (enabled by Stage 2 spans).
 - Shared JSON diagnostics v1 schema consumed by LSP/MCP/CI.
+  [DONE round 45b: docs/JSON_DIAGNOSTICS_V1.md + serde envelope
+  (`xiom::diagnostics_json`); all ad-hoc diagnostic printers replaced.]
 - Engineering hygiene: cargo-deny/vet, MSRV declaration, workspace version policy
   (four schemes coexist today), cargo-fuzz targets over lexer/parser/CTFE replacing toy
   LCG harnesses, ASAN/UBSAN runs of the differential suites in CI.

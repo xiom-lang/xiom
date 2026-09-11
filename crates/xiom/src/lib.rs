@@ -160,6 +160,23 @@ pub struct Diagnostic {
     pub note: Option<String>,
 }
 
+/// Shared JSON diagnostics v1 envelope (docs/JSON_DIAGNOSTICS_V1.md).
+/// Consumed by the CLI, MCP and CI; the LSP maps the same fields onto
+/// UTF-16 ranges.
+#[derive(Debug, Serialize)]
+pub struct DiagnosticsEnvelope<'a> {
+    pub schema_version: u32,
+    pub diagnostics: &'a [Diagnostic],
+}
+
+/// Serialize diagnostics in the shared v1 schema. serde guarantees escaping:
+/// the old hand-rolled printers emitted raw control characters for exotic
+/// messages and each site used a different object shape.
+pub fn diagnostics_json(diags: &[Diagnostic]) -> String {
+    serde_json::to_string(&DiagnosticsEnvelope { schema_version: 1, diagnostics: diags })
+        .unwrap_or_else(|_| "{\"schema_version\":1,\"diagnostics\":[]}".to_string())
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct CompileResult {
     pub success: bool,
@@ -826,15 +843,14 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     }
     if let Err(errors) = check_outcome {
         if config.diagnostics_json {
-            let parts: Vec<String> = errors.iter().map(|err| {
-                let suggestion = suggest_fix(&err.message);
-                format!(
-                    r#"{{"kind":"type_error","code":"T001","message":"{}","location":{{"file":"{}","line":{},"col":{}}},"suggestion":"{}"}}"#,
-                    escape_json(&err.message), escape_json("<unknown>"), err.span.line, err.span.col,
-                    escape_json(&suggestion)
-                )
+            let diags: Vec<Diagnostic> = errors.iter().map(|err| Diagnostic {
+                kind: "type_error".into(), code: "T001".into(),
+                message: err.message.clone(), line: err.span.line, col: err.span.col,
+                file: "<unknown>".into(),
+                suggestion: Some(suggest_fix(&err.message)),
+                help: None, note: None,
             }).collect();
-            println!("[{}]", parts.join(","));
+            println!("{}", diagnostics_json(&diags));
         } else {
             for err in &errors {
                 let (help_msg, note_msg) = diagnostic_for(&err.message);
@@ -879,7 +895,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
 
     if config.check_only {
         if config.diagnostics_json {
-            println!(r#"{{"status":"check_passed","type_errors":0,"borrow_warnings":0,"time_ms":0}}"#);
+            println!(r#"{{"schema_version":1,"status":"check_passed","type_errors":0,"borrow_warnings":0,"time_ms":0}}"#);
         } else {
             eprintln!("  Type check PASSED (no errors)");
         }
@@ -893,13 +909,13 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             // P2-2: In strict mode, borrow errors are hard errors (not warnings).
             // This enforces ownership rules at compile time.
             if config.diagnostics_json {
-                let parts: Vec<String> = errors.iter().map(|err| {
-                    format!(
-                        r#"{{"kind":"borrow_error","code":"E001","message":"{}","location":{{"file":"{}","line":{},"col":{}}}}}"#,
-                        escape_json(&err.message), escape_json(primary_source), err.span.line, err.span.col
-                    )
+                let diags: Vec<Diagnostic> = errors.iter().map(|err| Diagnostic {
+                    kind: "borrow_error".into(), code: "E001".into(),
+                    message: err.message.clone(), line: err.span.line, col: err.span.col,
+                    file: primary_source.to_string(),
+                    suggestion: None, help: None, note: None,
                 }).collect();
-                println!("[{}]", parts.join(","));
+                println!("{}", diagnostics_json(&diags));
             } else {
                 for err in &errors {
                     eprintln!("error[E001]: {l}:{c}: {m}", l = err.span.line, c = err.span.col, m = err.message);
@@ -910,13 +926,13 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             return Err(vec!["compilation failed".to_string()]);
         } else {
             if config.diagnostics_json {
-                let parts: Vec<String> = errors.iter().map(|err| {
-                    format!(
-                        r#"{{"kind":"borrow_warning","code":"E001","message":"{}","location":{{"file":"{}","line":{},"col":{}}}}}"#,
-                        escape_json(&err.message), escape_json(primary_source), err.span.line, err.span.col
-                    )
+                let diags: Vec<Diagnostic> = errors.iter().map(|err| Diagnostic {
+                    kind: "borrow_warning".into(), code: "E001".into(),
+                    message: err.message.clone(), line: err.span.line, col: err.span.col,
+                    file: primary_source.to_string(),
+                    suggestion: None, help: None, note: None,
                 }).collect();
-                println!("[{}]", parts.join(","));
+                println!("{}", diagnostics_json(&diags));
             } else {
                 for err in &errors {
                     eprintln!("warning[E001]: {l}:{c}: {m}", l = err.span.line, c = err.span.col, m = err.message);
@@ -992,8 +1008,13 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         Ok(ir) => ir,
         Err(e) => {
             if config.diagnostics_json {
-                println!(r#"{{"kind":"codegen_error","code":"C001","message":"{}","location":{{"file":"{}","line":0,"col":0}}}}"#,
-                    escape_json(&e), escape_json(primary_source));
+                let diags = [Diagnostic {
+                    kind: "codegen_error".into(), code: "C001".into(),
+                    message: e.clone(), line: 0, col: 0,
+                    file: primary_source.to_string(),
+                    suggestion: None, help: None, note: None,
+                }];
+                println!("{}", diagnostics_json(&diags));
             } else {
                 eprintln!("error[C001]: codegen: {e}");
             }
@@ -2528,6 +2549,29 @@ mod tests {
         let result = compile_with_diagnostics(&config, &[path.to_string_lossy().to_string()]);
         assert!(!result.success);
         assert!(!result.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn diagnostics_json_v1_schema_is_valid_and_escapes() {
+        let d = Diagnostic {
+            kind: "type_error".into(),
+            code: "T001".into(),
+            message: "bad \"quote\"\ncontrol \u{1} end".into(),
+            line: 3,
+            col: 7,
+            file: "a.xi".into(),
+            suggestion: Some("try x".into()),
+            help: None,
+            note: None,
+        };
+        let js = diagnostics_json(&[d]);
+        let v: serde_json::Value =
+            serde_json::from_str(&js).expect("v1 envelope must be serde-valid JSON");
+        assert_eq!(v["schema_version"], 1);
+        assert_eq!(v["diagnostics"][0]["code"], "T001");
+        assert_eq!(v["diagnostics"][0]["message"], "bad \"quote\"\ncontrol \u{1} end");
+        assert_eq!(v["diagnostics"][0]["line"], 3);
+        assert_eq!(v["diagnostics"][0]["suggestion"], "try x");
     }
 
     #[test]

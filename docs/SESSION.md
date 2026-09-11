@@ -153,6 +153,19 @@ Locks: stdlib_exec_error2_runs (the former flake is now a permanent gate)
 Gates: e2e 2312/2312, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
 checker 182/182.
 
+### Round-45b (2026-09-11): Stage 5 -- shared JSON diagnostics v1 schema
+
+Compiler lane. The `--diagnostics=json` paths each hand-rolled their JSON
+(5 different object shapes, a weak `escape_json` that emitted raw control
+characters -> invalid JSON for exotic messages, and arrays vs objects).
+Now there is ONE schema (`docs/JSON_DIAGNOSTICS_V1.md`): an envelope
+`{"schema_version":1,"diagnostics":[...]}` serialized with serde_json via
+`xiom::diagnostics_json`, used by the type/borrow/codegen error paths;
+check-only success emits a `schema_version`-tagged status object. The
+`Diagnostic` object shape is documented (kind/code/message/line/col/file +
+optional suggestion/help/note) with an additive-only v1 policy. Test:
+valid-JSON + escaping + field presence; lib suite 20/20.
+
 ### Round-45 (2026-09-11): Stage 5 -- driver no longer drops target-named source files
 
 Compiler lane. `resolve_source_files` skipped ANY argument equal to
@@ -359,7 +372,9 @@ What is left is staged readiness work, not bug triage:
      escaping (header/shebang/escapes closed; body-inline comment trivia
      remains a follow-on slice)
    - dbg: async MI reader + .xi DWARF mapping
-   - shared JSON diagnostics v1 schema (LSP/MCP/CI)
+   - [DONE round 45b] shared JSON diagnostics v1 schema (docs/
+     JSON_DIAGNOSTICS_V1.md; serde envelope, escaping guarantees; CLI/CI/
+     MCP object shape documented)
    - [DONE round 44] workspace version policy + MSRV declaration (1.86,
      inherited by all 20 crates) + cargo-deny config/CI (vet audits remain)
    - cargo-fuzz targets + ASAN/UBSAN CI
