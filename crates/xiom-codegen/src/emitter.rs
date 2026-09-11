@@ -82,9 +82,16 @@ impl IrEmitter {
             // (`array.len(&doubled)` -> T=Int; the old fallback returned the
             // raw LLVM array type and emitted the invalid symbol
             // `array.len_[5 x i64]_Int` -> clang reject, probe_map).
-            if llvm_ty.starts_with('[') && llvm_ty.contains(" x ") && llvm_ty.ends_with(']') {
-                let elem_llvm = Self::extract_array_elem_ty(llvm_ty);
-                return Some(Self::xiom_type_name_from_llvm(&elem_llvm));
+            // LET-array P2: the same class fires for POINTER-to-array slots
+            // (`[5 x i64]*` -- non-generic `&[N]T` param slots before the P2
+            // element-pointer change, raw `*[N]T` buffers). Strip the pointer
+            // and resolve the element; never return `[N x T]` as a type name.
+            if llvm_ty.starts_with('[') && llvm_ty.contains(" x ") {
+                let array_ty = llvm_ty.trim_end_matches('*');
+                if array_ty.ends_with(']') {
+                    let elem_llvm = Self::extract_array_elem_ty(array_ty);
+                    return Some(Self::xiom_type_name_from_llvm(&elem_llvm));
+                }
             }
             Some(Self::xiom_type_name_from_llvm(llvm_ty))
         } else {

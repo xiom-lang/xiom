@@ -56,14 +56,16 @@ Rationale:
 |---|---|
 | `let a = [1,2,3]; a[0]` + `array.len/first/get(&a)` | WORKS |
 | `var b = [4,5,6]; b[1] = 50;` | WORKS |
-| `var b = [...]; user_fn(&b)` with `fn user_fn(a: &[3]Int)` | COMPILE FAIL: invalid IR (`expected '(' in call`) -- P2 OPEN |
+| `var b = [...]; user_fn(&b)` with `fn user_fn(a: &[3]Int)` | FIXED round 46 (P2: user-fn `&[N]T` params now lower to the element pointer; was invalid IR `expected '(' in call`) |
 | `let c: [3]Int = [7,8,9];` | FIXED round 40 (was invalid IR) |
 | `let f: [2]Float64 = [...]; f[1]` | FIXED round 40 (float elements were bit-boxed) |
 
 Probes: `tmp/bug_probes/letarr1.xi` (annotated let),
-`tmp/bug_probes/letarr2.xi` (user-fn `&[N]T` arg), `letarr_b.xi` (working
-catalog API path). Both failures reproduce identically on the pre-Stage-2c
-binary -- they are representation gaps, not regressions.
+`tmp/bug_probes/letarr2.xi` (user-fn `&[N]T` arg), `letarr2b.xi` (reads +
+`array.len` + `&mut` writes), `letarr2c.xi` (non-generic `&mut [N]T` write),
+`letarr_b.xi` (working catalog API path). Both P1/P2 failures reproduced
+identically on the pre-Stage-2c binary -- they were representation gaps, not
+regressions; both are FIXED (rounds 40 and 46).
 
 ## Migration plan (compiler lane)
 
@@ -77,15 +79,21 @@ binary -- they are representation gaps, not regressions.
 - **P2 (user-fn `&[N]T` args):** `&arr` where `arr: [N]T` passed to a user
   (non-catalog) `&[N]T` parameter lowers to the element pointer plus the
   const-N registration the mono path already uses for catalog fns. Lock:
-  `e2e_let_array_user_fn_ref`. **OPEN** -- probe letarr2.xi still fails
-  with invalid IR (`expected '(' in call`).
+  `e2e_let_array_user_fn_ref`. **DONE (round 46):** `param_llvm_type` lowers
+  `&[N]T` / `&mut [N]T` params to the element pointer (catalog ABI);
+  `compile_fn` records the element type + const N; a catalog call in the
+  callee (`array.len(a)`) now mono's as `array.len_Int_3` instead of the
+  illegal `array.len_[3 x i64]_3`; non-generic `&mut [N]T` writes compile
+  (`m68_let_array_user_fn_ref.xi` + `e2e_m68_let_array_user_fn_ref`). The
+  `&mut [3]Int` non-generic write case (invalid GEP) was fixed in the same
+  slice.
 - **P3 (delete M33 let->Vec):** unannotated `let a = [...]` binds `[N]T`.
   `&a` to a `&Slice[T]` parameter materializes an explicit Slice view
   (`data = &a[0], len = N`) at the call site, preserving source
   compatibility; `array.as_slice(&a)` remains the explicit form.
-  Lock: `e2e_let_array_slice_bridge`. **OPEN** -- keep the M33 bridge
-  until P2 fixes the `&[N]T` arg ABI and a stdlib re-sweep confirms zero
-  fallout.
+  Lock: `e2e_let_array_slice_bridge`. **OPEN** -- P2 landed (round 46), so
+  the gating `&[N]T` ABI work is done; keep the M33 bridge until the
+  call-site Slice bridge lands and a stdlib re-sweep confirms zero fallout.
 - Order: P1, P2 land independently; P3 last, gated on a stdlib re-sweep
   (zero let sites today, so expected fallout is limited to compiler
   regression fixtures).

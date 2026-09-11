@@ -7,6 +7,50 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-09-11 -- LET-array P2 FIXED: user-fn `&[N]T` / `&mut [N]T` element-pointer ABI
+
+The LET-array decision doc's P2 (docs/LET_ARRAY_DECISION.md) reproduced on a
+fresh canonical HEAD build: a NON-GENERIC user fn with a `&[N]T` param
+lowered the param to POINTER-TO-ARRAY (`[3 x i64]*`), while generic/catalog
+fns (the mono `subst_type` Ref-Array arm) take the ELEMENT pointer (`i64*`).
+Two clang failures:
+
+1. `array.len(a)` inside `fn takes_arr(a: &[3]Int)` mono'd with T inferred
+   as the ARRAY SLOT NAME: `resolve_local_xiom_type` returned the raw LLVM
+   `[3 x i64]` for the pointer-to-array slot, so the specialization name was
+   `array.len_[3 x i64]_3` -- `[`/`]` are illegal in an unquoted LLVM symbol
+   (clang: `error: expected '(' in call`), and the call arg type
+   (`[3 x i64]*`) disagreed with the mono def's element pointer (`i64*`).
+2. A non-generic `&mut [N]T` param emitted its element write through a
+   two-index GEP on the pointer-to-pointer (`getelementptr [3 x i64]*,
+   [3 x i64]** %slot, i64 0, i64 idx` -- clang: "invalid getelementptr
+   indices"), so `a[i] = v` was a hard compile error (probe letarr2c.xi).
+
+Fix:
+- `IrEmitter::param_llvm_type` (crates/xiom-codegen/src/lib.rs):
+  `Ref(Array)` and `MutRef(Array)` params lower to `{elem_llvm}*` -- the
+  same shape as the mono subst Ref-Array arm and the catalog `&[N]T` ABI.
+- `compile_fn` param binding (crates/xiom-codegen/src/decl.rs): `&[N]T` /
+  `&mut [N]T` params record the element type (`local_array_elem` +
+  `local_xiom_types`) and const N (`local_array_sizes`), mirroring the mono
+  Ref-Array binding -- element reads/writes take the element path and
+  `array.len(a)` in the body infers N=3 (name `array.len_Int_3`; call sites
+  and the mono def agree on `i64*`).
+- `resolve_local_xiom_type` (crates/xiom-codegen/src/emitter.rs): a
+  pointer-to-array slot strips the pointer and resolves its ELEMENT type
+  instead of ever returning `[N x T]` (the invalid-symbol class; extends
+  the round-15 array-value arm).
+
+RED-GREEN: pre-fix letarr2/letarr2b fail with `expected '(' in call`,
+letarr2c fails with `invalid getelementptr indices`; post-fix all three exit
+0 and the IR is coherent (`define i64 @takes_arr(i64* %param0)`,
+`call i64 @array.len_Int_3(i64* ...)`, `define void @bump(i64* %param0,...)`).
+Lock: tests/regression/m68_let_array_user_fn_ref.xi +
+`e2e_m68_let_array_user_fn_ref` (var + annotated-let sources, ref
+forwarding, `&mut` writes, Int8 sext/UInt8 zext element reads). Gates:
+checker 192/192, feature-reg 510/510, stdlib-exec 85/85 (+2 ign), e2e
+2314/2314.
+
 ## 2026-09-11 -- AUDIT #12 CLOSED: watchdog process::exit -> cooperative cancellation
 
 The timeout and memory-budget watchdogs called `std::process::exit(1)` from
