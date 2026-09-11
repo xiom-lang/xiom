@@ -167,6 +167,14 @@ fn stdlib_exec_math_runs() {
     assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_math.xi"), Some(0), "math smoke failed to run/return 0");
 }
 
+// smoke_math_edge fix (2026-09-11): the math.shl/shr builtin emitted raw
+// LLVM shifts; count >= 64 is poison and clang -O2 trapped `shl(1,100)`
+// (0xC000001D). The builtin now emits the stdlib's defined semantics.
+#[test]
+fn stdlib_exec_math_edge_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_math_edge.xi"), Some(0), "math edge smoke failed to run/return 0");
+}
+
 #[test]
 fn stdlib_exec_num_runs() {
     assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_num.xi"), Some(0), "num smoke failed to run/return 0");

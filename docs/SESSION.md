@@ -101,6 +101,17 @@ REMAINING QUEUE (pre-scoped for the next compiler session):
    from here).
 6. Stages 6-7: perf program + selfhost gate checklist.
 
+### Round-33 (2026-09-11): smoke_math_edge FIXED -- defined shl/shr semantics
+
+Compiler lane. The math bitwise/shift builtin intercept emitted raw LLVM
+shifts; count >= 64 is POISON and clang -O2 turned shl(1,100) into a trap
+(0xC000001D). The builtin now emits the stdlib's defined semantics with
+guards (n<=0 -> a; n>=64 -> 0 / -1 iff a<0; else masked shift), avoiding
+poison entirely. p_shift covers 11 boundary cases; smoke_math_edge green.
+Locks: stdlib_exec_math_edge_runs, e2e_m65_shift_semantics.
+Gates: e2e 2309/2309, feature-reg 510/510, stdlib-exec 80/80 (+2 ign),
+checker 182/182.
+
 ### Round-32 (2026-09-11): regex family compile fails FIXED -- container element coherence
 
 Compiler lane. Seven codegen roots (full map in COMPILER_BUGS.md):
