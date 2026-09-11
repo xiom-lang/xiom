@@ -88,22 +88,35 @@ regressions; both are FIXED (rounds 40 and 46).
   `&mut [3]Int` non-generic write case (invalid GEP) was fixed in the same
   slice.
 - **P3 (delete M33 let->Vec):** unannotated `let a = [...]` binds `[N]T`.
-  `&a` to a `&Slice[T]` parameter materializes an explicit Slice view
-  (`data = &a[0], len = N`) at the call site, preserving source
-  compatibility; `array.as_slice(&a)` remains the explicit form.
-  Lock: `e2e_let_array_slice_bridge`. **OPEN** -- P2 landed (round 46), so
-  the gating `&[N]T` ABI work is done; keep the M33 bridge until the
-  call-site Slice bridge lands and a stdlib re-sweep confirms zero fallout.
+  Passing the array (bare or `&a`) to a by-value `%struct.Vec` param
+  (`&Slice[T]`, `&Vec[T]`, `Vec[T]`) materializes a HEAP-BACKED Vec with the
+  array's elements (`len = N`, `cap = max(N,16)`, `elem_size = size_of(T)`)
+  at the call site; `%struct.Vec*` (`&Vec[T]`) params receive an alloca of
+  the same materialized header. The elements are COPIED, not aliased: a
+  by-value Vec param may PUSH (`test_algo`'s `concat`: `var result = a;
+  result.push(...)`), and realloc on a stack view corrupted the heap.
+  `array.as_slice(&a)` remains the explicit form. Lock:
+  tests/regression/m69_let_array_slice_bridge.xi +
+  `e2e_m69_let_array_slice_bridge` / `e2e_m69_let_array_fixed_ir`.
+  **DONE (round 47).** Two adjacent fixes landed in the same slice:
+  non-generic `&Slice[Int]` params now use the generic by-value
+  `%struct.Vec` ABI (the old element-pointer lowering made `core.sum_slice`'s
+  `s.len()` read `data[0]`; probe fm5), and `.len()` on a fixed array
+  returns the const N (previously a 0 stub). Unannotated `var` literals stay
+  Vec (they can be pushed to).
 - Order: P1, P2 land independently; P3 last, gated on a stdlib re-sweep
   (zero let sites today, so expected fallout is limited to compiler
-  regression fixtures).
+  regression fixtures). ALL THREE LANDED: P1 round 40, P2 round 46,
+  P3 round 47.
 
 ## Stdlib-lane implications
 
-- No action required now: keep `var [N]T` for FFI staging buffers; do not
-  introduce `let` fixed arrays until P3 lands.
-- After P3, `let` arrays are `[N]T`: use `array.*` directly; use
-  `array.as_slice(&a)` (or the automatic call-site bridge) for Slice APIs.
+- `var [N]T` stays the FFI staging representation; P3 (round 47) has landed,
+  so `let` fixed arrays are live.
+- `let` arrays are `[N]T`: use `array.*` directly. Passing one to a
+  `&Slice[T]`/`Vec[T]` (by-value `%struct.Vec`) param automatically
+  materializes a heap-backed Vec with the array's elements; use
+  `array.as_slice(&a)` when an explicit Slice is wanted.
 - Open confirmation requested (non-blocking): (1) no planned let-array
-  usage; (2) acceptable that `&[N]T` -> `&Slice[T]` coercion is automatic
-  for argument positions.
+  usage; (2) acceptable that the array -> `%struct.Vec` materialization is
+  automatic for argument positions.

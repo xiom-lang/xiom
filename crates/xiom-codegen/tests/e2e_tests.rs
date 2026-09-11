@@ -4527,6 +4527,20 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m68_let_array_user_fn_ref() {
     assert_eq!(compile_and_run("tests\\regression\\m68_let_array_user_fn_ref.xi"), Some(0));
 }
+// LET-array decision P3 (docs/LET_ARRAY_DECISION.md): unannotated
+// `let a = [...]` binds a FIXED array `[N]T` (M33 let->Vec deleted for let
+// literals); the call-site Slice bridge keeps `&Slice[T]` consumers working,
+// and a non-generic `&Slice[Int]` param (`core.sum_slice`) uses the same
+// by-value %struct.Vec ABI as the generic ones. Pre-P3: sum_slice returned 0
+// (len read data[0]); post-P3 the fixture exits 0.
+#[test] fn e2e_m69_let_array_slice_bridge() {
+    assert_eq!(compile_and_run("tests\\regression\\m69_let_array_slice_bridge.xi"), Some(0));
+}
+// P3 representation pin: `let a = [1,2,3,4,5]` is a `[5 x i64]` aggregate
+// alloca (no M33 %struct.Vec conversion for let literals).
+#[test] fn e2e_m69_let_array_fixed_ir() {
+    assert!(compile_and_check_ir("tests\\regression\\m69_let_array_slice_bridge.xi", "alloca [5 x i64]"));
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }

@@ -59,6 +59,20 @@ impl IrEmitter {
         // they must receive the lvalue's slot ADDRESS so mutations propagate
         // (m33_b18: `set_x(&mut p, 3)` writes through the caller's alloca).
         if param_ty.starts_with("%struct.") && !param_ty.ends_with('*') {
+            // LET-array P3 (docs/LET_ARRAY_DECISION.md): a FIXED-array
+            // argument (`let a = [...]` -> `[N x T]`, annotated var arrays,
+            // or a `&[N]T` element-pointer param) passed to a by-value
+            // Slice/Vec param (`&Slice[T]` and `Vec[T]` both lower to
+            // %struct.Vec) materializes a heap-backed Vec with the array's
+            // elements (len = N, cap = max(N,16), elem_size = size_of(T)).
+            // Without this bridge the collection API (`core.is_sorted(a)`,
+            // `slice.*`, by-value `Vec` params) would receive the raw array
+            // VALUE / stack view where it expects a Vec header.
+            if Self::is_llvm_struct_named(param_ty, "Vec") || Self::is_llvm_struct_named(param_ty, "Slice") {
+                if let Some(view) = self.array_as_vec_arg(arg_expr) {
+                    return view;
+                }
+            }
             if let Expr::Ref(i, _) | Expr::MutRef(i, _) = arg_expr {
                 if let Ok((v, t)) = self.compile_expr(i) {
                     return self.coerce_value(&v, &t, param_ty);
@@ -66,6 +80,21 @@ impl IrEmitter {
             }
         }
         if param_ty.ends_with('*') {
+            // LET-array P3: a FIXED-array arg passed to a pointer-to-Vec param
+            // (`&Vec[T]` -> `%struct.Vec*`) must receive a REAL header (the
+            // callee reads len/cap/elem_size). Synthesize the Slice view into
+            // an alloca and pass its address; the old path bitcast the array
+            // slot to %struct.Vec* and the callee read element bytes as the
+            // header (test_algo binary_search AV). Only for array bindings --
+            // real Vec locals keep the existing copy/address path.
+            if Self::is_llvm_struct_named(param_ty, "Vec") || Self::is_llvm_struct_named(param_ty, "Slice") {
+                if let Some(view) = self.array_as_vec_arg(arg_expr) {
+                    let slot = self.fresh_tmp();
+                    self.emitln(&format!("  {slot} = alloca %struct.Vec"));
+                    self.emitln(&format!("  store %struct.Vec {view}, %struct.Vec* {slot}"));
+                    return slot;
+                }
+            }
             // BUG 44: `&T` -> T auto-coercion for POINTER-pointee types (Str).
             // An arg carrying an ADDRESS (`&s`, or a ref-local/ref-param
             // ident `p: &Str`) must be DEREF'd when the param expects the
@@ -207,6 +236,84 @@ impl IrEmitter {
             }
         }
         self.coerce_value(pre_val, pre_ty, param_ty)
+    }
+
+    /// LET-array P3 (docs/LET_ARRAY_DECISION.md): materialize a heap-backed
+    /// `%struct.Vec` from a FIXED-array argument. Accepts `a`, `&a`, `&mut a`
+    /// (and parens) for a `[N x T]` local or a `&[N]T` element-pointer param
+    /// with a known const N. Returns None when the arg is not such a binding.
+    ///
+    /// The elements are COPIED to the heap (cap = max(N, 16)), matching the
+    /// pre-P3 M33 representation the callers were built against: a by-value
+    /// `Vec[T]` param may PUSH, and realloc on a stack view corrupts the heap
+    /// (test_algo concat: `var result = a; result.push(...)`). Read-only
+    /// `&Slice[T]` consumers are equally happy with the heap backing.
+    fn array_as_vec_arg(&mut self, arg_expr: &Expr) -> Option<String> {
+        let mut inner: &Expr = arg_expr;
+        loop {
+            match inner {
+                Expr::Paren(p, _) => inner = p.as_ref(),
+                Expr::Ref(i, _) | Expr::MutRef(i, _)
+                | Expr::Unary(UnaryOp::Ref, i, _) | Expr::Unary(UnaryOp::MutRef, i, _) => {
+                    inner = i.as_ref();
+                }
+                _ => break,
+            }
+        }
+        let Expr::Ident(id) = inner else { return None; };
+        let n = self.local.local_array_sizes.get(&id.name).copied()?;
+        if n <= 0 { return None; }
+        let (slot, slot_ty) = self.lookup_local(&id.name).cloned()?;
+        let (base, elem_llvm) = if slot_ty.starts_with('[') && slot_ty.contains(" x ") && !slot_ty.ends_with('*') {
+            // `[N x T]` local: GEP to the first element.
+            let elem = Self::extract_array_elem_ty(&slot_ty);
+            let ep = self.fresh_tmp();
+            self.emitln(&format!("  {ep} = getelementptr {slot_ty}, {slot_ty}* {slot}, i64 0, i64 0"));
+            (ep, elem)
+        } else if self.is_array_elem_param(inner) && slot_ty.ends_with('*') {
+            // `&[N]T` param: the slot holds the element pointer.
+            let elem = self.local.local_array_elem.get(&id.name).cloned()?;
+            let loaded = self.fresh_tmp();
+            self.emitln(&format!("  {loaded} = load {slot_ty}, {slot_ty}* {slot}"));
+            (loaded, elem)
+        } else {
+            return None;
+        };
+        let elem_size = Self::llvm_type_byte_size(&elem_llvm, &self.types.type_meta) as i64;
+        let cap = n.max(16);
+        let src = self.fresh_tmp();
+        self.emitln(&format!("  {src} = bitcast {elem_llvm}* {base} to i8*"));
+        let data = self.fresh_tmp();
+        self.emitln(&format!("  {data} = call i8* @malloc(i64 {})", cap * elem_size));
+        let null_check = self.fresh_tmp();
+        let ok_block = self.fresh_block("arr2vec_ok");
+        let trap_block = self.fresh_block("arr2vec_trap");
+        self.emitln(&format!("  {null_check} = icmp eq i8* {data}, null"));
+        self.emitln(&format!("  br i1 {null_check}, label %{trap_block}, label %{ok_block}"));
+        self.emitln(&format!("\n{trap_block}:"));
+        self.emitln("  call void @llvm.trap()");
+        self.emitln("  unreachable");
+        self.emitln(&format!("\n{ok_block}:"));
+        let bytes = self.fresh_tmp();
+        self.emitln(&format!("  {bytes} = mul i64 {n}, {elem_size}"));
+        self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {data}, i8* {src}, i64 {bytes}, i1 false)"));
+        let va = self.fresh_tmp();
+        self.emitln(&format!("  {va} = alloca %struct.Vec"));
+        let dg = self.fresh_tmp();
+        self.emitln(&format!("  {dg} = getelementptr %struct.Vec, %struct.Vec* {va}, i32 0, i32 0"));
+        self.emitln(&format!("  store i8* {data}, i8** {dg}"));
+        let lg = self.fresh_tmp();
+        self.emitln(&format!("  {lg} = getelementptr %struct.Vec, %struct.Vec* {va}, i32 0, i32 1"));
+        self.emitln(&format!("  store i64 {n}, i64* {lg}"));
+        let cg = self.fresh_tmp();
+        self.emitln(&format!("  {cg} = getelementptr %struct.Vec, %struct.Vec* {va}, i32 0, i32 2"));
+        self.emitln(&format!("  store i64 {cap}, i64* {cg}"));
+        let eg = self.fresh_tmp();
+        self.emitln(&format!("  {eg} = getelementptr %struct.Vec, %struct.Vec* {va}, i32 0, i32 3"));
+        self.emitln(&format!("  store i64 {elem_size}, i64* {eg}"));
+        let loaded = self.fresh_tmp();
+        self.emitln(&format!("  {loaded} = load %struct.Vec, %struct.Vec* {va}"));
+        Some(loaded)
     }
 
     /// BUG 44: when a call arg carries an ADDRESS but the param expects the

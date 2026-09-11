@@ -1849,6 +1849,15 @@ impl IrEmitter {
                     let elem_llvm = self.llvm_type_for(&elem_name).unwrap_or_else(|_| "i64".to_string());
                     return format!("{elem_llvm}*");
                 }
+                // LET-array P3 (docs/LET_ARRAY_DECISION.md): `&Slice[T]` is
+                // BY-VALUE `%struct.Vec` at the ABI (the body needs .len()/[i]),
+                // mirroring the mono subst_type Ref-Slice arm. The old Ref arm
+                // erased Slice to its ELEMENT (i64*) -- a non-generic
+                // `&Slice[Int]` param then read data[0] as the length
+                // (core.sum_slice's `s.len()` returned 0/garbage; probe fm5).
+                if matches!(ty, Type::Ref(_)) && matches!(&**inner, Type::Slice(_)) {
+                    return "%struct.Vec".to_string();
+                }
                 if matches!(ty, Type::MutRef(_)) {
                     // `&mut T` non-array: unchanged real-pointer lowering.
                     return self.llvm_type_for(&Self::type_from_ast(ty)).unwrap_or_else(|_| "i64".to_string());

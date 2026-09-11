@@ -153,6 +153,27 @@ Locks: stdlib_exec_error2_runs (the former flake is now a permanent gate)
 Gates: e2e 2312/2312, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
 checker 182/182.
 
+### Round-47 (2026-09-11): LET-array P3 FIXED -- let literals bind fixed arrays
+
+Compiler lane, completing docs/LET_ARRAY_DECISION.md. Unannotated
+`let a = [...]` now binds a FIXED `[N x T]` aggregate (the M33 let->Vec
+conversion is deleted for let literals; empty and Vec/Slice-annotated
+bindings keep it, and unannotated `var` stays Vec for push). Three adjacent
+fixes keep the collection API working: (1) `coerce.rs` `array_as_vec_arg`
+materializes a HEAP-BACKED Vec from a fixed-array arg for any by-value
+`%struct.Vec` param (`&Slice[T]`/`&Vec[T]`/`Vec[T]`; malloc+memcpy, cap =
+max(N,16)); a stack view was tried first and the ecosystem suite caught
+`test_algo` concat realloc'ing it (0xC0000374) -- by-value Vec params may
+push, so the elements must be owned; `%struct.Vec*` params get an alloca of
+the same header. (2) `param_llvm_type` lowers non-generic `&Slice[Int]` to
+the by-value `%struct.Vec` ABI (it erased to `i64*`, so `core.sum_slice`'s
+`s.len()` read data[0]; probe fm5 now returns 3). (3) `.len()` on a fixed
+array / `&[N]T` param returns the const N (was a 0 stub). Locks:
+tests/regression/m69_let_array_slice_bridge.xi (pre-P3 exit 8 -> 0) +
+`e2e_m69_let_array_slice_bridge` + IR pin `e2e_m69_let_array_fixed_ir`.
+Gates: checker 192/192, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
+e2e 2316/2316.
+
 ### Round-46 (2026-09-11): LET-array P2 FIXED -- user-fn `&[N]T` element-pointer ABI
 
 Compiler lane, executing docs/LET_ARRAY_DECISION.md P2. Non-generic user
@@ -376,9 +397,11 @@ What is left is staged readiness work, not bug triage:
    - [DONE round 39] LET-array representation JOINT decision: DECIDED as
      fixed arrays `[N]T` for `let` literals (same as `var`); full rationale,
      census, current-behavior probe matrix and P1-P3 migration plan in
-     docs/LET_ARRAY_DECISION.md. Follow-ups: [DONE round 40] P1 annotated
-     let; [DONE round 46] P2 user-fn `&[N]T` element-pointer ABI; P3
-     (delete M33 let->Vec + call-site Slice bridge) next.
+     docs/LET_ARRAY_DECISION.md. ALL LANDED: [DONE round 40] P1 annotated
+     let; [DONE round 46] P2 user-fn `&[N]T` element-pointer ABI; [DONE
+     round 47] P3 let literals bind `[N]T` + heap-backed Vec materialization
+     for `%struct.Vec` consumers + non-generic `&Slice[Int]` ABI + fixed
+     `.len()`.
 5. Stage 5 remainder:
    - [DONE round 41] watchdog cancellation (#12): cooperative token in
      xiom-codegen; driver watchdogs set it (timeout + memory), clang child
@@ -435,12 +458,12 @@ DISCIPLINE TRAPS (learned this campaign, keep honoring):
 
 You are continuing the AXIOM compiler-lane readiness campaign in
 E:\Projects\AXIOM on branch feat/architect. Read docs/SESSION.md
-(the rounds 38-46 entries + COMPILER-LANE REMAINING QUEUE) and
+(the rounds 38-47 entries + COMPILER-LANE REMAINING QUEUE) and
 docs/COMPILER_BUGS.md first; COMPILER_READINESS_PLAN.md holds the stage
 definitions; docs/LET_ARRAY_DECISION.md and docs/JSON_DIAGNOSTICS_V1.md
-are current design records. Current state (HEAD: round-46 LET-array P2):
+are current design records. Current state (HEAD: round-47 LET-array P3):
 all known compiler-catalogue red smokes GREEN, the last flake
-(smoke_error2 has-mid) root-caused and locked; last gates e2e 2314/2314,
+(smoke_error2 has-mid) root-caused and locked; last gates e2e 2316/2316,
 feature-reg 510/510, stdlib-exec 85/85 (+2 ign), checker 192/192, xiom lib
 20/20, fmt 83/83, lsp 42/42, jit 5/5. The stdlib session works in parallel
 on stdlib/** only and reports roadblocks in chat + COMPILER_BUGS.md.
@@ -448,38 +471,34 @@ on stdlib/** only and reports roadblocks in chat + COMPILER_BUGS.md.
 DONE since the previous prompt: smoke_error2 (HashMap-ordered type_meta
 suffix shadowing; order-independent field scan), Stage 2c slice 1
 (structural.rs parser + real TypeArena interning), LET-array decision doc
-+ P1 (annotated [N]T bindings, float element reads) + P2 (user-fn
++ ALL of P1 (annotated [N]T bindings, float element reads), P2 (user-fn
 `&[N]T`/`&mut [N]T` params now element pointers -- a catalog call inside the
-callee no longer mono's the illegal `array.len_[3 x i64]_3` symbol), JIT
-honesty (re-verified, previously 620576d6), watchdog cancellation token +
-manifest timeout-secs, fmt header/shebang/literal-escaping, LSP UTF-16 +
-mutex-poison recovery, workspace version/MSRV (1.86) + cargo-deny + CI
-hygiene (fixed a rotted xiom-mcp member), driver target-named files,
-JSON diagnostics v1 schema.
+callee no longer mono's the illegal `array.len_[3 x i64]_3` symbol) and P3
+(`let a = [...]` binds `[N]T`; fixed-array args to `%struct.Vec` params get
+a heap-backed Vec copy; non-generic `&Slice[Int]` ABI fixed; `.len()` on
+fixed arrays returns N), JIT honesty (re-verified, previously 620576d6),
+watchdog cancellation token + manifest timeout-secs, fmt
+header/shebang/literal-escaping, LSP UTF-16 + mutex-poison recovery,
+workspace version/MSRV (1.86) + cargo-deny + CI hygiene (fixed a rotted
+xiom-mcp member), driver target-named files, JSON diagnostics v1 schema.
 
 Your task, in order:
-1. LET-array P3 (delete the M33 let->Vec conversion; unannotated
-   `let a = [...]` binds `[N]T`; add the call-site Slice bridge
-   `data = &a[0], len = N` for `&a` passed to `&Slice[T]` params) per
-   docs/LET_ARRAY_DECISION.md. P2 landed round 46, so the `&[N]T` ABI is
-   in place; red-green with the letarr_b/letarr2b probes + a new
-   `e2e_let_array_slice_bridge` lock.
-2. Stage 2c follow-on slices: `CheckedType::Named(TypeId)` storage,
+1. Stage 2c follow-on slices: `CheckedType::Named(TypeId)` storage,
    route get_type's bare-name fallback through the arena, move the codegen
    type keys onto the same canonical form (the structural core landed in
    round 39; keep the container/ABI bridges working).
-3. Stage 3 ITEM A FLIP: re-measure catalog-body findings after the stdlib
+2. Stage 3 ITEM A FLIP: re-measure catalog-body findings after the stdlib
    dedup rounds; flip to hard errors when clean.
-4. Stage 5 remainder: LSP incremental reparse/cross-file index; dbg async
+3. Stage 5 remainder: LSP incremental reparse/cross-file index; dbg async
    MI reader + .xi DWARF; cargo-fuzz targets over lexer/parser/CTFE +
    ASAN/UBSAN CI; full clap migration of the driver parser; supply chain
    beyond the closed core (ed25519 + trust model, lockfile v2 with an
    enforced --locked path, git installs pinned to commits -- note git deps
    are parsed but not yet implemented, authenticated publish); sandbox
    false-green + randomized temp names.
-5. Stage 6 PERFORMANCE program: incremental engine tiers, parallel mono,
+4. Stage 6 PERFORMANCE program: incremental engine tiers, parallel mono,
    linker strategy, benchmark CI budgets.
-6. Stage 7 SELFHOST GATE: zero-ICE self-build, >=1M fuzz execs, -O
+5. Stage 7 SELFHOST GATE: zero-ICE self-build, >=1M fuzz execs, -O
    differential, release-binary suites, Rust-bootstrap equivalence.
 
 Working discipline: isolated build

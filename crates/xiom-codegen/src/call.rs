@@ -1861,6 +1861,24 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         if self.is_container_vec_field(receiver) {
                             // fall through to Vec/Slice path below (or to generic dispatch)
                         } else {
+                        // LET-array P3 (docs/LET_ARRAY_DECISION.md): a FIXED
+                        // array local (`[N x T]` slot) or a `&[N]T` element-
+                        // pointer param has a compile-time length. Without
+                        // this, `let a = [1,2,3]; a.len()` fell through to
+                        // generic dispatch and returned 0/stub. Runs BEFORE
+                        // the Str path -- a narrow-element array param is
+                        // i8*-typed and must not be strlen'd.
+                        if let Expr::Ident(id) = &**receiver {
+                            let is_fixed_array_local = self.local.array_locals.contains(&id.name)
+                                && self.lookup_local(&id.name).map_or(false, |(_, t)| {
+                                    t.starts_with('[') && t.contains(" x ") && !t.ends_with('*')
+                                });
+                            if is_fixed_array_local || self.is_array_elem_param(receiver) {
+                                if let Some(n) = self.local.local_array_sizes.get(&id.name) {
+                                    return Ok((n.to_string(), LLVM_I64.to_string()));
+                                }
+                            }
+                        }
                         let recv_ty = self.infer_llvm_type(receiver);
                         // BUG 30 (utf8 ensure): a contract-ensure payload rebind
                         // (`result is Ok => result.len()`) binds a BOXED Vec
