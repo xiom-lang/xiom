@@ -6,6 +6,8 @@
 //! This is the single source of truth for what the parser produces
 //! and what every downstream pass consumes.
 
+pub mod structural;
+
 // ============================================================================
 // Applicability -- suggestion confidence contract (5c-R, rustc lesson)
 // ============================================================================
