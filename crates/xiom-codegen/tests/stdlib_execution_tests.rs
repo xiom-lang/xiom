@@ -175,6 +175,23 @@ fn stdlib_exec_math_edge_runs() {
     assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_math_edge.xi"), Some(0), "math edge smoke failed to run/return 0");
 }
 
+// smoke_ptr_offset fix (2026-09-11): substitute_type double-wrapped `*T`
+// (Ptr(Ptr(Int)) -> call ret i64** vs the i64* mono def), and mixed
+// pointer/i64 comparisons emitted invalid icmp (the i64 side now inttoptrs).
+#[test]
+fn stdlib_exec_ptr_offset_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_ptr_offset.xi"), Some(0), "ptr offset smoke failed to run/return 0");
+}
+
+// smoke_convert_escape fix (2026-09-11): `decoded.value.len()` on a
+// Result[Vec[UInt8], Str] payload took the Str.len path (xiom_str_len on a
+// %struct.Vec -- invalid IR). is_container_vec_field now consults
+// field_payload_xiom for payload fields.
+#[test]
+fn stdlib_exec_convert_escape_runs() {
+    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_convert_escape.xi"), Some(0), "convert escape smoke failed to run/return 0");
+}
+
 #[test]
 fn stdlib_exec_num_runs() {
     assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_num.xi"), Some(0), "num smoke failed to run/return 0");

@@ -1651,9 +1651,25 @@ impl IrEmitter {
                     _ => unreachable!("binary operation not lowered to LLVM IR"),
                 };
                 // For non-float comparisons, use the actual operand LLVM type
-                // (handles pointer types like i8* for string comparisons)
+                // (handles pointer types like i8* for string comparisons).
+                // smoke_ptr_offset fix (2026-09-11): a POINTER compared against
+                // an i64 (CTFE-folded pointer value / pointer-as-i64 local)
+                // must inttoptr the scalar side -- the old type pick emitted
+                // `icmp ne i64* %p, %i64` (invalid IR).
                 let ty = if !is_float && inst.starts_with("icmp") {
-                    if lt.contains('*') { lt.clone() } else if rt.contains('*') { rt.clone() } else { ty.to_string() }
+                    if lt.contains('*') && !rt.contains('*') && rt == "i64" {
+                        let conv = self.fresh_tmp();
+                        self.emitln(&format!("  {conv} = inttoptr i64 {r} to {lt}"));
+                        r = conv;
+                        rt = lt.clone();
+                        lt.clone()
+                    } else if rt.contains('*') && !lt.contains('*') && lt == "i64" {
+                        let conv = self.fresh_tmp();
+                        self.emitln(&format!("  {conv} = inttoptr i64 {l} to {rt}"));
+                        l = conv;
+                        lt = rt.clone();
+                        rt.clone()
+                    } else if lt.contains('*') { lt.clone() } else { rt.clone() }
                 } else {
                     ty.to_string()
                 };

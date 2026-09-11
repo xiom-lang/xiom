@@ -3912,6 +3912,29 @@ fns/ctors and (b) Vec[V].push from inside generic fns -- both must use
 the substituted concrete element size (112), matching the already-fixed
 generic-field READ stride. Probes preserved in the stdlib probes dir.
 
+## 2026-09-11 -- smoke_ptr_offset + smoke_convert_escape FIXED
+
+1. ptr_offset: `substitute_type` double-wrapped raw pointers -- the
+   `Type::Ptr(i2)` arm recursed with outer = the WHOLE node, and the outer
+   match wrapped again, so `*const T` substituted to Ptr(Ptr(Int)) and the
+   call site emitted `i64**` while the mono def returned `i64*`. The arm
+   now substitutes the pointee (`substitute_type(i2, i2, ..)`).
+2. ptr_offset (second face): `d` (a CTFE-folded pointer value, i64) compared
+   with a real pointer emitted `icmp ne i64* %p, %i64` (invalid IR). The
+   comparison lowering now inttoptrs the scalar side when the other is a
+   pointer.
+3. convert_escape: `decoded.value.len()` (Result[Vec[UInt8], Str] payload)
+   took the Str.len path and called xiom_str_len on a %struct.Vec --
+   `is_container_vec_field` only inspected the ERASED Result layout
+   ("value" -> "Int"). It now consults `field_payload_xiom` for payload
+   fields, so Vec/Slice/Array/Map/Set payloads route to the container path.
+
+Locks: stdlib_exec_ptr_offset_runs, stdlib_exec_convert_escape_runs.
+Gates: e2e 2309/2309, feature-reg 510/510, stdlib-exec 82/82 (+2 ign),
+checker 182/182.
+
+
+
 ## 2026-09-11 -- interface dispatch arity hardening + remaining triage
 
 1. CHECKER: `allow_interface_dispatch` accepted ANY arity for interface

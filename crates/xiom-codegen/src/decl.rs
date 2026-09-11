@@ -228,7 +228,12 @@ impl IrEmitter {
                 Box::new(Self::substitute_type(inner, v, type_map)),
             ),
             Type::Set(e) => Type::Set(Box::new(Self::substitute_type(inner, e, type_map))),
-            Type::Ptr(i2) | Type::MutRef(i2) | Type::Ref(i2) => Self::substitute_type(inner, i2, type_map),
+            // smoke_ptr_offset fix (2026-09-11): substitute the POINTEE with
+            // outer = the pointee, not the whole node -- the old
+            // `substitute_type(inner, i2, ..)` re-applied the outer Ptr wrap,
+            // producing Ptr(Ptr(Int)) ("**Int" -> i64** call site vs the i64*
+            // mono def).
+            Type::Ptr(i2) | Type::MutRef(i2) | Type::Ref(i2) => Self::substitute_type(i2, i2, type_map),
             _ => inner.clone(),
         };
         match outer {
