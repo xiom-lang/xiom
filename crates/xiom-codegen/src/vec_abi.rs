@@ -587,6 +587,19 @@ impl IrEmitter {
             return self.local.local_vec_handle.contains_key(&id.name);
         }
         if let Expr::Field(base, field_expr, _) = container {
+            // smoke_convert_escape fix (2026-09-11): payload fields
+            // (`decoded.value` on Result[Vec[UInt8], Str]) carry their declared
+            // payload type via field_payload_xiom even though the ERASED Result
+            // layout says "Int". Without this, `decoded.value.len()` took the
+            // Str.len path and called xiom_str_len on a %struct.Vec (invalid IR).
+            if let Some(px) = self.field_payload_xiom(base, &field_expr.name) {
+                let base_c = px.split('[').next().unwrap_or(&px);
+                if base_c == "Vec" || base_c == "Slice" || base_c == "Array"
+                    || base_c == "Map" || base_c == "Set"
+                {
+                    return true;
+                }
+            }
             // BUG 29 (BUG 27 #12): tuple field of a BOXED struct local
             // (`pair.1` where `pair` came from `Result[(Vec,Vec),Str].
             // unwrap()`). infer_llvm_type returns i64 for the boxed handle,

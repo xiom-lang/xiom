@@ -101,6 +101,19 @@ REMAINING QUEUE (pre-scoped for the next compiler session):
    from here).
 6. Stages 6-7: perf program + selfhost gate checklist.
 
+### Round-35 (2026-09-11): ptr_offset + convert_escape FIXED
+
+Compiler lane. Three roots (full map in COMPILER_BUGS.md):
+substitute_type double-wrapped `*T` (Ptr(Ptr(Int)) -> i64** call ret vs
+i64* mono def); mixed pointer/i64 comparisons emitted invalid icmp (the
+scalar side now inttoptrs); `decoded.value.len()` on a
+Result[Vec[UInt8], Str] took the Str.len path because
+is_container_vec_field only saw the erased Result layout -- it now
+consults field_payload_xiom. Flips: smoke_ptr_offset, smoke_convert_escape.
+Locks: stdlib_exec_ptr_offset_runs, stdlib_exec_convert_escape_runs.
+Gates: e2e 2309/2309, feature-reg 510/510, stdlib-exec 82/82 (+2 ign),
+checker 182/182.
+
 ### Round-34 (2026-09-11): interface dispatch arity hardening + triage
 
 Compiler lane. The checker's interface-dispatch fallback accepted any
