@@ -3912,6 +3912,34 @@ fns/ctors and (b) Vec[V].push from inside generic fns -- both must use
 the substituted concrete element size (112), matching the already-fixed
 generic-field READ stride. Probes preserved in the stdlib probes dir.
 
+## 2026-09-11 -- interface dispatch arity hardening + remaining triage
+
+1. CHECKER: `allow_interface_dispatch` accepted ANY arity for interface
+   method calls; `value.hash()` on `interface Hash { fn hash(self, hasher) }`
+   passed checking and codegen emitted the erased body as an invalid
+   ptr->i64 cast (smoke_hash_values). The dispatch now validates arity
+   against the interface signature (self-param implicit) and errors
+   "expects N argument(s)". In catalog bodies the finding stays a warning
+   (Item A staged rollout) so codegen can still hit the stale call -- the
+   SMOKE FIX is stdlib-side: hash_value's `value.hash()` no longer matches
+   the Hasher-based Hash API.
+2. REMAINING TRIAGE (verified on HEAD):
+   - smoke_ptr_offset: clang "i64 defined but expected ptr" (missing
+     ptr conversion at an op).
+   - smoke_convert_escape: clang "%struct.Vec ... but expected ptr".
+   - smoke_array_zip: checker T001 tuple element store on `[N](T,U)`
+     (Stage 2c TypeId deliverable).
+   - smoke_stress_io_read_int_float: STDLIB/FIXTURE mismatch --
+     `io.read_int()` takes 0 args (io.xi:108) while the smoke calls
+     `io.read_int(c)` with a Cursor; checker correctly reports the arity.
+   - smoke_stress_regex_captures x4 / match_count: stdlib call form
+     (method-position `.char_at(...).unwrap()`; see the regex section).
+   - smoke_hash_values: stdlib Hash-API call (above).
+Gates with the hardening: checker 182/182, feature-reg 510/510,
+stdlib-exec 80/80 (+2 ign).
+
+
+
 ## 2026-09-11 -- smoke_math_edge FIXED: defined shl/shr semantics
 
 `math.shl(1, 100)` trapped (0xC000001D) at runtime. Root cause: the

@@ -5157,6 +5157,28 @@ impl Checker {
                     };
                     if allow_interface_dispatch {
                         for arg in args { let _ = self.check_expr(arg); }
+                        // R8-hardening (2026-09-11): validate ARITY against the
+                        // interface method signature. The old permissive path
+                        // accepted `value.hash()` for `fn hash(self, hasher)`
+                        // and codegen emitted the erased interface body as an
+                        // invalid ptr->i64 cast (smoke_hash_values clang error).
+                        if let Some((_mn, params, _ret)) = self.interfaces.values()
+                            .flat_map(|m| m.iter())
+                            .find(|(mn, _, _)| mn == &method.name)
+                        {
+                            let want = if params.first().map_or(false, |p| p == "self") {
+                                params.len().saturating_sub(1)
+                            } else {
+                                params.len()
+                            };
+                            if args.len() != want {
+                                self.error(
+                                    format!("'{}' expects {} argument(s), found {}", method.name, want, args.len()),
+                                    *span,
+                                );
+                                return CheckedType::Error;
+                            }
+                        }
                         // Return the declared return type from the interface, or
                         // a wildcard if unknown.
                         let ret = self.interfaces.values()

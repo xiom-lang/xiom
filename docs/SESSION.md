@@ -101,6 +101,20 @@ REMAINING QUEUE (pre-scoped for the next compiler session):
    from here).
 6. Stages 6-7: perf program + selfhost gate checklist.
 
+### Round-34 (2026-09-11): interface dispatch arity hardening + triage
+
+Compiler lane. The checker's interface-dispatch fallback accepted any
+arity; `value.hash()` on `interface Hash { fn hash(self, hasher) }`
+passed checking and codegen emitted an invalid ptr->i64 cast
+(smoke_hash_values). Arity is now validated against the interface
+signature. Catalog-mode findings stay warnings (Item A staged), so the
+smoke fix is stdlib-side (hash_value's stale call). Remaining triage
+documented in COMPILER_BUGS.md: ptr_offset (i64 vs ptr), convert_escape
+(Vec vs ptr), array_zip (T001 tuple element, Stage 2c),
+io_read_int_float (stdlib smoke calls io.read_int(c) but io.xi:108 takes 0
+args), regex/hash stdlib call forms. Gates: checker 182/182,
+feature-reg 510/510, stdlib-exec 80/80 (+2 ign).
+
 ### Round-33 (2026-09-11): smoke_math_edge FIXED -- defined shl/shr semantics
 
 Compiler lane. The math bitwise/shift builtin intercept emitted raw LLVM
