@@ -153,6 +153,22 @@ Locks: stdlib_exec_error2_runs (the former flake is now a permanent gate)
 Gates: e2e 2312/2312, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
 checker 182/182.
 
+### Round-54 (2026-09-12): R11-R13 verified RESOLVED at HEAD
+
+Compiler lane, verifying the stdlib lane's r32-sweep regressions against
+the finalized Item A state. All three reproduce exactly as reported on the
+preserved binaries (r29/r30 green, r31 red) and are GREEN at HEAD:
+`smoke_iter_pipeline`/`smoke_iter_filter`/`smoke_iter_chained_adapters`,
+`smoke_convert_traits`, `smoke_hash_farm`/`smoke_hash_spooky`/
+`smoke_hash_t1ha_metro` all exit 0, and the minimized probes
+(p_iter_filter_r32, p_ct_tower2, p_hash_tuple) compile+run 0. The r31/r32
+red was the mid-session Item A WIP tree, not the committed slices.
+Separately: the COMBINED stage probe `p_iter_pipeline_r32.xi` AVs
+(0xC0000005) on r29, r30 and HEAD (r31 green) -- a pre-existing latent bug
+in that shape, queued as R14 with a note in COMPILER_BUGS.md; the smokes
+and the minimized probes are the R11 gate. Status blocks added to
+COMPILER_BUGS.md R11/R12/R13.
+
 ### Round-53 (2026-09-12): R9 FIXED -- full-path shim delegation
 
 Compiler lane, from the stdlib session's report. Full-path calls into a
@@ -522,6 +538,13 @@ What is left is staged readiness work, not bug triage:
    now injects peeked modules through a transitive `use` closure in
    dotted-name order (canonical target before the shim). All six external
    repros exit 0; lock `e2e_m70_full_path_shim_delegation`.
+3c. R14 (latent, queued round 54): the COMBINED iter stage probe
+   `p_iter_pipeline_r32.xi` (five adapter chains in one function) AVs
+   0xC0000005 on r29, r30 and current HEAD (r31 accidentally green) while
+   every sub-variant passes -- likely heap corruption in a combined
+   collect/chain shape. Needs a sanitizer/Application-Verifier pass over
+   the generated IR; use the smokes + minimized probes for R11 gating.
+   [R11-R13 themselves verified RESOLVED at HEAD, round 54.]
 4. Stage 4 remainder:
    - [DONE 620576d6, re-verified round 39] JIT honesty (#17): retired modules
      stay loaded under live pointers (unload-liveness guard) + reload path
