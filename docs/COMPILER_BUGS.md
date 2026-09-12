@@ -7,6 +7,34 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-09-12 -- R17 FIXED (round-57): nested-index Str elements in concat
+
+R14's concat fallback (compiled LLVM scalar type) overrode the semantic
+verdict for Index shapes the walker could not see through. It fixed
+`"E1[0]=" + e[0]` (Vec[Int] from a chained `.collect()`) but broke
+`"" + rows[0][0]` (Vec[Vec[Str]] -- smoke_serialize_csv printed
+`[2653219331984|...]`): the nested Str loaded as i64 and got formatted as a
+NUMBER instead of taking inttoptr (pointer recovery).
+
+Root cause: `expr_is_integer`'s `Expr::Index` arm only handled IDENT
+containers with a `local_vec_elem` entry; nested containers returned false,
+and the fallback could not distinguish "unknown" from "known non-int".
+
+Fix (codegen):
+- `vec_value_xiom_type` resolves the container's XIOM value type recursively
+  (`Ident` -> `Vec[{local_vec_elem}]`; `Index(inner)` -> element of the inner
+  value's type), so `rows[0][0]` reaches `"Str"`.
+- `concat_operand_is_int` (both concat sites) is semantic-first: known
+  non-integers (`Str`, `Bool`, compound containers, registered structs) use
+  `val_to_i8ptr`'s inttoptr; the LLVM scalar fallback applies only to
+  genuinely UNKNOWN Index/Field shapes (generic "T" elements stay unknown so
+  R14's chained-collect Vec[Int] still formats).
+- The inner `is_int_name` was replaced by `elem_name_is_int` (one definition).
+
+Locks: `e2e_m72_nested_index_concat` (+ the probe
+`p_nested_index_concat.xi`), alongside `e2e_m71_concat_index_elem` (R14).
+Both probes exit 0; the pipeline probe still prints E[0]=9 / E[4]=225.
+
 ## 2026-09-12 -- R14 ROOT-CAUSED AND FIXED: concat of indexed elements (not chain corruption)
 
 The combined iter probe `p_iter_pipeline_r32.xi` AV'd (0xC0000005) while
@@ -5105,6 +5133,34 @@ same-named call still binds the wrong definition (empty Str path).
 Stdlib action: shim reverted again (local impl kept); the encoding-family
 consolidation stays gated on this exact same-name case. Probes preserved
 (p_b32_s5a/s5b, p_b32_shim2/3).
+
+ROUND-57 DIAGNOSIS (2026-09-12): definition-side partial landed then REVERTED
+(regression); call site needs module-scoped alias plumbing.
+
+- Definition side: `fn_symbol` was changed to prefer the module-qualified
+  preassigned slot (`fn_symbol_map["{current_module}.{key}"]`) before the bare
+  slot, which fixes the redefinition for local same-leaf modules
+  (`tmp/bug_probes/p_r15_local.xi`: modules base32 + enc.base32 now emit
+  distinct symbols). BUT it broke `e2e_m34_j08`: the driver emits a used
+  module's fns through more than one path, and with qualified-first BOTH
+  paths resolved to the same qualified slot, emitting `@network.ping` TWICE
+  ("invalid redefinition of function 'network.ping'"). Reverted; the
+  duplicate-emission path must be understood before re-landing.
+- Call side: the shim's internal call resolves only the leaf key
+  (`base32.base32_encode`), which under the collision is owned by the
+  canonical module's registration; the emitter emits a zero-param stub. The
+  real problem is lexical scope: catalog-body `use` bindings live in the
+  checker's isolated context and are restored before codegen, so the emitter
+  cannot know that the shim's `base32` alias means `xiom.encoding.base32`.
+- FIX DESIGN (next compiler slice): carry each catalog module's own `use`
+  bindings to codegen -- attach the checker's per-module
+  `local_module_paths`/`use_alias_paths` snapshot to `CachedModule` and
+  inject it with the decls (or stop flattening injected `TopDecl::Module`
+  wrappers with their UseDecls). Then `resolve_module_call` builds the
+  FULL-path key ("encoding.base32.base32_encode"), preassign registers it,
+  and the duplicate-emission paths must be collapsed to one definition site.
+  Until then the encoding-family consolidation stays GATED; differently-named
+  shims (endian, ascii85) remain safe.
 
 ## R16. `ptr + int` in a call argument miscompiles (memcpy dest offset) -- Int-cast workaround
 

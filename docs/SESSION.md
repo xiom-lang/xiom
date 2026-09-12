@@ -177,6 +177,23 @@ Compiler lane. Attempted the Item A flip after the stdlib landed the last
   the message), so strict mode actually gates every catalog diagnostic, not
   just `warn_at` warnings. Default reverted to false + gate re-ignored with
   the section-Q reason.
+- **R17 FIXED** (stdlib's round-56 regression report): R14's concat LLVM
+  fallback misclassified nested-index Str elements (`rows[0][0]`) as ints and
+  printed pointer values (smoke_serialize_csv). `expr_is_integer` now
+  resolves container element types recursively (`vec_value_xiom_type`), and
+  `concat_operand_is_int` is semantic-first: known non-ints (Str/Bool/
+  compounds/registered structs) take inttoptr; the LLVM fallback only covers
+  genuinely unknown Index/Field shapes (R14's chained-collect Vec[Int] still
+  formats). Locks: `e2e_m72_nested_index_concat`, `e2e_m71_concat_index_elem`;
+  `p_nested_index_concat.xi` exits 0.
+- **R15 DIAGNOSED** (same-leaf + same-name delegation): a definition-side
+  partial (`fn_symbol` qualified-first) fixed the local repro but broke
+  `e2e_m34_j08` (`@network.ping` emitted twice -- the driver emits a used
+  module's fns through more than one path, both resolving to the qualified
+  slot), so it was REVERTED. Full fix design in COMPILER_BUGS R15: carry
+  each catalog module's `use` bindings to codegen (module-scoped alias
+  plumbing) + collapse the duplicate emission paths. Encoding-family dedup
+  stays gated.
 - Also verified: user compiles with strict off are unchanged; the R14 lock
   and all fast gates stay green.
 
@@ -786,8 +803,11 @@ Your task, in order:
    --nocapture` (`$env:XIOM_CATALOG_DUMP='1'` for every site).
 2. R14 FIXED in round-56 (root cause: `Str + vec[i]` emitted inttoptr for
    the element; concat verdict now falls back to the compiled LLVM type;
-   lock `e2e_m71_concat_index_elem`). The ASAN pass is wired
-   (`--sanitize=address`, runtime at
+   lock `e2e_m71_concat_index_elem`). R17 FIXED in round-57 (nested-index
+   Str elements; lock `e2e_m72_nested_index_concat`). R15 DIAGNOSED with a
+   design (module-scoped alias plumbing for catalog bodies + duplicate
+   emission paths) -- see COMPILER_BUGS R15; encoding-family dedup stays
+   gated. The ASAN pass is wired (`--sanitize=address`, runtime at
    C:\Program Files\LLVM\lib\clang\22\lib\windows) -- use it for Stage 5
    fuzz+sanitizer CI.
 3. Stage 5 remainder: LSP incremental reparse/cross-file index; dbg async

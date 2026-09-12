@@ -927,22 +927,102 @@ impl IrEmitter {
         matches!(ty, "i8" | "i16" | "i32" | "i64" | "i128")
     }
 
+    /// XIOM type name is integer-like (Int*/UInt*/Char).
+    fn elem_name_is_int(n: &str) -> bool {
+        n == "Int" || n == "Int64" || n == "Char" || n.starts_with("Int") && n.len() <= 6
+            || n == "UInt" || n.starts_with("UInt") && n.len() <= 7
+    }
+
+    /// The XIOM type of the Vec VALUE an index expression addresses
+    /// ("Vec[elem]"). `local_vec_elem` always stores the BARE element type
+    /// (params/decls; `Vec.push` records `Vec[inner]` for a Vec-of-Vec's
+    /// element, which is also a bare element type), so:
+    ///   Ident(v)        -> "Vec[{local_vec_elem[v]}]"
+    ///   Index(inner, i) -> element of the inner value's type
+    /// This is what lets `rows[0][0]` (Vec[Vec[Str]]) resolve to "Str"
+    /// instead of falling through to the concat LLVM-type fallback.
+    fn vec_value_xiom_type(&self, e: &Expr) -> Option<String> {
+        match e {
+            Expr::Ident(id) => self.local.local_vec_elem.get(&id.name)
+                .map(|el| format!("Vec[{el}]")),
+            Expr::Index(inner, _, _) => {
+                let inner_vt = self.vec_value_xiom_type(inner)?;
+                Self::element_of_container_type(&inner_vt)
+            }
+            _ => None,
+        }
+    }
+
+    /// "Vec[Str]" -> "Str" (also Slice/Array/Map-key containers).
+    fn element_of_container_type(vt: &str) -> Option<String> {
+        for prefix in ["Vec[", "Slice[", "Array["] {
+            if let Some(rest) = vt.strip_prefix(prefix) {
+                if let Some(inner) = rest.strip_suffix(']') {
+                    return Some(inner.to_string());
+                }
+            }
+        }
+        None
+    }
+
+    /// True when the indexed element's XIOM type is a CONCRETE non-integer
+    /// (Str, Bool, a registered struct, a compound container). Generic
+    /// parameters ("T", "U") and unresolved names return false: those stay
+    /// "unknown" so the LLVM-type fallback still applies (R14's chained
+    /// `.collect()` Vecs).
+    fn elem_name_is_known_non_int(&self, n: &str) -> bool {
+        if Self::elem_name_is_int(n) {
+            return false;
+        }
+        for p in ["Vec[", "Slice[", "Map[", "Set[", "Stack[", "Option[", "Result[", "Tuple", "fn("] {
+            if n.starts_with(p) {
+                return true;
+            }
+        }
+        match n {
+            "Str" | "Bool" => true,
+            _ => {
+                let base = n.trim_start_matches('&').trim_start_matches("mut ");
+                base.len() > 1
+                    && (self.types.types.contains_key(&base.to_string())
+                        || self.types.type_meta.contains_key(&base.to_string())
+                        || self.types.types.keys().iter().any(|k| k.ends_with(&format!(".{base}")))
+                        || self.types.generic_type_names.contains(base))
+            }
+        }
+    }
+
+    /// Concat operand verdict used by BOTH concat sites. Semantic first; the
+    /// compiled LLVM scalar fallback only when the semantic walker cannot
+    /// tell (unknown Index/Field shapes). Known non-integers (Str elements)
+    /// must NOT be formatted as numbers -- they take `val_to_i8ptr`'s
+    /// inttoptr, which recovers the pointer bits.
+    pub(crate) fn concat_operand_is_int(&self, e: &Expr, llvm_ty: &str) -> bool {
+        if self.expr_is_integer(e) {
+            return true;
+        }
+        if let Expr::Index(container, _, _) = e {
+            if let Some(vt) = self.vec_value_xiom_type(container) {
+                if let Some(el) = Self::element_of_container_type(&vt) {
+                    return !self.elem_name_is_known_non_int(&el);
+                }
+            }
+        }
+        matches!(e, Expr::Index(..) | Expr::Field(..)) && Self::llvm_scalar_is_int(llvm_ty)
+    }
+
     /// XIOM-level verdict: is this expression an integer (Int*/UInt*/Char)?
     /// Used at concat sites to choose string formatting over inttoptr. Idents
     /// resolve through the registered local type; casts check the target type
     /// name; calls check the callee's registered return type (a real Str
     /// return registers as i8*, so pointer returns are never formatted).
     pub(crate) fn expr_is_integer(&self, e: &Expr) -> bool {
-        fn is_int_name(n: &str) -> bool {
-            n == "Int" || n == "Int64" || n == "Char" || n.starts_with("Int") && n.len() <= 6
-                || n == "UInt" || n.starts_with("UInt") && n.len() <= 7
-        }
         match e {
             Expr::Int(..) | Expr::Char(..) => true,
             Expr::Ident(id) => {
                 // Registered XIOM type (annotation or binding inference) wins.
                 if let Some(t) = self.local.local_xiom_types.get(&id.name) {
-                    return is_int_name(t);
+                    return Self::elem_name_is_int(t);
                 }
                 // Module-global fallback: the LLVM slot verdict -- a non-pointer
                 // integer slot (i64/i32/...) is an Int/UInt global.
@@ -951,10 +1031,10 @@ impl IrEmitter {
                 }
                 // Local-slot fallback: derive the XIOM name from the LLVM type.
                 self.resolve_local_xiom_type(&id.name)
-                    .map(|t| is_int_name(&t))
+                    .map(|t| Self::elem_name_is_int(&t))
                     .unwrap_or(false)
             }
-            Expr::As(_, ty, _) => is_int_name(&Self::type_from_ast(ty)),
+            Expr::As(_, ty, _) => Self::elem_name_is_int(&Self::type_from_ast(ty)),
             Expr::Paren(inner, _) => self.expr_is_integer(inner),
             // BUG 22 #11: a parenthesized ARITHMETIC expression of integers is
             // an integer (`"sum = " + (v[0] + v[1])`) -- previously fell through
@@ -962,11 +1042,14 @@ impl IrEmitter {
             Expr::Binary(l, op, r, _) => matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem | BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor)
                 && self.expr_is_integer(l) && self.expr_is_integer(r),
             // Vec element reads: the registered element type decides
-            // (v[0] of a Vec[Int] is an Int; of a Vec[Float64] is not).
+            // (v[0] of a Vec[Int] is an Int; of a Vec[Float64] is not), and
+            // NESTED containers resolve recursively (`rows[0][0]` of a
+            // Vec[Vec[Str]] is a Str -- R17 no longer falls through to the
+            // concat LLVM fallback).
             Expr::Index(container, _, _) => {
-                if let Expr::Ident(id) = container.as_ref() {
-                    if let Some(elem) = self.local.local_vec_elem.get(&id.name) {
-                        return is_int_name(elem);
+                if let Some(vt) = self.vec_value_xiom_type(container) {
+                    if let Some(elem) = Self::element_of_container_type(&vt) {
+                        return Self::elem_name_is_int(&elem);
                     }
                 }
                 false
@@ -986,7 +1069,7 @@ impl IrEmitter {
                     None => return false,
                 };
                 match self.types.type_meta.get(&struct_name) {
-                    Some(meta) => meta.fields.get(idx).map(|(_, t)| is_int_name(t)).unwrap_or(false),
+                    Some(meta) => meta.fields.get(idx).map(|(_, t)| Self::elem_name_is_int(t)).unwrap_or(false),
                     None => false,
                 }
             }
@@ -998,7 +1081,7 @@ impl IrEmitter {
                 // method-call operands like `"len = " + v.len()` fell through
                 // to inttoptr (garbage pointer -> AV).
                 if let Some(rt) = self.callee_return_xiom(callee) {
-                    return is_int_name(&rt);
+                    return Self::elem_name_is_int(&rt);
                 }
                 // Inline Vec builtins have no registered signature: len -> Int.
                 if let Expr::Field(obj, m, _) = callee.as_ref() {
