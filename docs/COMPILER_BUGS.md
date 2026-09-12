@@ -4552,3 +4552,113 @@ smoke_stress_regex_captures_get (Captures.get) stays red; the other four
 captures smokes are green after the API realignment. Fix direction:
 element load for Option[aggregate] in Vec must use the concrete
 Option__M2 layout, not the erased form.
+
+## R11. Iterator `.filter()` silently returns EMPTY on r31/r32 (regression vs r30)
+
+Found 2026-09-12 (stdlib-lane r32 sweep, first solo-confirmed new failure).
+`smoke_iter_pipeline` (r29 CSV: green, exit 0; r32: exit 1) is red on the
+r31/r32 binary and green on r29/r30. Minimized probe (preserved at
+`C:\Users\lefte\AppData\Local\Temp\kilo\stdlib_ws\probes\p_iter_filter_r32.xi`):
+
+```text
+iter.range(1, 50).filter(fn(x: &Int) -> Bool { return true;  }).collect().len()  -> 49 on r29/r30, 0 on r31/r32
+iter.range(1, 50).filter(fn(x: &Int) -> Bool { return false; }).collect().len()  ->  0 everywhere
+iter.range(1, 50).filter(fn(x: &Int) -> Bool { return *x % 3 == 0; }).collect().len() -> 16 on r29/r30, 0 on r31/r32
+iter.range(1, 50).collect().len()                                                -> 49 everywhere (range path fine)
+```
+
+The predicate is never consulted (`true` and `false` both give 0) -- the
+FilterIter.next closure `fn() -> Option[T] { return it.next(); }` appears
+to be dead/no-op. Stage-wise probe `p_iter_pipeline_r32.xi` shows the
+breakage starts exactly at the first `.filter()` link; `.map()` and later
+links inherit the empty input.
+
+Bisect by preserved isolated binaries:
+- target_r29 (2026-09-10): green (run=0)
+- target_r30 (2026-09-11 17:14): green (run=0)
+- target_r31 (2026-09-12 14:19): red (run=1); target_r32 = r31 copy: red
+
+Suspect window: commits since the r30 build -- 380febec (Stage 2c slice 3
+interned CheckedType), 51c81efd (Stage 2c slice 4 TypeId registry/canonical
+codegen keys), fecf69fe (Stage 3 Item A corpus report API). NOTE: the r31
+build may also have included an earlier revision of the compiler lane's
+currently-uncommitted Stage 3 Item A phase-2 checker work (the tree held
+that WIP at 14:27 today); a clean-HEAD rebuild will separate the two.
+
+Stdlib side is NOT implicated: `stdlib/xiom/iter/iter.xi` has no commits
+since well before r29 (git log --since 2026-09-10 -- stdlib/xiom/iter is
+empty) and smoke_iter_pipeline is untouched; the shape is lazy-adapter
+closure capture + `FilterIter.next` dispatch. Impact confirmed by the r32
+sweep: smoke_iter_pipeline, smoke_iter_filter, and
+smoke_iter_chained_adapters all red (r29 green, solo-reproduced).
+
+## R12. Numeric-tower `Int.to_float` wrapper self-calls with a pointer self on r31/r32
+
+Found 2026-09-12 (same r32-sweep window as R11). `smoke_convert_traits`
+(r29: green 6.5s; r32: clang failure) is red on r31/r32 and green on
+r29/r30. Minimized probe (preserved at
+`C:\Users\lefte\AppData\Local\Temp\kilo\stdlib_ws\probes\p_ct_tower2.xi`):
+only
+
+```text
+use xiom.convert.into;
+fn main() -> Int { var ifl = into.into_float(7); ... }
+```
+
+fails at clang. `--emit-ir` shows the generated forwarder is SELF-recursive
+and feeds the alloca POINTER as the i64 self argument:
+
+```llvm
+define double @tower.Int.to_float(i64 %param_self) { ...
+  %tmp3 = alloca i64
+  store i64 %param_self, i64* %tmp3
+  %tmp4 = load i64, i64* %tmp3
+  %tmp5 = call double @tower.Int.to_float(i64 %tmp3, i64 %tmp4)
+  ...
+```
+
+clang: `error: '%tmp3' defined with type 'ptr' but expected 'i64'`.
+The wrapper should call the REAL implementation symbol for `Int.to_float`,
+not re-enter itself with an injected receiver pointer. Bisect by preserved
+binaries: target_r29 green, target_r30 green, target_r31/r32 red (identical
+window to R11). Prime suspect: Stage 2c slice 3/4 (interned CheckedType +
+TypeId-keyed registry / canonical codegen keys), which changed the
+method/impl symbol keying; the tower impl key (`tower.Int.to_float`) and
+its wrapper now diverge. Stdlib side unchanged (`convert/into.xi` untouched
+since before r29). Impact: smoke_convert_traits + any `into_float` /
+numeric-tower consumer.
+
+## R13. Tuple return-type identity split: Tuple__Int__Int vs Tuple__UInt64__UInt64 on r31/r32
+
+Found 2026-09-12 (third r31/r32 regression from the same r32 sweep).
+`smoke_hash_farm`, `smoke_hash_spooky`, and `smoke_hash_t1ha_metro`
+(r29 green, 5.5/5.6s) all fail at clang on r31/r32:
+
+```text
+xiominput.ll: error: '%tmp107' defined with type
+'%struct.Tuple__Int__Int = type { i64, i64 }' but expected
+'%struct.Tuple__UInt64__UInt64 = type { i64, i64 }'
+```
+
+Minimized probe (preserved at
+`C:\Users\lefte\AppData\Local\Temp\kilo\stdlib_ws\probes\p_hash_tuple.xi`):
+
+```text
+use xiom.hash.farm;
+var d = farm.farmhash128(&v);   // declared -> (UInt64, UInt64)
+```
+
+is enough. The callee's real signature is `(UInt64, UInt64)` (farm.xi:175,
+181, 199) but the call-site receiver path materializes the result as the
+Int-typed tuple struct. Layouts are identical ({i64,i64}) so only the
+struct NAME mismatches -- i.e. the semantic-type identity, not the layout,
+is split. `farmhash64` returns a plain UInt64 and is unaffected.
+
+Bisect by preserved binaries: target_r29 green, target_r30 green,
+target_r31/r32 red (same window as R11/R12). Prime suspect: the same
+Stage 2c TypeId/canonical-key work; tuple names with UInt64 elements are
+not unified with the Int-defaulted tuple in the call lowering.
+Impact: farm/spooky/hash tuple consumers.
+
+
+
