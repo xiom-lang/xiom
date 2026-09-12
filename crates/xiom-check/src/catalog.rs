@@ -94,6 +94,14 @@ pub struct CachedModule {
     /// .min_value()`) resolve like they do for user-program impls.
     /// Entries: (trait key "Num[Int]", impl type "Int", method name).
     pub impl_registrations: Vec<(String, String, String)>,
+    /// D1: RECOVERABLE parse errors from `Parser::parse_program` (message,
+    /// span). The parser returns a partial AST and keeps going, which used to
+    /// silently DROP declarations (e.g. `'GBP'` multi-char literals in
+    /// xiom.char made `is_currency`/`is_math_symbol` vanish). Catalog loads
+    /// keep the module but record the diagnostics so the corpus gate treats
+    /// them as hard errors instead of reporting downstream undefined-name
+    /// cascades.
+    pub parse_errors: Vec<(String, Span)>,
 }
 
 /// Lazy-loading cache of external `.xi` files keyed by dotted module path.
@@ -478,7 +486,13 @@ impl ModuleCatalog {
         let source = std::fs::read_to_string(file_path).ok()?;
         let source_hash = hash_bytes(source.as_bytes());
         let tokens = Lexer::new(&source).tokenize();
-        let program = Parser::new(tokens).parse_program().ok()?;
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program().ok()?;
+        // D1: keep the recoverable diagnostics; the partial AST silently lost
+        // every declaration the parser skipped.
+        let parse_errors: Vec<(String, Span)> = parser.errors().iter()
+            .map(|e| (e.message.clone(), e.span))
+            .collect();
         // Stage 3 Item A: capture trait-impl registrations BEFORE the
         // expansion below erases the Impl decls (the checker needs the
         // trait -> implementing-type mapping for `Trait[T].method()`).
@@ -505,6 +519,7 @@ impl ModuleCatalog {
             type_fields,
             source_hash,
             impl_registrations,
+            parse_errors,
         })
     }
 

@@ -120,8 +120,16 @@ impl IrEmitter {
                 if matches!(op, BinOp::Add) && (lt == "i8*" || rt == "i8*")
                     && !((lt == "i8*" && self.expr_is_pointer(l_expr) && self.expr_is_integer(r_expr))
                         || (rt == "i8*" && self.expr_is_pointer(r_expr) && self.expr_is_integer(l_expr))) {
-                    let lp = self.concat_val_to_i8ptr(&l, &lt, self.expr_is_integer(l_expr));
-                    let rp = self.concat_val_to_i8ptr(&r, &rt, self.expr_is_integer(r_expr));
+                    // Same compiled-LLVM-type fallback as the normal BinOp path
+                    // (indexed elements of chained-collect Vecs arrive as i64).
+                    let l_is_int = self.expr_is_integer(l_expr)
+                        || (matches!(l_expr, Expr::Index(..) | Expr::Field(..))
+                            && Self::llvm_scalar_is_int(lt));
+                    let r_is_int = self.expr_is_integer(r_expr)
+                        || (matches!(r_expr, Expr::Index(..) | Expr::Field(..))
+                            && Self::llvm_scalar_is_int(rt));
+                    let lp = self.concat_val_to_i8ptr(&l, &lt, l_is_int);
+                    let rp = self.concat_val_to_i8ptr(&r, &rt, r_is_int);
                     let res = self.fresh_tmp();
                     self.emitln(&format!("  {res} = call i8* @xiom_str_concat(i8* {lp}, i8* {rp})"));
                     return Ok((res, LLVM_STR_PTR.to_string()));
@@ -1301,8 +1309,18 @@ impl IrEmitter {
                 if matches!(op, BinOp::Add) && (lt == "i8*" || rt == "i8*")
                     && !((lt == "i8*" && self.expr_is_pointer(left) && self.expr_is_integer(right))
                         || (rt == "i8*" && self.expr_is_pointer(right) && self.expr_is_integer(left))) {
-                    let lp = self.concat_val_to_i8ptr(&l, &lt, self.expr_is_integer(left));
-                    let rp = self.concat_val_to_i8ptr(&r, &rt, self.expr_is_integer(right));
+                    // Fallback verdict from the COMPILED LLVM type: Index/Field
+                    // expressions whose element/field type the semantic walker
+                    // cannot see (chained `.collect()` Vec locals) still arrive
+                    // as iN scalars and MUST be formatted, not inttoptr'd.
+                    let l_is_int = self.expr_is_integer(left)
+                        || (matches!(left.as_ref(), Expr::Index(..) | Expr::Field(..))
+                            && Self::llvm_scalar_is_int(&lt));
+                    let r_is_int = self.expr_is_integer(right)
+                        || (matches!(right.as_ref(), Expr::Index(..) | Expr::Field(..))
+                            && Self::llvm_scalar_is_int(&rt));
+                    let lp = self.concat_val_to_i8ptr(&l, &lt, l_is_int);
+                    let rp = self.concat_val_to_i8ptr(&r, &rt, r_is_int);
                     let res = self.fresh_tmp();
                     self.emitln(&format!("  {res} = call i8* @xiom_str_concat(i8* {lp}, i8* {rp})"));
                     return Ok((res, LLVM_STR_PTR.to_string()));

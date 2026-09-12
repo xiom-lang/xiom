@@ -551,12 +551,18 @@ pub struct CatalogCorpusReport {
     pub warnings: Vec<CheckError>,
     /// Hard errors (unresolved imports, parse failures, ...).
     pub errors: Vec<CheckError>,
+    /// D1: recoverable PARSE diagnostics from catalog files. These are hard
+    /// errors for the gate: the parser recovered by dropping declarations, so
+    /// the module's surface is incomplete (downstream undefined-name findings
+    /// are cascades of this).
+    pub parse_errors: Vec<CheckError>,
 }
 
 impl CatalogCorpusReport {
-    /// True when the corpus is clean: no catalog findings and no hard errors.
+    /// True when the corpus is clean: no catalog findings, no hard errors and
+    /// no catalog parse diagnostics.
     pub fn is_clean(&self) -> bool {
-        self.findings.is_empty() && self.errors.is_empty()
+        self.findings.is_empty() && self.errors.is_empty() && self.parse_errors.is_empty()
     }
 }
 
