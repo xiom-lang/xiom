@@ -19,6 +19,41 @@ fn hash_bytes(bytes: &[u8]) -> u64 {
     h
 }
 
+/// Stage 3 Item A: collect `impl Trait[Args] for Type` method registrations
+/// from a catalog file's PRE-expansion AST (see
+/// [`CachedModule::impl_registrations`]). Mirrors `Checker::register_impl_inner`
+/// key derivation so both paths produce identical keys.
+fn collect_impl_registrations(items: &[TopDecl], out: &mut Vec<(String, String, String)>) {
+    for item in items {
+        match item {
+            TopDecl::Impl(impl_decl) => {
+                let impl_ty = if impl_decl.type_name.name != "_" {
+                    impl_decl.type_name.name.clone()
+                } else if let Some(first_arg) = impl_decl.trait_args.first() {
+                    CheckedType::from_ast_type(first_arg).name()
+                } else {
+                    continue;
+                };
+                let arg_names: Vec<String> = impl_decl.trait_args.iter()
+                    .map(|t| CheckedType::from_ast_type(t).name())
+                    .collect();
+                let key = if arg_names.is_empty() {
+                    impl_decl.trait_name.name.clone()
+                } else {
+                    format!("{}[{}]", impl_decl.trait_name.name, arg_names.join(","))
+                };
+                for member in &impl_decl.members {
+                    if let ImplItem::Fn(fd) = member {
+                        out.push((key.clone(), impl_ty.clone(), fd.name.name.clone()));
+                    }
+                }
+            }
+            TopDecl::Module(md) => collect_impl_registrations(&md.items, out),
+            _ => {}
+        }
+    }
+}
+
 // ============================================================================
 // Module export representation
 // ============================================================================
@@ -52,6 +87,13 @@ pub struct CachedModule {
     /// Computed from the raw file bytes. If the hash matches the previous
     /// session, the entire checker/codegen/clang pipeline can be skipped.
     pub source_hash: u64,
+    /// Stage 3 Item A: `impl Trait[Args] for Type` registrations collected
+    /// BEFORE `expand_impl_blocks` erases the Impl decls at parse time. The
+    /// checker replays these into its `impls` map so interface-qualified
+    /// static calls in catalog bodies (`Num[T].one()`, `PrecisionLimits[T]
+    /// .min_value()`) resolve like they do for user-program impls.
+    /// Entries: (trait key "Num[Int]", impl type "Int", method name).
+    pub impl_registrations: Vec<(String, String, String)>,
 }
 
 /// Lazy-loading cache of external `.xi` files keyed by dotted module path.
@@ -437,6 +479,11 @@ impl ModuleCatalog {
         let source_hash = hash_bytes(source.as_bytes());
         let tokens = Lexer::new(&source).tokenize();
         let program = Parser::new(tokens).parse_program().ok()?;
+        // Stage 3 Item A: capture trait-impl registrations BEFORE the
+        // expansion below erases the Impl decls (the checker needs the
+        // trait -> implementing-type mapping for `Trait[T].method()`).
+        let mut impl_registrations = Vec::new();
+        collect_impl_registrations(&program.items, &mut impl_registrations);
         // 3c (2026-08-10): expand impl blocks at PARSE time so catalog-loaded
         // modules (e.g. stdlib folder modules with `impl Num[Float64] { }`)
         // expose the expanded `Type.method` freestanding fns to both the
@@ -457,6 +504,7 @@ impl ModuleCatalog {
             functions,
             type_fields,
             source_hash,
+            impl_registrations,
         })
     }
 
