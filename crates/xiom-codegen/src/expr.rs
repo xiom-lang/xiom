@@ -122,12 +122,8 @@ impl IrEmitter {
                         || (rt == "i8*" && self.expr_is_pointer(r_expr) && self.expr_is_integer(l_expr))) {
                     // Same compiled-LLVM-type fallback as the normal BinOp path
                     // (indexed elements of chained-collect Vecs arrive as i64).
-                    let l_is_int = self.expr_is_integer(l_expr)
-                        || (matches!(l_expr, Expr::Index(..) | Expr::Field(..))
-                            && Self::llvm_scalar_is_int(lt));
-                    let r_is_int = self.expr_is_integer(r_expr)
-                        || (matches!(r_expr, Expr::Index(..) | Expr::Field(..))
-                            && Self::llvm_scalar_is_int(rt));
+                    let l_is_int = self.concat_operand_is_int(l_expr, lt);
+                    let r_is_int = self.concat_operand_is_int(r_expr, rt);
                     let lp = self.concat_val_to_i8ptr(&l, &lt, l_is_int);
                     let rp = self.concat_val_to_i8ptr(&r, &rt, r_is_int);
                     let res = self.fresh_tmp();
@@ -1309,16 +1305,13 @@ impl IrEmitter {
                 if matches!(op, BinOp::Add) && (lt == "i8*" || rt == "i8*")
                     && !((lt == "i8*" && self.expr_is_pointer(left) && self.expr_is_integer(right))
                         || (rt == "i8*" && self.expr_is_pointer(right) && self.expr_is_integer(left))) {
-                    // Fallback verdict from the COMPILED LLVM type: Index/Field
-                    // expressions whose element/field type the semantic walker
-                    // cannot see (chained `.collect()` Vec locals) still arrive
-                    // as iN scalars and MUST be formatted, not inttoptr'd.
-                    let l_is_int = self.expr_is_integer(left)
-                        || (matches!(left.as_ref(), Expr::Index(..) | Expr::Field(..))
-                            && Self::llvm_scalar_is_int(&lt));
-                    let r_is_int = self.expr_is_integer(right)
-                        || (matches!(right.as_ref(), Expr::Index(..) | Expr::Field(..))
-                            && Self::llvm_scalar_is_int(&rt));
+                    // Semantic verdict first, then a fallback from the COMPILED
+                    // LLVM type for Index/Field shapes the walker cannot see
+                    // (chained `.collect()` Vec locals). Known Str elements are
+                    // NOT formatted -- they take inttoptr, which recovers the
+                    // pointer bits (R17).
+                    let l_is_int = self.concat_operand_is_int(left, &lt);
+                    let r_is_int = self.concat_operand_is_int(right, &rt);
                     let lp = self.concat_val_to_i8ptr(&l, &lt, l_is_int);
                     let rp = self.concat_val_to_i8ptr(&r, &rt, r_is_int);
                     let res = self.fresh_tmp();

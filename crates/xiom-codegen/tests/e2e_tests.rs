@@ -4556,6 +4556,12 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m71_concat_index_elem() {
     assert_eq!(compile_and_run("tests\\regression\\m71_concat_index_elem.xi"), Some(0));
 }
+// R17: nested-index Str elements (`rows[0][0]`) must concat as strings, not
+// as pointers/numbers. Locks the recursive element-type resolution against
+// the R14 LLVM fallback.
+#[test] fn e2e_m72_nested_index_concat() {
+    assert_eq!(compile_and_run("tests\\regression\\m72_nested_index_concat.xi"), Some(0));
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }
