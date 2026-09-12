@@ -917,6 +917,16 @@ impl IrEmitter {
         self.val_to_i8ptr(val, ty)
     }
 
+    /// LLVM scalar integer type (not i1, not a pointer). Used at concat sites
+    /// as a FALLBACK verdict when `expr_is_integer` cannot see through an
+    /// expression shape (e.g. `e[0]` of a Vec[Int] produced by a chained
+    /// `.collect()` -- the local's element registry is absent, so the value
+    /// was inttoptr'd into a garbage string pointer: `"E1[0]=" + e[0]` with
+    /// e[0]=9 crashed reading address 0x9).
+    pub(crate) fn llvm_scalar_is_int(ty: &str) -> bool {
+        matches!(ty, "i8" | "i16" | "i32" | "i64" | "i128")
+    }
+
     /// XIOM-level verdict: is this expression an integer (Int*/UInt*/Char)?
     /// Used at concat sites to choose string formatting over inttoptr. Idents
     /// resolve through the registered local type; casts check the target type

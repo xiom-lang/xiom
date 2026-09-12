@@ -53,6 +53,11 @@ pub struct Checker {
     warnings: Vec<CheckError>,
     /// S2: When true, non-exhaustive match warnings become hard errors.
     strict_exhaustive: bool,
+    /// Stage 3 Item A FLIP: when true, catalog-body findings become HARD
+    /// ERRORS (any finding in a loaded catalog module fails the compile).
+    /// Defaults to false until `CatalogCorpusReport::is_clean()`; the flip is
+    /// enabled here + by un-ignoring the corpus gate. See COMPILER_BUGS.md.
+    strict_catalog_findings: bool,
     /// Imported module paths (use declarations)
     imports: Vec<UseDecl>,
     /// Module namespace: module name -> { exported names }
@@ -240,6 +245,9 @@ impl Checker {
             errors: Vec::new(),
             warnings: Vec::new(),
             strict_exhaustive: false,
+            // FLIP GATE: set true (and un-ignore `catalog_corpus_is_clean`)
+            // once the stdlib worklist reaches zero. See COMPILER_BUGS.md.
+            strict_catalog_findings: false,
             imports: Vec::new(),
             modules: HashMap::new(),
             methods: HashMap::new(),
@@ -513,7 +521,26 @@ impl Checker {
         let errors = outcome.err().unwrap_or_default();
         let (findings, warnings) = warnings.into_iter()
             .partition(|w| w.message.starts_with("catalog body"));
-        crate::types::CatalogCorpusReport { findings, warnings, errors }
+        // D1: parse diagnostics from every loaded catalog file. The corpus
+        // synthetic `use` list covers every indexed module, so `all_cached`
+        // holds them all after check_program.
+        let mut parse_errors: Vec<CheckError> = Vec::new();
+        for module in self.catalog.all_cached() {
+            for (message, span) in &module.parse_errors {
+                parse_errors.push(CheckError {
+                    message: format!("catalog parse [{}]: {}", module.dotted_name, message),
+                    span: *span,
+                    cause: crate::types::TypeCause::Other,
+                    guaranteed: xiom_ast::ErrorGuaranteed::new(),
+                });
+            }
+        }
+        parse_errors.sort_by(|a, b| {
+            a.message.cmp(&b.message)
+                .then(a.span.line.cmp(&b.span.line))
+                .then(a.span.col.cmp(&b.span.col))
+        });
+        crate::types::CatalogCorpusReport { findings, warnings, errors, parse_errors }
     }
 
     fn register_builtins(&mut self) {
@@ -1202,6 +1229,12 @@ impl Checker {
     /// S2: Emit a warning -- adds to the error list but does NOT increment
     /// error_count. This means compilation proceeds but the warning is visible.
     fn warn(&mut self, message: impl Into<String>) {
+        self.warn_at(message, Span::new(0, 0));
+    }
+
+    /// D2: warning WITH a source span (non-exhaustive matches etc. used to
+    /// report `0:0`, hiding the offending match entirely).
+    fn warn_at(&mut self, message: impl Into<String>, span: Span) {
         let msg = message.into();
         // Stage 3 Item A: warnings raised while checking a catalog body are
         // catalog findings. Tag them with the same prefix the driver
@@ -1212,12 +1245,31 @@ impl Checker {
         } else {
             msg
         };
+        // Stage 3 Item A FLIP: once the catalog corpus is clean, any
+        // catalog-body finding fails the compile instead of being a warning.
+        if self.checking_catalog && self.strict_catalog_findings {
+            self.errors.push(CheckError {
+                message,
+                span,
+                cause: crate::types::TypeCause::Other,
+                guaranteed: xiom_ast::ErrorGuaranteed::new(),
+            });
+            self.error_count += 1;
+            return;
+        }
         self.warnings.push(CheckError {
             message,
-            span: Span::new(0, 0),
+            span,
             cause: crate::types::TypeCause::Other,
             guaranteed: xiom_ast::ErrorGuaranteed::new(),
         });
+    }
+
+    /// Stage 3 Item A FLIP: make catalog-body findings hard errors. Enabled
+    /// by default once `CatalogCorpusReport::is_clean()` holds; tests can
+    /// exercise the strict behavior before the flip.
+    pub fn set_strict_catalog_findings(&mut self, enabled: bool) {
+        self.strict_catalog_findings = enabled;
     }
 
     /// Returns `true` when any error has been emitted so far (enables the
@@ -2085,8 +2137,14 @@ impl Checker {
                 // owned a free `get` and skipped receiver-method resolution.
                 if !fd.is_method() {
                     self.fn_owner_module.entry(fd.name.name.clone()).or_default().insert(module_path.to_string());
+                    // Bare-name VISIBILITY likewise belongs to free fns only.
+                    // A private method `fn Foo.is_empty` used to mark the bare
+                    // name invisible (first-wins or_insert), so
+                    // `is_empty(self.inner)` skipped the whole free-fn
+                    // resolution path and fell into the imported-items
+                    // fallback with an unrelated module's signature.
+                    self.visibility.entry(fd.name.name.clone()).or_insert(fd.is_pub);
                 }
-                self.visibility.entry(fd.name.name.clone()).or_insert(fd.is_pub);
                 // Track methods separately
                 if let Some(recv) = fd.receiver.as_ref() {
                     let _method_key = format!("{}.{}", recv.name, fd.name.name);
@@ -4484,7 +4542,7 @@ impl Checker {
                     self.check_block(eb, None);
                 }
             }
-            Stmt::Match(expr, arms, _) => {
+            Stmt::Match(expr, arms, span) => {
                 let matched_ty = self.check_expr(expr);
                 for arm in arms {
                     self.push_scope();
@@ -4501,7 +4559,7 @@ impl Checker {
                     self.pop_scope();
                 }
                 // S2: Match exhaustiveness
-                self.check_match_exhaustiveness(arms, &matched_ty);
+                self.check_match_exhaustiveness(arms, &matched_ty, *span);
                 let _ = matched_ty;
             }
             Stmt::While(cond, body, _, _, _) => {
@@ -4740,6 +4798,47 @@ impl Checker {
             return None;
         }
         Some(format!("{}[{}]", base_id.name, args.join(", ")))
+    }
+
+    /// True when `sig` can accept a call with these argument types: arity
+    /// matches and every non-generic parameter is compatible. Generic
+    /// parameters accept anything.
+    fn sig_accepts_args(&self, sig: &FnSig, arg_types: &[CheckedType]) -> bool {
+        if sig.params.len() != arg_types.len() {
+            return false;
+        }
+        sig.params.iter().zip(arg_types.iter()).all(|((_, expected), found)| {
+            sig.generics.iter().any(|g| g == &expected.name())
+                || found == &CheckedType::Error
+                || self.types_compatible(found, expected)
+        })
+    }
+
+    /// D5: the global bare-name slot is first-wins, so in the all-imports
+    /// corpus an unrelated module's same-named free fn can occupy it
+    /// (`array.is_empty(arr)` for `is_empty(str)` in xiom.path, whose only
+    /// import is xiom.env). When the chosen signature cannot accept the call,
+    /// search the explicitly imported items and every module surface for a
+    /// PUB fn with the same leaf whose signature fits. Deterministic order
+    /// (imported items first, then module keys sorted).
+    fn resolve_alternative_bare_fn(&self, name: &str, arg_types: &[CheckedType]) -> Option<FnSig> {
+        if let Some(ModuleExport::Function { sig, is_pub: true }) = self.imported_items.get(name) {
+            if self.sig_accepts_args(sig, arg_types) {
+                return Some(sig.clone());
+            }
+        }
+        let mut keys: Vec<&String> = self.modules.keys().collect();
+        keys.sort();
+        for key in keys {
+            if let Some(map) = self.modules.get(key) {
+                if let Some(ModuleExport::Function { sig, is_pub: true }) = map.get(name) {
+                    if self.sig_accepts_args(sig, arg_types) {
+                        return Some(sig.clone());
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// G-10: resolve a bare call `name(args)` inside a method body as
@@ -5369,6 +5468,20 @@ impl Checker {
                             } else {
                                 // "Rc[Int]" -> "Rc"; "Vec[Int]" -> "Vec"
                                 let base = base_name.split('[').next().unwrap_or(&base_name).to_string();
+                                // A receiver FIELD with this name shadows cross-
+                                // type methods: `self.second()` on ChainIter
+                                // (field `second: fn() -> Option[U]`) must NOT
+                                // bind DateTime.second (the unique candidate)
+                                // and type as Int -- the P2-7 fn-field path
+                                // below calls the field. Fields only exist on
+                                // registered struct surfaces, so this is a
+                                // no-op for container/builtin receivers.
+                                let lookup_base = base_name.split('[').next().unwrap_or(&base_name);
+                                let receiver_has_field = self.get_type(lookup_base)
+                                    .map_or(false, |fm| fm.contains_key(&method.name));
+                                if receiver_has_field {
+                                    return None;
+                                }
                                 let mut candidates: Vec<(String, &FnSig)> = self.methods.iter()
                                     .filter_map(|(ty, methods)| methods.get(&method.name).map(|s| (ty.clone(), s)))
                                     .collect();
@@ -5696,30 +5809,46 @@ impl Checker {
                         // accepted `value.hash()` for `fn hash(self, hasher)`
                         // and codegen emitted the erased interface body as an
                         // invalid ptr->i64 cast (smoke_hash_values clang error).
-                        if let Some((_mn, params, _ret)) = self.interfaces.values()
-                            .flat_map(|m| m.iter())
-                            .find(|(mn, _, _)| mn == &method.name)
-                        {
+                        //
+                        // Stage 3 Item A: same-NAME interfaces from different
+                        // modules can declare DIFFERENT arities (`Hash` is
+                        // `fn hash() -> UInt64` in xiom.core and
+                        // `fn hash(self, hasher)` in xiom.hash). `values()`
+                        // order is random, so picking one declaration and
+                        // enforcing its arity made the corpus flaky. Accept the
+                        // call when ANY declaration with this method name fits;
+                        // only report when NONE does.
+                        let recv_name = match &obj_ty {
+                            CheckedType::Named(n) => n.name().to_string(),
+                            other => other.name(),
+                        };
+                        let want_of = |params: &Vec<String>| -> usize {
                             // Interface member params store TYPE names, so the
                             // receiver shows up as "Self" (not the fn-table's
                             // literal "self"). Free-fn-style interface methods
                             // (`interface Eq[T] { fn eq(a: T, b: T) }`) also
                             // take the receiver as their FIRST param when
-                            // called as `recv.eq(other)`. Treat a first param
-                            // matching the receiver type as the implicit
-                            // receiver and subtract it from the required arity.
-                            let recv_name = match &obj_ty {
-                                CheckedType::Named(n) => n.name().to_string(),
-                                other => other.name(),
-                            };
-                            let want = if params.first().map_or(false, |p| {
+                            // called as `recv.eq(other)`.
+                            if params.first().map_or(false, |p| {
                                 p == "self" || p == "Self" || p == &recv_name
                             }) {
                                 params.len().saturating_sub(1)
                             } else {
                                 params.len()
-                            };
-                            if args.len() != want {
+                            }
+                        };
+                        let mut matching = self.interfaces.values()
+                            .flat_map(|m| m.iter())
+                            .filter(|(mn, _, _)| mn == &method.name);
+                        let first = matching.next();
+                        if let Some((_, params, _)) = first {
+                            let arity_ok = want_of(params) == args.len()
+                                || self.interfaces.values()
+                                    .flat_map(|m| m.iter())
+                                    .filter(|(mn, _, _)| mn == &method.name)
+                                    .any(|(_, p, _)| want_of(p) == args.len());
+                            if !arity_ok {
+                                let want = want_of(params);
                                 self.error(
                                     format!("'{}' expects {} argument(s), found {}", method.name, want, args.len()),
                                     *span,
@@ -5734,10 +5863,18 @@ impl Checker {
                         // is `T.method()` (returning the raw spelling "Self"
                         // made arithmetic on the result fail -- "left operand
                         // must be numeric, found Self").
-                        let ret = self.interfaces.values()
-                            .flat_map(|m| m.iter())
-                            .find(|(mn, _, _)| mn == &method.name)
-                            .and_then(|(_, _, ret)| ret.clone())
+                        // Prefer the same-name declaration whose arity fits
+                        // (deterministic across HashMap order).
+                        let ret = {
+                            let chosen = self.interfaces.values()
+                                .flat_map(|m| m.iter())
+                                .filter(|(mn, _, _)| mn == &method.name)
+                                .find(|(_, p, _)| want_of(p) == args.len())
+                                .or_else(|| self.interfaces.values()
+                                    .flat_map(|m| m.iter())
+                                    .find(|(mn, _, _)| mn == &method.name));
+                            chosen.and_then(|(_, _, ret)| ret.clone())
+                        }
                             .map(|r| {
                                 if r == "Self" {
                                     match &obj_ty {
@@ -5936,7 +6073,24 @@ impl Checker {
                     } else {
                         None
                     };
-                    if let Some(sig) = fn_sig.cloned() {
+                    if let Some(mut sig) = fn_sig.cloned() {
+                        // Evaluate argument types ONCE -- reused for generic
+                        // inference, alternative selection and mismatch
+                        // reporting (the old flow checked generic positions
+                        // twice, double-emitting their diagnostics).
+                        let arg_types: Vec<CheckedType> = args.iter()
+                            .map(|arg| self.check_expr(arg))
+                            .collect();
+                        // D5: the bare slot is first-wins; if this sig cannot
+                        // accept the call, prefer a same-named pub fn from an
+                        // explicitly imported item or any module surface that
+                        // fits (`is_empty(str)` -> xiom.string, not
+                        // xiom.array's Array version).
+                        if !self.sig_accepts_args(&sig, &arg_types) {
+                            if let Some(alt) = self.resolve_alternative_bare_fn(&name.name, &arg_types) {
+                                sig = alt;
+                            }
+                        }
                         // Build generic substitution map from the call arguments.
                         // round-15 (probe_zip_j/k): explicit type args from
                         // `apply_g[(Int, Int)](...)` win over arg inference --
@@ -5951,21 +6105,20 @@ impl Checker {
                                     }
                                 }
                             }
-                            for (i, arg) in args.iter().enumerate() {
-                                if i < sig.params.len() {
-                                    let pname = &sig.params[i].1.name();
-                                    if sig.generics.iter().any(|g| g == pname) {
-                                        subst.entry(pname.clone()).or_insert_with(|| self.check_expr(arg));
+                            for (i, (_, pty)) in sig.params.iter().enumerate() {
+                                let pname = pty.name();
+                                if sig.generics.iter().any(|g| g == &pname) {
+                                    if let Some(at) = arg_types.get(i) {
+                                        subst.entry(pname).or_insert_with(|| at.clone());
                                     }
                                 }
                             }
                         }
-                        for (i, arg) in args.iter().enumerate() {
-                            let arg_ty = self.check_expr(arg);
+                        for (i, arg_ty) in arg_types.iter().enumerate() {
                             if i < sig.params.len() {
                                 let expected = &sig.params[i].1;
                                 let is_generic = sig.generics.iter().any(|g| g == &expected.name());
-                                if !is_generic && !self.types_compatible(&arg_ty, expected) && arg_ty != CheckedType::Error {
+                                if !is_generic && !self.types_compatible(arg_ty, expected) && arg_ty != &CheckedType::Error {
                                     self.error(
                                         format!("argument {} type mismatch: expected {}, found {}",
                                             i + 1, expected.name(), arg_ty.name()),
@@ -6523,7 +6676,7 @@ impl Checker {
                     _ => then_ty,
                 }
             }
-            Expr::Match(scrutinee, arms, _) => {
+            Expr::Match(scrutinee, arms, span) => {
                 let scr_ty = self.check_expr(scrutinee);
                 // The value of a match-expression is the type of its arm bodies.
                 // Return the first arm's body type (or Unit for an empty match).
@@ -6543,7 +6696,7 @@ impl Checker {
                     if first { result_ty = arm_ty; first = false; }
                 }
                 // S2: Match exhaustiveness -- verify all variants covered.
-                self.check_match_exhaustiveness(arms, &scr_ty);
+                self.check_match_exhaustiveness(arms, &scr_ty, *span);
                 result_ty
             }
         }
@@ -6551,7 +6704,9 @@ impl Checker {
 
     /// S2: Match exhaustiveness -- verify all variants of the scrutinee type
     /// are covered by the match arms. Reports an error for missing variants.
-    fn check_match_exhaustiveness(&mut self, arms: &[xiom_ast::MatchArm], scr_ty: &CheckedType) {
+    /// `span` is the MATCH expression's span (D2: used to report the actual
+    /// location instead of the old hardcoded `0:0`).
+    fn check_match_exhaustiveness(&mut self, arms: &[xiom_ast::MatchArm], scr_ty: &CheckedType, span: Span) {
         let type_name = match self.resolve_alias(scr_ty) {
             CheckedType::Named(n) => n.name(),
             _ => return,
@@ -6586,11 +6741,12 @@ impl Checker {
                 if self.strict_exhaustive {
                     self.error(
                         format!("non-exhaustive match: variant '{}' of '{}' not covered", variant, type_name),
-                        xiom_ast::Span::new(0, 0),
+                        span,
                     );
                 } else {
-                    self.warn(
+                    self.warn_at(
                         format!("non-exhaustive match: variant '{}' of '{}' not covered", variant, type_name),
+                        span,
                     );
                 }
             }
@@ -6804,6 +6960,18 @@ impl Checker {
             (CheckedType::Int,    CheckedType::UInt)   | (CheckedType::UInt,   CheckedType::Int) => true,
             // Unit compatibility
             (_, CheckedType::Unit) => true,
+            // Function-pointer compatibility: arity must match and each
+            // parameter/return compares recursively under the rules above.
+            // This is what lets a concrete closure feed a GENERIC struct
+            // field: `MapIter[T, U]{ f: fn(T) -> U }` constructed with
+            // `f: fn(Int) -> Int` (previously only exact structural equality
+            // matched, so every higher-order iterator body errored).
+            (CheckedType::Fn(fp, fr), CheckedType::Fn(ep, er)) => {
+                fp.len() == ep.len()
+                    && fp.iter().zip(ep.iter())
+                        .all(|(f, e)| self.types_compatible(f, e))
+                    && self.types_compatible(fr.as_ref(), er.as_ref())
+            }
             _ => false,
         }
     }
@@ -8327,6 +8495,10 @@ fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0
         for (m, n) in mods.iter().take(20) {
             eprintln!("  MOD {n:5}  {m}");
         }
+        // D1: catalog parse diagnostics are hard errors for the gate.
+        for e in &report.parse_errors {
+            eprintln!("  PARSE {}:{}: {}", e.span.line, e.span.col, e.message);
+        }
         let mut classes: Vec<_> = by_class.into_iter().collect();
         classes.sort_by(|a, b| b.1.cmp(&a.1));
         for (k, n) in classes.iter().take(15) {
@@ -8354,8 +8526,8 @@ fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0
             }
         }
         assert!(report.is_clean(),
-            "catalog corpus not clean: {} findings, {} hard errors ({} other warnings)",
-            report.findings.len(), report.errors.len(), report.warnings.len());
+            "catalog corpus not clean: {} findings, {} hard errors, {} parse errors ({} other warnings)",
+            report.findings.len(), report.errors.len(), report.parse_errors.len(), report.warnings.len());
     }
 
     /// Stage 2c slice 2: the checker's compound-name consumers route through

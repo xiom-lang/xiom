@@ -2088,6 +2088,12 @@ impl Parser {
                                 Expr::Tuple(type_exprs, self.peek().span)
                             };
                             expr = Expr::Index(Box::new(expr.clone()), Box::new(args_expr), self.peek().span);
+                            // `Name[(A, B), C]{ field: value }` -- the tuple
+                            // type-args branch must consume the struct-literal
+                            // tail too, or the following `{` reaches the plain
+                            // LBrace arm with an Index expr and errors
+                            // ("expected type name before '{'").
+                            self.parse_struct_literal_tail(&mut expr)?;
                             continue;
                         }
                         let after_first = self.peek_ahead(1);
@@ -2112,18 +2118,7 @@ impl Parser {
                             };
                             expr = Expr::Index(Box::new(expr.clone()), Box::new(args_expr), self.peek().span);
                             if !self.restrict_struct && self.peek_kind() == &TokenKind::LBrace {
-                                let span = expr.span(); self.advance();
-                                let mut fields = Vec::new();
-                                while !self.check(|k| matches!(k, TokenKind::RBrace | TokenKind::Dot | TokenKind::Eof)) {
-                                    let fname = self.parse_ident()?;
-                                    if self.skip(TokenKind::Colon) { let fval = self.parse_expr()?; fields.push((fname, fval)); } else { fields.push((fname.clone(), Expr::Ident(fname))); }
-                                    self.skip(TokenKind::Comma);
-                                    self.skip(TokenKind::Semicolon);
-                                }
-                                let spread = if self.skip(TokenKind::Dot) { self.expect_kind(TokenKind::Dot, "'.' for spread")?; let s = self.parse_expr()?; Some(Box::new(s)) } else { None };
-                                self.expect_kind(TokenKind::RBrace, "'}'")?;
-                                let struct_name = match &expr { Expr::Ident(name) => name.clone(), Expr::Index(base, _, _) => match base.as_ref() { Expr::Ident(name) => name.clone(), _ => Ident::new("__struct", span) }, _ => Ident::new("__struct", span) };
-                                expr = Expr::Struct(struct_name, fields, spread, span);
+                                self.parse_struct_literal_tail(&mut expr)?;
                             }
                         } else { let inner = self.parse_expr_open()?; self.expect_kind(TokenKind::RBracket, "']'")?; let span = expr.span(); expr = Expr::Index(Box::new(expr), Box::new(inner), span); }
                     } else { let inner = self.parse_expr_open()?; self.expect_kind(TokenKind::RBracket, "']'")?; let span = expr.span(); expr = Expr::Index(Box::new(expr), Box::new(inner), span); }
@@ -2217,6 +2212,38 @@ impl Parser {
             }
         }
         Ok(expr)
+    }
+
+    /// Parse the `{ field: value; ... }` tail of a qualified/generic struct
+    /// literal (`Path.Type { .. }`, `Name[T] { .. }`). The struct NAME is the
+    /// base ident of `expr`; type args stay captured in the enclosing
+    /// `Expr::Index`. No-op when the next token is not `{` (or struct
+    /// literals are restricted).
+    fn parse_struct_literal_tail(&mut self, expr: &mut Expr) -> Result<(), ParseError> {
+        if self.restrict_struct || self.peek_kind() != &TokenKind::LBrace {
+            return Ok(());
+        }
+        let span = expr.span();
+        self.advance(); // consume '{'
+        let mut fields = Vec::new();
+        while !self.check(|k| matches!(k, TokenKind::RBrace | TokenKind::Dot | TokenKind::Eof)) {
+            let fname = self.parse_ident()?;
+            if self.skip(TokenKind::Colon) { let fval = self.parse_expr()?; fields.push((fname, fval)); } else { fields.push((fname.clone(), Expr::Ident(fname))); }
+            self.skip(TokenKind::Comma);
+            self.skip(TokenKind::Semicolon);
+        }
+        let spread = if self.skip(TokenKind::Dot) { self.expect_kind(TokenKind::Dot, "'.' for spread")?; let s = self.parse_expr()?; Some(Box::new(s)) } else { None };
+        self.expect_kind(TokenKind::RBrace, "'}'")?;
+        let struct_name = match &*expr {
+            Expr::Ident(name) => name.clone(),
+            Expr::Index(base, _, _) => match base.as_ref() {
+                Expr::Ident(name) => name.clone(),
+                _ => Ident::new("__struct", span),
+            },
+            _ => Ident::new("__struct", span),
+        };
+        *expr = Expr::Struct(struct_name, fields, spread, span);
+        Ok(())
     }
 
     fn parse_primary(&mut self) -> Result<Expr, ParseError> {

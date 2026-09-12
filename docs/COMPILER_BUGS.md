@@ -7,6 +7,166 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-09-12 -- R14 ROOT-CAUSED AND FIXED: concat of indexed elements (not chain corruption)
+
+The combined iter probe `p_iter_pipeline_r32.xi` AV'd (0xC0000005) while
+every sub-variant passed. ASAN + a pass/fail matrix showed the iterator
+chain was NEVER at fault: the crash was the trailing
+`io.println("E[0]=" + result[0])`. With `result[0] == 9`, the generated IR
+did `inttoptr i64 9 to i8*` and `xiom_str_concat` read address 0x9 (ASAN:
+`rax=rdi=rsi=9`, fault in `xiom_str_concat` from `main`).
+
+Root cause: `Codegen::expr_is_integer` decides whether a `Str + X` operand is
+formatted with `@xiom_int_to_string` or coerced with `inttoptr`. Its
+`Expr::Index` case only consulted `local_vec_elem` for an `Expr::Ident`
+container. A Vec bound from a chained single-expression `.collect()` never
+registers that element map, so `e[0]` (LLVM `i64`) fell through to
+`inttoptr` -- a garbage string pointer whose address is the element VALUE.
+Splitting the chain into a local (`var it = ...take(5); var v = it.collect()`)
+or adding any statement between collect and print made the registry present,
+which is why only the combined shape crashed. Minimized to
+`p_r14_e1.xi` (crash) vs `p_r14_e1b.xi` (pass, one extra println).
+
+Fix: at both concat sites (`compile_binop_fold` and the normal BinOp path)
+the operand verdict now falls back to the COMPILED LLVM type for `Index`/
+`Field` shapes (`llvm_scalar_is_int`: i8/i16/i32/i64/i128, never i1 or a
+pointer), so an iN scalar is always formatted. The semantic verdict still
+wins for calls, preserving the Str-returning-callee-with-i64-fallback case
+(which must stay `inttoptr`/bitcast, not be formatted as a number).
+
+Regression lock: `tests/regression/m71_concat_index_elem.xi` +
+`e2e_m71_concat_index_elem` (asserts `"e[0]=9"`, `"e[4]=225"`, left-side
+`e[1] + "!"`, and a plain Vec index). `tmp/bug_probes/p_iter_pipeline_r32.xi`
+now exits 0.
+
+## 2026-09-12 -- D1/D2/D4/D5: catalog parse integrity, real spans, fn types, overload pick
+
+Follow-up compiler-side slice of the Item A triage (D1-D6 queue). All four
+are landed; the remaining stdlib worklist is refreshed in
+[`ITEM_A_STDLIB_FINDINGS.md`](ITEM_A_STDLIB_FINDINGS.md).
+
+### D1 -- catalog parse errors were swallowed (production-grade gate)
+
+`CachedModule::parse_file` parsed with `Parser::parse_program` and discarded
+`parser.errors()`. Because the parser RECOVERS by returning a partial AST,
+whole declarations silently vanished: `xiom.char` `'GBP'`/`'+/-'` multi-char
+literals dropped `is_currency` / `is_math_symbol`, and the corpus only saw
+downstream `undefined variable` cascades.
+
+Fix: `CachedModule.parse_errors: Vec<(String, Span)>` records every
+recoverable diagnostic; `CatalogCorpusReport.parse_errors` aggregates them
+(sorted) and `is_clean()` requires the list to be empty; the gate prints
+`PARSE line:col: message` and the assert reports the count. User-program
+surfacing is intentionally staged for the FLIP: xiom.char is currently broken,
+and emitting these as user warnings would break the m16/m17 zero-warning
+contracts before the stdlib fixes land. NOTE: the parser's fatal path (>100
+errors) still returns None from `parse_file` and is not yet representable.
+
+The new gate immediately found 14 recoverable diagnostics in 12 modules --
+all now in the stdlib worklist (stray closing braces left by removed
+`unsafe` blocks, prose in `ensures:`, `fn var`, `<=>`, multi-char literals).
+Two of them were NOT stdlib defects:
+
+### D1b -- parser: tuple type args in generic struct literals (COMPILER BUG)
+
+`MapIter[(Int, T), U]{ next_fn: ..., f: f }` failed with "expected type name
+before '{'". The `Name[...]` postfix has TWO type-args branches: the
+leading-`fn`/`*`/`&`/`[`/`(` branch (tuple args) built `Expr::Index` and
+`continue`d WITHOUT consuming a following `{ ... }` tail; only the
+leading-Ident branch handled it. Recovery then dropped the enclosing
+declaration (`iter.xi:629,634` `EnumerateIter.map/take`).
+
+Fix: extracted `Parser::parse_struct_literal_tail` (shared by both branches),
+called from the tuple branch and the simple-args branch. Repro:
+`tmp/bug_probes/p_d1_tuple_structlit.xi`.
+
+### D2 -- non-exhaustive match diagnostics had span 0:0
+
+The exhaustiveness warning/error hardcoded `Span::new(0, 0)` (and the `warn`
+helper did too, for EVERY warning). `check_match_exhaustiveness` now takes
+the match expression's span (both `Stmt::Match` and `Expr::Match` call sites
+thread it) and uses `warn_at`; the helper `warn_at(message, span)` was added
+and `warn` delegates with `0:0`. yaml_lite's six findings now point at the
+match instead of `0:0`.
+
+### D4 -- generic fn-typed struct fields could never match
+
+`types_compatible` had NO `(Fn, Fn)` arm: fn-pointer types compared only by
+exact structural equality, so a concrete closure (`fn(Int) -> Int`) could
+never fill a generic field (`fn(T) -> U`) and every higher-order iterator
+body errored (`xiom.iter` 17 findings). Fix: structural arm comparing arity
+and recursing into params/return (generic params and wildcards pass, as
+everywhere else). This also unblocked the now-live `iter.xi:629/634`
+declarations from D1b.
+
+### D5 -- first-wins bare slot mis-binds compatible overloads
+
+The global bare-function slot is first-wins; the all-imports corpus binds
+`is_empty` to `xiom.array`'s Array version while `xiom.path` (which imports
+only `xiom.env`) calls `is_empty(str)`. `Path` metadata etc. work in normal
+compiles because `array.xi` is not loaded. Fix: argument types are now
+evaluated ONCE per call (also removing a double-`check_expr` on generic
+positions); when the chosen signature cannot accept the call,
+`resolve_alternative_bare_fn` searches explicitly imported items first, then
+every module surface in sorted key order, for a PUB fn whose signature fits.
+Deterministic; keeps the first-wins sig when nothing fits (errors unchanged).
+
+### D5b -- method leaf names polluted bare-name VISIBILITY too
+
+Same class as the earlier `fn_owner_module` fix: `visibility` was registered
+for METHOD leaf names, so a private `fn Foo.is_empty` marked the bare name
+invisible (first-wins `or_insert`). `is_empty(self.inner)` in xiom.path then
+skipped the entire free-fn resolution path and fell into the imported-items
+fallback with `xiom.array`'s Array signature. Fix: visibility is registered
+for FREE fns only, mirroring the owner map. With that, D5's alternative
+selection picks `xiom.string.is_empty` and the last non-parse finding is
+gone.
+
+### D6 (effectively closed, compiler side) -- field calls vs cross-type methods
+
+`ChainIter[T, U].next`'s `self.second()` was captured by the UNIQUE-CANDIDATE
+wildcard: `DateTime.second(self) -> Int` is the only method named `second`,
+so the call typed `Int` and the `Option[T]` return mismatched. Fix: the
+wildcard method fallback now skips when the RECEIVER's registered surface
+has a FIELD with that name -- struct fields shadow cross-type methods, and
+the existing P2-7 fn-field path then calls `second: fn() -> Option[U]` with
+the correct signature. (The stdlib's `Option[U]` vs `Option[T]` return is
+accepted because both args are generic parameters.)
+
+### D5c -- same-name interfaces with different arities (flaky arity gate)
+
+`Hash` exists as `fn hash() -> UInt64` (xiom.core) and
+`fn hash(self, hasher)` (xiom.hash). The interface-dispatch arity check did
+`interfaces.values().find(|(mn,..)| mn == method)` and enforced THAT
+declaration's arity; `values()` order is random, so `value.hash()` in
+`hash[T: Hash]` flapped between valid (0-arg core declaration) and
+"expects 1 argument(s), found 0" (hasher declaration). Fix: accept the call
+when ANY same-name declaration's arity fits; report only when NONE does;
+the return-type lookup prefers an arity-fitting declaration (deterministic).
+The R8-hardening is preserved: a call with only the 2-param declaration
+present still errors.
+
+### FLIP STATUS
+
+With D1/D2/D4/D5/D5b/D6 the corpus is at **0 findings, 0 hard errors,
+1 parse error** (`xiom.time:232` `<=>` in `ensures:` -- stdlib worklist
+section P). The flip mechanism is staged: `Checker.strict_catalog_findings`
+(default false) + `set_strict_catalog_findings(bool)` makes catalog-body
+findings HARD errors; when the last parse error lands, set the default to
+true and un-ignore `catalog_corpus_is_clean`.
+
+### D3/D6 status (original entries)
+
+D3 (`xiom.path:204` `Err(e).message` typed `Str`) is NOT reproducible at
+HEAD: the body's bare `metadata(self.inner)` takes the free-function path
+(the G-10 explicit-self heuristic only fires for a literal `self`/`this`
+argument), so `e: IOError` and the field access is valid. D6 (ChainIter
+`Option[U]` from `next()`) remains stdlib-design-dependent and is listed for
+the stdlib session; if the design stays, the compiler needs a generic-
+relation rule.
+
+---
+
 ## 2026-09-12 -- Stage 3 Item A step 2: artifact classes FIXED, corpus 779 -> 235
 
 Triage of the 779 catalog-body findings split them into checker artifacts and

@@ -153,6 +153,69 @@ Locks: stdlib_exec_error2_runs (the former flake is now a permanent gate)
 Gates: e2e 2312/2312, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
 checker 182/182.
 
+### Round-56 (2026-09-12): D1/D2/D4/D5 -- catalog parse integrity + parser/checker fixes
+
+Compiler lane. Follow-up slice of the Item A triage; details in
+COMPILER_BUGS.md (top entry).
+
+- **D1**: `CachedModule.parse_errors` records recoverable parser diagnostics;
+  `CatalogCorpusReport.parse_errors` aggregates them; `is_clean()` requires
+  them empty; the gate prints `PARSE line:col: msg`. Immediately exposed 14
+  silently-dropped declarations in 12 modules (stray `}` from removed
+  `unsafe` blocks, `'GBP'` multi-char literals, prose `ensures:`, `fn var`,
+  `<=>`), handed to the stdlib session in ITEM_A_STDLIB_FINDINGS.md section
+  P. User-facing surfacing staged for the flip.
+- **D1b (COMPILER BUG)**: parser could not parse tuple type args in generic
+  struct literals (`MapIter[(Int, T), U]{...}`) -- the tuple-args branch
+  skipped the `{...}` tail and recovery dropped `EnumerateIter.map/take`.
+  Fixed via shared `parse_struct_literal_tail`; repro
+  `tmp/bug_probes/p_d1_tuple_structlit.xi`.
+- **D2**: non-exhaustive-match diagnostics (and every `warn`) hardcoded
+  `Span::new(0,0)`; `warn_at(message, span)` added, match spots thread the
+  real span (yaml_lite findings now point at the match).
+- **D4**: `types_compatible` had no `(Fn, Fn)` arm, so a concrete closure
+  could never fill a generic `fn(T) -> U` field (17 `xiom.iter` findings);
+  structural recursive arm added.
+- **D5**: bare-name resolution picks a compatible same-named pub fn from
+  imported items / module surfaces when the first-wins global sig cannot
+  accept the call (`is_empty(str)`); argument types evaluated once per call
+  (also removes a double `check_expr` on generic positions).
+- **D6** closed compiler-side: `self.second()` was captured by the
+  unique-candidate wildcard (`DateTime.second -> Int`) because no exact
+  `ChainIter.second` method exists; the wildcard now yields when the
+  receiver's registered surface has a FIELD with that name, so the P2-7
+  fn-field path calls `second: fn() -> Option[U]` correctly.
+- **D5b**: `visibility` also registered METHOD leaf names, so a private
+  `fn Foo.is_empty` marked the bare name invisible and skipped the free-fn
+  path (is_empty(self.inner) fell into the imported-items fallback). Free
+  fns only now, mirroring the owner-map fix.
+- **D3** not reproducing at HEAD (the G-10 explicit-self heuristic only
+  fires for a literal `self` argument, so `metadata(self.inner)` takes the
+  free-fn path and `e: IOError`).
+- **D5c**: same-name interfaces with different arities (`Hash`: 0-arg in
+  xiom.core, `hash(self, hasher)` in xiom.hash) made the interface arity
+  gate flaky under HashMap order; the gate now accepts any same-name
+  declaration whose arity fits and only errors when none does.
+- **R14 ROOT-CAUSED + FIXED**: the combined iter probe AV was NOT chain
+  corruption. `"E[0]=" + result[0]` (element 9) emitted `inttoptr i64 9`
+  because `expr_is_integer`'s `Expr::Index` case only saw Vec locals with a
+  registered element map -- chained single-expression `.collect()` Vecs have
+  none. Concat sites now fall back to the compiled LLVM type for Index/Field
+  operands (`llvm_scalar_is_int`), so iN scalars are formatted. Locked by
+  `e2e_m71_concat_index_elem`; `p_iter_pipeline_r32.xi` exits 0.
+- **FLIP STAGED**: `Checker.strict_catalog_findings` +
+  `set_strict_catalog_findings` turn catalog-body findings into hard errors
+  (default false until clean). Corpus at this freeze: **0 findings, 0 hard
+  errors, 1 parse error** (`xiom.time:232` `<=>` -- stdlib section P). Set
+  the default true + un-ignore `catalog_corpus_is_clean` once it lands.
+
+Gates at the round-56 commit: parser 99/99, checker 187/187 (+1 pending
+gate), feature-reg 510/510, stdlib-exec 85/85 (+2 ign), e2e 2318/2318
+(2317 + the new R14 lock), xiom-ast 9/9, xiom lib 20/20, fmt 83/83, lsp
+42/42, jit 5/5, `cargo check --workspace` clean. Corpus at the freeze:
+0 findings, 0 hard errors, 1 parse error (`xiom.time:232` `<=>` -- stdlib
+section P; the flip is one stdlib line + one default flip away).
+
 ### Round-55 (2026-09-12): Stage 3 Item A step 2 -- corpus artifacts FIXED (779 -> 235)
 
 Compiler lane. Every checker artifact identified in the 779-finding triage is
@@ -648,7 +711,7 @@ DISCIPLINE TRAPS (learned this campaign, keep honoring):
 
 You are continuing the AXIOM compiler-lane readiness campaign in
 E:\Projects\AXIOM on branch feat/architect. Read docs/SESSION.md
-(rounds 38-55 + COMPILER-LANE REMAINING QUEUE), docs/COMPILER_BUGS.md and
+(rounds 38-56 + COMPILER-LANE REMAINING QUEUE), docs/COMPILER_BUGS.md and
 docs/ITEM_A_STDLIB_FINDINGS.md (the stdlib handoff from the corpus triage)
 first; COMPILER_READINESS_PLAN.md holds the stage definitions;
 docs/LET_ARRAY_DECISION.md and docs/JSON_DIAGNOSTICS_V1.md are current
@@ -683,26 +746,24 @@ workspace version/MSRV (1.86) + cargo-deny + CI hygiene (fixed a rotted
 xiom-mcp member), driver target-named files, JSON diagnostics v1 schema.
 
 Your task, in order:
-1. Stage 3 ITEM A -- finish the compiler side and flip when the stdlib lane
-   clears its worklist. Re-measure with
+1. Stage 3 ITEM A -- D1 (catalog parse diagnostics as gate hard errors),
+   D1b (tuple type args in generic struct literals), D2 (real match spans),
+   D4 ((Fn, Fn) structural compatibility), D5 (argument-aware bare-name
+   selection), D5b (visibility free-fns-only) and D6 (field calls shadow
+   cross-type wildcard methods) LANDED in round-56. Corpus at the freeze:
+   0 findings, 0 hard errors, 1 parse error (`xiom.time:232` `<=>` in
+   `ensures:` -- stdlib section P). The FLIP mechanism is staged
+   (`strict_catalog_findings`); when the last parse error lands, set the
+   default to true and un-ignore `catalog_corpus_is_clean`. The stdlib
+   session owns the remaining item and can re-measure with
    `cargo test -p xiom-check catalog_corpus_is_clean -- --ignored
-   --nocapture` (add `$env:XIOM_CATALOG_DUMP='1'` for every site). The
-   remaining 235 findings are categorized in ITEM_A_STDLIB_FINDINGS.md;
-   the compiler-side artifact candidates queued there are: (D3) the
-   `Result[Metadata, IOError]` match binding typing `e: Str` in
-   xiom.path:204, (D4) generic struct-literal field substitution
-   (`fn(T)->U` vs `fn(Int)->U` in xiom.iter), (D5) argument-aware bare-name
-   resolution for cross-module collisions (xiom.path:262 `is_empty`), (D6)
-   ChainIter[T,U] generic return laxity if the stdlib keeps the design.
-   Also (D1) persist catalog PARSE diagnostics on CachedModule instead of
-   silently dropping declarations recovered by the parser (xiom.char
-   `'GBP'`), and (D2) assign spans to non-exhaustive-match diagnostics.
-   Flip `checking_catalog` findings to HARD ERRORS only when
-   `CatalogCorpusReport::is_clean()` and turn the ignored gate into a real
-   gate.
-2. R14: the combined stage probe p_iter_pipeline_r32.xi AVs on r29/r30/HEAD
-   -- needs the sanitizer / Application-Verifier pass (Stage 5 fuzz+sanitizer
-   CI lands first).
+   --nocapture` (`$env:XIOM_CATALOG_DUMP='1'` for every site).
+2. R14 FIXED in round-56 (root cause: `Str + vec[i]` emitted inttoptr for
+   the element; concat verdict now falls back to the compiled LLVM type;
+   lock `e2e_m71_concat_index_elem`). The ASAN pass is wired
+   (`--sanitize=address`, runtime at
+   C:\Program Files\LLVM\lib\clang\22\lib\windows) -- use it for Stage 5
+   fuzz+sanitizer CI.
 3. Stage 5 remainder: LSP incremental reparse/cross-file index; dbg async
    MI reader + .xi DWARF; cargo-fuzz targets over lexer/parser/CTFE +
    ASAN/UBSAN CI; full clap migration of the driver parser; supply chain
