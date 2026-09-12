@@ -69,10 +69,14 @@ pub struct Checker {
     impls: HashMap<String, HashMap<String, (String, Vec<String>, Option<String>)>>,
     /// Visibility: name -> is_pub for top-level items
     visibility: HashMap<String, bool>,
-    /// BUG 25 #11 fix: fn name -> owning module path (empty = top-level).
+    /// BUG 25 #11 fix: fn name -> EVERY owning module path (empty = top-level).
     /// Bare-call resolution uses this + visibility to keep PRIVATE fns of
-    /// imported modules out of the importing module's namespace.
-    fn_owner_module: HashMap<String, String>,
+    /// imported modules out of the importing module's namespace. A SET because
+    /// independent catalog modules legitimately reuse private helper names
+    /// (`_u32_mask` in xiom.chacha AND xiom.crypto.*): the old single-owner
+    /// map let the first registration win, so the other module's own body saw
+    /// its private helper as undefined.
+    fn_owner_module: HashMap<String, HashSet<String>>,
     /// Resolved imported names from use declarations
     imported_items: HashMap<String, ModuleExport>,
     /// BUG 25 #2 fix: `use X.Y.f as alias;` -- alias -> the FULL dotted use
@@ -84,6 +88,11 @@ pub struct Checker {
     /// Module-level `const`/`var` global names -> declared type (so references to
     /// them inside functions resolve instead of erroring "undefined variable").
     global_consts: HashMap<String, CheckedType>,
+    /// Stage 3 Item A: catalog module path -> module-level const/var types.
+    /// Independent catalog modules reuse const names (`_K1`, `_PI`, ...), so
+    /// catalog globals are module-scoped; `global_consts` stays the
+    /// program-level bare-name map.
+    catalog_global_consts: HashMap<String, HashMap<String, CheckedType>>,
     /// Enum variant name -> field name -> field type (for variant constructors)
     variant_fields: HashMap<String, Vec<(String, CheckedType)>>,
     /// Directories to search for external module files
@@ -124,6 +133,14 @@ pub struct Checker {
     /// modules' same-named types shadow the correct one -- `Future` in
     /// smoke_async).
     module_import_paths: HashMap<String, HashSet<String>>,
+    /// Stage 3 Item A: catalog modules whose bodies await checking. Bodies
+    /// are queued at registration and flushed at the end of `resolve_imports`
+    /// (collect-then-check), once the whole import graph is registered, with
+    /// each module's own `use` aliases available under its module context.
+    pending_catalog_bodies: Vec<CachedModule>,
+    /// Dotted names (or source-hash keys) of catalog bodies already checked --
+    /// idempotent across repeated `check_program` calls / LSP snapshots.
+    checked_catalog_bodies: HashSet<String>,
     /// 5c-R: Counter for emitted errors -- enables `has_errors()` gate for
     /// "stop on first error" discipline (rustc lesson: ErrorGuaranteed).
     error_count: usize,
@@ -181,6 +198,31 @@ pub struct Checker {
     ffi_convert_fns: HashSet<String>,
 }
 
+/// Stage 3 Item A: import-resolution state captured around one catalog
+/// module's body check and restored afterwards. Catalog-private `use`
+/// aliases must not become visible to user code or to sibling modules.
+struct CatalogImportContext {
+    modules: HashMap<String, HashMap<String, ModuleExport>>,
+    imported_items: HashMap<String, ModuleExport>,
+    local_module_paths: HashMap<String, String>,
+    module_import_paths: HashMap<String, HashSet<String>>,
+    use_alias_paths: HashMap<String, String>,
+    /// A catalog module's `use` may fallback-LOAD a module the user program
+    /// never imported; the load registers signatures first-wins, which would
+    /// hijack the user's resolution (m43 closure adapters miscompiled). The
+    /// registration tables are therefore part of the isolated context too.
+    functions: HashMap<String, FnSig>,
+    visibility: HashMap<String, bool>,
+    fn_owner_module: HashMap<String, HashSet<String>>,
+    methods: HashMap<String, HashMap<String, FnSig>>,
+    /// Qualified-call resolution caches populated while checking a catalog
+    /// body. `peeked_resolved` is the CODEGEN injection set -- leaking a
+    /// catalog-private submodule into it added concrete defines the user
+    /// program never referenced (m43 closure adapters changed codegen).
+    submodule_aliases: HashMap<String, HashMap<String, ModuleExport>>,
+    peeked_resolved: HashSet<String>,
+}
+
 impl Checker {
     pub fn new() -> Self {
         let mut checker = Self {
@@ -203,6 +245,7 @@ impl Checker {
             use_alias_paths: HashMap::new(),
             enum_variants: HashMap::new(),
             global_consts: HashMap::new(),
+            catalog_global_consts: HashMap::new(),
             variant_fields: HashMap::new(),
             source_dirs: Vec::new(),
             catalog: ModuleCatalog::new(Vec::new()),
@@ -211,6 +254,8 @@ impl Checker {
             peeked_resolved: HashSet::new(),
             local_module_paths: HashMap::new(),
             module_import_paths: HashMap::new(),
+            pending_catalog_bodies: Vec::new(),
+            checked_catalog_bodies: HashSet::new(),
             current_receiver: None,
             current_generic_bounds: HashMap::new(),
             error_count: 0,
@@ -300,21 +345,101 @@ impl Checker {
                     .or_insert(exports);
             }
         }
-
-        // ITEM A (Stage 3): CATALOG BODY TYPE-CHECKING (Phase 1 rollout).
-        // External module bodies were registered signature-only --
-        // undefined bare names inside them silently became zero-param
-        // stubs (path.xi join_paths). Bodies are now checked; findings
-        // surface as WARNINGS while the catalog corpus gets cleaned up,
-        // after which checking_catalog routing flips to hard errors.
-        let prev_module = self.current_module.clone();
-        self.current_module = None; // items are top-level; Module arms join
-        self.checking_catalog = true;
+        // Stage 3 Item A: module-level const/var globals must resolve inside
+        // catalog bodies (they were never registered -- `_K1`, `_PI`,
+        // `NANOS_PER_SEC`, ... reported undefined). Scoped per module so
+        // same-named consts in independent modules cannot collide.
         for item in &program.items {
-            self.check_top_decl(item);
+            self.register_catalog_globals(item, "");
+        }
+
+        // ITEM A (Stage 3): CATALOG BODY TYPE-CHECKING, phase 2 --
+        // COLLECT-THEN-CHECK. Registration (types/signatures/interfaces)
+        // happens here; bodies are QUEUED and checked at the end of
+        // `resolve_imports`, once the whole import graph exists. Phase 1
+        // checked bodies at load time, before dependencies were registered
+        // and with no `use` processing, so module aliases (`math`, `string`,
+        // ...) were undefined and produced ~19k false findings.
+        let key = if cached.dotted_name.is_empty() {
+            format!("#{:016x}", cached.source_hash)
+        } else {
+            cached.dotted_name.clone()
+        };
+        if !self.checked_catalog_bodies.contains(&key) {
+            self.pending_catalog_bodies.push(cached.clone());
+        }
+    }
+
+    /// Stage 3 Item A: check every queued catalog module body now that the
+    /// full import graph is registered. Each body is checked with its own
+    /// `use` declarations processed under a PER-MODULE ISOLATED import
+    /// context (restored afterwards), so catalog-private aliases neither leak
+    /// into user resolution nor into sibling modules.
+    pub fn flush_catalog_bodies(&mut self) {
+        if self.pending_catalog_bodies.is_empty() {
+            return;
+        }
+        let pending = std::mem::take(&mut self.pending_catalog_bodies);
+        let prev_module = self.current_module.take();
+        self.checking_catalog = true;
+        for cached in &pending {
+            let key = if cached.dotted_name.is_empty() {
+                format!("#{:016x}", cached.source_hash)
+            } else {
+                cached.dotted_name.clone()
+            };
+            if !self.checked_catalog_bodies.insert(key.clone()) {
+                continue; // checked in an earlier flush
+            }
+            let ctx = self.capture_catalog_import_context();
+            let before = self.warnings.len();
+            for item in &cached.program.items {
+                self.check_top_decl(item);
+            }
+            // Tag this module's findings with provenance -- the spans carry
+            // only line/col, and the stdlib lane needs file-level triage.
+            for w in self.warnings[before..].iter_mut() {
+                const PREFIX: &str = "catalog body: ";
+                if let Some(rest) = w.message.strip_prefix(PREFIX) {
+                    w.message = format!("catalog body [{}]: {}", key, rest);
+                }
+            }
+            self.restore_catalog_import_context(ctx);
         }
         self.checking_catalog = false;
         self.current_module = prev_module;
+    }
+
+    /// Snapshot of the import-resolution state a catalog module's body check
+    /// may mutate, so its private `use` aliases stay scoped to that module.
+    fn capture_catalog_import_context(&self) -> CatalogImportContext {
+        CatalogImportContext {
+            modules: self.modules.clone(),
+            imported_items: self.imported_items.clone(),
+            local_module_paths: self.local_module_paths.clone(),
+            module_import_paths: self.module_import_paths.clone(),
+            use_alias_paths: self.use_alias_paths.clone(),
+            functions: self.functions.clone(),
+            visibility: self.visibility.clone(),
+            fn_owner_module: self.fn_owner_module.clone(),
+            methods: self.methods.clone(),
+            submodule_aliases: self.submodule_aliases.clone(),
+            peeked_resolved: self.peeked_resolved.clone(),
+        }
+    }
+
+    fn restore_catalog_import_context(&mut self, ctx: CatalogImportContext) {
+        self.modules = ctx.modules;
+        self.imported_items = ctx.imported_items;
+        self.local_module_paths = ctx.local_module_paths;
+        self.module_import_paths = ctx.module_import_paths;
+        self.use_alias_paths = ctx.use_alias_paths;
+        self.functions = ctx.functions;
+        self.visibility = ctx.visibility;
+        self.fn_owner_module = ctx.fn_owner_module;
+        self.methods = ctx.methods;
+        self.submodule_aliases = ctx.submodule_aliases;
+        self.peeked_resolved = ctx.peeked_resolved;
     }
 
     /// Stage 3 Item A: type-check EVERY indexed catalog module body through
@@ -1027,8 +1152,18 @@ impl Checker {
     /// S2: Emit a warning -- adds to the error list but does NOT increment
     /// error_count. This means compilation proceeds but the warning is visible.
     fn warn(&mut self, message: impl Into<String>) {
+        let msg = message.into();
+        // Stage 3 Item A: warnings raised while checking a catalog body are
+        // catalog findings. Tag them with the same prefix the driver
+        // classifies by, so they can never surface as USER-code warnings
+        // (m16/m17 zero-warning contracts).
+        let message = if self.checking_catalog && !msg.starts_with("catalog body") {
+            format!("catalog body: {msg}")
+        } else {
+            msg
+        };
         self.warnings.push(CheckError {
-            message: message.into(),
+            message,
             span: Span::new(0, 0),
             cause: crate::types::TypeCause::Other,
             guaranteed: xiom_ast::ErrorGuaranteed::new(),
@@ -1282,6 +1417,48 @@ impl Checker {
             }
             _ => {}
         }
+    }
+
+    /// Stage 3 Item A: register a CATALOG module's const/var globals under its
+    /// module path. Same elision rules as `register_global_const`, but the
+    /// map is module-scoped (see `catalog_global_consts`).
+    fn register_catalog_globals(&mut self, item: &TopDecl, module_path: &str) {
+        match item {
+            TopDecl::Const(cd) => {
+                let decl_ty = CheckedType::from_ast_type(&cd.ty);
+                let is_elided = matches!(&cd.ty, Type::Named(n, _) if n.name == "_");
+                let ty = if !is_elided && decl_ty != CheckedType::Error {
+                    decl_ty
+                } else {
+                    Self::infer_global_init_type(&cd.value)
+                };
+                self.catalog_global_consts
+                    .entry(module_path.to_string())
+                    .or_default()
+                    .insert(cd.name.name.clone(), ty);
+            }
+            TopDecl::Module(md) => {
+                let new_path = if module_path.is_empty() {
+                    md.name.name.clone()
+                } else {
+                    format!("{}.{}", module_path, md.name.name)
+                };
+                for sub in &md.items {
+                    self.register_catalog_globals(sub, &new_path);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Resolve a bare global const/var name: program-level first, then the
+    /// CURRENT module's catalog globals.
+    fn lookup_global_const(&self, name: &str) -> Option<&CheckedType> {
+        if let Some(ty) = self.global_consts.get(name) {
+            return Some(ty);
+        }
+        let module = self.current_module.as_deref().unwrap_or("");
+        self.catalog_global_consts.get(module).and_then(|m| m.get(name))
     }
 
     /// Structural type inference for a module-global initializer. NEVER emits
@@ -1849,7 +2026,7 @@ impl Checker {
                 // xiom.encoding.base64_index) OVERWRITE the owner record of
                 // the user's own same-named fn, so the visibility gate
                 // rejected the user's bare call ("undefined variable").
-                self.fn_owner_module.entry(fd.name.name.clone()).or_insert(module_path.to_string());
+                self.fn_owner_module.entry(fd.name.name.clone()).or_default().insert(module_path.to_string());
                 self.visibility.entry(fd.name.name.clone()).or_insert(fd.is_pub);
                 // Track methods separately
                 if let Some(recv) = fd.receiver.as_ref() {
@@ -1927,6 +2104,15 @@ impl Checker {
                     self.check_top_decl(item);
                 }
                 self.current_module = prev;
+            }
+            TopDecl::Use(ud) => {
+                // Stage 3 Item A: a catalog body must resolve its OWN imports.
+                // User-program uses are processed globally in resolve_imports;
+                // catalog-mode uses are processed here under the per-module
+                // isolated context set up by flush_catalog_bodies.
+                if self.checking_catalog {
+                    self.process_use(ud);
+                }
             }
             TopDecl::Const(cd) => {
                 let val_ty = self.check_expr(&cd.value);
@@ -2142,6 +2328,10 @@ impl Checker {
             self.process_use(ud);
         }
         self.imports = import_snapshot;
+
+        // Stage 3 Item A: the import graph and the program's own aliases are
+        // complete -- run the deferred catalog-body checks (collect-then-check).
+        self.flush_catalog_bodies();
     }
 
     fn flatten_submodules(&mut self, items: &[TopDecl]) {
@@ -3086,7 +3276,17 @@ impl Checker {
                 // above already resolved directory-module paths; here the last
                 // segment is either part of the module path or the item itself.
                 let full_path: Vec<String> = effective_path.iter().map(|p| p.name.clone()).collect();
-                if let Some(cached) = self.catalog.find_owned(&full_path) {
+                // Stage 3 Item A: while checking a catalog body, resolve its
+                // private imports with the NON-CACHING peek -- find_owned
+                // caches the file, and the driver injects every cached module
+                // into codegen, so catalog-private deps leaked concrete
+                // defines into unrelated programs (m43 closure adapters).
+                let loaded = if self.checking_catalog {
+                    self.catalog.peek_owned(&full_path)
+                } else {
+                    self.catalog.find_owned(&full_path)
+                };
+                if let Some(cached) = loaded {
                     // Register function signatures from the loaded module so
                     // method resolution works (e.g. Vec.insert, Map.contains).
                     // build_module_map creates export maps but doesn't register
@@ -3130,7 +3330,12 @@ impl Checker {
                     let mut resolved: Option<(usize, CachedModule)> = None;
                     for j in i..effective_path.len() {
                         let cand: Vec<String> = effective_path[0..=j].iter().map(|p| p.name.clone()).collect();
-                        if let Some(cached) = self.catalog.find_owned(&cand) {
+                        let loaded = if self.checking_catalog {
+                            self.catalog.peek_owned(&cand)
+                        } else {
+                            self.catalog.find_owned(&cand)
+                        };
+                        if let Some(cached) = loaded {
                             resolved = Some((j, cached));
                             break;
                         }
@@ -3191,7 +3396,12 @@ impl Checker {
                     // path from catalog (e.g. "xiom.async" when the parent module
                     // "xiom" is incomplete or the submodule wasn't pre-indexed).
                     let full_path: Vec<String> = effective_path.iter().map(|p| p.name.clone()).collect();
-                    if let Some(cached) = self.catalog.find_owned(&full_path) {
+                    let loaded = if self.checking_catalog {
+                        self.catalog.peek_owned(&full_path)
+                    } else {
+                        self.catalog.find_owned(&full_path)
+                    };
+                    if let Some(cached) = loaded {
                         let module_exports = self.module_exports_with_submodules(&cached);
                         let local_name = ud.alias.as_ref()
                             .map(|a| a.name.clone())
@@ -4372,7 +4582,7 @@ impl Checker {
                     CheckedType::named("Ptr")
                 } else if let Some(ty) = self.lookup_local(lookup_name) {
                     ty.clone()
-                } else if let Some(ty) = self.global_consts.get(&ident.name) {
+                } else if let Some(ty) = self.lookup_global_const(&ident.name) {
                     ty.clone()
                 } else if self.functions.contains_key(&ident.name)
                     // BUG 25 #11 fix: a PRIVATE fn of an imported module must
@@ -4382,7 +4592,9 @@ impl Checker {
                     // CURRENT module, and top-level program fns.
                     && (self.visibility.get(&ident.name).copied().unwrap_or(true)
                         || self.fn_owner_module.get(&ident.name)
-                            .map(|m| m.is_empty() || Some(m.as_str()) == self.current_module.as_deref())
+                            .map(|owners| owners.iter().any(|m| {
+                                m.is_empty() || Some(m.as_str()) == self.current_module.as_deref()
+                            }))
                             .unwrap_or(true))
                 {
                     CheckedType::Named("fn".into())
@@ -5339,7 +5551,9 @@ impl Checker {
                     // same-named calls in the importing module).
                     let visible = self.visibility.get(&name.name).copied().unwrap_or(true)
                         || self.fn_owner_module.get(&name.name)
-                            .map(|m| m.is_empty() || Some(m.as_str()) == self.current_module.as_deref())
+                            .map(|owners| owners.iter().any(|m| {
+                                m.is_empty() || Some(m.as_str()) == self.current_module.as_deref()
+                            }))
                             .unwrap_or(true);
                     // Try module-prefixed key first, then bare name
                     let fn_sig = if visible {
@@ -7755,21 +7969,36 @@ fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0
     /// explicitly to re-measure:
     /// `cargo test -p xiom-check catalog_corpus_is_clean -- --ignored --nocapture`
     #[test]
-    #[ignore = "blocked: ~19k catalog-body findings until per-module import context lands"]
+    #[ignore = "blocked: ~5.2k catalog-body findings remain after the import-context fix; flip when clean"]
     fn catalog_corpus_is_clean() {
         let mut checker = Checker::new();
         checker.add_source_dir(project_root().join("stdlib").to_string_lossy().to_string());
         checker.build_catalog_index();
         let report = checker.check_catalog_corpus();
-        let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut by_module: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut by_class: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
         for w in &report.findings {
-            let key: String = w.message.chars().take(72).collect();
-            *counts.entry(key).or_insert(0) += 1;
+            let rest = w.message.strip_prefix("catalog body [").unwrap_or("");
+            let (module, msg) = match rest.split_once("]: ") {
+                Some((m, r)) => (m.to_string(), r.to_string()),
+                None => ("<untagged>".to_string(), w.message.clone()),
+            };
+            *by_module.entry(module).or_insert(0) += 1;
+            let class: String = msg.chars().take(64).collect();
+            *by_class.entry(class).or_insert(0) += 1;
         }
-        let mut sorted: Vec<_> = counts.into_iter().collect();
-        sorted.sort_by(|a, b| b.1.cmp(&a.1));
-        for (k, n) in sorted.iter().take(15) {
-            eprintln!("  {n:5}  {k}");
+        let mut mods: Vec<_> = by_module.into_iter().collect();
+        mods.sort_by(|a, b| b.1.cmp(&a.1));
+        for (m, n) in mods.iter().take(20) {
+            eprintln!("  MOD {n:5}  {m}");
+        }
+        let mut classes: Vec<_> = by_class.into_iter().collect();
+        classes.sort_by(|a, b| b.1.cmp(&a.1));
+        for (k, n) in classes.iter().take(15) {
+            eprintln!("  CLS {n:5}  {k}");
+        }
+        for w in report.findings.iter().take(30) {
+            eprintln!("  SAMPLE {}:{}: {}", w.span.line, w.span.col, w.message);
         }
         assert!(report.is_clean(),
             "catalog corpus not clean: {} findings, {} hard errors ({} other warnings)",
