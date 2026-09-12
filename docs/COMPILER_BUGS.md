@@ -60,14 +60,18 @@ artifact classes are separated from real findings:
 Measured corpus (`catalog_corpus_is_clean`, ignored pending gate):
 **779 findings, 0 hard errors, 0 other warnings** (was 19,287 with the old
 phase; intermediate 5,216 after the import context, 2,477 after owner sets,
-then globals + isolation). The alias classes (`string` 4318, `math` 1806,
-`convert`, `io`, `bigint`, ...) are GONE. Remaining top classes are concrete
-and triageable (per-module tags are in the finding messages):
-`Num` 36, `PrecisionLimits` 22, `panic` 21 (builtin resolution),
-ambiguous `time` 17, Float64/Int mixing 28, `date_day_of_week` 16,
-`Array[T]` arg mismatch 18, extern-requires-unsafe ~59, pointer-to-pointer
-casts 21, plus T003/T007 confinement findings. These are stdlib-lane
-triage items; the flip stays GATED until `report.is_clean()`.
+then globals + isolation). The gate prints one representative finding per
+class (`ONE module:line:col`) plus per-module counts, so the remaining work
+is triageable from a single run. The alias classes (`string` 4318, `math`
+1806, `convert`, `io`, `bigint`, ...) are GONE. Remaining classes separate
+into likely CHECKER artifacts -- static calls like `time.Duration.from_*`
+resolve in ordinary user compiles but not in the all-imports corpus context
+(`cannot call 'from_millis'`), `undefined variable 'Num'/'Ord'` (interface
+receivers), `PrecisionLimits`, `cannot call 'panic'` (builtin), ambiguous
+bare `time`/`spawn` (current-module preference) -- and likely REAL stdlib
+findings: extern-requires-unsafe ~59, pointer-to-pointer casts ~21,
+T003/T007 confinement, Float64/Int mixing 28, `Array[T]` arg mismatch 18,
+`date_day_of_week` 16. The flip stays GATED until `report.is_clean()`.
 
 REGRESSION CAUGHT MID-SLICE (fixed): the first flush attempt let catalog
 private deps load through `find_owned`, which CACHES them -- the driver

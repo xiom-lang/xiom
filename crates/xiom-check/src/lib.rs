@@ -8041,8 +8041,19 @@ fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0
         for (k, n) in classes.iter().take(15) {
             eprintln!("  CLS {n:5}  {k}");
         }
-        for w in report.findings.iter().take(30) {
-            eprintln!("  SAMPLE {}:{}: {}", w.span.line, w.span.col, w.message);
+        // One representative finding per class (module:line:col) so the
+        // remaining work is triageable without re-running anything.
+        let mut first_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for w in &report.findings {
+            let rest = w.message.strip_prefix("catalog body [").unwrap_or("");
+            let (module, msg) = match rest.split_once("]: ") {
+                Some((m, r)) => (m.to_string(), r.to_string()),
+                None => ("<untagged>".to_string(), w.message.clone()),
+            };
+            let class: String = msg.chars().take(48).collect();
+            if first_seen.insert(class.clone()) {
+                eprintln!("  ONE {module}:{}:{}: {}", w.span.line, w.span.col, msg);
+            }
         }
         assert!(report.is_clean(),
             "catalog corpus not clean: {} findings, {} hard errors ({} other warnings)",
