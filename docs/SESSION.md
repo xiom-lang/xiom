@@ -184,7 +184,10 @@ module-scoped catalog globals (`_K1`/`_PI`/`NANOS_PER_SEC`), and
 catalog-tagged `warn()`. Corpus: 19,287 -> 5,216 -> 2,477 -> **779
 findings, 0 hard errors, 0 other warnings**; alias classes gone, flip still
 gated on triage of the remaining (~59 extern-unsafe, ~21 ptr casts, T003/
-T007, `Num`/`panic`/ambiguity classes). Mid-slice regression fixed: the
+T007, `Num`/`panic`/ambiguity classes). The gate prints one representative
+finding per class (`ONE module:line:col`) plus per-module counts; triage
+split (checker-artifact candidates vs likely real findings) is in
+COMPILER_BUGS.md. Mid-slice regression fixed: the
 first flush cached catalog-private deps, which the driver injects into
 codegen (m43 closure adapters miscompiled); peek + isolation restored e2e
 2316/2316. Gates: checker 187/187 (+1 pending gate), feature-reg 510/510,
