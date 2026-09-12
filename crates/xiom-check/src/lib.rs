@@ -2820,12 +2820,56 @@ impl Checker {
         // (ret null -> inttoptr garbage -> crash). Inject them exactly like
         // cached modules; the reachability filter below prunes everything
         // the program does not actually reference.
-        for dotted in &self.peeked_resolved {
+        //
+        // R9: and inject their TRANSITIVE `use` dependencies, in the same
+        // deterministic dotted-name order all_cached() uses. A peeked shim
+        // (`xiom.string.glob`) delegates to its canonical target
+        // (`xiom.misc.glob`) by full path; without the dependency the inner
+        // call had no registered target and codegen bound it to the shim
+        // itself -> infinite recursion at runtime (0xC0000409). Dotted-name
+        // order registers the target before the shim, so the shim's
+        // duplicate leaf-qualified key is the one skipped (same first-wins
+        // outcome as the normal import path).
+        fn collect_use_paths(items: &[TopDecl], out: &mut Vec<String>) {
+            for item in items {
+                match item {
+                    TopDecl::Use(ud) => {
+                        let mut segs: Vec<String> = ud.path.iter().map(|i| i.name.clone()).collect();
+                        if segs.len() > 1 && segs[0] == "stdlib" {
+                            segs.remove(0);
+                        }
+                        if !segs.is_empty() {
+                            out.push(segs.join("."));
+                        }
+                    }
+                    TopDecl::Module(md) => collect_use_paths(&md.items, out),
+                    _ => {}
+                }
+            }
+        }
+        let mut peek_set: HashMap<String, CachedModule> = HashMap::new();
+        let mut peek_queue: Vec<String> = self.peeked_resolved.iter().cloned().collect();
+        while let Some(dotted) = peek_queue.pop() {
+            if peek_set.contains_key(&dotted) {
+                continue;
+            }
             let segs: Vec<String> = dotted.split('.').map(|s| s.to_string()).collect();
             if let Some(cached) = self.catalog.peek_owned(&segs) {
-                let cached_module_name = cached.dotted_name.clone();
-                collect_pub_decls(&cached.program.items, &mut existing, PRIMITIVES, &generic_type_names, &cached_module_name, &mut decls);
+                let mut deps = Vec::new();
+                collect_use_paths(&cached.program.items, &mut deps);
+                for dep in deps {
+                    if !peek_set.contains_key(&dep) {
+                        peek_queue.push(dep);
+                    }
+                }
+                peek_set.insert(dotted, cached);
             }
+        }
+        let mut peeked: Vec<CachedModule> = peek_set.into_values().collect();
+        peeked.sort_by(|a, b| a.dotted_name.cmp(&b.dotted_name));
+        for cached in peeked {
+            let cached_module_name = cached.dotted_name.clone();
+            collect_pub_decls(&cached.program.items, &mut existing, PRIMITIVES, &generic_type_names, &cached_module_name, &mut decls);
         }
 
         // Reachability filter: only inject FUNCTIONS whose (leaf) name is actually
