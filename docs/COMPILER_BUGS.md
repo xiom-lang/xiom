@@ -4769,5 +4769,21 @@ Stage 2c TypeId/canonical-key work; tuple names with UInt64 elements are
 not unified with the Int-defaulted tuple in the call lowering.
 Impact: farm/spooky/hash tuple consumers.
 
+## 2026-09-12 (stdlib lane, r33 re-verification) -- R11/R12/R13 FIXED by b8e2fa43; 935/935 all-green
+
+The three r31/r32 regressions were an earlier revision of the compiler
+lane's in-flight Stage 3 Item A work (phase 1 at load time), superseded by
+the committed collect-then-check implementation (b8e2fa43). On a fresh
+isolated build of that HEAD (target_r33, built from the committed tree):
+
+- p_iter_filter_r32: green (was run=1 on r31/r32)
+- p_ct_tower2: green (was clang failure)
+- p_hash_tuple: green (was clang failure)
+
+Full r33 sweep: 935 files -> 935 PASS / 0 RUNFAIL / 0 COMPILEFAIL. This
+is the first all-green corpus, and it includes the stdlib session's new
+smoke_serialize_csv. R11/R12/R13 are CLOSED; the r32 reds were WIP
+collateral, not committed-baseline defects.
+
 
 
