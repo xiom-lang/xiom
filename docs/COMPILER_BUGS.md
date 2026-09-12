@@ -5078,6 +5078,24 @@ Fix direction: qualify the codegen key by the FULL module path
 detect same-leaf key collisions and fall back to the dotted path for the
 second registration.
 
+RE-TEST after round 56 (9e625094, built as target_r37, 2026-09-12):
+the base32 shim was re-landed and the same-leaf delegation now COMPILES
+but returns a SILENT EMPTY value for the same-name fns (crash -> wrong
+result):
+- p_b32_s5a: `let e = convert-shim.base32_encode(&[102,111,111])` prints
+  `B-enc=` (empty) instead of `MZXW6===`.
+- p_b32_s5b (direct concat operand) same empty result, exit 0.
+- The differently-named legs work: `base32hex_encode` ->
+  `CPNMU===`, `base32hex_decode("CPNMU===")` -> 3 bytes.
+- smoke_convert_base32 with the shim crashed 0xC0000005; with the local
+  implementation restored it is green and `base32_encode` is correct.
+So round 56's D5 work fixed silent crashes for user-module shadowing but
+NOT catalog-vs-catalog same-leaf + same-name delegation: the shim's
+same-named call still binds the wrong definition (empty Str path).
+Stdlib action: shim reverted again (local impl kept); the encoding-family
+consolidation stays gated on this exact same-name case. Probes preserved
+(p_b32_s5a/s5b, p_b32_shim2/3).
+
 ## R16. `ptr + int` in a call argument miscompiles (memcpy dest offset) -- Int-cast workaround
 
 Found 2026-09-12 (stdlib lane, re-test of the reverted string fast-path,
@@ -5099,6 +5117,22 @@ fast-path commit 21691b44 (revert d0a3851c) used `buf + len_a`, which
 matches finding 13's chained-concat corruption from the 3rd link.
 Stdlib re-landed the fast path on 2026-09-12 using the F workaround;
 the underlying miscompile remains for other callers.
+
+## 2026-09-12 (stdlib lane) -- Item A corpus CLEAN; strict flip unblocked
+
+The last stdlib parse item is fixed: `xiom.time:232`'s non-operator `<=>`
+was replaced with the exact active contract
+`result.is_ok == (self.secs > earlier.secs || (self.secs == earlier.secs
+&& self.nanos >= earlier.nanos))` (the handed `secs >=` form is wrong on
+the equal-seconds nanos-borrow edge; probe p_duration_since.xi covers all
+five branches). Commit e4d3ee1d.
+
+Re-measure on committed HEAD 9e625094: `cargo test -p xiom-check
+catalog_corpus_is_clean -- --ignored --nocapture` **PASSES** -> 0
+findings, 0 hard errors, 0 parse errors; `is_clean() == true`. The staged
+flip (`strict_catalog_findings: true` + `#[ignore]` removal) is
+unblocked from the stdlib side. Runtime re-checks: 39/39 time smokes
+green; full r36 sweep 935/935 (pre-fix binary) stands.
 
 
 
