@@ -4785,5 +4785,75 @@ is the first all-green corpus, and it includes the stdlib session's new
 smoke_serialize_csv. R11/R12/R13 are CLOSED; the r32 reds were WIP
 collateral, not committed-baseline defects.
 
+## R15. Leaf-qualified codegen key collision: same-leaf modules + same-name fns bind a wrong 0-arg stub (delegation crash)
+
+Found 2026-09-12 (stdlib lane, dedup wave 2). A delegating shim crashes at
+runtime when its module leaf equals the canonical module leaf AND its fn
+name equals the callee fn name. Probe pair preserved in stdlib_ws\probes:
+- p_b32_shim.xi (`use xiom.convert.base32; base32.base32_encode(&v)`) ->
+  exit 0xC000001D (0xC0000005 via smoke_convert_base32), no stdout even
+  with explicit flushes.
+- p_b32_canonical.xi (canonical only): green.
+- p_b32_import_only.xi (import the shim, no calls): green.
+- Control: the endian shim (convert.endian -> serialize.endian) has the
+  SAME leaf name but DIFFERENT fn names (write_u64_be etc.) and is
+  all-green, so the collision requires leaf + fn-name match.
+
+IR evidence (stdlib_ws\probes\b32ir.txt, `--emit-ir`):
+
+```llvm
+define i8* @base32.base32_encode(%struct.Vec* %param0) {   ; shim body
+  ...
+  %tmp5 = call i64 @base32_encode(%struct.Vec* %tmp4)      ; bare symbol
+}
+define i64 @base32_encode() { entry: ret i64 0 }           ; 0-arg stub!
+define i8* @encoding.base32_encode(%struct.Vec* %param0)   ; canonical
+```
+
+The shim's qualified call (`enc32.base32_encode`) did not bind the
+canonical definition; it bound a synthesized bare stub with the wrong
+arity (i64() vs Vec* -> i8*), corrupting the stack at runtime.
+
+Root cause: the codegen qualified key is module-LEAF-qualified
+("<leaf>.<fn>", per the 2026-09-09 m62 entry). `xiom.convert.base32` and
+`xiom.encoding.base32` both have leaf `base32`; with the same fn name the
+two definitions produce the SAME key and one becomes a stub. The m62 fix
+(user module shadowing a catalog fn) does not cover catalog-vs-catalog
+leaf collisions.
+
+Stdlib impact: same-leaf + same-name pairs cannot be consolidated behind
+shims until fixed -- convert.base32 vs encoding.base32 (identical names),
+convert.percent vs encoding.percent (identical names), and future
+convert.X vs encoding.X with matching names. Pairs with different fn
+names (convert.endian, convert.ascii85) shim safely. Workaround in
+place: keep the local implementation (base32 reverted 2026-09-12).
+
+Fix direction: qualify the codegen key by the FULL module path
+("convert.base32.base32_encode" vs "encoding.base32.base32_encode"), or
+detect same-leaf key collisions and fall back to the dotted path for the
+second registration.
+
+## R16. `ptr + int` in a call argument miscompiles (memcpy dest offset) -- Int-cast workaround
+
+Found 2026-09-12 (stdlib lane, re-test of the reverted string fast-path,
+night-session finding 13). Probes preserved in stdlib_ws\probes:
+- p_str_memcpy.xi: direct `concat("foo","bar")` via two
+  xiom_memcpy_dispatch calls (second dest `buf + len_a`) -> "foo<?>\x01".
+- p_str_memcpy2.xi: (A) single memcpy from `s as *UInt8` -> CORRECT
+  ("hello"); (B) memcpy first source + BYTE LOOP second -> CORRECT
+  ("foobar"); (C) memcpy at `buf + len_a` -> CORRUPT.
+- p_str_memcpy3.xi: (D) byte-loop first + memcpy at `buf + len_a` ->
+  CORRUPT -- proves the DEST expression is the defect, not the Str casts
+  or the double call; (E) two memcpys both at `buf` -> CORRECT (second
+  overwrites), call count is fine; (F) `var dst2 = (buf as Int + len_a)
+  as *UInt8; memcpy(dst2, ...)` -> CORRECT ("foobar").
+
+So `ptr + int` used directly as an argument computes a wrong/truncated
+address; casting through Int first produces the right one. The reverted
+fast-path commit 21691b44 (revert d0a3851c) used `buf + len_a`, which
+matches finding 13's chained-concat corruption from the 3rd link.
+Stdlib re-landed the fast path on 2026-09-12 using the F workaround;
+the underlying miscompile remains for other callers.
+
 
 
