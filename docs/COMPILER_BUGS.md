@@ -4635,6 +4635,21 @@ Option__M2 layout, not the erased form.
 
 ## R11. Iterator `.filter()` silently returns EMPTY on r31/r32 (regression vs r30)
 
+**STATUS 2026-09-12 (compiler round 53): RESOLVED at HEAD.** Verification on
+the current canonical binary: `smoke_iter_pipeline`, `smoke_iter_filter`,
+`smoke_iter_chained_adapters` all exit 0; the minimized probe
+(`p_iter_filter_r32.xi`) exits 0; preserved binaries reproduce the reported
+bisect exactly (r29 green, r30 green, r31 red -> run=1, current green). The
+r31/r32 red was the mid-session Stage 3 Item A WIP tree, not the committed
+slices 3/4; the finalized collect-then-check + isolation state is green.
+PROBE ANOMALY (separate, PRE-EXISTING): the combined stage probe
+`p_iter_pipeline_r32.xi` (all five chains in one function) AVs
+(0xC0000005) on r29, r30 AND current HEAD, while r31 happens to be green --
+i.e. it is NOT a reliable R11 repro and NOT a regression from Stage 2c. The
+individually staged variants (A..E) all pass; the AV needs a heap-corruption
+debug pass (ASAN/Application Verifier) and is queued as a separate latent
+item. Use the smoke + the minimized filter probe for R11 gating.
+
 Found 2026-09-12 (stdlib-lane r32 sweep, first solo-confirmed new failure).
 `smoke_iter_pipeline` (r29 CSV: green, exit 0; r32: exit 1) is red on the
 r31/r32 binary and green on r29/r30. Minimized probe (preserved at
@@ -4674,6 +4689,13 @@ smoke_iter_chained_adapters all red (r29 green, solo-reproduced).
 
 ## R12. Numeric-tower `Int.to_float` wrapper self-calls with a pointer self on r31/r32
 
+**STATUS 2026-09-12 (compiler round 53): RESOLVED at HEAD.** The minimized
+probe `p_ct_tower2.xi` compiles and exits 0, and `smoke_convert_traits`
+exits 0, on the current canonical binary. The r31/r32 red was the
+mid-session Stage 3 Item A WIP tree; the finalized state is green. (The
+self-recursive forwarder shape is the same class as R9, whose fix landed
+in `collect_external_decls`; no separate wrapper fix was needed.)
+
 Found 2026-09-12 (same r32-sweep window as R11). `smoke_convert_traits`
 (r29: green 6.5s; r32: clang failure) is red on r31/r32 and green on
 r29/r30. Minimized probe (preserved at
@@ -4709,6 +4731,13 @@ since before r29). Impact: smoke_convert_traits + any `into_float` /
 numeric-tower consumer.
 
 ## R13. Tuple return-type identity split: Tuple__Int__Int vs Tuple__UInt64__UInt64 on r31/r32
+
+**STATUS 2026-09-12 (compiler round 53): RESOLVED at HEAD.** The minimized
+probe `p_hash_tuple.xi` compiles and exits 0, and `smoke_hash_farm`,
+`smoke_hash_spooky`, `smoke_hash_t1ha_metro` all exit 0, on the current
+canonical binary (the mismatch was clang-fatal on r31/r32, so a clean
+compile+run is decisive). The r31/r32 red was the mid-session Stage 3
+Item A WIP tree; the finalized TypeId/canonical-key state is green.
 
 Found 2026-09-12 (third r31/r32 regression from the same r32 sweep).
 `smoke_hash_farm`, `smoke_hash_spooky`, and `smoke_hash_t1ha_metro`
