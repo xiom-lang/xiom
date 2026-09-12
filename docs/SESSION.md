@@ -153,6 +153,40 @@ Locks: stdlib_exec_error2_runs (the former flake is now a permanent gate)
 Gates: e2e 2312/2312, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
 checker 182/182.
 
+### Round-55 (2026-09-12): Stage 3 Item A step 2 -- corpus artifacts FIXED (779 -> 235)
+
+Compiler lane. Every checker artifact identified in the 779-finding triage is
+fixed; the remainder is a stdlib worklist handed off in
+[`ITEM_A_STDLIB_FINDINGS.md`](ITEM_A_STDLIB_FINDINGS.md) (the stdlib session
+owns stdlib fixes; this lane reported them).
+
+Fixes (details in COMPILER_BUGS.md, top entry): alias-scoped module
+resolution via `local_module_paths`; TYPE-segment descent no longer peeks a
+case-insensitive catalog path (`Duration` -> `duration.xi`); catalog
+`impl Trait[Args] for Type` registrations replayed from the pre-expansion AST
+(`CachedModule::impl_registrations`); builtin-fn table for qualified calls
+(`xiom.char.to_int_from_char`, `xiom.core.panic`); `panic` global builtin;
+current-module ambiguity preference + extern owners; methods no longer claim
+free-fn owner slots; G-10 implicit-self precedence with a call-site arity
+gate; fn-typed locals shadow globals; `char_at` method -> `Char`; interface
+arity `Self`/receiver-first + `Self` return substitution + same-name bound
+interface matching; `Unit` literal; `to_str` builtin.
+
+Determinism: the corpus count used to vary per run (247/263,
+HashMap-order resolution); two consecutive runs are now identical. Gate
+tooling: `XIOM_CATALOG_DUMP=1` prints every finding for the stdlib session.
+
+A full-e2e false failure was diagnosed en route: the e2e harness spawns
+`target/debug/xiom.exe`, which `cargo test -p xiom-codegen` does NOT rebuild.
+`e2e_m34_y17` failed against a mid-change driver; with `cargo build -p xiom`
+the suite is green. Documented in COMPILER_BUGS.md.
+
+Gates: checker 187/187 (+1 pending gate), xiom-ast 9/9, feature-reg 510/510,
+stdlib-exec 85/85 (+2 ign), e2e 2317/2317, xiom lib 20/20, fmt 83/83, lsp
+42/42 (fixed a PRE-EXISTING stale path in
+`test_stdlib_module_no_false_positives`: it read the retired
+stdlib/xiom/memory/alloc.xi), jit 5/5, `cargo check --workspace` clean.
+
 ### Round-54 (2026-09-12): R11-R13 verified RESOLVED at HEAD
 
 Compiler lane, verifying the stdlib lane's r32-sweep regressions against
@@ -614,29 +648,28 @@ DISCIPLINE TRAPS (learned this campaign, keep honoring):
 
 You are continuing the AXIOM compiler-lane readiness campaign in
 E:\Projects\AXIOM on branch feat/architect. Read docs/SESSION.md
-(the rounds 38-53 entries + COMPILER-LANE REMAINING QUEUE) and
-docs/COMPILER_BUGS.md first; COMPILER_READINESS_PLAN.md holds the stage
-definitions; docs/LET_ARRAY_DECISION.md and docs/JSON_DIAGNOSTICS_V1.md
-are current design records. Current state (HEAD: round-53, Stage 2c
-COMPLETE; Item A step 1 collect-then-check LANDED, flip gated on 779
-findings; R9 fixed): all known compiler-catalogue red smokes GREEN, the
-last flake (smoke_error2 has-mid) root-caused and locked; last gates e2e
-2317/2317, feature-reg 510/510, stdlib-exec 85/85 (+2 ign), checker
-187/187 (+1 ign pending gate), xiom-ast 9/9, codegen lib 11/11, xiom lib
-20/20, fmt 83/83, lsp 42/42, jit 5/5. The stdlib session works in parallel
-on stdlib/** only and reports roadblocks in chat + COMPILER_BUGS.md.
+(rounds 38-55 + COMPILER-LANE REMAINING QUEUE), docs/COMPILER_BUGS.md and
+docs/ITEM_A_STDLIB_FINDINGS.md (the stdlib handoff from the corpus triage)
+first; COMPILER_READINESS_PLAN.md holds the stage definitions;
+docs/LET_ARRAY_DECISION.md and docs/JSON_DIAGNOSTICS_V1.md are current
+design records. Current state (HEAD: round-55, Stage 2c COMPLETE; Item A
+step 2 artifact classes FIXED, corpus 779 -> 235 all-stdlib findings, flip
+still gated on the stdlib lane; R9 fixed; R14 queued): all known compiler
+red smokes GREEN; last gates e2e 2317/2317, feature-reg 510/510, stdlib-exec
+85/85 (+2 ign), checker 187/187 (+1 ign pending gate), xiom-ast 9/9, codegen
+lib 11/11, xiom lib 20/20, fmt 83/83, lsp 42/42, jit 5/5. The stdlib
+session works in parallel on stdlib/** only and reports roadblocks in chat
++ COMPILER_BUGS.md. NOTE: the e2e harness spawns target/debug/xiom.exe --
+run `cargo build -p xiom` after checker changes or the suite tests a stale
+driver.
 
-DONE since the previous prompt: smoke_error2 (HashMap-ordered type_meta
-suffix shadowing; order-independent field scan), Stage 2c slices 1-4
-(structural.rs parser + interning; single parser wired through every
-checker consumer; `CheckedType::Named(TypeId)` interned storage and
-process-global arena; registry keyed by TypeId; structural module shared
-from xiom-ast; canonical codegen type keys), Stage 3 Item A step 1
-(collect-then-check: queued catalog bodies, per-module isolated import
-context, non-caching private-dep resolution, owner sets, module-scoped
-catalog globals, catalog-tagged warn; corpus 19,287 -> 779, 0 hard errors),
-R9 (full-path shim delegation: transitive `use` closure for peeked module
-injection; all six stdlib repros green),
+DONE since the previous prompt: Item A step 2 (alias-scoped module
+resolution, TYPE-segment descent, catalog impl registrations, builtin-fn
+qualified calls + panic, current-module ambiguity + extern owners, G-10
+arity gate, fn-typed locals, char_at Char, interface Self arity/return,
+same-name bound interfaces, Unit literal, to_str; corpus determinism;
+XIOM_CATALOG_DUMP tooling), R9 (full-path shim delegation: transitive `use`
+closure for peeked module injection; all six stdlib repros green),
 LET-array decision doc
 + ALL of P1 (annotated [N]T bindings, float element reads), P2 (user-fn
 `&[N]T`/`&mut [N]T` params now element pointers -- a catalog call inside the
@@ -650,28 +683,36 @@ workspace version/MSRV (1.86) + cargo-deny + CI hygiene (fixed a rotted
 xiom-mcp member), driver target-named files, JSON diagnostics v1 schema.
 
 Your task, in order:
-1. Stage 3 ITEM A, step 2 -- triage the 779 remaining catalog findings and
-   flip. Re-measure with `cargo test -p xiom-check catalog_corpus_is_clean
-   -- --ignored --nocapture`; each finding carries a `[module]` tag. Top
-   classes: extern-requires-unsafe ~59, pointer-to-pointer casts ~21,
-   T003/T007 confinement, `undefined variable 'Num'` 36, `PrecisionLimits`
-   22, `cannot call 'panic'` 21, ambiguous `time` 17, Float64/Int mixing
-   28, `date_day_of_week` 16, `Array[T]` arg mismatch 18. Separate checker
-   artifacts from real stdlib findings (coordinate with the stdlib lane via
-   COMPILER_BUGS.md), fix the artifacts, let the lane fix the rest, then
-   flip `checking_catalog` findings to HARD ERRORS when
+1. Stage 3 ITEM A -- finish the compiler side and flip when the stdlib lane
+   clears its worklist. Re-measure with
+   `cargo test -p xiom-check catalog_corpus_is_clean -- --ignored
+   --nocapture` (add `$env:XIOM_CATALOG_DUMP='1'` for every site). The
+   remaining 235 findings are categorized in ITEM_A_STDLIB_FINDINGS.md;
+   the compiler-side artifact candidates queued there are: (D3) the
+   `Result[Metadata, IOError]` match binding typing `e: Str` in
+   xiom.path:204, (D4) generic struct-literal field substitution
+   (`fn(T)->U` vs `fn(Int)->U` in xiom.iter), (D5) argument-aware bare-name
+   resolution for cross-module collisions (xiom.path:262 `is_empty`), (D6)
+   ChainIter[T,U] generic return laxity if the stdlib keeps the design.
+   Also (D1) persist catalog PARSE diagnostics on CachedModule instead of
+   silently dropping declarations recovered by the parser (xiom.char
+   `'GBP'`), and (D2) assign spans to non-exhaustive-match diagnostics.
+   Flip `checking_catalog` findings to HARD ERRORS only when
    `CatalogCorpusReport::is_clean()` and turn the ignored gate into a real
    gate.
-2. Stage 5 remainder: LSP incremental reparse/cross-file index; dbg async
+2. R14: the combined stage probe p_iter_pipeline_r32.xi AVs on r29/r30/HEAD
+   -- needs the sanitizer / Application-Verifier pass (Stage 5 fuzz+sanitizer
+   CI lands first).
+3. Stage 5 remainder: LSP incremental reparse/cross-file index; dbg async
    MI reader + .xi DWARF; cargo-fuzz targets over lexer/parser/CTFE +
    ASAN/UBSAN CI; full clap migration of the driver parser; supply chain
    beyond the closed core (ed25519 + trust model, lockfile v2 with an
    enforced --locked path, git installs pinned to commits -- note git deps
    are parsed but not yet implemented, authenticated publish); sandbox
    false-green + randomized temp names.
-3. Stage 6 PERFORMANCE program: incremental engine tiers, parallel mono,
+4. Stage 6 PERFORMANCE program: incremental engine tiers, parallel mono,
    linker strategy, benchmark CI budgets.
-4. Stage 7 SELFHOST GATE: zero-ICE self-build, >=1M fuzz execs, -O
+5. Stage 7 SELFHOST GATE: zero-ICE self-build, >=1M fuzz execs, -O
    differential, release-binary suites, Rust-bootstrap equivalence.
 
 Working discipline: isolated build

@@ -7,6 +7,91 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-09-12 -- Stage 3 Item A step 2: artifact classes FIXED, corpus 779 -> 235
+
+Triage of the 779 catalog-body findings split them into checker artifacts and
+real stdlib findings. All identified CHECKER artifacts are fixed; what
+remains is a stdlib-facing worklist, handed off in
+[`ITEM_A_STDLIB_FINDINGS.md`](ITEM_A_STDLIB_FINDINGS.md).
+
+Checker fixes in this slice (all in `xiom-check`):
+
+1. **Alias-scoped module resolution** (`module_exports_for_alias`): qualified
+   paths resolve through the alias's FULL dotted path (`local_module_paths`)
+   instead of the global first-wins leaf-key maps. The all-imports corpus
+   binds the same leaf for many modules (`use xiom.io` vs
+   `use xiom.async.io` -> "io"; `xiom.convert.time` vs `xiom.time` ->
+   "time"), so the wrong module's surface was used
+   (`cannot call 'read_file_bytes'` / `println` / `bigfloat_*`).
+2. **Type-segment descent**: `module.Type.method(...)` no longer falls back to
+   an on-demand catalog peek for a TYPE segment. On Windows the peek is
+   case-insensitive: `time.Duration.from_millis` matched `duration.xi` and
+   swapped in that module's surface (then missed `from_millis`).
+3. **Catalog impl registrations**: `parse_file` collects
+   `impl Trait[Args] for Type` method registrations BEFORE
+   `expand_impl_blocks` erases them (`CachedModule::impl_registrations`);
+   `register_external_module` replays them into `Checker::impls`, so
+   interface-qualified static calls in catalog bodies (`Num[T].one()`,
+   `PrecisionLimits[T].min_value()`) resolve like user-program impls.
+4. **Builtin fns through module paths**: conversion intrinsics and
+   `panic`/debug traps are recorded in `builtin_fns`; a module-qualified call
+   whose leaf is a builtin resolves even when the named module does not
+   export it (`xiom.char.to_int_from_char`, `xiom.core.panic`). `panic` is
+   registered as a global builtin (core.xi declares it privately and
+   test/assert.xi calls it qualified).
+5. **Current-module ambiguity preference**: a bare call to a fn owned by the
+   CURRENT module is not "ambiguous" in the all-imports context
+   (`time(0)` in xiom.time); extern registration now records owners too.
+6. **Method leaf names no longer claim free-fn ownership**: `fn_owner_module`
+   only tracks FREE fns. `fn Vec4f.get` used to insert owner "xiom.simd" for
+   the bare name `get`, which disabled receiver-method precedence and bound
+   `get(0)` to `xiom.array.get`.
+7. **G-10 implicit/explicit receiver shapes**: a bare call inside a method
+   body binds to the receiver's method ahead of imported same-named free fns,
+   for both call shapes -- implicit (`get(0)` in `Vec4f.normalize`) and
+   explicit (`len(self)` passing the receiver as the first arg). An explicit
+   shape defers to a same-arity free fn whose first param accepts the
+   receiver, so `scale(self, k)` inside `Rect.scale` still recurses into the
+   free `scale[T](r, k)` (e2e_m34_y17) while `len(self)` binds
+   `Vec4f.len` (instead of `xiom.array.len` -> wrong Int return).
+8. **Local fn-typed parameters shadow globals**: `compare(...)` where
+   `compare: fn(&Int,&Int)->Int` is a parameter now calls the parameter
+   (previously bound an unrelated global `compare`).
+9. **`char_at` method typing**: method sugar lowers to `@xiom_char_at`
+   (codepoint -> `Char`), NOT `Int` and NOT `Option[Char]` (the free
+   `xiom.string.char_at` returns Option). The Int typing broke `.unwrap()`
+   sites; the Option typing broke the pervasive direct comparisons.
+10. **Interface arity/return**: a first param named `Self` OR typed as the
+    receiver type counts as the implicit receiver (free-fn-style interfaces
+    like `Eq[T].eq(a: T, b: T)` called as `arr[i].eq(target)`); `Self` return
+    types substitute to the receiver type (or the generic param name) so
+    arithmetic on `T.max_value()` type-checks.
+11. **Same-name interface bounds**: bound lookup searches ALL registered
+    interfaces whose leaf matches the bound name (`Bounded` exists in both
+    `xiom.num` and `xiom.math.interfaces`; the bare key is first-wins). Fixes
+    `T.epsilon()`.
+12. **`Unit` literal + `to_str` builtin**: `Ok(Unit)` type-checks;
+    `arg.to_str()` on an unbounded generic resolves (fmt.format1).
+
+Nondeterminism: before this slice the corpus count varied run-to-run
+(247/263) due to HashMap-order resolution; the fixes above make the
+measurement stable (two consecutive runs identical). Determinism is a
+prerequisite for the flip.
+
+Gate tooling: `XIOM_CATALOG_DUMP=1` on `catalog_corpus_is_clean` prints every
+finding (`ALL module:line:col: msg`) instead of one representative per class,
+for the stdlib session's per-site worklist.
+
+Gates on the fresh canonical binary: checker 187/187 (+1 pending gate),
+xiom-ast 9/9, feature-reg 510/510, stdlib-exec 85/85 (+2 ign), e2e
+2317/2317, xiom lib 20/20, fmt 83/83, lsp 42/42, jit 5/5,
+`cargo check --workspace` clean. The LSP suite had one PRE-EXISTING red
+(`test_stdlib_module_no_false_positives` read the retired
+`stdlib/xiom/memory/alloc.xi`); the test now reads
+`stdlib/xiom/alloc/alloc.xi` (namespace wave 2 move). NOTE for reruns: the
+e2e harness spawns `target/debug/xiom.exe`; run `cargo build -p xiom` after
+checker changes or the suite tests a stale driver (false failure).
+
 ## 2026-09-12 -- R9 FIXED: full-path shim delegation (infinite self-call -> 0xC0000409)
 
 Stdlib report repros p_x1/p_x2/p_x4/p_x6, p_sdx_shim_first,

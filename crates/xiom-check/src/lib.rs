@@ -196,6 +196,12 @@ pub struct Checker {
     converted_ffi_ptrs: HashSet<String>,
     /// D2.1 (T006): names of registered FFI ownership-conversion fns.
     ffi_convert_fns: HashSet<String>,
+    /// Compiler-recognized builtin free functions (conversion intrinsics,
+    /// panic/debug traps). A module-qualified call whose leaf is here resolves
+    /// even when the named module does not export it (`xiom.char.to_int_from_char`,
+    /// `xiom.core.panic`) -- the compiler recognizes these by name the same
+    /// way codegen does.
+    builtin_fns: HashSet<String>,
 }
 
 /// Stage 3 Item A: import-resolution state captured around one catalog
@@ -282,6 +288,25 @@ impl Checker {
                 "vec_from_ptr_with_free".to_string(),
                 "str_from_ptr_owned".to_string(),
             ].into_iter().collect(),
+            builtin_fns: [
+                // Conversion intrinsics registered in register_builtins.
+                "to_float".to_string(),
+                "to_int".to_string(),
+                "to_int_from_char".to_string(),
+                "to_char".to_string(),
+                "sizeof".to_string(),
+                "align_of".to_string(),
+                "type_id".to_string(),
+                "field_offset".to_string(),
+                "is_signed".to_string(),
+                // Compiler-recognized traps/utilities (core.xi models
+                // `panic`; codegen recognizes dbg/todo/unimplemented).
+                "panic".to_string(),
+                "unreachable".to_string(),
+                "dbg".to_string(),
+                "todo".to_string(),
+                "unimplemented".to_string(),
+            ].into_iter().collect(),
         };
         // Register built-in types
         checker.register_builtins();
@@ -345,6 +370,19 @@ impl Checker {
                     .or_insert(exports);
             }
         }
+        // Stage 3 Item A: catalog `impl Trait[Args] for Type` blocks were
+        // EXPANDED at parse time (their `Type.method` fns are registered
+        // above), but the trait -> implementing-type mapping was erased.
+        // Replay the pre-expansion registrations so interface-qualified
+        // static calls in catalog bodies (`Num[T].one()`) resolve exactly
+        // like user-program impls (register_impls_from_program).
+        for (trait_key, impl_ty, method) in &cached.impl_registrations {
+            self.impls.entry(trait_key.clone())
+                .or_default()
+                .entry(method.clone())
+                .or_insert_with(|| (impl_ty.clone(), Vec::new(), None));
+        }
+
         // Stage 3 Item A: module-level const/var globals must resolve inside
         // catalog bodies (they were never registered -- `_K1`, `_PI`,
         // `NANOS_PER_SEC`, ... reported undefined). Scoped per module so
@@ -645,6 +683,18 @@ impl Checker {
             generics: vec![],
             uses_implicit_this: false,
         });
+        // Compiler-recognized panic trap (core.xi declares it, but it is
+        // module-private there and the stdlib also calls it from other
+        // modules -- test/assert.xi `xiom.core.panic`). Modeled as a global
+        // builtin: cell.xi's bare `panic(...)` and the qualified form both
+        // resolve; codegen emits @xiom_panic for it.
+        self.functions.insert("panic".to_string(), FnSig {
+            params: vec![("msg".to_string(), CheckedType::Str)],
+            return_type: Some(CheckedType::Never),
+            generics: vec![],
+            uses_implicit_this: false,
+        });
+        self.visibility.insert("panic".to_string(), true);
 
         // v0.56 I3: Mutex builtins for deadlock detection
         self.functions.insert("Mutex.new".to_string(), FnSig {
@@ -2026,7 +2076,16 @@ impl Checker {
                 // xiom.encoding.base64_index) OVERWRITE the owner record of
                 // the user's own same-named fn, so the visibility gate
                 // rejected the user's bare call ("undefined variable").
-                self.fn_owner_module.entry(fd.name.name.clone()).or_default().insert(module_path.to_string());
+                //
+                // Stage 3 Item A: ONLY free fns own the bare CALLABLE name.
+                // A method `fn Vec4f.get(...)` is not a bare-call candidate
+                // (it is reached through `methods` / receiver dispatch); its
+                // leaf must not claim ownership of the global `get` slot,
+                // which made the current-module preference think the module
+                // owned a free `get` and skipped receiver-method resolution.
+                if !fd.is_method() {
+                    self.fn_owner_module.entry(fd.name.name.clone()).or_default().insert(module_path.to_string());
+                }
                 self.visibility.entry(fd.name.name.clone()).or_insert(fd.is_pub);
                 // Track methods separately
                 if let Some(recv) = fd.receiver.as_ref() {
@@ -2072,6 +2131,12 @@ impl Checker {
                         // D2.1 (T002): extern "C" calls are confined to unsafe blocks.
                         self.extern_fns.insert(func.name.name.clone());
                     }
+                    // Stage 3 Item A: record the OWNING module for externs too
+                    // -- bare-call ambiguity checks and the same-module
+                    // preference need it (e.g. `time(0)` inside xiom.time is
+                    // not ambiguous even when other modules export a `time`).
+                    self.fn_owner_module.entry(func.name.name.clone())
+                        .or_default().insert(module_path.to_string());
                 }
             }
             _ => {}
@@ -3687,17 +3752,48 @@ impl Checker {
         None
     }
 
-    fn resolve_module_function(&mut self, path: &[String]) -> Option<FnSig> {
-        let module_name = &path[0];
-        // Try modules first, then imported_items (short names from `use`)
-        let exports = self.modules.get(module_name).cloned().or_else(|| {
+    /// Resolve an import alias (the FIRST segment of a qualified expression)
+    /// to its module export map through the alias's recorded FULL dotted path.
+    ///
+    /// The leaf-key maps (`self.modules`, `self.imported_items`) are GLOBAL:
+    /// two modules with the same leaf ("xiom.io" and "xiom.async.io" both bind
+    /// "io") collide, and first-wins in `self.modules` can bind the alias to
+    /// the WRONG module's surface (the corpus imports every module, so leaf
+    /// collisions are pervasive; a user program importing both would hit the
+    /// same class). `local_module_paths` records the alias -> full dotted path
+    /// for every `use`, so resolving through it yields the true binding.
+    fn module_exports_for_alias(&self, module_name: &str) -> Option<HashMap<String, ModuleExport>> {
+        if let Some(dotted) = self.local_module_paths.get(module_name) {
+            let segs: Vec<&str> = dotted.split('.').collect();
+            if segs.len() > 1 {
+                if let Some(root) = self.modules.get(segs[0]) {
+                    let mut current = root;
+                    let mut resolved = true;
+                    for seg in &segs[1..] {
+                        match current.get(*seg) {
+                            Some(ModuleExport::SubModule(sub)) => current = sub,
+                            _ => { resolved = false; break; }
+                        }
+                    }
+                    if resolved {
+                        return Some(current.clone());
+                    }
+                }
+            }
+        }
+        self.modules.get(module_name).cloned().or_else(|| {
             self.imported_items.get(module_name).and_then(|export| {
                 match export {
                     ModuleExport::SubModule(exports) => Some(exports.clone()),
                     _ => None,
                 }
             })
-        })?;
+        })
+    }
+
+    fn resolve_module_function(&mut self, path: &[String]) -> Option<FnSig> {
+        let module_name = &path[0];
+        let exports = self.module_exports_for_alias(module_name)?;
         // Full dotted path of the FIRST segment, for submodule descent when a
         // segment collides with a same-named fn (xiom.os.platform) or is only
         // discoverable via the catalog index (directory modules).
@@ -3711,7 +3807,20 @@ impl Checker {
             let export = current_exports.get(seg).cloned();
             match export {
                 Some(ModuleExport::SubModule(sub)) => current_exports = sub,
-                Some(ModuleExport::Function { .. }) | Some(ModuleExport::Type { .. }) => {
+                Some(ModuleExport::Type { .. }) => {
+                    // `module.Type.method(...)` is a STATIC METHOD call: the
+                    // caller's method path resolves it after this walk gives
+                    // up. Do NOT treat the type as a submodule -- the
+                    // on-demand catalog peek below is CASE-INSENSITIVE on
+                    // Windows, where `Duration` matched `duration.xi` and
+                    // silently swapped in an unrelated module's surface.
+                    if let Some(alias) = self.submodule_aliases.get(&dotted).cloned() {
+                        current_exports = alias;
+                    } else {
+                        return None;
+                    }
+                }
+                Some(ModuleExport::Function { .. }) => {
                     // Name collision: the segment is BOTH an export and a
                     // submodule (xiom.os has `pub fn platform()` AND the
                     // `platform` submodule). A qualified continuation means
@@ -3760,7 +3869,22 @@ impl Checker {
             }
         }
         let func_name = &path[path.len() - 1];
-        let export = current_exports.get(func_name)?.clone();
+        let export = match current_exports.get(func_name) {
+            Some(e) => e.clone(),
+            None => {
+                // Compiler-recognized builtins are callable through any
+                // module path (e.g. `xiom.char.to_int_from_char` -- the
+                // char module's surface does not export the intrinsic).
+                // Gated on the builtin set so a bare-name fallback from an
+                // UNRELATED module's registration can never leak in.
+                if self.builtin_fns.contains(func_name.as_str()) {
+                    if let Some(sig) = self.functions.get(func_name.as_str()) {
+                        return Some(sig.clone());
+                    }
+                }
+                return None;
+            }
+        };
         match export {
             ModuleExport::Function { sig, is_pub: true } => Some(sig),
             _ => None,
@@ -3795,18 +3919,9 @@ impl Checker {
         }
 
         let module_name = &path[0];
-        // First try `modules` (full module paths), then fall back to
-        // `imported_items` (short names from `use` declarations).
-        // `use xiom.async` inserts "async" -> SubModule(exports) into
-        // imported_items but not into modules.
-        let exports = self.modules.get(module_name).cloned().or_else(|| {
-            self.imported_items.get(module_name).and_then(|export| {
-                match export {
-                    ModuleExport::SubModule(exports) => Some(exports.clone()),
-                    _ => None,
-                }
-            })
-        })?;
+        // Resolve the alias through its recorded FULL dotted path so leaf
+        // collisions cannot bind it to another module's surface.
+        let exports = self.module_exports_for_alias(module_name)?;
         let mut current_exports = exports;
         // Full dotted path of the first segment, for submodule descent when a
         // segment collides with a same-named fn/type (xiom.os.platform) or is
@@ -3820,7 +3935,19 @@ impl Checker {
             let export = current_exports.get(seg).cloned();
             match export {
                 Some(ModuleExport::SubModule(sub)) => current_exports = sub,
-                Some(ModuleExport::Function { .. }) | Some(ModuleExport::Type { .. }) => {
+                Some(ModuleExport::Type { .. }) => {
+                    // Type segment: `module.Type.Field` must see the type's
+                    // own Type export (the enum-variant arm below), NOT a
+                    // case-insensitive catalog file match. See
+                    // resolve_module_function for the Windows `Duration`
+                    // vs `duration.xi` hazard.
+                    if let Some(alias) = self.submodule_aliases.get(&dotted).cloned() {
+                        current_exports = alias;
+                    } else {
+                        return None;
+                    }
+                }
+                Some(ModuleExport::Function { .. }) => {
                     // Name collision: the segment is BOTH an export and a
                     // submodule -- descend through submodule_aliases or the
                     // catalog on demand.
@@ -4615,6 +4742,106 @@ impl Checker {
         Some(format!("{}[{}]", base_id.name, args.join(", ")))
     }
 
+    /// G-10: resolve a bare call `name(args)` inside a method body as
+    /// `self.name(args)` when the current receiver declares that method.
+    /// Returns None when the receiver has no such instance method.
+    ///
+    /// Only RECEIVER methods qualify: the first param must be `self`/`Self`/
+    /// the receiver type (or the method is `this`-based). Constructors and
+    /// static helpers (`fn T.new(...)`) keep resolving through the normal
+    /// paths.
+    fn check_implicit_self_method(&mut self, name: &str, args: &[Expr], span: Span) -> Option<CheckedType> {
+        let recv = self.current_receiver.clone()?;
+        let mut msig: Option<FnSig> = None;
+        if let Some(ms) = self.methods.get(&recv) {
+            msig = ms.get(name).cloned();
+        }
+        if msig.is_none() {
+            let suffix = format!(".{recv}");
+            for (key, ms) in &self.methods {
+                if key.ends_with(&suffix) {
+                    msig = ms.get(name).cloned();
+                    if msig.is_some() { break; }
+                }
+            }
+        }
+        let sig = msig?;
+        let is_receiver_method = sig.uses_implicit_this
+            || sig.params.first().map_or(false, |(p, t)| {
+                p == "self" || p == "Self"
+                    || matches!(t, CheckedType::Named(n) if n.name() == recv || n.name() == "Self")
+            });
+        if !is_receiver_method {
+            return None;
+        }
+        // Call-site shape decides whether a bare call is the receiver method:
+        //   implicit: `get(0)` inside `Vec4f.normalize` -- args are the
+        //     receiver's explicit params (params[1..]).
+        //   explicit: `len(self)` inside `Vec4f.normalize` -- the receiver is
+        //     passed as the first argument (params[..]).
+        // `scale(self, k)` inside `Rect.scale` (recursing into the FREE
+        // `scale[T](r, k)`) is also explicit-shaped; the free fn whose first
+        // param accepts the receiver keeps ownership of that call.
+        let implicit_shape = args.len() + 1 == sig.params.len();
+        let explicit_shape = args.len() == sig.params.len()
+            && matches!(args.first(), Some(Expr::Ident(id)) if id.name == "self" || id.name == "this");
+        if !implicit_shape && !explicit_shape {
+            return None;
+        }
+        if explicit_shape && !implicit_shape {
+            if let Some(free_sig) = self.functions.get(name) {
+                if free_sig.params.len() == args.len() {
+                    // The free fn keeps the call when its first param accepts
+                    // the receiver: same type name, or a generic param
+                    // (`scale[T](r: Rect, k)`). A concrete DIFFERENT first
+                    // param (`len(arr: Array[T])`) does not own `len(self)`.
+                    let accepts_recv = free_sig.params.first().map_or(false, |(_, expected)| {
+                        let en = expected.name();
+                        en == recv
+                            || free_sig.generics.iter().any(|g| g == &en)
+                            || (en.len() == 1 && en.chars().next().map_or(false, |c| c.is_ascii_uppercase()))
+                    });
+                    if accepts_recv {
+                        return None; // free fn owns the call
+                    }
+                }
+            }
+        }
+        let param_offset = if implicit_shape { 1 } else { 0 };
+        // Check the explicit args against the matching params slice.
+        for (i, arg) in args.iter().enumerate() {
+            let arg_ty = self.check_expr(arg);
+            if i + param_offset < sig.params.len() {
+                let expected = &sig.params[i + param_offset].1;
+                let is_generic = sig.generics.iter().any(|g| g == &expected.name());
+                if !is_generic && !self.types_compatible(&arg_ty, expected) && arg_ty != CheckedType::Error {
+                    self.error(
+                        format!("argument {} type mismatch: expected {}, found {}",
+                            i + 1, expected.name(), arg_ty.name()),
+                        span,
+                    );
+                }
+            }
+        }
+        Some(sig.return_type.unwrap_or(CheckedType::Unit))
+    }
+
+    /// True when ANY registered interface whose name (or name leaf, for
+    /// module-qualified keys) equals `bound` declares a method named
+    /// `method`. `interfaces` keeps a first-wins BARE alias, so two modules
+    /// declaring same-named interfaces (`xiom.num.Bounded` vs
+    /// `xiom.math.interfaces.Bounded`) left `interfaces["Bounded"]` pointing
+    /// at whichever registered first; a bound check then missed methods the
+    /// OTHER declaration has (`T.epsilon()`).
+    fn interface_bound_declares(&self, bound: &str, method: &str) -> bool {
+        let leaf = bound.rsplit('.').next().unwrap_or(bound);
+        self.interfaces.iter().any(|(key, methods)| {
+            let key_leaf = key.rsplit('.').next().unwrap_or(key.as_str());
+            (key == bound || key_leaf == leaf || key == leaf)
+                && methods.iter().any(|(mn, _, _)| mn == method)
+        })
+    }
+
     fn check_expr(&mut self, expr: &Expr) -> CheckedType {
         match expr {
             Expr::Ident(ident) => {
@@ -4624,6 +4851,10 @@ impl Checker {
                     CheckedType::Int // wildcard placeholder type
                 } else if ident.name == "null" {
                     CheckedType::named("Ptr")
+                } else if ident.name == "Unit" {
+                    // Unit is the value of the unit type (`Ok(Unit)`); it is a
+                    // builtin literal, not a variable.
+                    CheckedType::Unit
                 } else if let Some(ty) = self.lookup_local(lookup_name) {
                     ty.clone()
                 } else if let Some(ty) = self.lookup_global_const(&ident.name) {
@@ -5292,7 +5523,13 @@ impl Checker {
                             // v0.56: String manipulation methods
                             "trim" | "trim_start" | "trim_end" | "to_lower" | "to_upper" | "substr"
                                 if prim_ty == CheckedType::Str => return CheckedType::Str,
-                            "byte_at" | "char_at" if prim_ty == CheckedType::Str => return CheckedType::Int,
+                            "byte_at" if prim_ty == CheckedType::Str => return CheckedType::Int,
+                            // char_at method sugar lowers to @xiom_char_at, which
+                            // returns the CODEPOINT (i64) -- i.e. a Char. The
+                            // free `xiom.string.char_at(s, i)` returns
+                            // Option[Char], but the METHOD is the raw accessor
+                            // the stdlib compares/`as Int`s directly.
+                            "char_at" if prim_ty == CheckedType::Str => return CheckedType::Char,
                             // Gap A fix: to_owned is the idiomatic Str duplication
                             // alias (Rust parity). Same semantics as clone.
                             "to_owned" if prim_ty == CheckedType::Str => return CheckedType::Str,
@@ -5313,7 +5550,6 @@ impl Checker {
                             "substr" if prim_ty == CheckedType::Str => return CheckedType::Str,
                             // M12/P1: byte indexing -- returns a single byte at position.
                             "byte_at" if prim_ty == CheckedType::Str => return CheckedType::UInt8,
-                            "char_at" if prim_ty == CheckedType::Str => return CheckedType::Named("Option".into()),
                             // M12/P1: scripting ergonomics -- slice() and starts_with()
                             // as methods on Str, avoiding verbose string.str_slice() calls.
                             "slice" if prim_ty == CheckedType::Str => return CheckedType::Str,
@@ -5373,8 +5609,12 @@ impl Checker {
                             ("Str", "byte_at" | "char_at") => return CheckedType::Int,
                             // v0.56: Common Str methods
                             ("Str", "trim" | "trim_start" | "trim_end" | "to_lower" | "to_upper" | "substr" | "from_c_str" | "to_c_str") => return CheckedType::Str,
-                            // v0.56: String conversion method
-                            (_, "to_string") => return CheckedType::Str,
+                            // v0.56: String conversion method. `to_str` is the
+                            // stdlib's generic spelling (fmt.format1[T] calls
+                            // `arg.to_str()` with no Display bound) -- accept
+                            // on any receiver (codegen resolves the concrete
+                            // conversion at monomorphisation time).
+                            (_, "to_string" | "to_str") => return CheckedType::Str,
                             // v0.56: Time/counter methods
                             (_, "now" | "elapsed" | "as_millis" | "as_micros" | "as_nanos" | "as_secs") => return CheckedType::Int,
                             // v0.56: Pointer/offset methods
@@ -5412,8 +5652,13 @@ impl Checker {
                     // at monomorphisation time.
                     let allow_interface_dispatch = match &obj_ty {
                         CheckedType::Named(tn) => {
-                            // Direct interface-typed receiver (e.g. self: Error)
+                            // Direct interface-typed receiver (e.g. self: Error).
+                            // Match the qualified key too -- the bare alias is
+                            // first-wins across same-named interfaces.
                             self.interfaces.contains_key(tn.name())
+                            || self.interfaces.keys().any(|k| {
+                                k.rsplit('.').next() == Some(tn.name())
+                            })
                             || tn == "_"  // wildcard from Option.value / Result.unwrap
                             || (
                                 // Generic param with potential interface bound.
@@ -5421,11 +5666,7 @@ impl Checker {
                                 // see if this type parameter has an interface bound
                                 // that declares the called method.
                                 self.current_generic_bounds.get(tn.name()).map_or(false, |bounds| {
-                                    bounds.iter().any(|b| {
-                                        self.interfaces.get(b).map_or(false, |methods| {
-                                            methods.iter().any(|(mn, _, _)| mn == &method.name)
-                                        })
-                                    })
+                                    bounds.iter().any(|b| self.interface_bound_declares(b, &method.name))
                                 })
                             )
                         }
@@ -5435,6 +5676,17 @@ impl Checker {
                         CheckedType::Error => {
                             self.interfaces.values().any(|m| m.iter().any(|(mn, _, _)| mn == &method.name))
                         }
+                        _ => false,
+                    };
+                    // `T.method()` where T is a GENERIC PARAMETER: the generic
+                    // param is registered as the placeholder `Named("type")`,
+                    // so the match above cannot see the bound. Consult the
+                    // receiver IDENT against the current fn's generic bounds --
+                    // `fn min_value[T: Bounded]() { T.min_value() }`.
+                    let allow_interface_dispatch = allow_interface_dispatch || match &**obj {
+                        Expr::Ident(id) => self.current_generic_bounds.get(&id.name).map_or(false, |bounds| {
+                            bounds.iter().any(|b| self.interface_bound_declares(b, &method.name))
+                        }),
                         _ => false,
                     };
                     if allow_interface_dispatch {
@@ -5448,7 +5700,21 @@ impl Checker {
                             .flat_map(|m| m.iter())
                             .find(|(mn, _, _)| mn == &method.name)
                         {
-                            let want = if params.first().map_or(false, |p| p == "self") {
+                            // Interface member params store TYPE names, so the
+                            // receiver shows up as "Self" (not the fn-table's
+                            // literal "self"). Free-fn-style interface methods
+                            // (`interface Eq[T] { fn eq(a: T, b: T) }`) also
+                            // take the receiver as their FIRST param when
+                            // called as `recv.eq(other)`. Treat a first param
+                            // matching the receiver type as the implicit
+                            // receiver and subtract it from the required arity.
+                            let recv_name = match &obj_ty {
+                                CheckedType::Named(n) => n.name().to_string(),
+                                other => other.name(),
+                            };
+                            let want = if params.first().map_or(false, |p| {
+                                p == "self" || p == "Self" || p == &recv_name
+                            }) {
                                 params.len().saturating_sub(1)
                             } else {
                                 params.len()
@@ -5462,12 +5728,29 @@ impl Checker {
                             }
                         }
                         // Return the declared return type from the interface, or
-                        // a wildcard if unknown.
+                        // a wildcard if unknown. `Self` resolves to the
+                        // RECEIVER's type: a concrete type when the receiver is
+                        // concrete, or the generic parameter name when the call
+                        // is `T.method()` (returning the raw spelling "Self"
+                        // made arithmetic on the result fail -- "left operand
+                        // must be numeric, found Self").
                         let ret = self.interfaces.values()
                             .flat_map(|m| m.iter())
                             .find(|(mn, _, _)| mn == &method.name)
                             .and_then(|(_, _, ret)| ret.clone())
-                            .map(|r| CheckedType::from_str(&r))
+                            .map(|r| {
+                                if r == "Self" {
+                                    match &obj_ty {
+                                        CheckedType::Named(n) if n.name() != "type" => obj_ty.clone(),
+                                        _ => match &**obj {
+                                            Expr::Ident(id) => CheckedType::named(id.name.clone()),
+                                            _ => CheckedType::Named("_".into()),
+                                        },
+                                    }
+                                } else {
+                                    CheckedType::from_str(&r)
+                                }
+                            })
                             .unwrap_or(CheckedType::Named("_".into()));
                         return ret;
                     }
@@ -5551,6 +5834,27 @@ impl Checker {
                 // (round-15: func_unwrapped -- a type-parameterized bare call
                 // `f[T](...)` unwraps to the Ident above).
                 if let Expr::Ident(name) = func_unwrapped {
+                    // A local/parameter of FN TYPE shadows any global with the
+                    // same name: `fn is_sorted_by(v, compare: fn(&Int,&Int)->Int)`
+                    // must call the PARAM, not an unrelated global `compare`
+                    // (catalog bodies bound the bench module's `compare` and
+                    // reported "expected BenchResult, found Int").
+                    if let Some(CheckedType::Fn(param_types, ret)) = self.lookup_local(&name.name).cloned() {
+                        for (i, arg) in args.iter().enumerate() {
+                            let arg_ty = self.check_expr(arg);
+                            if i < param_types.len()
+                                && !self.types_compatible(&arg_ty, &param_types[i])
+                                && arg_ty != CheckedType::Error
+                            {
+                                self.error(
+                                    format!("argument {} type mismatch: expected {}, found {}",
+                                        i + 1, param_types[i].name(), arg_ty.name()),
+                                    *span,
+                                );
+                            }
+                        }
+                        return *ret;
+                    }
                     // D2.1 (T002): extern "C" functions are confined to unsafe
                     // blocks (Unsafe Confinement requirement a). Calling one from
                     // safe code (depth 0) is a hard error -- EXCEPT inside a fn
@@ -5580,7 +5884,29 @@ impl Checker {
                         self.imported_items.get(&name.name),
                         Some(ModuleExport::Function { .. })
                     );
-                    let ambiguous = !explicitly_imported && self.modules.iter()
+                    // Stage 3 Item A: a bare call to a fn declared by the
+                    // CURRENT module is not ambiguous -- the current module
+                    // owns it (e.g. `time(0)` inside xiom.time, `spawn`
+                    // inside xiom.thread). Without this, the all-imports
+                    // corpus context flagged every same-leaf fn from sibling
+                    // modules as a collision.
+                    let owned_here = self.fn_owner_module.get(&name.name)
+                        .map(|owners| owners.iter().any(|m| {
+                            Some(m.as_str()) == self.current_module.as_deref()
+                        }))
+                        .unwrap_or(false);
+                    // G-10 precedence: inside a method body, a bare call that
+                    // names one of the receiver's own methods binds to
+                    // `self.name(...)` ahead of imported free fns (the
+                    // all-imports corpus context bound `get(0)` in
+                    // `Vec4f.normalize` to xiom.array's free `get`). The
+                    // current module's OWN fns still shadow (owned_here).
+                    if !owned_here {
+                        if let Some(ret) = self.check_implicit_self_method(&name.name, args, *span) {
+                            return ret;
+                        }
+                    }
+                    let ambiguous = !explicitly_imported && !owned_here && self.modules.iter()
                         .filter(|(m, ex)| !m.is_empty() && matches!(ex.get(&name.name), Some(ModuleExport::Function { .. })))
                         .count() > 1;
                     if ambiguous {
@@ -5688,45 +6014,10 @@ impl Checker {
                         for a in args { let _ = self.check_expr(a); }
                         return CheckedType::Named("_".into());
                     }
-                    // 5c.30: implicit-self method call (G-10).
-                    // When inside a method body, `init()` resolves to
-                    // `self.init()`. Look up the method in the current
-                    // receiver type's registry.
-                    if let Some(ref recv) = self.current_receiver {
-                        // Try the receiver's methods, qualified and bare
-                        let mut msig: Option<&FnSig> = None;
-                        if let Some(ms) = self.methods.get(recv) {
-                            msig = ms.get(&name.name);
-                        }
-                        if msig.is_none() {
-                            let suffix = format!(".{recv}");
-                            for (key, ms) in &self.methods {
-                                if key.ends_with(&suffix) {
-                                    msig = ms.get(&name.name);
-                                    if msig.is_some() { break; }
-                                }
-                            }
-                        }
-                        if let Some(sig) = msig.cloned() {
-                            // The implicit self argument is passed as the
-                            // FIRST param. Check remaining explicit args
-                            // against params[1..].
-                            for (i, arg) in args.iter().enumerate() {
-                                let arg_ty = self.check_expr(arg);
-                                if i + 1 < sig.params.len() {
-                                    let expected = &sig.params[i + 1].1;
-                                    let is_generic = sig.generics.iter().any(|g| g == &expected.name());
-                                    if !is_generic && !self.types_compatible(&arg_ty, expected) && arg_ty != CheckedType::Error {
-                                        self.error(
-                                            format!("argument {} type mismatch: expected {}, found {}",
-                                                i + 1, expected.name(), arg_ty.name()),
-                                            *span,
-                                        );
-                                    }
-                                }
-                            }
-                            return sig.return_type.unwrap_or(CheckedType::Unit);
-                        }
+                    // 5c.30: implicit-self method call (G-10) -- fallback when
+                    // no global function (or imported function) matched.
+                    if let Some(ret) = self.check_implicit_self_method(&name.name, args, *span) {
+                        return ret;
                     }
                     if let Some(export) = self.imported_items.get(&name.name).cloned() {
                         if let ModuleExport::Function { sig, .. } = export {
@@ -8043,6 +8334,9 @@ fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0
         }
         // One representative finding per class (module:line:col) so the
         // remaining work is triageable without re-running anything.
+        // `XIOM_CATALOG_DUMP=1` prints EVERY finding instead (stdlib-lane
+        // handoff: one line per site).
+        let dump_all = std::env::var_os("XIOM_CATALOG_DUMP").is_some();
         let mut first_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         for w in &report.findings {
             let rest = w.message.strip_prefix("catalog body [").unwrap_or("");
@@ -8050,9 +8344,13 @@ fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0
                 Some((m, r)) => (m.to_string(), r.to_string()),
                 None => ("<untagged>".to_string(), w.message.clone()),
             };
-            let class: String = msg.chars().take(48).collect();
-            if first_seen.insert(class.clone()) {
-                eprintln!("  ONE {module}:{}:{}: {}", w.span.line, w.span.col, msg);
+            if dump_all {
+                eprintln!("  ALL {module}:{}:{}: {}", w.span.line, w.span.col, msg);
+            } else {
+                let class: String = msg.chars().take(48).collect();
+                if first_seen.insert(class.clone()) {
+                    eprintln!("  ONE {module}:{}:{}: {}", w.span.line, w.span.col, msg);
+                }
             }
         }
         assert!(report.is_clean(),
