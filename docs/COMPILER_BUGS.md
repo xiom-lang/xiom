@@ -146,14 +146,24 @@ the return-type lookup prefers an arity-fitting declaration (deterministic).
 The R8-hardening is preserved: a call with only the 2-param declaration
 present still errors.
 
-### FLIP STATUS
+### FLIP STATUS (updated 2026-09-12, round 57)
 
-With D1/D2/D4/D5/D5b/D6 the corpus is at **0 findings, 0 hard errors,
-1 parse error** (`xiom.time:232` `<=>` in `ensures:` -- stdlib worklist
-section P). The flip mechanism is staged: `Checker.strict_catalog_findings`
-(default false) + `set_strict_catalog_findings(bool)` makes catalog-body
-findings HARD errors; when the last parse error lands, set the default to
-true and un-ignore `catalog_corpus_is_clean`.
+The corpus-isolation fix changed the measurement: the synthetic corpus `use`
+list now only LOADS modules; its aliases are cleared before
+`flush_catalog_bodies` (plus `imported_items`/`local_module_paths`/
+`module_import_paths`/`use_alias_paths`), so each body is checked under its
+OWN imports -- what a real program sees. The previous 0/0/1 measurement was
+too permissive: it masked 149 real findings of one kind, modules using
+qualified aliases they never import (`xiom.os` -> env/io/string;
+net.https/log/simd/crypto/collections/encoding). Stdlib worklist:
+ITEM_A_STDLIB_FINDINGS.md section Q.
+
+Also fixed in the same slice: `error_with_cause` ignored the flip (it
+downgraded ALL catalog errors to warnings), so strict mode only affected
+`warn_at` diagnostics. It now honors `strict_catalog_findings` and tags the
+message for catalog mode. The default is back to false, and the gate is
+ignored again, until section Q reaches zero; the flip is then: set the
+default true + remove the `#[ignore]`.
 
 ### D3/D6 status (original entries)
 
@@ -5133,6 +5143,36 @@ findings, 0 hard errors, 0 parse errors; `is_clean() == true`. The staged
 flip (`strict_catalog_findings: true` + `#[ignore]` removal) is
 unblocked from the stdlib side. Runtime re-checks: 39/39 time smokes
 green; full r36 sweep 935/935 (pre-fix binary) stands.
+
+## R17. R14 regression: nested-index Str in concat emits an integer on r37 (9e625094)
+
+Found 2026-09-12 (stdlib lane, first r37 smoke run). `smoke_serialize_csv`
+regressed green -> red on the round-56 binary (target_r37, committed
+9e625094): the `flat()` helper prints pointer-ish integers instead of the
+field strings:
+
+```text
+basic: got [2653219331984|2653219332016|...] want [a|b|c;1|2|3]
+```
+
+Minimized probe (preserved: stdlib_ws\probes\p_nested_index_concat.xi):
+
+```text
+r: Vec[Str]; rows: Vec[Vec[Str]]
+s1 = "" + r[0];            -> "a"                       (fine, both builds)
+s2 = "" + rows[0][0];      -> r34 "a"; r37 "140699826060103"
+"[" + rows[0][1] + "]"     -> r34 "b"; r37 "140699826060105"
+```
+
+So the R14 concat-operand fix (`expr_is_integer` -> `llvm_scalar_is_int`
+fallback for Index/Field shapes) is applied to the OUTER index load of a
+doubly-indexed Str element and misclassifies it as an i64 scalar; the
+single-index Vec[Str] case still takes the semantic Str path. Impact: any
+`x = x + v[i][j]` / inline nested-index string concat; CSV `flat()` is one
+instance, and r36's 935/935 (r34) does not cover it. The interrupted r37
+sweep had only reached early files when this was found -- expect more
+corpus hits until fixed. Stdlib side unchanged (CSV module untouched
+since e398df2f; r34 run of the same smoke is green).
 
 
 
