@@ -292,7 +292,7 @@ define %struct.Token @Lexer.next(%struct.Lexer %self) { ... }
 main.xi
   |-- lexer.xi          (imports: Str, Vec)
   |   `-- xiom/string.xi
-  |   `-- xiom/collections.xi
+  |   `-- xiom/collections/collections.xi
   |-- parser.xi         (imports: Lexer, Token)
   |   `-- lexer.xi       <- dependency
   `-- check.xi          (imports: Parser, AST)
