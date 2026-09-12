@@ -4541,6 +4541,15 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m69_let_array_fixed_ir() {
     assert!(compile_and_check_ir("tests\\regression\\m69_let_array_slice_bridge.xi", "alloca [5 x i64]"));
 }
+// R9 (round 53, stdlib report 2026-09-12): a FULL-PATH call into a module
+// that was never imported (`xiom.string.glob`) must resolve the shim's own
+// delegated full-path call (`xiom.misc.glob.glob_match`). Pre-fix the
+// target module was never injected, so codegen bound the inner call to the
+// shim itself -> infinite recursion -> 0xC0000409 at runtime (probes
+// p_x1/p_x2/p_x4/p_x6, p_sdx_shim_first, p_lev_shim_first).
+#[test] fn e2e_m70_full_path_shim_delegation() {
+    assert_eq!(compile_and_run("tests\\regression\\m70_full_path_shim_delegation.xi"), Some(0));
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }

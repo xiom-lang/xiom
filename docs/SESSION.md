@@ -153,6 +153,24 @@ Locks: stdlib_exec_error2_runs (the former flake is now a permanent gate)
 Gates: e2e 2312/2312, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
 checker 182/182.
 
+### Round-53 (2026-09-12): R9 FIXED -- full-path shim delegation
+
+Compiler lane, from the stdlib session's report. Full-path calls into a
+never-imported shim module (`xiom.string.glob.glob_match`) crashed at
+runtime 0xC0000409: the shim's body delegates to
+`xiom.misc.glob.glob_match`, but the shim's own `use xiom.misc.glob;` was
+not followed when its decls were injected (peek is non-caching), so the
+target never reached codegen and the inner call bound to the shim itself
+(infinite recursion). Fix: `collect_external_decls` injects peeked modules
+through a transitive `use` closure in deterministic dotted-name order, so
+the canonical target registers before the shim and the shim's duplicate
+leaf key is skipped. All six external repros (p_x1/p_x2/p_x4/p_x6,
+p_sdx_shim_first, p_lev_shim_first) exit 0. Lock:
+tests/regression/m70_full_path_shim_delegation.xi +
+`e2e_m70_full_path_shim_delegation`. Gates:
+checker 187/187 (+1 pending gate), feature-reg 510/510, stdlib-exec 85/85
+(+2 ign), e2e 2317/2317, workspace check clean.
+
 ### Round-52 (2026-09-12): Stage 3 Item A step 1 -- collect-then-check LANDED
 
 Compiler lane. Catalog body checking now runs after the full import graph is
@@ -496,12 +514,11 @@ What is left is staged readiness work, not bug triage:
    -- re-measure with `cargo test -p xiom-check catalog_corpus_is_clean --
    --ignored --nocapture`; THEN flip when `report.is_clean()` and turn the
    ignored gate into a real gate.]
-3b. R9 (stdlib report 2026-09-12, compiler-side, latent): a FULL-PATH call
-   to a module that was never imported corrupts at runtime (0xC0000409)
-   -- repros p_x1/p_x2/p_x4/p_x6, p_sdx_shim_first, p_lev_shim_first in
-   %TEMP%\kilo\stdlib_ws\probes\. No shipping consumer uses the shape.
-   Desired: a resolver hard-error (or correct resolution). Add a lock
-   fixture when fixed.
+3b. [DONE round 53] R9 (stdlib report 2026-09-12): full-path call to a
+   never-imported shim module crashed 0xC0000409 -- `collect_external_decls`
+   now injects peeked modules through a transitive `use` closure in
+   dotted-name order (canonical target before the shim). All six external
+   repros exit 0; lock `e2e_m70_full_path_shim_delegation`.
 4. Stage 4 remainder:
    - [DONE 620576d6, re-verified round 39] JIT honesty (#17): retired modules
      stay loaded under live pointers (unload-liveness guard) + reload path
@@ -571,16 +588,16 @@ DISCIPLINE TRAPS (learned this campaign, keep honoring):
 
 You are continuing the AXIOM compiler-lane readiness campaign in
 E:\Projects\AXIOM on branch feat/architect. Read docs/SESSION.md
-(the rounds 38-52 entries + COMPILER-LANE REMAINING QUEUE) and
+(the rounds 38-53 entries + COMPILER-LANE REMAINING QUEUE) and
 docs/COMPILER_BUGS.md first; COMPILER_READINESS_PLAN.md holds the stage
 definitions; docs/LET_ARRAY_DECISION.md and docs/JSON_DIAGNOSTICS_V1.md
-are current design records. Current state (HEAD: round-52, Stage 2c
+are current design records. Current state (HEAD: round-53, Stage 2c
 COMPLETE; Item A step 1 collect-then-check LANDED, flip gated on 779
-findings): all known compiler-catalogue red smokes GREEN, the last flake
-(smoke_error2 has-mid) root-caused and locked; last gates e2e 2316/2316,
-feature-reg 510/510, stdlib-exec 85/85 (+2 ign), checker 187/187 (+1 ign
-pending gate), xiom-ast 9/9, codegen lib 11/11, xiom lib 20/20, fmt 83/83,
-lsp 42/42, jit 5/5. The stdlib session works in parallel
+findings; R9 fixed): all known compiler-catalogue red smokes GREEN, the
+last flake (smoke_error2 has-mid) root-caused and locked; last gates e2e
+2317/2317, feature-reg 510/510, stdlib-exec 85/85 (+2 ign), checker
+187/187 (+1 ign pending gate), xiom-ast 9/9, codegen lib 11/11, xiom lib
+20/20, fmt 83/83, lsp 42/42, jit 5/5. The stdlib session works in parallel
 on stdlib/** only and reports roadblocks in chat + COMPILER_BUGS.md.
 
 DONE since the previous prompt: smoke_error2 (HashMap-ordered type_meta
@@ -592,6 +609,8 @@ from xiom-ast; canonical codegen type keys), Stage 3 Item A step 1
 (collect-then-check: queued catalog bodies, per-module isolated import
 context, non-caching private-dep resolution, owner sets, module-scoped
 catalog globals, catalog-tagged warn; corpus 19,287 -> 779, 0 hard errors),
+R9 (full-path shim delegation: transitive `use` closure for peeked module
+injection; all six stdlib repros green),
 LET-array decision doc
 + ALL of P1 (annotated [N]T bindings, float element reads), P2 (user-fn
 `&[N]T`/`&mut [N]T` params now element pointers -- a catalog call inside the
@@ -617,11 +636,7 @@ Your task, in order:
    flip `checking_catalog` findings to HARD ERRORS when
    `CatalogCorpusReport::is_clean()` and turn the ignored gate into a real
    gate.
-2. R9 (compiler-side, latent): a FULL-PATH call to a module that was never
-   imported corrupts at runtime (0xC0000409; stdlib repros p_x1/p_x2/p_x4/
-   p_x6, p_sdx_shim_first, p_lev_shim_first). Make it a resolver hard
-   error (or resolve correctly) + lock.
-3. Stage 5 remainder: LSP incremental reparse/cross-file index; dbg async
+2. Stage 5 remainder: LSP incremental reparse/cross-file index; dbg async
    MI reader + .xi DWARF; cargo-fuzz targets over lexer/parser/CTFE +
    ASAN/UBSAN CI; full clap migration of the driver parser; supply chain
    beyond the closed core (ed25519 + trust model, lockfile v2 with an

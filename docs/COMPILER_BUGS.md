@@ -7,6 +7,33 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-09-12 -- R9 FIXED: full-path shim delegation (infinite self-call -> 0xC0000409)
+
+Stdlib report repros p_x1/p_x2/p_x4/p_x6, p_sdx_shim_first,
+p_lev_shim_first: a FULL-PATH call into a module that was never imported
+(`xiom.string.glob.glob_match`) crashed at runtime with 0xC0000409.
+
+Root cause: the checker resolves the full path by PEEKING the module
+(non-caching) and records it in `peeked_resolved` for codegen injection.
+`xiom.string.glob` is a shim whose body delegates by full path to
+`xiom.misc.glob.glob_match`, but the shim's own `use xiom.misc.glob;` was
+never followed at injection time, so the target module's decls never
+reached codegen. The leaf-qualified symbol key (`glob.glob_match`) was then
+occupied by the shim itself and the inner call bound to it -- infinite
+recursion, trap.
+
+Fix (`Checker::collect_external_decls`): peeked modules are injected
+through a TRANSITIVE `use` closure in deterministic dotted-name order (the
+same first-wins order `all_cached()` uses), so `xiom.misc.glob` registers
+BEFORE the shim and the shim's duplicate leaf key is the one skipped. No
+hard error needed -- correct full-path resolution.
+
+Verified: all six external repros exit 0 with correct output on the fresh
+binary. Lock: tests/regression/m70_full_path_shim_delegation.xi +
+`e2e_m70_full_path_shim_delegation` (pre-fix: 0xC0000409). Gates: checker
+187/187 (+1 pending gate), feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
+e2e 2317/2317, workspace check clean.
+
 ## 2026-09-12 -- Stage 3 Item A step 1 LANDED: collect-then-check + corpus 19,287 -> 779
 
 The catalog import-context fix ("collect-then-check") is implemented and the
