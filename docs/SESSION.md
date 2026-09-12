@@ -153,6 +153,26 @@ Locks: stdlib_exec_error2_runs (the former flake is now a permanent gate)
 Gates: e2e 2312/2312, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
 checker 182/182.
 
+### Round-52 (2026-09-12): Stage 3 Item A step 1 -- collect-then-check LANDED
+
+Compiler lane. Catalog body checking now runs after the full import graph is
+registered and each body is checked under a per-module isolated import
+context (own `use` declarations processed; private deps resolved with the
+non-caching `peek_owned`; snapshot/restore of modules, imported_items,
+local_module_paths, module_import_paths, use_alias_paths, functions,
+visibility, fn_owner_module, methods, submodule_aliases, peeked_resolved).
+Also fixed: private-name owner SETS (`_u32_mask` in two modules),
+module-scoped catalog globals (`_K1`/`_PI`/`NANOS_PER_SEC`), and
+catalog-tagged `warn()`. Corpus: 19,287 -> 5,216 -> 2,477 -> **779
+findings, 0 hard errors, 0 other warnings**; alias classes gone, flip still
+gated on triage of the remaining (~59 extern-unsafe, ~21 ptr casts, T003/
+T007, `Num`/`panic`/ambiguity classes). Mid-slice regression fixed: the
+first flush cached catalog-private deps, which the driver injects into
+codegen (m43 closure adapters miscompiled); peek + isolation restored e2e
+2316/2316. Gates: checker 187/187 (+1 pending gate), feature-reg 510/510,
+stdlib-exec 85/85 (+2 ign), e2e 2316/2316, xiom lib 20/20, fmt 83/83,
+lsp 42/42, jit 5/5, xiom-ast 9/9, workspace check clean.
+
 ### Round-51 (2026-09-11): Stage 3 Item A -- corpus measured, flip BLOCKED on import context
 
 Compiler lane. Added the repeatable measurement API
@@ -461,16 +481,27 @@ What is left is staged readiness work, not bug triage:
    codegen type keys. STAGE 2C COMPLETE.]
 3. ITEM A FLIP (Stage 3): catalog-body findings are still WARNINGS; the
    flip to hard errors is gated on the stdlib corpus being clean.
-   [MEASURED round 51: 19,287 findings / 0 hard errors via the new
-   `Checker::check_catalog_corpus` API; FLIP BLOCKED because catalog bodies
-   are checked at load time and `check_top_decl` has no Use arm, so each
-   module's own `use` aliases are undefined (dominant class; ~12k cascades).
-   STEP 1: collect-then-check -- split `register_external_module` into
-   register-only + queued bodies, flush at the end of `resolve_imports`
-   after the transitive load + prelude, processing each module's own `use`
-   declarations under its module context. STEP 2: re-measure with the
-   ignored gate `catalog_corpus_is_clean` (`--ignored --nocapture`).
-   STEP 3: flip only when clean. No stdlib edits required.]
+   [DONE round 52 -- STEP 1 collect-then-check: bodies queued at
+   registration and flushed at the end of `resolve_imports` under a
+   per-module isolated import context (own `use` declarations processed,
+   private deps resolved with the non-caching `peek_owned`, full
+   snapshot/restore incl. functions/visibility/owner sets/methods/
+   submodule_aliases/peeked_resolved); private-name owner SETS;
+   module-scoped catalog globals; catalog-tagged `warn()`. Corpus:
+   19,287 -> 779 findings, 0 hard errors, 0 other warnings. REMAINING:
+   triage the 779 real findings (per-module tags inline; top classes
+   extern-unsafe ~59, T003/T007 confinement, `Num` 36, `PrecisionLimits`
+   22, `panic` 21, ambiguous `time` 17, Float64/Int mixing 28,
+   `date_day_of_week` 16, `Array[T]` arg mismatch 18) with the stdlib lane
+   -- re-measure with `cargo test -p xiom-check catalog_corpus_is_clean --
+   --ignored --nocapture`; THEN flip when `report.is_clean()` and turn the
+   ignored gate into a real gate.]
+3b. R9 (stdlib report 2026-09-12, compiler-side, latent): a FULL-PATH call
+   to a module that was never imported corrupts at runtime (0xC0000409)
+   -- repros p_x1/p_x2/p_x4/p_x6, p_sdx_shim_first, p_lev_shim_first in
+   %TEMP%\kilo\stdlib_ws\probes\. No shipping consumer uses the shape.
+   Desired: a resolver hard-error (or correct resolution). Add a lock
+   fixture when fixed.
 4. Stage 4 remainder:
    - [DONE 620576d6, re-verified round 39] JIT honesty (#17): retired modules
      stay loaded under live pointers (unload-liveness guard) + reload path
@@ -536,20 +567,20 @@ DISCIPLINE TRAPS (learned this campaign, keep honoring):
 - Docs coupling: every code change lands with COMPILER_BUGS.md +
   docs/SESSION.md in the same commit.
 
-### PROMPT FOR THE NEXT COMPILER SESSION (paste-ready, updated 2026-09-11 late)
+### PROMPT FOR THE NEXT COMPILER SESSION (paste-ready, updated 2026-09-12)
 
 You are continuing the AXIOM compiler-lane readiness campaign in
 E:\Projects\AXIOM on branch feat/architect. Read docs/SESSION.md
-(the rounds 38-50 entries + COMPILER-LANE REMAINING QUEUE) and
+(the rounds 38-52 entries + COMPILER-LANE REMAINING QUEUE) and
 docs/COMPILER_BUGS.md first; COMPILER_READINESS_PLAN.md holds the stage
 definitions; docs/LET_ARRAY_DECISION.md and docs/JSON_DIAGNOSTICS_V1.md
-are current design records. Current state (HEAD: round-51, Stage 2c
-COMPLETE; Item A flip measured and BLOCKED): all known compiler-catalogue
-red smokes GREEN, the last flake (smoke_error2 has-mid) root-caused and
-locked; last gates e2e 2316/2316, feature-reg 510/510, stdlib-exec 85/85
-(+2 ign), checker 187/187 (+1 ign pending gate), xiom-ast 9/9, codegen lib
-11/11, xiom lib 20/20, fmt 83/83, lsp 42/42,
-jit 5/5. The stdlib session works in parallel
+are current design records. Current state (HEAD: round-52, Stage 2c
+COMPLETE; Item A step 1 collect-then-check LANDED, flip gated on 779
+findings): all known compiler-catalogue red smokes GREEN, the last flake
+(smoke_error2 has-mid) root-caused and locked; last gates e2e 2316/2316,
+feature-reg 510/510, stdlib-exec 85/85 (+2 ign), checker 187/187 (+1 ign
+pending gate), xiom-ast 9/9, codegen lib 11/11, xiom lib 20/20, fmt 83/83,
+lsp 42/42, jit 5/5. The stdlib session works in parallel
 on stdlib/** only and reports roadblocks in chat + COMPILER_BUGS.md.
 
 DONE since the previous prompt: smoke_error2 (HashMap-ordered type_meta
@@ -557,9 +588,10 @@ suffix shadowing; order-independent field scan), Stage 2c slices 1-4
 (structural.rs parser + interning; single parser wired through every
 checker consumer; `CheckedType::Named(TypeId)` interned storage and
 process-global arena; registry keyed by TypeId; structural module shared
-from xiom-ast; canonical codegen type keys), Stage 3 Item A measurement
-(corpus report API + root-caused blocker: bodies checked without their own
-use aliases; flip NOT landed),
+from xiom-ast; canonical codegen type keys), Stage 3 Item A step 1
+(collect-then-check: queued catalog bodies, per-module isolated import
+context, non-caching private-dep resolution, owner sets, module-scoped
+catalog globals, catalog-tagged warn; corpus 19,287 -> 779, 0 hard errors),
 LET-array decision doc
 + ALL of P1 (annotated [N]T bindings, float element reads), P2 (user-fn
 `&[N]T`/`&mut [N]T` params now element pointers -- a catalog call inside the
@@ -573,18 +605,23 @@ workspace version/MSRV (1.86) + cargo-deny + CI hygiene (fixed a rotted
 xiom-mcp member), driver target-named files, JSON diagnostics v1 schema.
 
 Your task, in order:
-1. Stage 3 ITEM A, step 1 -- catalog import context (unblocks the flip):
-   collect-then-check. Split `register_external_module` so it only
-   REGISTERS (types/signatures) and queues the module for body checking;
-   flush the queue at the end of `resolve_imports` (after the transitive
-   catalog load AND the prelude) with `current_module` set per module and
-   its own `use` declarations processed under that context before the body.
-   Then re-measure with `cargo test -p xiom-check catalog_corpus_is_clean
-   -- --ignored --nocapture` (expect the ~19k to collapse to the true
-   findings, likely T007 unsafe-without-requires + a few real type errors).
-   Flip to hard errors only when `CatalogCorpusReport::is_clean()`. Keep
-   the ignored gate and turn it into a real gate on the flip.
-2. Stage 5 remainder: LSP incremental reparse/cross-file index; dbg async
+1. Stage 3 ITEM A, step 2 -- triage the 779 remaining catalog findings and
+   flip. Re-measure with `cargo test -p xiom-check catalog_corpus_is_clean
+   -- --ignored --nocapture`; each finding carries a `[module]` tag. Top
+   classes: extern-requires-unsafe ~59, pointer-to-pointer casts ~21,
+   T003/T007 confinement, `undefined variable 'Num'` 36, `PrecisionLimits`
+   22, `cannot call 'panic'` 21, ambiguous `time` 17, Float64/Int mixing
+   28, `date_day_of_week` 16, `Array[T]` arg mismatch 18. Separate checker
+   artifacts from real stdlib findings (coordinate with the stdlib lane via
+   COMPILER_BUGS.md), fix the artifacts, let the lane fix the rest, then
+   flip `checking_catalog` findings to HARD ERRORS when
+   `CatalogCorpusReport::is_clean()` and turn the ignored gate into a real
+   gate.
+2. R9 (compiler-side, latent): a FULL-PATH call to a module that was never
+   imported corrupts at runtime (0xC0000409; stdlib repros p_x1/p_x2/p_x4/
+   p_x6, p_sdx_shim_first, p_lev_shim_first). Make it a resolver hard
+   error (or resolve correctly) + lock.
+3. Stage 5 remainder: LSP incremental reparse/cross-file index; dbg async
    MI reader + .xi DWARF; cargo-fuzz targets over lexer/parser/CTFE +
    ASAN/UBSAN CI; full clap migration of the driver parser; supply chain
    beyond the closed core (ed25519 + trust model, lockfile v2 with an

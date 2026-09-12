@@ -7,6 +7,55 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-09-12 -- Stage 3 Item A step 1 LANDED: collect-then-check + corpus 19,287 -> 779
+
+The catalog import-context fix ("collect-then-check") is implemented and the
+artifact classes are separated from real findings:
+
+- `register_external_module` now only REGISTERS (types/signatures/interfaces)
+  and queues the body; `flush_catalog_bodies` runs at the end of
+  `resolve_imports`, after the transitive load + prelude + program uses.
+- Each body is checked under a PER-MODULE ISOLATED import context
+  (`CatalogImportContext` snapshot/restore): a module's own `use`
+  declarations are processed (new `TopDecl::Use` arm in `check_top_decl`),
+  and the private deps it resolves are loaded with the NON-CACHING
+  `peek_owned`. The snapshot covers `modules`, `imported_items`,
+  `local_module_paths`, `module_import_paths`, `use_alias_paths`,
+  `functions`, `visibility`, `fn_owner_module`, `methods`,
+  `submodule_aliases` and `peeked_resolved`.
+- Private-name resolution: `fn_owner_module` is now name -> SET of owning
+  modules (two catalog modules may each define a private `_u32_mask`).
+- Catalog module-level const/var globals are registered module-scoped
+  (`catalog_global_consts`); `_K1`/`_PI`/`NANOS_PER_SEC` no longer undefined.
+- Warnings raised while `checking_catalog` are tagged with the "catalog
+  body" prefix in `warn()` too (m16/m17 zero-user-warning contracts).
+
+Measured corpus (`catalog_corpus_is_clean`, ignored pending gate):
+**779 findings, 0 hard errors, 0 other warnings** (was 19,287 with the old
+phase; intermediate 5,216 after the import context, 2,477 after owner sets,
+then globals + isolation). The alias classes (`string` 4318, `math` 1806,
+`convert`, `io`, `bigint`, ...) are GONE. Remaining top classes are concrete
+and triageable (per-module tags are in the finding messages):
+`Num` 36, `PrecisionLimits` 22, `panic` 21 (builtin resolution),
+ambiguous `time` 17, Float64/Int mixing 28, `date_day_of_week` 16,
+`Array[T]` arg mismatch 18, extern-requires-unsafe ~59, pointer-to-pointer
+casts 21, plus T003/T007 confinement findings. These are stdlib-lane
+triage items; the flip stays GATED until `report.is_clean()`.
+
+REGRESSION CAUGHT MID-SLICE (fixed): the first flush attempt let catalog
+private deps load through `find_owned`, which CACHES them -- the driver
+injects every cached module into codegen, so extra concrete defines/decls
+shifted first-wins resolution and m43 closure adapters miscompiled
+(compile 0, run 1; e2e caught it). The non-caching peek + snapshot model
+fixed it; e2e is 2316/2316 again.
+
+Gates on a fresh canonical binary: checker 187/187 (+1 pending gate),
+xiom-ast 9/9, feature-reg 510/510, stdlib-exec 85/85 (+2 ign), e2e
+2316/2316, xiom lib 20/20, fmt 83/83, lsp 42/42, jit 5/5, workspace check
+clean. Stdlib-lane heads-up: the classes they pre-triaged as checker-side
+(undefined `io`/`string`/`size_of`/`alloc` in bodies) are addressed by the
+import-context work; re-measure against this build before realigning.
+
 ## 2026-09-11 -- Stage 3 Item A: flip BLOCKED -- corpus re-measured (19,287 findings)
 
 Re-measured the catalog-body findings after the stdlib dedup rounds, with a
