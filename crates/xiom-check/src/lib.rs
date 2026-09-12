@@ -53,11 +53,17 @@ pub struct Checker {
     warnings: Vec<CheckError>,
     /// S2: When true, non-exhaustive match warnings become hard errors.
     strict_exhaustive: bool,
-    /// Stage 3 Item A FLIP: when true, catalog-body findings become HARD
-    /// ERRORS (any finding in a loaded catalog module fails the compile).
-    /// Defaults to false until `CatalogCorpusReport::is_clean()`; the flip is
-    /// enabled here + by un-ignoring the corpus gate. See COMPILER_BUGS.md.
+    /// Stage 3 Item A FLIP (2026-09-12): catalog-body findings are HARD
+    /// ERRORS now that the corpus is clean. The un-ignored
+    /// `catalog_corpus_is_clean` gate is the regression canary; see
+    /// COMPILER_BUGS.md.
     strict_catalog_findings: bool,
+    /// Corpus-measurement mode: `check_catalog_corpus` installs synthetic
+    /// `use` items only to LOAD every indexed module. Their aliases must not
+    /// leak into catalog-body import contexts (see `resolve_imports`), or the
+    /// gate passes modules that a real compile rejects (`xiom.os` references
+    /// `io` without `use xiom.io;`).
+    corpus_loading: bool,
     /// Imported module paths (use declarations)
     imports: Vec<UseDecl>,
     /// Module namespace: module name -> { exported names }
@@ -245,9 +251,16 @@ impl Checker {
             errors: Vec::new(),
             warnings: Vec::new(),
             strict_exhaustive: false,
-            // FLIP GATE: set true (and un-ignore `catalog_corpus_is_clean`)
-            // once the stdlib worklist reaches zero. See COMPILER_BUGS.md.
+            // Stage 3 Item A FLIP: `strict_catalog_findings` makes catalog-body
+            // findings hard errors. It is NOT enabled yet: the corpus-isolation
+            // fix (synthetic `use` aliases no longer leak into body contexts)
+            // exposed a second stdlib class -- modules using qualified aliases
+            // they never `use` (`xiom.os` -> io/env/string, net.https, log,
+            // collections, ...; 160 findings, docs/ITEM_A_STDLIB_FINDINGS.md
+            // section Q). Enable together with un-ignoring the gate once that
+            // list reaches zero.
             strict_catalog_findings: false,
+            corpus_loading: false,
             imports: Vec::new(),
             modules: HashMap::new(),
             methods: HashMap::new(),
@@ -516,7 +529,11 @@ impl Checker {
             root_dir: None,
             span: Span::new(0, 0),
         };
+        // Corpus mode: synthetic uses load every module but must not leak
+        // aliases into catalog-body contexts (see resolve_imports).
+        self.corpus_loading = true;
         let outcome = self.check_program(&program);
+        self.corpus_loading = false;
         let warnings = self.take_warnings();
         let errors = outcome.err().unwrap_or_default();
         let (findings, warnings) = warnings.into_iter()
@@ -1208,11 +1225,11 @@ impl Checker {
     fn error_with_cause(&mut self, message: impl Into<String>, span: Span, cause: crate::types::TypeCause) -> CheckedType {
         let msg = message.into();
         let _proof = xiom_ast::ErrorGuaranteed::new();
-        // ITEM A (Stage 3): catalog-body findings surface as WARNINGS
-        // (staged rollout -- flip to hard errors once the catalog corpus
-        // is clean). The CheckedType::Error return still suppresses
-        // cascades identically.
-        if self.checking_catalog {
+        // ITEM A (Stage 3): catalog-body findings surface as WARNINGS until
+        // the FLIP; with `strict_catalog_findings` they are hard errors like
+        // any other compile diagnostic. The CheckedType::Error return still
+        // suppresses cascades identically.
+        if self.checking_catalog && !self.strict_catalog_findings {
             self.warnings.push(CheckError {
                 message: format!("catalog body: {msg}"),
                 span,
@@ -1220,7 +1237,12 @@ impl Checker {
                 guaranteed: _proof,
             });
         } else {
-            self.errors.push(CheckError { message: msg, span, cause, guaranteed: _proof });
+            let message = if self.checking_catalog {
+                format!("catalog body: {msg}")
+            } else {
+                msg
+            };
+            self.errors.push(CheckError { message, span, cause, guaranteed: _proof });
             self.error_count += 1;
         }
         CheckedType::Error
@@ -2447,10 +2469,29 @@ impl Checker {
         }
 
         // Now process each use declaration -- self.modules is fully populated.
+        // Snapshot the module keys BEFORE any use binds aliases: corpus mode
+        // restores exactly this set so synthetic imports cannot leak into the
+        // catalog-body import contexts.
+        let pre_use_module_keys: HashSet<String> = self.modules.keys().cloned().collect();
         for ud in &import_snapshot {
             self.process_use(ud);
         }
         self.imports = import_snapshot;
+
+        if self.corpus_loading {
+            // Stage 3 Item A: the synthetic `use` items exist ONLY to load
+            // every indexed module. Their global aliases must not leak into
+            // catalog-body contexts -- a real program imports only what it
+            // uses, and the gate must model that (xiom.os references `io`
+            // without `use xiom.io;`: corpus-clean while a real compile
+            // reports it). Keep the fully-qualified registration state
+            // (functions/visibility/methods) and drop every use-bound alias.
+            self.modules.retain(|k, _| pre_use_module_keys.contains(k));
+            self.imported_items.clear();
+            self.local_module_paths.clear();
+            self.module_import_paths.clear();
+            self.use_alias_paths.clear();
+        }
 
         // Stage 3 Item A: the import graph and the program's own aliases are
         // complete -- run the deferred catalog-body checks (collect-then-check).
@@ -8461,18 +8502,20 @@ fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0
         assert!(result.is_err(), "move while borrowed should error");
     }
 
-    /// Stage 3 Item A gate: the catalog corpus must be CLEAN before the
-    /// catalog-body findings flip from warnings to hard errors.
+    /// Stage 3 Item A FLIP gate: the catalog corpus is the stdlib readiness
+    /// gate. Every indexed module is loaded, its body checked under an
+    /// isolated import context, and findings/parse errors are failures
+    /// (`CatalogCorpusReport::is_clean`).
     ///
-    /// IGNORED (pending gate): the corpus currently reports ~19k findings,
-    /// dominated by catalog bodies checked WITHOUT their own `use` aliases --
-    /// module aliases (`math`, `string`, `convert`, `io`, ...) are undefined
-    /// because `check_top_decl` has no `TopLevel::Use` arm and the body pass
-    /// runs at module-load time, before the import graph is complete. Re-run
-    /// explicitly to re-measure:
+    /// PENDING (ignored) again 2026-09-12: the corpus-isolation fix (synthetic
+    /// `use` aliases no longer leak into body contexts) exposed 160 real
+    /// import-discipline findings -- modules using qualified aliases they
+    /// never import (`xiom.os` -> io/env/string; net.https, log, collections,
+    /// crypto, encoding, simd). Stdlib worklist: ITEM_A_STDLIB_FINDINGS.md
+    /// section Q. Re-measure:
     /// `cargo test -p xiom-check catalog_corpus_is_clean -- --ignored --nocapture`
     #[test]
-    #[ignore = "blocked: ~5.2k catalog-body findings remain after the import-context fix; flip when clean"]
+    #[ignore = "blocked: 160 import-discipline findings after corpus isolation (report section Q); flip when clean"]
     fn catalog_corpus_is_clean() {
         let mut checker = Checker::new();
         checker.add_source_dir(project_root().join("stdlib").to_string_lossy().to_string());
@@ -8498,6 +8541,11 @@ fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0
         // D1: catalog parse diagnostics are hard errors for the gate.
         for e in &report.parse_errors {
             eprintln!("  PARSE {}:{}: {}", e.span.line, e.span.col, e.message);
+        }
+        // Hard errors. Since the FLIP, catalog-body findings are hard errors,
+        // so these lines are the primary triage output on a regression.
+        for e in report.errors.iter().take(50) {
+            eprintln!("  ERR {}:{}: {}", e.span.line, e.span.col, e.message);
         }
         let mut classes: Vec<_> = by_class.into_iter().collect();
         classes.sort_by(|a, b| b.1.cmp(&a.1));

@@ -153,6 +153,33 @@ Locks: stdlib_exec_error2_runs (the former flake is now a permanent gate)
 Gates: e2e 2312/2312, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
 checker 182/182.
 
+### Round-57 (2026-09-12): corpus isolation fix -- gate now models real compiles
+
+Compiler lane. Attempted the Item A flip after the stdlib landed the last
+`<=>`; the flip exposed that the corpus measurement was too permissive.
+
+- **Corpus isolation fix (important)**: the synthetic `use` list exists to
+  LOAD every indexed module. Its aliases were leaking into catalog-body
+  import contexts, so the gate passed modules that a real compile rejects.
+  `resolve_imports` now snapshots the module keys before use-processing and,
+  in `corpus_loading` mode, restores them + clears
+  `imported_items`/`local_module_paths`/`module_import_paths`/`use_alias_paths`
+  before `flush_catalog_bodies`. Catalog bodies are now checked under their
+  OWN imports, exactly like a user compile.
+- **New finding class (149 sites, report section Q)**: modules using
+  qualified aliases they never import -- `xiom.os` (env/io/string),
+  `xiom.log` (io), `xiom.net.https` (string), `xiom.simd` (math),
+  `xiom.crypto`/`xiom.collections` (malloc/realloc/free),
+  `xiom.encoding` (self-qualified). Stdlib worklist; the flip is re-pending
+  on it.
+- **Flip mechanism bug fixed**: `error_with_cause` downgraded catalog errors
+  regardless of `strict_catalog_findings`; it now honors the flip (tagging
+  the message), so strict mode actually gates every catalog diagnostic, not
+  just `warn_at` warnings. Default reverted to false + gate re-ignored with
+  the section-Q reason.
+- Also verified: user compiles with strict off are unchanged; the R14 lock
+  and all fast gates stay green.
+
 ### Round-56 (2026-09-12): D1/D2/D4/D5 -- catalog parse integrity + parser/checker fixes
 
 Compiler lane. Follow-up slice of the Item A triage; details in
@@ -746,16 +773,15 @@ workspace version/MSRV (1.86) + cargo-deny + CI hygiene (fixed a rotted
 xiom-mcp member), driver target-named files, JSON diagnostics v1 schema.
 
 Your task, in order:
-1. Stage 3 ITEM A -- D1 (catalog parse diagnostics as gate hard errors),
-   D1b (tuple type args in generic struct literals), D2 (real match spans),
-   D4 ((Fn, Fn) structural compatibility), D5 (argument-aware bare-name
-   selection), D5b (visibility free-fns-only) and D6 (field calls shadow
-   cross-type wildcard methods) LANDED in round-56. Corpus at the freeze:
-   0 findings, 0 hard errors, 1 parse error (`xiom.time:232` `<=>` in
-   `ensures:` -- stdlib section P). The FLIP mechanism is staged
-   (`strict_catalog_findings`); when the last parse error lands, set the
-   default to true and un-ignore `catalog_corpus_is_clean`. The stdlib
-   session owns the remaining item and can re-measure with
+1. Stage 3 ITEM A -- D1/D1b/D2/D4/D5/D5b/D5c/D6 LANDED (rounds 56). The
+   ROUND-57 corpus-isolation fix makes the gate model real compiles; it
+   re-pended the flip on **149 import-discipline findings** (report section
+   Q): modules using qualified aliases they never import (`xiom.os` ->
+   env/io/string; log/net.https/simd/crypto/collections/encoding). The flip
+   mechanism is ready and verified (`strict_catalog_findings` honored by both
+   `warn_at` and `error_with_cause`); when section Q reaches zero: set the
+   default true in `Checker::new` + remove the `#[ignore]` on
+   `catalog_corpus_is_clean`. Re-measure with
    `cargo test -p xiom-check catalog_corpus_is_clean -- --ignored
    --nocapture` (`$env:XIOM_CATALOG_DUMP='1'` for every site).
 2. R14 FIXED in round-56 (root cause: `Str + vec[i]` emitted inttoptr for
