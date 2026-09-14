@@ -5347,5 +5347,18 @@ smoke_stress_path_components + smoke_bigfloat are green again solo. The
 underlying bug remains for any real `mem.replace[Str]` caller -- lock
 with a minimal `mem.replace` on a Str once fixed.
 
+RE-TEST of R15 after 4311b5db (definition-side recursive injection dedup +
+qualified-first symbol lookup) and the 42943cd2 flip, built as target_r39
+(2026-09-14): STILL NOT FIXED. Re-landing the convert.base32 shim and
+running the same probes:
+- p_b32_s5a: `B-enc=` still EMPTY (silent wrong value; exit 0).
+- smoke_convert_base32: 0xC0000005 crash with the shim.
+- Local implementation restored: green immediately.
+- smoke_encoding_base32 (canonical side) is green throughout.
+So catalog-vs-catalog same-leaf + same-name delegation remains broken
+after the definition-side fix; the silent-empty mode persists. Stdlib
+shim reverted again; encoding-family consolidation stays gated. Probes:
+p_b32_s5a/s5b (+ p_b32_shim2/3) preserved in stdlib_ws\probes.
+
 
 
