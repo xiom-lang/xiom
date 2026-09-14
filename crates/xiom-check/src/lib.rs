@@ -251,15 +251,11 @@ impl Checker {
             errors: Vec::new(),
             warnings: Vec::new(),
             strict_exhaustive: false,
-            // Stage 3 Item A FLIP: `strict_catalog_findings` makes catalog-body
-            // findings hard errors. It is NOT enabled yet: the corpus-isolation
-            // fix (synthetic `use` aliases no longer leak into body contexts)
-            // exposed a second stdlib class -- modules using qualified aliases
-            // they never `use` (`xiom.os` -> io/env/string, net.https, log,
-            // collections, ...; 160 findings, docs/ITEM_A_STDLIB_FINDINGS.md
-            // section Q). Enable together with un-ignoring the gate once that
-            // list reaches zero.
-            strict_catalog_findings: false,
+            // Stage 3 Item A FLIP (2026-09-14): the isolated corpus is CLEAN
+            // (0 findings / 0 hard errors / 0 parse errors), so catalog-body
+            // findings are now HARD ERRORS in every compile. The un-ignored
+            // `catalog_corpus_is_clean` gate is the regression canary.
+            strict_catalog_findings: true,
             corpus_loading: false,
             imports: Vec::new(),
             modules: HashMap::new(),
@@ -8502,20 +8498,13 @@ fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0
         assert!(result.is_err(), "move while borrowed should error");
     }
 
-    /// Stage 3 Item A FLIP gate: the catalog corpus is the stdlib readiness
-    /// gate. Every indexed module is loaded, its body checked under an
-    /// isolated import context, and findings/parse errors are failures
-    /// (`CatalogCorpusReport::is_clean`).
-    ///
-    /// PENDING (ignored) again 2026-09-12: the corpus-isolation fix (synthetic
-    /// `use` aliases no longer leak into body contexts) exposed 160 real
-    /// import-discipline findings -- modules using qualified aliases they
-    /// never import (`xiom.os` -> io/env/string; net.https, log, collections,
-    /// crypto, encoding, simd). Stdlib worklist: ITEM_A_STDLIB_FINDINGS.md
-    /// section Q. Re-measure:
-    /// `cargo test -p xiom-check catalog_corpus_is_clean -- --ignored --nocapture`
+    /// Stage 3 Item A FLIP gate (2026-09-14): the catalog corpus is the
+    /// stdlib readiness gate. Every indexed module is loaded, its body checked
+    /// under an isolated import context, and findings/parse errors are hard
+    /// failures (`CatalogCorpusReport::is_clean`). Runs UN-IGNORED; with the
+    /// flip, catalog-body findings are hard errors in every compile.
+    /// `$env:XIOM_CATALOG_DUMP='1'` prints every site.
     #[test]
-    #[ignore = "blocked: 160 import-discipline findings after corpus isolation (report section Q); flip when clean"]
     fn catalog_corpus_is_clean() {
         let mut checker = Checker::new();
         checker.add_source_dir(project_root().join("stdlib").to_string_lossy().to_string());

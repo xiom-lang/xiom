@@ -186,12 +186,10 @@ qualified aliases they never import (`xiom.os` -> env/io/string;
 net.https/log/simd/crypto/collections/encoding). Stdlib worklist:
 ITEM_A_STDLIB_FINDINGS.md section Q.
 
-Also fixed in the same slice: `error_with_cause` ignored the flip (it
-downgraded ALL catalog errors to warnings), so strict mode only affected
-`warn_at` diagnostics. It now honors `strict_catalog_findings` and tags the
-message for catalog mode. The default is back to false, and the gate is
-ignored again, until section Q reaches zero; the flip is then: set the
-default true + remove the `#[ignore]`.
+**FLIPPED 2026-09-14**: the stdlib lane cleared section Q; with the isolated
+corpus clean, `strict_catalog_findings` defaults to TRUE and
+`catalog_corpus_is_clean` runs un-ignored (checker 188/188). Any catalog-body
+finding in any loaded module is now a hard error; the gate is the canary.
 
 ### D3/D6 status (original entries)
 
