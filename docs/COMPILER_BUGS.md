@@ -5360,5 +5360,35 @@ after the definition-side fix; the silent-empty mode persists. Stdlib
 shim reverted again; encoding-family consolidation stays gated. Probes:
 p_b32_s5a/s5b (+ p_b32_shim2/3) preserved in stdlib_ws\probes.
 
+## R20. R15 residual: delegated Result-returning same-name catalog fn yields empty-payload Err (Str legs fixed)
+
+Found 2026-09-14 on target_r40 (a07507c4 "R15 catalog delegation fixed --
+checker-recorded call targets + full-path injected names"). The Str-returning
+same-name legs are now CORRECT, but Result-returning ones are not:
+minimal probe stdlib_ws\probes\p_b32_residual.xi (convert.base32 shim over
+encoding.base32) prints:
+
+```text
+enc=[MZXW6===]        <- base32_encode delegated: CORRECT now
+hex=[CPNMU===]        <- base32hex_encode delegated: CORRECT now
+inline ERR msg=[]     <- base32_decode("MZXW6==="): Err with EMPTY payload
+helper ERR msg=[]     <- same via a helper frame: also Err/empty
+RESIDUAL DONE (exit 0)
+```
+
+The canonical `smoke_encoding_base32` decodes the same input to Ok(3 bytes);
+through the shim the caller always observes `Err("")`. Results are also
+program-shape-dependent: in a different probe (p_b32_shim2) the same
+decode calls produced plausible Ok values while `hex=` printed empty --
+i.e. the delegated Result (tag + payload) is not reliably propagated from
+the canonical body to the shim consumer. `smoke_convert_base32` with the
+shim still AVs (0xC0000005); with the local impl restored it is green
+immediately (also on r40).
+
+Stdlib action: shim reverted again; encoding-family consolidation stays
+gated on Result-returning delegation. The Str-side progress (a07507c4)
+means a Str-only shim family can be reconsidered once one exists
+(e.g. pure Str helpers), but base32/percent/punycode all expose Results.
+
 
 
