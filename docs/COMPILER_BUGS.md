@@ -5162,14 +5162,36 @@ ROUND-58 CALL-SIDE FIX LANDED (2026-09-14): R15 is fixed for the catalog
   same-name modules declared in the USER program (no catalog recording) --
   tracked as R15b; not needed for the encoding-family dedup.
 
-FLIP HELD (2026-09-14): strict mode exposed a class the corpus cannot see --
-catalog bodies using BARE names from modules they never import
-(`core.xi:897` `zeroed` from xiom.mem resolves in the all-imports corpus via
-the global first-wins table but is undefined in a real transitive compile).
-With strict on, 37/85 stdlib-exec smokes hard-error. The corpus gate stays
-un-ignored (it is clean); `strict_catalog_findings` stays false until the
-stdlib imports/qualifies those sites. Detector for the fix: run
-`stdlib_execution_tests` with strict true (temporarily flip the default).
+FLIP LANDED (2026-09-14, round 59): both blockers found while holding the
+flip are fixed, strict is ON, and `stdlib_execution_tests` is green with it
+(85/85) -- the real-compile detector the corpus cannot replace.
+
+## R19 FIXED (2026-09-14): generic deref-store pointee type
+
+`trim_end_matches('*')` strips ALL trailing stars, so the deref-store path
+mapped `i8**` (`*mut Str`) to `i8` and emitted `store i8 %ptr, i8**` -- clang
+`'%tmp' defined with type ptr but expected i8` in `ptr.replace_Str`, reached
+via `mem.replace[Str]`. Same class as BUG 44 in the deref-LOAD path.
+Fixed in stmt.rs (deref assign) and call.rs (ptr.write/ptr.read inline
+handlers): strip exactly ONE star. Lock: `e2e_m73_ptr_replace_str`
+(`mem.replace[Str]` + `mem.replace[Int]`); the R19 workaround (core.xi
+dropping `use xiom.mem;`) can now be reverted by the stdlib lane.
+
+## ALIAS ISOLATION (2026-09-14): user aliases must not leak into catalog bodies
+
+`flush_catalog_bodies` now retains only the pre-use module keys and clears
+`imported_items`/`local_module_paths`/`module_import_paths`/`use_alias_paths`
+per body (snapshot-restored afterwards), so each catalog body resolves
+through ITS OWN `use` bindings. Before this, a USER alias
+(`use xiom.collect.hash` binding `hash`) hijacked `collections.xi`'s
+`hash.hash_combine` (its own `use xiom.hash` lost first-wins) and hard-failed
+under strict. This is the real-compile counterpart of the corpus
+`corpus_loading` isolation.
+
+FLIP HISTORY: strict was first enabled 42943cd2, held when 37/85 smokes
+failed, and re-enabled here after R19 + alias isolation made stdlib-exec
+85/85 with strict on. The un-ignored corpus gate remains the stdlib-regression
+canary; `stdlib_execution_tests` (strict default) is the real-compile gate.
 
 ROUND-57 DIAGNOSIS (2026-09-12): definition-side partial landed then REVERTED
 (regression); call site needs module-scoped alias plumbing.
@@ -5389,6 +5411,39 @@ Stdlib action: shim reverted again; encoding-family consolidation stays
 gated on Result-returning delegation. The Str-side progress (a07507c4)
 means a Str-only shim family can be reconsidered once one exists
 (e.g. pure Str helpers), but base32/percent/punycode all expose Results.
+
+## 2026-09-14 (stdlib lane, round-58 follow-up) -- bare-name worklist ZERO; strict flip re-ready
+
+Round-58 held the strict flip at 37/85 stdlib-exec smokes. The stdlib lane
+built an independent detector -- a per-module import probe (`use xiom.X`
+alone) exposes that catalog body under its own imports, exactly like the
+isolated corpus -- and swept all 509 manifest modules with 8 workers. The
+flip-blocking class collapsed to 13 unique findings in 5 modules, all
+fixed:
+
+- `xiom.core:896` bare `zeroed` -> `mem.zeroed[T]()` (qualified; the mem
+  import is retained for the intrinsic declaration).
+- `xiom.io:630` bare `chmod` shadowed by `os.fs_ffi.chmod` (pub Result) ->
+  wrapper renamed to `fs_ffi.chmod_path` (smoke_os_ffi updated).
+- `xiom.io:667/677/688` stdio accessors -> console.xi's `xiom_std*` externs
+  harmonized to `-> Int` with explicit `as *UInt8` casts at the
+  fgets/fgetc/fwrite/fflush sites (no more *UInt8 shadowing).
+- `xiom.io:930` bare `rename` shadowed by xiom.os's unused libc extern ->
+  that extern was deleted.
+- `xiom.collections:1425` vec_sort_by full-path sort_by + Ordering mismatch
+  -> local insertion sort keeps the Int-comparator API.
+- `xiom.collections:960` `hash_combine` shadowed by collect.hash /
+  crypto.hash leaf collisions -> `use xiom.hash as hsh` alias.
+- `xiom.collections` bucket_idx generic key -> `*key as Int` (Int-like
+  keys, documented; the legacy HashMap family has no consumers).
+- `xiom.crypto.mac:90` `crypto.md5` dotted call resolved to the legacy
+  xiom.crypto.md5 module in call position -> new uniquely-named
+  `crypto.md5_bytes` wrapper.
+
+Re-scan: 509/509 module probes -> 0 catalog-body findings. Targeted
+runtime battery: 101/101 (core/mem/collections/io/console/os_ffi/
+crypto-hmac). Corpus gate green. The flip can be re-enabled for the
+compiler lane's stdlib_execution_tests run.
 
 
 
