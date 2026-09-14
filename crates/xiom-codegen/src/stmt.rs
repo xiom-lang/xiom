@@ -750,7 +750,12 @@ impl IrEmitter {
                 if let Expr::Unary(UnaryOp::Deref, inner, _) = place {
                     let (ptr_val, ptr_ty) = self.compile_expr(inner)?;
                     if ptr_ty.ends_with('*') {
-                        let pointee = ptr_ty.trim_end_matches('*').to_string();
+                        // R19: strip exactly ONE star. `trim_end_matches('*')`
+                        // mapped `i8**` (`*mut Str`) to `i8`, so the store of a
+                        // Str value emitted `store i8 %ptr, i8**` (clang
+                        // ptr/i8 mismatch in ptr.replace_Str). Same class as
+                        // BUG 44 in the deref-load path.
+                        let pointee = ptr_ty.strip_suffix('*').unwrap_or(&ptr_ty).to_string();
                         let (val, val_ty) = self.compile_expr(value)?;
                         let store_val = self.coerce_value(&val, &val_ty, &pointee);
                         self.emitln(&format!("  store {pointee} {store_val}, {ptr_ty} {ptr_val}"));

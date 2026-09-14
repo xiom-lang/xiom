@@ -69,6 +69,11 @@ pub struct Checker {
     /// hands this to codegen so same-leaf delegations bind the module the
     /// checker resolved (codegen cannot see catalog-body `use` aliases).
     pub catalog_resolved_calls: HashMap<String, String>,
+    /// Module keys that existed BEFORE the program's own `use` processing.
+    /// `flush_catalog_bodies` retains exactly these per body so a USER alias
+    /// (`use xiom.collect.hash` binding `hash`) cannot hijack a catalog
+    /// module's own alias resolution (collections.xi's `use xiom.hash`).
+    pre_use_module_keys: HashSet<String>,
     /// Imported module paths (use declarations)
     imports: Vec<UseDecl>,
     /// Module namespace: module name -> { exported names }
@@ -256,19 +261,19 @@ impl Checker {
             errors: Vec::new(),
             warnings: Vec::new(),
             strict_exhaustive: false,
-            // Stage 3 Item A FLIP -- HELD (2026-09-14): the corpus gate is
-            // clean and runs un-ignored, but strict mode exposed a class the
-            // corpus CANNOT see: catalog bodies using BARE names from modules
-            // they never import (`core.xi:897` uses `zeroed` from xiom.mem).
-            // Those bare names resolve in the all-imports corpus via the
-            // global first-wins function table but are undefined in a real
-            // transitive compile -> 37/85 stdlib-exec smokes fail with
-            // strict on. Detector: run stdlib_execution_tests with strict
-            // true. Hold strict=false until the stdlib imports/qualifies
-            // those sites (worklist: COMPILER_BUGS "bare-name reliance").
+            // Stage 3 Item A FLIP -- HELD AGAIN (2026-09-14): R19 and the
+            // per-body ALIAS ISOLATION are fixed, and stdlib-exec is 85/85
+            // with strict ON. But the E2E surface still hits pre-existing
+            // catalog findings the corpus cannot see because BARE-name
+            // resolution is load-ORDER-dependent (m34_j08: xiom.encoding's
+            // `write_base64_triplet(buf, ...)` binds a same-named fn with a
+            // Box param, and `data.get(i).value` types as UInt8). Sites in
+            // COMPILER_BUGS "FLIP RE-HELD". Keep false until the stdlib
+            // qualifies those calls (or resolution becomes order-independent).
             strict_catalog_findings: false,
             corpus_loading: false,
             catalog_resolved_calls: HashMap::new(),
+            pre_use_module_keys: HashSet::new(),
             imports: Vec::new(),
             modules: HashMap::new(),
             methods: HashMap::new(),
@@ -459,6 +464,18 @@ impl Checker {
                 continue; // checked in an earlier flush
             }
             let ctx = self.capture_catalog_import_context();
+            // Per-body isolation (mirrors corpus_loading): a catalog module's
+            // body must resolve through ITS OWN `use` bindings only. Without
+            // this, USER-program aliases leak in (`use xiom.collect.hash`
+            // bound global `hash`, so collections.xi's `hash.hash_combine`
+            // resolved through xiom.collect.hash and failed under strict).
+            if !self.pre_use_module_keys.is_empty() {
+                self.modules.retain(|k, _| self.pre_use_module_keys.contains(k));
+                self.imported_items.clear();
+                self.local_module_paths.clear();
+                self.module_import_paths.clear();
+                self.use_alias_paths.clear();
+            }
             let before = self.warnings.len();
             for item in &cached.program.items {
                 self.check_top_decl(item);
@@ -2481,6 +2498,7 @@ impl Checker {
         // restores exactly this set so synthetic imports cannot leak into the
         // catalog-body import contexts.
         let pre_use_module_keys: HashSet<String> = self.modules.keys().cloned().collect();
+        self.pre_use_module_keys = pre_use_module_keys.clone();
         for ud in &import_snapshot {
             self.process_use(ud);
         }

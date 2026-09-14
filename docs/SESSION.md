@@ -153,6 +153,40 @@ Locks: stdlib_exec_error2_runs (the former flake is now a permanent gate)
 Gates: e2e 2312/2312, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
 checker 182/182.
 
+### Round-59 (2026-09-14): FLIP LANDED -- R19 + catalog alias isolation
+
+Compiler lane. The stdlib lane's r39 report (937/937, section Q 149 -> 0)
+plus the R19 workaround (core.xi dropping `use xiom.mem;`) left the flip
+held. Re-tested under strict and fixed the two real blockers:
+
+- **R19 FIXED**: the deref-store path used `trim_end_matches('*')`, which
+  strips ALL stars -- `i8**` (`*mut Str`) became `i8` and
+  `ptr.replace_Str` emitted `store i8 %ptr, i8**` (clang ptr/i8 mismatch,
+  reached via `mem.replace[Str]`). Same class as BUG 44 in the deref-load
+  path. Fixed in `stmt.rs` (deref assign) and `call.rs` (ptr.write/read
+  inline handlers): strip exactly ONE star. Lock
+  `e2e_m73_ptr_replace_str`; the stdlib can revert the core-mem workaround.
+- **ALIAS ISOLATION**: `flush_catalog_bodies` now retains only pre-use
+  module keys and clears `imported_items`/`local_module_paths`/
+  `module_import_paths`/`use_alias_paths` per body (restored afterwards), so
+  a USER alias (`use xiom.collect.hash`) can no longer hijack a catalog
+  module's own `hash.hash_combine`. This is the real-compile counterpart of
+  the corpus isolation and fixed the last stdlib-exec failure under strict.
+- **FLIP RE-HELD**: `strict_catalog_findings` briefly enabled (stdlib-exec
+  85/85 with strict on) but held again when the full e2e surface exposed a
+  pre-existing order-dependent class: `xiom.encoding:151,156,162,244,249`
+  bare calls bind same-named fns from other modules under load order
+  (`write_base64_triplet` -> a Box-param variant; `data.get(i).value` ->
+  UInt8-returning `get`); the all-imports corpus picks the other order and
+  stays clean. Stdlib action: qualify/import those sites (section-Q class).
+  Compiler follow-up: scope-first, order-independent bare/method resolution
+  so the corpus becomes a faithful superset gate.
+- Also this round: R19 fixed (`e2e_m73_ptr_replace_str`), per-body alias
+  isolation in `flush_catalog_bodies`, corpus gate 188/188, feature-reg
+  510/510; m34_j08 + full e2e verified with the hold in place.
+- Next: R20 (Result-returning same-leaf delegation empty payload), R18
+  (contract false positive), then the R15b narrow case and Stage 5+.
+
 ### Round-58 (2026-09-14): R15 catalog delegation FIXED; flip attempted then HELD
 
 Compiler lane.

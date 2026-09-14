@@ -2452,7 +2452,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 if fn_name == "write" && args.len() >= 2 {
                     let (ptr_val, ptr_ty) = self.compile_expr(&args[0])?;
                     if ptr_ty.ends_with('*') {
-                        let pointee = ptr_ty.trim_end_matches('*').to_string();
+                        // R19: exactly ONE star (`i8**` -> `i8*`, not `i8`).
+                        let pointee = ptr_ty.strip_suffix('*').unwrap_or(&ptr_ty).to_string();
                         let (val, val_ty) = self.compile_expr(&args[1])?;
                         let store_val = self.coerce_value(&val, &val_ty, &pointee);
                         self.emitln(&format!("  store {pointee} {store_val}, {ptr_ty} {ptr_val}"));
@@ -2487,7 +2488,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 if fn_name == "read" && args.len() >= 1 {
                     let (ptr_val, ptr_ty) = self.compile_expr(&args[0])?;
                     if ptr_ty.ends_with('*') {
-                        let pointee = ptr_ty.trim_end_matches('*').to_string();
+                        // R19: exactly ONE star (deref-load class, BUG 44).
+                        let pointee = ptr_ty.strip_suffix('*').unwrap_or(&ptr_ty).to_string();
                         let tmp = self.fresh_tmp();
                         self.emitln(&format!("  {tmp} = load {pointee}, {ptr_ty} {ptr_val}"));
                         return Ok((tmp, pointee));

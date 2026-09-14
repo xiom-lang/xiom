@@ -4562,6 +4562,11 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m72_nested_index_concat() {
     assert_eq!(compile_and_run("tests\\regression\\m72_nested_index_concat.xi"), Some(0));
 }
+// R19: generic deref-store through `*mut T` must keep all but ONE star
+// (i8** -> i8*, not i8). clang ptr/i8 mismatch in ptr.replace_Str.
+#[test] fn e2e_m73_ptr_replace_str() {
+    assert_eq!(compile_and_run("tests\\regression\\m73_ptr_replace_str.xi"), Some(0));
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }
