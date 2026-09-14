@@ -119,6 +119,12 @@ pub struct CodegenConfig {
     /// codegen). The codegen resolves each path to its registered fn key at
     /// preassign time so bare calls through the alias work.
     pub use_alias_paths: HashMap<String, String>,
+    /// R15: catalog-body call sites (span "line:col") -> the checker's fully
+    /// dotted resolved key. The emitter cannot see a catalog module's own
+    /// `use` aliases (checker contexts are isolated/restored), so
+    /// `resolve_catalog_call` maps same-leaf delegations to the module the
+    /// checker proved.
+    pub catalog_call_targets: HashMap<String, String>,
 }
 
 impl Default for CodegenConfig {
@@ -150,6 +156,7 @@ impl Default for CodegenConfig {
             enable_unsafe_direct: false,
             unsafe_direct_cap: 64,
             use_alias_paths: HashMap::new(),
+            catalog_call_targets: HashMap::new(),
         }
     }
 }

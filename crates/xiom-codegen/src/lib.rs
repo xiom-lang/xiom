@@ -193,6 +193,11 @@ impl IrEmitter {
         self.config.use_alias_paths = paths;
     }
 
+    /// R15: hand the checker's catalog-body resolved call targets to codegen.
+    pub fn set_catalog_call_targets(&mut self, targets: std::collections::HashMap<String, String>) {
+        self.config.catalog_call_targets = targets;
+    }
+
     pub fn set_source_file(&mut self, path: String) {
         self.config.source_file = path;
     }
