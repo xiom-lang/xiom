@@ -1,152 +1,129 @@
-# XIOM Session Handoff -- 2026-08-18 01:32 (compiler session -- BUG 43-47 done, FULL SUITE GREEN)
+# XIOM Handoff -- 2026-09-14 (compiler lane; rounds 55-59 in docs/SESSION.md)
 
-> **Context-full handoff.** BUG 43-47 all FIXED and committed (`c2978476`,
-> `aadbfc3d`, `f47c4d3b`, `2daae98d`, `6791576c` on `feat/architect`).
-> **Full suite: 3914/3914 PASSED, 0 FAILED, 26 ignored** (16m45s run,
-> `.testlogs/session_20260818_011502.txt`). Working tree clean except the
-> pre-existing `.xiom_ai.json`.
+Branch `feat/architect`. Last compiler commit `0c1e3dff`. Working tree clean
+except the generated `.xiom_ai.json`. The parallel stdlib session commits to
+the same branch; never stage their `stdlib/**`,
+`examples/stdlib_smoke/**`, `docs/stdlib_session.md`,
+`docs/STDLIB_READINESS_PLAN.md`.
 
-## [OK] Full-suite result (2026-08-18 01:31)
+## State at handoff
 
-| Suite | Result |
-|-------|--------|
-| e2e (all 2231) | **2268/2268** -- incl. 5 NEW regressions: `e2e_m37_bug43_result_f64_payload`, `e2e_m37_bug44_str_deref`, `e2e_m37_bug45_iface_method_generic`, `e2e_m37_bug46_generic_struct_ref`, `e2e_m37_bug47_ref_params_leak` |
-| stdlib-exec | 70/70 (+2 ignores: smoke_core Eq-impl note, smoke_simd BUG-40 CRT) |
-| stdlib-compile | 40/40 - feature-reg 510/510 - api_freeze 2/2 |
-| scripting | **34/34** (the s_out.exe race flake FIXED -- was the only 23:04 failure) |
-| checker / parser / lexer / ctfe / codegen-unit / verifier / jit | 178/178 - 96/96 - 18/18 - 96/96 - 10/10 - 27/27 - 5/5 |
-| formatter / lsp / pkg / doc / ffi-gen / mcp / dbg / display | 79/79 - **38/38** - 39/39 - 4/4 - 33/33 - **39/39** - 29/29 - 5/5 (lsp+mcp green -- the stdlib layout restructure landed) |
-| script-diff / integration / diff / fuzz / robustness | 15/15 - 128/128 - 24/24 (+1 ignore) - 24/24 - 63/63 |
+- **Stage 3 Item A**: corpus gate `catalog_corpus_is_clean` runs UN-IGNORED
+  and green (checker 188/188). The isolated corpus is clean.
+- **Strict flip**: `strict_catalog_findings` is currently **false (HELD)**
+  after two hold/release cycles. Both hold reasons are now believed fixed
+  (R19 + alias isolation; stdlib's section-Q/bare-name burn-down: 509/509
+  per-module probes clean, r40 937/937). **The first task is to re-test and
+  finalize the flip.**
+- **Fixed with locks**: R14 (`e2e_m71_concat_index_elem`), R17
+  (`e2e_m72_nested_index_concat`), R19 (`e2e_m73_ptr_replace_str`), R15
+  catalog delegation (temp-shim probes green; encoding-family dedup can
+  re-land).
+- **Alias isolation**: `flush_catalog_bodies` checks each catalog body under
+  its own `use` bindings only (no user-alias leakage).
+- **Last gates (with flip held)**: checker 188/188, feature-reg 510/510,
+  stdlib-exec 85/85 (+2 ign), e2e **2320/2320**, xiom-ast 9/9, xiom 20/20,
+  fmt 83/83, lsp 42/42, jit 5/5, `cargo check --workspace` clean.
 
-## [OK] Completed this stretch (all committed)
+## Immediate task: FLIP FINALIZATION
 
-| Item | Result |
-|------|--------|
-| scripting `test_standalone_simple` flake | **FIXED** -- both standalone tests raced on the shared `s_out.exe` output path (parallel threads, Windows sharing violation). Output path now derives from the unique script name. |
-| BUG 43 -- Result[Float64, Str] payload read via sitofp (direct-call scrutinee) | **FIXED** -- `scrutinee_payload_xiom` resolves call-scrutinee payloads via `callee_return_xiom`; smoke_core_convert exit 0 |
-| BUG 44 -- deref/coercion of `&Str` loads a byte | **FIXED** -- one-star strip, new `ref_locals` tracking for `var p = &s`, `coerce_ref_arg_to_pointee` for `&T`->T auto-coercion |
-| BUG 45 -- method-form interface dispatch in generic fns -> stub | **FIXED** (root cause = BUG 46's mono param degradation) |
-| BUG 46 -- generic `&UserStruct[T]` param field reads -> garbage | **FIXED** -- mono Ref arm missed module-qualified struct keys -> `i64*`; qualified-suffix check restores `%struct.{qualified}*` |
-| BUG 47 -- `ref_params`/`param_locals` leak across fns -> AV | **FIXED** -- both sets now cleared in the per-fn reset block (a `&T` param named `b` in an earlier fn misclassified a later fn's value param `b` -> deref'd address 7) |
-| BUG 41/42 follow-up -- mono Ref arm made `&Slice[T]`/`&[N]T` lowering unreachable | **FIXED** -- restored shape checks, deleted the dead arm; **zero-warning gate restored** |
+1. In `crates/xiom-check/src/lib.rs` set `strict_catalog_findings: true`
+   (update its comment; it is around line 271 in `Checker::new`).
+2. `cargo build -p xiom` then:
+   - `cargo test -p xiom-check` (expect 188/188, gate live)
+   - `cargo test -p xiom-codegen --test stdlib_execution_tests` (expect 85/85;
+     this is the REAL-compile strict gate)
+   - targeted: `e2e_m34_j08`, `e2e_m65_str_method_sugar`, `e2e_m71/m72/m73`
+   - full `cargo test -p xiom-codegen --test e2e_tests` (expect 2320/2320)
+3. If green, commit "feat(checker): FLIP -- catalog findings are hard
+   errors" and mark Item A CLOSED in docs/COMPILER_BUGS.md + docs/SESSION.md.
+   If a smoke/test fails, capture the site, revert the flag to false, and log
+   it in COMPILER_BUGS with the module:line and the binding conflict.
 
-**Commits:** `c2978476` (BUG 43-47 codegen) - `aadbfc3d` (scripting race) -
-`f47c4d3b` (e2e regressions) - `2daae98d` + `6791576c` (docs).
+## Remaining queue (compiler lane)
 
-## [WARN] Workflow rules (unchanged)
-- **ALWAYS use the ISOLATED binary** for compiler verification:
-  ```powershell
-  $env:CARGO_TARGET_DIR="$env:TEMP\kilo\tgt_iso"; cargo build -p xiom
-  Remove-Item Env:CARGO_TARGET_DIR
-  $xiom = "$env:TEMP\kilo\tgt_iso\debug\xiom.exe"
-  ```
-- The **parallel stdlib session** owns `stdlib/xiom/**`, examples/stdlib_smoke,
-  and selfhost; they commit to the SAME `feat/architect` branch and rebuild
-  `target/debug/xiom.exe` constantly. The e2e/stdlib harnesses hardcode
-  `target/debug/xiom.exe`. Their full-sweep finished at 01:32; the canonical
-  binary now contains this session's fixes.
-- PowerShell note: `$LASTEXITCODE` after `& exe ... 2>$null` in loops is
-  unreliable -- capture per-command with `; $c = $LASTEXITCODE` and verify
-  suspicious failures individually (3 false "compile=1" reports this session
-  were capture artifacts).
+1. **R20** (top bug): Result-returning same-leaf delegation delivers an
+   empty-payload `Err` and the shim smoke AVs (`p_b32_residual`). Blocks the
+   encoding-family dedup. Evidence in docs/COMPILER_BUGS.md R20.
+2. **R18**: contract false positive `result.value.len() <= s.len()`
+   (constant-bound payload form passes); negative lock logged.
+3. **R16**: `ptr + int` in a call argument miscompiles (stdlib uses an
+   Int-cast workaround); latent.
+4. **R15b**: same-leaf + same-name modules declared in the USER program
+   (catalog case is fixed; no catalog recording for user modules).
+5. **Order-independent resolution** (only if the flip re-test fails on
+   bare/method load-order classes): make bare/method resolution scope-first
+   (current module + explicit imports before the global first-wins table) so
+   the corpus is a faithful superset gate.
+6. **Stage 5 remainder**: LSP incremental reparse + cross-file index; dbg
+   async MI reader + `.xi` DWARF; cargo-fuzz targets over lexer/parser/CTFE +
+   ASAN/UBSAN CI (`--sanitize=address` is wired and verified -- runtime at
+   `C:\Program Files\LLVM\lib\clang\22\lib\windows`); full clap migration of
+   the driver parser; supply chain (ed25519 + trust model, lockfile v2 with
+   enforced `--locked`, git deps pinned to commits, authenticated publish);
+   sandbox false-green + randomized temp names.
+7. **Stage 6 performance**: incremental engine tiers, parallel monomorphization,
+   linker strategy, benchmark CI budgets.
+8. **Stage 7 selfhost**: zero-ICE self-build, >=1M fuzz execs, `-O`
+   differential, release-binary suites, Rust-bootstrap equivalence.
 
-## [WIP] Remaining (low priority / next session)
-1. **BUG 25 #10**: `xiom.crypto` -- `use of undefined value '@_pkcs7_pad'`
-   (private fn body emission vs bare-symbol resolution). PRE-EXISTING;
-   smoke_crypto exits 0. Needs a dedicated session.
-2. **smoke_simd**: BUG-40-era latent CRT layout miscompile (0xC0000005) --
-   documented #[ignore]; toolchain investigation.
-3. **Checker gap (documented, NOT a codegen bug)**: `Eq5[T].eq(el, &value)`
-   associated-form calls fail the checker ("expected Self, found Int" -- Self
-   not substituted in interface method params). Tower pattern + method form
-   work; stdlib uses method form. Candidate checker session.
-4. **stdlib_tests.rs + stdlib_execution_tests.rs path sync** after the stdlib
-   layout freezes (still owned by the parallel session).
-5. **Stdlib-side Eq/Ord impls re-apply** (the stdlib session's conversion was
-   reverted pending BUG 47 -- now fixed, so the tower-style impls + call-site
-   conversions can land; the plan is in the COMPILER_BUGS.md BUG 47 entry).
+Full ledger: `docs/COMPILER_BUGS.md` (top entries are the newest).
+Round history: `docs/SESSION.md` (rounds 38-59).
 
-## [TOOLING] Compiler behavior additions (this session, documented in COMPILER_BUGS.md)
-- **ref_locals**: `var p = &s` / `var p: &Str = ...` now tracked (like
-  `ref_params`) -- `*p` derefs correctly for Str and scalar pointees;
-  `&T`->T auto-coercion derefs (Str params only; scalar `&T`->T stays ambiguous
-  at the codegen layer and keeps address passthrough).
-- **param_locals/ref_params cleared per fn** -- cross-fn name collisions no
-  longer misclassify params (the BUG 47 AV).
-- **Mono `&Slice[T]` -> by-value `%struct.Vec`** (restored) and
-  `&[N]T` -> `elem_ty*` (restored); `&UserStruct[T]` -> `%struct.{qualified}*`.
+## Workflow rules
 
-## [OK] Completed this stretch (all committed)
+- e2e/stdlib harnesses spawn `target/debug/xiom.exe`: run
+  `cargo build -p xiom` after ANY checker/codegen change before e2e runs,
+  or the suite tests a stale driver (this has produced false failures).
+- Corpus triage: `cargo test -p xiom-check catalog_corpus_is_clean
+  -- --ignored --nocapture` (currently un-ignored, so plain `cargo test -p
+  xiom-check` runs it); `$env:XIOM_CATALOG_DUMP='1'` prints every site.
+- ASAN: `target\debug\xiom.exe --sanitize=address -o out.exe src.xi` then run
+  with the LLVM ASAN runtime dir on PATH.
+- PowerShell: capture `$LASTEXITCODE` immediately after each native call;
+  it is unreliable across pipelines/loops.
+- Do not edit `stdlib/**` (parallel session owns it); report stdlib findings
+  in `docs/ITEM_A_STDLIB_FINDINGS.md` / COMPILER_BUGS and in chat.
 
-| Item | Result |
-|------|--------|
-| scripting `test_standalone_simple` flake | **FIXED** -- both standalone tests raced on the shared `s_out.exe` output path (parallel threads, Windows sharing violation). Output path now derives from the unique script name. Verified 3/3 full scripting runs 34/34. |
-| BUG 43 -- Result[Float64, Str] payload read via sitofp (direct-call scrutinee) | **FIXED** -- `scrutinee_payload_xiom` resolves call-scrutinee payloads via `callee_return_xiom`; smoke_core_convert exit 0 |
-| BUG 44 -- deref/coercion of `&Str` loads a byte | **FIXED** -- one-star strip (`trim_end_matches` stripped both stars of `i8**`), new `ref_locals` tracking for `var p = &s`, `coerce_ref_arg_to_pointee` for `&T`->T auto-coercion |
-| BUG 45 -- method-form interface dispatch in generic fns -> stub | **FIXED** (root cause = BUG 46's mono param degradation) |
-| BUG 46 -- generic `&UserStruct[T]` param field reads -> garbage | **FIXED** -- mono Ref arm missed module-qualified struct keys (`eqt20.Box2`) -> `i64*`; qualified-suffix check restores `%struct.{qualified}*` |
-| BUG 47 -- `ref_params`/`param_locals` leak across fns -> AV | **FIXED** -- both sets now cleared in the per-fn reset block (a `&T` param named `b` in an earlier fn misclassified a later fn's value param `b` -> deref'd address 7) |
-| BUG 41/42 follow-up -- mono Ref arm made `&Slice[T]`/`&[N]T` lowering unreachable | **FIXED** -- restored shape checks in the live arm, deleted the dead arm; **zero-warning gate restored** |
+## Paste-ready prompt for the next compiler session
 
-**New e2e regressions (5):** `e2e_m37_bug43_result_f64_payload`,
-`e2e_m37_bug44_str_deref`, `e2e_m37_bug45_iface_method_generic`,
-`e2e_m37_bug46_generic_struct_ref`, `e2e_m37_bug47_ref_params_leak`
-(tests/regression/m37_bug4*.xi).
+```
+Continue the AXIOM compiler-lane readiness campaign in E:\Projects\AXIOM on
+branch feat/architect. Read SESSION.md (repo root), docs/SESSION.md (rounds
+38-59 + the remaining queue), docs/COMPILER_BUGS.md (newest entries first)
+and docs/ITEM_A_STDLIB_FINDINGS.md before touching code. The stdlib session
+works in parallel on stdlib/** only and commits to the same branch; never
+stage their files.
 
-**Commits:** `c2978476` (BUG 43-47 codegen) - `aadbfc3d` (scripting race) -
-`f47c4d3b` (e2e regressions) - `2daae98d` (docs/COMPILER_BUGS.md).
+State: rounds 55-59 landed. R14/R17/R19 fixed with e2e locks (m71/m72/m73);
+R15 catalog delegation fixed; per-body alias isolation in
+flush_catalog_bodies; corpus gate un-ignored and green (checker 188/188);
+e2e 2320/2320, feature-reg 510/510, stdlib-exec 85/85 (+2 ign) with the
+strict flip HELD (strict_catalog_findings=false). The stdlib lane's latest
+report: section-Q/bare-name burn-down complete (509/509 per-module import
+probes clean, r40 937/937, corpus green), so the flip's blockers are
+believed resolved.
 
-## Verification state (isolated binary, `tgt_iso`)
-- **Unit suites:** checker 178/178 - parser 96/96 - lexer 18/18 - ctfe 96/96 -
-  codegen-unit 10/10 - jit 5/5 -- all green, zero build warnings.
-- **stdlib-exec smoke sweep:** 70/70 pass (smoke_core, smoke_sort, smoke_cmp,
-  smoke_iter, smoke_serialize, smoke_crypto, smoke_complex ... all exit 0) +
-  1 documented ignore (smoke_simd -- BUG-40-era CRT layout, pre-existing) +
-  smoke_math_core renamed -> smoke_math_tower (passes).
-- **New regression files:** all 5 exit 0 via the isolated binary.
-- **The 23:04 full suite** (before this session): 3908/3909 -- the ONLY failure
-  was the scripting flake, now fixed. Full-suite rerun pending the parallel
-  sweep's completion (their rebuilds lock target/debug/xiom.exe).
+Your task, in order:
+1. FLIP FINALIZATION: set strict_catalog_findings=true in Checker::new
+   (crates/xiom-check/src/lib.rs, update the comment), rebuild the driver,
+   then run: cargo test -p xiom-check; cargo test -p xiom-codegen --test
+   stdlib_execution_tests; targeted e2e_m34_j08/e2e_m65_str_method_sugar/
+   e2e_m71/e2e_m72/e2e_m73; then the full e2e suite (expect 2320/2320).
+   If green, commit the flip and mark Stage 3 Item A CLOSED in
+   docs/COMPILER_BUGS.md + docs/SESSION.md. If anything fails, capture the
+   exact module:line + binding conflict, revert the flag, and log it.
+2. R20: Result-returning same-leaf delegation empty payload + shim AV
+   (docs/COMPILER_BUGS.md R20) -- blocks the encoding-family dedup.
+3. R18 (contract false positive), R16 (ptr+int arg), R15b (user-program
+   same-leaf modules).
+4. Then Stage 5 remainder (LSP index, dbg DWARF, fuzz+ASAN CI [wired:
+   --sanitize=address], clap migration, supply chain), Stage 6 performance,
+   Stage 7 selfhost.
 
-## [WARN] Workflow rules (unchanged)
-- **ALWAYS use the ISOLATED binary** for compiler verification:
-  ```powershell
-  $env:CARGO_TARGET_DIR="$env:TEMP\kilo\tgt_iso"; cargo build -p xiom
-  Remove-Item Env:CARGO_TARGET_DIR
-  $xiom = "$env:TEMP\kilo\tgt_iso\debug\xiom.exe"
-  ```
-- The **parallel stdlib session** owns `stdlib/xiom/**`, examples/stdlib_smoke,
-  and selfhost; they commit to the SAME `feat/architect` branch and rebuild
-  `target/debug/xiom.exe` constantly (their full-sweep was still running at
-  handoff). The e2e/stdlib harnesses hardcode `target/debug/xiom.exe`.
-- Note: PowerShell `$LASTEXITCODE` after `& exe ... 2>$null` in a loop is
-  unreliable for smoke sweeps -- capture per-command with `; $c = $LASTEXITCODE`
-  and verify suspicious failures individually (3 false "compile=1" reports
-  this session were capture artifacts; direct reruns all passed).
-
-## [WIP] Remaining (low priority / handed to next session)
-1. **BUG 25 #10**: `xiom.crypto` -- `use of undefined value '@_pkcs7_pad'`
-   (private fn body emission vs bare-symbol resolution). PRE-EXISTING;
-   smoke_crypto exits 0, so not blocking. Needs a dedicated session.
-2. **smoke_simd**: BUG-40-era latent CRT layout miscompile (0xC0000005) --
-   documented #[ignore]; toolchain investigation, not this batch.
-3. **Checker gap (documented, NOT a codegen bug)**: `Eq5[T].eq(el, &value)`
-   associated-form calls fail the checker ("expected Self, found Int" -- Self
-   not substituted in interface method params). Tower pattern + method form
-   work; stdlib uses method form. Candidate checker session.
-4. **stdlib_tests.rs + stdlib_execution_tests.rs path sync** after the stdlib
-   layout freezes (still owned by the parallel session).
-5. **Full-suite rerun** once the parallel sweep finishes (scripting flake fix
-   should make it 3909/3909).
-
-## [TOOLING] Compiler behavior additions (this session, documented in COMPILER_BUGS.md)
-- **ref_locals**: `var p = &s` / `var p: &Str = ...` now tracked (like
-  `ref_params`) -- `*p` derefs correctly for Str and scalar pointees;
-  `&T`->T auto-coercion derefs (Str params only; scalar `&T`->T stays ambiguous
-  at the codegen layer and keeps address passthrough).
-- **param_locals/ref_params cleared per fn** -- cross-fn name collisions no
-  longer misclassify params (the BUG 47 AV).
-- **Mono `&Slice[T]` -> by-value `%struct.Vec`** (restored) and
-  `&[N]T` -> `elem_ty*` (restored); `&UserStruct[T]` -> `%struct.{qualified}*`.
-- The 5 new e2e tests run against `target/debug/xiom.exe` -- they will FAIL
-  against a stale pre-fix binary; they pass against the rebuilt one.
+Rules: the e2e/stdlib harnesses spawn target/debug/xiom.exe -- always
+`cargo build -p xiom` after checker/codegen changes. Capture $LASTEXITCODE
+right after each native command. Use --emit-ir / --sanitize=address for
+miscompile work. Keep commits atomic (code + docs together) and never touch
+stdlib/**.
+```

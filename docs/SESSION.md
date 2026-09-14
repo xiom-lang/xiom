@@ -153,7 +153,24 @@ Locks: stdlib_exec_error2_runs (the former flake is now a permanent gate)
 Gates: e2e 2312/2312, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
 checker 182/182.
 
-### Round-59 (2026-09-14): FLIP LANDED -- R19 + catalog alias isolation
+### Round-60 (2026-09-14): stdlib flip-worklist closed; handoff
+
+Stdlib lane (their r40 report): built a per-module import probe
+(`use xiom.X` alone) as an independent detector for the class the corpus
+cannot see; swept all 509 manifest modules, fixed 13 findings in 5 modules
+(core bare `zeroed` -> `mem.zeroed[T]()` with the mem import retained; io
+`chmod`/stdio-accessor/`rename` shadowing; collections `vec_sort_by` +
+`hash_combine` via `use xiom.hash as hsh`; crypto.mac `md5_bytes`), and
+resolved the R19 interplay (os no longer imports core; uses
+`convert.int_to_string`). Verification: 509/509 probes -> 0 catalog-body
+findings, 101/101 targeted battery, corpus gate green, r40 937/937 PASS.
+
+Compiler lane: handoff written to the repo-root `SESSION.md` (state, flip
+finalization steps, remaining queue, paste-ready prompt). Next compiler
+session: FLIP FINALIZATION (strict=true + stdlib-exec/e2e), then R20, R18,
+R16, R15b, Stage 5-7.
+
+### Round-59 (2026-09-14): FLIP RE-HELD -- R19 + catalog alias isolation
 
 Compiler lane. The stdlib lane's r39 report (937/937, section Q 149 -> 0)
 plus the R19 workaround (core.xi dropping `use xiom.mem;`) left the flip
