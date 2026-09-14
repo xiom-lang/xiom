@@ -951,12 +951,41 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 fd.name.name.clone()
             }
         }
-        let existing_names: std::collections::HashSet<String> = program.items.iter().filter_map(|i| match i {
-            xiom_ast::TopDecl::Type(td) => Some(td.name.name.clone()),
-            xiom_ast::TopDecl::Enum(ed) => Some(ed.name.name.clone()),
-            xiom_ast::TopDecl::Fn(fd) => Some(fn_dedup_key(fd)),
-            _ => None,
-        }).collect();
+        let mut existing_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // R15: recurse into Module decls. The old top-level-only scan missed
+        // fns declared inside `module X { ... }`, so the collector's flattened
+        // copies of those fns were injected as TOP-LEVEL duplicates
+        // (`@ping` from the module + `@ping` at top level) -- which in turn
+        // made two emission paths for one fn and broke the qualified-symbol
+        // lookup (m34_j08 `@network.ping` redefinition).
+        fn collect_existing(items: &[xiom_ast::TopDecl], prefix: &str, out: &mut std::collections::HashSet<String>) {
+            for i in items {
+                match i {
+                    xiom_ast::TopDecl::Type(td) => { out.insert(td.name.name.clone()); }
+                    xiom_ast::TopDecl::Enum(ed) => { out.insert(ed.name.name.clone()); }
+                    xiom_ast::TopDecl::Fn(fd) => {
+                        out.insert(fd.name.name.clone());
+                        // R15: the collector's flattened copies carry the
+                        // MODULE-QUALIFIED name ("network.ping"), so record
+                        // the path-qualified key too -- otherwise the copy is
+                        // injected as a second definition of the same fn.
+                        if !prefix.is_empty() {
+                            out.insert(format!("{prefix}.{}", fd.name.name));
+                        }
+                    }
+                    xiom_ast::TopDecl::Module(md) => {
+                        let p = if prefix.is_empty() {
+                            md.name.name.clone()
+                        } else {
+                            format!("{prefix}.{}", md.name.name)
+                        };
+                        collect_existing(&md.items, &p, out);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        collect_existing(&program.items, "", &mut existing_names);
         for decl in external_decls {
             let name = match &decl {
                 xiom_ast::TopDecl::Type(td) => td.name.name.clone(),

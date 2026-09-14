@@ -5134,6 +5134,21 @@ Stdlib action: shim reverted again (local impl kept); the encoding-family
 consolidation stays gated on this exact same-name case. Probes preserved
 (p_b32_s5a/s5b, p_b32_shim2/3).
 
+ROUND-58 DEFINITION-SIDE FIX LANDED (2026-09-14): the duplicate emission that
+broke round-57's partial was rooted in the DRIVER: the external-decl
+injection dedup only scanned TOP-LEVEL items, so a program module's fns were
+also injected as flattened duplicates (a second `ping`, keyed by its
+module-qualified name "network.ping"). Fix: the dedup now recurses into
+`TopDecl::Module` and records both the bare and path-qualified fn keys
+(crates/xiom/src/lib.rs). With duplicates gone, `fn_symbol`'s qualified-first
+lookup re-landed safely (crates/xiom-codegen/src/decl.rs): colliding
+same-leaf definitions emit distinct symbols and m34_j08/j01/n01 stay green.
+
+Still open (call side): see the round-57 design below -- catalog-body `use`
+bindings must reach codegen (module-scoped alias plumbing) before the shim's
+internal leaf-qualified call can bind the canonical module. Encoding-family
+dedup stays gated.
+
 ROUND-57 DIAGNOSIS (2026-09-12): definition-side partial landed then REVERTED
 (regression); call site needs module-scoped alias plumbing.
 
@@ -5229,6 +5244,55 @@ instance, and r36's 935/935 (r34) does not cover it. The interrupted r37
 sweep had only reached early files when this was found -- expect more
 corpus hits until fixed. Stdlib side unchanged (CSV module untouched
 since e398df2f; r34 run of the same smoke is green).
+
+## 2026-09-14 (stdlib lane, round-57 follow-up) -- R17 verified; section Q closed on isolated contexts
+
+- **R17 fixed (84e14908) and verified on target_r38:** p_nested_index_concat
+  prints `nested-assign=[a] / nested-inline=[b]` (exit 0), R14's
+  p_iter_pipeline_r32 still prints E[0]=9 / E[4]=225, and
+  smoke_serialize_csv is green. Full r38 corpus sweep launched as the
+  definitive runtime gate.
+- **Section Q (import discipline under faithful isolated contexts)
+  149 -> 0 findings** in commit 0de47e11: `xiom.os` now imports
+  env/io/string/core; `net.https` imports string; `log` imports io;
+  `simd` imports math; `collections` declares the realloc/free externs
+  its @-intrinsic calls need in scope; `crypto` declares malloc/free;
+  `encoding.percent_encode` uses the bare same-module `url_encode`
+  (self-qualification rejected by the gate). Re-measure:
+  `cargo test -p xiom-check catalog_corpus_is_clean -- --ignored
+  --nocapture` -> 0 findings / 0 hard errors / 0 parse errors; test
+  PASSES. The strict flip is unblocked again on the stdlib side.
+  Targeted runtime battery: 76/76 smokes green.
+- **R15 remains open** (round-57 diagnosis: qualified-first symbol fix
+  causes duplicate emission; needs module-scoped alias plumbing). Encoding
+  family consolidation stays gated.
+
+## R18. Contract false positive: Option payload `.len()` compared to a param `.len()` always violates
+
+Found 2026-09-14 (stdlib lane, validating wave-3 contract shapes on r38).
+Minimal probe (stdlib_ws\probes\p_wave3_opt.xi):
+
+```text
+fn wa(s: Str) -> Option[Str]
+  ensures: result is Some => result.value.len() >= 0      // PASSES
+{ return Some(s); }
+
+fn wb(s: Str) -> Option[Str]
+  ensures: result is Some => result.value.len() <= s.len() // FALSE VIOLATION
+{ return Some(s); }
+```
+
+`wb("abc")` returns Some("abc"), so `3 <= 3` holds, yet the runtime
+contract evaluator aborts at 13:12 ("contract violated: ensures"). The
+payload `.len()` itself is fine (A passes); the failure appears only when
+the payload length is compared against a PARAM's `.len()` inside the same
+ensures. This is the shape a natural family of drop-in clauses needs
+(str_strip_prefix/suffix payload bounds, Option-returning filters).
+Wave-1/2 clauses avoided it (constant bounds only), so the corpus is not
+affected today. Suspect: contract lowering resolves the RHS `s.len()`
+against the wrong receiver (payload/return) or evaluates it on the
+return slot; a fix should make the param receiver win and add a negative
+lock (Some("abc") must satisfy `<= s.len()`).
 
 
 
