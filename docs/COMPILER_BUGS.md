@@ -5132,20 +5132,44 @@ Stdlib action: shim reverted again (local impl kept); the encoding-family
 consolidation stays gated on this exact same-name case. Probes preserved
 (p_b32_s5a/s5b, p_b32_shim2/3).
 
-ROUND-58 DEFINITION-SIDE FIX LANDED (2026-09-14): the duplicate emission that
-broke round-57's partial was rooted in the DRIVER: the external-decl
-injection dedup only scanned TOP-LEVEL items, so a program module's fns were
-also injected as flattened duplicates (a second `ping`, keyed by its
-module-qualified name "network.ping"). Fix: the dedup now recurses into
-`TopDecl::Module` and records both the bare and path-qualified fn keys
-(crates/xiom/src/lib.rs). With duplicates gone, `fn_symbol`'s qualified-first
-lookup re-landed safely (crates/xiom-codegen/src/decl.rs): colliding
-same-leaf definitions emit distinct symbols and m34_j08/j01/n01 stay green.
+ROUND-58 CALL-SIDE FIX LANDED (2026-09-14): R15 is fixed for the catalog
+(catalog-vs-catalog same-leaf + same-name delegation works).
 
-Still open (call side): see the round-57 design below -- catalog-body `use`
-bindings must reach codegen (module-scoped alias plumbing) before the shim's
-internal leaf-qualified call can bind the canonical module. Encoding-family
-dedup stays gated.
+- Definition side (commit 4311b5db): the external-decl injection dedup only
+  scanned TOP-LEVEL items, so a program module's fns were also injected as
+  flattened duplicates (a second `ping`, keyed "network.ping"); the dedup now
+  recurses into `TopDecl::Module` and records bare + path-qualified keys
+  (crates/xiom/src/lib.rs); `fn_symbol`'s qualified-first lookup then
+  re-landed safely (crates/xiom-codegen/src/decl.rs).
+- The checker now returns the FULLY-DOTTED resolved key from
+  `resolve_module_function` and records it per catalog-body call site
+  (`Checker::catalog_resolved_calls`, "line:col" -> "xiom.encoding.base32.
+  base32_encode"). The driver hands it to codegen
+  (`set_catalog_call_targets`); `resolve_catalog_call` (call.rs) normalizes
+  the `xiom.` prefix, sanity-checks the receiver text against the resolved
+  path, and binds the recorded target before falling back to
+  `resolve_module_call`.
+- Injected catalog free fns are now qualified by the FULL xiom-stripped
+  module path ("convert.base32.base32_encode" / "encoding.base32.
+  base32_encode") instead of the leaf -- same-leaf pairs no longer share one
+  name. Two-segment modules keep the historic "math.abs_float" spelling.
+- `resolve_module_call` also tries the xiom-stripped dotted candidate so
+  fully-qualified user calls (`xiom.iter.map.iter_map`) match the stripped
+  injected names.
+- Verification: the temp-shim stdlib probe pair (`p_b32_s5a`/`s5b` ->
+  "B-enc=MZXW6===", exit 0; canonical/import-only unaffected), R14/R17 locks,
+  stdlib-exec 85/85, feature-reg 510/510. REMAINING NARROW CASE: same-leaf
+  same-name modules declared in the USER program (no catalog recording) --
+  tracked as R15b; not needed for the encoding-family dedup.
+
+FLIP HELD (2026-09-14): strict mode exposed a class the corpus cannot see --
+catalog bodies using BARE names from modules they never import
+(`core.xi:897` `zeroed` from xiom.mem resolves in the all-imports corpus via
+the global first-wins table but is undefined in a real transitive compile).
+With strict on, 37/85 stdlib-exec smokes hard-error. The corpus gate stays
+un-ignored (it is clean); `strict_catalog_findings` stays false until the
+stdlib imports/qualifies those sites. Detector for the fix: run
+`stdlib_execution_tests` with strict true (temporarily flip the default).
 
 ROUND-57 DIAGNOSIS (2026-09-12): definition-side partial landed then REVERTED
 (regression); call site needs module-scoped alias plumbing.
@@ -5291,6 +5315,37 @@ affected today. Suspect: contract lowering resolves the RHS `s.len()`
 against the wrong receiver (payload/return) or evaluates it on the
 return slot; a fix should make the param receiver win and add a negative
 lock (Some("abc") must satisfy `<= s.len()`).
+
+## R19. Generic `ptr.replace[Str]` stores the Str as i8 (clang ptr/i8 mismatch)
+
+Found 2026-09-14 (stdlib lane, r38 sweep: smoke_stress_path_components
+clang-failed; green on r36). It reproduces on BOTH the r34 and r38
+binaries against the current stdlib, so it is stdlib-graph-triggered,
+not a binary regression: the newer closure pulls `core -> mem -> ptr`
+(my os->core import) and instantiates `ptr.replace[Str]`.
+
+`--emit-ir` shows the miscompiled generic instantiation:
+
+```llvm
+define i8* @ptr.replace_Str(i8** %param0, i8* %param1) {
+  ...
+  %tmp4007 = load i8**, i8*** %tmp4001   ; dest slot
+  %tmp4008 = load i8*, i8** %tmp4003     ; value (Str)
+  store i8 %tmp4008, i8** %tmp4007       ; ERROR: should be `store i8*`
+}
+```
+
+clang: `'%tmp4008' defined with type 'ptr' but expected 'i8'` at
+xiominput.ll:8043. The store of a Str value through the generic `*T`
+pointer picks the scalar fallback type (i8) for T=Str instead of the
+pointer type -- the same R17 fallback family, now via generic pointer
+stores rather than concat operands.
+
+Stdlib workaround landed: `core.xi` dropped its UNUSED `use xiom.mem;`
+(no `mem.` references), which keeps mem/ptr out of the path/os closure;
+smoke_stress_path_components + smoke_bigfloat are green again solo. The
+underlying bug remains for any real `mem.replace[Str]` caller -- lock
+with a minimal `mem.replace` on a Str once fixed.
 
 
 
