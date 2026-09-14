@@ -5162,9 +5162,31 @@ ROUND-58 CALL-SIDE FIX LANDED (2026-09-14): R15 is fixed for the catalog
   same-name modules declared in the USER program (no catalog recording) --
   tracked as R15b; not needed for the encoding-family dedup.
 
-FLIP LANDED (2026-09-14, round 59): both blockers found while holding the
-flip are fixed, strict is ON, and `stdlib_execution_tests` is green with it
-(85/85) -- the real-compile detector the corpus cannot replace.
+FLIP RE-HELD (2026-09-14, round 59): R19 and alias isolation fixed the
+first blocker set (stdlib-exec 85/85 with strict ON), but the broader E2E
+surface still hits pre-existing catalog findings the corpus cannot see,
+because BARE-name/method resolution is load-ORDER-dependent.
+
+Evidence (m34_j08 under strict): `xiom.encoding:151,156,162,244,249`
+- `write_base64_triplet(buf, out, data.get(i).value, ...)`: the bare call
+  binds a same-named fn from another module whose first param is `Box`
+  (`argument 1 type mismatch: expected Box, found Int`).
+- `data.get(i).value`: the method wildcard resolves `get` to a variant
+  returning `UInt8` (then `.value` -> "cannot access field on non-struct
+  type UInt8"). In other load orders (the all-imports corpus) the
+  Option-returning `get` wins, so the corpus gate stays clean.
+Stdlib action: qualify these calls (`base64.write_base64_triplet`, ...) /
+import the defining submodule; same class as section Q. Compiler follow-up
+(queued): make bare/method resolution scope-first and load-order-independent
+(prefer current-module + explicit imports, then argument-compatible
+candidates) so the corpus becomes a faithful superset gate.
+
+FLIP HISTORY: strict first enabled 42943cd2 (held: 37/85 smokes);
+re-enabled here after R19 + alias isolation (stdlib-exec 85/85) and held
+again when the E2E surface exposed the order-dependent class above. The
+un-ignored corpus gate remains the stdlib-regression canary;
+`stdlib_execution_tests` + `e2e_tests` with strict default are the
+real-compile gates.
 
 ## R19 FIXED (2026-09-14): generic deref-store pointee type
 
@@ -5444,6 +5466,16 @@ Re-scan: 509/509 module probes -> 0 catalog-body findings. Targeted
 runtime battery: 101/101 (core/mem/collections/io/console/os_ffi/
 crypto-hmac). Corpus gate green. The flip can be re-enabled for the
 compiler lane's stdlib_execution_tests run.
+
+FOLLOW-UP: restoring core's mem import (needed for qualified
+`mem.zeroed[T]()`) re-pulled `core -> mem -> ptr` into the path/os
+closure and re-triggered R19 (`ptr.replace_Str`, clang ptr/i8) in
+smoke_stress_path_components. Since os.xi's only core use was
+`core.to_string(ts)`, os now imports `xiom.convert` and calls
+`convert.int_to_string(ts)` instead; core stays out of the os/path
+closure and both constraints hold simultaneously (509-probe scan 0,
+path_components green on r40, 101/101 battery). R19 itself remains open
+for direct core/mem/ptr closures.
 
 
 
