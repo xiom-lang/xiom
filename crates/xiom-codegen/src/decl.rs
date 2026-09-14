@@ -772,6 +772,18 @@ impl IrEmitter {
         // fns before body compilation, in program order) -- definitions and
         // call sites then always agree, even when a call compiles before its
         // def (fn_symbol's lazy emitted_fns dedup was order-dependent).
+        // R15: prefer the MODULE-QUALIFIED preassigned slot. Two modules with
+        // the same LEAF and the same fn name share the bare map slot, and the
+        // later collision overwrites it -- resolving both definitions to the
+        // SAME symbol ("invalid redefinition"). The qualified slot is unique
+        // per module path. (Duplicate emission of one fn via the driver's
+        // injected flattened copies is prevented by the recursive dedup in
+        // crates/xiom/src/lib.rs, so this cannot collide with a second path.)
+        if let Some(ref module) = self.local.current_module {
+            if let Some(sym) = self.mono.fn_symbol_map.get(&format!("{module}.{bare}")) {
+                return sym.clone();
+            }
+        }
         if let Some(sym) = self.mono.fn_symbol_map.get(&bare) {
             return sym.clone();
         }
