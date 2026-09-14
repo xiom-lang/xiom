@@ -153,6 +153,31 @@ Locks: stdlib_exec_error2_runs (the former flake is now a permanent gate)
 Gates: e2e 2312/2312, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
 checker 182/182.
 
+### Round-58 (2026-09-14): R15 catalog delegation FIXED; flip attempted then HELD
+
+Compiler lane.
+
+- **R15 FIXED (catalog side)**: the checker records the fully-dotted resolved
+  key per catalog-body call site (`catalog_resolved_calls`); the driver hands
+  it to codegen; `resolve_catalog_call` binds it (normalizing the `xiom.`
+  prefix). Injected catalog free fns are now qualified by the FULL xiom-
+  stripped module path, so same-leaf + same-name shim pairs get distinct
+  symbols. `resolve_module_call` also matches xiom-stripped dotted candidates
+  (fully-qualified user calls like `xiom.iter.map.iter_map`). Verified with
+  the temp-shim stdlib: `p_b32_s5a/s5b` print `MZXW6===`, exit 0 (previously
+  crash/empty); R14/R17 locks; stdlib-exec 85/85; feature-reg 510/510.
+  Narrow remaining case R15b: same-leaf modules declared in the USER program
+  (no catalog recording) -- not needed for the encoding-family dedup.
+- **FLIP ATTEMPTED THEN HELD**: the un-ignored isolated corpus is clean, so
+  strict was enabled (42943cd2) -- and immediately failed 37/85 stdlib-exec
+  smokes on a class the corpus CANNOT see: catalog bodies using BARE names
+  from modules they never import (`core.xi:897` `zeroed` from xiom.mem
+  resolves only because the all-imports corpus registers every module).
+  Strict reverted to false; the corpus gate stays live/un-ignored. Detector
+  for the stdlib fix: run stdlib_execution_tests with strict temporarily on;
+  flip again when it is green.
+- Docs: COMPILER_BUGS R15 round-58 block + the bare-name/flip-hold note.
+
 ### Round-57 (2026-09-12): corpus isolation fix -- gate now models real compiles
 
 Compiler lane. Attempted the Item A flip after the stdlib landed the last
@@ -790,24 +815,22 @@ workspace version/MSRV (1.86) + cargo-deny + CI hygiene (fixed a rotted
 xiom-mcp member), driver target-named files, JSON diagnostics v1 schema.
 
 Your task, in order:
-1. Stage 3 ITEM A -- D1/D1b/D2/D4/D5/D5b/D5c/D6 LANDED (rounds 56). The
-   ROUND-57 corpus-isolation fix makes the gate model real compiles; it
-   re-pended the flip on **149 import-discipline findings** (report section
-   Q): modules using qualified aliases they never import (`xiom.os` ->
-   env/io/string; log/net.https/simd/crypto/collections/encoding). The flip
-   mechanism is ready and verified (`strict_catalog_findings` honored by both
-   `warn_at` and `error_with_cause`); when section Q reaches zero: set the
-   default true in `Checker::new` + remove the `#[ignore]` on
-   `catalog_corpus_is_clean`. Re-measure with
-   `cargo test -p xiom-check catalog_corpus_is_clean -- --ignored
-   --nocapture` (`$env:XIOM_CATALOG_DUMP='1'` for every site).
-2. R14 FIXED in round-56 (root cause: `Str + vec[i]` emitted inttoptr for
-   the element; concat verdict now falls back to the compiled LLVM type;
-   lock `e2e_m71_concat_index_elem`). R17 FIXED in round-57 (nested-index
-   Str elements; lock `e2e_m72_nested_index_concat`). R15 DIAGNOSED with a
-   design (module-scoped alias plumbing for catalog bodies + duplicate
-   emission paths) -- see COMPILER_BUGS R15; encoding-family dedup stays
-   gated. The ASAN pass is wired (`--sanitize=address`, runtime at
+1. Stage 3 ITEM A -- the isolated corpus is CLEAN and its gate runs
+   un-ignored (188/188), but the strict FLIP is HELD: strict mode exposes a
+   class the corpus cannot see -- catalog bodies using BARE names from
+   modules they never import (`core.xi:897` `zeroed` from xiom.mem), which
+   resolve only in the all-imports corpus. With strict on, 37/85
+   stdlib-exec smokes hard-error. Detector for the stdlib fix: flip
+   `strict_catalog_findings` to true temporarily and run
+   `cargo test -p xiom-codegen --test stdlib_execution_tests`; when 85/85,
+   make the flip permanent (default true). Stdlib worklist in
+   COMPILER_BUGS "FLIP HELD" + report section Q.
+2. R14 FIXED (round-56; lock `e2e_m71_concat_index_elem`). R17 FIXED
+   (round-57; lock `e2e_m72_nested_index_concat`). R15 FIXED for the
+   catalog (round-58: checker-recorded call targets + full-path injected
+   names; temp-shim probes green -- the encoding-family dedup can be
+   re-landed); R15b = same-leaf modules in the USER program (narrow).
+   The ASAN pass is wired (`--sanitize=address`, runtime at
    C:\Program Files\LLVM\lib\clang\22\lib\windows) -- use it for Stage 5
    fuzz+sanitizer CI.
 3. Stage 5 remainder: LSP incremental reparse/cross-file index; dbg async

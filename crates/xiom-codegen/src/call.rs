@@ -94,6 +94,42 @@ impl IrEmitter {
         }
     }
 
+    /// R15: bind a module-qualified catalog-body call to the target the
+    /// CHECKER resolved. Codegen cannot see a catalog module's own `use`
+    /// aliases (the checker's per-body context is isolated and restored), so
+    /// the driver hands over `Checker::catalog_resolved_calls`
+    /// ("line:col" -> fully-dotted key). Normalizes the "xiom." prefix to
+    /// match the injected (xiom-stripped) fn names and sanity-checks that the
+    /// receiver text names the resolved module.
+    pub(crate) fn resolve_catalog_call(&self, receiver: &Expr, fn_name: &str, span: Span) -> Option<String> {
+        let key = format!("{}:{}", span.line, span.col);
+        let resolved = self.config.catalog_call_targets.get(&key)?;
+        let stripped = resolved.strip_prefix("xiom.").unwrap_or(resolved.as_str());
+        if !stripped.ends_with(&format!(".{fn_name}")) {
+            return None;
+        }
+        // Flatten the receiver text ("base32", "enc.base32", ...).
+        let mut recv = String::new();
+        let mut cur = receiver;
+        loop {
+            match cur {
+                Expr::Ident(id) => {
+                    recv = if recv.is_empty() { id.name.clone() } else { format!("{}.{}", id.name, recv) };
+                    break;
+                }
+                Expr::Field(b, f, _) => {
+                    recv = if recv.is_empty() { f.name.clone() } else { format!("{}.{}", f.name, recv) };
+                    cur = b;
+                }
+                _ => break,
+            }
+        }
+        if recv.is_empty() || !stripped.contains(&format!(".{recv}.")) {
+            return None;
+        }
+        Some(stripped.to_string())
+    }
+
     pub(crate) fn compile_call(&mut self, func: &Expr, args: &[Expr]) -> Result<(String, String), String> {
         self.compile_call_with_types(func, args, None)
     }
@@ -233,12 +269,17 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // aliases / leaf-qualified keys) rather than the
                         // functions table -- catalog fns like str_trim are not
                         // registered there, which is why the auto-stub appeared.
+                        // Canonical stdlib free-fn module paths for the
+                        // checker's Str sugar. R15: injected names use the
+                        // xiom-stripped FULL module path, so multi-segment
+                        // modules carry their parents ("string.trim",
+                        // "string.lowercase", ...).
                         let canonical: Option<(&str, &str)> = match mname.as_str() {
                             "trim" => Some(("string", "str_trim")),
-                            "trim_start" => Some(("trim", "str_trim_start")),
-                            "trim_end" => Some(("trim", "str_trim_end")),
-                            "to_lower" => Some(("lowercase", "str_lowercase")),
-                            "to_upper" => Some(("uppercase", "str_uppercase")),
+                            "trim_start" => Some(("string.trim", "str_trim_start")),
+                            "trim_end" => Some(("string.trim", "str_trim_end")),
+                            "to_lower" => Some(("string.lowercase", "str_lowercase")),
+                            "to_upper" => Some(("string.uppercase", "str_uppercase")),
                             _ => None,
                         };
                         if let Some((module, leaf)) = canonical {
@@ -2790,11 +2831,13 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 let ty_name = Self::xiom_type_name_from_llvm(llvm_ty);
                                 format!("{}.{}", ty_name, fn_name)
                             } else {
-                                self.resolve_module_call(receiver, &fn_name)
+                                self.resolve_catalog_call(receiver, &fn_name, func.span())
+                                .unwrap_or_else(|| self.resolve_module_call(receiver, &fn_name))
                             }
                         } else {
                             // Receiver is a module name (not a struct type).
-                            self.resolve_module_call(receiver, &fn_name)
+                            self.resolve_catalog_call(receiver, &fn_name, func.span())
+                                .unwrap_or_else(|| self.resolve_module_call(receiver, &fn_name))
                         }
                     } else if let Some(recv_type) = self.infer_struct_type_name(receiver) {
                         format!("{}.{}", recv_type, fn_name)
@@ -2810,14 +2853,17 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 let ty_name = Self::xiom_type_name_from_llvm(llvm_ty);
                                 format!("{}.{}", ty_name, fn_name)
                             } else {
-                                self.resolve_module_call(receiver, &fn_name)
+                                self.resolve_catalog_call(receiver, &fn_name, func.span())
+                                .unwrap_or_else(|| self.resolve_module_call(receiver, &fn_name))
                             }
                         } else {
-                            self.resolve_module_call(receiver, &fn_name)
+                            self.resolve_catalog_call(receiver, &fn_name, func.span())
+                                .unwrap_or_else(|| self.resolve_module_call(receiver, &fn_name))
                         }
                     } else {
                         // Receiver is a module name (not a struct type).
-                        self.resolve_module_call(receiver, &fn_name)
+                        self.resolve_catalog_call(receiver, &fn_name, func.span())
+                                .unwrap_or_else(|| self.resolve_module_call(receiver, &fn_name))
                     }
                 } else {
                     fn_name.clone()
@@ -3941,7 +3987,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             }
                         } else {
                             // Receiver is a module name -- use module-qualified resolution
-                            self.resolve_module_call(receiver, &fn_name)
+                            self.resolve_catalog_call(receiver, &fn_name, func.span())
+                                .unwrap_or_else(|| self.resolve_module_call(receiver, &fn_name))
                         }
                     } else {
                         fn_key.clone()

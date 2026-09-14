@@ -64,6 +64,11 @@ pub struct Checker {
     /// gate passes modules that a real compile rejects (`xiom.os` references
     /// `io` without `use xiom.io;`).
     corpus_loading: bool,
+    /// R15: catalog-body module-qualified call sites -> fully-dotted resolved
+    /// key ("line:col" -> "xiom.encoding.base32.base32_encode"). The driver
+    /// hands this to codegen so same-leaf delegations bind the module the
+    /// checker resolved (codegen cannot see catalog-body `use` aliases).
+    pub catalog_resolved_calls: HashMap<String, String>,
     /// Imported module paths (use declarations)
     imports: Vec<UseDecl>,
     /// Module namespace: module name -> { exported names }
@@ -251,12 +256,19 @@ impl Checker {
             errors: Vec::new(),
             warnings: Vec::new(),
             strict_exhaustive: false,
-            // Stage 3 Item A FLIP (2026-09-14): the isolated corpus is CLEAN
-            // (0 findings / 0 hard errors / 0 parse errors), so catalog-body
-            // findings are now HARD ERRORS in every compile. The un-ignored
-            // `catalog_corpus_is_clean` gate is the regression canary.
-            strict_catalog_findings: true,
+            // Stage 3 Item A FLIP -- HELD (2026-09-14): the corpus gate is
+            // clean and runs un-ignored, but strict mode exposed a class the
+            // corpus CANNOT see: catalog bodies using BARE names from modules
+            // they never import (`core.xi:897` uses `zeroed` from xiom.mem).
+            // Those bare names resolve in the all-imports corpus via the
+            // global first-wins function table but are undefined in a real
+            // transitive compile -> 37/85 stdlib-exec smokes fail with
+            // strict on. Detector: run stdlib_execution_tests with strict
+            // true. Hold strict=false until the stdlib imports/qualifies
+            // those sites (worklist: COMPILER_BUGS "bare-name reliance").
+            strict_catalog_findings: false,
             corpus_loading: false,
+            catalog_resolved_calls: HashMap::new(),
             imports: Vec::new(),
             modules: HashMap::new(),
             methods: HashMap::new(),
@@ -2888,11 +2900,20 @@ impl Checker {
                                 // leaf (`alloc` in xiom.alloc -> `alloc.alloc`), the
                                 // rename still applies -- the qualified key is what
                                 // makes it distinct from a user's bare `alloc`.
+                                // R15: qualify injected free fns by the FULL
+                                // (xiom-stripped) module path, not just the
+                                // leaf: `xiom.convert.base32.base32_encode` ->
+                                // "convert.base32.base32_encode" vs
+                                // `xiom.encoding.base32` -> "encoding.base32.
+                                // base32_encode". The leaf-only form made same-
+                                // leaf + same-name shim pairs share ONE name
+                                // and the delegation bound the wrong fn.
+                                // (2-segment modules keep the historic
+                                // "math.abs_float" spelling.)
                                 if fd2.receiver.is_none() && !module_name.is_empty() {
-                                    if let Some(leaf) = module_name.rsplit('.').next() {
-                                        if !leaf.is_empty() {
-                                            fd2.name.name = format!("{}.{}", leaf, fd2.name.name);
-                                        }
+                                    let stripped = module_name.strip_prefix("xiom.").unwrap_or(module_name);
+                                    if !stripped.is_empty() {
+                                        fd2.name.name = format!("{}.{}", stripped, fd2.name.name);
                                     }
                                 }
                                 out.push(TopDecl::Fn(fd2));
@@ -3748,7 +3769,15 @@ impl Checker {
         }
 
         // Clone the relevant export data to avoid borrow conflicts
-        let sig = self.resolve_module_function(&path)?;
+        let (sig, resolved_key) = self.resolve_module_function(&path)?;
+        // R15: record the CHECKER's resolved fully-dotted key for this call
+        // site while checking a catalog body. The codegen cannot see the
+        // module's own `use` aliases (isolated context), so the driver hands
+        // this map to the emitter and the call binds the recorded module.
+        if self.checking_catalog {
+            self.catalog_resolved_calls
+                .insert(format!("{}:{}", span.line, span.col), resolved_key);
+        }
         let sig = sig.clone();
 
         // AUDIT FIX (readiness Stage 1): arity was never checked on
@@ -3886,7 +3915,10 @@ impl Checker {
         })
     }
 
-    fn resolve_module_function(&mut self, path: &[String]) -> Option<FnSig> {
+    /// Resolve `module.fn` / `alias.fn` to its signature. Returns the
+    /// signature AND the FULLY-DOTTED resolved key (R15: codegen consumes the
+    /// key to bind same-leaf delegations to the right module).
+    fn resolve_module_function(&mut self, path: &[String]) -> Option<(FnSig, String)> {
         let module_name = &path[0];
         let exports = self.module_exports_for_alias(module_name)?;
         // Full dotted path of the FIRST segment, for submodule descent when a
@@ -3974,14 +4006,16 @@ impl Checker {
                 // UNRELATED module's registration can never leak in.
                 if self.builtin_fns.contains(func_name.as_str()) {
                     if let Some(sig) = self.functions.get(func_name.as_str()) {
-                        return Some(sig.clone());
+                        return Some((sig.clone(), func_name.clone()));
                     }
                 }
                 return None;
             }
         };
         match export {
-            ModuleExport::Function { sig, is_pub: true } => Some(sig),
+            ModuleExport::Function { sig, is_pub: true } => {
+                Some((sig, format!("{dotted}.{func_name}")))
+            }
             _ => None,
         }
     }

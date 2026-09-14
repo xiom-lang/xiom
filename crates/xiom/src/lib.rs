@@ -626,6 +626,7 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
     // BUG 25 #2 fix: surface the checker's use-alias bindings (`use X.f as
     // alias`) to the codegen -- the driver strips UseDecls before codegen.
     emitter.set_use_alias_paths(checker.use_alias_paths.clone());
+    emitter.set_catalog_call_targets(checker.catalog_resolved_calls.clone());
     if !effective_sources.is_empty() {
         emitter.set_source_file(effective_sources[0].clone());
     }
@@ -1018,6 +1019,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     // BUG 25 #2 fix: surface the checker's use-alias bindings (`use X.f as
     // alias`) to the codegen -- the driver strips UseDecls before codegen.
     emitter.set_use_alias_paths(checker.use_alias_paths.clone());
+    emitter.set_catalog_call_targets(checker.catalog_resolved_calls.clone());
     if !effective_sources.is_empty() {
         emitter.set_source_file(effective_sources[0].clone());
     }

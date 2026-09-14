@@ -844,6 +844,19 @@ impl IrEmitter {
                 return leaf_key;
             }
         }
+        // R15: injected catalog names are xiom-STRIPPED full paths
+        // ("iter.map.iter_map"), while fully-qualified source uses the
+        // "xiom." prefix (`xiom.iter.map.iter_map`). Try the stripped dotted
+        // form before the prefixed one.
+        if segments.len() > 1 {
+            let stripped_dotted = segments.iter().skip(1).cloned().collect::<Vec<_>>().join(".");
+            let stripped_key = format!("{stripped_dotted}.{fn_name}");
+            if self.types.functions.contains_key(&stripped_key)
+                || self.mono.generic_fn_decls.iter().any(|(k, _)| k == &stripped_key)
+            {
+                return stripped_key;
+            }
+        }
         // Try the full dotted path: "xiom.rsa.encrypt"
         let full_key = format!("{}.{}", dotted, fn_name);
         if self.types.functions.contains_key(&full_key)
