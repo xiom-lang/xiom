@@ -1,7 +1,7 @@
-module benchmark.math
+module test_mod.math
 
-use benchmark.main.BenchResult;
-use benchmark.main.make_result;
+use test_mod.main.BenchResult;
+use test_mod.main.make_result;
 
 fn add(a: Int, b: Int) -> Int { return a + b; }
 

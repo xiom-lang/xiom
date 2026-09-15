@@ -1,4 +1,4 @@
-module benchmark.main
+module test_mod.main
 
 pub type BenchResult = {
   name: Str;

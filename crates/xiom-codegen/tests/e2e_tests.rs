@@ -4567,6 +4567,13 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m73_ptr_replace_str() {
     assert_eq!(compile_and_run("tests\\regression\\m73_ptr_replace_str.xi"), Some(0));
 }
+
+// R21: a user `use X as Y;` alias must shadow a same-leaf catalog module
+// (pre-fix: `use network as net; use net.local;` catalog-loaded xiom.net
+// and the strict flip hard-failed on unrelated catalog bodies).
+#[test] fn e2e_m74_user_alias_shadows_catalog() {
+    assert_eq!(compile_and_run("tests\\regression\\m74_user_alias_shadows_catalog.xi"), Some(0));
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }

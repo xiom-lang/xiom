@@ -170,6 +170,50 @@ finalization steps, remaining queue, paste-ready prompt). Next compiler
 session: FLIP FINALIZATION (strict=true + stdlib-exec/e2e), then R20, R18,
 R16, R15b, Stage 5-7.
 
+### Round-61 (2026-09-15): FLIP LANDED -- Stage 3 Item A CLOSED
+
+Compiler lane. `strict_catalog_findings` is TRUE in `Checker::new`; catalog-body
+findings are hard errors and the un-ignored `catalog_corpus_is_clean` gate is
+the regression canary. The flip survived the full surface this time because
+three compiler defects and one fixture collision behind the failures were
+fixed (details in COMPILER_BUGS.md R21):
+
+- **R21a scope-first user aliases**: `use network as net; use net.local;`
+  catalog-loaded `xiom.net` from the pre-load worklist (aliases are processed
+  after the worklist) and `process_use` never bound single-segment module
+  aliases (the item lookup treats the last segment as an item; a module's
+  export map lacks its own name). Aliases are now collected up front, their
+  prefixes skip catalog pre-loading, and single-segment module aliases bind
+  the program-declared module surface. Lock: `m74_user_alias_shadows_catalog`
+  (+ `e2e_m74_user_alias_shadows_catalog`).
+- **R21b container wildcard guard**: the AUDIT #6 unique-candidate method
+  wildcard captured `Box.get` for `Vec[UInt8]` receivers whenever
+  `xiom.collections` was not loaded; container receivers now require a
+  base/leaf relation (struct receivers keep the old behavior).
+- **R21c generic `!` defer**: `!flag` on a generic param is now deferred to
+  monomorphisation (benchmark.monomorph/generics_hard bodies hard-failed
+  under the flip).
+- **R21d fixture collision**: `examples/test_mod/{main,math}.xi` declared
+  `benchmark.main`/`benchmark.math`, colliding with the benchmark suite; the
+  catalog index is last-insert-wins, so bench compiles flapped between green
+  and `undefined variable 'power_iter'`/`'make_result'`. Fixtures renamed to
+  `test_mod.*`; catalog unit tests updated. FOLLOW-UP: deterministic,
+  reported catalog collisions.
+
+Gates (fresh canonical driver): checker 188/188, stdlib-exec 85/85 (+2 ign),
+feature-reg 510/510, e2e **2321/2321**, xiom-ast 9/9, xiom 20/20, fmt 83/83,
+lsp 42/42, jit 5/5, `cargo check --workspace` clean. The stdlib lane's
+1f4f0aad (encoding qualification) landed in parallel and is part of the green
+state; the compiler commit does not touch stdlib/**.
+
+Mid-run note: the shared target dir accumulated stale artifacts (`cargo check
+-p xiom` reported a missing method while isolated checks and e2e were green);
+`cargo clean -p xiom-codegen -p xiom` fixed it. Rebuild the driver
+(`cargo build -p xiom`) after any clean -- the e2e harness spawns
+`target/debug/xiom.exe`.
+
+
+
 ### Round-59 (2026-09-14): FLIP RE-HELD -- R19 + catalog alias isolation
 
 Compiler lane. The stdlib lane's r39 report (937/937, section Q 149 -> 0)

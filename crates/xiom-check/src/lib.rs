@@ -53,10 +53,11 @@ pub struct Checker {
     warnings: Vec<CheckError>,
     /// S2: When true, non-exhaustive match warnings become hard errors.
     strict_exhaustive: bool,
-    /// Stage 3 Item A FLIP (2026-09-12): catalog-body findings are HARD
-    /// ERRORS now that the corpus is clean. The un-ignored
-    /// `catalog_corpus_is_clean` gate is the regression canary; see
-    /// COMPILER_BUGS.md.
+    /// Stage 3 Item A FLIP (2026-09-15): catalog-body findings are HARD
+    /// ERRORS. The corpus was burned down by the stdlib lane (509/509
+    /// per-module import probes, r40 937/937) and the isolated corpus gate
+    /// `catalog_corpus_is_clean` runs un-ignored as the regression canary;
+    /// see COMPILER_BUGS.md.
     strict_catalog_findings: bool,
     /// Corpus-measurement mode: `check_catalog_corpus` installs synthetic
     /// `use` items only to LOAD every indexed module. Their aliases must not
@@ -261,16 +262,14 @@ impl Checker {
             errors: Vec::new(),
             warnings: Vec::new(),
             strict_exhaustive: false,
-            // Stage 3 Item A FLIP -- HELD AGAIN (2026-09-14): R19 and the
-            // per-body ALIAS ISOLATION are fixed, and stdlib-exec is 85/85
-            // with strict ON. But the E2E surface still hits pre-existing
-            // catalog findings the corpus cannot see because BARE-name
-            // resolution is load-ORDER-dependent (m34_j08: xiom.encoding's
-            // `write_base64_triplet(buf, ...)` binds a same-named fn with a
-            // Box param, and `data.get(i).value` types as UInt8). Sites in
-            // COMPILER_BUGS "FLIP RE-HELD". Keep false until the stdlib
-            // qualifies those calls (or resolution becomes order-independent).
-            strict_catalog_findings: false,
+            // Stage 3 Item A FLIP LANDED (2026-09-15): the stdlib lane cleared
+            // the section-Q/bare-name worklist (509/509 per-module import
+            // probes, r40 937/937, isolated corpus clean), closing the
+            // round-59 hold causes (xiom.encoding's bare `write_base64_triplet`
+            // / `data.get(i).value` load-order bindings are qualified at the
+            // call sites). Catalog-body findings now fail the compile; the
+            // un-ignored corpus gate is the regression canary.
+            strict_catalog_findings: true,
             corpus_loading: false,
             catalog_resolved_calls: HashMap::new(),
             pre_use_module_keys: HashSet::new(),
@@ -477,15 +476,23 @@ impl Checker {
                 self.use_alias_paths.clear();
             }
             let before = self.warnings.len();
+            let before_errors = self.errors.len();
             for item in &cached.program.items {
                 self.check_top_decl(item);
             }
             // Tag this module's findings with provenance -- the spans carry
             // only line/col, and the stdlib lane needs file-level triage.
+            // With the strict flip findings are ERRORS, so tag both streams.
             for w in self.warnings[before..].iter_mut() {
                 const PREFIX: &str = "catalog body: ";
                 if let Some(rest) = w.message.strip_prefix(PREFIX) {
                     w.message = format!("catalog body [{}]: {}", key, rest);
+                }
+            }
+            for e in self.errors[before_errors..].iter_mut() {
+                const PREFIX: &str = "catalog body: ";
+                if let Some(rest) = e.message.strip_prefix(PREFIX) {
+                    e.message = format!("catalog body [{}]: {}", key, rest);
                 }
             }
             self.restore_catalog_import_context(ctx);
@@ -2358,6 +2365,18 @@ impl Checker {
         // collect_external_decls misses their bodies and non-generic stdlib
         // functions (io.args, io.println) fall back to undefined stubs.
         let mut worklist: Vec<Vec<String>> = Vec::new();
+        // R21 (scope-first, 2026-09-15): `use X as Y;` binds Y to the target
+        // module. A later `use Y.item;` must resolve through that alias --
+        // never through a catalog module whose LEAF happens to equal Y.
+        // (`use network as net;` + `use net.local;` used to catalog-load
+        // xiom.net, pulling the whole net graph and checking unrelated
+        // catalog bodies under strict.) The alias target is loaded through
+        // its own use path, so skipping alias-prefixed worklist entries
+        // never loses a module.
+        let user_aliases: std::collections::HashSet<String> = import_snapshot
+            .iter()
+            .filter_map(|ud| ud.alias.as_ref().map(|a| a.name.clone()))
+            .collect();
         for ud in &import_snapshot {
             if ud.path.is_empty() {
                 continue;
@@ -2370,6 +2389,9 @@ impl Checker {
             } else {
                 &ud.path
             };
+            if user_aliases.contains(&path[0].name) {
+                continue; // program-local alias: process_use resolves it
+            }
             for end in 1..=path.len() {
                 worklist.push(path[..end].iter().map(|i| i.name.clone()).collect());
             }
@@ -3635,6 +3657,22 @@ impl Checker {
             let export = match current.get(item_name) {
                 Some(e) => e.clone(),
                 None => {
+                    // R21 (scope-first, 2026-09-15): the path may itself NAME
+                    // a module -- a single-segment `use network as net;` has
+                    // no submodule walk and the module's export map does not
+                    // contain its own name, so this arm used to fall through
+                    // to the catalog (which loaded a same-leaf module:
+                    // `use network as net;` pulled xiom.net and, under
+                    // strict, the whole net graph's catalog bodies). Prefer
+                    // a PROGRAM-DECLARED module surface; only then peek the
+                    // catalog.
+                    if effective_path.len() == 1 {
+                        if let Some(sub_exports) = self.modules.get(item_name).cloned() {
+                            ModuleExport::SubModule(sub_exports)
+                        } else {
+                            return;
+                        }
+                    } else {
                     // Not found in current module -- try loading the full dotted
                     // path from catalog (e.g. "xiom.async" when the parent module
                     // "xiom" is incomplete or the submodule wasn't pre-indexed).
@@ -3659,6 +3697,7 @@ impl Checker {
                         return; // Already fully handled
                     }
                     return;
+                    }
                 }
             };
             let local_name = ud.alias.as_ref()
@@ -5154,9 +5193,15 @@ impl Checker {
                         inner_ty
                     }
                     UnaryOp::Not => {
-                        if inner_ty.name() != "Bool"
-                            && !matches!(&inner_ty, CheckedType::Named(n) if n == "_")
-                        {
+                        // Generic params defer to monomorphisation (the
+                        // wildcard convention): `!flag` on a `T` instantiated
+                        // with Bool is valid; rejecting it hard-failed
+                        // benchmark.monomorph/generics_hard bodies under the
+                        // strict flip. Non-deferrable types still error.
+                        let defers = matches!(&inner_ty, CheckedType::Named(n)
+                            if n == "_"
+                                || (n.len() == 1 && n.chars().next().map_or(false, |c| c.is_ascii_uppercase())));
+                        if inner_ty.name() != "Bool" && !defers {
                             self.error(format!("cannot logically negate type {}", inner_ty.name()), *span);
                         }
                         CheckedType::Bool
@@ -5584,7 +5629,43 @@ impl Checker {
                                 // type; wildcard receivers resolve when
                                 // unambiguous.)
                                 if candidates.len() == 1 {
-                                    return candidates.into_iter().next().map(|(_, s)| (*s).clone());
+                                    let (ty, cand) = &candidates[0];
+                                    // R21 follow-up (2026-09-15): a UNIQUE but
+                                    // UNRELATED candidate must not capture a
+                                    // CONCRETE CONTAINER receiver. `tmp.get(j)`
+                                    // on Vec[UInt8] captured core's `Box.get`
+                                    // when collections (the module that
+                                    // registers Vec.get) was not loaded,
+                                    // silently typing `.value` on &T/UInt8.
+                                    // Container shapes are compiler-known and
+                                    // their method sets must be exact; for
+                                    // struct receivers the AUDIT #6 behavior
+                                    // stands (`PathBuf.join` -> the sole
+                                    // `Path.join` candidate, join/as_path).
+                                    let leaf_of = |s: &str| {
+                                        s.rsplit('.').next().unwrap_or(s)
+                                            .split('[').next().unwrap_or(s).to_string()
+                                    };
+                                    let base_leaf = leaf_of(&base);
+                                    let ty_leaf = leaf_of(ty);
+                                    let container_receiver = matches!(
+                                        base_leaf.as_str(),
+                                        "Vec" | "Slice" | "Array" | "Map" | "Set"
+                                            | "HashMap" | "BTreeMap" | "Option" | "Result"
+                                            | "Tuple" | "Stack" | "Deque" | "Queue"
+                                    );
+                                    let generic_receiver = base == "_" || base_name == "_"
+                                        || (base_leaf.len() == 1
+                                            && base_leaf.chars().next().map_or(false, |c| c.is_ascii_uppercase()));
+                                    let related = generic_receiver
+                                        || !container_receiver
+                                        || ty == &base || ty == &base_name
+                                        || ty_leaf == base_leaf
+                                        || ty.ends_with(&format!(".{base}"))
+                                        || ty.ends_with(&format!(".{base_name}"));
+                                    if related {
+                                        return Some((*cand).clone());
+                                    }
                                 }
                                 // Prefer an exact base-name match (wildcard
                                 // receivers skip this -- no base).
@@ -8394,9 +8475,9 @@ fn main() -> Int { var c = Single(value: 42); return 0; }";
         let test_mod = project_root().join("examples/test_mod");
         let mut cat = ModuleCatalog::new(vec![test_mod.to_string_lossy().to_string()]);
         cat.build_index();
-        let path_segments: Vec<String> = ["benchmark".to_string(), "math".to_string()].to_vec();
+        let path_segments: Vec<String> = ["test_mod".to_string(), "math".to_string()].to_vec();
         let cached = cat.find_owned(&path_segments);
-        assert!(cached.is_some(), "cold start should find benchmark.math module");
+        assert!(cached.is_some(), "cold start should find test_mod.math module");
     }
 
     #[test]
@@ -8404,7 +8485,7 @@ fn main() -> Int { var c = Single(value: 42); return 0; }";
         let test_mod = project_root().join("examples/test_mod");
         let mut cat = ModuleCatalog::new(vec![test_mod.to_string_lossy().to_string()]);
         cat.build_index();
-        let path_segments: Vec<String> = ["benchmark".to_string(), "math".to_string()].to_vec();
+        let path_segments: Vec<String> = ["test_mod".to_string(), "math".to_string()].to_vec();
         let first = cat.find_owned(&path_segments);
         let second = cat.find_owned(&path_segments);
         assert!(first.is_some());
@@ -8426,7 +8507,7 @@ fn main() -> Int { var c = Single(value: 42); return 0; }";
         let test_mod = project_root().join("examples/test_mod");
         let mut cat = ModuleCatalog::new(vec![test_mod.to_string_lossy().to_string()]);
         cat.build_index();
-        let path_segments: Vec<String> = ["benchmark".to_string(), "math".to_string()].to_vec();
+        let path_segments: Vec<String> = ["test_mod".to_string(), "math".to_string()].to_vec();
         let cached = cat.find_owned(&path_segments);
         assert!(cached.is_some(), "index should enable lookups");
     }
@@ -8454,12 +8535,12 @@ fn main() -> Int { var c = Single(value: 42); return 0; }";
         let test_mod = project_root().join("examples/test_mod");
         let mut cat = ModuleCatalog::new(vec![test_mod.to_string_lossy().to_string()]);
         cat.build_index();
-        let path_segments: Vec<String> = ["benchmark".to_string(), "math".to_string()].to_vec();
+        let path_segments: Vec<String> = ["test_mod".to_string(), "math".to_string()].to_vec();
         cat.find_owned(&path_segments);
         cat.find_owned(&path_segments);
         cat.find_owned(&path_segments);
         let cached = cat.all_cached();
-        let count = cached.iter().filter(|m| m.dotted_name == "benchmark.math").count();
+        let count = cached.iter().filter(|m| m.dotted_name == "test_mod.math").count();
         assert_eq!(count, 1, "should have exactly one cached entry per module");
     }
 
