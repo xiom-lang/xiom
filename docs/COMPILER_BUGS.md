@@ -5867,6 +5867,26 @@ divergent twins cannot be deduped yet -- `convert.percent` stays local
 (unique full-URL mode) and punycode/base58 stay queued. Reported here for
 the compiler lane.
 
+RE-TEST on r43 (2026-09-15, stdlib lane; HEAD 8bc08cf0 + the round-61
+codegen fixes R18/R16/R15b):
+- item 2 FIXED: `use xiom.convert.percent as cvt;` + `cvt.percent_encode`
+  now returns the shim's full-URL value "/a?b=1&c=2" (was "").
+- item 3 FIXED: `use xiom.encoding.base32 as cvt;` + `cvt.base32_encode`
+  runs exit 0 (was 0xC0000005); p_b32_alias2/p_b32_alias green.
+- item 1 STILL OPEN: with the percent shim in the graph, the plain
+  leaf-qualified `use xiom.convert.percent;` + `percent.percent_encode`
+  still binds `xiom.encoding.percent` (component mode,
+  "%2Fa%3Fb%3D1%26c%3D2"); smoke_convert_percent fails at check 3. The
+  percent shim was reverted again. Fix direction as above: a `use path;`
+  leaf alias must resolve through the recorded use PATH, not a catalog
+  leaf lookup over all loaded same-leaf modules.
+- base58 stays deferred for an independent reason: `xiom.num.convert.
+  to_base58(INT_MIN)` negates INT_MIN (overflow -> no digits emitted),
+  while `xiom.convert.base58.to_base58` renders INT_MIN exactly (legacy
+  smoke pins the round-trip), so delegation needs an explicit INT_MIN
+  branch/translation, not a blind shim.
+
+
 Fix direction: resolve a `use path;` leaf alias through the RECORDED use
 PATH (never a catalog leaf lookup over all loaded modules), and make
 `use X as a; a.fn()` bind exactly the same target as `X.fn()` (the empty/AV
