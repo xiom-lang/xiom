@@ -24,43 +24,46 @@ stdlib session commits to the same branch; never stage their `stdlib/**`,
   scan is deterministic (self-excluded, longest-first). Lock
   `tests/regression/m75_alias_delegation/` + `e2e_m75_alias_delegation`;
   shim probes green; encoding-family dedup unblocked.
+- **R18 FIXED (round 63)**: contract implication payload reads on the bare
+  `is` rebind (`result.value.len() <= s.len()`) emitted `inttoptr i64 0`
+  (len(NULL) = -1) and spuriously violated; `.value`/`.error` on a marked
+  rebind now resolves to the payload itself, and Err rebinds load Result
+  field 2. Lock `m76_contract_payload_param_len` +
+  `e2e_m76_contract_payload_param_len`.
 - **Fixed earlier**: R14/R17/R19 with e2e locks (m71/m72/m73); R15 catalog
   delegation (checker-recorded call targets + full-path injected names);
   per-body alias isolation in `flush_catalog_bodies`.
 - **Last gates (fresh canonical driver)**: checker 188/188 (corpus gate live
   and clean), stdlib-exec 85/85 (+2 ign), feature-reg 510/510, e2e
-  **2321/2321**, xiom-ast 9/9, xiom 20/20, fmt 83/83, lsp 42/42, jit 5/5,
+  **2323/2323**, xiom-ast 9/9, xiom 20/20, fmt 83/83, lsp 42/42, jit 5/5,
   `cargo check --workspace` clean. The stdlib lane's 1f4f0aad (encoding
   qualification) is part of that green state.
 
 ## Immediate task
 
-R18 is the top queue item: contract false positive
-`result.value.len() <= s.len()` (constant-bound payload form passes; negative
-lock logged). R16 (`ptr + int` in a call argument) and R15b (same-leaf
-same-name modules declared in the USER program) follow; then the catalog
-collision hardening and Stage 5-7.
+R16 is the top queue item: `ptr + int` in a call argument miscompiles
+(memcpy dest offset; the stdlib uses an Int-cast workaround -- latent).
+R15b (same-leaf same-name modules declared in the USER program) and the
+catalog collision hardening follow; then Stage 5-7.
 
 ## Remaining queue (compiler lane)
 
-1. **R18**: contract false positive `result.value.len() <= s.len()`
-   (constant-bound payload form passes); negative lock logged.
-2. **R16**: `ptr + int` in a call argument miscompiles (stdlib uses an
+1. **R16**: `ptr + int` in a call argument miscompiles (stdlib uses an
    Int-cast workaround); latent.
-3. **R15b**: same-leaf + same-name modules declared in the USER program
+2. **R15b**: same-leaf + same-name modules declared in the USER program
    (catalog case is fixed; no catalog recording for user modules).
-4. **Catalog collision hardening** (from R21d): two files declaring the same
+3. **Catalog collision hardening** (from R21d): two files declaring the same
    module path resolve last-insert-wins; make it deterministic and reported.
-5. **Stage 5 remainder**: LSP incremental reparse + cross-file index; dbg
+4. **Stage 5 remainder**: LSP incremental reparse + cross-file index; dbg
    async MI reader + `.xi` DWARF; cargo-fuzz targets over lexer/parser/CTFE +
    ASAN/UBSAN CI (`--sanitize=address` is wired and verified -- runtime at
    `C:\Program Files\LLVM\lib\clang\22\lib\windows`); full clap migration of
    the driver parser; supply chain (ed25519 + trust model, lockfile v2 with
    enforced `--locked`, git deps pinned to commits, authenticated publish);
    sandbox false-green + randomized temp names.
-6. **Stage 6 performance**: incremental engine tiers, parallel monomorphization,
+5. **Stage 6 performance**: incremental engine tiers, parallel monomorphization,
    linker strategy, benchmark CI budgets.
-7. **Stage 7 selfhost**: zero-ICE self-build, >=1M fuzz execs, `-O`
+6. **Stage 7 selfhost**: zero-ICE self-build, >=1M fuzz execs, `-O`
    differential, release-binary suites, Rust-bootstrap equivalence.
 
 Full ledger: `docs/COMPILER_BUGS.md` (RNN entries are appended at the end;
@@ -95,16 +98,17 @@ never stage their files.
 
 State: Stage 3 Item A CLOSED -- strict_catalog_findings=true, corpus gate live
 (checker 188/188). R20 FIXED (owner-qualified catalog call targets +
-deterministic module-call fallback; m75 lock). Last full gates: e2e 2322/2322,
+deterministic module-call fallback; m75 lock). R18 FIXED (contract payload
+reads on the bare `is` rebind; m76 lock). Last full gates: e2e 2323/2323,
 stdlib-exec 85/85 (+2 ign), feature-reg 510/510, workspace check clean.
 
 Your task, in order:
-1. R18: contract false positive `result.value.len() <= s.len()` (negative
-   lock logged in docs/COMPILER_BUGS.md R18); then R16 (ptr+int in a call
-   argument) and R15b (user-program same-leaf modules).
-2. Catalog collision hardening (R21d follow-up): two files declaring the same
-   module path resolve last-insert-wins; make it deterministic and reported.
-3. Then Stage 5 remainder (LSP index, dbg DWARF, fuzz+ASAN CI
+1. R16: `ptr + int` in a call argument miscompiles (docs/COMPILER_BUGS.md
+   R16; memcpy dest offset, stdlib Int-cast workaround); then R15b
+   (user-program same-leaf modules) and catalog collision hardening (R21d
+   follow-up: two files declaring the same module path; make it
+   deterministic and reported).
+2. Then Stage 5 remainder (LSP index, dbg DWARF, fuzz+ASAN CI
    [--sanitize=address wired], clap migration, supply chain), Stage 6
    performance, Stage 7 selfhost.
 
