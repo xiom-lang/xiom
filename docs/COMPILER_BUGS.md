@@ -5534,6 +5534,68 @@ closure and both constraints hold simultaneously (509-probe scan 0,
 path_components green on r40, 101/101 battery). R19 itself remains open
 for direct core/mem/ptr closures.
 
+## 2026-09-15 (stdlib lane, round-60) -- encoding qualification landed; strict flip READY (r41 936/937, one compiler-side red)
+
+Stdlib side:
+- **Encoding qualification (commit 1f4f0aad):** all 28 in-bounds loop reads
+  `data.get(i + n).value` -> `data[i + n]` (base64_encode 151/156/162,
+  base64url_encode 244/249/255/258, hex_encode 325, hex_encode_upper 364,
+  utf8_decode 506/526/531/532/538/539/540/554/567, utf8_valid 584/603/
+  608/609/616/617/618) and the private helpers renamed to unique names
+  (`write_base64_triplet` -> `_enc_write_base64_triplet`,
+  `write_base64url_triplet` -> `_enc_write_base64url_triplet`, defs + call
+  sites). The round-59 `m34_j08` hold causes (bare Box-first-param twin;
+  UInt8-returning `get`) are gone at the call sites.
+- **Verification:** new probe `probes\p_enc_qual.xi` (imports `xiom.encoding`
+  + all encoding submodules; RFC 4648 tails, url alphabet 0xFB 0xFF -> "-_8",
+  hex both cases, url/percent, utf8 2/3/4-byte accepts + overlong/truncated/
+  surrogate/>10FFFF rejects, base32 sibling) green pre-edit and post-edit;
+  encoding battery 16/16 (13 `smoke_encoding*`/`smoke_stress_encoding*` +
+  3 `kat_encoding_*`); 509-module per-module bare-name scan 0 findings;
+  `cargo test -p xiom-check catalog_corpus_is_clean -- --nocapture` PASS
+  (isolated target_r40, 46.1s).
+- **Strict-gate stdlib gap found by r41 and FIXED:** `xiom.sync` (5 sites),
+  `xiom.thread` (3), `xiom.reflect` (2: size_of + align_of) called the bare
+  intrinsics with no `use`/local declaration. With strict on, the on-demand
+  catalog-body warnings became hard errors (`smoke_sync_arc_battery` red on
+  r41: `catalog body: undefined variable 'size_of'` at sync.xi 45/74/117/
+  351/352/404). Fixed with explicit item imports `use xiom.core.size_of;`
+  (+ `use xiom.core.align_of;` in reflect), matching the bits/num idiom;
+  sync/thread/reflect smokes green on r41; probe `probes\p_sync_sizeof.xi`.
+  NOTE for the flip worklist: the 509-probe per-module scan does NOT see this
+  class -- a trivial `use xiom.X;` probe never type-checks the on-demand
+  bodies, so the full smoke sweep is the detector of record for strict-on
+  findings.
+
+r41 sweep (target_r41 = HEAD 1f4f0aad + the current compiler-lane working
+tree, i.e. R21 scope-first resolution + `strict_catalog_findings: true`;
+8 workers, 937 files; ratchet OK): **936/937 PASS**.
+
+The single red is COMPILER-side (R21):
+- `smoke_stress_path_join` (and minimal probe `probes\p_path_chain.xi`):
+  a method call directly on a method-call result loses the receiver type --
+  `p.join("a").join("b")` -> `error[T001]: cannot call 'join' on this
+  expression`, then the downstream `as_path()` on the error-typed binding.
+  Control shapes pass: single join stored in a local, then `.as_path()`;
+  the receiver type error only appears on the chained call. r40 builds and
+  runs the same probe exit 0; r41 fails with 4 type errors and no binary.
+  This matches the new unique-candidate guard in `resolve` (a UNIQUE but
+  UNRELATED candidate can no longer capture a concrete receiver): the
+  method-call result's receiver type apparently no longer matches the
+  registered `Path.join` key. Repro:
+  `target_r41\debug\xiom.exe --run examples\stdlib_smoke\smoke_stress_path_join.xi`
+  or `--run probes\p_path_chain.xi`.
+- Adjacent observation (pre-existing on r40 too, NOT R21): the generic
+  method surface `sync.Mutex.new[Int](7)` + `.lock()` / `.get()` does not
+  resolve (`cannot call 'lock' on this expression`), while `Arc` methods on
+  the same shape do; no corpus smoke covers it.
+
+FLIP STATUS: encoding was the last stdlib blocker; scan 0 + corpus gate clean
++ r41 936/937. With the R21 chain regression fixed, the compiler lane can
+re-run stdlib-exec/e2e with strict on -- no stdlib-side work remains for the
+flip.
+
+
 ## R21. FLIP LANDED (2026-09-15): Stage 3 Item A CLOSED -- scope-first user aliases, container-receiver wildcard guard, generic-`!` defer
 
 `strict_catalog_findings = true` is final. The re-test after round 60 failed
