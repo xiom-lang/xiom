@@ -797,4 +797,42 @@ mod tests {
         let refs = find_response_by_id(&responses, 93).expect("references should respond");
         assert!(refs.get("result").is_some() || refs.get("error").is_some());
     }
+
+    // Stage 5: LSP parse cache -- repeated requests reuse the parsed AST and a
+    // text change invalidates the entry.
+    #[test] fn test_parse_cache_reuses_and_invalidates() {
+        let backend = Backend::new();
+        let uri = "file:///cache.xi";
+        let a = backend.parse_cached(uri, "fn a() -> Int { return 1; }").expect("parses");
+        assert_eq!(a.items.len(), 1);
+        let b = backend.parse_cached(uri, "fn a() -> Int { return 1; }").expect("cache hit parses");
+        assert_eq!(a, b, "identical text must return the identical AST");
+        let c = backend
+            .parse_cached(uri, "fn a() -> Int { return 1; }\nfn extra() -> Int { return 2; }")
+            .expect("changed text parses");
+        assert_eq!(c.items.len(), 2, "changed text must re-parse");
+        let cache = backend.parsed.lock().unwrap();
+        assert_eq!(cache.get(uri).map(|(_, p)| p.items.len()), Some(2));
+    }
+
+    // Stage 5: cross-file definition -- a symbol declared only in another
+    // open document resolves to that document's Location.
+    #[test] fn test_definition_cross_file() {
+        let backend = Backend::new();
+        open_document(
+            &backend,
+            "file:///a.xi",
+            "fn helper() -> Int { return 7; }\nfn main() -> Int { return helper(); }",
+        );
+        open_document(&backend, "file:///b.xi", "fn caller() -> Int { return helper(); }");
+        let msg = parse_msg(r#"{"jsonrpc":"2.0","id":94,"method":"textDocument/definition","params":{"textDocument":{"uri":"file:///b.xi"},"position":{"line":0,"character":30}}}"#);
+        let responses = handle_lsp_message(&msg, &backend);
+        let resp = find_response_by_id(&responses, 94).expect("definition should respond");
+        assert_eq!(
+            resp["result"]["uri"].as_str(),
+            Some("file:///a.xi"),
+            "helper is declared in a.xi; got {resp}"
+        );
+        assert_eq!(resp["result"]["range"]["start"]["line"].as_u64(), Some(0));
+    }
 }

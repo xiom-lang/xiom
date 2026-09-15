@@ -15,12 +15,52 @@ use crate::uri::uri_to_file_path;
 
 pub struct Backend {
     pub(crate) documents: Arc<Mutex<HashMap<String, String>>>,
+    /// Stage 5 (LSP incremental tier): parsed AST per uri keyed by a content
+    /// hash, so hover/completion/symbols/definition do not re-lex and
+    /// re-parse unchanged text on every request. `didChange` updates the
+    /// document text; the next request re-parses only that document and the
+    /// stale entry is replaced.
+    pub(crate) parsed: Arc<Mutex<HashMap<String, (u64, xiom_ast::Program)>>>,
 }
 
 impl Backend {
     pub fn new() -> Self {
         Self {
             documents: Arc::new(Mutex::new(HashMap::new())),
+            parsed: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    fn text_hash(text: &str) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        text.hash(&mut h);
+        h.finish()
+    }
+
+    /// Parsed program for `text`, cached per uri and invalidated by content
+    /// hash. Returns None when the text does not parse (errors are not
+    /// cached: partial programs are recovered by the parser itself).
+    pub fn parse_cached(&self, uri: &str, text: &str) -> Option<xiom_ast::Program> {
+        let hash = Self::text_hash(text);
+        {
+            let cache = self.parsed.lock().unwrap_or_else(|p| p.into_inner());
+            if let Some((cached_hash, program)) = cache.get(uri) {
+                if *cached_hash == hash {
+                    return Some(program.clone());
+                }
+            }
+        }
+        let mut lexer = Lexer::new(text);
+        let tokens = lexer.tokenize();
+        let mut parser = Parser::new(tokens);
+        match parser.parse_program() {
+            Ok(program) => {
+                let mut cache = self.parsed.lock().unwrap_or_else(|p| p.into_inner());
+                cache.insert(uri.to_string(), (hash, program.clone()));
+                Some(program)
+            }
+            Err(_) => None,
         }
     }
 

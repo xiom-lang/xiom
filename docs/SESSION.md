@@ -170,6 +170,32 @@ finalization steps, remaining queue, paste-ready prompt). Next compiler
 session: FLIP FINALIZATION (strict=true + stdlib-exec/e2e), then R20, R18,
 R16, R15b, Stage 5-7.
 
+### Round-67 (2026-09-15): LSP parse cache + cross-file definition (Stage 5 start)
+
+Compiler lane. Stage 5 remainder opened with the LSP indexing tier:
+
+- `Backend::parse_cached(uri, text)` caches the parsed `Program` per uri,
+  invalidated by a content hash -- hover (both branches),
+  document symbols, workspace symbols, and definition no longer re-lex and
+  re-parse unchanged text on every request. `workspace/symbol` previously
+  re-parsed every open document per call.
+- Cross-file definition: when the symbol is not declared in the current
+  document, `textDocument/definition` searches the other open documents'
+  cached ASTs (deterministic uri order) and returns that file's Location.
+- `parse_workspace_document` removed (dead after the cache switch).
+
+Tests: `test_parse_cache_reuses_and_invalidates` (identical text returns the
+identical AST; changed text re-parses) and `test_definition_cross_file`
+(helper declared in a.xi resolves from b.xi to `file:///a.xi`). LSP suite
+44/44. `cargo check --workspace --all-targets` clean.
+
+Remaining Stage 5: dbg async MI reader + `.xi` DWARF; cargo-fuzz targets over
+lexer/parser/CTFE + ASAN/UBSAN CI (cargo-fuzz is not installed in this
+environment -- the fuzz crate + CI wiring is a session of its own); clap
+migration of the driver parser; supply-chain hardening (lockfile v2
+`--locked`, pinned git deps, signed publish); sandbox false-green +
+randomized temp names. Then Stage 6 performance and Stage 7 selfhost.
+
 ### Round-66 (2026-09-15): catalog collision hardening (R21d follow-up)
 
 Compiler lane. Two files declaring the same dotted module used to resolve

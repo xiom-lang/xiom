@@ -47,6 +47,10 @@ stdlib session commits to the same branch; never stage their `stdlib/**`,
   priority -> structural path match -> smallest canonical path, canonical
   identity) and reports loaded-module ambiguities as `warning[W001]`;
   `release/` trees are skipped. Unit test + manual probe; checker 189/189.
+- **LSP parse cache + cross-file definition DONE (round 67, Stage 5 start)**:
+  `Backend::parse_cached` (content-hash invalidation) now backs hover,
+  document/workspace symbols, and definition; `textDocument/definition`
+  falls back to other open documents' cached ASTs. LSP 44/44.
 - **Fixed earlier**: R14/R17/R19 with e2e locks (m71/m72/m73); R15 catalog
   delegation (checker-recorded call targets + full-path injected names);
   per-body alias isolation in `flush_catalog_bodies`.
@@ -58,24 +62,27 @@ stdlib session commits to the same branch; never stage their `stdlib/**`,
 
 ## Immediate task
 
-Stage 5 remainder: LSP incremental reparse + cross-file index; dbg async MI
-reader + `.xi` DWARF; cargo-fuzz targets over lexer/parser/CTFE + ASAN/UBSAN
-CI (`--sanitize=address` is wired and verified -- runtime at
-`C:\Program Files\LLVM\lib\clang\22\lib\windows`); full clap migration of the
-driver parser; supply chain (ed25519 + trust model, lockfile v2 with enforced
-`--locked`, git deps pinned to commits, authenticated publish); sandbox
-false-green + randomized temp names. Then Stage 6 performance, Stage 7
-selfhost.
+Stage 5 remainder, in suggested order:
+1. cargo-fuzz targets over lexer/parser/CTFE + ASAN/UBSAN CI (cargo-fuzz is
+   NOT installed in the current environment; the fuzz/ crate + workflow is
+   self-contained but needs nightly on CI; the compiler's own
+   `--sanitize=address` is wired and locally verified).
+2. dbg async MI reader + `.xi` DWARF.
+3. clap migration of the driver parser (large; keep the CLI surface
+   byte-compatible and gate with the full e2e suite).
+4. Supply-chain hardening: lockfile v2 with enforced `--locked`, git deps
+   pinned to commits, signed-publish flow (cargo-deny already runs in CI).
+5. Sandbox false-green + randomized temp names.
+Then Stage 6 performance, Stage 7 selfhost.
 
 ## Remaining queue (compiler lane)
 
-1. **Stage 5 remainder**: LSP incremental reparse + cross-file index; dbg
-   async MI reader + `.xi` DWARF; cargo-fuzz targets over lexer/parser/CTFE +
-   ASAN/UBSAN CI (`--sanitize=address` is wired and verified -- runtime at
-   `C:\Program Files\LLVM\lib\clang\22\lib\windows`); full clap migration of
-   the driver parser; supply chain (ed25519 + trust model, lockfile v2 with
-   enforced `--locked`, git deps pinned to commits, authenticated publish);
-   sandbox false-green + randomized temp names.
+1. **Stage 5 remainder**: cargo-fuzz targets over lexer/parser/CTFE +
+   ASAN/UBSAN CI (needs nightly/cargo-fuzz; not installed locally);
+   dbg async MI reader + `.xi` DWARF; clap migration of the driver parser;
+   supply-chain hardening (lockfile v2 enforced `--locked`, git deps pinned
+   to commits, signed publish -- cargo-deny already in CI); sandbox
+   false-green + randomized temp names.
 2. **Stage 6 performance**: incremental engine tiers, parallel monomorphization,
    linker strategy, benchmark CI budgets.
 3. **Stage 7 selfhost**: zero-ICE self-build, >=1M fuzz execs, `-O`
@@ -113,16 +120,16 @@ never stage their files.
 
 State: Stage 3 Item A CLOSED -- strict_catalog_findings=true, corpus gate live
 (checker 189/189). R20/R18/R16/R15b all FIXED with locks (m75/m76/m77/m78);
-catalog collisions are deterministic and reported (R21d follow-up, W001).
-Last full gates: e2e 2325/2325, stdlib-exec 85/85 (+2 ign), feature-reg
-510/510, workspace check clean. The R-bug queue is CLEARED.
+catalog collisions are deterministic and reported (R21d follow-up, W001); LSP
+parse cache + cross-file definition landed (lsp 44/44). Last full gates:
+e2e 2325/2325, stdlib-exec 85/85 (+2 ign), feature-reg 510/510, workspace
+check clean.
 
 Your task, in order:
-1. Stage 5 remainder: LSP incremental reparse + cross-file index; dbg async
-   MI reader + `.xi` DWARF; cargo-fuzz targets over lexer/parser/CTFE +
-   ASAN/UBSAN CI (--sanitize=address wired); clap migration of the driver
-   parser; supply chain (ed25519 + trust model, lockfile v2, pinned git deps,
-   authenticated publish); sandbox false-green + randomized temp names.
+1. Stage 5 remainder: cargo-fuzz targets + ASAN/UBSAN CI (cargo-fuzz not
+   installed locally); dbg async MI reader + .xi DWARF; clap migration of the
+   driver parser; supply-chain hardening (locked/--locked, pinned git deps,
+   signed publish); sandbox false-green + randomized temp names.
 2. Then Stage 6 performance, Stage 7 selfhost.
 
 Rules: the e2e/stdlib harnesses spawn target/debug/xiom.exe -- always

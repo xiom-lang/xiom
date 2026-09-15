@@ -3,8 +3,6 @@
 // Licensed under the MIT or Apache-2.0 license, at your option.
 
 use xiom_ast;
-use xiom_lexer::Lexer;
-use xiom_parser::Parser;
 
 use crate::resolver::{format_fn_signature, type_to_string};
 
@@ -308,16 +306,6 @@ pub fn collect_workspace_symbols(
         }
         xiom_ast::TopDecl::Extern(_) => {}
         _ => {}
-    }
-}
-
-pub fn parse_workspace_document(source: &str) -> Vec<xiom_ast::TopDecl> {
-    let mut lexer = Lexer::new(source);
-    let tokens = lexer.tokenize();
-    let mut parser = Parser::new(tokens);
-    match parser.parse_program() {
-        Ok(program) => program.items,
-        Err(_) => Vec::new(),
     }
 }
 
