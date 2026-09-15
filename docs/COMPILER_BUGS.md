@@ -5365,6 +5365,52 @@ against the wrong receiver (payload/return) or evaluates it on the
 return slot; a fix should make the param receiver win and add a negative
 lock (Some("abc") must satisfy `<= s.len()`).
 
+### R18 FIXED (2026-09-15, round-63): payload reads on the bare `is` rebind
+
+Reproduced with `p_wave3_opt.xi` ("contract violated: ensures at 13:12",
+wa passed). `--emit-ir` showed the clause consequent compiled as:
+
+```llvm
+imply_conseq3:
+  %tmp22 = load i64, i64* %tmp17      ; payload handle (dead)
+  %tmp23 = inttoptr i64 0 to i8*      ; literal NULL!
+  %tmp24 = call i64 @xiom_str_len(i8* %tmp23)   ; -1
+  %tmp25 = load i8*, i8** %tmp3       ; s
+  %tmp26 = call i64 @xiom_str_len(i8* %tmp25)   ; 3
+  %tmp27 = icmp sle i64 %tmp24, %tmp26          ; -1 <= 3 -- passed by luck
+```
+
+Patching just `inttoptr i64 0` to `inttoptr i64 %tmp22` made the probe green,
+confirming the emitter dropped the payload handle.
+
+Root cause: the implication's bare `result is Some/Ok/Err` rebind (BUG 29)
+binds the scrutinee to the PAYLOAD slot so the clause can call payload
+methods directly (`result.len()`). A `.value` / `.error` field read on that
+rebound name then has no struct to GEP into (the local is the i64 payload
+slot), fell through the Field arm to the literal-`0` fallback, and
+`result.value.len()` became `len(NULL)`. (wa passed only because clang
+constant-folded/eliminated the dead check variant; wb compared against a
+param and tripped.)
+
+Fix (crates/xiom-codegen):
+1. `LocalContext::is_payload_rebind` marks names bound by a BARE scrutinee
+   rebind (only when the bound ident name equals the scrutinee name, so match
+   arm `Some(v)` bindings are untouched).
+2. The Field arm resolves `.value`/`.error` on such an i64 slot through the
+   new `unbox_payload_slot` helper -- the payload itself (`inttoptr` for Str,
+   bitcast for floats, box deref for struct/container payloads), mirroring
+   the Option/Result `.value` override.
+3. Err-side rebinds load field 2 (Result's error slot) in all three binder
+   sites (struct-form, i64-form `bind_payload`, nested-is) -- they hardcoded
+   field 1, so `result is Err => result.error...` bound the (zeroed) value
+   slot.
+
+Lock: `tests/regression/m76_contract_payload_param_len.xi` +
+`e2e_m76_contract_payload_param_len` (payload len vs param len, payload value
+equality, scalar payload bound, and the Err-side `result.error.len()` leg).
+Gates: checker 188/188, stdlib-exec 85/85 (+2 ign), feature-reg 510/510,
+e2e 2323/2323.
+
 ## R19. Generic `ptr.replace[Str]` stores the Str as i8 (clang ptr/i8 mismatch)
 
 Found 2026-09-14 (stdlib lane, r38 sweep: smoke_stress_path_components

@@ -918,9 +918,9 @@ impl IrEmitter {
                                 ));
                             }
                         }
-                    }
-                    Ok(("0".to_string(), LLVM_I64.to_string()))
                 }
+                Ok(("0".to_string(), LLVM_I64.to_string()))
+            }
             }
             Expr::Int(n, _) => {
                 Ok((format!("{n}"), LLVM_I64.to_string()))
@@ -2068,8 +2068,11 @@ impl IrEmitter {
                                     },
                                 };
                                 if let Some(id) = bind_ident {
+                                    // R18: Result's Err payload lives in field 2
+                                    // (tag, value, error); Some/Ok use field 1.
+                                    let payload_idx = if matches!(pattern, xiom_ast::Pattern::Err(..)) { 2 } else { 1 };
                                     let payload_gep = self.fresh_tmp();
-                                    self.emitln(&format!("  {payload_gep} = getelementptr {ty}, {ty}* {alloca}, i32 0, i32 1"));
+                                    self.emitln(&format!("  {payload_gep} = getelementptr {ty}, {ty}* {alloca}, i32 0, i32 {payload_idx}"));
                                     let payload_loaded = self.fresh_tmp();
                                     self.emitln(&format!("  {payload_loaded} = load i64, i64* {payload_gep}"));
                                     let inner_alloca = self.fresh_tmp();
@@ -2124,8 +2127,10 @@ impl IrEmitter {
                                 None
                             };
                             if let Some(bname) = bind_name {
+                                // R18: Result's Err payload lives in field 2.
+                                let payload_idx = if matches!(pat, xiom_ast::Pattern::Err(..)) { 2 } else { 1 };
                                 let payload_gep = emitter.fresh_tmp();
-                                emitter.emitln(&format!("  {payload_gep} = getelementptr {struct_ty}, {struct_ty}* {struct_alloca}, i32 0, i32 1"));
+                                emitter.emitln(&format!("  {payload_gep} = getelementptr {struct_ty}, {struct_ty}* {struct_alloca}, i32 0, i32 {payload_idx}"));
                                 let payload_loaded = emitter.fresh_tmp();
                                 emitter.emitln(&format!("  {payload_loaded} = load i64, i64* {payload_gep}"));
                                 let inner_alloca = emitter.fresh_tmp();
@@ -2172,8 +2177,10 @@ impl IrEmitter {
                         | xiom_ast::Pattern::Err(inner, _) = &pattern
                     {
                         if let xiom_ast::Pattern::Ident(id) = inner.as_ref() {
+                            // R18: Err payload is field 2, Some/Ok field 1.
+                            let payload_idx: i64 = if matches!(pattern, xiom_ast::Pattern::Err(..)) { 2 } else { 1 };
                             let payload_ptr = self.fresh_tmp();
-                            self.emitln(&format!("  {payload_ptr} = getelementptr i64, i64* {ptr}, i64 1"));
+                            self.emitln(&format!("  {payload_ptr} = getelementptr i64, i64* {ptr}, i64 {payload_idx}"));
                             let payload = self.fresh_tmp();
                             self.emitln(&format!("  {payload} = load i64, i64* {payload_ptr}"));
                             let inner_alloca = self.fresh_tmp();
@@ -2596,6 +2603,28 @@ impl IrEmitter {
                                 self.emitln(&format!("  {gep} = getelementptr {ov_ty}, {ov_ty}* {struct_alloca}, i32 0, i32 {field_idx}"));
                                 self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
                                 return Ok((loaded, field_llvm_ty));
+                            }
+                        }
+                    }
+                }
+                // R18: `result.value` / `result.error` on a contract
+                // implication's bare scrutinee rebind (`result is Some` binds
+                // `result` to the PAYLOAD slot so `result.len()` dispatches on
+                // the payload). `.value` there means the payload itself;
+                // without this the field read fell through to the literal-0
+                // fallback and `result.value.len() <= s.len()` evaluated
+                // `xiom_str_len(NULL)` (-1) against the param -- a spurious
+                // contract violation. Only fires for i64 slots explicitly
+                // marked as bare `is` rebinds.
+                if let Expr::Ident(id) = &**obj {
+                    if (field.name == "value" || field.name == "error")
+                        && self.local.is_payload_rebind.contains(&id.name)
+                    {
+                        if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
+                            if slot_ty == "i64" {
+                                if let Some(px) = self.local.local_xiom_types.get(&id.name).cloned() {
+                                    return Ok(self.unbox_payload_slot(&slot, &px));
+                                }
                             }
                         }
                     }
@@ -5178,7 +5207,57 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
             }
         });
         if let Some(pt) = payload_ty {
+            // R18: a BARE scrutinee rebind (`result is Some` -> bind `result`)
+            // marks the name as "this is the payload slot"; `.value`/`.error`
+            // on it then resolves to the payload itself.
+            if let Expr::Ident(sid) = scrutinee {
+                if sid.name == id.name {
+                    self.local.is_payload_rebind.insert(id.name.clone());
+                }
+            }
             self.local.local_xiom_types.insert(id.name.clone(), pt);
+        }
+    }
+
+    /// R18: convert a raw i64 payload slot to the LLVM representation of its
+    /// payload XIOM type. Mirrors the Option/Result `.value` payload override
+    /// in the Field arm (Str -> i8*, Float -> bitcast, boxed struct -> deref).
+    /// `slot` is the local's ALLOCA (locals store allocas, not loaded values).
+    fn unbox_payload_slot(&mut self, slot: &str, xiom_ty: &str) -> (String, String) {
+        let raw = self.fresh_tmp();
+        self.emitln(&format!("  {raw} = load i64, i64* {slot}"));
+        match xiom_ty {
+            "Str" => {
+                let t = self.fresh_tmp();
+                self.emitln(&format!("  {t} = inttoptr i64 {raw} to i8*"));
+                (t, "i8*".to_string())
+            }
+            "Float64" | "Float" => {
+                let t = self.fresh_tmp();
+                self.emitln(&format!("  {t} = bitcast i64 {raw} to double"));
+                (t, "double".to_string())
+            }
+            "Float32" => {
+                let t32 = self.fresh_tmp();
+                self.emitln(&format!("  {t32} = trunc i64 {raw} to i32"));
+                let t = self.fresh_tmp();
+                self.emitln(&format!("  {t} = bitcast i32 {t32} to float"));
+                (t, "float".to_string())
+            }
+            _ => {
+                // Boxed struct/container payload: the slot holds the box
+                // pointer (same convention as the Option.value override).
+                if let Ok(st) = self.llvm_type_for(xiom_ty) {
+                    if st.starts_with("%struct.") {
+                        let sp = self.fresh_tmp();
+                        self.emitln(&format!("  {sp} = inttoptr i64 {raw} to {st}*"));
+                        let sv = self.fresh_tmp();
+                        self.emitln(&format!("  {sv} = load {st}, {st}* {sp}"));
+                        return (sv, st);
+                    }
+                }
+                (raw, LLVM_I64.to_string())
+            }
         }
     }
 

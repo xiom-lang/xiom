@@ -426,6 +426,11 @@ pub struct LocalContext {
     /// M17: XIOM type name for each local. Maps local name -> XIOM type string
     /// (e.g. "x" -> "Int8", "y" -> "UInt16"). Populated from declared type annotations.
     pub local_xiom_types: HashMap<String, String>,
+    /// R18: names bound by a contract implication's BARE `is Some/Ok/Err`
+    /// scrutinee rebind (`result is Some => result.len()`). The bound value is
+    /// the PAYLOAD slot; a `.value`/`.error` field read on such a name means
+    /// the payload itself (the old fallback returned literal 0).
+    pub is_payload_rebind: HashSet<String>,
     /// Names of the CURRENT function's parameters. Used to distinguish by-value
     /// `&T` params (ABI passes the VALUE -- `*r` is a no-op) from local variables
     /// that HOLD an address (`var r = &x` -- `*r` must deref).

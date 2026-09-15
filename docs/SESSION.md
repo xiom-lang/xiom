@@ -170,6 +170,31 @@ finalization steps, remaining queue, paste-ready prompt). Next compiler
 session: FLIP FINALIZATION (strict=true + stdlib-exec/e2e), then R20, R18,
 R16, R15b, Stage 5-7.
 
+### Round-63 (2026-09-15): R18 FIXED -- contract payload reads on the bare `is` rebind
+
+Compiler lane. Reproduced the wave-3 false positive
+(`p_wave3_opt.xi`: "contract violated: ensures at 13:12") and traced it in
+`--emit-ir`: the implication consequent emitted `inttoptr i64 0` for the
+payload handle, so `result.value.len()` evaluated `xiom_str_len(NULL)` (-1).
+The bare `result is Some/Ok/Err` rebind binds `result` to the payload i64
+slot (BUG 29 convenience); a `.value`/`.error` read on that name has no
+struct to GEP into and hit the Field arm's literal-0 fallback.
+
+Fix (crates/xiom-codegen/src/{context,expr}.rs):
+- `LocalContext::is_payload_rebind` marks bare-scrutinee rebinds (name ==
+  scrutinee name; match-arm `Some(v)` bindings untouched).
+- Field arm resolves `.value`/`.error` on those i64 slots through a new
+  `unbox_payload_slot` helper (Str -> inttoptr, floats -> bitcast, boxed
+  structs -> deref) -- the payload itself.
+- Err-side rebinds now load Result field 2 (error) in all three binder
+  sites; they hardcoded field 1, so `result is Err => result.error...`
+  bound the zeroed value slot.
+
+Lock: `tests/regression/m76_contract_payload_param_len.xi` +
+`e2e_m76_contract_payload_param_len` (len-vs-param, value equality, scalar
+payload bound, Err-side error len). Gates: checker 188/188, stdlib-exec
+85/85 (+2 ign), feature-reg 510/510, e2e 2323/2323. R18 CLOSED.
+
 ### Round-62 (2026-09-15): R20 FIXED -- same-leaf alias delegation binds the recorded target
 
 Compiler lane. Re-applied the convert.base32 shim (backup/restore; stdlib
