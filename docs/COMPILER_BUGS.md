@@ -5902,18 +5902,23 @@ codegen fixes R18/R16/R15b):
   now returns the shim's full-URL value "/a?b=1&c=2" (was "").
 - item 3 FIXED: `use xiom.encoding.base32 as cvt;` + `cvt.base32_encode`
   runs exit 0 (was 0xC0000005); p_b32_alias2/p_b32_alias green.
-- item 1 STILL OPEN: with the percent shim in the graph, the plain
+- item 1 STILL OPEN on r43: with the percent shim in the graph, the plain
   leaf-qualified `use xiom.convert.percent;` + `percent.percent_encode`
   still binds `xiom.encoding.percent` (component mode,
-  "%2Fa%3Fb%3D1%26c%3D2"); smoke_convert_percent fails at check 3. The
-  percent shim was reverted again. Fix direction as above: a `use path;`
-  leaf alias must resolve through the recorded use PATH, not a catalog
-  leaf lookup over all loaded same-leaf modules.
-- base58 stays deferred for an independent reason: `xiom.num.convert.
-  to_base58(INT_MIN)` negates INT_MIN (overflow -> no digits emitted),
-  while `xiom.convert.base58.to_base58` renders INT_MIN exactly (legacy
-  smoke pins the round-trip), so delegation needs an explicit INT_MIN
-  branch/translation, not a blind shim.
+  "%2Fa%3Fb%3D1%26c%3D2"); smoke_convert_percent fails at check 3.
+
+**R22 CLOSED on r44 (2026-09-15):** the deterministic module-name
+collision work (907a728a) fixed item 1 -- p_pct_probe now returns the
+full-URL mode for BOTH the leaf alias and the explicit `as` alias, and the
+percent shim lands (component/decode legs delegate; `percent_encode`
+stays local as the unique full-URL mode). Verification: smoke_convert_
+percent + smoke_encoding_percent_ascii85 green, full r44 sweep 940/940 +
+ratchet OK, corpus gate clean (41.7s).
+base58 stays deferred for an independent reason: `xiom.num.convert.
+to_base58(INT_MIN)` negates INT_MIN (overflow -> no digits emitted), while
+`xiom.convert.base58.to_base58` renders INT_MIN exactly (legacy smoke pins
+the round-trip), so delegation needs an explicit INT_MIN branch/translation,
+not a blind shim.
 
 
 Fix direction: resolve a `use path;` leaf alias through the RECORDED use
