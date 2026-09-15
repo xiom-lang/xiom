@@ -5439,6 +5439,58 @@ gated on Result-returning delegation. The Str-side progress (a07507c4)
 means a Str-only shim family can be reconsidered once one exists
 (e.g. pure Str helpers), but base32/percent/punycode all expose Results.
 
+### R20 FIXED (2026-09-15, round-62): owner-qualified call targets + deterministic fallback
+
+Re-tested on the round-61 tree by re-applying the convert.base32 shim
+(backup/restore, never committed). At that point the Result legs had
+improved -- `inline OK len=3`, `helper OK len=3` -- but the STR legs were
+still broken (`hex=[]`) and p_b32_shim3's direct-match decodes all returned
+`Err("")`. Repeated `--emit-ir` runs of the same source showed the
+delegated call binding DIFFERENTLY per process:
+
+```llvm
+; shim body, run 1..6 -- two outcomes at random:
+%tmp5 = call i8* @encoding.base32.base32_encode(%struct.Vec* %tmp4)   ; correct
+%tmp5 = call i64 @base32_encode(%struct.Vec* %tmp4)                    ; 0-arg stub
+```
+
+Root cause: `resolve_catalog_call` keys the checker's recorded targets by
+source span only, then sanity-checks the receiver TEXT against the resolved
+module path. A catalog body's receiver is usually an ALIAS (`use
+xiom.encoding.base32 as enc32;` then `enc32.base32_encode(...)`), which the
+textual check can never match -- so every aliased delegation fell through to
+`resolve_module_call`, which cannot resolve catalog aliases either. The
+resulting bare key then hit HashMap-order-dependent ".name" suffix scans
+(`call.rs` pass 2 / `decl.rs`) that could bind the canonical fn, the shim
+itself (infinite recursion -> 0xC0000005), or emit a zero-arg stub
+(`ret 0` / `zeroinitializer`) -> empty Str, lost Result payload.
+
+Fix (three parts):
+1. The checker records each catalog-body module call under an
+   OWNER-QUALIFIED key as well: `"{owner}#{line}:{col}"` where owner is the
+   enclosing fn in codegen's injected naming (`convert.base32.base32_encode`,
+   `xiom.` stripped). New `current_fn_qual` tracks it during `check_fn_decl`.
+2. `resolve_catalog_call` tries the owner-qualified key FIRST and trusts it
+   (the checker resolved the call in the same module context, so aliases are
+   already resolved). The legacy span key + receiver check stays as a
+   fallback for paths whose owner key the emitter cannot build.
+3. `resolve_module_call`'s suffix scan is now deterministic: it drops the
+   CURRENT function (a delegating shim must never bind itself) and picks
+   longest-key-first, then name, instead of the first HashMap hit.
+
+Verification: 4/4 separate `--emit-ir` processes emit the canonical target
+at both the shim body and the consumer call site; the re-applied shim probes
+are green (residual: `enc=[MZXW6===] hex=[CPNMU===] inline OK len=3 helper
+OK len=3`; shim3: A/B correct, C..H all correct lengths; shim2 all 8 legs).
+The shim was restored byte-identical (sha 660D5198...). Lock:
+`tests/regression/m75_alias_delegation/` (canon + shim + an unrelated
+longest-key module; main asserts Int/Str/Result Ok/Result Err across the
+alias delegation) + `e2e_m75_alias_delegation`.
+
+Gates after the fix: checker 188/188, stdlib-exec 85/85 (+2 ign),
+feature-reg 510/510, e2e 2322/2322. R20 CLOSED; encoding-family dedup
+unblocked for the stdlib lane.
+
 ## 2026-09-14 (stdlib lane, round-58 follow-up) -- bare-name worklist ZERO; strict flip re-ready
 
 Round-58 held the strict flip at 37/85 stdlib-exec smokes. The stdlib lane

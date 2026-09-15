@@ -4574,6 +4574,14 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m74_user_alias_shadows_catalog() {
     assert_eq!(compile_and_run("tests\\regression\\m74_user_alias_shadows_catalog.xi"), Some(0));
 }
+
+// R20: same-leaf catalog delegation through a `use ... as` alias must bind
+// the checker-recorded owner-qualified target (pre-fix the emitter could not
+// see the alias and fell into an order-dependent suffix scan that bound a
+// zero-arg stub or the shim itself).
+#[test] fn e2e_m75_alias_delegation() {
+    assert_eq!(compile_and_run("tests\\regression\\m75_alias_delegation\\main.xi"), Some(0));
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }

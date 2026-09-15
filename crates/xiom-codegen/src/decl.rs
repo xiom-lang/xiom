@@ -875,18 +875,26 @@ impl IrEmitter {
                 }
             }
         }
-        // Try any key ending with ".module_name.fn_name" as a fallback
+        // Try any key ending with ".module_name.fn_name" as a fallback.
+        // R20: collect ALL candidates, drop the CURRENT function (a shim
+        // delegating to a same-named canonical fn must never bind itself --
+        // infinite recursion -> stack overflow) and pick deterministically:
+        // longest key first (most module-qualified), then name. The previous
+        // first-HashMap-hit scan was process-order dependent and bound the
+        // shim itself or a zero-arg fallback stub on some runs.
         let suffix = format!(".{}.{}", dotted, fn_name);
-        for k in self.types.functions.keys() {
-            if k.ends_with(&suffix) {
-                return k.clone();
+        let mut candidates: Vec<String> = self.types.functions.keys().into_iter()
+            .filter(|k| k.ends_with(&suffix))
+            .filter(|k| Some(k.as_str()) != self.fctx.current_fn.as_deref())
+            .collect();
+        for (k, _) in &self.mono.generic_fn_decls {
+            if k.ends_with(&suffix) && Some(k.as_str()) != self.fctx.current_fn.as_deref() {
+                candidates.push(k.clone());
             }
         }
-        // Also search generic function decls for the suffix
-        for (k, _) in &self.mono.generic_fn_decls {
-            if k.ends_with(&suffix) {
-                return k.clone();
-            }
+        if !candidates.is_empty() {
+            candidates.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
+            return candidates.into_iter().next().unwrap();
         }
         fn_name.to_string()
     }
