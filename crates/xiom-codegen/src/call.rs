@@ -103,6 +103,21 @@ impl IrEmitter {
     /// receiver text names the resolved module.
     pub(crate) fn resolve_catalog_call(&self, receiver: &Expr, fn_name: &str, span: Span) -> Option<String> {
         let key = format!("{}:{}", span.line, span.col);
+        // R20: the owner-qualified key (calling fn + span) is authoritative --
+        // the checker resolved the call in the SAME module context, so an
+        // ALIAS receiver (`use xiom.encoding.base32 as enc32;` then
+        // `enc32.base32_encode(...)`) binds exactly. The legacy span-only key
+        // below cannot see catalog-body aliases and used to fall through to
+        // an order-dependent `.name` suffix scan that could bind the shim
+        // itself (infinite recursion -> 0xC0000005) or a zero-arg stub.
+        if let Some(owner) = self.fctx.current_fn.as_ref() {
+            if let Some(resolved) = self.config.catalog_call_targets.get(&format!("{owner}#{key}")) {
+                let stripped = resolved.strip_prefix("xiom.").unwrap_or(resolved.as_str());
+                if stripped.ends_with(&format!(".{fn_name}")) {
+                    return Some(stripped.to_string());
+                }
+            }
+        }
         let resolved = self.config.catalog_call_targets.get(&key)?;
         let stripped = resolved.strip_prefix("xiom.").unwrap_or(resolved.as_str());
         if !stripped.ends_with(&format!(".{fn_name}")) {

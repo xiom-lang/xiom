@@ -170,6 +170,39 @@ finalization steps, remaining queue, paste-ready prompt). Next compiler
 session: FLIP FINALIZATION (strict=true + stdlib-exec/e2e), then R20, R18,
 R16, R15b, Stage 5-7.
 
+### Round-62 (2026-09-15): R20 FIXED -- same-leaf alias delegation binds the recorded target
+
+Compiler lane. Re-applied the convert.base32 shim (backup/restore; stdlib
+untouched in the commit) and reproduced R20 deterministically: across six
+`--emit-ir` processes the shim body's delegated calls bound either the
+canonical `@encoding.base32.base32_encode` or a zero-arg `@base32_encode`
+stub (`ret 0`), at random per process -- empty Str legs (`hex=[]`), `Err("")`
+Results in direct-match shapes, and the shim smoke's 0xC0000005.
+
+Root cause: `crates/xiom-codegen/src/call.rs` `resolve_catalog_call` keys
+the checker's recorded targets by source span and then sanity-checks the
+receiver TEXT against the resolved module path. Catalog bodies call through
+ALIASES (`use xiom.encoding.base32 as enc32;` then `enc32.base32_encode(...)`)
+which the textual check can never match, so the recorded target was always
+rejected and resolution fell into `resolve_module_call` plus
+HashMap-order-dependent `.name` suffix scans.
+
+Fix:
+- Checker records catalog-body module calls under an owner-qualified key
+  `"{owner}#{line}:{col}"` (new `current_fn_qual`, codegen's injected naming,
+  `xiom.` stripped) in addition to the legacy span key.
+- `resolve_catalog_call` consults the owner-qualified key first and trusts
+  it; the legacy path remains as fallback.
+- `resolve_module_call`'s suffix scan drops the current function and picks
+  longest-key-first deterministically (no more self-binding / random stub).
+
+Verification: 4/4 `--emit-ir` processes emit the canonical target in the
+shim body; shim probes green (residual enc/hex/OK-3; shim3 A..H correct;
+shim2 all legs); stdlib restored byte-identical. Lock:
+`tests/regression/m75_alias_delegation/` + `e2e_m75_alias_delegation`.
+Gates: checker 188/188, stdlib-exec 85/85 (+2 ign), feature-reg 510/510,
+e2e 2322/2322. Encoding-family dedup unblocked.
+
 ### Round-61 (2026-09-15): FLIP LANDED -- Stage 3 Item A CLOSED
 
 Compiler lane. `strict_catalog_findings` is TRUE in `Checker::new`; catalog-body

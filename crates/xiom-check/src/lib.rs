@@ -42,6 +42,13 @@ pub struct Checker {
     types: HashMap<TypeId, HashMap<String, CheckedType>>,
     /// Current module context for scoped type lookups
     current_module: Option<String>,
+    /// R20: qualified name of the function currently being checked, in the
+    /// CODEGEN's injected-naming scheme (`convert.base32.base32_encode`,
+    /// i.e. the declared module with the `xiom.` prefix stripped). Recorded
+    /// call targets are keyed by this owner + span so the emitter can bind
+    /// them exactly even when the receiver is a catalog-body `use` ALIAS
+    /// (`enc32.base32_encode`) that the emitter cannot resolve itself.
+    current_fn_qual: Option<String>,
     /// Known function signatures
     functions: HashMap<String, FnSig>,
     /// Current function return type
@@ -256,6 +263,7 @@ impl Checker {
         let mut checker = Self {
             types: HashMap::new(),
             current_module: None,
+            current_fn_qual: None,
             functions: HashMap::new(),
             current_return: None,
             locals: vec![HashMap::new()],
@@ -3832,6 +3840,16 @@ impl Checker {
         // module's own `use` aliases (isolated context), so the driver hands
         // this map to the emitter and the call binds the recorded module.
         if self.checking_catalog {
+            // R20: owner-qualified key first (emitter matches it via
+            // FnContext::current_fn, so alias receivers bind exactly);
+            // keep the legacy "line:col" key for any path whose owner key
+            // the emitter cannot build.
+            if let Some(owner) = self.current_fn_qual.clone() {
+                self.catalog_resolved_calls.insert(
+                    format!("{}#{}:{}", owner, span.line, span.col),
+                    resolved_key.clone(),
+                );
+            }
             self.catalog_resolved_calls
                 .insert(format!("{}:{}", span.line, span.col), resolved_key);
         }
@@ -4206,6 +4224,17 @@ impl Checker {
     fn check_fn_decl(&mut self, fd: &FnDecl) {
         self.push_scope();
 
+        // R20: owner key for recorded catalog call targets (see field docs).
+        // Mirrors codegen's FnContext::current_fn for injected decls: the
+        // declared module path with the "xiom." prefix stripped + fn name.
+        let prev_fn_qual = self.current_fn_qual.take();
+        let owner_module = self.current_module.as_deref()
+            .map(|m| m.strip_prefix("xiom.").unwrap_or(m));
+        self.current_fn_qual = Some(match owner_module {
+            Some(m) if !m.is_empty() => format!("{}.{}", m, fd.name.name),
+            _ => fd.name.name.clone(),
+        });
+
         // Add parameters to scope
         for param in &fd.params {
             self.add_local(&param.name.name, CheckedType::from_ast_type(&param.ty));
@@ -4318,6 +4347,7 @@ impl Checker {
         self.current_receiver = None;
         self.current_fn_has_contracts = false;
         self.current_fn_has_requires = false;
+        self.current_fn_qual = prev_fn_qual;
     }
 
     /// True if the block is exactly one `unsafe { }` expression statement
