@@ -571,6 +571,19 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
     // AUDIT FIX (readiness Stage 1): surface checker warnings on the SUCCESS
     // path too -- check_program used to drop them when there were no errors.
     let check_outcome = checker.check_program(&program);
+    // R21d follow-up: ambiguous module declarations are reported, never
+    // silently resolved by filesystem scan order. Printed AFTER check_program
+    // because catalog modules load lazily during resolution.
+    for collision in checker.catalog_module_collisions() {
+        result.diagnostics.push(Diagnostic {
+            kind: "warning".into(), code: "W001".into(),
+            message: collision.clone(),
+            line: 0, col: 0, file: "<catalog>".into(),
+            suggestion: None,
+            help: None, note: None,
+        });
+        warnings.push(collision);
+    }
     for w in checker.take_warnings() {
         result.diagnostics.push(Diagnostic {
             kind: "warning".into(), code: "W000".into(),
@@ -826,6 +839,12 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     checker.build_catalog_index();
     let is_multi_file = effective_sources.len() > 1 || checker.source_dirs.len() > 0;
     let check_outcome = checker.check_program(&program);
+    // R21d follow-up: ambiguous module declarations are reported, never
+    // silently resolved by filesystem scan order. Printed AFTER check_program
+    // because catalog modules load lazily during resolution.
+    for collision in checker.catalog_module_collisions() {
+        eprintln!("warning[W001]: {collision}");
+    }
     // AUDIT FIX (Stage 3): checker WARNINGS (exhaustiveness, catalog body
     // findings) are no longer silent on the plain compile path. Catalog
     // findings are capped at 5 + a summary so real-world builds stay

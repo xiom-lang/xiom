@@ -109,11 +109,36 @@ pub struct ModuleCatalog {
     pub source_dirs: Vec<String>,
     cache: HashMap<String, CachedModule>,
     module_index: HashMap<String, String>,
+    /// R21d follow-up: canonical path per indexed module (identity check so
+    /// the same file indexed under absolute+relative spellings is not a
+    /// "collision").
+    index_canonical: HashMap<String, String>,
+    /// All candidate files per dotted module name:
+    /// (source-dir index, path-match score, canonical path, display path).
+    /// Winner: highest source-dir index (historic last-source-dir priority),
+    /// then highest structural path match (`stdlib/xiom/net/dns.xi` beats
+    /// `packages/xiom-net/src/dns.xi` for `xiom.net.dns`), then smallest
+    /// canonical path (deterministic, unlike filesystem scan order).
+    candidates: HashMap<String, std::collections::BTreeSet<(usize, usize, String, String)>>,
+    /// Notes for ambiguous module names that were actually LOADED by this
+    /// compile (surfacing every collision in the search path would flood the
+    /// output with unrelated probe files). Deterministic winner:
+    /// lexicographically smallest canonical path.
+    pub module_collisions: Vec<String>,
+    surfaced_collisions: std::collections::HashSet<String>,
 }
 
 impl ModuleCatalog {
     pub fn new(source_dirs: Vec<String>) -> Self {
-        Self { source_dirs, cache: HashMap::new(), module_index: HashMap::new() }
+        Self {
+            source_dirs,
+            cache: HashMap::new(),
+            module_index: HashMap::new(),
+            index_canonical: HashMap::new(),
+            candidates: HashMap::new(),
+            module_collisions: Vec::new(),
+            surfaced_collisions: std::collections::HashSet::new(),
+        }
     }
 
     pub fn add_source_dir(&mut self, dir: String) {
@@ -125,8 +150,12 @@ impl ModuleCatalog {
     /// Pre-build a module_path -> file_path index so all lookups are O(1).
     pub fn build_index(&mut self) {
         self.module_index.clear();
-        for dir in &self.source_dirs.clone() {
-            self.index_dir(Path::new(&dir));
+        self.index_canonical.clear();
+        self.candidates.clear();
+        self.module_collisions.clear();
+        self.surfaced_collisions.clear();
+        for (dir_index, dir) in self.source_dirs.clone().iter().enumerate() {
+            self.index_dir(Path::new(&dir), dir_index);
         }
     }
 
@@ -138,10 +167,16 @@ impl ModuleCatalog {
     fn should_skip_dir(name: &str) -> bool {
         name.starts_with('.')
             || matches!(name, "target" | "build" | "dist" | "out" | "obj"
-                | "node_modules" | ".cargo" | "cmake-build-debug" | "cmake-build-release")
+                | "node_modules" | ".cargo" | "cmake-build-debug" | "cmake-build-release"
+                // R21d follow-up: packaged RELEASE trees contain old stdlib
+                // copies (`release/xiom-v*/lib/xiom/*.xi`); indexing them
+                // shadowed the live stdlib once module-index winners became
+                // path-deterministic and flooded W001 collision notes. Do NOT
+                // skip "debug": `stdlib/xiom/debug/` is a real module dir.
+                | "release")
     }
 
-    fn index_dir(&mut self, dir: &Path) {
+    fn index_dir(&mut self, dir: &Path, dir_index: usize) {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -151,10 +186,49 @@ impl ModuleCatalog {
                     if Self::should_skip_dir(name) {
                         continue;
                     }
-                    self.index_dir(&path);
+                    self.index_dir(&path, dir_index);
                 } else if path.extension().map_or(false, |e| e == "xi") {
                     if let Some(dotted) = self.read_module_header(&path) {
-                        self.module_index.insert(dotted, path.to_string_lossy().to_string());
+                        let display = path.to_string_lossy().to_string();
+                        let canonical = std::fs::canonicalize(&path)
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_else(|_| display.clone());
+                        // Structural match: how many trailing MODULE segments
+                        // line up with trailing PATH segments.
+                        let mod_segs: Vec<&str> = dotted.split('.').collect();
+                        let mut path_segs: Vec<String> = Vec::new();
+                        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                            path_segs.push(stem.to_string());
+                        }
+                        let mut parent = path.parent();
+                        while let Some(dir) = parent {
+                            if let Some(name) = dir.file_name().and_then(|s| s.to_str()) {
+                                path_segs.push(name.to_string());
+                            }
+                            parent = dir.parent();
+                        }
+                        let mut score = 0usize;
+                        for (m, p) in mod_segs.iter().rev().zip(path_segs.iter()) {
+                            if m.eq_ignore_ascii_case(p) { score += 1 } else { break }
+                        }
+                        let cands = self.candidates.entry(dotted.clone()).or_default();
+                        if !cands.iter().any(|(_, _, c, _)| c == &canonical) {
+                            cands.insert((dir_index, score, canonical.clone(), display.clone()));
+                        }
+                        // R21d follow-up: two DIFFERENT files declare the same
+                        // module path. Deterministic winner (see field docs);
+                        // the ambiguity is reported when the module is loaded.
+                        let best = cands.iter().max_by(|a, b| {
+                            a.0.cmp(&b.0)
+                                .then_with(|| a.1.cmp(&b.1))
+                                .then_with(|| b.2.cmp(&a.2))
+                        }).cloned();
+                        if let Some((_idx, _score, best_canon, best_display)) = best {
+                            if self.index_canonical.get(&dotted) != Some(&best_canon) {
+                                self.index_canonical.insert(dotted.clone(), best_canon);
+                                self.module_index.insert(dotted, best_display);
+                            }
+                        }
                     }
                 }
             }
@@ -215,8 +289,39 @@ impl ModuleCatalog {
         }
 
         let cached = self.load_module(path_segments)?;
+        self.surface_collision(&key);
         self.cache.insert(key.clone(), cached.clone());
         Some(cached)
+    }
+
+    /// R21d follow-up: when a module with an ambiguous declaration is actually
+    /// LOADED, surface a one-line note (winner + all candidate files). Only
+    /// loaded modules are reported: indexing a broad search path can contain
+    /// unrelated probe files that share a module name but never participate
+    /// in this compile.
+    fn surface_collision(&mut self, dotted: &str) {
+        if self.surfaced_collisions.contains(dotted) {
+            return;
+        }
+        let Some(cands) = self.candidates.get(dotted) else { return };
+        // Distinct canonical files only: the same file indexed under an
+        // absolute and a relative spelling is not a collision.
+        let mut canonicals: Vec<&String> = cands.iter().map(|(_, _, c, _)| c).collect();
+        canonicals.sort();
+        canonicals.dedup();
+        if canonicals.len() < 2 {
+            return;
+        }
+        self.surfaced_collisions.insert(dotted.to_string());
+        let winner = self.module_index.get(dotted).cloned().unwrap_or_default();
+        let mut displays: Vec<String> = cands.iter().map(|(_, _, _, d)| d.clone()).collect();
+        displays.sort();
+        displays.dedup();
+        self.module_collisions.push(format!(
+            "module '{dotted}' declared by {} files [{}]; using '{winner}'",
+            displays.len(),
+            displays.join("', '")
+        ));
     }
 
     /// Parse a module WITHOUT caching it (lazy resolution peek). Used by the
@@ -230,7 +335,11 @@ impl ModuleCatalog {
         if let Some(cached) = self.cache.get(&key) {
             return Some(cached.clone());
         }
-        self.load_module(path_segments)
+        let loaded = self.load_module(path_segments);
+        if loaded.is_some() {
+            self.surface_collision(&key);
+        }
+        loaded
     }
 
     /// Names of DIRECT submodules of a dotted module path (e.g. "xiom.os" ->
