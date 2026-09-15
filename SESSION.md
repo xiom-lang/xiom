@@ -1,60 +1,53 @@
-# XIOM Handoff -- 2026-09-14 (compiler lane; rounds 55-59 in docs/SESSION.md)
+# XIOM Handoff -- 2026-09-15 (compiler lane; round 61 in docs/SESSION.md)
 
-Branch `feat/architect`. Last compiler commit `0c1e3dff`. Working tree clean
-except the generated `.xiom_ai.json`. The parallel stdlib session commits to
-the same branch; never stage their `stdlib/**`,
+Branch `feat/architect`. Last compiler commit: the round-61 flip commit.
+Working tree should be clean except the generated `.xiom_ai.json`. The parallel
+stdlib session commits to the same branch; never stage their `stdlib/**`,
 `examples/stdlib_smoke/**`, `docs/stdlib_session.md`,
 `docs/STDLIB_READINESS_PLAN.md`.
 
 ## State at handoff
 
-- **Stage 3 Item A**: corpus gate `catalog_corpus_is_clean` runs UN-IGNORED
-  and green (checker 188/188). The isolated corpus is clean.
-- **Strict flip**: `strict_catalog_findings` is currently **false (HELD)**
-  after two hold/release cycles. Both hold reasons are now believed fixed
-  (R19 + alias isolation; stdlib's section-Q/bare-name burn-down: 509/509
-  per-module probes clean, r40 937/937). **The first task is to re-test and
-  finalize the flip.**
-- **Fixed with locks**: R14 (`e2e_m71_concat_index_elem`), R17
-  (`e2e_m72_nested_index_concat`), R19 (`e2e_m73_ptr_replace_str`), R15
-  catalog delegation (temp-shim probes green; encoding-family dedup can
-  re-land).
-- **Alias isolation**: `flush_catalog_bodies` checks each catalog body under
-  its own `use` bindings only (no user-alias leakage).
-- **Last gates (with flip held)**: checker 188/188, feature-reg 510/510,
-  stdlib-exec 85/85 (+2 ign), e2e **2320/2320**, xiom-ast 9/9, xiom 20/20,
-  fmt 83/83, lsp 42/42, jit 5/5, `cargo check --workspace` clean.
+- **Stage 3 Item A CLOSED**: `strict_catalog_findings = true` in
+  `Checker::new` (crates/xiom-check/src/lib.rs). Catalog-body findings are
+  hard errors; the un-ignored `catalog_corpus_is_clean` gate (checker suite)
+  is the regression canary. See COMPILER_BUGS.md R21 for the hold/release
+  history and the four fixes that made the flip stick.
+- **Round-61 fixes**: R21a scope-first user aliases (pre-load worklist and
+  single-segment `use X as Y;` binding), R21b container-receiver method
+  wildcard guard, R21c generic-`!` defer, R21d `examples/test_mod` fixture
+  namespace collision. New lock `m74_user_alias_shadows_catalog` +
+  `e2e_m74_user_alias_shadows_catalog`.
+- **Fixed earlier**: R14/R17/R19 with e2e locks (m71/m72/m73); R15 catalog
+  delegation (checker-recorded call targets + full-path injected names);
+  per-body alias isolation in `flush_catalog_bodies`.
+- **Last gates (fresh canonical driver)**: checker 188/188 (corpus gate live
+  and clean), stdlib-exec 85/85 (+2 ign), feature-reg 510/510, e2e
+  **2321/2321**, xiom-ast 9/9, xiom 20/20, fmt 83/83, lsp 42/42, jit 5/5,
+  `cargo check --workspace` clean. The stdlib lane's 1f4f0aad (encoding
+  qualification) is part of that green state.
 
-## Immediate task: FLIP FINALIZATION
+## Immediate task
 
-1. In `crates/xiom-check/src/lib.rs` set `strict_catalog_findings: true`
-   (update its comment; it is around line 271 in `Checker::new`).
-2. `cargo build -p xiom` then:
-   - `cargo test -p xiom-check` (expect 188/188, gate live)
-   - `cargo test -p xiom-codegen --test stdlib_execution_tests` (expect 85/85;
-     this is the REAL-compile strict gate)
-   - targeted: `e2e_m34_j08`, `e2e_m65_str_method_sugar`, `e2e_m71/m72/m73`
-   - full `cargo test -p xiom-codegen --test e2e_tests` (expect 2320/2320)
-3. If green, commit "feat(checker): FLIP -- catalog findings are hard
-   errors" and mark Item A CLOSED in docs/COMPILER_BUGS.md + docs/SESSION.md.
-   If a smoke/test fails, capture the site, revert the flag to false, and log
-   it in COMPILER_BUGS with the module:line and the binding conflict.
+R20 is the top queue item: Result-returning same-leaf catalog delegation
+delivers an empty-payload `Err`, and `smoke_convert_base32` with the shim AVs
+(`p_b32_residual`). Repros live in the stdlib lane's `stdlib_ws\probes`
+(p_b32_residual, p_b32_s5a/s5b, p_b32_shim2/3). Use `--emit-ir` on the shim
+pair; the Str-returning legs are already correct (a07507c4), so compare the
+Result tag/payload path against the canonical module's call target.
 
 ## Remaining queue (compiler lane)
 
-1. **R20** (top bug): Result-returning same-leaf delegation delivers an
-   empty-payload `Err` and the shim smoke AVs (`p_b32_residual`). Blocks the
-   encoding-family dedup. Evidence in docs/COMPILER_BUGS.md R20.
+1. **R20** (top bug): Result-returning same-leaf delegation empty payload +
+   shim AV -- blocks the encoding-family dedup.
 2. **R18**: contract false positive `result.value.len() <= s.len()`
    (constant-bound payload form passes); negative lock logged.
 3. **R16**: `ptr + int` in a call argument miscompiles (stdlib uses an
    Int-cast workaround); latent.
 4. **R15b**: same-leaf + same-name modules declared in the USER program
    (catalog case is fixed; no catalog recording for user modules).
-5. **Order-independent resolution** (only if the flip re-test fails on
-   bare/method load-order classes): make bare/method resolution scope-first
-   (current module + explicit imports before the global first-wins table) so
-   the corpus is a faithful superset gate.
+5. **Catalog collision hardening** (from R21d): two files declaring the same
+   module path resolve last-insert-wins; make it deterministic and reported.
 6. **Stage 5 remainder**: LSP incremental reparse + cross-file index; dbg
    async MI reader + `.xi` DWARF; cargo-fuzz targets over lexer/parser/CTFE +
    ASAN/UBSAN CI (`--sanitize=address` is wired and verified -- runtime at
@@ -67,17 +60,19 @@ the same branch; never stage their `stdlib/**`,
 8. **Stage 7 selfhost**: zero-ICE self-build, >=1M fuzz execs, `-O`
    differential, release-binary suites, Rust-bootstrap equivalence.
 
-Full ledger: `docs/COMPILER_BUGS.md` (top entries are the newest).
-Round history: `docs/SESSION.md` (rounds 38-59).
+Full ledger: `docs/COMPILER_BUGS.md` (RNN entries are appended at the end;
+the R21 entry is newest). Round history: `docs/SESSION.md` (rounds 38-61).
 
 ## Workflow rules
 
 - e2e/stdlib harnesses spawn `target/debug/xiom.exe`: run
   `cargo build -p xiom` after ANY checker/codegen change before e2e runs,
   or the suite tests a stale driver (this has produced false failures).
-- Corpus triage: `cargo test -p xiom-check catalog_corpus_is_clean
-  -- --ignored --nocapture` (currently un-ignored, so plain `cargo test -p
-  xiom-check` runs it); `$env:XIOM_CATALOG_DUMP='1'` prints every site.
+- If the shared target dir acts up (`cargo check` disagreeing with an
+  isolated build), the documented fix is
+  `cargo clean -p xiom-codegen -p xiom` then rebuild the driver.
+- Corpus triage: `cargo test -p xiom-check catalog_corpus_is_clean`
+  (un-ignored; `$env:XIOM_CATALOG_DUMP='1'` prints every site).
 - ASAN: `target\debug\xiom.exe --sanitize=address -o out.exe src.xi` then run
   with the LLVM ASAN runtime dir on PATH.
 - PowerShell: capture `$LASTEXITCODE` immediately after each native call;
@@ -90,36 +85,26 @@ Round history: `docs/SESSION.md` (rounds 38-59).
 ```
 Continue the AXIOM compiler-lane readiness campaign in E:\Projects\AXIOM on
 branch feat/architect. Read SESSION.md (repo root), docs/SESSION.md (rounds
-38-59 + the remaining queue), docs/COMPILER_BUGS.md (newest entries first)
-and docs/ITEM_A_STDLIB_FINDINGS.md before touching code. The stdlib session
-works in parallel on stdlib/** only and commits to the same branch; never
-stage their files.
+38-61; round-61 is the flip closure) and docs/COMPILER_BUGS.md (newest entries
+at the end: R21 flip closure, R20, R18, R16) before touching code. The stdlib
+session works in parallel on stdlib/** only and commits to the same branch;
+never stage their files.
 
-State: rounds 55-59 landed. R14/R17/R19 fixed with e2e locks (m71/m72/m73);
-R15 catalog delegation fixed; per-body alias isolation in
-flush_catalog_bodies; corpus gate un-ignored and green (checker 188/188);
-e2e 2320/2320, feature-reg 510/510, stdlib-exec 85/85 (+2 ign) with the
-strict flip HELD (strict_catalog_findings=false). The stdlib lane's latest
-report: section-Q/bare-name burn-down complete (509/509 per-module import
-probes clean, r40 937/937, corpus green), so the flip's blockers are
-believed resolved.
+State: Stage 3 Item A CLOSED -- strict_catalog_findings=true, corpus gate live
+(checker 188/188); e2e 2321/2321, stdlib-exec 85/85 (+2 ign), feature-reg
+510/510, all other gates green. Round-61 fixed scope-first user aliases
+(R21a), container method wildcard capture (R21b), generic-! defer (R21c), and
+the test_mod fixture collision (R21d).
 
 Your task, in order:
-1. FLIP FINALIZATION: set strict_catalog_findings=true in Checker::new
-   (crates/xiom-check/src/lib.rs, update the comment), rebuild the driver,
-   then run: cargo test -p xiom-check; cargo test -p xiom-codegen --test
-   stdlib_execution_tests; targeted e2e_m34_j08/e2e_m65_str_method_sugar/
-   e2e_m71/e2e_m72/e2e_m73; then the full e2e suite (expect 2320/2320).
-   If green, commit the flip and mark Stage 3 Item A CLOSED in
-   docs/COMPILER_BUGS.md + docs/SESSION.md. If anything fails, capture the
-   exact module:line + binding conflict, revert the flag, and log it.
-2. R20: Result-returning same-leaf delegation empty payload + shim AV
-   (docs/COMPILER_BUGS.md R20) -- blocks the encoding-family dedup.
-3. R18 (contract false positive), R16 (ptr+int arg), R15b (user-program
-   same-leaf modules).
-4. Then Stage 5 remainder (LSP index, dbg DWARF, fuzz+ASAN CI [wired:
-   --sanitize=address], clap migration, supply chain), Stage 6 performance,
-   Stage 7 selfhost.
+1. R20: Result-returning same-leaf delegation empty payload + shim AV
+   (docs/COMPILER_BUGS.md R20) -- blocks the encoding-family dedup. Verify
+   whether the R20 fix already landed in the working tree before re-doing it.
+2. R18 (contract false positive), R16 (ptr+int arg), R15b (user-program
+   same-leaf modules), catalog collision hardening (R21d follow-up).
+3. Then Stage 5 remainder (LSP index, dbg DWARF, fuzz+ASAN CI
+   [--sanitize=address wired], clap migration, supply chain), Stage 6
+   performance, Stage 7 selfhost.
 
 Rules: the e2e/stdlib harnesses spawn target/debug/xiom.exe -- always
 `cargo build -p xiom` after checker/codegen changes. Capture $LASTEXITCODE

@@ -186,10 +186,15 @@ qualified aliases they never import (`xiom.os` -> env/io/string;
 net.https/log/simd/crypto/collections/encoding). Stdlib worklist:
 ITEM_A_STDLIB_FINDINGS.md section Q.
 
-**FLIPPED 2026-09-14**: the stdlib lane cleared section Q; with the isolated
-corpus clean, `strict_catalog_findings` defaults to TRUE and
-`catalog_corpus_is_clean` runs un-ignored (checker 188/188). Any catalog-body
-finding in any loaded module is now a hard error; the gate is the canary.
+**FLIPPED AND CLOSED 2026-09-15 (round 61)**: the stdlib lane cleared
+section Q and the round-59 encoding sites (1f4f0aad), the compiler lane fixed
+the scope-first alias / container-wildcard / generic-`!` classes behind the
+remaining failures (R21 below), and `strict_catalog_findings` is now TRUE.
+The un-ignored `catalog_corpus_is_clean` gate is the regression canary; any
+catalog-body finding in any loaded module is a hard error. Final gates:
+checker 188/188, stdlib-exec 85/85 (+2 ign), feature-reg 510/510, e2e
+2321/2321. Stage 3 Item A is CLOSED -- see the R21 entry at the end of this
+file for the complete hold/release history and the remaining follow-ups.
 
 ### D3/D6 status (original entries)
 
@@ -5476,6 +5481,99 @@ smoke_stress_path_components. Since os.xi's only core use was
 closure and both constraints hold simultaneously (509-probe scan 0,
 path_components green on r40, 101/101 battery). R19 itself remains open
 for direct core/mem/ptr closures.
+
+## R21. FLIP LANDED (2026-09-15): Stage 3 Item A CLOSED -- scope-first user aliases, container-receiver wildcard guard, generic-`!` defer
+
+`strict_catalog_findings = true` is final. The re-test after round 60 failed
+first on the round-59 encoding class (`xiom.encoding:151,156,162,244,249`:
+bare `write_base64_triplet` + `data.get(i).value`); the stdlib lane qualified
+those sites in 1f4f0aad (`_enc_write_base64_triplet` + direct `data[i]`
+reads). Three COMPILER-side defects surfaced behind it; all fixed here, plus
+one fixture namespace collision found by the full-suite run.
+
+### R21a -- user `use X as Y;` aliases were shadowed by catalog leaf modules
+
+`resolve_imports` builds the catalog pre-load worklist from use-path
+prefixes BEFORE any alias is processed, and the skip test
+(`self.modules.contains_key(leaf)`) only knows module keys. For
+`use network as net; use net.local;` the prefix `net` was not yet a module
+key, so the worklist catalog-loaded `xiom.net` -- pulling the whole net
+graph into a compile that never referenced it, and under the flip hard-checking
+its bodies in a graph without `xiom.collections`. There, encoding.xi's
+`tmp.get(j)` hit the unique-candidate method wildcard and captured core's
+`Box.get[T](b: &Box[T])`: 84 errors (`expected Box, found Int`; `cannot
+access field on non-struct type UInt8`).
+
+Separately, `process_use` never bound a single-segment module alias: the
+generic item lookup treats the path's last segment as an ITEM, and a
+module's export map does not contain its own name, so `use network as net;`
+was a silent no-op and the follow-up `use net.local;` fell through to the
+catalog.
+
+Fixes (crates/xiom-check/src/lib.rs):
+- `resolve_imports` collects `use ... as Y` alias names up front; the
+  pre-load worklist skips any prefix whose first segment is such an alias
+  (the alias target is loaded through its own use path, so no module is
+  lost).
+- `process_use` binds a single-segment module path (`use network as net;`)
+  to the PROGRAM-DECLARED module surface before any catalog fallback.
+
+Lock: `tests/regression/m74_user_alias_shadows_catalog.xi` +
+`e2e_m74_user_alias_shadows_catalog` (bare imports plus `net.ping()` /
+`net.local().port` qualified alias calls; pre-fix the compile pulled the
+xiom.net graph).
+
+### R21b -- container receivers captured unique UNRELATED methods
+
+The AUDIT #6 unique-candidate wildcard capture is deliberate for struct
+receivers (`PathBuf.join` -> the sole `Path.join`; `join`/`as_path`), but
+unsound for compiler-known container shapes: a `Vec[UInt8]` receiver
+captured `Box.get` whenever `xiom.collections` (which registers `Vec.get`)
+was not in the graph, silently typing `.value` on `&T`/UInt8. The capture
+now requires a leaf-name/base relation when the receiver base is a container
+(Vec/Slice/Array/Map/Set/HashMap/BTreeMap/Option/Result/Tuple/Stack/Deque/
+Queue); struct receivers keep the AUDIT #6 behavior. Wildcard/generic
+receivers are unchanged.
+
+### R21c -- `!generic` was a hard checker error
+
+`UnaryOp::Not` rejected every non-Bool, non-wildcard operand.
+`benchmark.monomorph:58,315` and `benchmark.generics_hard:346` negate a
+generic param (`!flag` with `flag: T`), which under the flip became fatal.
+Generic params (single uppercase) now defer to monomorphisation, the same
+convention as the wildcard-receiver path; non-deferrable operand types still
+error.
+
+### R21d -- fixture module-name collisions (examples/test_mod)
+
+`examples/test_mod/{main,math}.xi` declared `benchmark.main` /
+`benchmark.math`, colliding with the 30-module benchmark suite. The catalog
+index is last-insert-wins, so `use benchmark.math;` in main.xi resolved to
+the test_mod file (or the reverse, per directory scan order): the bench
+suite compiles flipped between green and `undefined variable 'power_iter'`
+/ `undefined variable 'make_result'`. The fixtures now declare
+`test_mod.main` / `test_mod.math` (the e2e test still expects exit 34; the
+catalog unit tests track the new names). FOLLOW-UP (not required for the
+flip): make catalog index collisions deterministic and reported -- two files
+declaring the same module path is ambiguous and currently scan-order
+dependent.
+
+### Verification (fresh canonical driver)
+
+- checker 188/188 (corpus gate live and clean), stdlib-exec 85/85 (+2 ign),
+  feature-reg 510/510, e2e **2321/2321** (2320 + the new m74 lock).
+- xiom-ast 9/9, xiom 20/20, fmt 83/83, lsp 42/42, jit 5/5,
+  `cargo check --workspace` clean.
+- Mid-run stale-target incident: `cargo check -p xiom` reported
+  `set_catalog_call_targets` missing while an isolated-target check and the
+  full e2e were green; `cargo clean -p xiom-codegen -p xiom` (4.6 GiB of
+  stale artifacts) resolved it. The e2e harness still spawns
+  `target/debug/xiom.exe` -- rebuild the driver after `cargo clean`.
+
+Stage 3 Item A is CLOSED. Remaining compiler-lane queue: R20 (Result-
+returning same-leaf delegation payload; blocks the encoding-family dedup),
+R18 (contract false positive), R16 (`ptr + int` arg), R15b (user-program
+same-leaf modules), then Stage 5-7.
 
 
 
