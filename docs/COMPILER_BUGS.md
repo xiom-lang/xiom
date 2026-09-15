@@ -5641,6 +5641,15 @@ FLIP STATUS: encoding was the last stdlib blocker; scan 0 + corpus gate clean
 re-run stdlib-exec/e2e with strict on -- no stdlib-side work remains for the
 flip.
 
+**ROUND-60 CLOSE (2026-09-15, stdlib lane): FLIP GREEN.** After the compiler
+lane committed 6e7d72e5 (strict flip final, R21a-d) + a2a456c4 (R20) and the
+stdlib lane committed e6d31a1a (sync/thread/reflect intrinsic bindings), the
+stdlib lane rebuilt target_r42 from the clean HEAD, re-ran the R21b
+regression probe (`p_path_chain.xi`: green again -- the container-only
+receiver guard keeps the struct-receiver capture) and the full sweep:
+**r42: 937/937 PASS + ratchet OK with strict_catalog_findings=true.** r42 is
+the new baseline. R20's fix unblocks the encoding-family dedup (queue item 2).
+
 
 ## R21. FLIP LANDED (2026-09-15): Stage 3 Item A CLOSED -- scope-first user aliases, container-receiver wildcard guard, generic-`!` defer
 
