@@ -5270,6 +5270,43 @@ matches finding 13's chained-concat corruption from the 3rd link.
 Stdlib re-landed the fast path on 2026-09-12 using the F workaround;
 the underlying miscompile remains for other callers.
 
+### R16 FIXED (2026-09-15, round-64): extern return types feed pointer inference
+
+Reproduced with all three probes on the round-63 tree: p_str_memcpy3
+`D=[fooE\x01]` (corrupt), E/F correct; p_str_memcpy2 C corrupt.
+
+`--emit-ir` of the unsafe block showed the dest expression compiled as
+string concatenation:
+
+```llvm
+%tmp32 = call i8* @xiom_int_to_string(i64 %tmp30)          ; len_a
+%tmp33 = call i8* @xiom_str_concat(i8* %tmp29, i8* %tmp32) ; buf + len_a as Str!
+%tmp38 = call i8* @xiom_memcpy_dispatch(i8* %tmp33, ...)   ; heap string as dest
+```
+
+`buf` is `i8*` at the ABI (same as Str), so the Add intercept's
+`expr_is_pointer(left)` gate decides the lowering; it checks
+`local_xiom_types["buf"]`. An EXPLICIT `var buf: *UInt8 = malloc(n)` fixed
+the probe, proving the gap was INFERENCE: the extern registration recorded
+only LLVM param/return types in `types.functions`, never the XIOM return
+type in `types.fn_return_xiom`, so `var buf = malloc(n)` stayed untyped and
+`buf + len` took the Str-concat path.
+
+Fix (crates/xiom-codegen/src/decl.rs, `TopDecl::Extern` registration):
+record `fn_return_xiom[name] = type_string_full(return_type)` alongside the
+LLVM signature. Raw-pointer returns (`malloc -> *UInt8`) now type the
+binding, `expr_is_pointer` fires, and `buf + len` lowers to
+`getelementptr i8, i8* %buf, i64 %len` (byte pointer arithmetic) instead of
+`xiom_int_to_string` + `xiom_str_concat`.
+
+Verification: p_str_memcpy3 D/E/F all correct (`D=[foobar]`), p_str_memcpy2
+A/B/C correct, p_str_memcpy all links 0..4 correct (the original finding-13
+corruption). Lock: `tests/regression/m77_ptr_plus_int_arg.xi` +
+`e2e_m77_ptr_plus_int_arg` (unannotated malloc buffer, byte-loop + memcpy at
+`buf + len_a`, empty-string edges, and a 4-link concat chain). Gates:
+checker 188/188, stdlib-exec 85/85 (+2 ign), feature-reg 510/510, e2e
+2324/2324.
+
 ## 2026-09-12 (stdlib lane) -- Item A corpus CLEAN; strict flip unblocked
 
 The last stdlib parse item is fixed: `xiom.time:232`'s non-operator `<=>`
@@ -5743,6 +5780,41 @@ Stage 3 Item A is CLOSED. Remaining compiler-lane queue: R20 (Result-
 returning same-leaf delegation payload; blocks the encoding-family dedup),
 R18 (contract false positive), R16 (`ptr + int` arg), R15b (user-program
 same-leaf modules), then Stage 5-7.
+
+## R22. Catalog same-leaf CONSUMER aliases: leaf-qualified calls bind the wrong module; explicit `as` aliases AV (2026-09-15, stdlib lane round 60)
+
+Found while re-landing the encoding dedup shims after R20 (a2a456c4). The
+catalog-body delegation path (R15/R20: shim body -> canonical via `use ... as`)
+is green; these are the CONSUMER-side shapes:
+
+1. **Leaf-qualified call binds a sibling same-leaf module once both are in
+   the graph.** `use xiom.convert.percent;` + `percent.percent_encode("/a?b=1&c=2")`
+   in a user module: before the shim, `convert.percent` was the only "percent"
+   in the graph and the call returned the full-URL-mode string. After
+   `convert.percent` imported `xiom.encoding.percent as enc_pct` (dedup shim),
+   the same call bound the ENCODING module's component mode:
+   `%2Fa%3Fb%3D1%26c%3D2`. Probe `stdlib_ws\probes\p_pct_probe.xi`.
+2. **Explicit consumer alias of a catalog module.** Same probe,
+   `use xiom.convert.percent as cvt;` + `cvt.percent_encode` returned `""`
+   (empty Str) instead of the shim value.
+3. **Explicit consumer alias AVs (pre-existing, no shim involved).**
+   `use xiom.encoding.base32 as cvt;` + `cvt.base32_encode(&v)` compiles and
+   then crashes 0xC0000005 -- on r40 as well. The leaf-import form
+   (`use xiom.encoding.base32;` + `base32.base32_encode`) is green. Probes
+   `p_b32_alias.xi` (leaf + `as` pair), `p_b32_alias2.xi`, `p_b32_encalias.xi`.
+
+Impact/status: the four landed shims (`convert.base16/base32/base64/
+base64url`) have byte-identical twins, so the wrong-module binding is
+behaviorally invisible there (smokes + KATs green, including p_b32_s5a);
+divergent twins cannot be deduped yet -- `convert.percent` stays local
+(unique full-URL mode) and punycode/base58 stay queued. Reported here for
+the compiler lane.
+
+Fix direction: resolve a `use path;` leaf alias through the RECORDED use
+PATH (never a catalog leaf lookup over all loaded modules), and make
+`use X as a; a.fn()` bind exactly the same target as `X.fn()` (the empty/AV
+shapes look like the same wrong-target resolution reaching codegen).
+
 
 
 

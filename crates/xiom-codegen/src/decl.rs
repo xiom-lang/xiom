@@ -690,6 +690,15 @@ impl IrEmitter {
                     .map(|t| self.extern_type_to_llvm(t))
                     .unwrap_or_else(|| "void".to_string());
                 self.types.functions.insert(fd.name.name.clone(), (param_types, ret_type));
+                if let Some(rt) = &fd.return_type {
+                    // R16: record the XIOM return type of externs too. Raw
+                    // pointers (malloc -> *UInt8) must resolve so an
+                    // unannotated `var buf = malloc(n)` is typed as a POINTER:
+                    // otherwise `buf + len` compiled as Str concatenation
+                    // (i8* + Int) and passed a heap string as the dest address
+                    // (memcpy at `buf + len_a` corrupted the buffer).
+                    self.types.fn_return_xiom.insert(fd.name.name.clone(), Self::type_string_full(rt));
+                }
             }
         }
         if let TopDecl::Module(md) = item {
