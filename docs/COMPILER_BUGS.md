@@ -5908,7 +5908,8 @@ codegen fixes R18/R16/R15b):
   "%2Fa%3Fb%3D1%26c%3D2"); smoke_convert_percent fails at check 3.
 
 **R22 CLOSED on r44 (2026-09-15):** the deterministic module-name
-collision work (907a728a) fixed item 1 -- p_pct_probe now returns the
+collision work (907a728a) plus the plain-import receiver bind (a5e8b1dc)
+fixed item 1 -- p_pct_probe now returns the
 full-URL mode for BOTH the leaf alias and the explicit `as` alias, and the
 percent shim lands (component/decode legs delegate; `percent_encode`
 stays local as the unique full-URL mode). Verification: smoke_convert_
