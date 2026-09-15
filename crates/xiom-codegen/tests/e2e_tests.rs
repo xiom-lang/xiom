@@ -4597,6 +4597,32 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m77_ptr_plus_int_arg() {
     assert_eq!(compile_and_run("tests\\regression\\m77_ptr_plus_int_arg.xi"), Some(0));
 }
+
+// R15b: same-leaf/same-name modules declared in the USER program (three
+// source files on the command line -- not catalog siblings). Pre-fix the
+// delegating module's aliased call bound its OWN qualified symbol
+// (`call @beta.base32.encode` -> self-recursion -> 0xC000001D).
+#[test] fn e2e_m78_user_sameleaf_modules() {
+    let exe = project_root().join("e2e_m78_user_sameleaf.exe");
+    let _ = std::fs::remove_file(&exe);
+    let compile = Command::new(xiom_path())
+        .args([
+            "-o", exe.to_str().unwrap(),
+            "tests/regression/m78_user_sameleaf/alpha_base32.xi",
+            "tests/regression/m78_user_sameleaf/beta_base32.xi",
+            "tests/regression/m78_user_sameleaf/gateway.xi",
+        ])
+        .current_dir(project_root())
+        .output()
+        .expect("failed to spawn xiom");
+    if !compile.status.success() {
+        eprintln!("stdout: {}", String::from_utf8_lossy(&compile.stdout));
+        eprintln!("stderr: {}", String::from_utf8_lossy(&compile.stderr));
+    }
+    assert!(compile.status.success(), "m78 multi-source compile should succeed");
+    let run = Command::new(&exe).output().expect("failed to run m78 exe");
+    assert_eq!(run.status.code(), Some(0), "m78 should exit 0");
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }

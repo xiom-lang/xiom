@@ -4038,12 +4038,29 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         }
                         // Pass 2: generic suffix match (e.g. ".new")
                         if found.is_empty() {
-                            for key in self.types.functions.keys() {
-                                if key.ends_with(&suffix) {
-                                    if is_bare_call && key.contains('.') { continue; }
-                                    if found.is_empty() { found = key.clone(); }
-                                    else if found != *key { found.clear(); break; }
-                                }
+                            // R15b: prefer candidates with a PREASSIGNED SYMBOL.
+                            // Module-qualified registration aliases (added so
+                            // same-leaf user modules bind their own signature)
+                            // share the suffix but have no definition of their
+                            // own; counting them as distinct candidates made
+                            // previously unique resolutions ambiguous -- e.g.
+                            // `.as_string()` on an unwrap() receiver gained a
+                            // second `*.as_string` key and fell to a bare stub.
+                            let candidates: Vec<String> = self.types.functions.keys().into_iter()
+                                .filter(|k| k.ends_with(&suffix))
+                                .filter(|k| !(is_bare_call && k.contains('.')))
+                                .collect();
+                            let emittable: Vec<String> = candidates.iter()
+                                .filter(|k| self.mono.fn_symbol_map.contains_key(*k)
+                                    || self.mono.emitted_fns.contains(*k))
+                                .cloned()
+                                .collect();
+                            if emittable.len() == 1 {
+                                found = emittable[0].clone();
+                            } else if emittable.is_empty() && candidates.len() == 1 {
+                                // No symbol map info (e.g. generic decls): keep the
+                                // historic unique-candidate behavior.
+                                found = candidates[0].clone();
                             }
                         }
                         if !found.is_empty() {
