@@ -15,12 +15,8 @@ use crate::resolver::{
 use crate::semantic_tokens::compute_semantic_tokens;
 use crate::symbols::{
     collect_document_symbols, collect_workspace_symbols, find_definition,
-    parse_workspace_document,
 };
 use crate::text_edit::apply_text_edit;
-
-use xiom_lexer::Lexer;
-use xiom_parser::Parser;
 
 // ============================================================================
 // Lifecycle handlers
@@ -159,10 +155,7 @@ pub fn handle_hover(msg: &serde_json::Value, backend: &Backend, responses: &mut 
         if is_field_access {
             let dot_pos = wstart - 1;
             let obj_expr = extract_obj_expr(line_str, dot_pos);
-            let mut lexer = Lexer::new(&text);
-            let tokens = lexer.tokenize();
-            let mut parser = Parser::new(tokens);
-            if let Ok(program) = parser.parse_program() {
+            if let Some(program) = backend.parse_cached(&u, &text) {
                 if let Some(obj_type) = resolve_obj_type_text(&program, &obj_expr) {
                     let fields = find_struct_fields_in_program(&program, &obj_type);
                     for (fname, ftype) in &fields {
@@ -194,10 +187,7 @@ pub fn handle_hover(msg: &serde_json::Value, backend: &Backend, responses: &mut 
                 "contents": { "kind": "markdown", "value": format!("**member** `{}`", word) }
             }))
         } else {
-            let mut lexer = Lexer::new(&text);
-            let tokens = lexer.tokenize();
-            let mut parser = Parser::new(tokens);
-            if let Ok(program) = parser.parse_program() {
+            if let Some(program) = backend.parse_cached(&u, &text) {
                 if let Some(sig) = find_function_signature(&program, &word) {
                     return Some(serde_json::json!({
                         "contents": { "kind": "markdown", "value": format!("**function**\n```xiom\n{}\n```", sig) }
@@ -461,12 +451,9 @@ pub fn handle_definition(msg: &serde_json::Value, backend: &Backend, responses: 
         };
 
         if !word.is_empty() {
-            let docs = backend.documents();
-            if let Some(text) = docs.get(u) {
-                let mut lexer = xiom_lexer::Lexer::new(text);
-                let tokens = lexer.tokenize();
-                let mut parser = xiom_parser::Parser::new(tokens);
-                if let Ok(program) = parser.parse_program() {
+            let text = { backend.documents().get(u).cloned() };
+            if let Some(text) = text {
+                if let Some(program) = backend.parse_cached(u, &text) {
                     if let Some(pos) = find_definition(&program, &word) {
                         location = Some(serde_json::json!({
                             "uri": u,
@@ -476,6 +463,33 @@ pub fn handle_definition(msg: &serde_json::Value, backend: &Backend, responses: 
                             }
                         }));
                     }
+                }
+            }
+        }
+
+        // Stage 5: CROSS-FILE definition. When the symbol is not declared in
+        // the current document, search the other open documents' cached ASTs
+        // (deterministic uri order) and return that file's declaration.
+        if location.is_none() && !word.is_empty() {
+            let mut others: Vec<(String, String)> = {
+                let docs = backend.documents();
+                docs.iter()
+                    .filter(|(k, _)| uri.as_deref() != Some(k.as_str()))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect()
+            };
+            others.sort_by(|a, b| a.0.cmp(&b.0));
+            for (other_uri, text) in others {
+                let Some(program) = backend.parse_cached(&other_uri, &text) else { continue };
+                if let Some(pos) = find_definition(&program, &word) {
+                    location = Some(serde_json::json!({
+                        "uri": other_uri,
+                        "range": {
+                            "start": { "line": pos.0, "character": pos.1 },
+                            "end": { "line": pos.0, "character": pos.1 + word.len() as u64 }
+                        }
+                    }));
+                    break;
                 }
             }
         }
@@ -549,12 +563,9 @@ pub fn handle_document_symbols(msg: &serde_json::Value, backend: &Backend, respo
     let mut symbols = Vec::new();
 
     if let Some(ref u) = uri {
-        let docs = backend.documents();
-        if let Some(text) = docs.get(u) {
-            let mut lexer = xiom_lexer::Lexer::new(text);
-            let tokens = lexer.tokenize();
-            let mut parser = xiom_parser::Parser::new(tokens);
-            if let Ok(program) = parser.parse_program() {
+        let text = { backend.documents().get(u).cloned() };
+        if let Some(text) = text {
+            if let Some(program) = backend.parse_cached(u, &text) {
                 for item in &program.items {
                     collect_document_symbols(item, &mut symbols);
                 }
@@ -729,11 +740,16 @@ pub fn handle_workspace_symbol(msg: &serde_json::Value, backend: &Backend, respo
     let mut symbols = Vec::new();
 
     {
-        let docs = backend.documents();
-        for (uri, text) in docs.iter() {
-            let items = parse_workspace_document(text);
-            for item in &items {
-                collect_workspace_symbols(item, uri, query, &mut symbols);
+        // Stage 5: use the per-uri parse cache (workspace/symbol used to
+        // re-lex+re-parse every open document on every request).
+        let docs: Vec<(String, String)> = {
+            let docs = backend.documents();
+            docs.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+        };
+        for (uri, text) in docs {
+            let Some(program) = backend.parse_cached(&uri, &text) else { continue };
+            for item in &program.items {
+                collect_workspace_symbols(item, &uri, query, &mut symbols);
                 if symbols.len() >= 50 { break; }
             }
             if symbols.len() >= 50 { break; }
