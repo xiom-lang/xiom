@@ -5167,6 +5167,63 @@ ROUND-58 CALL-SIDE FIX LANDED (2026-09-14): R15 is fixed for the catalog
   same-name modules declared in the USER program (no catalog recording) --
   tracked as R15b; not needed for the encoding-family dedup.
 
+### R15b FIXED (2026-09-15, round-65): same-leaf same-name USER-program modules
+
+Reproduced with three source files passed on the command line (user
+program, no catalog):
+
+```
+alpha_base32.xi:  module alpha.base32  pub fn encode(x)->Int { x * 2 }
+beta_base32.xi:   module beta.base32   use alpha.base32 as canon;
+                                       pub fn encode(x)->Int { canon.encode(x) }
+gateway.xi:       module gateway       use beta.base32 as b32; b32.encode(10)
+```
+
+`--emit-ir` showed `beta.base32.encode` compiled as `call i64
+@beta.base32.encode` -- SELF-recursion (0xC000001D trap). Four defects:
+
+1. Free fns of USER-program modules share the bare key (`fn_key` = bare
+   name), so two same-leaf modules both register `types.functions["encode"]`
+   (last wins) and alpha's definition claimed the bare SYMBOL.
+2. `use_alias_paths` recorded a leaf-qualified entry for MODULE aliases too;
+   the codegen's alias map then overwrote the full path with the leaf
+   ("b32" -> "base32") in random HashMap order, so `use beta.base32 as b32`
+   resolved through a bare/unrelated module half the time.
+3. `resolve_module_call` tried the LEAF-qualified key before the full dotted
+   key, while user modules register full-qualified names.
+4. The method-call emitter's unique `.name` suffix search counted
+   module-qualified REGISTRATION ALIASES as distinct candidates.
+
+Fixes (crates/xiom-codegen/src/decl.rs + crates/xiom-check/src/lib.rs):
+- Free fns with a module context now register the MODULE-QUALIFIED signature
+  and XIOM return type alongside the bare key (methods keep their
+  receiver-qualified keys -- an extra alias made suffix searches ambiguous).
+- `preassign_fn_symbols` counts bare keys per module: a key defined by more
+  than one module qualifies EVERY definition's symbol (the first no longer
+  keeps the bare slot); the bare slot keeps a deterministic first mapping.
+- The checker records MODULE aliases without the `::qualified` leaf entry;
+  codegen's alias map is built in two deterministic passes (full paths first,
+  then leaf forms for item aliases).
+- `resolve_module_call` prefers the full dotted key for multi-segment
+  receivers (leaf fallback preserved for injected catalog names), and expands
+  single-segment receivers through the alias map.
+- The suffix-search fallback prefers candidates with a PREASSIGNED SYMBOL;
+  registration-only aliases no longer make unique resolutions ambiguous.
+- Leaf-module key registration is first-wins (a second same-leaf module no
+  longer clobbers the first signature).
+
+Verification: m78 exits 0 deterministically (5/5 compiles) and the emitted
+IR binds `@beta.base32.encode` at the gateway call and
+`@alpha.base32.encode` inside the shim. Regressions caught and fixed during
+the full-suite runs: `eco_json_29_tests` (unqualified `.as_string()` on an
+`unwrap()` receiver gained a second suffix candidate -> bare stub; fixed by
+the symbol-backed candidate preference) and `e2e_m19_default_0075`
+(nondeterministic `p.greet()` binding to the interface default; fixed by
+limiting qualified registration to free fns). Lock:
+`tests/regression/m78_user_sameleaf/` + `e2e_m78_user_sameleaf_modules`
+(multi-source invoke). Gates: checker 188/188, stdlib-exec 85/85 (+2 ign),
+feature-reg 510/510, e2e 2325/2325.
+
 FLIP RE-HELD (2026-09-14, round 59): R19 and alias isolation fixed the
 first blocker set (stdlib-exec 85/85 with strict ON), but the broader E2E
 surface still hits pre-existing catalog findings the corpus cannot see,

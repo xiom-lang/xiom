@@ -170,6 +170,33 @@ finalization steps, remaining queue, paste-ready prompt). Next compiler
 session: FLIP FINALIZATION (strict=true + stdlib-exec/e2e), then R20, R18,
 R16, R15b, Stage 5-7.
 
+### Round-65 (2026-09-15): R15b FIXED -- same-leaf USER-program modules
+
+Compiler lane. Reproduced with three command-line source files
+(`alpha.base32` / `beta.base32` / `gateway`): `beta.base32.encode`'s aliased
+delegation compiled to `call @beta.base32.encode` (self-recursion,
+0xC000001D). Four defects: user-module free fns share the bare key (last
+registration wins; the first keeps the bare symbol); the checker recorded a
+leaf-qualified entry for MODULE aliases, and codegen's alias map overwrote
+the full path with the bare leaf in random HashMap order; `resolve_module_call`
+preferred the leaf key; and the `.name` suffix search counted
+module-qualified registration aliases as distinct candidates.
+
+Fix (crates/xiom-codegen/src/decl.rs, crates/xiom-check/src/lib.rs):
+free fns register module-qualified signatures/returns; `preassign_fn_symbols`
+qualifies every definition of a cross-module key; the checker records module
+aliases without the leaf form and codegen builds the alias map in two
+deterministic passes; `resolve_module_call` prefers the full dotted key and
+expands single-segment alias receivers; the suffix-search fallback prefers
+symbol-backed candidates; leaf-module key registration is first-wins.
+
+Full-suite runs caught two regressions mid-fix, both fixed and documented in
+COMPILER_BUGS R15b: `eco_json_29_tests` (extra `.as_string` suffix candidate
+-> bare stub) and nondeterministic `p.greet()` binding in
+`e2e_m19_default_0075`. Lock `tests/regression/m78_user_sameleaf/` +
+`e2e_m78_user_sameleaf_modules` (multi-source). Gates: checker 188/188,
+stdlib-exec 85/85 (+2 ign), feature-reg 510/510, e2e 2325/2325.
+
 ### Round-64 (2026-09-15): R16 FIXED -- extern return types feed pointer inference
 
 Compiler lane. Reproduced all three stdlib probes (`p_str_memcpy*`):

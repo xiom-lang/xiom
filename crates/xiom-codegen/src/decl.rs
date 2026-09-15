@@ -320,16 +320,63 @@ impl IrEmitter {
         // `use X.Y.f as alias` -> "X.Y.f"). Bare calls through the alias then
         // resolve to the real registered key.
         let alias_paths = std::mem::take(&mut self.config.use_alias_paths);
-        for (alias, dotted) in alias_paths {
-            if let Some(q) = alias.strip_suffix("::qualified") {
-                // leaf-qualified form: "af" -> "math.abs_float" (stdlib-stripped)
-                self.mono.use_alias_map.insert(q.to_string(), dotted.clone());
+        // R15b: deterministic two-pass -- plain (full-path) entries first,
+        // then the "::qualified" leaf forms. Both may target the same alias
+        // name (fn aliases record both), and a HashMap iteration let either
+        // win at random.
+        for (alias, dotted) in alias_paths.iter() {
+            if alias.ends_with("::qualified") {
                 continue;
             }
             self.mono.use_alias_map.insert(alias.clone(), dotted.clone());
         }
+        for (alias, dotted) in alias_paths.iter() {
+            if let Some(q) = alias.strip_suffix("::qualified") {
+                // leaf-qualified form: "af" -> "math.abs_float" (stdlib-stripped)
+                self.mono.use_alias_map.insert(q.to_string(), dotted.clone());
+            }
+        }
         let mut seen_bare: std::collections::HashSet<String> = std::collections::HashSet::new();
-        fn walk(em: &IrEmitter, items: &[TopDecl], module: &Option<String>, seen_bare: &mut std::collections::HashSet<String>, map: &mut std::collections::HashMap<String, String>) {
+        // R15b: keys defined by MORE THAN ONE module must qualify EVERY
+        // definition's symbol (including the first). The old dedup gave the
+        // first module the bare symbol; a same-named call through a module
+        // alias then resolved to the CALLER's own qualified symbol
+        // (`canon.encode` inside beta.base32 emitted `call @beta.base32.encode`
+        // -- infinite self-recursion/0xC000001D).
+        fn count_module_keys(
+            em: &IrEmitter,
+            items: &[TopDecl],
+            module: &Option<String>,
+            per_key: &mut std::collections::HashMap<String, std::collections::HashSet<String>>,
+        ) {
+            for item in items {
+                match item {
+                    TopDecl::Fn(fd) => {
+                        let is_generic = !fd.generics.is_empty()
+                            || fd.receiver.as_ref().map(|r| em.types.generic_type_names.contains(&r.name)).unwrap_or(false);
+                        let is_empty_main = fd.name.name == "main"
+                            && fd.body.as_ref().map_or(false, |b| b.stmts.is_empty());
+                        if !is_generic && fd.body.is_some() && !is_empty_main {
+                            per_key
+                                .entry(em.fn_key(fd))
+                                .or_default()
+                                .insert(module.clone().unwrap_or_default());
+                        }
+                    }
+                    TopDecl::Module(md) => {
+                        let new_module = Some(if let Some(prev) = module.as_ref() {
+                            format!("{prev}.{}", md.name.name)
+                        } else {
+                            md.name.name.clone()
+                        });
+                        count_module_keys(em, &md.items, &new_module, per_key);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        fn walk(em: &IrEmitter, items: &[TopDecl], module: &Option<String>, seen_bare: &mut std::collections::HashSet<String>, map: &mut std::collections::HashMap<String, String>, per_key: &std::collections::HashMap<String, std::collections::HashSet<String>>) {
             for item in items {
                 match item {
                     TopDecl::Fn(fd) => {
@@ -346,13 +393,19 @@ impl IrEmitter {
                             && fd.body.as_ref().map_or(false, |b| b.stmts.is_empty());
                         if !is_generic && fd.body.is_some() && !is_empty_main {
                             let key = em.fn_key(fd);
-                            let sym = if seen_bare.contains(&key) {
+                            // R15b: qualify EVERY definition of a cross-module
+                            // key, not just the later ones.
+                            let cross_module = module.is_some()
+                                && per_key.get(&key).map_or(false, |mods| mods.len() > 1);
+                            let sym = if seen_bare.contains(&key) || cross_module {
                                 module.as_ref().map(|m| format!("{m}.{key}")).unwrap_or_else(|| key.clone())
                             } else {
                                 key.clone()
                             };
                             seen_bare.insert(key.clone());
-                            map.insert(key.clone(), sym.clone());
+                            // Keep the first mapping for the ambiguous bare slot
+                            // (deterministic; qualified slots below are exact).
+                            map.entry(key.clone()).or_insert_with(|| sym.clone());
                             if let Some(m) = module {
                                 map.insert(format!("{m}.{key}"), sym.clone());
                             }
@@ -364,7 +417,7 @@ impl IrEmitter {
                         } else {
                             md.name.name.clone()
                         });
-                        walk(em, &md.items, &new_module, seen_bare, map);
+                        walk(em, &md.items, &new_module, seen_bare, map, per_key);
                     }
                     _ => {}
                 }
@@ -372,7 +425,10 @@ impl IrEmitter {
         }
         let mut map = std::mem::take(&mut self.mono.fn_symbol_map);
         let current_module = self.local.current_module.clone();
-        walk(self, items, &current_module, &mut seen_bare, &mut map);
+        let mut per_key: std::collections::HashMap<String, std::collections::HashSet<String>> =
+            std::collections::HashMap::new();
+        count_module_keys(self, items, &current_module, &mut per_key);
+        walk(self, items, &current_module, &mut seen_bare, &mut map, &per_key);
         self.mono.fn_symbol_map = map;
     }
 
@@ -555,6 +611,23 @@ impl IrEmitter {
                 .unwrap_or_else(|| "void".to_string());
             let key = self.fn_key(fd);
             self.types.functions.insert(key.clone(), (param_types.clone(), ret_type.clone()));
+            // R15b: same-leaf same-name modules declared in the USER program
+            // share the bare key. Register the MODULE-QUALIFIED key alongside
+            // it so (a) aliased delegation (`use alpha.base32 as canon;`
+            // then `canon.encode(...)`) binds the TARGET module's signature,
+            // not the caller's own, and (b) intra-module calls resolve their
+            // own module's definition. Symbols are preassigned qualified for
+            // colliding keys (preassign_fn_symbols). FREE fns only: methods
+            // already carry a receiver-qualified key ("Person.greet") and an
+            // extra module-qualified alias made suffix searches ambiguous.
+            if fd.receiver.is_none() {
+                if let Some(ref module) = self.local.current_module {
+                    let qualified = format!("{module}.{key}");
+                    if !self.types.functions.contains_key(&qualified) {
+                        self.types.functions.insert(qualified, (param_types.clone(), ret_type.clone()));
+                    }
+                }
+            }
             // B-007: record fn-typed (closure) param positions + return types
             // for the call sites -- the direct path must wrap raw fn-REFERENCE
             // args into closure envs (the erased signature can't tell them
@@ -597,6 +670,15 @@ impl IrEmitter {
             // Option/Result payload types survive LLVM erasure.
             if let Some(rt) = fd.return_type.as_ref() {
                 self.types.fn_return_xiom.insert(key.clone(), Self::type_string_full(rt));
+                // R15b: keep the module-qualified slot too for FREE fns (see above).
+                if fd.receiver.is_none() {
+                    if let Some(ref module) = self.local.current_module {
+                        let qualified = format!("{module}.{key}");
+                        if !self.types.fn_return_xiom.contains_key(&qualified) {
+                            self.types.fn_return_xiom.insert(qualified, Self::type_string_full(rt));
+                        }
+                    }
+                }
             }
             // Detect interface-typed params: store these functions so call sites
             // can monomorphise them for each concrete implementor (BUG-007).
@@ -623,7 +705,11 @@ impl IrEmitter {
                 if let Some(ref module) = self.local.current_module {
                     if let Some(leaf) = module.rsplit('.').next() {
                         let leaf_key = format!("{}.{}", leaf, key);
-                        if leaf_key != key {
+                        if leaf_key != key && !self.types.functions.contains_key(&leaf_key) {
+                            // R15b: FIRST registrant keeps the leaf key -- two
+                            // same-leaf modules both inserting made the leaf
+                            // alias clobber (last wins), and a full-path call
+                            // resolving through it bound the wrong module.
                             self.types.functions.insert(leaf_key.clone(), (param_types.clone(), ret_type.clone()));
                         }
                     }
@@ -838,7 +924,34 @@ impl IrEmitter {
         if segments.is_empty() {
             return fn_name.to_string();
         }
+        // R15b: a single-segment receiver may be a `use X.Y as alias;` ALIAS.
+        // Expand it through the codegen alias map (populated from the
+        // checker's use_alias_paths) so the call binds the TARGET module's
+        // definition -- without this, `canon.encode(...)` inside a same-leaf
+        // module fell to the in-caller-module fallback and emitted a
+        // self-recursive call.
+        if segments.len() == 1 {
+            if let Some(target) = self.mono.use_alias_map.get(&segments[0]) {
+                let expanded: Vec<String> = target.split('.').map(|s| s.to_string()).collect();
+                if expanded.len() >= 2 {
+                    segments = expanded;
+                }
+            }
+        }
         let dotted = segments.join(".");
+        // R15b: for a multi-segment receiver, prefer the FULL dotted key when
+        // it is registered -- user-program modules register their fns under
+        // "<module>.<fn>", and the leaf key may belong to another same-leaf
+        // module. Catalog injected names are xiom-stripped leaf-qualified, so
+        // the leaf fallback below still handles them.
+        if segments.len() >= 2 {
+            let full_key = format!("{}.{}", dotted, fn_name);
+            if self.types.functions.contains_key(&full_key)
+                || self.mono.generic_fn_decls.iter().any(|(k, _)| k == &full_key)
+            {
+                return full_key;
+            }
+        }
         // The LEAF module segment is what injected decls register under
         // ("rsa.rsa_encrypt"), so try it FIRST for dotted receivers like
         // "xiom.rsa" -- the full "xiom.rsa.rsa_encrypt" key is never

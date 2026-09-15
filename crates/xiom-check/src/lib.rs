@@ -3697,6 +3697,13 @@ impl Checker {
                             .unwrap_or_else(|| item_name.clone());
                         self.local_module_paths.insert(local_name.clone(), full_path.join("."));
                         self.record_module_import(&full_path.join("."));
+                        // R15b: hand MODULE aliases to codegen too (it now
+                        // expands single-segment receivers through them). Only
+                        // the full path: a leaf-qualified entry for a module
+                        // alias would stomp this with the bare leaf.
+                        if let Some(a) = &ud.alias {
+                            self.use_alias_paths.insert(a.name.clone(), full_path.join("."));
+                        }
                         let export = ModuleExport::SubModule(module_exports);
                         self.modules.entry(local_name.clone()).or_insert_with(|| {
                             if let ModuleExport::SubModule(ref s) = export { s.clone() } else { HashMap::new() }
@@ -3723,9 +3730,14 @@ impl Checker {
                 // Record BOTH the full dotted path AND the stdlib-stripped
                 // leaf-qualified form ("xiom.math.abs_float" and
                 // "math.abs_float") -- injected stdlib fns register under the
-                // leaf-qualified key.
+                // leaf-qualified key. R15b: only for ITEM (fn/const) aliases --
+                // a module alias with a leaf-qualified entry stomped the full
+                // path in codegen's alias map (nondeterministic HashMap order:
+                // `use beta.base32 as b32` resolved to "base32" half the time,
+                // breaking same-leaf module resolution).
                 self.use_alias_paths.insert(local_name.clone(), full.join("."));
-                if full.len() > 1 {
+                let is_submodule = matches!(export, ModuleExport::SubModule(_));
+                if full.len() > 1 && !is_submodule {
                     self.use_alias_paths.insert(
                         format!("{local_name}::qualified"),
                         full[1..].join("."),

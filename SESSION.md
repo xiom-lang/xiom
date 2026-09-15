@@ -35,38 +35,43 @@ stdlib session commits to the same branch; never stage their `stdlib/**`,
   unannotated `var buf = malloc(n)` untyped. Extern registration now records
   `fn_return_xiom`; `buf + len` lowers to pointer arithmetic. Lock
   `m77_ptr_plus_int_arg` + `e2e_m77_ptr_plus_int_arg`.
+- **R15b FIXED (round 65)**: same-leaf/same-name USER-program modules
+  (command-line multi-source) self-recursed because free fns shared one bare
+  key, module aliases lost their full path, and a suffix search counted
+  registration aliases. Now free fns register module-qualified keys,
+  preassign qualifies every definition of a cross-module key, aliases resolve
+  full-path-first, and symbol-backed candidates win. Lock
+  `tests/regression/m78_user_sameleaf/` + `e2e_m78_user_sameleaf_modules`.
 - **Fixed earlier**: R14/R17/R19 with e2e locks (m71/m72/m73); R15 catalog
   delegation (checker-recorded call targets + full-path injected names);
   per-body alias isolation in `flush_catalog_bodies`.
 - **Last gates (fresh canonical driver)**: checker 188/188 (corpus gate live
   and clean), stdlib-exec 85/85 (+2 ign), feature-reg 510/510, e2e
-  **2324/2324**, xiom-ast 9/9, xiom 20/20, fmt 83/83, lsp 42/42, jit 5/5,
+  **2325/2325**, xiom-ast 9/9, xiom 20/20, fmt 83/83, lsp 42/42, jit 5/5,
   `cargo check --workspace` clean. The stdlib lane's 1f4f0aad (encoding
   qualification) is part of that green state.
 
 ## Immediate task
 
-R15b is the top queue item: same-leaf + same-name modules declared in the
-USER program (the catalog case is fixed via owner-qualified recording; user
-modules get no recording). The catalog collision hardening (R21d follow-up)
-follows; then Stage 5-7.
+The R-bug queue is CLEARED. Next: catalog collision hardening (R21d
+follow-up: two files declaring the same module path resolve
+last-insert-wins; make it deterministic and reported), then Stage 5
+remainder, Stage 6 performance, Stage 7 selfhost.
 
 ## Remaining queue (compiler lane)
 
-1. **R15b**: same-leaf + same-name modules declared in the USER program
-   (catalog case is fixed; no catalog recording for user modules).
-2. **Catalog collision hardening** (from R21d): two files declaring the same
+1. **Catalog collision hardening** (from R21d): two files declaring the same
    module path resolve last-insert-wins; make it deterministic and reported.
-3. **Stage 5 remainder**: LSP incremental reparse + cross-file index; dbg
+2. **Stage 5 remainder**: LSP incremental reparse + cross-file index; dbg
    async MI reader + `.xi` DWARF; cargo-fuzz targets over lexer/parser/CTFE +
    ASAN/UBSAN CI (`--sanitize=address` is wired and verified -- runtime at
    `C:\Program Files\LLVM\lib\clang\22\lib\windows`); full clap migration of
    the driver parser; supply chain (ed25519 + trust model, lockfile v2 with
    enforced `--locked`, git deps pinned to commits, authenticated publish);
    sandbox false-green + randomized temp names.
-4. **Stage 6 performance**: incremental engine tiers, parallel monomorphization,
+3. **Stage 6 performance**: incremental engine tiers, parallel monomorphization,
    linker strategy, benchmark CI budgets.
-5. **Stage 7 selfhost**: zero-ICE self-build, >=1M fuzz execs, `-O`
+4. **Stage 7 selfhost**: zero-ICE self-build, >=1M fuzz execs, `-O`
    differential, release-binary suites, Rust-bootstrap equivalence.
 
 Full ledger: `docs/COMPILER_BUGS.md` (RNN entries are appended at the end;
@@ -100,21 +105,16 @@ session works in parallel on stdlib/** only and commits to the same branch;
 never stage their files.
 
 State: Stage 3 Item A CLOSED -- strict_catalog_findings=true, corpus gate live
-(checker 188/188). R20 FIXED (owner-qualified catalog call targets +
-deterministic module-call fallback; m75 lock). R18 FIXED (contract payload
-reads on the bare `is` rebind; m76 lock). R16 FIXED (extern return types
-feed pointer inference; m77 lock). Last full gates: e2e 2324/2324,
-stdlib-exec 85/85 (+2 ign), feature-reg 510/510, workspace check clean.
+(checker 188/188). R20/R18/R16/R15b all FIXED with locks (m75/m76/m77/m78).
+Last full gates: e2e 2325/2325, stdlib-exec 85/85 (+2 ign), feature-reg
+510/510, workspace check clean. The R-bug queue is CLEARED.
 
 Your task, in order:
-1. R15b: same-leaf + same-name modules declared in the USER program
-   (docs/COMPILER_BUGS.md; catalog case fixed via owner-qualified call
-   recording, user modules are not recorded); then catalog collision
-   hardening (R21d follow-up: two files declaring the same module path;
-   make it deterministic and reported).
-2. Then Stage 5 remainder (LSP index, dbg DWARF, fuzz+ASAN CI
-   [--sanitize=address wired], clap migration, supply chain), Stage 6
-   performance, Stage 7 selfhost.
+1. Catalog collision hardening (R21d follow-up): two files declaring the same
+   module path resolve last-insert-wins; make it deterministic and reported.
+2. Stage 5 remainder (LSP index, dbg DWARF, fuzz+ASAN CI [--sanitize=address
+   wired], clap migration, supply chain), Stage 6 performance, Stage 7
+   selfhost.
 
 Rules: the e2e/stdlib harnesses spawn target/debug/xiom.exe -- always
 `cargo build -p xiom` after checker/codegen changes. Capture $LASTEXITCODE
