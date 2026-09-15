@@ -5921,6 +5921,46 @@ PATH (never a catalog leaf lookup over all loaded modules), and make
 `use X as a; a.fn()` bind exactly the same target as `X.fn()` (the empty/AV
 shapes look like the same wrong-target resolution reaching codegen).
 
+### R22 FIXED (2026-09-15, round-68): module bindings for codegen receiver resolution
+
+Re-verified all three items with a marker shim on `xiom.convert.percent`
+(`percent_encode` returns `"SHIM:" + enc_pct.percent_encode(s)` so a binding
+is visible):
+
+- Item 1 was still open after R15b: `use xiom.convert.percent;` +
+  `percent.percent_encode(...)` bound `xiom.encoding.percent` (component
+  mode) because the plain item import was never recorded for codegen. The
+  checker keeps `use_alias_paths` free of plain module entries on purpose
+  (the bare-call alias path, BUG 25 #2, was perturbed by them), so the
+  binding had nowhere to travel.
+- Items 2/3 (explicit `as` aliases) were already fixed by R15b; re-confirmed
+  green in the same marker run.
+
+Fix:
+1. New checker map `module_receiver_paths` (local name -> full dotted module
+   path) recorded for EVERY `use` whose export is a module, alias or plain
+   (`use xiom.convert.percent;` -> "percent" -> "xiom.convert.percent").
+   Surfaced to codegen via `IrEmitter::set_module_receiver_paths`; kept
+   separate from `use_alias_paths` so bare-call resolution stays untouched.
+2. `resolve_module_call` expands single-segment receivers through
+   `module_receiver_paths` first, so the receiver resolves to the USED
+   module; the R15b full-key-first and R15 xiom-stripped key ordering then
+   bind the exact injected definition.
+3. `module_receiver_paths` is part of `CatalogImportContext` (capture and
+   restore): a catalog body's private `use xiom.encoding.percent as ...`
+   was overwriting the user's `"percent"` binding with the ENCODING module.
+4. `resolve_module_call` checks the xiom-STRIPPED dotted key before the
+   single LEAF key (injected catalog names are stripped full paths; the leaf
+   key is ambiguous across same-leaf modules).
+
+Verification: marker-shim run prints `leaf=SHIM:...` and
+`as-alias=SHIM:...` (both bind convert.percent); m78 extended with a PLAIN
+`use beta.base32;` + `base32.encode(13)`/`base32.name()` alongside the
+existing alias legs (all exit 0). Gates: checker 189/189, stdlib-exec 85/85
+(+2 ign), feature-reg 510/510, lsp 44/44, e2e 2325/2325. Percent dedup is
+unblocked for the stdlib lane; base58 still needs the INT_MIN translation
+noted above.
+
 
 
 

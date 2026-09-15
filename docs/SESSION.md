@@ -170,6 +170,30 @@ finalization steps, remaining queue, paste-ready prompt). Next compiler
 session: FLIP FINALIZATION (strict=true + stdlib-exec/e2e), then R20, R18,
 R16, R15b, Stage 5-7.
 
+### Round-68 (2026-09-15): R22 FIXED -- plain module imports bind for codegen receivers
+
+Compiler lane. Re-verified the R22 probe shapes with a marker shim on
+`xiom.convert.percent` (`"SHIM:" + ...`): the explicit `as` aliases were
+already green (R15b), but the PLAIN `use xiom.convert.percent;` +
+`percent.percent_encode(...)` still bound `xiom.encoding.percent` -- the
+plain item import was never recorded anywhere codegen could see, because
+`use_alias_paths` deliberately excludes module entries (the bare-call alias
+path was perturbed by them).
+
+Fix:
+- new checker map `module_receiver_paths` (local name -> dotted module path)
+  for every module-target `use` (alias or plain), handed to codegen via
+  `set_module_receiver_paths`;
+- `resolve_module_call` expands single-segment receivers through it and
+  checks the xiom-stripped key before the ambiguous LEAF key;
+- the map is part of the per-body catalog import context, so a catalog
+  body's private same-leaf `use` no longer overwrites the user's binding.
+
+Verification: marker run `leaf=SHIM:...`, `as-alias=SHIM:...`; m78 extended
+with a plain leaf import leg. Gates: checker 189/189, stdlib-exec 85/85
+(+2 ign), feature-reg 510/510, lsp 44/44, e2e 2325/2325. Percent dedup
+unblocked; base58 still needs the INT_MIN translation.
+
 ### Round-67 (2026-09-15): LSP parse cache + cross-file definition (Stage 5 start)
 
 Compiler lane. Stage 5 remainder opened with the LSP indexing tier:
