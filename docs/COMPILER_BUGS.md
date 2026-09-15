@@ -5821,6 +5821,35 @@ flip): make catalog index collisions deterministic and reported -- two files
 declaring the same module path is ambiguous and currently scan-order
 dependent.
 
+#### R21d follow-up FIXED (2026-09-15, round-66): deterministic + reported catalog collisions
+
+`ModuleCatalog::index_dir` used last-insert-wins over a recursive filesystem
+scan, so two files declaring the same dotted module could flip between runs.
+Now:
+
+- Candidate identity is the CANONICAL path, so the same file indexed under
+  relative and absolute spellings is not a collision.
+- Winner order: highest source-dir index (historic last-source-dir priority
+  -- the repo stdlib outranks copies earlier in the search path), then
+  highest structural path match (trailing path segments vs trailing module
+  segments: `stdlib/xiom/net/dns.xi` beats `packages/xiom-net/src/dns.xi`
+  for `xiom.net.dns`), then smallest canonical path.
+- Ambiguities are REPORTED only when the module is actually LOADED
+  (`find_owned`/`peek_owned` surface a note; indexing a broad search path
+  must not flood unrelated probe files): the driver prints
+  `warning[W001]: module 'X' declared by N files [...]; using '...'` on the
+  compile path and a W001 diagnostic on the check path.
+- `release/` is skipped during indexing (packaged `release/xiom-v*/lib/...`
+  stdlib copies used to shadow the live stdlib and produce 49-file collision
+  notes); `debug` is NOT skipped (`stdlib/xiom/debug/` is a real module dir
+  -- skipping it broke `smoke_debug`, caught by stdlib-exec).
+
+Unit test `test_catalog_same_module_path_collision_is_deterministic`
+(insert-order-independent winner + note). Manual probe: two dirs declaring
+`dup.mod` -> winner `aaa/mod.xi`, one W001 note, program exits 0. Gates:
+checker 189/189, stdlib-exec 85/85 (+2 ign), feature-reg 510/510, e2e
+2325/2325.
+
 ### Verification (fresh canonical driver)
 
 - checker 188/188 (corpus gate live and clean), stdlib-exec 85/85 (+2 ign),

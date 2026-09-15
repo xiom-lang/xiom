@@ -170,6 +170,28 @@ finalization steps, remaining queue, paste-ready prompt). Next compiler
 session: FLIP FINALIZATION (strict=true + stdlib-exec/e2e), then R20, R18,
 R16, R15b, Stage 5-7.
 
+### Round-66 (2026-09-15): catalog collision hardening (R21d follow-up)
+
+Compiler lane. Two files declaring the same dotted module used to resolve
+last-insert-wins over a recursive filesystem scan (nondeterministic across
+machines and prone to packaged-copy shadowing). `ModuleCatalog` now:
+
+- tracks canonical-path identity (relative/absolute spellings of one file
+  are not a collision);
+- picks the winner by highest source-dir index (historic last-source-dir
+  priority), then highest structural path match (trailing path segments vs
+  module segments), then smallest canonical path;
+- surfaces `warning[W001]` notes only for modules actually LOADED (plus a
+  W001 diagnostic on the check path) -- indexing a broad search path no
+  longer floods unrelated probe-file collisions;
+- skips `release/` during indexing (packaged stdlib copies),
+  while keeping `stdlib/xiom/debug/` (the previous `debug` skip broke
+  `smoke_debug`, caught by stdlib-exec).
+
+Unit test `test_catalog_same_module_path_collision_is_deterministic`; manual
+dup.mod probe winner `aaa/mod.xi` + one W001 note. Gates: checker 189/189,
+stdlib-exec 85/85 (+2 ign), feature-reg 510/510, e2e 2325/2325.
+
 ### Round-65 (2026-09-15): R15b FIXED -- same-leaf USER-program modules
 
 Compiler lane. Reproduced with three command-line source files

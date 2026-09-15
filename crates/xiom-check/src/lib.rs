@@ -373,6 +373,15 @@ impl Checker {
         self.catalog.build_index();
     }
 
+    /// R21d follow-up: ambiguous module-name declarations found while indexing
+    /// (two files declare the same dotted module path). The index keeps a
+    /// deterministic winner (lexicographically smallest path); these notes let
+    /// the driver surface the ambiguity instead of silently flip-flopping with
+    /// filesystem scan order.
+    pub fn catalog_module_collisions(&self) -> Vec<String> {
+        self.catalog.module_collisions.clone()
+    }
+
     /// Register an externally-loaded CachedModule into this checker's tables.
     /// Populates self.types, self.functions, self.modules, self.enum_variants,
     /// self.variant_fields, and self.visibility so subsequent resolution steps
@@ -8552,6 +8561,55 @@ fn main() -> Int { var c = Single(value: 42); return 0; }";
         let path_segments: Vec<String> = ["test_mod".to_string(), "math".to_string()].to_vec();
         let cached = cat.find_owned(&path_segments);
         assert!(cached.is_some(), "index should enable lookups");
+    }
+
+    #[test]
+    fn test_catalog_same_module_path_collision_is_deterministic() {
+        // R21d follow-up: two files declaring the same module path must not
+        // flip with filesystem scan order -- the lexicographically smallest
+        // path wins and the ambiguity is reported.
+        let base = std::env::temp_dir().join(format!(
+            "xiom_cat_collision_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let a = base.join("aaa");
+        let b = base.join("bbb");
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        std::fs::write(a.join("mod.xi"), "module dup.mod\npub fn which() -> Str { return \"aaa\"; }\n").unwrap();
+        std::fs::write(b.join("mod.xi"), "module dup.mod\npub fn which() -> Str { return \"bbb\"; }\n").unwrap();
+        let mut cat = ModuleCatalog::new(vec![
+            a.to_string_lossy().to_string(),
+            b.to_string_lossy().to_string(),
+        ]);
+        cat.build_index();
+        // Ambiguities are reported only when the module is actually LOADED
+        // (indexing a broad search path must not flood unrelated collisions).
+        assert!(cat.module_collisions.is_empty(), "no notes before load");
+        let cached = cat.find_owned(&["dup".to_string(), "mod".to_string()]).unwrap();
+        assert_eq!(cached.dotted_name, "dup.mod");
+        assert_eq!(cat.module_collisions.len(), 1, "one collision note: {:?}", cat.module_collisions);
+        let note = &cat.module_collisions[0];
+        assert!(note.contains("dup.mod"), "note names the module: {note}");
+        let a_path = a.join("mod.xi").to_string_lossy().to_string();
+        let b_path = b.join("mod.xi").to_string_lossy().to_string();
+        let expected_winner = if a_path < b_path { &a_path } else { &b_path };
+        assert!(note.contains(expected_winner), "winner is the smallest path: {note}");
+        // Independent of insert order: rebuilding with the dirs swapped picks
+        // the same winner.
+        let mut cat2 = ModuleCatalog::new(vec![
+            b.to_string_lossy().to_string(),
+            a.to_string_lossy().to_string(),
+        ]);
+        cat2.build_index();
+        let _ = cat2.find_owned(&["dup".to_string(), "mod".to_string()]).unwrap();
+        assert_eq!(cat2.module_collisions.len(), 1);
+        assert!(cat2.module_collisions[0].contains(expected_winner));
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

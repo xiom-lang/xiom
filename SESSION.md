@@ -42,6 +42,11 @@ stdlib session commits to the same branch; never stage their `stdlib/**`,
   preassign qualifies every definition of a cross-module key, aliases resolve
   full-path-first, and symbol-backed candidates win. Lock
   `tests/regression/m78_user_sameleaf/` + `e2e_m78_user_sameleaf_modules`.
+- **Catalog collision hardening DONE (round 66, R21d follow-up)**: the module
+  index resolves same-name declarations deterministically (source-dir
+  priority -> structural path match -> smallest canonical path, canonical
+  identity) and reports loaded-module ambiguities as `warning[W001]`;
+  `release/` trees are skipped. Unit test + manual probe; checker 189/189.
 - **Fixed earlier**: R14/R17/R19 with e2e locks (m71/m72/m73); R15 catalog
   delegation (checker-recorded call targets + full-path injected names);
   per-body alias isolation in `flush_catalog_bodies`.
@@ -53,25 +58,27 @@ stdlib session commits to the same branch; never stage their `stdlib/**`,
 
 ## Immediate task
 
-The R-bug queue is CLEARED. Next: catalog collision hardening (R21d
-follow-up: two files declaring the same module path resolve
-last-insert-wins; make it deterministic and reported), then Stage 5
-remainder, Stage 6 performance, Stage 7 selfhost.
+Stage 5 remainder: LSP incremental reparse + cross-file index; dbg async MI
+reader + `.xi` DWARF; cargo-fuzz targets over lexer/parser/CTFE + ASAN/UBSAN
+CI (`--sanitize=address` is wired and verified -- runtime at
+`C:\Program Files\LLVM\lib\clang\22\lib\windows`); full clap migration of the
+driver parser; supply chain (ed25519 + trust model, lockfile v2 with enforced
+`--locked`, git deps pinned to commits, authenticated publish); sandbox
+false-green + randomized temp names. Then Stage 6 performance, Stage 7
+selfhost.
 
 ## Remaining queue (compiler lane)
 
-1. **Catalog collision hardening** (from R21d): two files declaring the same
-   module path resolve last-insert-wins; make it deterministic and reported.
-2. **Stage 5 remainder**: LSP incremental reparse + cross-file index; dbg
+1. **Stage 5 remainder**: LSP incremental reparse + cross-file index; dbg
    async MI reader + `.xi` DWARF; cargo-fuzz targets over lexer/parser/CTFE +
    ASAN/UBSAN CI (`--sanitize=address` is wired and verified -- runtime at
    `C:\Program Files\LLVM\lib\clang\22\lib\windows`); full clap migration of
    the driver parser; supply chain (ed25519 + trust model, lockfile v2 with
    enforced `--locked`, git deps pinned to commits, authenticated publish);
    sandbox false-green + randomized temp names.
-3. **Stage 6 performance**: incremental engine tiers, parallel monomorphization,
+2. **Stage 6 performance**: incremental engine tiers, parallel monomorphization,
    linker strategy, benchmark CI budgets.
-4. **Stage 7 selfhost**: zero-ICE self-build, >=1M fuzz execs, `-O`
+3. **Stage 7 selfhost**: zero-ICE self-build, >=1M fuzz execs, `-O`
    differential, release-binary suites, Rust-bootstrap equivalence.
 
 Full ledger: `docs/COMPILER_BUGS.md` (RNN entries are appended at the end;
@@ -105,16 +112,18 @@ session works in parallel on stdlib/** only and commits to the same branch;
 never stage their files.
 
 State: Stage 3 Item A CLOSED -- strict_catalog_findings=true, corpus gate live
-(checker 188/188). R20/R18/R16/R15b all FIXED with locks (m75/m76/m77/m78).
+(checker 189/189). R20/R18/R16/R15b all FIXED with locks (m75/m76/m77/m78);
+catalog collisions are deterministic and reported (R21d follow-up, W001).
 Last full gates: e2e 2325/2325, stdlib-exec 85/85 (+2 ign), feature-reg
 510/510, workspace check clean. The R-bug queue is CLEARED.
 
 Your task, in order:
-1. Catalog collision hardening (R21d follow-up): two files declaring the same
-   module path resolve last-insert-wins; make it deterministic and reported.
-2. Stage 5 remainder (LSP index, dbg DWARF, fuzz+ASAN CI [--sanitize=address
-   wired], clap migration, supply chain), Stage 6 performance, Stage 7
-   selfhost.
+1. Stage 5 remainder: LSP incremental reparse + cross-file index; dbg async
+   MI reader + `.xi` DWARF; cargo-fuzz targets over lexer/parser/CTFE +
+   ASAN/UBSAN CI (--sanitize=address wired); clap migration of the driver
+   parser; supply chain (ed25519 + trust model, lockfile v2, pinned git deps,
+   authenticated publish); sandbox false-green + randomized temp names.
+2. Then Stage 6 performance, Stage 7 selfhost.
 
 Rules: the e2e/stdlib harnesses spawn target/debug/xiom.exe -- always
 `cargo build -p xiom` after checker/codegen changes. Capture $LASTEXITCODE
