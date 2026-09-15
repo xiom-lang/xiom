@@ -51,6 +51,11 @@ stdlib session commits to the same branch; never stage their `stdlib/**`,
   `Backend::parse_cached` (content-hash invalidation) now backs hover,
   document/workspace symbols, and definition; `textDocument/definition`
   falls back to other open documents' cached ASTs. LSP 44/44.
+- **R22 FIXED (round 68)**: plain `use xiom.convert.percent;` receiver calls
+  now bind the used module (`module_receiver_paths`, catalog-isolated) --
+  the explicit-alias items were already fixed by R15b. m78 extended with a
+  plain leaf-import leg. Percent dedup unblocked; base58 needs INT_MIN
+  translation.
 - **Fixed earlier**: R14/R17/R19 with e2e locks (m71/m72/m73); R15 catalog
   delegation (checker-recorded call targets + full-path injected names);
   per-body alias isolation in `flush_catalog_bodies`.
@@ -75,21 +80,9 @@ Stage 5 remainder, in suggested order:
 5. Sandbox false-green + randomized temp names.
 Then Stage 6 performance, Stage 7 selfhost.
 
-## Remaining queue (compiler lane)
-
-1. **Stage 5 remainder**: cargo-fuzz targets over lexer/parser/CTFE +
-   ASAN/UBSAN CI (needs nightly/cargo-fuzz; not installed locally);
-   dbg async MI reader + `.xi` DWARF; clap migration of the driver parser;
-   supply-chain hardening (lockfile v2 enforced `--locked`, git deps pinned
-   to commits, signed publish -- cargo-deny already in CI); sandbox
-   false-green + randomized temp names.
-2. **Stage 6 performance**: incremental engine tiers, parallel monomorphization,
-   linker strategy, benchmark CI budgets.
-3. **Stage 7 selfhost**: zero-ICE self-build, >=1M fuzz execs, `-O`
-   differential, release-binary suites, Rust-bootstrap equivalence.
-
 Full ledger: `docs/COMPILER_BUGS.md` (RNN entries are appended at the end;
-the R21 entry is newest). Round history: `docs/SESSION.md` (rounds 38-61).
+the R22 and R21d follow-up entries are newest). Round history:
+`docs/SESSION.md` (rounds 38-68).
 
 ## Workflow rules
 

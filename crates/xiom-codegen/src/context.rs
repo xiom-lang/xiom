@@ -119,6 +119,13 @@ pub struct CodegenConfig {
     /// codegen). The codegen resolves each path to its registered fn key at
     /// preassign time so bare calls through the alias work.
     pub use_alias_paths: HashMap<String, String>,
+    /// R22: MODULE bindings only (local name -> full dotted module path) for
+    /// every `use` whose target is a module (alias or plain item import).
+    /// `resolve_module_call` expands single-segment receivers through this.
+    /// Kept separate from `use_alias_paths`: that map is also consulted by the
+    /// bare-call alias path (BUG 25 #2), where module entries perturbed
+    /// same-named bare calls.
+    pub module_receiver_paths: HashMap<String, String>,
     /// R15: catalog-body call sites (span "line:col") -> the checker's fully
     /// dotted resolved key. The emitter cannot see a catalog module's own
     /// `use` aliases (checker contexts are isolated/restored), so
@@ -156,6 +163,7 @@ impl Default for CodegenConfig {
             enable_unsafe_direct: false,
             unsafe_direct_cap: 64,
             use_alias_paths: HashMap::new(),
+            module_receiver_paths: HashMap::new(),
             catalog_call_targets: HashMap::new(),
         }
     }

@@ -931,7 +931,14 @@ impl IrEmitter {
         // module fell to the in-caller-module fallback and emitted a
         // self-recursive call.
         if segments.len() == 1 {
-            if let Some(target) = self.mono.use_alias_map.get(&segments[0]) {
+            // R22: the checker records EVERY module binding (alias or plain
+            // item import) in module_receiver_paths. Prefer it: a plain
+            // `use xiom.convert.percent;` + `percent.percent_encode(...)`
+            // must bind the convert module even when xiom.encoding.percent is
+            // also in the graph (same leaf).
+            let target = self.config.module_receiver_paths.get(&segments[0])
+                .or_else(|| self.mono.use_alias_map.get(&segments[0]));
+            if let Some(target) = target {
                 let expanded: Vec<String> = target.split('.').map(|s| s.to_string()).collect();
                 if expanded.len() >= 2 {
                     segments = expanded;
@@ -952,24 +959,13 @@ impl IrEmitter {
                 return full_key;
             }
         }
-        // The LEAF module segment is what injected decls register under
-        // ("rsa.rsa_encrypt"), so try it FIRST for dotted receivers like
-        // "xiom.rsa" -- the full "xiom.rsa.rsa_encrypt" key is never
-        // registered and falling to the bare name lets the keep-first alias
-        // hand the call to the WRONG module's same-named fn (e.g. crypto's
-        // rsa_encrypt vs rsa's rsa_encrypt).
-        if let Some(leaf) = segments.last() {
-            let leaf_key = format!("{}.{}", leaf, fn_name);
-            if self.types.functions.contains_key(&leaf_key)
-                || self.mono.generic_fn_decls.iter().any(|(k, _)| k == &leaf_key)
-            {
-                return leaf_key;
-            }
-        }
-        // R15: injected catalog names are xiom-STRIPPED full paths
-        // ("iter.map.iter_map"), while fully-qualified source uses the
-        // "xiom." prefix (`xiom.iter.map.iter_map`). Try the stripped dotted
-        // form before the prefixed one.
+        // R15/R22: injected catalog names are xiom-STRIPPED full paths
+        // ("iter.map.iter_map", "convert.percent.percent_encode"), while
+        // fully-qualified source uses the "xiom." prefix
+        // (`xiom.iter.map.iter_map`). The stripped dotted form must win over
+        // the single LEAF form: `use xiom.convert.percent;` +
+        // `percent.percent_encode(...)` used to bind the sibling
+        // "percent.percent_encode" (xiom.encoding.percent) registered first.
         if segments.len() > 1 {
             let stripped_dotted = segments.iter().skip(1).cloned().collect::<Vec<_>>().join(".");
             let stripped_key = format!("{stripped_dotted}.{fn_name}");
@@ -977,6 +973,20 @@ impl IrEmitter {
                 || self.mono.generic_fn_decls.iter().any(|(k, _)| k == &stripped_key)
             {
                 return stripped_key;
+            }
+        }
+        // The LEAF module segment is what injected decls register under
+        // ("rsa.rsa_encrypt"), so try it for dotted receivers like "xiom.rsa"
+        // -- the full "xiom.rsa.rsa_encrypt" key is never registered and
+        // falling to the bare name lets the keep-first alias hand the call to
+        // the WRONG module's same-named fn (e.g. crypto's rsa_encrypt vs
+        // rsa's rsa_encrypt).
+        if let Some(leaf) = segments.last() {
+            let leaf_key = format!("{}.{}", leaf, fn_name);
+            if self.types.functions.contains_key(&leaf_key)
+                || self.mono.generic_fn_decls.iter().any(|(k, _)| k == &leaf_key)
+            {
+                return leaf_key;
             }
         }
         // Try the full dotted path: "xiom.rsa.encrypt"

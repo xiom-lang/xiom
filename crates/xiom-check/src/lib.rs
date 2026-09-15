@@ -112,6 +112,13 @@ pub struct Checker {
     /// path, surfaced to the codegen (the driver strips UseDecls before
     /// codegen, so the alias binding would otherwise be lost).
     pub use_alias_paths: HashMap<String, String>,
+    /// R22: MODULE bindings only -- local name -> full dotted module path for
+    /// every `use` whose target is a module (with or without `as`). Surfaced
+    /// to codegen's `resolve_module_call` so a single-segment receiver binds
+    /// the USED module even when a same-leaf sibling module is also in the
+    /// graph (kept separate from `use_alias_paths`, which the codegen's
+    /// bare-call alias path also consults).
+    pub module_receiver_paths: HashMap<String, String>,
     /// Enum variant name -> parent enum type name
     enum_variants: HashMap<String, String>,
     /// Module-level `const`/`var` global names -> declared type (so references to
@@ -242,6 +249,12 @@ struct CatalogImportContext {
     local_module_paths: HashMap<String, String>,
     module_import_paths: HashMap<String, HashSet<String>>,
     use_alias_paths: HashMap<String, String>,
+    /// R22: module bindings for codegen's receiver expansion. Catalog bodies
+    /// `use` same-leaf stdlib modules too (`convert.percent` imports
+    /// `xiom.encoding.percent`), so this map must be part of the isolated
+    /// context or the catalog's private "percent" -> encoding binding
+    /// overwrites the USER program's "percent" -> convert binding.
+    module_receiver_paths: HashMap<String, String>,
     /// A catalog module's `use` may fallback-LOAD a module the user program
     /// never imported; the load registers signatures first-wins, which would
     /// hijack the user's resolution (m43 closure adapters miscompiled). The
@@ -290,6 +303,7 @@ impl Checker {
             fn_owner_module: HashMap::new(),
             imported_items: HashMap::new(),
             use_alias_paths: HashMap::new(),
+            module_receiver_paths: HashMap::new(),
             enum_variants: HashMap::new(),
             global_consts: HashMap::new(),
             catalog_global_consts: HashMap::new(),
@@ -527,6 +541,7 @@ impl Checker {
             local_module_paths: self.local_module_paths.clone(),
             module_import_paths: self.module_import_paths.clone(),
             use_alias_paths: self.use_alias_paths.clone(),
+            module_receiver_paths: self.module_receiver_paths.clone(),
             functions: self.functions.clone(),
             visibility: self.visibility.clone(),
             fn_owner_module: self.fn_owner_module.clone(),
@@ -542,6 +557,7 @@ impl Checker {
         self.local_module_paths = ctx.local_module_paths;
         self.module_import_paths = ctx.module_import_paths;
         self.use_alias_paths = ctx.use_alias_paths;
+        self.module_receiver_paths = ctx.module_receiver_paths;
         self.functions = ctx.functions;
         self.visibility = ctx.visibility;
         self.fn_owner_module = ctx.fn_owner_module;
@@ -3714,6 +3730,12 @@ impl Checker {
                             self.use_alias_paths.insert(a.name.clone(), full_path.join("."));
                         }
                         let export = ModuleExport::SubModule(module_exports);
+                        // R22: MODULE bindings go to the dedicated map (alias
+                        // or plain): codegen expands single-segment receivers
+                        // through it without perturbing the bare-call alias
+                        // path.
+                        self.module_receiver_paths
+                            .insert(local_name.clone(), full_path.join("."));
                         self.modules.entry(local_name.clone()).or_insert_with(|| {
                             if let ModuleExport::SubModule(ref s) = export { s.clone() } else { HashMap::new() }
                         });
@@ -3764,6 +3786,11 @@ impl Checker {
                 let full: Vec<String> = effective_path.iter().map(|p| p.name.clone()).collect();
                 self.local_module_paths.insert(local_name.clone(), full.join("."));
                 self.record_module_import(&full.join("."));
+                // R22: module bindings for codegen's receiver expansion
+                // (alias or plain `use`; the module is the export here).
+                if matches!(export, ModuleExport::SubModule(_)) {
+                    self.module_receiver_paths.insert(local_name.clone(), full.join("."));
+                }
             }
             // Register SubModules in both imported_items (for type paths)
             // and modules (for expression paths like `async.Executor.new()`)

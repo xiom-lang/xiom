@@ -198,6 +198,13 @@ impl IrEmitter {
         self.config.catalog_call_targets = targets;
     }
 
+    /// R22: hand the checker's MODULE bindings (local name -> dotted module
+    /// path) to codegen so single-segment module receivers resolve to the
+    /// used module even when a same-leaf sibling is also in the graph.
+    pub fn set_module_receiver_paths(&mut self, paths: std::collections::HashMap<String, String>) {
+        self.config.module_receiver_paths = paths;
+    }
+
     pub fn set_source_file(&mut self, path: String) {
         self.config.source_file = path;
     }
