@@ -4590,6 +4590,13 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m76_contract_payload_param_len() {
     assert_eq!(compile_and_run("tests\\regression\\m76_contract_payload_param_len.xi"), Some(0));
 }
+
+// R16: `ptr + int` in a call argument must lower to pointer arithmetic.
+// Pre-fix an unannotated `var buf = malloc(n)` had no pointer XIOM type, so
+// `buf + len` compiled as Str concatenation and memcpy corrupted the buffer.
+#[test] fn e2e_m77_ptr_plus_int_arg() {
+    assert_eq!(compile_and_run("tests\\regression\\m77_ptr_plus_int_arg.xi"), Some(0));
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }

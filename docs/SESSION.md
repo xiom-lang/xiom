@@ -170,6 +170,27 @@ finalization steps, remaining queue, paste-ready prompt). Next compiler
 session: FLIP FINALIZATION (strict=true + stdlib-exec/e2e), then R20, R18,
 R16, R15b, Stage 5-7.
 
+### Round-64 (2026-09-15): R16 FIXED -- extern return types feed pointer inference
+
+Compiler lane. Reproduced all three stdlib probes (`p_str_memcpy*`):
+`buf + len_a` as a call argument compiled as `xiom_int_to_string` +
+`xiom_str_concat` (a heap Str passed as the memcpy dest), corrupting chained
+concats. `buf` is i8* at the ABI like Str, so the Add intercept's
+`expr_is_pointer` gate decides; it needs `local_xiom_types["buf"]`, and an
+EXPLICIT `var buf: *UInt8 = malloc(n)` fixed the probe -- so the gap was
+inference. `TopDecl::Extern` registration recorded only LLVM param/return
+types, never XIOM return types, so `var buf = malloc(n)` stayed untyped.
+
+Fix (crates/xiom-codegen/src/decl.rs): extern registration now records
+`fn_return_xiom[name] = type_string_full(return)`. `malloc -> *UInt8` types
+unannotated bindings, `expr_is_pointer` fires, and `buf + len` lowers to
+`getelementptr i8, i8* %buf, i64 %len`. Probes green (p_str_memcpy3
+`D=[foobar]`, p_str_memcpy2 A/B/C, p_str_memcpy all links). Lock
+`tests/regression/m77_ptr_plus_int_arg.xi` + `e2e_m77_ptr_plus_int_arg`.
+Gates: checker 188/188, stdlib-exec 85/85 (+2 ign), feature-reg 510/510,
+e2e 2324/2324. R16 CLOSED; the stdlib Int-cast workaround can be reverted
+by the stdlib lane when convenient.
+
 ### Round-63 (2026-09-15): R18 FIXED -- contract payload reads on the bare `is` rebind
 
 Compiler lane. Reproduced the wave-3 false positive
