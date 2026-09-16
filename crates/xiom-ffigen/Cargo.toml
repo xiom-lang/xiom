@@ -1,4 +1,5 @@
 [package]
+license.workspace = true
 name = "xiom-ffigen"
 version.workspace = true
 edition.workspace = true
