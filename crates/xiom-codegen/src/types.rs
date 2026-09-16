@@ -756,15 +756,18 @@ impl crate::IrEmitter {
         // `.Big`), so a bare `Big` could resolve to the TUPLE key depending
         // on HashMap iteration order (regression: m37_tuple_struct emitted
         // `Tuple__Big__Big` whose fields were 3-element tuples -> llvm.trap).
-        for (key, _) in self.types.type_meta.entries() {
-            if key.ends_with(&format!(".{type_name}"))
-                && !key.contains("Tuple__")
-                && !key.starts_with("Option__")
-                && !key.starts_with("Result__")
-                && !key.starts_with("_Anon__")
-            {
-                return Ok(format!("%struct.{key}"));
-            }
+        // Round 76: pick DETERMINISTICALLY (scope-first, then shortest key).
+        let meta_candidates: Vec<String> = self.types.type_meta.keys().into_iter()
+            .filter(|key| {
+                key.ends_with(&format!(".{type_name}"))
+                    && !key.contains("Tuple__")
+                    && !key.starts_with("Option__")
+                    && !key.starts_with("Result__")
+                    && !key.starts_with("_Anon__")
+            })
+            .collect();
+        if let Some(key) = self.pick_deterministic(meta_candidates) {
+            return Ok(format!("%struct.{key}"));
         }
         // Check builtin types first (match known xiom type names, NOT the default i64 fallback)
         let builtin = Self::xiom_to_llvm_type(type_name);
@@ -773,11 +776,10 @@ impl crate::IrEmitter {
             | "Bool" | "Float32" | "Float64" | "Str" | "Char" | "()" => return Ok(builtin.to_string()),
             _ => {}
         }
-        // If type_name is an enum variant (e.g., "Image"), find its parent enum type
-        for (enum_key, variants) in self.types.enum_variants.entries() {
-            if variants.iter().any(|(v, _)| v == type_name) {
-                return Ok(format!("%struct.{enum_key}"));
-            }
+        // If type_name is an enum variant (e.g., "Image"), find its parent
+        // enum type (round 76: deterministic, scope-first).
+        if let Some(enum_key) = self.resolve_variant_parent_enum(type_name) {
+            return Ok(format!("%struct.{enum_key}"));
         }
         // If type_name is itself an enum TYPE name (e.g. "Ordering"), it is lowered
         // to a struct `%struct.Name = { i64, ... }`. Enums are registered in

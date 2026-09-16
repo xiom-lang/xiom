@@ -2771,6 +2771,45 @@ impl IrEmitter {
             || self.types.enum_variants.keys().into_iter().any(|k| k.ends_with(&format!(".{type_name}")))
     }
 
+    /// Round 76: does `key` belong to the CURRENT module (or to no module)?
+    /// Used to break ties in favour of scope-local types before falling back
+    /// to deterministic key ordering.
+    fn module_pref_for(&self, key: &str) -> bool {
+        match self.local.current_module.as_deref() {
+            Some(m) => {
+                let stripped = m.strip_prefix("xiom.").unwrap_or(m);
+                !stripped.is_empty() && (key == stripped || key.starts_with(&format!("{stripped}.")))
+            }
+            None => false,
+        }
+    }
+
+    /// Round 76: DETERMINISTIC pick among candidate registry keys matching
+    /// some predicate. Several enums/structs can share a leaf name (`Empty`
+    /// appears in more than one bench enum); iterating `enum_variants` /
+    /// `type_meta` (HashMaps) picked a different parent per run, so the same
+    /// source emitted `%struct.Message` vs `%struct.BST` allocas and the
+    /// emitted IR was not byte-identical. Order: current module first, then
+    /// shortest key, then lexicographic.
+    fn pick_deterministic(&self, mut candidates: Vec<String>) -> Option<String> {
+        candidates.sort_by(|a, b| {
+            self.module_pref_for(b)
+                .cmp(&self.module_pref_for(a))
+                .then_with(|| a.len().cmp(&b.len()))
+                .then_with(|| a.cmp(b))
+        });
+        candidates.into_iter().next()
+    }
+
+    /// Round 76: deterministic parent-enum lookup for a variant name.
+    fn resolve_variant_parent_enum(&self, variant: &str) -> Option<String> {
+        let candidates: Vec<String> = self.types.enum_variants.keys().into_iter()
+            .filter(|k| self.types.enum_variants.get(k)
+                .map_or(false, |vars| vars.iter().any(|(v, _)| v == variant)))
+            .collect();
+        self.pick_deterministic(candidates)
+    }
+
     /// BUG 42 (2026-08-17): is `type_name` a registered STRUCT or ENUM type
     /// (bare or module-qualified)? Enums live in enum_variants, not types --
     /// the old struct-only checks made Vec[JsonValue] pushes/reads treat the
@@ -3238,11 +3277,10 @@ impl IrEmitter {
             "Self" => { return Ok("i64".to_string()); }
             _ => {}
         }
-        // If type_name is an enum variant (e.g., "Image"), find its parent enum type
-        for (enum_key, variants) in self.types.enum_variants.entries() {
-            if variants.iter().any(|(v, _)| v == type_name) {
-                return Ok(format!("%struct.{enum_key}"));
-            }
+        // If type_name is an enum variant (e.g., "Image"), find its parent
+        // enum type (round 76: deterministic, scope-first).
+        if let Some(enum_key) = self.resolve_variant_parent_enum(type_name) {
+            return Ok(format!("%struct.{enum_key}"));
         }
         // If type_name is itself an enum TYPE name (e.g. "Ordering"), it is lowered
         // to a struct `%struct.Name = { i64, ... }`. Enums are registered in
@@ -6921,12 +6959,10 @@ impl IrEmitter {
                 }
             }
         }
-        for (enum_key, vars) in self.types.enum_variants.entries() {
-            if vars.iter().any(|(v, _)| v == variant) {
-                return Some(enum_key.clone());
-            }
-        }
-        None
+        // Round 76: deterministic fallback (scope-first, shortest key,
+        // lexicographic) -- the previous "first HashMap entry" pick made the
+        // emitted IR non-reproducible.
+        self.resolve_variant_parent_enum(variant)
     }
 
 

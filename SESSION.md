@@ -1,159 +1,170 @@
-# XIOM Handoff -- 2026-09-15 (compiler lane; round 61 in docs/SESSION.md)
+# XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-76 in docs/SESSION.md)
 
-Branch `feat/architect`. Last compiler commit: the round-61 flip commit.
-Working tree should be clean except the generated `.xiom_ai.json`. The parallel
-stdlib session commits to the same branch; never stage their `stdlib/**`,
+Branch `feat/architect`. Last compiler commit: the round-76 slice (perf
+budgets + partial R25 determinism fixes); the supply-chain signing slice
+(`eb5a5536`) precedes it. Working tree should be clean except the generated
+`.xiom_ai.json` and the parallel stdlib lane's files. The stdlib session
+commits to the same branch; NEVER stage their `stdlib/**`,
 `examples/stdlib_smoke/**`, `docs/stdlib_session.md`,
-`docs/STDLIB_READINESS_PLAN.md`.
+`docs/STDLIB_READINESS_PLAN.md`, `docs/STDLIB_DEDUP_INVENTORY.md`. They also
+sometimes sweep the whole tree into their commits (it happened twice: my
+DWARF work landed inside 82d66b98), so re-check `git log --stat` if a change
+seems missing.
 
 ## State at handoff
 
-- **Stage 3 Item A CLOSED**: `strict_catalog_findings = true` in
-  `Checker::new` (crates/xiom-check/src/lib.rs). Catalog-body findings are
-  hard errors; the un-ignored `catalog_corpus_is_clean` gate (checker suite)
-  is the regression canary. See COMPILER_BUGS.md R21 for the hold/release
-  history and the four fixes that made the flip stick.
-- **Round-61 fixes**: R21a scope-first user aliases (pre-load worklist and
-  single-segment `use X as Y;` binding), R21b container-receiver method
-  wildcard guard, R21c generic-`!` defer, R21d `examples/test_mod` fixture
-  namespace collision. New lock `m74_user_alias_shadows_catalog` +
-  `e2e_m74_user_alias_shadows_catalog`.
-- **R20 FIXED (round 62)**: catalog-body same-leaf alias delegation now binds
-  the checker-recorded owner-qualified target (`"{owner}#{line}:{col}"`);
-  `resolve_catalog_call` trusts it first and `resolve_module_call`'s suffix
-  scan is deterministic (self-excluded, longest-first). Lock
-  `tests/regression/m75_alias_delegation/` + `e2e_m75_alias_delegation`;
-  shim probes green; encoding-family dedup unblocked.
-- **R18 FIXED (round 63)**: contract implication payload reads on the bare
-  `is` rebind (`result.value.len() <= s.len()`) emitted `inttoptr i64 0`
-  (len(NULL) = -1) and spuriously violated; `.value`/`.error` on a marked
-  rebind now resolves to the payload itself, and Err rebinds load Result
-  field 2. Lock `m76_contract_payload_param_len` +
-  `e2e_m76_contract_payload_param_len`.
-- **R16 FIXED (round 64)**: `ptr + int` in a call argument compiled as Str
-  concatenation because extern return types were never recorded, leaving an
-  unannotated `var buf = malloc(n)` untyped. Extern registration now records
-  `fn_return_xiom`; `buf + len` lowers to pointer arithmetic. Lock
-  `m77_ptr_plus_int_arg` + `e2e_m77_ptr_plus_int_arg`.
-- **R15b FIXED (round 65)**: same-leaf/same-name USER-program modules
-  (command-line multi-source) self-recursed because free fns shared one bare
-  key, module aliases lost their full path, and a suffix search counted
-  registration aliases. Now free fns register module-qualified keys,
-  preassign qualifies every definition of a cross-module key, aliases resolve
-  full-path-first, and symbol-backed candidates win. Lock
-  `tests/regression/m78_user_sameleaf/` + `e2e_m78_user_sameleaf_modules`.
-- **Catalog collision hardening DONE (round 66, R21d follow-up)**: the module
-  index resolves same-name declarations deterministically (source-dir
-  priority -> structural path match -> smallest canonical path, canonical
-  identity) and reports loaded-module ambiguities as `warning[W001]`;
-  `release/` trees are skipped. Unit test + manual probe; checker 189/189.
-- **LSP parse cache + cross-file definition DONE (round 67, Stage 5 start)**:
-  `Backend::parse_cached` (content-hash invalidation) now backs hover,
-  document/workspace symbols, and definition; `textDocument/definition`
-  falls back to other open documents' cached ASTs. LSP 44/44.
-- **R22 FIXED (round 68)**: plain `use xiom.convert.percent;` receiver calls
-  now bind the used module (`module_receiver_paths`, catalog-isolated) --
-  the explicit-alias items were already fixed by R15b. m78 extended with a
-  plain leaf-import leg. Percent dedup unblocked; base58 needs INT_MIN
-  translation.
-- **Fuzz + sanitizer CI DONE (round 69)**: standalone `fuzz/` cargo-fuzz
+Stage 3 Item A CLOSED (`strict_catalog_findings = true`), the R-bug queue
+through R24 is CLEARED, and the supply chain is signed. Highlights:
+
+- **R21 (flip closure, round 61)**: scope-first user aliases (pre-load
+  worklist + single-segment `use X as Y;`), container-receiver wildcard
+  guard, generic-`!` defer, `examples/test_mod` fixture collision. Locks
+  `m74`; corpus gate live (checker 189/189).
+- **R20 (round 62)**: catalog same-leaf alias delegation binds the
+  checker-recorded owner-qualified target; deterministic suffix scans.
+  Lock `m75_alias_delegation`.
+- **R18 (round 63)**: contract payload reads on the bare `is` rebind; Err
+  rebinds load Result field 2. Lock `m76`.
+- **R16 (round 64)**: extern return types feed pointer inference
+  (`buf + len` is pointer arithmetic). Lock `m77`.
+- **R15b (round 65)**: same-leaf USER-program modules (module-qualified
+  registration, collision-qualified symbols, full-path-first aliases).
+  Lock `m78` (multi-source).
+- **Catalog collisions (round 66, R21d)**: deterministic winner
+  (source-dir index -> structural path match -> smallest canonical path),
+  canonical identity, `warning[W001]` for loaded modules, `release/` skipped.
+- **LSP (round 67)**: `Backend::parse_cached` (content-hash) + cross-file
+  definition; lsp 44/44.
+- **R22 (round 68)**: plain module imports bind for codegen receivers via
+  `module_receiver_paths` (catalog-isolated); percent dedup unblocked.
+- **Fuzz + sanitizer CI (round 69)**: standalone `fuzz/` cargo-fuzz
   workspace (lexer/parser/ctfe/pipeline + seeds); CI `fuzz-smoke` (ASAN,
-  30s/target) and `sanitizer-smoke` (`--sanitize=address` binaries);
-  ci.yml e2e subset now runs the m74-m78 locks and the robustness suites.
-- **dbg async MI reader DONE (round 70)**: reader thread + bounded-wait
-  result/event queues; non-stopping continues report "running" instead of
-  hanging the DAP.
-- **`.xi` DWARF DONE (round 71)**: DISubroutineType node (the old
-  `type: !{}` dropped all DWARF) + per-statement `!DILocation` attachments
-  under `-g`; llvm-symbolizer maps body lines (m79 lock). Default builds
-  stay metadata-free. NOTE: `diff_tests::test_selfhost_v092_compiles` is red
-  from the stdlib lane's in-flight string/char WIP (verified not ours).
-- **Lockfile v2 + pkg parser fixes DONE (round 72)**: `xiom pkg lock` writes
-  v2 {version, source, integrity} and install enforces the locked digest;
-  `deps:` blocks are actually parsed now (they never were) and unbraced
-  manifests stop losing every field. MCP stdlib reference renders declared
-  module names. CI gained the bin-only crate tests (pkg/dbg/lsp/mcp) that
-  `--lib` skipped -- which immediately caught the rotted MCP test.
-- **R23 FIXED (round 73)**: fn-typed values are env-first in every shape
-  (call-through-value, match payloads off `Vec[fn()].pop()`, struct fields).
-  All five async probes + async smokes green; m80 lock. The "unknown type
-  'fn() -> Unit'" warning is gone.
-- **R24 FIXED (round 74)**: program-level bodyless fn declarations no longer
-  shadow catalog-body externs during isolated body checks; `extern_fns` is
+  30s/target) + `sanitizer-smoke`; CI runs bin-only crate tests
+  (pkg/dbg/lsp/mcp), robustness/fuzz suites, m74-m78 locks.
+- **dbg async MI reader (round 70)**: reader thread + bounded-wait queues;
+  non-stopping continues report "running" instead of hanging the DAP.
+- **`.xi` DWARF (round 71)**: `DISubroutineType` (the old `type: !{}`
+  dropped ALL DWARF) + per-statement `!DILocation`s under `-g`;
+  llvm-symbolizer maps body lines. Lock `m79`.
+- **R23 (round 73)**: fn-typed values are env-first in every shape
+  (call-through-value, `Vec[fn()].pop()` payloads, struct fields). All async
+  probes green; lock `m80`.
+- **R24 (round 74)**: catalog-body externs win under isolation (program
+  bodyless decls no longer shadow stdlib extern blocks); `extern_fns` is
   part of the per-body context. The Stage 7 selfhost compile gate
-  (`test_selfhost_v092_compiles`) is GREEN again.
-- **Supply-chain signatures DONE (round 75)**: ed25519 keygen/trust/sign/
-  verify (`xiom pkg keygen|trust|trusted|sign|verify`), fail-closed install
-  for trusted registries, signed publish over ureq-only multipart (curl
-  gone), `XIOM_REGISTRY_TOKEN` auth header, git deps pinned to full commits.
-  pkg 52/52. Remaining: transitive closure + server-side publish auth.
-- **Fixed earlier**: R14/R17/R19 with e2e locks (m71/m72/m73); R15 catalog
-  delegation (checker-recorded call targets + full-path injected names);
-  per-body alias isolation in `flush_catalog_bodies`.
-- **Last gates (fresh canonical driver)**: checker 189/189 (corpus gate live
-  and clean), stdlib-exec 85/85 (+2 ign), feature-reg 510/510, e2e
-  **2328/2328**, lsp 44/44, dbg 34/34, mcp 39/39, pkg 45/45, fuzz crate
-  compiles, `cargo check --workspace --all-targets` clean. Selfhost
-  v092 compile gate GREEN (round 74).
+  (`diff_tests::test_selfhost_v092_compiles`) is GREEN.
+- **Supply chain (round 75)**: ed25519 `signing.rs` (keygen/sign/verify +
+  `~/.xiom/trusted_keys.json` trust store), fail-closed install for trusted
+  registries, signed publish over ureq-only multipart (curl gone),
+  `XIOM_REGISTRY_TOKEN` auth header, git deps must pin a full 40/64-hex
+  commit. CLI: `xiom pkg keygen|trust|trusted|sign|verify`.
+- **Stage 6 start + R25 PARTIAL (round 76)**: `perf_budget_tests.rs` (IR
+  byte budgets + 180s ceiling + byte-identical determinism canary), CI-wired;
+  deterministic variant->parent-enum and `type_meta` selection
+  (`pick_deterministic`: current module -> shortest key -> lexicographic).
 
-## Immediate task
+Last full gates (round 76): checker 189/189, stdlib-exec 85/85 (+2 ign),
+feature-reg 510/510, e2e **2328/2328**, perf 2/2, lsp 44/44, dbg 34/34,
+mcp 39/39, pkg 52/52, workspace `--all-targets` clean, selfhost v092
+compiles.
 
-Remaining toward 100%:
-1. Supply chain tail: transitive dependency closure from registry metadata,
-   server-side publish authentication.
-2. fmt: body-inline comment trivia attachment (stage-2 trivia dependency).
-3. cargo-vet audits.
-4. clap migration of the driver parser (large; keep the CLI surface
+## Immediate task: R25 -- deterministic fn-REFERENCE resolution
+
+The perf determinism canary still fails on the 30-module bench graph (sizes
+drift ~130-230 bytes across runs). Exact evidence (round-76 notes in
+docs/SESSION.md): inside `benchmark.collections.test_partition()` the fn
+value coercion emits
+
+```
+run A: %tmp38 = ptrtoint i64 (i64)* @benchmark.comptime.is_even to i64
+run B: %tmp38 = ptrtoint i64 (i64)* @benchmark.math.is_even    to i64
+```
+
+Two same-named free fns in different modules; the pick is HashMap-ordered.
+Find the fn-ref coercion path (`is_fn_ref`, `bare_fn_aliases`,
+`functions.keys().find`, `wrap_fn_ref_env` call sites in call.rs /
+vec_abi.rs) and apply scope-first + `pick_deterministic`-style ordering.
+Verify with:
+
+```
+target\debug\xiom.exe --emit-ir examples\benchmark\main.xi > a.txt   (x3, compare bytes)
+cargo test -p xiom-codegen --test perf_budget_tests
+```
+
+Then tighten `perf_determinism_ir_is_byte_identical` to include the bench
+graph. Add the formal R25 entry to docs/COMPILER_BUGS.md once that file is
+clean (it had stdlib-lane WIP at handoff; do not sweep their edits).
+
+## Remaining queue
+
+1. **R25** (above).
+2. **Supply-chain tail**: transitive dependency closure from registry
+   metadata; server-side publish authentication.
+3. **fmt**: body-inline comment trivia attachment (stage-2 trivia
+   dependency; shebang/header/string escaping already done round 42).
+4. **cargo-vet audits** (cargo-deny already runs in CI).
+5. **clap migration** of the driver parser (large; keep the CLI surface
    byte-compatible and gate with the full e2e suite).
-5. Stage 7 selfhost ladder beyond the compile gate: the current v092..v11
-   sources are milestone emitters -- the full XIOM-in-XIOM compiler
-   (zero-ICE self-build) is a multi-phase project.
-Then Stage 6 performance.
-
-Full ledger: `docs/COMPILER_BUGS.md` (RNN entries are appended at the end;
-the R22 and R21d follow-up entries are newest). Round history:
-`docs/SESSION.md` (rounds 38-68).
+6. **Stage 7 selfhost ladder**: v092..v11 are milestone emitters, not yet a
+   full XIOM-in-XIOM compiler; zero-ICE self-build is a multi-phase project.
+   The selfhost COMPILE gate is green.
+7. **Stage 6 continuation**: parallel monomorphization profiles, linker
+   strategy, more budget metrics.
 
 ## Workflow rules
 
-- e2e/stdlib harnesses spawn `target/debug/xiom.exe`: run
-  `cargo build -p xiom` after ANY checker/codegen change before e2e runs,
-  or the suite tests a stale driver (this has produced false failures).
-- If the shared target dir acts up (`cargo check` disagreeing with an
-  isolated build), the documented fix is
-  `cargo clean -p xiom-codegen -p xiom` then rebuild the driver.
-- Corpus triage: `cargo test -p xiom-check catalog_corpus_is_clean`
-  (un-ignored; `$env:XIOM_CATALOG_DUMP='1'` prints every site).
-- ASAN: `target\debug\xiom.exe --sanitize=address -o out.exe src.xi` then run
-  with the LLVM ASAN runtime dir on PATH.
+- e2e/stdlib harnesses spawn `target/debug/xiom.exe` (release fallback):
+  `cargo build -p xiom` after ANY checker/codegen change or the suites test
+  a stale driver.
+- Full e2e is ~18 min; run it for any resolution/codegen change. Fast gates:
+  `cargo test -p xiom-check`, `--test feature_regression_tests`,
+  `--test stdlib_execution_tests`, `--test perf_budget_tests`.
+- Shared target dir can go stale (`cargo check` disagreeing with an isolated
+  build): `cargo clean -p xiom-codegen -p xiom`, then rebuild the driver.
 - PowerShell: capture `$LASTEXITCODE` immediately after each native call;
-  it is unreliable across pipelines/loops.
-- Do not edit `stdlib/**` (parallel session owns it); report stdlib findings
-  in `docs/ITEM_A_STDLIB_FINDINGS.md` / COMPILER_BUGS and in chat.
+  `1> file` writes UTF-16 (use `[System.IO.File]::WriteAllLines`/`-Raw` when
+  byte-exact IR/output is needed).
+- ASAN-compiled programs need the LLVM runtime dir on PATH
+  (`C:\Program Files\LLVM\lib\clang\22\lib\windows`); cargo-fuzz targets run
+  locally only with a version-matched ASAN DLL -- use CI/Linux for those.
+- Corpus triage: `cargo test -p xiom-check catalog_corpus_is_clean`;
+  `$env:XIOM_CATALOG_DUMP='1'` prints every site.
+- Never edit `stdlib/**`; report stdlib findings in `docs/ITEM_A_STDLIB_FINDINGS.md`
+  / COMPILER_BUGS and in chat.
 
 ## Paste-ready prompt for the next compiler session
 
 ```
 Continue the AXIOM compiler-lane readiness campaign in E:\Projects\AXIOM on
-branch feat/architect. Read SESSION.md (repo root), docs/SESSION.md (rounds
-38-61; round-61 is the flip closure) and docs/COMPILER_BUGS.md (newest entries
-at the end: R21 flip closure, R20, R18, R16) before touching code. The stdlib
-session works in parallel on stdlib/** only and commits to the same branch;
-never stage their files.
+branch feat/architect. Read SESSION.md (repo root) and docs/SESSION.md
+(rounds 61-76; round 76 has the R25 evidence) before touching code. The
+stdlib session works in parallel on stdlib/** only and commits to the same
+branch (they sometimes sweep the whole tree -- re-check git log if a change
+seems missing); never stage their files.
 
-State: Stage 3 Item A CLOSED -- strict_catalog_findings=true, corpus gate live
-(checker 189/189). R20/R18/R16/R15b all FIXED with locks (m75/m76/m77/m78);
-catalog collisions are deterministic and reported (R21d follow-up, W001); LSP
-parse cache + cross-file definition landed (lsp 44/44). Last full gates:
-e2e 2325/2325, stdlib-exec 85/85 (+2 ign), feature-reg 510/510, workspace
-check clean.
+State: Stage 3 Item A CLOSED (strict catalog findings, checker 189/189),
+R-bugs through R24 CLEARED with locks m74-m80, e2e 2328/2328, supply chain
+signed (ed25519 keygen/trust/sign/verify, fail-closed installs, ureq-only
+publish, git commit pins), Stage 6 perf budgets wired, selfhost v092 compile
+gate GREEN.
 
 Your task, in order:
-1. Stage 5 remainder: cargo-fuzz targets + ASAN/UBSAN CI (cargo-fuzz not
-   installed locally); dbg async MI reader + .xi DWARF; clap migration of the
-   driver parser; supply-chain hardening (locked/--locked, pinned git deps,
-   signed publish); sandbox false-green + randomized temp names.
-2. Then Stage 6 performance, Stage 7 selfhost.
+1. R25: make fn-REFERENCE resolution deterministic. Evidence: the bench
+   graph emits `ptrtoint @benchmark.comptime.is_even` vs
+   `@benchmark.math.is_even` across runs inside
+   benchmark.collections.test_partition(); find the fn-ref coercion path
+   (is_fn_ref / bare_fn_aliases / wrap_fn_ref_env call sites) and apply
+   scope-first + deterministic key ordering (pick_deterministic pattern).
+   Verify with 3x `--emit-ir examples\benchmark\main.xi` byte compares and
+   `cargo test -p xiom-codegen --test perf_budget_tests`; then extend the
+   determinism test to the bench graph and add the R25 entry to
+   docs/COMPILER_BUGS.md (only when that file is clean of stdlib-lane WIP).
+2. Supply-chain tail: transitive dependency closure from registry metadata,
+   server-side publish authentication; then fmt body-inline comment trivia,
+   cargo-vet, clap migration.
+3. Stage 7 selfhost ladder (v092..v11 are emitters; the full self-build is a
+   multi-phase project) and Stage 6 continuation (parallel mono profiles,
+   linker strategy).
 
 Rules: the e2e/stdlib harnesses spawn target/debug/xiom.exe -- always
 `cargo build -p xiom` after checker/codegen changes. Capture $LASTEXITCODE

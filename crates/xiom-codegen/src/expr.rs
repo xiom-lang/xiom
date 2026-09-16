@@ -3640,9 +3640,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         && !self.types.type_meta.contains_key(&name.name)
                         && !self.types.generic_type_names.iter().any(|k| k == &name.name || k.ends_with(&format!(".{}", name.name)))
                     {
-                        self.types.enum_variants.entries().into_iter()
-                            .find(|(_, vars)| vars.iter().any(|(v, _)| v == &leaf_variant))
-                            .map(|(ek, _)| ek.clone())
+                        // Round 76: deterministic (several enums can share a
+                        // variant leaf -- `Empty`); scope-first ordering.
+                        self.resolve_variant_parent_enum(&leaf_variant)
                     } else {
                         None
                     }
