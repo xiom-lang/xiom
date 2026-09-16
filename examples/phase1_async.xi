@@ -1,6 +1,6 @@
 // XIOM -- phase1_async
-// Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
-// Licensed under the Apache-2.0 license.
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
 
 fn worker(id: Int) -> Int {
   return id * 2;

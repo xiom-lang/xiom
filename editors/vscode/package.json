@@ -4,7 +4,7 @@
   "description": "Syntax highlighting, autocomplete, go-to-definition, diagnostics, and debugging for the XIOM programming language.",
   "version": "0.11.0",
   "publisher": "xiom-lang",
-  "license": "Apache-2.0",
+  "license": "MIT OR Apache-2.0",
   "icon": "icon.png",
   "engines": {
     "vscode": "^1.80.0"

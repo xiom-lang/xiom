@@ -1,8 +1,8 @@
 // XIOM -- Random Data Module
 // Large static array of pseudo-random numbers for heavy processing benchmarks.
 // Generates 1000 values via a known seed for deterministic verification.
-// Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
-// Licensed under the Apache-2.0 license.
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
 
 module benchmark.data_random
 

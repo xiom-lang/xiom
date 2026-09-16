@@ -1,6 +1,6 @@
 // XIOM -- stress_derive_50field
-// Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
-// Licensed under the Apache-2.0 license.
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
 
 type BigStruct = {
   f0: Int; f1: Int; f2: Int; f3: Int; f4: Int;

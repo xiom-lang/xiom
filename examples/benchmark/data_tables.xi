@@ -1,8 +1,8 @@
 // XIOM -- Mathematical Tables Data Module
 // Pre-computed lookup tables: factorials, powers, Fibonacci, squares, cubes.
 // These stress the compiler's ability to handle large static data initialization.
-// Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
-// Licensed under the Apache-2.0 license.
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
 
 module benchmark.data_tables
 

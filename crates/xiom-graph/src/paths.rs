@@ -1,6 +1,6 @@
 // XIOM -- shared repository/path resolution (R27 + R31).
-// Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
-// Licensed under the Apache-2.0 license.
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
 //
 // R31 (release/infra, pre-split): ONE helper for every cross-repo test and
 // tool. The compiler repo and the stdlib repo are separate after the split;

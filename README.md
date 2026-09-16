@@ -327,6 +327,6 @@ XIOM/
 
 ## License
 
-Apache-2.0
+MIT OR Apache-2.0
 
-Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
+Copyright (c) 2026 Eleftherios Notas
