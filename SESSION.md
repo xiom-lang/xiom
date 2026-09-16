@@ -56,6 +56,13 @@ stdlib session commits to the same branch; never stage their `stdlib/**`,
   the explicit-alias items were already fixed by R15b. m78 extended with a
   plain leaf-import leg. Percent dedup unblocked; base58 needs INT_MIN
   translation.
+- **Fuzz + sanitizer CI DONE (round 69)**: standalone `fuzz/` cargo-fuzz
+  workspace (lexer/parser/ctfe/pipeline + seeds); CI `fuzz-smoke` (ASAN,
+  30s/target) and `sanitizer-smoke` (`--sanitize=address` binaries);
+  ci.yml e2e subset now runs the m74-m78 locks and the robustness suites.
+- **dbg async MI reader DONE (round 70)**: reader thread + bounded-wait
+  result/event queues; non-stopping continues report "running" instead of
+  hanging the DAP. Remaining dbg gap: `.xi` DWARF mapping.
 - **Fixed earlier**: R14/R17/R19 with e2e locks (m71/m72/m73); R15 catalog
   delegation (checker-recorded call targets + full-path injected names);
   per-body alias isolation in `flush_catalog_bodies`.
@@ -68,16 +75,16 @@ stdlib session commits to the same branch; never stage their `stdlib/**`,
 ## Immediate task
 
 Stage 5 remainder, in suggested order:
-1. cargo-fuzz targets over lexer/parser/CTFE + ASAN/UBSAN CI (cargo-fuzz is
-   NOT installed in the current environment; the fuzz/ crate + workflow is
-   self-contained but needs nightly on CI; the compiler's own
-   `--sanitize=address` is wired and locally verified).
-2. dbg async MI reader + `.xi` DWARF.
-3. clap migration of the driver parser (large; keep the CLI surface
+1. dbg `.xi` DWARF mapping (the async MI reader landed round 69; DWARF needs
+   per-instruction `!dbg` metadata in the textual IR -- plan it against the
+   emitter's emitln path and the stage-2 span table).
+2. fmt: body-inline comment trivia attachment (stage-2 trivia dependency).
+3. cargo-vet audits (cargo-deny already runs in CI; fuzz + ASAN/UBSAN CI
+   landed round 69, async MI reader round 70).
+4. clap migration of the driver parser (large; keep the CLI surface
    byte-compatible and gate with the full e2e suite).
-4. Supply-chain hardening: lockfile v2 with enforced `--locked`, git deps
-   pinned to commits, signed-publish flow (cargo-deny already runs in CI).
-5. Sandbox false-green + randomized temp names.
+5. Supply-chain hardening: lockfile v2 with enforced `--locked`, git deps
+   pinned to commits, signed-publish flow.
 Then Stage 6 performance, Stage 7 selfhost.
 
 Full ledger: `docs/COMPILER_BUGS.md` (RNN entries are appended at the end;

@@ -170,6 +170,43 @@ finalization steps, remaining queue, paste-ready prompt). Next compiler
 session: FLIP FINALIZATION (strict=true + stdlib-exec/e2e), then R20, R18,
 R16, R15b, Stage 5-7.
 
+### Round-69 (2026-09-16): cargo-fuzz targets + ASAN/UBSAN CI (Stage 5)
+
+Compiler lane. Replaced the toy LCG harnesses (audit: "toy fuzzers; no
+coverage/ASAN/fuzz CI gates") with a standalone cargo-fuzz workspace
+(`fuzz/`, libfuzzer-sys kept out of the root workspace) and four targets:
+`lexer` (arbitrary bytes, token-count invariant), `parser` (depth guard +
+recovery), `ctfe` (register + evaluate with fuel/depth caps), `pipeline`
+(lexer -> parser -> codegen). Seed corpora committed per target.
+
+CI: `fuzz-smoke` (nightly + cargo-fuzz, 30s/target with ASAN on Linux,
+crash artifacts uploaded) and `sanitizer-smoke` (compiler binaries built with
+`--sanitize=address` compile and run clean, including a contract-checking
+program). The PR e2e subset now includes the m74-m78 regression locks, and
+`fuzz_tests` + `robustness_tests` run in CI.
+
+Also fixed: two stale depth-guard fuzz tests (still assumed
+MAX_EXPR_DEPTH=32; now nest 300), lexer test-only helper gated with
+cfg(test), unused bindings underscored. fuzz_tests 24/24, robustness 63/63,
+workspace check clean.
+
+### Round-70 (2026-09-16): dbg async MI reader (Stage 5)
+
+Compiler lane. Audit gap: "blocking read_line hangs DAP on non-stopping
+continues". `GdbBackend` now spawns a dedicated MI reader thread that owns
+the GDB stdout pipe and classifies lines: result records (`^done`/`^error`)
+into a result queue consumed by `send_mi`, async records
+(`*stopped`/`*running`/`=...`) into an event queue consumed by
+`poll_stopped`. Both queues are bounded-wait (`MI_RESULT_TIMEOUT` 10s,
+`STOP_POLL_TIMEOUT` 750ms), so no DAP request can block forever: a
+non-stopping continue reports "running" and later requests drain the stop.
+EOF is sticky and non-blocking; missing-session calls fail fast.
+
+Tests (no GDB required, +5): timeout boundedness, FIFO delivery, sticky EOF,
+condvar wakeup, fail-fast without a session. dbg 34/34;
+`cargo check --workspace --all-targets` clean (also underscored an unused
+binding in the e2e helper). Remaining dbg gap: `.xi` DWARF mapping.
+
 ### Round-68 (2026-09-15): R22 FIXED -- plain module imports bind for codegen receivers
 
 Compiler lane. Re-verified the R22 probe shapes with a marker shim on

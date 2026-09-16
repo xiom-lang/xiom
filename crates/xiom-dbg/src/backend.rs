@@ -4,12 +4,89 @@
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
-use std::process::{Child, ChildStdout, Command, Stdio};
+use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 use crate::{Breakpoint, DebuggerBackend};
+
+/// Bounded wait for a GDB/MI RESULT record (`^done`/`^error`/...). GDB answers
+/// command records promptly; 10s guards against a wedged debuggee without
+/// hanging the DAP request loop forever.
+const MI_RESULT_TIMEOUT: Duration = Duration::from_millis(10_000);
+/// Bounded wait for an async exec record (`*stopped`/`*running`) after a
+/// continue/step. A non-stopping continue used to block the DAP forever
+/// (audit: "blocking read_line hangs DAP"); now the caller reports
+/// "running" and the stop is drained by later requests.
+const STOP_POLL_TIMEOUT: Duration = Duration::from_millis(750);
+
+/// Thread-safe line channel fed by the MI reader thread. EOF is a sticky flag
+/// so consumers do not wait on a dead pipe.
+pub(crate) struct LineQueue {
+    pub(crate) lines: std::collections::VecDeque<String>,
+    pub(crate) eof: bool,
+}
+
+#[derive(Clone)]
+pub(crate) struct LineReader {
+    inner: Arc<(Mutex<LineQueue>, Condvar)>,
+}
+
+impl LineReader {
+    pub(crate) fn new() -> Self {
+        LineReader {
+            inner: Arc::new((
+                Mutex::new(LineQueue { lines: std::collections::VecDeque::new(), eof: false }),
+                Condvar::new(),
+            )),
+        }
+    }
+
+    pub(crate) fn push(&self, line: String) {
+        let (lock, cv) = &*self.inner;
+        let mut q = lock.lock().unwrap_or_else(|p| p.into_inner());
+        q.lines.push_back(line);
+        cv.notify_all();
+    }
+
+    pub(crate) fn set_eof(&self) {
+        let (lock, cv) = &*self.inner;
+        let mut q = lock.lock().unwrap_or_else(|p| p.into_inner());
+        q.eof = true;
+        cv.notify_all();
+    }
+
+    /// Pop one line, waiting at most `timeout`.
+    /// - Ok(line) when one arrives,
+    /// - Err("eof") when the reader thread saw EOF and the queue is empty,
+    /// - Err("timeout") otherwise.
+    pub(crate) fn pop_timeout(&self, timeout: Duration) -> Result<String, String> {
+        let (lock, cv) = &*self.inner;
+        let mut q = lock.lock().unwrap_or_else(|p| p.into_inner());
+        let deadline = Instant::now() + timeout;
+        loop {
+            if let Some(line) = q.lines.pop_front() {
+                return Ok(line);
+            }
+            if q.eof {
+                return Err("eof".to_string());
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return Err("timeout".to_string());
+            }
+            let (guard, _) = cv.wait_timeout(q, deadline - now).unwrap_or_else(|p| p.into_inner());
+            q = guard;
+        }
+    }
+}
 
 pub(crate) struct GdbBackend {
     pub(crate) child: Option<Child>,
-    pub(crate) reader: Option<BufReader<ChildStdout>>,
+    /// Result records (`^...`); consumed by `send_mi`.
+    pub(crate) results: Option<LineReader>,
+    /// Async exec records (`*stopped` / `*running` / `=...`); consumed by
+    /// `poll_stopped` without ever blocking the request loop indefinitely.
+    pub(crate) events: Option<LineReader>,
     pub(crate) breakpoints: HashMap<u64, Breakpoint>,
     pub(crate) next_breakpoint_id: u64,
     pub(crate) program_path: Option<String>,
@@ -37,7 +114,7 @@ fn mi_quote(s: &str) -> String {
 }
 impl GdbBackend {
     pub(crate) fn new() -> Self {
-        GdbBackend { child: None, reader: None, breakpoints: HashMap::new(), next_breakpoint_id: 1, program_path: None }
+        GdbBackend { child: None, results: None, events: None, breakpoints: HashMap::new(), next_breakpoint_id: 1, program_path: None }
     }
 
     fn launch_impl(&mut self, program: &str, args: &[String], _cwd: &str) -> Result<(), String> {
@@ -48,26 +125,70 @@ impl GdbBackend {
         cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit());
         let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn GDB: {e}"))?;
         let stdout = child.stdout.take().ok_or("Failed to capture GDB stdout")?;
-        self.reader = Some(BufReader::new(stdout));
+
+        // Async MI reader (audit finding: a blocking read_line hung the DAP
+        // on a non-stopping continue). A dedicated thread owns the pipe and
+        // classifies lines: `^...` result records go to `results`, async
+        // records (`*stopped`, `*running`, `=thread-created`, `~` console)
+        // go to `events`. Both queues are bounded-wait only.
+        let results = LineReader::new();
+        let events = LineReader::new();
+        let (rq, eq) = (results.clone(), events.clone());
+        let _reader_thread = std::thread::Builder::new()
+            .name("xiom-dbg-mi-reader".to_string())
+            .spawn(move || {
+                let mut reader = BufReader::new(stdout);
+                loop {
+                    let mut line = String::new();
+                    match reader.read_line(&mut line) {
+                        Ok(0) | Err(_) => {
+                            rq.set_eof();
+                            eq.set_eof();
+                            break;
+                        }
+                        Ok(_) => {
+                            if line.trim_start().starts_with('^') {
+                                rq.push(line);
+                            } else {
+                                eq.push(line);
+                            }
+                        }
+                    }
+                }
+            })
+            .map_err(|e| format!("Failed to spawn MI reader thread: {e}"))?;
+
+        self.results = Some(results);
+        self.events = Some(events);
         self.child = Some(child);
         self.program_path = Some(program.to_string());
         Ok(())
     }
 
     pub(crate) fn send_mi(&mut self, cmd: &str) -> Result<String, String> {
-        let child = self.child.as_mut().ok_or("No debug session")?;
-        let stdin = child.stdin.as_mut().ok_or("No stdin")?;
-        writeln!(stdin, "{cmd}").map_err(|e| format!("GDB write error: {e}"))?;
-        stdin.flush().map_err(|e| format!("GDB flush error: {e}"))?;
-        let reader = self.reader.as_mut().ok_or("No stdout reader")?;
+        {
+            let child = self.child.as_mut().ok_or("No debug session")?;
+            let stdin = child.stdin.as_mut().ok_or("No stdin")?;
+            writeln!(stdin, "{cmd}").map_err(|e| format!("GDB write error: {e}"))?;
+            stdin.flush().map_err(|e| format!("GDB flush error: {e}"))?;
+        }
+        let results = self.results.clone().ok_or("No stdout reader")?;
         let mut response = String::new();
         loop {
-            let mut line = String::new();
-            let n = reader.read_line(&mut line).map_err(|e| format!("GDB read error: {e}"))?;
-            if n == 0 { break; }
-            response.push_str(&line);
-            let trimmed = line.trim();
-            if trimmed.starts_with('^') || trimmed.starts_with("*stopped") || trimmed.starts_with("*running") { break; }
+            match results.pop_timeout(MI_RESULT_TIMEOUT) {
+                Ok(line) => {
+                    response.push_str(&line);
+                    if line.trim_start().starts_with('^') { break; }
+                }
+                Err(reason) if reason == "eof" => break,
+                Err(_) => {
+                    return Err(format!(
+                        "timed out after {}ms waiting for GDB to answer `{cmd}` (partial: {})",
+                        MI_RESULT_TIMEOUT.as_millis(),
+                        response.trim()
+                    ));
+                }
+            }
         }
         Ok(response)
     }
@@ -207,24 +328,33 @@ impl DebuggerBackend for GdbBackend {
         Ok(())
     }
     fn poll_stopped(&mut self) -> Result<Value, String> {
-        if let Some(ref mut reader) = self.reader {
-            let mut line = String::new();
-            match reader.read_line(&mut line) {
-                Ok(0) => return Err("EOF".to_string()),
-                Ok(_) => {
+        // Bounded wait on the async-record queue. A non-stopping continue
+        // (no `*stopped` within STOP_POLL_TIMEOUT) returns a timeout error so
+        // the DAP reports "running" instead of blocking the request loop.
+        let events = self.events.clone().ok_or("no reader")?;
+        let deadline = Instant::now() + STOP_POLL_TIMEOUT;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err("timeout: target still running".to_string());
+            }
+            match events.pop_timeout(remaining) {
+                Ok(line) => {
                     let trimmed = line.trim();
                     if trimmed.starts_with("*stopped") {
                         let reason = if trimmed.contains("breakpoint-hit") { "breakpoint" }
                             else if trimmed.contains("end-stepping-range") { "step" } else { "pause" };
                         let desc = trimmed.replacen("*stopped,", "", 1);
                         return Ok(json!({"reason": reason, "description": desc, "threadId": 1, "allThreadsStopped": true}));
-                    } else if trimmed.starts_with("*running") { return Ok(json!({"reason": "continued", "threadId": 1})); }
-                    return Ok(json!({"reason": "unknown"}));
+                    } else if trimmed.starts_with("*running") {
+                        return Ok(json!({"reason": "continued", "threadId": 1}));
+                    }
+                    // Other async records (=thread-created, ~console) drain.
                 }
-                Err(e) => return Err(format!("read error: {e}")),
+                Err(reason) if reason == "eof" => return Err("EOF".to_string()),
+                Err(_) => return Err("timeout: target still running".to_string()),
             }
         }
-        Err("no reader".to_string())
     }
     fn evaluate_expression(&mut self, expr: &str) -> Result<String, String> {
         // AUDIT #20 FIX: the evaluate box fed raw user text into the MI
@@ -366,5 +496,70 @@ impl DebuggerBackend for CdbBackend {
     fn list_registers(&mut self) -> Result<Vec<Value>, String> { self.send_cmd("r").map(|_| vec![]) }
     fn read_memory(&mut self, addr: u64, size: usize) -> Result<Vec<u8>, String> {
         self.send_cmd(&format!("db 0x{:X} L{}", addr, size)).map(|_| vec![])
+    }
+}
+
+// ============================================================================
+// Tests -- async MI reader semantics (no GDB required)
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn line_reader_timeout_is_bounded() {
+        let r = LineReader::new();
+        let t0 = Instant::now();
+        let out = r.pop_timeout(Duration::from_millis(50));
+        assert!(matches!(out, Err(ref e) if e == "timeout"));
+        assert!(t0.elapsed() >= Duration::from_millis(40), "must actually wait for the timeout");
+        assert!(t0.elapsed() < Duration::from_secs(2), "must not block indefinitely");
+    }
+
+    #[test]
+    fn line_reader_delivers_pushed_lines_in_order() {
+        let r = LineReader::new();
+        r.push("^done,value=\"1\"\n".to_string());
+        r.push("*stopped,reason=\"breakpoint-hit\"\n".to_string());
+        assert_eq!(r.pop_timeout(Duration::from_millis(50)).unwrap().trim(), "^done,value=\"1\"");
+        assert_eq!(r.pop_timeout(Duration::from_millis(50)).unwrap().trim(), "*stopped,reason=\"breakpoint-hit\"");
+    }
+
+    #[test]
+    fn line_reader_eof_is_sticky_and_non_blocking() {
+        let r = LineReader::new();
+        r.set_eof();
+        let t0 = Instant::now();
+        assert!(matches!(r.pop_timeout(Duration::from_millis(500)), Err(ref e) if e == "eof"));
+        assert!(t0.elapsed() < Duration::from_millis(200), "EOF must not wait");
+        // Draining already-queued lines still works after EOF.
+        let r2 = LineReader::new();
+        r2.push("^error\n".to_string());
+        r2.set_eof();
+        assert_eq!(r2.pop_timeout(Duration::from_millis(50)).unwrap().trim(), "^error");
+        assert!(matches!(r2.pop_timeout(Duration::from_millis(50)), Err(ref e) if e == "eof"));
+    }
+
+    #[test]
+    fn line_reader_push_wakes_waiter() {
+        let r = LineReader::new();
+        let r2 = r.clone();
+        let t = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(30));
+            r2.push("*running\n".to_string());
+        });
+        let got = r.pop_timeout(Duration::from_millis(1000)).unwrap();
+        assert_eq!(got.trim(), "*running");
+        t.join().unwrap();
+    }
+
+    #[test]
+    fn gdb_backend_without_session_fails_fast() {
+        let mut b = GdbBackend::new();
+        let t0 = Instant::now();
+        assert!(b.send_mi("-exec-run").is_err());
+        assert!(b.poll_stopped().is_err());
+        assert!(t0.elapsed() < Duration::from_millis(500), "missing-session errors must not wait");
     }
 }
