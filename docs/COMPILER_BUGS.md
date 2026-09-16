@@ -6185,6 +6185,61 @@ compiler's numbers stand.
 
 Owner: compiler lane. Blocks: docs/RELEASE_INFRA_PLAN.md R0 split gate.
 
+### R27 FIXED (2026-09-16, compiler lane round 78)
+
+Implemented in `crates/xiom/src/lib.rs`:
+
+- New pure `stdlib_candidates(exe_dir, xiom_stdlib, xiom_home, manifest_dir)`
+  (filesystem-free, unit-testable), `is_stdlib_root` (`xiom/` or
+  `package.xi`), `existing_stdlib_roots` (existence + content filter) and
+  `current_stdlib_candidates` (process env + exe path). Wired into all three
+  discovery sites: the `compile()` M12 env bootstrap, `find_stdlib_dirs()`
+  (catalog search dirs) and `find_runtime_c()` (repo `stdlib/runtime` and
+  install `lib/runtime` both resolve).
+- Candidate order: `XIOM_STDLIB` -> exe ancestors (`{dir}/stdlib`,
+  `{dir}/lib`, `{dir}/share/xiom`, nearest first, up to 9 levels) -> CWD
+  `stdlib/` -> `XIOM_HOME/{lib,stdlib}` -> baked repo checkout.
+
+**Deviation from the original fix direction, with evidence:** `XIOM_HOME` is a
+FALLBACK, not an override. Implementing it as a high-priority override broke
+the dev/test flows on this machine because XIOM_HOME is already set globally
+to a stale install (`C:\Users\lefte\AppData\Local\xiom\lib` has
+`xiom/` + `package.xi`): (a) the M12 bootstrap selected the stale stdlib over
+the checkout, and (b) `find_stdlib_dirs` appended it as a SECOND catalog
+search root, where the last-index-wins collision rule let the stale module
+copies shadow the repo's. Symptom:
+`jit::tests::test_jit_execute_with_implicit_main` (`io.println`) compiled
+against the old stdlib and died with 346 catalog-body type errors
+(`xiom.convert`/`io`/`core`/`num`/`char`). The version-pinned sibling `lib/`
+(dev checkout or install) therefore wins; an explicit `XIOM_STDLIB` remains
+the top override for users who really mean it.
+
+Also: `find_stdlib_dirs()` now returns only the FIRST content-valid root
+(+ its `xiom/` subdir). Returning multiple valid roots puts two stdlib
+VERSIONS on the catalog search path; extra project dirs come from the
+dependency graph, not from stdlib discovery.
+
+Tests/locks:
+- 5 unit tests: repo layout, install layout (`bin/` + `lib/` incl. the
+  `lib/runtime` lookup), XIOM_HOME as fallback + sibling-lib precedence,
+  stale baked path/empty `lib/` ignored, full candidate order.
+- Integration: fake install (`bin/xiom.exe` + `lib/{xiom,package.xi,runtime}`),
+  env cleared and neutral CWD: `use xiom.io; io.println("installed ok")`
+  compiles and runs exit 0. Repeated with the RELEASE binary
+  (`cargo build --release -p xiom` clean, 1m15s) and a fresh workspace
+  outside the repo: `io.println("release install ok")` exit 0.
+
+Gates: xiom 25/25 (+15/+34 integration), checker 189/189, feature-reg
+510/510, stdlib-exec 85/85 (+2 ign), perf 2/2 (both determinism canaries),
+selfhost v092 gate green, full e2e 2329/2329, release build clean.
+
+NOTE for future sims: the driver adds a source file's PARENT and (if it
+contains any `.xi`) its GRANDPARENT as catalog source dirs (5e.3 G-31), so an
+integration workspace must not sit in a directory whose grandparent holds
+stray `.xi`/stdlib copies -- an early R27 e2e run failed on W001 collisions
+from exactly that (`_e2e_m17_zero_warnings` vs a fake install left under the
+repo `tmp/`). Keep sim trees outside the repo or in a clean `ws/` subdir.
+
 ## R25 (compiler lane). Emitted IR not byte-identical: fn-REFERENCE resolution + emission order (2026-09-16, round 77)
 
 **FIXED (a150f246).** The Stage 6 determinism canary drifted ~130-230 bytes per

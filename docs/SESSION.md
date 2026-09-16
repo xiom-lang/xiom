@@ -190,6 +190,42 @@ MAX_EXPR_DEPTH=32; now nest 300), lexer test-only helper gated with
 cfg(test), unused bindings underscored. fuzz_tests 24/24, robustness 63/63,
 workspace check clean.
 
+### Round-78 (2026-09-16): R27 FIXED -- installed-binary stdlib discovery (release R0)
+
+Compiler lane, on the release/infra lane's R27 (docs/COMPILER_BUGS.md).
+
+- New pure `stdlib_candidates(exe_dir, XIOM_STDLIB, XIOM_HOME, MANIFEST_DIR)`
+  + `is_stdlib_root` (`xiom/` or `package.xi`) + `existing_stdlib_roots`;
+  wired into the `compile()` M12 bootstrap, `find_stdlib_dirs()` and
+  `find_runtime_c()`. Order: XIOM_STDLIB -> exe ancestors (`stdlib`, `lib`,
+  `share/xiom`) -> CWD -> XIOM_HOME -> baked checkout. Covers the R0 spec
+  (`<exe>/../lib/xiom`, `<exe>/lib`) and the `lib/runtime` layout.
+- Design call with evidence: **XIOM_HOME is a FALLBACK, not an override.**
+  This machine exports `XIOM_HOME=C:\Users\lefte\AppData\Local\xiom` (a stale
+  install with a valid `lib/`). Making it outrank the checkout broke
+  `jit::tests::test_jit_execute_with_implicit_main` (346 catalog-body errors)
+  and `find_stdlib_dirs` appended the stale root as a second catalog search
+  dir, where last-index-wins shadowed the repo modules. `find_stdlib_dirs()`
+  now returns only the FIRST valid root (+ its `xiom/` subdir); two roots =
+  two stdlib versions on the search path.
+- Tests: 5 unit tests (repo layout, install `bin/`+`lib/` incl. runtime,
+  XIOM_HOME fallback + sibling-lib precedence, stale baked/empty `lib/`
+  ignored, candidate order) + integration: fake install with env cleared and
+  neutral CWD compiles/runs `use xiom.io` exit 0, repeated with the RELEASE
+  binary from a clean external workspace (exit 0).
+- Gates: xiom 25/25 (+15/+34 integration), checker 189/189, feature-reg
+  510/510, stdlib-exec 85/85 (+2 ign), perf 2/2, selfhost v092 gate green,
+  full e2e 2329/2329, `cargo build --release -p xiom` clean.
+- Incident: one e2e run failed `_e2e_m17_zero_warnings` with W001 collisions
+  because the sim install sat under the repo `tmp/` and the driver adds the
+  source's grandparent as a catalog dir (5e.3 G-31); removed, rerun green.
+  Keep integration sim trees outside the repo.
+
+R0 split readiness (compiler side): R25 CLOSED (a150f246 + c3868526), R27
+CLOSED (this slice), full e2e green, release build clean, determinism
+canaries cover selfhost + bench. Remaining R0 items are release-lane
+packaging/tag/freeze plus the stdlib lane's in-flight files.
+
 ### Round-77 (2026-09-16): R25 CLOSED -- fn-REFERENCE resolution + emission order determinism
 
 Compiler lane.
