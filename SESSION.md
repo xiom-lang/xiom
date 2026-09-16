@@ -1,8 +1,9 @@
 # XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-76 in docs/SESSION.md)
 
-Branch `feat/architect`. Last compiler commit: the round-77 slice (R25
-CLOSED -- fn-REFERENCE + emission-order determinism); the round-76 slice
-(perf budgets) precedes it. Working tree should be clean except the generated
+Branch `feat/architect`. Last compiler commit: the round-78 slice (R27 --
+installed-binary stdlib discovery, release R0); the round-77 slice (R25
+determinism) and its docs entry precede it. Working tree should be clean
+except the generated
 `.xiom_ai.json` and the parallel stdlib lane's files. The stdlib session
 commits to the same branch; NEVER stage their `stdlib/**`,
 `examples/stdlib_smoke/**`, `docs/stdlib_session.md`,
@@ -67,16 +68,23 @@ through R24 is CLEARED, and the supply chain is signed. Highlights:
   worklist (total order), concrete-Option builtins and variant scans made
   deterministic. Lock `e2e_m81_fn_ref_same_leaf`; the determinism canary now
   covers BOTH selfhost v092 and the bench graph.
+- **R27 CLOSED (round 78)**: installed-binary stdlib discovery. Pure
+  `stdlib_candidates`/`is_stdlib_root` wired into the M12 bootstrap,
+  `find_stdlib_dirs()` and `find_runtime_c()`; exe-relative `lib/` outranks a
+  stale global `XIOM_HOME` (which is a fallback, not an override); catalog
+  search dirs use the FIRST valid root only. Fake-install + release-binary
+  `use xiom.io` sims exit 0; 5 new unit tests. Release R0 compiler-side
+  blockers are done.
 - **Stage 6 start (round 76)**: `perf_budget_tests.rs` (IR byte budgets +
   180s ceiling + byte-identical determinism canary), CI-wired;
   deterministic variant->parent-enum and `type_meta` selection
   (`pick_deterministic`: current module -> shortest key -> lexicographic).
 
-Last full gates (round 77): checker 189/189, stdlib-exec 85/85 (+2 ign),
-feature-reg 510/510, perf 2/2 (both determinism canaries), m35 300/300,
-e2e **2329/2329** (R25 binary, incl. the new m81 lock), selfhost v092
-compiles. lsp/dbg/mcp/pkg + workspace `--all-targets` were green on the
-round-76 tree and must be re-run after the R27 slice lands.
+Last full gates (round 78): xiom 25/25 (+15/+34 integration), checker
+189/189, stdlib-exec 85/85 (+2 ign), feature-reg 510/510, perf 2/2 (both
+determinism canaries), m35 300/300, pkg 52/52, dbg 34/34, lsp 44/44, mcp
+39/39, e2e **2329/2329**, `cargo build --release -p xiom` clean, selfhost
+v092 compiles.
 
 ## R25 -- CLOSED (round 77)
 
@@ -147,21 +155,23 @@ uncommitted stdlib-lane WIP at close; append once clean).
 ```
 Continue the AXIOM compiler-lane readiness campaign in E:\Projects\AXIOM on
 branch feat/architect. Read SESSION.md (repo root) and docs/SESSION.md
-(rounds 61-77; round 77 has the R25 close) before touching code. The stdlib
-session works in parallel on stdlib/** only and commits to the same branch
-(they sometimes sweep the whole tree -- re-check git log if a change seems
-missing); never stage their files.
+(rounds 61-78; round 78 has R27, round 77 has the R25 close) before touching
+code. The stdlib session works in parallel on stdlib/** only and commits to
+the same branch (they sometimes sweep the whole tree -- re-check git log if a
+change seems missing); never stage their files.
 
 State: Stage 3 Item A CLOSED (strict catalog findings, checker 189/189),
-R-bugs through R25 CLEARED with locks m74-m81, e2e green on the round-77
-binary, supply chain signed (ed25519 keygen/trust/sign/verify, fail-closed
-installs, ureq-only publish, git commit pins), Stage 6 perf budgets wired
-(determinism canary covers selfhost v092 + bench graph), selfhost v092
-compile gate GREEN.
+R-bugs through R27 CLEARED with locks m74-m81, e2e 2329/2329, supply chain
+signed (ed25519 keygen/trust/sign/verify, fail-closed installs, ureq-only
+publish, git commit pins), Stage 6 perf budgets wired (determinism canary
+covers selfhost v092 + bench graph), selfhost v092 compile gate GREEN,
+release R0 compiler-side blockers DONE (R25+R27, release build clean).
 
-Pending: append the formal R25 entry to docs/COMPILER_BUGS.md once that file
-is clean of stdlib-lane WIP; round-77 residuals (ambiguous bare cross-enum
-variant + bench Metrics GEP) are listed in docs/SESSION.md.
+Pending: round-77 residuals (ambiguous bare cross-enum variant + bench
+Metrics GEP) are listed in docs/SESSION.md. Release R0 compiler-side
+blockers are DONE: R25 + R27 entries in docs/COMPILER_BUGS.md, e2e green,
+release build clean. Remaining R0 work is release-lane (tag/bundle/freeze)
+plus the stdlib lane's uncommitted files.
 
 Your task, in order:
 1. Supply-chain tail: transitive dependency closure from registry metadata,
@@ -170,8 +180,6 @@ Your task, in order:
 2. Stage 7 selfhost ladder (v092..v11 are emitters; the full self-build is a
    multi-phase project) and Stage 6 continuation (parallel mono profiles,
    linker strategy).
-3. If docs/COMPILER_BUGS.md is clean, append the R25 entry (evidence: round
-   77 notes in docs/SESSION.md).
 
 Rules: the e2e/stdlib harnesses spawn target/debug/xiom.exe -- always
 `cargo build -p xiom` after checker/codegen changes. Capture $LASTEXITCODE

@@ -702,29 +702,40 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         }
     }
 
-    // M12: Auto-discover stdlib from binary path so the C runtime is always found.
-    // This ensures xiom run, playground, MCP, and direct CLI all work without XIOM_STDLIB env var.
+    // M12/R27: Auto-discover the stdlib from the binary location so the C
+    // runtime is always found. R27 (release/infra R0): the scan now accepts
+    // the INSTALLED layout too (`bin/xiom.exe` + `lib/xiom/**`,
+    // `lib/package.xi`, `lib/runtime/**`) and XIOM_HOME, with content
+    // validation (`xiom/` or `package.xi`) so unrelated `lib/` dirs never win.
+    // Order: XIOM_STDLIB -> exe-relative (stdlib, lib, share/xiom) -> CWD
+    // stdlib -> XIOM_HOME (fallback) -> repo checkout. See `stdlib_candidates`.
     if std::env::var("XIOM_STDLIB").is_err() {
         if let Ok(exe) = std::env::current_exe() {
-            let mut search = exe.parent();
-            for _ in 0..8 {
-                if let Some(dir) = search {
-                    let candidate = dir.join("stdlib");
-                    if candidate.is_dir() {
-                        // SAFETY: set_var is called during stdlib discovery, before
-                        // any compilation threads are spawned. No concurrent access.
-                        unsafe { std::env::set_var("XIOM_STDLIB", candidate.to_string_lossy().to_string()); }
-                        break;
-                    }
-                    let rt = dir.join("runtime");
-                    if rt.is_dir() && rt.join("xiom_runtime.c").exists() {
-                        // SAFETY: set_var is called during single-threaded initialization
-                        // before rayon's thread pool or any parallel work starts.
-                        unsafe { std::env::set_var("XIOM_STDLIB", dir.to_string_lossy().to_string()); }
-                        break;
-                    }
-                    search = dir.parent();
-                } else { break; }
+            let exe_dir = exe.parent().map(|p| p.to_path_buf());
+            let candidates = stdlib_candidates(
+                exe_dir.as_deref(),
+                None,
+                std::env::var("XIOM_HOME").ok().as_deref(),
+                Some(env!("CARGO_MANIFEST_DIR")),
+            );
+            if let Some(root) = existing_stdlib_roots(&candidates).into_iter().next() {
+                // SAFETY: set_var is called during stdlib discovery, before
+                // any compilation threads are spawned. No concurrent access.
+                unsafe { std::env::set_var("XIOM_STDLIB", root.to_string_lossy().to_string()); }
+            } else {
+                // Legacy fallback: a directory that only carries the C runtime
+                // (`runtime/xiom_runtime.c`) still becomes XIOM_STDLIB.
+                let mut search = exe_dir.as_deref();
+                for _ in 0..8 {
+                    if let Some(dir) = search {
+                        if dir.join("runtime").join("xiom_runtime.c").is_file() {
+                            // SAFETY: single-threaded initialization (see above).
+                            unsafe { std::env::set_var("XIOM_STDLIB", dir.to_string_lossy().to_string()); }
+                            break;
+                        }
+                        search = dir.parent();
+                    } else { break; }
+                }
             }
         }
     }
@@ -1704,47 +1715,107 @@ fn parse_package_manifest(path: &str) -> Result<Vec<String>, String> {
     Ok(modules)
 }
 
+/// R27 (release/infra R0): ordered, filesystem-free stdlib root candidates.
+///
+/// The compiler used to only look for a literal `stdlib/` directory above the
+/// executable, so an installed binary (`bin/xiom.exe` next to `lib/xiom/**`,
+/// `lib/package.xi`, `lib/runtime/**`) found nothing unless the user set
+/// `XIOM_STDLIB` or ran from a checkout. Candidate order:
+/// `XIOM_STDLIB` -> exe ancestors (`{dir}/stdlib`, `{dir}/lib`,
+/// `{dir}/share/xiom`, nearest ancestor first) -> CWD `stdlib/` ->
+/// `XIOM_HOME/{lib,stdlib}` -> baked repo checkout (`CARGO_MANIFEST_DIR`).
+/// `XIOM_HOME` is deliberately a FALLBACK, not an override: a version-pinned
+/// sibling `lib/` (dev checkout or install) must win over a stale global home
+/// -- a dev machine with an old install exported as XIOM_HOME otherwise mixed
+/// the old stdlib into checkout builds (JIT/catalog-body failures).
+/// Existence/content filtering happens in [`existing_stdlib_roots`].
+pub(crate) fn stdlib_candidates(
+    exe_dir: Option<&Path>,
+    xiom_stdlib: Option<&str>,
+    xiom_home: Option<&str>,
+    manifest_dir: Option<&str>,
+) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    let mut push = |p: PathBuf| {
+        if !out.contains(&p) {
+            out.push(p);
+        }
+    };
+    if let Some(s) = xiom_stdlib {
+        if !s.trim().is_empty() {
+            push(PathBuf::from(s.trim()));
+        }
+    }
+    if let Some(dir) = exe_dir {
+        let mut cur = Some(dir);
+        for _ in 0..=8 {
+            if let Some(d) = cur {
+                push(d.join("stdlib"));
+                push(d.join("lib"));
+                push(d.join("share").join("xiom"));
+                cur = d.parent();
+            } else {
+                break;
+            }
+        }
+    }
+    push(PathBuf::from("stdlib"));
+    if let Some(home) = xiom_home {
+        if !home.trim().is_empty() {
+            let home = PathBuf::from(home.trim());
+            push(home.join("lib"));
+            push(home.join("stdlib"));
+        }
+    }
+    if let Some(m) = manifest_dir {
+        if let Some(repo) = Path::new(m).parent().and_then(|p| p.parent()) {
+            push(repo.join("stdlib"));
+        }
+    }
+    out
+}
+
+/// R27: a usable stdlib root carries the module tree (`xiom/`) or the stdlib
+/// manifest (`package.xi`). Content validation keeps an unrelated `lib/`,
+/// `share/xiom/`, or a stale baked checkout path from being selected.
+pub(crate) fn is_stdlib_root(dir: &Path) -> bool {
+    dir.join("xiom").is_dir() || dir.join("package.xi").is_file()
+}
+
+/// R27: the existing, content-valid stdlib roots in candidate order (deduped).
+pub(crate) fn existing_stdlib_roots(candidates: &[PathBuf]) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    for c in candidates {
+        if c.is_dir() && is_stdlib_root(c) && !roots.contains(c) {
+            roots.push(c.clone());
+        }
+    }
+    roots
+}
+
+/// R27: candidate list for the RUNNING process (exe path + env vars).
+fn current_stdlib_candidates() -> Vec<PathBuf> {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|p| p.to_path_buf()));
+    stdlib_candidates(
+        exe_dir.as_deref(),
+        std::env::var("XIOM_STDLIB").ok().as_deref(),
+        std::env::var("XIOM_HOME").ok().as_deref(),
+        Some(env!("CARGO_MANIFEST_DIR")),
+    )
+}
+
+/// R27: search dirs for the module catalog. Only the FIRST content-valid
+/// candidate root is used: appending a second valid root means a SECOND
+/// stdlib version is on the search path, and the catalog's last-index-wins
+/// collision rule lets the stale copy shadow the intended one (a dev machine
+/// with an old install exported as XIOM_HOME broke JIT/catalog-body checks
+/// exactly this way). Extra project dirs come from the dependency graph, not
+/// from stdlib discovery.
 pub fn find_stdlib_dirs() -> Vec<String> {
-    let mut roots: Vec<std::path::PathBuf> = Vec::new();
-
-    if let Ok(env_dir) = std::env::var("XIOM_STDLIB") {
-        if !env_dir.trim().is_empty() {
-            roots.push(std::path::PathBuf::from(env_dir));
-        }
-    }
-
-    if let Ok(exe) = std::env::current_exe() {
-        let mut cur = exe.parent();
-        let mut hops = 0;
-        while let Some(dir) = cur {
-            let candidate = dir.join("stdlib");
-            if candidate.is_dir() {
-                roots.push(candidate);
-                break;
-            }
-            hops += 1;
-            if hops > 8 {
-                break;
-            }
-            cur = dir.parent();
-        }
-    }
-
-    roots.push(std::path::PathBuf::from("stdlib"));
-
-    if let Some(repo_stdlib) = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(|p| p.parent())
-        .map(|repo| repo.join("stdlib"))
-    {
-        roots.push(repo_stdlib);
-    }
-
     let mut dirs: Vec<String> = Vec::new();
-    for root in roots {
-        if !root.is_dir() {
-            continue;
-        }
+    if let Some(root) = existing_stdlib_roots(&current_stdlib_candidates()).into_iter().next() {
         let root_str = root.to_string_lossy().to_string();
         if !dirs.contains(&root_str) {
             dirs.push(root_str);
@@ -1785,11 +1856,17 @@ pub fn find_project_root(file_path: &Path) -> Option<PathBuf> {
 }
 
 pub fn find_runtime_c() -> Option<String> {
-    // Walk UP from the xiom binary (up to 8 levels) looking for the standard
-    // layouts. This is the reliable path for dev (`target/debug/xiom.exe` ->
-    // `<repo>/stdlib/runtime/xiom_runtime.c`) AND for the playground server
-    // whose cwd is NOT the repo root. The old exe.parent().parent() guess
-    // (`target/debug` -> `target`) never reached the project root.
+    // R27: content-valid stdlib roots first -- repo (`<root>/runtime`) and the
+    // installed layout (`lib/runtime`) are both reached through the candidate
+    // scan, including XIOM_HOME and CWD. This is the reliable path for dev
+    // (`target/debug/xiom.exe` -> `<repo>/stdlib/runtime/xiom_runtime.c`) AND
+    // for the playground server whose cwd is NOT the repo root.
+    for root in current_stdlib_candidates() {
+        let cand = root.join("runtime").join("xiom_runtime.c");
+        if cand.is_file() { return Some(cand.to_string_lossy().to_string()); }
+    }
+    // Legacy fallback: an ancestor carrying a bare `runtime/` dir, plus the
+    // historical CWD-relative candidates.
     if let Ok(exe) = std::env::current_exe() {
         let mut search = exe.parent();
         for _ in 0..8 {
@@ -2642,5 +2719,129 @@ mod tests {
         let result = compile_with_diagnostics(&config, &[path.to_string_lossy().to_string()]);
         assert!(!result.success, "nonexistent file should fail");
         assert!(!result.diagnostics.is_empty());
+    }
+
+    // ---- R27: exe-relative stdlib discovery (release/infra R0) ------------
+
+    fn r27_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!("xiom_r27_{}_{}", std::process::id(), name));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn r27_make_stdlib_root(root: &Path) {
+        std::fs::create_dir_all(root.join("xiom")).unwrap();
+        std::fs::write(root.join("package.xi"), "name = \"std\"").unwrap();
+    }
+
+    fn r27_strs(cands: &[PathBuf]) -> Vec<String> {
+        cands.iter().map(|p| p.to_string_lossy().replace('\\', "/")).collect()
+    }
+
+    #[test]
+    fn r27_repo_layout_prefers_exe_ancestor_stdlib() {
+        let repo = r27_dir("repo");
+        r27_make_stdlib_root(&repo.join("stdlib"));
+        let exe_dir = repo.join("target").join("debug");
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        let roots = existing_stdlib_roots(&stdlib_candidates(Some(&exe_dir), None, None, None));
+        assert_eq!(
+            roots.first().map(|p| p.as_path()),
+            Some(repo.join("stdlib").as_path()),
+            "repo checkout layout must resolve <repo>/stdlib via exe ancestors"
+        );
+    }
+
+    #[test]
+    fn r27_install_layout_bin_and_lib() {
+        let install = r27_dir("install");
+        r27_make_stdlib_root(&install.join("lib"));
+        std::fs::create_dir_all(install.join("lib").join("runtime")).unwrap();
+        std::fs::write(install.join("lib").join("runtime").join("xiom_runtime.c"), "// rt").unwrap();
+        let exe_dir = install.join("bin");
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        let roots = existing_stdlib_roots(&stdlib_candidates(Some(&exe_dir), None, None, None));
+        assert_eq!(
+            roots.first().map(|p| p.as_path()),
+            Some(install.join("lib").as_path()),
+            "installed layout (bin/ + lib/) must resolve <install>/lib"
+        );
+        // The runtime lookup must reach the installed location too.
+        let rt = stdlib_candidates(Some(&exe_dir), None, None, None)
+            .into_iter()
+            .map(|root| root.join("runtime").join("xiom_runtime.c"))
+            .find(|c| c.is_file());
+        assert_eq!(rt, Some(install.join("lib").join("runtime").join("xiom_runtime.c")));
+    }
+
+    #[test]
+    fn r27_xiom_home_fallback_only_when_no_sibling_lib() {
+        let home = r27_dir("home");
+        r27_make_stdlib_root(&home.join("lib"));
+        // Relocated binary with no stdlib anywhere above it: XIOM_HOME is
+        // honored as the fallback.
+        let exe_dir = r27_dir("elsewhere").join("bin");
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        let roots = existing_stdlib_roots(&stdlib_candidates(
+            Some(&exe_dir), None, Some(home.to_str().unwrap()), None));
+        assert_eq!(
+            roots.first().map(|p| p.as_path()),
+            Some(home.join("lib").as_path()),
+            "XIOM_HOME/lib must serve a relocated binary"
+        );
+        // A version-pinned sibling lib (checkout/install) outranks a stale
+        // global XIOM_HOME -- the dev-machine failure mode where an old
+        // install exported as XIOM_HOME mixed into checkout builds.
+        let repo = r27_dir("repo2");
+        r27_make_stdlib_root(&repo.join("stdlib"));
+        let exe_dir2 = repo.join("target").join("debug");
+        std::fs::create_dir_all(&exe_dir2).unwrap();
+        let roots2 = existing_stdlib_roots(&stdlib_candidates(
+            Some(&exe_dir2), None, Some(home.to_str().unwrap()), None));
+        assert_eq!(
+            roots2.first().map(|p| p.as_path()),
+            Some(repo.join("stdlib").as_path()),
+            "sibling checkout must outrank a stale XIOM_HOME"
+        );
+    }
+
+    #[test]
+    fn r27_stale_baked_path_and_empty_lib_are_ignored() {
+        let tmp = r27_dir("stale");
+        // An unrelated, empty `lib/` beside bin/ must NOT validate.
+        let install = tmp.join("install");
+        std::fs::create_dir_all(install.join("lib")).unwrap();
+        let exe_dir = install.join("bin");
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        // A baked checkout path that does not exist on this machine.
+        let manifest = tmp.join("gone").join("crates").join("xiom");
+        let roots = existing_stdlib_roots(&stdlib_candidates(
+            Some(&exe_dir), None, None, Some(manifest.to_str().unwrap())));
+        assert!(
+            roots.is_empty(),
+            "empty lib/ and a stale baked path must not validate: {roots:?}"
+        );
+    }
+
+    #[test]
+    fn r27_candidate_order_stdlib_exe_cwd_home_baked() {
+        let exe_dir = PathBuf::from("X").join("bin");
+        let strs = r27_strs(&stdlib_candidates(
+            Some(&exe_dir), Some("S"), Some("H"), Some("M/crates/xiom")));
+        let pos = |needle: &str| strs.iter().position(|s| s == needle).unwrap_or(usize::MAX);
+        assert_eq!(strs.first().map(|s| s.as_str()), Some("S"),
+            "XIOM_STDLIB must be the first candidate");
+        assert!(pos("X/bin/stdlib") < pos("X/stdlib"),
+            "nearest exe ancestor must come first");
+        assert!(pos("X/stdlib") < pos("X/lib") && pos("X/lib") < pos("X/share/xiom"));
+        assert!(pos("X/share/xiom") < pos("stdlib"),
+            "exe-relative candidates outrank CWD");
+        assert!(pos("stdlib") < pos("H/lib"),
+            "XIOM_HOME is a fallback, not an override");
+        assert!(pos("H/lib") < pos("H/stdlib"));
+        assert!(pos("H/stdlib") < pos("M/stdlib"),
+            "baked checkout path is the last fallback");
     }
 }
