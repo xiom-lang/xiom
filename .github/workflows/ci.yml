@@ -46,6 +46,9 @@ jobs:
   build-and-test:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    env:
+      # Missing stdlib checkout must fail CI, never silently skip (R31).
+      XIOM_REQUIRE_STDLIB: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -58,6 +61,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Read STDLIB_VERSION
+        id: pin
+        shell: bash
+        run: echo "ref=$(tr -d '\r\n ' < STDLIB_VERSION)" >> "$GITHUB_OUTPUT"
+
+      # Needs org secret XIOM_CROSS_REPO_TOKEN (fine-grained PAT, Contents:
+      # read on xiom-lang/stdlib); github.token cannot read another private
+      # repository. See docs/REPO_MIGRATION_RUNBOOK.md.
+      - name: Checkout stdlib at the pin
+        uses: actions/checkout@v4
+        with:
+          repository: xiom-lang/stdlib
+          ref: ${{ steps.pin.outputs.ref }}
+          path: stdlib
+          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN || github.token }}
 
       - name: Encoding guard (no mojibake / non-ASCII in tracked text files)
         run: python tools/ascii_guard.py check
