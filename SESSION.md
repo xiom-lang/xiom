@@ -78,14 +78,18 @@ stdlib session commits to the same branch; never stage their `stdlib/**`,
   (call-through-value, match payloads off `Vec[fn()].pop()`, struct fields).
   All five async probes + async smokes green; m80 lock. The "unknown type
   'fn() -> Unit'" warning is gone.
+- **R24 FIXED (round 74)**: program-level bodyless fn declarations no longer
+  shadow catalog-body externs during isolated body checks; `extern_fns` is
+  part of the per-body context. The Stage 7 selfhost compile gate
+  (`test_selfhost_v092_compiles`) is GREEN again.
 - **Fixed earlier**: R14/R17/R19 with e2e locks (m71/m72/m73); R15 catalog
   delegation (checker-recorded call targets + full-path injected names);
   per-body alias isolation in `flush_catalog_bodies`.
-- **Last gates (fresh canonical driver)**: checker 188/188 (corpus gate live
+- **Last gates (fresh canonical driver)**: checker 189/189 (corpus gate live
   and clean), stdlib-exec 85/85 (+2 ign), feature-reg 510/510, e2e
-  **2325/2325**, xiom-ast 9/9, xiom 20/20, fmt 83/83, lsp 42/42, jit 5/5,
-  `cargo check --workspace` clean. The stdlib lane's 1f4f0aad (encoding
-  qualification) is part of that green state.
+  **2328/2328**, lsp 44/44, dbg 34/34, mcp 39/39, pkg 45/45, fuzz crate
+  compiles, `cargo check --workspace --all-targets` clean. Selfhost
+  v092 compile gate GREEN (round 74).
 
 ## Immediate task
 

@@ -190,6 +190,30 @@ MAX_EXPR_DEPTH=32; now nest 300), lexer test-only helper gated with
 cfg(test), unused bindings underscored. fuzz_tests 24/24, robustness 63/63,
 workspace check clean.
 
+### Round-74 (2026-09-16): R24 FIXED -- selfhost compile gate green (program bodyless decls vs catalog externs)
+
+Compiler lane. The Stage 7 selfhost gate
+(`diff_tests::test_selfhost_v092_compiles`) was red with catalog-body
+findings on `xiom.io`/`xiom.string`: the selfhost program declares the
+legacy C-runtime signatures as plain bodyless fns
+(`fn xiom_read_file(path: Str) -> Int;`), and the checker's BUG-29
+first-wins rule let those program declarations shadow the stdlib modules'
+own `extern "C"` signatures while their bodies were checked (io.xi's body
+saw `Str -> Int` instead of its `*UInt8 -> *UInt8`).
+
+Fix (crates/xiom-check/src/lib.rs):
+- the BUG-29 keep-first guard now applies only to PROGRAM checks; inside an
+  isolated catalog body the module's own externs win;
+- `flush_catalog_bodies` re-registers the body's own declarations inside
+  the isolated context before checking;
+- `extern_fns` joins `CatalogImportContext` so the D2.1/T002 unsafe marks a
+  catalog body sets cannot leak into the program (selfhost's plain bodyless
+  declarations began demanding `unsafe` without this restore).
+
+Verification: selfhost/xiomc_v092.xi compiles (exit 0), the selfhost diff
+test passes, program-body unsafe requirements unchanged. Gates: checker
+189/189, stdlib-exec 85/85 (+2 ign), feature-reg 510/510, e2e 2328/2328.
+
 ### Round-73 (2026-09-16): R23 FIXED -- fn-typed values env-first in every shape
 
 Compiler lane. All five async probes AV'd (`p_async_p5/p7/p8/p9/p10`,
