@@ -811,10 +811,13 @@ impl IrEmitter {
                     let tmp = self.fresh_tmp();
                     self.emitln(&format!("  {tmp} = load {llvm_ty}, {llvm_ty}* @{symbol}"));
                     Ok((tmp, llvm_ty))
-                } else if let Some(enum_key) = self.types.enum_variants.entries().into_iter()
-    .find(|(_, vars)| vars.iter().any(|(v, _)| v == &ident.name))
-                    .map(|(ek, _)| ek)
-                    .filter(|ek| self.types.types.contains_key(ek))
+                } else if let Some(enum_key) = self.pick_deterministic(
+                    self.types.enum_variants.entries().into_iter()
+                        .filter(|(_, vars)| vars.iter().any(|(v, _)| v == &ident.name))
+                        .map(|(ek, _)| ek)
+                        .filter(|ek| self.types.types.contains_key(ek))
+                        .collect()
+                )
                 {
                     if let Some(vars) = self.types.enum_variants.get(&enum_key) {
                         if let Some(var_idx) = vars.iter().position(|(v, _)| v == &ident.name) {
@@ -883,18 +886,27 @@ impl IrEmitter {
                     }
                     // Function name used as value (e.g. v.push(add_one)):
                     // resolve to a function pointer via ptrtoint of the IR symbol.
-                    // The functions map has both bare names and module-qualified names.
-                    let fn_full: Option<(String, String, Vec<String>)> = {
-                        let exact = self.types.functions.get(&ident.name).map(|(p, r)| (ident.name.clone(), r.clone(), p.clone()));
-                        exact.or_else(|| {
-                            self.types.functions.entries().into_iter().find(|(k, _)| k.ends_with(&format!(".{}", ident.name)))
-                                .map(|(k, (p, r))| (k.clone(), r.clone(), p.clone()))
-                        })
-                    };
+                    // The functions map has both bare names and module-qualified
+                    // names. R25: use the DETERMINISTIC resolver (scope-first +
+                    // pick_deterministic) -- a plain HashMap `find()` over
+                    // suffix matches emitted `@benchmark.math.is_even` in one
+                    // run and `@benchmark.comptime.is_even` in the next for the
+                    // same source site inside benchmark.collections.
+                    let fn_full: Option<(String, String, Vec<String>)> = self.resolve_bare_fn_ref_key(&ident.name)
+                        .and_then(|k| self.types.functions.get(&k).map(|(p, r)| (k.clone(), r.clone(), p.clone())));
                     if let Some((fn_name, ret_ty, param_tys)) = fn_full {
                         let fpty = format!("{ret_ty} ({})*", param_tys.join(", "));
                         let fp = self.fresh_tmp();
-                        self.emitln(&format!("  {fp} = ptrtoint {fpty} @{fn_name} to i64"));
+                        // BUG 22 #11 (same rule as call sites): materialize the
+                        // PRE-ASSIGNED symbol, not the registry key -- with
+                        // same-leaf user modules the bare key ("is_even") maps
+                        // to a module-qualified definition ("alpha.is_even").
+                        // Emitting the raw key produced `@is_even` (undefined)
+                        // in m81.
+                        let symbol = self.mono.fn_symbol_map.get(&fn_name)
+                            .cloned()
+                            .unwrap_or_else(|| fn_name.clone());
+                        self.emitln(&format!("  {fp} = ptrtoint {fpty} @{symbol} to i64"));
                         return Ok((fp, LLVM_I64.to_string()));
                     }
                     // G-20: a bare receiver-FIELD reference in a method body with
@@ -3624,9 +3636,15 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     if self.types.enum_variants.contains_key(ek) {
                         Some(ek.clone())
                     } else {
-                        // Try module-qualified
-                        self.types.enum_variants.keys().into_iter()
-    .find(|k| k.ends_with(&format!(".{ek}")))
+                        // Try module-qualified. R25: deterministic pick (a leaf
+                        // enum name can exist in several modules; the old
+                        // HashMap `find` chose a different one per run).
+                        let suffix = format!(".{ek}");
+                        let candidates: Vec<String> = self.types.enum_variants.entries().into_iter()
+                            .filter(|(k, _)| k.ends_with(&suffix))
+                            .map(|(k, _)| k)
+                            .collect();
+                        self.pick_deterministic(candidates)
                     }
                 } else {
                     // Bare variant: search all enums -- BUT only when the name

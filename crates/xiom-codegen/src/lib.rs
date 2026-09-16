@@ -4725,6 +4725,58 @@ impl IrEmitter {
         bare.to_string()
     }
 
+    /// R25: DETERMINISTIC resolution of a bare fn NAME used as a VALUE
+    /// (fn-reference coercion, thunk wrapping). Direct calls are resolved by
+    /// the checker; a fn VALUE is looked up here, so the pick must never
+    /// depend on HashMap iteration order -- `is_even`/`double`/`add`/
+    /// `multiply` exist in several bench modules and `entries().find()`
+    /// emitted `@benchmark.math.is_even` in one run and
+    /// `@benchmark.comptime.is_even` in another (non-byte-identical IR).
+    /// Order: caller module -> exact bare key -> lexical aliases ->
+    /// deterministic suffix pick (current module first, shortest,
+    /// lexicographic -- the `pick_deterministic` pattern).
+    pub(crate) fn resolve_bare_fn_ref_key(&self, name: &str) -> Option<String> {
+        // Scope-first: same-leaf user modules register BOTH a bare key
+        // (ambiguous, keep-first value) and per-module keys; the bare key's
+        // fn_symbol slot belongs to the FIRST module, so resolving it inside
+        // another module bound the wrong function (m81: beta.check used
+        // alpha.is_even). The caller's own module always wins.
+        let caller_module = self.fctx.current_fn.as_ref()
+            .and_then(|k| k.rsplit_once('.'))
+            .map(|(m, _)| m.to_string())
+            .or_else(|| self.local.current_module.clone());
+        if let Some(m) = caller_module {
+            let qualified = format!("{m}.{name}");
+            if self.types.functions.contains_key(&qualified) {
+                return Some(qualified);
+            }
+        }
+        if self.types.functions.contains_key(&name.to_string()) {
+            return Some(name.to_string());
+        }
+        if let Some(qualified) = self.mono.bare_fn_aliases.get(name) {
+            return Some(qualified.clone());
+        }
+        let suffix = format!(".{name}");
+        let candidates: Vec<String> = self.types.functions.keys().into_iter()
+            .filter(|k| k.ends_with(&suffix))
+            .collect();
+        self.pick_deterministic(candidates)
+    }
+
+    /// R25: deterministic `(ref_name, ref_params)` for a bare fn-REFERENCE
+    /// argument. Keeps the historical contract of returning an empty name
+    /// when the ident is not a free function (callers guard on it).
+    pub(crate) fn resolve_fn_ref_arg(&self, id: &Ident) -> (String, Vec<String>) {
+        match self.resolve_bare_fn_ref_key(&id.name) {
+            Some(key) => {
+                let params = self.types.functions.get(&key).map(|(p, _)| p.clone()).unwrap_or_default();
+                (id.name.clone(), params)
+            }
+            None => (String::new(), Vec::new()),
+        }
+    }
+
     /// BUG 30: given a resolved callee key, return the STRUCT type name from
     /// its registered return type (None when the fn isn't registered or the
     /// return type isn't a struct).
@@ -5811,9 +5863,13 @@ impl IrEmitter {
             // sources built passing vs crashing binaries (m34_y15/y20,
             // smoke_simd -- flaky across builds; sorted emission makes the
             // output reproducible).
+            // R25: the sort key must be a TOTAL order -- two specializations of
+            // the SAME generic (`Option.is_some` for Record/Pair) tied on the
+            // base name and kept discovery order, so `Option__Record.is_some`
+            // and `Option__Pair.is_some` swapped positions across runs.
             let mut instantiations_sorted: Vec<(String, Vec<String>)> =
                 instantiations.into_iter().collect();
-            instantiations_sorted.sort_by(|a, b| a.0.cmp(&b.0));
+            instantiations_sorted.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
             for (base_name, concrete_types) in &instantiations_sorted {
             // Find the generic function decl
             let fd = match self.find_generic_decl(base_name) {
@@ -6545,9 +6601,13 @@ impl IrEmitter {
         // B-001: Emit builtins for concrete Option__T types so `.is_some`,
         // `.is_none`, and `.unwrap` resolve without falling through to
         // the monomorphisation stub (which returns 0).
-        let concrete_opts: Vec<String> = self.types.type_meta.keys().into_iter()
+        // R25: SORT the concrete-type list -- type_meta is HashMap-backed, so
+        // the per-type builtin bodies (Option__Pair/Option__Record.is_some)
+        // came out in a different order per process.
+        let mut concrete_opts: Vec<String> = self.types.type_meta.keys().into_iter()
      .filter(|k| k.starts_with("Option__"))
             .collect();
+        concrete_opts.sort();
         for name in &concrete_opts {
             let cty = format!("%struct.{name}");
             let field_ty_1 = self.types.type_meta.get(name)

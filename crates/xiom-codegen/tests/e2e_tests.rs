@@ -4668,6 +4668,34 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m80_fn_value_shapes() {
     assert_eq!(compile_and_run("tests\\regression\\m80_fn_value_shapes.xi"), Some(0));
 }
+
+// R25: same-leaf fn-REFERENCE resolution across user modules. Two modules
+// each define `is_even` + a higher-order `apply`; each passes its OWN fn by
+// value. Pre-R25 the fn-registry suffix scan was HashMap-ordered and could
+// bind the other module's `is_even` (wrong result), and the emitted ptrtoint
+// used the raw registry key (bare `@is_even` undefined) instead of the
+// pre-assigned symbol.
+#[test] fn e2e_m81_fn_ref_same_leaf() {
+    let exe = project_root().join("e2e_m81_fn_ref_same_leaf.exe");
+    let _ = std::fs::remove_file(&exe);
+    let compile = Command::new(xiom_path())
+        .args([
+            "-o", exe.to_str().unwrap(),
+            "tests/regression/m81_fn_ref_same_leaf/alpha.xi",
+            "tests/regression/m81_fn_ref_same_leaf/beta.xi",
+            "tests/regression/m81_fn_ref_same_leaf/gateway.xi",
+        ])
+        .current_dir(project_root())
+        .output()
+        .expect("failed to spawn xiom");
+    if !compile.status.success() {
+        eprintln!("stdout: {}", String::from_utf8_lossy(&compile.stdout));
+        eprintln!("stderr: {}", String::from_utf8_lossy(&compile.stderr));
+    }
+    assert!(compile.status.success(), "m81 multi-source compile should succeed");
+    let run = Command::new(&exe).output().expect("failed to run m81 exe");
+    assert_eq!(run.status.code(), Some(0), "m81 should exit 0");
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }

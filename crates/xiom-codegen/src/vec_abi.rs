@@ -445,14 +445,10 @@ impl IrEmitter {
     pub(crate) fn wrap_fn_ref_env(&mut self, fn_name: &str, fn_addr: &str, ret_xiom: &str, param_llvm: Vec<String>) -> String {
         let ret_llvm = self.llvm_type_for(ret_xiom).unwrap_or_else(|_| "i64".to_string());
         // Resolve the callee's emitted SYMBOL (the registered key, or the
-        // pre-assigned symbol map entry).
-        let symbol = self.types.functions.contains_key(&fn_name.to_string())
-            .then(|| fn_name.to_string())
-            .or_else(|| {
-                let suffix = format!(".{}", fn_name);
-                self.types.functions.keys().into_iter()
-                    .find(|k| k.ends_with(&suffix))
-            })
+        // pre-assigned symbol map entry). R25: deterministic scope-first
+        // resolution -- a HashMap-order suffix pick here could disagree with
+        // the ptrtoint the caller emitted for the same fn VALUE.
+        let symbol = self.resolve_bare_fn_ref_key(fn_name)
             .unwrap_or_else(|| fn_name.to_string());
         let symbol = self.mono.fn_symbol_map.get(&symbol).cloned().unwrap_or(symbol);
         // Defer the thunk DEF to module level (the emitter sits inside a fn

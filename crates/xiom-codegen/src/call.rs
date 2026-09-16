@@ -1091,15 +1091,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                             && !self.local.closure_locals.contains(&id.name));
                                     if is_fn_ref {
                                         if let Expr::Ident(id) = ae {
-                                            let params = self.types.functions.get(&id.name)
-                                                .map(|(p, _)| p.clone())
-                                                .or_else(|| {
-                                                    let suffix = format!(".{}", id.name);
-                                                    self.types.functions.entries().into_iter()
-                                                        .find(|(k, _)| k.ends_with(&suffix))
-                                                        .map(|(_, (p, _))| p.clone())
-                                                })
-                                                .unwrap_or_default();
+                                            // R25: deterministic scope-first param lookup.
+                                            let (_, params) = self.resolve_fn_ref_arg(id);
                                             let ret = elem_xiom.as_deref().unwrap_or("Int").to_string();
                                             wrapped = Some(self.wrap_fn_ref_env(&id.name, &val_raw, &ret, params));
                                         }
@@ -3945,18 +3938,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                 && !self.local.closure_locals.contains(&id.name));
                                         if is_fn_ref {
                                             let (ref_name, ref_params) = match ae {
-                                                Expr::Ident(id) => {
-                                                    let p = self.types.functions.get(&id.name)
-                                                        .map(|(p, _)| p.clone())
-                                                        .or_else(|| {
-                                                            let suffix = format!(".{}", id.name);
-                                                            self.types.functions.entries().into_iter()
-                                                                .find(|(k, _)| k.ends_with(&suffix))
-                                                                .map(|(_, (p, _))| p.clone())
-                                                        })
-                                                        .unwrap_or_default();
-                                                    (id.name.clone(), p)
-                                                }
+                                                Expr::Ident(id) => self.resolve_fn_ref_arg(id),
                                                 _ => (String::new(), Vec::new()),
                                             };
                                             if !ref_name.is_empty() {
@@ -4222,18 +4204,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                     || self.mono.emitted_fns.contains(&id.name));
                                             if is_fn_ref {
                                                 let (ref_name, ref_params) = match ae {
-                                                    Expr::Ident(id) => {
-                                                        let p = self.types.functions.get(&id.name)
-                                                            .map(|(p, _)| p.clone())
-                                                            .or_else(|| {
-                                                                let suffix = format!(".{}", id.name);
-                                                                self.types.functions.entries().into_iter()
-                                                                    .find(|(k, _)| k.ends_with(&suffix))
-                                                                    .map(|(_, (p, _))| p.clone())
-                                                            })
-                                                            .unwrap_or_default();
-                                                        (id.name.clone(), p)
-                                                    }
+                                                    Expr::Ident(id) => self.resolve_fn_ref_arg(id),
                                                     _ => (String::new(), Vec::new()),
                                                 };
                                                 if !ref_name.is_empty() {
@@ -4277,18 +4248,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                     || self.mono.emitted_fns.contains(&id.name));
                                             if is_fn_ref {
                                                 let (ref_name, ref_params) = match ae {
-                                                    Expr::Ident(id) => {
-                                                        let p = self.types.functions.get(&id.name)
-                                                            .map(|(p, _)| p.clone())
-                                                            .or_else(|| {
-                                                                let suffix = format!(".{}", id.name);
-                                                                self.types.functions.entries().into_iter()
-                                                                    .find(|(k, _)| k.ends_with(&suffix))
-                                                                    .map(|(_, (p, _))| p.clone())
-                                                            })
-                                                            .unwrap_or_default();
-                                                        (id.name.clone(), p)
-                                                    }
+                                                    Expr::Ident(id) => self.resolve_fn_ref_arg(id),
                                                     _ => (String::new(), Vec::new()),
                                                 };
                                                 if !ref_name.is_empty() {
@@ -4384,18 +4344,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                 && !self.local.closure_locals.contains(&id.name));
                                         if is_fn_ref {
                                             let (ref_name, ref_params) = match ae {
-                                                Expr::Ident(id) => {
-                                                    let p = self.types.functions.get(&id.name)
-                                                        .map(|(p, _)| p.clone())
-                                                        .or_else(|| {
-                                                            let suffix = format!(".{}", id.name);
-                                                            self.types.functions.entries().into_iter()
-                                                                .find(|(k, _)| k.ends_with(&suffix))
-                                                                .map(|(_, (p, _))| p.clone())
-                                                        })
-                                                        .unwrap_or_default();
-                                                    (id.name.clone(), p)
-                                                }
+                                                Expr::Ident(id) => self.resolve_fn_ref_arg(id),
                                                 _ => (String::new(), Vec::new()),
                                             };
                                             if !ref_name.is_empty() {
