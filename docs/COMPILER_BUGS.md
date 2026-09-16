@@ -6399,4 +6399,84 @@ Residual findings (pre-existing, found while gating; not part of this fix):
   does NOT fully clang-compile at HEAD. Stage 6 measures emitted IR bytes
   only, so this never gated; remeasure before wiring a full bench build.
 
+## R31. Cross-repo test isolation: compiler suites assume a sibling stdlib checkout (2026-09-16, release/infra lane)
+
+Found while planning the monorepo split (docs/REPO_MIGRATION_RUNBOOK.md). After
+the split, `xiom-lang/xiom` and `xiom-lang/stdlib` are separate repos; the
+compiler's test suites currently ASSUME a sibling `stdlib/` checkout and
+`examples/stdlib_smoke/` corpus, so a bare compiler clone cannot run its own
+tests, and a bare stdlib clone cannot run anything without a compiler binary.
+
+Evidence (all paths in the compiler repo):
+- `crates/xiom-codegen/tests/stdlib_tests.rs` hardcodes `stdlib/xiom/*.xi`
+  module paths (list at line 34+), compiles a synthetic `use xiom.*` program
+  with CWD = repo root.
+- `crates/xiom-codegen/tests/stdlib_execution_tests.rs` compiles and runs
+  `examples\stdlib_smoke\smoke_*.xi` (line 137+). One test already has the
+  right pattern: it SKIPS with a message when the smoke file is absent
+  (`stdlib_exec_cross_module_serialize_convert`, lines 493-497) because the
+  file was owned by the parallel lane at the time.
+- `crates/xiom-codegen/tests/stdlib_api_freeze_tests.rs` resolves module files
+  by scanning the stdlib tree (`resolve_module_path`) and compiles the FROZEN
+  module set (lines 1061-1115).
+- `crates/xiom-lsp/src/main.rs` test `test_stdlib_module_no_false_positives`
+  reads `<repo>/stdlib/xiom/alloc/alloc.xi` with `.expect(...)` -- a hard
+  failure once the stdlib is not a subdirectory.
+- `crates/xiom-mcp` knowledge tests call `stdlib_reference()` and assert it
+  resolves "from repo" (main.rs 951-984); resolution goes through the stdlib
+  candidate scan, so a bare checkout fails the test even though the tool
+  itself degrades gracefully.
+- `crates/xiom-jit/src/lib.rs` resolves runtime sources and libraries from
+  CWD-relative `stdlib/runtime/...` plus `XIOM_HOME` (lines 439-500); it does
+  not use the R27 `current_stdlib_candidates()` helper, so JIT fails from a
+  bare checkout even with a stdlib checked out elsewhere.
+- `crates/xiom-codegen/tests/feature_regression_tests.rs`
+  `regress_r901_registry_index_exists` reads `packages/index.json`; it is
+  guarded by `if path.exists()` and therefore skips silently (the guard should
+  be loud).
+- `crates/xiom-pkg/src/main.rs` resolves the `xiom-std` dependency from
+  `<workspace_root>/stdlib` and reads `<workspace>/packages/index.json`
+  (lines 410-434, 887-890). Tooling behavior, not tests, but the same
+  repo-layout assumption; it already degrades when the paths are absent.
+- Implicit: every e2e/feature test that compiles `use xiom.*` needs a
+  DISCOVERABLE stdlib at run time (CWD `stdlib/`, `XIOM_STDLIB`, or the
+  installed layout that R27 fixed). A bare compiler clone today fails nearly
+  the whole corpus.
+
+Reverse direction (stdlib repo): the smoke corpus currently lives in the
+compiler tree at `examples/stdlib_smoke/` -- the split moves it into
+`xiom-lang/stdlib`. The `.xi` smoke files themselves contain no compiler-path
+references (verified: only string literals such as `"../d"` inside URL tests).
+The stdlib repo's tests will need a compiler binary: download a released
+`xiom` in CI, or take a `--compiler <path>` argument in a local runner.
+
+Required work (compiler lane), in order:
+1. One path helper used by every cross-repo test: `stdlib_root()` =
+   `XIOM_STDLIB` or the repo-relative `stdlib/`; `stdlib_smoke_root()` =
+   `XIOM_STDLIB_SMOKES` or the repo-relative `examples/stdlib_smoke/`.
+2. Skip with a LOUD message when the path is missing; FAIL instead of
+   skipping when `XIOM_REQUIRE_STDLIB=1` (CI sets it). The existing
+   `stdlib_exec_cross_module_serialize_convert` guard is the model to copy.
+3. Add `scripts/fetch-stdlib.ps1` + `.sh` reading a new pinned `STDLIB_VERSION`
+   file: shallow-clone `xiom-lang/stdlib` at that tag into `stdlib/` and
+   `examples/stdlib_smoke/`. README: `./scripts/fetch-stdlib.ps1` then
+   `cargo test`.
+4. LSP alloc test and MCP knowledge tests: parameterize on `stdlib_root()`
+   and skip loudly when absent.
+5. Route `xiom-jit` runtime source/library discovery through the existing R27
+   `current_stdlib_candidates()` helper (installed layout + checkout + env),
+   not raw CWD strings.
+6. Make the R9-01 package-index guard print a SKIP line instead of vanishing.
+
+Acceptance:
+- Fresh clone of the compiler repo with NO stdlib: `cargo test --workspace
+  --lib` + fast gates pass with visible SKIP lines naming the missing repo.
+- Same clone after `scripts/fetch-stdlib`: full fast gates green.
+- CI with `XIOM_REQUIRE_STDLIB=1` fails if the stdlib checkout is missing --
+  no silent green.
+
+Owners: compiler lane (test harnesses, jit, fetch script); release lane (CI
+wiring, README); stdlib lane (move smokes, add a local runner taking a
+compiler path).
+
 
