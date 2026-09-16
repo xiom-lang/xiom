@@ -6091,7 +6091,7 @@ test passes, and the program-body unsafe requirements are unchanged
 (`extern_fns` restored). Gates: checker 189/189, stdlib-exec 85/85 (+2 ign),
 feature-reg 510/510, e2e 2328/2328. Stage 7 selfhost build gate unblocked.
 
-## R25. `.value` on a TEMPORARY aggregate Option payload is corrupt (2026-09-16, stdlib lane round 62)
+## R28. `.value` on a TEMPORARY aggregate Option payload is corrupt (2026-09-16, stdlib lane round 62; renumbered from stdlib-R25 after the compiler lane published its own R25/R27)
 
 Found while writing dedup parity probes on target_r46 (HEAD 9acb9bdd; NOT
 fixed by R23/R24). Reading a payload out of a call-result temporary with
@@ -6120,7 +6120,7 @@ local first, or use `match`. Repro:
 `target_r46\debug\xiom.exe --run probes\p_payload_read.xi` -> B b0=0;
 `--run probes\p_ip_parity2.xi` (named-local form) -> 0 mismatches.
 
-## R26. Vec built inside a match arm over a Result[Vec[...]] payload breaks clang codegen (2026-09-16, stdlib lane round 62)
+## R29. Vec built inside a match arm over a Result[Vec[...]] payload breaks clang codegen (2026-09-16, stdlib lane round 62; renumbered from stdlib-R26)
 
 Found while delegating `net.ip.ipv6_parse` to `net.ip6`. A function that
 matches on a `Result[Vec[UInt8], Str]` payload and builds/returns a
@@ -6135,7 +6135,7 @@ the workaround is `let r = f(s); if r.is_err { return None; }; let b =
 r.value; ...build...` (named local + early return), which compiles and runs.
 Applied to `net.ip.ipv6_parse`; parity re-verified (p_netip_parity 0
 mismatches, net smokes green). Note the named-local `.value` read on a
-Result is R25-safe (R25 only affects temporaries). Repro:
+Result is R28-safe (R28 only affects temporaries). Repro:
 `target_r46\debug\xiom.exe --run probes\p_match_vec_codegen.xi` -> clang
 type-mismatch; the same probe's conv_named compiled through `p_netip_a.xi`.
 
@@ -6177,9 +6177,11 @@ install.ps1 to lay out a `stdlib/` directory instead of `lib/`. `lib/` is alread
 documented in the installer text and other tools may assume it, so the compiler
 should accept both.
 
-Numbering note: R25 and R26 above are the stdlib-lane findings; the compiler lane's
-fn-reference determinism item (docs/SESSION.md round 76, also labeled R25 there) is
-tracked separately.
+Numbering note: the stdlib-lane findings published as R25/R26 in round 62 were
+RENUMBERED to R28 (`.value` on a temporary aggregate payload) and R29 (Vec in a
+match arm) because the compiler lane published its own R25 (fn-REFERENCE
+determinism, round 77) and R27 (installed-binary stdlib discovery); the
+compiler's numbers stand.
 
 Owner: compiler lane. Blocks: docs/RELEASE_INFRA_PLAN.md R0 split gate.
 
