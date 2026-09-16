@@ -1,6 +1,6 @@
 // XIOM -- xiom.ffi Conformance Tests
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
+// Licensed under the Apache-2.0 license.
 //
 // Comprehensive conformance suite for xiom.ffi stdlib module.
 // Covers: raw C interop (alloc/free/memcpy), SafePtr lifecycle,

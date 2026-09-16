@@ -1,6 +1,6 @@
 // XIOM Language Server -- LSP position math
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
+// Licensed under the Apache-2.0 license.
 
 //! LSP positions are zero-based line + UTF-16 code units. XIOM spans carry
 //! one-based line + Unicode-scalar columns, and the server's internal string

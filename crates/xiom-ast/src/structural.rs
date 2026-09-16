@@ -1,6 +1,6 @@
 // XIOM -- Structural Type Names (Stage 2c)
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
+// Licensed under the Apache-2.0 license.
 
 //! Canonical structural identity for XIOM's string-encoded type names.
 //!

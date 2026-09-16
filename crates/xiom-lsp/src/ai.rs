@@ -1,6 +1,6 @@
 // XIOM Language Server -- AI insight integration for hover
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
+// Licensed under the Apache-2.0 license.
 
 /// Search `.xiom_ai.json` for a hint matching the given file and line (0-indexed).
 /// Returns the AI insight text if found, or None.

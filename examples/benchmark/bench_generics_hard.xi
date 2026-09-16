@@ -1,8 +1,8 @@
 // XIOM -- Heavy Generics + Comptime Benchmark
 // Exercises complex generic types, multi-param generics, generic enums,
 // nested generics, and generic methods on generic structs.
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
+// Licensed under the Apache-2.0 license.
 
 module benchmark.generics_hard
 

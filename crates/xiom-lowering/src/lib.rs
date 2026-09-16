@@ -1,6 +1,6 @@
 // XIOM -- Lowering Passes
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
+// Licensed under the Apache-2.0 license.
 
 //! Semantic LOWERING passes. Home of `expand_impl_blocks`, which used to
 //! live inside xiom-ast (a LAYERING VIOLATION -- audited: the AST crate
