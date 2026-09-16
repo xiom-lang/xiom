@@ -6090,3 +6090,33 @@ Verification: `selfhost/xiomc_v092.xi` compiles (exit 0), the selfhost diff
 test passes, and the program-body unsafe requirements are unchanged
 (`extern_fns` restored). Gates: checker 189/189, stdlib-exec 85/85 (+2 ign),
 feature-reg 510/510, e2e 2328/2328. Stage 7 selfhost build gate unblocked.
+
+## R25. `.value` on a TEMPORARY aggregate Option payload is corrupt (2026-09-16, stdlib lane round 62)
+
+Found while writing dedup parity probes on target_r46 (HEAD 9acb9bdd; NOT
+fixed by R23/R24). Reading a payload out of a call-result temporary with
+`.value` yields a Vec whose element data is all zeros (length and shape are
+correct; Int payloads are unaffected). Minimal repro `probes\p_payload_read.xi`:
+
+| shape | result |
+|---|---|
+| A `var o = f(); let v = o.value;` (Vec payload, named Option local) | correct (b0=1) |
+| B `let v = f().value;` (Vec payload, temporary call result) | **CORRUPT (b0=0)** |
+| C `let v = g().value;` (Int payload, temporary) | correct (7) |
+| D `var o = g(); let v = o.value;` (Int payload, named local) | correct (8) |
+| E `match f() { Some(v) => ... }` | correct (b0=5) |
+
+where `f = dns.dns_parse_ipv4("1.2.3.4")` (Option[Vec[UInt8]]) and
+`g = char.to_digit('7', 10)` (Option[Int]). A variant that performs an
+intervening allocation before the read shows the same zeros, i.e. the
+copied aggregate payload does not point at the parsed heap vector (the
+Int-payload path is a value copy and is fine; the aggregate path copies the
+aggregate from the wrong slot/storage).
+
+Impact: user programs reading `opt.value` directly from a call result get
+silently wrong data (memory-safety adjacent). Workaround (used by the new
+`convert.ip` / `net.dns` dedup shims): bind the Option/Result to a named
+local first, or use `match`. Repro:
+`target_r46\debug\xiom.exe --run probes\p_payload_read.xi` -> B b0=0;
+`--run probes\p_ip_parity2.xi` (named-local form) -> 0 mismatches.
+
