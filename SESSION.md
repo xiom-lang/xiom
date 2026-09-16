@@ -82,6 +82,11 @@ stdlib session commits to the same branch; never stage their `stdlib/**`,
   shadow catalog-body externs during isolated body checks; `extern_fns` is
   part of the per-body context. The Stage 7 selfhost compile gate
   (`test_selfhost_v092_compiles`) is GREEN again.
+- **Supply-chain signatures DONE (round 75)**: ed25519 keygen/trust/sign/
+  verify (`xiom pkg keygen|trust|trusted|sign|verify`), fail-closed install
+  for trusted registries, signed publish over ureq-only multipart (curl
+  gone), `XIOM_REGISTRY_TOKEN` auth header, git deps pinned to full commits.
+  pkg 52/52. Remaining: transitive closure + server-side publish auth.
 - **Fixed earlier**: R14/R17/R19 with e2e locks (m71/m72/m73); R15 catalog
   delegation (checker-recorded call targets + full-path injected names);
   per-body alias isolation in `flush_catalog_bodies`.
@@ -93,14 +98,17 @@ stdlib session commits to the same branch; never stage their `stdlib/**`,
 
 ## Immediate task
 
-Stage 5 remainder, in suggested order:
-1. Supply-chain signatures: ed25519 signing/verification + trust model,
-   authenticated publish, transitive closure from registry metadata.
+Remaining toward 100%:
+1. Supply chain tail: transitive dependency closure from registry metadata,
+   server-side publish authentication.
 2. fmt: body-inline comment trivia attachment (stage-2 trivia dependency).
 3. cargo-vet audits.
 4. clap migration of the driver parser (large; keep the CLI surface
    byte-compatible and gate with the full e2e suite).
-Then Stage 6 performance, Stage 7 selfhost.
+5. Stage 7 selfhost ladder beyond the compile gate: the current v092..v11
+   sources are milestone emitters -- the full XIOM-in-XIOM compiler
+   (zero-ICE self-build) is a multi-phase project.
+Then Stage 6 performance.
 
 Full ledger: `docs/COMPILER_BUGS.md` (RNN entries are appended at the end;
 the R22 and R21d follow-up entries are newest). Round history:
