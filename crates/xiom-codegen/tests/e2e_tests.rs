@@ -4696,6 +4696,14 @@ fn e2e_safety_probe() {
     let run = Command::new(&exe).output().expect("failed to run m81 exe");
     assert_eq!(run.status.code(), Some(0), "m81 should exit 0");
 }
+
+// R28: Option/Result `.value` on a TEMPORARY call result must materialize the
+// aggregate payload. Pre-fix the computed-value field path skipped the
+// payload override, bound the raw handle as i64, and later indexing emitted
+// a literal 0 (zeroed Vec) while a named local worked.
+#[test] fn e2e_m82_tmp_payload_value() {
+    assert_eq!(compile_and_run("tests\\regression\\m82_tmp_payload_value.xi"), Some(0));
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }

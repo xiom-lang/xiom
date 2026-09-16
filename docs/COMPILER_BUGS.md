@@ -5994,6 +5994,14 @@ the stress smoke keeps the full surface and scales counts. Repro:
 `target_r45\debug\xiom.exe --run probes\p_async_p7.xi` -> 0xC0000005;
 `--run examples\stdlib_smoke\smoke_async_stress.xi` -> OK.
 
+**FIXED (2e06a3e7) and re-verified by the stdlib lane on r46 (2026-09-16):**
+all reduced-shape probes now run their callbacks correctly --
+`p_async_p5` (stderr-marked single task), `p_async_p7` (n=2), `p_async_p9`
+(5000-spawn storm, n=5000), and the new `smoke_async_cancel.xi`
+(executor_shutdown drops 1000 pending tasks; timer-wheel cancel-all /
+selective cancel; channel close drain/Err semantics). The full-surface
+shape in smoke_async_stress is kept as broader coverage, not a workaround.
+
 ### R23 FIXED (2026-09-16, compiler lane round 73): fn-typed values are env-first in every shape
 
 Reproduced all five async probes (p_async_p5/p7/p8/p9/p10 AV) plus a minimal
@@ -6119,6 +6127,33 @@ silently wrong data (memory-safety adjacent). Workaround (used by the new
 local first, or use `match`. Repro:
 `target_r46\debug\xiom.exe --run probes\p_payload_read.xi` -> B b0=0;
 `--run probes\p_ip_parity2.xi` (named-local form) -> 0 mismatches.
+
+### R28 FIXED (2026-09-16, compiler lane round 79)
+
+Root cause: the Field arm has TWO struct-field readers. The local-receiver path
+(`Expr::Ident`) applies the Option/Result payload override (reinterpret the
+erased i64 slot: Str -> i8*, Float -> bitcast, boxed struct/container ->
+inttoptr+load), but the computed-value path (`f().value`, `data.get(i).value`)
+just loaded `field_llvm_ty` statically -- for `Option.value`/`Result.value`
+that is the erased i64, so the binding held the raw payload HANDLE. The Let
+arm's inference still recorded `Vec[Int]`, so `.len()` coerced the handle to
+`%struct.Vec*` (length read correctly) while `v[0]` on the i64 slot fell to
+the literal-0 fallback: "correct shape, zeroed data".
+
+Fix: extracted the payload-aware read into one helper
+(`IrEmitter::emit_struct_field_read`, expr.rs) that mirrors the local-receiver
+override exactly (same payload map: Str/Float/Float32/scalars/boxed structs),
+and routed the computed-value path through it. The two paths can no longer
+drift.
+
+Evidence: `probes\p_payload_read.xi` now prints B tmp-len=4 b0=1 (was b0=0);
+all five shapes A-E correct; exit 0. New lock
+`tests/regression/m82_tmp_payload_value.xi` + `e2e_m82_tmp_payload_value`
+covers temporary `Option[Vec[Int]].value`, temporary
+`Result[Vec[Int], Str].value`, scalar temporary, and the named-local control.
+
+Gates: e2e_m82 1/1, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
+perf 2/2 (both determinism canaries).
 
 ## R29. Vec built inside a match arm over a Result[Vec[...]] payload breaks clang codegen (2026-09-16, stdlib lane round 62; renumbered from stdlib-R26)
 

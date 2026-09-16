@@ -190,6 +190,28 @@ MAX_EXPR_DEPTH=32; now nest 300), lexer test-only helper gated with
 cfg(test), unused bindings underscored. fuzz_tests 24/24, robustness 63/63,
 workspace check clean.
 
+### Round-79 (2026-09-16): R28 FIXED -- temporary `.value` payload materialization
+
+Compiler lane, on the stdlib lane's R28 (`probes\p_payload_read.xi`).
+
+- Root cause: the Field arm's computed-value path (`f().value`) skipped the
+  Option/Result payload override that the local-receiver path applies, so the
+  binding held the erased payload HANDLE as i64; `.len()` coerced it back
+  (shape right) while `v[0]` on the i64 slot fell to the literal-0 fallback
+  (zeroed data).
+- Fix: `IrEmitter::emit_struct_field_read` (expr.rs) extracts the payload-aware
+  read (Str/Float/Float32/scalars/boxed structs) and the computed-value path
+  uses it; the local path keeps its inline copy for now but the helper is the
+  canonical semantics.
+- Evidence: `p_payload_read.xi` prints B tmp-len=4 b0=1 (was b0=0), all
+  shapes A-E correct, exit 0. Lock `e2e_m82_tmp_payload_value`
+  (`tests/regression/m82_tmp_payload_value.xi`: Option[Vec] + Result[Vec,Str]
+  temporaries + scalar + named-local controls).
+- Gates: m82 1/1, feature-reg 510/510, stdlib-exec 85/85 (+2 ign), perf 2/2.
+- Next: R29 (`probes\p_match_vec_codegen.xi`), then cross-enum variant
+  ambiguity + bench Metrics GEP, then Stage 5 tail (supply-chain, clap, fmt
+  trivia, cargo-vet/fuzz/ASAN).
+
 ### Round-78 (2026-09-16): R27 FIXED -- installed-binary stdlib discovery (release R0)
 
 Compiler lane, on the release/infra lane's R27 (docs/COMPILER_BUGS.md).
