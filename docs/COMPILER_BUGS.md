@@ -6120,3 +6120,22 @@ local first, or use `match`. Repro:
 `target_r46\debug\xiom.exe --run probes\p_payload_read.xi` -> B b0=0;
 `--run probes\p_ip_parity2.xi` (named-local form) -> 0 mismatches.
 
+## R26. Vec built inside a match arm over a Result[Vec[...]] payload breaks clang codegen (2026-09-16, stdlib lane round 62)
+
+Found while delegating `net.ip.ipv6_parse` to `net.ip6`. A function that
+matches on a `Result[Vec[UInt8], Str]` payload and builds/returns a
+`Vec[UInt16]` inside the Ok arm fails LLVM with:
+
+    xiominput.ll:1055:24: error: '%tmp147' defined with type
+    '%struct.Vec = type { ptr, i64, i64, i64 }' but ... (type mismatch)
+
+Minimal repro `probes\p_match_vec_codegen.xi`: `conv_match` (failing) and
+`conv_named` (compiling workaround) differ only in the control shape --
+the workaround is `let r = f(s); if r.is_err { return None; }; let b =
+r.value; ...build...` (named local + early return), which compiles and runs.
+Applied to `net.ip.ipv6_parse`; parity re-verified (p_netip_parity 0
+mismatches, net smokes green). Note the named-local `.value` read on a
+Result is R25-safe (R25 only affects temporaries). Repro:
+`target_r46\debug\xiom.exe --run probes\p_match_vec_codegen.xi` -> clang
+type-mismatch; the same probe's conv_named compiled through `p_netip_a.xi`.
+
