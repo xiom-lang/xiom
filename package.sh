@@ -71,11 +71,15 @@ if [ -f "$ROOT/resource/img/xiom-icon.ico" ]; then
     echo "    + xiom-icon.ico"
 fi
 
-# Copy stdlib + runtime
-if [ -d "$ROOT/stdlib" ]; then
-    cp -r "$ROOT/stdlib/"* "$LIB_DIR/"
-    echo "    + stdlib/ -> lib/"
+# Copy stdlib + runtime (R31: bundle from the stdlib/ checkout -- the pinned
+# xiom-lang/stdlib clone produced by scripts/fetch-stdlib.sh once the repo is
+# split; pre-split this is the in-tree tree).
+if [ ! -f "$ROOT/stdlib/package.xi" ]; then
+    echo "ERROR: stdlib checkout missing at $ROOT/stdlib -- run scripts/fetch-stdlib.sh (or set XIOM_STDLIB) before packaging" >&2
+    exit 1
 fi
+cp -r "$ROOT/stdlib/"* "$LIB_DIR/"
+echo "    + stdlib/ -> lib/ (pin: $(tr -d '[:space:]' < "$ROOT/STDLIB_VERSION"))"
 if [ -f "$ROOT/stdlib/runtime/xiom_runtime.c" ]; then
     cp "$ROOT/stdlib/runtime/xiom_runtime.c" "$RT_DIR/"
     echo "    + xiom_runtime.c -> runtime/"

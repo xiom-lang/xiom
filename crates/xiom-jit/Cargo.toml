@@ -9,3 +9,6 @@ description = "XIOM OrcJIT -- Production-grade JIT via process-pool clang + OS d
 libloading = "0.8"
 sha2 = "0.10"
 notify = "7"
+# R31: shared R27 stdlib/runtime path resolution (installed lib/, checkout
+# stdlib/, XIOM_HOME, CWD) -- jit no longer probes raw CWD strings.
+xiom-graph = { path = "../xiom-graph" }

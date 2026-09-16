@@ -103,6 +103,11 @@ fn stdlib_modules() -> Vec<(&'static str, &'static str)> {
 
 #[test]
 fn stdlib_all_modules_compile_to_ir() {
+    // R31: a missing stdlib checkout is a loud SKIP locally and a hard FAIL
+    // under XIOM_REQUIRE_STDLIB=1 (CI) -- never a silent green.
+    if xiom_graph::paths::stdlib_or_skip().is_none() {
+        return;
+    }
     // Compile ALL stdlib modules TOGETHER in a single compilation unit
     // so cross-module references (e.g. core.xi::from_cstring used by
     // string.xi) are resolved. Isolated per-file compilation was failing
@@ -150,6 +155,9 @@ fn stdlib_all_modules_compile_to_ir() {
 // =====================================================================
 
 fn compile_module(module: &str) -> bool {
+    if xiom_graph::paths::stdlib_or_skip().is_none() {
+        return true; // skipped loudly above
+    }
     let project_dir = project_root().display().to_string();
     let program = format!("use xiom.core;\nuse xiom.{};\nfn main() -> Int {{ return 0; }}\n", module);
     let tmp_file = std::env::temp_dir().join(format!("xiom_stdlib_{}.xi", module));

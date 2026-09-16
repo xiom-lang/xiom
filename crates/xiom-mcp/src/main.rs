@@ -949,6 +949,10 @@ mod tests {
 
     #[test]
     fn test_stdlib_reference_lists_modules() {
+        // R31: loud SKIP without a stdlib checkout; hard FAIL in CI.
+        if xiom_graph::paths::stdlib_or_skip().is_none() {
+            return;
+        }
         let result = stdlib_reference(None);
         assert!(result.is_ok(), "listing must work from repo: {:?}", result.err());
         let text = result.unwrap();
@@ -958,6 +962,9 @@ mod tests {
 
     #[test]
     fn test_stdlib_reference_describes_alloc() {
+        if xiom_graph::paths::stdlib_or_skip().is_none() {
+            return;
+        }
         let result = stdlib_reference(Some("alloc"));
         assert!(result.is_ok(), "{:?}", result.err());
         let text = result.unwrap();
@@ -977,6 +984,9 @@ mod tests {
 
     #[test]
     fn test_stdlib_reference_unknown_module() {
+        if xiom_graph::paths::stdlib_or_skip().is_none() {
+            return;
+        }
         let result = stdlib_reference(Some("nonexistent_xyz"));
         assert!(result.is_err(), "unknown module must error");
         let msg = result.err().unwrap();
@@ -1202,6 +1212,9 @@ mod tests {
 
     // Knowledge tool edge cases
     #[test] fn test_stdlib_reference_all_modules_listed() {
+        if xiom_graph::paths::stdlib_or_skip().is_none() {
+            return;
+        }
         let result = stdlib_reference(None);
         if let Ok(text) = result {
             // Verify at least alloc is present (the only guaranteed module)

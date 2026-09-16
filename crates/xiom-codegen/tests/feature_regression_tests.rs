@@ -3828,6 +3828,13 @@ fn regress_r901_registry_index_exists() {
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("packages"), "index.json must have packages array");
         assert!(content.contains("version"), "index.json must have version field");
+    } else {
+        // R31: make the guard visible instead of vanishing (the packages tree
+        // is not part of every checkout).
+        eprintln!(
+            "SKIP: R9-01 package-index guard -- '{}' not present (packages tree not checked out)",
+            path.display()
+        );
     }
 }
 

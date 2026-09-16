@@ -6494,4 +6494,61 @@ Owners: compiler lane (test harnesses, jit, fetch script); release lane (CI
 wiring, README); stdlib lane (move smokes, add a local runner taking a
 compiler path).
 
+### R31 FIXED (2026-09-16, compiler lane round 82)
+
+Landed the compiler-lane half; CI wiring/README stay release-lane, corpus
+move stays stdlib-lane.
+
+- **One helper** (`crates/xiom-graph/src/paths.rs`, new module): the R27
+  candidate machinery moved here (`stdlib_candidates`, `is_stdlib_root`,
+  `existing_stdlib_roots`, `current_stdlib_candidates`) plus the R31
+  resolvers `stdlib_root()`, `stdlib_smoke_dir()` (XIOM_STDLIB_SMOKES ->
+  `<stdlib>/tests/smoke/` -> legacy `<repo>/examples/stdlib_smoke/`),
+  `repo_root()`, `require_stdlib()`, `skip_if_missing()`, `stdlib_or_skip()`
+  and `skip_smokes_if_missing()`. `xiom-graph` was already a dependency of
+  `xiom`, `xiom-lsp`, `xiom-mcp` and a dev-dependency of `xiom-codegen`; only
+  `xiom-jit` gained an edge.
+- **Driver**: `find_stdlib_dirs` / `find_runtime_c` / the M12 bootstrap call
+  the graph helpers; behavior unchanged (r27 tests still pass, now exercising
+  the delegated implementation).
+- **JIT**: `find_runtime_lib` and `build_runtime_library` resolve runtime
+  sources/libs through the candidate scan (checkout `stdlib/runtime`,
+  installed `lib/runtime`, XIOM_HOME, CWD) -- no raw CWD strings. Verified
+  `xiom build-runtime` builds `libxiom_runtime.dll` (exit 0).
+- **Tests**: `stdlib_tests.rs`, `stdlib_execution_tests.rs` and
+  `stdlib_api_freeze_tests.rs` skip loudly without a checkout and hard-FAIL
+  under XIOM_REQUIRE_STDLIB=1; smoke paths resolve through
+  `stdlib_smoke_dir()`; `stdlib_api_freeze`'s manifest resolver now rejects
+  stale table paths and falls through to the filesystem layout; LSP alloc
+  test and MCP knowledge tests parameterized on `stdlib_or_skip()`; R9-01
+  package-index guard prints a SKIP line.
+- **Scripts**: `scripts/fetch-stdlib.ps1`/`.sh` (shallow clone at the
+  `STDLIB_VERSION` pin; `-Force`; `XIOM_STDLIB_REPO` override; refuses to
+  delete a non-git in-tree stdlib), `STDLIB_VERSION` (currently `main` --
+  release lane replaces it with the split tag), `.gitignore` gains `stdlib/`.
+- **Packaging**: `package.ps1`/`package.sh` bundle from the `stdlib/`
+  checkout (fail loudly without `package.xi`) and print the pin;
+  `package.ps1` no longer reaches into the old `xiom-playground/` WASM copy
+  -- it copies the release artifact from `dist/wasm`, `artifacts/wasm` or
+  `target/wasm-dist` and notes when absent.
+
+Verification: workspace `--lib` 521 tests green (includes 8 new
+`xiom_graph::paths` unit tests: repo/install layouts, XIOM_HOME fallback,
+stale baked path, candidate order, skip guard); stdlib-exec 85/85 (+2 ign);
+LSP 44/44; MCP 39/39; JIT 5/5; `xiom build-runtime` exit 0; full e2e on this
+binary (see docs/SESSION.md round 82). The bare-clone SKIP/FAIL acceptance is
+unit-tested here; the real no-checkout run is a post-split CI check.
+
+Open findings (pre-existing, exposed once the stale manifest path no longer
+panics first; stdlib-lane owned):
+1. `stdlib_api_freeze_no_removals` is RED: 52 frozen signatures drifted since
+   the 2026-08-07 snapshot (compress family moved/renamed, array/cell generic
+   changes, encoding/env/error/hash/iter changes). Needs the stdlib lane's
+   additive-only stamp or an intentional snapshot regeneration.
+2. `stdlib_tests::stdlib_all_modules_compile_to_ir` is RED:
+   `xiom.encoding.ascii85` catalog bodies fail T001 at 35:58 and 89:69
+   (`expected Result[Vec[UInt8], Str], found Option[Vec[UInt8]]`).
+Both were already failing before R31 (the freeze scan panicked on the stale
+`stdlib/xiom/memory/rc.xi` manifest path).
+
 

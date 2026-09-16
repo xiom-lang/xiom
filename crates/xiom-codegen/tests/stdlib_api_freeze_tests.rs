@@ -951,7 +951,8 @@ const FROZEN: &[&str] = &[
 /// a trailing brace), then capture each `pub fn` up to its opening brace.
 /// Handles multi-line signatures and multiple fns on one physical line.
 fn extract_signatures(path: &Path) -> Vec<String> {
-    let content = fs::read_to_string(path).expect("read stdlib module");
+    let content = fs::read_to_string(path)
+        .unwrap_or_else(|e| panic!("read stdlib module {}: {e}", path.display()));
     let content = content.replace("\r\n", "\n");
 
     // Drop requires/ensures contract lines; preserve a trailing '{'.
@@ -1034,7 +1035,15 @@ fn resolve_module_path(root: &Path, module: &str) -> Option<std::path::PathBuf> 
                 && parts[2].ends_with(".xi")
             {
                 if parts[1] == exact {
-                    return Some(root.join(parts[2]));
+                    // R31: the manifest table can lag module moves (e.g.
+                    // xiom.rc -> memory/rc.xi -> rc/rc.xi). Only accept the
+                    // manifest path when it actually exists; otherwise keep
+                    // scanning and fall through to the filesystem layout.
+                    let candidate = root.join(parts[2]);
+                    if candidate.exists() {
+                        return Some(candidate);
+                    }
+                    continue;
                 }
                 if suffix_match.is_none() && parts[1].rsplit('.').next() == Some(module) {
                     suffix_match = Some(root.join(parts[2]));
@@ -1043,10 +1052,15 @@ fn resolve_module_path(root: &Path, module: &str) -> Option<std::path::PathBuf> 
         }
     }
     if let Some(p) = suffix_match {
-        return Some(p);
+        if p.exists() {
+            return Some(p);
+        }
     }
-    // Filesystem fallback: <name>/<name>.xi or any <name>.xi under stdlib/xiom
-    let base = root.join("stdlib").join("xiom");
+    // R31: the module tree resolves through the shared stdlib root (checkout,
+    // XIOM_STDLIB, installed lib); legacy <repo>/stdlib is the fallback.
+    let base = xiom_graph::paths::stdlib_root()
+        .map(|r| r.join("xiom"))
+        .unwrap_or_else(|| root.join("stdlib").join("xiom"));
     let direct = base.join(module).join(format!("{module}.xi"));
     if direct.exists() {
         return Some(direct);
@@ -1060,6 +1074,10 @@ fn resolve_module_path(root: &Path, module: &str) -> Option<std::path::PathBuf> 
 
 #[test]
 fn stdlib_api_freeze_no_removals() {
+    // R31: loud SKIP without a stdlib checkout; hard FAIL in CI.
+    if xiom_graph::paths::stdlib_or_skip().is_none() {
+        return;
+    }
     let root = project_root();
     let mut missing: Vec<String> = Vec::new();
 
@@ -1087,6 +1105,10 @@ fn stdlib_api_freeze_no_removals() {
 
 #[test]
 fn stdlib_api_freeze_all_modules_compile() {
+    // R31: same skip/fail contract as the freeze scan itself.
+    if xiom_graph::paths::stdlib_or_skip().is_none() {
+        return;
+    }
     // Belt-and-suspenders: the full stdlib must still compile together
     // (mirrors stdlib_tests, but keeps the freeze gate self-contained).
     let root = project_root();

@@ -77,14 +77,45 @@ fn compile_and_run(source_path: &str) -> Option<i32> {
 }
 
 fn compile_and_run_once(source_path: &str) -> Option<i32> {
-    let source = Path::new(source_path);
+    // R31: after the repo split the smoke corpus lives in the stdlib repo
+    // (`<stdlib>/tests/smoke/`), resolved through the shared helper; the
+    // legacy in-tree path still wins when present. A missing checkout is a
+    // loud SKIP locally and a hard FAIL under XIOM_REQUIRE_STDLIB=1.
+    let legacy = project_root().join(source_path);
+    let resolved: std::path::PathBuf = if legacy.exists() {
+        legacy
+    } else {
+        let name = Path::new(source_path).file_name()?.to_owned();
+        match xiom_graph::paths::stdlib_smoke_dir() {
+            Some(dir) => dir.join(name),
+            None => {
+                let msg = format!(
+                    "SKIP: smoke corpus missing ({}); run scripts/fetch-stdlib.ps1|.sh",
+                    source_path
+                );
+                if xiom_graph::paths::require_stdlib() {
+                    panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
+                }
+                eprintln!("{msg}");
+                return Some(0);
+            }
+        }
+    };
+    if !resolved.exists() {
+        // The smoke root exists but this specific file is missing: a corpus
+        // error, not a skip.
+        eprintln!("smoke file not found: {}", resolved.display());
+        return None;
+    }
+    let source = resolved.as_path();
     let exe_name = format!("stdlib_{}.exe", source.file_stem()?.to_str()?);
+    let source_path = source.to_string_lossy().to_string();
 
     let bin_path = xiom_path();
 
     // Compile
     let compile = Command::new(&bin_path)
-        .args(["-o", &exe_name, source_path])
+        .args(["-o", &exe_name, &source_path])
         .current_dir(project_root())
         .output()
         .unwrap_or_else(|e| panic!("failed to spawn '{bin_path}': {e}"));

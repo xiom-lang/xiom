@@ -190,6 +190,37 @@ MAX_EXPR_DEPTH=32; now nest 300), lexer test-only helper gated with
 cfg(test), unused bindings underscored. fuzz_tests 24/24, robustness 63/63,
 workspace check clean.
 
+### Round-82 (2026-09-16): R31 FIXED -- cross-repo test isolation (pre-split)
+
+Compiler lane, on the release/infra lane's R31.
+
+- **One helper**: new `xiom-graph::paths` module -- the R27 candidate scan
+  moved there plus `stdlib_root()`, `stdlib_smoke_dir()` (XIOM_STDLIB_SMOKES
+  -> `<stdlib>/tests/smoke/` -> legacy `examples/stdlib_smoke/`), `repo_root`,
+  `require_stdlib`, `skip_if_missing`, `stdlib_or_skip`. Only `xiom-jit`
+  needed a new dependency edge (graph was already everywhere else).
+- **Wiring**: driver (`find_stdlib_dirs`/`find_runtime_c`/M12) delegates with
+  unchanged behavior; jit runtime sources/libs resolve through the scan
+  (`xiom build-runtime` verified exit 0); smoke/module tests skip loudly and
+  hard-FAIL under `XIOM_REQUIRE_STDLIB=1`; LSP/MCP tests parameterized; R9-01
+  guard prints SKIP; freeze resolver rejects stale manifest paths.
+- **Split plumbing**: `scripts/fetch-stdlib.ps1|.sh`, `STDLIB_VERSION` pin
+  (currently `main`; release lane swaps in the split tag), `.gitignore`
+  `stdlib/`; `package.ps1|.sh` bundle from the checkout and the playground
+  WASM copy is replaced by a release-artifact lookup.
+- Gates: workspace `--lib` 521/521 (8 new paths tests), stdlib-exec 85/85
+  (+2 ign), LSP 44/44, MCP 39/39, JIT 5/5, full e2e 2331/2331.
+- **Open cross-lane findings (pre-existing, stdlib lane):**
+  - `stdlib_api_freeze_no_removals` RED -- 52 signatures drifted since the
+    2026-08-07 snapshot; needs an additive-only stamp or intentional
+    regeneration.
+  - `stdlib_tests::stdlib_all_modules_compile_to_ir` RED --
+    `xiom.encoding.ascii85` bodies fail T001 (Result vs Option at 35:58,
+    89:69).
+  Both were red before R31 (the freeze scan panicked on the stale
+  `memory/rc.xi` manifest path first); the resolver fix just makes the real
+  drift visible.
+
 ### Round-81 (2026-09-16): R30 FIXED -- bare variant pick parity with the checker
 
 Compiler lane, closing the R25 residual (`@Message.size_hint(%struct.BST*)`).
