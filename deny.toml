@@ -35,9 +35,11 @@ exceptions = []
 
 [bans]
 # Duplicate major versions are a warning (reviewed during dependency bumps);
-# wildcard dependencies are always rejected.
+# wildcard dependencies are always rejected -- EXCEPT workspace-local path
+# dependencies, which intentionally omit version specifiers.
 multiple-versions = "warn"
 wildcards = "deny"
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "warn"

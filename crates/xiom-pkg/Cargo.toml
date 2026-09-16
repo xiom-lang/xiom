@@ -1,4 +1,5 @@
 [package]
+license.workspace = true
 name = "xiom-pkg"
 version.workspace = true
 edition.workspace = true
