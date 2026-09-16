@@ -3775,6 +3775,39 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             self.compile_expr(val)?
                         };
                         let mut field_llvm_ty = self.field_llvm_type(resolved_name, i);
+                        // R23: a FN-MARKER field holds closure ENV bits on the
+                        // uniform env-first convention. Storing a bare fn
+                        // REFERENCE stored the raw code address; the field-call
+                        // path then read the code's first word as the trampoline
+                        // (`FnBox{ f: add1 }; b.f(41)` -> 0xC0000005).
+                        if let Some(fxi) = self.field_xiom_type(resolved_name, i) {
+                            if fxi.starts_with("fn(") {
+                                if let Expr::Ident(fid) = val {
+                                    let is_bare_fn_ref = (self.types.functions.contains_key(&fid.name)
+                                        || self.types.functions.keys().into_iter()
+                                            .any(|k| k.ends_with(&format!(".{}", fid.name)))
+                                        || self.mono.emitted_fns.contains(&fid.name))
+                                        && !self.local.closure_locals.contains(&fid.name)
+                                        && self.lookup_local(&fid.name).is_none();
+                                    if is_bare_fn_ref {
+                                        let params_llvm: Vec<String> = fxi.split_once('(')
+                                            .and_then(|(_, rest)| rest.split_once(") -> ").map(|(ps, _)| ps))
+                                            .map(|ps| ps.split(',')
+                                                .map(|p| p.trim())
+                                                .filter(|p| !p.is_empty())
+                                                .map(|p| self.llvm_type_for(p).unwrap_or_else(|_| "i64".to_string()))
+                                                .collect())
+                                            .unwrap_or_default();
+                                        let ret_xiom = fxi.rsplit_once(") -> ")
+                                            .map(|(_, r)| r.trim().to_string())
+                                            .unwrap_or_else(|| "Int".to_string());
+                                        let env = self.wrap_fn_ref_env(&fid.name, &field_val, &ret_xiom, params_llvm);
+                                        field_val = env;
+                                        field_val_ty = LLVM_I64.to_string();
+                                    }
+                                }
+                            }
+                        }
                         // 5c.29: Generic container fields (Vec[Int], ...) are i64
                         // HANDLES (5c.28h). A by-value container header must be
                         // BOXED on the heap and the pointer stored as the handle;
@@ -5207,6 +5240,17 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
             }
         });
         if let Some(pt) = payload_ty {
+            // R23: a FN-MARKER payload (`Some(task)` from `Option[fn()]`,
+            // `Err(cb)` from `Result[_, fn(...)]`) holds closure ENV bits on
+            // the uniform env-first convention. Without marking it the call
+            // `task()` took the raw fn-pointer path (inttoptr the env as code
+            // -> 0xC0000005 in the async executor's reduced shapes).
+            if pt.starts_with("fn(") {
+                self.local.closure_locals.insert(id.name.clone());
+                if let Some(ret_str) = pt.rsplit_once(") -> ").map(|(_, r)| r.trim().to_string()) {
+                    self.local.fn_local_returns.insert(id.name.clone(), ret_str);
+                }
+            }
             // R18: a BARE scrutinee rebind (`result is Some` -> bind `result`)
             // marks the name as "this is the payload slot"; `.value`/`.error`
             // on it then resolves to the payload itself.

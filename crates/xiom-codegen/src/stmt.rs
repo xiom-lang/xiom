@@ -1860,6 +1860,29 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                     // (unary minus / arithmetic on them was garbage).
                                     let scrutinee_name = if let Expr::Ident(sid) = expr_match { Some(sid.name.clone()) } else { None };
                                     let scrutinee_payload = self.scrutinee_payload_xiom(expr_match, field_idx);
+                                    // R23: a FN-MARKER payload (`Some(task)` off
+                                    // `Vec[fn()].pop()`) holds closure ENV bits.
+                                    // Mark it so `task()` takes the env-first
+                                    // closure path -- the raw fn-pointer path
+                                    // inttoptr'd the env box as code (0xC0000005).
+                                    // The marker can come from the scrutinee's
+                                    // recorded type or, for `vec.pop()`, from the
+                                    // Vec's element marker.
+                                    let payload_marker = scrutinee_payload.clone().or_else(|| {
+                                        if field_idx != 1 { return None; }
+                                        let Expr::Call(callee, _, _) = expr_match else { return None };
+                                        let Expr::Field(obj, mname, _) = callee.as_ref() else { return None };
+                                        if mname.name != "pop" { return None; }
+                                        self.resolve_vec_container_elem_xiom(obj.as_ref())
+                                    });
+                                    if matches!(&payload_marker, Some(px) if px.starts_with("fn(")) {
+                                        self.local.closure_locals.insert(ident.name.clone());
+                                        if let Some(ret_str) = payload_marker.as_ref()
+                                            .and_then(|px| px.rsplit_once(") -> ").map(|(_, r)| r.trim().to_string()))
+                                        {
+                                            self.local.fn_local_returns.insert(ident.name.clone(), ret_str);
+                                        }
+                                    }
                                     if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() {
                                         eprintln!("[matchpay] scrutinee={scrutinee_name:?} field_llvm_ty={field_llvm_ty} payload_xiom={:?}",
                                             scrutinee_name.as_ref().and_then(|n| self.local.local_opt_payload_xiom.get(n)));
@@ -2298,6 +2321,27 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                 self.emitln(&format!("  {field_alloca} = alloca {bind_ty_inner}"));
                                 self.emitln(&format!("  store {bind_ty_inner} {bind_val_inner}, {bind_ty_inner}* {field_alloca}"));
                                 self.add_local(&ident.name, field_alloca, &bind_ty_inner);
+                                // R23: FN-MARKER payload (`Vec[fn()].pop()` ->
+                                // `Some(task)`): the i64 slot holds closure ENV
+                                // bits. Mark the binding so `task()` takes the
+                                // env-first closure path; the raw fn-pointer path
+                                // inttoptr'd the env box as code (0xC0000005 in
+                                // the async executor's reduced shapes).
+                                let payload_marker = declared.clone().filter(|d| d.starts_with("fn(")).or_else(|| {
+                                    if val_field != 1 { return None; }
+                                    let Expr::Call(callee, _, _) = expr_match else { return None };
+                                    let Expr::Field(obj, mname, _) = callee.as_ref() else { return None };
+                                    if mname.name != "pop" { return None; }
+                                    self.resolve_vec_container_elem_xiom(obj.as_ref())
+                                });
+                                if matches!(&payload_marker, Some(px) if px.starts_with("fn(")) {
+                                    self.local.closure_locals.insert(ident.name.clone());
+                                    if let Some(ret_str) = payload_marker.as_ref()
+                                        .and_then(|px| px.rsplit_once(") -> ").map(|(_, r)| r.trim().to_string()))
+                                    {
+                                        self.local.fn_local_returns.insert(ident.name.clone(), ret_str);
+                                    }
+                                }
                                 // Vec[T] payloads bound as i64 handles are registered
                                 // for handle deref; a %struct.Vec binding needs no
                                 // handle registration (all consumers use it directly).

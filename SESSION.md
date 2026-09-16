@@ -74,6 +74,10 @@ stdlib session commits to the same branch; never stage their `stdlib/**`,
   manifests stop losing every field. MCP stdlib reference renders declared
   module names. CI gained the bin-only crate tests (pkg/dbg/lsp/mcp) that
   `--lib` skipped -- which immediately caught the rotted MCP test.
+- **R23 FIXED (round 73)**: fn-typed values are env-first in every shape
+  (call-through-value, match payloads off `Vec[fn()].pop()`, struct fields).
+  All five async probes + async smokes green; m80 lock. The "unknown type
+  'fn() -> Unit'" warning is gone.
 - **Fixed earlier**: R14/R17/R19 with e2e locks (m71/m72/m73); R15 catalog
   delegation (checker-recorded call targets + full-path injected names);
   per-body alias isolation in `flush_catalog_bodies`.
