@@ -114,6 +114,22 @@ Residual findings (pre-existing, in the queue):
 Formal R25 entry in docs/COMPILER_BUGS.md is deferred (that file had
 uncommitted stdlib-lane WIP at close; append once clean).
 
+## Open compiler findings (pre-selfhost, not R0-blocking)
+
+1. **R28** (docs/COMPILER_BUGS.md): `.value` on a TEMPORARY aggregate Option
+   payload is silently corrupt (memory-safety adjacent; workaround: bind to a
+   named local or `match`). Probe `stdlib_ws\probes\p_payload_read.xi`.
+2. **R29**: a `Vec` built inside a match arm over a `Result[Vec[...]]` payload
+   fails clang codegen (workaround: named local + early return).
+3. **Cross-enum variant ambiguity**: bare `Empty` constructs a deterministic
+   parent but the later method leaf-bind can disagree
+   (`@Message.size_hint(%struct.BST*)` in bench IR); needs a checker rule.
+4. **Bench `%struct.Metrics` GEP** indexes field 4 of 4 -> the benchmark graph
+   does not fully clang-compile (Stage 6 measures emitted IR bytes only).
+
+Suggested order: R28 (silent wrong data) -> R29 (compile failure) -> 3 -> 4,
+each with a lock + COMPILER_BUGS entry.
+
 ## Remaining queue
 
 1. **Supply-chain tail**: transitive dependency closure from registry
@@ -161,7 +177,8 @@ the same branch (they sometimes sweep the whole tree -- re-check git log if a
 change seems missing); never stage their files.
 
 State: Stage 3 Item A CLOSED (strict catalog findings, checker 189/189),
-R-bugs through R27 CLEARED with locks m74-m81, e2e 2329/2329, supply chain
+R-bugs through R27 CLEARED with locks m74-m81 (R28/R29 are OPEN, see the
+"Open compiler findings" section), e2e 2329/2329, supply chain
 signed (ed25519 keygen/trust/sign/verify, fail-closed installs, ureq-only
 publish, git commit pins), Stage 6 perf budgets wired (determinism canary
 covers selfhost v092 + bench graph), selfhost v092 compile gate GREEN,
