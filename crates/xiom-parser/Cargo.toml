@@ -1,5 +1,6 @@
 [package]
 license.workspace = true
+publish = false
 name = "xiom-parser"
 version.workspace = true
 edition.workspace = true

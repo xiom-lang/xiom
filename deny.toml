@@ -16,7 +16,9 @@ ignore = ["RUSTSEC-2024-0384"]
 
 [licenses]
 # Permissive licenses present in the current dependency tree, plus the
-# LLVM exception used by some Rust toolchain-adjacent crates.
+# LLVM exception used by some Rust toolchain-adjacent crates and the Mozilla
+# CA root-store data license (webpki-roots, pulled by ureq/rustls).
+# CDLA-Permissive-2.0 covers DATA (certificate roots), not code.
 allow = [
     "MIT",
     "Apache-2.0",
@@ -29,6 +31,7 @@ allow = [
     "Unlicense",
     "CC0-1.0",
     "MPL-2.0",
+    "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.8
 exceptions = []
