@@ -123,8 +123,12 @@ const errors cleanly, for-loop const eval).
   [Partial round 42: shebang + leading comment/header blocks preserved and
   string/char literals escaped on re-emit (`xiom_fmt::format_source_text`);
   body-inline comment trivia attachment remains.]
-- dbg: MI command quoting (injection via evaluate/breakpoints), async MI reader,
+- dbg: MI command quoting (injection via evaluate/breakpoints), async MI reader, 
   .xi DWARF mapping (enabled by Stage 2 spans).
+  [Async MI reader DONE round 69: dedicated reader thread classifies result
+  (`^...`) vs async (`*stopped`/`*running`) records into bounded-wait queues;
+  send_mi and poll_stopped can no longer block the DAP forever (non-stopping
+  continue reports "running"). `.xi` DWARF mapping remains.]
 - Shared JSON diagnostics v1 schema consumed by LSP/MCP/CI.
   [DONE round 45b: docs/JSON_DIAGNOSTICS_V1.md + serde envelope
   (`xiom::diagnostics_json`); all ad-hoc diagnostic printers replaced.]

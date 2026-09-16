@@ -48,7 +48,7 @@ fn compile_and_run_with_flags(source_path: &str, extra_args: &[&str]) -> Option<
         let result = compile_and_run_once_with_flags(source_path, extra_args);
         match result {
             Some(0) => return result,
-            Some(code) => {
+            Some(_code) => {
                 // Non-zero: could be a legitimate program failure OR a raced
                 // compile. Recompile fresh and rerun to disambiguate.
                 let retry = compile_and_run_once_with_flags(source_path, extra_args);
