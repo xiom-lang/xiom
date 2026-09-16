@@ -6128,6 +6128,11 @@ local first, or use `match`. Repro:
 `target_r46\debug\xiom.exe --run probes\p_payload_read.xi` -> B b0=0;
 `--run probes\p_ip_parity2.xi` (named-local form) -> 0 mismatches.
 
+**FIXED (90261793) and verified by the stdlib lane on r47 (2026-09-16):**
+`probes\p_payload_read.xi` -> B tmp-len=4 b0=1 (correct); full r47 sweep
+947/947 + ratchet OK. The named-local/match patterns already landed in the
+shims stay (harmless and explicit).
+
 ### R28 FIXED (2026-09-16, compiler lane round 79)
 
 Root cause: the Field arm has TWO struct-field readers. The local-receiver path
@@ -6173,6 +6178,11 @@ mismatches, net smokes green). Note the named-local `.value` read on a
 Result is R28-safe (R28 only affects temporaries). Repro:
 `target_r46\debug\xiom.exe --run probes\p_match_vec_codegen.xi` -> clang
 type-mismatch; the same probe's conv_named compiled through `p_netip_a.xi`.
+
+**FIXED (bf627c2e) and verified by the stdlib lane on r47 (2026-09-16):**
+`probes\p_match_vec_codegen.xi` -> P_MATCH_VEC_CODEGEN OK (both conv_match
+and conv_named); full r47 sweep 947/947 + ratchet OK. Locked compiler-side
+by tests/regression/m83_match_arm_vec_build.xi.
 
 ### R29 FIXED (2026-09-16, compiler lane round 80)
 
