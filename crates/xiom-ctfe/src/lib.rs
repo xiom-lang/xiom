@@ -1,6 +1,6 @@
 // XIOM CTFE -- Compile-Time Function Evaluation (explicit-stack machine)
-// Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
-// Licensed under the Apache-2.0 license.
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
 //
 // PRODUCTION REWRITE (2026-08-24, readiness plan Stage 1). Replaces the
 // tree-walking recursive interpreter. Fixes the audited defect set:

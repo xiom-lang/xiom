@@ -1,6 +1,6 @@
 // XIOM -- Stdlib Execution Tests
-// Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
-// Licensed under the Apache-2.0 license.
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
 //
 // These tests compile+run the per-module stdlib smoke programs at
 // `examples\stdlib_smoke\smoke_<module>.xi` using the built `xiom`

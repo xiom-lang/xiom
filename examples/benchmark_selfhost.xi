@@ -1,7 +1,7 @@
 // XIOM -- Selfhost Compiler Benchmark
 // Exercises all language features at scale.
-// Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
-// Licensed under the Apache-2.0 license.
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
 
 // === MODULE 1: Math Library ===
 module math_lib {

@@ -1,6 +1,6 @@
 // XIOM -- LLVM IR Codegen
-// Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
-// Licensed under the Apache-2.0 license.
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
 
 //! XIOM Codegen -- Phase 0: AST to LLVM IR text..
 //! Emits human-readable LLVM IR that can be compiled with `llc`.

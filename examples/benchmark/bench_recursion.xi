@@ -1,8 +1,8 @@
 // XIOM -- Recursion Stress Benchmark
 // Tests deep recursion, mutual recursion, tail-call patterns,
 // divide-and-conquer, tree traversal, and recursive algorithms.
-// Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
-// Licensed under the Apache-2.0 license.
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
 
 module benchmark.recursion
 

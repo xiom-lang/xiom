@@ -1,6 +1,6 @@
 // XIOM -- AST
-// Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
-// Licensed under the Apache-2.0 license.
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
 
 //! XIOM Abstract Syntax Tree -- every construct from the EBNF grammar.
 //! This is the single source of truth for what the parser produces

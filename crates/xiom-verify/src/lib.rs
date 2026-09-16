@@ -1,6 +1,6 @@
 // XIOM -- Contract Verifier (Phase 5f, readiness Stage 1 R16c)
-// Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
-// Licensed under the Apache-2.0 license.
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
 //
 // PRODUCTION REWRITE (2026-08-25). Fixes the audited defect set:
 //   - AUDIT #3 (fail-closed-by-false): unsupported expressions no longer

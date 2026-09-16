@@ -1,6 +1,6 @@
 // XIOM -- Ecosystem Full Feature Hardening Tests
-// Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
-// Licensed under the Apache-2.0 license.
+// Copyright (c) 2026 Eleftherios Notas
+// Licensed under the MIT or Apache-2.0 license, at your option.
 //
 // Self-contained integration test exercising enums with data-carrying
 // variants, nested structs, state machines, concrete stack operations,
