@@ -190,6 +190,65 @@ MAX_EXPR_DEPTH=32; now nest 300), lexer test-only helper gated with
 cfg(test), unused bindings underscored. fuzz_tests 24/24, robustness 63/63,
 workspace check clean.
 
+### Round-77 (2026-09-16): R25 CLOSED -- fn-REFERENCE resolution + emission order determinism
+
+Compiler lane.
+
+**R25 FIXED: the 30-module bench graph now emits byte-identical IR** (5/5
+runs, 5,686,880 bytes; round-76 drifted ~130-230 bytes per run). The diff was
+six independent HashMap-order classes, all fixed:
+
+1. **fn-VALUE resolution** (round-76 evidence: `ptrtoint
+   @benchmark.math.is_even` vs `@benchmark.comptime.is_even` inside
+   benchmark.collections.test_partition). NEW `resolve_bare_fn_ref_key`
+   (lib.rs): caller module -> exact bare key -> `bare_fn_aliases` ->
+   deterministic suffix pick (`pick_deterministic`: current module ->
+   shortest -> lexicographic). SCOPE-FIRST is the critical tier: same-leaf
+   user modules register a bare key whose fn_symbol slot belongs to the
+   FIRST module (m81). Wired into the fn-as-value ptrtoint (expr.rs),
+   `wrap_fn_ref_env` symbol resolution (vec_abi.rs), and the FIVE duplicated
+   fn-typed-arg param lookups in call.rs (`resolve_fn_ref_arg`).
+2. **fn-value symbol materialization** (expr.rs): the ptrtoint used the raw
+   registry key; it now maps through `fn_symbol_map` (the BUG 22 #11 rule
+   already used by call sites). Lock `e2e_m81_fn_ref_same_leaf`
+   (tests/regression/m81_fn_ref_same_leaf/): alpha/beta each define
+   `is_even` + a higher-order `apply` and each passes its OWN fn; pre-fix
+   the compile failed (`@is_even` undefined) or beta bound alpha's fn.
+3. **@pre snapshot order** (decl.rs): the HashSet worklist permuted the
+   per-field pre-slots per run (Gauge.adjust `%tmp9/%tmp11/%tmp13`); sorted.
+4. **mono worklist total order** (lib.rs): the BUG-39 sort key was the base
+   name only, so `Option.is_some` specializations for Record/Pair tied and
+   `Option__Record.is_some`/`Option__Pair.is_some` swapped function
+   positions; now `(base, concrete_types)`.
+5. **concrete Option builtins** (lib.rs): iterated `type_meta.keys()`
+   (HashMap); sorted.
+6. **variant parent resolution** (expr.rs): the bare-`Ident` variant scan and
+   the module-qualified enum fallback now use `pick_deterministic`.
+
+Verification: bench IR byte-identical 5/5 and selfhost v092 2/2 (155,936
+bytes); `perf_budget_tests` 2/2 with `perf_determinism_ir_is_byte_identical`
+TIGHTENED to assert byte-identity on BOTH selfhost v092 and the bench graph;
+checker 189/189, feature-reg 510/510, stdlib-exec 85/85 (+2 ign), m35
+300/300, full e2e **2329/2329** (includes the new m81 lock), selfhost v092
+compile gate green. (One earlier parallel e2e run flaked `e2e_m35_a29` under
+load; it and the whole m35 family pass 300/300 in isolation and on the final
+full run.)
+
+**Residual findings** (queue items, not fixed here):
+- Bare `Empty` in bench_enums resolves deterministically (BST) while
+  `empty.size_hint()` leaf-binds `Message.size_hint` -> a type-mismatched
+  call in the bench IR; ambiguous cross-enum variants need a checker rule.
+- `%struct.Metrics` has 4 fields but bench emits `getelementptr ... i32 4`
+  (invalid IR): `examples/benchmark/main.xi` does NOT fully clang-compile at
+  HEAD (Stage 6 measures emitted IR bytes only). Both pre-existing and
+  unrelated to R25; remeasure before any full bench build.
+- The canaries cover both graphs now; the remaining registry scans in
+  codegen (mostly find-first lookups) stay as-is until a graph trips them.
+
+NOTE: `docs/COMPILER_BUGS.md` had uncommitted stdlib-lane WIP again (their
+R26 entry) when this round closed; the formal R25 entry is appended by the
+next session once that file is clean (same deferral as round 76).
+
 ### Round-76 (2026-09-16): Stage 6 perf budgets + R25 PARTIAL (emission determinism)
 
 Compiler lane.

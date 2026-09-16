@@ -1587,7 +1587,13 @@ impl IrEmitter {
             for expr in &self.fctx.current_ensures {
                 Self::collect_atpre_vars(expr, &mut pre_vars);
             }
-            for var_name in &pre_vars {
+            // R25: SORT the snapshot worklist -- HashSet iteration assigned the
+            // per-field pre-slots in a different order per run, shifting the
+            // emitted alloca numbering (Gauge.adjust: `%tmp9/%tmp11/%tmp13`
+            // permuted across runs; same semantics, non-identical IR).
+            let mut pre_vars_sorted: Vec<String> = pre_vars.into_iter().collect();
+            pre_vars_sorted.sort();
+            for var_name in &pre_vars_sorted {
                 if let Some((ptr, llvm_ty)) = self.lookup_local(var_name).cloned() {
                     // For `&mut T` parameters (llvm_ty ends with `*`), the local
                     // holds a pointer. We must snapshot the POINTED-TO VALUE, not
@@ -1618,7 +1624,7 @@ impl IrEmitter {
             // Also snapshot self receiver (backward compat)
             if let Some(recv) = fd.receiver.as_ref() {
                 if let Some((ptr, llvm_ty)) = self.lookup_local(&recv.name).cloned() {
-                    if !pre_vars.contains(&recv.name) {
+                    if !pre_vars_sorted.contains(&recv.name) {
                         let pre_alloca = self.fresh_tmp();
                         self.emitln(&format!("  {pre_alloca} = alloca {llvm_ty}"));
                         let loaded = self.fresh_tmp();

@@ -9,7 +9,7 @@
 //!
 //! | source                        | bytes   | budget   | debug time |
 //! |-------------------------------|---------|----------|------------|
-//! | examples/benchmark/main.xi    | 5,687,270 | 6,300,000 | ~10 s    |
+//! | examples/benchmark/main.xi    | 5,686,880 | 6,300,000 | ~10 s    |
 //! | selfhost/xiomc_v092.xi        |   155,936 |   175,000 | ~2 s     |
 //! | tests/ecosystem/test_json.xi  |   164,787 |   185,000 | ~1 s     |
 //!
@@ -83,17 +83,23 @@ fn perf_budget_emitted_ir_bytes() {
 
 #[test]
 fn perf_determinism_ir_is_byte_identical() {
-    let source = "selfhost\\xiomc_v092.xi";
-    let (first, _) = emit_ir(source);
-    let (second, _) = emit_ir(source);
-    assert_eq!(
-        first.len(),
-        second.len(),
-        "IR length differs across compiles of {source} (nondeterministic emission)"
-    );
-    assert!(
-        first == second,
-        "IR is NOT byte-identical across compiles of {source} -- \
-         HashMap-order-dependent emission regression"
-    );
+    // R25: the bench graph (30 modules, same-leaf fns in several modules) was
+    // the live reproducer: `ptrtoint @benchmark.math.is_even` vs
+    // `@benchmark.comptime.is_even`, swapped mono emission order, and
+    // unsorted concrete-Option builtins all drifted the IR. Both graphs must
+    // now emit byte-identically.
+    for source in ["selfhost\\xiomc_v092.xi", "examples\\benchmark\\main.xi"] {
+        let (first, _) = emit_ir(source);
+        let (second, _) = emit_ir(source);
+        assert_eq!(
+            first.len(),
+            second.len(),
+            "IR length differs across compiles of {source} (nondeterministic emission)"
+        );
+        assert!(
+            first == second,
+            "IR is NOT byte-identical across compiles of {source} -- \
+             HashMap-order-dependent emission regression"
+        );
+    }
 }

@@ -1,8 +1,8 @@
 # XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-76 in docs/SESSION.md)
 
-Branch `feat/architect`. Last compiler commit: the round-76 slice (perf
-budgets + partial R25 determinism fixes); the supply-chain signing slice
-(`eb5a5536`) precedes it. Working tree should be clean except the generated
+Branch `feat/architect`. Last compiler commit: the round-77 slice (R25
+CLOSED -- fn-REFERENCE + emission-order determinism); the round-76 slice
+(perf budgets) precedes it. Working tree should be clean except the generated
 `.xiom_ai.json` and the parallel stdlib lane's files. The stdlib session
 commits to the same branch; NEVER stage their `stdlib/**`,
 `examples/stdlib_smoke/**`, `docs/stdlib_session.md`,
@@ -58,32 +58,36 @@ through R24 is CLEARED, and the supply chain is signed. Highlights:
   registries, signed publish over ureq-only multipart (curl gone),
   `XIOM_REGISTRY_TOKEN` auth header, git deps must pin a full 40/64-hex
   commit. CLI: `xiom pkg keygen|trust|trusted|sign|verify`.
-- **Stage 6 start + R25 PARTIAL (round 76)**: `perf_budget_tests.rs` (IR
-  byte budgets + 180s ceiling + byte-identical determinism canary), CI-wired;
+- **R25 CLOSED (round 77)**: the 30-module bench graph emits byte-identical
+  IR (5,686,880 bytes, 5/5 runs; round-76 drifted ~130-230 bytes). Six
+  HashMap-order classes fixed: `resolve_bare_fn_ref_key` (scope-first +
+  deterministic suffix pick) wired into the fn-as-value ptrtoint,
+  `wrap_fn_ref_env` and all five fn-typed-arg param lookups; fn-value
+  ptrtoints map through `fn_symbol_map`; @pre snapshot worklist, mono
+  worklist (total order), concrete-Option builtins and variant scans made
+  deterministic. Lock `e2e_m81_fn_ref_same_leaf`; the determinism canary now
+  covers BOTH selfhost v092 and the bench graph.
+- **Stage 6 start (round 76)**: `perf_budget_tests.rs` (IR byte budgets +
+  180s ceiling + byte-identical determinism canary), CI-wired;
   deterministic variant->parent-enum and `type_meta` selection
   (`pick_deterministic`: current module -> shortest key -> lexicographic).
 
-Last full gates (round 76): checker 189/189, stdlib-exec 85/85 (+2 ign),
-feature-reg 510/510, e2e **2328/2328**, perf 2/2, lsp 44/44, dbg 34/34,
-mcp 39/39, pkg 52/52, workspace `--all-targets` clean, selfhost v092
-compiles.
+Last full gates (round 77): checker 189/189, stdlib-exec 85/85 (+2 ign),
+feature-reg 510/510, perf 2/2 (both determinism canaries), m35 300/300,
+e2e **2329/2329** (R25 binary, incl. the new m81 lock), selfhost v092
+compiles. lsp/dbg/mcp/pkg + workspace `--all-targets` were green on the
+round-76 tree and must be re-run after the R27 slice lands.
 
-## Immediate task: R25 -- deterministic fn-REFERENCE resolution
+## R25 -- CLOSED (round 77)
 
-The perf determinism canary still fails on the 30-module bench graph (sizes
-drift ~130-230 bytes across runs). Exact evidence (round-76 notes in
-docs/SESSION.md): inside `benchmark.collections.test_partition()` the fn
-value coercion emits
+Deterministic fn-REFERENCE resolution landed; the bench-graph drift is dead.
+Full evidence and the fix breakdown are in docs/SESSION.md round 77. In
+short: scope-first + `pick_deterministic` bare-fn resolver (lib.rs) used by
+the fn-as-value ptrtoint / thunk symbol / fn-typed-arg param paths; the
+ptrtoint now materializes the pre-assigned `fn_symbol_map` symbol; @pre
+snapshot order, mono worklist total order, concrete-Option builtin order and
+the variant-parent scans are sorted/deterministic.
 
-```
-run A: %tmp38 = ptrtoint i64 (i64)* @benchmark.comptime.is_even to i64
-run B: %tmp38 = ptrtoint i64 (i64)* @benchmark.math.is_even    to i64
-```
-
-Two same-named free fns in different modules; the pick is HashMap-ordered.
-Find the fn-ref coercion path (`is_fn_ref`, `bare_fn_aliases`,
-`functions.keys().find`, `wrap_fn_ref_env` call sites in call.rs /
-vec_abi.rs) and apply scope-first + `pick_deterministic`-style ordering.
 Verify with:
 
 ```
@@ -91,24 +95,30 @@ target\debug\xiom.exe --emit-ir examples\benchmark\main.xi > a.txt   (x3, compar
 cargo test -p xiom-codegen --test perf_budget_tests
 ```
 
-Then tighten `perf_determinism_ir_is_byte_identical` to include the bench
-graph. Add the formal R25 entry to docs/COMPILER_BUGS.md once that file is
-clean (it had stdlib-lane WIP at handoff; do not sweep their edits).
+Residual findings (pre-existing, in the queue):
+- ambiguous bare cross-enum variants (`var empty = Empty;`) pick a parent
+  deterministically but the method leaf-bind can disagree
+  (`@Message.size_hint(%struct.BST*)` in bench IR); needs a checker rule.
+- `examples/benchmark/main.xi` does NOT fully clang-compile (a
+  `%struct.Metrics` GEP indexes field 4 of 4); Stage 6 measures emitted IR
+  bytes only, so this never gated. Remeasure before a full bench build.
+
+Formal R25 entry in docs/COMPILER_BUGS.md is deferred (that file had
+uncommitted stdlib-lane WIP at close; append once clean).
 
 ## Remaining queue
 
-1. **R25** (above).
-2. **Supply-chain tail**: transitive dependency closure from registry
+1. **Supply-chain tail**: transitive dependency closure from registry
    metadata; server-side publish authentication.
-3. **fmt**: body-inline comment trivia attachment (stage-2 trivia
+2. **fmt**: body-inline comment trivia attachment (stage-2 trivia
    dependency; shebang/header/string escaping already done round 42).
-4. **cargo-vet audits** (cargo-deny already runs in CI).
-5. **clap migration** of the driver parser (large; keep the CLI surface
+3. **cargo-vet audits** (cargo-deny already runs in CI).
+4. **clap migration** of the driver parser (large; keep the CLI surface
    byte-compatible and gate with the full e2e suite).
-6. **Stage 7 selfhost ladder**: v092..v11 are milestone emitters, not yet a
+5. **Stage 7 selfhost ladder**: v092..v11 are milestone emitters, not yet a
    full XIOM-in-XIOM compiler; zero-ICE self-build is a multi-phase project.
    The selfhost COMPILE gate is green.
-7. **Stage 6 continuation**: parallel monomorphization profiles, linker
+6. **Stage 6 continuation**: parallel monomorphization profiles, linker
    strategy, more budget metrics.
 
 ## Workflow rules
@@ -137,34 +147,31 @@ clean (it had stdlib-lane WIP at handoff; do not sweep their edits).
 ```
 Continue the AXIOM compiler-lane readiness campaign in E:\Projects\AXIOM on
 branch feat/architect. Read SESSION.md (repo root) and docs/SESSION.md
-(rounds 61-76; round 76 has the R25 evidence) before touching code. The
-stdlib session works in parallel on stdlib/** only and commits to the same
-branch (they sometimes sweep the whole tree -- re-check git log if a change
-seems missing); never stage their files.
+(rounds 61-77; round 77 has the R25 close) before touching code. The stdlib
+session works in parallel on stdlib/** only and commits to the same branch
+(they sometimes sweep the whole tree -- re-check git log if a change seems
+missing); never stage their files.
 
 State: Stage 3 Item A CLOSED (strict catalog findings, checker 189/189),
-R-bugs through R24 CLEARED with locks m74-m80, e2e 2328/2328, supply chain
-signed (ed25519 keygen/trust/sign/verify, fail-closed installs, ureq-only
-publish, git commit pins), Stage 6 perf budgets wired, selfhost v092 compile
-gate GREEN.
+R-bugs through R25 CLEARED with locks m74-m81, e2e green on the round-77
+binary, supply chain signed (ed25519 keygen/trust/sign/verify, fail-closed
+installs, ureq-only publish, git commit pins), Stage 6 perf budgets wired
+(determinism canary covers selfhost v092 + bench graph), selfhost v092
+compile gate GREEN.
+
+Pending: append the formal R25 entry to docs/COMPILER_BUGS.md once that file
+is clean of stdlib-lane WIP; round-77 residuals (ambiguous bare cross-enum
+variant + bench Metrics GEP) are listed in docs/SESSION.md.
 
 Your task, in order:
-1. R25: make fn-REFERENCE resolution deterministic. Evidence: the bench
-   graph emits `ptrtoint @benchmark.comptime.is_even` vs
-   `@benchmark.math.is_even` across runs inside
-   benchmark.collections.test_partition(); find the fn-ref coercion path
-   (is_fn_ref / bare_fn_aliases / wrap_fn_ref_env call sites) and apply
-   scope-first + deterministic key ordering (pick_deterministic pattern).
-   Verify with 3x `--emit-ir examples\benchmark\main.xi` byte compares and
-   `cargo test -p xiom-codegen --test perf_budget_tests`; then extend the
-   determinism test to the bench graph and add the R25 entry to
-   docs/COMPILER_BUGS.md (only when that file is clean of stdlib-lane WIP).
-2. Supply-chain tail: transitive dependency closure from registry metadata,
+1. Supply-chain tail: transitive dependency closure from registry metadata,
    server-side publish authentication; then fmt body-inline comment trivia,
    cargo-vet, clap migration.
-3. Stage 7 selfhost ladder (v092..v11 are emitters; the full self-build is a
+2. Stage 7 selfhost ladder (v092..v11 are emitters; the full self-build is a
    multi-phase project) and Stage 6 continuation (parallel mono profiles,
    linker strategy).
+3. If docs/COMPILER_BUGS.md is clean, append the R25 entry (evidence: round
+   77 notes in docs/SESSION.md).
 
 Rules: the e2e/stdlib harnesses spawn target/debug/xiom.exe -- always
 `cargo build -p xiom` after checker/codegen changes. Capture $LASTEXITCODE
