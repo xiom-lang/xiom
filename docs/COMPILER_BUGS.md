@@ -6139,3 +6139,47 @@ Result is R25-safe (R25 only affects temporaries). Repro:
 `target_r46\debug\xiom.exe --run probes\p_match_vec_codegen.xi` -> clang
 type-mismatch; the same probe's conv_named compiled through `p_netip_a.xi`.
 
+## R27. Installed-binary stdlib discovery misses the release layout (2026-09-16, release/infra lane)
+
+Found while preparing the downloadable toolchain for the staged public beta
+(docs/RELEASE_INFRA_PLAN.md, R0 gate). Release-blocking: every downloaded binary
+must compile `use xiom.io;` style programs with zero environment setup.
+
+Evidence (static, current tree):
+- `find_stdlib_dirs()` (crates/xiom/src/lib.rs:1707-1760) resolves stdlib roots in
+  this order: `XIOM_STDLIB`; walking up to 8 ancestor directories of the running
+  executable looking for a literal `stdlib/` directory; CWD-relative `stdlib/`;
+  the compile-time `env!("CARGO_MANIFEST_DIR")` repo path.
+- The release/install layouts place the library in `<install>\lib\`
+  (`lib/xiom/**`, `lib/package.xi`, `lib/runtime/**`) with binaries in
+  `<install>\bin\` -- see package.ps1 lines 124-134 and install.ps1 lines 266-279.
+  No `stdlib/` directory exists in that layout, so the ancestor walk never fires
+  and an installed `xiom.exe` finds no stdlib unless the user runs from a directory
+  that happens to contain `stdlib/` or sets `XIOM_STDLIB` manually.
+- On a DEV machine the defect is masked: the compile-time CARGO_MANIFEST_DIR path
+  still points at the build checkout, so repo runs always resolve. A CI-built
+  release bakes the runner's checkout path, which does not exist on user machines,
+  so the failure appears only for real users. The regression test must therefore
+  not rely on the baked path; extract the candidate scan into a pure function and
+  test it with explicit exe paths.
+
+Fix direction (compiler side):
+- Extend the executable-ancestor scan with content-validated candidates (each
+  candidate must contain `xiom/` or `package.xi`): `stdlib/`, `lib/`, `share/xiom/`.
+- Honor `XIOM_HOME` (`<XIOM_HOME>/lib`, `<XIOM_HOME>/stdlib`) when set.
+- Keep the existing search order as fallback; repo/dev behavior unchanged.
+- Factor the candidate list into `stdlib_candidates(exe_dir, env)` with unit tests
+  covering: repo layout, install layout (bin/ + lib/), XIOM_HOME override, and a
+  stale baked path.
+
+Release-lane alternative (rejected as primary): change package.ps1/package.sh/
+install.ps1 to lay out a `stdlib/` directory instead of `lib/`. `lib/` is already
+documented in the installer text and other tools may assume it, so the compiler
+should accept both.
+
+Numbering note: R25 and R26 above are the stdlib-lane findings; the compiler lane's
+fn-reference determinism item (docs/SESSION.md round 76, also labeled R25 there) is
+tracked separately.
+
+Owner: compiler lane. Blocks: docs/RELEASE_INFRA_PLAN.md R0 split gate.
+
