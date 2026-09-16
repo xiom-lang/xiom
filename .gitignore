@@ -105,3 +105,5 @@ stdlib_smoke_test.exe
 a.exe.ll
 _e2e_*.xi
 e2e_*.xi
+xiom.code-workspace
+kilo.jsonc
