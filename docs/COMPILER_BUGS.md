@@ -5994,6 +5994,24 @@ the stress smoke keeps the full surface and scales counts. Repro:
 `target_r45\debug\xiom.exe --run probes\p_async_p7.xi` -> 0xC0000005;
 `--run examples\stdlib_smoke\smoke_async_stress.xi` -> OK.
 
+## 2026-09-16 (stdlib lane) -- runtime symbol audit for the compiler lane (action item, not a bug)
+
+`docs/RUNTIME_SYMBOL_AUDIT.md`: 322 unique `xiom_*` runtime definitions vs
+138 stdlib extern names -> 192 unbound = 83 codegen-referenced (keep),
+83 runtime-internal (keep), **20 definition-only delete candidates**
+(occurrence count 1, no crates/stdlib references): `xiom_asm_sha256_compress`,
+`xiom_async_now_us`, `xiom_channel_close`, `xiom_f128_norm_sig`,
+`xiom_f256_is_one`, `xiom_guard_heap_depth`, `xiom_guard_page_is_armed`,
+`xiom_hot_enter/generation/get_version/init/is_stale/leave/register/
+restore_state_legacy/save_state_legacy/set_contract_checker/
+verify_contracts`, `xiom_threadpool_shutdown`,
+`xiom_trampoline_clear_returned` (file:line table in the doc).
+Nothing in the unbound set is worth binding stdlib-side. CAVEAT: dynamic
+symbol lookup (GetProcAddress/dlsym, prefix-built names) is invisible to the
+audit method -- the hot-reload family is loaded by CLI tooling, so confirm
+before deleting; otherwise delete or add an intentionally-kept marker so
+the audit stays mechanical on re-run.
+
 
 
 
