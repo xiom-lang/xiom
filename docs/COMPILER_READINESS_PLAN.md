@@ -128,7 +128,11 @@ const errors cleanly, for-loop const eval).
   [Async MI reader DONE round 69: dedicated reader thread classifies result
   (`^...`) vs async (`*stopped`/`*running`) records into bounded-wait queues;
   send_mi and poll_stopped can no longer block the DAP forever (non-stopping
-  continue reports "running"). `.xi` DWARF mapping remains.]
+  continue reports "running"). `.xi` DWARF mapping DONE round 71:
+  `DISubroutineType` node added (the old `type: !{}` made LLVM warn
+  "ignoring invalid debug info" and drop ALL DWARF), per-statement
+  `!DILocation` attachments emitted for every instruction while `-g` is on
+  (buffered nodes flushed at module end; default builds stay metadata-free).]
 - Shared JSON diagnostics v1 schema consumed by LSP/MCP/CI.
   [DONE round 45b: docs/JSON_DIAGNOSTICS_V1.md + serde envelope
   (`xiom::diagnostics_json`); all ad-hoc diagnostic printers replaced.]

@@ -190,6 +190,43 @@ MAX_EXPR_DEPTH=32; now nest 300), lexer test-only helper gated with
 cfg(test), unused bindings underscored. fuzz_tests 24/24, robustness 63/63,
 workspace check clean.
 
+### Round-71 (2026-09-16): .xi DWARF mapping (Stage 5 dbg complete)
+
+Compiler lane. The R1 debug-info scaffolding emitted an invalid graph: each
+DISubprogram said `type: !{}` (no DISubroutineType), so clang warned
+"ignoring invalid debug info" and the object/exe carried NO `.debug_*`
+sections at all -- `.xi` breakpoints could never bind.
+
+Fixes (crates/xiom-codegen):
+- `!5 = !DISubroutineType(types: !{})` emitted with the module metadata;
+  DISubprograms reference `type: !5` (di node counter starts at 6).
+- Per-statement `!DILocation` attachments: `compile_block` records each
+  item's span (`stmt_or_expr_debug_span`), `emitln` appends `, !dbg !N` to
+  every instruction line while `-g` is on, `compile_fn` scopes the body to
+  the function's DISubprogram, and buffered `!DILocation` nodes are flushed
+  at module end (LLVM resolves numbered-metadata forward refs -- verified by
+  moving a compile-unit definition to EOF).
+- Default builds are untouched: attachments only with `debug_symbols`.
+
+Verification: `clang -g` on the emitted IR now produces `.debug_info` +
+`.debug_line` (object and the driver-linked exe); `llvm-symbolizer` maps
+`add` to `m79_debug_info.xi:2/:3` and `main` to `:5..:7`. Lock:
+`tests/regression/m79_debug_info.xi` +
+`e2e_m79_debug_info_metadata` (with/without `-g` IR shape) +
+`e2e_m79_debug_info_runs` (`-g` builds and runs). Gates: e2e 2327/2327,
+checker 189/189, stdlib-exec 85/85 (+2 ign), feature-reg 510/510.
+
+Note: `diff_tests::test_selfhost_v092_compiles` is RED from the stdlib
+lane's in-flight string/char WIP (identical errors with this round's changes
+stashed; `xiom.io`/`xiom.string` bodies fail the strict flip) -- not a
+compiler regression; it will clear when their edits land.
+
+Provenance note: the round-71 code changes were swept into the stdlib lane's
+wave-5 commit 82d66b98 (their commit staged the whole working tree), while
+this follow-up commit lands the `m79_debug_info.xi` fixture those e2e tests
+require plus the round docs. The code is identical to what was reviewed and
+gate-verified here (e2e 2327/2327 before the sweep).
+
 ### Round-70 (2026-09-16): dbg async MI reader (Stage 5)
 
 Compiler lane. Audit gap: "blocking read_line hangs DAP on non-stopping
