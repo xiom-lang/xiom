@@ -6462,15 +6462,20 @@ The stdlib repo's tests will need a compiler binary: download a released
 
 Required work (compiler lane), in order:
 1. One path helper used by every cross-repo test: `stdlib_root()` =
-   `XIOM_STDLIB` or the repo-relative `stdlib/`; `stdlib_smoke_root()` =
-   `XIOM_STDLIB_SMOKES` or the repo-relative `examples/stdlib_smoke/`.
+   `XIOM_STDLIB` -> repo-relative `stdlib/` (the pinned checkout; see the
+   split contract in docs/REPO_MIGRATION_RUNBOOK.md); `stdlib_smoke_root()` =
+   `XIOM_STDLIB_SMOKES` -> `<repo>/stdlib/tests/smoke/` -> legacy
+   `<repo>/examples/stdlib_smoke/` (transition only; the stdlib repo
+   normalizes its corpus to `tests/smoke/`).
 2. Skip with a LOUD message when the path is missing; FAIL instead of
    skipping when `XIOM_REQUIRE_STDLIB=1` (CI sets it). The existing
    `stdlib_exec_cross_module_serialize_convert` guard is the model to copy.
 3. Add `scripts/fetch-stdlib.ps1` + `.sh` reading a new pinned `STDLIB_VERSION`
-   file: shallow-clone `xiom-lang/stdlib` at that tag into `stdlib/` and
-   `examples/stdlib_smoke/`. README: `./scripts/fetch-stdlib.ps1` then
-   `cargo test`.
+   file: shallow-clone `xiom-lang/stdlib` at that tag into `stdlib/` (add
+   `stdlib/` to the compiler repo's `.gitignore`). The stdlib repo normalizes
+   its corpus to `tests/smoke/`, so the smokes then live at
+   `stdlib/tests/smoke/` and need no copying. README:
+   `./scripts/fetch-stdlib.ps1` then `cargo test`.
 4. LSP alloc test and MCP knowledge tests: parameterize on `stdlib_root()`
    and skip loudly when absent.
 5. Route `xiom-jit` runtime source/library discovery through the existing R27
