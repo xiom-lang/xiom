@@ -112,6 +112,15 @@ const errors cleanly, for-loop const eval).
   timeouts -- DELETE the PowerShell interpolation sites (command injection via
   --registry/XIOM_REGISTRY) and raw-TCP/curl fallbacks; git installs pinned to commit
   hashes; authenticated publish by default.
+  [DONE: sha256 verification (audit #4), ureq-only transport + HTTPS enforcement
+  (audit #5), lockfile v2 (`xiom pkg lock` writes {version, source, integrity};
+  `install` ENFORCES the locked digest when xiom.lock is found, XIOM_PKG_LOCKED=0
+  bypasses / =1 requires it). Round 72 also fixed two real manifest-parser bugs the
+  lock exposed: deps were never parsed (the map was only cleared) and
+  strip_outer_block stripped at the first brace ANYWHERE, wiping unbraced manifests.
+  REMAINING: ed25519 signatures + trust model, transitive dependency closure via
+  registry metadata, authenticated publish; no git dependencies exist in the tree
+  today (nothing to pin -- enforce commit pins when one is added).]
 - LSP: integer severities, UTF-16 positions via span table (fixes multibyte panics),
   bounded Content-Length buffers (64 MiB cap), mutex-poison recovery instead of 15x
   expect, incremental reparsing, cross-file index.

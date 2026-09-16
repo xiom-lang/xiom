@@ -68,6 +68,12 @@ stdlib session commits to the same branch; never stage their `stdlib/**`,
   under `-g`; llvm-symbolizer maps body lines (m79 lock). Default builds
   stay metadata-free. NOTE: `diff_tests::test_selfhost_v092_compiles` is red
   from the stdlib lane's in-flight string/char WIP (verified not ours).
+- **Lockfile v2 + pkg parser fixes DONE (round 72)**: `xiom pkg lock` writes
+  v2 {version, source, integrity} and install enforces the locked digest;
+  `deps:` blocks are actually parsed now (they never were) and unbraced
+  manifests stop losing every field. MCP stdlib reference renders declared
+  module names. CI gained the bin-only crate tests (pkg/dbg/lsp/mcp) that
+  `--lib` skipped -- which immediately caught the rotted MCP test.
 - **Fixed earlier**: R14/R17/R19 with e2e locks (m71/m72/m73); R15 catalog
   delegation (checker-recorded call targets + full-path injected names);
   per-body alias isolation in `flush_catalog_bodies`.
@@ -80,12 +86,12 @@ stdlib session commits to the same branch; never stage their `stdlib/**`,
 ## Immediate task
 
 Stage 5 remainder, in suggested order:
-1. fmt: body-inline comment trivia attachment (stage-2 trivia dependency).
-2. cargo-vet audits.
-3. clap migration of the driver parser (large; keep the CLI surface
+1. Supply-chain signatures: ed25519 signing/verification + trust model,
+   authenticated publish, transitive closure from registry metadata.
+2. fmt: body-inline comment trivia attachment (stage-2 trivia dependency).
+3. cargo-vet audits.
+4. clap migration of the driver parser (large; keep the CLI surface
    byte-compatible and gate with the full e2e suite).
-4. Supply-chain hardening: lockfile v2 with enforced `--locked`, git deps
-   pinned to commits, signed-publish flow.
 Then Stage 6 performance, Stage 7 selfhost.
 
 Full ledger: `docs/COMPILER_BUGS.md` (RNN entries are appended at the end;

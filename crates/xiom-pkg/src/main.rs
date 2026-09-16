@@ -4,6 +4,7 @@
 //
 // M14.1: registry functions -> registry.rs
 
+mod lockfile;
 mod registry;
 
 use std::collections::HashMap;
@@ -162,8 +163,23 @@ fn parse_manifest(manifest: &str) -> Package {
             pkg.modules = values;
             i += consumed;
             continue;
-        } else if line.starts_with("deps:") {
-            pkg.deps = HashMap::new();
+        } else if line.starts_with("deps:") || line.starts_with("deps =") {
+            // BUG FIX (Stage 5): the old parser only CLEARED deps here --
+            // package dependencies were never visible to `lock`, `install`'s
+            // resolution or `resolve_dependencies`. Collect the (inline or
+            // multiline) block and extract `"name": "req"` pairs. `=` is
+            // accepted as the separator (the historical help text used
+            // `deps = { "x" = "1.0" }`).
+            pkg.deps = parse_deps_block(&lines, i);
+            let mut depth = brace_delta(line);
+            while depth > 0 && i + 1 < lines.len() {
+                i += 1;
+                depth += brace_delta(lines[i]);
+            }
+            // Skip the block's closing line (or the inline line itself):
+            // `continue` bypasses the loop's own increment.
+            i += 1;
+            continue;
         }
 
         i += 1;
@@ -173,12 +189,113 @@ fn parse_manifest(manifest: &str) -> Package {
 }
 
 fn strip_outer_block(manifest: &str) -> &str {
-    if let Some(start) = manifest.find('{') {
-        if let Some(end) = manifest.rfind('}') {
-            return manifest[start + 1..end].trim();
+    // Only strip an OUTER package block: the first non-comment, non-blank
+    // character must be '{'. The old version stripped at the first brace
+    // ANYWHERE -- an unbraced manifest's `deps: { ... }` therefore wiped out
+    // every preceding field (deps, name and version all "parsed" as empty).
+    let mut first_is_brace = false;
+    for line in manifest.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with("//") {
+            continue;
+        }
+        first_is_brace = t.starts_with('{');
+        break;
+    }
+    if first_is_brace {
+        if let (Some(start), Some(end)) = (manifest.find('{'), manifest.rfind('}')) {
+            if end > start {
+                return manifest[start + 1..end].trim();
+            }
         }
     }
     manifest
+}
+
+/// Net brace balance of a line (open minus close).
+fn brace_delta(line: &str) -> i32 {
+    line.chars().map(|c| match c {
+        '{' => 1,
+        '}' => -1,
+        _ => 0,
+    }).sum()
+}
+
+/// Parse a `deps:` / `deps =` block starting at `lines[start]`.
+/// Accepts inline (`deps: { "x": "1.0", "y": "2.0" }`) and multiline blocks,
+/// with `:` or `=` separators. Keys and values are quoted; values may contain
+/// commas (`">=0.5.0,<1.0.0"`) and prefixes (`path:..`, `git:...@rev`).
+fn parse_deps_block(lines: &[&str], start: usize) -> HashMap<String, String> {
+    let mut block = String::new();
+    // `lines` are RAW source lines; the caller matches on the trimmed form.
+    let first = lines.get(start).copied().unwrap_or("").trim();
+    // Strip the `deps:` / `deps =` prefix.
+    let after: &str = if let Some(rest) = first.strip_prefix("deps:") {
+        rest
+    } else if let Some(rest) = first.strip_prefix("deps") {
+        rest.trim_start().trim_start_matches('=').trim_start()
+    } else {
+        return HashMap::new();
+    };
+    block.push_str(after);
+    let mut depth = brace_delta(first);
+    let mut i = start;
+    while depth > 0 && i + 1 < lines.len() {
+        i += 1;
+        block.push(' ');
+        block.push_str(lines[i]);
+        depth += brace_delta(lines[i]);
+    }    // Content between the outermost braces (or the whole remainder when the
+    // block is unbraced).
+    let content = match (block.find('{'), block.rfind('}')) {
+        (Some(o), Some(c)) if c > o => &block[o + 1..c],
+        _ => block.as_str(),
+    };
+
+    let mut deps = HashMap::new();
+    let chars: Vec<char> = content.chars().collect();
+    let mut idx = 0;
+    while idx < chars.len() {
+        // Find the next quoted string -> key.
+        while idx < chars.len() && chars[idx] != '"' { idx += 1; }
+        if idx >= chars.len() { break; }
+        let (key, next) = read_quoted(&chars, idx);
+        idx = next;
+        // Skip to the separator (`:` or `=`).
+        while idx < chars.len() && chars[idx] != ':' && chars[idx] != '=' { idx += 1; }
+        if idx >= chars.len() { break; }
+        idx += 1;
+        // Find the next quoted string -> value.
+        while idx < chars.len() && chars[idx] != '"' { idx += 1; }
+        if idx >= chars.len() { break; }
+        let (value, next) = read_quoted(&chars, idx);
+        idx = next;
+        if !key.is_empty() {
+            deps.insert(key, value);
+        }
+    }
+    deps
+}
+
+/// Read the quoted string starting at `chars[start]` (a `"`), returning its
+/// content and the index just past the closing quote.
+fn read_quoted(chars: &[char], start: usize) -> (String, usize) {
+    let mut out = String::new();
+    let mut i = start + 1;
+    while i < chars.len() {
+        match chars[i] {
+            '\\' if i + 1 < chars.len() => {
+                out.push(chars[i + 1]);
+                i += 2;
+            }
+            '"' => return (out, i + 1),
+            c => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    (out, i)
 }
 
 fn extract_field(line: &str, prefix: &str) -> Option<String> {
@@ -653,7 +770,13 @@ fn find_workspace_root(project_root: &Path) -> PathBuf {
 }
 
 /// Generate a xiom.lock file from the package.xi manifest.
-/// Locks all dependency versions for reproducible builds.
+///
+/// Stage 5 supply chain: lockfile v2 pins {name, version, source, integrity}
+/// for every direct dependency. The integrity digest is resolved by
+/// downloading the exact artifact `install` would fetch (server index digest
+/// verification still applies too), so `xiom pkg install` can ENFORCE the
+/// bytes it installs. Offline locking records an empty digest; install then
+/// refuses that entry until the lock is regenerated with the registry up.
 fn generate_lockfile() {
     let manifest_path = find_manifest();
     let manifest = fs::read_to_string(&manifest_path).unwrap_or_else(|e| {
@@ -662,25 +785,58 @@ fn generate_lockfile() {
     });
     let pkg = parse_manifest(&manifest);
 
-    let mut locked_deps = Vec::new();
-    for (name, version) in &pkg.deps {
-        locked_deps.push(format!(r#"    "{}": "{}""#, name, version));
-    }
+    let registry = registry_url();
+    let index = match crate::registry::fetch_registry_index(&registry) {
+        Ok(i) => Some(i),
+        Err(e) => {
+            eprintln!("xiom pkg: registry unavailable ({e}); locking versions without integrity");
+            None
+        }
+    };
+    let resolve = |name: &str, req: &str| -> Option<String> {
+        let idx = index.as_ref()?;
+        let info = idx.packages.get(name)?;
+        if info.versions.iter().any(|v| v.version == req) {
+            Some(req.to_string())
+        } else {
+            Some(info.latest.clone())
+        }
+    };
+    // Integrity comes from the server-published digest in the same index
+    // install verifies against; only a hashed-but-indexless entry falls back
+    // to downloading the archive (bounded by ureq timeouts).
+    let integrity = |name: &str, version: &str| -> Option<String> {
+        let idx = index.as_ref()?; // offline: no digests, lock records empty integrity
+        if let Some(info) = idx.packages.get(name) {
+            if let Some(meta) = info.versions.iter().find(|v| v.version == version) {
+                if !meta.sha256.is_empty() {
+                    return Some(meta.sha256.clone());
+                }
+            }
+        }
+        // Reachable registry but no published digest: fetch the artifact once
+        // (bounded by ureq timeouts) so the lock still pins real bytes.
+        let url = format!("{}/packages/{}/{}/package.tar.gz", registry, name, version);
+        crate::registry::http_get_binary(&url).ok()
+            .map(|bytes| crate::lockfile::integrity_for(&bytes))
+    };
 
-    let lock_content = format!(
-        "{{\n  \"package\": \"{}\",\n  \"version\": \"{}\",\n  \"dependencies\": {{\n{}\n  }}\n}}\n",
-        pkg.name,
-        pkg.version,
-        locked_deps.join(",\n")
-    );
+    let deps: Vec<(String, String)> = pkg.deps.iter()
+        .map(|(n, v)| (n.clone(), v.clone()))
+        .collect();
+    let lock = lockfile::Lockfile::build(&pkg.name, &pkg.version, &deps, &resolve, &integrity);
 
     let project_root = manifest_path.parent().unwrap_or(Path::new("."));
     let lock_path = project_root.join("xiom.lock");
-    fs::write(&lock_path, &lock_content).unwrap_or_else(|e| {
+    fs::write(&lock_path, lock.to_json()).unwrap_or_else(|e| {
         eprintln!("xiom pkg: cannot write {}: {}", lock_path.display(), e);
         process::exit(1);
     });
-    println!("Generated {}", lock_path.display());
+    let unlocked = lock.packages.values().filter(|p| p.integrity.is_empty()).count();
+    println!("Generated {} (lockfile v2, {} dependencies{})",
+        lock_path.display(),
+        lock.packages.len(),
+        if unlocked > 0 { format!(", {unlocked} WITHOUT integrity -- install will refuse them until re-locked online") } else { String::new() });
 }
 
 fn print_usage() {
@@ -951,7 +1107,9 @@ name: "exact";
 version: "0.3.0";
 deps: { "dep-a": "1.0.0" }
 "#;
-        let _pkg = parse_manifest(manifest);
+        let pkg = parse_manifest(manifest);
+        assert_eq!(pkg.deps.get("dep-a").map(String::as_str), Some("1.0.0"),
+            "deps must actually be parsed (the old parser only cleared the map)");
     }
 
     #[test] fn test_parse_caret_version() {
@@ -960,7 +1118,25 @@ name: "caret";
 version: "2.0.0";
 deps: { "dep": "^1.5.0" }
 "#;
-        let _pkg = parse_manifest(manifest);
+        let pkg = parse_manifest(manifest);
+        assert_eq!(pkg.deps.get("dep").map(String::as_str), Some("^1.5.0"));
+    }
+
+    #[test] fn test_parse_deps_multiline_with_commas() {
+        let manifest = r#"package alg {
+  name: "alg";
+  version: "0.1.0";
+  deps: {
+    "xiom-std": ">=0.5.0,<1.0.0",
+    "lib": "path:../lib",
+    "git-dep" = "git:https://github.com/x/y@v1.0.0"
+  };
+}"#;
+        let pkg = parse_manifest(manifest);
+        assert_eq!(pkg.deps.len(), 3, "deps: {:?}", pkg.deps);
+        assert_eq!(pkg.deps.get("xiom-std").map(String::as_str), Some(">=0.5.0,<1.0.0"));
+        assert_eq!(pkg.deps.get("lib").map(String::as_str), Some("path:../lib"));
+        assert_eq!(pkg.deps.get("git-dep").map(String::as_str), Some("git:https://github.com/x/y@v1.0.0"));
     }
 
     // Circular dependencies detection

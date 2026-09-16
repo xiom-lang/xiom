@@ -190,6 +190,37 @@ MAX_EXPR_DEPTH=32; now nest 300), lexer test-only helper gated with
 cfg(test), unused bindings underscored. fuzz_tests 24/24, robustness 63/63,
 workspace check clean.
 
+### Round-72 (2026-09-16): lockfile v2 + package-manifest parser fixes; CI bin-only crate tests
+
+Compiler lane. Supply-chain slice:
+
+- NEW `crates/xiom-pkg/src/lockfile.rs`: lockfile v2
+  (`{lockfileVersion: 2, package, version, packages: {<dep>: {version, source,
+  integrity}}}`), deterministic (BTreeMap) JSON, v1/malformed rejection,
+  `find_lockfile` walk-up, and `verify_locked_archive` (name/version/digest
+  enforcement). `xiom pkg lock` resolves versions + digests from the registry
+  index (the same digest install verifies); offline locking records an empty
+  integrity and install REFUSES it until re-locked. `install_from_registry`
+  enforces the lock automatically when one is found (`XIOM_PKG_LOCKED=0`
+  bypass, `=1` require).
+- Two REAL parser bugs the lock exposed: `parse_manifest` never parsed the
+  `deps:` block (it only cleared the map, so lock/install/resolution saw zero
+  deps) and `strip_outer_block` stripped at the first brace ANYWHERE -- an
+  unbraced manifest's `deps: { ... }` wiped out every preceding field. Both
+  fixed with unit tests (inline, multiline, `:`/`=` separators, comma-bearing
+  range specs, `path:`/`git:` values).
+- NEW MCP fix: `stdlib_reference` now renders the DECLARED module name from
+  the file header instead of the path-derived one (`use xiom.alloc;` compiles;
+  `use xiom.alloc.alloc;` did not). Its stale test had rotted unseen.
+- CI now runs bin-only crate tests (`cargo test -p xiom-pkg -p xiom-dbg
+  -p xiom-lsp -p xiom-mcp`) -- `cargo test --workspace --lib` skipped every
+  bin-only crate, which is how the MCP test rotted. That addition immediately
+  surfaced the failure and it is fixed here. Tooling suites: pkg 45/45,
+  dbg 34/34, lsp 44/44, mcp 39/39.
+
+Remaining supply chain: ed25519 signatures + trust model, transitive closure
+from registry metadata, authenticated publish (no git deps exist to pin).
+
 ### Round-71 (2026-09-16): .xi DWARF mapping (Stage 5 dbg complete)
 
 Compiler lane. The R1 debug-info scaffolding emitted an invalid graph: each
