@@ -6183,3 +6183,64 @@ tracked separately.
 
 Owner: compiler lane. Blocks: docs/RELEASE_INFRA_PLAN.md R0 split gate.
 
+## R25 (compiler lane). Emitted IR not byte-identical: fn-REFERENCE resolution + emission order (2026-09-16, round 77)
+
+**FIXED (a150f246).** The Stage 6 determinism canary drifted ~130-230 bytes per
+run on the 30-module bench graph; round-76 fixed the variant/type_meta half and
+left the fn-REFERENCE half. The full diff was SIX independent HashMap-order
+classes, all fixed; the bench IR is now byte-identical (5,686,880 bytes, 5/5
+runs) and the canary asserts byte-identity on BOTH `selfhost/xiomc_v092.xi` and
+`examples/benchmark/main.xi`.
+
+1. **fn-VALUE resolution** (the round-76 evidence: `ptrtoint
+   @benchmark.math.is_even` vs `@benchmark.comptime.is_even` inside
+   `benchmark.collections.test_partition`). NEW
+   `IrEmitter::resolve_bare_fn_ref_key` (lib.rs): **caller module** -> exact
+   bare key -> `bare_fn_aliases` -> deterministic suffix pick
+   (`pick_deterministic`: current module -> shortest -> lexicographic). The
+   scope-first tier is load-bearing: same-leaf user modules register a bare
+   key whose `fn_symbol_map` slot belongs to the FIRST module, so resolving it
+   inside another module bound the wrong function. Wired into the
+   fn-as-value ptrtoint (expr.rs), `wrap_fn_ref_env` symbol resolution
+   (vec_abi.rs), and the FIVE duplicated fn-typed-arg param lookups in call.rs
+   (`resolve_fn_ref_arg`).
+2. **fn-value symbol materialization** (expr.rs): the ptrtoint used the raw
+   registry key; with same-leaf user modules that is a bare key whose
+   definition is module-qualified, so clang failed on `@is_even` (undefined)
+   and beta bound alpha's fn. It now maps through `fn_symbol_map` (the BUG 22
+   #11 rule already used by call sites). Lock
+   `e2e_m81_fn_ref_same_leaf` (`tests/regression/m81_fn_ref_same_leaf/`:
+   alpha/beta each define `is_even` + a higher-order `apply` and each passes
+   its OWN fn; exit 0 only when both bind locally).
+3. **@pre snapshot order** (decl.rs): the `HashSet<String>` worklist assigned
+   the per-field pre-slots in a different order per run (Gauge.adjust
+   `%tmp9/%tmp11/%tmp13` permutation, same semantics, different IR); the
+   worklist is sorted now.
+4. **mono worklist total order** (lib.rs): the BUG-39 sort key was the base
+   name only, so `Option.is_some` specializations for `Record`/`Pair` tied on
+   the key and kept discovery order -- `Option__Record.is_some` and
+   `Option__Pair.is_some` swapped function positions across runs; the sort is
+   now `(base_name, concrete_types)`.
+5. **concrete Option builtins** (lib.rs): the `is_some`/`is_none`/`unwrap`
+   bodies iterated `type_meta.keys()` (HashMap) -> per-process order; sorted.
+6. **variant parent resolution** (expr.rs): the bare-`Ident` variant scan and
+   the module-qualified enum fallback now use `pick_deterministic` (round-76
+   covered the other four variant sites).
+
+Verification: bench IR byte-identical 5/5 and selfhost v092 2/2 (155,936
+bytes); `perf_budget_tests` 2/2; checker 189/189, feature-reg 510/510,
+stdlib-exec 85/85 (+2 ign), m35 300/300, full e2e 2329/2329 (incl. m81),
+selfhost v092 compile gate green.
+
+Residual findings (pre-existing, found while gating; not part of this fix):
+- Ambiguous bare cross-enum variants: `var empty = Empty;` in
+  `benchmark.enums.test_enum_data` deterministically resolves the parent to
+  `%struct.BST` while the later method leaf-bind picks
+  `@Message.size_hint` -> a type-mismatched call survives in the bench IR.
+  Needs a checker rule/diagnostic for variant ambiguity.
+- `%struct.Metrics` has 4 fields but the bench emits
+  `getelementptr ... i32 0, i32 4` (invalid IR): `examples/benchmark/main.xi`
+  does NOT fully clang-compile at HEAD. Stage 6 measures emitted IR bytes
+  only, so this never gated; remeasure before wiring a full bench build.
+
+
