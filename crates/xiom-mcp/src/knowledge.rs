@@ -14,6 +14,27 @@ use xiom_parser::Parser;
 // Live stdlib reference -- parses real source, never goes stale
 // ============================================================================
 
+/// Declared `module <dotted>` name from a source header. The stdlib files
+/// declare their canonical module name (e.g. `module xiom.alloc` inside
+/// `stdlib/xiom/alloc/alloc.xi`); the PATH-derived name would be
+/// "alloc.alloc" and `use xiom.alloc.alloc;` does not compile.
+fn declared_module_name(source: &str) -> Option<String> {
+    for line in source.lines().take(40) {
+        let t = line.trim();
+        if let Some(rest) = t.strip_prefix("module ") {
+            let name = rest
+                .split(|c: char| c == '{' || c == ';' || c.is_whitespace())
+                .next()
+                .unwrap_or("")
+                .trim();
+            if !name.is_empty() {
+                return Some(name.to_string());
+            }
+        }
+    }
+    None
+}
+
 /// List all stdlib modules, or describe one module's full public API.
 pub fn stdlib_reference(module_filter: Option<&str>) -> Result<String, String> {
     let dirs = xiom::find_stdlib_dirs();
@@ -39,12 +60,20 @@ pub fn stdlib_reference(module_filter: Option<&str>) -> Result<String, String> {
                         walk.push(p);
                     } else if p.extension().and_then(|e| e.to_str()) == Some("xi") {
                         let rel = p.strip_prefix(&scan_root).unwrap_or(&p);
-                        let dotted = rel.with_extension("")
+                        let path_dotted = rel.with_extension("")
                             .components()
                             .filter_map(|c| c.as_os_str().to_str())
                             .collect::<Vec<_>>()
                             .join(".");
-                        modules.push((dotted, p));
+                        // Prefer the DECLARED module name (canonical, matches
+                        // what the compiler accepts); the path-derived name is
+                        // only a fallback for headers we cannot read.
+                        let declared = std::fs::read_to_string(&p).ok()
+                            .and_then(|src| declared_module_name(&src));
+                        let name = declared
+                            .map(|n| n.strip_prefix("xiom.").unwrap_or(&n).to_string())
+                            .unwrap_or(path_dotted);
+                        modules.push((name, p));
                     }
                 }
             }
@@ -116,9 +145,13 @@ fn describe_module(path: &std::path::Path) -> Result<String, String> {
     let source = std::fs::read_to_string(path)
         .map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("?");
-    // BUG 29 (new 512-module layout): derive the dotted module name from the
-    // path ("stdlib/xiom/os/file.xi" -> "xiom.os.file"), falling back to the
-    // bare stem for flat layouts.
+    // Prefer the DECLARED module name (`module xiom.alloc` inside
+    // alloc/alloc.xi); the path-derived dotted name is a fallback. This is
+    // what makes the rendered `use xiom.alloc;` line compile.
+    let source_preview = std::fs::read_to_string(path).unwrap_or_default();
+    let declared = declared_module_name(&source_preview);
+    // BUG 29 (new 512-module layout): path-derived dotted name
+    // ("stdlib/xiom/os/file.xi" -> "xiom.os.file") as the fallback.
     let dotted = {
         // Walk up from the file until the "xiom" root segment.
         let mut cur = path.parent();
@@ -132,6 +165,9 @@ fn describe_module(path: &std::path::Path) -> Result<String, String> {
         parts.push(stem.to_string());
         parts.join(".")
     };
+    let dotted = declared
+        .map(|n| n.strip_prefix("xiom.").unwrap_or(&n).to_string())
+        .unwrap_or(dotted);
     let tokens = Lexer::new(&source).tokenize();
     let program = Parser::new(tokens).parse_program()
         .map_err(|e| format!("Parse error in {}: {}", path.display(), e.message))?;

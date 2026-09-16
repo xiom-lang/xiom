@@ -87,6 +87,9 @@ jobs:
           cargo test -p xiom-codegen --test fuzz_tests
           cargo test -p xiom-codegen --test robustness_tests
 
+      - name: Tooling unit tests (bin-only crates)
+        run: cargo test -p xiom-pkg -p xiom-dbg -p xiom-lsp -p xiom-mcp
+
       - name: Run E2E tests
         run: |
           cargo test -p xiom-codegen --test e2e_tests -- e2e_p0 e2e_p1 e2e_p2 e2e_never_type e2e_asm e2e_spawn_basic e2e_i2
