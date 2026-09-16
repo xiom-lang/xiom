@@ -1,0 +1,226 @@
+name: XIOM Release
+
+# Tag push (v*) publishes a GitHub Release with packaged toolchains.
+# Manual dispatch builds the same packages as workflow artifacts (dry run)
+# without creating a release.
+#
+# Cross-repo: stdlib is checked out at the ref in STDLIB_VERSION using
+# secrets.XIOM_CROSS_REPO_TOKEN (fine-grained PAT with Contents: read on
+# xiom-lang/stdlib). Without the secret the fallback github.token cannot
+# read another private repository and the job fails loudly.
+#
+# macOS jobs are gated on the repository variable RELEASE_BUILD_MACOS=true
+# (macOS runner minutes bill 10x on private repos; enable once the repo is
+# public or when a macOS release is actually needed):
+#   gh variable set RELEASE_BUILD_MACOS --body true --repo xiom-lang/xiom
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Dry-run version label (no release is created)"
+        required: false
+        default: "0.0.0-dev"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: package ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            os: windows-latest
+          - platform: linux-x64
+            os: ubuntu-latest
+    steps:
+      - name: Checkout xiom
+        uses: actions/checkout@v4
+
+      - name: Read STDLIB_VERSION
+        id: pin
+        shell: bash
+        run: echo "ref=$(tr -d '\r\n ' < STDLIB_VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout stdlib at the pin
+        uses: actions/checkout@v4
+        with:
+          repository: xiom-lang/stdlib
+          ref: ${{ steps.pin.outputs.ref }}
+          path: stdlib
+          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN || github.token }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/
+            ~/.cargo/git/
+            target/
+          key: ${{ runner.os }}-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-release-
+
+      - name: Build release
+        run: cargo build --release -p xiom
+
+      - name: Verify binary
+        shell: bash
+        run: target/release/xiom --version
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+        run: |
+          $ver = $env:RELEASE_VERSION -replace '^v', ''
+          $stage = 'stage'
+          New-Item -ItemType Directory -Force "$stage/bin", "$stage/lib" | Out-Null
+          Copy-Item target\release\xiom.exe "$stage/bin/"
+          Copy-Item stdlib\xiom "$stage/lib/xiom" -Recurse
+          Copy-Item stdlib\runtime "$stage/lib/runtime" -Recurse
+          Copy-Item stdlib\package.xi "$stage/lib/"
+          Copy-Item LICENSE, README.md $stage
+          $name = "xiom-$ver-windows-x64.zip"
+          Compress-Archive -Path "$stage/*" -DestinationPath $name
+          $hash = (Get-FileHash $name -Algorithm SHA256).Hash.ToLower()
+          "$hash  $name" | Set-Content SHA256SUMS-windows-x64 -Encoding ASCII
+          "ARTIFACT_NAME=$name" | Out-File -Append $env:GITHUB_ENV -Encoding ASCII
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+        run: |
+          ver="${RELEASE_VERSION#v}"
+          mkdir -p stage/bin stage/lib
+          cp target/release/xiom stage/bin/
+          cp -r stdlib/xiom stage/lib/xiom
+          cp -r stdlib/runtime stage/lib/runtime
+          cp stdlib/package.xi stage/lib/
+          cp LICENSE README.md stage/
+          name="xiom-$ver-linux-x64.tar.gz"
+          tar -czf "$name" -C stage .
+          sha256sum "$name" > SHA256SUMS-linux-x64
+          echo "ARTIFACT_NAME=$name" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiom-${{ matrix.platform }}-${{ github.run_id }}
+          path: |
+            ${{ env.ARTIFACT_NAME }}
+            SHA256SUMS-*
+
+  build-macos:
+    name: package ${{ matrix.platform }}
+    if: vars.RELEASE_BUILD_MACOS == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-x64
+            os: macos-13
+          - platform: macos-arm64
+            os: macos-14
+    steps:
+      - name: Checkout xiom
+        uses: actions/checkout@v4
+
+      - name: Read STDLIB_VERSION
+        id: pin
+        shell: bash
+        run: echo "ref=$(tr -d '\r\n ' < STDLIB_VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout stdlib at the pin
+        uses: actions/checkout@v4
+        with:
+          repository: xiom-lang/stdlib
+          ref: ${{ steps.pin.outputs.ref }}
+          path: stdlib
+          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN || github.token }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/
+            ~/.cargo/git/
+            target/
+          key: ${{ runner.os }}-${{ matrix.platform }}-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-release-
+
+      - name: Build release
+        run: cargo build --release -p xiom
+
+      - name: Package (macOS)
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+        run: |
+          ver="${RELEASE_VERSION#v}"
+          mkdir -p stage/bin stage/lib
+          cp target/release/xiom stage/bin/
+          cp -r stdlib/xiom stage/lib/xiom
+          cp -r stdlib/runtime stage/lib/runtime
+          cp stdlib/package.xi stage/lib/
+          cp LICENSE README.md stage/
+          name="xiom-$ver-${{ matrix.platform }}.tar.gz"
+          tar -czf "$name" -C stage .
+          shasum -a 256 "$name" > "SHA256SUMS-${{ matrix.platform }}"
+          echo "ARTIFACT_NAME=$name" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiom-${{ matrix.platform }}-${{ github.run_id }}
+          path: |
+            ${{ env.ARTIFACT_NAME }}
+            SHA256SUMS-*
+
+  release:
+    name: publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Combine checksums
+        run: |
+          cd artifacts
+          cat SHA256SUMS-* > SHA256SUMS
+          echo "--- SHA256SUMS ---"
+          cat SHA256SUMS
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd artifacts
+          FILES=$(ls | grep -Ev '^SHA256SUMS-')
+          gh release create "$GITHUB_REF_NAME" $FILES SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes

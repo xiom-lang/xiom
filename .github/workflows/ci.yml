@@ -1,10 +1,18 @@
 name: XIOM CI
 
+# Tier 1 CI: every pull request + manual dispatch. Deliberately scoped to
+# keep private-repo minutes sustainable (Windows bills 2x, macOS 10x on
+# private repos):
+#   - heavy suites (fuzz smoke, sanitizer) live in heavy.yml (weekly +
+#     dispatch)
+#   - macOS builds live in release.yml, gated by the RELEASE_BUILD_MACOS
+#     repository variable
+#   - full e2e and the stdlib suites run locally / on tags (see docs/SESSION.md)
+
 on:
-  push:
-    branches: [main, feat/*, fix/*]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -36,20 +44,15 @@ jobs:
         run: cargo deny check advisories licenses bans sources
 
   build-and-test:
-    name: ${{ matrix.os }} (${{ matrix.target }})
+    name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
             rust: stable
           - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            rust: stable
-          - os: macos-latest
-            target: x86_64-apple-darwin
             rust: stable
 
     steps:
@@ -64,7 +67,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust }}
-          targets: ${{ matrix.target }}
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -108,103 +110,4 @@ jobs:
           echo 'fn main() -> Int { return 0; }' > /tmp/smoke.xi
           target/release/xiom /tmp/smoke.xi -o /tmp/smoke_test
           /tmp/smoke_test
-        shell: bash
-
-  # Audit gap: "toy LCG fuzzers; no coverage/ASAN/fuzz CI gates". The fuzz/
-  # directory is a standalone cargo-fuzz workspace (libfuzzer-sys is kept out
-  # of the root workspace on purpose). Linux links Rust's ASAN statically, so
-  # the coverage runs below carry address+undefined instrumentation.
-  fuzz-smoke:
-    name: fuzz smoke (cargo-fuzz, 30s/target, ASAN)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install nightly toolchain
-        uses: dtolnay/rust-toolchain@nightly
-
-      - name: Install cargo-fuzz
-        uses: taiki-e/install-action@cargo-fuzz
-
-      - name: Build fuzz targets
-        run: cargo +nightly fuzz build
-
-      - name: Fuzz lexer
-        run: cargo +nightly fuzz run lexer -- -max_total_time=30 -rss_limit_mb=2048
-
-      - name: Fuzz parser
-        run: cargo +nightly fuzz run parser -- -max_total_time=30 -rss_limit_mb=2048
-
-      - name: Fuzz ctfe
-        run: cargo +nightly fuzz run ctfe -- -max_total_time=30 -rss_limit_mb=2048
-
-      - name: Fuzz pipeline
-        run: cargo +nightly fuzz run pipeline -- -max_total_time=30 -rss_limit_mb=2048
-
-      - name: Upload crash artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: fuzz-artifacts
-          path: fuzz/artifacts/
-          if-no-files-found: ignore
-
-  # Compiler-side sanitizer wiring (`--sanitize=address`) must actually
-  # produce a runnable, clean-boot instrumented binary.
-  sanitizer-smoke:
-    name: sanitizer smoke (--sanitize=address)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build compiler
-        run: cargo build -p xiom
-
-      - name: Compile + run an ASAN-instrumented program
-        run: |
-          cat > /tmp/asan_smoke.xi <<'EOF'
-          fn sieve(n: Int) -> Int {
-            var count = 0;
-            var i = 2;
-            while i < n {
-              var is_prime = true;
-              var d = 2;
-              while d * d <= i {
-                if i - (i / d) * d == 0 { is_prime = false; }
-                d = d + 1;
-              }
-              if is_prime { count = count + 1; }
-              i = i + 1;
-            }
-            return count;
-          }
-          fn main() -> Int {
-            if sieve(50) != 15 { return 1; }
-            return 0;
-          }
-          EOF
-          target/debug/xiom /tmp/asan_smoke.xi --sanitize=address -o /tmp/asan_smoke
-          ASAN_OPTIONS=detect_leaks=0 /tmp/asan_smoke
-        shell: bash
-
-      - name: Contracts under ASAN (runtime checker path)
-        run: |
-          cat > /tmp/asan_contract.xi <<'EOF'
-          fn inc(n: Int) -> Int
-            requires: n >= 0
-            ensures: result == n + 1
-          {
-            return n + 1;
-          }
-          fn main() -> Int {
-            return inc(41) - 42;
-          }
-          EOF
-          target/debug/xiom /tmp/asan_contract.xi --sanitize=address -o /tmp/asan_contract
-          ASAN_OPTIONS=detect_leaks=0 /tmp/asan_contract
         shell: bash
