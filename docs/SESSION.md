@@ -190,6 +190,31 @@ MAX_EXPR_DEPTH=32; now nest 300), lexer test-only helper gated with
 cfg(test), unused bindings underscored. fuzz_tests 24/24, robustness 63/63,
 workspace check clean.
 
+### Round-73 (2026-09-16): R23 FIXED -- fn-typed values env-first in every shape
+
+Compiler lane. All five async probes AV'd (`p_async_p5/p7/p8/p9/p10`,
+0xC0000005) while the full smoke surface passed -- shape-dependent codegen,
+as the stdlib lane predicted. `--emit-ir` showed call-through-value sites
+inttoptr'ing the closure ENV BOX as code and calling it with no env argument.
+Three conventions were mixed:
+
+1. `callee_is_fn_ptr` (fn-typed local callee) used the raw-code path; it now
+   emits env-first (load env[0] trampoline -> `call fn(i64 env, ...)`), the
+   instance_fn_field/M20-A1 convention that every producer implements.
+2. Match payloads from fn-typed slots (`Some(task)` off `Vec[fn()].pop()`)
+   were not marked as closure locals (both guard and arm-body binding sites
+   now mark them; the marker resolves from the scrutinee type or the Vec's
+   element marker).
+3. Struct-literal fn-marker fields stored raw code addresses for bare fn
+   refs (`FnBox{ f: add1 }`); the store now wraps via `wrap_fn_ref_env`.
+Plus: `xiom_to_llvm_type` accepts `fn(...)` markers silently (i64 storage
+erasure) instead of warning.
+
+Verification: five async probes green, `smoke_async` + `smoke_async_stress`
+green, new m80 lock (param/local/field/vec-pop shapes), warning-free. Gates:
+checker 189/189, stdlib-exec 85/85 (+2 ign), feature-reg 510/510, e2e
+2328/2328.
+
 ### Round-72 (2026-09-16): lockfile v2 + package-manifest parser fixes; CI bin-only crate tests
 
 Compiler lane. Supply-chain slice:

@@ -4660,6 +4660,14 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m79_debug_info_runs() {
     assert_eq!(compile_and_run_with_flags("tests\\regression\\m79_debug_info.xi", &["-g"]), Some(0));
 }
+
+// R23: fn-typed values are closure ENV pointers (env-first ABI) in every
+// shape: fn-typed param, local binding, struct field, and Vec[fn()].pop()
+// payload binding. Pre-fix the raw fn-pointer path inttoptr'd the env box as
+// code (0xC0000005; the async executor AV'd in reduced shapes).
+#[test] fn e2e_m80_fn_value_shapes() {
+    assert_eq!(compile_and_run("tests\\regression\\m80_fn_value_shapes.xi"), Some(0));
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }

@@ -5994,6 +5994,42 @@ the stress smoke keeps the full surface and scales counts. Repro:
 `target_r45\debug\xiom.exe --run probes\p_async_p7.xi` -> 0xC0000005;
 `--run examples\stdlib_smoke\smoke_async_stress.xi` -> OK.
 
+### R23 FIXED (2026-09-16, compiler lane round 73): fn-typed values are env-first in every shape
+
+Reproduced all five async probes (p_async_p5/p7/p8/p9/p10 AV) plus a minimal
+user program (fn-typed param / local binding / struct field /
+`Vec[fn()].pop()` payload). `--emit-ir` showed the wrong lowering at every
+call-through-value site: the value is a closure ENV pointer (box word 0 =
+trampoline), but the call inttoptr'd the BOX as code and called it with no
+env argument:
+
+```llvm
+%tmp96 = load i64, i64* %tmp94          ; env box pointer
+%tmp97 = inttoptr i64 %tmp96 to i64 ()* ; box interpreted as code!
+%tmp95 = call i64 %tmp97()
+```
+
+Three mixed conventions:
+1. `callee_is_fn_ptr` (bare-ident callee holding a fn-typed local) used the
+   RAW-code path; it now emits env-first (`load env[0]` -> trampoline ->
+   `call fn(i64 env, ...)`), matching every producer (`wrap_fn_ref_env`,
+   M20-A1 closures, fn-typed ARG coercion).
+2. MATCH PAYLOADS bound from fn-typed slots (`Some(task)` off
+   `Vec[fn()].pop()`) were never marked as closure locals. Both binding
+   sites (guard + arm body) now mark the name when the payload marker is
+   `fn(...)`; the marker resolves from the scrutinee's recorded type or, for
+   `vec.pop()`, from the Vec's element marker.
+3. Struct-literal fn-marker FIELDS stored bare fn REFERENCE code addresses
+   (`FnBox{ f: add1 }`); the store now wraps via `wrap_fn_ref_env` like
+   `Vec.push`.
+Also: `xiom_to_llvm_type` accepts `fn(...)` markers (i64 storage erasure)
+instead of warning "unknown type -- defaulting to i64".
+
+Verification: five async probes green (`P7 OK`), `smoke_async` +
+`smoke_async_stress` green, m80 lock covers param/local/field/vec-pop
+shapes warning-free. Gates: checker 189/189, stdlib-exec 85/85 (+2 ign),
+feature-reg 510/510, e2e 2328/2328.
+
 ## 2026-09-16 (stdlib lane) -- runtime symbol audit for the compiler lane (action item, not a bug)
 
 `docs/RUNTIME_SYMBOL_AUDIT.md`: 322 unique `xiom_*` runtime definitions vs

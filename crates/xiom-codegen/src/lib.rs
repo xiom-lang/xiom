@@ -1336,6 +1336,12 @@ impl IrEmitter {
                     | "Unpin" | "PhantomPinned" | "UnsafeCell" | "Cell" | "RefCell") {
                     return "i64";
                 }
+                // R23: function-pointer markers ("fn(Int) -> Int") erase to i64
+                // STORAGE slots on the env-first closure ABI (call sites load
+                // the trampoline and convert); not an unknown type.
+                if xiom_ty.starts_with("fn(") {
+                    return "i64";
+                }
                 eprintln!("xiom: warning: unknown type '{}' -- defaulting to i64. This may produce incorrect code.", xiom_ty);
                 "i64"
             }
