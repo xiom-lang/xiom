@@ -696,6 +696,9 @@ impl Lexer {
         }
     }
 
+    /// Test-only helper (the lexer itself always uses `error_at` so spans
+    /// cover the consumed malformed literal).
+    #[cfg(test)]
     fn error(&self, msg: impl Into<String>) -> Token {
         Token::new(TokenKind::Error(msg.into()), self.span(), "")
     }

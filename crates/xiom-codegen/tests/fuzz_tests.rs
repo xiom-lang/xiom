@@ -146,25 +146,26 @@ fn fuzz_nested_generics_under_guard() {
 
 #[test]
 fn fuzz_nested_generics_over_guard() {
-    // `Vec[Vec[...]]` 40 levels deep — over the depth guard (32). The parser
-    // must record an error (guard triggered), even if 5c error recovery
-    // salvages a partial program from remaining declarations.
+    // `Vec[Vec[...]]` 300 levels deep -- over MAX_EXPR_DEPTH (128; this test
+    // was written when the guard was 32 and went stale). The parser must
+    // record an error (guard triggered), even if 5c error recovery salvages
+    // a partial program from remaining declarations.
     let src = format!(
         "fn f(x: {}Int{}) -> Int {{ return 0; }} fn main() -> Int {{ return 0; }}",
-        "Vec[".repeat(40),
-        "]".repeat(40)
+        "Vec[".repeat(300),
+        "]".repeat(300)
     );
     assert_parser_error(&src);
 }
 
 #[test]
 fn fuzz_deeply_nested_parens_over_guard() {
-    // 100 nested parens — well over the depth guard. Parser must record
+    // 300 nested parens -- well over MAX_EXPR_DEPTH (128). Parser must record
     // an error, even if 5c recovery salvages the rest.
     let src = format!(
         "fn main() -> Int {{ return {}1{}; }}",
-        "(".repeat(100),
-        ")".repeat(100)
+        "(".repeat(300),
+        ")".repeat(300)
     );
     assert_parser_error(&src);
 }

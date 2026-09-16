@@ -4608,7 +4608,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             .map(|(_, f)| f.clone()).unwrap_or_default();
                         Some((st, field_idx, fty))
                     })();
-                    if let Some((struct_name, field_idx, fn_field_xiom)) = instance_fn_field {
+                    if let Some((_struct_name, field_idx, fn_field_xiom)) = instance_fn_field {
                         let (recv_val, recv_llvm_ty) = self.compile_expr(receiver_expr.expect("checked above"))?;
                         // The receiver may be a POINTER-typed value (&self /
                         // %struct.X* param -- the ThreadLocal tls_get shape): the
