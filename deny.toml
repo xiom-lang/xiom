@@ -8,7 +8,11 @@
 # the project license (see [workspace.package] in Cargo.toml).
 
 [advisories]
-ignore = []
+# RUSTSEC-2024-0384: `instant` is unmaintained (no vulnerability reported, no
+# safe upgrade available). Pulled in by notify 7 -> notify-types -> xiom-jit.
+# Remove this ignore when the JIT watcher moves to notify 8 or a maintained
+# replacement.
+ignore = ["RUSTSEC-2024-0384"]
 
 [licenses]
 # Permissive licenses present in the current dependency tree, plus the
