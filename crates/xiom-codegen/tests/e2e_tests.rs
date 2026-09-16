@@ -4623,6 +4623,43 @@ fn e2e_safety_probe() {
     let run = Command::new(&exe).output().expect("failed to run m78 exe");
     assert_eq!(run.status.code(), Some(0), "m78 should exit 0");
 }
+
+// Stage 5 (DWARF for .xi): `-g` must produce a VALID debug-info graph and
+// per-statement line locations; without `-g` the IR must stay metadata-free
+// (the differential IR suites byte-compare default builds).
+#[test] fn e2e_m79_debug_info_metadata() {
+    let emit = |extra: &[&str]| -> String {
+        let mut args: Vec<&str> = extra.to_vec();
+        args.push("--emit-ir");
+        args.push("tests\\regression\\m79_debug_info.xi");
+        let out = Command::new(xiom_path())
+            .args(&args)
+            .current_dir(project_root())
+            .output()
+            .expect("spawn xiom");
+        assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+
+    let with_debug = emit(&["-g"]);
+    assert!(with_debug.contains("!llvm.dbg.cu"), "compile unit metadata missing");
+    assert!(with_debug.contains("!DISubroutineType"),
+        "DISubprogram.type must reference a subroutine type (empty `!{{}}` invalidates all debug info)");
+    assert!(with_debug.contains("!DILocation(line: 9"),
+        "body statement line (return a + b) must have a DILocation");
+    assert!(with_debug.contains("!DILocation(line: 14"),
+        "main's `if x != 5` line must have a DILocation");
+    assert!(with_debug.contains(", !dbg !"), "instructions must carry !dbg attachments");
+
+    let without_debug = emit(&[]);
+    assert!(!without_debug.contains("!DILocation"), "no DILocations without -g");
+    assert!(!without_debug.contains("!llvm.dbg.cu"), "no compile unit without -g");
+}
+
+// Stage 5: the `-g` build must still compile, link and run.
+#[test] fn e2e_m79_debug_info_runs() {
+    assert_eq!(compile_and_run_with_flags("tests\\regression\\m79_debug_info.xi", &["-g"]), Some(0));
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }

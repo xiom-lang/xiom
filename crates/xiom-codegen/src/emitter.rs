@@ -355,8 +355,47 @@ impl IrEmitter {
     }
 
     pub(crate) fn emitln(&mut self, s: &str) {
+        // Stage 5: attach the current `.xi` statement location to every
+        // instruction line while debug symbols are enabled. Labels, braces,
+        // metadata definitions and comments (not instructions) are skipped.
+        if self.config.debug_symbols
+            && s.starts_with("  ")
+            && !s.trim_start().starts_with(';')
+            && !s.trim_start().starts_with('!')
+        {
+            if let (Some((line, col)), Some(scope)) =
+                (self.local.current_debug_loc, self.local.current_di_subprogram)
+            {
+                let id = if let Some(id) = self.local.di_loc_cache.get(&(line, col)) {
+                    *id
+                } else {
+                    let id = self.local.di_node_counter;
+                    self.local.di_node_counter += 1;
+                    self.local.di_loc_pending.push(format!(
+                        "!{} = !DILocation(line: {}, column: {}, scope: !{})",
+                        id, line, col, scope
+                    ));
+                    self.local.di_loc_cache.insert((line, col), id);
+                    id
+                };
+                self.output.push_str(s);
+                self.output.push_str(&format!(", !dbg !{}", id));
+                self.output.push('\n');
+                return;
+            }
+        }
         self.output.push_str(s);
         self.output.push('\n');
+    }
+
+    /// Stage 5: flush the buffered `!DILocation` definitions. Called at the
+    /// END of module emission -- instruction lines emitted earlier reference
+    /// these node ids, and LLVM resolves numbered-metadata forward references.
+    pub(crate) fn flush_debug_locations(&mut self) {
+        let pending = std::mem::take(&mut self.local.di_loc_pending);
+        for node in pending {
+            self.emitln(&node);
+        }
     }
 
     /// M20-A1: Emit any deferred closure function definitions.
@@ -985,10 +1024,16 @@ impl IrEmitter {
 
         // DICompileUnit: language = DW_LANG_C99 (0x000c), producer = "XIOM"
         self.emitln("!0 = distinct !DICompileUnit(language: DW_LANG_C99, file: !4, producer: \"XIOM v0.56\", isOptimized: false, runtimeVersion: 0, emissionKind: FullDebug)");
+        // DISubroutineType: REQUIRED by DISubprogram (`type:` must reference a
+        // subroutine type). The old `type: !{}` made the whole debug-info
+        // graph invalid -- clang warned "ignoring invalid debug info" and
+        // emitted no DWARF at all. An empty types list is valid (parameters
+        // are not described yet).
+        self.emitln("!5 = !DISubroutineType(types: !{})");
         self.emitln("");
 
         // Track DI node counter for function subprograms
-        self.local.di_node_counter = 5; // 0-4 used above
+        self.local.di_node_counter = 6; // 0-5 used above
     }
 
     /// Emit `define` stubs for any `@symbol` that is *called* in the emitted IR
