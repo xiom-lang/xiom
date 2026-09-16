@@ -5967,6 +5967,34 @@ existing alias legs (all exit 0). Gates: checker 189/189, stdlib-exec 85/85
 unblocked for the stdlib lane; base58 still needs the INT_MIN translation
 noted above.
 
+## R23. Async executor stored-fn invocation AVs in reduced program shapes (2026-09-16, stdlib lane round 61)
+
+While building the async stress suite: `executor.executor_spawn(&mut e, f)`
+followed by `executor.executor_run(&mut e)` (or run_until_idle) crashes
+0xC0000005 when the callback actually runs, unless the program keeps the
+full smoke_async async surface. Evidence (all with target_r45):
+- `probes\p_async_p5.xi` (stderr-marked): prints P5:start/new/spawn/tasks=1,
+  then AVs inside `executor_run`; nothing after it executes.
+- `probes\p_async_p7.xi` (2 spawns + `_n == 2` assert): AVs.
+- `probes\p_async_p8/p9/p10`: AV with 1 spawn, 5000 spawns, and with/without
+  channel/timer calls; importing `xiom.async.io.*` does not help.
+- A byte-for-byte copy of smoke_async (module renamed only) runs the same
+  callbacks ("copy n=2", exit 0); scaling that shape to a 2000-spawn storm
+  also exits 0 (n=2000), and the new
+  `examples\stdlib_smoke\smoke_async_stress.xi` passes with the same surface.
+
+Root cause is the already-warned "unknown type 'fn() -> Unit' -- defaulting
+to i64. This may produce incorrect code." path: whether the executor's
+stored fn() values are callable depends on which other async functions the
+program references (the compiled closure decides the fn-typed slot codegen).
+The shape-dependence was known (see the smoke_async in-source comment); this
+report adds the minimal repro and the workaround. Impact: a single-purpose
+async program (the natural shape) cannot rely on executor task callbacks;
+the stress smoke keeps the full surface and scales counts. Repro:
+`target_r45\debug\xiom.exe --run probes\p_async_p7.xi` -> 0xC0000005;
+`--run examples\stdlib_smoke\smoke_async_stress.xi` -> OK.
+
+
 
 
 
