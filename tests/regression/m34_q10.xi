@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Q10: Contract chain for bounds-guarded data access
 fn check_lower(i: Int) -> Bool { return i >= 0; }
 fn check_upper(i: Int) -> Bool { return i < 4; }

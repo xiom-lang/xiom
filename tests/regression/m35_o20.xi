@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-O20: Result map -- match-based map over Ok value
 fn result_map_int(r: Result[Int, Str], f: fn(Int) -> Int) -> Result[Int, Str] {
   match r { Ok(v) => Ok(f(v)), Err(e) => Err(e) }

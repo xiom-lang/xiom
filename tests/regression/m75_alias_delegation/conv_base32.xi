@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m75 shim: same module LEAF ("base32") and same fn names as m75canon.base32,
 // delegating through a `use ... as` ALIAS. R20: the emitter must bind these
 // calls to the checker-recorded owner-qualified target; the old span-only

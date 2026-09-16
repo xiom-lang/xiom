@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z19: generic+recursion+enum+closure+match+contract+derive+module+while+compound_assign
 type Boxed = { len: Int; src: Int; } derive[Eq]
 enum Cmd { Pack, Unpack, Send }

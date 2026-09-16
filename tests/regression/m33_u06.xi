@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-U06: Pointer to struct int fields -- address-of struct member
 type Vec2 = { x: Int; y: Int; }
 fn main() -> Int {

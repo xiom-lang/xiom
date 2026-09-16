@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-S08: String to lowercase -- build lowercase via ASCII char mapping
 use stdlib.xiom.string;
 fn to_lower(s: Str) -> Str {

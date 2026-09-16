@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M10/M11: Self-host differential test suite
 // Verifies that both AOT and scripting paths produce valid LLVM IR
 // with identical function signatures for user-defined code.

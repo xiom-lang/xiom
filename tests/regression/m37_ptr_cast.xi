@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_ptr_cast
 // BUG 25 #10 (crypto): `&arr[i] as *UInt8` on a FIXED ARRAY local compiled
 // the element VALUE (load i8) and inttoptr'd it -- the byte value 0 became

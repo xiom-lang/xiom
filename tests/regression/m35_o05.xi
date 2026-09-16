@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-O05: Option[struct] -- struct wrapped in enum (workaround for Option-struct field access)
 type Data = { a: Int; b: Int; }
 enum MaybeData { Present(d: Data), Absent }

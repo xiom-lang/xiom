@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // LET-array decision P3 regression (docs/LET_ARRAY_DECISION.md): an
 // UNANNOTATED `let a = [...]` binds a FIXED array `[N]T` (the M33 let->Vec
 // conversion is gone for let literals). Call-site compatibility is preserved

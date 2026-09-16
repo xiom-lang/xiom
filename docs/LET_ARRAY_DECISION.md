@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # LET-array Representation -- JOINT Decision (compiler <-> stdlib)
 
 **Status:** DECIDED (compiler lane), input received from the stdlib lane (Q5

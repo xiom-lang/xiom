@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 # XIOM Test Artifact Cleanup
 # Cleans up e2e test artifacts from project root
 ## Run from: E:\Projects\AXIOM

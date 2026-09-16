@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // gzip-DECOMPRESS regression (2026-08-19, queue item 1): the catalog
 // compress.gzip_decompress crashed with 0xC0000005 (crc32 element-load AV
 // from `let decompressed = decoded.value;` -- the payload-FIELD access on a

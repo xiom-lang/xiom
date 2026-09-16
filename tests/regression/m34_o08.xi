@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-O08: ? mixed with match -- ? propagation inside match arms (fixed)
 fn div(a: Int, b: Int) -> Result[Int, Str] {
   if b == 0 { return Err("div0"); }

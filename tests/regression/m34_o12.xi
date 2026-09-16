@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-O12: ? with compound expression -- ? inside arithmetic expression
 fn get(a: Int) -> Result[Int, Str] {
   if a < 0 { return Err("negative"); }

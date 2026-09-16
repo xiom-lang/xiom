@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // XIOM MCP Server -- Model Context Protocol for AI agent tool-calling
 // Phase 5d.1-8.2: Library mode (xiom linked directly, no subprocess).
 // Transport: stdio (JSON-RPC 2.0). Production-grade error handling.

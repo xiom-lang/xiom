@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Bool-casting alternatives (no Bool->Int cast in XIOM)
 fn main() -> Int {
   var b: Bool = true;

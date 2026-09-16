@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_global_fn_init
 // BUG 3 regression: module-global `var` initializers that CALL functions
 // must produce the computed value, not a silent zero. Lowered to a

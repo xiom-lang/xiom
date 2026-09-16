@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-A22: Count divisors -- count all positive divisors of n
 fn count_divisors(n: Int) -> Int {
   if n <= 0 { return 0; }

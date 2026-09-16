@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # XIOM -- Honest Gaps & Safety Hardening
 
 **Version:** v0.55 -> v0.56 (Pre-Selfhost)

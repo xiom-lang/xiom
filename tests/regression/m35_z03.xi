@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z03: struct+match+while+contract+module+compound_assign+closure+Option+derive+array+cast
 type Record = { val: Int; tag: Int; } derive[Eq]
 fn bump(r: Record) -> Record

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-M06: Dotted path access -- dot notation for const and type
 module lib {
   pub const MAGIC: Int = 42;

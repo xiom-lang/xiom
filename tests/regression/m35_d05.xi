@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-D05: Deque -- double-ended queue verification
 fn main() -> Int {
   var d0: Int = 0;

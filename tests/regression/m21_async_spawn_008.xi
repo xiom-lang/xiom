@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_async_spawn_008
 async fn retry(f: fn() -> Result[Int, Int]) -> Result[Int, Int] {
     return Ok(0);

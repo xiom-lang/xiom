@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-E27: Deep array indexing -- chained array index computations
 fn main() -> Int {
   var arr = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];

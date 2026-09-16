@@ -1,6 +1,6 @@
 // XIOM -- Regression Test: Nested this-based method dispatch via &this.field
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //
 // Verifies that when a this-based method passes &this.field to another
 // this-based method (e.g. SocketAddr.to_str calling IpAddr.to_str(&this.ip)),

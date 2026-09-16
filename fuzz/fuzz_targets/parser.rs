@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // XIOM fuzz target: parser.
 // Tokenize + parse arbitrary input; the parser has panic-mode recovery and a
 // depth guard (MAX_EXPR_DEPTH), so every input must return Ok/Err -- never

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-A05: Insertion position -- find where a value belongs in sorted array
 fn main() -> Int {
   var arr = [5, 6, 11, 12, 15];

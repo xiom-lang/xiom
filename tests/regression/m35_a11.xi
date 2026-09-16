@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-A11: Fibonacci -- DP approach using three variables (no array mutation)
 fn fib_dp(n: Int) -> Int {
   if n <= 1 { return n; }

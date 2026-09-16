@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-C29: tail call pattern -- recursive call in tail position with accumulator
 fn gcd(a: Int, b: Int) -> Int {
   if b == 0 { return a; }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-P08: 50 one-line wide function table + 20 struct + 15 enum + 10 const interleaved
 // Pattern: fn main() -> Int { ... return 0; }
 

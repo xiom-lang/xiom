@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-L12: Option size pattern -- verify Option layout via match
 fn main() -> Int {
   var a: Option[Int] = Some(42);

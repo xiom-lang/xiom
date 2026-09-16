@@ -1,6 +1,6 @@
 // XIOM Codegen -- IrEmitter sub-contexts (M4.1: god object decomposition)
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
 
 use xiom_ast::*;
 use std::cell::RefCell;

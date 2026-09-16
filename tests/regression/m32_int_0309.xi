@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: UInt8 left shift crossing byte boundary (64 << 2 = 0 with wraparound in UInt8)
 fn main() -> Int {
   var a: UInt8 = 64;

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-C12: Every loop pattern -- while true, while cond, while break, while continue, nested loops, infinite+break
 fn test_while_true() -> Int {
   var i = 0;

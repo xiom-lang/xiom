@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // E2E: brace-form module `module x { }` -- GAP-13 verification
 // The parser handles brace-form modules correctly.
 // Returns 0 on success.

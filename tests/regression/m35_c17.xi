@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-C17: loop with early exit -- return immediately when condition met
 fn find_index(needle: Int, max: Int) -> Int {
   var i: Int = 0;

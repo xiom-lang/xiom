@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-C17: Every generic instantiation count 1-5 per function -- identity, pair, triple, quad, quintuple with different type args
 fn id[T](x: T) -> T { return x; }
 fn pair2[T](a: T, b: T) -> T { if a == a { return a; } return b; }

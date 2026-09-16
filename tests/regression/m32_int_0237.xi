@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Cast chain Int64 -> Int32 -> Int16 -> Int8 (truncates)
 fn main() -> Int {
   var a: Int64 = 257;

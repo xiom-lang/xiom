@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // Phase 5f -- Verifier regression tests
 // Tests SMT-LIB generation AND z3 execution (when z3 is available).
 

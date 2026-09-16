@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-X30: ALL FEATURES COMBINED -- struct+enum+generic+match+while+if+contract+invariant+derive+impl+module+Option+Result+array+pointer+unsafe+cast+compound_assign+const+type_alias+recursion+bool
 const OFFSET: Int = 10;
 type Named = { id: Int; score: Int; invariant: score >= 0; } derive[Eq]

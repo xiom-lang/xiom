@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_struct_mut_024
 type Node = { value: Int; next: Option[Int]; }
 fn main() -> Int {

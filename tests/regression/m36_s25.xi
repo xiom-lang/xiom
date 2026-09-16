@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S25: Reference counting pattern -- increment/decrement and release
 type RcObj = { id: Int; ref_count: Int; data: Int; dropped: Bool; }
 fn make_rc(id: Int, data: Int) -> RcObj {

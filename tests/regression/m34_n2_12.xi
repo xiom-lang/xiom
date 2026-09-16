@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-N2-12: 5-level nested modules -- m1 -> m2 -> m3 -> m4 -> m5
 module m1 {
   pub fn v1() -> Int { return 10; }

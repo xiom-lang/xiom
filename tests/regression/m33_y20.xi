@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Y20: full combinatorial: generic struct+enum+impl+contract+match+method+module+diff
 type Cell = { data: Int; flag: Int; } derive[Eq]
 enum CellOp { Read, Write(v: Int), Toggle }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-A04: Find minimum value -- scan array and verify min index computation
 fn main() -> Int {
   var arr = [29, 10, 14, 37, 13];

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Result Int8 payload (Ok)
 fn main() -> Int {
   var r: Result[Int8, Bool] = Ok(-128 as Int8);

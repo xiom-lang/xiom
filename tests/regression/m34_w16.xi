@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-W16: Unsigned right shift -- logical shift on UInt and UInt32
 fn main() -> Int {
   var x: UInt = 0xF000;

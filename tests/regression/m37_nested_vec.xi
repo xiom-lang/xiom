@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_nested_vec
 // BUG 23 #2 regression: nested Vec[Vec[T]] element reads.
 // The parser converted Vec[Vec[Int]] generic args to Ident("_"), the

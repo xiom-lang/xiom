@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S28: JIT compilation -- code buffer allocation and relocation patterns
 type JitCodeBuf = { base_addr: Int; size: Int; used: Int; executable: Bool; }
 type JitReloc = { offset: Int; target: Int; kind: Int; }

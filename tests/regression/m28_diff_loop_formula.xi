@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M28: Differential test -- loop sum vs formula must produce same result
 fn sum_loop(n: Int) -> Int {
   var total: Int = 0;

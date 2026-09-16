@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-B20: Borrow chain -- read + write borrows sequenced across separate fn calls
 fn add_pair(a: Int, b: Int) -> Int { return a + b; }
 fn scale_both(x: &mut Int, y: &mut Int) { *x = *x * 2; *y = *y + 1; }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 //! LLVM type system utilities for the XIOM code generator.
 //!
 //! Bridges the XIOM type system and the LLVM IR type system. Key functions:

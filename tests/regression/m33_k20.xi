@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-K20: Full closure composition -- fn ptr + pipe + block + chain
 fn apply(f: fn(Int) -> Int, x: Int) -> Int { return f(x); }
 fn dbl_named(x: Int) -> Int { return x * 2; }

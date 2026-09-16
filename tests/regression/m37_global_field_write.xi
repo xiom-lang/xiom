@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_global_field_write
 // BUG 2 regression: module-global struct FIELD writes must persist.
 // `var g: W = W{ v: 0; };` at module scope + `g.v = 5;` inside a fn --

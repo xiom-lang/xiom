@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-T13: Type alias for primitives -- no arithmetic on alias, only assignment
 type MyBool = Bool;
 type MyInt = Int;

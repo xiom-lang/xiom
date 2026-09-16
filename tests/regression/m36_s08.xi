@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S08: Codegen -- register allocation simulation (linear scan style)
 type RegState = { allocated: Bool; spill: Bool; temp: Bool; }
 fn init_reg(alloc: Bool, sp: Bool, tmp: Bool) -> RegState {

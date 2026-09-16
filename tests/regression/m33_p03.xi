@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-P03: Complex type graph -- 10 inter-dependent types + large match with 20 arms + deep nesting
 // Pattern: fn main() -> Int { ... return 0; }
 

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // XIOM Debug Adapter Protocol Server -- contract-aware debugging
 // Phase 5d: DAP server for VS Code / JetBrains integration.
 // Backend: GDB/MI (Machine Interface) via subprocess. Production-grade.

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S07: Codegen -- instruction emission patterns and opcode assignments
 type Instr = { opcode: Int; rd: Int; rs1: Int; rs2: Int; imm: Int; }
 fn make_instr(op: Int, rd: Int, rs1: Int, rs2: Int, imm: Int) -> Instr {

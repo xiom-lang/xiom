@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M65 regex-family fix regression: Vec[Option[T]] / Vec[Option[Struct]]
 // element handling.
 // - `Vec[Option[Int]].new()` used to size elements at 8 bytes (the bracketed

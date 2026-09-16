@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-X02: Nested modules -- modules within modules with public exports
 module math {
   pub fn square(x: Int) -> Int { return x * x; }

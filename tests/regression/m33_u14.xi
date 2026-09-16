@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-U14: Pointer as param -- pass pointer to function, deref via temp
 fn read_ptr(p: *Int) -> Int {
   var r: Int;

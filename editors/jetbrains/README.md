@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # XIOM for JetBrains IDEs (IntelliJ IDEA, CLion, RustRover, PyCharm...)
 
 Integration via **LSP4IJ** (free, Red Hat) -- no custom plugin needed.

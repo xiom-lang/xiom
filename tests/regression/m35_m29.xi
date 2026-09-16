@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-M29: triangle area via Heron's formula: sqrt(s*(s-a)*(s-b)*(s-c)) where s = (a+b+c)/2
 fn sqrt_newton(x: Float64) -> Float64 {
   if x <= 0.0 { return 0.0; }

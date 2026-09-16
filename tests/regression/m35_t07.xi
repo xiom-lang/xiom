@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-T07: Array in every context -- var, param, return, indexing, literal, multi-type arrays
 fn sum_arr(arr: Vec[Int], n: Int) -> Int { var i: Int = 0; var s: Int = 0; while i < n { s = s + arr[i]; i = i + 1; } return s; }
 fn first(arr: Vec[Int]) -> Int { return arr[0]; }

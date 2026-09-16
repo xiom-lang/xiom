@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // Round-6 regressions (2026-08-19):
 // 1. gzip_decompress returned Ok for garbage input -- the contract-ensure
 //    Imply (`result is Ok => result.len() >= 0`) compiled the consequence

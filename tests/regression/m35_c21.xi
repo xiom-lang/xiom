@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-C21: match on Int -- integer value dispatch with multiple arms
 fn classify_value(x: Int) -> Int {
   match x {

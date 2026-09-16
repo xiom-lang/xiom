@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-S14: Struct with mixed numeric types (Int8, Int16, Int32, Int64, Float64)
 type Mixed = { a: Int8; b: Int16; c: Int32; d: Int64; e: Float64; }
 fn sum_ints(m: Mixed) -> Int {

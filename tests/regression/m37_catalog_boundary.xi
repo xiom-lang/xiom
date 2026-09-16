@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_catalog_boundary
 // BUG 22/23 regression battery: catalog-boundary type fidelity.
 // 23.1 cross-module returned Vec[Float64] element reads (raw-bit garbage)

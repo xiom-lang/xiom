@@ -1,6 +1,6 @@
 // XIOM - Stdlib API Freeze Tests
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //
 // FREEZE CONTRACT: every pub fn signature listed below is a public API
 // guarantee. The stdlib may only ADD functions - renaming, removing, or

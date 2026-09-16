@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-C28: early return from function -- return at multiple points based on guard conditions
 fn safe_divide(a: Int, b: Int) -> Int {
   if b == 0 { return 0; }

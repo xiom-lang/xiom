@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-C06: Pointer null requires -- must not pass null pointer
 fn ptr_value(p: *mut Int) -> Bool
   requires: p != (0 as *mut Int)

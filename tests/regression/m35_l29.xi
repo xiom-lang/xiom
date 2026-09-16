@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-L29: Union pattern via pointer cast -- reinterpreting memory via type casts
 type RawBlock = { tag: Int; data: Int; }
 

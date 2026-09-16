@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z13: contract+invariant+generic+match+struct+module+derive+compound_assign+closure
 type Bounded = { val: Int; lo: Int; hi: Int; invariant: lo <= hi; invariant: val >= lo; invariant: val <= hi; } derive[Eq]
 enum Adjust { Up, Down, Set(v: Int) }

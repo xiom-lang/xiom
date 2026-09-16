@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Swap two Int16 values with XOR trick
 fn main() -> Int {
   var a: Int16 = -32768 as Int16;

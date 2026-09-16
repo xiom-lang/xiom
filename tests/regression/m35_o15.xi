@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-O15: Option as_ref pattern -- pass Option by reference, match on &Option
 fn examine(o: &Option[Int]) -> Int {
   match o {

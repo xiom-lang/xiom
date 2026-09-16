@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-E13: Deep pattern match with nested enum payload
 enum Inner { None, SomeVal(v: Int) }
 enum Outer { Empty, Data(i: Inner) }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-M12: digital root (iterative digit sum until single digit)
 fn digital_root(n: Int) -> Int {
   if n < 0 { return digital_root(0 - n); }

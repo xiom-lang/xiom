@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Q13: Contract with boolean precondition -- chained Bool requires
 fn is_even(x: Int) -> Bool
   ensures: result || !result

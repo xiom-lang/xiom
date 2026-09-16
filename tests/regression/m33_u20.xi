@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-U20: Comprehensive unsafe/FFI -- extern, ptr cast, contract, mixed
 extern "C" {
   fn calc_offset(base: *Int, idx: Int) -> *Int;

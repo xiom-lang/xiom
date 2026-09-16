@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_module_010
 pub var MAX_SIZE: Int = 100;
   pub var DEFAULT_NAME: Str = "unnamed";

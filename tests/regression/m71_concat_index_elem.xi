@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m71_concat_index_elem
 // R14 regression: `"e[0]=" + e[0]` on a Vec produced by a chained
 // `.collect()` emitted `inttoptr` for the indexed Int element (garbage

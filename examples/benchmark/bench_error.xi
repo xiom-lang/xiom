@@ -1,7 +1,7 @@
 // XIOM -- Error Handling Stress Benchmark
 // Exercises Result[T,E], Option[T], match, ? operator, and error type hierarchies.
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
 
 module benchmark.error
 

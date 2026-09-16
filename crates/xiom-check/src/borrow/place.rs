@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // XIOM -- Place Model (5c-R: field-granular borrows, WS2 #1)
 // Direct transplant from rustc: `compiler/rustc_middle/src/mir/syntax.rs` (~line 1162)
 // and `compiler/rustc_borrowck/src/places_conflict.rs`.

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: UInt16 decrement past 0 wraps to 65535 multiple times
 fn main() -> Int {
   var a: UInt16 = 3;

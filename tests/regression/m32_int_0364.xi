@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Function returning struct with narrow int fields
 type Vec3i8 = { x: Int8; y: Int8; z: Int8; }
 fn make_vec3i8() -> Vec3i8 { return Vec3i8{ x: 100 as Int8; y: -50 as Int8; z: 25 as Int8; }; }

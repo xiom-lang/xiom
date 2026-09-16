@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M22: Int16 sign extension -- negative values must work
 fn main() -> Int {
   var neg: Int16 = -1;

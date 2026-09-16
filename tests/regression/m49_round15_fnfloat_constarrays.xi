@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m49_round15_fnfloat_constarrays -- round-15 (2026-08-23) regressions:
 // (1) fn-typed params returning/accepting Float64 marshal through the
 //     __fnwrap thunk with REAL double types (the old i64 declaration

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-M03: min of 2/3/4 numbers
 fn min2(a: Int, b: Int) -> Int {
   if a < b { return a; }

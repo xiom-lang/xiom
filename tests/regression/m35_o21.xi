@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-O21: Result map_err -- match-based map over Err value
 fn result_map_err(r: Result[Int, Str], f: fn(Str) -> Str) -> Result[Int, Str] {
   match r { Ok(v) => Ok(v), Err(e) => Err(f(e)) }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-M09: Nested modules -- modules declared inside modules
 module outer {
   pub fn val_a() -> Int { return 10; }

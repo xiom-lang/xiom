@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-G07: Method on type via interface and generic constraint
 interface Reader { fn read(self) -> Int; }
 type Book = { page: Int; }

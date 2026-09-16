@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-A19: Integer square root -- Newton's method floor approximation
 fn isqrt(n: Int) -> Int {
   if n == 0 { return 0; }

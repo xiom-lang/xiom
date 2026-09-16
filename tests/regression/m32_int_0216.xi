@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Function chain narrow params through multiple calls
 fn inc8(x: Int8) -> Int8 { return x + 1 as Int8; }
 fn dec8(x: Int8) -> Int8 { return x - 1 as Int8; }

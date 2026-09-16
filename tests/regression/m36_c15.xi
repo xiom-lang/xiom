@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-C15: Every enum variant count 1-10 -- enums with increasing variant count, tested via match
 enum V1 { A }
 enum V2 { A, B }

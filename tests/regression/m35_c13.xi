@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-C13: do-while pattern -- execute body at least once before checking condition
 fn do_while_pattern(val: Int) -> Int {
   var x: Int = val;

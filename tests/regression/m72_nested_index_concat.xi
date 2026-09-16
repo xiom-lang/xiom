@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m72_nested_index_concat
 // R17 regression: R14's concat-operand LLVM fallback misclassified
 // NESTED-index Str elements (`rows[0][0]` of a Vec[Vec[Str]]) as integers

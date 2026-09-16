@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-W08: Bit isolation -- mask & value extracts specific bits
 fn main() -> Int {
   var a: Int = 0xABCD;

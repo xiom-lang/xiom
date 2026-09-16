@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_structural_eq
 // BUG 24 residual fix: `==`/`!=` on same-type structs WITHOUT a derived eq
 // must compare ALL fields structurally. The old fallback compared only

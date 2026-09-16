@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-C12: Contract fail -- contracts trap on violation (safe usage shown)
 fn withdraw(balance: Int, amount: Int) -> Int
   requires: amount > 0

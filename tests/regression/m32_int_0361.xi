@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: All integer type widths cross-cast to Int
 fn main() -> Int {
   var i8: Int8 = -1 as Int8;

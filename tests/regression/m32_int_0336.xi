@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: UInt16 near max multiplication (255 * 255 = 65025)
 fn main() -> Int {
   var a: UInt16 = 255;

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-J16: Module with contract -- requires/ensures on module functions
 module safe {
   pub fn divide(a: Int, b: Int) -> Int

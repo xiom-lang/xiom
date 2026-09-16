@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m43_round13_closure_adapters -- round-13 (2026-08-22) regression:
 // the closure-based iterator adapter family (part 1: adapters + enum
 // scrutinees). Covers the compiler roots that blocked the adapters:

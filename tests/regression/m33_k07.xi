@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-K07: Direct call -- function passed as parameter (function pointer type)
 fn apply(f: fn(Int) -> Int, x: Int) -> Int { return f(x); }
 fn square(x: Int) -> Int { return x * x; }

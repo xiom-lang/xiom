@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_vec_edge_029
 fn sum_vec(v: Vec[Int]) -> Int {
     var total = 0;

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // R8 regression: method-position FREE-FN calls (receiver sugar) and
 // contracts over them.
 // - `s.char_count_local()` where `char_count_local(s: Str)` is a free fn:

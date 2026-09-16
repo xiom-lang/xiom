@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // E2E: generic function with multiple type parameters
 // Verifies that multi-param generics monomorphize correctly.
 // Returns 0 on success.

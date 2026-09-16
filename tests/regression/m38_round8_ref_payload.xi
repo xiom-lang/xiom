@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m38_round8_ref_payload -- round-8 (2026-08-20) regression:
 // Option<&T> reference payloads -- rand.weighted_pick's Some(&items[i])
 // payload read gave garbage on comparison (the slot ADDRESS was strcmp'd

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-O16: Result chain with map+? -- Result.map combined with ?
 fn parse_int(s: Str) -> Result[Int, Str] {
   if s == "0" { return Ok(0); }

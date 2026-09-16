@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M22: String operations -- length, concat, char access
 fn main() -> Int {
   var s: Str = "hello";

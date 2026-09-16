@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-D16: Tree comparison -- structural equality check for two binary trees
 type Node = { value: Int; left: *Node; right: *Node; }
 

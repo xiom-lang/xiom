@@ -1,6 +1,6 @@
 // XIOM -- Regression Test: Vec-of-struct inline storage (5c.21)
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //
 // Verifies that multi-field structs stored in Vec are correctly stored
 // and retrieved using memcpy-based elem_size. Covers push, index access,

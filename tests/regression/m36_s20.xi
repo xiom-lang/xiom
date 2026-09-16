@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S20: Serialization -- binary format encode/decode patterns
 type BinHeader = { magic: Int; version: Int; flags: Int; size: Int; }
 type SerValue = { tag: Int; int_val: Int; float_val: Float64; str_len: Int; }

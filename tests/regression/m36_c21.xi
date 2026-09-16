@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-C21: Every derive combination -- Eq, Clone, Eq+Clone, Ord, Hash, Display, multi-combos on structs and enums
 type A = { x: Int; } derive[Eq]
 type B = { y: Int; } derive[Clone]

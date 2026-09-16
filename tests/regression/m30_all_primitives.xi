@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M30: All primitive types combined in computation
 type Record = { i: Int; f: Float64; b: Bool; c: Char; }
 fn score(r: Record) -> Int {

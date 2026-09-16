@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-X06: Combinatorial + Differential -- power loop vs recursion with struct+contract
 type PowInput = { base: Int; exp: Int; }
 fn pow_loop(input: PowInput) -> Int

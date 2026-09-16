@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-L07: If-elif-else chain (5 branches) -- temperature classifier
 fn main() -> Int {
   var temp: Int = 25;

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M30: Differential -- if-chain vs match must produce equivalent results
 fn via_if(x: Int) -> Int {
   if x == 1 { return 10; }

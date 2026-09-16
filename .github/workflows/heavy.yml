@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 name: XIOM Heavy Suites
 
 # Tier 2: fuzz smoke + sanitizer wiring, weekly and on demand. Kept out of

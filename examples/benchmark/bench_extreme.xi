@@ -1,8 +1,8 @@
 // XIOM -- Extreme Edge Case Stress
 // Pushes the compiler with extreme patterns: deep nesting, large switch/match,
 // many function parameters, deeply nested expressions, and corner cases.
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
 
 module benchmark.extreme
 

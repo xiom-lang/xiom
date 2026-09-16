@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Q17: Contract with recursion -- recursive functions with contract chains
 fn factorial(n: Int) -> Int
   requires: n >= 0

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_contract_001
 fn divide(a: Int, b: Int) -> Result[Int, Str]
     requires: b != 0

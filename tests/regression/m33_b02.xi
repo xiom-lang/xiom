@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-B02: Write borrow on local -- &mut to mutate through reference
 fn inc_val(x: &mut Int) { *x = *x + 1; }
 fn main() -> Int {

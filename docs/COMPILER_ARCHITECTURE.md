@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # XIOM Compiler Architecture -- v0.57
 
 How the XIOM compiler works -- pipeline, stages, data structures, execution modes, safety features, and the Unsafe Confinement subsystem.

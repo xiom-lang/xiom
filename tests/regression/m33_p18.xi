@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-P18: 50-fn wide table + 20-struct + 15-enum + 10-const + 5-module + mega + big match + deep nest + 50-locals
 // Pattern: fn main() -> Int { ... return 0; }
 

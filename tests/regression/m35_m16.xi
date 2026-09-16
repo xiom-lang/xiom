@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-M16: geometric series sum: a * (r^n - 1) / (r - 1) for r != 1
 fn geom_sum(a: Int, r: Int, n: Int) -> Int {
   if n <= 0 { return 0; }

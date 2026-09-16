@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: UInt32 add wraparound (4294967295 + 1 = 0)
 fn main() -> Int {
   var a: UInt32 = 4294967295;

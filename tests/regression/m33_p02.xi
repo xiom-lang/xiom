@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-P02: Wide function table stress -- 50 one-line functions + 15 enum types + 20 struct types
 // Pattern: fn main() -> Int { ... return 0; }
 

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // Never Type Tests -- v0.55
 // Verifies ! (never) type parsing and basic compilation.
 // Returns 0 on success.

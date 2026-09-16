@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-X03: External type references -- type aliases and cross-referencing types
 type Celsius = Float64;
 type Fahrenheit = Float64;

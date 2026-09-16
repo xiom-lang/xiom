@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-X09: Error message patterns -- exercise various error path scenarios
 enum MathErr { DivByZero, Overflow, Underflow, Invalid }
 fn checked_div(a: Int, b: Int) -> Result[Int, MathErr] {

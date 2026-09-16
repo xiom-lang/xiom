@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-M30: quadratic discriminant + distance between two points
 fn discriminant(a: Float64, b: Float64, c: Float64) -> Float64 {
   return b * b - 4.0 * a * c;

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-A20: Array with contract -- function with requires/ensures on array length
 fn triple(x: Int) -> Int
   requires: x >= 0

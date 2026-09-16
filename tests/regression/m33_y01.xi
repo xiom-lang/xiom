@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Y01: struct + enum + generic + match + contract + method + module + diff
 type NumPair = { a: Int; b: Int; } derive[Eq]
 enum CalcKind { Add, Mul, Max }

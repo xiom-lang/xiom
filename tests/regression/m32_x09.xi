@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-X09: Combinatorial + Differential -- GCD while vs recursion with struct pair+contract
 type Pair = { x: Int; y: Int; }
 fn gcd_while(p: Pair) -> Int

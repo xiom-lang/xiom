@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-O17: Option transpose -- simulate Option[Result] pattern using flat matches
 fn div_result(a: Int, b: Int) -> Result[Int, Str] {
   if b == 0 { return Err("div0"); }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_index_arith
 // Parser regression (docs/COMPILER_BUGS.md): `bits[L - 1]` -- an index whose
 // expression starts with an UPPERCASE ident -- was mis-parsed as explicit

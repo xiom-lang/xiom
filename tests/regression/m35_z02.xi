@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z02: generic+Option+Result+type_alias+contract+match+while+array+compound_assign
 type Code = Int;
 type Boxed = { val: Int; ok: Bool; }

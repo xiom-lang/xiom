@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-V18: Vec[Int] as function parameter
 fn sum_vec(v: &Vec[Int]) -> Int {
   var total = 0;

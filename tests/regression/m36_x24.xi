@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-X24: Pointer safety -- pointer operations with unsafe blocks
 fn read_ptr(p: *Int) -> Int {
   var r: Int;

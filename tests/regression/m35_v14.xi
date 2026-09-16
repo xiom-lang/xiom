@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-V14: Vec of enum -- Vec[Color] simple variant push/access
 use xiom.collections;
 

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-T26: Struct exhaustive -- nested structs
 type Inner = { val: Int; }
 type Middle = { inner: Inner; flag: Bool; }

@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 """Refactor compile() in lib.rs to return Result instead of process::exit."""
 path = r'E:\Projects\AXIOM\crates\xiom\src\lib.rs'
 with open(path, encoding='utf-8', errors='replace') as f:

@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 Continue XIOM M15 self-hosting hardening from SESSION.md. Branch: feat/architect.
 
 CURRENT STATE:

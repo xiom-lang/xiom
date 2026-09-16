@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-T03: Float64 in every context -- var, param, return, struct, enum, array, if, while, operators
 type FloatBox = { value: Float64; }
 enum FloatOption { Some(v: Float64), None }

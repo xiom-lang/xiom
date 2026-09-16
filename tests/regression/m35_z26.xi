@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z26: invariant+contract_chain+generic+enum+struct+module+match+while+compound_assign+derive+Option
 type SafeInt = { val: Int; invariant: val >= 0; } derive[Eq]
 enum SafeOp { Add(n: Int), Sub(n: Int), Mul(n: Int), Sqrt }

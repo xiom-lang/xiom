@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z21: unsafe+cast+generic+const+contract+match+module+enum+while+compound_assign+derive+Option
 const PTR_OFFSET: Int = 2;
 type Block = { id: Int; len: Int; } derive[Eq]

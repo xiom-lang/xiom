@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-D08: Max-heap -- bubble-up verify
 fn main() -> Int {
   var d0: Int = 50;

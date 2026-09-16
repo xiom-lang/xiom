@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Int64 large value arithmetic with elif
 fn main() -> Int {
   var a: Int64 = 4000000000000;

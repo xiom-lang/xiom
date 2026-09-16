@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M22: Integer type casts -- upcast, downcast, signed/unsigned
 fn main() -> Int {
   var a: Int8 = 42;

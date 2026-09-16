@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module regression.m18_guard_0078
 
 enum Shape { Circle(r: Float64), Square(s: Float64) }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-G03: Generic struct with type parameter
 type Wrapper = { val: Int; }
 fn make_wrapper(x: Int) -> Wrapper { return Wrapper{ val: x }; }

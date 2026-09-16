@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_match_float_payload
 // BUG 22 #2/#4 regression: match-bound Option payload vars.
 // Some(5.0) stores the double BITS in the i64 payload slot; the arm

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-T08: Nested arrays via flat access
 fn main() -> Int {
   var a: Vec[Int] = [1, 2, 3];

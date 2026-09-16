@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-E07: Enum return from function, match on result
 enum DivResult { Success(val: Int), Fail }
 fn safe_div(a: Int, b: Int) -> DivResult {

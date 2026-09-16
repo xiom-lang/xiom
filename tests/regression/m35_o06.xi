@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-O06: Option[enum] -- Option wrapping a user-defined enum
 enum Color { Red, Green, Blue(val: Int) }
 fn main() -> Int {

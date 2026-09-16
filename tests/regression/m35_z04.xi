@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z04: invariant+method+generic+match+while+if+contract+compound_assign+derive
 type PosVal = { x: Int; invariant: x > 0; } derive[Eq]
 enum Op { Inc, Dec, Set(v: Int) }

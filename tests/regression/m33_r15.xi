@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 enum InnerOption { Has(val: Int), Empty }
 enum OuterOption { SomeInner(content: InnerOption), NothingOuter }
 fn main() -> Int {

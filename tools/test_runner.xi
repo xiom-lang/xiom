@@ -1,4 +1,7 @@
 #!/usr/bin/env xiom
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // XIOM Test Runner -- Gap Discovery Script
 // Usage: xiom run tools/test_runner.xi
 // Tests: closures, Result handling, string formatting, Vec ops, JSON parsing

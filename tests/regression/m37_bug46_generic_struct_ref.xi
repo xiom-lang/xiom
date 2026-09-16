@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // BUG 46 regression: reading a field of a USER-DEFINED generic struct
 // through a `&T` param returned garbage (the mono param degraded to i64*).
 // By-value params, &Box2[T] field reads, and &Slice[T] len reads must all

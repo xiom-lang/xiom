@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-C25: match with wildcard -- catch-all pattern _ for remaining cases
 enum Signal { High, Low, Off, Unknown }
 fn respond(s: Signal) -> Int {

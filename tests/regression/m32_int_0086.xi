@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Generic add function with integer types
 fn add[T](a: T, b: T) -> T { return a + b; }
 fn main() -> Int {

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S11: Error reporting -- error type construction with location and severity
 type SourceLoc = { file: Str; line: Int; col: Int; }
 type ErrorKind = { code: Int; severity: Int; }

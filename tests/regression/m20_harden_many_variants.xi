@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 enum Token { A, B, C, D, E, F, G, H, I, J }
 fn kind_str(t: Token) -> Int {
   match t {

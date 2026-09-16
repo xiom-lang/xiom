@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_short_circuit
 // BUG 22 #1 regression: && and || must SHORT-CIRCUIT.
 // The old bitwise lowering evaluated both operands -- a div-by-zero in the

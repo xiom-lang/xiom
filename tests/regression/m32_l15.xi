@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-L15: While loop with break on negative -- sum positives until negative
 fn main() -> Int {
   var arr = [5, 12, 8, -3, 20, 15];

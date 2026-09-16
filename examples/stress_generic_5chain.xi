@@ -1,6 +1,6 @@
 // XIOM -- stress_generic_5chain
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
 
 fn id[T](x: T) -> T { return x; }
 fn wrap[T](x: T) -> T { return id(x); }

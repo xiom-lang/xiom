@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-D07: Mutual recursive types -- type A points to B, type B points to A
 type A = { val: Int; peer: *B; }
 type B = { num: Int; buddy: *A; }

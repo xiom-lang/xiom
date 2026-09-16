@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M61 (stdlib report R1): byte_at upper out-of-range reads. xiom_byte_at
 // only clamped pos < 0, so byte_at(s, pos >= len) read past the NUL
 // terminator into adjacent heap bytes -- byte_at("", 999) returned

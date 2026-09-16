@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Cast chain Int8 -> Int16 -> Int32 -> Int64 (sign extends)
 fn main() -> Int {
   var a: Int8 = -1 as Int8;

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-N2-02: 10-deep while-with-while -- pushes loop nesting limit
 fn main() -> Int {
   var i0 = 0;

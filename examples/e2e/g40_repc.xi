@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // G-40: repr(C) layout -- C-compatible struct field offsets
 // Verifies XIOM structs used in extern C match C layout.
 

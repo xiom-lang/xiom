@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-K18: Closure returning closure -- inline nested call instead
 fn double_apply(f: fn(Int) -> Int, x: Int, y: Int) -> Int { return f(f(x) + y); }
 fn triple(x: Int) -> Int { return x * 3; }

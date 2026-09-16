@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: UInt16 bitwise NOT via XOR (65535 ^ 0xAAAA)
 fn main() -> Int {
   var a: UInt16 = 43690;

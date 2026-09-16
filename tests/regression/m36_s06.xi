@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S06: Type checker -- subtype and assignability checking
 type TypeSig = { id: Int; flags: Int; base: Int; }
 fn is_subtype(sub: TypeSig, sup: TypeSig) -> Bool {

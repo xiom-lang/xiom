@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 //! Centralized content hashing for incremental compilation.
 //!
 //! Provides SHA-256 hashing for source files, AST structures, and IR output.

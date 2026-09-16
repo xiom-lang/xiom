@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M64 (CRT-layout family #2): `&mut [N]T` param element-ADDRESS lowering.
 // `&arr[j-1]` inside a fn taking `&mut [N]T` compiled the element VALUE as
 // the address (the Ref arm's by-value fixed-array branch requires a

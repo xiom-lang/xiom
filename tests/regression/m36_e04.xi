@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-E04: Empty enum -- minimal enum with no payload variants (unit variants only)
 enum VoidE { None }
 fn main() -> Int {

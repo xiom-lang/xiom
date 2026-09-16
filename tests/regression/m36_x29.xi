@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-X29: Boolean logic chains -- complex boolean expressions and short-circuit evaluation
 fn main() -> Int {
   var a: Bool = true;

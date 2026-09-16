@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-C09: while with continue -- skip iterations inside loop
 fn sum_odd_to(n: Int) -> Int {
   var total: Int = 0;

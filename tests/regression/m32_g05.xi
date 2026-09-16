@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-G05: Constrained generic with built-in Ord trait
 fn max[T: Ord](a: T, b: T) -> T { if a > b { return a; } return b; }
 fn main() -> Int {

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // Combinatorial stress: all types in one function
 type Record = { i: Int; f: Float64; b: Bool; c: Char; s: Str; }
 fn compute(r: Record) -> Int {

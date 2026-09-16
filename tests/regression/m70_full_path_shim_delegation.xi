@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // R9 regression (stdlib report 2026-09-12): a FULL-PATH call into a module
 // that was never imported must still resolve that shim's own delegated
 // full-path call. `xiom.string.glob.glob_match` is a shim whose body calls

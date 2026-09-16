@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Int16 min * -1 should still be min (overflow)
 fn main() -> Int {
   var a: Int16 = -32768 as Int16;

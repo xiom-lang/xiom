@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // LET-array decision P2 regression (docs/LET_ARRAY_DECISION.md): a user fn's
 // `&[N]T` / `&mut [N]T` params must lower to the ELEMENT pointer (the catalog
 // generic ABI). Pre-fix they were pointer-to-array (`[3 x i64]*`), so:

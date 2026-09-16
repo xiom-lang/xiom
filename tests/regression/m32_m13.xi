@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-M13: Combined pub const + pub fn -- both in one module
 module lib {
   pub const FACTOR: Int = 10;

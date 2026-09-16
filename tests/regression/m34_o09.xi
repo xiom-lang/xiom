@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-O09: ? with if guard -- ? guarded by condition
 fn maybe_val(flag: Bool) -> Result[Int, Str] {
   if flag { return Ok(100); }

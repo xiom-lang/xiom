@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-E08: Nested if blocks 10 deep -- control flow nesting stress
 fn main() -> Int {
   var depth = 0;

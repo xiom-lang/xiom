@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // P2-2 E2E Test: E001 as hard errors with --strict-mode
 // Tests that borrow errors (E001) become compilation errors in strict mode.
 

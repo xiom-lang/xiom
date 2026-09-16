@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-W07: Shift by 0 -- identity on multiple types
 fn main() -> Int {
   var a: Int = 999;

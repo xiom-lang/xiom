@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-S06: Struct with derive[Eq] -- equality comparison
 type Vec3 = { x: Float64; y: Float64; z: Float64; } derive[Eq]
 fn main() -> Int {

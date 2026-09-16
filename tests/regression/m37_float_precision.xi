@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_float_precision
 // BUG 10 regression (docs/COMPILER_BUGS.md): float literals were emitted
 // with {:.6} -- 6 decimals -- truncating 0.123456789 to 0.123457. The

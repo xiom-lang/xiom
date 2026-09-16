@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # XIOM -- Unsafe Confinement Architecture (Production Plan)
 
 **Status:** PLAN ONLY -- no implementation. This document is the design contract for the

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-A17: Array of enum -- enum values passed through struct wrapper fields
 enum Color { Red, Green, Blue }
 fn color_val(c: Color) -> Int {

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-B12: Borrow in while scope -- &mut reference used inside loop, conditionally
 fn dec(x: &mut Int) { *x = *x - 1; }
 fn main() -> Int {

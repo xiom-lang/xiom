@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # XIOM Standard Library -- Implementation Roadmap
 
 > **Status:** PRODUCTION-GRADE COMPLETE | **Version:** v2.0 | **Date:** 2026-07-05

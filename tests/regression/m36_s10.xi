@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S10: Symbol table -- scope push/pop and nested resolution
 type Scope = { level: Int; parent: Int; entries: Int; }
 fn make_scope(level: Int, parent: Int, entries: Int) -> Scope {

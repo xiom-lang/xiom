@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Z20: Compound assignment with Int8/Int16/Int32/Int64 and UInt types
 fn main() -> Int {
   var a: Int8 = 10;

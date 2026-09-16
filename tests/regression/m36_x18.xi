@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-X18: Type alias resolution -- complex nested type aliases
 type ID = Int;
 type Name = Str;

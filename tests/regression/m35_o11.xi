@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-O11: Option or_else -- match-based or_else fallback
 fn opt_or_else(o: Option[Int], fallback: fn() -> Option[Int]) -> Option[Int] {
   match o { Some(v) => Some(v), None => fallback() }

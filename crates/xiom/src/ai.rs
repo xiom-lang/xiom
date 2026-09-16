@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // XIOM -- AI-Assisted Compilation Pipeline (Phase 5g)
 // Supports: Ollama, DeepSeek, OpenAI, OpenRouter, Groq, and any OpenAI-compatible endpoint.
 // Secure config via .xiom_ai_config.json or environment variables.

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // CTFE Phase B -- Function Evaluation Tests
 // Verifies compile-time evaluation of pure functions:
 //   - Simple function calls with const args

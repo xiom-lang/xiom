@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-J09: Dotted path: module.submodule.fn() -- deep module paths
 module root {
   pub fn head() -> Int { return 1; }

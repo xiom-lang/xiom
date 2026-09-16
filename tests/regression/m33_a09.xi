@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-A09: Array in function param -- pass inline array elements explicitly
 fn sum_two(a: Int, b: Int, c: Int) -> Int {
   return a + b + c;

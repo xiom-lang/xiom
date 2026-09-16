@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: UInt8 boundary compare: 0 < 1 < ... < 254 < 255
 fn main() -> Int {
   var min: UInt8 = 0;

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-N2-04: 5-level nested generic type chain L1[T] -> L2[T] -> L3[T] -> L4[T] -> L5[T]
 type L1[T] = { val: T; }
 type L2[T] = { val: L1[T]; }

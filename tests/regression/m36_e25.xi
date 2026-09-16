@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-E25: Multiple modules in one file -- use multiple imported modules
 use stdlib.xiom.string;
 fn main() -> Int {

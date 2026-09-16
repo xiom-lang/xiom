@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-X10: Combinatorial + Differential -- identity transform equivalence with generic+enum+contract
 enum TransformKind { AddOne, MulTwo, Negate }
 fn apply(kind: TransformKind, x: Int) -> Int

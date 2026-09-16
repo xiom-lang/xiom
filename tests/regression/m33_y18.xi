@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Y18: generic constraint enum + struct derive + match + multi-contract + impl + module + diff
 type Range = { lo: Int; hi: Int; } derive[Eq]
 enum BoundCheck { InRange, Below, Above }

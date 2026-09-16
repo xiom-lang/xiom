@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // R10 regression: Vec[Option[struct-with-Str]] element reads.
 // `c.groups[i]` on a `Vec[Option[M2]]` field memcpy'd an OPAQUE
 // %struct.Option (16 bytes) from a 32-byte Option__M2 slot and unboxed the

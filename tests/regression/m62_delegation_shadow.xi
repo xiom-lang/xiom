@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M62 (stdlib-audit #3 delegation crash): a module-qualified call MUST bind
 // the catalog fn even when a local fn with the same bare name exists.
 // The checker's decl injection used to SKIP any stdlib free fn whose bare

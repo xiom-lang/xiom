@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-G09: Nested generic types (Option wrapping Int and matching)
 fn unwrap_int(o: Option[Int], def: Int) -> Int {
   match o { Some(v) => { return v; } None => { return def; } }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-T23: Str exhaustive -- every context: var, param, return, struct, enum, array, cmp, len
 fn str_eq(a: Str, b: Str) -> Bool { return a == b; }
 fn str_pass(s: Str) -> Str { return s; }

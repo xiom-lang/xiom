@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-W20: Comprehensive bitwise stress -- all operators on Int, Int32, UInt, UInt32
 fn main() -> Int {
   // --- Int (i64) ---

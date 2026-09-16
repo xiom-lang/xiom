@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-T17: Interface on each type -- multiple interfaces, cross-type impl
 interface Identifiable { fn id(self) -> Int; }
 interface Describable { fn desc(self) -> Str; }

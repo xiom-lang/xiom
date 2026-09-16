@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-P01: Large program stress -- deep call chain, 20 structs, 15 enums, 10 consts, 5 modules
 // Pattern: fn main() -> Int { ... return 0; }
 // Stress: 30-fn call chain, deep call chain fn0->fn1->...->fn20, all primitives struct, interleaved decls

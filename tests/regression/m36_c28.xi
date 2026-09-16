@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-C28: Combined mega test 1 -- structs, enums, match, recursion, loops, Option
 type Stats = { sum: Int; count: Int; } derive[Eq]
 fn Stats.new() -> Stats { return Stats{ sum: 0; count: 0; }; }

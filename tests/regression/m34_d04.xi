@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-D04: Tree depth -- compute max depth of binary tree
 type Node = { value: Int; left: *Node; right: *Node; }
 

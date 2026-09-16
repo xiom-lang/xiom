@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Z10: Compound assignment in while loop -- accumulate sum
 fn main() -> Int {
   var i: Int = 0;

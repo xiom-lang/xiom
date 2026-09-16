@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-V11: Float equality with epsilon (abs(a-b) < 0.0001)
 fn abs(x: Float64) -> Float64 {
   if x < 0.0 { return -x; }

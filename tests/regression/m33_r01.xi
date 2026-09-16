@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 fn unwrap_or(o: Option[Int], default: Int) -> Int {
   match o { Some(v) => v, None => default }
 }

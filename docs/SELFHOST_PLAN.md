@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # XIOM Selfhost Plan -- Byte-Identical Self-Hosting (2026-08-11)
 
 **Author:** Kilo (compiler-hardening session) | **Baseline:** fast suite 1112/1/1 (only the documented pre-existing `test_diff_test_produces_correct_ir` fails), e2e 2237/2240 -> **all 3 remaining failures fixed and verified** (m19_read_file_content, safety_probe, i2_parallel_codegen), stdlib-exec 72/72, warning gates 0/0.

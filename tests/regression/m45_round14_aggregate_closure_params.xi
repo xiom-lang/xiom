@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m45_round14_aggregate_closure_params -- round-14 (2026-08-22) regression:
 // closures whose parameters are AGGREGATE types (user structs, tuples,
 // containers) corrupted on call -- the closure thunk declared every param

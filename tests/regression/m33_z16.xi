@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Z16: Compound assignment with cast
 fn main() -> Int {
   var x: Int32 = 100;

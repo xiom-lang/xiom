@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // BUG 53 write-facet regression: &mut [N]T param element WRITES -- the
 // pointer-typed array param (i64* mono ABI) had no index-write branch
 // (the write was silently dropped) and the caller's array-literal

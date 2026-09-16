@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_match_edge_005
 enum State { One, Two, Three, Four, Five, Six, Seven, Eight, Nine, Ten }
 

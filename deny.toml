@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 # cargo-deny configuration -- XIOM workspace supply-chain gate (Stage 5).
 #
 # CI runs: cargo deny check advisories licenses bans sources

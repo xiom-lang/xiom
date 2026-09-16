@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-W04: Double NOT -- ~(~x) == x on Int and UInt (avoid small-type ~ bug)
 fn main() -> Int {
   var v_i: Int = 0x55AA;

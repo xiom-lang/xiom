@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-T13: String in struct -- struct with Str field
 type Person = { name: Str; age: Int; }
 fn main() -> Int {

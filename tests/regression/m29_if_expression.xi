@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M29: If-elif as expression
 fn classify(score: Int) -> Int {
   return if score >= 90 { 4 } elif score >= 80 { 3 } elif score >= 70 { 2 } else { 1 };

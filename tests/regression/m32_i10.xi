@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Int16 multiply divide modulo with elif/else
 fn main() -> Int {
   var a: Int16 = 1000;

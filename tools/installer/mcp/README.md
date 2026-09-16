@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # XIOM MCP Server -- IDE Integration Guide
 
 The XIOM MCP server provides AI-assisted compiler diagnostics, SMT-based

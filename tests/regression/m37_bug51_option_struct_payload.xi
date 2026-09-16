@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // BUG 51 regression: Option[UserStruct] payloads -- the Some-bound name must
 // (a) type-check method calls against the payload's methods (the `_` wildcard
 // fell to the sorted wildcard lookup: Option.get before MyRc.get -> "cannot

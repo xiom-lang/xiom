@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-T11: Enum with all variant types -- unit, Int payload, Float64 payload, Bool payload, Str payload, struct payload
 type Point = { x: Int; y: Int; }
 enum MixedEnum {

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-T05: Str in every context -- var, param, return, struct, enum, array, if, match, len
 type StrBox = { val: Str; }
 enum StrOption { Some(s: Str), None }

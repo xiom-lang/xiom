@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Nested type alias with narrow int and field widening
 type Pixel = { r: Int8; g: Int8; b: Int8; a: Int8; }
 fn main() -> Int {

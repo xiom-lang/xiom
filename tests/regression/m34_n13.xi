@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-N13: Struct with derive and invariant -- invariant condition coexists with derive
 type Positive = { val: Int; invariant: val > 0; } derive[Eq, Clone]
 fn main() -> Int {

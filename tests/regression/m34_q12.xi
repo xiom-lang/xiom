@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Q12: Contract with float domain -- requires guards for float operations
 fn safe_div_float(a: Float64, b: Float64) -> Float64
   requires: b != 0.0

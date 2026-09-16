@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_from_bytes_fn
 // BUG 25 #3 fix: a USER fn named `from_bytes` (or from_cstring/from_utf8)
 // must not be hijacked by the compiler's Str-from-bytes builtin intercept --

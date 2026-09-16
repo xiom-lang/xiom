@@ -1,8 +1,8 @@
 // XIOM -- Deep Ownership Chains Benchmark
 // Exercises ownership transfer, clone-before-move, conditional moves,
 // struct-embedded Vec ownership, and interleaved borrow patterns.
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
 
 module benchmark.ownership
 

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-X13: Overflow checks -- integer overflow/underflow boundary behavior
 fn main() -> Int {
   var max_int: Int = 2147483647;

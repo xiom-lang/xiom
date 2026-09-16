@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S14: AST manipulation -- map (transform) each node in an expression tree
 type MapNode = { kind: Int; value: Int; transformed: Bool; }
 fn make_map_node(k: Int, v: Int) -> MapNode {

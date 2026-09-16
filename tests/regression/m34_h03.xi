@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-H03: UInt->Int (unsigned to signed) -- small values preserve identity
 fn main() -> Int {
   var u: UInt8 = 100;

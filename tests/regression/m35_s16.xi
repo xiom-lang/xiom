@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-S16: Find last occurrence -- return index of last match or -1
 use stdlib.xiom.string;
 fn last_index_of(s: Str, ch: Char) -> Int {

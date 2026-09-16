@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // B-003: Option<Str> from method returns with contracts -- regression test
 // Verifies Path.file_name() and Path.file_stem() work correctly with contracts enabled.
 // NOTE: Do not test Path.new("") -- the stdlib's file_name ensures

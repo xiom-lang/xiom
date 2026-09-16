@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-E20: Chained field access -- 10-level nested struct field reads
 type N1 = { f: Int; }
 type N2 = { f: Int; }

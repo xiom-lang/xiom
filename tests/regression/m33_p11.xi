@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-P11: 50 one-line functions + 20 structs + 15 enums + deep call chain + 10 consts + 5 modules
 // Pattern: fn main() -> Int { ... return 0; }
 

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-C07: Every method pattern with every type -- method on struct for Int, Bool, Float64, Str
 type Counter = { val: Int; }
 fn Counter.new() -> Counter { return Counter{ val: 0; }; }

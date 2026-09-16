@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Q01: Chained requires -- fn a requires calls fn b which requires fn c
 fn is_valid(x: Int) -> Bool
   requires: x >= 0

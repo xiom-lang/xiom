@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-U19: Pointer with contract -- contract-guarded pointer access via temp
 fn safe_deref(p: *Int) -> Int
   requires: p != (0 as *Int)

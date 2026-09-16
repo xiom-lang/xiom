@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module circ_a
 // Circular-import fixture: circ_a imports circ_b and vice versa. The catalog
 // loader's cached_loaded guard must terminate the cycle; the checker must

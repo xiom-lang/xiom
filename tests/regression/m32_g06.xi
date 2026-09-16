@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-G06: Constrained generic with Ord trait - Int only
 fn larger[T: Ord](a: T, b: T) -> T { if a > b { return a; } return b; }
 fn main() -> Int {

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z15: derive+struct+enum+impl+module+generic+match+while+compound_assign+Option
 type Slot = { val: Int; active: Bool; } derive[Eq]
 enum SlotCmd { Enable, Disable, Toggle, Bump(n: Int) }

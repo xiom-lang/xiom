@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m74 (R21): a user `use X as Y;` alias must shadow a catalog module whose
 // LEAF equals Y. `use network as net;` used to be a silent no-op and the
 // follow-up `use net.local;` then catalog-loaded xiom.net, pulling the whole

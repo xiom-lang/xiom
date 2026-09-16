@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // XIOM e2e test -- Phase 5c.7 ecosystem gap fixes
 // Tests all 7 compiler fixes delivered in Phase 5c hardening
 // Returns 0 on success.

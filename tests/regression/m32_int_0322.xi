@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Char to UInt8 roundtrip preserves high value (200)
 fn main() -> Int {
   var u: UInt8 = 200;

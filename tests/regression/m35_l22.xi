@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-L22: Pointer to pointer -- double indirection via pointer chain
 fn deref_int(p: *Int) -> Int {
   var v: Int;

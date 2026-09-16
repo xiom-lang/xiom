@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Struct with Int8 field
 type Point8 = { x: Int8; y: Int8; }
 fn main() -> Int {

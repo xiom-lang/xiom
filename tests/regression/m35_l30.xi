@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-L30: Pointer iteration -- iterate over adjacently allocated vars via pointer
 fn get_next(p: *Int, stride: Int) -> *Int {
   var addr: Int;

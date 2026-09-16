@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m75: R20 same-leaf alias delegation through the catalog. The shim module
 // (m75conv.base32) and the canonical module (m75canon.base32) share the leaf
 // "base32"; the shim's bodies call the canonical fn through an alias

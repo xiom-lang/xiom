@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_numeric_policy
 // BUG 26 (secure numeric policy): INT <-> FLOAT mixing requires an explicit
 // `as` cast. Auto-widening stays for same-family; INT LITERALS may adopt

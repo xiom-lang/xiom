@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-C13: Every recursion depth -- 1, 2, 5, 10, 20 via factorial, sum, power, fib, countdown patterns
 fn depth1(n: Int) -> Int { return n; }
 fn depth2(n: Int) -> Int { return depth1(n) + 1; }

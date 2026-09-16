@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // E2E regression: cross-module use of a stdlib module whose functions call C
 // externs (math -> fabs/floor). Locks in cross-module extern-declare injection
 // and libc/libm wrapper handling. Returns 0 on success.

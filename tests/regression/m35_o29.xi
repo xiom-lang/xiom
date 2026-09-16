@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-O29: Result of Option -- Result and Option interaction via match
 enum ResOpt { Found(v: Int), NotFound, Error(reason: Str) }
 fn safe_lookup(idx: Int) -> ResOpt {

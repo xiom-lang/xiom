@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // XIOM fuzz target: full front-half pipeline (lexer -> parser -> codegen).
 // The largest attack surface: monomorphization, contract lowering, sandbox
 // emission. `compile_program` must always return Ok/Err for a program the

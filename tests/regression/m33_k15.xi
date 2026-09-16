@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-K15: Closure in match arm -- enum dispatch via closure
 type Op = enum { Add(a: Int, b: Int), Mul(a: Int, b: Int), }
 fn main() -> Int {

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-C19: loop with counter -- counting iterations with various termination conditions
 fn count_divisible(limit: Int, d: Int) -> Int {
   var i: Int = 1;

@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # XIOM MCP Server -- Installation Guide
 
 > **What is this?** `xiom-mcp` is a Model Context Protocol server that gives ANY AI coding agent

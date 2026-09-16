@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: UInt16 multiplication inside unsigned range (256 * 128 = 32768)
 fn main() -> Int {
   var a: UInt16 = 256;

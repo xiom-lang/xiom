@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Y06: interface+impl + generic enum + struct composition + match + contract + module + diff
 type Box = { w: Int; h: Int; d: Int; }
 type LabeledBox = { b: Box; tag: Int; }

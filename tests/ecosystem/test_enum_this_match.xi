@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // Minimal repro: enum with data variants + this-based method + match
 module tests.ecosystem.test_enum_this_match
 

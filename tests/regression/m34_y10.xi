@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Y10: while + if + compound assign + Option + match + derive + module + impl
 type Counter = { val: Int; delta: Int; } derive[Eq]
 enum Step { Increment, Decrement, Double, Half }

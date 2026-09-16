@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Negative arithmetic across Int8/Int16/Int32/Int64 with elif
 // Correct values: sum = -4295033920, half = -2147516960
 fn main() -> Int {

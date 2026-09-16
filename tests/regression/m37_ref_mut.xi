@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_ref_mut
 // Struct `&T` param mutation regression (docs/COMPILER_BUGS.md): struct-typed
 // `&T` params were passed BY VALUE, so `x.v.pop()` inside the callee mutated a

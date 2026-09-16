@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 enum InnerResult { InOk(val: Int), InErr(msg: Str) }
 enum OuterResult { OutOk(content: InnerResult), OutErr(msg: Str) }
 fn main() -> Int {

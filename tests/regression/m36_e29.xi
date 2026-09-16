@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-E29: Function with no statements -- just return
 fn nop() -> Int { return 0; }
 fn identity(x: Int) -> Int { return x; }

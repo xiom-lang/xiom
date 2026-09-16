@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m46_round14_vec_str_elems_narrow -- round-14 (2026-08-22) regression:
 // (1) method calls on Vec[Str] ELEMENTS (`v[0].len()`, `h.names[i].
 // starts_with(..)`) emitted an invalid GEP (getelementptr i8*, i8**, 0, 1)

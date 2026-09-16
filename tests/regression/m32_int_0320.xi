@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Char value 128 cast to Int should be 128, not -128 (zext vs sext)
 fn main() -> Int {
   var c: Char = '\x80';

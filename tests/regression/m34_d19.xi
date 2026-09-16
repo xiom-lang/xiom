@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-D19: Diamond-shaped type graph -- A->B,C; B,C->D forming diamond dependency
 type D = { label: Int; }
 type B = { bval: Int; ref: *D; }

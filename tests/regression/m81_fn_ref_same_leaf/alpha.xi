@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m81: same-leaf fn-REFERENCE resolution, module alpha.
 // `is_even` exists in alpha, beta and (catalog) bodies; the fn VALUE passed
 // to `apply` must bind alpha's own `is_even` (true), never beta's (false).

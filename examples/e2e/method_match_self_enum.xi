@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // E2E regression test: `match self` on an enum receiver method.
 // This was broken by a compiler bug where the `self` parameter was registered
 // twice (once as the typed struct receiver, once as a phantom `i64` param from

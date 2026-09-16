@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-C27: while-let pattern -- loop while match on Option/Result succeeds
 fn sum_while_some(limit: Int) -> Int {
   var n: Int = 0;

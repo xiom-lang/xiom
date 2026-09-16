@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-C01: if without else -- single branch, no alternative path
 fn main() -> Int {
   var x: Int = 0;

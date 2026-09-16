@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-C02: Every control flow with every type -- if/else, while, match on Bool, Int, Float64, Char, Str, Option, enum, struct
 enum Color { Red, Green, Blue }
 type Box = { width: Int; height: Int; }

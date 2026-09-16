@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-O20: ? with cross-function chain -- standalone functions using ? together
 fn safe_add(a: Int, b: Int) -> Result[Int, Str] {
   if a > 1000 || b > 1000 { return Err("overflow"); }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_destructure_002
 fn make_pair() -> { a: Int; b: Str; } {
     return { a: 42; b: "hello"; };

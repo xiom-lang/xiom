@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Y17: Result chain + enum + compound assign + derive + impl + module
 type Rect = { w: Int; h: Int; } derive[Eq]
 enum ScaleKind { Double, Halve, Square }

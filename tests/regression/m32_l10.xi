@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-L10: Infinite loop with break guard -- while true { ... }
 fn main() -> Int {
   var sum: Int = 0;

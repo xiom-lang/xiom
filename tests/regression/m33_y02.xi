@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Y02: generic enum payload + struct derive + match extraction + contract + impl + module + diff
 type Point = { x: Int; y: Int; } derive[Eq]
 enum Result[T] { Ok(val: T), Err(code: Int) }

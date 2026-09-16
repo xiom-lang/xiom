@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M17: &mut self regression test
 type Counter = { count: Int; }
 fn Counter.inc(&mut self) { count = count + 1; }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_vec_f64
 // BUG 12/17 regression: Vec[Float64] and Vec[Str] element reads through
 // &Vec[T] PARAMS (catalog style) must preserve the element type -- Float64

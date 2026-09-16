@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // XIOM -- Satellite Motion + Trig Verification
 // Uses cos/sin from xiom.math. Pure math checks, no string formatting.
 // Compile: xiom examples\satellite_motion.xi --run

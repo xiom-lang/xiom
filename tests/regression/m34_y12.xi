@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Y12: generic + while + if + compound assign + impl + enum + module
 type Stats = { min: Int; max: Int; sum: Int; }
 enum Aggregate { Min, Max, Avg }

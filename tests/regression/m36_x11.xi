@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-X11: --emit-ir patterns -- structures that produce interesting IR
 enum ExprKind { Const, Add, Sub, Mul, Div, Neg }
 type Expr = { kind: ExprKind; left: Int; right: Int; value: Int; }

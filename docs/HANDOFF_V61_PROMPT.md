@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 Continue from V61 handoff. Full context in BENCHMARK-SESSION.md.
 
 ## Remaining Issues to Fix

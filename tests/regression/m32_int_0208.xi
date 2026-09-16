@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Vec Int16 elements (narrow Vec requires Int element type)
 fn main() -> Int {
   var v: Vec[Int] = Vec[Int].new();

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z30: ALL_FEATURES: struct+enum+generic+match+while+if+contract+invariant+derive+impl+module+closure+Option+Result+array+pointer+unsafe+cast+compound_assign+const+type_alias+recursion
 const THRESHOLD: Int = 10;
 type Register = { id: Int; count: Int; invariant: count >= 0; } derive[Eq]

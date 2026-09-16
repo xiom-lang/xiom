@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-C08: Every module pattern with every visibility -- pub/non-pub functions, types, constants; flat, nested, re-export
 const PI: Float64 = 3.14159;
 module math {

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Y09: nested modules + enum + struct composition + match extraction + contract + impl + generic fn
 type Item = { id: Int; weight: Int; }
 enum Container { Single(val: Item), Pair(a: Item, b: Item) }

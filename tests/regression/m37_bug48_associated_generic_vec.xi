@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // BUG 48-adjacent regression: generic fns taking &Vec[T] params. The caller
 // passed the Vec BY VALUE while the mono def GEPs through a %struct.Vec*
 // param -- the callee read the data pointer as the Vec header (AV in every

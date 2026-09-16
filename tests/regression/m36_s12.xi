@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S12: AST manipulation -- rewrite node by replacing children
 type AstTag = { node_type: Int; flags: Int; }
 type AstChild = { index: Int; node_id: Int; }

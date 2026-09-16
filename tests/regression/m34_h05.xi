@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-H05: Float64->Int truncation -- fractional part discarded
 fn main() -> Int {
   var f: Float64 = 3.7;

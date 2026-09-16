@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-C27: Every bool pattern -- not, and, or, if, while, match, composite expressions, short-circuit eval
 fn bool_not(b: Bool) -> Bool { return !b; }
 fn bool_and(a: Bool, b: Bool) -> Bool { return a && b; }

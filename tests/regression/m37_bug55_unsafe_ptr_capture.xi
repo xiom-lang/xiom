@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // BUG 55 regression: unsafe-block context capture of POINTER-typed
 // variables -- passing `p: *Int` across fn boundaries deref'd it (the
 // callee received x's VALUE as the pointer); and Option/Result ctors

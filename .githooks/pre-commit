@@ -1,4 +1,7 @@
 #!/bin/sh
+# Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 # Pre-commit hook: reject commits that add non-ASCII bytes to tracked text
 # files (mojibake / UTF-8 double-encoding prevention).
 #

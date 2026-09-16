@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-U11: Multiple extern function declarations -- two extern blocks
 extern "C" {
   fn c_add(a: Int, b: Int) -> Int;

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-T25: Pointer exhaustive -- deref, compare
 fn deref_int(ptr: *Int) -> Int { var v: Int; unsafe { v = *ptr; } return v; }
 fn ptr_struct_deref(ptr: *Int) -> Int { var v: Int; unsafe { v = *ptr; } return v * 2; }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z16: closure+generic+extern+unsafe+cast+match+enum+module+contract+compound_assign+derive
 type RawBuf = { id: Int; len: Int; } derive[Eq]
 enum MemState { Clean, Dirty, Leaked }

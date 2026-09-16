@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-M17: harmonic number H_n = sum 1/i for i=1..n (Float64 approximation)
 fn harmonic(n: Int) -> Float64 {
   if n <= 0 { return 0.0; }

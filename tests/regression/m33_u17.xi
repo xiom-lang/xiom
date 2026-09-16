@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-U17: Pointer chain -- multiple pointers to same var, verify consistency
 fn main() -> Int {
   var x: Int = 100;

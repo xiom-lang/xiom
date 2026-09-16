@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-E13: Mixed case identifiers -- camelCase, PascalCase, snake_case
 fn myFunc() -> Int { return 10; }
 type MyType = { MyField: Int; }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-C08: while with break -- early loop termination
 fn find_first_even(start: Int, limit: Int) -> Int {
   var i: Int = start;

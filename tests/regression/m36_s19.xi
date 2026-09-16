@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S19: Optimization -- inlining simulation (heuristic decision)
 type InlineCandidate = { fn_id: Int; body_size: Int; call_count: Int; has_loop: Bool; }
 fn make_candidate(id: Int, size: Int, calls: Int, loop: Bool) -> InlineCandidate {

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 //! Compilation cache database for industrial incremental compilation.
 //!
 //! Architecture: Thread-safe, persistent cache with per-module entries at

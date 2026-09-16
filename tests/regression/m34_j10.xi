@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-J10: Nested modules (3+ levels) -- deep nesting
 module l1 {
   pub fn v1() -> Int { return 1; }

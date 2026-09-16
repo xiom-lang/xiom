@@ -1,6 +1,6 @@
 // XIOM -- Stdlib Compilation Tests
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //
 // Verifies that every stdlib .xi module compiles to IR with the current compiler.
 

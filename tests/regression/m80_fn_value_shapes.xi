@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m80 (R23): fn-typed VALUES are closure ENV pointers on the uniform
 // env-first convention (wrap_fn_ref_env / M20-A1). Every call-through-value
 // shape must load the trampoline from env[0] and pass the env as the first

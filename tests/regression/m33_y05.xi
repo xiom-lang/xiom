@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Y05: generic dispatch fn + struct derive + contract chain + match + enum + impl + module + diff
 type Triple = { a: Int; b: Int; c: Int; } derive[Eq]
 enum BaseOp { Add, Sub }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-M02: pub fn visibility -- access pub fn via use import
 module calc {
   pub fn mul(a: Int, b: Int) -> Int { return a * b; }

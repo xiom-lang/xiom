@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-P13: 30-fn deep chain + 20 struct + 15 enum + 10 const + 5 modules all interleaved + big match + 50 vars
 // Pattern: fn main() -> Int { ... return 0; }
 

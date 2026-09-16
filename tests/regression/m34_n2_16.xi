@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-N2-16: 10-deep while-with-if nesting -- alternating while/if depth stress
 fn main() -> Int {
   var i = 0;

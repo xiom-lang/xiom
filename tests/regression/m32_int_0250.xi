@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Comprehensive narrow int mix: casting, arithmetic, comparison, function
 fn negate8(x: Int8) -> Int8 { return -x; }
 fn add16(a: Int16, b: Int16) -> Int16 { return a + b; }

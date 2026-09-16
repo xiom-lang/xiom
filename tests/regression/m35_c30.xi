@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-C30: all-in-one -- combined control flow patterns in single test
 enum Kind { Small, Medium, Large }
 type Item = { value: Int; kind: Kind; }

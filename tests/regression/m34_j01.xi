@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-J01: Multiple modules in one file -- basic cross-module calls
 module math_a {
   pub fn add(a: Int, b: Int) -> Int { return a + b; }

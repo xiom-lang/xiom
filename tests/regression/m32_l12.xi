@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-L12: If-as-expression -- var x = if cond { a } else { b }
 fn main() -> Int {
   var base: Int = 42;

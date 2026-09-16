@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 enum WrappedResult { PresentOk(val: Int), PresentErr(msg: Str), NotPresent }
 fn try_find(v: Int) -> WrappedResult {
   if v > 10 { return WrappedResult.PresentOk(v); }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-D12: List append/prepend -- linked list with recursive pointer and length computation
 type Node = { value: Int; next: *Node; }
 

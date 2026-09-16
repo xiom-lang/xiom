@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-E11: Match with block expressions (multi-statement arms)
 enum Action { Add(x: Int), Sub(x: Int), Mul(x: Int), Noop }
 fn apply(act: Action, base: Int) -> Int {

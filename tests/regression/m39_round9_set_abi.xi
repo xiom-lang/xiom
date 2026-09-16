@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m39_round9_set_abi -- round-9 (2026-08-20) regression:
 // Set container ABI mismatch -- the compiler had NO builtin Set layout
 // (unlike Vec/Slice/Map), so every Set value erased to i64 while the

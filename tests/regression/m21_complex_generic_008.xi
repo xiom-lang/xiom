@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_complex_generic_008
 pub fn wrap_option[T](x: T) -> Option[T] {
     return Some(x);

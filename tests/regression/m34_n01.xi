@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-N01: Struct with derive[Eq] -- basic struct equality
 type Point = { x: Int; y: Int; } derive[Eq]
 fn main() -> Int {

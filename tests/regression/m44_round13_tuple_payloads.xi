@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m44_round13_tuple_payloads -- round-13 (2026-08-22) regression:
 // TUPLE PAYLOADS through Option/Vec (the btree first_entry family).
 // `Some((i, v))` payload bindings kept the box pointer (elements bound

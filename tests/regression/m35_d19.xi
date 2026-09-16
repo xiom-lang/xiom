@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-D19: BST -- insert, search, min, max on pointer-based tree nodes
 type BNode = { value: Int; left: *BNode; right: *BNode; }
 

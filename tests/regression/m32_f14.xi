@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Mixed Float32/Float64 operations with casts
 fn main() -> Int {
   var f32: Float32 = 3.0;

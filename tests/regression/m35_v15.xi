@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-V15: Vec[Option[Int]] -- Vec of optional integers, len verification
 fn main() -> Int {
   var v = Vec[Option[Int]].new();

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Y04: loop with early return inside unsafe + Option + match + module + impl
 enum Mode { Build, Verify, Destroy }
 fn safe_sum(n: Int) -> Option[Int] {

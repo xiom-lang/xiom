@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S24: Garbage collection simulation -- mark/sweep phases
 type GcObj = { id: Int; marked: Bool; reachable: Bool; size: Int; freed: Bool; }
 fn make_obj(id: Int, sz: Int) -> GcObj {

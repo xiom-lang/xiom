@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-D10: Hash map -- key-value storage pattern
 fn main() -> Int {
   var key0: Int = 1;

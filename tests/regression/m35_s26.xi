@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-S26: String expansion -- expand repeated chars (a3b2 -> aaabb)
 use stdlib.xiom.string;
 fn expand(s: Str) -> Str {

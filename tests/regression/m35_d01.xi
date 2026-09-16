@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-D01: Stack -- push/pop/peek with array
 fn main() -> Int {
   var data0: Int = 0;

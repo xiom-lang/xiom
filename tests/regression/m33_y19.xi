@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Y19: nested types + enum dispatch + struct method + match + contract + module + impl + diff
 type Inner = { val: Int; }
 type Outer = { inner: Inner; mult: Int; }

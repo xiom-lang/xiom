@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Char comparison: 'A'(65) < 'z'(122) as UInt8
 fn main() -> Int {
   var a: UInt8 = 'A' as UInt8;

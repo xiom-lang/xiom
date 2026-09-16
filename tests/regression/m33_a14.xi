@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-A14: Array mutation -- mutate via struct wrapper with mutable fields
 type Cell = { val: Int; }
 fn main() -> Int {

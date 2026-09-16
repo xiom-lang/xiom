@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M19-R02: Enum variants with same-named fields but different types
 // Verifies that Bool(val), Number(val), String(val) all extract correctly
 // despite sharing the field name "val"

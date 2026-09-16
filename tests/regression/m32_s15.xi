@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-S15: Struct composition -- build up from sub-structs with field manipulation
 type Header = { id: Int; version: Int; }
 type Body = { message: Str; count: Int; }

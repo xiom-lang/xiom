@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-D02: Stack overflow -- push beyond capacity
 fn main() -> Int {
   var data0: Int = 0;

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // BUG 43 regression: Float64 payload in generic Result/Option read via
 // sitofp (should bitcast). Direct-CALL scrutinee (`match core.to_float_from_str(s)`)
 // must bind the payload as a real double, not the raw bit pattern (~4.6e18).

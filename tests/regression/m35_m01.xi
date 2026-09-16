@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-M01: sqrt via Newton method (Float64)
 fn sqrt_newton(x: Float64) -> Float64 {
   if x <= 0.0 { return 0.0; }

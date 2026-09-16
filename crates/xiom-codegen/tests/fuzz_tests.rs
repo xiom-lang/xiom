@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // XIOM — Compiler Fuzz / Robustness Tests (GAP 5)
 // Verifies the compiler NEVER panics on adversarial input — it must always
 // return a Result (Ok or Err), never crash the process.

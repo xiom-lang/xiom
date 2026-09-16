@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Y19: generic + contract + Result + module + impl + string operations
 enum Kind { Full, Half, Quarter }
 fn half_it(x: Int) -> Int { return x / 2; }

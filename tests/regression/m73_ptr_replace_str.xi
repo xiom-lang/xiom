@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m73_ptr_replace_str
 // R19 regression: generic deref-store through `*mut T` used
 // `trim_end_matches('*')`, which turned `i8**` (`*mut Str`) into `i8` and

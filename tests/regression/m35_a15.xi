@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-A15: Sum of digits -- compute sum of decimal digits via while loop
 fn digit_sum(n: Int) -> Int {
   var x: Int = n;

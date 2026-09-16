@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 fn fizzbuzz(n: Int) -> Str {
   if n % 15 == 0 { return "FizzBuzz"; }
   if n % 3 == 0 { return "Fizz"; }

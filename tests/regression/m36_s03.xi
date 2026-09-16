@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S03: Parser AST node construction -- tree node types and factory functions
 type AstKind = { kind: Int; line: Int; col: Int; }
 type AstExpr = { kind: Int; left: Int; right: Int; value: Int; }

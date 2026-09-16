@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // P1-2 E2E Test: Tuple patterns in match
 // Tests match with tuple destructuring patterns.
 

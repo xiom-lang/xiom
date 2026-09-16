@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S16: Pretty printer -- advanced formatting with alignment rules
 type PPStyle = { spaces_per_indent: Int; max_width: Int; use_tabs: Bool; }
 type PPLine = { text: Str; depth: Int; align_col: Int; }

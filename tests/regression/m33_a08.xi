@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-A08: Array in struct -- struct containing an integer field and array ref via index
 type Container = { id: Int; val: Int; }
 fn main() -> Int {

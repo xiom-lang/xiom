@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Unsigned to signed conversion UInt8 -> Int8
 fn main() -> Int {
   var a: UInt8 = 255;

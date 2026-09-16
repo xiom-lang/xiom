@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 # Increase stack size for large multi-file benchmarks (30 files, 1000+ functions)
 # Default 1MB stack overflows during type-checking and codegen recursion
 [target.'cfg(all(target_os = "windows", target_arch = "x86_64"))']

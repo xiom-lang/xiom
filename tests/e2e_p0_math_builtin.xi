@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // P0-4 E2E Test: Math builtin interception
 // Tests that math.shl, math.bit_or, etc. compile to native LLVM instructions.
 use xiom.math;

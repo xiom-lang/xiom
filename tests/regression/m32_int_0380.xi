@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Int8 sign extension: -128 >> 7 = -1, then +1 = 0
 fn main() -> Int {
   var a: Int8 = -128 as Int8;

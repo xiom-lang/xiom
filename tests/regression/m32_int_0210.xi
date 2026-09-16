@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Vec push and read narrow int with wraparound
 fn main() -> Int {
   var v: Vec[UInt8] = Vec[UInt8].new();

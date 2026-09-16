@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-O10: Option filter -- match-based filter implementation
 fn opt_filter(o: Option[Int], pred: fn(Int) -> Bool) -> Option[Int] {
   match o {

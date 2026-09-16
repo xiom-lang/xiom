@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_tuple_struct
 // BUG 1 regression (docs/COMPILER_BUGS.md): tuple returns containing structs.
 // Before the fix, the fn signature used bare element names (Tuple__Big__Big)

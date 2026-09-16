@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-D09: Recursive enum -- enum variant contains pointer to its own type (Expr = Num | Add | Mul)
 // Tests: recursive enum type definition, match destructuring, null-pointer recursion
 enum Expr {

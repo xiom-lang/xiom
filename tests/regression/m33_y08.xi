@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Y08: generic pair struct + enum dispatch + match + contract + impl method + module + diff
 type Pair = { first: Int; second: Int; } derive[Eq]
 enum TransformKind { Swap, AddFirst, MulBoth }

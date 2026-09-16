@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z25: multi_module+use+generic+struct+enum+match+while+contract+derive+Option+compound_assign
 type Point = { x: Int; y: Int; } derive[Eq]
 enum Quadrant { Q1, Q2, Q3, Q4, Origin, Axis }

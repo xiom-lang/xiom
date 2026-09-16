@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-V07: Float division safety (division by 1.0, self-division, small divisor)
 fn main() -> Int {
   var a: Float64 = 42.0;

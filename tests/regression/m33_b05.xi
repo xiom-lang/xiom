@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-B05: Borrow through function param -- pass &mut, read after write, verify sequencing
 fn double_it(x: &mut Int) { *x = *x * 2; }
 fn add_ten(x: &mut Int) { *x = *x + 10; }

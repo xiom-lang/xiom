@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_module_011
 pub type Point = { x: Int; y: Int; }
   pub type Size = { w: Int; h: Int; }

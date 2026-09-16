@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-C20: if-expression -- let binding with if expression value
 fn abs(x: Int) -> Int {
   var v: Int = if x >= 0 { x } else { -x };

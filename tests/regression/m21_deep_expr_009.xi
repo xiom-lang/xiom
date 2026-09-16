@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_deep_expr_009
 type L1 = { v: Int; }
   type L2 = { l1: L1; }

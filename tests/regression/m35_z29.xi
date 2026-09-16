@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z29: pointer+unsafe+cast+generic+Result+match+module+contract+derive+compound_assign+while+enum
 type Span = { id: Int; count: Int; } derive[Eq]
 enum SpanResult { Ok, Overflow, NullPtr, OutOfBounds(idx: Int) }

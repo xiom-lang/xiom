@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: UInt8(128) > Int8(127) should be true (zext needed)
 fn main() -> Int {
   var a: UInt8 = 128;

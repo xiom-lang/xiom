@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // Combinatorial stress: 3 different Fibonacci implementations must agree
 fn fib_rec(n: Int) -> Int {
   if n <= 1 { return n; }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Y13: enum discriminant + generic method dispatch + struct + match + contract + impl + module + diff
 type Context = { x: Int; y: Int; }
 enum FnKind { A, B, C }

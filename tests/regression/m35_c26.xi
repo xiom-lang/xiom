@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-C26: if-let pattern -- match on Option as control flow (XIOM uses match, not if-let)
 fn maybe_double(opt: Option[Int]) -> Int {
   match opt {

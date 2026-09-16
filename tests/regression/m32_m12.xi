@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-M12: Dotted path for nested modules -- deep import via use
 module alpha {
   pub fn get_a() -> Int { return 1; }

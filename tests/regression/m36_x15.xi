@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-X15: Derive on all types -- derive[Eq] on structs
 type Point2D = { x: Int; y: Int; } derive[Eq]
 type Point3D = { x: Int; y: Int; z: Int; } derive[Eq]

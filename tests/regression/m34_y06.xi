@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Y06: while with nested if containing match + compound assign + module + contract
 enum Signal { High, Low, Off }
 type Meter = { level: Int; sig: Signal; }

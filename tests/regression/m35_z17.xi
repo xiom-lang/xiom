@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z17: array+generic+while+compound_assign+enum+match+contract+module+derive+recursion
 type Chunk = { offset: Int; count: Int; } derive[Eq]
 enum Scan { Forward, Backward, Skip(n: Int) }

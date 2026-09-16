@@ -1,6 +1,6 @@
 // XIOM -- stress_borrow_10level
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
 
 fn read1(x: &Int) -> Int { return x + 0; }
 fn read2(x: &Int) -> Int { return read1(x); }

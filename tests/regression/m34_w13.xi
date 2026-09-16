@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-W13: Byte swap -- swap bytes in a 32-bit value using shift + mask
 fn swap16(x: UInt32) -> UInt32 {
   var lo: UInt32 = x & (0xFF as UInt32);

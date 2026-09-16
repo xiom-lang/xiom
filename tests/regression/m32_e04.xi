@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-E04: Enum with multi-field payload, match extract
 enum Point { Origin, Coord(x: Int, y: Int) }
 fn main() -> Int {

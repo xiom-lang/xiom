@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S09: Symbol table -- insert, lookup, and hash key derivation
 type SymEntry = { name: Str; kind: Int; type_id: Int; offset: Int; }
 type SymTable = { count: Int; capacity: Int; }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-T22: Char exhaustive -- every context: var, param, return, struct, enum, array, cmp
 fn char_eq(a: Char, b: Char) -> Bool { return a == b; }
 fn char_ne(a: Char, b: Char) -> Bool { return a != b; }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // BUG 53 regression: &[N]T params -- the caller's array-literal binding
 // stored the Vec data POINTER as the array value (invalid IR: store
 // [5 x i64] %ptr) and element access GEP'd the pointer SLOT as the

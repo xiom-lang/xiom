@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z11: recursion+generic+struct+enum+match+Option+Result+contract+compound_assign
 type Node = { val: Int; next: Option[Int]; }
 enum List { Nil, Cons(hd: Int, tl: Int) }

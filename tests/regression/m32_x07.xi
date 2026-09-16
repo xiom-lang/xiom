@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-X07: Combinatorial + Differential -- manual eq vs derive Eq with struct+enum
 type Vec2 = { x: Int; y: Int; } derive[Eq]
 fn manual_eq(a: Vec2, b: Vec2) -> Bool {

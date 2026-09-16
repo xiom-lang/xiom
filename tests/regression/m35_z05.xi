@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z05: recursion+enum+match+contract+module+closure+array+const+cast+while
 const LIMIT: Int = 10;
 enum Tree { Leaf(v: Int), Branch(l: Int, r: Int) }

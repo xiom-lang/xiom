@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-L08: Struct with pointer -- verify pointer field access in structs directly
 type Node = { value: Int; next: *Node; }
 

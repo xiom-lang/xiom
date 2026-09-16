@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_struct_mut_022
 type Vector2 = { x: Float64; y: Float64; }
 fn main() -> Int {

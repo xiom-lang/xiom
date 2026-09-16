@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Integer in struct with mixed int types
 type Data = { a: Int8; b: Int16; c: Int32; }
 fn main() -> Int {

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // Spawn Tests -- v0.55
 // Verifies spawn { ... } compiles and the thread runtime links.
 // Returns 0 on success.

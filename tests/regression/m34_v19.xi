@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-V19: Float array operations (literal, index access, sum)
 fn main() -> Int {
   var arr = [1.0, 2.0, 3.0, 4.0, 5.0];

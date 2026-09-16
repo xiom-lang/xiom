@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-S29: Wildcard match -- match string against pattern with ? and *
 use stdlib.xiom.string;
 fn is_star(b: UInt8) -> Bool { return b == 42; }

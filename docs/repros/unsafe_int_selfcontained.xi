@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // Self-contained repro of the unsafe-return pattern (BUG 27 #14):
 // extern "C" fn returning Int32, cast to Int, returned from an unsafe block
 // through the trampoline. fs_move's failure: rc always read non-zero even

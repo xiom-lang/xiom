@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-N11: Enum with Clone+Eq -- clone then compare equality
 enum Token { Plus, Minus, Star, Slash } derive[Eq, Clone]
 fn main() -> Int {

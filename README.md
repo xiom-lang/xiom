@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # XIOM Programming Language
 
 **Safe - Verified - Precise** -- A systems programming language with first-class contracts.
@@ -327,6 +330,10 @@ XIOM/
 
 ## License
 
-MIT OR Apache-2.0
+Dual-licensed under your choice of:
 
-Copyright (c) 2026 Eleftherios Notas
+- MIT License - see `LICENSE-MIT`
+- Apache License, Version 2.0 - see `LICENSE-APACHE`
+
+Copyright (c) 2026 Eleftherios Notas (Lefteris Notas) and XIOM Foundation.
+See `NOTICE` for attributions.

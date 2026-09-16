@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Vec UInt8 elements with high values
 fn main() -> Int {
   var v: Vec[UInt8] = Vec[UInt8].new();

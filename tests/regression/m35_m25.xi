@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-M25: integer log base 2 (floor)
 fn log2_int(n: Int) -> Int {
   if n <= 0 { return 0; }

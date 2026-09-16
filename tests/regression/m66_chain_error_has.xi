@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // smoke_error2 has-mid root-cause regression (2026-09-11).
 //
 // The catalog module xiom.error.chain registers its type BARE as

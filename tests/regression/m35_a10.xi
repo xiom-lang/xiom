@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-A10: Fibonacci -- iterative implementation using while loop
 fn fib_iter(n: Int) -> Int {
   if n <= 1 { return n; }

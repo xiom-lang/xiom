@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Int32 truncation chain Int32 -> Int16 -> Int8 on negative
 fn main() -> Int {
   var a: Int32 = -1 as Int32;

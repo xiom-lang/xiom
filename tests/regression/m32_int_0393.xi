@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Shl + shr roundtrip for UInt8 (no overflow)
 fn main() -> Int {
   var a: UInt8 = 16 as UInt8;

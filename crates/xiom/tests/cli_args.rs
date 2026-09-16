@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // Driver argument-resolution regression (Stage 5 driver item): the manual
 // parser used to drop files literally named wasm/arm/riscv as if they were
 // positional target sugar.

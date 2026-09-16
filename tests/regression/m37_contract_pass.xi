@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_contract_pass
 // BUG 22 #5: contract checks must not break normal execution -- a
 // SATISFIED requires/ensures still runs the body (regression guard for

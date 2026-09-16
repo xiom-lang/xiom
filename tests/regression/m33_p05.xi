@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-P05: Multi-module cross-reference stress + interleaved declarations + deep call chain
 // Pattern: fn main() -> Int { ... return 0; }
 

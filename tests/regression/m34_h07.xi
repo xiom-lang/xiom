@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-H07: Float64->Float32 narrowing -- double to single precision
 fn main() -> Int {
   var f64: Float64 = 3.141592653589793;

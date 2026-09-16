@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Y17: type alias + generic + enum payload + struct + match + contract + impl + module + diff
 type Id = Int;
 type Value = Int;

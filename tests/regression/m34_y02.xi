@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Y02: nested if-else chain inside match arm + compound assign + module + derive
 type Score = { points: Int; multiplier: Int; } derive[Eq]
 enum Op { Double, Triple, Reset }

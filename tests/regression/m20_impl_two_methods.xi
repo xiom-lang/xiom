@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 interface Math { fn add(self, x: Int) -> Int; fn mul(self, x: Int) -> Int; }
 type C = { v: Int; }
 impl Math for C {

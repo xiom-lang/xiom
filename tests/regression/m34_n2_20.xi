@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-N2-20: Deep match nesting with multi-variant enums -- 3-level pattern depth
 type X1 = enum { A(val: Int), B(val: Int), }
 type X2 = enum { W(a: X1), X(a: X1), }

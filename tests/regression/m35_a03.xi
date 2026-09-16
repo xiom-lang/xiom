@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-A03: Verify sortedness -- check if arrays are in ascending order
 fn main() -> Int {
   var a = [1, 2, 3, 4, 5, 6, 7];

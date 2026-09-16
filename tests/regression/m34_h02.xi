@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-H02: Int64->Int32->Int16->Int8 narrowing chain -- truncation of upper bits
 // 258 (0x102) truncates to 2 in Int8: upper byte discarded
 fn main() -> Int {

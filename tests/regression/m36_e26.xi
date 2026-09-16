@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-E26: Very long source file -- 2000+ chars in one function (150 local vars)
 fn main() -> Int {
   var v1 = 1;

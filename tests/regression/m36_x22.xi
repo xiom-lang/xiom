@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-X22: Mutual recursion -- functions that call each other
 fn is_even(n: Int) -> Bool {
   if n == 0 { return true; }

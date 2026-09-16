@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // P2-6 E2E Test: Multi-type turbofish
 // Tests that ::<Type1, Type2> syntax parses correctly.
 

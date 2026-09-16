@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-T30: Mega stress -- types, generics, impl, variant
 type All = { b: Bool; i: Int; s: Str; }
 enum Variant { Unit, IntVal(v: Int), StrVal(v: Str) }

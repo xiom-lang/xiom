@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_str_int_concat
 // Regression: `Str + Int` (and `Str + Char`/UInt) must FORMAT the integer
 // via @xiom_int_to_string, not inttoptr it into a garbage pointer (which

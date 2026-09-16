@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-A17: Palindrome number -- check if number reads the same forwards/backwards
 fn rev(n: Int) -> Int {
   var x: Int = n;

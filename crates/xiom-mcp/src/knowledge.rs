@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // XIOM MCP -- Knowledge Tools (Phase 5d.1 expansion)
 // -----------------------------------------------------------------------
 // Makes any MCP-capable agent an instant XIOM expert, regardless of LLM
