@@ -235,6 +235,25 @@ pub(crate) fn install_from_registry(package: &str, version: Option<&str>, regist
         println!("  checksum verified (sha256:{actual})");
     }
 
+    // Stage 5: LOCKFILE v2 ENFORCEMENT. When a xiom.lock is found walking up
+    // from the CWD, the artifact must match the LOCKED digest and version --
+    // the server index alone cannot protect against an artifact swapped after
+    // locking. XIOM_PKG_LOCKED=0 bypasses (explicit opt-out), =1 requires a
+    // lock to exist.
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let locked_env = std::env::var("XIOM_PKG_LOCKED").ok();
+    match crate::lockfile::find_lockfile(&cwd) {
+        Some((lock_path, lock)) if locked_env.as_deref() != Some("0") => {
+            crate::lockfile::verify_locked_archive(&lock, package, ver, &archive)
+                .map_err(|e| format!("{e}\n  (lockfile: {})", lock_path.display()))?;
+            println!("  lockfile verified ({})", lock_path.display());
+        }
+        None if locked_env.as_deref() == Some("1") => {
+            return Err("XIOM_PKG_LOCKED=1 but no xiom.lock was found in this directory or any parent".to_string());
+        }
+        _ => {}
+    }
+
     // Extract to local package cache
     let cache_dir = package_cache_dir();
     let pkg_dir = cache_dir.join(format!("{}-{}", package.replace('.', "-"), ver));
