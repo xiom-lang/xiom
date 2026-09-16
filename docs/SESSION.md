@@ -190,6 +190,26 @@ MAX_EXPR_DEPTH=32; now nest 300), lexer test-only helper gated with
 cfg(test), unused bindings underscored. fuzz_tests 24/24, robustness 63/63,
 workspace check clean.
 
+### Round-83 (2026-09-16): pre-split housekeeping + post-split handoff
+
+Compiler lane, no behavior changes.
+
+- Cleaned ~13 GB of generated test artifacts: repo-root `*.exe`/`*.ll`/
+  obj/pdb/wasm (10.8k files, the e2e/probe/smoke litter), `.test_build/`
+  (8 GB), `.testlogs/`, `tmp/`. No tracked file matched those patterns.
+- Rebuilt `.gitignore`: its tail had a corrupted UTF-16 block, so
+  `.xiom_ai.json`, `.xiom_ai_cache/` and `xiom_verify_output.smt2` had never
+  actually been ignored; added harness temp-source patterns (`_e2e_*.xi`,
+  `e2e_*.xi`). `.xiom_ai.json` untracked (`git rm --cached`, file kept).
+- Added `stdlib/.gitignore` for generated runtime/smoke artifacts -- it
+  travels with the stdlib repo post-split (flagged for the stdlib lane).
+- `SESSION.md` (root) now documents the post-split workflow: fetch the pin
+  with `scripts/fetch-stdlib.ps1|.sh`, one resolver in `xiom_graph::paths`,
+  `XIOM_STDLIB` / `XIOM_STDLIB_SMOKES` / `XIOM_REQUIRE_STDLIB=1`, and the
+  refreshed remaining queue (supply-chain closure first, then clap/fmt/
+  LSP/cargo-vet, the same-leaf TYPE collision, Stage 6/7).
+- No code or test changes; the tree is clean for the release-lane split.
+
 ### Round-82 (2026-09-16): R31 FIXED -- cross-repo test isolation (pre-split)
 
 Compiler lane, on the release/infra lane's R31.

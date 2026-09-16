@@ -1,16 +1,14 @@
-# XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-82 in docs/SESSION.md)
+# XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-83 in docs/SESSION.md)
 
-Branch `feat/architect`. Last compiler commit: the round-82 slice (R31 --
-cross-repo test isolation); the round-79/80/81 slices (R28/R29/R30) precede
-it. Working tree should be clean
-except the generated
-`.xiom_ai.json` and the parallel stdlib lane's files. The stdlib session
-commits to the same branch; NEVER stage their `stdlib/**`,
-`examples/stdlib_smoke/**`, `docs/stdlib_session.md`,
-`docs/STDLIB_READINESS_PLAN.md`, `docs/STDLIB_DEDUP_INVENTORY.md`. They also
-sometimes sweep the whole tree into their commits (it happened twice: my
-DWARF work landed inside 82d66b98), so re-check `git log --stat` if a change
-seems missing.
+Branch `feat/architect`. Last compiler commit: the round-83 slice
+(pre-split housekeeping + handoff); the round-82 slice (R31 -- cross-repo
+test isolation) and the round-79/80/81 slices (R28/R29/R30) precede it.
+Working tree should be clean; `.xiom_ai.json` is generated tooling state and
+is now untracked/ignored (it has been committed before -- `git rm --cached`
+in this round). In the monorepo phase the parallel stdlib lane committed to
+the same branch and sometimes swept the whole tree (re-check `git log --stat`
+if a change seems missing); after the split the stdlib is a separate repo and
+its checkout at `stdlib/` is gitignored.
 
 ## State at handoff
 
@@ -141,20 +139,64 @@ Fixed this session: R28 (temporary `.value`, lock m82), R29 (Vec in match arm,
 lock m83), R30 (bare variant pick parity -- the old R25 residual; bench IR
 byte-identical at 5,687,052 bytes).
 
-## Remaining queue
+## Working after the split (R31 contract)
 
-1. **Supply-chain tail**: transitive dependency closure from registry
-   metadata; server-side publish authentication.
-2. **fmt**: body-inline comment trivia attachment (stage-2 trivia
-   dependency; shebang/header/string escaping already done round 42).
-3. **cargo-vet audits** (cargo-deny already runs in CI).
-4. **clap migration** of the driver parser (large; keep the CLI surface
-   byte-compatible and gate with the full e2e suite).
-5. **Stage 7 selfhost ladder**: v092..v11 are milestone emitters, not yet a
+The compiler repo and the stdlib repo are separate; the compiler repo no
+longer contains stdlib sources:
+
+- Fetch the pinned checkout: `scripts/fetch-stdlib.ps1` / `.sh` (shallow
+  clone of `XIOM_STDLIB_REPO`, default `xiom-lang/stdlib`, at the ref in
+  `STDLIB_VERSION`; `-Force` refreshes, refuses to delete a non-git tree).
+  The release lane swaps `STDLIB_VERSION` from `main` to the split tag.
+- Every cross-repo path resolves through the ONE helper
+  `xiom_graph::paths`: `stdlib_root()` (XIOM_STDLIB -> exe-relative -> CWD ->
+  XIOM_HOME fallback -> baked checkout), `stdlib_smoke_dir()`
+  (XIOM_STDLIB_SMOKES -> `<stdlib>/tests/smoke/` -> legacy
+  `examples/stdlib_smoke/`), and `stdlib_or_skip()` / `skip_if_missing()`.
+- Missing checkout: loud SKIP lines locally; `XIOM_REQUIRE_STDLIB=1` (CI
+  sets it) turns every skip into a hard FAIL.
+- The stdlib lane owns moving the smoke corpus into `<stdlib>/tests/smoke/`;
+  until it lands the legacy path keeps working.
+- `stdlib/.gitignore` was added (generated runtime/smoke artifacts); it
+  travels with the stdlib repo -- the stdlib lane may fold it into their
+  bootstrap.
+- Housekeeping done pre-split (round 83): ~13 GB of generated test binaries
+  removed (repo root, `.test_build/`, `.testlogs/`, `tmp/`); `.gitignore`
+  rebuilt (its tail had a corrupted UTF-16 block, so `.xiom_ai.json`,
+  `.xiom_ai_cache/` and `xiom_verify_output.smt2` were never actually
+  ignored); `.xiom_ai.json` untracked; harness temp sources (`_e2e_*.xi`,
+  `e2e_*.xi`) ignored.
+
+## Remaining queue (compiler lane)
+
+1. **Supply-chain tail (hard prereq for the registry phase)**: transitive
+   dependency closure from registry metadata; server-side publish
+   authentication. `publish_package` is still a stub
+   (crates/xiom-pkg/src/main.rs:574); the registry lane's spec docs are the
+   contract.
+2. **clap migration** of the driver parser (large; keep the CLI surface
+   byte-compatible, gate with the full e2e suite).
+3. **fmt**: body-inline comment trivia attachment (stage-2 trivia dependency;
+   shebang/header/string escaping already done round 42).
+4. **LSP**: finish the cross-file index work behind the incremental AST
+   cache (lsp 44/44 currently).
+5. **Driver hygiene**: randomized temp names (the jit link dir is pid-based).
+6. **cargo-vet audits** (cargo-deny already runs in CI; cargo-fuzz and
+   ASAN/sanitizer CI landed round 69).
+7. **Same-leaf TYPE collision** (compiler correctness, non-blocking): two
+   user modules with the same struct leaf emit one `%struct.X` definition
+   (benchmark.borrow/derive.Metrics); needs a `fn_symbol_map`-style type
+   symbol map. Bench is IR-gated only, so no suite regresses today.
+8. **Stage 6 continuation**: real incremental engine, parallel
+   monomorphization profiles, linker strategy, more budget metrics.
+9. **Stage 7 selfhost ladder**: v092..v11 are milestone emitters, not yet a
    full XIOM-in-XIOM compiler; zero-ICE self-build is a multi-phase project.
    The selfhost COMPILE gate is green.
-6. **Stage 6 continuation**: parallel monomorphization profiles, linker
-   strategy, more budget metrics.
+
+Cross-lane pending (stdlib lane, pre-existing): `stdlib_api_freeze_no_removals`
+RED (52 drifted signatures since the 2026-08-07 snapshot) and
+`stdlib_tests::stdlib_all_modules_compile_to_ir` RED
+(`xiom.encoding.ascii85` T001). `STDLIB_VERSION` still `main` (release lane).
 
 ## Workflow rules
 
@@ -174,45 +216,50 @@ byte-identical at 5,687,052 bytes).
   locally only with a version-matched ASAN DLL -- use CI/Linux for those.
 - Corpus triage: `cargo test -p xiom-check catalog_corpus_is_clean`;
   `$env:XIOM_CATALOG_DUMP='1'` prints every site.
-- Never edit `stdlib/**`; report stdlib findings in `docs/ITEM_A_STDLIB_FINDINGS.md`
-  / COMPILER_BUGS and in chat.
+- Stdlib boundary: monorepo phase -- never stage `stdlib/**` /
+  `examples/stdlib_smoke/**` (parallel lane's files); post-split -- `stdlib/`
+  is a gitignored checkout, never commit it. Report stdlib findings in
+  `docs/COMPILER_BUGS.md` and in chat.
 
 ## Paste-ready prompt for the next compiler session
 
 ```
-Continue the AXIOM compiler-lane readiness campaign in E:\Projects\AXIOM on
-branch feat/architect. Read SESSION.md (repo root) and docs/SESSION.md
-(rounds 61-82; round 82 has R31, round 80/79 the R29/R28 fixes) before
-touching code. The stdlib session works in parallel on stdlib/** only and
-commits to the same branch (they sometimes sweep the whole tree -- re-check
-git log if a change seems missing); never stage their files.
+Continue the AXIOM compiler-lane readiness campaign in E:\Projects\AXIOM
+(the compiler repo; post-split). Read SESSION.md (repo root) and
+docs/SESSION.md (rounds 61-83; round 83 is the pre-split housekeeping/R31
+handoff) before touching code. The stdlib now lives in its own repo: fetch
+the pinned checkout with `scripts/fetch-stdlib.ps1` (or `.sh`) before running
+any stdlib/smoke test; everything resolves through `xiom_graph::paths`
+(XIOM_STDLIB, XIOM_STDLIB_SMOKES, XIOM_REQUIRE_STDLIB=1 in CI). Never commit
+the `stdlib/` checkout.
 
 State: Stage 3 Item A CLOSED (strict catalog findings, checker 189/189),
 R-bugs through R31 CLEARED with locks m74-m83 (one non-R finding open: the
-same-leaf TYPE collision, see "Open compiler findings"); e2e 2331/2331 on
-the R30 binary and the R31 split-gate run; supply chain signed (ed25519
-keygen/trust/sign/verify, fail-closed installs, ureq-only publish, git
-commit pins), Stage 6 perf budgets wired (determinism canary covers selfhost
-v092 + bench graph), selfhost v092 compile gate GREEN, release R0
-compiler-side blockers DONE (R25+R27+R31, release build clean).
+same-leaf TYPE collision, see "Open compiler findings"); e2e 2331/2331;
+supply chain signed (ed25519 keygen/trust/sign/verify, fail-closed installs,
+ureq-only publish, git commit pins), Stage 6 perf budgets wired (determinism
+canary covers selfhost v092 + bench graph), selfhost v092 compile gate
+GREEN, release R0 compiler-side blockers DONE (R25+R27+R31, release build
+clean).
 
-Pending (cross-lane, pre-existing): stdlib_api_freeze_no_removals RED (52
-drifted signatures) and stdlib_tests::stdlib_all_modules_compile_to_ir RED
-(xiom.encoding.ascii85 T001) -- both stdlib-lane owned, documented in
+Pending (cross-lane): stdlib_api_freeze_no_removals RED (52 drifted
+signatures) and stdlib_tests::stdlib_all_modules_compile_to_ir RED
+(xiom.encoding.ascii85 T001) -- stdlib-lane owned, documented in
 COMPILER_BUGS R31 FIXED. STDLIB_VERSION is `main` until the release lane
 swaps in the split tag.
 
 Your task, in order:
 1. Supply-chain tail: transitive dependency closure from registry metadata,
-   server-side publish authentication; then fmt body-inline comment trivia,
-   cargo-vet, clap migration.
-2. Stage 7 selfhost ladder (v092..v11 are emitters; the full self-build is a
-   multi-phase project) and Stage 6 continuation (parallel mono profiles,
-   linker strategy).
+   server-side publish authentication (publish_package is a stub); then
+   clap migration, fmt body-inline comment trivia, LSP cross-file index,
+   cargo-vet.
+2. Same-leaf TYPE collision (type symbol map, see "Open compiler findings").
+3. Stage 6 continuation (incremental engine, parallel mono profiles, linker
+   strategy) and the Stage 7 selfhost ladder.
 
 Rules: the e2e/stdlib harnesses spawn target/debug/xiom.exe -- always
 `cargo build -p xiom` after checker/codegen changes. Capture $LASTEXITCODE
 right after each native command. Use --emit-ir / --sanitize=address for
-miscompile work. Keep commits atomic (code + docs together) and never touch
-stdlib/**.
+miscompile work. Keep commits atomic (code + docs together); never commit
+stdlib/** or the stdlib/ checkout.
 ```
