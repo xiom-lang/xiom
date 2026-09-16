@@ -6835,16 +6835,25 @@ impl IrEmitter {
                 }
                 StmtOrExpr::Expr(expr) => {
                     let (result, result_ty) = self.compile_expr(expr)?;
-                    if let Some(ptr) = self.fctx.match_result_ptr.clone() {
-                        let ret_ty = self.fctx.match_result_ty.clone().unwrap_or_else(|| self.fctx.current_return_type.clone());
-                        // Coerce the arm's value to the match result type. An arm
-                        // whose body is (e.g.) a bare enum-variant identifier can
-                        // compile to a raw i64 discriminant; wrap it into the
-                        // result struct so `store volatile %struct.X i64` is never emitted.
-                        // `result_ty` is the value's real LLVM type from compile_expr.
-                        let from_ty = result_ty.clone();
-                        let store_val = self.coerce_value(&result, &from_ty, &ret_ty);
-                        self.emitln(&format!("  store {ret_ty} {store_val}, {ret_ty}* {ptr}"));
+                    // R29: only the block's TAIL expression carries the arm
+                    // value. An expression STATEMENT nested in the arm (e.g.
+                    // `groups.push(...)` inside a while body) must NOT store
+                    // into the match result slot -- it emitted
+                    // `store %struct.Option <Vec value>` (invalid IR: Vec
+                    // stored as Option) and broke clang codegen for Vec built
+                    // inside a match arm over a Result[Vec[...]] payload.
+                    if is_last {
+                        if let Some(ptr) = self.fctx.match_result_ptr.clone() {
+                            let ret_ty = self.fctx.match_result_ty.clone().unwrap_or_else(|| self.fctx.current_return_type.clone());
+                            // Coerce the arm's value to the match result type. An arm
+                            // whose body is (e.g.) a bare enum-variant identifier can
+                            // compile to a raw i64 discriminant; wrap it into the
+                            // result struct so `store volatile %struct.X i64` is never emitted.
+                            // `result_ty` is the value's real LLVM type from compile_expr.
+                            let from_ty = result_ty.clone();
+                            let store_val = self.coerce_value(&result, &from_ty, &ret_ty);
+                            self.emitln(&format!("  store {ret_ty} {store_val}, {ret_ty}* {ptr}"));
+                        }
                     }
                     if is_last && is_expression {
                         if self.current_block_terminated() {

@@ -190,6 +190,27 @@ MAX_EXPR_DEPTH=32; now nest 300), lexer test-only helper gated with
 cfg(test), unused bindings underscored. fuzz_tests 24/24, robustness 63/63,
 workspace check clean.
 
+### Round-80 (2026-09-16): R29 FIXED -- match-arm expression statements no longer write the result slot
+
+Compiler lane, on the stdlib lane's R29 (`probes\p_match_vec_codegen.xi`).
+
+- Root cause: `compile_block`'s `StmtOrExpr::Expr` branch stored EVERY
+  expression statement's value into `fctx.match_result_ptr` while a match
+  result slot was active, not only the block's tail. In
+  `Ok(b) => { ... while ... { groups.push(...) } }` the push statement
+  materialized the mutated Vec and stored it as `%struct.Option` (invalid IR,
+  clang type mismatch).
+- Fix: gate the store on `is_last`. Tail-expression arms keep working; the
+  separate `compile_if_arm_value` path is untouched.
+- Evidence: original probe compiles + prints `P_MATCH_VEC_CODEGEN OK` (exit
+  0). Lock `e2e_m83_match_arm_vec_build`
+  (`tests/regression/m83_match_arm_vec_build.xi`).
+- Gates: m83 1/1, feature-reg 510/510, stdlib-exec 85/85 (+2 ign), perf 2/2,
+  full e2e (R28+R29 binary) -- see the handoff root SESSION.md.
+- Next: cross-enum variant ambiguity (checker rule), bench Metrics GEP,
+  then Stage 5 tail (supply-chain closure + server publish auth, clap, fmt
+  body-inline trivia, cargo-vet/fuzz/ASAN).
+
 ### Round-79 (2026-09-16): R28 FIXED -- temporary `.value` payload materialization
 
 Compiler lane, on the stdlib lane's R28 (`probes\p_payload_read.xi`).
