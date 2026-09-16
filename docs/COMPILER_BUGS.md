@@ -6052,3 +6052,41 @@ the audit stays mechanical on re-run.
 
 
 
+
+## R24. Program-level bodyless fn declarations shadowed catalog-body externs (2026-09-16, compiler lane round 74)
+
+`diff_tests::test_selfhost_v092_compiles` (the Stage 7 selfhost gate) was red
+with catalog-body findings on `xiom.io` and `xiom.string`:
+
+```
+error[T001]: 207:33: catalog body [xiom.io]: assignment type mismatch: *UInt8 = Int
+error[T001]: 220:5:  catalog body [xiom.io]: argument 1 type mismatch: expected Int, found *UInt8
+error[T001]: 153:48: catalog body [xiom.string]: argument 1 type mismatch: expected Int, found Str
+```
+
+`selfhost/xiomc_v092.xi` declares the legacy C-runtime signatures as plain
+BODYLESS fns (`fn xiom_read_file(path: Str) -> Int;`, `fn xiom_char_at(src:
+Int, pos: Int) -> Int;`). The checker's BUG-29 rule kept such program
+declarations first-wins over stdlib `extern "C"` blocks -- correct for the
+PROGRAM's own calls, but it also applied while checking CATALOG bodies under
+the isolated flush context: io.xi's body resolved `xiom_read_file` to the
+PROGRAM's `Str -> Int` declaration instead of its own `*UInt8 -> *UInt8`
+extern (the corpus gate cannot see it: the selfhost program is the only
+place a same-named legacy declaration exists).
+
+Fixes (crates/xiom-check/src/lib.rs):
+1. The BUG-29 `user_declared` keep-first guard is scoped to PROGRAM checks
+   (`!self.checking_catalog`); inside an isolated catalog body the module's
+   own externs must win.
+2. `flush_catalog_bodies` re-registers the body module's own declarations
+   (fn/extern signatures) inside the isolated context before checking, so
+   last-wins ordering reflects the body's own scope.
+3. `extern_fns` (the D2.1/T002 unsafe-confinement mark set) joins
+   `CatalogImportContext`: without restore, catalog extern marks leaked into
+   the program and its plain bodyless declarations suddenly demanded
+   `unsafe` (selfhost lines 27/36/64).
+
+Verification: `selfhost/xiomc_v092.xi` compiles (exit 0), the selfhost diff
+test passes, and the program-body unsafe requirements are unchanged
+(`extern_fns` restored). Gates: checker 189/189, stdlib-exec 85/85 (+2 ign),
+feature-reg 510/510, e2e 2328/2328. Stage 7 selfhost build gate unblocked.

@@ -263,6 +263,12 @@ struct CatalogImportContext {
     visibility: HashMap<String, bool>,
     fn_owner_module: HashMap<String, HashSet<String>>,
     methods: HashMap<String, HashMap<String, FnSig>>,
+    /// R24: the unsafe-confinement marks (D2.1/T002). A catalog body's own
+    /// externs are marked while its body is checked; without restoring this
+    /// set the marks leak into the program and its plain bodyless fn
+    /// declarations (`fn xiom_read_file(path: Str) -> Int;` in the selfhost
+    /// sources) suddenly demand `unsafe`.
+    extern_fns: HashSet<String>,
     /// Qualified-call resolution caches populated while checking a catalog
     /// body. `peeked_resolved` is the CODEGEN injection set -- leaking a
     /// catalog-private submodule into it added concrete defines the user
@@ -508,6 +514,17 @@ impl Checker {
             }
             let before = self.warnings.len();
             let before_errors = self.errors.len();
+            // R24: re-register this module's OWN declarations (externs
+            // included) inside the isolated context. Program items register
+            // AFTER the catalog preload, so a program-level extern with the
+            // same C-linkage bare name shadows the module's own: the
+            // selfhost program declares the legacy
+            // `fn xiom_read_file(path: Str) -> Int;` and io.xi's body was
+            // then checked against that signature (`*UInt8 = Int` findings)
+            // instead of its own `*UInt8` extern.
+            for item in &cached.program.items {
+                self.register_fn_signature(item);
+            }
             for item in &cached.program.items {
                 self.check_top_decl(item);
             }
@@ -546,6 +563,7 @@ impl Checker {
             visibility: self.visibility.clone(),
             fn_owner_module: self.fn_owner_module.clone(),
             methods: self.methods.clone(),
+            extern_fns: self.extern_fns.clone(),
             submodule_aliases: self.submodule_aliases.clone(),
             peeked_resolved: self.peeked_resolved.clone(),
         }
@@ -562,6 +580,7 @@ impl Checker {
         self.visibility = ctx.visibility;
         self.fn_owner_module = ctx.fn_owner_module;
         self.methods = ctx.methods;
+        self.extern_fns = ctx.extern_fns;
         self.submodule_aliases = ctx.submodule_aliases;
         self.peeked_resolved = ctx.peeked_resolved;
     }
@@ -2268,7 +2287,14 @@ impl Checker {
                     // signature, turning safe calls into "extern requires
                     // unsafe" + wrong param types. extern_fns tracking stays
                     // for externs that are NOT shadowed by a user declaration.
-                    let user_declared = self.functions.contains_key(&func.name.name)
+                    // R24: the BUG-29 keep-first rule guards PROGRAM checks
+                    // only. Inside an isolated CATALOG-body check the extern
+                    // belongs to the module being checked, so it must win --
+                    // otherwise io.xi's body resolved the selfhost program's
+                    // legacy `fn xiom_read_file(path: Str) -> Int;` and
+                    // reported `*UInt8 = Int` on its own `*UInt8` extern.
+                    let user_declared = !self.checking_catalog
+                        && self.functions.contains_key(&func.name.name)
                         && self.fn_owner_module.contains_key(&func.name.name);
                     if !user_declared {
                         self.functions.insert(func.name.name.clone(), sig);
