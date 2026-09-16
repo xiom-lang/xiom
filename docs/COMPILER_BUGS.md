@@ -6174,6 +6174,33 @@ Result is R28-safe (R28 only affects temporaries). Repro:
 `target_r46\debug\xiom.exe --run probes\p_match_vec_codegen.xi` -> clang
 type-mismatch; the same probe's conv_named compiled through `p_netip_a.xi`.
 
+### R29 FIXED (2026-09-16, compiler lane round 80)
+
+Root cause: `compile_block`'s expression-statement branch (lib.rs) stored the
+value of EVERY `StmtOrExpr::Expr` into `fctx.match_result_ptr` when a match
+result slot was active -- not just the block's TAIL expression. Inside the
+repro's `Ok(b) => { ... while ... { groups.push(...); ... } }` arm, the
+`groups.push(...)` STATEMENT materialized the mutated Vec and stored it into
+the `%struct.Option` match-result slot:
+
+    %tmp147 = insertvalue %struct.Vec ...
+    store %struct.Option %tmp147, %struct.Option* %tmp7    ; invalid IR
+
+Fix: gate the match-result store on `is_last` (the arm value is the block's
+tail expression). Non-tail expression statements no longer write to the
+result slot; tail expression statements (the existing supported shape) still
+do. Localized to the block compiler; the separate `compile_if_arm_value` path
+is untouched.
+
+Evidence: `probes\p_match_vec_codegen.xi` compiles and prints
+`P_MATCH_VEC_CODEGEN OK` (exit 0; both conv_match and conv_named). New lock
+`tests/regression/m83_match_arm_vec_build.xi` + `e2e_m83_match_arm_vec_build`
+(Result[Vec[Int], Str] payload, Vec built and pushed inside the Ok arm's
+while, Some/None result checked).
+
+Gates: e2e_m83 1/1, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
+perf 2/2 (both determinism canaries).
+
 ## R27. Installed-binary stdlib discovery misses the release layout (2026-09-16, release/infra lane)
 
 Found while preparing the downloadable toolchain for the staged public beta
