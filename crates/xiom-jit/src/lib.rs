@@ -1,6 +1,6 @@
 // XIOM JIT -- Process-Pool Dynamic-Loading Compilation Engine
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
+// Licensed under the Apache-2.0 license.
 //
 // Architecture:
 //   1. Pre-compiled C runtime (libxiom_runtime.dll) -- built once at install

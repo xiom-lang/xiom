@@ -4,7 +4,7 @@
 # Local:   cargo install cargo-deny && cargo deny check
 #
 # The allow-list is deliberately explicit: a new dependency with a license
-# outside it fails the gate until a human adds it here. MIT/Apache-2.0 is
+# outside it fails the gate until a human adds it here. Apache-2.0 is
 # the project license (see [workspace.package] in Cargo.toml).
 
 [advisories]

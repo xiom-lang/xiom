@@ -1,6 +1,6 @@
 // XIOM -- Implicit main wrapping for scripting mode (M10)
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
+// Licensed under the Apache-2.0 license.
 
 /// Wrap top-level code in an implicit `fn main()` if no explicit main exists.
 /// Declarations (type, enum, interface, module, const, use, fn) stay at top level.

@@ -2,8 +2,8 @@
 // Pushes the selfhost compiler to its absolute limits.
 // 28 inline modules: 24 benchmarks + 3 data modules + 1 data processor
 // Total: ~10,000 lines of extreme compiler stress testing.
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
+// Licensed under the Apache-2.0 license.
 
 // --- Shared Benchmark Result Type ---
 pub type BenchResult = {

@@ -64,4 +64,4 @@ Both `xiom-lsp` and `xiom-dbg` are found automatically:
 
 ## License
 
-MIT OR Apache-2.0
+Apache-2.0

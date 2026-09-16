@@ -1,6 +1,6 @@
 // XIOM -- Ecosystem HTTP Type Hardening Tests
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas - XIOM Foundation
+// Licensed under the Apache-2.0 license.
 //
 // Self-contained HTTP type definitions and tests. Exercises enums,
 // nested structs, Vec of structs, and method dispatch patterns.
