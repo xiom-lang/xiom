@@ -1,0 +1,61 @@
+[package]
+name = "xiom-fuzz"
+version = "0.58.0"
+edition = "2024"
+rust-version = "1.86.0"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.xiom-ast]
+path = "../crates/xiom-ast"
+
+[dependencies.xiom-lexer]
+path = "../crates/xiom-lexer"
+
+[dependencies.xiom-parser]
+path = "../crates/xiom-parser"
+
+[dependencies.xiom-codegen]
+path = "../crates/xiom-codegen"
+
+[dependencies.xiom-ctfe]
+path = "../crates/xiom-ctfe"
+
+# Standalone workspace: the root workspace deliberately does NOT pull
+# libfuzzer-sys into `cargo check --workspace --all-targets` (stable CI
+# hygiene). cargo-fuzz discovers this directory from the repo root.
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "lexer"
+path = "fuzz_targets/lexer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parser"
+path = "fuzz_targets/parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ctfe"
+path = "fuzz_targets/ctfe.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pipeline"
+path = "fuzz_targets/pipeline.rs"
+test = false
+doc = false
+bench = false
