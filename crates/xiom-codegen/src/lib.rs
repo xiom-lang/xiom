@@ -2801,13 +2801,28 @@ impl IrEmitter {
         candidates.into_iter().next()
     }
 
+    /// R30: bare-variant parent pick. The CHECKER's `enum_variants` map keeps
+    /// the FIRST enum that declared a bare variant (`entry().or_insert`), so
+    /// codegen must resolve it the same way: `var empty = Empty;` in
+    /// bench_enums built %struct.BST (shortest-lexicographic `pick_deterministic`)
+    /// while `empty.size_hint()` dispatched to `Message.size_hint` -- a
+    /// type-mismatched call. Prefer the declaration-order match, then fall
+    /// back to `pick_deterministic` for generated enums not in the walk.
+    fn pick_variant_parent(&self, candidates: Vec<String>) -> Option<String> {
+        self.types.enum_decl_order.iter()
+            .find(|k| candidates.iter().any(|c| c == *k))
+            .cloned()
+            .or_else(|| self.pick_deterministic(candidates))
+    }
+
     /// Round 76: deterministic parent-enum lookup for a variant name.
+    /// R30: parity with the checker (first declared wins).
     fn resolve_variant_parent_enum(&self, variant: &str) -> Option<String> {
         let candidates: Vec<String> = self.types.enum_variants.keys().into_iter()
             .filter(|k| self.types.enum_variants.get(k)
                 .map_or(false, |vars| vars.iter().any(|(v, _)| v == variant)))
             .collect();
-        self.pick_deterministic(candidates)
+        self.pick_variant_parent(candidates)
     }
 
     /// BUG 42 (2026-08-17): is `type_name` a registered STRUCT or ENUM type

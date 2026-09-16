@@ -213,6 +213,13 @@ pub struct TypeContext {
     pub by_value_self_methods: HashSet<String>,
     /// Enum variants registry: name -> vec of (variant_name, field_names)
     pub enum_variants: SyncRegistry<String, Vec<(String, Vec<String>)>>,
+    /// R30: enum keys in DECLARATION (program-walk) order. The checker's bare
+    /// variant map keeps the FIRST declaring enum (`entry().or_insert`), so
+    /// codegen's bare-variant parent pick must follow the same rule --
+    /// otherwise `var empty = Empty;` built %struct.BST while
+    /// `empty.size_hint()` dispatched to Message.size_hint (invalid IR in the
+    /// bench graph). Ties fall back to `pick_deterministic`.
+    pub enum_decl_order: Vec<String>,
     /// Per-variant payload field TYPE names
     pub enum_variant_field_types: SyncRegistry<String, Vec<(String, Vec<String>)>>,
     /// Builtin types whose impls have been referenced
