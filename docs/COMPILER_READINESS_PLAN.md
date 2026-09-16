@@ -118,9 +118,14 @@ const errors cleanly, for-loop const eval).
   bypasses / =1 requires it). Round 72 also fixed two real manifest-parser bugs the
   lock exposed: deps were never parsed (the map was only cleared) and
   strip_outer_block stripped at the first brace ANYWHERE, wiping unbraced manifests.
-  REMAINING: ed25519 signatures + trust model, transitive dependency closure via
-  registry metadata, authenticated publish; no git dependencies exist in the tree
-  today (nothing to pin -- enforce commit pins when one is added).]
+  Round 75: ed25519 SIGNATURES + trust model (`xiom pkg keygen` /
+  `trust --registry URL --key HEX` / `sign` / `verify`; `install` FAILS CLOSED for
+  trusted registries whose artifacts are unsigned or mis-signed, and hints TOFU for
+  untrusted ones), ureq-only multipart publish (the last `curl` shell-out is gone,
+  `XIOM_REGISTRY_TOKEN` -> Authorization: Bearer with a warning when absent), and
+  git dependencies must pin a full 40/64-hex COMMIT (branches/tags refused unless
+  XIOM_PKG_ALLOW_MUTABLE_GIT=1). REMAINING: transitive dependency closure via
+  registry metadata and server-side publish authentication.]
 - LSP: integer severities, UTF-16 positions via span table (fixes multibyte panics),
   bounded Content-Length buffers (64 MiB cap), mutex-poison recovery instead of 15x
   expect, incremental reparsing, cross-file index.

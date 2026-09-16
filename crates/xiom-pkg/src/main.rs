@@ -6,6 +6,7 @@
 
 mod lockfile;
 mod registry;
+mod signing;
 
 use std::collections::HashMap;
 use std::env;
@@ -39,6 +40,11 @@ fn main() {
             return;
         }
         if cmd == "publish" { publish_package(&args); return; }
+        if cmd == "keygen" { keygen_command(&args); return; }
+        if cmd == "trust" { trust_command(&args); return; }
+        if cmd == "trusted" { trusted_command(); return; }
+        if cmd == "sign" { sign_command(&args); return; }
+        if cmd == "verify" { verify_command(&args); return; }
         if cmd == "install" {
             let pkg_name = args.get(2).cloned().unwrap_or_default();
             if pkg_name.is_empty() {
@@ -369,6 +375,35 @@ fn read_array(lines: &[&str], start: usize) -> (Vec<String>, usize) {
     (result, consumed)
 }
 
+/// Stage 5: git dependency specs must pin an IMMUTABLE commit.
+/// `git:<url>@<rev>` with a branch/tag can be moved under the consumer, so
+/// only a full commit hash (40 or 64 hex chars) is accepted; set
+/// XIOM_PKG_ALLOW_MUTABLE_GIT=1 for an explicit override.
+fn validate_git_pin(dep: &str, spec: &str) -> Result<(), String> {
+    let Some(rest) = spec.strip_prefix("git:") else { return Ok(()) };
+    let Some((url, rev)) = rest.rsplit_once('@') else {
+        return Err(format!(
+            "git dependency '{dep}' has no revision: use git:<url>@<commit-hash>"
+        ));
+    };
+    let is_commit = (rev.len() == 40 || rev.len() == 64)
+        && rev.chars().all(|c| c.is_ascii_hexdigit());
+    if is_commit || std::env::var("XIOM_PKG_ALLOW_MUTABLE_GIT").as_deref() == Ok("1") {
+        return Ok(());
+    }
+    Err(format!(
+        "git dependency '{dep}' is pinned to the MUTABLE ref '{rev}' ({url}); \
+         pin a full commit hash (40 hex chars) or set XIOM_PKG_ALLOW_MUTABLE_GIT=1"
+    ))
+}
+
+fn validate_dependency_specs(pkg: &Package) -> Result<(), String> {
+    for (name, spec) in &pkg.deps {
+        validate_git_pin(name, spec)?;
+    }
+    Ok(())
+}
+
 fn resolve_dependencies(pkg: &Package, project_root: &Path) -> HashMap<String, PathBuf> {
     let mut resolved = HashMap::new();
 
@@ -420,6 +455,122 @@ fn find_manifest() -> PathBuf {
     }
 }
 
+/// `xiom pkg keygen [--out PATH]` -- write a hex ed25519 secret key and print
+/// the public key + fingerprint to pin with `xiom pkg trust`.
+fn keygen_command(args: &[String]) {
+    let out = args.iter().position(|a| a == "--out")
+        .and_then(|i| args.get(i + 1))
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| signing::default_xiom_home().join("keys").join("default.key"));
+    if out.exists() {
+        eprintln!("xiom pkg: refusing to overwrite existing key {}", out.display());
+        process::exit(1);
+    }
+    let kp = signing::KeyPair::generate().unwrap_or_else(|e| {
+        eprintln!("xiom pkg: keygen failed: {e}");
+        process::exit(1);
+    });
+    if let Some(parent) = out.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Err(e) = fs::write(&out, kp.secret_hex() + "\n") {
+        eprintln!("xiom pkg: cannot write {}: {e}", out.display());
+        process::exit(1);
+    }
+    let public = kp.public_hex();
+    println!("Secret key written to {}", out.display());
+    println!("Public key: {}", public);
+    println!("Fingerprint: {}", signing::fingerprint(&public));
+    println!("Pin it on consumers with: xiom pkg trust --registry <URL> --key {}", public);
+}
+
+/// `xiom pkg trust --registry URL --key HEX` -- pin a registry's signing key.
+fn trust_command(args: &[String]) {
+    let get = |flag: &str| args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1));
+    let (registry, key) = match (get("--registry"), get("--key")) {
+        (Some(r), Some(k)) => (r.clone(), k.clone()),
+        _ => {
+            eprintln!("Usage: xiom pkg trust --registry <URL> --key <ed25519-public-hex>");
+            process::exit(1);
+        }
+    };
+    let mut store = signing::TrustStore::load();
+    if let Err(e) = store.pin(&registry, &key) {
+        eprintln!("xiom pkg: {e}");
+        process::exit(1);
+    }
+    println!("Trusted {} ({})", registry, signing::fingerprint(&key));
+}
+
+/// `xiom pkg trusted` -- list pinned registry keys.
+fn trusted_command() {
+    let store = signing::TrustStore::load();
+    let mut count = 0;
+    for (registry, key) in store.entries() {
+        println!("{}  {}  fp={}", registry, key, signing::fingerprint(key));
+        count += 1;
+    }
+    if count == 0 {
+        println!("No trusted registry keys pinned ({}).", signing::default_xiom_home().join("trusted_keys.json").display());
+    }
+}
+
+/// `xiom pkg sign FILE [--key PATH]` -- write FILE.sig.
+fn sign_command(args: &[String]) {
+    let file = match args.get(2) {
+        Some(f) => f.clone(),
+        None => { eprintln!("Usage: xiom pkg sign <file> [--key PATH]"); process::exit(1); }
+    };
+    let key_path = args.iter().position(|a| a == "--key")
+        .and_then(|i| args.get(i + 1))
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| signing::default_xiom_home().join("keys").join("default.key"));
+    let secret = fs::read_to_string(&key_path).unwrap_or_else(|e| {
+        eprintln!("xiom pkg: cannot read signing key {}: {e}", key_path.display());
+        eprintln!("  (generate one with `xiom pkg keygen`)");
+        process::exit(1);
+    });
+    let data = fs::read(&file).unwrap_or_else(|e| {
+        eprintln!("xiom pkg: cannot read {file}: {e}");
+        process::exit(1);
+    });
+    let kp = signing::KeyPair::from_secret_hex(&secret).unwrap_or_else(|e| {
+        eprintln!("xiom pkg: bad signing key: {e}");
+        process::exit(1);
+    });
+    let sig = kp.sign(&data);
+    let sig_path = format!("{file}.sig");
+    if let Err(e) = fs::write(&sig_path, sig + "\n") {
+        eprintln!("xiom pkg: cannot write {sig_path}: {e}");
+        process::exit(1);
+    }
+    println!("Signed {file} -> {sig_path}");
+    println!("Public key: {} (fp {})", kp.public_hex(), signing::fingerprint(&kp.public_hex()));
+}
+
+/// `xiom pkg verify FILE SIG [--key HEX]` -- verify a detached signature.
+fn verify_command(args: &[String]) {
+    let (file, sig_file) = match (args.get(2), args.get(3)) {
+        (Some(f), Some(s)) => (f.clone(), s.clone()),
+        _ => { eprintln!("Usage: xiom pkg verify <file> <signature-file> [--key HEX]"); process::exit(1); }
+    };
+    let key = args.iter().position(|a| a == "--key").and_then(|i| args.get(i + 1)).cloned()
+        .or_else(|| {
+            // Fall back to the trusted key for the configured registry.
+            signing::TrustStore::load().get(&registry_url()).cloned()
+        })
+        .unwrap_or_else(|| {
+            eprintln!("xiom pkg: no --key given and no trusted key for {}", registry_url());
+            process::exit(1);
+        });
+    let data = match fs::read(&file) { Ok(d) => d, Err(e) => { eprintln!("xiom pkg: cannot read {file}: {e}"); process::exit(1); } };
+    let sig = match fs::read_to_string(&sig_file) { Ok(s) => s, Err(e) => { eprintln!("xiom pkg: cannot read {sig_file}: {e}"); process::exit(1); } };
+    match signing::verify(&key, &data, sig.trim()) {
+        Ok(()) => println!("OK: {file} is signed by {}", signing::fingerprint(&key)),
+        Err(e) => { eprintln!("xiom pkg: {e}"); process::exit(1); }
+    }
+}
+
 fn publish_package(_args: &[String]) {
     let manifest_path = find_manifest();
     let manifest = fs::read_to_string(&manifest_path).unwrap_or_else(|e| {
@@ -427,6 +578,11 @@ fn publish_package(_args: &[String]) {
         process::exit(1);
     });
     let pkg = parse_manifest(&manifest);
+
+    if let Err(e) = validate_dependency_specs(&pkg) {
+        eprintln!("xiom pkg: {e}");
+        process::exit(1);
+    }
 
     let pkg_dir = manifest_path.parent().expect("package.xi must be in a directory");
     let pkg_name = &pkg.name;
@@ -444,11 +600,38 @@ fn publish_package(_args: &[String]) {
     let tarball_size = fs::metadata(&tarball_path).map(|m| m.len()).unwrap_or(0);
     println!("  Created tarball: {} bytes", tarball_size);
 
-    // Upload tarball to registry via multipart form
+    // Stage 5: sign the artifact when a local key exists. The registry stores
+    // the signature + public key in its version metadata; consumers with a
+    // PINNED key refuse artifacts whose signature is missing or invalid.
+    let signing_key = load_signing_key();
+    let (signature, public_key) = match &signing_key {
+        Some(kp) => {
+            let bytes = fs::read(&tarball_path).unwrap_or_default();
+            let sig = kp.sign(&bytes);
+            println!("  Signed with {} (fp {})", kp.public_hex(), signing::fingerprint(&kp.public_hex()));
+            (Some(sig), Some(kp.public_hex()))
+        }
+        None => {
+            eprintln!("  WARNING: no signing key ({}); publishing UNSIGNED.",
+                signing::default_xiom_home().join("keys").join("default.key").display());
+            eprintln!("  Generate one with `xiom pkg keygen` -- trusted consumers will refuse unsigned artifacts.");
+            (None, None)
+        }
+    };
+    let mut fields: Vec<(&str, &str)> = vec![
+        ("name", pkg.name.as_str()),
+        ("version", pkg.version.as_str()),
+    ];
+    if let (Some(sig), Some(pk)) = (signature.as_deref(), public_key.as_deref()) {
+        fields.push(("signature", sig));
+        fields.push(("publicKey", pk));
+    }
+
+    // Upload tarball to registry via multipart form (ureq-only).
     let registry = registry_url();
     println!("Publishing to {}...", registry);
 
-    match http_post_multipart(&format!("{}/publish", registry), &tarball_path, &pkg) {
+    match registry::http_post_multipart(&format!("{}/publish", registry), &tarball_path, "package", &fields) {
         Ok(resp) => {
             println!("Published {} v{} -- {}", pkg.name, pkg.version, resp.trim());
             // Clean up temp file
@@ -460,6 +643,13 @@ fn publish_package(_args: &[String]) {
             process::exit(1);
         }
     }
+}
+
+/// The default signing keypair, when present.
+fn load_signing_key() -> Option<signing::KeyPair> {
+    let path = signing::default_xiom_home().join("keys").join("default.key");
+    let secret = fs::read_to_string(path).ok()?;
+    signing::KeyPair::from_secret_hex(&secret).ok()
 }
 
 /// Create a gzipped tarball of a package directory.
@@ -504,26 +694,6 @@ fn create_tarball(dir: &std::path::Path, output: &str) -> Result<(), String> {
 
 /// POST a multipart form upload to a URL with a file attachment.
 /// Uses curl for the multipart upload since it's the most reliable cross-platform approach.
-fn http_post_multipart(url: &str, file_path: &str, _pkg: &Package) -> Result<String, String> {
-    // Build curl command for multipart upload
-    let output = process::Command::new("curl")
-        .args([
-            "-s", "-L", "-X", "POST", url,
-            "-F", &format!("package=@{}", file_path),
-            "-H", &format!("X-Package-Name: {}", _pkg.name),
-            "-H", &format!("X-Package-Version: {}", _pkg.version),
-        ])
-        .output()
-        .map_err(|e| format!("curl: {e}"))?;
-
-    if output.status.success() {
-        return Ok(String::from_utf8_lossy(&output.stdout).to_string());
-    }
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    Err(format!("Upload failed: {}", stderr.trim()))
-}
-
 /// Install a package from the local ecosystem directory or remote registry.
 /// 7F+: Local ecosystem resolution -- copies from `<repo>/ecosystem/<pkg>/` to
 /// `<project>/vendor/<pkg>/` for development/prototyping before remote registry
@@ -784,6 +954,11 @@ fn generate_lockfile() {
         process::exit(1);
     });
     let pkg = parse_manifest(&manifest);
+
+    if let Err(e) = validate_dependency_specs(&pkg) {
+        eprintln!("xiom pkg: {e}");
+        process::exit(1);
+    }
 
     let registry = registry_url();
     let index = match crate::registry::fetch_registry_index(&registry) {
@@ -1129,14 +1304,14 @@ deps: { "dep": "^1.5.0" }
   deps: {
     "xiom-std": ">=0.5.0,<1.0.0",
     "lib": "path:../lib",
-    "git-dep" = "git:https://github.com/x/y@v1.0.0"
+    "git-dep" = "git:https://github.com/x/y@0123456789abcdef0123456789abcdef01234567"
   };
 }"#;
         let pkg = parse_manifest(manifest);
         assert_eq!(pkg.deps.len(), 3, "deps: {:?}", pkg.deps);
         assert_eq!(pkg.deps.get("xiom-std").map(String::as_str), Some(">=0.5.0,<1.0.0"));
         assert_eq!(pkg.deps.get("lib").map(String::as_str), Some("path:../lib"));
-        assert_eq!(pkg.deps.get("git-dep").map(String::as_str), Some("git:https://github.com/x/y@v1.0.0"));
+        assert_eq!(pkg.deps.get("git-dep").map(String::as_str), Some("git:https://github.com/x/y@0123456789abcdef0123456789abcdef01234567"));
     }
 
     // Circular dependencies detection
@@ -1184,12 +1359,25 @@ modules: ["a.xi"];
     }
 
     // Publish/install/yank workflows
+    #[test] fn test_git_dependency_requires_commit_pin() {
+        // Full commit hash: accepted.
+        assert!(validate_git_pin("d", "git:https://github.com/x/y@0123456789abcdef0123456789abcdef01234567").is_ok());
+        // Branch / tag: refused (mutable).
+        let err = validate_git_pin("d", "git:https://github.com/x/y@main").unwrap_err();
+        assert!(err.contains("MUTABLE ref"), "{err}");
+        assert!(validate_git_pin("d", "git:https://github.com/x/y@v1.0.0").is_err());
+        // Missing revision: refused.
+        assert!(validate_git_pin("d", "git:https://github.com/x/y").unwrap_err().contains("no revision"));
+        // Non-git specs pass through.
+        assert!(validate_git_pin("d", "1.0.0").is_ok());
+        assert!(validate_git_pin("d", "path:../lib").is_ok());
+    }
     #[test] fn test_parse_with_git_dependency() {
         let manifest = r#"
 name: "github-pkg";
 version: "0.1.0";
 deps: {
-    "xiom-vulkan": "git:https://github.com/xiom/vulkan.xi@v0.5.0",
+    "xiom-vulkan": "git:https://github.com/xiom/vulkan.xi@0123456789abcdef0123456789abcdef01234567",
 }
 "#;
         let _pkg = parse_manifest(manifest);

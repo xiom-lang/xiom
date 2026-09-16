@@ -190,6 +190,36 @@ MAX_EXPR_DEPTH=32; now nest 300), lexer test-only helper gated with
 cfg(test), unused bindings underscored. fuzz_tests 24/24, robustness 63/63,
 workspace check clean.
 
+### Round-75 (2026-09-16): ed25519 signatures + trust model; ureq-only publish; git commit pins
+
+Compiler lane. The last supply-chain blockers from the audit/plan:
+
+- NEW `crates/xiom-pkg/src/signing.rs`: ed25519 keygen/sign/verify
+  (ed25519-dalek) + a trust store (`~/.xiom/trusted_keys.json`, registry URL
+  -> public key, normalised, with fingerprints for human comparison).
+  CLI: `xiom pkg keygen` (writes `~/.xiom/keys/default.key`),
+  `trust --registry URL --key HEX`, `trusted`, `sign FILE`, `verify FILE SIG`.
+  `install_from_registry` FAILS CLOSED when the registry is trusted (pinned):
+  an unsigned or mis-signed artifact is refused; untrusted registries keep the
+  sha256 + lockfile checks and print a TOFU hint with the signer fingerprint.
+  `publish` signs the tarball and sends `signature`/`publicKey` fields.
+- Ureq-only multipart publish: the `curl -F` shell-out (the last external
+  process on the HTTP surface) is replaced by an in-memory multipart body over
+  ureq, with `XIOM_REGISTRY_TOKEN` -> `Authorization: Bearer` (warning when
+  publishing to a non-localhost registry without a token).
+- Git dependencies must pin a full 40/64-hex COMMIT; branch/tag refs are
+  refused at lock/publish time unless `XIOM_PKG_ALLOW_MUTABLE_GIT=1`.
+
+Verification: signing round-trip/tamper/wrong-key/uppercase-hex tests, trust
+store pin+reload, multipart body shape + unique boundaries, git-pin
+accept/refuse cases; CLI exercised end-to-end with an isolated XIOM_HOME
+(keygen -> sign -> verify OK -> tamper -> SIGNATURE MISMATCH -> trust ->
+trusted). pkg 52/52; dbg 34/34, lsp 44/44, mcp 39/39; workspace
+`--all-targets` clean.
+
+REMAINING supply chain: transitive dependency closure from registry metadata,
+server-side publish authentication.
+
 ### Round-74 (2026-09-16): R24 FIXED -- selfhost compile gate green (program bodyless decls vs catalog externs)
 
 Compiler lane. The Stage 7 selfhost gate

@@ -53,6 +53,81 @@ pub(crate) fn http_get_binary(url: &str) -> Result<Vec<u8>, String> {
     Ok(data)
 }
 
+/// AUDIT #5 follow-up: multipart/form-data UPLOAD -- ureq-only. The publish
+/// path used to shell out to `curl -F`, the last external process on the
+/// HTTP surface (the transport ladder was already ureq-only for GETs).
+pub(crate) fn http_post_multipart(
+    url: &str,
+    file_path: &str,
+    file_field: &str,
+    fields: &[(&str, &str)],
+) -> Result<String, String> {
+    ensure_https(url)?;
+    let file_bytes = std::fs::read(file_path).map_err(|e| format!("read {file_path}: {e}"))?;
+    let file_name = std::path::Path::new(file_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("package.tar.gz");
+    let boundary = multipart_boundary();
+    let body = build_multipart_body(&boundary, file_field, file_name, &file_bytes, fields);
+    let mut req = ureq::post(url)
+        .set("Content-Type", &format!("multipart/form-data; boundary={boundary}"))
+        .timeout(std::time::Duration::from_secs(120));
+    // Stage 5: authenticated publish. The token comes from the environment
+    // (never the URL); publishing to a non-localhost registry without one is
+    // allowed but warned about so the gap is visible.
+    match std::env::var("XIOM_REGISTRY_TOKEN") {
+        Ok(token) if !token.trim().is_empty() => {
+            req = req.set("Authorization", &format!("Bearer {}", token.trim()));
+        }
+        _ => {
+            if !url.contains("localhost") {
+                eprintln!("xiom pkg: WARNING: XIOM_REGISTRY_TOKEN is not set; publishing WITHOUT authentication");
+            }
+        }
+    }
+    let resp = req.send_bytes(&body).map_err(|e| format!("POST {url}: {e}"))?;
+    let mut text = String::new();
+    use std::io::Read;
+    resp.into_reader().take(1024 * 1024).read_to_string(&mut text)
+        .map_err(|e| format!("read: {e}"))?;
+    Ok(text)
+}
+
+/// Boundary derived from pid + nanos (unique per process invocation without a
+/// RNG dependency); checked not to occur in the payload by construction.
+pub(crate) fn multipart_boundary() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("----XIOMBoundary{:x}{:x}", std::process::id(), nanos)
+}
+
+/// Build the multipart body: text fields first, then the gzip file part.
+pub(crate) fn build_multipart_body(
+    boundary: &str,
+    file_field: &str,
+    file_name: &str,
+    file_bytes: &[u8],
+    fields: &[(&str, &str)],
+) -> Vec<u8> {
+    let mut body = Vec::with_capacity(file_bytes.len() + 512);
+    for (k, v) in fields {
+        body.extend_from_slice(
+            format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n").as_bytes(),
+        );
+    }
+    body.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"{file_field}\"; filename=\"{file_name}\"\r\nContent-Type: application/gzip\r\n\r\n"
+        ).as_bytes(),
+    );
+    body.extend_from_slice(file_bytes);
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    body
+}
+
 fn ensure_https(url: &str) -> Result<(), String> {
     if url.starts_with("https://") {
         return Ok(());
@@ -104,6 +179,13 @@ pub(crate) struct RegistryVersion {
     pub(crate) version: String,
     #[serde(default)]
     pub(crate) sha256: String,
+    /// Stage 5: detached ed25519 signature (hex) over the tarball bytes and
+    /// the signer's public key (hex). Optional so legacy indexes work;
+    /// TRUSTED registries must provide both.
+    #[serde(default)]
+    pub(crate) signature: String,
+    #[serde(default, alias = "publicKey")]
+    pub(crate) public_key: String,
 }
 
 /// Accept either the server's object map (`"1.0": {sha256,...}`) or the
@@ -124,6 +206,10 @@ where
         #[serde(default)]
         sha256: String,
         #[serde(default)]
+        signature: String,
+        #[serde(default, alias = "publicKey")]
+        public_key: String,
+        #[serde(default)]
         version: Option<String>,
     }
     match Shape::deserialize(de)? {
@@ -131,10 +217,17 @@ where
             .map(|(ver, meta)| RegistryVersion {
                 version: meta.version.unwrap_or(ver.clone()),
                 sha256: meta.sha256,
+                signature: meta.signature,
+                public_key: meta.public_key,
             })
             .collect()),
         Shape::List(list) => Ok(list.into_iter()
-            .map(|ver| RegistryVersion { version: ver, sha256: String::new() })
+            .map(|ver| RegistryVersion {
+                version: ver,
+                sha256: String::new(),
+                signature: String::new(),
+                public_key: String::new(),
+            })
             .collect()),
     }
 }
@@ -233,6 +326,32 @@ pub(crate) fn install_from_registry(package: &str, version: Option<&str>, regist
                 package, ver, expected, actual));
         }
         println!("  checksum verified (sha256:{actual})");
+    }
+
+    // Stage 5: SIGNATURE VERIFICATION (ed25519). A TRUSTED registry (pinned
+    // with `xiom pkg trust --registry URL --key HEX`) must sign its
+    // artifacts -- an unsigned or mis-signed one is REFUSED (fail closed);
+    // the index digest and the artifact can otherwise be swapped together by
+    // a compromised registry. Untrusted registries keep the sha256 +
+    // lockfile checks and get a hint to pin the signer.
+    let trusted_key = crate::signing::TrustStore::load().get(registry).cloned();
+    match (trusted_key.as_ref(), ver_meta.signature.as_str()) {
+        (Some(key), sig) if !sig.is_empty() => {
+            crate::signing::verify(key, &archive, sig)
+                .map_err(|e| format!("{e} ({package} v{ver} from {registry})"))?;
+            println!("  signature verified (fp {})", crate::signing::fingerprint(key));
+        }
+        (Some(_), _) => {
+            return Err(format!(
+                "registry {registry} is TRUSTED but {package} v{ver} carries NO signature -- \
+                 refusing to install (unpin with: remove its entry from {})",
+                crate::signing::default_xiom_home().join("trusted_keys.json").display()));
+        }
+        (None, sig) if !sig.is_empty() => {
+            println!("  artifact is signed (fp {}); pin it with `xiom pkg trust --registry {registry} --key {}` to enforce",
+                crate::signing::fingerprint(&ver_meta.public_key), ver_meta.public_key);
+        }
+        (None, _) => {}
     }
 
     // Stage 5: LOCKFILE v2 ENFORCEMENT. When a xiom.lock is found walking up
@@ -334,5 +453,35 @@ pub(crate) fn extract_tar_gz(data: &[u8], dest: &Path) -> Result<(), String> {
         Ok(s) if s.success() => Ok(()),
         Ok(s) => Err(format!("tar exited with code {}", s.code().unwrap_or(-1))),
         Err(e) => Err(format!("tar not found: {e}. Install tar to extract packages.")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn multipart_body_is_well_formed() {
+        let body = build_multipart_body(
+            "BOUND", "package", "pkg.tar.gz", b"TARBYTES",
+            &[("name", "demo"), ("signature", "abcd")],
+        );
+        let text = String::from_utf8_lossy(&body);
+        assert!(text.contains("--BOUND\r\nContent-Disposition: form-data; name=\"name\"\r\n\r\ndemo\r\n"), "{text}");
+        assert!(text.contains("name=\"signature\""));
+        assert!(text.contains("filename=\"pkg.tar.gz\""));
+        assert!(text.contains("Content-Type: application/gzip"));
+        assert!(text.contains("TARBYTES"));
+        assert!(text.ends_with("--BOUND--\r\n"));
+        assert_eq!(text.matches("--BOUND").count(), 4, "2 fields + file + closing");
+    }
+
+    #[test]
+    fn multipart_boundaries_are_unique_and_prefixed() {
+        let a = multipart_boundary();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let b = multipart_boundary();
+        assert_ne!(a, b);
+        assert!(a.starts_with("----XIOMBoundary"), "{a}");
     }
 }
