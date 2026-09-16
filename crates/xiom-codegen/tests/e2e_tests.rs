@@ -4704,6 +4704,13 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m82_tmp_payload_value() {
     assert_eq!(compile_and_run("tests\\regression\\m82_tmp_payload_value.xi"), Some(0));
 }
+
+// R29: a Vec built inside a match arm over a Result[Vec[...]] payload must
+// clang-compile and run. Pre-fix every expression statement in the arm block
+// stored its value into the match result slot (`store %struct.Option <Vec>`).
+#[test] fn e2e_m83_match_arm_vec_build() {
+    assert_eq!(compile_and_run("tests\\regression\\m83_match_arm_vec_build.xi"), Some(0));
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }

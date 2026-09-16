@@ -116,17 +116,15 @@ uncommitted stdlib-lane WIP at close; append once clean).
 
 ## Open compiler findings (pre-selfhost, not R0-blocking)
 
-1. **R29** (docs/COMPILER_BUGS.md): a `Vec` built inside a match arm over a
-   `Result[Vec[...]]` payload fails clang codegen (workaround: named local +
-   early return). Probe `stdlib_ws\probes\p_match_vec_codegen.xi`.
-2. **Cross-enum variant ambiguity**: bare `Empty` constructs a deterministic
+1. **Cross-enum variant ambiguity**: bare `Empty` constructs a deterministic
    parent but the later method leaf-bind can disagree
    (`@Message.size_hint(%struct.BST*)` in bench IR); needs a checker rule.
-3. **Bench `%struct.Metrics` GEP** indexes field 4 of 4 -> the benchmark graph
+2. **Bench `%struct.Metrics` GEP** indexes field 4 of 4 -> the benchmark graph
    does not fully clang-compile (Stage 6 measures emitted IR bytes only).
 
-Suggested order: R29 -> 2 -> 3, each with a lock + COMPILER_BUGS entry.
-(R28 -- temporary `.value` payload -- FIXED round 79, lock m82.)
+Suggested order: 1 -> 2, each with a lock + COMPILER_BUGS entry.
+(R28 -- temporary `.value` payload -- FIXED round 79, lock m82. R29 -- Vec in
+match arm -- FIXED round 80, lock m83.)
 
 ## Remaining queue
 
@@ -175,10 +173,9 @@ the same branch (they sometimes sweep the whole tree -- re-check git log if a
 change seems missing); never stage their files.
 
 State: Stage 3 Item A CLOSED (strict catalog findings, checker 189/189),
-R-bugs through R28 CLEARED with locks m74-m82 (R29 OPEN plus the two
-non-R findings, see "Open compiler findings"); e2e was 2329/2329 on the
-R27 tree and gets one full 2330-test run on the R28+R29 binary before the
-freeze; supply chain
+R-bugs through R29 CLEARED with locks m74-m83 (two non-R findings open,
+see "Open compiler findings"); e2e 2331/2331 on the R28+R29 binary;
+supply chain
 signed (ed25519 keygen/trust/sign/verify, fail-closed installs, ureq-only
 publish, git commit pins), Stage 6 perf budgets wired (determinism canary
 covers selfhost v092 + bench graph), selfhost v092 compile gate GREEN,
