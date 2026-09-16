@@ -87,6 +87,9 @@ jobs:
           cargo test -p xiom-codegen --test fuzz_tests
           cargo test -p xiom-codegen --test robustness_tests
 
+      - name: Compiler performance budgets (IR bytes + determinism)
+        run: cargo test -p xiom-codegen --test perf_budget_tests
+
       - name: Tooling unit tests (bin-only crates)
         run: cargo test -p xiom-pkg -p xiom-dbg -p xiom-lsp -p xiom-mcp
 

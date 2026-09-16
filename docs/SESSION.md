@@ -190,6 +190,61 @@ MAX_EXPR_DEPTH=32; now nest 300), lexer test-only helper gated with
 cfg(test), unused bindings underscored. fuzz_tests 24/24, robustness 63/63,
 workspace check clean.
 
+### Round-76 (2026-09-16): Stage 6 perf budgets + R25 PARTIAL (emission determinism)
+
+Compiler lane.
+
+**Stage 6 started -- compiler performance budgets.** NEW
+`crates/xiom-codegen/tests/perf_budget_tests.rs`, run in CI via
+`cargo test -p xiom-codegen --test perf_budget_tests`:
+- deterministic metric: emitted LLVM IR BYTES for a fixed corpus measured
+  through the real driver (`--emit-ir`, checker included):
+  `examples/benchmark/main.xi` 5,687,270 (budget 6.3M),
+  `selfhost/xiomc_v092.xi` 155,936 (budget 175k),
+  `tests/ecosystem/test_json.xi` 164,787 (budget 185k);
+  generous 180 s wall ceiling per compile (debug/CI safe).
+- `perf_determinism_ir_is_byte_identical`: compiles selfhost v092 twice and
+  requires BYTE-IDENTICAL IR -- the canary for the HashMap-order class.
+
+**R25 PARTIAL: registry HashMap iteration in type/variant resolution.**
+Chasing the canary on the 30-module bench graph found real
+non-reproducibility: `test_enum_data()` allocated `%struct.Message` in one
+run and `%struct.BST` in another. Several enums share the `Empty` variant,
+and the variant -> parent-enum lookup iterated `enum_variants` (a HashMap).
+Fixes (`pick_deterministic`: current module first -> shortest key ->
+lexicographic):
+- `resolve_variant_parent_enum` + `pick_deterministic` helpers (lib.rs);
+- bare variant construction (expr.rs `Expr::Struct` fallback);
+- `llvm_type_for` variant lookup in lib.rs AND types.rs;
+- `type_meta` bare-name suffix pick in types.rs (the m37 `Tuple__Big__Big`
+  guard already existed but still took the first HashMap entry);
+- the module-qualified variant fallback in lib.rs.
+
+Gates: perf 2/2, feature-reg 510/510, checker 189/189, stdlib-exec 85/85
+(+2 ign), e2e 2328/2328.
+
+**R25 OPEN (exact evidence for the next session).** The bench IR is still
+not byte-identical across runs (sizes drift ~130-230 bytes). The remaining
+variation is bare FN-REFERENCE resolution for fn-value coercion:
+
+```
+run A: %tmp38 = ptrtoint i64 (i64)* @benchmark.comptime.is_even to i64
+run B: %tmp38 = ptrtoint i64 (i64)* @benchmark.math.is_even    to i64
+```
+
+...observed inside `benchmark.collections.test_partition()` (the fn value is
+passed to a higher-order helper). Two same-named free fns in different
+modules; the coercion picks one via a HashMap-order lookup. Next step: find
+the fn-ref coercion path (search `is_fn_ref`, `bare_fn_aliases`,
+`functions.keys().find` in call.rs/vec_abi.rs) and apply scope-first +
+`pick_deterministic`-style ordering; then re-run the bench determinism check
+(`target\debug\xiom.exe --emit-ir examples\benchmark\main.xi` x3, compare) and
+tighten the perf test to assert byte-identity on the bench graph too.
+
+NOTE: `docs/COMPILER_BUGS.md` had uncommitted stdlib-lane edits, so the formal
+R25 entry could not be appended without sweeping their WIP into this commit.
+Add the R25 entry there once that file is clean (evidence above).
+
 ### Round-75 (2026-09-16): ed25519 signatures + trust model; ureq-only publish; git commit pins
 
 Compiler lane. The last supply-chain blockers from the audit/plan:
