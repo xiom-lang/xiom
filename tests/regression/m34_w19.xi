@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-W19: Cross-type bitwise -- Int32 & UInt32 with explicit casts
 fn main() -> Int {
   var si: Int32 = 0x7FFFFFFF as Int32;

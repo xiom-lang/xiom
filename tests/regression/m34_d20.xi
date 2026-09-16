@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-D20: Recursive invariant + serialization pattern -- depth-bounded tree walk with value collection
 type Node = { value: Int; left: *Node; right: *Node; }
 

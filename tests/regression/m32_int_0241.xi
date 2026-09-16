@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Truncation Int32 to Int8 (low byte)
 fn main() -> Int {
   var a: Int32 = 511;

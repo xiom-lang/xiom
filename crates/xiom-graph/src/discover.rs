@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 //! Module discovery: walk source roots to find all `.xi` files and extract
 //! their `module` headers and `use` declarations.
 //!

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M65 (json heap layer): Map whose VALUE type is a big ENUM payload struct
 // (JsonValue = 112 bytes). PART 1 (landed): Vec.new() inside a mono'd
 // generic Map ctor kept the RAW generic param ("V") as the expression-level

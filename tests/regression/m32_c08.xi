@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-C08: Method contract -- impl method with requires/ensures
 interface Check {
   fn between(self, lo: Int, hi: Int) -> Bool;

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-X12: Combinatorial + Differential -- struct+enum combination with dual equivalence
 type Rect = { x: Int; y: Int; w: Int; h: Int; }
 enum AreaMethod { Full, Decomposed }

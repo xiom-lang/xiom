@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z08: closure+enum+match+compound_assign+while+contract+derive+module+cast
 type Container = { val: Int; tag: Int; } derive[Eq]
 enum Mode { Normal, Boost(m: Int), Drain }

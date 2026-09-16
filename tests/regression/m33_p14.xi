@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-P14: Wide 50 one-liner fn table + all pattern types + multi-module cross-ref + complex type graph
 // Pattern: fn main() -> Int { ... return 0; }
 

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-L27: Alignment requirement -- verify field alignment via struct literal access
 type Aligned8 = { a: Int; b: Float64; }
 

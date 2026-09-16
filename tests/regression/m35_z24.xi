@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z24: recursion+generic+Option+Result+match+contract+module+enum+struct+compound_assign+while
 type FibState = { prev: Int; curr: Int; n: Int; }
 enum FibMode { Recursive, Iterative, Memo }

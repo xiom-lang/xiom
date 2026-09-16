@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-X11: Combinatorial + Differential -- nested compute vs flat compute with struct+match
 type Point = { x: Int; y: Int; }
 enum DistMethod { Nested, Flat }

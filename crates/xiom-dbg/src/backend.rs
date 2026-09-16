@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // XIOM Debug Adapter Protocol Server -- backends
 // M14.1: Extracted from main.rs -- GDB, CDB backends
 

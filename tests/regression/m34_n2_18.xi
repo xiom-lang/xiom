@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-N2-18: Deep tuple-like nesting via layered struct pairs -- 10-level chain
 type P1 = { x: Int; y: Int; }
 type P2 = { a: P1; b: P1; }

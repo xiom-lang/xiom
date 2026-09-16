@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M57: nested &Vec[Vec[Float64]] PARAM reads -- the BUG 57 regression.
 // Module fns taking &Vec[Vec[Float64]] read garbage through chained
 // indexes (raw m[0][1], defensive-copy rows, unary minus on nested index).

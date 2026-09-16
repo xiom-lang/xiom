@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-S13: String prefix check -- verify s starts with prefix character-by-character
 use stdlib.xiom.string;
 fn starts_with(s: Str, prefix: Str) -> Bool {

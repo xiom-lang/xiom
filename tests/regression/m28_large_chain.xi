@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M28: Large program stress -- 80 functions, 80 consts, mixed types
 const C0: Int = 0;
 const C1: Int = 1;

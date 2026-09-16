@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-S05: Remove character -- build new string without target char
 use stdlib.xiom.string;
 fn remove_char(s: Str, ch: Char) -> Str {

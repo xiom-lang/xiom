@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_borrow_009
 fn increment(r: &mut Int) {
     *r = *r + 1;

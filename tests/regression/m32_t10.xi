@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-T10: Multi-char string -- longer string with concat and len
 fn main() -> Int {
   var s: Str = "abcdefghij";

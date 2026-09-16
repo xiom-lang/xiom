@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // LET-array decision P1 regression (docs/LET_ARRAY_DECISION.md): an
 // ANNOTATED fixed array `let c: [N]T = [literals]` binds `[N x T]` (same as
 // `var`), elements stored directly into the aggregate slot. Pre-fix the

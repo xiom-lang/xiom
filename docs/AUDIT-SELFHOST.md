@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # XIOM Self-Hosting Readiness Audit -- v0.52.9
 
 **Date:** 2026-07-27 | **Test baseline: 1067/1067** | **Auditor: Kilo (automated deep audit)**

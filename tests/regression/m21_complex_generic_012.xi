@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_complex_generic_012
 pub fn pipe[A, B, C](x: A, f: fn(A) -> B, g: fn(B) -> C) -> C {
     return g(f(x));

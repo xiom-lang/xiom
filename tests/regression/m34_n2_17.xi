@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-N2-17: Deep match-with-if nesting -- 4 levels of match+if interleaved
 type N = enum { V(val: Int), }
 

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Ultimate narrow int stress: casts, bitwise, signed, unsigned, roundtrip
 fn sext_test(x: Int8) -> Int32 { return x as Int32; }
 fn zext_test(x: UInt8) -> Int32 { return x as Int32; }

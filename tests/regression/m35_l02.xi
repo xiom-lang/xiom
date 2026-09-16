@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-L02: Struct with Float64 fields -- verify float field layout
 type Vec3 = { x: Float64; y: Float64; z: Float64; }
 

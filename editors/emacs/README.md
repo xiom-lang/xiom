@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # XIOM for Emacs (29+)
 
 LSP via built-in **eglot**; debugging via **dape**. Requires `xiom-lsp`

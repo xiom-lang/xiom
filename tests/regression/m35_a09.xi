@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-A09: Fibonacci -- recursive implementation and verify known values
 fn fib(n: Int) -> Int {
   if n <= 1 { return n; }

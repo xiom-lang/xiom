@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Int16 sign extension from negative Int8
 fn main() -> Int {
   var a: Int8 = -42 as Int8;

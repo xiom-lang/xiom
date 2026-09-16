@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-W15: Right-shift sign extension -- arithmetic shift on signed Int
 fn main() -> Int {
   var neg: Int = -256;

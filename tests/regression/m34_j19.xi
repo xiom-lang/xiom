@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-J19: Module with method definition -- impl blocks and interfaces in modules
 module impl_mod {
   pub type Counter = { value: Int; step: Int; }

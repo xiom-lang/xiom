@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Y15: if-else chain + compound assign + Result + enum + match + module + impl
 type Env = { temperature: Int; humidity: Int; }
 enum Climate { Hot, Cold, Mild }

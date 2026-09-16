@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-T05: Char to Int -- as cast from Char to Int
 fn main() -> Int {
   var a: Int = 'A' as Int;

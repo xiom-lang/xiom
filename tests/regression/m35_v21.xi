@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-V21: Vec reverse pattern -- manual in-place reverse
 fn reverse_vec(v: &Vec[Int]) -> Vec[Int] {
   var result = Vec[Int].new();

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-T02: Int in every context -- var, param, return, struct, enum, array, generic, if, while, match, operators
 type IntBox = { value: Int; }
 enum IntOption { Some(v: Int), None }

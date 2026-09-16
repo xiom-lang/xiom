@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-C14: Chained contracts -- functions calling contracted functions
 fn double(x: Int) -> Int
   requires: x >= 0

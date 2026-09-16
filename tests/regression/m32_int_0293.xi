@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Truncation UInt64 to UInt32 (4294967295 + 1 should wrap to 0)
 fn main() -> Int {
   var a: UInt64 = 4294967296;

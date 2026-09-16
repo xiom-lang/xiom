@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-L04: Struct with Bool fields -- verify bool layout and bit pattern
 type Flags = { a: Bool; b: Bool; c: Bool; d: Bool; }
 

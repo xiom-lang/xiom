@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-V05: Float addition precision (commutativity, associativity)
 fn main() -> Int {
   var a: Float64 = 0.1;

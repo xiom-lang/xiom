@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-D30: Combined stress -- stack + heap integration
 fn main() -> Int {
   var s0: Int = 10;

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_simd_runtime
 // Compiler SIMD/ISA flags (-mavx -mavx2 -mavx512f/bw/dq/vl on native x86_64)
 // + stdlib/runtime/simd_runtime.c end-to-end. Exercises the SSE ops (always

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-X10: --check mode patterns -- syntax-only validation structures
 enum Token { Ident, Number, String, LParen, RParen, LBrace, RBrace, Comma, Semicolon, Arrow, Eq, Plus, Minus, Star, Slash, Dot, Colon, Bang, Amp, Pipe, Lt, Gt, Eof }
 fn token_repr(t: Token) -> Int {

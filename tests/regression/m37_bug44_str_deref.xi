@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // BUG 44 regression: deref/coercion of &Str must load i8* (the pointer),
 // not i8 (a byte). Also &Str -> Str auto-coercion must deref to the VALUE.
 module m37_bug44_str_deref

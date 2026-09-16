@@ -1,6 +1,6 @@
 // XIOM -- Ecosystem Crypto Hardening Tests
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //
 // Self-contained cryptographic implementations: SHA-256, Base64,
 // Hex encoding, and FNV-1a hash. Exercises bitwise operations,

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // XIOM Package Manager -- lockfile v2 (Stage 5 supply chain).
 //
 // Audit/plan requirement: "lockfile v2 pinning {name, version, integrity,

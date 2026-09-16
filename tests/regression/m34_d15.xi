@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-D15: List filter -- traverse linked list and count nodes matching predicates
 type Node = { value: Int; next: *Node; }
 

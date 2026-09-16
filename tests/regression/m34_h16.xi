@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-H16: Cast in enum payload -- cast value before wrapping in variant
 enum Value { Small(v: Int8), Big(v: Int64) }
 fn main() -> Int {

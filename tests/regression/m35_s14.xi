@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-S14: String suffix check -- verify s ends with suffix character-by-character
 use stdlib.xiom.string;
 fn ends_with(s: Str, suffix: Str) -> Bool {

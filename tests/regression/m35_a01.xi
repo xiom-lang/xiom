@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-A01: Binary search on sorted array -- inline divide-and-conquer in main
 fn main() -> Int {
   var arr = [1, 3, 5, 7, 9, 11, 13, 15, 17, 19];

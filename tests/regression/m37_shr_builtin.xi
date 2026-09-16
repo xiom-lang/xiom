@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_shr_builtin
 use xiom.math;
 // BUG 15 regression: a USER fn named shr/shl (e.g. a masked logical

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-J17: Module with invariant -- invariant types defined inside modules
 module non_zero {
   pub type Positive = { val: Int; invariant: val > 0; }

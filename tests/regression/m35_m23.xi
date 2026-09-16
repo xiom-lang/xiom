@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-M23: pi approximation via Leibniz series: pi/4 = 1 - 1/3 + 1/5 - 1/7 + ...
 fn leibniz_pi(terms: Int) -> Float64 {
   var sum: Float64 = 0.0;

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_type_edge_007
 pub fn run() -> Int {
     var v: Vec[Vec[Int]] = [[1, 2], [3, 4, 5]];

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-D06: Nested recursive types -- two-level struct hierarchy with recursive pointers
 type Leaf = { data: Int; sibling: *Leaf; }
 type Branch = { info: Int; first: *Leaf; next: *Branch; }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-A18: Array comparison -- element-by-element comparison of two arrays
 fn main() -> Int {
   var a = [1, 2, 3, 4, 5];

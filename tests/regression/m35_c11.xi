@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-C11: while with return inside -- function return from within loop body
 fn find_divisor(n: Int, divisor: Int) -> Int {
   var i: Int = 1;

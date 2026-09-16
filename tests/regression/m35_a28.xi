@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-A28: Binary conversion -- verify integer to binary digit extraction correctness
 fn count_bits(n: Int) -> Int {
   var x: Int = n;

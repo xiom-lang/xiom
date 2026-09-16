@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module regression.m18_guard_0030
 
 fn is_even_wrapper(n: Int) -> Bool { return n % 2 == 0; }

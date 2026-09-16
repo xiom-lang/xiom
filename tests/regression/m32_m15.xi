@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-M15: Complex module -- fn, type, const, nested module all exported
 module core {
   pub const VERSION: Int = 1;

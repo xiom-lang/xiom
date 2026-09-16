@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_derive_010
 type Vec3D = { x: Float64; y: Float64; z: Float64; } derive[Eq, Clone, Display]
 

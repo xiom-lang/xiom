@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Y20: all-in-one: struct+enum+generic+contract+match+impl+module+derive+Option+compound_assign+unsafe+while
 type Entity = { hp: Int; mp: Int; alive: Bool; } derive[Eq]
 enum Spell { Heal(n: Int), Fire(n: Int), Drain(n: Int), Revive }

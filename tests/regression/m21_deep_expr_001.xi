@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_deep_expr_001
 pub fn run() -> Int {
     var a = 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10;

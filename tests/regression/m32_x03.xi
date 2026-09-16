@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-X03: Combinatorial + Differential -- if-chain vs match with generic enum dispatch
 enum Grade { A, B, C, D, F }
 fn classify_if(score: Int) -> Grade {

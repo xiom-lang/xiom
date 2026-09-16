@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # XIOM Editor Integrations
 
 XIOM tooling is **protocol-based** -- `xiom-lsp` speaks the Language Server Protocol and

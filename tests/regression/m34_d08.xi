@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-D08: Recursive struct in enum payload -- enum variant contains pointer to recursive struct
 type Node = { value: Int; left: *Node; right: *Node; }
 

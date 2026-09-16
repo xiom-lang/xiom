@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Y07: Result inside match + generic dispatch + derive + compound assign + module
 type Item = { id: Int; price: Int; }
 enum Action { Buy, Sell, Hold }

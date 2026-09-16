@@ -1,6 +1,6 @@
 // XIOM -- Ecosystem Algorithm Hardening Tests
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //
 // Self-contained algorithm test suite. Exercises recursion, loops,
 // match, Option/Result, Vec operations, references, and numeric edge cases.

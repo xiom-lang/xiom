@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-M05: integer power function (iterative)
 fn pow_int(base: Int, exp: Int) -> Int {
   if exp < 0 { return 0; }

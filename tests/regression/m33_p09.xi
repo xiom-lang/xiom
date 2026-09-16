@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-P09: Complex type graph with 10 inter-dependent types + 20 struct definitions
 // Large match 20 arms + 50 local vars + deep nesting + 30-function chain
 // Pattern: fn main() -> Int { ... return 0; }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Y07: module + const + type + generic fn + enum payload + contract + impl + match + diff
 const PI: Float64 = 3.14159;
 type Circle = { radius: Float64; }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-R26: very deep nesting -- if-else ladder stress test for parser recursion
 fn main() -> Int {
   var x: Int = 0;

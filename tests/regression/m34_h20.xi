@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-H20: Cast in generic context -- generic identity then cast to Int
 fn id[T](x: T) -> T { return x; }
 fn main() -> Int {

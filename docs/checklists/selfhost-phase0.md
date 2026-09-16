@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # Selfhost Phase 0 -- Foundations (checklist)
 
 **Gate:** T1 harness green on the corpus; `runtime_ffi.xi` behavior-tested

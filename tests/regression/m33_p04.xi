@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-P04: 50 local vars in one fn + all primitive types in 20-field struct + wide function table
 // Pattern: fn main() -> Int { ... return 0; }
 

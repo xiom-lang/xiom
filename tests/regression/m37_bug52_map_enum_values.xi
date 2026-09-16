@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // BUG 52 regression: Map[Str, T] where T is an enum WITH payload fields.
 // Four coordinated codegen fixes: enum-ctor generic args, local-receiver
 // type-arg inference, mono field-Vec element recording (memcpy reads), and

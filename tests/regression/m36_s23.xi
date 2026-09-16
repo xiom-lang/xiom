@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S23: String interning pattern -- hash-based lookup with deduplication
 type InternEntry = { text: Str; id: Int; occupied: Bool; }
 fn make_entry(text: Str, id: Int) -> InternEntry {

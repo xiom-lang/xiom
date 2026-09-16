@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // REPRO R1 (BUG 27 #6): "Error" as a pub type name in a catalog module.
 // Wave-5 error/chain.xi originally used "pub type Error" and emitted
 // "unknown type 'Error' defaulting to i64" + corrupted cross-module codegen.

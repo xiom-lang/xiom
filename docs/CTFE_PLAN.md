@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # XIOM CTFE -- Compile-Time Function Evaluation
 
 **Version:** v0.55 (Implementation Complete -- Phase A + B)

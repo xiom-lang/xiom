@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-X08: Combinatorial + Differential -- factorial loop vs recursion with generic+contract
 fn fact_loop(n: Int) -> Int
   requires: n >= 0

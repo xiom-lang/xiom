@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-C18: loop with flag -- boolean flag controls loop termination
 fn first_prime_below(n: Int) -> Int {
   var i: Int = n;

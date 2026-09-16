@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-N09: Enum with derive[Ord] -- ordinal position comparison via rank function
 enum Priority { Low, Medium, High, Critical } derive[Ord, Eq]
 fn rank(p: Priority) -> Int {

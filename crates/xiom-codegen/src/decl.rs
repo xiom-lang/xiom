@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 use super::{IrEmitter, TypeMeta};
 use crate::context::{TypeContext, SyncRegistry};
 use xiom_ast::*;

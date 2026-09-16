@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_while_011
 pub fn run() -> Int {
     var v: Vec[Int] = [1, 2, 3, 4, 5];

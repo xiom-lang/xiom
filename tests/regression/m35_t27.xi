@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-T27: Enum -- simple variants with match
 enum Color { Red, Green, Blue }
 fn is_red(c: Color) -> Bool { match c { Color.Red => true, _ => false } }

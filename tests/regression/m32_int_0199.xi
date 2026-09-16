@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Struct with UInt8 field
 type Color = { r: UInt8; g: UInt8; b: UInt8; }
 fn main() -> Int {

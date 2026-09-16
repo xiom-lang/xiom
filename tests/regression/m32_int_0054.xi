@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Downcast Int64 -> Int32 -> Int16 -> Int8 (safe values)
 fn main() -> Int {
   var a: Int64 = 42;

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-L14: Pointer arithmetic -- deref and sum integer values from multiple pointers
 fn main() -> Int {
   var a: Int = 10;

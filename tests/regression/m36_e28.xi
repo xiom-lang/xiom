@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-E28: Deeply nested struct literal
 type L1 = { x: Int; }
 type L2 = { l1: L1; }

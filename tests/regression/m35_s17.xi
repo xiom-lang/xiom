@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-S17: Extract substring -- build substring from start to end index
 use stdlib.xiom.string;
 fn substring(s: Str, start: Int, end: Int) -> Str {

@@ -1,6 +1,6 @@
 // XIOM -- Self-Hosted Compiler v0.9.2
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
 
 // Key change: general while-loop lexer (read any file, not just hardcoded chars)
 // Extern C runtime functions are declared as signatures at module level.

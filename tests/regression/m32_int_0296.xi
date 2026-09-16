@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Struct with Int8 field and cross-boundary field access
 type Rec = { id: Int8; score: Int16; }
 fn main() -> Int {

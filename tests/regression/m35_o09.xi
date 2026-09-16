@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-O09: Option and_then -- match-based and_then chaining
 fn safe_div(a: Int, b: Int) -> Option[Int] {
   if b == 0 { return None; }

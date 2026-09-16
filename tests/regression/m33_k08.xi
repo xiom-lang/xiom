@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-K08: Function as parameter type -- call named fn via higher-order
 fn call_twice(f: fn(Int) -> Int, x: Int) -> Int { var a = f(x); return f(a); }
 fn inc(x: Int) -> Int { return x + 1; }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-C04: if elif elif elif else (5+ branches) -- deep multi-way dispatch via nested else-if
 fn classify(score: Int) -> Int {
   if score >= 90 { return 1; }

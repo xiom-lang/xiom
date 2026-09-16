@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // P2-3 E2E Test: Field-granular borrow checks
 // Tests that borrowing different struct fields is allowed (disjoint),
 // but borrowing the same field or overlapping prefixes is rejected.

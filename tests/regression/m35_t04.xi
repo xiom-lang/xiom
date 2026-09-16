@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-T04: Char in every context -- var, param, return, struct, enum, if, array, generic
 type CharBox = { val: Char; }
 enum CharResult { Found(c: Char), NotFound }

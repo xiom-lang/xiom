@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // E2E: or-pattern in match expression
 // Verifies that `Pattern::Or` compiles correctly (Phase 4A).
 // Returns 0 on success.

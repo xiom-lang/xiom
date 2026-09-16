@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // BUG 47 regression: `&T`-param names leaked across function compilations
 // (ref_params/param_locals never cleared). A fn with `b: &Int` compiled
 // before a fn whose VALUE param is also named `b` made `x.compare(&b)`

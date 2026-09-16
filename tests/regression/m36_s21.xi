@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S21: CLI argument parsing -- flag detection and value extraction
 type CliFlag = { name: Str; has_value: Bool; present: Bool; value: Str; }
 fn make_flag(name: Str, hv: Bool) -> CliFlag {

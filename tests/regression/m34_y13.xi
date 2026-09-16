@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Y13: derive Eq struct + generic + match + Option + compound assign + module
 type Pair = { x: Int; y: Int; } derive[Eq]
 enum BinOp { Add, Sub, Mul, Div, None }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-C18: Every contract clause count 1-5 -- functions with increasing numbers of requires/ensures/invariant clauses
 type Safe = { val: Int; invariant: val >= 0; }
 type Guarded1 = { x: Int; invariant: x >= 0; }

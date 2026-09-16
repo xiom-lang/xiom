@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-S02: Palindrome check -- reverse and compare
 use stdlib.xiom.string;
 fn reverse(s: Str) -> Str {

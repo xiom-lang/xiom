@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Complex arithmetic with all int types and elif/else chain
 // Correct: a=1500, b=2560, c=256, d=16781532, check=4316
 fn main() -> Int {

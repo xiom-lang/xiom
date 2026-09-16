@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // CTFE Phase A -- Production Test Suite
 // Verifies compile-time constant evaluation for:
 //   - Arithmetic (+, -, *, /, %)

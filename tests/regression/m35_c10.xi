@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-C10: while with nested break -- inner loop break only
 fn nested_break_test() -> Int {
   var outer: Int = 0;

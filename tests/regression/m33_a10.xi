@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-A10: Array return -- function returns a computed array element
 fn compute_result() -> Int {
   return 42;

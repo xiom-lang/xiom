@@ -1,6 +1,6 @@
 // XIOM -- Self-Hosted Type Checker
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
 
 // Checks types on AST nodes produced by the parser.
 // For bootstrap, operates on hardcoded AST data.

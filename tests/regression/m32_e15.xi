@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-E15: Match with expression arms and wildcard in nested position
 enum Opt { None, Some(val: Int) }
 fn unwrap_or(o: Opt, default: Int) -> Int {

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_f128
 // BUG 13 regression: Float128 needs soft-float helpers (__divtf3 etc.)
 // at link time and fp128 coercions on stores/params (not just As casts).

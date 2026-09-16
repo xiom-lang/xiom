@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S29: Debug info generation -- DWARF-like line table entries
 type DebugLine = { addr: Int; file_id: Int; line: Int; col: Int; }
 type DebugFile = { id: Int; name: Str; dir_index: Int; }

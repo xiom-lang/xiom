@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-N06: Enum with derive[Clone] -- enum variant clone
 enum State { On, Off, Unknown } derive[Clone]
 fn main() -> Int {

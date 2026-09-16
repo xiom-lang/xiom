@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m77 (R16): `ptr + int` used directly as a call argument must be POINTER
 // arithmetic, not Str concatenation. An unannotated `var buf = malloc(n)`
 // was not typed as a pointer (extern return types were never recorded in

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-E08: Exhaustive match on enum with 5+ variants
 enum Token { A, B, C, D, E }
 fn kind_val(t: Token) -> Int {

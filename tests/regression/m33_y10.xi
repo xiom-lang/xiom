@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Y10: multi-interface impl + generic struct + enum match + contract chain + module + diff
 type Data = { val: Int; }
 enum OpKind { Inc, Dec, Identity, Double }

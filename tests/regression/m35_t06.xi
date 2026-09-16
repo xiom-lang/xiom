@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-T06: Unit/void returns -- functions returning nothing, calling void functions
 fn nop1() { return; }
 fn nop2() { return; }

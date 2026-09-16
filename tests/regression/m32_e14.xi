@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-E14: Exhaustive match with wildcard catch-all and mixed variants
 enum Shape { Circle(radius: Float64), Square(side: Float64), Triangle(base: Float64, height: Float64) }
 fn area(s: Shape) -> Float64 {

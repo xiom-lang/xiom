@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-O05: 5-chain ? -- five consecutive ? in sequence
 fn step(a: Int, delta: Int) -> Result[Int, Str] {
   if a < 0 { return Err("negative"); }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Mixed adding UInt16(40000) + Int16(10000) through Int
 fn main() -> Int {
   var a: UInt16 = 40000;

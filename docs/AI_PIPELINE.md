@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # Phase 5g -- AI-Assisted Compilation Pipeline
 
 > **Status:** [OK] Implemented (5g.1 MVP complete). 14 MCP tools. Zero warnings. 768/768 tests.

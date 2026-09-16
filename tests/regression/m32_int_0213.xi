@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Function multiple narrow params
 fn mix8(a: Int8, b: UInt8, c: Int16) -> Int16 {
   var s: Int8 = a + b as Int8;

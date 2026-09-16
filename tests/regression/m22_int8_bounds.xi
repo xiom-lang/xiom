@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M22: Int8 boundary values -- verify min/max compile and compare correctly
 fn main() -> Int {
   var min: Int8 = -128;

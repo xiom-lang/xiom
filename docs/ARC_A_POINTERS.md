@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # ARC A -- Real Pointer/Reference Types (production design)
 
 **Goal:** `*T`/`*mut T`/`*const T` and `&mut T` become real LLVM pointer types end-to-end, so

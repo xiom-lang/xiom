@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // E2E regression: Vec builtins -- new/push/len/index/pop/get.
 // Locks in inline Vec method dispatch + element coercion + Option payload.
 // Returns 0 on success.

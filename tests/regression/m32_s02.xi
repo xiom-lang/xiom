@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-S02: Nested structs -- Point inside Rect
 type Point = { x: Float64; y: Float64; }
 type Rect = { top_left: Point; bottom_right: Point; }

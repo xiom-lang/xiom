@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S22: File path manipulation -- basename, dirname, extension extraction
 fn is_separator(c: Char) -> Bool {
   return c == '/' || c == '\\';

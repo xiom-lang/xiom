@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-L03: While with continue -- skip even numbers, sum odds 1..19
 fn main() -> Int {
   var i: Int = 0;

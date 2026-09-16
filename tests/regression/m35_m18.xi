@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-M18: binomial coefficient C(n,k) = n! / (k! * (n-k)!)
 fn binom(n: Int, k: Int) -> Int {
   if k < 0 || k > n { return 0; }

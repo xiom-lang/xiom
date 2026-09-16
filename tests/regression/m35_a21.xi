@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-A21: Collatz conjecture -- count steps to reach 1 for given n
 fn collatz_steps(n: Int) -> Int {
   var x: Int = n;

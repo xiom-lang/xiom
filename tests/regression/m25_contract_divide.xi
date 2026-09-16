@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M25: Contract runtime -- requires and ensures enforce correctness
 fn divide(a: Float64, b: Float64) -> Float64
   requires: b != 0.0

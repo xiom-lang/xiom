@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-O18: ? with contract -- ? inside contract-guarded function (fixed)
 fn safe_sqrt(n: Int) -> Result[Int, Int]
   requires: n >= 0

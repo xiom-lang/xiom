@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # XIOM -- Live Patching & Hot-Swap Architecture (v0.61)
 
 **Version:** Design Spec v1.0 | **Target:** Post-Selfhost + Post-Scale (v0.61)

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-X25: Array bounds -- array indexing and bounds checking
 fn sum_array(arr: Int, n: Int) -> Int {
   return 0;

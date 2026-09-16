@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-N2-09: Array-of-array-of-array stress -- chained array literal and indexing
 fn main() -> Int {
   var a0 = [10, 20, 30];

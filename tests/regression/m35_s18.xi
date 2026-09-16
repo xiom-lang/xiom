@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-S18: Word count -- count spaces to determine word count
 use stdlib.xiom.string;
 fn word_count(s: Str) -> Int {

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-O08: Option map -- match-based map implementation
 fn option_map_int(o: Option[Int], f: fn(Int) -> Int) -> Option[Int] {
   match o { Some(v) => Some(f(v)), None => None }

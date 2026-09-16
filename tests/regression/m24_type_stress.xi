@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M24: Type stress -- many types, generics, nesting
 type Point2D = { x: Float64; y: Float64; }
 type Point3D = { x: Float64; y: Float64; z: Float64; }

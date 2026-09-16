@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-D18: Recursive generic types -- Tree[T] and List[T] with type parameters
 type TreeNode[T] = { value: T; left: *TreeNode[T]; right: *TreeNode[T]; }
 type ListNode[T] = { value: T; next: *ListNode[T]; }

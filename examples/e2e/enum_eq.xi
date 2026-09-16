@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // E2E regression: enum equality (==) and match on a value receiver.
 // Locks in the `.eq` fallback for builtin-style enums (compare field 0 inline)
 // and enum-variant construction as values. Returns 0 on success.

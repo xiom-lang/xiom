@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-T19: Bool exhaustive -- every context
 type BoolBox = { val: Bool; }
 enum BoolResult { Yes, No, Flip(b: Bool) }

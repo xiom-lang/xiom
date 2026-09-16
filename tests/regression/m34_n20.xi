@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-N20: Manual eq vs derive Eq -- dual validation with nested and generic types
 type Node = { val: Int; next: Int; } derive[Eq]
 type Entry[T] = { key: T; tag: Int; } derive[Eq]

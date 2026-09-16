@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-E06: Match with variable binding and condition testing
 enum Sign { Neg, Zero, Pos }
 fn classify(n: Int) -> Sign {

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-S24: Common prefix -- find longest shared prefix between two strings
 use stdlib.xiom.string;
 fn common_prefix_len(a: Str, b: Str) -> Int {

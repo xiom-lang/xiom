@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Integer in array-like struct access
 type Vec3 = { x: Int; y: Int; z: Int; }
 fn dot(a: Vec3, b: Vec3) -> Int {

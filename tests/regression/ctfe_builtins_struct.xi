@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // CTFE Phase A -- Builtins with Struct Types
 // Tests sizeof, align_of, field_offset on user-defined structs
 

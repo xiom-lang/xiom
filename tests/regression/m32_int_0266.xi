@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: UInt16(60000) as Int32 then as Int64: chain preserves unsigned
 fn main() -> Int {
   var a: UInt16 = 60000;

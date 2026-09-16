@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z23: fn_pointer+generic+struct+enum+contract+module+match+derive+compound_assign+const
 type Pair = { a: Int; b: Int; } derive[Eq]
 const FACTOR: Int = 3;

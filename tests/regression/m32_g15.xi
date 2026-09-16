@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-G15: Generic constraint with multiple method calls
 interface Doubler { fn double(self) -> Int; }
 interface Adder { fn add(self, x: Int) -> Int; }

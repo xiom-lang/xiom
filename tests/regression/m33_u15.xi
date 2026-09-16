@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-U15: Extern function returning pointer -- declare only, no call
 extern "C" {
   fn get_magic() -> *Int;

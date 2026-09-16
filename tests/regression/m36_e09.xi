@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-E09: 100 sequential statements in one function
 fn main() -> Int {
   var x: Int = 0;

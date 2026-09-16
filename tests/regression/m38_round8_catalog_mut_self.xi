@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m38_round8_catalog_mut_self -- round-8 (2026-08-20) regression:
 // catalog &mut self receiver wiring for user generic structs --
 // VecDeque/Stack/Queue/LinkedList/BTreeMap mutations were entirely LOST

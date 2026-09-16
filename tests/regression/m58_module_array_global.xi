@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M58: module-level mutable array mis-materialization -- stdlib finding
 // 3b-2 #8. `var _tbl: [256]Int;` at module scope with runtime INDEX writes
 // then reads compiled by loading the whole [N x T] global VALUE into a

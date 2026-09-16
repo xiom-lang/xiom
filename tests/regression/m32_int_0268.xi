@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: UInt16 addition with result > 32767 must stay correct
 fn main() -> Int {
   var a: UInt16 = 30000;

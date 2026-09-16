@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-W14: Bit rotation -- rotl/rotr on Int using shift + OR
 fn rotl8(x: Int) -> Int {
   var hi: Int = (x >> 56) & 0xFF;

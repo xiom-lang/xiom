@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 fn is_some_and(o: Option[Int], pred: fn(Int) -> Bool) -> Bool {
   match o { Some(v) => pred(v), None => false }
 }

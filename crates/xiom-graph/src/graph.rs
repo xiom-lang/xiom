@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 //! Dependency graph: nodes, edges, and resolution.
 //!
 //! Each node represents a single module (one .xi file). Edges represent

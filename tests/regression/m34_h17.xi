@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-H17: Cast in array index -- index expression uses explicit cast
 fn main() -> Int {
   var arr = [10, 20, 30, 40, 50];

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 fn sum_arr(arr: Vec[Int], n: Int) -> Int {
   var i = 0;
   var sum = 0;

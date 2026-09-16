@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // CTFE comprehensive -- 14 const assertions
 const A: Int = 42;
 const B: Int = A * 2;        // 84

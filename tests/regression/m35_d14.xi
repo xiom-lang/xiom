@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-D14: Ring buffer -- oldest overwritten
 fn main() -> Int {
   var b0: Int = 10;

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-O03: Option[Str] create -- Some/None with string values
 fn main() -> Int {
   var a = Some("hello");

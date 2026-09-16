@@ -1,6 +1,6 @@
 // XIOM -- Type Checker
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! XIOM Type Checker -- Phase 0: basic type checking for primitives,
 //! struct types, function signatures, and return types.

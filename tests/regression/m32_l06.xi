@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-L06: While with early return -- find first square > 50
 fn main() -> Int {
   var i: Int = 1;

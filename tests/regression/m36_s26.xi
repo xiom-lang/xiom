@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S26: Virtual machine -- stack push/pop and arithmetic operations
 type StackFrame = { sp: Int; bp: Int; ip: Int; }
 type StackVal = { tag: Int; int_val: Int; }

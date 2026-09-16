@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 fn make_opt(flag: Bool) -> Result[Int, Str] {
   if flag { return Ok(42); }
   return Err("disabled");

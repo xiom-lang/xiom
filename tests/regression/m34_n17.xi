@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-N17: Derive on type with all primitives -- struct containing Int, Float64, Bool, Char, Str
 type AllTypes = { i: Int; f: Float64; b: Bool; c: Char; s: Str; } derive[Eq, Clone]
 fn main() -> Int {

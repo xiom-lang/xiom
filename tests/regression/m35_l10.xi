@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-L10: Struct alignment check -- verify field layout via struct literal and access
 type Aligned = { a: Int; b: Float64; c: Bool; d: Char; }
 

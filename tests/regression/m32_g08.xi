@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-G08: Generic in return type
 fn id[T](x: T) -> T { return x; }
 fn check_int() -> Int {

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-C12: for-in pattern using while + index -- simulate for loop over array-like logic
 fn sum_array_elements(count: Int) -> Int {
   var total: Int = 0;

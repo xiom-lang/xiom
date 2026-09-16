@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m81 root: two modules with the same leaf fn (`is_even`) and the same
 // higher-order helper (`apply`). Each module passes its OWN fn by value;
 // R25 makes the fn-REFERENCE pick scope-first + deterministic, so

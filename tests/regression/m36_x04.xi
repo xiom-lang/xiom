@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-X04: Contract chains -- requires/ensures on function call chains
 fn safe_divide(a: Int, b: Int) -> Int
   requires: b != 0

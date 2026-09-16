@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-O26: Result[Float64,Int] -- float Ok, int Err construction and match
 fn main() -> Int {
   var a: Result[Float64, Int] = Ok(3.0);

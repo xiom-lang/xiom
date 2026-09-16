@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-B04: Exclusive write borrow -- single &mut with exclusive access
 fn add_five(x: &mut Int) { *x = *x + 5; }
 fn main() -> Int {

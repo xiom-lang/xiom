@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z20: struct+generic+contract+match+while+enum+module+derive+Option+Result+compound_assign+closure+impl
 type Account = { id: Int; balance: Int; } derive[Eq]
 enum Tx { Deposit(a: Int), Withdraw(a: Int) }

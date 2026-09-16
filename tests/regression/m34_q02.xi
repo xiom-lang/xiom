@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Q02: Chained ensures -- ensures propagated through call chain
 fn add_one(x: Int) -> Int
   ensures: result == x + 1

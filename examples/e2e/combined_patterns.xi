@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // E2E: combined features -- store_back + hash + generic monomorphization
 // Returns 0 on success.
 module e2e_combined

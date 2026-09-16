@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-M20: Catalan number C_n = C(2n,n) / (n+1) = binom(2n,n) - binom(2n,n+1)
 fn catalan(n: Int) -> Int {
   if n <= 0 { return 1; }

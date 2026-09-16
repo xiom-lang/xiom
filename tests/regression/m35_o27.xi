@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-O27: Result[Bool,Bool] -- bool success, bool error
 fn validate(x: Int) -> Result[Bool, Bool] {
   if x > 0 { return Ok(true); }

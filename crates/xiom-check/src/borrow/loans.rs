@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // XIOM -- Loan Tracking with Place Model (5c-R: field-granular borrows)
 // Extends the existing lexical BorrowChecker with Place-level conflict detection.
 

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-W01: AND identity -- x & -1 == x on signed integer types
 // Avoid -1 cast to small types (codegen limitation)
 fn main() -> Int {

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: UInt32 shift left (1 << 31 = 2147483648)
 fn main() -> Int {
   var a: UInt32 = 1;

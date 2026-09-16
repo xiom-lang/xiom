@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m78 root: declares the delegating same-leaf module (beta.base32) and the
 // gateway. All three files are passed on the COMMAND LINE (user program, no
 // catalog): pre-fix the shim's `canon.encode` resolved to the caller's own

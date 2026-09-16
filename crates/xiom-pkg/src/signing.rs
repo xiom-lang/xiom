@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // XIOM Package Manager -- ed25519 signing + trust model (Stage 5 supply chain).
 //
 // Audit/plan requirement: "ed25519 signatures + trust model" -- the registry

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // BUG: ensures says result > 0 but -x can be negative when x is positive.
 // The negated ensures: (not (> result 0)) should be SAT for x = 5.
 fn buggy_abs(x: Int) -> Int

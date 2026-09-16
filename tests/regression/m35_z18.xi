@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z18: type_alias+const+struct+match+Option+Result+contract+compound_assign+module+while+generic
 type Limit = Int;
 const DEF_LIMIT: Limit = 50;

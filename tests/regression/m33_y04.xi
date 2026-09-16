@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Y04: enum payload + method with contracts + match extraction + module + impl + generic + diff
 type Vec2 = { x: Int; y: Int; }
 enum ShapeKind { Rect, Square, Circle }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Int8 sign-test: negative >> 7 must = -1, positive >> 7 must = 0
 fn main() -> Int {
   var neg: Int8 = -128 as Int8;

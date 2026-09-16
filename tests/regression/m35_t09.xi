@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-T09: Pointers in every context -- var, param, return, deref, address-of
 fn deref_int(ptr: *Int) -> Int { var v: Int; unsafe { v = *ptr; } return v; }
 fn ptr_if(ptr: *Int) -> Int { var v: Int; unsafe { v = *ptr; } if v > 0 { return v; } return 0; }

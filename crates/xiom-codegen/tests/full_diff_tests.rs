@@ -1,7 +1,7 @@
 // XIOM -- Comprehensive Differential Tests
 // Compares Rust compiler IR against Selfhost compiler IR for all examples.
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
 #![allow(unused_comparisons)]
 use std::process::Command;
 use std::path::Path;

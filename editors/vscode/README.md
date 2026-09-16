@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # XIOM Language Support for VS Code
 
 Syntax highlighting, autocomplete, go-to-definition, diagnostics, and **debugging** for the XIOM programming language.

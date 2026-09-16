@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-C05: Every contract pattern with every function shape -- requires, ensures, invariant, multi-clause
 type PosNum = { val: Int; invariant: val > 0; }
 type Bounded = { x: Int; lo: Int; hi: Int; invariant: lo <= hi; invariant: x >= lo; invariant: x <= hi; }

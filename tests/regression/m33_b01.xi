@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-B01: Read borrow on local -- & ref to struct, read field without moving
 type Wrapper = { val: Int; }
 fn read_val(w: &Wrapper) -> Int { return w.val; }

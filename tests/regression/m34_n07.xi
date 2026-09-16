@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-N07: Nested struct derive[Clone] -- clone propagates through nesting
 type Leaf = { val: Int; } derive[Clone]
 type Branch = { left: Leaf; right: Leaf; } derive[Clone]

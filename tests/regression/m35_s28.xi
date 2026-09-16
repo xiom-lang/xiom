@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-S28: String distance -- Hamming distance between equal-length strings
 use stdlib.xiom.string;
 fn hamming(a: Str, b: Str) -> Int {

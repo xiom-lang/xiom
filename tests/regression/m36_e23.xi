@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-E23: All operators in one expression
 fn main() -> Int {
   var a = 10; var b = 3; var c = 5; var d = 2;

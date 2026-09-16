@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-L20: Pointer to function -- function pointer pattern via indirect call
 fn add(a: Int, b: Int) -> Int { return a + b; }
 fn mul(a: Int, b: Int) -> Int { return a * b; }

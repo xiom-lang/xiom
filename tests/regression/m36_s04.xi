@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S04: Parser tree traversal -- pre-order and post-order walk
 type Tree = { value: Int; left: Int; right: Int; }
 fn make_tree(v: Int, l: Int, r: Int) -> Tree {

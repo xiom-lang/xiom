@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-W09: Sign bit manipulation -- MSB test on Int (avoid -1 as Int32 codegen bug)
 fn main() -> Int {
   var pos: Int = 1;

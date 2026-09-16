@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_loop_capture
 // BUG 22 #6 regression: an unsafe block whose INNER loop binds a name that
 // SHADOWS a same-named let from an ENCLOSING loop (the stdlib str_reverse

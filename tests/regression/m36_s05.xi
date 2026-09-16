@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S05: Type checker -- type comparison and equality
 type TypeInfo = { tid: Int; size: Int; align: Int; }
 fn type_eq(a: TypeInfo, b: TypeInfo) -> Bool {

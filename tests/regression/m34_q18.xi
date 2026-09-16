@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Q18: Contract with closure -- closures in contract-protected function chains
 fn process_with_fn(f: fn(Int) -> Int, x: Int) -> Int
   requires: x >= 0

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-C19: Every module nesting depth 1-5 -- deeply nested modules with unique pub function names
 module a1 {
   pub fn val1() -> Int { return 1; }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-X06: Large match with 50+ arms -- exhaustive enum dispatch
 enum State {
   S00, S01, S02, S03, S04, S05, S06, S07, S08, S09,

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m48_round14c_writeback_aggregates -- round-14 (2026-08-22) regression:
 // (1) by-value self methods returning the SAME type no longer write the
 // result back into the receiver's slot (identity/sum/diff clobbered d1 --

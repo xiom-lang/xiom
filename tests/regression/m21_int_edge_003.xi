@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_int_edge_003
 pub fn run() -> Int {
     var a: UInt8 = 0u8;

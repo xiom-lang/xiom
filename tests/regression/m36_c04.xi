@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-C04: Every generic pattern -- identity, swap, struct generic, multi-param, enum generic
 fn identity[T](x: T) -> T { return x; }
 fn pair[T, U](a: T, b: U) -> T { return a; }

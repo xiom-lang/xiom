@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-N02: Nested struct derive[Eq] -- equality through nested fields
 type Inner = { val: Int; } derive[Eq]
 type Outer = { inner: Inner; tag: Int; } derive[Eq]

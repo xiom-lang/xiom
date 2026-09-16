@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Y11: derive struct + generic enum payload + method contract + match + impl + module + diff
 type Rect = { w: Int; h: Int; } derive[Eq]
 enum Shape { RectShape(r: Rect), Circle(radius: Int) }

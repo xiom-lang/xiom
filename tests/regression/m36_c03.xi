@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-C03: Every match pattern with every enum shape -- unit variants and single-payload variants, nested matches, guards
 enum Status1 { Pending }
 enum Status2 { Off, On }

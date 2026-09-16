@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-A13: Very large array -- sum of 100 elements 0..99
 fn main() -> Int {
   var i: Int = 0;

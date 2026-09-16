@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # Phase 5c-S -- Compiler Safety Audit (Sandbox Pass)
 
 > **Status:** Planned. Zero dependencies on Z3 or AI. Buildable now.  

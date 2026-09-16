@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 type Item = { id: Int; name: Option[Str]; }
 fn describe(i: Item) -> Str {
   match i.name { Some(n) => n, None => "unnamed" }

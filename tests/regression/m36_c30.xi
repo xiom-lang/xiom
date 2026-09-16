@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-C30: Combined mega test 3 -- ALL_FEATURES: struct+enum+match+while+if+derive+module+Option+Result+array+pointer+unsafe+cast+compound_assign+const+type_alias+recursion
 const MAGIC: Int = 42;
 type Entity = { hp: Int; mp: Int; alive: Bool; } derive[Eq]

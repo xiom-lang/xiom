@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-D10: Deep tree operations -- stress deep recursion with pointer tree (depth 10+)
 type Node = { value: Int; left: *Node; right: *Node; }
 

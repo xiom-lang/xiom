@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-A02: Linear search -- inline sequential scan in main
 fn main() -> Int {
   var arr = [42, 17, 99, 3, 71, 56];

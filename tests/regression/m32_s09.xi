@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-S09: Struct spread -- copy struct with field override via helper
 type Point = { x: Float64; y: Float64; }
 fn copy_point(p: Point) -> Point { return Point{ x: p.x; y: p.y; }; }

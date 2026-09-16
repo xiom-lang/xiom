@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # XIOM Compiler Production-Readiness Audit
 
 **Note:** This session is read-only (Ask mode), so the complete document is delivered below -- it is ready to be saved verbatim as `E:\Projects\AXIOM\xiom-compiler-audit.md` (switch to Code/Architect mode to write it directly).

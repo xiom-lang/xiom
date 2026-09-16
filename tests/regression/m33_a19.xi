@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-A19: Array with generic -- generic identity on array elements
 fn id[T](x: T) -> T { return x; }
 fn main() -> Int {

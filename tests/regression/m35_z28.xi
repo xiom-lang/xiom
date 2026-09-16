@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z28: deep_recursion+generic+enum+struct+contract+module+derive+match+while+Option+compound_assign
 type Node = { val: Int; left: Int; right: Int; } derive[Eq]
 enum Order { Pre, In, Post }

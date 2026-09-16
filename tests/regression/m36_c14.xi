@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-C14: Every struct nesting depth 1-6 -- deeply nested structs with field access through all levels
 type L1 = { a: Int; }
 type L2 = { inner: L1; b: Int; }

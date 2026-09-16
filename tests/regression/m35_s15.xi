@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-S15: Find first occurrence -- return index of first match or -1
 use stdlib.xiom.string;
 fn index_of(s: Str, ch: Char) -> Int {

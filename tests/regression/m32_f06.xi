@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Float64 to Float32 cast (narrowing)
 fn main() -> Int {
   var f64: Float64 = 2.5;

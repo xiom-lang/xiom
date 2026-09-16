@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # Phase 5d.1 -- XIOM MCP Server (Model Context Protocol)
 
 > **Status:** Planned. Depends on 5c (complete), 5c-S (planned), 5g (planned). MVP buildable NOW with 3 tools.  

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_opt_payload_value
 // BUG 25 #5 regression: Option/Result `.value`/`.error` field reads must
 // return the ACTUAL payload (Str/Vec/Float), not the raw i64 slot bits

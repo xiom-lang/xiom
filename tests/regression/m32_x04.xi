@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-X04: Combinatorial + Differential -- compute-then-return vs direct-return with struct
 type Triple = { a: Int; b: Int; c: Int; }
 fn compute_then_return(t: Triple) -> Int {

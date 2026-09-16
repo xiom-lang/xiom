@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-A29: Count set bits -- Brian Kernighan's algorithm and loop-based popcount
 fn popcount_kernighan(n: Int) -> Int {
   var x: Int = n;

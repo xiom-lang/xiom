@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Result UInt16 Err type with unwrap_or
 fn main() -> Int {
   var r: Result[Bool, UInt16] = Err(50000);

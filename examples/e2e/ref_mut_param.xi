@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // E2E regression: `&mut Scalar` parameters are real LLVM pointers.
 // `inc(p: &mut Int)` derefs (`*p`) to read and stores through (`*p = ...`) to
 // write, so the caller's `a` is mutated in place. Returns 0 on success.

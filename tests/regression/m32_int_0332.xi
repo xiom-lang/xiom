@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Swap two UInt8 values with XOR trick (a ^= b; b ^= a; a ^= b)
 fn main() -> Int {
   var a: UInt8 = 200;

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m41_round11_b007_closures -- round-11 (2026-08-20) regression:
 // B-007 closures -- fn-typed PARAMS hold a closure ENV pointer (field 0 =
 // the fn ptr). Calling `f(x)` inside a generic body must go through the

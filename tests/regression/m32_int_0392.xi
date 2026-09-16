@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Shl + shr roundtrip for Int8 (no overflow)
 fn main() -> Int {
   var a: Int8 = 1 as Int8;

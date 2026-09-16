@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-V12: Multiply-accumulate (a * b + c chained)
 fn mul_add(a: Float64, b: Float64, c: Float64) -> Float64 {
   return a * b + c;

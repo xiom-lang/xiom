@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_result_option_036
 fn compute(flag: Bool) -> Result[Int, Int] {
     if flag { return Ok(100); }

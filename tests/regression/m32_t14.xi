@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-T14: String in array -- an array of strings
 type Entry = { key: Str; value: Str; }
 fn main() -> Int {

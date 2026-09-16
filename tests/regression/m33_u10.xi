@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-U10: Unsafe write to pointer -- extern with pointer param, no call
 extern "C" {
   fn write_int(dst: *Int, val: Int);

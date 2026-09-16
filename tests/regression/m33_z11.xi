@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Z11: Compound assignment in if body
 fn main() -> Int {
   var x: Int = 5;

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 //! XIOM WASM -- Browser-based compiler for the playground
 //! Compiles XIOM source -> LLVM IR and diagnostics entirely in the browser.
 //! No file system, no process spawning, no external dependencies.

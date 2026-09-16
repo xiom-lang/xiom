@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // REPRO R5 (BUG 27 #10): tuple-with-Vec returns heap-corrupt (0xC0000374).
 // aes_encrypt_gcm returns Result[(Vec[UInt8], Vec[UInt8]), Str] -- the tuple
 // payload with Vec elements corrupts memory at the catalog boundary.

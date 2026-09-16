@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M60 (R2, M58 residual): module-level mutable arrays with all-constant
 // LITERAL initializers. Old path routed them to the runtime-init ctor,
 // whose compile_expr on the array literal yields an i8* heap buffer --

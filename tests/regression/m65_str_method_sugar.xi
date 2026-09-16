@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // R8 follow-up regression: Str method-parity sugar on a Str PARAM.
 // `.trim()` / `.trim_start()` / `.trim_end()` in method position returned a
 // corrupt Str (len=0xFFFFFFFF) because codegen auto-stubbed `Str.trim` and

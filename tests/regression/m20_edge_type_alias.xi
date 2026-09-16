@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 type Age = Int;
 type Name = Str;
 fn make_person(age: Age, name: Name) -> Int { if age > 0 { return age; } return 0; }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-L09: While with complex condition -- loop while both counters below limit
 fn main() -> Int {
   var a: Int = 0;

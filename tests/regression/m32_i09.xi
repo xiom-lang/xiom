@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Int8 bitwise AND/OR/XOR with elif
 fn main() -> Int {
   var x: Int8 = 0x0F;

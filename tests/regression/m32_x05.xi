@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-X05: Combinatorial + Differential -- add-then-mul vs mul-then-add with contract+generic
 enum Op { AddFirst, MulFirst }
 fn compute(op: Op, a: Int, b: Int, c: Int) -> Int

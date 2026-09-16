@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Int16 neg of min (-(-32768) wraps to -32768)
 fn main() -> Int {
   var a: Int16 = -32768 as Int16;

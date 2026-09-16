@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 fn a(x: Int) -> Int { return x + 1; }
 fn b(x: Int) -> Int { return a(x) + 1; }
 fn c(x: Int) -> Int { return b(x) + 1; }

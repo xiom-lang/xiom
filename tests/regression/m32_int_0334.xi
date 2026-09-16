@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: let binding with narrow unsigned type
 fn main() -> Int {
   var x: UInt8 = 200;

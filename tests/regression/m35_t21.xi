@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-T21: Float64 exhaustive -- every context: arith, cmp, cast, struct, enum, array, while
 fn fadd(a: Float64, b: Float64) -> Float64 { return a + b; }
 fn fsub(a: Float64, b: Float64) -> Float64 { return a - b; }

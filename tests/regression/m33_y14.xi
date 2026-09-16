@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Y14: triple impl interface + generic enum + struct field access + match + contract + module + diff
 type Product = { name: Int; price: Int; qty: Int; }
 enum DiscountKind { Percent(pct: Int), Fixed(amt: Int), None }

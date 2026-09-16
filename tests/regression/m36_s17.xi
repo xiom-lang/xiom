@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S17: Optimization -- constant folding for arithmetic expressions
 type ConstExpr = { op: Int; left_val: Int; right_val: Int; is_const: Bool; }
 fn make_const_expr(op: Int, left: Int, right: Int, cnst: Bool) -> ConstExpr {

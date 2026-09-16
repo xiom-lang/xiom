@@ -1,6 +1,6 @@
 // XIOM -- Self-Hosted Parser
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
 
 // Processes a hardcoded token stream for:
 //   "fn main() -> Int { let x = 10; var y = 20; if x > y { return x; } else { return y; } }"

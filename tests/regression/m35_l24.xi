@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-L24: Pointer cast -- cast pointer to Int and back, verify value integrity
 fn main() -> Int {
   var x: Int = 123;

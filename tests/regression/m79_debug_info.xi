@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m79 (Stage 5): DWARF for .xi. `-g` must emit a VALID debug-info graph
 // (DISubroutineType was missing -- `type: !{}` made LLVM warn "ignoring
 // invalid debug info" and drop all DWARF) plus per-statement DILocations so

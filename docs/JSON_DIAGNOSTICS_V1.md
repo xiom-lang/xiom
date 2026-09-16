@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # JSON Diagnostics v1 (shared schema)
 
 **Status:** v1, landed round 45 (2026-09-11). **Producer:** `xiom

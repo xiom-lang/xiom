@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-J13: Pub fn calling private fn -- public wrapper around private implementation
 module range {
   fn clamp_inner(v: Int, lo: Int, hi: Int) -> Int {

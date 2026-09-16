@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // t8-safety-probe -- Language Safety Index (XIOM)
 //
 // Honest, empirically-measured probe. No hardcoded scores.

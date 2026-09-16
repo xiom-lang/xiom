@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-X02: Combinatorial + Differential -- loop sum vs formula with struct+enum
 type Params = { lo: Int; hi: Int; }
 enum CalcMode { SumLoop, SumFormula }

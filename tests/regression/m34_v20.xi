@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-V20: Float32 full coverage -- all ops, comparisons, casts, array
 fn main() -> Int {
   var a: Float32 = 7.0;

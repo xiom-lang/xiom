@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m76: contract payload clauses mixing `result.value`/`result.error` with a
 // PARAM receiver. Pre-fix, the implication's bare `is Some/Err` rebind bound
 // the scrutinee to the payload slot, but a `.value`/`.error` field read on

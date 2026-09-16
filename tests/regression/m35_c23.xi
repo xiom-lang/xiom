@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-C23: match on enum -- dispatch through enum variants with payloads
 enum Color { Red, Green, Blue }
 enum Shape { Circle(r: Int), Square(s: Int), Point }

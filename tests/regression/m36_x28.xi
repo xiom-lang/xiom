@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-X28: Integer overflow edges -- boundary values and edge cases
 fn main() -> Int {
   var max: Int = 2147483647;

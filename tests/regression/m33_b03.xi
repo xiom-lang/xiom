@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-B03: Multiple read borrows -- several & references to structs coexist
 type Item = { n: Int; }
 fn get_n(a: &Item, b: &Item, c: &Item) -> Int { return a.n + b.n + c.n; }

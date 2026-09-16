@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-S04: Count character occurrences -- loop and count matching bytes
 use stdlib.xiom.string;
 fn count_char(s: Str, ch: Char) -> Int {

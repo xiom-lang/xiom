@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-M04: use module -- import multiple functions via use
 module ops {
   pub fn add(a: Int, b: Int) -> Int { return a + b; }

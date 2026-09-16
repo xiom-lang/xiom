@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Y03: invariant struct + generic + match + unsafe + module
 type Node = { val: Int; next: Int; invariant: val >= 0; }
 enum Traversal { Sum, Product, Count }

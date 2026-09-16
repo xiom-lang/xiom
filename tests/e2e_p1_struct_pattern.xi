@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // P1-1 E2E Test: Struct patterns in match
 // Tests match with struct destructuring patterns.
 

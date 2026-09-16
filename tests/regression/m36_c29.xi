@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-C29: Combined mega test 2 -- modules, methods, enums, pointers, Result, strings, type aliases
 type Score = { points: Int; id: Int; } derive[Eq]
 fn Score.read(self) -> Int { return self.points; }

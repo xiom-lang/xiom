@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z22: closure+generic+enum+match+derive+module+contract+compound_assign+while+array
 type Cell = { x: Int; y: Int; } derive[Eq]
 enum Dir { Up, Down, Left, Right }

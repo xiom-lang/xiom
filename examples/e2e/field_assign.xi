@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // E2E: struct field assignment store-through
 // Verifies that `self.field = expr` emits the store instruction
 // (fixed in Clusters 1-2). Returns 0 on success.

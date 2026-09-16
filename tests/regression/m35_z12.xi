@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z12: unsafe+cast+const+generic+match+while+module+compound_assign+derive+Option+contract
 const MAGIC: Int = 0xDEAD;
 type Alloc = { size: Int; cap: Int; } derive[Eq]

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-V08: Int max as Float64, Float64 to Int truncation
 fn main() -> Int {
   var big_int: Int = 2147483647;

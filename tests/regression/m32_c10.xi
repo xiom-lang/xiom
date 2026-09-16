@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-C10: Multi-field invariant -- range-constrained rectangle
 type Rectangle = { width: Int; height: Int; invariant: width > 0 && height > 0; }
 fn area(r: Rectangle) -> Int {

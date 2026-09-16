@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_destructure_007
 fn swap(a: Int, b: Int) -> (Int, Int) {
     return (b, a);

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-P17: All primitives 20-field struct + 30-chain + 20-struct + 15-enum + 50-wide + 5-module + big matching
 // Pattern: fn main() -> Int { ... return 0; }
 

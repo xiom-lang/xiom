@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-X19: Const folding -- constant expression evaluation at compile time
 const MAX: Int = 100;
 const HALF: Int = MAX / 2;

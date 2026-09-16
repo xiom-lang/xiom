@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S13: AST manipulation -- fold (reduce) over an expression tree
 type FoldNode = { value: Int; kind: Int; }
 type FoldResult = { total: Int; max_val: Int; min_val: Int; count: Int; }

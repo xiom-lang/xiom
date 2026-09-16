@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 fn xiom_str_len(src: Int) -> Int;
 fn xiom_char_at(src: Int, pos: Int) -> Int;
 

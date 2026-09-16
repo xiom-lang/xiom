@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-A27: Maximum subarray sum -- Kadane's algorithm on an integer array
 fn main() -> Int {
   var arr = [-2, 1, -3, 4, -1, 2, 1, -5, 4];

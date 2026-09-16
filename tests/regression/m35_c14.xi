@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-C14: infinite loop with break -- while true with multiple break conditions
 fn collatz_steps(n: Int) -> Int {
   var x: Int = n;

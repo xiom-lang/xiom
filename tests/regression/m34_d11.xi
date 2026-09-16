@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-D11: Tree construction from expressions -- enum-based tree building and evaluation
 // Uses recursive enum with Int payload to represent expression trees
 enum Expr {

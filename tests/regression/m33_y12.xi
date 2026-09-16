@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Y12: higher-order enum + generic wrapper struct + match + contract cascading + impl + module + diff
 type Wrapper = { data: Int; id: Int; } derive[Eq]
 enum Action { Set(val: Int), Add(v: Int), Scale(f: Int) }

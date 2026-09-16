@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-J03: Module with pub type -- public struct types in modules
 module geometry {
   pub type Point = { x: Int; y: Int; }

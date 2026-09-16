@@ -1,6 +1,6 @@
 // XIOM -- Canonical Formatter (statement formatting)
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //
 // M14.1: Extracted from lib.rs -- statement and pattern formatting.
 

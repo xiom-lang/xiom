@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Q15: Multi-function contract chain -- 8 functions calling each other with contracts
 fn f1(x: Int) -> Int
   requires: x >= 0

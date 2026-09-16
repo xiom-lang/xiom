@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-O01: Simple ? on Ok -- ? unwraps Ok value in Result-returning fn
 fn get_val() -> Result[Int, Str] { return Ok(42); }
 fn use_val() -> Result[Int, Str] {

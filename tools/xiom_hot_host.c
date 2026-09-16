@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // XIOM Hot Reload Host (5e.5b)
 // Windows DLL host: compiles XIOM source to shared library,
 // loads it, and watches for changes to recompile/reload.

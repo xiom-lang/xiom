@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // E2E: DJB2 hash computation via generic Hash interface
 // Verifies that hash[T: Hash](value: T) monomorphizes correctly
 // and Int.hash produces deterministic DJB2 output.

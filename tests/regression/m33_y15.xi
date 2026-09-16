@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Y15: generic dispatch table via enum + struct data + match + contract + impl + module + diff
 type Entry = { key: Int; value: Int; }
 enum TableOp { Lookup, Insert(key: Int, val: Int), Delete }

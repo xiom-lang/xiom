@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-O18: Option zip -- combine two Options match-based (two Int values)
 fn zip_both_some() -> Int {
   var a = Some(1);

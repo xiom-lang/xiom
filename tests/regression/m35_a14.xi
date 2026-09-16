@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-A14: Prime check -- trial division up to sqrt(n)
 fn is_prime(n: Int) -> Int {
   if n <= 1 { return 0; }

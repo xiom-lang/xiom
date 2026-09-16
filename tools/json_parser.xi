@@ -1,4 +1,7 @@
 #!/usr/bin/env xiom
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // XIOM JSON Parser -- Gap Discovery Script
 // Usage: echo '{"key": "value"}' | xiom run tools/json_parser.xi
 // Tests: string ops, Result handling, recursion, Vec ops, match statements

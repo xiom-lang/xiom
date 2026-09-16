@@ -1,1 +1,4 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 fn pair() -> (Int, Int) { return (42, 99); } fn main() -> Int { let p = pair(); if p.0 != 42 { return 1; } if p.1 != 99 { return 2; } return 0; }

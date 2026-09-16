@@ -1,6 +1,6 @@
 // XIOM CodeGen -- LLVM Type Constants
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //
 // M14.7: Canonical LLVM type strings used throughout the code generator.
 // Replacing ~450 inline string literals with named constants enables:

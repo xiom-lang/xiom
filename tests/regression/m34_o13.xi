@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-O13: ? with generic result -- ? on Result[T, E] with type param
 fn ok_or_default[T](r: Result[T, Str], default: T) -> T {
   match r { Ok(v) => v, Err(_) => default }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // REPRO R2 (BUG 27 #8): module-scope fn storage silently read-only.
 // test/harness.xi: "g.f0 = f" on a module-level struct field no-ops;
 // calling the stored fn calls the DEFAULT/null.

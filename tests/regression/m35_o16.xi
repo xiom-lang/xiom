@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-O16: Option cloned pattern -- extract value from Option by match
 fn main() -> Int {
   var opt: Option[Int] = Some(42);

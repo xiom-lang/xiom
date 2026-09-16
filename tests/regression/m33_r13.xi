@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 enum OpResult { Success(val: Int), Failure(reason: Result[Int, Str]), Unknown }
 fn handle(o: OpResult) -> Int {
   match o {

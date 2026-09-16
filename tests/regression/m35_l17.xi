@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-L17: Null pointer check -- verify null pointer detection and guard
 fn is_null(p: *Int) -> Bool {
   if unsafe { p == (0 as *Int) } { return true; }

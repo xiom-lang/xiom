@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-V16: Float parameter chain through multiple functions
 fn add2(a: Float64, b: Float64) -> Float64 { return a + b; }
 fn mul2(a: Float64, b: Float64) -> Float64 { return a * b; }

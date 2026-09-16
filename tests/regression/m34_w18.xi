@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-W18: Bitwise compound patterns -- sequential & | ^ operations
 fn main() -> Int {
   var x: Int = 0x0F;

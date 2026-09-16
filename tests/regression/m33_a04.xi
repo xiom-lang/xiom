@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-A04: Array of Int -- creation and sum of all elements
 fn main() -> Int {
   var arr = [7, 14, 21, 28];

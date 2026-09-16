@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-D22: Topological sort -- in-degree calculation pattern
 fn main() -> Int {
   var d0: Int = 0;

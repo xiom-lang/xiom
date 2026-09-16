@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # XIOM Compiler Session -- Handoff (2026-08-24)
 
 ## Session update (2026-08-24, round 16a IN PROGRESS -- readiness Stage 0/1): CTFE explicit-stack rewrite + const-folder hardening

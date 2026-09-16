@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-J15: Module with generic type -- generic functions and types in modules
 module generic {
   pub fn ident[T](x: T) -> T { return x; }

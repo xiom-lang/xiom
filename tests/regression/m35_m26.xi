@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-M26: is-power-of-2 check: n > 0 && (n & (n-1)) == 0
 fn is_power_of_2(n: Int) -> Int {
   if n <= 0 { return 0; }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-V25: Vec map pattern -- transform each element
 fn map_double(v: &Vec[Int]) -> Vec[Int] {
   var result = Vec[Int].new();

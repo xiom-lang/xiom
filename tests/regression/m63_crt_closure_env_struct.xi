@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M63 (CRT-layout family #1): closure env struct malloc under-allocation.
 // The closure creation site allocated 8 bytes PER CAPTURE regardless of the
 // captured value's LLVM type -- capturing a STRUCT (%struct.Range = 16B)

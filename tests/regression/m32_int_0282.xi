@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: UInt32 function param crossing to Int64
 fn to_i64(a: UInt32) -> Int64 {
   return a as Int64;

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-W02: OR zero -- x | 0 == x on unsigned integer types
 fn main() -> Int {
   var a: UInt = 99;

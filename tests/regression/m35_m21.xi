@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-M21: Collatz sequence length (steps to reach 1)
 fn collatz_len(n: Int) -> Int {
   if n <= 0 { return 0; }

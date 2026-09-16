@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z07: fn_pointer+generic+closure+match+compound_assign+derive+module+Option+contract
 type BinOp = { op_a: Int; op_b: Int; } derive[Eq]
 enum Calc { Add, Mul, Div, Max }

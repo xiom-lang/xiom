@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-N16: Derive comparison chain -- field-based Ord on struct
 type Score = { points: Int; level: Int; } derive[Eq]
 fn main() -> Int {

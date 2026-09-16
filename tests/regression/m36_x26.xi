@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-X26: String manipulation -- string operations, comparisons, and concatenation
 fn greet(name: Str) -> Str { return name; }
 fn is_empty(s: Str) -> Bool {

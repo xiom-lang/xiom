@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Int8(127) < UInt8(128) with mixed sign widening
 fn main() -> Int {
   var a: Int8 = 127;

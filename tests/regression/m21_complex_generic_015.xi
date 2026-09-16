@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_complex_generic_015
 pub fn swap_pair[A, B](a: A, b: B) -> { fst: B; snd: A; } {
     return { fst: b; snd: a; };

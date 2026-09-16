@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 //! Topological sort for compilation order.
 //!
 //! Uses Kahn's algorithm (BFS-based) to produce a linear ordering of modules

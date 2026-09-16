@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_complex_generic_007
 pub fn map_pair[A, B, C](p: { first: A; second: B; }, f: fn(A) -> C) -> { first: C; second: B; } {
     return { first: f(p.first); second: p.second; };

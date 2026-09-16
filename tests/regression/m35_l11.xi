@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-L11: Enum memory pattern -- verify enum tag + payload memory layout
 enum Shape { Circle(r: Float64), Rect(w: Int, h: Int), Point }
 

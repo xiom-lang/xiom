@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-C13: Struct invariant + contract combined
 type Score = { points: Int; invariant: points >= 0; }
 fn add_score(s: Score, delta: Int) -> Score

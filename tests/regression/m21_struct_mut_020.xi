@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_struct_mut_020
 type Stats = { min: Int; max: Int; avg: Int; }
 fn main() -> Int {

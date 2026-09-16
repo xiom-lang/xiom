@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // P2-1 E2E Test: ? operator return-type check
 // Tests that the ? operator correctly warns when used in non-Result/Option functions.
 

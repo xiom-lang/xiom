@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-U13: Pointer return -- a function returns a pointer it was given.
 // (Original form returned `&local` -- dangling by design; rewritten to be
 // well-defined: pointer in, pointer out.)

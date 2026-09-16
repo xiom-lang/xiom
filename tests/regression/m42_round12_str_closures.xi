@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m42_round12_str_closures -- round-12 (2026-08-21) regression:
 // Str-returning closures through Result/Err construction -- the closure
 // thunk's params are i64 (uniform env-first ABI) but their DECLARED XIOM

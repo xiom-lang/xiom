@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # M10 -- XIOM Scripting / JIT Mode
 
 **Date:** 2026-07-24 | **Status:** Design Phase | **Target:** v0.50.0 "Scripting Edition"

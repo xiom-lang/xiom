@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_inline_call_concat
 // BUG 22 #11 regression: method-call results used INLINE as concat
 // operands. "len = " + v.len() inttoptr'd the length (garbage pointer ->

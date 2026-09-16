@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # XIOM Compiler -- Production Roadmap
 
 **Current:** v0.56.0-pre -- **24/24 E2E active (100% pass)** | 111+ compiler hardening commits

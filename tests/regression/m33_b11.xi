@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-B11: Borrow in if scope -- & ref to struct used within conditional branch
 type Cell = { v: Int; }
 fn read_cell(c: &Cell) -> Int { return c.v; }

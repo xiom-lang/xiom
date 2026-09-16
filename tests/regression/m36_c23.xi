@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-C23: Every array pattern -- Vec literal push, index, loop sum, param, return
 fn array_param(arr: Vec[Int]) -> Int {
   if arr.len() == 0 { return -1; }

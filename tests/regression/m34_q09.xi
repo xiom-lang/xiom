@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Q09: Contract with pointer -- contract-protected pointer deref chain
 fn deref_ptr(ptr: *Int) -> Int
   ensures: result >= 0

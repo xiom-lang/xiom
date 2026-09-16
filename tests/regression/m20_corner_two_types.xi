@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 type A = { x: Int; }
 type B = { y: Int; }
 fn A.to_b(self) -> Int { return self.x; }

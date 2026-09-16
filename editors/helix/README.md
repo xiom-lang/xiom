@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # XIOM for Helix
 
 LSP diagnostics/completion/hover work today via `xiom-lsp`. Native highlighting

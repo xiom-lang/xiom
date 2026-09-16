@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-C05: Multiple ensures -- range guarantees on clamp
 fn clamp(val: Int, lo: Int, hi: Int) -> Int
   ensures: result >= lo

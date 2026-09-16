@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: UInt8 right shift logical: 128 >> 1 = 64
 fn main() -> Int {
   var a: UInt8 = 128;

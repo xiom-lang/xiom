@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Multiple unsigned params through function chain
 fn add_unsigned(a: UInt8, b: UInt16) -> Int {
   var x: Int = a as Int;

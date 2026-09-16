@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # XIOM for Neovim (0.10+)
 
 Full LSP + debugging via native `vim.lsp` and `nvim-dap`. Requires `xiom-lsp`

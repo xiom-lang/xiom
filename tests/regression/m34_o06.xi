@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-O06: ? in function returning Result -- ? inside nested computation
 fn safe_mul(a: Int, b: Int) -> Result[Int, Str] {
   if a > 1000 { return Err("overflow"); }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-X05: Generic dispatch -- generic functions with multiple type parameters
 fn max(a: Int, b: Int) -> Int {
   if a > b { return a; }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-E03: Enum with single-field payload, match extract
 enum Number { IntVal(v: Int), FloatVal(v: Float64) }
 fn main() -> Int {

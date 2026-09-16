@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-P20: Combinatorial stress -- all patterns at once: 30-chain + 20-struct + 15-enum + 10-const
 // 5-module + mega-20-field + 50-wide-fn + big-match-20 + deep-nest-10 + 50-locals + type-graph
 // Final stress: 500+ lines, interleaved declarations

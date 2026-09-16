@@ -1,4 +1,7 @@
 #!/usr/bin/env xiom
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // XIOM CSV -> HTML Converter -- Gap Discovery Script
 // Usage: xiom run tools/csv_to_html.xi
 // Tests: file I/O, string splitting, Vec ops, loops, HTML generation

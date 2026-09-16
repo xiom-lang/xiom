@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // BUG 50 regression: generic container names with POINTER type args must
 // not leak `*` into LLVM identifiers (%struct.Result__*UInt8__AllocError ->
 // clang "expected '=' after name"). The mono names the container from the

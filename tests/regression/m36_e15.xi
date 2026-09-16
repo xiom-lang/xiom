@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-E15: Numeric-suffixed names
 fn f1(x: Int) -> Int { return x + 1; }
 fn f2(x: Int) -> Int { return x + 2; }

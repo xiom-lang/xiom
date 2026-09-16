@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-O14: ? with custom error type -- ? on Result[T, MyError]
 enum CalcError { Overflow, Underflow, DivByZero }
 fn mul(a: Int, b: Int) -> Result[Int, CalcError] {

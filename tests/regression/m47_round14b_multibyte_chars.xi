@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m47_round14b_multibyte_chars -- round-14 (2026-08-22) regression:
 // the multibyte Char family (BUG 26 #7). xiom_char_at returned the RAW
 // BYTE (a 2-byte char yielded 0xCE instead of the codepoint 0x03A9), so

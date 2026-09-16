@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-C06: Every derive with every struct shape -- Eq, Clone, Ord, Hash, Display, combinations
 type Pt = { x: Int; y: Int; } derive[Eq]
 type Rec = { val: Int; tag: Int; } derive[Clone]

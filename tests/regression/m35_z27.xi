@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z27: nested_match+generic+enum+struct+contract+module+derive+compound_assign+Option+const+type_alias
 type Tag = Int;
 type Entry = { tag: Tag; data: Int; } derive[Eq]

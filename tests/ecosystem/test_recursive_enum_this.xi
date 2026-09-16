@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // Regression test: recursive enum with this-based methods
 // The JSON ecosystem test uses JsonValue which has variants containing
 // Vec[JsonValue] (self-referential). This tests whether recursive type

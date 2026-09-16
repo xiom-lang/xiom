@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 interface Val { fn val(self) -> Int; }
 type N = { n: Int; }
 impl Val for N { fn val(self) -> Int { return self.n; } }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-T12: Generic constraints -- identity, struct, enum unwrap
 fn id[T](x: T) -> T { return x; }
 type Pair[T] = { first: T; second: T; }

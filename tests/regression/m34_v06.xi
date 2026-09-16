@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-V06: Float multiplication precision (commutativity, identity, zero)
 fn main() -> Int {
   var a: Float64 = 3.0;

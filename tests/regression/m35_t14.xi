@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-T14: Const for each primitive -- Bool, Int, Float64, Char, Str
 const C_BOOL: Bool = true;
 const C_INT: Int = 42;

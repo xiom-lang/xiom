@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m83: R29 lock -- building a Vec inside a match arm over a
 // Result[Vec[...]] payload must compile (clang) and behave. Pre-fix, the
 // block compiler stored every expression statement's value into the match

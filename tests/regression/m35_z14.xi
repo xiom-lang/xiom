@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z14: recursion+generic+enum+match+Option+Result+contract+module+compound_assign+while
 type Stack = { depth: Int; cur: Int; }
 enum Opcode { Push(v: Int), Pop, Dup, Swap }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // BUG 45 regression: method-form interface dispatch inside generic-bound
 // fns resolved to a stub (contains/is_sorted returned wrong results).
 // Both the generic-param receiver (f_eq) and concrete-element receivers

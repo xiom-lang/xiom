@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-W06: Shift right by 1 -- divide by 2 (signed) on multiple types
 fn main() -> Int {
   var a: Int = 128;

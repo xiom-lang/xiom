@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_const_array
 // BUG 25 #10 (crypto): const fixed-array element reads read the LENGTH slot
 // (buf[0]) instead of the element -- the whole AES S-box lookup returned

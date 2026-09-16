@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-H15: Cast in struct field -- narrow field assignment via cast
 type Point = { x: Int32; y: Int32; }
 fn main() -> Int {

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_module_003
 pub fn double(x: Int) -> Int { return x * 2; }
   pub fn triple(x: Int) -> Int { return x * 3; }

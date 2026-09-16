@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Y14: pointer field struct + unsafe + while + contract + generics + impl + module
 type Buffer = { data: *mut Int; cap: Int; len: Int; }
 enum WriteKind { Set(v: Int), Add(v: Int), Clear }

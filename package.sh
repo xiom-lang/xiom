@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
 # XIOM Release Packager (Linux / macOS)
 # Builds all tools in release mode and packages into distributable folder + tar.gz
 #

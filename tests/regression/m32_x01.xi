@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-X01: Combinatorial + Differential -- while vs recursive sum with generic+contract
 fn sum_while(n: Int) -> Int
   requires: n >= 0

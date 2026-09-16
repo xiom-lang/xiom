@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-X08: Circular type references -- mutually referencing type structures
 type NodeRef = { id: Int; next_id: Int; color: ColorRef; }
 type ColorRef = { r: Int; g: Int; b: Int; owner_id: Int; }

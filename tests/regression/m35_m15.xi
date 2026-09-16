@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-M15: sum of arithmetic series: n*(a1 + an)/2
 fn arith_sum(a1: Int, d: Int, n: Int) -> Int {
   if n <= 0 { return 0; }

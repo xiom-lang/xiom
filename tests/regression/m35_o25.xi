@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-O25: Result expect -- .unwrap() with match validation
 fn main() -> Int {
   var a: Result[Int, Str] = Ok(42);

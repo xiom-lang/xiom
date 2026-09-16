@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-D03: Tree count -- recursive count of all nodes in binary tree
 type Node = { value: Int; left: *Node; right: *Node; }
 

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // BUG 55 facet-2 regression: Some-payload reads from generic-method
 // call scrutinees (`match v.get(i) { Some(cur) => ... }`) bound literal 0
 // (no scrutinee alloca -- the generic fn's return type didn't resolve),

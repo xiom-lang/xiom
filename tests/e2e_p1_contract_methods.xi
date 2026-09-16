@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // P1-4 E2E Test: Contract collection methods
 // Tests that is_sorted(), contains() are recognized by the checker
 // and compile correctly (codegen has xiom_is_sorted/xiom_contains stubs).

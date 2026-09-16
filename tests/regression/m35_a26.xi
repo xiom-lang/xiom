@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-A26: Exponent by squaring -- fast binary exponentiation a^b % m
 fn pow_mod(base: Int, exp: Int, m: Int) -> Int {
   var r: Int = 1;

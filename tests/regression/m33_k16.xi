@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-K16: Closure in while loop -- accumulator pattern
 fn main() -> Int {
   var i: Int = 0;

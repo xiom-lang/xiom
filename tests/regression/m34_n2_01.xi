@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-N2-01: 10-deep if-else chain -- pushes conditional nesting limit
 fn main() -> Int {
   var x = 1;

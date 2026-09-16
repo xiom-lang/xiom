@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // BUG 56 regression: parser dropped the fn BODY when an ensures clause
 // preceded an EXPRESSION body -- `ensures: result == x` + `{ x }` parsed
 // `x { x }` as a STRUCT LITERAL (consuming the body block) -> the fn

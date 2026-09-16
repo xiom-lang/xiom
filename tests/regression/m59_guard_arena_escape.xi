@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M59: guard-arena escape via outer-Vec growth inside a confined unsafe
 // block -- stdlib report R4 (blocks the CSPRNG flip). A Vec created OUTSIDE
 // an unsafe block whose capacity growth happens INSIDE was migrated into the

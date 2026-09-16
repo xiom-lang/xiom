@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Y08: enum with payload matched + compound assign + impl + generic + module
 type Accum = { total: Int; count: Int; }
 enum Cmd { Add(n: Int), Mul(n: Int), Reset }

@@ -1,6 +1,6 @@
 // XIOM -- phase1_ownership
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
 
 fn take_ownership(x: Int) -> Int { return x + 1; }
 fn read_borrow(x: &Int) -> Int { return x + 0; }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // XIOM fuzz target: CTFE (compile-time function evaluation).
 // Register every parsed top-level fn in a fresh engine with a tight fuel
 // budget and evaluate each with placeholder Int args. The evaluator is a

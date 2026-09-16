@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Q19: Contract with module -- cross-module contract chain
 module math_utils {
   pub fn abs(x: Int) -> Int

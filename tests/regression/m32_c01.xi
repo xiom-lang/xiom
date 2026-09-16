@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-C01: Simple requires -- divisor must be non-zero
 fn safe_div(a: Int, b: Int) -> Int
   requires: b != 0

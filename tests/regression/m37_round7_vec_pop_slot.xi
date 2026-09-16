@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m37_round7_vec_pop_slot -- round-7 (2026-08-20) regression:
 // inlined Vec.pop + match Option slot on an EMPTY vec -- the caller's match
 // must read the inlined Option discriminant (the bare "pop" key resolved to

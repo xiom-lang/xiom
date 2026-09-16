@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-A06: Merge simulation -- count elements <= value across two sorted arrays
 fn main() -> Int {
   var a = [1, 4, 7, 10];

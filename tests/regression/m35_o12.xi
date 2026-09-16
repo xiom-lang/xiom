@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-O12: Option map_or -- match-based map_or (map then unwrap_or)
 fn opt_map_or(o: Option[Int], default: Int, f: fn(Int) -> Int) -> Int {
   match o { Some(v) => f(v), None => default }

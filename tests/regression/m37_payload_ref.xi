@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_payload_ref
 // BUG 25 #10 (crypto): a match-bound Vec payload from a catalog
 // Option/Result was bound as an i64 heap HANDLE; `&v` passed the address of

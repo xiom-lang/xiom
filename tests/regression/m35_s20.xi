@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-S20: Longest word -- find word with maximum length
 use stdlib.xiom.string;
 fn longest_word_len(s: Str) -> Int {

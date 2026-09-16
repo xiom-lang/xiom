@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Y16: generic container struct + enum operations + match + impl method + contract + module + diff
 type Stack = { i0: Int; i1: Int; i2: Int; top: Int; }
 enum StackOp { Push(v: Int), Pop, Peek }

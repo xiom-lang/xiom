@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Integer in enum payload
 enum Value { IntVal(x: Int), SmallVal(x: Int8), BigVal(x: Int64) }
 fn extract(v: Value) -> Int {

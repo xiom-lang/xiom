@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Y16: while-break + Option + match + generic + compound assign + module
 type Counter = { val: Int; limit: Int; }
 enum Tick { Up, Down, Buzz }

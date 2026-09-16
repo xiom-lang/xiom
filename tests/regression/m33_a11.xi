@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-A11: Multi-dimensional patterns -- nested array indexing simulation
 type Triple = { a: Int; b: Int; c: Int; }
 fn main() -> Int {

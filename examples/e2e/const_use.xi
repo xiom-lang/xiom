@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // E2E regression: pub const referenced across functions (GAP-3). Returns 0.
 module e2e_const_use
 

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Function returning UInt8 from computation with high value
 fn compute8() -> UInt8 {
   var a: UInt8 = 200;

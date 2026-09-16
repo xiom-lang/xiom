@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-D28: Segment tree -- range sum verification
 fn main() -> Int {
   var t0: Int = 36;

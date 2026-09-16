@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_debug_intrinsics
 // BUG 27: in-code debug intrinsics -- dbg!(expr) (print + return the value),
 // assert(cond[, "msg"]) (runtime-checked invariant, clean panic on

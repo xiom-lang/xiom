@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // xiom-display -- Shared type/expression display utilities
 // Sprint 6B.2: Deduplicates type_to_string/format_fn_signature/op_to_str
 // across xiom-lsp, xiom-doc, xiom-fmt, xiom-mcp, xiom-ffigen.

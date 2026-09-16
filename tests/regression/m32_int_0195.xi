@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Mixed sign compare Int16 vs UInt16 (safe range)
 fn main() -> Int {
   var a: Int16 = -1 as Int16;

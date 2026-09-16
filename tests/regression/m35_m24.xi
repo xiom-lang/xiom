@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-M24: e approximation: e = sum 1/k! for k=0..n
 fn e_approx(terms: Int) -> Float64 {
   var sum: Float64 = 1.0;

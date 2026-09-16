@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-N2-11: Closure chain -- closure calls another closure, multi-capture
 fn main() -> Int {
   var a = 10;

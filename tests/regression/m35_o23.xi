@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-O23: Result or_else -- match-based or_else fallback
 fn res_or_else(r: Result[Int, Str], fallback: fn(Str) -> Result[Int, Str]) -> Result[Int, Str] {
   match r { Ok(v) => Ok(v), Err(e) => fallback(e) }

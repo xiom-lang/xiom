@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-N15: Derive on type with optional-like fields -- struct with Eq using Int fields only
 type Config = { port: Int; host_id: Int; } derive[Eq]
 fn main() -> Int {

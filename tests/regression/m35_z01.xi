@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z01: struct+enum+match+closure+compound_assign+module+derive+contract+while+const
 type Item = { id: Int; qty: Int; avg: Int; } derive[Eq]
 const TAX: Int = 2;

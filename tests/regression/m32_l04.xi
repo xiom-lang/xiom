@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-L04: Nested while -- multiplication table sum (1..5 x 1..5)
 fn main() -> Int {
   var i: Int = 1;

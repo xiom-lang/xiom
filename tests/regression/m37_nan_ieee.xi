@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_nan_ieee
 // BUG 19 regression: IEEE-754 NaN/Inf semantics + Str + Float64 concat.
 // 1) float `!=` must lower to fcmp UNE -- `x != x` is TRUE for NaN (the old

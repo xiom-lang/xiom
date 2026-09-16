@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M24: Branch stress -- deeply nested if-else chain
 fn classify(x: Int) -> Int {
   if x == 0 { return 0; }

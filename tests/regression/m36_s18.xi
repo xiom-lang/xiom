@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-S18: Optimization -- dead code elimination analysis
 type DefUse = { id: Int; defined: Bool; used: Bool; reachable: Bool; }
 fn make_def_use(id: Int, def: Bool, used: Bool, reach: Bool) -> DefUse {

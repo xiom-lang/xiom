@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-V15: Float const declarations
 const PI: Float64 = 3.14;
 const E: Float64 = 2.718;

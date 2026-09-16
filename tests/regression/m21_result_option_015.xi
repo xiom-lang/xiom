@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m21_result_option_015
 pub fn run() -> Int {
     var r: Result[Int, Int] = Err(-1);

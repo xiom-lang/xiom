@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // BUG 49 regression: fn-typed params named like impl methods must call
 // through the PASSED fn pointer, not the impl symbol. impl Eq[Int] /
 // impl Ord[Int] register bare aliases "eq"/"compare"; a param named

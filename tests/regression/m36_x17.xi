@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-X17: Method resolution -- method calls on types with self methods
 type Counter = { value: Int; }
 fn Counter.new() -> Counter { return Counter{ value: 0; }; }

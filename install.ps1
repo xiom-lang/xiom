@@ -1,4 +1,7 @@
-﻿#Requires -Version 5.1
+﻿# Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     XIOM Compiler v0.46.0 Installer

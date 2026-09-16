@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: UInt8 increment loop wraparound test
 fn main() -> Int {
   var i: UInt8 = 253;

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-L25: Stack allocation pattern -- multiple struct stack allocations with interleaved access
 type Frame = { id: Int; next_id: Int; data: Int; }
 

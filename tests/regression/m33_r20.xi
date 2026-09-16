@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 fn is_ok_and(r: Result[Int, Str], pred: fn(Int) -> Bool) -> Bool {
   match r { Ok(v) => pred(v), Err(_) => false }
 }

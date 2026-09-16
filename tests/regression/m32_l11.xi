@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-L11: Loop counter -- count numbers divisible by 3 or 5 in 1..20
 fn main() -> Int {
   var n: Int = 1;

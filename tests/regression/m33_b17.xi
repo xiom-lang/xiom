@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-B17: Array borrow -- struct-as-tuple passed by &, read fields by index helper
 type Triple = { a: Int; b: Int; c: Int; }
 fn get_elem(t: &Triple, idx: Int) -> Int {

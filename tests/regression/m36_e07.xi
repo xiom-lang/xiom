@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M36-E07: Deeply nested if/elif -- 20 levels (via elif cascade)
 fn nest20(x: Int) -> Int {
   if x == 1 { return 10; }

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-N19: Type with Eq+Ord+Hash combine + Clone+Eq+Display combine
 type Card = { suit: Int; rank: Int; } derive[Eq, Ord, Hash]
 type Widget = { id: Int; label: Str; } derive[Clone, Eq, Display]

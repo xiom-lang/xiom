@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // XIOM Contract Verifier -- CLI entry point (Phase 5f Stage 0)
 // Generates corrected SMT-LIB 2.6 with body encoding and optionally invokes Z3.
 //

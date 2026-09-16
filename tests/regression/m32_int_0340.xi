@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32: Int8 pow2 check: -128 is power of 2 in 8-bit
 fn main() -> Int {
   var a: Int8 = -128 as Int8;

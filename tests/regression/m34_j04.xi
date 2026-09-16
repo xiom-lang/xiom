@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-J04: Module with pub enum -- public enum types in modules
 module result {
   pub enum Status { Success, Failure(code: Int), Pending }

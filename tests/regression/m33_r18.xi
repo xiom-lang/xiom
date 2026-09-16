@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 fn div2(a: Int) -> Result[Int, Str] {
   if a % 2 == 0 { return Ok(a / 2); }
   return Err("odd");

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z09: type_alias_chain+generic+struct_derive+Option+Result+match+contract+compound_assign+module
 type A = Int;
 type B = A;

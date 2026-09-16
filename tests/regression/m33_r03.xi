@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 fn opt_map(o: Option[Int], f: fn(Int) -> Int) -> Option[Int] {
   match o { Some(v) => Some(f(v)), None => None }
 }

@@ -1,6 +1,6 @@
 // XIOM -- Self-Hosted Lexer
-// Copyright (c) 2026 Eleftherios Notas
-// Licensed under the MIT or Apache-2.0 license, at your option.
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
 
 // Tokenizes source via character-at-position lookup.
 // Since XIOM v0.2.5 does not support arbitrary string indexing,

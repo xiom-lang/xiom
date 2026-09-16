@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m75 other: an unrelated same-leaf/same-fn module with the LONGEST key.
 // It exists so the order-independent fallback scan (longest-qualified first)
 // still cannot guess the delegation target: only the checker-recorded

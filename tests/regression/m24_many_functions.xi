@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M24: Large file stress -- many functions calling each other
 fn f0() -> Int { return 0; }
 fn f1() -> Int { return 1 + f0(); }

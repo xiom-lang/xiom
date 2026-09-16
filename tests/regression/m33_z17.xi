@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-Z17: Compound assignment in function
 fn accumulate(base: Int, a: Int, b: Int) -> Int {
   var x: Int = base;

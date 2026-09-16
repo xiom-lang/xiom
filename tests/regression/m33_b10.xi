@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M33-B10: Var reassignment -- rebind var, verify old value replaced
 fn main() -> Int {
   var x = 5;

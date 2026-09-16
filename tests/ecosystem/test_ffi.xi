@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // XIOM -- FFI Binding Gaps Regression Tests
 // Tests for: () in Result generic, pub const cross-module, extern cross-module
 module tests.ecosystem.test_ffi

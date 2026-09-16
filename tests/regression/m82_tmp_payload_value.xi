@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m82: R28 lock -- Option/Result `.value` on a TEMPORARY call result must
 // materialize the aggregate payload (Vec), not bind the raw payload handle
 // as i64. Pre-fix: `opt_vec().value` produced a Vec whose element reads

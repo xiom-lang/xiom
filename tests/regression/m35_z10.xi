@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-Z10: array+while+closure+generic+enum+module+contract+compound_assign+derive+cast
 type Row = { id: Int; score: Int; } derive[Eq]
 enum Grade { Pass, Fail, Merit(v: Int) }

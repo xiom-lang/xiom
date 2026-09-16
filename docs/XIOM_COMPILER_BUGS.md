@@ -1,3 +1,6 @@
+<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+
 # XIOM Compiler -- 2 Bugs Blocking Benchmark Arena
 
 > **Status: BOTH FIXED (v0.56.0-pre)**  

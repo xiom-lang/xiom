@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M32-M08: pub type -- public struct type in module
 module geom {
   pub type Point3D = { x: Int; y: Int; z: Int; }

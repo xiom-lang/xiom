@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // XIOM e2e test -- const-generics with [N]T arrays
 // Tests array indexing on let-bound and literal arrays (5a.7)
 // + const-declared loop size (5a.5)

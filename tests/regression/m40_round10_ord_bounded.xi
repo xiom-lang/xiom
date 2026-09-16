@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // m40_round10_ord_bounded -- round-10 (2026-08-20) regression:
 // the checker's builtin Ord/Bounded interface resolution (C001 gap).
 // The stdlib Ord tower (impl Ord[Int] etc. with compare+cmp) now registers;

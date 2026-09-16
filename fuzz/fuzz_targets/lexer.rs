@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // XIOM fuzz target: lexer.
 // Arbitrary bytes (fed as lossy UTF-8, matching what sources can contain)
 // must never panic the lexer. Audit finding: the toy LCG harness only

@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-S25: String compression -- deduplicate consecutive chars via loop
 use stdlib.xiom.string;
 fn compress(s: Str) -> Str {

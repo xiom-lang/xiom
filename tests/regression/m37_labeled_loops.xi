@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 module m37_labeled_loops
 // Labeled break/continue: `@label: while ...` + `break @label;` /
 // `continue @label;`. The label field previously never reached the

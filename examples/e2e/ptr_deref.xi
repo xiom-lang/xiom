@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // E2E regression: raw pointer deref round-trip via `ptr.from_mut` / `*p`.
 // Take the address of a scalar local, write through it, then observe the
 // mutation through the original binding. Locks in `*T` as a real LLVM pointer.

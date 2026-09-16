@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M35-S21: Shortest word -- find word with minimum non-zero length
 use stdlib.xiom.string;
 fn shortest_word_len(s: Str) -> Int {

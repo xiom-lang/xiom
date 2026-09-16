@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-V04: Negative values at boundaries (-1e100, -1e200, -1.0)
 fn main() -> Int {
   var a: Float64 = -1.0e100;

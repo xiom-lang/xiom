@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Y01: while with break + generic enum + compound assign + module
 enum Status { Active, Paused, Stopped }
 type Cell = { val: Int; stat: Status; }

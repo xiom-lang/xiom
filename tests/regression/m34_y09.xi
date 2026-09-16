@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-Y09: multi-contract + while + enum + compound assign + module
 enum OpMode { Sum, Product, Max }
 fn sum_loop(n: Int) -> Int {

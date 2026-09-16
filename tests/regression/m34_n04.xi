@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// SPDX-License-Identifier: MIT OR Apache-2.0
+
 // M34-N04: Generic struct derive[Eq] with Int instantiation
 type Pair[T] = { first: T; second: T; } derive[Eq]
 fn main() -> Int {
