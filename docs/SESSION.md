@@ -224,7 +224,10 @@ Compiler lane, on the release/infra lane's R27 (docs/COMPILER_BUGS.md).
 R0 split readiness (compiler side): R25 CLOSED (a150f246 + c3868526), R27
 CLOSED (this slice), full e2e green, release build clean, determinism
 canaries cover selfhost + bench. Remaining R0 items are release-lane
-packaging/tag/freeze plus the stdlib lane's in-flight files.
+packaging/tag/freeze plus the stdlib lane's in-flight files. OPEN
+compiler-owned correctness findings beyond R27: R28 (temporary aggregate
+`.value`), R29 (Vec-in-match-arm codegen), the bare cross-enum variant
+ambiguity and the bench Metrics GEP -- listed in SESSION.md.
 
 ### Round-77 (2026-09-16): R25 CLOSED -- fn-REFERENCE resolution + emission order determinism
 
