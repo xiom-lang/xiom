@@ -435,44 +435,38 @@ fn find_clang() -> Result<PathBuf, String> {
     Err("clang not found. Install LLVM or set XIOM_CLANG environment variable.".to_string())
 }
 
+/// R31: runtime source/library directories in R27 candidate order (installed
+/// `lib/runtime`, checkout `stdlib/runtime`, `XIOM_HOME`, CWD), shared with
+/// the compiler/LSP/MCP through `xiom_graph::paths`. JIT used to probe raw
+/// CWD-relative `stdlib/runtime/...` strings, so it failed from a bare
+/// checkout even when the stdlib lived elsewhere.
+fn runtime_dirs() -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    for root in xiom_graph::paths::current_stdlib_candidates() {
+        let rt = root.join("runtime");
+        if !dirs.contains(&rt) {
+            dirs.push(rt);
+        }
+    }
+    dirs
+}
+
 /// Find the pre-compiled C runtime shared library.
 fn find_runtime_lib() -> Option<PathBuf> {
-    let candidates = if cfg!(windows) {
-        vec![
-            PathBuf::from("stdlib/runtime/libxiom_runtime.dll"),
-            find_xiom_home().join("lib/libxiom_runtime.dll"),
-        ]
+    let lib_name = if cfg!(windows) {
+        "libxiom_runtime.dll"
     } else if cfg!(target_os = "macos") {
-        vec![
-            PathBuf::from("stdlib/runtime/libxiom_runtime.dylib"),
-            find_xiom_home().join("lib/libxiom_runtime.dylib"),
-        ]
+        "libxiom_runtime.dylib"
     } else {
-        vec![
-            PathBuf::from("stdlib/runtime/libxiom_runtime.so"),
-            find_xiom_home().join("lib/libxiom_runtime.so"),
-        ]
+        "libxiom_runtime.so"
     };
-
-    for candidate in &candidates {
+    for dir in runtime_dirs() {
+        let candidate = dir.join(lib_name);
         if candidate.exists() {
-            return Some(candidate.clone());
+            return Some(candidate);
         }
     }
     None
-}
-
-/// Find the XIOM home directory.
-fn find_xiom_home() -> PathBuf {
-    if let Ok(home) = std::env::var("XIOM_HOME") {
-        return PathBuf::from(home);
-    }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            return parent.to_path_buf();
-        }
-    }
-    PathBuf::from(".")
 }
 
 /// Compute SHA-256 hash of source text.
@@ -491,21 +485,30 @@ pub fn hash_source(source: &str) -> String {
 pub fn build_runtime_library(output_dir: &Path) -> Result<PathBuf, String> {
     let clang = find_clang()?;
 
-    let runtime_srcs = vec![
-        "stdlib/runtime/xiom_runtime.c",
-        "stdlib/runtime/async_runtime.c",
-        "stdlib/runtime/simd_runtime.c",
-        "stdlib/runtime/sha256_sw.c",
-        "stdlib/runtime/xiom_hot_reload.c",
+    // R31: resolve the runtime sources through the shared R27 candidate scan
+    // (checkout `stdlib/runtime`, installed `lib/runtime`, XIOM_HOME, CWD),
+    // not raw CWD strings.
+    let src_names = [
+        "xiom_runtime.c",
+        "async_runtime.c",
+        "simd_runtime.c",
+        "sha256_sw.c",
+        "xiom_hot_reload.c",
     ];
-
-    // Check if sources exist
-    let mut existing_srcs = Vec::new();
-    for src in &runtime_srcs {
-        if Path::new(src).exists() {
-            existing_srcs.push(src.to_string());
-        }
-    }
+    let runtime_dir = runtime_dirs()
+        .into_iter()
+        .find(|d| d.join("xiom_runtime.c").is_file());
+    let Some(runtime_dir) = runtime_dir else {
+        return Err(format!(
+            "no C runtime sources found (looked for xiom_runtime.c in: {:?})",
+            runtime_dirs()
+        ));
+    };
+    let existing_srcs: Vec<PathBuf> = src_names
+        .iter()
+        .map(|n| runtime_dir.join(n))
+        .filter(|p| p.is_file())
+        .collect();
 
     if existing_srcs.is_empty() {
         return Err("no C runtime sources found".to_string());

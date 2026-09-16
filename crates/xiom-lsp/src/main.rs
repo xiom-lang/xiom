@@ -367,13 +367,17 @@ mod tests {
     #[test]
     fn test_stdlib_module_no_false_positives() {
         let backend = Backend::new();
-        let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent().unwrap().parent().unwrap();
+        // R31: resolve through the shared helper (checkout, XIOM_STDLIB,
+        // installed lib); loud SKIP without a stdlib, hard FAIL in CI.
+        let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
         // BUG 29 (512-module layout): alloc moved stdlib/xiom/alloc.xi ->
         // stdlib/xiom/memory/alloc.xi. Namespace wave 2 (78b107fb) then moved
         // it again to stdlib/xiom/alloc/alloc.xi (directory-aligned quartet).
-        let alloc_path = repo_root.join("stdlib").join("xiom").join("alloc").join("alloc.xi");
-        let text = std::fs::read_to_string(&alloc_path).expect("stdlib/xiom/alloc/alloc.xi must exist");
+        let alloc_path = stdlib_root.join("xiom").join("alloc").join("alloc.xi");
+        if xiom_graph::paths::skip_if_missing("stdlib alloc module", &alloc_path) {
+            return;
+        }
+        let text = std::fs::read_to_string(&alloc_path).expect("stdlib alloc module must exist");
 
         let uri = format!("file:///{}", alloc_path.to_string_lossy().replace('\\', "/").replace(':', "%3A"));
         {

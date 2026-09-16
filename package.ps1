@@ -121,13 +121,16 @@ if (Test-Path $z3Src) {
 } else {
     Write-Host "    - z3.exe not found (install Z3 for contract verification)" -ForegroundColor Yellow
 }
-# Copy stdlib + runtime
+# Copy stdlib + runtime (R31: bundle from the stdlib/ checkout -- the pinned
+# xiom-lang/stdlib clone produced by scripts/fetch-stdlib.ps1 once the repo is
+# split; pre-split this is the in-tree tree).
 $stdlibSrc = "$root\stdlib"
-if (Test-Path $stdlibSrc) {
-    Copy-Item "$stdlibSrc\*" "$libDir\" -Recurse -Force
-    Write-Host "    + stdlib/ -> lib/" -ForegroundColor DarkGray
+if (-not (Test-Path "$stdlibSrc\package.xi")) {
+    throw "stdlib checkout missing at $stdlibSrc -- run scripts/fetch-stdlib.ps1 (or set XIOM_STDLIB) before packaging"
 }
-$rtSrc = "$root\stdlib\runtime\xiom_runtime.c"
+Copy-Item "$stdlibSrc\*" "$libDir\" -Recurse -Force
+Write-Host "    + stdlib/ -> lib/ (pin: $((Get-Content "$root\STDLIB_VERSION" -Raw).Trim()))" -ForegroundColor DarkGray
+$rtSrc = "$stdlibSrc\runtime\xiom_runtime.c"
 if (Test-Path $rtSrc) {
     Copy-Item $rtSrc "$rtDir\" -Force
     Write-Host "    + xiom_runtime.c -> runtime/" -ForegroundColor DarkGray
@@ -150,13 +153,18 @@ if (Test-Path $mcpSrc) {
     Write-Host "    + mcp/ (IDE configs: Kilo, Cursor, Claude, Windsurf, etc.)" -ForegroundColor DarkGray
 }
 
-# Copy the WASM compiler (browser playground: xiom_wasm.js + xiom_wasm_bg.wasm)
+# Browser-playground WASM compiler (R31): take the artifact produced by the
+# compiler release job; never reach into the old in-repo playground folder.
 $wasmDir = "$pkgDir\wasm"
-if (Test-Path "$root\xiom-playground\xiom_wasm_bg.wasm") {
+$wasmArtifactDirs = @("$root\dist\wasm", "$root\artifacts\wasm", "$root\target\wasm-dist")
+$wasmSrc = $wasmArtifactDirs | Where-Object { Test-Path "$_\xiom_wasm_bg.wasm" } | Select-Object -First 1
+if ($wasmSrc) {
     New-Item -ItemType Directory -Force -Path $wasmDir | Out-Null
-    Copy-Item "$root\xiom-playground\xiom_wasm.js" "$wasmDir\" -Force
-    Copy-Item "$root\xiom-playground\xiom_wasm_bg.wasm" "$wasmDir\" -Force
-    Write-Host "    + wasm/ (in-browser compiler, xiom_wasm.js + xiom_wasm_bg.wasm)" -ForegroundColor DarkGray
+    Copy-Item "$wasmSrc\xiom_wasm.js" "$wasmDir\" -Force -ErrorAction SilentlyContinue
+    Copy-Item "$wasmSrc\xiom_wasm_bg.wasm" "$wasmDir\" -Force
+    Write-Host "    + wasm/ (in-browser compiler from $wasmSrc)" -ForegroundColor DarkGray
+} else {
+    Write-Host "    - wasm artifact not found (release job output: dist/wasm); skipping playground payload" -ForegroundColor Yellow
 }
 
 # Create README

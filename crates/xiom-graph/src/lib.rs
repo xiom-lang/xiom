@@ -15,6 +15,7 @@ mod discover;
 mod graph;
 pub mod hash;
 pub mod manifest;
+pub mod paths;
 mod sort;
 
 pub use cache::{make_cache_entry, CacheDb, CacheEntry, CacheTiers};

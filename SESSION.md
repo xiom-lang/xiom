@@ -1,8 +1,8 @@
-# XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-76 in docs/SESSION.md)
+# XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-82 in docs/SESSION.md)
 
-Branch `feat/architect`. Last compiler commit: the round-78 slice (R27 --
-installed-binary stdlib discovery, release R0); the round-77 slice (R25
-determinism) and its docs entry precede it. Working tree should be clean
+Branch `feat/architect`. Last compiler commit: the round-82 slice (R31 --
+cross-repo test isolation); the round-79/80/81 slices (R28/R29/R30) precede
+it. Working tree should be clean
 except the generated
 `.xiom_ai.json` and the parallel stdlib lane's files. The stdlib session
 commits to the same branch; NEVER stage their `stdlib/**`,
@@ -75,16 +75,29 @@ through R24 is CLEARED, and the supply chain is signed. Highlights:
   search dirs use the FIRST valid root only. Fake-install + release-binary
   `use xiom.io` sims exit 0; 5 new unit tests. Release R0 compiler-side
   blockers are done.
+- **R31 CLOSED (round 82)**: cross-repo test isolation for the split. One
+  helper (`xiom-graph::paths`): R27 candidates + `stdlib_root()`,
+  `stdlib_smoke_dir()` (XIOM_STDLIB_SMOKES -> `<stdlib>/tests/smoke/` ->
+  legacy), `stdlib_or_skip()`/`skip_if_missing()` (loud SKIP locally, hard
+  FAIL under `XIOM_REQUIRE_STDLIB=1`). Driver delegates; JIT resolves runtime
+  via the scan (`xiom build-runtime` verified); codegen/LSP/MCP tests
+  parameterized; R9-01 guard prints SKIP; `scripts/fetch-stdlib.ps1|.sh` +
+  `STDLIB_VERSION` (`main` for now -- release lane swaps in the split tag) +
+  `.gitignore stdlib/`; packaging bundles from the checkout and drops the
+  `xiom-playground` WASM copy for a release-artifact lookup.
 - **Stage 6 start (round 76)**: `perf_budget_tests.rs` (IR byte budgets +
   180s ceiling + byte-identical determinism canary), CI-wired;
   deterministic variant->parent-enum and `type_meta` selection
   (`pick_deterministic`: current module -> shortest key -> lexicographic).
 
-Last full gates (round 78): xiom 25/25 (+15/+34 integration), checker
-189/189, stdlib-exec 85/85 (+2 ign), feature-reg 510/510, perf 2/2 (both
-determinism canaries), m35 300/300, pkg 52/52, dbg 34/34, lsp 44/44, mcp
-39/39, e2e **2329/2329**, `cargo build --release -p xiom` clean, selfhost
-v092 compiles.
+Last full gates (round 82): workspace `--lib` 521/521, checker 189/189,
+feature-reg 510/510, stdlib-exec 85/85 (+2 ign), perf 2/2, pkg 52/52, dbg
+34/34, lsp 44/44, mcp 39/39, jit 5/5, `xiom build-runtime` exit 0, e2e
+**2331/2331** (R30 binary; the R31 run is the split gate), `cargo build
+--release -p xiom` clean. Known red, stdlib-lane owned, pre-existing:
+`stdlib_api_freeze_no_removals` (52 drifted signatures) and
+`stdlib_tests::stdlib_all_modules_compile_to_ir` (`encoding.ascii85` T001) --
+both documented in docs/COMPILER_BUGS.md R31 FIXED.
 
 ## R25 -- CLOSED (round 77)
 
@@ -169,25 +182,25 @@ byte-identical at 5,687,052 bytes).
 ```
 Continue the AXIOM compiler-lane readiness campaign in E:\Projects\AXIOM on
 branch feat/architect. Read SESSION.md (repo root) and docs/SESSION.md
-(rounds 61-78; round 78 has R27, round 77 has the R25 close) before touching
-code. The stdlib session works in parallel on stdlib/** only and commits to
-the same branch (they sometimes sweep the whole tree -- re-check git log if a
-change seems missing); never stage their files.
+(rounds 61-82; round 82 has R31, round 80/79 the R29/R28 fixes) before
+touching code. The stdlib session works in parallel on stdlib/** only and
+commits to the same branch (they sometimes sweep the whole tree -- re-check
+git log if a change seems missing); never stage their files.
 
 State: Stage 3 Item A CLOSED (strict catalog findings, checker 189/189),
-R-bugs through R30 CLEARED with locks m74-m83 (one non-R finding open: the
+R-bugs through R31 CLEARED with locks m74-m83 (one non-R finding open: the
 same-leaf TYPE collision, see "Open compiler findings"); e2e 2331/2331 on
-the R28+R29+R30 binary; supply chain
-signed (ed25519 keygen/trust/sign/verify, fail-closed installs, ureq-only
-publish, git commit pins), Stage 6 perf budgets wired (determinism canary
-covers selfhost v092 + bench graph), selfhost v092 compile gate GREEN,
-release R0 compiler-side blockers DONE (R25+R27, release build clean).
+the R30 binary and the R31 split-gate run; supply chain signed (ed25519
+keygen/trust/sign/verify, fail-closed installs, ureq-only publish, git
+commit pins), Stage 6 perf budgets wired (determinism canary covers selfhost
+v092 + bench graph), selfhost v092 compile gate GREEN, release R0
+compiler-side blockers DONE (R25+R27+R31, release build clean).
 
-Pending: round-77 residuals (ambiguous bare cross-enum variant + bench
-Metrics GEP) are listed in docs/SESSION.md. Release R0 compiler-side
-blockers are DONE: R25 + R27 entries in docs/COMPILER_BUGS.md, e2e green,
-release build clean. Remaining R0 work is release-lane (tag/bundle/freeze)
-plus the stdlib lane's uncommitted files.
+Pending (cross-lane, pre-existing): stdlib_api_freeze_no_removals RED (52
+drifted signatures) and stdlib_tests::stdlib_all_modules_compile_to_ir RED
+(xiom.encoding.ascii85 T001) -- both stdlib-lane owned, documented in
+COMPILER_BUGS R31 FIXED. STDLIB_VERSION is `main` until the release lane
+swaps in the split tag.
 
 Your task, in order:
 1. Supply-chain tail: transitive dependency closure from registry metadata,
