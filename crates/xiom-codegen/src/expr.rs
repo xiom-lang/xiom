@@ -2606,14 +2606,16 @@ impl IrEmitter {
                             });
                         if let Some(field_names) = field_names_opt {
                             if let Some(field_idx) = IrEmitter::resolve_field_index(&field_names, &field.name) {
-                                let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
+                                // R28: payload-aware read (shared with the
+                                // local-receiver path). Skipping the override
+                                // here bound `f().value` on an Option[Vec] as
+                                // the raw box handle i64, so later indexing
+                                // emitted a literal 0 (zeroed Vec).
                                 let struct_alloca = self.fresh_tmp();
                                 self.emitln(&format!("  {struct_alloca} = alloca {ov_ty}"));
                                 self.emitln(&format!("  store {ov_ty} {obj_val}, {ov_ty}* {struct_alloca}"));
-                                let gep = self.fresh_tmp();
-                                let loaded = self.fresh_tmp();
-                                self.emitln(&format!("  {gep} = getelementptr {ov_ty}, {ov_ty}* {struct_alloca}, i32 0, i32 {field_idx}"));
-                                self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
+                                let (loaded, field_llvm_ty) = self.emit_struct_field_read(
+                                    obj, &field.name, type_name, field_idx, &struct_alloca, &ov_ty);
                                 return Ok((loaded, field_llvm_ty));
                             }
                         }
@@ -5321,6 +5323,95 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 (raw, LLVM_I64.to_string())
             }
         }
+    }
+
+    /// R28: read a FIELD from a struct VALUE held in `struct_alloca`, applying
+    /// the Option/Result payload override when the static slot is an erased
+    /// i64 (Str -> i8*, Float -> bitcast, boxed struct/container ->
+    /// inttoptr+load). This mirrors the local-receiver payload override in the
+    /// Field arm exactly; the computed-value path used to skip it and returned
+    /// the raw payload HANDLE as i64, so `f().value` on an `Option[Vec[Int]]`
+    /// bound an i64 slot whose later indexing emitted a literal 0 (R28:
+    /// temporary `.value` gave a zeroed Vec while a named local worked).
+    fn emit_struct_field_read(
+        &mut self,
+        obj: &Expr,
+        field_name: &str,
+        type_name: &str,
+        field_idx: usize,
+        struct_alloca: &str,
+        struct_ty: &str,
+    ) -> (String, String) {
+        let is_result = type_name.ends_with("Result")
+            || type_name.contains(".Result")
+            || type_name.starts_with("Result__");
+        let is_option = type_name.ends_with("Option")
+            || type_name.contains(".Option")
+            || type_name.starts_with("Option__");
+        let mut field_llvm_ty = self.field_llvm_type(type_name, field_idx);
+        let mut payload_reinterpret = false;
+        let mut payload_boxed = false;
+        let is_payload_field =
+            (is_option || is_result) && (field_name == "value" || field_name == "error");
+        if is_payload_field && field_llvm_ty == "i64" {
+            if let Some(px) = self.field_payload_xiom(obj, field_name) {
+                payload_reinterpret = true;
+                match px.as_str() {
+                    "Str" => field_llvm_ty = "i8*".to_string(),
+                    "Float64" | "Float" => field_llvm_ty = "double".to_string(),
+                    "Float32" => field_llvm_ty = "float".to_string(),
+                    "Bool" | "Char" | "Int" | "Int8" | "Int16" | "Int32" | "UInt8"
+                    | "UInt16" | "UInt32" | "Int64" | "UInt" | "UInt64" | "UInt128"
+                    | "Int128" => payload_reinterpret = false,
+                    _ => {
+                        if let Ok(st) = self.llvm_type_for(&px) {
+                            if st.starts_with("%struct.") {
+                                field_llvm_ty = st;
+                                payload_boxed = true;
+                            } else {
+                                payload_reinterpret = false;
+                            }
+                        } else {
+                            payload_reinterpret = false;
+                        }
+                    }
+                }
+            }
+        }
+        let gep = self.fresh_tmp();
+        self.emitln(&format!(
+            "  {gep} = getelementptr {struct_ty}, {struct_ty}* {struct_alloca}, i32 0, i32 {field_idx}"
+        ));
+        let loaded = if payload_reinterpret {
+            let raw_loaded = self.fresh_tmp();
+            self.emitln(&format!("  {raw_loaded} = load i64, i64* {gep}"));
+            if payload_boxed {
+                let sp = self.fresh_tmp();
+                self.emitln(&format!("  {sp} = inttoptr i64 {raw_loaded} to {field_llvm_ty}*"));
+                let sv = self.fresh_tmp();
+                self.emitln(&format!("  {sv} = load {field_llvm_ty}, {field_llvm_ty}* {sp}"));
+                sv
+            } else if field_llvm_ty.ends_with('*') {
+                let ip = self.fresh_tmp();
+                self.emitln(&format!("  {ip} = inttoptr i64 {raw_loaded} to {field_llvm_ty}"));
+                ip
+            } else if field_llvm_ty == "float" {
+                let t32 = self.fresh_tmp();
+                self.emitln(&format!("  {t32} = trunc i64 {raw_loaded} to i32"));
+                let bc = self.fresh_tmp();
+                self.emitln(&format!("  {bc} = bitcast i32 {t32} to {field_llvm_ty}"));
+                bc
+            } else {
+                let bc = self.fresh_tmp();
+                self.emitln(&format!("  {bc} = bitcast i64 {raw_loaded} to {field_llvm_ty}"));
+                bc
+            }
+        } else {
+            let loaded = self.fresh_tmp();
+            self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
+            loaded
+        };
+        (loaded, field_llvm_ty)
     }
 
     /// Returns true if `receiver` in `receiver.method(args)` is a real VALUE
