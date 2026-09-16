@@ -468,6 +468,20 @@ pub struct LocalContext {
     pub spawn_counter: u32,
     /// R1: Counter for DWARF debug info metadata node numbering
     pub di_node_counter: u32,
+    /// Stage 5: `.xi` location of the statement being compiled. Attached as
+    /// `!DILocation` to every instruction `emitln` writes while debug symbols
+    /// are enabled, so GDB/LLDB can bind `.xi` breakpoints to body lines (R1
+    /// only mapped function entry lines before).
+    pub current_debug_loc: Option<(u32, u32)>,
+    /// DI node of the function being emitted (its DISubprogram).
+    pub current_di_subprogram: Option<u32>,
+    /// (line, col) -> DILocation node id; one node per unique source span
+    /// keeps the metadata section small.
+    pub di_loc_cache: HashMap<(u32, u32), u32>,
+    /// Buffered `!N = !DILocation(...)` definitions, flushed at module end
+    /// (LLVM resolves numbered-metadata forward references; verified with a
+    /// moved compile-unit definition).
+    pub di_loc_pending: Vec<String>,
 }
 
 // ============================================================================

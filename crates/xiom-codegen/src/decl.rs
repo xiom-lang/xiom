@@ -1329,8 +1329,12 @@ impl IrEmitter {
             let di_node = self.local.di_node_counter;
             self.local.di_node_counter += 1;
             let line = fd.name.span.line.max(1);
+            // Stage 5: scope subsequent instructions in this body to the
+            // function's DISubprogram (cleared at the epilogue).
+            self.local.current_di_subprogram = Some(di_node);
+            self.local.current_debug_loc = Some((line, fd.name.span.col.max(1)));
             // Emit the DISubprogram metadata inline, right before the define
-            self.emitln(&format!("!{} = distinct !DISubprogram(name: \"{emit_symbol}\", linkageName: \"{emit_symbol}\", scope: !4, file: !4, line: {line}, type: !{{}}, spFlags: DISPFlagDefinition, unit: !0)", di_node));
+            self.emitln(&format!("!{} = distinct !DISubprogram(name: \"{emit_symbol}\", linkageName: \"{emit_symbol}\", scope: !4, file: !4, line: {line}, type: !5, spFlags: DISPFlagDefinition, unit: !0)", di_node));
             format!(" !dbg !{}", di_node)
         } else {
             String::new()
@@ -1788,6 +1792,10 @@ impl IrEmitter {
         self.fctx.current_receiver = None;
         self.fctx.current_ensures.clear();
         self.fctx.result_ptr = None;
+        // Stage 5: leave the function's DWARF scope (deferred closures etc.
+        // must not attach locations to the enclosing subprogram).
+        self.local.current_di_subprogram = None;
+        self.local.current_debug_loc = None;
         // BUG 22 #6: splice loop-body-hoisted allocas into the entry block.
         self.finish_hoisted_allocas();
         // M20-A1: Emit any deferred closure function definitions

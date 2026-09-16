@@ -4191,6 +4191,10 @@ impl IrEmitter {
         // emission are spliced into the type-decl block before returning.
         self.splice_deferred_type_defs();
 
+        // Stage 5: flush buffered DWARF `!DILocation` nodes (instructions
+        // emitted above reference these ids; LLVM resolves forward refs).
+        self.flush_debug_locations();
+
         Ok(self.output.clone())
     }
 
@@ -6617,10 +6621,33 @@ impl IrEmitter {
         self.emitln("}\n");
     }
 
+    /// Stage 5: extract the `.xi` span of a block item for DWARF locations.
+    fn stmt_or_expr_debug_span(item: &StmtOrExpr) -> Option<(u32, u32)> {
+        let sp = match item {
+            StmtOrExpr::Stmt(s) => match s {
+                Stmt::Let(_, _, _, sp) | Stmt::Var(_, _, _, sp) | Stmt::Assign(_, _, sp)
+                | Stmt::Return(_, sp) | Stmt::Expr(_, sp) | Stmt::If(_, _, _, _, sp)
+                | Stmt::Match(_, _, sp) | Stmt::While(_, _, _, sp, _) | Stmt::For(_, _, _, sp, _)
+                | Stmt::Spawn(_, sp, _) | Stmt::Destructure(_, _, sp) | Stmt::Break(_, sp)
+                | Stmt::Continue(_, sp) | Stmt::Defer(_, sp) | Stmt::Assert(_, _, sp)
+                | Stmt::Debugger(sp) => *sp,
+                Stmt::Asm(a) => a.span,
+            },
+            StmtOrExpr::Expr(e) => e.span(),
+        };
+        if sp.line == 0 { None } else { Some((sp.line, sp.col)) }
+    }
+
     fn compile_block(&mut self, block: &Block, is_expression: bool) -> Result<Option<String>, String> {
         let mut last_result = None;
 
         for (idx, item) in block.stmts.iter().enumerate() {
+            // Stage 5: statement-level `.xi` location for DWARF line tables.
+            if self.config.debug_symbols {
+                if let Some((line, col)) = Self::stmt_or_expr_debug_span(item) {
+                    self.local.current_debug_loc = Some((line, col));
+                }
+            }
             let is_last = idx == block.stmts.len() - 1;
             match item {
                 StmtOrExpr::Stmt(stmt) => {
