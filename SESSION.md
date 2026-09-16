@@ -116,15 +116,17 @@ uncommitted stdlib-lane WIP at close; append once clean).
 
 ## Open compiler findings (pre-selfhost, not R0-blocking)
 
-1. **Cross-enum variant ambiguity**: bare `Empty` constructs a deterministic
-   parent but the later method leaf-bind can disagree
-   (`@Message.size_hint(%struct.BST*)` in bench IR); needs a checker rule.
-2. **Bench `%struct.Metrics` GEP** indexes field 4 of 4 -> the benchmark graph
-   does not fully clang-compile (Stage 6 measures emitted IR bytes only).
+1. **Same-leaf TYPE collision across user modules** (the last clang error in
+   the bench graph): `benchmark.borrow.Metrics` (4 fields) and
+   `benchmark.derive.Metrics` (7 fields) both emit as `%struct.Metrics`; the
+   derive literal GEPs fields 4-6 of the 4-field definition. Needs a
+   `fn_symbol_map`-style TYPE symbol map (qualify every cross-module
+   same-leaf struct key, route all `%struct.` references through it). Bench is
+   IR-gated only, so no suite regresses today.
 
-Suggested order: 1 -> 2, each with a lock + COMPILER_BUGS entry.
-(R28 -- temporary `.value` payload -- FIXED round 79, lock m82. R29 -- Vec in
-match arm -- FIXED round 80, lock m83.)
+Fixed this session: R28 (temporary `.value`, lock m82), R29 (Vec in match arm,
+lock m83), R30 (bare variant pick parity -- the old R25 residual; bench IR
+byte-identical at 5,687,052 bytes).
 
 ## Remaining queue
 
@@ -173,9 +175,9 @@ the same branch (they sometimes sweep the whole tree -- re-check git log if a
 change seems missing); never stage their files.
 
 State: Stage 3 Item A CLOSED (strict catalog findings, checker 189/189),
-R-bugs through R29 CLEARED with locks m74-m83 (two non-R findings open,
-see "Open compiler findings"); e2e 2331/2331 on the R28+R29 binary;
-supply chain
+R-bugs through R30 CLEARED with locks m74-m83 (one non-R finding open: the
+same-leaf TYPE collision, see "Open compiler findings"); e2e 2331/2331 on
+the R28+R29+R30 binary; supply chain
 signed (ed25519 keygen/trust/sign/verify, fail-closed installs, ureq-only
 publish, git commit pins), Stage 6 perf budgets wired (determinism canary
 covers selfhost v092 + bench graph), selfhost v092 compile gate GREEN,

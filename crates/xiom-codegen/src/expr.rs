@@ -811,7 +811,7 @@ impl IrEmitter {
                     let tmp = self.fresh_tmp();
                     self.emitln(&format!("  {tmp} = load {llvm_ty}, {llvm_ty}* @{symbol}"));
                     Ok((tmp, llvm_ty))
-                } else if let Some(enum_key) = self.pick_deterministic(
+                } else if let Some(enum_key) = self.pick_variant_parent(
                     self.types.enum_variants.entries().into_iter()
                         .filter(|(_, vars)| vars.iter().any(|(v, _)| v == &ident.name))
                         .map(|(ek, _)| ek)
@@ -3646,7 +3646,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             .filter(|(k, _)| k.ends_with(&suffix))
                             .map(|(k, _)| k)
                             .collect();
-                        self.pick_deterministic(candidates)
+                        self.pick_variant_parent(candidates)
                     }
                 } else {
                     // Bare variant: search all enums -- BUT only when the name

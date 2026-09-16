@@ -190,6 +190,31 @@ MAX_EXPR_DEPTH=32; now nest 300), lexer test-only helper gated with
 cfg(test), unused bindings underscored. fuzz_tests 24/24, robustness 63/63,
 workspace check clean.
 
+### Round-81 (2026-09-16): R30 FIXED -- bare variant pick parity with the checker
+
+Compiler lane, closing the R25 residual (`@Message.size_hint(%struct.BST*)`).
+
+- Root cause: two rules. The checker keeps the FIRST-declaring enum for a bare
+  variant (`Empty` -> Message); codegen's round-76 `pick_deterministic`
+  (shortest/lexicographic) picked BST, so `var empty = Empty;` built
+  `%struct.BST` while `empty.size_hint()` dispatched `Message.size_hint`.
+- Fix: `TypeContext::enum_decl_order` (declaration order) +
+  `pick_variant_parent` (first-declared, then `pick_deterministic` fallback)
+  used by `resolve_variant_parent_enum`, the bare-Ident construction, and the
+  module-qualified enum fallback.
+- Evidence: all bench `Message.size_hint` calls now take `%struct.Message*`;
+  bench IR byte-identical 3/3 at 5,687,052 bytes (perf table updated).
+- Gates: feature-reg 510/510, stdlib-exec 85/85 (+2 ign), perf 2/2 (canary
+  covers both graphs), full e2e 2331/2331.
+- **Still open (type namespace):** `benchmark.borrow.Metrics` (4 fields) and
+  `benchmark.derive.Metrics` (7 fields) both emit `%struct.Metrics`, so the
+  derive literal GEPs fields 4-6 of the 4-field def (the only remaining clang
+  error in the bench graph). Needs a `fn_symbol_map`-style TYPE qualification
+  pass; documented in the R30 residual notes. The bench is IR-gated only, so
+  no suite regresses.
+- Next: Stage 5 tail -- supply-chain closure + server publish auth, clap,
+  fmt body-inline trivia, cargo-vet/fuzz/ASAN -- then the release split.
+
 ### Round-80 (2026-09-16): R29 FIXED -- match-arm expression statements no longer write the result slot
 
 Compiler lane, on the stdlib lane's R29 (`probes\p_match_vec_codegen.xi`).

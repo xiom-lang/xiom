@@ -125,7 +125,12 @@ impl IrEmitter {
                 invariants: Vec::new(),
             });
             self.types.enum_variants.insert(enum_name.clone(), variants_info);
-            self.types.enum_variant_field_types.insert(enum_name, variants_types);
+            self.types.enum_variant_field_types.insert(enum_name.clone(), variants_types);
+            // R30: keep declaration order for the checker-consistent bare
+            // variant parent pick.
+            if !self.types.enum_decl_order.contains(&enum_name) {
+                self.types.enum_decl_order.push(enum_name.clone());
+            }
         }
         if let TopDecl::Module(md) = item {
             let new_prefix = if prefix.is_empty() { md.name.name.clone() } else { format!("{}.{}", prefix, md.name.name) };

@@ -6201,6 +6201,43 @@ while, Some/None result checked).
 Gates: e2e_m83 1/1, feature-reg 510/510, stdlib-exec 85/85 (+2 ign),
 perf 2/2 (both determinism canaries).
 
+## R30. Bare variant pick diverged from the checker's first-declared rule (2026-09-16, compiler lane round 81)
+
+**FIXED (round 81).** Found while closing R25: after the determinism fixes, the
+bench graph still emitted a type-mismatched call --
+`@Message.size_hint(%struct.BST*)` in `benchmark.enums.test_enum_data`:
+
+    var empty = Empty;              // bare variant, declared by Message,
+    if empty.size_hint() == 0 { }   // Container, BST, ...
+
+Root cause: TWO different resolution rules. The checker's bare-variant map keeps
+the FIRST declaring enum (`enum_variants.entry(name).or_insert(parent)`, so
+`Empty` -> `Message`, the first of the three). Codegen's `pick_deterministic`
+(round 76, shortest-then-lexicographic) picked `BST`, so the construction built
+`%struct.BST` while method dispatch (leaf `size_hint`) called
+`Message.size_hint`.
+
+Fix: `TypeContext::enum_decl_order` records enum keys in declaration
+(program-walk) order; `IrEmitter::pick_variant_parent` prefers the
+first-declared candidate and only then falls back to `pick_deterministic` for
+generated enums not in the walk. Used by `resolve_variant_parent_enum`, the
+bare-`Ident` variant construction, and the module-qualified enum fallback --
+the same rule the checker uses, so construction and dispatch can no longer
+disagree.
+
+Evidence: all three `Message.size_hint` call sites in the bench IR take
+`%struct.Message*`; `var empty = Empty` builds `%struct.Message`. Bench IR is
+still byte-identical across 3 runs (5,687,052 bytes) and the canary covers it.
+
+Residual (separate, OPEN): the bench graph's remaining clang error is a
+same-leaf TYPE collision -- `benchmark.borrow.Metrics` (4 fields) and
+`benchmark.derive.Metrics` (7 fields) both register/emit as `%struct.Metrics`,
+so the derive literal GEPs fields 4-6 of the 4-field definition. Needs a
+`fn_symbol_map`-style TYPE symbol qualification pass (qualify every
+cross-module same-leaf struct key and route all `%struct.` references through
+it); deferred as too broad for this round. The bench is IR-gated only, so no
+suite regresses.
+
 ## R27. Installed-binary stdlib discovery misses the release layout (2026-09-16, release/infra lane)
 
 Found while preparing the downloadable toolchain for the staged public beta
