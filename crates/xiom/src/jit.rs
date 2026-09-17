@@ -53,8 +53,9 @@ pub fn jit_execute(source: &str) -> Result<i32, String> {
     }
 }
 
-/// Time+counter-based suffix so concurrent JIT compiles use distinct files.
-fn rand_suffix() -> u64 {
+/// Time+counter-based suffix so concurrent compilations (and concurrent
+/// driver processes sharing a temp dir) use distinct file names.
+pub fn rand_suffix() -> u64 {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
     static COUNTER: AtomicU64 = AtomicU64::new(0);

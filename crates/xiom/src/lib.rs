@@ -1340,9 +1340,13 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             let cwd0 = std::env::current_dir().unwrap_or_default();
             let abs_output = if std::path::Path::new(output).is_absolute() { output.to_string() } else { cwd0.join(output).to_string_lossy().to_string() };
 
+            // Unique per invocation: pid alone collides when the same process
+            // links two outputs with the same name, or another process reuses
+            // the pid-derived dir after a crash.
             let unique_tmp = std::env::temp_dir().join(format!(
-                "xiomlink_{}_{}",
+                "xiomlink_{}_{:x}_{}",
                 std::process::id(),
+                crate::jit::rand_suffix(),
                 output.replace(['\\', '/', ':', '.'], "_")
             ));
             let _ = std::fs::create_dir_all(&unique_tmp);
