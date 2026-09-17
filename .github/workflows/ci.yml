@@ -26,10 +26,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install Rust toolchain (MSRV)
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: "1.86.0"
 
@@ -41,7 +41,7 @@ jobs:
         run: cargo check --workspace --all-targets
 
       - name: Install cargo-deny
-        uses: taiki-e/install-action@cargo-deny
+        uses: taiki-e/install-action@20dbe8975311291f4d8dc8bbf4c4dd67b25920d5 # cargo-deny
 
       - name: Supply-chain gate (advisories, licenses, bans, sources)
         run: cargo deny check advisories licenses bans sources
@@ -63,7 +63,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Read STDLIB_VERSION
         id: pin
@@ -74,7 +74,7 @@ jobs:
       # read on xiom-lang/stdlib); github.token cannot read another private
       # repository. See docs/REPO_MIGRATION_RUNBOOK.md.
       - name: Checkout stdlib at the pin
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: xiom-lang/stdlib
           ref: ${{ steps.pin.outputs.ref }}
@@ -86,12 +86,12 @@ jobs:
         shell: bash
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: ${{ matrix.rust }}
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/registry/
