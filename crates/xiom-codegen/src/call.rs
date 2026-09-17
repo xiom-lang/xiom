@@ -3873,6 +3873,45 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                 let (addr, _addr_ty) = self.compile_expr(
                                                     &Expr::Ref(Box::new(receiver.as_ref().clone()), xiom_ast::Span::new(0, 0)))?;
                                                 (addr, format!("{recv_llvm_ty}*"))
+                                            } else if let Expr::Index(..) = &**receiver {
+                                                // R41: `pairs[i].read_first()` -- a
+                                                // struct ELEMENT receiver with a
+                                                // pointer-self callee must pass the
+                                                // element ADDRESS (like the Ref arm
+                                                // in the non-generic path), not the
+                                                // loaded value: clang rejected
+                                                // `call @Pair.read_first_Int_Int(
+                                                // %struct.Pair* %loaded_value)`.
+                                                let ref_expr = Expr::Ref(
+                                                    Box::new((**receiver).clone()),
+                                                    xiom_ast::Span::new(0, 0),
+                                                );
+                                                let (addr_val, _) = self.compile_expr(&ref_expr)?;
+                                                let ptr_reg = self.fresh_tmp();
+                                                self.emitln(&format!(
+                                                    "  {ptr_reg} = inttoptr i64 {addr_val} to {p0}"
+                                                ));
+                                                (ptr_reg, p0.clone())
+                                            } else if recv_llvm_ty.starts_with("%struct.")
+                                                && p0 == &format!("{recv_llvm_ty}*")
+                                            {
+                                                // R41: any other STRUCT-VALUE
+                                                // temporary receiver (call result,
+                                                // literal, ...) with a pointer-self
+                                                // callee: materialize it into an
+                                                // alloca and pass the address.
+                                                // The old fallback passed the value
+                                                // where a pointer was expected --
+                                                // silently accepted by LLVM, then
+                                                // read as an address.
+                                                let slot = self.fresh_tmp();
+                                                self.emitln(&format!(
+                                                    "  {slot} = alloca {recv_llvm_ty}"
+                                                ));
+                                                self.emitln(&format!(
+                                                    "  store {recv_llvm_ty} {recv_val}, {recv_llvm_ty}* {slot}"
+                                                ));
+                                                (slot, format!("{recv_llvm_ty}*"))
                                             } else { (recv_val, recv_llvm_ty) }
                                         } else { (recv_val, recv_llvm_ty) }
                                     } else { (recv_val, recv_llvm_ty) }

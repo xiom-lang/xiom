@@ -27,9 +27,16 @@ non-generic instance-method receiver coercion now loads the struct when the
 callee's first param is a by-value struct (call.rs), lock
 `e2e_m85_clone_ref_receiver` + CI lock line.
 
+Also 2026-09-17: R41 FIXED -- generic-method calls passed struct VALUES where
+a pointer self was expected (bench `Pair.read_first_Int_Int`); the generic
+receiver ABI block now mirrors the non-generic materialization. R42 FIXED --
+bare enum variants resolve scope-first (checker parity) so
+`var c: Container[Int] = Empty` binds Container, not the first-declared
+`Message`. See docs/COMPILER_BUGS.md R41/R42.
+
 Branch `main` (post-split). The round-83 slice (pre-split housekeeping +
-handoff) and earlier rounds live in the pre-split history; the R32-R38, R39
-and R40 hardening slices are the latest compiler-lane commits.
+handoff) and earlier rounds live in the pre-split history; the R32-R42
+hardening slices are the latest compiler-lane commits.
 Working tree should be clean; `.xiom_ai.json` is generated tooling state and
 is now untracked/ignored (it has been committed before -- `git rm --cached`
 in this round). In the monorepo phase the parallel stdlib lane committed to
@@ -154,21 +161,29 @@ uncommitted stdlib-lane WIP at close; append once clean).
 
 ## Open compiler findings (pre-selfhost, not R0-blocking)
 
-1. **Bench graph clang: generic-mono `Pair` ABI mismatch** (surfaced after R39
-   fixed the same-leaf TYPE collision): `benchmark.generics_hard.Pair`
-   `read_first_Int_Int` is called with a `%struct...Pair` value while the
-   mono'd signature expects `ptr` (clang: "'%tmp31' defined with type
-   '%struct.benchmark.generics_hard.Pair' but expected 'ptr'"). Pre-existing
-   (also on the explicit-source path), never blocked because the bench is
-   IR-gated only. Repro: `xiom --emit-ir examples/benchmark/main.xi > b.ll;
-   clang -c b.ll -o b.o` -> one error at the generics_hard Pair call.
+1. **Bench graph clang: generic-arg inference leaks a fixed-ARRAY type into a
+   mono name** (next error after R41/R42). Repro:
+   `var circles = [c.clone(), Circle{ radius: 3.0 }];` then
+   `total_area(&circles, circle_area_fn)` in
+   `benchmark.interfaces.test_interface_dispatch` emits the malformed symbol
+   `@benchmark.interfaces.total_area_2 x Int(...)` (clang "expected '(' in
+   call"). Two defects in one: the inferred `T` is the fixed-array type
+   instead of the Vec's ELEMENT type (array literal -> M33 Vec conversion),
+   and `monomorphised_fn_name` (lib.rs) does not sanitize concrete types, so
+   the name is not a valid LLVM identifier. Fix shape: infer `T` from the Vec
+   element for `&vec` callers bound from array literals; run concrete-type
+   parts through `sanitize_container_arg` in every mono name. Bench is
+   IR-gated, so no suite regresses today.
+
+FIXED (R41/R42): generic pointer-self receiver ABI + scope-first bare-variant
+resolution -- see docs/COMPILER_BUGS.md.
 
 FIXED (R40): `derive[Clone]` on a pointer receiver -- the non-generic
 instance-method receiver coercion now mirrors the by-value `%self` ABI
 (loads the struct); lock `e2e_m85_clone_ref_receiver`.
 
 FIXED (R39): the same-leaf TYPE collision -- catalog type qualification,
-lock m84. See docs/COMPILER_BUGS.md R39/R40.
+lock m84. See docs/COMPILER_BUGS.md R39/R40/R41/R42.
 
 Fixed this session: R28 (temporary `.value`, lock m82), R29 (Vec in match arm,
 lock m83), R30 (bare variant pick parity -- the old R25 residual; bench IR
@@ -273,16 +288,17 @@ before any stdlib/smoke test; everything resolves through `xiom_graph::paths`
 the pin itself). Never commit the `stdlib/` checkout.
 
 State: Stage 3 Item A CLOSED (strict catalog findings, checker 194/194),
-R-bugs through R40 CLEARED (R32-R38 = registry-client findings; R39 =
+R-bugs through R42 CLEARED (R32-R38 = registry-client findings; R39 =
 same-leaf TYPE collision, lock m84; R40 = derive[Clone] on pointer receivers,
-lock m85; fixed on main 2026-09-17 with unit + e2e locks); e2e 2333/2333;
+lock m85; R41 = generic pointer-self receiver ABI; R42 = scope-first bare
+variants; fixed on main 2026-09-17 with unit + e2e locks); e2e 2333/2333;
 supply chain signed (ed25519 keygen/trust/sign/verify, fail-closed installs,
 ureq-only publish, git commit pins), Stage 6 perf budgets wired (determinism
 canary covers selfhost v092 + bench graph; bench IR 5,764,620 bytes), selfhost
 v092 compile gate GREEN, release R0 compiler-side blockers DONE
-(R25+R27+R31+R39+R40, release build clean). The next bench clang error
-(pre-existing generic-mono Pair ABI) is the only open compiler finding -- see
-"Open compiler findings".
+(R25+R27+R31+R39-R42, release build clean). The next bench clang error
+(generic-arg inference leaks an array type into a mono name) is the only open
+compiler finding -- see "Open compiler findings".
 
 Pending (cross-lane): stdlib_api_freeze_no_removals RED (52 drifted
 signatures) and stdlib_tests::stdlib_all_modules_compile_to_ir RED
@@ -290,12 +306,13 @@ signatures) and stdlib_tests::stdlib_all_modules_compile_to_ir RED
 COMPILER_BUGS R31 FIXED. STDLIB_VERSION is `stdlib-v0.60.0`.
 
 Your task, in order:
-1. Fix the last open compiler finding: generic-mono Pair ABI mismatch in the
-   bench graph (repro in "Open compiler findings"), then make the bench graph
-   clang-clean. Then the Stage 5 tail: transitive dependency closure from
-   registry metadata, clap migration, fmt body-inline comment trivia, LSP
-   cross-file index, cargo-vet.
-2. Stage 6 continuation (incremental engine, parallel mono profiles, linker
+1. Fix the last open compiler finding: generic-arg inference leaks a
+   fixed-array type into the mono name (`total_area_2 x Int`), repro in
+   "Open compiler findings"; then make the bench graph clang-clean.
+2. Stage 5 tail: transitive dependency closure from registry metadata, then
+   clap migration, fmt body-inline comment trivia, LSP cross-file index,
+   driver temp-name hygiene, cargo-vet.
+3. Stage 6 continuation (incremental engine, parallel mono profiles, linker
    strategy) and the Stage 7 selfhost ladder -- both on their own branch
    after the public release gates.
 

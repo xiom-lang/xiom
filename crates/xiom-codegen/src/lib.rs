@@ -2807,14 +2807,46 @@ impl IrEmitter {
         candidates.into_iter().next()
     }
 
-    /// R30: bare-variant parent pick. The CHECKER's `enum_variants` map keeps
-    /// the FIRST enum that declared a bare variant (`entry().or_insert`), so
-    /// codegen must resolve it the same way: `var empty = Empty;` in
-    /// bench_enums built %struct.BST (shortest-lexicographic `pick_deterministic`)
-    /// while `empty.size_hint()` dispatched to `Message.size_hint` -- a
-    /// type-mismatched call. Prefer the declaration-order match, then fall
-    /// back to `pick_deterministic` for generated enums not in the walk.
+    /// Scope prefixes for bare-variant resolution, most specific first:
+    /// the explicit module context when present, then the enclosing function
+    /// name's dotted prefixes (`benchmark.generics_hard.test_x` ->
+    /// `benchmark.generics_hard`, `benchmark`; a method
+    /// `benchmark.borrow.Metrics.new` also yields `benchmark.borrow.Metrics`
+    /// which simply never matches an enum key).
+    fn variant_scope_prefixes(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        if let Some(module) = &self.local.current_module {
+            out.push(module.clone());
+        }
+        if let Some(fn_name) = &self.fctx.current_fn {
+            let mut parts: Vec<&str> = fn_name.split('.').collect();
+            while parts.len() > 1 {
+                parts.pop();
+                let prefix = parts.join(".");
+                if !out.iter().any(|p| p == &prefix) {
+                    out.push(prefix);
+                }
+            }
+        }
+        out
+    }
+
+    /// R30/R42: bare-variant parent pick.
+    ///
+    /// The CHECKER resolves a bare variant through `resolve_enum_variant`,
+    /// which prefers the MODULE-SCOPED key (`{current_module}.{variant}`), so
+    /// codegen must do the same: inside `benchmark.generics_hard`,
+    /// `Empty` binds `Container`, not the first-declared enum elsewhere
+    /// (`benchmark.enums.Message`). Scope-first also keeps parity with the
+    /// R25/R39 resolution family. Fallbacks: declaration order (R30 checker
+    /// parity for top-level contexts), then `pick_deterministic`.
     fn pick_variant_parent(&self, candidates: Vec<String>) -> Option<String> {
+        for scope in self.variant_scope_prefixes() {
+            let prefix = format!("{scope}.");
+            if let Some(hit) = candidates.iter().find(|k| k.starts_with(&prefix)) {
+                return Some(hit.clone());
+            }
+        }
         self.types.enum_decl_order.iter()
             .find(|k| candidates.iter().any(|c| c == *k))
             .cloned()
