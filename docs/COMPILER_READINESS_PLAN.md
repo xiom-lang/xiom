@@ -127,8 +127,18 @@ const errors cleanly, for-loop const eval).
   untrusted ones), ureq-only multipart publish (the last `curl` shell-out is gone,
   `XIOM_REGISTRY_TOKEN` -> Authorization: Bearer with a warning when absent), and
   git dependencies must pin a full 40/64-hex COMMIT (branches/tags refused unless
-  XIOM_PKG_ALLOW_MUTABLE_GIT=1). REMAINING: transitive dependency closure via
-  registry metadata and server-side publish authentication.]
+   XIOM_PKG_ALLOW_MUTABLE_GIT=1). REMAINING (was): transitive dependency closure
+   via registry metadata and server-side publish authentication.
+   DONE 2026-09-17: server-side auth is registry-side (token scopes/trusted/
+   firstParty + actionable 401/403/409/422 codes); the client resolves and
+   installs the TRANSITIVE CLOSURE -- `select_version` matches
+   `>=,<,<=,>,=,^,~` specs over non-yanked versions (exact pins still resolve
+   yanked releases), install walks a cycle-safe deterministic
+   `install_closure` whose dependency source is the VERIFIED tarball's own
+   `package.xi` (index metadata fallback), and every artifact goes through
+   the full sha256 + signature + lockfile path; `lock` pins the closure with
+   digests (`Lockfile::from_resolved`). Registry e2e 20/20 (dependency
+   fixture + closure install + transitive lock assertions).]
 - LSP: integer severities, UTF-16 positions via span table (fixes multibyte panics),
   bounded Content-Length buffers (64 MiB cap), mutex-poison recovery instead of 15x
   expect, incremental reparsing, cross-file index.

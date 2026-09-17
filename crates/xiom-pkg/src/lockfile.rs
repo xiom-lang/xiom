@@ -93,6 +93,33 @@ impl Lockfile {
         }
     }
 
+    /// Build a v2 lock from an already-resolved closure
+    /// `(name, version, source, integrity)`.
+    ///
+    /// Stage 5 transitive locking: the caller walks the registry index and
+    /// passes every package in the closure, so the lock pins
+    /// `{name, version, integrity, source}` for INDIRECT dependencies too.
+    pub fn from_resolved(
+        package: &str,
+        version: &str,
+        resolved: Vec<(String, String, String, String)>,
+    ) -> Lockfile {
+        let mut packages = BTreeMap::new();
+        for (name, ver, source, integrity) in resolved {
+            packages.insert(name, LockedPackage {
+                version: ver,
+                source,
+                integrity: normalize_integrity(&integrity),
+            });
+        }
+        Lockfile {
+            lockfile_version: 2,
+            package: package.to_string(),
+            version: version.to_string(),
+            packages,
+        }
+    }
+
     pub fn to_json(&self) -> String {
         // Pretty + trailing newline: reviewable diffs.
         let mut out = serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".to_string());

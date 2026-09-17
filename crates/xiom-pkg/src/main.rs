@@ -942,38 +942,58 @@ fn generate_lockfile() {
             None
         }
     };
-    let resolve = |name: &str, req: &str| -> Option<String> {
-        let idx = index.as_ref()?;
-        let info = idx.packages.get(name)?;
-        if info.versions.iter().any(|v| v.version == req) {
-            Some(req.to_string())
+    // Stage 5 transitive locking: split direct deps into registry specs
+    // (resolved through the index closure) and path/git/URL specs (recorded
+    // as-is; they are not registry artifacts).
+    let mut entries: Vec<(String, String, String, String)> = Vec::new();
+    let mut registry_roots: Vec<(String, String)> = Vec::new();
+    for (name, spec) in &pkg.deps {
+        if crate::registry::is_non_registry_spec(spec) {
+            entries.push((name.clone(), spec.clone(), "registry".to_string(), String::new()));
         } else {
-            Some(info.latest.clone())
+            registry_roots.push((name.clone(), spec.clone()));
         }
-    };
-    // Integrity comes from the server-published digest in the same index
-    // install verifies against; only a hashed-but-indexless entry falls back
-    // to downloading the archive (bounded by ureq timeouts).
-    let integrity = |name: &str, version: &str| -> Option<String> {
-        let idx = index.as_ref()?; // offline: no digests, lock records empty integrity
-        if let Some(info) = idx.packages.get(name) {
-            if let Some(meta) = info.versions.iter().find(|v| v.version == version) {
-                if !meta.sha256.is_empty() {
-                    return Some(meta.sha256.clone());
+    }
+    match &index {
+        Some(idx) => match crate::registry::lock_closure(idx, &registry_roots) {
+            Ok(closure) => {
+                for entry in closure {
+                    entries.push((entry.name, entry.version, "registry".to_string(), entry.sha256));
                 }
             }
+            Err(e) => {
+                eprintln!("xiom pkg: {e}");
+                eprintln!("xiom pkg: locking unresolved dependencies by their requested spec (no integrity)");
+                for (name, req) in &registry_roots {
+                    if !entries.iter().any(|(n, _, _, _)| n == name) {
+                        entries.push((name.clone(), req.clone(), "registry".to_string(), String::new()));
+                    }
+                }
+            }
+        },
+        None => {
+            for (name, req) in &registry_roots {
+                entries.push((name.clone(), req.clone(), "registry".to_string(), String::new()));
+            }
         }
-        // Reachable registry but no published digest: fetch the artifact once
-        // (bounded by ureq timeouts) so the lock still pins real bytes.
-        let url = format!("{}/packages/{}/{}/package.tar.gz", registry, name, version);
-        crate::registry::http_get_binary(&url).ok()
-            .map(|bytes| crate::lockfile::integrity_for(&bytes))
-    };
+    }
 
-    let deps: Vec<(String, String)> = pkg.deps.iter()
-        .map(|(n, v)| (n.clone(), v.clone()))
-        .collect();
-    let lock = lockfile::Lockfile::build(&pkg.name, &pkg.version, &deps, &resolve, &integrity);
+    // Integrity comes from the server-published digest in the same index
+    // install verifies against; a hashed-but-indexless entry falls back to
+    // downloading the archive once (bounded by ureq timeouts).
+    for entry in &mut entries {
+        if entry.3.is_empty()
+            && index.is_some()
+            && !crate::registry::is_non_registry_spec(&entry.1)
+        {
+            let url = format!("{}/packages/{}/{}/package.tar.gz", registry, entry.0, entry.1);
+            if let Ok(bytes) = crate::registry::http_get_binary(&url) {
+                entry.3 = crate::lockfile::integrity_for(&bytes);
+            }
+        }
+    }
+
+    let lock = lockfile::Lockfile::from_resolved(&pkg.name, &pkg.version, entries);
 
     let project_root = manifest_path.parent().unwrap_or(Path::new("."));
     let lock_path = project_root.join("xiom.lock");
