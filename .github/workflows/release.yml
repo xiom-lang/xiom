@@ -235,6 +235,11 @@ jobs:
           echo "--- SHA256SUMS ---"
           cat SHA256SUMS
 
+      - name: Token check (diagnostic; shows token type and scopes only)
+        env:
+          GH_TOKEN: ${{ secrets.XIOM_RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        run: gh auth status
+
       - name: Create release
         env:
           # XIOM_RELEASE_TOKEN (fine-grained PAT, Contents: read/write on this
@@ -243,8 +248,9 @@ jobs:
           GH_TOKEN: ${{ secrets.XIOM_RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           cd artifacts
-          FILES=$(ls | grep -Ev '^SHA256SUMS-')
+          FILES=$(ls *.zip *.tar.gz 2>/dev/null || true)
           gh release create "$GITHUB_REF_NAME" $FILES SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
             --title "$GITHUB_REF_NAME" \
             --generate-notes
