@@ -42,6 +42,9 @@ fn run_script_watch(path: &str) {
     let mut last_mtime = get_mtime();
 
     eprintln!("[WATCH] Monitoring '{path}' -- press Ctrl+C to stop");
+    // Unique per watch session: parallel watchers must not collide on a
+    // shared `_script_watch.xi` in the temp dir.
+    let watch_suffix = xiom::jit::rand_suffix();
 
     loop {
         let current_mtime = get_mtime();
@@ -57,8 +60,8 @@ fn run_script_watch(path: &str) {
                 let wrapped = xiom::implicit_main::wrap_implicit_main(&source);
                 let tmp_dir = std::env::temp_dir().join("xiom_run");
                 let _ = std::fs::create_dir_all(&tmp_dir);
-                let tmp_src = tmp_dir.join("_script_watch.xi");
-                let tmp_out = tmp_dir.join("_script_watch.exe");
+                let tmp_src = tmp_dir.join(format!("_script_watch_{watch_suffix:x}.xi"));
+                let tmp_out = tmp_dir.join(format!("_script_watch_{watch_suffix:x}.exe"));
                 std::fs::write(&tmp_src, &wrapped).unwrap_or_else(|e| {
                     eprintln!("error: write temp: {e}"); process::exit(1);
                 });
@@ -88,6 +91,8 @@ fn run_repl() {
     eprintln!("XIOM REPL v0.56.0-pre -- type :help for commands, :quit to exit");
     let mut line_num = 0u64;
     let mut state: Vec<String> = Vec::new(); // accumulated let/var declarations
+    // Unique per REPL session: two REPLs must not collide on `_repl_1.xi`.
+    let repl_suffix = xiom::jit::rand_suffix();
 
     loop {
         line_num += 1;
@@ -143,8 +148,8 @@ fn run_repl() {
         let source = xiom::implicit_main::wrap_implicit_main(&source);
         let tmp_dir = std::env::temp_dir().join("xiom_repl");
         let _ = std::fs::create_dir_all(&tmp_dir);
-        let tmp_src = tmp_dir.join(format!("_repl_{line_num}.xi"));
-        let tmp_out = tmp_dir.join(format!("_repl_{line_num}.exe"));
+        let tmp_src = tmp_dir.join(format!("_repl_{repl_suffix:x}_{line_num}.xi"));
+        let tmp_out = tmp_dir.join(format!("_repl_{repl_suffix:x}_{line_num}.exe"));
         std::fs::write(&tmp_src, &source).ok();
 
         let config = CompileConfig {
@@ -308,8 +313,11 @@ fn real_main() {
         // Write to temp file, compile, and run
         let tmp_dir = std::env::temp_dir().join("xiom_run");
         let _ = std::fs::create_dir_all(&tmp_dir);
-        let tmp_src = tmp_dir.join("_script.xi");
-        let tmp_out = tmp_dir.join("_script.exe");
+        // Unique per invocation: concurrent `xiom run` processes must not
+        // race on a shared `_script.xi` / `_script.exe`.
+        let run_suffix = xiom::jit::rand_suffix();
+        let tmp_src = tmp_dir.join(format!("_script_{run_suffix:x}.xi"));
+        let tmp_out = tmp_dir.join(format!("_script_{run_suffix:x}.exe"));
         std::fs::write(&tmp_src, &source).unwrap_or_else(|e| {
             eprintln!("error: cannot write temp file: {e}"); process::exit(1);
         });
@@ -654,7 +662,9 @@ fn real_main() {
             release: true,
             ..CompileConfig::default()
         };
-        let tmp_src = std::env::temp_dir().join("xiom_standalone").join("_script.xi");
+        let tmp_src = std::env::temp_dir()
+            .join("xiom_standalone")
+            .join(format!("_script_{:x}.xi", xiom::jit::rand_suffix()));
         let _ = std::fs::create_dir_all(tmp_src.parent().unwrap());
         std::fs::write(&tmp_src, &wrapped).unwrap_or_else(|e| {
             eprintln!("error: cannot write temp file: {e}"); process::exit(1);

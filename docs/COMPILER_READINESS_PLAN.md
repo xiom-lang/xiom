@@ -107,8 +107,11 @@ const errors cleanly, for-loop const eval).
   [DONE round 41: watchdog -> cooperative cancellation token in xiom-codegen
   (clang child killed on cancel, main thread reports); xiom.toml [compiler]
   timeout-secs honored (CLI wins). Round 45: target-named source files
-  (wasm/arm/riscv) are no longer dropped. clap parsing / sandbox
-  false-green / randomized temp names remain.]
+  (wasm/arm/riscv) are no longer dropped. AUDIT #11 (sandbox false-green)
+  fixed: unreadable input and parse/parse-error failures now exit 3 instead
+  of auditing an empty program. AUDIT #12: no `process::exit` in library
+  paths. Temp names randomized per invocation/session (watch, REPL, run,
+  standalone, JIT dir, link staging). REMAINING: clap-based arg parsing.]
 - Supply chain (HARD PREREQUISITE for the post-split registry phase): client-side
   sha256 verification of every artifact, ed25519 signatures + trust model, lockfile v2
   pinning {name, version, integrity, source} transitively, ureq-only HTTP with TLS +
