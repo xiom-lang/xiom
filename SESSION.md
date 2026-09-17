@@ -34,6 +34,15 @@ bare enum variants resolve scope-first (checker parity) so
 `var c: Container[Int] = Empty` binds Container, not the first-declared
 `Message`. See docs/COMPILER_BUGS.md R41/R42.
 
+Also 2026-09-17: STAGE 5 SUPPLY-CHAIN TAIL CLOSED -- transitive dependency
+closure for registry installs (version-range matcher; cycle-safe closure
+whose dependency source is the verified tarball's manifest; every artifact
+verified) and transitive lockfile pinning (`Lockfile::from_resolved`).
+Registry e2e 20/20 with a real dependency fixture. Stage 5 remaining: driver
+(clap, sandbox exit-0 false-green, randomized temp names), dbg MI quoting,
+fmt defer + body-inline comments, LSP incremental/cross-file index,
+cargo-vet.
+
 Branch `main` (post-split). The round-83 slice (pre-split housekeeping +
 handoff) and earlier rounds live in the pre-split history; the R32-R42
 hardening slices are the latest compiler-lane commits.
@@ -220,13 +229,17 @@ longer contains stdlib sources:
 
 ## Remaining queue (compiler lane)
 
-1. **Supply-chain tail (hard prereq for the registry phase)**: transitive
-   dependency closure from registry metadata (install resolves the exact
-   package; `lock` covers direct deps). Server-side publish authentication
-   is DONE on the registry side, and `publish_package` is implemented
-   (keygen/sign/trust/verify + multipart + Bearer token); the client-side
-   registry defects R32-R38 fixed 2026-09-17 close the earlier "registry
-   integration findings" block.
+1. **Supply-chain tail -- CLOSED (2026-09-17)**: transitive dependency
+   closure landed. `select_version` matches `>=,<,<=,>,=,^,~` specs over
+   non-yanked versions (exact pins still resolve yanked releases); install
+   walks a cycle-safe deterministic `install_closure` whose dependency
+   source is the VERIFIED tarball's own `package.xi` (index metadata as
+   fallback), and every transitive artifact goes through the full
+   verification path (sha256 + signature + lockfile). `lock` pins the
+   transitive closure with digests (`Lockfile::from_resolved`). Server-side
+   publish authentication is registry-side; `publish_package` is
+   implemented. Registry e2e **20/20** (new core fixture + closure install +
+   transitive lock assertions).
 2. **clap migration** of the driver parser (large; keep the CLI surface
    byte-compatible, gate with the full e2e suite).
 3. **fmt**: body-inline comment trivia attachment (stage-2 trivia dependency;
@@ -292,27 +305,32 @@ R-bugs through R42 CLEARED (R32-R38 = registry-client findings; R39 =
 same-leaf TYPE collision, lock m84; R40 = derive[Clone] on pointer receivers,
 lock m85; R41 = generic pointer-self receiver ABI; R42 = scope-first bare
 variants; fixed on main 2026-09-17 with unit + e2e locks); e2e 2333/2333;
-supply chain signed (ed25519 keygen/trust/sign/verify, fail-closed installs,
-ureq-only publish, git commit pins), Stage 6 perf budgets wired (determinism
-canary covers selfhost v092 + bench graph; bench IR 5,764,620 bytes), selfhost
-v092 compile gate GREEN, release R0 compiler-side blockers DONE
-(R25+R27+R31+R39-R42, release build clean). The next bench clang error
-(generic-arg inference leaks an array type into a mono name) is the only open
-compiler finding -- see "Open compiler findings".
+supply chain signed AND COMPLETE for the pre-registry phase: ed25519
+keygen/trust/sign/verify, fail-closed installs, ureq-only publish, git commit
+pins, TRANSITIVE DEPENDENCY CLOSURE (range matcher + cycle-safe closure from
+the verified manifest; `lock` pins the closure with digests; registry e2e
+20/20); Stage 6 perf budgets wired (determinism canary covers selfhost v092 +
+bench graph; bench IR 5,764,620 bytes), selfhost v092 compile gate GREEN,
+release R0 compiler-side blockers DONE (R25+R27+R31+R39-R42, release build
+clean). The next bench clang error (generic-arg inference leaks an array type
+into a mono name) is the only open compiler finding -- see "Open compiler
+findings".
 
 Pending (cross-lane): stdlib_api_freeze_no_removals RED (52 drifted
 signatures) and stdlib_tests::stdlib_all_modules_compile_to_ir RED
 (xiom.encoding.ascii85 T001) -- stdlib-lane owned, documented in
 COMPILER_BUGS R31 FIXED. STDLIB_VERSION is `stdlib-v0.60.0`.
 
-Your task, in order:
-1. Fix the last open compiler finding: generic-arg inference leaks a
-   fixed-array type into the mono name (`total_area_2 x Int`), repro in
-   "Open compiler findings"; then make the bench graph clang-clean.
-2. Stage 5 tail: transitive dependency closure from registry metadata, then
-   clap migration, fmt body-inline comment trivia, LSP cross-file index,
-   driver temp-name hygiene, cargo-vet.
-3. Stage 6 continuation (incremental engine, parallel mono profiles, linker
+Your task, in order (Stage 5 completion; the supply-chain tail is CLOSED):
+1. Driver: clap-based arg parsing (keep the CLI surface byte-compatible),
+   sandbox exit-0 false-green, randomized temp names; dbg MI command
+   quoting; fmt `defer` support + body-inline comment trivia.
+2. LSP: incremental reparsing + cross-file index; engineering hygiene:
+   cargo-vet audits.
+3. Fix the last open compiler finding (generic-arg inference leaks a
+   fixed-array type into the mono name, repro in "Open compiler findings"),
+   then make the bench graph clang-clean.
+4. Stage 6 continuation (incremental engine, parallel mono profiles, linker
    strategy) and the Stage 7 selfhost ladder -- both on their own branch
    after the public release gates.
 

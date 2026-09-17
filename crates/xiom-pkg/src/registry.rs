@@ -4,7 +4,7 @@
 //
 // M14.1: Extracted from main.rs -- registry download, search, install.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use std::path::{Path, PathBuf};
 use std::process;
@@ -227,7 +227,7 @@ pub(crate) struct RegistryIndex {
     pub(crate) packages: HashMap<String, RegistryPackage>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize)]
 pub(crate) struct RegistryPackage {
     #[serde(default)]
     pub(crate) description: String,
@@ -256,6 +256,16 @@ pub(crate) struct RegistryVersion {
     pub(crate) signature: String,
     #[serde(default, alias = "publicKey")]
     pub(crate) public_key: String,
+    /// Stage 5: dependencies declared by this version's manifest
+    /// (`{ "name": ">=1.0,<2.0" }`), as published by the registry. Used for
+    /// transitive resolution; the verified tarball's own `package.xi` is
+    /// authoritative once extracted.
+    #[serde(default)]
+    pub(crate) dependencies: HashMap<String, String>,
+    /// Yanked versions stay installable by exact pin but are skipped when a
+    /// range/latest resolves.
+    #[serde(default)]
+    pub(crate) yanked: bool,
 }
 
 /// Accept either the server's object map (`"1.0": {sha256,...}`) or the
@@ -281,6 +291,12 @@ where
         public_key: String,
         #[serde(default)]
         version: Option<String>,
+        /// Stage 5: dependency name -> version spec, published from the
+        /// tarball's package.xi at publish time (registry/src/app.js T3).
+        #[serde(default)]
+        dependencies: std::collections::HashMap<String, String>,
+        #[serde(default)]
+        yanked: bool,
     }
     match Shape::deserialize(de)? {
         Shape::Map(map) => Ok(map.into_iter()
@@ -289,6 +305,8 @@ where
                 sha256: meta.sha256,
                 signature: meta.signature,
                 public_key: meta.public_key,
+                dependencies: meta.dependencies,
+                yanked: meta.yanked,
             })
             .collect()),
         Shape::List(list) => Ok(list.into_iter()
@@ -297,6 +315,8 @@ where
                 sha256: String::new(),
                 signature: String::new(),
                 public_key: String::new(),
+                dependencies: std::collections::HashMap::new(),
+                yanked: false,
             })
             .collect()),
     }
@@ -425,22 +445,276 @@ fn resolve_version<'a>(
     })
 }
 
-pub(crate) fn install_from_registry(
+// ============================================================================
+// Stage 5: version-range matching + transitive dependency closure
+// ============================================================================
+
+/// Parse a dotted version: numeric core segments plus an optional
+/// pre-release/build tail kept verbatim ("1.2.3-rc1" -> ([1,2,3], "-rc1")).
+fn parse_version(v: &str) -> (Vec<u64>, String) {
+    let v = v.trim();
+    let (core, tail) = match v.find(['-', '+']) {
+        Some(i) => (&v[..i], &v[i..]),
+        None => (v, ""),
+    };
+    let nums = core
+        .split('.')
+        .map(|s| s.trim().parse::<u64>().unwrap_or(0))
+        .collect();
+    (nums, tail.to_string())
+}
+
+/// Numeric-aware version ordering: missing segments are 0 and a release sorts
+/// ABOVE its pre-releases (`1.0.0-rc1 < 1.0.0`).
+pub(crate) fn version_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let (an, at) = parse_version(a);
+    let (bn, bt) = parse_version(b);
+    for i in 0..an.len().max(bn.len()) {
+        let x = an.get(i).copied().unwrap_or(0);
+        let y = bn.get(i).copied().unwrap_or(0);
+        match x.cmp(&y) {
+            Ordering::Equal => {}
+            other => return other,
+        }
+    }
+    match (at.is_empty(), bt.is_empty()) {
+        (true, true) => Ordering::Equal,
+        (true, false) => Ordering::Greater,
+        (false, true) => Ordering::Less,
+        (false, false) => at.cmp(&bt),
+    }
+}
+
+/// True when `version` satisfies a comma-separated constraint list.
+/// Operators: `=` (or bare), `>=`, `<=`, `>`, `<`, `^`, `~`; `*`/empty = any.
+pub(crate) fn version_satisfies(version: &str, req: &str) -> bool {
+    use std::cmp::Ordering;
+    let req = req.trim();
+    if req.is_empty() || req == "*" {
+        return true;
+    }
+    for part in req.split(',') {
+        let p = part.trim();
+        if p.is_empty() {
+            continue;
+        }
+        let (op, rest) = if let Some(r) = p.strip_prefix(">=") {
+            (">=", r)
+        } else if let Some(r) = p.strip_prefix("<=") {
+            ("<=", r)
+        } else if let Some(r) = p.strip_prefix('>') {
+            (">", r)
+        } else if let Some(r) = p.strip_prefix('<') {
+            ("<", r)
+        } else if let Some(r) = p.strip_prefix('=') {
+            ("=", r)
+        } else if let Some(r) = p.strip_prefix('^') {
+            ("^", r)
+        } else if let Some(r) = p.strip_prefix('~') {
+            ("~", r)
+        } else {
+            ("=", p)
+        };
+        let rest = rest.trim();
+        let (vn, _) = parse_version(version);
+        let (rn, _) = parse_version(rest);
+        let ord = version_cmp(version, rest);
+        let ok = match op {
+            ">=" => ord != Ordering::Less,
+            "<=" => ord != Ordering::Greater,
+            ">" => ord == Ordering::Greater,
+            "<" => ord == Ordering::Less,
+            "=" => ord == Ordering::Equal,
+            "^" => vn.first() == rn.first() && ord != Ordering::Less,
+            "~" => {
+                vn.first() == rn.first()
+                    && vn.get(1).copied().unwrap_or(0) == rn.get(1).copied().unwrap_or(0)
+                    && ord != Ordering::Less
+            }
+            _ => false,
+        };
+        if !ok {
+            return false;
+        }
+    }
+    true
+}
+
+/// An EXACT spec ("1.2.3" / "=1.2.3") still resolves a yanked version --
+/// yanked releases stay installable by pin; ranges skip them.
+fn spec_is_exact(req: &str) -> bool {
+    let req = req.trim();
+    if req.is_empty() || req == "*" {
+        return false;
+    }
+    let bare = req.strip_prefix('=').unwrap_or(req);
+    !bare.contains(|c: char| c == '<' || c == '>' || c == '^' || c == '~' || c == ',' || c == '*')
+}
+
+/// Highest version satisfying `req`; empty/"*" prefers `latest` (non-yanked).
+pub(crate) fn select_version(pkg: &RegistryPackage, req: &str) -> Option<String> {
+    let req = req.trim();
+    let exact = spec_is_exact(req);
+    if (req.is_empty() || req == "*") && !pkg.latest.trim().is_empty() {
+        if let Some(v) = pkg.versions.iter().find(|v| v.version == pkg.latest) {
+            if !v.yanked {
+                return Some(v.version.clone());
+            }
+        }
+    }
+    let mut candidates: Vec<&RegistryVersion> = pkg
+        .versions
+        .iter()
+        .filter(|v| (exact || !v.yanked) && version_satisfies(&v.version, req))
+        .collect();
+    candidates.sort_by(|a, b| version_cmp(&b.version, &a.version));
+    candidates.first().map(|v| v.version.clone())
+}
+
+/// A resolved registry artifact in closure order.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ClosureEntry {
+    pub(crate) name: String,
+    pub(crate) version: String,
+    pub(crate) sha256: String,
+}
+
+/// True when a dependency spec is NOT a registry version: path/git/URL deps
+/// are not registry artifacts and stay out of the registry closure.
+pub(crate) fn is_non_registry_spec(spec: &str) -> bool {
+    let s = spec.trim();
+    s.starts_with("path:")
+        || s.starts_with("git:")
+        || s.starts_with("file:")
+        || s.starts_with("http:")
+        || s.starts_with("https:")
+}
+
+/// Deterministic transitive closure from already-resolved roots.
+///
+/// Cycle-safe (keyed `name@version`), dependency order sorted at every level,
+/// and `deps_of` is the authoritative dependency source (the verified
+/// tarball's manifest, falling back to index metadata).
+fn resolve_closure(
+    index: &RegistryIndex,
+    roots: Vec<(String, String)>,
+    deps_of: &dyn Fn(&str, &str) -> Vec<(String, String)>,
+) -> Result<Vec<ClosureEntry>, InstallError> {
+    let mut order: Vec<ClosureEntry> = Vec::new();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    let mut stack: Vec<(String, String)> = roots;
+    while let Some((name, version)) = stack.pop() {
+        let key = format!("{name}@{version}");
+        if !seen.insert(key) {
+            continue;
+        }
+        let sha256 = index
+            .packages
+            .get(&name)
+            .and_then(|p| p.versions.iter().find(|v| v.version == version))
+            .map(|v| v.sha256.clone())
+            .unwrap_or_default();
+        order.push(ClosureEntry { name: name.clone(), version: version.clone(), sha256 });
+        let mut deps: Vec<(String, String)> = deps_of(&name, &version)
+            .into_iter()
+            .filter(|(_, spec)| !is_non_registry_spec(spec))
+            .collect();
+        deps.sort();
+        for (dep, spec) in deps.into_iter().rev() {
+            let Some(dep_info) = index.packages.get(&dep) else {
+                return Err(InstallError::NotFound(format!(
+                    "dependency '{}' of {} v{} is not in the registry",
+                    dep, name, version
+                )));
+            };
+            let Some(resolved) = select_version(dep_info, &spec) else {
+                return Err(InstallError::NotFound(format!(
+                    "no version of '{}' satisfies '{}' (required by {} v{})",
+                    dep, spec, name, version
+                )));
+            };
+            stack.push((dep, resolved));
+        }
+    }
+    Ok(order)
+}
+
+/// Full install closure for a resolved root package version.
+pub(crate) fn install_closure(
+    index: &RegistryIndex,
     package: &str,
-    version: Option<&str>,
+    version: &str,
+    deps_of: &dyn Fn(&str, &str) -> Vec<(String, String)>,
+) -> Result<Vec<ClosureEntry>, InstallError> {
+    resolve_closure(index, vec![(package.to_string(), version.to_string())], deps_of)
+}
+
+/// Lock closure for direct manifest dependencies (registry specs only;
+/// path/git specs are recorded by the caller). Dependency metadata comes from
+/// the index -- locking does not download artifacts.
+pub(crate) fn lock_closure(
+    index: &RegistryIndex,
+    roots: &[(String, String)],
+) -> Result<Vec<ClosureEntry>, InstallError> {
+    let mut resolved_roots: Vec<(String, String)> = Vec::new();
+    for (name, req) in roots {
+        let Some(info) = index.packages.get(name) else {
+            return Err(InstallError::NotFound(format!(
+                "dependency '{name}' is not in the registry"
+            )));
+        };
+        let Some(version) = select_version(info, req) else {
+            return Err(InstallError::NotFound(format!(
+                "no version of '{name}' satisfies '{req}'"
+            )));
+        };
+        resolved_roots.push((name.clone(), version));
+    }
+    let deps_of = |name: &str, version: &str| -> Vec<(String, String)> {
+        index
+            .packages
+            .get(name)
+            .and_then(|p| p.versions.iter().find(|v| v.version == version))
+            .map(|v| v.dependencies.iter().map(|(k, s)| (k.clone(), s.clone())).collect())
+            .unwrap_or_default()
+    };
+    resolve_closure(index, resolved_roots, &deps_of)
+}
+
+/// Read the dependency list from an installed package's OWN manifest
+/// (`package.xi`): the authoritative source, because those bytes were
+/// verified. None when no manifest is present (caller falls back to index
+/// metadata).
+fn installed_manifest_deps(dir: &Path) -> Option<Vec<(String, String)>> {
+    let path = dir.join("package.xi");
+    if !path.is_file() {
+        return None;
+    }
+    let text = std::fs::read_to_string(&path).ok()?;
+    let pkg = crate::parse_manifest(&text);
+    Some(pkg.deps.into_iter().collect())
+}
+
+/// Download, verify (sha256 + signature + lockfile) and extract ONE registry
+/// artifact. Returns the installed directory.
+fn install_verified(
+    index: &RegistryIndex,
+    package: &str,
+    ver: &str,
     registry: &str,
-) -> Result<(), InstallError> {
-    let index = fetch_registry_index(registry).map_err(InstallError::RegistryUnavailable)?;
-
-    let pkg_info = index.packages.get(package).ok_or_else(|| {
-        InstallError::NotFound(format!(
-            "package '{}' not found in registry. Try: xiom pkg search {}",
-            package, package
-        ))
-    })?;
-
-    let ver_meta = resolve_version(package, pkg_info, version)?;
-    let ver = ver_meta.version.as_str();
+) -> Result<PathBuf, InstallError> {
+    let ver_meta = index
+        .packages
+        .get(package)
+        .and_then(|p| p.versions.iter().find(|v| v.version == ver))
+        .ok_or_else(|| {
+            InstallError::NotFound(format!(
+                "version '{}' of '{}' disappeared from the registry index \
+                 between resolution and download",
+                ver, package
+            ))
+        })?;
 
     // Download package archive
     let dl_url = format!("{}/packages/{}/{}/package.tar.gz", registry, package, ver);
@@ -543,10 +817,63 @@ pub(crate) fn install_from_registry(
             .map_err(|e| InstallError::Local(format!("cannot clean cache: {e}")))?;
     }
     extract_tar_gz(&archive, &pkg_dir).map_err(InstallError::Local)?;
+    Ok(pkg_dir)
+}
 
-    println!("Installed {} v{} to {}", package, ver, pkg_dir.display());
+pub(crate) fn install_from_registry(
+    package: &str,
+    version: Option<&str>,
+    registry: &str,
+) -> Result<(), InstallError> {
+    let index = fetch_registry_index(registry).map_err(InstallError::RegistryUnavailable)?;
+
+    let pkg_info = index.packages.get(package).ok_or_else(|| {
+        InstallError::NotFound(format!(
+            "package '{}' not found in registry. Try: xiom pkg search {}",
+            package, package
+        ))
+    })?;
+    let ver_meta = resolve_version(package, pkg_info, version)?;
+    let root_version = ver_meta.version.clone();
+
+    // Root artifact first, then its transitive closure; every artifact goes
+    // through the full verification path (sha256 + signature + lockfile).
+    let root_dir = install_verified(&index, package, &root_version, registry)?;
+
+    // Dependency source: the VERIFIED tarball's own package.xi (authoritative),
+    // falling back to index metadata when the package ships no manifest.
+    let deps_of = |name: &str, ver: &str| -> Vec<(String, String)> {
+        let dir = package_cache_dir().join(format!("{}-{}", name.replace('.', "-"), ver));
+        installed_manifest_deps(&dir).unwrap_or_else(|| {
+            index
+                .packages
+                .get(name)
+                .and_then(|p| p.versions.iter().find(|x| x.version == ver))
+                .map(|v| v.dependencies.iter().map(|(k, s)| (k.clone(), s.clone())).collect())
+                .unwrap_or_default()
+        })
+    };
+    let closure = install_closure(&index, package, &root_version, &deps_of)?;
+    let mut installed_deps = 0usize;
+    for entry in &closure {
+        if entry.name == package && entry.version == root_version {
+            continue;
+        }
+        println!("Installing dependency {} v{}...", entry.name, entry.version);
+        install_verified(&index, &entry.name, &entry.version, registry)?;
+        installed_deps += 1;
+    }
+
+    println!("Installed {} v{} to {}", package, root_version, root_dir.display());
+    if installed_deps > 0 {
+        println!(
+            "  {} transitive dependenc{} installed",
+            installed_deps,
+            if installed_deps == 1 { "y" } else { "ies" }
+        );
+    }
     println!("  Add to your package.xi dependencies:");
-    println!("    dependencies = {{ {} = \"{}\" }}", package, ver);
+    println!("    dependencies = {{ {} = \"{}\" }}", package, root_version);
     Ok(())
 }
 
@@ -705,8 +1032,134 @@ mod tests {
                 sha256: String::new(),
                 signature: String::new(),
                 public_key: String::new(),
+                dependencies: HashMap::new(),
+                yanked: false,
             }).collect(),
         }
+    }
+
+    fn version(ver: &str, deps: &[(&str, &str)], yanked: bool) -> RegistryVersion {
+        RegistryVersion {
+            version: ver.to_string(),
+            sha256: format!("{ver}-digest"),
+            signature: String::new(),
+            public_key: String::new(),
+            dependencies: deps.iter().map(|(n, s)| (n.to_string(), s.to_string())).collect(),
+            yanked,
+        }
+    }
+
+    fn index_with(entries: &[(&str, &str, Vec<RegistryVersion>)]) -> RegistryIndex {
+        RegistryIndex {
+            registry: "https://registry.test".to_string(),
+            version: "1".to_string(),
+            packages: entries.iter().map(|(name, latest, versions)| {
+                (name.to_string(), RegistryPackage {
+                    description: String::new(),
+                    repository: String::new(),
+                    latest: latest.to_string(),
+                    versions: versions.clone(),
+                })
+            }).collect(),
+        }
+    }
+
+    #[test]
+    fn version_ordering_and_constraints() {
+        use std::cmp::Ordering;
+        assert_eq!(version_cmp("1.2.3", "1.2.10"), Ordering::Less);
+        assert_eq!(version_cmp("1.0", "1.0.0"), Ordering::Equal);
+        assert_eq!(version_cmp("1.0.0-rc1", "1.0.0"), Ordering::Less);
+        assert_eq!(version_cmp("2.0.0", "1.9.9"), Ordering::Greater);
+
+        assert!(version_satisfies("0.9.9", ">=0.5.0,<1.0.0"));
+        assert!(!version_satisfies("1.0.0", ">=0.5.0,<1.0.0"));
+        assert!(version_satisfies("1.9.0", "^1.2.0"));
+        assert!(!version_satisfies("2.0.0", "^1.2.0"));
+        assert!(version_satisfies("1.2.9", "~1.2.0"));
+        assert!(!version_satisfies("1.3.0", "~1.2.0"));
+        assert!(version_satisfies("1.2.3", "1.2.3"));
+        assert!(version_satisfies("9.9.9", "*"));
+    }
+
+    #[test]
+    fn select_version_prefers_latest_skips_yanked_and_allows_pinned_yanked() {
+        let p = RegistryPackage {
+            description: String::new(),
+            repository: String::new(),
+            latest: "1.2.0".to_string(),
+            versions: vec![
+                version("1.0.0", &[], false),
+                version("1.1.0", &[], true),
+                version("1.2.0", &[], false),
+            ],
+        };
+        assert_eq!(select_version(&p, "").as_deref(), Some("1.2.0"));
+        assert_eq!(select_version(&p, ">=1.0.0,<2.0.0").as_deref(), Some("1.2.0"));
+        // Exact pin may resolve a yanked version; ranges skip it.
+        assert_eq!(select_version(&p, "1.1.0").as_deref(), Some("1.1.0"));
+        assert_ne!(select_version(&p, ">=1.0.0,<1.2.0").as_deref(), Some("1.1.0"));
+
+        // Yanked latest falls back to the highest remaining.
+        let mut q = p.clone();
+        q.versions[2].yanked = true;
+        assert_eq!(select_version(&q, "").as_deref(), Some("1.0.0"));
+    }
+
+    #[test]
+    fn install_closure_is_transitive_deterministic_and_cycle_safe() {
+        let index = index_with(&[
+            ("a", "1.0.0", vec![version("1.0.0", &[("c", ">=1.0.0"), ("b", ">=1.0.0")], false)]),
+            ("b", "1.1.0", vec![version("1.1.0", &[("c", "1.0.0")], false), version("1.0.0", &[], false)]),
+            ("c", "1.0.0", vec![version("1.0.0", &[("a", ">=1.0.0")], false)]),
+        ]);
+        let deps_of = |name: &str, ver: &str| -> Vec<(String, String)> {
+            index.packages.get(name)
+                .and_then(|p| p.versions.iter().find(|v| v.version == ver))
+                .map(|v| v.dependencies.iter().map(|(k, s)| (k.clone(), s.clone())).collect())
+                .unwrap_or_default()
+        };
+        let closure = install_closure(&index, "a", "1.0.0", &deps_of).expect("closure");
+        let names: Vec<(&str, &str)> = closure.iter().map(|e| (e.name.as_str(), e.version.as_str())).collect();
+        // Root first, dependencies in sorted order; the c -> a cycle edge is
+        // already seen and stops.
+        assert_eq!(names, vec![("a", "1.0.0"), ("b", "1.1.0"), ("c", "1.0.0")]);
+        assert_eq!(closure[0].sha256, "1.0.0-digest");
+    }
+
+    #[test]
+    fn closure_reports_missing_and_unsatisfiable_dependencies() {
+        let index = index_with(&[
+            ("a", "1.0.0", vec![version("1.0.0", &[("ghost", "1.0.0")], false)]),
+            ("b", "1.0.0", vec![version("1.0.0", &[("c", ">=9.0.0")], false)]),
+            ("c", "1.0.0", vec![version("1.0.0", &[], false)]),
+        ]);
+        let deps_of = |name: &str, ver: &str| -> Vec<(String, String)> {
+            index.packages.get(name)
+                .and_then(|p| p.versions.iter().find(|v| v.version == ver))
+                .map(|v| v.dependencies.iter().map(|(k, s)| (k.clone(), s.clone())).collect())
+                .unwrap_or_default()
+        };
+        let err = install_closure(&index, "a", "1.0.0", &deps_of).unwrap_err();
+        assert!(err.to_string().contains("ghost"), "{err}");
+        let err = install_closure(&index, "b", "1.0.0", &deps_of).unwrap_err();
+        assert!(err.to_string().contains("satisfies"), "{err}");
+    }
+
+    #[test]
+    fn lock_closure_resolves_roots_and_transitives() {
+        let index = index_with(&[
+            ("a", "1.2.0", vec![version("1.2.0", &[("b", "^1.0.0")], false), version("1.0.0", &[], false)]),
+            ("b", "1.1.0", vec![version("1.1.0", &[], false)]),
+        ]);
+        let closure = lock_closure(&index, &[("a".to_string(), ">=1.0.0,<2.0.0".to_string())])
+            .expect("lock closure");
+        let names: Vec<(&str, &str)> = closure.iter().map(|e| (e.name.as_str(), e.version.as_str())).collect();
+        assert_eq!(names, vec![("a", "1.2.0"), ("b", "1.1.0")]);
+        // Non-registry specs never enter the registry closure.
+        assert!(is_non_registry_spec("path:../lib"));
+        assert!(is_non_registry_spec("git:https://x/y@0123456789abcdef0123456789abcdef01234567"));
+        assert!(!is_non_registry_spec(">=1.0.0"));
     }
 
     #[test]
