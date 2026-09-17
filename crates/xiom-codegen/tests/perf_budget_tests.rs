@@ -12,9 +12,14 @@
 //!
 //! | source                        | bytes   | budget   | debug time |
 //! |-------------------------------|---------|----------|------------|
-//! | examples/benchmark/main.xi    | 5,687,052 | 6,300,000 | ~10 s    |
-//! | selfhost/xiomc_v092.xi        |   155,936 |   175,000 | ~2 s     |
-//! | tests/ecosystem/test_json.xi  |   164,787 |   185,000 | ~1 s     |
+//! | examples/benchmark/main.xi    | 5,764,620 | 6,300,000 | ~10 s    |
+//! | selfhost/xiomc_v092.xi        |   155,936 |   175,000 | ~2 s    |
+//! | tests/ecosystem/test_json.xi  |   164,787 |   185,000 | ~1 s    |
+//!
+//! The bench baseline moved from 5,687,052 to 5,764,620 with R39 (same-leaf
+//! TYPE collision qualification: `benchmark.borrow.Metrics` /
+//! `benchmark.derive.Metrics` and the `Record` pair now emit distinct
+//! module-qualified `%struct.` names instead of one collapsed bare key).
 //!
 //! The determinism test (same source compiled twice -> byte-identical IR) is
 //! the canary for HashMap-order-dependent emission, the defect class fixed

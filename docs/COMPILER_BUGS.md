@@ -6826,4 +6826,68 @@ checks + 2 new locks, with the tamper and error-body assertions
 strengthened); CLI smoke: unavailable registry -> local fallback -> exit 1
 with the URL rendered once.
 
+## R39. Same-leaf TYPE collision across project modules -- FIXED (2026-09-17, `main`)
+
+**Finding** (the last entry in "Open compiler findings"): two project modules
+declaring the same struct/enum leaf emitted ONE bare `%struct.X` definition.
+Catalog-injected modules flatten into the program as top-level decls
+(`collect_external_decls`), and while free FUNCTIONS were module-qualified
+(`module.leaf`), TYPE names were injected bare. With two owners, the first
+module (dotted-name order) won the bare key; the losing module's bodies kept
+their own field count and GEPed out of range. Bench-graph repro:
+`benchmark.borrow.Metrics` (4 fields) and `benchmark.derive.Metrics` (7
+fields) both emitted as `%struct.Metrics`; derive's literal GEPed fields 4-6
+of the 4-field definition -> clang reject. `benchmark.borrow.Record` /
+`benchmark.interfaces.Record` had the same shape.
+
+**Fix**: new checker pass `crates/xiom-check/src/type_qualify.rs`, wired into
+`collect_external_decls` before injection. It computes same-leaf collisions
+among NON-generic pub project types/enums (stdlib `xiom.` modules and leaves
+the user program declares or references keep the legacy first-wins behavior;
+generic types are excluded because mono/concrete-container keys such as
+`Option__Pair` are leaf-derived and reshape separately), then
+module-qualifies the colliding decl and rewrites every reference in the
+owning module before flattening: type annotations (all `Type` variants),
+struct literals, enum/associated-call bases, method receivers, destructure
+patterns, and expression-position container args (`Vec[Record].new()` parses
+as `Index(Ident(Vec), Ident(Record))`). Imported colliding types resolve
+through the module's `use` declarations (`use a.b.Leaf` and `use a.b;` +
+`b.Leaf`).
+
+Qualification exposed R25-class HashMap-order picks once two qualified
+same-leaf types existed; those scans are now deterministic through the
+round-76 `pick_deterministic` (current module -> shortest key ->
+lexicographic): `resolve_type_key`, the second `llvm_type_for` suffix scan,
+`vec_elem_storage_size`'s type_meta/enum leaf picks, the empty-array-to-Vec
+element scan in stmt.rs, and the call.rs method-suffix fallback.
+
+**Locks / verification**:
+
+- `e2e_m84_type_same_leaf_modules` (new): compiles a package-graph fixture
+  (`tests/regression/m84_type_same_leaf/`, main.xi only; alpha/beta arrive as
+  catalog modules), asserts BOTH qualified definitions and the absence of a
+  bare `%struct.Metrics`, then compiles + runs exit 0. Added to the CI lock
+  line in `.github/workflows/ci.yml`.
+- m78 (user same-leaf modules) and m81 (same-leaf fn refs) stay green.
+- Bench graph: `%struct.benchmark.borrow.Metrics` (4 fields) +
+  `%struct.benchmark.derive.Metrics` (7) and the two `Record` types now emit
+  distinctly; the R39 clang error is gone. The next clang error is a
+  pre-existing generic-mono ABI mismatch (`generics_hard.Pair`
+  `read_first_Int_Int` called with a struct value where the mono'd signature
+  expects `ptr`) -- recorded in SESSION.md "Open compiler findings".
+- Determinism: bench IR **5,764,620 bytes** (was 5,687,052; budget 6.3 MB),
+  byte-identical across 3 runs; `perf_budget_tests` 2/2.
+- Full gates: e2e **2332/2332** (16 min), feature-reg **510/510**, checker
+  **194/194**, robustness **63/63**, pkg/dbg/lsp/mcp **58/34/44/39**, release
+  `cargo build --release -p xiom` clean.
+
+**Harness fixes in the same slice** (pre-existing red on a compiler-only
+checkout, exposed while running the full suite): `e2e_runtime_c_exists` and
+the chaos t2-t5 tests now honor the R31 cross-repo contract (missing
+`stdlib/` / `xiom-benchmark-chaos` checkouts SKIP loudly instead of failing
+on a missing file; `XIOM_REQUIRE_STDLIB=1` still hard-fails), and
+`e2e_m79_debug_info_metadata`'s line expectations were stale by 2 lines
+since the SPDX header commit (`return a + b` is line 12, `if x != 5` line
+16).
+
 

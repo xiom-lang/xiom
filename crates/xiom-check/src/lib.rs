@@ -7,7 +7,7 @@
 //! No generics, no ownership, no contracts enforcement.
 
 use xiom_ast::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use crate::structural::TypeShape;
 use crate::types::{TypeArena, TypeId};
 
@@ -15,6 +15,7 @@ pub mod types;
 pub mod structural;
 pub mod catalog;
 pub mod borrow;
+pub mod type_qualify;
 
 use types::{CheckedType, FnSig, CheckError};
 use catalog::{ModuleExport, CachedModule, ModuleCatalog};
@@ -3087,10 +3088,7 @@ impl Checker {
                 }
             }
 
-        for cached in self.catalog.all_cached() {
-            let cached_module_name = cached.dotted_name.clone();
-            collect_pub_decls(&cached.program.items, &mut existing, PRIMITIVES, &generic_type_names, &cached_module_name, &mut decls);
-        }
+        let cached_modules = self.catalog.all_cached();
 
         // BUG 28 #4: submodules resolved via catalog PEEK during checking
         // (e.g. "xiom.os.platform" from `os.platform.platform_name()` after
@@ -3147,9 +3145,60 @@ impl Checker {
         }
         let mut peeked: Vec<CachedModule> = peek_set.into_values().collect();
         peeked.sort_by(|a, b| a.dotted_name.cmp(&b.dotted_name));
-        for cached in peeked {
-            let cached_module_name = cached.dotted_name.clone();
-            collect_pub_decls(&cached.program.items, &mut existing, PRIMITIVES, &generic_type_names, &cached_module_name, &mut decls);
+
+        // R39: same-leaf TYPE collision qualification. Catalog decls flatten
+        // into the program as top-level items, so project modules declaring
+        // the same type leaf used to collapse into ONE bare `%struct.X`
+        // definition while the losing module's bodies kept their own field
+        // count (bench graph: `benchmark.borrow.Metrics` 4 fields vs
+        // `benchmark.derive.Metrics` 7 -> GEP field 4 of a 4-field struct).
+        // Qualify the leaf in every project module that participates in the
+        // collision and rewrite its references before injection. Stdlib
+        // (`xiom.`) modules and leaves the USER program declares or
+        // references keep the legacy first-wins behavior.
+        let mut owners: HashMap<String, BTreeSet<String>> = HashMap::new();
+        for cached in cached_modules.iter().chain(peeked.iter()) {
+            let module = cached.dotted_name.as_str();
+            if module.is_empty() || module.starts_with("xiom.") {
+                continue;
+            }
+            let mut leaves = BTreeSet::new();
+            crate::type_qualify::declared_type_leaves(&cached.program.items, &mut leaves);
+            for leaf in leaves {
+                owners.entry(leaf).or_default().insert(module.to_string());
+            }
+        }
+        let colliding: HashMap<String, BTreeSet<String>> = owners
+            .into_iter()
+            .filter(|(_, owners)| owners.len() >= 2)
+            .collect();
+        let mut excluded = BTreeSet::new();
+        crate::type_qualify::declared_type_leaves(&program.items, &mut excluded);
+        excluded.extend(crate::type_qualify::referenced_type_names(&program.items));
+
+        let prepared: Vec<(String, std::borrow::Cow<'_, [TopDecl]>)> = cached_modules
+            .iter()
+            .chain(peeked.iter())
+            .map(|cached| {
+                let plan = crate::type_qualify::build_renames(
+                    &cached.program.items,
+                    &cached.dotted_name,
+                    &colliding,
+                    &excluded,
+                );
+                let items = if plan.is_empty() {
+                    std::borrow::Cow::Borrowed(cached.program.items.as_slice())
+                } else {
+                    std::borrow::Cow::Owned(crate::type_qualify::qualify_type_refs(
+                        &cached.program.items,
+                        &plan,
+                    ))
+                };
+                (cached.dotted_name.clone(), items)
+            })
+            .collect();
+        for (cached_module_name, items) in &prepared {
+            collect_pub_decls(items, &mut existing, PRIMITIVES, &generic_type_names, cached_module_name, &mut decls);
         }
 
         // Reachability filter: only inject FUNCTIONS whose (leaf) name is actually

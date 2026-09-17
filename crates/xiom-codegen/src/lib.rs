@@ -1722,16 +1722,22 @@ impl IrEmitter {
                 || k.starts_with("Option__")
                 || k.starts_with("Result__")
         };
+        // R39: deterministic suffix pick. With same-leaf types module-qualified
+        // (`benchmark.borrow.Metrics` / `benchmark.derive.Metrics`) a raw
+        // HashMap first-match picked a different payload per process, so
+        // generated `Option__<leaf>` containers drifted across runs.
         let suffix = format!(".{}", short_name);
-        for key in self.types.type_meta.keys() {
-            if key.ends_with(&suffix) && !is_generated(key.as_str()) {
-                return key.clone();
-            }
+        let meta_candidates: Vec<String> = self.types.type_meta.keys().into_iter()
+            .filter(|k| k.ends_with(&suffix) && !is_generated(k.as_str()))
+            .collect();
+        if let Some(key) = self.pick_deterministic(meta_candidates) {
+            return key;
         }
-        for key in self.types.types.keys() {
-            if key.ends_with(&suffix) && !is_generated(key.as_str()) {
-                return key.clone();
-            }
+        let type_candidates: Vec<String> = self.types.types.keys().into_iter()
+            .filter(|k| k.ends_with(&suffix) && !is_generated(k.as_str()))
+            .collect();
+        if let Some(key) = self.pick_deterministic(type_candidates) {
+            return key;
         }
         short_name.to_string()
     }
@@ -3267,15 +3273,21 @@ impl IrEmitter {
         // (Tuple__/Option__/Result__/_Anon__) -- their names end with .Type
         // too, so a bare `Big` could resolve to the TUPLE key depending on
         // HashMap iteration order (must mirror the types.rs copy).
-        for (key, _) in self.types.type_meta.entries() {
-            if key.ends_with(&format!(".{clean_name}"))
-                && !key.contains("Tuple__")
-                && !key.starts_with("Option__")
-                && !key.starts_with("Result__")
-                && !key.starts_with("_Anon__")
-            {
-                return Ok(format!("%struct.{key}"));
-            }
+        // R39: deterministic pick (see resolve_type_key) -- raw HashMap order
+        // picked different same-leaf types per process once collision leaves
+        // are module-qualified.
+        let suffix = format!(".{clean_name}");
+        let candidates: Vec<String> = self.types.type_meta.keys().into_iter()
+            .filter(|key| {
+                key.ends_with(&suffix)
+                    && !key.contains("Tuple__")
+                    && !key.starts_with("Option__")
+                    && !key.starts_with("Result__")
+                    && !key.starts_with("_Anon__")
+            })
+            .collect();
+        if let Some(key) = self.pick_deterministic(candidates) {
+            return Ok(format!("%struct.{key}"));
         }
         // Check builtin types first (match known xiom type names, NOT the default i64 fallback)
         let builtin = Self::xiom_to_llvm_type(clean_name);
@@ -3481,10 +3493,15 @@ impl IrEmitter {
                 let leaf = type_name.rsplit('.').next().unwrap_or(type_name);
                 let meta = self.types.type_meta.get(&type_name.to_string())
                     .or_else(|| {
-                        self.types.type_meta.entries().into_iter()
-                            .find(|(k, _)| k.ends_with(&format!(".{type_name}"))
+                        // R39: deterministic leaf pick -- raw HashMap order
+                        // sized the same-leaf container differently per run
+                        // once collision leaves are module-qualified.
+                        let candidates: Vec<String> = self.types.type_meta.keys().into_iter()
+                            .filter(|k| k.ends_with(&format!(".{type_name}"))
                                 || k.ends_with(&format!(".{leaf}")))
-                            .map(|(_, v)| v)
+                            .collect();
+                        self.pick_deterministic(candidates)
+                            .and_then(|k| self.types.type_meta.get(&k))
                     });
                 let Some(meta) = meta else {
                     // BUG 42 (2026-08-17): ENUM types live in enum_variants,
@@ -3497,10 +3514,13 @@ impl IrEmitter {
                     // garbage Str keys -> strcmp crash (test_json).
                     let variants = self.types.enum_variants.get(&type_name.to_string())
                         .or_else(|| {
-                            self.types.enum_variants.entries().into_iter()
-                                .find(|(k, _)| k.ends_with(&format!(".{type_name}"))
+                            // R39: deterministic leaf pick (see type_meta above).
+                            let candidates: Vec<String> = self.types.enum_variants.keys().into_iter()
+                                .filter(|k| k.ends_with(&format!(".{type_name}"))
                                     || k.ends_with(&format!(".{leaf}")))
-                                .map(|(_, v)| v)
+                                .collect();
+                            self.pick_deterministic(candidates)
+                                .and_then(|k| self.types.enum_variants.get(&k))
                         });
                     if let Some(variants) = variants {
                         // Enum layout: { i64 tag, i64 x slots }. Payloads are
