@@ -507,11 +507,12 @@ fn e2e_target_wasm_selfhost_lexer() {
 
 #[test]
 fn e2e_runtime_c_exists() {
-    assert!(
-        project_root().join("stdlib\\runtime\\xiom_runtime.c").exists()
-            || project_root().join("stdlib/runtime/xiom_runtime.c").exists(),
-        "stdlib/runtime/xiom_runtime.c should exist"
-    );
+    // R31: the runtime C sources live in the stdlib repo checkout. A
+    // compiler-only checkout skips loudly (XIOM_REQUIRE_STDLIB=1 hard-fails
+    // in CI, where the checkout is fetched).
+    let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
+    let runtime_c = stdlib_root.join("runtime").join("xiom_runtime.c");
+    assert!(runtime_c.exists(), "{} should exist", runtime_c.display());
 }
 
 #[test]
@@ -1591,6 +1592,14 @@ fn e2e_chaos_t1_allocator() {
 /// Regression test for R4 (dynamic alloca in Vec::push) and R5 (recursion counter leak)
 #[test]
 fn e2e_chaos_t2_queue() {
+    // The chaos reference suite is a separate checkout; skip loudly when it
+    // is absent instead of reporting a compile failure for a missing file.
+    if xiom_graph::paths::skip_if_missing(
+        "xiom-benchmark-chaos reference suite",
+        &project_root().join("xiom-benchmark-chaos"),
+    ) {
+        return;
+    }
     assert_eq!(
         compile_and_run("xiom-benchmark-chaos\\reference\\systems\\t2-queue.xi"),
         Some(0),
@@ -1601,6 +1610,12 @@ fn e2e_chaos_t2_queue() {
 /// Chaos t3: Hot-reload module loader -- 1000 load/call/reload cycles
 #[test]
 fn e2e_chaos_t3_hot_reload() {
+    if xiom_graph::paths::skip_if_missing(
+        "xiom-benchmark-chaos reference suite",
+        &project_root().join("xiom-benchmark-chaos"),
+    ) {
+        return;
+    }
     assert_eq!(
         compile_and_run("xiom-benchmark-chaos\\reference\\systems\\t3-hot-reload.xi"),
         Some(0),
@@ -1611,6 +1626,12 @@ fn e2e_chaos_t3_hot_reload() {
 /// Chaos t4: TCP packet parser -- 1M packet updates
 #[test]
 fn e2e_chaos_t4_packet() {
+    if xiom_graph::paths::skip_if_missing(
+        "xiom-benchmark-chaos reference suite",
+        &project_root().join("xiom-benchmark-chaos"),
+    ) {
+        return;
+    }
     assert_eq!(
         compile_and_run("xiom-benchmark-chaos\\reference\\systems\\t4-packet.xi"),
         Some(0),
@@ -1621,6 +1642,12 @@ fn e2e_chaos_t4_packet() {
 /// Chaos t5: B-tree file index -- 50K inserts + 20K lookups
 #[test]
 fn e2e_chaos_t5_btree() {
+    if xiom_graph::paths::skip_if_missing(
+        "xiom-benchmark-chaos reference suite",
+        &project_root().join("xiom-benchmark-chaos"),
+    ) {
+        return;
+    }
     assert_eq!(
         compile_and_run("xiom-benchmark-chaos\\reference\\systems\\t5-btree.xi"),
         Some(0),
@@ -4645,9 +4672,11 @@ fn e2e_safety_probe() {
     assert!(with_debug.contains("!llvm.dbg.cu"), "compile unit metadata missing");
     assert!(with_debug.contains("!DISubroutineType"),
         "DISubprogram.type must reference a subroutine type (empty `!{{}}` invalidates all debug info)");
-    assert!(with_debug.contains("!DILocation(line: 9"),
+    // Line numbers are source-absolute: the SPDX/header block added two
+    // lines, so `return a + b;` is 12 and `if x != 5` is 16.
+    assert!(with_debug.contains("!DILocation(line: 12"),
         "body statement line (return a + b) must have a DILocation");
-    assert!(with_debug.contains("!DILocation(line: 14"),
+    assert!(with_debug.contains("!DILocation(line: 16"),
         "main's `if x != 5` line must have a DILocation");
     assert!(with_debug.contains(", !dbg !"), "instructions must carry !dbg attachments");
 
@@ -4710,6 +4739,56 @@ fn e2e_safety_probe() {
 // stored its value into the match result slot (`store %struct.Option <Vec>`).
 #[test] fn e2e_m83_match_arm_vec_build() {
     assert_eq!(compile_and_run("tests\\regression\\m83_match_arm_vec_build.xi"), Some(0));
+}
+
+// R39: same-leaf TYPE collision across project modules loaded through the
+// package graph. Pre-fix the catalog injection flattened both `Metrics` decls
+// to a bare `%struct.Metrics` (the alphabetically-first module's layout won)
+// while the other module's bodies kept their own field count -- invalid GEPs
+// (the last clang error in the bench graph). The type qualification pass now
+// renames every colliding leaf and its references before injection.
+#[test] fn e2e_m84_type_same_leaf_modules() {
+    let emit = Command::new(xiom_path())
+        .args(["--emit-ir", "tests/regression/m84_type_same_leaf/main.xi"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed to spawn xiom");
+    assert!(
+        emit.status.success(),
+        "m84 emit-ir failed: {}",
+        String::from_utf8_lossy(&emit.stderr)
+    );
+    let ir = String::from_utf8_lossy(&emit.stdout).to_string();
+    assert!(
+        ir.contains("%struct.m84.alpha.Metrics = type { i64, i64 }"),
+        "alpha Metrics not module-qualified"
+    );
+    assert!(
+        ir.contains("%struct.m84.beta.Metrics = type { i64, i64, i64, i64 }"),
+        "beta Metrics not module-qualified"
+    );
+    assert!(
+        !ir.contains("%struct.Metrics = type"),
+        "bare %struct.Metrics definition survived the collision"
+    );
+
+    let exe = project_root().join("e2e_m84_type_same_leaf.exe");
+    let _ = std::fs::remove_file(&exe);
+    let compile = Command::new(xiom_path())
+        .args([
+            "-o", exe.to_str().unwrap(),
+            "tests/regression/m84_type_same_leaf/main.xi",
+        ])
+        .current_dir(project_root())
+        .output()
+        .expect("failed to spawn xiom");
+    if !compile.status.success() {
+        eprintln!("stdout: {}", String::from_utf8_lossy(&compile.stdout));
+        eprintln!("stderr: {}", String::from_utf8_lossy(&compile.stderr));
+    }
+    assert!(compile.status.success(), "m84 package-graph compile should succeed");
+    let run = Command::new(&exe).output().expect("failed to run m84 exe");
+    assert_eq!(run.status.code(), Some(0), "m84 should exit 0 (both Metrics layouts intact)");
 }
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }

@@ -146,10 +146,16 @@ impl IrEmitter {
                     let elem_size: i64 = _ty.as_ref()
                         .and_then(|t| Self::vec_elem_from_type_annotation(t))
                         .and_then(|elem| {
-                            // Compute struct size for known types
-                            let sname = self.types.types.keys().into_iter()
-    .find(|k| k.ends_with(&format!(".{}", elem)) || k.as_str() == elem)
-                                .unwrap_or(elem.to_string());
+                            // Compute struct size for known types. R39: pick
+                            // deterministically when several same-leaf types
+                            // are module-qualified (raw HashMap order sized
+                            // the buffer differently per process).
+                            let suffix = format!(".{}", elem);
+                            let candidates: Vec<String> = self.types.types.keys().into_iter()
+                                .filter(|k| k.ends_with(&suffix) || k.as_str() == elem)
+                                .collect();
+                            let sname = self.pick_deterministic(candidates)
+                                .unwrap_or_else(|| elem.to_string());
                             Some(self.vec_elem_storage_size(&sname))
                         })
                         .unwrap_or(8);
@@ -519,9 +525,14 @@ impl IrEmitter {
                     let elem_size: i64 = _ty.as_ref()
                         .and_then(|t| Self::vec_elem_from_type_annotation(t))
                         .and_then(|elem| {
-                            let sname = self.types.types.keys().into_iter()
-    .find(|k| k.ends_with(&format!(".{}", elem)) || k.as_str() == elem)
-                                .unwrap_or(elem.to_string());
+                            // R39: deterministic same-leaf pick (see the let
+                            // path above).
+                            let suffix = format!(".{}", elem);
+                            let candidates: Vec<String> = self.types.types.keys().into_iter()
+                                .filter(|k| k.ends_with(&suffix) || k.as_str() == elem)
+                                .collect();
+                            let sname = self.pick_deterministic(candidates)
+                                .unwrap_or_else(|| elem.to_string());
                             Some(self.vec_elem_storage_size(&sname))
                         })
                         .unwrap_or(8);

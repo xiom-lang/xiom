@@ -13,9 +13,16 @@ locks (cache path + tamper/error-code/all-yanked assertions) -- test-only,
 owned by the registry lane. Remaining supply-chain tail: transitive
 dependency closure from registry metadata.
 
+Also 2026-09-17: R39 FIXED -- same-leaf TYPE collision across project
+modules (catalog injection now module-qualifies colliding non-generic type
+leaves and rewrites all references; `crates/xiom-check/src/type_qualify.rs`,
+lock `e2e_m84_type_same_leaf_modules`, CI lock line updated). The bench graph
+no longer emits a bare `%struct.Metrics`/`%struct.Record`; its IR is
+deterministic at 5,764,620 bytes.
+
 Branch `main` (post-split). The round-83 slice (pre-split housekeeping +
-handoff) and earlier rounds live in the pre-split history; the R32-R38
-hardening slice is the latest compiler-lane commit.
+handoff) and earlier rounds live in the pre-split history; the R32-R38 and
+R39 hardening slices are the latest compiler-lane commits.
 Working tree should be clean; `.xiom_ai.json` is generated tooling state and
 is now untracked/ignored (it has been committed before -- `git rm --cached`
 in this round). In the monorepo phase the parallel stdlib lane committed to
@@ -140,27 +147,32 @@ uncommitted stdlib-lane WIP at close; append once clean).
 
 ## Open compiler findings (pre-selfhost, not R0-blocking)
 
-1. **Same-leaf TYPE collision across user modules** (the last clang error in
-   the bench graph): `benchmark.borrow.Metrics` (4 fields) and
-   `benchmark.derive.Metrics` (7 fields) both emit as `%struct.Metrics`; the
-   derive literal GEPs fields 4-6 of the 4-field definition. Needs a
-   `fn_symbol_map`-style TYPE symbol map (qualify every cross-module
-   same-leaf struct key, route all `%struct.` references through it). Bench is
-   IR-gated only, so no suite regresses today.
+1. **Bench graph clang: generic-mono `Pair` ABI mismatch** (surfaced after R39
+   fixed the same-leaf TYPE collision): `benchmark.generics_hard.Pair`
+   `read_first_Int_Int` is called with a `%struct...Pair` value while the
+   mono'd signature expects `ptr` (clang: "'%tmp31' defined with type
+   '%struct.benchmark.generics_hard.Pair' but expected 'ptr'"). Pre-existing
+   (also on the explicit-source path), never blocked because the bench is
+   IR-gated only. Repro: `xiom --emit-ir examples/benchmark/main.xi > b.ll;
+   clang -c b.ll -o b.o` -> one error at the generics_hard Pair call.
+
+   FIXED (R39): the same-leaf TYPE collision -- catalog type qualification,
+   lock m84. See docs/COMPILER_BUGS.md R39.
 
 Fixed this session: R28 (temporary `.value`, lock m82), R29 (Vec in match arm,
 lock m83), R30 (bare variant pick parity -- the old R25 residual; bench IR
-byte-identical at 5,687,052 bytes).
+byte-identical at 5,687,052 bytes pre-R39, 5,764,620 after).
 
 ## Working after the split (R31 contract)
 
 The compiler repo and the stdlib repo are separate; the compiler repo no
 longer contains stdlib sources:
 
-- Fetch the pinned checkout: `scripts/fetch-stdlib.ps1` / `.sh` (shallow
-  clone of `XIOM_STDLIB_REPO`, default `xiom-lang/stdlib`, at the ref in
-  `STDLIB_VERSION`; `-Force` refreshes, refuses to delete a non-git tree).
-  The release lane swaps `STDLIB_VERSION` from `main` to the split tag.
+- Fetch the pinned checkout: CI checks out `xiom-lang/stdlib` at the ref in
+  `STDLIB_VERSION` (`.github/workflows/ci.yml` `Checkout stdlib at the pin`,
+  release.yml likewise). The `scripts/fetch-stdlib.ps1|.sh` helpers referenced
+  by the round-83 handoff are NOT in this checkout -- release-lane follow-up.
+  Locally, clone into `stdlib/` or point `XIOM_STDLIB` at a checkout.
 - Every cross-repo path resolves through the ONE helper
   `xiom_graph::paths`: `stdlib_root()` (XIOM_STDLIB -> exe-relative -> CWD ->
   XIOM_HOME fallback -> baked checkout), `stdlib_smoke_dir()`
@@ -198,10 +210,10 @@ longer contains stdlib sources:
 5. **Driver hygiene**: randomized temp names (the jit link dir is pid-based).
 6. **cargo-vet audits** (cargo-deny already runs in CI; cargo-fuzz and
    ASAN/sanitizer CI landed round 69).
-7. **Same-leaf TYPE collision** (compiler correctness, non-blocking): two
-   user modules with the same struct leaf emit one `%struct.X` definition
-   (benchmark.borrow/derive.Metrics); needs a `fn_symbol_map`-style type
-   symbol map. Bench is IR-gated only, so no suite regresses today.
+7. **Same-leaf TYPE collision -> FIXED (R39, 2026-09-17)**: catalog injection
+   module-qualifies colliding non-generic type leaves and rewrites references
+   (`type_qualify.rs`; lock m84). The next bench clang error is the generic-mono
+   Pair ABI mismatch -- see "Open compiler findings".
 8. **Stage 6 continuation**: real incremental engine, parallel
    monomorphization profiles, linker strategy, more budget metrics.
 9. **Stage 7 selfhost ladder**: v092..v11 are milestone emitters, not yet a
@@ -211,7 +223,8 @@ longer contains stdlib sources:
 Cross-lane pending (stdlib lane, pre-existing): `stdlib_api_freeze_no_removals`
 RED (52 drifted signatures since the 2026-08-07 snapshot) and
 `stdlib_tests::stdlib_all_modules_compile_to_ir` RED
-(`xiom.encoding.ascii85` T001). `STDLIB_VERSION` still `main` (release lane).
+(`xiom.encoding.ascii85` T001). `STDLIB_VERSION` is now `stdlib-v0.60.0`
+(release lane swapped it in).
 
 ## Workflow rules
 
@@ -239,39 +252,38 @@ RED (52 drifted signatures since the 2026-08-07 snapshot) and
 ## Paste-ready prompt for the next compiler session
 
 ```
-Continue the AXIOM compiler-lane readiness campaign in E:\Projects\AXIOM
-(the compiler repo; post-split). Read SESSION.md (repo root) and
-docs/SESSION.md (rounds 61-83; round 83 is the pre-split housekeeping/R31
-handoff) before touching code. The stdlib now lives in its own repo: fetch
-the pinned checkout with `scripts/fetch-stdlib.ps1` (or `.sh`) before running
-any stdlib/smoke test; everything resolves through `xiom_graph::paths`
-(XIOM_STDLIB, XIOM_STDLIB_SMOKES, XIOM_REQUIRE_STDLIB=1 in CI). Never commit
-the `stdlib/` checkout.
+Continue the AXIOM compiler-lane readiness campaign in E:\xiom-lang\xiom
+(the compiler repo; post-split, branch `main`). Read SESSION.md (repo root)
+and docs/SESSION.md (rounds 61-83; round 83 is the pre-split housekeeping/R31
+handoff) before touching code. The stdlib lives in its own repo: clone
+`xiom-lang/stdlib` at `STDLIB_VERSION` into `stdlib/` or set `XIOM_STDLIB`
+before any stdlib/smoke test; everything resolves through `xiom_graph::paths`
+(XIOM_STDLIB, XIOM_STDLIB_SMOKES, XIOM_REQUIRE_STDLIB=1 in CI; CI checks out
+the pin itself). Never commit the `stdlib/` checkout.
 
-State: Stage 3 Item A CLOSED (strict catalog findings, checker 189/189),
-R-bugs through R38 CLEARED (R32-R38 = the registry-client findings, fixed
-on main 2026-09-17 with unit + registry-e2e locks; one non-R finding open:
-the same-leaf TYPE collision, see "Open compiler findings"); e2e 2331/2331;
-supply chain signed (ed25519 keygen/trust/sign/verify, fail-closed installs,
-ureq-only publish, git commit pins), Stage 6 perf budgets wired (determinism
-canary covers selfhost v092 + bench graph), selfhost v092 compile gate
-GREEN, release R0 compiler-side blockers DONE (R25+R27+R31, release build
-clean).
+State: Stage 3 Item A CLOSED (strict catalog findings, checker 194/194),
+R-bugs through R39 CLEARED (R32-R38 = registry-client findings; R39 =
+same-leaf TYPE collision, lock m84; fixed on main 2026-09-17 with unit +
+e2e locks); e2e 2332/2332; supply chain signed (ed25519
+keygen/trust/sign/verify, fail-closed installs, ureq-only publish, git commit
+pins), Stage 6 perf budgets wired (determinism canary covers selfhost v092 +
+bench graph; bench IR 5,764,620 bytes), selfhost v092 compile gate GREEN,
+release R0 compiler-side blockers DONE (R25+R27+R31+R39, release build
+clean). The next bench clang error (pre-existing generic-mono Pair ABI) is
+the only open compiler finding -- see "Open compiler findings".
 
 Pending (cross-lane): stdlib_api_freeze_no_removals RED (52 drifted
 signatures) and stdlib_tests::stdlib_all_modules_compile_to_ir RED
 (xiom.encoding.ascii85 T001) -- stdlib-lane owned, documented in
-COMPILER_BUGS R31 FIXED. STDLIB_VERSION is `main` until the release lane
-swaps in the split tag.
+COMPILER_BUGS R31 FIXED. STDLIB_VERSION is `stdlib-v0.60.0`.
 
 Your task, in order:
 1. Supply-chain tail: transitive dependency closure from registry metadata.
-   The client-side registry defects R32-R38 are FIXED on main (2026-09-17);
-   the registry e2e harness carries the locks. Then: clap migration, fmt
-   body-inline comment trivia, LSP cross-file index, cargo-vet.
-2. Same-leaf TYPE collision (type symbol map, see "Open compiler findings").
-3. Stage 6 continuation (incremental engine, parallel mono profiles, linker
-   strategy) and the Stage 7 selfhost ladder.
+   Then: clap migration, fmt body-inline comment trivia, LSP cross-file
+   index, cargo-vet, generic-mono Pair ABI (see "Open compiler findings").
+2. Stage 6 continuation (incremental engine, parallel mono profiles, linker
+   strategy) and the Stage 7 selfhost ladder -- both on their own branch
+   after the public release gates.
 
 Rules: the e2e/stdlib harnesses spawn target/debug/xiom.exe -- always
 `cargo build -p xiom` after checker/codegen changes. Capture $LASTEXITCODE

@@ -2972,9 +2972,21 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // otherwise keep the key and let the stub machinery
                         // produce a diagnostic.
                         let suffix = format!(".{}", fn_key);
-                        let hit = self.types.functions.keys().into_iter()
-                            .find(|k| k.ends_with(&suffix) && !k.starts_with("Tuple__") && !k.starts_with("Option__") && !k.starts_with("Result__"))
-                            .or_else(|| self.mono.emitted_fns.iter().find(|k| k.ends_with(&suffix)).cloned());
+                        // R39: deterministic suffix pick -- a raw HashMap
+                        // first-match chose a different same-leaf definition
+                        // per process.
+                        let fn_candidates: Vec<String> = self.types.functions.keys().into_iter()
+                            .filter(|k| k.ends_with(&suffix) && !k.starts_with("Tuple__") && !k.starts_with("Option__") && !k.starts_with("Result__"))
+                            .collect();
+                        let hit = self.pick_deterministic(fn_candidates)
+                            .or_else(|| {
+                                let mut mono_hits: Vec<String> = self.mono.emitted_fns.iter()
+                                    .filter(|k| k.ends_with(&suffix))
+                                    .cloned()
+                                    .collect();
+                                mono_hits.sort();
+                                mono_hits.into_iter().next()
+                            });
                         match hit {
                             Some(k) => k,
                             None => fn_key,
