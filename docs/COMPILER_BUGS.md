@@ -6921,4 +6921,50 @@ definition); full e2e **2333/2333**, feature-reg **510/510**, checker
 **194/194**, perf/determinism **2/2** (bench bytes unchanged, canary
 green).
 
+## R41. Generic-method calls passed struct VALUES where a pointer self was expected -- FIXED (2026-09-17, `main`)
+
+**Finding**: after R39 numbered the bench types correctly, clang rejected
+`call i64 @Pair.read_first_Int_Int(%struct.Pair* %tmp31)` where `%tmp31` was
+the LOADED STRUCT VALUE (`pairs[0]`, `pairs: Vec[Pair[Int,Float64]]` from
+`collect_pairs()`; source `bench_generics_hard.test_nested_generic_collection`).
+The NON-generic instance-method path materializes struct temporaries into an
+alloca when the callee self is a pointer (BUG 34 / M65 Part 2b in call.rs);
+the GENERIC path fell through and passed the value. LLVM accepts the type
+mismatch silently; the callee then treats the value bits as an address.
+
+**Fix** (generic call receiver ABI block, call.rs): mirror the non-generic
+handling -- an `Expr::Index` receiver of a struct element passes the element
+ADDRESS (`&elem` -> inttoptr to the callee's pointer type), and any other
+struct-value temporary is materialized into an alloca whose address is
+passed.
+
+**Verification**: the Pair error is gone; full e2e **2333/2333**
+(run together with R42), feature-reg 510/510, checker 194/194,
+perf/determinism 2/2. The bench's next clang rejection is the separate
+pre-existing generic-arg inference issue recorded in SESSION.md ("Open
+compiler findings").
+
+## R42. Bare enum variants now resolve scope-first (checker parity) -- FIXED (2026-09-17, `main`)
+
+**Finding**: `var c_empty: Container[Int] = Empty;` in
+`benchmark.generics_hard.test_generic_enum` built a `%struct.Message` value
+(`Message` is the first-declared enum with an `Empty` variant) and stored it
+into the `Container` slot: clang "store %struct...Container %tmp6, %tmp6
+defined with type %struct.Message". The CHECKER resolves a bare variant
+through its module-scoped key (`resolve_enum_variant` prefers
+`{current_module}.{variant}`); codegen's `pick_variant_parent` only used
+declaration order (R30) and disagreed whenever a module used the same-leaf
+variant of its OWN enum while another module declared it first.
+
+**Fix**: `pick_variant_parent` (lib.rs) now tries scope prefixes first --
+the explicit module context, then the enclosing function name's dotted
+prefixes (`benchmark.generics_hard.test_x` -> `benchmark.generics_hard`,
+`benchmark`) -- then the R30 declaration-order parity, then
+`pick_deterministic`. This matches the checker and the R25/R39 scope-first
+resolution family.
+
+**Verification**: the Container/Message store mismatch is gone from the
+bench IR; full e2e **2333/2333** (incl. every enum/variant test),
+feature-reg 510/510, checker 194/194, perf/determinism 2/2.
+
 
