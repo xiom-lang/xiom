@@ -6554,4 +6554,225 @@ panics first; stdlib-lane owned):
 Both were already failing before R31 (the freeze scan panicked on the stale
 `stdlib/xiom/memory/rc.xi` manifest path).
 
+## Registry-client integration findings (xiom-pkg) -- 2026-09-16, from the registry repo session
+
+Source: the registry lane's handoff. The registry now implements the full
+protocol per registry/SESSION.md section 2 (16/16 e2e checks drive the real
+client, 71 unit tests); these are CLIENT-side defects the registry cannot
+compensate for. Everything below was re-verified against this tree
+(v0.58.0, HEAD `69c92db3`) while writing this entry; per-item verification
+notes are inline. NOTHING here is fixed yet.
+
+Priority labels are the registry lane's (P1 = unenforceable security
+guarantee, P2 = quality/integration, P3 = edge case); the R-numbers enter the
+compiler-lane queue.
+
+### R32. `xiom pkg install` fallback bypasses every integrity check (P1, security)
+
+`install` treats ANY `install_from_registry` error as a fallback trigger
+(main.rs:60-65), including integrity failures:
+
+```
+if let Err(e) = install_from_registry(name, version, &registry) {
+    eprintln!("xiom pkg: registry install failed: {e}");
+    eprintln!("xiom pkg: trying local resolution...");
+    install_package(&args);
+}
+```
+
+`install_package` (main.rs:701-751) then re-checks the SAME registry with the
+legacy substring scan (main.rs:714-716) and calls
+`install_from_registry_download` (main.rs:857-885), which does
+`http_get_binary` + `extract_tar_gz` with NO sha256, NO signature and NO
+lockfile check. So a CHECKSUM MISMATCH or a signature failure is demoted to
+"try again unverified".
+
+Registry-lane repro (deterministic): publish a package; replace the stored
+tarball on disk with a structurally valid different tarball; `xiom pkg
+install <pkg>` prints:
+
+```
+CHECKSUM MISMATCH ... expected a79e... got 766d...
+xiom pkg: trying local resolution...
+xiom pkg: found <pkg> in remote registry
+xiom pkg: downloading ... -> installed
+```
+
+and the tampered `lib.xi` replaces the original in the package cache. Note
+the fallback's own remote branch only fires when the index is COMPACT
+(`"name":"pkg"`); after a server restart (pretty index, see R36) it silently
+skips to the local ecosystem path, so "tamper installs" behavior also varies
+across server restarts.
+
+Verification here: the code path is exactly as reported; the registry e2e
+itself guards against it (`registry/test/e2e/run-e2e.js:360-380`, "assert it
+did not silently install content from the tampered bytes").
+
+Fix shape: distinguish error classes (typed enum, not `String`):
+RegistryUnavailable / PackageNotFound / VersionNotFound -> fallback allowed;
+IntegrityFailure / SignatureFailure / LockfileFailure -> TERMINAL, non-zero
+exit. Then delete `install_from_registry_download` (registry lane's
+preference) or make it verify the index digest + sha256 + signature itself.
+Positive lock: tampered artifact must fail without extracting.
+
+### R33. Signature enforcement fails OPEN on trust-file / registry-URL text mismatch (P1, security)
+
+`TrustStore::get()` normalizes the LOOKUP string (signing.rs:127-129) and
+`pin()` stores normalized keys (signing.rs:143), but `load_from`
+(signing.rs:112-125) copies keys out of `trusted_keys.json` VERBATIM. Any
+trust file not written by the current `pin()` path -- hand-written, test
+fixture, legacy/older client -- can therefore hold a key that never matches
+the lookup. `install_from_registry` then takes the `(None, sig)` arm
+(registry.rs:350-353): it prints "artifact is signed (fp ...); pin it with
+..." and installs WITHOUT enforcement. A mismatch must fail closed once the
+user believes the registry is pinned.
+
+Registry-lane repro (both installed with only "checksum verified", no
+signature check, despite a pinned key):
+
+- trust file key `http://localhost:3203/` vs `XIOM_REGISTRY=http://localhost:3203` (trailing slash)
+- trust file key `http://LOCALHOST:3203` vs runtime lowercase
+
+The mismatch is realistic: the registry's own e2e writes
+`trusted_keys.json` directly (`run-e2e.js:346-347`, `:353-354`), i.e. not
+through `pin()`.
+
+Verification here: the report's wording ("get() normalizes its argument but
+install_from_registry passes the raw URL") understates it -- the query IS
+normalized; the defect is the un-normalized STORED side. Canonicalizing
+`registry_url()` alone (R34) does NOT fix a stored key with a trailing slash
+or uppercase host; the load/compare side must normalize too.
+
+Fix shape: normalize both sides of the lookup (normalize keys on load and in
+`get()`), or compare normalized keys. Unit tests with hand-written
+`trusted_keys.json` variants (trailing slash, uppercase host, surrounding
+whitespace) asserting the pin is found.
+
+### R34. Registry URL is never canonicalized: double slashes + duplicated URL in errors (P2)
+
+`registry_url()` (registry.rs:14-16) returns `XIOM_REGISTRY` verbatim and
+every call site concatenates: `format!("{registry}/index.json")`,
+`format!("{}/publish", registry)`, `format!("{}/packages/...")`. With
+`XIOM_REGISTRY=http://localhost:3203/` the client requests
+`http://localhost:3203//publish` and `//index.json`; the local registry 404s
+(`no_route`), while nginx in front of staging/production typically collapses
+`//` -- staging and local behave differently for the same client.
+
+Also the error text renders the URL twice: `http_post_multipart` maps to
+`format!("POST {url}: {e}")` (registry.rs:89), and ureq 2.x `Error::Status`
+already displays as `{url}: status code {code}` (verified in ureq 2.12.1
+`error.rs:214`), producing e.g.
+`POST http://localhost:3203//publish: http://localhost:3203//publish: status code 404`.
+
+Fix shape: canonicalize once in `registry_url()` (trim whitespace, drop a
+trailing `/` repeatedly, lowercase scheme+host) so trust lookup, URL
+building, publish and lock generation all use one string; render the URL
+once per error message. Land with R33's load-side normalization.
+
+### R35. Non-2xx response bodies are discarded (P2)
+
+`http_get` / `http_get_binary` / `http_post_multipart` collapse every ureq
+failure to `"GET|POST {url}: {e}"` (registry.rs:32, 47, 89) -- the response
+body is never read. The registry deliberately returns actionable JSON bodies
+with codes (`invalid_signature`, `signature_required`, `reserved_namespace`,
+`scope_denied`, `version_exists`, `index_full`, `rate_limited` with
+`Retry-After`); none of it reaches the user, so 401 vs 403 vs 422 is
+guesswork. ureq 2 exposes the body on `Error::Status(code, resp)`.
+
+Fix shape: on `ureq::Error::Status`, read the bounded body (keep the
+existing 16 MiB / 256 MiB / 1 MiB caps) and include status + body in the
+error; keep transport errors as-is. This is the diagnostics prerequisite for
+field-debugging R32/R33.
+
+### R36. Fallback index lookup is a whitespace/format-sensitive substring search (P2)
+
+`install_package` does `body.contains("\"name\":\"{pkg}\"")` (main.rs:715)
+and `install_from_registry_download` restarts its "section" at the same
+substring (main.rs:862) before parsing `"latest":"..."`. Consequences:
+
+- The registry serves the index COMPACT from a fresh process and
+  PRETTY-PRINTED (2-space indent, `"name": "..."`) after a restart that
+  reloads from disk. Pretty output makes the search fail -> the remote branch
+  is skipped entirely; compact output works. Same client, same package,
+  different behavior across server restarts.
+- A description containing `"name":"<pkg>"` earlier in the document shifts
+  the section start and `latest` is parsed from the wrong entry.
+
+Fix shape: deserialize the index into the existing `RegistryIndex` and look
+up the map; never string-search. Moot for the fallback if R32 removes
+`install_from_registry_download`, but `install_package`'s remote branch is
+also affected.
+
+### R37. Fallback edge cases: all-yanked package; `@version` handling (P3)
+
+- All-yanked package: the registry sets `"latest": ""`. The primary path
+  errors with `Version '' not found ...`; the fallback then builds
+  `{registry}/packages/{name}//package.tar.gz` -> 404 with a confusing URL.
+  Should report "all versions are yanked" (or skip packages with empty
+  `latest`).
+- Binary download ignores `@version`: the registry lane reports one call
+  site passing only the name. NOT reproducible on this tree: main.rs:718
+  passes `_version`, `install_from_registry_download` uses it
+  (main.rs:865-870), and all three `http_get_binary` call sites
+  (registry.rs:299, main.rs:878, main.rs:995) build a versioned URL.
+  Re-verify against the binary the registry lane used; if it was the
+  fallback path, R32/R36 supersede it.
+
+### R38. Package cache ignores XIOM_HOME; fallback extraction does not clean the destination (P3)
+
+`package_cache_dir()` (registry.rs:390-397) uses `LOCALAPPDATA`/`HOME`,
+while `install_package_files` and `get_xiom_home` honor `XIOM_HOME`
+(main.rs:783-794, 916-925). `XIOM_HOME`-sandboxed runs (CI, tests) therefore
+still write the real user cache, and stale extractions from earlier runs
+persist. Also `install_from_registry` removes the destination first
+(registry.rs:379-381) but `install_from_registry_download` does not
+(main.rs:880-882), so stale members survive on the fallback path.
+
+Fix shape: route the cache through the shared XIOM_HOME helper; clear the
+destination before extracting (or funnel both install paths through one
+extractor).
+
+### Compatibility contract (must survive the fixes) -- registry lane
+
+- Publish multipart fields exactly `name`, `version`, `signature`,
+  `publicKey` + file field `package`; `Bearer XIOM_REGISTRY_TOKEN`.
+- Download path `/packages/{name}/{version}/package.tar.gz`.
+- ed25519: 64-byte signature as 128 lowercase hex chars, 32-byte key as 64
+  hex, over the exact tarball bytes (`verify_strict`).
+- `RegistryIndex.registry` is required in the JSON (no serde default); the
+  server emits it from `REGISTRY_URL`. Keep it required -- it caught a real
+  drift.
+
+### Not the client's problem (FYI, do not debug the wrong side)
+
+- `/index.json` byte format depends on process history (compact fresh,
+  pretty after restart reload): the registry lane will standardize the
+  serializer; R36 removes the client's dependence either way.
+- The seed index (`registry/seed-index.json`, 70 packages) carries no
+  digests and no artifacts; installs from seeded entries fail closed until
+  those packages are published through the wire protocol. Server-side.
+
+### Recommended fix order (compiler lane)
+
+1. **R32** -- the only finding where a user can be served bytes that failed
+   verification. Typed error classes; fall back only on
+   unavailable/not-found; delete or harden `install_from_registry_download`;
+   tamper lock asserts failure + no extraction.
+2. **R33 + R34** in one slice -- same root cause (registry URL text
+   identity). Canonical `registry_url()` + normalize both sides of the trust
+   lookup; trust-file unit tests. R34 also removes a local-vs-nginx
+   behavior split before any registry work.
+3. **R35** -- read non-2xx bodies, render the URL once. Prerequisite for
+   diagnosing auth/scope/rate-limit failures in the field.
+4. **R36** -- index deserialization everywhere; delete the substring scans.
+   If R32 removed the fallback path this collapses to the remote branch of
+   `install_package`.
+5. **R37 + R38** -- yanked/empty-`latest` handling, XIOM_HOME-aware cache,
+   clean-before-extract. Low risk, last.
+
+Gate: `cargo test -p xiom-pkg` plus the registry e2e suite
+(`registry/test/e2e/run-e2e.js`, which drives the real client binary);
+new unit tests for the trust-store normalization variants and a
+tamper-does-not-install lock.
+
 
