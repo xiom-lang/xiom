@@ -147,7 +147,18 @@ uncommitted stdlib-lane WIP at close; append once clean).
 
 ## Open compiler findings (pre-selfhost, not R0-blocking)
 
-1. **Bench graph clang: generic-mono `Pair` ABI mismatch** (surfaced after R39
+1. **`derive[Clone]` on a `&T` receiver is a silent miscompile** (found while
+   verifying R39; pre-existing, single-file repro). `M.clone` is emitted with
+   a BY-VALUE self (`define %struct.M @M.clone(%struct.M %self)`) while the
+   call site passes a POINTER (`call %struct.M @M.clone(%struct.M* %tmp4)`);
+   LLVM 22 accepts the type mismatch silently and the returned struct is
+   garbage. Repro (exits 1, expected 0):
+   `pub type M = { a: Int; b: Int; } derive[Clone]` /
+   `pub fn rt(m: &M) -> Int { var c = m.clone(); return c.a + c.b; }` /
+   `main` checks `rt(&x) == 3`. Fix shape: pass the receiver value when the
+   method's self is by value (or declare the clone self as a pointer), and
+   verify `by_value_self_methods` covers derive-generated clone. No lock yet.
+2. **Bench graph clang: generic-mono `Pair` ABI mismatch** (surfaced after R39
    fixed the same-leaf TYPE collision): `benchmark.generics_hard.Pair`
    `read_first_Int_Int` is called with a `%struct...Pair` value while the
    mono'd signature expects `ptr` (clang: "'%tmp31' defined with type
@@ -278,9 +289,12 @@ signatures) and stdlib_tests::stdlib_all_modules_compile_to_ir RED
 COMPILER_BUGS R31 FIXED. STDLIB_VERSION is `stdlib-v0.60.0`.
 
 Your task, in order:
-1. Supply-chain tail: transitive dependency closure from registry metadata.
-   Then: clap migration, fmt body-inline comment trivia, LSP cross-file
-   index, cargo-vet, generic-mono Pair ABI (see "Open compiler findings").
+1. Fix the open compiler findings: (a) `derive[Clone]` on `&T` -- silent
+   by-value-self ABI mismatch, single-file repro in "Open compiler
+   findings"; lock it; (b) generic-mono Pair ABI mismatch in the bench
+   graph. Then the supply-chain tail: transitive dependency closure from
+   registry metadata, clap migration, fmt body-inline comment trivia, LSP
+   cross-file index, cargo-vet.
 2. Stage 6 continuation (incremental engine, parallel mono profiles, linker
    strategy) and the Stage 7 selfhost ladder -- both on their own branch
    after the public release gates.
