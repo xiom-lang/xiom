@@ -6967,4 +6967,68 @@ resolution family.
 bench IR; full e2e **2333/2333** (incl. every enum/variant test),
 feature-reg 510/510, checker 194/194, perf/determinism 2/2.
 
+## R43. `&v` on a reference-typed local hard-errored -- FIXED (2026-09-17, `main`)
+
+**Finding** (stdlib lane, untested-public-surface sweep): calling
+`xiom.crypto.keyx.x25519_keypair()` failed codegen with C001 "cannot take a
+reference to 'v': it is already a reference (remove the leading '&')".
+Automated bisect isolated `xiom.crypto.curves._bigint_to_le`:
+`fn _bigint_to_le(b: &BigInt) { var v = b; ... bigint_div_mod(&v, ...) }`.
+The BUG 24 guard rejected `&v` when the local already holds a reference, but
+`var v = b` is a REFERENCE BINDING (the checker accepts both `let w: Big = v`
+via auto-deref copy and `let w: &Big = v`), and `&*v == v` is well-defined:
+the reference itself, not the address of the pointer slot.
+
+**Fix** (expr.rs, `Expr::Ref` on an Ident local whose slot type is
+`%struct.X*`): load the stored pointer and return it as the `&X` value
+instead of erroring. Callers coerce it exactly like any other `&T`; the
+double-address garbage BUG 24 guarded against is not produced. The minimal
+probe and `p_x25519_keypair_codegen.xi` compile and run exit 0.
+
+**Pinned semantics** (lock m86): `&v` on a ref binding reads through to the
+original; a FIELD write through the alias mutates the original; a plain
+reassignment rebinds the local without touching the original.
+
+**Verification**: m86 + full e2e **2334/2334** (with the stdlib checkout
+active, so stdlib-dependent tests ran for real), feature-reg 510/510,
+checker 194/194, perf/determinism 2/2. `stdlib_execution_tests` is 83/85
+against the LOCAL stdlib checkout: `smoke_collect_tree` and
+`smoke_collect_cache` fail IDENTICALLY on the pre-fix driver (contract
+violations at 83:12 / 181:12) -- pre-existing cross-lane checkout drift,
+not this change.
+
+## R44. `http_parse_response` emits an out-of-range GEP -- OPEN (stdlib same-leaf `HttpResponse`)
+
+**Finding** (stdlib lane, same sweep, probe `p_http_resp_codegen.xi`):
+`xiom.net.http.http_parse_response` is rejected by clang with "invalid
+getelementptr indices": it stores field 2 of `%struct.HttpResponse` while
+the emitted definition has 2 fields.
+
+**Root cause**: a STDLIB same-leaf type collision of the R39 class --
+`xiom.net.net.HttpResponse = { status: Int; body: Str; }` (2 fields) and
+`xiom.net.http.HttpResponse = { status: Int; headers: Vec[(Str,Str)];
+body: Vec[UInt8]; }` (3 fields). R39 deliberately qualified only NON-stdlib
+project modules, so stdlib collisions still inject bare and the
+alphabetically-first module wins.
+
+**Inventory**: 40 same-leaf non-generic pub-type groups across stdlib
+modules (`net.HttpResponse`, collect `Avl`/`PHeap`/`PMap`/`Hamt`/..., geom
+`Vec2`/`Vec3`/`Mat4`, math `Graph`, regex `Regex`/`Match`, sync
+`AtomicInt`, serialize `JsonValue`, ...). Most are facade re-declarations
+with identical layouts; several are genuinely different types.
+
+**Compiler-side experiment (2026-09-17, reverted)**: including stdlib in the
+R39 qualification fixes the probe (both types emit module-qualified with the
+right field counts; probe compiles and runs), but wholesale qualification
+broke 6 stdlib smokes (regex/collect/sync) and a shape-difference triage
+still broke 2 (collect/tree, collect/cache). The remaining groups need
+stdlib-side dedup (or a coordinated stdlib-wide pass with their smoke
+battery), so the change was reverted to keep the tree green.
+
+**Recommendation**: (1) stdlib renames the genuinely conflicting
+declarations first (start with `net.net.HttpResponse` -> e.g.
+`NetHttpResponse`, plus the real collect/math duplicates); (2) then a
+dedicated compiler+stdlib slice lands stdlib qualification with the smoke
+battery green.
+
 

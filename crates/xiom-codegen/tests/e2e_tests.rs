@@ -4798,6 +4798,14 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m85_clone_ref_receiver() {
     assert_eq!(compile_and_run("tests\\regression\\m85_clone_ref_receiver.xi"), Some(0));
 }
+
+// R43: `&v` where v already holds a reference denotes the same reference.
+// Pre-fix this raised C001 ("already a reference"), which broke the stdlib's
+// `var v = b; ... &v` pattern (x25519_keypair -> _bigint_to_le). Pins
+// read-through, field-write aliasing, and rebind isolation.
+#[test] fn e2e_m86_ref_of_reference() {
+    assert_eq!(compile_and_run("tests\\regression\\m86_ref_of_reference.xi"), Some(0));
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }

@@ -34,6 +34,16 @@ bare enum variants resolve scope-first (checker parity) so
 `var c: Container[Int] = Empty` binds Container, not the first-declared
 `Message`. See docs/COMPILER_BUGS.md R41/R42.
 
+Also 2026-09-17 (stdlib-session sweep relay): R43 FIXED --
+`&v` on a reference-typed local hard-errored C001, breaking the stdlib's
+`var v = b; ... &v` pattern (x25519_keypair -> _bigint_to_le); `&*v == v`
+now lowers to the stored pointer. Lock `e2e_m86_ref_of_reference`.
+R44 OPEN -- `http_parse_response` invalid GEP is a STDLIB same-leaf
+collision (`net.net.HttpResponse` 2 fields vs `net.http.HttpResponse` 3);
+40 same-leaf pub-type groups exist stdlib-wide, qualification was
+experimented and reverted (see docs/COMPILER_BUGS.md R44). The stdlib lane
+must dedup the real conflicts first.
+
 Also 2026-09-17: STAGE 5 SUPPLY-CHAIN TAIL CLOSED -- transitive dependency
 closure for registry installs (version-range matcher; cycle-safe closure
 whose dependency source is the verified tarball's manifest; every artifact
@@ -160,13 +170,11 @@ target\debug\xiom.exe --emit-ir examples\benchmark\main.xi > a.txt   (x3, compar
 cargo test -p xiom-codegen --test perf_budget_tests
 ```
 
-Residual findings (pre-existing, in the queue):
-- ambiguous bare cross-enum variants (`var empty = Empty;`) pick a parent
-  deterministically but the method leaf-bind can disagree
-  (`@Message.size_hint(%struct.BST*)` in bench IR); needs a checker rule.
-- `examples/benchmark/main.xi` does NOT fully clang-compile (a
-  `%struct.Metrics` GEP indexes field 4 of 4); Stage 6 measures emitted IR
-  bytes only, so this never gated. Remeasure before a full bench build.
+Residual findings: the bare-variant disagreement was fixed by R42
+(scope-first parent pick); the `%struct.Metrics` GEP by R39. The bench's next
+clang error is the generic-arg inference leak -- see "Open compiler findings"
+below. Stage 6 measures emitted IR bytes only, so it never gated; remeasure
+before a full bench build.
 
 Formal R25 entry in docs/COMPILER_BUGS.md is deferred (that file had
 uncommitted stdlib-lane WIP at close; append once clean).
@@ -187,6 +195,27 @@ uncommitted stdlib-lane WIP at close; append once clean).
    parts through `sanitize_container_arg` in every mono name. Bench is
    IR-gated, so no suite regresses today.
 
+2. **`http_parse_response` invalid GEP -- STDLIB same-leaf type collision**
+   (R44, OPEN; stdlib-session sweep, probe
+   `stdlib/tools/probes/p_http_resp_codegen.xi`). `net.net.HttpResponse`
+   (2 fields) and `net.http.HttpResponse` (3 fields) both inject as bare
+   `%struct.HttpResponse`; the alphabetic winner (net) breaks http's stores.
+   The stdlib has **40 same-leaf non-generic pub-type groups** (collect
+   Avl/PHeap/PMap/..., geom Vec2/Vec3/Mat4, math Graph, regex Regex/Match,
+   sync AtomicInt, serialize JsonValue, ...); most are facade
+   re-declarations with identical layouts, several genuinely differ.
+   Compiler-side qualification was EXPERIMENTED and REVERTED: including
+   stdlib in R39 fixes the probe (both types module-qualified, probe runs)
+   but broke 6 stdlib smokes wholesale and still 2 with a shape-difference
+   triage. Next step is stdlib-side dedup of the real conflicts (start:
+   `net.net.HttpResponse`), then a dedicated compiler+stdlib slice lands
+   stdlib qualification with their smoke battery green. See
+   docs/COMPILER_BUGS.md R44 for the full evidence.
+
+FIXED (R43): `&v` on a reference-typed local now lowers to the stored
+pointer (`&*v == v`) instead of C001 -- unblocks x25519_keypair /
+_bigint_to_le; lock `e2e_m86_ref_of_reference`.
+
 FIXED (R41/R42): generic pointer-self receiver ABI + scope-first bare-variant
 resolution -- see docs/COMPILER_BUGS.md.
 
@@ -195,7 +224,7 @@ instance-method receiver coercion now mirrors the by-value `%self` ABI
 (loads the struct); lock `e2e_m85_clone_ref_receiver`.
 
 FIXED (R39): the same-leaf TYPE collision -- catalog type qualification,
-lock m84. See docs/COMPILER_BUGS.md R39/R40/R41/R42.
+lock m84. See docs/COMPILER_BUGS.md R39-R43.
 
 Fixed this session: R28 (temporary `.value`, lock m82), R29 (Vec in match arm,
 lock m83), R30 (bare variant pick parity -- the old R25 residual; bench IR
@@ -326,12 +355,16 @@ COMPILER_BUGS R31 FIXED. STDLIB_VERSION is `stdlib-v0.60.0`.
 
 Your task, in order (Stage 5 completion; the supply-chain tail and driver
 hygiene are CLOSED):
-1. clap-based arg parsing (keep the CLI surface byte-compatible); LSP
+1. Fix the open compiler findings, in order:
+   (a) generic-arg inference leaks a fixed-array type into the mono name
+   (`total_area_2 x Int`), then make the bench graph clang-clean;
+   (b) R44 stdlib same-leaf `HttpResponse` -- coordinate with the stdlib
+   lane: they dedup the genuinely conflicting declarations (40 groups,
+   start with `net.net.HttpResponse`), then land stdlib qualification in
+   R39's pass and run their smoke battery.
+2. clap-based arg parsing (keep the CLI surface byte-compatible); LSP
    incremental reparsing + cross-file index; fmt body-inline comment trivia;
    cargo-vet audits.
-2. Fix the last open compiler finding (generic-arg inference leaks a
-   fixed-array type into the mono name, repro in "Open compiler findings"),
-   then make the bench graph clang-clean.
 3. Stage 6 continuation (incremental engine, parallel mono profiles, linker
    strategy) and the Stage 7 selfhost ladder -- both on their own branch
    after the public release gates.

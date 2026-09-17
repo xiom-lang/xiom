@@ -3345,17 +3345,22 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             return Ok((ptr_val, "i64".to_string()));
                         }
                         if slot_ty.starts_with("%struct.") {
-                            // BUG 24 fix: `&x` where x is ALREADY a reference
-                            // (pointer-typed local -- a `&Vec[Float64]`/`&BigFloat`
-                            // param) is a DOUBLE-ADDRESS: the callee would read
-                            // the pointer SLOT as the struct (garbage -> wrong
-                            // values / AVs, per-program-shape). Reject it so the
-                            // typo is a compile error, not silent corruption.
+                            // R43: `&x` where the local ALREADY holds a
+                            // reference (`&T`) denotes the SAME reference --
+                            // `&*x == x` -- not the address of the pointer
+                            // slot. The old BUG 24 guard hard-errored here
+                            // (the slot address made the callee read the
+                            // pointer slot as the struct), which rejected the
+                            // stdlib's `var v = b; ... &v` pattern
+                            // (x25519_keypair -> _bigint_to_le, BUG 26 #1
+                            // family). Load the stored pointer and return it;
+                            // callers coerce it exactly like any other `&T`.
                             if slot_ty.ends_with('*') {
-                                return Err(format!(
-                                    "cannot take a reference to '{}': it is already a reference (remove the leading '&')",
-                                    id.name
+                                let ptr_val = self.fresh_tmp();
+                                self.emitln(&format!(
+                                    "  {ptr_val} = load {slot_ty}, {slot_ty}* {slot}"
                                 ));
+                                return Ok((ptr_val, slot_ty.clone()));
                             }
                             return Ok((slot, format!("{slot_ty}*")));
                         }
