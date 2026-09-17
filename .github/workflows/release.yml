@@ -95,7 +95,7 @@ jobs:
           Copy-Item stdlib\xiom "$stage/lib/xiom" -Recurse
           Copy-Item stdlib\runtime "$stage/lib/runtime" -Recurse
           Copy-Item stdlib\package.xi "$stage/lib/"
-          Copy-Item LICENSE, README.md $stage
+          Copy-Item LICENSE-MIT, LICENSE-APACHE, NOTICE, README.md $stage
           $name = "xiom-$ver-windows-x64.zip"
           Compress-Archive -Path "$stage/*" -DestinationPath $name
           $hash = (Get-FileHash $name -Algorithm SHA256).Hash.ToLower()
@@ -114,7 +114,7 @@ jobs:
           cp -r stdlib/xiom stage/lib/xiom
           cp -r stdlib/runtime stage/lib/runtime
           cp stdlib/package.xi stage/lib/
-          cp LICENSE README.md stage/
+          cp LICENSE-MIT LICENSE-APACHE NOTICE README.md stage/
           name="xiom-$ver-linux-x64.tar.gz"
           tar -czf "$name" -C stage .
           sha256sum "$name" > SHA256SUMS-linux-x64
@@ -184,7 +184,7 @@ jobs:
           cp -r stdlib/xiom stage/lib/xiom
           cp -r stdlib/runtime stage/lib/runtime
           cp stdlib/package.xi stage/lib/
-          cp LICENSE README.md stage/
+          cp LICENSE-MIT LICENSE-APACHE NOTICE README.md stage/
           name="xiom-$ver-${{ matrix.platform }}.tar.gz"
           tar -czf "$name" -C stage .
           shasum -a 256 "$name" > "SHA256SUMS-${{ matrix.platform }}"
