@@ -6890,4 +6890,35 @@ on a missing file; `XIOM_REQUIRE_STDLIB=1` still hard-fails), and
 since the SPDX header commit (`return a + b` is line 12, `if x != 5` line
 16).
 
+## R40. `derive[Clone]` on a pointer receiver was a silent miscompile -- FIXED (2026-09-17, `main`)
+
+**Finding**: the derive-generated `X.clone` is emitted with a BY-VALUE self
+(`define %struct.X @X.clone(%struct.X %self)`) and registered as such, but a
+call on a pointer receiver (`m: &X` -> `m.clone()`) passed the POINTER:
+`call %struct.X @X.clone(%struct.X* %tmp4)`. LLVM 22 accepts the type
+mismatch silently, the callee reads the alloca address as the struct value,
+and the returned clone is garbage. Same shape for `derive[Clone]` enums. The
+single-file repro (`type M = { a: Int; b: Int; } derive[Clone]` +
+`fn rt(m: &M) -> Int { var c = m.clone(); ... }`) exits 1 where it must exit
+0; the same pattern appears in the bench graph.
+
+**Fix** (call.rs, non-generic instance-method receiver coercion): when the
+callee's first registered param is a BY-VALUE struct (`!p0.ends_with('*')`)
+and the compiled receiver is its pointer (`recv_llvm_ty == "{p0}*"`), load
+the struct and pass the value -- mirroring the callee ABI, exactly like the
+generic-method path does. Both struct and enum clone flow through this site
+(`compile_clone_impl` is shared), and user-defined non-generic by-value-self
+methods get the same correct lowering.
+
+**Lock**: `tests/regression/m85_clone_ref_receiver.xi` +
+`e2e_m85_clone_ref_receiver` (struct clone on `&T`, enum clone on `&E`, plus
+a by-value receiver guard); added to the CI lock line in
+`.github/workflows/ci.yml`.
+
+**Verification**: repro exits 0 and the emitted call is
+`@solo.M.clone(%struct.solo.M %tmp5)` (loaded value, matching the
+definition); full e2e **2333/2333**, feature-reg **510/510**, checker
+**194/194**, perf/determinism **2/2** (bench bytes unchanged, canary
+green).
+
 

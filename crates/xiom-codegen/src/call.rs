@@ -4186,6 +4186,20 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         self.emitln(&format!("  {struct_val} = load {p0}, {p0}* {struct_ptr}"));
                                         (struct_val, p0)
                                     }
+                                } else if !p0.ends_with('*')
+                                    && recv_llvm_ty == format!("{p0}*")
+                                {
+                                    // R40: callee takes `self` BY VALUE (derive
+                                    // `X.clone`, user `fn T.m(self)`), receiver is
+                                    // a POINTER (`m: &T`, `x.clone()` on a ref
+                                    // local). Mirror the callee ABI by loading
+                                    // the struct -- the old fallback passed the
+                                    // pointer where the value was expected; LLVM
+                                    // accepts the mismatch silently and the callee
+                                    // returns garbage (clone on &T).
+                                    let struct_val = self.fresh_tmp();
+                                    self.emitln(&format!("  {struct_val} = load {p0}, {p0}* {recv_val}"));
+                                    (struct_val, p0.clone())
                                 } else {
                                     (recv_val, recv_llvm_ty)
                                 }

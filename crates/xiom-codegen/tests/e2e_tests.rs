@@ -4790,6 +4790,14 @@ fn e2e_safety_probe() {
     let run = Command::new(&exe).output().expect("failed to run m84 exe");
     assert_eq!(run.status.code(), Some(0), "m84 should exit 0 (both Metrics layouts intact)");
 }
+
+// R40: derive[Clone] on a POINTER receiver (`m: &M` -> `m.clone()`). The
+// callee has a by-value `%self`; pre-fix the call passed the pointer where the
+// value was expected, LLVM accepted the silent mismatch, and the returned
+// struct was garbage. Covers struct and enum clone + the value-receiver guard.
+#[test] fn e2e_m85_clone_ref_receiver() {
+    assert_eq!(compile_and_run("tests\\regression\\m85_clone_ref_receiver.xi"), Some(0));
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }
