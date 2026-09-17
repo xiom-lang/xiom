@@ -114,7 +114,13 @@ impl TrustStore {
         if let Ok(text) = std::fs::read_to_string(&store.path) {
             match serde_json::from_str::<TrustStore>(&text) {
                 Ok(parsed) => {
-                    store.keys = parsed.keys;
+                    // Normalize on LOAD: a hand-written / legacy / fixture
+                    // trust file may spell the registry URL differently
+                    // (trailing slash, host case). Matching it verbatim would
+                    // silently skip the fail-closed signature check (R33).
+                    for (registry, key) in parsed.keys {
+                        store.keys.insert(normalize_registry(&registry), key);
+                    }
                 }
                 Err(e) => {
                     eprintln!("xiom pkg: ignoring malformed {}: {e}", store.path.display());
@@ -124,6 +130,10 @@ impl TrustStore {
         store
     }
 
+    /// Look up a pinned key. Stored keys are normalized on load and on pin,
+    /// and the query is normalized here too, so URL text differences
+    /// (trailing slash, host case, whitespace) cannot silently disable
+    /// signature enforcement (R33).
     pub fn get(&self, registry: &str) -> Option<&String> {
         self.keys.get(&normalize_registry(registry))
     }
@@ -245,6 +255,38 @@ mod tests {
         // Invalid keys are refused
         let mut store2 = TrustStore::load_from(base.join("other.json"));
         assert!(store2.pin("https://x", "not-hex").is_err());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn trust_store_normalizes_handwritten_registry_keys() {
+        let base = std::env::temp_dir().join(format!(
+            "xiom_trust_handwritten_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&base).expect("mkdir");
+        let path = base.join("trusted_keys.json");
+        let key = "ab".repeat(32);
+        // Written DIRECTLY (not through pin): trailing slash + uppercase host.
+        std::fs::write(
+            &path,
+            format!(r#"{{"keys":{{"HTTP://LOCALHOST:3203/":"{key}"}}}}"#),
+        ).expect("write trust file");
+        let store = TrustStore::load_from(path);
+        for query in [
+            "http://localhost:3203",
+            "http://LOCALHOST:3203/",
+            "  http://localhost:3203  ",
+        ] {
+            assert_eq!(
+                store.get(query).map(|s| s.as_str()),
+                Some(key.as_str()),
+                "query={query:?}"
+            );
+        }
+        // A genuinely different registry must NOT match.
+        assert_eq!(store.get("http://localhost:9999"), None);
         let _ = std::fs::remove_dir_all(&base);
     }
 

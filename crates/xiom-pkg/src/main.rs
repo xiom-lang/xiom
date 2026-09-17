@@ -15,7 +15,7 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process;
 
-use crate::registry::{registry_url, http_get, search_registry, install_from_registry, http_get_binary};
+use crate::registry::{registry_url, search_registry, install_from_registry, http_get_binary};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -57,11 +57,20 @@ fn main() {
                 (pkg_name.as_str(), None)
             };
             let registry = registry_url();
-            if let Err(e) = install_from_registry(name, version, &registry) {
-                // Fallback: try local resolution
-                eprintln!("xiom pkg: registry install failed: {e}");
-                eprintln!("xiom pkg: trying local resolution...");
-                install_package(&args);
+            match install_from_registry(name, version, &registry) {
+                Ok(()) => {}
+                Err(e) if e.allows_local_fallback() => {
+                    eprintln!("xiom pkg: registry install failed: {e}");
+                    eprintln!("xiom pkg: trying local resolution...");
+                    install_local_package(&args);
+                }
+                Err(e) => {
+                    // Integrity decisions are TERMINAL: a failed checksum /
+                    // signature / lockfile check is never retried through an
+                    // unverified path (R32).
+                    eprintln!("xiom pkg: {e}");
+                    process::exit(1);
+                }
             }
             return;
         }
@@ -692,52 +701,42 @@ fn create_tarball(dir: &std::path::Path, output: &str) -> Result<(), String> {
     Err("no tar or PowerShell available".to_string())
 }
 
-/// POST a multipart form upload to a URL with a file attachment.
-/// Uses curl for the multipart upload since it's the most reliable cross-platform approach.
-/// Install a package from the local ecosystem directory or remote registry.
-/// 7F+: Local ecosystem resolution -- copies from `<repo>/ecosystem/<pkg>/` to
-/// `<project>/vendor/<pkg>/` for development/prototyping before remote registry
-/// is available.
-fn install_package(args: &[String]) {
+/// Install without the registry: the local `packages/index.json` channel
+/// (GitHub Releases downloads) and then the workspace `packages/` ecosystem
+/// copy.
+///
+/// Reached from the `install` command ONLY for unavailable / not-found
+/// registry conditions (`InstallError::allows_local_fallback`). This path
+/// must never download a registry artifact: registry verification failures
+/// are terminal (R32).
+fn install_local_package(args: &[String]) {
     let pkg_spec = match args.get(2) {
         Some(n) => n,
         None => { eprintln!("Usage: xiom pkg install <package>[@version]"); process::exit(1); }
     };
 
-    let (pkg_name, _version) = if let Some(at) = pkg_spec.find('@') {
+    let (pkg_name, requested_version) = if let Some(at) = pkg_spec.find('@') {
         (&pkg_spec[..at], Some(&pkg_spec[at+1..]))
     } else {
         (pkg_spec.as_str(), None)
     };
 
-    // 1. Try remote registry
-    if let Ok(body) = http_get(&format!("{}/index.json", registry_url())) {
-        let search = format!("\"name\":\"{}\"", pkg_name);
-        if body.contains(&search) {
-            println!("xiom pkg: found {} in remote registry", pkg_name);
-            if let Err(e) = install_from_registry_download(pkg_name, _version, &registry_url()) {
-                eprintln!("xiom pkg: registry download failed: {e}");
-            } else {
-                return;
-            }
-        }
-    }
-
-    // 2. Try local index.json for GitHub Releases download
+    // 1. Local packages/index.json -> GitHub Releases download.
     if let Ok(index_content) = read_local_index() {
         if let Ok(index) = serde_json::from_str::<Value>(&index_content) {
             if let Some(packages) = index["packages"].as_array() {
                 for pkg in packages {
-                    if pkg["name"].as_str() == Some(pkg_name) || pkg["name"].as_str() == Some(&format!("xiom-{}", pkg_name)) {
-                        let version = _version.map(|v| v.to_string())
+                    if pkg["name"].as_str() == Some(pkg_name)
+                        || pkg["name"].as_str() == Some(&format!("xiom-{}", pkg_name))
+                    {
+                        let version = requested_version.map(|v| v.to_string())
                             .unwrap_or_else(|| pkg["version"].as_str().unwrap_or("0.1.0").to_string());
                         let dl_url = pkg["download_url"].as_str().unwrap_or("");
                         if !dl_url.is_empty() {
                             println!("xiom pkg: downloading {} v{} from GitHub Releases", pkg_name, version);
-                            if let Err(e) = download_and_install(pkg_name, &version, dl_url) {
-                                eprintln!("xiom pkg: download failed: {e}");
-                            } else {
-                                return;
+                            match download_and_install(pkg_name, &version, dl_url) {
+                                Ok(()) => return,
+                                Err(e) => eprintln!("xiom pkg: download failed: {e}"),
                             }
                         }
                     }
@@ -746,12 +745,17 @@ fn install_package(args: &[String]) {
         }
     }
 
-    // 3. Fallback: local packages/ directory
-    install_from_ecosystem(pkg_name);
+    // 2. Workspace ecosystem copy.
+    if install_from_ecosystem(pkg_name) {
+        return;
+    }
+    eprintln!("xiom pkg: package '{}' not found locally", pkg_name);
+    process::exit(1);
 }
 
 /// Install a package from the local packages/ directory.
-fn install_from_ecosystem(pkg_name: &str) {
+/// Returns false when the package is absent (caller reports the failure).
+fn install_from_ecosystem(pkg_name: &str) -> bool {
     // Find the AXIOM workspace root (where Cargo.toml lives)
     let workspace = find_workspace_root(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     let packages_dir = workspace.join("packages");
@@ -771,12 +775,13 @@ fn install_from_ecosystem(pkg_name: &str) {
                     }
                 }
             }
-            return;
+            return false;
         }
         install_package_files(&alt_dir, pkg_name);
     } else {
         install_package_files(&pkg_dir, pkg_name);
     }
+    true
 }
 
 /// Copy package files from source directory to install location.
@@ -851,37 +856,6 @@ fn copy_dir_contents(src: &Path, dest: &Path, count: &mut usize) {
             }
         }
     }
-}
-
-/// Download and install from remote registry.
-fn install_from_registry_download(name: &str, version: Option<&str>, registry: &str) -> Result<(), String> {
-    let index_url = format!("{}/index.json", registry);
-    let body = http_get(&index_url)?;
-
-    // Find the package in the index
-    let search = format!("\"name\":\"{}\"", name);
-    let pos = body.find(&search).ok_or_else(|| format!("package '{}' not found in registry", name))?;
-    let section = &body[pos..];
-    let latest = version.map(|v| v.to_string()).or_else(|| {
-        section.find("\"latest\":\"").and_then(|p| {
-            let rest = &section[p + 10..];
-            rest.split('"').next().map(|s| s.to_string())
-        })
-    }).ok_or_else(|| "cannot determine version".to_string())?;
-
-    let download_url = format!("{}/packages/{}/{}/package.tar.gz", registry, name, latest);
-    eprintln!("xiom pkg: downloading {} v{} from {}", name, latest, download_url);
-
-    // Download
-    // AUDIT #19 FIX: unpredictable temp name + raw `tar -xzf` replaced by
-    // the hardened registry extractor (member-path validation, random temps).
-    let data = http_get_binary(&download_url)?;
-    let xiom_home = get_xiom_home();
-    let pkg_dir = xiom_home.join("packages").join(format!("{}-{}", name, latest));
-    let _ = std::fs::create_dir_all(&pkg_dir);
-    crate::registry::extract_tar_gz(&data, &pkg_dir)?;
-    println!("xiom pkg: installed {} v{} -> {}", name, latest, pkg_dir.display());
-    Ok(())
 }
 
 /// Read the local packages/index.json registry manifest.

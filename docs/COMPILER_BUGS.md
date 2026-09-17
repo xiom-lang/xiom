@@ -6775,4 +6775,55 @@ Gate: `cargo test -p xiom-pkg` plus the registry e2e suite
 new unit tests for the trust-store normalization variants and a
 tamper-does-not-install lock.
 
+### R32-R38 FIXED (2026-09-17, `main`)
+
+All seven findings were fixed in one hardening slice of `crates/xiom-pkg`.
+The registry lane's e2e harness (`registry/test/e2e/run-e2e.js`) carries the
+locks (test-only update, owned by the registry lane).
+
+- **R32**: `install_from_registry` returns a typed `InstallError`
+  (`RegistryUnavailable | NotFound | Integrity | Local`). The `install`
+  command falls back to local resolution ONLY for
+  `RegistryUnavailable`/`NotFound`; `Integrity` (checksum, signature,
+  lockfile, unhashed-without-override) and `Local` failures print and exit
+  non-zero. `install_from_registry_download` -- the unverified
+  download+extract -- is DELETED; `install_package` became
+  `install_local_package` (local index -> workspace ecosystem only, exit 1
+  when nothing is found). e2e now asserts the tamper path exits non-zero
+  and never prints "trying local resolution".
+- **R33**: `TrustStore::load_from` normalizes every key on load (on top of
+  `pin`/`get`), so hand-written / legacy / fixture trust files with a
+  trailing slash, uppercase host, or whitespace still match. Unit test
+  writes the JSON directly (not through `pin`); e2e check "pinned key
+  enforcement survives a non-canonical trust-file URL".
+- **R34**: `registry_url()` canonicalizes once via
+  `canonicalize_registry_url` (trim, lowercase scheme+host, drop trailing
+  slashes, path case preserved); every URL builder uses that string. HTTP
+  errors render the URL exactly once (`describe_http_error`).
+- **R35**: non-2xx responses surface `HTTP <code>: <body>` (64 KiB bounded
+  body read, 2048-char render); ureq transport errors pass through without
+  a second URL prefix. e2e asserts the registry codes
+  (`invalid_token`, `version_exists`, `signature_required`,
+  `reserved_namespace`) reach stderr.
+- **R36**: the substring index scans died with the deleted fallback path;
+  every remaining index read (install, lock, search) goes through
+  `RegistryIndex` deserialization.
+- **R37**: version resolution is a pure `resolve_version`; `latest: ""`
+  reports "all versions ... are yanked" plus a pin hint instead of building
+  `.../<pkg>//package.tar.gz`; a pinned yanked version still resolves. e2e
+  check "all-yanked package fails with a clear message, not a bogus URL".
+- **R38**: `package_cache_dir()` honors `XIOM_HOME` first
+  (`$XIOM_HOME/packages`, matching `get_xiom_home`), and the cache entry is
+  cleared before extraction on every remaining path. The e2e cache
+  assertions read `$XIOM_HOME/packages` now; the harness's old
+  LOCALAPPDATA/HOME workaround is obsolete.
+
+Verification: `cargo test -p xiom-pkg` **58/58** (6 new tests: URL
+canonicalization variants, fallback-class matrix, version resolution
+incl. all-yanked, status-error rendering, cache resolution, hand-written
+trust file); registry e2e **18/18** against the rebuilt client (16 original
+checks + 2 new locks, with the tamper and error-body assertions
+strengthened); CLI smoke: unavailable registry -> local fallback -> exit 1
+with the URL rendered once.
+
 
