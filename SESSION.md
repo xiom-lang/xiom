@@ -38,10 +38,13 @@ Also 2026-09-17: STAGE 5 SUPPLY-CHAIN TAIL CLOSED -- transitive dependency
 closure for registry installs (version-range matcher; cycle-safe closure
 whose dependency source is the verified tarball's manifest; every artifact
 verified) and transitive lockfile pinning (`Lockfile::from_resolved`).
-Registry e2e 20/20 with a real dependency fixture. Stage 5 remaining: driver
-(clap, sandbox exit-0 false-green, randomized temp names), dbg MI quoting,
-fmt defer + body-inline comments, LSP incremental/cross-file index,
-cargo-vet.
+Registry e2e 20/20 with a real dependency fixture. Driver hygiene landed:
+temp names randomized per invocation/session; the stage-5 plan entries for
+sandbox false-green (AUDIT #11), library `process::exit` (AUDIT #12), dbg MI
+quoting (AUDIT #20) and fmt `defer` (AUDIT #10) were already closed and are
+now recorded as DONE. Stage 5 remaining (feature-scale): clap-based arg
+parsing, LSP incremental reparsing + cross-file index, fmt body-inline
+comment trivia, cargo-vet audits.
 
 Branch `main` (post-split). The round-83 slice (pre-split housekeeping +
 handoff) and earlier rounds live in the pre-split history; the R32-R42
@@ -321,16 +324,15 @@ signatures) and stdlib_tests::stdlib_all_modules_compile_to_ir RED
 (xiom.encoding.ascii85 T001) -- stdlib-lane owned, documented in
 COMPILER_BUGS R31 FIXED. STDLIB_VERSION is `stdlib-v0.60.0`.
 
-Your task, in order (Stage 5 completion; the supply-chain tail is CLOSED):
-1. Driver: clap-based arg parsing (keep the CLI surface byte-compatible),
-   sandbox exit-0 false-green, randomized temp names; dbg MI command
-   quoting; fmt `defer` support + body-inline comment trivia.
-2. LSP: incremental reparsing + cross-file index; engineering hygiene:
+Your task, in order (Stage 5 completion; the supply-chain tail and driver
+hygiene are CLOSED):
+1. clap-based arg parsing (keep the CLI surface byte-compatible); LSP
+   incremental reparsing + cross-file index; fmt body-inline comment trivia;
    cargo-vet audits.
-3. Fix the last open compiler finding (generic-arg inference leaks a
+2. Fix the last open compiler finding (generic-arg inference leaks a
    fixed-array type into the mono name, repro in "Open compiler findings"),
    then make the bench graph clang-clean.
-4. Stage 6 continuation (incremental engine, parallel mono profiles, linker
+3. Stage 6 continuation (incremental engine, parallel mono profiles, linker
    strategy) and the Stage 7 selfhost ladder -- both on their own branch
    after the public release gates.
 

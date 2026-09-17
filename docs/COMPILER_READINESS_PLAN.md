@@ -151,8 +151,10 @@ const errors cleanly, for-loop const eval).
 - fmt: defer support (todo!() crash today), comment/shebang preservation (needs Stage 2
   trivia), string-literal escaping on re-emit.
   [Partial round 42: shebang + leading comment/header blocks preserved and
-  string/char literals escaped on re-emit (`xiom_fmt::format_source_text`);
-  body-inline comment trivia attachment remains.]
+  string/char literals escaped on re-emit (`xiom_fmt::format_source_text`).
+  `defer` DONE (AUDIT #10): formatting a file containing `defer` used to hit
+  `todo!()` and crash; the formatter now emits `defer { ... }`.
+  REMAINING: body-inline comment trivia attachment.]
 - dbg: MI command quoting (injection via evaluate/breakpoints), async MI reader, 
   .xi DWARF mapping (enabled by Stage 2 spans).
   [Async MI reader DONE round 69: dedicated reader thread classifies result
@@ -162,7 +164,10 @@ const errors cleanly, for-loop const eval).
   `DISubroutineType` node added (the old `type: !{}` made LLVM warn
   "ignoring invalid debug info" and drop ALL DWARF), per-statement
   `!DILocation` attachments emitted for every instruction while `-g` is on
-  (buffered nodes flushed at module end; default builds stay metadata-free).]
+  (buffered nodes flushed at module end; default builds stay metadata-free).
+  MI command quoting DONE (AUDIT #20): `mi_quote` escapes backslashes/quotes/
+  non-printables for breakpoint sources and evaluate expressions, so IDE
+  input can no longer inject GDB commands.]
 - Shared JSON diagnostics v1 schema consumed by LSP/MCP/CI.
   [DONE round 45b: docs/JSON_DIAGNOSTICS_V1.md + serde envelope
   (`xiom::diagnostics_json`); all ad-hoc diagnostic printers replaced.]
