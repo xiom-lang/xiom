@@ -7654,8 +7654,33 @@ impl IrEmitter {
             Expr::Tuple(items, _) => {
                 if items.is_empty() { "void".to_string() } else {
                     let parts: Vec<String> = items.iter().map(|i| {
-                        let t = self.infer_llvm_type(i);
-                        Self::xiom_type_name_from_llvm(&t)
+                        // R45: Bool-valued elements (comparisons, logical ops,
+                        // tracked Bool locals) are named "Bool" here too --
+                        // `infer_llvm_type(Bool)` is i64, so `(a, a > 0)`
+                        // inferred the same-shape sibling Tuple__Int__Int and
+                        // clashed with the signature's Tuple__Int__Bool
+                        // (stdlib sweep). Deliberately NOT consulting
+                        // local_xiom_types here: in mono/generic bodies those
+                        // entries can still name type parameters, which
+                        // mis-typed Vec[(Int, Int)] element reads (m44).
+                        if self.expr_is_bool(i) {
+                            return "Bool".to_string();
+                        }
+                        // R45b: cast elements use the CAST TARGET's XIOM type
+                        // (see the literal path in expr.rs).
+                        if let Expr::As(_, ty, _) = i {
+                            return Self::type_from_ast(ty);
+                        }
+                        match i {
+                            Expr::Int(..) | Expr::BigInt(..) => "Int".to_string(),
+                            Expr::Str(..) => "Str".to_string(),
+                            Expr::Float(..) => "Float64".to_string(),
+                            Expr::Char(..) => "Char".to_string(),
+                            _ => {
+                                let t = self.infer_llvm_type(i);
+                                Self::xiom_type_name_from_llvm(&t)
+                            }
+                        }
                     }).collect();
                     let name = format!("Tuple__{}", parts.join("__"));
                     if self.types.types.contains_key(&name) || self.types.type_meta.contains_key(&name) {

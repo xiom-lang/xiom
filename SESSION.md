@@ -38,11 +38,14 @@ Also 2026-09-17 (stdlib-session sweep relay): R43 FIXED --
 `&v` on a reference-typed local hard-errored C001, breaking the stdlib's
 `var v = b; ... &v` pattern (x25519_keypair -> _bigint_to_le); `&*v == v`
 now lowers to the stored pointer. Lock `e2e_m86_ref_of_reference`.
-R44 OPEN -- `http_parse_response` invalid GEP is a STDLIB same-leaf
-collision (`net.net.HttpResponse` 2 fields vs `net.http.HttpResponse` 3);
-40 same-leaf pub-type groups exist stdlib-wide, qualification was
-experimented and reverted (see docs/COMPILER_BUGS.md R44). The stdlib lane
-must dedup the real conflicts first.
+R44 RESOLVED STDLIB-SIDE -- `http_parse_response` invalid GEP was a stdlib
+same-leaf collision; the stdlib renamed `net.net.HttpResponse` ->
+`NetHttpResponse` (ce0c7fa) and verified probe + fuzz parser + batteries on
+the pinned v0.60.0. R45 FIXED -- the single-param sweep's tuple mismatch
+(tuple element names came from LLVM widths: Bool -> "Int", `as UInt16` ->
+"Int16") plus the early-splice requirement (LLVM rejects alloca of a
+forward-referenced named type). Lock `e2e_m87_tuple_element_types`; sweep
+repro now compiles/links/runs. See docs/COMPILER_BUGS.md R43-R45.
 
 Also 2026-09-17: STAGE 5 SUPPLY-CHAIN TAIL CLOSED -- transitive dependency
 closure for registry installs (version-range matcher; cycle-safe closure
@@ -195,22 +198,22 @@ uncommitted stdlib-lane WIP at close; append once clean).
    parts through `sanitize_container_arg` in every mono name. Bench is
    IR-gated, so no suite regresses today.
 
-2. **`http_parse_response` invalid GEP -- STDLIB same-leaf type collision**
-   (R44, OPEN; stdlib-session sweep, probe
-   `stdlib/tools/probes/p_http_resp_codegen.xi`). `net.net.HttpResponse`
-   (2 fields) and `net.http.HttpResponse` (3 fields) both inject as bare
-   `%struct.HttpResponse`; the alphabetic winner (net) breaks http's stores.
-   The stdlib has **40 same-leaf non-generic pub-type groups** (collect
-   Avl/PHeap/PMap/..., geom Vec2/Vec3/Mat4, math Graph, regex Regex/Match,
-   sync AtomicInt, serialize JsonValue, ...); most are facade
-   re-declarations with identical layouts, several genuinely differ.
-   Compiler-side qualification was EXPERIMENTED and REVERTED: including
-   stdlib in R39 fixes the probe (both types module-qualified, probe runs)
-   but broke 6 stdlib smokes wholesale and still 2 with a shape-difference
-   triage. Next step is stdlib-side dedup of the real conflicts (start:
-   `net.net.HttpResponse`), then a dedicated compiler+stdlib slice lands
-   stdlib qualification with their smoke battery green. See
-   docs/COMPILER_BUGS.md R44 for the full evidence.
+1b. **R44 same-leaf class -- resolved for HttpResponse, class remains**:
+   the stdlib renamed `net.net.HttpResponse` -> `NetHttpResponse` (their
+   `ce0c7fa`), so the http probe/fuzz parser are green. The other same-leaf
+   groups (40 total; facade duplicates and genuinely conflicting
+   collect/math/etc. types) still rely on first-wins; a dedicated
+   compiler+stdlib slice (stdlib dedup first, then stdlib-wide R39
+   qualification + their smoke battery) is the remaining work. Experiment
+   evidence in docs/COMPILER_BUGS.md R44.
+
+FIXED (R45): tuple element naming (Bool/`as` targets) + tuple defs spliced
+into the type-decl block; lock `e2e_m87_tuple_element_types`; the stdlib
+single-param sweep repro compiles/links/runs. Sweep-side exclusions for the
+compiler run (stdlib/harness, not codegen): `xiom.os.env_unset` links
+`unsetenv` (absent on Windows MSVC); `async_read_line(0)` passes a NULL
+FILE* to `fread`; the run stops on an expected `requires` trip with dummy
+args. See docs/COMPILER_BUGS.md R45.
 
 FIXED (R43): `&v` on a reference-typed local now lowers to the stored
 pointer (`&*v == v`) instead of C001 -- unblocks x25519_keypair /
@@ -333,20 +336,21 @@ before any stdlib/smoke test; everything resolves through `xiom_graph::paths`
 the pin itself). Never commit the `stdlib/` checkout.
 
 State: Stage 3 Item A CLOSED (strict catalog findings, checker 194/194),
-R-bugs through R42 CLEARED (R32-R38 = registry-client findings; R39 =
+R-bugs through R45 CLEARED (R32-R38 = registry-client findings; R39 =
 same-leaf TYPE collision, lock m84; R40 = derive[Clone] on pointer receivers,
 lock m85; R41 = generic pointer-self receiver ABI; R42 = scope-first bare
-variants; fixed on main 2026-09-17 with unit + e2e locks); e2e 2333/2333;
-supply chain signed AND COMPLETE for the pre-registry phase: ed25519
-keygen/trust/sign/verify, fail-closed installs, ureq-only publish, git commit
-pins, TRANSITIVE DEPENDENCY CLOSURE (range matcher + cycle-safe closure from
-the verified manifest; `lock` pins the closure with digests; registry e2e
-20/20); Stage 6 perf budgets wired (determinism canary covers selfhost v092 +
-bench graph; bench IR 5,764,620 bytes), selfhost v092 compile gate GREEN,
-release R0 compiler-side blockers DONE (R25+R27+R31+R39-R42, release build
-clean). The next bench clang error (generic-arg inference leaks an array type
-into a mono name) is the only open compiler finding -- see "Open compiler
-findings".
+variants; R43 = `&ref` locals, lock m86; R45 = tuple element types +
+early-spliced tuple defs, lock m87; R44 resolved stdlib-side; fixed on main
+2026-09-17 with unit + e2e locks); e2e 2335/2335; supply chain signed AND
+COMPLETE for the pre-registry phase: ed25519 keygen/trust/sign/verify,
+fail-closed installs, ureq-only publish, git commit pins, TRANSITIVE
+DEPENDENCY CLOSURE (range matcher + cycle-safe closure from the verified
+manifest; `lock` pins the closure with digests; registry e2e 20/20); Stage 6
+perf budgets wired (determinism canary covers selfhost v092 + bench graph;
+bench IR 5,764,620 bytes), selfhost v092 compile gate GREEN, release R0
+compiler-side blockers DONE (R25+R27+R31+R39-R45, release build clean). The
+bench graph's generic-arg inference leak (array type in a mono name) is the
+only OPEN compiler finding -- see "Open compiler findings".
 
 Pending (cross-lane): stdlib_api_freeze_no_removals RED (52 drifted
 signatures) and stdlib_tests::stdlib_all_modules_compile_to_ir RED
@@ -354,18 +358,19 @@ signatures) and stdlib_tests::stdlib_all_modules_compile_to_ir RED
 COMPILER_BUGS R31 FIXED. STDLIB_VERSION is `stdlib-v0.60.0`.
 
 Your task, in order (Stage 5 completion; the supply-chain tail and driver
-hygiene are CLOSED):
-1. Fix the open compiler findings, in order:
-   (a) generic-arg inference leaks a fixed-array type into the mono name
-   (`total_area_2 x Int`), then make the bench graph clang-clean;
-   (b) R44 stdlib same-leaf `HttpResponse` -- coordinate with the stdlib
-   lane: they dedup the genuinely conflicting declarations (40 groups,
-   start with `net.net.HttpResponse`), then land stdlib qualification in
-   R39's pass and run their smoke battery.
-2. clap-based arg parsing (keep the CLI surface byte-compatible); LSP
+hygiene are CLOSED; the stdlib sweep findings R43/R45 are FIXED and R44 is
+resolved stdlib-side):
+1. Fix the last open compiler finding: generic-arg inference leaks a
+   fixed-array type into the mono name (`total_area_2 x Int`), then make the
+   bench graph clang-clean (repro in "Open compiler findings").
+2. R44 remaining class (coordination slice): the stdlib dedups the genuinely
+   conflicting same-leaf declarations, then land stdlib-wide qualification
+   in R39's pass with their smoke battery green. Until then, stdlib leaf
+   collisions keep first-wins.
+3. clap-based arg parsing (keep the CLI surface byte-compatible); LSP
    incremental reparsing + cross-file index; fmt body-inline comment trivia;
    cargo-vet audits.
-3. Stage 6 continuation (incremental engine, parallel mono profiles, linker
+4. Stage 6 continuation (incremental engine, parallel mono profiles, linker
    strategy) and the Stage 7 selfhost ladder -- both on their own branch
    after the public release gates.
 

@@ -4806,6 +4806,15 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m86_ref_of_reference() {
     assert_eq!(compile_and_run("tests\\regression\\m86_ref_of_reference.xi"), Some(0));
 }
+
+// R45: tuple element types are named by their XIOM types -- comparisons and
+// Bool locals are Bool (not i64 -> "Int"), and `x as UInt16` uses the cast
+// target (not i16 -> "Int16"). Pre-fix the literal/signature disagreed and
+// clang rejected the return (stdlib sweep: overflowing_neg,
+// code_point_to_utf16).
+#[test] fn e2e_m87_tuple_element_types() {
+    assert_eq!(compile_and_run("tests\\regression\\m87_tuple_element_types.xi"), Some(0));
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }

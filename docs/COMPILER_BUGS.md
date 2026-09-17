@@ -6997,7 +6997,7 @@ against the LOCAL stdlib checkout: `smoke_collect_tree` and
 violations at 83:12 / 181:12) -- pre-existing cross-lane checkout drift,
 not this change.
 
-## R44. `http_parse_response` emits an out-of-range GEP -- OPEN (stdlib same-leaf `HttpResponse`)
+## R44. `http_parse_response` emits an out-of-range GEP -- RESOLVED STDLIB-SIDE (same-leaf class remains)
 
 **Finding** (stdlib lane, same sweep, probe `p_http_resp_codegen.xi`):
 `xiom.net.http.http_parse_response` is rejected by clang with "invalid
@@ -7025,10 +7025,62 @@ still broke 2 (collect/tree, collect/cache). The remaining groups need
 stdlib-side dedup (or a coordinated stdlib-wide pass with their smoke
 battery), so the change was reverted to keep the tree green.
 
-**Recommendation**: (1) stdlib renames the genuinely conflicting
-declarations first (start with `net.net.HttpResponse` -> e.g.
-`NetHttpResponse`, plus the real collect/math duplicates); (2) then a
-dedicated compiler+stdlib slice lands stdlib qualification with the smoke
-battery green.
+**Resolution (2026-09-17, stdlib lane)**: the stdlib renamed
+`net.net.HttpResponse` -> `NetHttpResponse` (commit `ce0c7fa`), leaving
+`net.http.HttpResponse` as the single `%struct.HttpResponse` owner. Verified
+on the pinned v0.60.0 compiler: `p_http_resp_codegen.xi` compiles and runs,
+`smoke_stress_fuzz_parsers.xi` regains `http_parse_response` (600 inputs),
+net battery 11/11, full module check 509/509.
+
+**Remaining class**: the other same-leaf groups (facade duplicates and the
+genuinely conflicting collect/math/etc. types) still rely on first-wins. The
+compiler-side experiment above stands: stdlib-wide qualification is a
+dedicated compiler+stdlib slice once the stdlib dedups the real conflicts.
+
+## R45. Tuple element types came from LLVM widths, not XIOM types -- FIXED (2026-09-17, `main`)
+
+**Finding** (stdlib single-param surface sweep, preserved repro
+`stdlib/tools/known_failures/p_sweep_single_param.xi`): any call to
+`xiom.convert.overflow.overflowing_neg` failed clang with `'%tmp15' defined
+with type '%struct.Tuple__Int__Int' but expected
+'%struct.Tuple__Int__Bool'`. Root cause: the tuple-literal path and
+`infer_llvm_type`'s tuple arm named elements from LLVM widths, so a
+Bool-valued element (`true`, a tracked Bool local, a comparison/logical op)
+became `"Int"` (i64) and `x as UInt16` became `"Int16"` (i16), while the
+function signature named the same tuple from the checker's XIOM types
+(`Tuple__Int__Bool`, `Tuple__UInt16__UInt16`).
+
+A second facet surfaced behind it: the literal path queued new tuple
+definitions in `pending_module_type_defs`, emitted at MODULE END -- LLVM
+rejects `alloca` of a forward-referenced named type ("Cannot allocate
+unsized type"; verified with a minimal .ll probe), so once element names
+became XIOM-correct the definition was no longer reachable early enough.
+
+**Fix**:
+
+- literal path (expr.rs): `expr_is_bool(i)` (comparisons, logical ops,
+  tracked Bool locals) names the element "Bool"; `Expr::As(_, ty, _)` uses
+  the CAST TARGET's XIOM type. Unchanged otherwise.
+- `infer_llvm_type` tuple arm (lib.rs): same Bool naming (deliberately NOT
+  consulting `local_xiom_types` -- in mono/generic bodies those can still
+  name type parameters and mis-typed `Vec[(Int, Int)]` element reads, m44).
+- tuple definitions now go through `defer_concrete_def_if_in_body`, which
+  splices them into the type-decl block (`module_deferred_types` +
+  `emitted_type_defs` dedup) so clang parses them SIZED before any use.
+
+**Verification** (all with the stdlib checkout active):
+
+- the preserved sweep: 138 calls compile, link and run; the only stop is an
+  EXPECTED `requires` contract trip on dummy input (`os.process` pid 0 /
+  `debug` empty msg at 225:15), exit 1. Removed from the sweep for the
+  compiler-side run: `xiom.os.env_unset` (links `unsetenv`, missing on
+  Windows MSVC) and `xiom.async.io.async_read_line(0)` (passes `0 as *UInt8`
+  to `fread` -> NULL FILE* abort) -- both stdlib/harness-side, not codegen.
+- locks: `e2e_m87_tuple_element_types` (new: comparison, Bool-local, cast,
+  and Str/Bool tuples), m21 (triple tuple), m44 (zip/BTreeMap tuple
+  payloads), m48 (writeback aggregates) all green; full e2e **2335/2335**,
+  feature-reg 510/510, checker 194/194, perf/determinism 2/2, robustness
+  63/63. `stdlib_execution_tests` remains 83/85 with the local checkout
+  (collect/tree + collect/cache drift, identical on the pre-change driver).
 
 

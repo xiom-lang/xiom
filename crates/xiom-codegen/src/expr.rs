@@ -995,6 +995,24 @@ impl IrEmitter {
                                     };
                                 }
                             }
+                            // R45: comparisons, logical ops and tracked Bool
+                            // locals are Bool even though their LLVM width is
+                            // i64 -- without this `(a, a > 0)` built
+                            // Tuple__Int__Int in the body while the signature
+                            // said Tuple__Int__Bool (invalid-IR clang reject,
+                            // stdlib single-param sweep).
+                            if self.expr_is_bool(i) {
+                                return "Bool".to_string();
+                            }
+                            // R45b: `x as UInt16` elements must use the CAST
+                            // TARGET's XIOM type, not the LLVM-width name
+                            // (i16 -> "Int16"); `(hi as UInt16, lo as UInt16)`
+                            // otherwise built Tuple__Int16__Int16 against a
+                            // `(UInt16, UInt16)` signature (stdlib sweep,
+                            // code_point_to_utf16).
+                            if let Expr::As(_, ty, _) = i {
+                                return Self::type_from_ast(ty);
+                            }
                             // BUG 29 (BUG 28 #6): name LITERALS by their XIOM type
                             // too. infer_llvm_type erases Bool->i64->"Int", so
                             // `(PathBuf, Bool)` returns built the expression
@@ -1029,18 +1047,21 @@ impl IrEmitter {
                             derives: vec![],
                             invariants: vec![],
                         });
-                        // 5c.36: Emit struct definition at module level (deferred
-                        // to the end of the module so it never appears inline inside
-                        // a function body, which clang rejects). LLVM named types
-                        // support forward references, so deferred emission is safe.
-                        let field_llvm_types: Vec<String> = elem_types.iter()
-                            .map(|tn| self.llvm_type_for(tn).unwrap_or_else(|_| "i64".to_string()))
-                            .collect();
-                        self.local.pending_module_type_defs.push(
-                            format!("%struct.{name} = type {{ {} }}", field_llvm_types.join(", "))
-                        );
                     }
+                    // R45: the definition must be spliced into the type-decl
+                    // block (SIZED at parse time). The old module-end
+                    // `pending_module_type_defs` path is UNSAFE for allocas:
+                    // LLVM rejects "Cannot allocate unsized type" when the
+                    // definition appears later in the file (m21 triple tuple
+                    // once element names became XIOM-correct). Reuse the
+                    // concrete-container deferral, which splices early and
+                    // dedups (module_deferred_types + emitted_type_defs).
+                    self.defer_concrete_def_if_in_body(&name);
                     let mut struct_ty = self.infer_llvm_type(expr);
+                    // R45: no name override needed -- infer_llvm_type's tuple
+                    // arm now names elements by XIOM type exactly like the
+                    // literal path above (Bool locals/comparisons, cast
+                    // targets), so both agree.
                     // Fix: If inference falls back to i64 (because element types
                     // don't match registered struct), try the function return type.
                     if !struct_ty.starts_with("%struct.") {
