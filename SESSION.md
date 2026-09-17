@@ -3,9 +3,19 @@
 
 # XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-83 in docs/SESSION.md)
 
-Branch `feat/architect`. Last compiler commit: the round-83 slice
-(pre-split housekeeping + handoff); the round-82 slice (R31 -- cross-repo
-test isolation) and the round-79/80/81 slices (R28/R29/R30) precede it.
+2026-09-17 update (post-split, `main`): the registry-client findings
+R32-R38 are FIXED -- terminal integrity gates on install, canonical
+registry URLs + trust-store normalization, surfaced registry error bodies,
+yanked-package handling, XIOM_HOME-aware package cache. Details and the
+verification record are in docs/COMPILER_BUGS.md ("Registry-client
+integration findings"). The registry repo's e2e harness gained the matching
+locks (cache path + tamper/error-code/all-yanked assertions) -- test-only,
+owned by the registry lane. Remaining supply-chain tail: transitive
+dependency closure from registry metadata.
+
+Branch `main` (post-split). The round-83 slice (pre-split housekeeping +
+handoff) and earlier rounds live in the pre-split history; the R32-R38
+hardening slice is the latest compiler-lane commit.
 Working tree should be clean; `.xiom_ai.json` is generated tooling state and
 is now untracked/ignored (it has been committed before -- `git rm --cached`
 in this round). In the monorepo phase the parallel stdlib lane committed to
@@ -173,10 +183,12 @@ longer contains stdlib sources:
 ## Remaining queue (compiler lane)
 
 1. **Supply-chain tail (hard prereq for the registry phase)**: transitive
-   dependency closure from registry metadata; server-side publish
-   authentication. `publish_package` is still a stub
-   (crates/xiom-pkg/src/main.rs:574); the registry lane's spec docs are the
-   contract.
+   dependency closure from registry metadata (install resolves the exact
+   package; `lock` covers direct deps). Server-side publish authentication
+   is DONE on the registry side, and `publish_package` is implemented
+   (keygen/sign/trust/verify + multipart + Bearer token); the client-side
+   registry defects R32-R38 fixed 2026-09-17 close the earlier "registry
+   integration findings" block.
 2. **clap migration** of the driver parser (large; keep the CLI surface
    byte-compatible, gate with the full e2e suite).
 3. **fmt**: body-inline comment trivia attachment (stage-2 trivia dependency;
@@ -237,8 +249,9 @@ any stdlib/smoke test; everything resolves through `xiom_graph::paths`
 the `stdlib/` checkout.
 
 State: Stage 3 Item A CLOSED (strict catalog findings, checker 189/189),
-R-bugs through R31 CLEARED with locks m74-m83 (one non-R finding open: the
-same-leaf TYPE collision, see "Open compiler findings"); e2e 2331/2331;
+R-bugs through R38 CLEARED (R32-R38 = the registry-client findings, fixed
+on main 2026-09-17 with unit + registry-e2e locks; one non-R finding open:
+the same-leaf TYPE collision, see "Open compiler findings"); e2e 2331/2331;
 supply chain signed (ed25519 keygen/trust/sign/verify, fail-closed installs,
 ureq-only publish, git commit pins), Stage 6 perf budgets wired (determinism
 canary covers selfhost v092 + bench graph), selfhost v092 compile gate
@@ -252,10 +265,10 @@ COMPILER_BUGS R31 FIXED. STDLIB_VERSION is `main` until the release lane
 swaps in the split tag.
 
 Your task, in order:
-1. Supply-chain tail: transitive dependency closure from registry metadata,
-   server-side publish authentication (publish_package is a stub); then
-   clap migration, fmt body-inline comment trivia, LSP cross-file index,
-   cargo-vet.
+1. Supply-chain tail: transitive dependency closure from registry metadata.
+   The client-side registry defects R32-R38 are FIXED on main (2026-09-17);
+   the registry e2e harness carries the locks. Then: clap migration, fmt
+   body-inline comment trivia, LSP cross-file index, cargo-vet.
 2. Same-leaf TYPE collision (type symbol map, see "Open compiler findings").
 3. Stage 6 continuation (incremental engine, parallel mono profiles, linker
    strategy) and the Stage 7 selfhost ladder.
