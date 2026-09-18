@@ -58,6 +58,30 @@ impl IrEmitter {
         self.resolve_local_xiom_type(name)
     }
 
+    /// R46: concrete XIOM type of a PARAMETER in a monomorphised body
+    /// (`a: T` with T=Bool -> "Bool"), used for tuple-element naming so the
+    /// literal matches the concrete signature. Deliberately narrow: the
+    /// underlying map is global across functions, so it is consulted ONLY
+    /// for names that are params of the CURRENT function and have a concrete
+    /// substitution; every other element falls through to the callers' usual
+    /// heuristics (local_xiom_types / bool tracking / LLVM widths). Broadening
+    /// this leaked stale entries into Vec[(Int, Int)] element reads
+    /// (m44/m48).
+    pub(crate) fn mono_param_xiom_name(&self, name: &str) -> Option<String> {
+        if !self.local.param_locals.contains(name) {
+            return None;
+        }
+        let concrete = self.mono.param_concrete_types.get(name)?;
+        let base = match concrete.find('[') {
+            Some(b) => concrete[..b].to_string(),
+            None => concrete.clone(),
+        };
+        if base.len() == 1 && base.chars().next().map_or(false, |c| c.is_ascii_uppercase()) {
+            return None;
+        }
+        Some(base)
+    }
+
     /// Resolve a local variable's XIOM type name, with array-element awareness.
     /// For array-literal locals (in `array_locals`), returns the ELEMENT type
     /// (e.g. "Int" for `[5]Int`) instead of the buffer pointer type ("Str").

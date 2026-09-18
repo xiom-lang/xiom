@@ -977,6 +977,12 @@ impl IrEmitter {
                             // (Bool, Bool) tuples "Tuple__Int__Int" and broke
                             // cross-module Bool-tuple field access.
                             if let Expr::Ident(id) = i {
+                                // R46: a mono PARAM names the element after
+                                // its concrete substitution ("a: T" with
+                                // T=Bool -> "Bool").
+                                if let Some(base) = self.mono_param_xiom_name(&id.name) {
+                                    return base;
+                                }
                                 if let Some(xiom) = self.local.local_xiom_types.get(&id.name) {
                                     // BUG 52 follow-up (2026-08-18): container
                                     // bindings record ARG-bearing types
@@ -3678,14 +3684,43 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         self.pick_variant_parent(candidates)
                     }
                 } else {
-                    // Bare variant: search all enums -- BUT only when the name
-                    // is NOT a known struct type. BUG 31 (bench_math native):
-                    // `Node{ value: ...; children: ... }` (the bench_memory
-                    // STRUCT) was hijacked by `enum BST[T] { Node(...) }`'s
-                    // Node VARIANT -- the literal compiled as %struct.BST with
-                    // the enum's payload slots (store %struct.BST %vecval at
-                    // field 2 -> invalid IR).
-                    if !self.types.types.contains_key(&name.name)
+                    // Bare name can be BOTH a struct and an enum variant
+                    // (`Node` in bench_memory is a struct; `Node` is also a
+                    // variant of `BST[T]`). Disambiguate by the LITERAL'S
+                    // FIELD NAMES: only treat it as the variant when the
+                    // payload matches exactly. This preserves BUG 31
+                    // (`Node{value, children}` must stay the memory struct)
+                    // while fixing `Node(value, left, right)` inside
+                    // BST.insert, which built the memory struct's shape and
+                    // stored a %struct.Message/%struct.Vec into a BST slot
+                    // (bench clang reject, R46).
+                    let literal_names: Vec<String> = fields.iter().map(|(f, _)| f.name.clone()).collect();
+                    let variant_by_shape = self
+                        .resolve_variant_parent_enum(&leaf_variant)
+                        .and_then(|ek| {
+                            let matches = self.types.enum_variants.get(&ek).map_or(false, |vars| {
+                                vars.iter().any(|(v, vfields)| {
+                                    v == &leaf_variant
+                                        && vfields.len() == literal_names.len()
+                                        && vfields.iter().all(|f| literal_names.iter().any(|n| n == f))
+                                })
+                            });
+                            if matches { Some(ek) } else { None }
+                        });
+                    // Only override the struct path when the literal does NOT
+                    // fit the same-leaf struct (both matching -> keep the
+                    // historical struct preference).
+                    let struct_matches_literal = self
+                        .types
+                        .types
+                        .get(&name.name.to_string())
+                        .map_or(false, |sf| {
+                            sf.len() == literal_names.len()
+                                && sf.iter().all(|f| literal_names.iter().any(|n| n == f))
+                        });
+                    if variant_by_shape.is_some() && !struct_matches_literal {
+                        variant_by_shape
+                    } else if !self.types.types.contains_key(&name.name)
                         && !self.types.type_meta.contains_key(&name.name)
                         && !self.types.generic_type_names.iter().any(|k| k == &name.name || k.ends_with(&format!(".{}", name.name)))
                     {

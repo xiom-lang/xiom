@@ -7,7 +7,7 @@
 //! No generics, no ownership, no contracts enforcement.
 
 use xiom_ast::*;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use crate::structural::TypeShape;
 use crate::types::{TypeArena, TypeId};
 
@@ -3156,21 +3156,37 @@ impl Checker {
         // collision and rewrite its references before injection. Stdlib
         // (`xiom.`) modules and leaves the USER program declares or
         // references keep the legacy first-wins behavior.
-        let mut owners: HashMap<String, BTreeSet<String>> = HashMap::new();
+        let mut owners: HashMap<String, BTreeMap<String, (String, bool)>> = HashMap::new();
         for cached in cached_modules.iter().chain(peeked.iter()) {
             let module = cached.dotted_name.as_str();
             if module.is_empty() || module.starts_with("xiom.") {
                 continue;
             }
-            let mut leaves = BTreeSet::new();
-            crate::type_qualify::declared_type_leaves(&cached.program.items, &mut leaves);
-            for leaf in leaves {
-                owners.entry(leaf).or_default().insert(module.to_string());
+            let mut shapes = BTreeMap::new();
+            crate::type_qualify::declared_type_shapes(&cached.program.items, &mut shapes);
+            for (leaf, shape) in shapes {
+                owners.entry(leaf).or_default().insert(module.to_string(), shape);
             }
         }
         let colliding: HashMap<String, BTreeSet<String>> = owners
             .into_iter()
-            .filter(|(_, owners)| owners.len() >= 2)
+            .filter(|(_, by_module)| {
+                if by_module.len() < 2 {
+                    return false;
+                }
+                // R46: generic same-leaf declarations are only split when
+                // their SHAPES conflict (`Box[T]={value:T}` vs
+                // `Box[T]={item:T,sealed:Bool}` -> one `%struct.Box` won and
+                // the loser GEP'd field 1 of a 1-field type). Identical
+                // generic re-declarations keep the leaf-derived mono and
+                // concrete-container keys. Non-generic project collisions
+                // always qualify (R39).
+                let shapes: BTreeSet<&String> = by_module.values().map(|(s, _)| s).collect();
+                let shape_differs = shapes.len() > 1;
+                let any_generic = by_module.values().any(|(_, g)| *g);
+                if any_generic { shape_differs } else { true }
+            })
+            .map(|(leaf, by_module)| (leaf, by_module.into_keys().collect()))
             .collect();
         let mut excluded = BTreeSet::new();
         crate::type_qualify::declared_type_leaves(&program.items, &mut excluded);

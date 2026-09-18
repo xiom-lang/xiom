@@ -4815,6 +4815,26 @@ fn e2e_safety_probe() {
 #[test] fn e2e_m87_tuple_element_types() {
     assert_eq!(compile_and_run("tests\\regression\\m87_tuple_element_types.xi"), Some(0));
 }
+
+// R46: same-leaf GENERIC types with conflicting shapes (`Box[T]` 1-field vs
+// 2-field across project modules) are module-qualified; identical generic
+// re-declarations keep the legacy key.
+#[test] fn e2e_m88_generic_same_leaf_boxes() {
+    assert_eq!(
+        compile_and_run("tests\\regression\\m88_generic_same_leaf\\main.xi"),
+        Some(0)
+    );
+}
+
+// R46: a bare literal name that is BOTH a struct and an enum variant binds by
+// the literal's FIELD NAMES -- `Node(value,left,right)` is the enum variant,
+// `Node{value,children}` the same-leaf struct (bench BST lock).
+#[test] fn e2e_m89_struct_variant_node() {
+    assert_eq!(
+        compile_and_run("tests\\regression\\m89_struct_variant_node\\main.xi"),
+        Some(0)
+    );
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }

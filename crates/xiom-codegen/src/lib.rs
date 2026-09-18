@@ -1447,14 +1447,29 @@ impl IrEmitter {
             other => other,
         };
         if let Expr::Ident(id) = inner {
-            // 1. Declared container string kept for ctor-bound locals
-            // ("Vec[JsonValue]" -> args[pos]).
-            if let Some(ty_str) = self.local.local_xiom_types.get(&id.name) {
-                let (base, args) = Self::parse_generic_type_string(ty_str);
-                if let Some(a) = args.get(pos).and_then(|a| usable(a)) {
-                    return Some(a);
+            // R46: a Vec bound from an ARRAY LITERAL records its element here
+            // (M33); the local_xiom_types entry for the same binding is the
+            // FIXED-ARRAY string ("[2 x Int]"), which is NOT a generic
+            // container. Prefer the element -- the old step 1 parsed the
+            // array string as a container and monomorphised
+            // `total_area[T](&Vec[T])` with T="2 x Int" (invalid symbol
+            // `total_area_2 x Int`, bench clang reject).
+            if vec_like {
+                if let Some(elem) = self.local.local_vec_elem.get(&id.name).and_then(|e| usable(e)) {
+                    return Some(elem);
                 }
-                let _ = base;
+            }
+            // 1. Declared container string kept for ctor-bound locals
+            // ("Vec[JsonValue]" -> args[pos]). Fixed-array strings are
+            // skipped (see above).
+            if let Some(ty_str) = self.local.local_xiom_types.get(&id.name) {
+                if !(ty_str.starts_with('[') && ty_str.contains(" x ")) {
+                    let (base, args) = Self::parse_generic_type_string(ty_str);
+                    if let Some(a) = args.get(pos).and_then(|a| usable(a)) {
+                        return Some(a);
+                    }
+                    let _ = base;
+                }
             }
             // 2. Vec/Slice locals record their ELEMENT type in the LLVM-derived
             // resolver; for OTHER containers that resolver returns the container
@@ -2841,9 +2856,23 @@ impl IrEmitter {
     /// R25/R39 resolution family. Fallbacks: declaration order (R30 checker
     /// parity for top-level contexts), then `pick_deterministic`.
     fn pick_variant_parent(&self, candidates: Vec<String>) -> Option<String> {
-        for scope in self.variant_scope_prefixes() {
+        let scopes = self.variant_scope_prefixes();
+        for scope in &scopes {
             let prefix = format!("{scope}.");
             if let Some(hit) = candidates.iter().find(|k| k.starts_with(&prefix)) {
+                return Some(hit.clone());
+            }
+        }
+        // R46: METHOD receivers are not module-qualified (`BST.insert_Int`),
+        // so the scope carries only the receiver leaf; match candidate keys
+        // whose FINAL segment is that scope (`benchmark.structures.BST`).
+        // Without this, `Empty` inside `BST.insert` bound the first-declared
+        // enum (`benchmark.enums.Message`) and the Node store built a
+        // %struct.Message value into a %struct.BST field (bench clang).
+        for scope in &scopes {
+            if let Some(hit) = candidates.iter().find(|k| {
+                k.as_str() == scope.as_str() || k.ends_with(&format!(".{scope}"))
+            }) {
                 return Some(hit.clone());
             }
         }
@@ -5727,7 +5756,29 @@ impl IrEmitter {
         if concrete_types.is_empty() {
             base_name.to_string()
         } else {
-            format!("{}_{}", base_name, concrete_types.join("_"))
+            // R46: sanitize concrete type parts into identifier-safe text.
+            // Inference bugs previously leaked LLVM/array spellings into the
+            // symbol (`total_area_2 x Int[...]`) and clang rejected the file
+            // with "expected '(' in call". Every part must stay a valid LLVM
+            // global name: keep alphanumerics, `_`, `.`, `-`; map the rest to
+            // `_` and collapse runs.
+            let sanitize = |part: &str| -> String {
+                let mut out = String::with_capacity(part.len());
+                let mut last_underscore = false;
+                for c in part.chars() {
+                    let keep = c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-';
+                    if keep {
+                        out.push(c);
+                        last_underscore = false;
+                    } else if !last_underscore {
+                        out.push('_');
+                        last_underscore = true;
+                    }
+                }
+                out
+            };
+            let parts: Vec<String> = concrete_types.iter().map(|t| sanitize(t)).collect();
+            format!("{}_{}", base_name, parts.join("_"))
         }
     }
 
@@ -7659,12 +7710,17 @@ impl IrEmitter {
                         // `infer_llvm_type(Bool)` is i64, so `(a, a > 0)`
                         // inferred the same-shape sibling Tuple__Int__Int and
                         // clashed with the signature's Tuple__Int__Bool
-                        // (stdlib sweep). Deliberately NOT consulting
-                        // local_xiom_types here: in mono/generic bodies those
-                        // entries can still name type parameters, which
-                        // mis-typed Vec[(Int, Int)] element reads (m44).
+                        // (stdlib sweep).
                         if self.expr_is_bool(i) {
                             return "Bool".to_string();
+                        }
+                        // R46: mono PARAMS name the tuple after their
+                        // concrete substitution (`a: T` with T=Bool ->
+                        // "Bool"); all other elements fall through (m44/m48).
+                        if let Expr::Ident(id) = i {
+                            if let Some(base) = self.mono_param_xiom_name(&id.name) {
+                                return base;
+                            }
                         }
                         // R45b: cast elements use the CAST TARGET's XIOM type
                         // (see the literal path in expr.rs).

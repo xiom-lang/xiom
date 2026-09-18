@@ -31,6 +31,12 @@ fn tagged(label: Str, ok: Bool) -> (Str, Bool) {
   (label, ok)
 }
 
+// Monomorphised generic: the element `a: T` must name the tuple after the
+// CONCRETE type (Bool), not the unresolved parameter or its i64 width.
+fn pair[T](a: T, b: Float64) -> (T, Float64) {
+  (a, b)
+}
+
 fn main() -> Int {
   let g = gt(5);
   if !g.1 { return 1; }
@@ -50,6 +56,10 @@ fn main() -> Int {
   let t = tagged("x", true);
   if !t.1 { return 9; }
   if t.0.len() != 1 { return 10; }
+
+  let pb = pair(true, 1.5);
+  if !pb.0 { return 11; }
+  if pb.1 != 1.5 { return 12; }
 
   return 0;
 }

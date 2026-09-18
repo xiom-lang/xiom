@@ -174,29 +174,30 @@ cargo test -p xiom-codegen --test perf_budget_tests
 ```
 
 Residual findings: the bare-variant disagreement was fixed by R42
-(scope-first parent pick); the `%struct.Metrics` GEP by R39. The bench's next
-clang error is the generic-arg inference leak -- see "Open compiler findings"
-below. Stage 6 measures emitted IR bytes only, so it never gated; remeasure
-before a full bench build.
+(scope-first parent pick); the `%struct.Metrics` GEP by R39; the generic-arg
+inference leak by R46. **The bench graph is now CLANG-CLEAN** (R46):
+`xiom --emit-ir examples/benchmark/main.xi | clang -c -x ir -` exits 0, and
+the determinism canary stays green at 5,808,645 bytes. Stage 6 measures
+emitted IR bytes only, so this never gated; it is now also a full-build
+candidate.
 
 Formal R25 entry in docs/COMPILER_BUGS.md is deferred (that file had
 uncommitted stdlib-lane WIP at close; append once clean).
 
 ## Open compiler findings (pre-selfhost, not R0-blocking)
 
-1. **Bench graph clang: generic-arg inference leaks a fixed-ARRAY type into a
-   mono name** (next error after R41/R42). Repro:
-   `var circles = [c.clone(), Circle{ radius: 3.0 }];` then
-   `total_area(&circles, circle_area_fn)` in
-   `benchmark.interfaces.test_interface_dispatch` emits the malformed symbol
-   `@benchmark.interfaces.total_area_2 x Int(...)` (clang "expected '(' in
-   call"). Two defects in one: the inferred `T` is the fixed-array type
-   instead of the Vec's ELEMENT type (array literal -> M33 Vec conversion),
-   and `monomorphised_fn_name` (lib.rs) does not sanitize concrete types, so
-   the name is not a valid LLVM identifier. Fix shape: infer `T` from the Vec
-   element for `&vec` callers bound from array literals; run concrete-type
-   parts through `sanitize_container_arg` in every mono name. Bench is
-   IR-gated, so no suite regresses today.
+1. **Generic method instantiation misses for qualified receivers** (R46
+   residual, OPEN; m88 evidence). (a) Calling a GENERIC METHOD on a
+   module-qualified receiver type from ANOTHER module falls back to an
+   erased stub: `main -> h.Box.pack[Int](42)` emitted
+   `@m88.hard.Box.pack()` returning zeroinitializer instead of `pack_Int`.
+   (b) A generic method whose type parameter is inferable only from the
+   receiver (`is_sealed[T]` on `Box[Int]`) stubs the same way. Same-module
+   calls and explicit wrappers work. Fix shape: make the generic-decl /
+   instantiation lookup follow the qualified receiver key
+   (`m88.hard.Box.pack`) and infer method type args from the receiver.
+   Locks `e2e_m88_generic_same_leaf_boxes` cover the layout fix;
+   module-local wrappers deliberately avoid the missing path.
 
 1b. **R44 same-leaf class -- resolved for HttpResponse, class remains**:
    the stdlib renamed `net.net.HttpResponse` -> `NetHttpResponse` (their
@@ -206,6 +207,12 @@ uncommitted stdlib-lane WIP at close; append once clean).
    compiler+stdlib slice (stdlib dedup first, then stdlib-wide R39
    qualification + their smoke battery) is the remaining work. Experiment
    evidence in docs/COMPILER_BUGS.md R44.
+
+FIXED (R46): **bench graph clang-clean** -- generic same-leaf collisions are
+shape-triaged, bare literals that are both struct and enum variant bind by
+field names, mono tuple params use the concrete substitution, mono names are
+identifier-sanitized, and method-receiver variants resolve leaf-scope.
+Locks m87 (extended), m88, m89; bench IR deterministic at 5,808,645 bytes.
 
 FIXED (R45): tuple element naming (Bool/`as` targets) + tuple defs spliced
 into the type-decl block; lock `e2e_m87_tuple_element_types`; the stdlib
@@ -336,33 +343,38 @@ before any stdlib/smoke test; everything resolves through `xiom_graph::paths`
 the pin itself). Never commit the `stdlib/` checkout.
 
 State: Stage 3 Item A CLOSED (strict catalog findings, checker 194/194),
-R-bugs through R45 CLEARED (R32-R38 = registry-client findings; R39 =
+R-bugs through R46 CLEARED (R32-R38 = registry-client findings; R39 =
 same-leaf TYPE collision, lock m84; R40 = derive[Clone] on pointer receivers,
 lock m85; R41 = generic pointer-self receiver ABI; R42 = scope-first bare
 variants; R43 = `&ref` locals, lock m86; R45 = tuple element types +
-early-spliced tuple defs, lock m87; R44 resolved stdlib-side; fixed on main
-2026-09-17 with unit + e2e locks); e2e 2335/2335; supply chain signed AND
-COMPLETE for the pre-registry phase: ed25519 keygen/trust/sign/verify,
-fail-closed installs, ureq-only publish, git commit pins, TRANSITIVE
-DEPENDENCY CLOSURE (range matcher + cycle-safe closure from the verified
-manifest; `lock` pins the closure with digests; registry e2e 20/20); Stage 6
-perf budgets wired (determinism canary covers selfhost v092 + bench graph;
-bench IR 5,764,620 bytes), selfhost v092 compile gate GREEN, release R0
-compiler-side blockers DONE (R25+R27+R31+R39-R45, release build clean). The
-bench graph's generic-arg inference leak (array type in a mono name) is the
-only OPEN compiler finding -- see "Open compiler findings".
+early-spliced tuple defs, lock m87; R46 = **bench graph CLANG-CLEAN**
+(generic same-leaf shape triage, literal field-name disambiguation, mono
+param tuples, identifier-sanitized mono names, method-receiver leaf-scope
+variants), locks m88/m89; R44 resolved stdlib-side; fixed on main 2026-09-17
+with unit + e2e locks); e2e 2337/2337; supply chain signed AND COMPLETE for
+the pre-registry phase: ed25519 keygen/trust/sign/verify, fail-closed
+installs, ureq-only publish, git commit pins, TRANSITIVE DEPENDENCY CLOSURE
+(range matcher + cycle-safe closure from the verified manifest; `lock` pins
+the closure with digests; registry e2e 20/20); Stage 6 perf budgets wired
+(determinism canary covers selfhost v092 + bench graph; bench IR 5,808,645
+bytes and `clang -c` accepts it), selfhost v092 compile gate GREEN, release
+R0 compiler-side blockers DONE (R25+R27+R31+R39-R46, release build clean).
+The remaining OPEN compiler findings are the R46 residuals (cross-module /
+non-inferable generic method instantiation stubs) -- see "Open compiler
+findings".
 
 Pending (cross-lane): stdlib_api_freeze_no_removals RED (52 drifted
 signatures) and stdlib_tests::stdlib_all_modules_compile_to_ir RED
 (xiom.encoding.ascii85 T001) -- stdlib-lane owned, documented in
 COMPILER_BUGS R31 FIXED. STDLIB_VERSION is `stdlib-v0.60.0`.
 
-Your task, in order (Stage 5 completion; the supply-chain tail and driver
-hygiene are CLOSED; the stdlib sweep findings R43/R45 are FIXED and R44 is
-resolved stdlib-side):
-1. Fix the last open compiler finding: generic-arg inference leaks a
-   fixed-array type into the mono name (`total_area_2 x Int`), then make the
-   bench graph clang-clean (repro in "Open compiler findings").
+Your task, in order (Stage 5 completion; the supply-chain tail, driver
+hygiene and the bench clang-clean goal are CLOSED; the stdlib sweep findings
+R43/R45 are FIXED and R44 is resolved stdlib-side):
+1. Fix the R46 residual generic-method instantiation gaps (OPEN, repro in
+   "Open compiler findings"): qualified-receiver generic calls from other
+   modules and receiver-only type-arg inference both fall back to erased
+   stubs; add locks with the direct call forms removed from m88.
 2. R44 remaining class (coordination slice): the stdlib dedups the genuinely
    conflicting same-leaf declarations, then land stdlib-wide qualification
    in R39's pass with their smoke battery green. Until then, stdlib leaf

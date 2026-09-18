@@ -7083,4 +7083,62 @@ became XIOM-correct the definition was no longer reachable early enough.
   63/63. `stdlib_execution_tests` remains 83/85 with the local checkout
   (collect/tree + collect/cache drift, identical on the pre-change driver).
 
+## R46. Bench graph CLANG-CLEAN: generic same-leaf types, literal disambiguation, mono tuple params -- FIXED (2026-09-17, `main`)
+
+`xiom --emit-ir examples/benchmark/main.xi` now emits IR that `clang -c`
+accepts (the three remaining latent defects in the same-leaf family, behind
+R39/R41/R42/R45, are closed):
+
+1. **Generic same-leaf collisions**: `benchmark.generics.Box[T] =
+   { value: T }` (1 field) and `benchmark.generics_hard.Box[T] =
+   { item: T; sealed: Bool }` (2 fields) merged into ONE bare `%struct.Box`
+   (the 1-field definition won) and the loser GEP'd field 1 of it. R39
+   deliberately excluded generics (leaf-derived mono/concrete-container
+   keys); the collision triage now includes generic types but SPLITS them
+   only when their declared SHAPES conflict (`declared_type_shapes` + shape
+   comparison in `collect_external_decls`). Identical generic
+   re-declarations keep the legacy single key. Lock
+   `e2e_m88_generic_same_leaf_boxes`.
+2. **Bare literal name that is BOTH a struct and an enum variant**
+   (`Node{...}`): the literal path resolved by name only, so
+   `Node(value, left, right)` inside `BST.insert` compiled the same-leaf
+   struct `benchmark.memory.Node` ({value, children}) and stored a
+   `%struct.Vec` into the tree payload. The literal path now disambiguates
+   by the LITERAL'S FIELD NAMES: it binds the enum variant when the payload
+   matches and the same-leaf struct does not (BUG 31's struct preference is
+   preserved when both match). Lock `e2e_m89_struct_variant_node`.
+3. **Mono tuple params**: `pair[T](a: T, b: Float64) -> (T, Float64)`
+   instantiated with T=Bool built `Tuple__Int__Float64` in the body (param
+   names are not in `local_xiom_types`, so inference saw the i64 width)
+   while the signature said `Tuple__Bool__Float64`. Element naming now
+   consults `mono::param_concrete_types` for PARAMS OF THE CURRENT FUNCTION
+   (`mono_param_xiom_name`, used by both the literal path and
+   `infer_llvm_type`'s tuple arm). The lookup is deliberately narrow: a
+   broader local-type/substitution lookup regressed m44/m48 by leaking
+   global/stale entries into `Vec[(Int, Int)]` element reads. Lock: extended
+   `e2e_m87_tuple_element_types`.
+
+Also hardened in this slice: `monomorphised_fn_name` sanitizes concrete type
+parts into identifier-safe text (an inference leak such as `[2 x Int]` can no
+longer emit the invalid symbol `total_area_2 x Int`), and
+`pick_variant_parent` gained a leaf-scope fallback for METHOD receivers
+(`BST.insert` carries no module prefix, so `Empty` inside it binds
+`benchmark.structures.BST` instead of the first-declared
+`benchmark.enums.Message`).
+
+**Verification**: `clang -c` on the emitted bench IR exits 0 (previously three
+distinct clang rejections across this campaign); bench IR deterministic at
+**5,808,645 bytes** (budget 6.3 MB); full e2e **2337/2337**, feature-reg
+510/510, checker 194/194, perf/determinism 2/2, robustness 63/63,
+pkg/dbg/lsp/mcp 63/34/44/39, `stdlib_execution_tests` 83/85 (the two known
+checkout drifts, identical pre-change).
+
+**Residual (open, not bench-gating)**: calls to GENERIC METHODS on a
+module-qualified receiver type from ANOTHER module fall back to erased stubs
+(`main -> h.Box.pack[Int](42)` emitted `@m88.hard.Box.pack()` returning
+zeroinitializer), and generic methods whose type parameter is inferable only
+from the receiver (`is_sealed[T]` on `Box[Int]`) stub the same way. m88 uses
+module-local wrappers to stay on the proven path. See SESSION.md "Open
+compiler findings".
+
 

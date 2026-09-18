@@ -23,23 +23,104 @@ use xiom_ast::*;
 /// Injectable type/enum leaves declared in `items` (recursing module
 /// wrappers) that participate in the collision qualification.
 ///
-/// Only NON-generic pub types and pub enums: these are the layout types that
-/// flatten into one `%struct.<leaf>` definition. Generic types (`Pair[A,B]`)
-/// go through the monomorphization machinery, whose concrete-container keys
-/// (`Option__Pair`) and mono symbols are derived from the leaf; qualifying
-/// them perturbs that pipeline (and made generated payload resolution
-/// ambiguous) without fixing a reported defect, so they keep the legacy
-/// naming. Interfaces have no layout and are not renamed either.
+/// Includes generic pub types (`Box[T]`): generic leaves are renamed only
+/// when their DECLARED SHAPES conflict (see `declared_type_shapes` and the
+/// triage in `collect_external_decls`), because mono/concrete-container keys
+/// (`Option__Pair`) are leaf-derived and identical re-declarations must keep
+/// the legacy single key. Interfaces have no layout and are not renamed.
 pub(crate) fn declared_type_leaves(items: &[TopDecl], out: &mut BTreeSet<String>) {
     for item in items {
         match item {
-            TopDecl::Type(td) if td.is_pub && td.generics.is_empty() => {
+            TopDecl::Type(td) if td.is_pub || !td.generics.is_empty() => {
                 out.insert(td.name.name.clone());
             }
             TopDecl::Enum(ed) if ed.is_pub => {
                 out.insert(ed.name.name.clone());
             }
             TopDecl::Module(md) => declared_type_leaves(&md.items, out),
+            _ => {}
+        }
+    }
+}
+
+// ============================================================================
+// Declaration shapes (collision triage)
+// ============================================================================
+
+/// Stable, span-free shape of a type reference (names + structure only).
+fn type_shape(ty: &Type) -> String {
+    match ty {
+        Type::Named(id, args) => {
+            if args.is_empty() {
+                id.name.clone()
+            } else {
+                let inner: Vec<String> = args.iter().map(type_shape).collect();
+                format!("{}[{}]", id.name, inner.join(","))
+            }
+        }
+        Type::Ref(t) => format!("&{}", type_shape(t)),
+        Type::MutRef(t) => format!("&mut {}", type_shape(t)),
+        Type::Ptr(t) => format!("*{}", type_shape(t)),
+        Type::Option(t) => format!("Option[{}]", type_shape(t)),
+        Type::Vec(t) => format!("Vec[{}]", type_shape(t)),
+        Type::Slice(t) => format!("Slice[{}]", type_shape(t)),
+        Type::Set(t) => format!("Set[{}]", type_shape(t)),
+        Type::Result(a, b) => format!("Result[{},{}]", type_shape(a), type_shape(b)),
+        Type::Map(a, b) => format!("Map[{},{}]", type_shape(a), type_shape(b)),
+        Type::Tuple(ts) => {
+            let inner: Vec<String> = ts.iter().map(type_shape).collect();
+            format!("({})", inner.join(","))
+        }
+        Type::Fn(ps, ret) => {
+            let inner: Vec<String> = ps.iter().map(type_shape).collect();
+            format!("fn({})->{}", inner.join(","), type_shape(ret))
+        }
+        Type::Array(_, elem) => format!("[{}]", type_shape(elem)),
+        Type::AnonStruct(fields) => {
+            let inner: Vec<String> = fields.iter().map(|f| type_shape(&f.ty)).collect();
+            format!("{{{}}}", inner.join(";"))
+        }
+        Type::ImplTrait(_) => "impl".to_string(),
+        Type::Never => "!".to_string(),
+    }
+}
+
+/// Layout-ish shape of a struct/type declaration.
+pub(crate) fn type_decl_shape(td: &TypeDecl) -> String {
+    if let Some(alias) = &td.alias {
+        return format!("alias:{}", type_shape(alias));
+    }
+    let fields: Vec<String> = td.fields.iter().map(|f| type_shape(&f.ty)).collect();
+    format!("{{generics:{};fields:{}}}", td.generics.len(), fields.join(";"))
+}
+
+/// Layout-ish shape of an enum declaration.
+pub(crate) fn enum_decl_shape(ed: &EnumDecl) -> String {
+    let variants: Vec<String> = ed
+        .variants
+        .iter()
+        .map(|v| {
+            let fields: Vec<String> = v.fields.iter().map(|f| type_shape(&f.ty)).collect();
+            format!("{}[{}]", v.name.name, fields.join(","))
+        })
+        .collect();
+    format!("{{generics:{};{} }}", ed.generics.len(), variants.join("|"))
+}
+
+/// Injectable type/enum leaves mapped to `(shape, is_generic)`.
+pub(crate) fn declared_type_shapes(items: &[TopDecl], out: &mut BTreeMap<String, (String, bool)>) {
+    for item in items {
+        match item {
+            TopDecl::Type(td) if td.is_pub || !td.generics.is_empty() => {
+                out.insert(
+                    td.name.name.clone(),
+                    (type_decl_shape(td), !td.generics.is_empty()),
+                );
+            }
+            TopDecl::Enum(ed) if ed.is_pub => {
+                out.insert(ed.name.name.clone(), (enum_decl_shape(ed), false));
+            }
+            TopDecl::Module(md) => declared_type_shapes(&md.items, out),
             _ => {}
         }
     }

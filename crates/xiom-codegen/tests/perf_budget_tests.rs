@@ -12,7 +12,7 @@
 //!
 //! | source                        | bytes   | budget   | debug time |
 //! |-------------------------------|---------|----------|------------|
-//! | examples/benchmark/main.xi    | 5,764,620 | 6,300,000 | ~10 s    |
+//! | examples/benchmark/main.xi    | 5,808,645 | 6,300,000 | ~10 s    |
 //! | selfhost/xiomc_v092.xi        |   155,936 |   175,000 | ~2 s    |
 //! | tests/ecosystem/test_json.xi  |   164,787 |   185,000 | ~1 s    |
 //!
