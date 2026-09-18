@@ -11,8 +11,16 @@ use crate::CompileConfig;
 /// Returns the exit code from main(), or an error message.
 pub fn jit_execute(source: &str) -> Result<i32, String> {
     // Unique temp dir per invocation -- parallel JIT calls (e.g. tests) must
-    // not collide on a shared _jit.xi/_jit.dll path.
-    let tmp_dir = std::env::temp_dir().join(format!("xiom_jit_{}", std::process::id()));
+    // not collide on a shared _jit.xi/_jit.dll path. Pid alone was not
+    // enough: pid reuse plus a stale directory from a crashed run could hit
+    // the same paths, so mix in the time+counter suffix. The directory is
+    // removed best-effort after the library is dropped (Windows releases the
+    // file lock on drop).
+    let tmp_dir = std::env::temp_dir().join(format!(
+        "xiom_jit_{}_{:x}",
+        std::process::id(),
+        rand_suffix()
+    ));
     std::fs::create_dir_all(&tmp_dir).map_err(|e| format!("cannot create temp dir: {e}"))?;
 
     let tmp_src = tmp_dir.join(format!("_jit_{:x}.xi", rand_suffix()));
@@ -40,7 +48,7 @@ pub fn jit_execute(source: &str) -> Result<i32, String> {
     // process and must be a valid XIOM-compiled shared library with a
     // `fn main() -> Int` entry point. Memory safety is enforced by the
     // XIOM compiler's type system and borrow checker on the source code.
-    unsafe {
+    let exit_code = unsafe {
         let lib = libloading::Library::new(&tmp_out)
             .map_err(|e| format!("cannot load library: {e}"))?;
 
@@ -48,9 +56,11 @@ pub fn jit_execute(source: &str) -> Result<i32, String> {
             .get(b"main")
             .map_err(|e| format!("main not exported: {e}"))?;
 
-        let exit_code = main_fn();
-        Ok(exit_code as i32)
-    }
+        main_fn()
+    };
+    // `lib` has been dropped (unloaded) above, so the artifact lock is gone.
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    Ok(exit_code as i32)
 }
 
 /// Time+counter-based suffix so concurrent compilations (and concurrent

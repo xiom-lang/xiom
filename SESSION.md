@@ -333,7 +333,11 @@ longer contains stdlib sources:
    bounded (4000 files / depth 24, skip dirs). lsp 45/45 (new
    `test_definition_cross_file_index_unopened_file` covers index hit +
    rebuild-after-change).
-5. **Driver hygiene**: randomized temp names (the jit link dir is pid-based).
+5. **Driver hygiene -- DONE (2026-09-18)**: per-invocation temp names are
+   randomized across the driver (watch/REPL/script siblings, jit link
+   artifacts) and the JIT temp directory now mixes pid with the
+   time+counter suffix and is removed after the library is dropped (pid
+   reuse plus a stale dir could previously hit the same paths).
 6. **cargo-vet audits -- DONE (2026-09-18)**: `cargo vet` (0.10.2) is
    bootstrapped with `supply-chain/config.toml` exempting the current 171
    crates ("safe-to-deploy"); the CI hygiene job installs cargo-vet and runs

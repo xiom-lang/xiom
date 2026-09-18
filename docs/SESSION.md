@@ -259,6 +259,12 @@ walk broad parents, so a temp-dir file cannot index all of /tmp. lsp 45/45
 (new integration test covers hit + rebuild-after-change). Remaining Stage 5
 item: clap migration of the driver parser.
 
+Stage 5 tail (cont.): **driver temp hygiene closed** -- the JIT temp
+directory mixes pid with the time+counter suffix (pid reuse plus a stale
+directory could hit the same `_jit.*` paths) and is removed best-effort
+after the loaded library drops; JIT smoke exits 0 and leaves no directory
+behind.
+
 ### Round-83 (2026-09-16): pre-split housekeeping + post-split handoff
 
 Compiler lane, no behavior changes.
