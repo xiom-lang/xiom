@@ -38,10 +38,13 @@ Also 2026-09-17 (stdlib-session sweep relay): R43 FIXED --
 `&v` on a reference-typed local hard-errored C001, breaking the stdlib's
 `var v = b; ... &v` pattern (x25519_keypair -> _bigint_to_le); `&*v == v`
 now lowers to the stored pointer. Lock `e2e_m86_ref_of_reference`.
-R44 RESOLVED STDLIB-SIDE -- `http_parse_response` invalid GEP was a stdlib
-same-leaf collision; the stdlib renamed `net.net.HttpResponse` ->
-`NetHttpResponse` (ce0c7fa) and verified probe + fuzz parser + batteries on
-the pinned v0.60.0. R45 FIXED -- the single-param sweep's tuple mismatch
+R44 SLICE LANDED (2026-09-18) -- `http_parse_response` invalid GEP was a
+stdlib same-leaf collision; the stdlib renamed `net.net.HttpResponse` ->
+`NetHttpResponse` (ce0c7fa) and the compiler now includes catalog modules
+in the collision qualification under the shape-conflict standard
+(all-catalog groups only), so the collision cannot resurface: pin probe +
+negative control, lock `e2e_m90_stdlib_same_leaf_http`, corpus 949/949.
+R45 FIXED -- the single-param sweep's tuple mismatch
 (tuple element names came from LLVM widths: Bool -> "Int", `as UInt16` ->
 "Int16") plus the early-splice requirement (LLVM rejects alloca of a
 forward-referenced named type). Lock `e2e_m87_tuple_element_types`; sweep
@@ -71,9 +74,17 @@ exceeds its 300s watchdog, which is what looked like a hang. No compiler
 hang. Remaining OPEN compiler finding: none from the R46 family -- R46b
 (2026-09-18) closed the cross-module qualified-receiver and receiver-only
 generic method instantiation residuals; m88 now locks the direct call forms
-(wrappers removed). Remaining OPEN class: R44 same-leaf qualification
-(stdlib has a 16-conflict worklist + audit tool ready; waits on the
-coordination slice). Stdlib status
+(wrappers removed). **R44 qualification slice LANDED (2026-09-18)**: catalog
+(`xiom.`) modules now participate in the R39/R46 collision triage under the
+stdlib audit standard -- all-catalog groups qualify only when declared
+shapes conflict (facade duplicates keep the legacy key); project-owned
+groups keep the R39/R46 rule, so user emission is untouched (bench IR
+byte-identical at 5,808,645). Verified: `p_http_resp_codegen` green on the
+pin (negative control reproduces the clang GEP error), check_modules
+509/509, smoke corpus 949/949 on stdlib main, stdlib_exec 85/85 on the pin,
+lock `e2e_m90_stdlib_same_leaf_http`. Remaining stdlib-side work: their
+16-group dedup worklist (hygiene now, not a correctness prerequisite).
+Stdlib status
 for the release lane: their pin is v0.60.0 and release tag v0.60.1 predates
 R43/R45/R46, so `COMPILER_VERSION` moves only when a release contains them
 (their nightly already tests main).
@@ -408,9 +419,13 @@ Your task, in order:
 1. ~~Fix the R46 residual generic-method instantiation gaps~~ **DONE
    (R46b, 2026-09-18)**: m88 locks the direct cross-module call forms;
    see docs/COMPILER_BUGS.md R46b.
-2. R44 qualification slice (coordinate with the stdlib lane, whose worklist
-   is ready): standardize the dedup, then include stdlib modules in R39's
-   collision triage and run their smoke battery + `stdlib_execution_tests`.
+2. R44 qualification slice -- **compiler half DONE (2026-09-18)**: catalog
+   modules participate in the collision triage with the shape-conflict
+   standard; lock `e2e_m90_stdlib_same_leaf_http` + CI lock line. The
+   stdlib half (dedup the 16 groups in their
+   `docs/SAME_LEAF_TYPE_CONFLICTS.md` worklist) is stdlib-lane work; with
+   the compiler standard in place it is layout/API hygiene, not a
+   correctness prerequisite. Re-run their battery after each stdlib batch.
 3. Stage 5 remainder: clap-based arg parsing (keep the CLI surface
    byte-compatible); LSP incremental reparsing + cross-file index; fmt
    body-inline comment trivia; cargo-vet audits.
@@ -419,8 +434,9 @@ Your task, in order:
    debug-driver compile cost on sweep-scale programs (~482s release for
    139 calls / 54 modules; debug >300s) as a Stage 6 budget candidate.
 
-Verification commands: `cargo test -p xiom-codegen --test e2e_tests` (2337,
-~25 min; set XIOM_STDLIB/XIOM_STDLIB_SMOKES for the stdlib-dependent tests);
+Verification commands: `cargo test -p xiom-codegen --test e2e_tests` (2338,
+~20 min; set XIOM_STDLIB/XIOM_STDLIB_SMOKES for the stdlib-dependent tests;
+`e2e_m90_stdlib_same_leaf_http` needs a stdlib checkout);
 `--test feature_regression_tests` (510), `-p xiom-check --lib` (194),
 `--test perf_budget_tests` (determinism canary + budgets),
 `--test robustness_tests` (63), `--test stdlib_execution_tests`

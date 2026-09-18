@@ -7037,6 +7037,47 @@ genuinely conflicting collect/math/etc. types) still rely on first-wins. The
 compiler-side experiment above stands: stdlib-wide qualification is a
 dedicated compiler+stdlib slice once the stdlib dedups the real conflicts.
 
+**R44 qualification slice (2026-09-18, `main`) -- LANDED**. Catalog
+(`xiom.`) modules now participate in the R39/R46 collision triage under the
+stdlib audit standard (`tools/same_leaf_audit.ps1`): a group whose owners
+are ALL catalog modules qualifies only when its DECLARED SHAPES conflict --
+facade duplicates with identical layouts keep the legacy leaf-derived key.
+Groups with any project owner keep the exact R39/R46 rule (non-generic
+project collisions always qualify; generic ones only when shapes differ),
+so user-program emission is untouched: bench IR stays byte-identical at
+5,808,645 and `clang -c` exits 0. The compiler's `type_decl_shape` is the
+structural form of the audit tool's conflict criterion (the tool's
+line-oriented field extraction is an approximation of it).
+
+Evidence (stdlib pin `stdlib-v0.60.0` = 2f819ac, 17 audit-conflicting
+groups incl. `HttpResponse`; stdlib `main` = 16 groups after the
+`NetHttpResponse` rename):
+
+- `p_http_resp_codegen.xi` compiles and runs (exit 0) on the pin; the
+  negative control (change stashed + rebuilt) reproduces the documented
+  clang rejection `invalid getelementptr indices` on
+  `%struct.HttpResponse` field 2.
+- `check_modules.ps1` 509/509 clean (238.6 s, 8 workers).
+- Full smoke corpus `run_smokes.ps1`: **949/949 pass**, 0 compile-fail, 0
+  run-fail (1535.5 s, 8 workers; 9 parallel flakes retried solo green).
+- `stdlib_execution_tests` 85/85 (+2 ignored) on the pin.
+- Full e2e **2338/2338** (includes the new m90 lock) and checker
+  **195/195** on the final tree; perf/determinism 2/2; bench 5,808,645
+  bytes; v092 157,890 bytes (was 155,936 -- stdlib groups now qualify);
+  test_json 164,283 bytes (was 164,787) -- all under budget.
+- Lock: `e2e_m90_stdlib_same_leaf_http` (fixture
+  `tests/regression/m90_stdlib_same_leaf_http/main.xi`), added to the CI
+  lock line; skips loudly without a stdlib checkout and hard-fails under
+  `XIOM_REQUIRE_STDLIB=1` (CI has the pin).
+
+The stdlib-side dedup of the 16 remaining groups
+(`docs/SAME_LEAF_TYPE_CONFLICTS.md` worklist: Executor, Future, Graph,
+UnionFind, PHeap, IntervalTree, IntMap, StringMap, SpscRing, FloatScan,
+Aabb, Sphere, Ray, Plane, Regex, Match) stays with the stdlib lane. With
+the compiler standard in place, qualification is correct for any group
+whose shapes genuinely conflict, so the dedup is layout/API hygiene rather
+than a correctness prerequisite.
+
 ## R45. Tuple element types came from LLVM widths, not XIOM types -- FIXED (2026-09-17, `main`)
 
 **Finding** (stdlib single-param surface sweep, preserved repro

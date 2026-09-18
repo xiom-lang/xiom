@@ -3152,14 +3152,21 @@ impl Checker {
         // definition while the losing module's bodies kept their own field
         // count (bench graph: `benchmark.borrow.Metrics` 4 fields vs
         // `benchmark.derive.Metrics` 7 -> GEP field 4 of a 4-field struct).
-        // Qualify the leaf in every project module that participates in the
-        // collision and rewrite its references before injection. Stdlib
-        // (`xiom.`) modules and leaves the USER program declares or
-        // references keep the legacy first-wins behavior.
+        // Qualify the leaf in every module that participates in the
+        // collision and rewrite its references before injection.
+        //
+        // R44 (experiment): stdlib (`xiom.`) modules participate too. A group
+        // whose owners are ALL catalog modules follows the stdlib audit
+        // standard (`tools/same_leaf_audit.ps1`): only groups whose DECLARED
+        // SHAPES conflict qualify -- facade re-declarations with identical
+        // layouts keep the legacy single key. Project-owned groups keep the
+        // R39/R46 rule (see the filter below), so user emission is
+        // untouched. Leaves the USER program declares or references remain
+        // excluded.
         let mut owners: HashMap<String, BTreeMap<String, (String, bool)>> = HashMap::new();
         for cached in cached_modules.iter().chain(peeked.iter()) {
             let module = cached.dotted_name.as_str();
-            if module.is_empty() || module.starts_with("xiom.") {
+            if module.is_empty() {
                 continue;
             }
             let mut shapes = BTreeMap::new();
@@ -3174,15 +3181,19 @@ impl Checker {
                 if by_module.len() < 2 {
                     return false;
                 }
-                // R46: generic same-leaf declarations are only split when
-                // their SHAPES conflict (`Box[T]={value:T}` vs
-                // `Box[T]={item:T,sealed:Bool}` -> one `%struct.Box` won and
-                // the loser GEP'd field 1 of a 1-field type). Identical
-                // generic re-declarations keep the leaf-derived mono and
-                // concrete-container keys. Non-generic project collisions
-                // always qualify (R39).
+                // R44: groups whose owners are ALL catalog modules follow the
+                // stdlib audit standard -- only SHAPE-CONFLICTING
+                // declarations qualify; facade duplicates with identical
+                // layouts keep the legacy single key. Groups with any
+                // project owner keep the R39/R46 rule unchanged (non-generic
+                // project collisions always qualify, generic ones only when
+                // shapes differ), so user-program emission is untouched.
                 let shapes: BTreeSet<&String> = by_module.values().map(|(s, _)| s).collect();
                 let shape_differs = shapes.len() > 1;
+                let all_stdlib = by_module.keys().all(|m| m.starts_with("xiom."));
+                if all_stdlib {
+                    return shape_differs;
+                }
                 let any_generic = by_module.values().any(|(_, g)| *g);
                 if any_generic { shape_differs } else { true }
             })
@@ -8858,7 +8869,15 @@ fn main() -> Int { var x = Wrapper { val: 42; }; let r = &x; var y = x; return 0
     #[test]
     fn catalog_corpus_is_clean() {
         let mut checker = Checker::new();
-        checker.add_source_dir(project_root().join("stdlib").to_string_lossy().to_string());
+        // Catalog modules live under `<stdlib>/xiom/`; indexing the checkout
+        // ROOT also pulled in `tests/smoke/*.xi`, whose harness programs
+        // (assert/context on `xiom.test` helpers) are not catalog bodies and
+        // reported 161 hard errors once the smoke corpus moved to the stdlib
+        // repo (R31/R32). Index the catalog root when present.
+        let root = project_root().join("stdlib");
+        let catalog = root.join("xiom");
+        let dir = if catalog.is_dir() { catalog } else { root };
+        checker.add_source_dir(dir.to_string_lossy().to_string());
         checker.build_catalog_index();
         let report = checker.check_catalog_corpus();
         let mut by_module: std::collections::HashMap<String, usize> = std::collections::HashMap::new();

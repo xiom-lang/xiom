@@ -805,4 +805,60 @@ fn use_it(m: &Metrics) -> Metrics {
         let names = referenced_type_names(&items);
         assert!(names.contains("Metrics"), "{names:?}");
     }
+
+    /// R44: the shape-conflict standard. Identical declared layouts must
+    /// compare equal (facade duplicates stay on the legacy key); a field
+    /// change must compare unequal (the group qualifies).
+    #[test]
+    fn declared_shapes_match_identical_layouts_only() {
+        let same_a = parse(
+            r#"
+module alpha.same
+pub type T = {
+  x: Int;
+  y: Bool;
+}
+"#,
+        );
+        let same_b = parse(
+            r#"
+module beta.same
+pub type T = {
+  x: Int;
+  y: Bool;
+}
+"#,
+        );
+        let wider = parse(
+            r#"
+module gamma.wider
+pub type T = {
+  x: Int;
+  y: Bool;
+  z: Str;
+}
+"#,
+        );
+        let generic = parse(
+            r#"
+module delta.generic
+pub type T[U] = {
+  x: U;
+}
+"#,
+        );
+        let shapes = |items: &[TopDecl]| {
+            let mut out = BTreeMap::new();
+            declared_type_shapes(items, &mut out);
+            out
+        };
+        let a = shapes(&same_a);
+        let b = shapes(&same_b);
+        let c = shapes(&wider);
+        let g = shapes(&generic);
+        assert_eq!(a["T"].0, b["T"].0, "identical layouts must compare equal");
+        assert_ne!(a["T"].0, c["T"].0, "extra field must compare unequal");
+        assert_ne!(a["T"].0, g["T"].0, "generic arity must compare unequal");
+        assert!(!a["T"].1 && g["T"].1, "is_generic flag tracks arity");
+    }
 }

@@ -193,6 +193,40 @@ MAX_EXPR_DEPTH=32; now nest 300), lexer test-only helper gated with
 cfg(test), unused bindings underscored. fuzz_tests 24/24, robustness 63/63,
 workspace check clean.
 
+### Round-84 (2026-09-18): R46b + R44 qualification slice + release-lane dispatch
+
+Compiler lane, post-split `main`. Three landings:
+
+- **R46b (the R46 residual, last open compiler correctness finding) FIXED**:
+  (a) `infer_struct_type_name`'s `module.Type` arm resolved same-leaf types
+  by `type_meta` HashMap order, so `g.Box.new[Int](7)` bound the sibling
+  module on ~25% of runs and fell to an erased zeroinitializer stub --
+  `qualified_type_key_for_path` now expands the receiver through the
+  checker's module bindings, deterministically; (b) computed receivers
+  (`g.Box.new[Str]("x").value_of()`) left `concrete_types` empty and the
+  whole chain compiled to the literal-0 stub -- `receiver_generic_arg_at`
+  reads the receiver call's instantiation and substitutes the callee's
+  declared return type. m88's module-local wrappers removed; direct forms
+  locked (explicit args, arg inference, receiver-only, computed receiver).
+  Bench IR byte-identical (5,808,645), clang exit 0.
+- **R44 qualification slice LANDED**: catalog (`xiom.`) modules join the
+  R39/R46 collision triage. All-catalog groups follow the stdlib audit
+  standard (qualify only when declared shapes conflict); project-owned
+  groups keep the R39/R46 rule exactly, so user emission is untouched.
+  Pin `p_http_resp_codegen` green (negative control reproduces the clang
+  GEP rejection), check_modules 509/509, smoke corpus 949/949 on stdlib
+  main, stdlib-exec 85/85 on the pin. Lock `e2e_m90_stdlib_same_leaf_http`
+  added to the CI lock line; the 16-group stdlib dedup worklist remains
+  stdlib-lane hygiene.
+- **Release lane**: `release.yml` fails a tag whose version differs from
+  the workspace crate version (the v0.60.1 archive reported v0.58.0) and
+  dispatches `compiler-release` to the docs repo with client_payload
+  {tag, stdlib_ref, compiler_ref} (secret `XIOM_DOCS_DISPATCH_TOKEN`,
+  repo variable `DOCS_REPO`).
+
+Gates: e2e 2338/2338, feature-reg 510/510, checker 194/194,
+perf/determinism 2/2, robustness 63/63, pkg/dbg/lsp/mcp 63/34/44/39.
+
 ### Round-83 (2026-09-16): pre-split housekeeping + post-split handoff
 
 Compiler lane, no behavior changes.

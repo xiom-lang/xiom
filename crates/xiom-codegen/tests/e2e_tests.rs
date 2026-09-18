@@ -4825,7 +4825,7 @@ fn e2e_safety_probe() {
 // HashMap order.
 #[test] fn e2e_m88_generic_same_leaf_boxes() {
     assert_eq!(
-        compile_and_run("tests\\regression\\m88_generic_same_leaf\\main.xi"),
+        compile_and_run("tests/regression/m88_generic_same_leaf/main.xi"),
         Some(0)
     );
 }
@@ -4835,8 +4835,32 @@ fn e2e_safety_probe() {
 // `Node{value,children}` the same-leaf struct (bench BST lock).
 #[test] fn e2e_m89_struct_variant_node() {
     assert_eq!(
-        compile_and_run("tests\\regression\\m89_struct_variant_node\\main.xi"),
+        compile_and_run("tests/regression/m89_struct_variant_node/main.xi"),
         Some(0)
+    );
+}
+
+// R44: catalog (stdlib) same-leaf TYPE collisions participate in the R39
+// qualification when declared shapes conflict. On the pinned stdlib
+// `xiom.net.net.HttpResponse` (2 fields) and `xiom.net.http.HttpResponse`
+// (3 fields) share the leaf; pre-R44 the bare `%struct.HttpResponse` won and
+// `http_parse_response` GEPed field 2 of a 2-field definition (clang:
+// "invalid getelementptr indices"). Skips loudly without a stdlib checkout;
+// XIOM_REQUIRE_STDLIB=1 turns the skip into a failure in CI.
+#[test] fn e2e_m90_stdlib_same_leaf_http() {
+    let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
+    if !stdlib_root.join("xiom").join("net").join("http.xi").exists() {
+        let msg = "SKIP: stdlib checkout has no xiom/net/http.xi";
+        if xiom_graph::paths::require_stdlib() {
+            panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
+        }
+        eprintln!("{msg}");
+        return;
+    }
+    assert_eq!(
+        compile_and_run("tests/regression/m90_stdlib_same_leaf_http/main.xi"),
+        Some(0),
+        "R44 stdlib same-leaf probe must compile and run"
     );
 }
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
