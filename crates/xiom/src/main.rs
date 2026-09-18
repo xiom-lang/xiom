@@ -25,6 +25,8 @@ use std::time::Duration;
 
 use xiom::{self, compile, CompileConfig, Target, resolve_source_files};
 
+mod cli;
+
 /// Call compile() and exit on failure -- all process::exit calls are confined to this binary.
 fn compile_or_exit(config: &CompileConfig, sources: &[String]) {
     if let Err(errors) = compile(config, sources) {
@@ -184,7 +186,11 @@ fn real_main() {
     // Audit #12: the timeout / memory watchdogs set this cooperative token
     // instead of calling process::exit from a worker thread.
     xiom_codegen::cancel::reset();
-    let args: Vec<String> = env::args().collect();
+    // Stage 5: clap owns the flag surface (src/cli.rs). It parses for
+    // validation and returns argv unchanged, so every legacy scan below is
+    // byte-compatible; the reads migrate to the clap matches in follow-up
+    // work without touching the surface definition.
+    let args: Vec<String> = cli::parse(env::args().collect());
     if args.len() < 2 || args.iter().any(|a| a == "--help") {
         print_usage();
         process::exit(if args.iter().any(|a| a == "--help") { 0 } else { 1 });

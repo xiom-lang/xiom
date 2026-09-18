@@ -259,6 +259,17 @@ walk broad parents, so a temp-dir file cannot index all of /tmp. lsp 45/45
 (new integration test covers hit + rebuild-after-change). Remaining Stage 5
 item: clap migration of the driver parser.
 
+Stage 5 tail (cont.): **clap migration step 1 LANDED** --
+`crates/xiom/src/cli.rs` defines the complete driver flag surface with clap
+4 (53 boolean, 3 optional-value incl. `--sandbox[=strict]` /
+`--graph[=mermaid]` / `--sandbox-report[=X]`, 18 required-value, `-o`,
+`-g`, positionals); `cli::parse` parses leniently (`ignore_errors`, help and
+version auto-flags disabled) and returns argv unchanged, keeping every
+legacy scan byte-compatible by construction; 3 unit tests pin the surface,
+representative invocations, and the identity contract. clap deps are
+cargo-vet exempted (175). Step 2 (moving the ~100 scan reads onto the clap
+matches) is queued in SESSION.md.
+
 Stage 5 tail (cont.): **driver temp hygiene closed** -- the JIT temp
 directory mixes pid with the time+counter suffix (pid reuse plus a stale
 directory could hit the same `_jit.*` paths) and is removed best-effort

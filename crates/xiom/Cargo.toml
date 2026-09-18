@@ -21,6 +21,9 @@ path = "src/main.rs"
 winres = "0.1"
 
 [dependencies]
+# Stage 5: clap owns the driver's flag surface (src/cli.rs). Minimal
+# features: no color/help/derive, just the parser.
+clap = { version = "4", default-features = false, features = ["std"] }
 xiom-lexer = { path = "../xiom-lexer" }
 xiom-parser = { path = "../xiom-parser" }
 xiom-ast = { path = "../xiom-ast" }

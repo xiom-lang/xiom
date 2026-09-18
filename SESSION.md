@@ -373,22 +373,19 @@ stay here.
    publish authentication is registry-side; `publish_package` is
    implemented. Registry e2e **20/20** (new core fixture + closure install +
    transitive lock assertions).
-2. **clap migration** of the driver parser (large; keep the CLI surface
-   byte-compatible, gate with the full e2e suite). Concrete shape:
-   - add `clap` 4 to `crates/xiom` with `disable_help_flag` +
-     `disable_version_flag` and KEEP the existing `print_usage()` /
-     `--version` text verbatim; `allow_external_subcommands` for
-     `build-runtime`, `repl`, `run <script> [args...]` and `--`
-     pass-through; `trailing_var_arg` for run args.
-   - model the ~60 flags as a derive struct, preserving both spellings the
-     current parser accepts (`--sandbox` / `--sandbox=strict`,
-     `--diagnostics=json`, `-o <path>`, `-g`, `-O2`); unknown flags must
-     keep today's lenient handling unless the e2e suite proves otherwise.
-   - replace every `args.iter().any(...)` / `position(...)` read in
-     main.rs (~100 sites) with struct fields; behavior logic untouched.
-   - capture `xiom --help` and `xiom --version` (all subcommand help)
-     to docs/baselines BEFORE the change and byte-diff after; gate with
-     full e2e (2338) + robustness (63).
+2. **clap migration -- STEP 1 LANDED (2026-09-18)**: `crates/xiom/src/cli.rs`
+   defines the complete driver surface with clap 4 (minimal features): 53
+   boolean flags, 3 optional-value (`--sandbox[=strict]`,
+   `--sandbox-report[=X]`, `--graph[=mermaid]`), 18 required-value flags,
+   `-o/--output`, `-g`, positional sources. `cli::parse` runs clap in
+   lenient mode (`ignore_errors`, help/version auto-flags disabled) and
+   returns argv UNCHANGED, so every legacy scan in main.rs is byte-compatible
+   by construction; 3 unit tests pin the surface and representative
+   invocations. New clap deps are cargo-vet exempted (175 total).
+   **STEP 2 (remaining)**: replace the ~100 scan reads with the parsed
+   matches, flag by flag, keeping `--help`/`--version` text and the
+   `run`/`build-runtime`/`repl` early dispatch intact; gate with the full
+   e2e + help byte-diff.
 3. **fmt: body-inline comment trivia attachment -- DONE (2026-09-18)**.
    `format_source_text` threads lexer trivia (comments) and closing-brace
    token positions into the Formatter: leading comments emit above the
