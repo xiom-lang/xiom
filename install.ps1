@@ -4,7 +4,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    XIOM Compiler v0.46.0 Installer
+    XIOM Compiler Installer (version resolved at runtime)
 .DESCRIPTION
     Installs the XIOM toolchain: xiom, xiom fmt, xiom doc, xiom ffigen, xiom pkg, xiom lsp
 .PARAMETER InstallDir
@@ -33,8 +33,17 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$xiomVersion = "0.46.0"
 $xiomRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+# Version is never hardcoded: XIOM_VERSION env > workspace Cargo.toml > dev.
+$xiomVersion = $env:XIOM_VERSION
+if (-not $xiomVersion) {
+    $cargoToml = Join-Path $xiomRoot "Cargo.toml"
+    if (Test-Path $cargoToml) {
+        $versionMatch = Select-String -Path $cargoToml -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1
+        if ($versionMatch) { $xiomVersion = $versionMatch.Matches[0].Groups[1].Value }
+    }
+}
+if (-not $xiomVersion) { $xiomVersion = "dev" }
 
 # ============================================================================
 # Auto-install dependencies (only if building from source)

@@ -38,7 +38,7 @@ members = [
 # - The workspace is NOT published yet: the repo split + registry phase
 #   (docs/REPO_SPLIT.md) decides which crates become public packages.
 [workspace.package]
-version = "0.58.0"
+version = "0.61.0"
 edition = "2024"
 rust-version = "1.86.0"
 license = "MIT OR Apache-2.0"

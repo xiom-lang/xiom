@@ -141,5 +141,5 @@ pub fn compile_xiom(source: &str) -> String {
 /// Get compiler version string.
 #[wasm_bindgen]
 pub fn get_version() -> String {
-    format!("XIOM v{} (WASM)", option_env!("CARGO_PKG_VERSION").unwrap_or("0.49.8"))
+    format!("XIOM v{} (WASM)", env!("CARGO_PKG_VERSION"))
 }

@@ -3,17 +3,34 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
 # ============================================================================
-# XIOM Compiler v0.49.8 -- Cross-Platform Installer (Linux/macOS)
+# XIOM Compiler -- Cross-Platform Installer (Linux/macOS)
+#
+# The version is never hardcoded. Resolution order:
+#   1. XIOM_VERSION in the environment (set by the packager / caller),
+#   2. the containing release directory name (this script ships as
+#      <release>/xiom-v<version>/install.sh),
+#   3. the workspace version in ../Cargo.toml of a source checkout,
+#   4. "dev".
 # ============================================================================
 set -e
 
-VERSION="0.49.8"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -z "${XIOM_VERSION:-}" ]; then
+  case "$(basename "$SCRIPT_DIR")" in
+    xiom-v*) XIOM_VERSION="${SCRIPT_DIR##*xiom-v}" ;;
+  esac
+fi
+if [ -z "${XIOM_VERSION:-}" ] && [ -f "$SCRIPT_DIR/../Cargo.toml" ]; then
+  XIOM_VERSION="$(sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$SCRIPT_DIR/../Cargo.toml" | head -n1)"
+fi
+XIOM_VERSION="${XIOM_VERSION:-dev}"
+VERSION="$XIOM_VERSION"
 
 # -- ASCII Art --
 cat << 'EOF'
 
-  |\  /|  |\    /|  |\     /|  |\  /|  v0.49.8
+  |\  /|  |\    /|  |\     /|  |\  /|
   | \/ |  | \  / |  | \   / |  | \/ |  "Phoenix"
   |    |  |  \/  |  |  \ /  |  |    |  Industrial Compiler
   |    |  |      |  |       |  |    |  Production Release
@@ -24,10 +41,11 @@ cat << 'EOF'
     Built for games, engines, embedded, and high-performance apps.
   ================================================================
 
-  Version:  v0.49.8 (905/905 - Z3, MCP, LSP, Hot Reload, AI)
-  Runtime:  Requires CLANG/LLVM for native compilation
-
 EOF
+
+echo "  Version:  v$VERSION (Z3, MCP, LSP, Hot Reload, AI)"
+echo "  Runtime:  Requires CLANG/LLVM for native compilation"
+echo ""
 
 # -- Detect platform --
 case "$(uname -s)" in

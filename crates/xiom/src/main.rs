@@ -88,7 +88,7 @@ use xiom_codegen::sandbox::SafetyAuditor;
 /// State (let/var declarations) persists across lines.
 fn run_repl() {
     use std::io::{self, Write};
-    eprintln!("XIOM REPL v0.56.0-pre -- type :help for commands, :quit to exit");
+    eprintln!("XIOM REPL v{} -- type :help for commands, :quit to exit", env!("CARGO_PKG_VERSION"));
     let mut line_num = 0u64;
     let mut state: Vec<String> = Vec::new(); // accumulated let/var declarations
     // Unique per REPL session: two REPLs must not collide on `_repl_1.xi`.
@@ -1808,10 +1808,10 @@ fn test_hello() -> Int {{
 
 /// 9A: xiom doctor -- check all dependencies and report status.
 fn run_doctor() {
-    println!("XIOM Doctor v0.56.0-pre");
+    println!("XIOM Doctor v{}", env!("CARGO_PKG_VERSION"));
     println!("====================");
     println!();
-    println!("  [OK] xiom v{}", option_env!("XIOM_RELEASE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")));
+    println!("  [OK] xiom v{}", env!("CARGO_PKG_VERSION"));
     let clang_ok = std::process::Command::new("clang").arg("--version").output().map(|o| o.status.success()).unwrap_or(false);
     if clang_ok { println!("  [OK] clang/LLVM found"); }
     else { println!("  [!!] clang NOT FOUND - run: xiom install llvm"); }

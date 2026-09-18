@@ -18,8 +18,12 @@
 
 set -euo pipefail
 
-XIOM_VERSION="0.46.0"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Version is never hardcoded: XIOM_VERSION env > workspace Cargo.toml > dev.
+if [ -z "${XIOM_VERSION:-}" ] && [ -f "$SCRIPT_DIR/Cargo.toml" ]; then
+    XIOM_VERSION="$(sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$SCRIPT_DIR/Cargo.toml" | head -n1)"
+fi
+XIOM_VERSION="${XIOM_VERSION:-dev}"
 BINARY_PATH="${1:-}"
 
 # -- Install directory ---------------------------------------------------

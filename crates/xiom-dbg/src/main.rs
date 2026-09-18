@@ -270,7 +270,7 @@ fn run_json_mode(args: &[String]) -> io::Result<()> {
             }
         }
         "help" => {
-            eprintln!("XIOM Debugger v0.49.7 -- JSON API Mode");
+            eprintln!("XIOM Debugger v{} -- JSON API Mode", env!("CARGO_PKG_VERSION"));
             eprintln!("Usage: xiom-dbg --json --target <exe> <command> [args]");
             eprintln!();
             eprintln!("Commands:");

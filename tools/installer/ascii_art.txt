@@ -5,5 +5,5 @@
    / /^\ \_| |_\ \_/ / |  | |
    \/   \/\___/ \___/\_|  |_/
 
-   v0.49.8 "Phoenix" - Industrial systems programming language
+   "Phoenix" - Industrial systems programming language
    920/920 tests (673 compiler + 247 tooling)

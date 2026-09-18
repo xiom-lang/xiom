@@ -1,5 +1,5 @@
 @echo off
-REM XIOM Toolchain Dispatcher v0.49.8
+REM XIOM Toolchain Dispatcher
 
 setlocal
 set "XIOM_BIN=%LOCALAPPDATA%\xiom\bin"
@@ -84,7 +84,7 @@ REM Fallback: pass through to xiom
 goto :end
 
 :usage
-echo XIOM v0.49.8 -- Toolchain
+echo XIOM -- Toolchain
 echo.
 echo   xiom compile source.xi      Compile XIOM source
 echo   xiom run source.xi          Compile and run

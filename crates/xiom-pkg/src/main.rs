@@ -1009,7 +1009,7 @@ fn generate_lockfile() {
 }
 
 fn print_usage() {
-    eprintln!("XIOM Package v0.49.8 -- Package Manager (local packages + remote registry)");
+    eprintln!("XIOM Package v{} -- Package Manager (local packages + remote registry)", env!("CARGO_PKG_VERSION"));
     eprintln!();
     eprintln!("USAGE:");
     eprintln!("  xiom pkg [OPTIONS] --root <dir>");
