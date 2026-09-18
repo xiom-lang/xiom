@@ -300,6 +300,66 @@ longer contains stdlib sources:
   ignored); `.xiom_ai.json` untracked; harness temp sources (`_e2e_*.xi`,
   `e2e_*.xi`) ignored.
 
+## Cross-lane notes (2026-09-18, compiler-lane answers)
+
+**Website `docs/language/compiler.md` review.** `xiom-lang/website@c3d74f24`
+(main) does NOT yet contain the consolidated Architecture/Modes sections or
+the three flags; no open PR carries them. Verified facts to land them:
+
+- `--runtime-contracts` (main.rs:388, help:1139): forces runtime contract
+  guards even in release (`check_contracts || runtime_contracts`,
+  lib.rs:627/1039). Release strips contracts without it.
+- `--keep-debug-checks` (main.rs:391): release strips debug intrinsics
+  (`set_strip_debug_checks(release && !keep_debug_checks)`, lib.rs:631/1042);
+  the flag retains them. It was MISSING from `xiom --help` -- fixed
+  2026-09-18 (now listed).
+- `--enable-unsafe-direct` (main.rs:420-426, help:1134): allows
+  `#[unsafe_direct]` in USER code; stdlib/trusted packages may use it
+  without the flag (codegen context.rs:109-116, decl.rs:1139). Prints a
+  warning when set.
+- Crate list: **20** crates (Cargo.toml members): xiom, xiom-ast,
+  xiom-check, xiom-codegen, xiom-ctfe, xiom-dbg, xiom-display, xiom-doc,
+  xiom-ffigen, xiom-fmt, xiom-graph, xiom-jit, xiom-lexer, xiom-lowering,
+  xiom-lsp, xiom-mcp, xiom-parser, xiom-pkg, xiom-verify, xiom-wasm. The
+  website's "Architecture Decisions" row says 19 and lists a non-existent
+  `cli` crate while missing `xiom-lowering`; `xiom` IS the CLI.
+- v0.57 row verified: `#[unsafe_no_retry]` / `#[unsafe_direct]`
+  (codegen), guard-heap arena + Copy-Out + guard pages
+  (emitter.rs:904-912), SEH `__try/__except` trampoline + once-only
+  transient retry (expr.rs:4973/4999), zero-escape gates T002/T003/T005/
+  T006/T007 (checker, 35 sites).
+- v0.58 row verified: numeric policy "cannot mix Int with Float64 --
+  convert explicitly with `as`" (checker lib.rs:5421+), labeled loops
+  (`@label:` parser:1131), debug intrinsics `dbg!`/`todo!`/
+  `unimplemented!` (parser:2329) + `assert`/`debugger`, release stripping +
+  `--keep-debug-checks`, `else if` accepted (empirical: check+compile+run
+  probe), sublib-prefix resolution (checker lib.rs:146).
+- AI_CONTEXT.md metadata refresh (website owns the file): version
+  **v0.61.0**; compiler gates e2e 2338/2338, checker 195/195,
+  feature-reg 510, robustness 63, fuzz 24, perf/determinism 2/2, fmt 86,
+  lsp 45; stdlib pin `stdlib-v0.60.0`: 517 `.xi` files under `xiom/`,
+  509 check_modules probes, 6,532 `pub fn` lines (the "512 modules /
+  6,379 pub fns" line is stale). v0.57/v0.58 "New in" rows stay accurate;
+  add a v0.59-v0.61 row for the repo split, R39/R44/R46/R46b same-leaf
+  qualification, supply chain closure, single-source version 0.61.0,
+  cargo-vet gate, and `xiom-pkg` in the archives.
+
+**Registry lane**: `xiom-pkg` IS shipped now. `release.yml` builds
+`-p xiom -p xiom-pkg`, stages both binaries in the Windows/Linux/macOS
+archives, and asserts the staged `--version` of each before archiving
+(CRB-3); the installer wrapper also dispatches `xiom pkg`. Verified
+locally: `release/xiom-v0.61.0/bin/xiom-pkg.exe --version` -> v0.61.0.
+
+**Installer / z3 ownership**: the compiler repo owns the installer and the
+bundle LAYOUT -- `package.ps1` / `package.sh` / `tools/installer/*` build
+the portable folder and copy `z3.exe` into `bin/` when one exists at
+`target\release\z3.exe` or `%TEMP%\z3.exe`; `xiom-verify::find_z3`
+auto-detects a bundled z3, common install paths, or PATH. The compiler repo
+does NOT download or vendor z3, and the CI release workflow stages no z3,
+so ACQUISITION/provisioning (and whether official archives bundle it) is
+`/ops` release-side. Point the question at ops for z3; installer scripts
+stay here.
+
 ## Remaining queue (compiler lane)
 
 1. **Supply-chain tail -- CLOSED (2026-09-17)**: transitive dependency
