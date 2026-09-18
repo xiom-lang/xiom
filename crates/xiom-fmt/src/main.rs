@@ -73,7 +73,7 @@ fn main() {
 }
 
 fn print_usage() {
-    eprintln!("XIOM Format v0.47.6 -- Canonical Formatter");
+    eprintln!("XIOM Format v{} -- Canonical Formatter", env!("CARGO_PKG_VERSION"));
     eprintln!();
     eprintln!("USAGE:");
     eprintln!("  xiom fmt [OPTIONS] <file.xi> [file2.xi ...]");

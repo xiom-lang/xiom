@@ -51,7 +51,7 @@ pub fn handle_initialize(msg: &serde_json::Value, responses: &mut Vec<serde_json
     }));
     responses.push(serde_json::json!({
         "jsonrpc": "2.0", "method": "window/logMessage",
-        "params": { "type": 3, "message": "XIOM Language Server v0.48.9" }
+        "params": { "type": 3, "message": format!("XIOM Language Server v{}", env!("CARGO_PKG_VERSION")) }
     }));
 }
 

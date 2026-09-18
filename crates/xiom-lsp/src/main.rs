@@ -90,7 +90,7 @@ fn main() {
 }
 
 fn print_usage() {
-    eprintln!("XIOM Language Server v0.48.9");
+    eprintln!("XIOM Language Server v{}", env!("CARGO_PKG_VERSION"));
     eprintln!();
     eprintln!("USAGE:");
     eprintln!("  xiom lsp");
@@ -203,7 +203,8 @@ mod tests {
 
         let log_msg = find_response_by_method(&responses, "window/logMessage")
             .expect("should have logMessage notification");
-        assert_eq!(log_msg["params"]["message"].as_str(), Some("XIOM Language Server v0.48.9"));
+        let expected_log = format!("XIOM Language Server v{}", env!("CARGO_PKG_VERSION"));
+        assert_eq!(log_msg["params"]["message"].as_str(), Some(expected_log.as_str()));
     }
 
     // -----------------------------------------------------------------------
