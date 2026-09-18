@@ -4818,7 +4818,11 @@ fn e2e_safety_probe() {
 
 // R46: same-leaf GENERIC types with conflicting shapes (`Box[T]` 1-field vs
 // 2-field across project modules) are module-qualified; identical generic
-// re-declarations keep the legacy key.
+// re-declarations keep the legacy key. R46b: the module-local wrappers are
+// GONE -- the fixture locks DIRECT cross-module generic-method calls
+// (qualified receivers, arg inference, receiver-only inference, computed
+// receiver), which pre-fix resolved to erased stubs / a same-leaf module in
+// HashMap order.
 #[test] fn e2e_m88_generic_same_leaf_boxes() {
     assert_eq!(
         compile_and_run("tests\\regression\\m88_generic_same_leaf\\main.xi"),

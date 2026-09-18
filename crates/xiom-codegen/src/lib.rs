@@ -7157,6 +7157,74 @@ impl IrEmitter {
         self.infer_struct_type_name_inner(expr)
     }
 
+    /// R46b: resolve a `module.Type` receiver path to the module-qualified
+    /// TYPE key. Flattens the base expression (`g`, `h.Box`, ...), expands a
+    /// single-segment module binding through the checker's
+    /// `module_receiver_paths` / the codegen use-alias map (mirroring
+    /// `resolve_module_call`), then probes the type registries for
+    /// `<module>.<leaf>`. Replaces the HashMap-order suffix scan, which bound
+    /// a same-leaf type from an arbitrary module (`g.Box.new` resolved to
+    /// `m88.hard.Box.new` on ~25% of runs when `m88.generics.Box` was the
+    /// receiver's module), making the fn_key, generic-decl lookup and
+    /// monomorphised symbol wrong.
+    fn qualified_type_key_for_path(&self, base: &Expr, leaf: &str) -> Option<String> {
+        let mut segments: Vec<String> = Vec::new();
+        let mut cur = base;
+        loop {
+            match cur {
+                Expr::Ident(id) => { segments.insert(0, id.name.clone()); break; }
+                Expr::Field(b, f, _) => { segments.insert(0, f.name.clone()); cur = b; }
+                _ => break,
+            }
+        }
+        if segments.is_empty() {
+            return None;
+        }
+        if segments.len() == 1 {
+            let target = self.config.module_receiver_paths.get(&segments[0])
+                .or_else(|| self.mono.use_alias_map.get(&segments[0]));
+            if let Some(target) = target {
+                let expanded: Vec<String> = target.split('.').map(|s| s.to_string()).collect();
+                if expanded.len() >= 2 {
+                    segments = expanded;
+                }
+            }
+        }
+        let known = |key: &str| -> bool {
+            let owned = key.to_string();
+            self.types.types.contains_key(&owned)
+                || self.types.type_meta.contains_key(&owned)
+                || self.types.generic_type_names.contains(key)
+        };
+        let dotted = segments.join(".");
+        let full = format!("{dotted}.{leaf}");
+        if known(&full) {
+            return Some(full);
+        }
+        // Injected catalog names are xiom-stripped ("alloc.Layout"), so a
+        // fully-qualified source path ("xiom.alloc.Layout") must also probe
+        // without the leading segment.
+        if segments.len() > 1 {
+            let stripped = segments.iter().skip(1).cloned().collect::<Vec<_>>().join(".");
+            let stripped_key = format!("{stripped}.{leaf}");
+            if known(&stripped_key) {
+                return Some(stripped_key);
+            }
+        }
+        // Deterministic suffix probe for qualified keys registered under a
+        // longer path than the source spelling.
+        let suffix = format!(".{dotted}.{leaf}");
+        let mut candidates: Vec<String> = self.types.type_meta.keys().into_iter()
+            .filter(|k| k.ends_with(&suffix))
+            .collect();
+        for key in self.types.generic_type_names.iter() {
+            if key.ends_with(&suffix) && !candidates.iter().any(|c| c == key) {
+                candidates.push(key.clone());
+            }
+        }
+        self.pick_deterministic(candidates)
+    }
+
     fn infer_struct_type_name_inner(&self, expr: &Expr) -> Option<String> {
         match expr {
             Expr::Ident(ident) => {
@@ -7210,19 +7278,22 @@ impl IrEmitter {
                         return Some(qualified);
                     }
                 }
-                // Fallback: search all qualified keys (last resort)
-                for key in self.types.type_meta.keys() {
-                    if key.ends_with(&format!(".{}", ident.name)) {
-                        return Some(key.clone());
-                    }
+                // Fallback: search all qualified keys (last resort, deterministic)
+                let candidates: Vec<String> = self.types.type_meta.keys().into_iter()
+                    .filter(|k| k.ends_with(&format!(".{}", ident.name)))
+                    .collect();
+                if let Some(pick) = self.pick_deterministic(candidates) {
+                    return Some(pick);
                 }
                 // Fallback: search generic_type_names -- generic types may not
                 // be in type_meta (injection chain can block Type while allowing
                 // its methods), but they ARE registered as structs (e.g. Map[K,V]).
-                for key in self.types.generic_type_names.iter() {
-                    if key.ends_with(&format!(".{}", ident.name)) || key == &ident.name {
-                        return Some(key.clone());
-                    }
+                let candidates: Vec<String> = self.types.generic_type_names.iter()
+                    .filter(|k| k.ends_with(&format!(".{}", ident.name)) || k.as_str() == ident.name)
+                    .cloned()
+                    .collect();
+                if let Some(pick) = self.pick_deterministic(candidates) {
+                    return Some(pick);
                 }
                 None
             }
@@ -7295,17 +7366,27 @@ impl IrEmitter {
                     if self.types.types.contains_key(&field.name) || self.types.type_meta.contains_key(&field.name) {
                         return Some(field.name.clone());
                     }
-                    for key in self.types.type_meta.keys() {
-                        if key.ends_with(&format!(".{}", field.name)) {
-                            return Some(key.clone());
+                    // R46b: an alias/module-qualified receiver (`g.Box`) binds
+                    // THAT module's type -- the bare suffix scan below is
+                    // HashMap-order and picked a same-leaf sibling module on
+                    // some runs (g.Box.new -> m88.hard.Box.new).
+                    if let Some(qualified) = self.qualified_type_key_for_path(obj.as_ref(), &field.name) {
+                        return Some(qualified);
+                    }
+                    // Deterministic fallback for keys not reachable through the
+                    // receiver path (catalog leaf-qualified names etc.).
+                    let mut candidates: Vec<String> = self.types.type_meta.keys().into_iter()
+                        .filter(|k| k.ends_with(&format!(".{}", field.name)))
+                        .collect();
+                    for key in self.types.generic_type_names.iter() {
+                        if (key.ends_with(&format!(".{}", field.name)) || key.as_str() == field.name.as_str())
+                            && !candidates.iter().any(|c| c == key)
+                        {
+                            candidates.push(key.clone());
                         }
                     }
-                    // Fallback: search generic_type_names for generic types
-                    // whose Type declaration may not be in type_meta
-                    for key in self.types.generic_type_names.iter() {
-                        if key.ends_with(&format!(".{}", field.name)) || key == &field.name {
-                            return Some(key.clone());
-                        }
+                    if let Some(pick) = self.pick_deterministic(candidates) {
+                        return Some(pick);
                     }
                     // round-12 (cb2): MODULE-QUALIFIED ENUM VARIANT receiver
                     // (`cmp.Less.reverse()`, `cmp.Greater.then_with(f)`): the

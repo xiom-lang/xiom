@@ -68,10 +68,12 @@ The stdlib lane verified R43/R44/R45 probes and check_modules 509/509 on
 codegen+clang finish in **481.6s** and fail only at link
 (`undefined symbol: unsetenv`, the stdlib Windows gap); the debug driver
 exceeds its 300s watchdog, which is what looked like a hang. No compiler
-hang. Remaining OPEN compiler finding: R46 residuals (cross-module
-qualified-receiver and receiver-only generic method instantiation stubs).
-Remaining OPEN class: R44 same-leaf qualification (stdlib has a 16-conflict
-worklist + audit tool ready; waits on the coordination slice). Stdlib status
+hang. Remaining OPEN compiler finding: none from the R46 family -- R46b
+(2026-09-18) closed the cross-module qualified-receiver and receiver-only
+generic method instantiation residuals; m88 now locks the direct call forms
+(wrappers removed). Remaining OPEN class: R44 same-leaf qualification
+(stdlib has a 16-conflict worklist + audit tool ready; waits on the
+coordination slice). Stdlib status
 for the release lane: their pin is v0.60.0 and release tag v0.60.1 predates
 R43/R45/R46, so `COMPILER_VERSION` moves only when a release contains them
 (their nightly already tests main).
@@ -204,17 +206,18 @@ uncommitted stdlib-lane WIP at close; append once clean).
 ## Open compiler findings (pre-selfhost, not R0-blocking)
 
 1. **Generic method instantiation misses for qualified receivers** (R46
-   residual, OPEN; m88 evidence). (a) Calling a GENERIC METHOD on a
-   module-qualified receiver type from ANOTHER module falls back to an
-   erased stub: `main -> h.Box.pack[Int](42)` emitted
-   `@m88.hard.Box.pack()` returning zeroinitializer instead of `pack_Int`.
-   (b) A generic method whose type parameter is inferable only from the
-   receiver (`is_sealed[T]` on `Box[Int]`) stubs the same way. Same-module
-   calls and explicit wrappers work. Fix shape: make the generic-decl /
-   instantiation lookup follow the qualified receiver key
-   (`m88.hard.Box.pack`) and infer method type args from the receiver.
-   Locks `e2e_m88_generic_same_leaf_boxes` cover the layout fix;
-   module-local wrappers deliberately avoid the missing path.
+   residual) -- **FIXED 2026-09-18 (R46b); m88 wrappers REMOVED**. (a) A
+   `module.Type` receiver resolved its same-leaf type by `type_meta` HashMap
+   order, so `g.Box.new` bound the sibling module on ~25% of runs and fell
+   to an erased zeroinitializer stub. The receiver path is now expanded
+   through the checker's module bindings (`qualified_type_key_for_path`,
+   deterministic). (b) A generic method whose type parameter comes only from
+   the receiver (`value_of()`/`is_sealed()` on `Box[Int]`, and computed
+   receivers like `g.Box.new[Str]("x").value_of()`) now infers the type arg
+   from the receiver call's instantiation (`receiver_generic_arg_at`)
+   instead of the literal-0 stub. Lock `e2e_m88_generic_same_leaf_boxes`
+   covers the direct cross-module call forms. See docs/COMPILER_BUGS.md
+   R46b.
 
 1b. **R44 same-leaf class -- resolved for HttpResponse, class remains**:
    the stdlib renamed `net.net.HttpResponse` -> `NetHttpResponse` (their
@@ -367,7 +370,9 @@ variants; R43 = `&ref` locals, lock m86; R45 = tuple element types +
 early-spliced tuple defs, lock m87; R46 = **bench graph CLANG-CLEAN**
 (generic same-leaf shape triage, literal field-name disambiguation, mono
 param tuples, identifier-sanitized mono names, method-receiver leaf-scope
-variants), locks m88/m89; R44 resolved stdlib-side); e2e 2337/2337; supply
+variants), locks m88/m89; **R46b = qualified-receiver generic-method
+instantiation + receiver-only inference FIXED, m88 wrappers removed**; R44
+resolved stdlib-side); e2e 2337/2337; supply
 chain signed AND COMPLETE for the pre-registry phase: ed25519
 keygen/trust/sign/verify, fail-closed installs, ureq-only publish, git commit
 pins, TRANSITIVE DEPENDENCY CLOSURE (range matcher + cycle-safe closure from
@@ -391,12 +396,9 @@ Still RED cross-lane (stdlib-owned, pre-existing):
 `stdlib_all_modules_compile_to_ir` (`encoding.ascii85` T001).
 
 Your task, in order:
-1. Fix the R46 residual generic-method instantiation gaps (the only OPEN
-   compiler correctness finding; repro in SESSION.md "Open compiler
-   findings" + `tests/regression/m88_generic_same_leaf/`): cross-module calls
-   to generic methods on qualified receivers and receiver-only type-arg
-   inference fall back to erased stubs. When fixed, remove m88's module-local
-   wrappers so the direct call forms are locked.
+1. ~~Fix the R46 residual generic-method instantiation gaps~~ **DONE
+   (R46b, 2026-09-18)**: m88 locks the direct cross-module call forms;
+   see docs/COMPILER_BUGS.md R46b.
 2. R44 qualification slice (coordinate with the stdlib lane, whose worklist
    is ready): standardize the dedup, then include stdlib modules in R39's
    collision triage and run their smoke battery + `stdlib_execution_tests`.

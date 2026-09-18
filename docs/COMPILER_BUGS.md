@@ -7154,6 +7154,51 @@ module-qualified receiver type from ANOTHER module fall back to erased stubs
 zeroinitializer), and generic methods whose type parameter is inferable only
 from the receiver (`is_sealed[T]` on `Box[Int]`) stub the same way. m88 uses
 module-local wrappers to stay on the proven path. See SESSION.md "Open
-compiler findings".
+compiler findings". **FIXED 2026-09-18 in R46b -- see the next section.**
+
+## R46b. R46 residuals: qualified-receiver generic-method instantiation + receiver-only type-arg inference -- FIXED (2026-09-18, `main`)
+
+Both slopes behind the R46 residual note are closed; the m88 fixture now
+locks the DIRECT call forms (module-local wrappers removed).
+
+1. **Alias-qualified receiver types resolved by HashMap order.**
+   `infer_struct_type_name`'s `Expr::Field` arm bound a `module.Type`
+   receiver (`g.Box`) by scanning `type_meta` keys ending in `.Box` --
+   HashMap iteration order. With two same-leaf `Box[T]` modules
+   (`m88.generics` 1-field, `m88.hard` 2-field), `g.Box.new[Int](7)`
+   resolved to `m88.hard.Box.new` on ~25% of runs (measured 3/12 pre-fix),
+   so `is_generic` was false, the call took the erased base and the emitter
+   stubbed `@m88.hard.Box.new()` returning zeroinitializer. Fix:
+   `qualified_type_key_for_path` (lib.rs) flattens the receiver path,
+   expands single-segment module bindings through
+   `module_receiver_paths`/`use_alias_map` (mirroring
+   `resolve_module_call`), and probes the type registries for
+   `<module>.<leaf>` (xiom-stripped fallback for catalog paths), with
+   `pick_deterministic` for the remaining suffix probe. The bare-key and
+   current-module cases are unchanged; the Ident-arm fallbacks are now
+   deterministic too.
+
+2. **Receiver-only type-arg inference for computed receivers.**
+   `g.Box.new[Str]("x").value_of()` reaches the outer generic method with a
+   Call receiver; the receiver-only fallback defaulted T to `Int`, and when
+   `infer_struct_type_name` returned None for the Index-form callee
+   (`new[Str]` parses as `Call(Index(Field, type_arg), ..)`) the whole call
+   compiled to the literal-0 stub `Ok(("0", i64))` -- the call chain
+   disappeared from the IR entirely. Fix: `receiver_generic_arg_at`
+   (call.rs) reads the receiver call's explicit (or recorded) instantiation,
+   substitutes the receiver callee's declared return type, and returns the
+   type arg at the outer method's generic position (`Box[Str]` -> "Str";
+   `type_string_full` drops Named args, so the substitution renders them
+   explicitly). The i64-lowering "Int" fallback remains for genuinely
+   untyped receivers.
+
+**Verification**: m88 fixture rewritten to direct forms (explicit type
+args, arg inference, receiver-only inference, computed receiver) and green;
+12/12 identical compiles (pre-fix 3/12 bound the wrong module); bench IR
+byte-identical at 5,808,645 bytes and `clang -c` exit 0; e2e 2337/2337,
+feature-reg 510/510, checker 194/194, perf/determinism 2/2, robustness
+63/63, pkg/dbg/lsp/mcp 63/34/44/39. Lock:
+`e2e_m88_generic_same_leaf_boxes` (extended fixture; CI lock line
+unchanged).
 
 

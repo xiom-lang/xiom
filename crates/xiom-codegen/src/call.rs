@@ -149,6 +149,93 @@ impl IrEmitter {
         self.compile_call_with_types(func, args, None)
     }
 
+    /// R46b: receiver-only type-argument inference for COMPUTED receivers.
+    /// `g.Box.new[Str]("x").value_of()` reaches the outer generic method with
+    /// a Call receiver; the concrete type arg is spelled on the receiver's own
+    /// instantiation (`new[Str]`). Resolve the receiver call's declared return
+    /// XIOM type with those args substituted ("Box[Str]") and return its
+    /// argument at `pos`. Returns None when the receiver is not an
+    /// instantiated call or the argument is unresolved.
+    fn receiver_generic_arg_at(&self, receiver: &Expr, pos: usize) -> Option<String> {
+        let (callee, explicit): (&Expr, Vec<String>) = match receiver {
+            Expr::Paren(inner, _) => return self.receiver_generic_arg_at(inner, pos),
+            Expr::GenericCall(callee, types, _, _) => {
+                (callee.as_ref(), types.iter().map(Self::type_from_ast).collect())
+            }
+            Expr::Call(func, _, _) => match func.as_ref() {
+                Expr::Index(base, idx, _) => {
+                    let names: Vec<String> = match idx.as_ref() {
+                        Expr::Tuple(elems, _) => elems.iter().filter_map(Self::expr_type_name).collect(),
+                        other => Self::expr_type_name(other).into_iter().collect(),
+                    };
+                    (base.as_ref(), names)
+                }
+                _ => return None,
+            },
+            _ => return None,
+        };
+        let fn_key = match callee {
+            Expr::Field(obj, field, _) => self.infer_struct_type_name(obj)
+                .map(|rt| format!("{rt}.{}", field.name))
+                .unwrap_or_else(|| self.resolve_module_call(obj, &field.name)),
+            Expr::Ident(id) => id.name.clone(),
+            _ => return None,
+        };
+        let (_, fd) = self.find_generic_decl(&fn_key)?;
+        let mut concrete: Vec<String> = explicit;
+        if concrete.is_empty() {
+            concrete = self.mono.generic_instantiations.iter()
+                .find(|(k, _)| k == &fn_key)
+                .map(|(_, cts)| cts.clone())
+                .unwrap_or_default();
+        }
+        let mut type_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        for (gp, ct) in fd.generics.iter().zip(concrete.iter()) {
+            if !gp.is_const {
+                type_map.insert(gp.name.name.clone(), ct.clone());
+            }
+        }
+        let ret = fd.return_type.as_ref()?;
+        let subst = Self::substitute_type(ret, ret, &type_map);
+        // type_string_full drops Named ARGS ("Box[Int]" -> "Box"); render
+        // them explicitly (mirrors the D1 return-type block above).
+        let name = match &subst {
+            Type::Named(id, args) if !args.is_empty() => {
+                let parts: Vec<String> = args.iter().map(Self::type_from_ast).collect();
+                format!("{}[{}]", id.name, parts.join(", "))
+            }
+            other => Self::type_string_full(other),
+        };
+        let (_base, args) = Self::parse_generic_type_string(&name);
+        args.get(pos).filter(|a| !a.is_empty()).cloned()
+    }
+
+    /// R46b: scalar expression -> XIOM type name for an index-form type
+    /// argument (`Str`, `m88.generics.Box`, `RcInner[T]`).
+    fn expr_type_name(e: &Expr) -> Option<String> {
+        match e {
+            Expr::Ident(id) => Some(id.name.clone()),
+            Expr::Field(..) => {
+                let mut segments: Vec<String> = Vec::new();
+                let mut cur = e;
+                loop {
+                    match cur {
+                        Expr::Ident(id) => { segments.insert(0, id.name.clone()); break; }
+                        Expr::Field(base, f, _) => { segments.insert(0, f.name.clone()); cur = base; }
+                        _ => return None,
+                    }
+                }
+                Some(segments.join("."))
+            }
+            Expr::Index(base, idx, _) => {
+                let base = Self::expr_type_name(base)?;
+                let arg = Self::expr_type_name(idx)?;
+                Some(format!("{base}[{arg}]"))
+            }
+            _ => None,
+        }
+    }
+
     /// D1: compile_call with explicit generic type args (from `fn[Type](args)`).
     pub(crate) fn compile_call_with_types(
         &mut self,
@@ -3423,19 +3510,29 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         _ => "Int".to_string(),
                                     };
                                     concrete_types.push(concrete_ty);
-                                } else if receiver_expr
-                                    .map(|r| self.infer_struct_type_name(r).is_some())
-                                    .unwrap_or(false)
-                                {
-                                    // Receiver-bound generic with NO explicit args
-                                    // (e.g. `Cell[T].get(self) -> T`, `Rc[T].get(self)`).
-                                    // T lives only on the receiver type; the concrete
-                                    // instance already collapsed to a single struct
-                                    // layout whose fields lower to i64-width slots at
-                                    // the ABI, so default T to `Int` (its i64 lowering).
-                                    // This lets get/count-style accessors monomorphise
-                                    // instead of falling back to a constant-0 stub.
-                                    concrete_types.push("Int".to_string());
+                                } else if let Some(recv) = receiver_expr {
+                                    // R46b: receiver-only inference for
+                                    // COMPUTED receivers
+                                    // (`g.Box.new[Str]("x").value_of()`): read
+                                    // the concrete type arg off the receiver
+                                    // call's explicit instantiation before
+                                    // falling back to the i64-lowering "Int".
+                                    let recv_arg = fd.generics.iter()
+                                        .position(|g| g.name.name == gp.name.name)
+                                        .and_then(|idx| self.receiver_generic_arg_at(recv, idx));
+                                    if let Some(arg) = recv_arg {
+                                        concrete_types.push(arg);
+                                    } else if self.infer_struct_type_name(recv).is_some() {
+                                        // Receiver-bound generic with NO explicit
+                                        // args (e.g. `Cell[T].get(self) -> T`,
+                                        // `Rc[T].get(self)`). T lives only on
+                                        // the receiver type; the concrete
+                                        // instance already collapsed to a single
+                                        // struct layout whose fields lower to
+                                        // i64-width slots at the ABI, so default
+                                        // T to `Int` (its i64 lowering).
+                                        concrete_types.push("Int".to_string());
+                                    }
                                 }
                             }
                         }
