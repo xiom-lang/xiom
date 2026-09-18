@@ -259,16 +259,25 @@ walk broad parents, so a temp-dir file cannot index all of /tmp. lsp 45/45
 (new integration test covers hit + rebuild-after-change). Remaining Stage 5
 item: clap migration of the driver parser.
 
-Stage 5 tail (cont.): **clap migration step 1 LANDED** --
-`crates/xiom/src/cli.rs` defines the complete driver flag surface with clap
-4 (53 boolean, 3 optional-value incl. `--sandbox[=strict]` /
-`--graph[=mermaid]` / `--sandbox-report[=X]`, 18 required-value, `-o`,
-`-g`, positionals); `cli::parse` parses leniently (`ignore_errors`, help and
-version auto-flags disabled) and returns argv unchanged, keeping every
-legacy scan byte-compatible by construction; 3 unit tests pin the surface,
-representative invocations, and the identity contract. clap deps are
-cargo-vet exempted (175). Step 2 (moving the ~100 scan reads onto the clap
-matches) is queued in SESSION.md.
+Stage 5 tail (cont.): **clap migration step 2 LANDED** -- `cli::parse`
+returns a `Cli` whose clap matches drive the main-path flag reads
+(`flag`/`value`/`values`/`present`); `Deref` to the original argv keeps
+early dispatch, `run`'s mini-language, command words, and the exact-form
+diagnostics/sandbox/graph checks byte-compatible. 5 unit tests; two
+flag-scanning helpers deleted.
+
+**R47 LANDED (playground C18/C19)**: four defects fixed -- (1) the checker
+now records `xiom.fmt` in `peeked_resolved` at both `to_str`/`to_string`
+special cases so the concrete conversions inject without an explicit
+import; (2) `Option.unwrap_or` compiles and coerces its default inside the
+fail block (the old ok-block `ptrtoint` broke phi dominance); (3) the
+default bridge uses `bitcast` for float<->i64 payload slots (`ptrtoint
+double` was invalid IR; fptosi would corrupt the bit pattern); (4) the
+erased i64 payload is refined to `i8*`/`double` from tracked
+Option payloads, and a new `infer_expr_xiom_type_deep` types CHAINED
+receivers for the `to_str` sugar (pointer bits / IEEE bits were printed as
+integers before). Lock `e2e_m91_conversion_methods` (no `xiom.fmt` import);
+stdlib-exec 85/85, feature-reg 510/510, perf 2/2.
 
 Stage 5 tail (cont.): **driver temp hygiene closed** -- the JIT temp
 directory mixes pid with the time+counter suffix (pid reuse plus a stale

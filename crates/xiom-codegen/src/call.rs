@@ -210,6 +210,53 @@ impl IrEmitter {
         args.get(pos).filter(|a| !a.is_empty()).cloned()
     }
 
+    /// R47 (playground C18/C19): best-effort XIOM type of an expression,
+    /// including CHAINED conversion receivers that the declared-fn return
+    /// lookup cannot see (`o.unwrap_or("x")`, `v[0]`, `opt.value`). Used by
+    /// the to_str/to_string sugar to pick the right conversion instead of
+    /// defaulting to the integer one (which printed pointer bits for Str /
+    /// raw IEEE bits for Float64).
+    fn infer_expr_xiom_type_deep(&self, expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Paren(inner, _) => self.infer_expr_xiom_type_deep(inner),
+            Expr::Ident(id) => self.xiom_type_of_local(&id.name),
+            Expr::Index(container, _, _) => self.resolve_vec_elem_xiom(container),
+            Expr::Call(func, _, _) => {
+                if let Some(rt) = self.infer_call_return_xiom(expr) {
+                    return Some(rt);
+                }
+                // Builtin Option/Result payload accessors and conversions are
+                // not declared functions, so inspect the method name.
+                if let Expr::Field(obj, method, _) = func.as_ref() {
+                    match method.name.as_str() {
+                        "to_str" | "to_string" => return Some("Str".to_string()),
+                        "unwrap_or" | "unwrap" | "value" | "expect" => {
+                            if let Expr::Ident(rid) = obj.as_ref() {
+                                if let Some(p) = self.local.local_opt_payload.get(&rid.name) {
+                                    return Some(p.clone());
+                                }
+                                if let Some(p) = self.local.local_err_payload.get(&rid.name) {
+                                    return Some(p.clone());
+                                }
+                            }
+                            let oty = self.infer_expr_xiom_type_deep(obj)?;
+                            let (base, args) = Self::parse_generic_type_string(&oty);
+                            let leaf = base.rsplit('.').next().unwrap_or(base.as_str());
+                            if leaf.starts_with("Option") || leaf.starts_with("Result") {
+                                return args.first().cloned();
+                            }
+                            None
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// R46b: scalar expression -> XIOM type name for an index-form type
     /// argument (`Str`, `m88.generics.Box`, `RcInner[T]`).
     fn expr_type_name(e: &Expr) -> Option<String> {
@@ -839,6 +886,55 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             let sel = self.fresh_tmp();
                             self.emitln(&format!("  {sel} = select i1 {cond}, i8* {tstr}, i8* {fstr}"));
                             return Ok((sel, LLVM_STR_PTR.to_string()));
+                        }
+                        // R47 (playground C18/C19): resolve the operand's XIOM
+                        // type FIRST for chained receivers. `o.unwrap_or("x")
+                        // .to_str()` / `v[0].to_str()` have no declared-fn return
+                        // type, so the LLVM inference below sees the erased i64
+                        // default and lowered to xiom_int_to_string -- printing
+                        // pointer bits for Str and raw IEEE bits for Float64.
+                        if let Some(xiom_ty) = self.infer_expr_xiom_type_deep(op_expr) {
+                            if xiom_ty == "Str" {
+                                let (val, vty) = self.compile_expr(op_expr)?;
+                                let sv = if vty.ends_with('*') {
+                                    val
+                                } else {
+                                    let p = self.fresh_tmp();
+                                    self.emitln(&format!("  {p} = inttoptr {vty} {val} to i8*"));
+                                    p
+                                };
+                                return Ok((sv, LLVM_STR_PTR.to_string()));
+                            }
+                            if xiom_ty == "Float64" || xiom_ty == "Float32" {
+                                if self.types.functions.contains_key(&"convert.float_to_string".to_string()) {
+                                    let (val, vty) = self.compile_expr(op_expr)?;
+                                    let fv = if vty == "double" {
+                                        val
+                                    } else if vty == "float" {
+                                        let e = self.fresh_tmp();
+                                        self.emitln(&format!("  {e} = fpext float {val} to double"));
+                                        e
+                                    } else {
+                                        let b = self.fresh_tmp();
+                                        self.emitln(&format!("  {b} = bitcast {vty} {val} to double"));
+                                        b
+                                    };
+                                    let tmp = self.fresh_tmp();
+                                    self.emitln(&format!("  {tmp} = call i8* @convert.float_to_string(double {fv})"));
+                                    return Ok((tmp, LLVM_STR_PTR.to_string()));
+                                }
+                            }
+                            if xiom_ty == "Bool" {
+                                let (val, vty) = self.compile_expr(op_expr)?;
+                                let iv = self.val_to_i64(&val, &vty);
+                                let cond = self.fresh_tmp();
+                                self.emitln(&format!("  {cond} = icmp ne i64 {iv}, 0"));
+                                let tstr = self.intern_cstring("true");
+                                let fstr = self.intern_cstring("false");
+                                let sel = self.fresh_tmp();
+                                self.emitln(&format!("  {sel} = select i1 {cond}, i8* {tstr}, i8* {fstr}"));
+                                return Ok((sel, LLVM_STR_PTR.to_string()));
+                            }
                         }
                         // Infer the operand type WITHOUT emitting, so non-integer
                         // receivers (Str, structs) fall through cleanly to normal
@@ -2788,32 +2884,69 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 self.emitln(&format!("  br i1 {ok}, label %{ok_block}, label %{fail_block}"));
                                 self.emitln(&format!("\n{fail_block}:"));
                                 if fn_name == "unwrap_or" {
-                                    // Return the default arg (unwrap_or fallback)
-                                    let (default_val, default_ty) = self.compile_expr(&args[0])?;
-                                    let done_label = format!("{}_done", fail_block);
-                                    self.emitln(&format!("  br label %{done_label}"));
-                                    self.emitln(&format!("\n{ok_block}:"));
+                                    // R47 (playground C18): field type first
+                                    // (pure; no emission) so the default can be
+                                    // coerced while still in the FAIL block.
                                     let val_field = 1;
                                     let type_name = struct_ty.trim_start_matches("%struct.");
                                     let field_ty = self.field_llvm_type(type_name, val_field);
+                                    let (default_val, default_ty) = self.compile_expr(&args[0])?;
+                                    let default_val = if default_ty != field_ty {
+                                        // Scalar ABI bridge into the erased i64
+                                        // payload slot: pointers ptrtoint,
+                                        // Float64/Float32 BITCAST (a ptrtoint
+                                        // double is invalid IR), i64 sources
+                                        // inttoptr.
+                                        let coerced = self.fresh_tmp();
+                                        match (default_ty.as_str(), field_ty.as_str()) {
+                                            ("double", "i64") | ("float", "i64")
+                                            | ("i64", "double") | ("i64", "float") => {
+                                                self.emitln(&format!("  {coerced} = bitcast {default_ty} {default_val} to {field_ty}"));
+                                            }
+                                            (_, "i64") => {
+                                                self.emitln(&format!("  {coerced} = ptrtoint {default_ty} {default_val} to i64"));
+                                            }
+                                            ("i64", _) => {
+                                                self.emitln(&format!("  {coerced} = inttoptr i64 {default_val} to {field_ty}"));
+                                            }
+                                            _ => return Ok((default_val, default_ty)),
+                                        }
+                                        coerced
+                                    } else { default_val };
+                                    let done_label = format!("{}_done", fail_block);
+                                    self.emitln(&format!("  br label %{done_label}"));
+                                    self.emitln(&format!("\n{ok_block}:"));
                                     let val_gep = self.fresh_tmp();
                                     self.emitln(&format!("  {val_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {val_field}"));
                                     let payload = self.fresh_tmp();
                                     self.emitln(&format!("  {payload} = load {field_ty}, {field_ty}* {val_gep}"));
-                                    // Coerce default_val to match the payload type if needed
-                                    let default_val = if default_ty != field_ty && (default_ty == "i64" || field_ty == "i64") {
-                                        let coerced = self.fresh_tmp();
-                                        if field_ty == "i64" { 
-                                            self.emitln(&format!("  {coerced} = ptrtoint {default_ty} {default_val} to i64"));
-                                        } else {
-                                            self.emitln(&format!("  {coerced} = inttoptr i64 {default_val} to {field_ty}"));
-                                        }
-                                        coerced
-                                    } else { default_val };
                                     self.emitln(&format!("  br label %{done_label}"));
                                     self.emitln(&format!("\n{done_label}:"));
                                     let phi = self.fresh_tmp();
                                     self.emitln(&format!("  {phi} = phi {field_ty} [ {default_val}, %{fail_block} ], [ {payload}, %{ok_block} ]"));
+                                    // R47: the generic Option/Result payload slot is
+                                    // erased to i64, so a Str/Float64 unwrap_or result
+                                    // reached callers as an i64 that the argument
+                                    // coercion truncated to one byte (garbage Str) or
+                                    // passed as a raw integer. Expose the declared
+                                    // payload ABI type when the receiver is a tracked
+                                    // local (mirrors the 5d unwrap path below).
+                                    if field_ty == "i64" {
+                                        if let Expr::Ident(rid) = receiver.as_ref() {
+                                            if let Some(decl_ty) = self.local.local_opt_payload.get(&rid.name).cloned() {
+                                                if decl_ty == "Str" {
+                                                    let sptr = self.fresh_tmp();
+                                                    self.emitln(&format!("  {sptr} = inttoptr i64 {phi} to i8*"));
+                                                    return Ok((sptr, LLVM_STR_PTR.to_string()));
+                                                }
+                                                if decl_ty == "Float64" {
+                                                    let f = self.fresh_tmp();
+                                                    self.emitln(&format!("  {f} = bitcast i64 {phi} to double"));
+                                                    return Ok((f, "double".to_string()));
+                                                }
+                                            }
+                                        }
+                                    }
                                     return Ok((phi, field_ty.to_string()));
                                 }
                                 self.emitln("  call void @llvm.trap()");

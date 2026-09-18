@@ -7242,4 +7242,67 @@ feature-reg 510/510, checker 194/194, perf/determinism 2/2, robustness
 `e2e_m88_generic_same_leaf_boxes` (extended fixture; CI lock line
 unchanged).
 
+## R47. Playground C18/C19: Str conversion + Option payload codegen -- FIXED (2026-09-18, `main`)
+
+The playground session (AUDIT.md section 12, pin v0.60.1) reported Str
+garbage/pointer values through `.to_str()` and containers (C18) and
+deterministic `.to_str()` corruption (C19: Float64 IEEE bits printed as
+decimals, Str fields/results empty). Four distinct compiler defects were
+behind them; all reproduce on `main` before the fix.
+
+1. **Conversion methods were accepted but never injected.**
+   `Str/Int/Float64/Bool.to_str()` live in `xiom.fmt` (declared module
+   name; directory `format/`). The checker accepted `.to_str()` on any
+   receiver (its documented generic spelling, `fmt.format1[T]` body calls
+   `arg.to_str()`), but a program that never `use`d `xiom.fmt` had no
+   declaration for codegen, which emitted a zero-arg `i64` stub returning
+   zeroinitializer: Str printed empty, and on older pins the i64 result
+   flowed into print/conversions as raw bits. Fix: the checker's two
+   `to_str`/`to_string` special cases record `xiom.fmt` in
+   `peeked_resolved`, so `collect_external_decls` peeks it (BUG 28 #4's
+   injection pattern) and the concrete conversions reach codegen. The
+   peek follows fmt's dependency closure (the closure is what an explicit
+   `use xiom.fmt;` loads).
+
+2. **`Option[Str].unwrap_or("...")` phi dominance violation.** The default
+   was compiled in the fail block but its `ptrtoint` coercion was emitted
+   in the ok block while the merge phi tagged the coerced value on the
+   fail edge -> clang `Instruction does not dominate all uses!` (the
+   playground's C18 minimal probe did not compile at all on `main`).
+   Fix: compute the payload field type first (pure), compile AND coerce
+   the default inside the fail block, then branch.
+
+3. **Float64 defaults hit an invalid cast.** The same coercion emitted
+   `ptrtoint double 0.0 to i64`. Option/Result payload slots store the
+   f64 BIT PATTERN, so the bridge is `bitcast` for float<->i64
+   (fptosi/sitofp would numerically convert and corrupt 2.5 -> 2.0).
+   Pointer<->i64 stays ptrtoint/inttoptr.
+
+4. **Erased i64 payloads leaked the raw integer ABI.** `unwrap_or` on a
+   tracked `Option[Str]`/`Option[Float64]` local returned the phi as i64;
+   the call-site arg coercion then materialized a single-byte temp
+   (`trunc i64 -> i8`) for a `Str` parameter, printing stack garbage.
+   The result is now refined to `i8*` (inttoptr) / `double` (bitcast)
+   from `local_opt_payload`, mirroring the 5d `unwrap` path.
+
+5. **Chained conversion receivers lost their type.** `o.unwrap_or("x")
+   .to_str()` and `v[0].to_str()` have no declared-fn return type, so the
+   `to_str` sugar's LLVM inference saw the erased i64 default and lowered
+   to `xiom_int_to_string`, printing pointer bits (and Float64 bit
+   patterns, C19's "1.5 -> 4609434218613702656"). New
+   `infer_expr_xiom_type_deep` resolves Ident/Field/Index/Call receivers
+   (declared returns, `local_opt_payload`, Option/Result generics), and
+   the sugar now emits Str identity, `convert.float_to_string`, or the
+   Bool select before falling back to the integer conversion.
+
+**Verification**: new lock `e2e_m91_conversion_methods` (fixture
+`tests/regression/m91_conversion_methods/main.xi`) covers the whole matrix
+without `use xiom.fmt`: Str/Int/Float64/Bool `.to_str`, struct-field Str,
+`Option[Str]`/`Option[Float64]` `unwrap_or` (Some and None), chained
+`.unwrap_or(...).to_str()`, `Vec[Str]` element `.to_str`. All were red on
+the pre-fix tree (clang dominance error / garbage output). stdlib-exec
+85/85 (+2 ignored), feature-reg 510/510, perf/determinism 2/2. Playground:
+after this lands, run `node tools/generate-expected-outputs.js --wsl` and
+`node tools/lesson-audit.js --baseline tools/lesson-baseline.json`.
+
 

@@ -360,6 +360,19 @@ so ACQUISITION/provisioning (and whether official archives bundle it) is
 `/ops` release-side. Point the question at ops for z3; installer scripts
 stay here.
 
+**Playground lane (2026-09-19 handoff, C18/C19) -- FIXED (R47)**: the
+`.to_str()`/container Str garbage and Float64-bit-pattern outputs traced to
+four codegen/checker defects (conversion methods never injected without
+`use xiom.fmt`; `unwrap_or` phi dominance violation; `ptrtoint double`
+invalid cast; erased i64 payload/ABI type loss on chained receivers). All
+fixed on `main`; lock `e2e_m91_conversion_methods` covers the full matrix
+without importing `xiom.fmt`. See docs/COMPILER_BUGS.md R47. Playground
+after updating the toolchain: `node tools/generate-expected-outputs.js
+--wsl` then `node tools/lesson-audit.js --baseline
+tools/lesson-baseline.json`. C17 (31 lessons cannot run at all) is NOT
+confirmed compiler-side -- the audit's suggested next step; ask them to
+re-run it on the fixed toolchain before assigning.
+
 ## Remaining queue (compiler lane)
 
 1. **Supply-chain tail -- CLOSED (2026-09-17)**: transitive dependency
@@ -373,19 +386,15 @@ stay here.
    publish authentication is registry-side; `publish_package` is
    implemented. Registry e2e **20/20** (new core fixture + closure install +
    transitive lock assertions).
-2. **clap migration -- STEP 1 LANDED (2026-09-18)**: `crates/xiom/src/cli.rs`
-   defines the complete driver surface with clap 4 (minimal features): 53
-   boolean flags, 3 optional-value (`--sandbox[=strict]`,
-   `--sandbox-report[=X]`, `--graph[=mermaid]`), 18 required-value flags,
-   `-o/--output`, `-g`, positional sources. `cli::parse` runs clap in
-   lenient mode (`ignore_errors`, help/version auto-flags disabled) and
-   returns argv UNCHANGED, so every legacy scan in main.rs is byte-compatible
-   by construction; 3 unit tests pin the surface and representative
-   invocations. New clap deps are cargo-vet exempted (175 total).
-   **STEP 2 (remaining)**: replace the ~100 scan reads with the parsed
-   matches, flag by flag, keeping `--help`/`--version` text and the
-   `run`/`build-runtime`/`repl` early dispatch intact; gate with the full
-   e2e + help byte-diff.
+2. **clap migration -- DONE (2026-09-18)**: `crates/xiom/src/cli.rs` is the
+   parser of record (53 boolean, 3 optional-value, 18 required-value, `-o`,
+   `-g`, positionals; lenient `ignore_errors`; help/version auto-flags
+   disabled) and now returns a `Cli` whose matches drive the main-path reads
+   (`flag`/`value`/`values`/`present`), while `Deref` to the original argv
+   keeps the early dispatch, `run`'s mini-language, command words and the
+   `--flag=value`-sensitive diagnostics/sandbox/graph checks byte-identical.
+   5 unit tests pin the surface, representative invocations, and the reads.
+   The two flag-scanning helpers were deleted. Verified by the full e2e.
 3. **fmt: body-inline comment trivia attachment -- DONE (2026-09-18)**.
    `format_source_text` threads lexer trivia (comments) and closing-brace
    token positions into the Formatter: leading comments emit above the

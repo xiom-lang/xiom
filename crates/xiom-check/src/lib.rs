@@ -5999,7 +5999,14 @@ impl Checker {
                             // G-43: C-string interop (BUG-008 codegen builtins).
                             "c_str" if prim_ty == CheckedType::Str => return CheckedType::Named("Ptr".into()),
                             "byte_len" if prim_ty == CheckedType::Str => return CheckedType::Int,
-                            "to_str" | "to_string" => return CheckedType::Str,
+                            "to_str" | "to_string" => {
+                                // R47 (playground C18/C19): see the container
+                                // arm below -- the concrete conversion methods
+                                // live in xiom.fmt and must reach codegen even
+                                // when the program never `use`d it.
+                                self.peeked_resolved.insert("xiom.fmt".to_string());
+                                return CheckedType::Str;
+                            }
                             // M12/P0: Str conversions from C strings / byte buffers.
                             // These are codegen builtins (call.rs:1210) that reinterpret
                             // a pointer as a Str at the ABI level -- identity transform
@@ -6077,7 +6084,18 @@ impl Checker {
                             // `arg.to_str()` with no Display bound) -- accept
                             // on any receiver (codegen resolves the concrete
                             // conversion at monomorphisation time).
-                            (_, "to_string" | "to_str") => return CheckedType::Str,
+                            (_, "to_string" | "to_str") => {
+                                // R47 (playground C18/C19): the concrete
+                                // conversions (`Str/Int/Float64/Bool.to_str`)
+                                // live in xiom.fmt. A program that never
+                                // `use`d it still type-checks here, so codegen
+                                // must be given the module or the call emits a
+                                // zero-arg i64 stub (Str printed empty; Float64
+                                // printed its raw bit pattern on older pins).
+                                // Same pattern as BUG 28 #4's peeked submodules.
+                                self.peeked_resolved.insert("xiom.fmt".to_string());
+                                return CheckedType::Str;
+                            }
                             // v0.56: Time/counter methods
                             (_, "now" | "elapsed" | "as_millis" | "as_micros" | "as_nanos" | "as_secs") => return CheckedType::Int,
                             // v0.56: Pointer/offset methods

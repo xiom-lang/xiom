@@ -4863,6 +4863,28 @@ fn e2e_safety_probe() {
         "R44 stdlib same-leaf probe must compile and run"
     );
 }
+
+// R47 (playground C18/C19): conversion methods on builtin receivers without
+// `use xiom.fmt` (the concrete `.to_str` impls must be injected), plus
+// Option[Str]/Option[Float64] `unwrap_or` payloads (phi dominance + ABI).
+// Needs the stdlib checkout (xiom.io); XIOM_REQUIRE_STDLIB=1 in CI forbids
+// skipping.
+#[test] fn e2e_m91_conversion_methods() {
+    let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
+    if !stdlib_root.join("xiom").join("io.xi").exists() {
+        let msg = "SKIP: stdlib checkout has no xiom/io.xi";
+        if xiom_graph::paths::require_stdlib() {
+            panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
+        }
+        eprintln!("{msg}");
+        return;
+    }
+    assert_eq!(
+        compile_and_run("tests/regression/m91_conversion_methods/main.xi"),
+        Some(0),
+        "R47 conversion/Option probe must compile and run"
+    );
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }
