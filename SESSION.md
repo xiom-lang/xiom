@@ -331,15 +331,26 @@ longer contains stdlib sources:
 9. **Stage 7 selfhost ladder**: v092..v11 are milestone emitters, not yet a
    full XIOM-in-XIOM compiler; zero-ICE self-build is a multi-phase project.
    The selfhost COMPILE gate is green.
-10. **Release pipeline (website-lane request, 2026-09-18) -- DONE**:
-    `release.yml` now (a) FAILS the build when the pushed tag does not equal
-    the workspace crate version -- `xiom --version` reports that value, which
-    is how the v0.60.1 archive ended up claiming v0.58.0 -- and (b) dispatches
-    `compiler-release` to the docs repo after a successful release with
-    `client_payload {tag, stdlib_ref, compiler_ref}`. Target repo defaults to
-    `xiom-lang/website` (repository variable `DOCS_REPO`); delivery requires
-    `XIOM_DOCS_DISPATCH_TOKEN` (PAT with Contents: read/write on the docs
-    repo) -- unset means a warning and skip, so releases are not blocked.
+10. **Release pipeline (website + ops lanes, 2026-09-18) -- DONE**:
+    `docs/COMPILER_RELEASE_BATCH.md` (xiom-lang/ops) executed. Version is
+    single-source at **0.61.0** (`Cargo.toml [workspace.package]`, 20
+    workspace crates + the fuzz workspace): REPL/doctor, `xiom-pkg` help,
+    `xiom-dbg` help, `xiom-wasm get_version` all print
+    `env!("CARGO_PKG_VERSION")`; `xiom.bat`, ascii art, MCP manifest and the
+    installers/package scripts carry no literals (installers resolve
+    XIOM_VERSION env -> release dir name -> workspace Cargo.toml; package
+    scripts default `-Version` from the workspace and no longer rewrite
+    Cargo.toml). `release.yml` has a `guard` job (tag == workspace version
+    AND tag is an ancestor of main; dry runs read the version), builds
+    `xiom` + `xiom-pkg`, stages both binaries in Windows/Linux/macOS
+    archives, asserts the staged `--version` output matches the label, and
+    the `compiler-release` dispatch (client_payload {tag, stdlib_ref,
+    compiler_ref=tag}) now uses `XIOM_RELEASE_TOKEN` -- extend that PAT to
+    `xiom-lang/website` (Contents: read/write) or the dispatch 404s.
+    Verified locally: workspace check --all-targets, release build, both
+    `--version` + doctor, pkg/dbg/wasm/xiom tests, and a local
+    `package.ps1` run (archive `xiom-v0.61.0-windows-x64.zip` carries
+    bin/xiom.exe + bin/xiom-pkg.exe, both self-report 0.61.0).
 
 Cross-lane pending (stdlib lane, pre-existing): `stdlib_api_freeze_no_removals`
 RED (52 drifted signatures since the 2026-08-07 snapshot) and

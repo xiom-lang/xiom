@@ -7,24 +7,24 @@ name: XIOM Release
 # Manual dispatch builds the same packages as workflow artifacts (dry run)
 # without creating a release.
 #
-# Cross-repo: stdlib is checked out at the ref in STDLIB_VERSION using
-# secrets.XIOM_CROSS_REPO_TOKEN (fine-grained PAT with Contents: read on
-# xiom-lang/stdlib). Without the secret the fallback github.token cannot
-# read another private repository and the job fails loudly.
+# Cross-repo: stdlib is checked out at the ref in STDLIB_VERSION. Both repos
+# are public now, so the default github.token can read the stdlib; the
+# XIOM_CROSS_REPO_TOKEN fallback remains for orgs that keep it private.
 #
-# Version gate: a tag push MUST match the workspace crate version
-# (Cargo.toml [workspace.package] version); `xiom --version` reports that
-# value, so a mismatched tag produces a release whose archive lies about
-# its version (the v0.60.1 archive reported v0.58.0). The build job fails
-# before packaging on any mismatch.
+# Release guard (CRB-4): a `guard` job runs before every build. On a tag
+# push it FAILS when the tag does not equal the workspace crate version
+# (Cargo.toml [workspace.package] version -- `xiom --version` reports that
+# value, which is how the v0.60.1 archive ended up claiming v0.58.0) and
+# when the tag is not an ancestor of main. On workflow_dispatch it only
+# reads the version (dry runs keep working); the packaging steps label the
+# artifacts with it.
 #
-# Docs publish: after a release is created, the release job dispatches
-# `compiler-release` to the docs repo (repository variable DOCS_REPO,
-# default xiom-lang/website) with client_payload {tag, stdlib_ref,
-# compiler_ref}. Requires secret XIOM_DOCS_DISPATCH_TOKEN (fine-grained
-# PAT, Contents: read/write on the docs repo -- classic PAT: repo scope).
-# Without the secret the step warns and skips; the release itself is not
-# blocked.
+# Docs publish (CRB-4b): after a release is created, the release job
+# dispatches `compiler-release` to the docs repo (repository variable
+# DOCS_REPO, default xiom-lang/website) with client_payload {tag,
+# stdlib_ref, compiler_ref}. Requires secret XIOM_RELEASE_TOKEN to ALSO
+# cover xiom-lang/website (Contents: read/write) or the dispatch 404s.
+# Without the secret the step warns and skips; the release is not blocked.
 #
 # macOS jobs are gated on the repository variable RELEASE_BUILD_MACOS=true
 # (macOS runner minutes bill 10x on private repos; enable once the repo is
@@ -37,9 +37,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Dry-run version label (no release is created)"
+        description: "Dry-run version label (default: workspace version from Cargo.toml)"
         required: false
-        default: "0.0.0-dev"
+        default: ""
 
 permissions:
   contents: write
@@ -48,8 +48,54 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  guard:
+    name: release guard (tag == workspace version, tag on main)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - name: Checkout (full history for the ancestry check)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Read workspace version
+        id: ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver="$(python3 - <<'PY'
+          import tomllib
+          with open("Cargo.toml", "rb") as f:
+              print(tomllib.load(f)["workspace"]["package"]["version"])
+          PY
+          )"
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "workspace version: $ver"
+
+      - name: Tag gate (tag == workspace version, tag is an ancestor of main)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          ver="${{ steps.ver.outputs.version }}"
+          if [ "$tag" != "$ver" ]; then
+            echo "::error::release tag v$tag does not match the workspace version $ver -- bump Cargo.toml [workspace.package] version in the release PR"
+            exit 1
+          fi
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD; then
+            echo "::error::tag $GITHUB_REF_NAME is not an ancestor of main"
+            exit 1
+          fi
+          echo "guard OK: v$tag == workspace $ver; tag is an ancestor of main"
+
   build:
     name: package ${{ matrix.platform }}
+    needs: [guard]
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -66,23 +112,6 @@ jobs:
     steps:
       - name: Checkout xiom
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Version gate (tag == crate version)
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        run: |
-          set -euo pipefail
-          tag="${GITHUB_REF_NAME#v}"
-          crate="$(sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' Cargo.toml | head -n1)"
-          if [ -z "$crate" ]; then
-            echo "::error::could not read the workspace version from Cargo.toml"
-            exit 1
-          fi
-          if [ "$tag" != "$crate" ]; then
-            echo "::error::release tag v$tag does not match the workspace crate version $crate -- bump [workspace.package] version or retag; xiom --version would report v$crate"
-            exit 1
-          fi
-          echo "version gate OK: v$tag == workspace $crate"
 
       - name: Read STDLIB_VERSION
         id: pin
@@ -111,26 +140,37 @@ jobs:
           restore-keys: ${{ runner.os }}-release-
 
       - name: Build release
-        run: cargo build --release -p xiom
+        run: cargo build --release -p xiom -p xiom-pkg
 
-      - name: Verify binary
+      - name: Verify binaries
         shell: bash
-        run: target/release/xiom --version
+        run: |
+          target/release/xiom --version
+          target/release/xiom-pkg --version
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         env:
-          RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          # CRB-4: tag builds carry the guard-verified workspace version
+          # (equal to the tag); dry runs use the dispatch label or, when
+          # empty, the workspace version.
+          RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version != '' && inputs.version || needs.guard.outputs.version }}
         run: |
           $ver = $env:RELEASE_VERSION -replace '^v', ''
           $stage = 'stage'
           New-Item -ItemType Directory -Force "$stage/bin", "$stage/lib" | Out-Null
           Copy-Item target\release\xiom.exe "$stage/bin/"
+          Copy-Item target\release\xiom-pkg.exe "$stage/bin/"
           Copy-Item stdlib\xiom "$stage/lib/xiom" -Recurse
           Copy-Item stdlib\runtime "$stage/lib/runtime" -Recurse
           Copy-Item stdlib\package.xi "$stage/lib/"
           Copy-Item LICENSE-MIT, LICENSE-APACHE, NOTICE, README.md $stage
+          # CRB-3: staged layout must self-report the packaged version.
+          $xiomOut = & "$stage/bin/xiom.exe" --version 2>&1 | Out-String
+          if ($xiomOut -notmatch [regex]::Escape("v$ver")) { throw "staged xiom --version does not report v$ver`: $xiomOut" }
+          $pkgOut = & "$stage/bin/xiom-pkg.exe" --version 2>&1 | Out-String
+          if ($pkgOut -notmatch [regex]::Escape("v$ver")) { throw "staged xiom-pkg --version does not report v$ver`: $pkgOut" }
           $name = "xiom-$ver-windows-x64.zip"
           Compress-Archive -Path "$stage/*" -DestinationPath $name
           $hash = (Get-FileHash $name -Algorithm SHA256).Hash.ToLower()
@@ -141,15 +181,21 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         env:
-          RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version != '' && inputs.version || needs.guard.outputs.version }}
         run: |
           ver="${RELEASE_VERSION#v}"
           mkdir -p stage/bin stage/lib
           cp target/release/xiom stage/bin/
+          cp target/release/xiom-pkg stage/bin/
           cp -r stdlib/xiom stage/lib/xiom
           cp -r stdlib/runtime stage/lib/runtime
           cp stdlib/package.xi stage/lib/
           cp LICENSE-MIT LICENSE-APACHE NOTICE README.md stage/
+          # CRB-3: staged layout must self-report the packaged version.
+          xiom_out="$(stage/bin/xiom --version)"
+          case "$xiom_out" in *"v$ver"*) ;; *) echo "::error::staged xiom --version does not report v$ver: $xiom_out"; exit 1;; esac
+          pkg_out="$(stage/bin/xiom-pkg --version)"
+          case "$pkg_out" in *"v$ver"*) ;; *) echo "::error::staged xiom-pkg --version does not report v$ver: $pkg_out"; exit 1;; esac
           name="xiom-$ver-linux-x64.tar.gz"
           tar -czf "$name" -C stage .
           sha256sum "$name" > SHA256SUMS-linux-x64
@@ -171,6 +217,7 @@ jobs:
   build-macos:
     name: package ${{ matrix.platform }}
     if: vars.RELEASE_BUILD_MACOS == 'true'
+    needs: [guard]
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -215,20 +262,26 @@ jobs:
           restore-keys: ${{ runner.os }}-release-
 
       - name: Build release
-        run: cargo build --release -p xiom
+        run: cargo build --release -p xiom -p xiom-pkg
 
       - name: Package (macOS)
         shell: bash
         env:
-          RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version != '' && inputs.version || needs.guard.outputs.version }}
         run: |
           ver="${RELEASE_VERSION#v}"
           mkdir -p stage/bin stage/lib
           cp target/release/xiom stage/bin/
+          cp target/release/xiom-pkg stage/bin/
           cp -r stdlib/xiom stage/lib/xiom
           cp -r stdlib/runtime stage/lib/runtime
           cp stdlib/package.xi stage/lib/
           cp LICENSE-MIT LICENSE-APACHE NOTICE README.md stage/
+          # CRB-3: staged layout must self-report the packaged version.
+          xiom_out="$(stage/bin/xiom --version)"
+          case "$xiom_out" in *"v$ver"*) ;; *) echo "::error::staged xiom --version does not report v$ver: $xiom_out"; exit 1;; esac
+          pkg_out="$(stage/bin/xiom-pkg --version)"
+          case "$pkg_out" in *"v$ver"*) ;; *) echo "::error::staged xiom-pkg --version does not report v$ver: $pkg_out"; exit 1;; esac
           name="xiom-$ver-${{ matrix.platform }}.tar.gz"
           tar -czf "$name" -C stage .
           shasum -a 256 "$name" > "SHA256SUMS-${{ matrix.platform }}"
@@ -293,17 +346,19 @@ jobs:
 
       - name: "Notify docs (repository_dispatch: compiler-release)"
         env:
-          # The docs (publish) workflow lives in the docs/website repo and
-          # listens for `compiler-release`. Needs a PAT with Contents:
-          # read/write on that repo (classic: repo scope) -- the default
-          # GITHUB_TOKEN cannot dispatch to another repository.
-          GH_TOKEN: ${{ secrets.XIOM_DOCS_DISPATCH_TOKEN }}
+          # CRB-4b: the docs publish workflow lives in xiom-lang/website and
+          # listens for `compiler-release`. XIOM_RELEASE_TOKEN must ALSO cover
+          # that repo (fine-grained: Contents read/write) or the dispatch
+          # 404s; the default GITHUB_TOKEN cannot dispatch cross-repo.
+          GH_TOKEN: ${{ secrets.XIOM_RELEASE_TOKEN }}
           DOCS_REPO: ${{ vars.DOCS_REPO || 'xiom-lang/website' }}
           TAG: ${{ github.ref_name }}
-          COMPILER_REF: ${{ github.sha }}
+          # The website workflow checks this ref out; the tag is the
+          # checkout-able release ref (an ancestor of main, guard-verified).
+          COMPILER_REF: ${{ github.ref_name }}
         run: |
           if [ -z "$GH_TOKEN" ]; then
-            echo "::warning::XIOM_DOCS_DISPATCH_TOKEN is not set -- docs will not be published for $TAG (provision the token per the release workflow header)"
+            echo "::warning::XIOM_RELEASE_TOKEN is not set -- docs will not be published for $TAG (extend the PAT to $DOCS_REPO per the release workflow header)"
             exit 0
           fi
           stdlib_ref="$(tr -d '\r\n ' < xiom-src/STDLIB_VERSION)"

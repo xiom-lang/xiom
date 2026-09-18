@@ -218,11 +218,20 @@ Compiler lane, post-split `main`. Three landings:
   main, stdlib-exec 85/85 on the pin. Lock `e2e_m90_stdlib_same_leaf_http`
   added to the CI lock line; the 16-group stdlib dedup worklist remains
   stdlib-lane hygiene.
-- **Release lane**: `release.yml` fails a tag whose version differs from
-  the workspace crate version (the v0.60.1 archive reported v0.58.0) and
-  dispatches `compiler-release` to the docs repo with client_payload
-  {tag, stdlib_ref, compiler_ref} (secret `XIOM_DOCS_DISPATCH_TOKEN`,
-  repo variable `DOCS_REPO`).
+- **Release lane**: executed the ops-lane `COMPILER_RELEASE_BATCH.md`
+  (CRB-1..CRB-7). Single-source version **0.61.0** (workspace package
+  version; every runtime banner -- REPL, doctor, xiom-pkg, xiom-dbg,
+  xiom-wasm, xiom.bat, ASCII art, MCP manifest, installers, package
+  scripts -- now derives from `CARGO_PKG_VERSION` or the workspace file).
+  `release.yml` gains a `guard` job (tag == workspace version AND tag is an
+  ancestor of main; dispatch dry runs read the version), builds and stages
+  `xiom` + `xiom-pkg` in every archive with a staged `--version` assert,
+  and dispatches `compiler-release` to `xiom-lang/website` with
+  client_payload {tag, stdlib_ref, compiler_ref} under `XIOM_RELEASE_TOKEN`
+  (extend the PAT to the website repo or the dispatch 404s). Packaging
+  scripts are read-only w.r.t. the checkout. Local package run:
+  `xiom-v0.61.0-windows-x64.zip` carries both binaries, both self-report
+  0.61.0.
 
 Gates: e2e 2338/2338, feature-reg 510/510, checker 194/194,
 perf/determinism 2/2, robustness 63/63, pkg/dbg/lsp/mcp 63/34/44/39.
