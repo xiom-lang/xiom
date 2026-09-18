@@ -6,7 +6,7 @@
 **Safe - Verified - Precise** -- A systems programming language with first-class contracts.
 
 [![Tests](https://img.shields.io/badge/tests-246%20passed-brightgreen)]()
-[![Version](https://img.shields.io/badge/version-0.20.0-blue)]()
+[![Version](https://img.shields.io/badge/version-0.61.0-blue)]()
 
 XIOM is a compiled, statically typed, memory-safe systems programming language. It compiles to native code via LLVM and supports x86_64, ARM, RISC-V, and WebAssembly. The compiler is self-hosted -- it compiles itself.
 
@@ -16,21 +16,21 @@ XIOM is a compiled, statically typed, memory-safe systems programming language. 
 
 ```powershell
 # Clone and auto-install everything (Rust, clang, build tools)
-git clone https://github.com/NgonArt_STUDIO/XIOM.git
-cd XIOM
+git clone https://github.com/xiom-lang/xiom.git
+cd xiom
 .\install_deps.ps1      # auto-installs missing dependencies
 .\install.ps1            # builds + installs XIOM to PATH
 
 # After restarting terminal:
 xiom --version
-# -> XIOM Compiler v0.20.0 "Hardened"
+# -> XIOM Compiler v0.61.0 "Production"
 ```
 
 ### One-Command Install (macOS / Linux)
 
 ```bash
-git clone https://github.com/NgonArt_STUDIO/XIOM.git
-cd XIOM
+git clone https://github.com/xiom-lang/xiom.git
+cd xiom
 chmod +x install_deps.sh install.sh
 ./install_deps.sh        # auto-installs missing dependencies
 ./install.sh             # builds + installs XIOM to PATH
@@ -41,7 +41,7 @@ xiom --version
 
 ### Pre-built Release (Windows)
 
-Download the latest `xiom-v0.20.0-windows-x64.zip` from [Releases](https://github.com/NgonArt_STUDIO/XIOM/releases), extract, and double-click `install.bat`. It will:
+Download the latest `xiom-v0.61.0-windows-x64.zip` from [Releases](https://github.com/xiom-lang/xiom/releases), extract, and double-click `install.bat`. It will:
 
 1. Ask where to install (default: `%LOCALAPPDATA%\xiom`)
 2. Copy binaries + stdlib + runtime
@@ -57,6 +57,7 @@ Download the latest `xiom-v0.20.0-windows-x64.zip` from [Releases](https://githu
 | **LLVM/clang** | Auto-installed by `install_deps` | Warned if missing* |
 | **C build tools** | Auto-installed by `install_deps` | Not needed |
 | **xiom.exe** | Built from source | Included |
+| **xiom-pkg** (package manager) | Built from source | Included |
 | **stdlib** | Copied from repo | Included |
 | **`.xi` icon** | Registered (optional) | Registered (optional) |
 
@@ -66,15 +67,16 @@ Download the latest `xiom-v0.20.0-windows-x64.zip` from [Releases](https://githu
 
 ```powershell
 # Build all tools + create portable folder + ZIP
-.\package.ps1 -Version 0.20.0
+# (version defaults to Cargo.toml [workspace.package] version)
+.\package.ps1
 # Produces:
-#   release\xiom-v0.20.0\                 <- portable folder
-#   release\xiom-v0.20.0-windows-x64.zip   <- distributable ZIP
+#   release\xiom-v0.61.0\                 <- portable folder
+#   release\xiom-v0.61.0-windows-x64.zip   <- distributable ZIP
 ```
 
 Release folder structure:
 ```
-xiom-v0.20.0\
+xiom-v0.61.0\
 |-- bin\              xiom.exe, xiom-fmt.exe, xiom-doc.exe,
 |                     xiom-ffigen.exe, xiom-pkg.exe, xiom-lsp.exe,
 |                     xiom-icon.ico
@@ -87,7 +89,7 @@ xiom-v0.20.0\
 Install from a release:
 ```powershell
 # From local release folder
-.\install.ps1 -BinaryPath .\release\xiom-v0.20.0
+.\install.ps1 -BinaryPath .\release\xiom-v0.61.0
 
 # Or just double-click install.bat in the release folder
 ```
