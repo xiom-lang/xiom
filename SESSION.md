@@ -320,6 +320,15 @@ longer contains stdlib sources:
 9. **Stage 7 selfhost ladder**: v092..v11 are milestone emitters, not yet a
    full XIOM-in-XIOM compiler; zero-ICE self-build is a multi-phase project.
    The selfhost COMPILE gate is green.
+10. **Release pipeline (website-lane request, 2026-09-18) -- DONE**:
+    `release.yml` now (a) FAILS the build when the pushed tag does not equal
+    the workspace crate version -- `xiom --version` reports that value, which
+    is how the v0.60.1 archive ended up claiming v0.58.0 -- and (b) dispatches
+    `compiler-release` to the docs repo after a successful release with
+    `client_payload {tag, stdlib_ref, compiler_ref}`. Target repo defaults to
+    `xiom-lang/website` (repository variable `DOCS_REPO`); delivery requires
+    `XIOM_DOCS_DISPATCH_TOKEN` (PAT with Contents: read/write on the docs
+    repo) -- unset means a warning and skip, so releases are not blocked.
 
 Cross-lane pending (stdlib lane, pre-existing): `stdlib_api_freeze_no_removals`
 RED (52 drifted signatures since the 2026-08-07 snapshot) and

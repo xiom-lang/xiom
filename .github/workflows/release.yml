@@ -12,6 +12,20 @@ name: XIOM Release
 # xiom-lang/stdlib). Without the secret the fallback github.token cannot
 # read another private repository and the job fails loudly.
 #
+# Version gate: a tag push MUST match the workspace crate version
+# (Cargo.toml [workspace.package] version); `xiom --version` reports that
+# value, so a mismatched tag produces a release whose archive lies about
+# its version (the v0.60.1 archive reported v0.58.0). The build job fails
+# before packaging on any mismatch.
+#
+# Docs publish: after a release is created, the release job dispatches
+# `compiler-release` to the docs repo (repository variable DOCS_REPO,
+# default xiom-lang/website) with client_payload {tag, stdlib_ref,
+# compiler_ref}. Requires secret XIOM_DOCS_DISPATCH_TOKEN (fine-grained
+# PAT, Contents: read/write on the docs repo -- classic PAT: repo scope).
+# Without the secret the step warns and skips; the release itself is not
+# blocked.
+#
 # macOS jobs are gated on the repository variable RELEASE_BUILD_MACOS=true
 # (macOS runner minutes bill 10x on private repos; enable once the repo is
 # public or when a macOS release is actually needed):
@@ -52,6 +66,23 @@ jobs:
     steps:
       - name: Checkout xiom
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Version gate (tag == crate version)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          crate="$(sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' Cargo.toml | head -n1)"
+          if [ -z "$crate" ]; then
+            echo "::error::could not read the workspace version from Cargo.toml"
+            exit 1
+          fi
+          if [ "$tag" != "$crate" ]; then
+            echo "::error::release tag v$tag does not match the workspace crate version $crate -- bump [workspace.package] version or retag; xiom --version would report v$crate"
+            exit 1
+          fi
+          echo "version gate OK: v$tag == workspace $crate"
 
       - name: Read STDLIB_VERSION
         id: pin
@@ -222,6 +253,11 @@ jobs:
     needs: [build]
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout (version + stdlib pin for the docs payload)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: xiom-src
+
       - name: Download all artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -254,3 +290,26 @@ jobs:
             --verify-tag \
             --title "$GITHUB_REF_NAME" \
             --generate-notes
+
+      - name: "Notify docs (repository_dispatch: compiler-release)"
+        env:
+          # The docs (publish) workflow lives in the docs/website repo and
+          # listens for `compiler-release`. Needs a PAT with Contents:
+          # read/write on that repo (classic: repo scope) -- the default
+          # GITHUB_TOKEN cannot dispatch to another repository.
+          GH_TOKEN: ${{ secrets.XIOM_DOCS_DISPATCH_TOKEN }}
+          DOCS_REPO: ${{ vars.DOCS_REPO || 'xiom-lang/website' }}
+          TAG: ${{ github.ref_name }}
+          COMPILER_REF: ${{ github.sha }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::XIOM_DOCS_DISPATCH_TOKEN is not set -- docs will not be published for $TAG (provision the token per the release workflow header)"
+            exit 0
+          fi
+          stdlib_ref="$(tr -d '\r\n ' < xiom-src/STDLIB_VERSION)"
+          gh api "repos/$DOCS_REPO/dispatches" \
+            -f event_type=compiler-release \
+            -f "client_payload[tag]=$TAG" \
+            -f "client_payload[stdlib_ref]=$stdlib_ref" \
+            -f "client_payload[compiler_ref]=$COMPILER_REF"
+          echo "dispatched compiler-release to $DOCS_REPO (tag=$TAG stdlib_ref=$stdlib_ref compiler_ref=$COMPILER_REF)"
