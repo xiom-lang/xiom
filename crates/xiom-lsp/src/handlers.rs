@@ -77,6 +77,7 @@ pub fn handle_did_open(msg: &serde_json::Value, backend: &Backend, responses: &m
             let mut docs = backend.documents();
             docs.insert(uri.clone(), text.to_string());
         }
+        backend.mark_index_dirty();
         let diagnostics = backend.publish_diagnostics(&uri);
         responses.push(serde_json::json!({
             "jsonrpc": "2.0",
@@ -108,6 +109,7 @@ pub fn handle_did_change(msg: &serde_json::Value, backend: &Backend, responses: 
                     }
                 }
             }
+            backend.mark_index_dirty();
             let diagnostics = backend.publish_diagnostics(&uri);
             responses.push(serde_json::json!({
                 "jsonrpc": "2.0",
@@ -123,6 +125,8 @@ pub fn handle_did_close(msg: &serde_json::Value, backend: &Backend) {
     if let Some(uri) = params["textDocument"]["uri"].as_str() {
         let mut docs = backend.documents();
         docs.remove(uri);
+        drop(docs);
+        backend.mark_index_dirty();
     }
 }
 
@@ -493,10 +497,55 @@ pub fn handle_definition(msg: &serde_json::Value, backend: &Backend, responses: 
                 }
             }
         }
+
+        // Stage 5: cross-file index. A module that was never opened in the
+        // editor still resolves through the lazily built project index
+        // (rebuilt once per document-lifecycle event, not per request).
+        if location.is_none() && !word.is_empty() {
+            let roots = project_index_roots(u);
+            if !roots.is_empty() {
+                if let Some((target_uri, line, col)) = backend.lookup_declaration(&roots, &word) {
+                    location = Some(serde_json::json!({
+                        "uri": target_uri,
+                        "range": {
+                            "start": { "line": line, "character": col },
+                            "end": { "line": line, "character": col + word.len() as u64 }
+                        }
+                    }));
+                }
+            }
+        }
     }
 
     let id = msg["id"].clone();
     responses.push(serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": location }));
+}
+
+/// Stage 5 (cross-file index): project roots the open document belongs to,
+/// mirroring the checker's root discovery (document dir, `src/` of the
+/// project root, graph source roots). The stdlib is deliberately excluded:
+/// it is large, and catalog symbols are served by the checker's own index.
+/// The document's own directory covers sibling modules; broader parents are
+/// NOT added (a file in the OS temp dir must not index all of /tmp).
+fn project_index_roots(uri: &str) -> Vec<String> {
+    let mut roots = Vec::new();
+    if let Some(dir) = crate::uri::uri_to_parent_dir(uri) {
+        roots.push(dir);
+    }
+    if let Some(file_path) = crate::uri::uri_to_file_path(uri) {
+        if let Some(root) = xiom::find_project_root(&file_path) {
+            let src_dir = root.join("src");
+            if src_dir.is_dir() {
+                roots.push(src_dir.to_string_lossy().to_string());
+            }
+        }
+        if let Ok(graph) = xiom_graph::build_project_graph(&file_path) {
+            for root in &graph.source_roots {
+                roots.push(root.to_string_lossy().to_string());
+            }
+        }
+    }
+    roots
 }
 
 pub fn handle_signature_help(msg: &serde_json::Value, backend: &Backend, responses: &mut Vec<serde_json::Value>) {

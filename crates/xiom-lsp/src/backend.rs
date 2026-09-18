@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use xiom_lexer::Lexer;
@@ -13,6 +14,90 @@ use crate::diagnostics::{diagnostic_from_check_error, diagnostic_from_parse_erro
 use crate::uri::uri_to_parent_dir;
 use crate::uri::uri_to_file_path;
 
+/// Stage 5 (LSP cross-file index): declarations collected from the project
+/// source roots the open document belongs to. Built lazily on the first
+/// `textDocument/definition` that misses in the open documents, cached
+/// across requests, and rebuilt only after a document-lifecycle event
+/// (`mark_index_dirty`) or when the root set changes.
+#[derive(Default)]
+pub(crate) struct FileIndex {
+    /// symbol -> declaration sites (uri, line, col), sorted and deduped.
+    decls: HashMap<String, Vec<(String, u64, u64)>>,
+    /// Sorted root set the index was built from.
+    roots: Vec<String>,
+    dirty: bool,
+}
+
+/// Bound the lazy rebuild: parse at most this many files per rebuild.
+const MAX_INDEX_FILES: usize = 4000;
+/// Recursion cap for project trees (symlink loops, nested checkouts).
+const MAX_INDEX_DEPTH: usize = 24;
+
+impl FileIndex {
+    fn is_skipped_dir(name: &str) -> bool {
+        matches!(
+            name,
+            "target" | ".git" | "node_modules" | ".kilo" | ".vscode" | "release" | "dist"
+        )
+    }
+
+    fn collect_files(dir: &Path, out: &mut Vec<PathBuf>, depth: usize) {
+        if depth > MAX_INDEX_DEPTH || out.len() >= MAX_INDEX_FILES {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        let mut paths: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+        paths.sort();
+        for path in paths {
+            if out.len() >= MAX_INDEX_FILES {
+                return;
+            }
+            if path.is_dir() {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if Self::is_skipped_dir(name) {
+                        continue;
+                    }
+                }
+                Self::collect_files(&path, out, depth + 1);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("xi") {
+                out.push(path);
+            }
+        }
+    }
+
+    fn rebuild(&mut self, roots: &[String]) {
+        self.decls.clear();
+        self.roots = roots.to_vec();
+        self.dirty = false;
+        let mut files: Vec<PathBuf> = Vec::new();
+        for root in roots {
+            let path = Path::new(root);
+            if path.is_dir() {
+                Self::collect_files(path, &mut files, 0);
+            }
+        }
+        files.sort();
+        files.dedup();
+        for file in files {
+            let Ok(text) = std::fs::read_to_string(&file) else { continue };
+            let mut lexer = Lexer::new(&text);
+            let mut parser = Parser::new(lexer.tokenize());
+            let Ok(program) = parser.parse_program() else { continue };
+            let uri = crate::uri::path_to_uri(&file);
+            for (name, line, col) in crate::symbols::collect_declarations(&program) {
+                self.decls
+                    .entry(name)
+                    .or_default()
+                    .push((uri.clone(), line, col));
+            }
+        }
+        for sites in self.decls.values_mut() {
+            sites.sort();
+            sites.dedup();
+        }
+    }
+}
+
 pub struct Backend {
     pub(crate) documents: Arc<Mutex<HashMap<String, String>>>,
     /// Stage 5 (LSP incremental tier): parsed AST per uri keyed by a content
@@ -21,6 +106,9 @@ pub struct Backend {
     /// document text; the next request re-parses only that document and the
     /// stale entry is replaced.
     pub(crate) parsed: Arc<Mutex<HashMap<String, (u64, xiom_ast::Program)>>>,
+    /// Stage 5 (LSP cross-file index): on-disk declarations for requests
+    /// that miss in the open documents.
+    pub(crate) file_index: Arc<Mutex<FileIndex>>,
 }
 
 impl Backend {
@@ -28,7 +116,30 @@ impl Backend {
         Self {
             documents: Arc::new(Mutex::new(HashMap::new())),
             parsed: Arc::new(Mutex::new(HashMap::new())),
+            file_index: Arc::new(Mutex::new(FileIndex::default())),
         }
+    }
+
+    /// Document lifecycle changed (open/change/close/save): the on-disk
+    /// index may no longer reflect the editor state. The next definition
+    /// request rebuilds it once.
+    pub(crate) fn mark_index_dirty(&self) {
+        let mut index = self.file_index.lock().unwrap_or_else(|p| p.into_inner());
+        index.dirty = true;
+    }
+
+    /// First declaration of `symbol` in the cached cross-file index for
+    /// `roots`. Rebuilds lazily when dirty or when the root set changed.
+    /// Deterministic: files are traversed in sorted order and sites sorted.
+    pub fn lookup_declaration(&self, roots: &[String], symbol: &str) -> Option<(String, u64, u64)> {
+        let mut wanted: Vec<String> = roots.to_vec();
+        wanted.sort();
+        wanted.dedup();
+        let mut index = self.file_index.lock().unwrap_or_else(|p| p.into_inner());
+        if index.dirty || index.roots != wanted {
+            index.rebuild(&wanted);
+        }
+        index.decls.get(symbol).and_then(|sites| sites.first().cloned())
     }
 
     fn text_hash(text: &str) -> u64 {

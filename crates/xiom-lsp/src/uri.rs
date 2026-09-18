@@ -10,6 +10,19 @@ pub fn uri_to_parent_dir(uri: &str) -> Option<String> {
     uri_to_file_path(uri).and_then(|p| p.parent().map(|p| p.to_string_lossy().to_string()))
 }
 
+/// Convert a filesystem path to a `file:///` URI. The colon of a Windows
+/// drive letter is percent-encoded so the result round-trips through
+/// `uri_to_file_path`.
+pub fn path_to_uri(path: &std::path::Path) -> String {
+    let s = path.to_string_lossy().replace('\\', "/");
+    let payload = if s.len() > 1 && s.as_bytes()[1] == b':' {
+        format!("{}%3A{}", &s[..1], &s[2..])
+    } else {
+        s
+    };
+    format!("file:///{}", payload)
+}
+
 /// Convert a percent-encoded file:// URI to a filesystem PathBuf.
 pub fn uri_to_file_path(uri: &str) -> Option<PathBuf> {
     let path = uri.strip_prefix("file:///")?;

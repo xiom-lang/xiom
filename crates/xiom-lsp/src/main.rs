@@ -840,4 +840,58 @@ mod tests {
         );
         assert_eq!(resp["result"]["range"]["start"]["line"].as_u64(), Some(0));
     }
+
+    // Stage 5 (cross-file index): a declaration in a file that was NEVER
+    // opened in the editor resolves through the lazily built project index,
+    // and the index is rebuilt after a document-lifecycle event.
+    #[test] fn test_definition_cross_file_index_unopened_file() {
+        let dir = std::env::temp_dir().join(format!("xiom_lsp_index_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp project dir");
+        let lib = dir.join("lib.xi");
+        let main = dir.join("main.xi");
+        std::fs::write(&lib, "pub fn helper() -> Int { return 7; }\n").expect("write lib");
+        let main_text = "fn main() -> Int { return helper(); }";
+        std::fs::write(&main, main_text).expect("write main");
+
+        let backend = Backend::new();
+        let main_uri = crate::uri::path_to_uri(&main);
+        open_document(&backend, &main_uri, main_text);
+
+        let col = main_text.find("helper").unwrap() as u64 + 2;
+        let definition = |id: u64| {
+            let msg = parse_msg(&format!(
+                r#"{{"jsonrpc":"2.0","id":{id},"method":"textDocument/definition","params":{{"textDocument":{{"uri":"{main_uri}"}},"position":{{"line":0,"character":{col}}}}}}}"#
+            ));
+            handle_lsp_message(&msg, &backend)
+        };
+
+        let responses = definition(95);
+        let resp = find_response_by_id(&responses, 95).expect("definition should respond");
+        let lib_uri = crate::uri::path_to_uri(&lib);
+        assert_eq!(
+            resp["result"]["uri"].as_str(),
+            Some(lib_uri.as_str()),
+            "unopened lib.xi must resolve via the file index; got {resp}"
+        );
+        assert_eq!(resp["result"]["range"]["start"]["line"].as_u64(), Some(0));
+
+        // Move the declaration to line 3 (0-based), mark the index dirty via
+        // a document change, and expect the rebuild to find the new site.
+        std::fs::write(&lib, "\n\n\npub fn helper() -> Int { return 7; }\n").expect("rewrite lib");
+        let change = parse_msg(&format!(
+            r#"{{"jsonrpc":"2.0","method":"textDocument/didChange","params":{{"textDocument":{{"uri":"{main_uri}","version":2}},"contentChanges":[{{"text":"{main_text}"}}]}}}}"#
+        ));
+        let _ = handle_lsp_message(&change, &backend);
+
+        let responses = definition(96);
+        let resp = find_response_by_id(&responses, 96).expect("definition should respond");
+        assert_eq!(
+            resp["result"]["range"]["start"]["line"].as_u64(),
+            Some(3),
+            "index must rebuild after didChange; got {resp}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

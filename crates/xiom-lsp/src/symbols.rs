@@ -366,3 +366,54 @@ fn find_def_in_item(item: &xiom_ast::TopDecl, name: &str) -> Option<(u64, u64)> 
         _ => None,
     }
 }
+
+/// 0-based LSP position of a declaration's name.
+fn decl_pos(span: &xiom_ast::Span) -> (u64, u64) {
+    let line = if span.line > 0 { span.line as u64 - 1 } else { 0 };
+    let col = if span.col > 0 { span.col as u64 - 1 } else { 0 };
+    (line, col)
+}
+
+/// Stage 5 (LSP cross-file index): every declaration name reachable in
+/// `program` with its 0-based LSP position. Method receivers and module
+/// items are indexed by their bare name, matching `find_definition`.
+pub fn collect_declarations(program: &xiom_ast::Program) -> Vec<(String, u64, u64)> {
+    let mut out = Vec::new();
+    for item in &program.items {
+        collect_decls_in_item(item, &mut out);
+    }
+    out
+}
+
+fn collect_decls_in_item(item: &xiom_ast::TopDecl, out: &mut Vec<(String, u64, u64)>) {
+    match item {
+        xiom_ast::TopDecl::Fn(f) => {
+            let (line, col) = decl_pos(&f.name.span);
+            out.push((f.name.name.clone(), line, col));
+        }
+        xiom_ast::TopDecl::Type(td) => {
+            let (line, col) = decl_pos(&td.name.span);
+            out.push((td.name.name.clone(), line, col));
+        }
+        xiom_ast::TopDecl::Enum(ed) => {
+            let (line, col) = decl_pos(&ed.name.span);
+            out.push((ed.name.name.clone(), line, col));
+        }
+        xiom_ast::TopDecl::Interface(id) => {
+            let (line, col) = decl_pos(&id.name.span);
+            out.push((id.name.name.clone(), line, col));
+        }
+        xiom_ast::TopDecl::Const(cd) => {
+            let (line, col) = decl_pos(&cd.name.span);
+            out.push((cd.name.name.clone(), line, col));
+        }
+        xiom_ast::TopDecl::Module(m) => {
+            let (line, col) = decl_pos(&m.name.span);
+            out.push((m.name.name.clone(), line, col));
+            for inner in &m.items {
+                collect_decls_in_item(inner, out);
+            }
+        }
+        _ => {}
+    }
+}

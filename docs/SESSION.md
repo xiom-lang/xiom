@@ -250,6 +250,15 @@ LLVM IR` -> `env!(CARGO_PKG_VERSION)` (same width; bench IR stays
 5,808,645 bytes, clang exit 0). Remaining Stage 5 items: clap migration,
 LSP incremental reparsing + cross-file index.
 
+Stage 5 tail (cont.): **LSP cross-file index LANDED** -- `Backend` caches a
+lazily-built symbol -> declaration index over the open document's project
+roots (parent dir, `src/`, graph source roots; 4000-file/depth-24 bounds,
+skip dirs), rebuilt after didOpen/didChange/didClose; definition resolves
+declarations in never-opened files (open docs win). Root discovery does not
+walk broad parents, so a temp-dir file cannot index all of /tmp. lsp 45/45
+(new integration test covers hit + rebuild-after-change). Remaining Stage 5
+item: clap migration of the driver parser.
+
 ### Round-83 (2026-09-16): pre-split housekeeping + post-split handoff
 
 Compiler lane, no behavior changes.

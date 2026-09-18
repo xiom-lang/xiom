@@ -322,8 +322,17 @@ longer contains stdlib sources:
    block's `}` stay inside it; expression-internal comments attach to the
    next statement or block close (never dropped). Idempotent; 3 new tests
    + real-file round-trip. Remaining fmt polish: none tracked.
-4. **LSP**: finish the cross-file index work behind the incremental AST
-   cache (lsp 44/44 currently).
+4. **LSP cross-file index -- DONE (2026-09-18)**: `Backend` keeps a
+   `FileIndex` (symbol -> declaration sites) built lazily from the open
+   document's project roots (document dir, `src/`, graph source roots),
+   cached across requests and rebuilt after didOpen/didChange/didClose.
+   `textDocument/definition` now resolves declarations in files that were
+   never opened (open documents still win), and `path_to_uri` round-trips
+   Windows drive letters. Root discovery deliberately does NOT walk broad
+   parents (a temp-dir file must not index all of /tmp); traversal is
+   bounded (4000 files / depth 24, skip dirs). lsp 45/45 (new
+   `test_definition_cross_file_index_unopened_file` covers index hit +
+   rebuild-after-change).
 5. **Driver hygiene**: randomized temp names (the jit link dir is pid-based).
 6. **cargo-vet audits -- DONE (2026-09-18)**: `cargo vet` (0.10.2) is
    bootstrapped with `supply-chain/config.toml` exempting the current 171
