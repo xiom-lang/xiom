@@ -1131,6 +1131,7 @@ fn print_usage() {
     eprintln!("  --sanitize=<type>    7E.1: Enable sanitizer (address, undefined, leak, thread)");
     eprintln!("  --stack-protector    7E.2: Enable stack canaries (-fstack-protector)");
     eprintln!("  --overflow-checks    Enable integer overflow runtime checks");
+    eprintln!("  --keep-debug-checks  Keep debug intrinsics (assert/dbg!/todo!/debugger) in release builds");
     eprintln!("  --enable-unsafe-direct  D2.1: allow #[unsafe_direct] (trusted escape hatch) in user code");
     eprintln!("  --graph             7F.2: Output dependency graph (DOT format)");
     eprintln!("  --graph=mermaid     7F.2: Output dependency graph (Mermaid format)");
