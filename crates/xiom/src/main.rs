@@ -190,7 +190,7 @@ fn real_main() {
     // validation and returns argv unchanged, so every legacy scan below is
     // byte-compatible; the reads migrate to the clap matches in follow-up
     // work without touching the surface definition.
-    let args: Vec<String> = cli::parse(env::args().collect());
+    let args = cli::parse(env::args().collect());
     if args.len() < 2 || args.iter().any(|a| a == "--help") {
         print_usage();
         process::exit(if args.iter().any(|a| a == "--help") { 0 } else { 1 });
@@ -379,51 +379,47 @@ fn real_main() {
         return;
     }
 
-    let emit_ir = args.iter().any(|a| a == "--emit-ir");
-    let emit_tokens = args.iter().any(|a| a == "--emit-tokens");
-    let do_run = args.iter().any(|a| a == "--run");
-    let check_only = args.iter().any(|a| a == "--check");
-    let release = args.iter().any(|a| a == "--release");
+    // Stage 5 (clap step 2): flag reads below come from the clap matches;
+    // exact-form-sensitive checks and command words use the raw view.
+    let emit_ir = args.flag("emit-ir");
+    let emit_tokens = args.flag("emit-tokens");
+    let do_run = args.flag("run");
+    let check_only = args.flag("check");
+    let release = args.flag("release");
     // 2026-09-10: explicit optimization level (--opt-level 0..=3). The old
     // -O2 floor existed because pre-CRT-layout IR miscompiled at -O0/-O1
     // (i128 loops + inlined Vec ops); the floor is now overridable.
-    let opt_level: Option<u8> = args.iter().position(|a| a == "--opt-level")
-        .and_then(|i| args.get(i + 1).and_then(|v| v.parse::<u8>().ok()));
-    let target = parse_target(&args);
-    let check_contracts = !args.iter().any(|a| a == "--no-contracts") && !release;
-    let runtime_contracts = args.iter().any(|a| a == "--runtime-contracts");
+    let opt_level: Option<u8> = args.value("opt-level")
+        .and_then(|v| v.parse::<u8>().ok());
+    let target = parse_target(args.value("target").as_deref());
+    let check_contracts = !args.flag("no-contracts") && !release;
+    let runtime_contracts = args.flag("runtime-contracts");
     // Security review (2026-08-13): release builds strip assert/dbg!/debugger;
     // --keep-debug-checks retains them in release binaries.
-    let keep_debug_checks = args.iter().any(|a| a == "--keep-debug-checks");
-    let diagnostics_json = args.iter().any(|a| a == "--diagnostics=json");
-    let strict_mode = args.iter().any(|a| a == "--strict");
-    let debug_symbols = args.iter().any(|a| a == "--debug") || args.iter().any(|a| a == "-g");
-    let shared_lib = args.iter().any(|a| a == "--shared");
-    let static_lib = args.iter().any(|a| a == "--static");
-    let watch_mode = args.iter().any(|a| a == "--watch");
-    let hot_reload = args.iter().any(|a| a == "--hot-reload");
-    let hot_reload_contracts = args.iter().any(|a| a == "--hot-reload-contracts");
+    let keep_debug_checks = args.flag("keep-debug-checks");
+    // Exact `--diagnostics=json` form only (the space form was never read).
+    let diagnostics_json = args.raw_has("--diagnostics=json");
+    let strict_mode = args.flag("strict");
+    let debug_symbols = args.flag("debug") || args.flag("debug-symbols");
+    let shared_lib = args.flag("shared");
+    let static_lib = args.flag("static");
+    let watch_mode = args.flag("watch");
+    let hot_reload = args.flag("hot-reload");
+    let hot_reload_contracts = args.flag("hot-reload-contracts");
     // v0.55: OrcJIT -- in-process JIT compilation via clang DLL loading
-    let _use_jit = args.iter().any(|a| a == "--jit");
+    let _use_jit = args.flag("jit");
     // v0.56: Lazy JIT -- incremental recompilation (only with --jit)
-    let _lazy_jit = args.iter().any(|a| a == "--lazy");
+    let _lazy_jit = args.flag("lazy");
     // v0.56: LTO -- ThinLTO link-time optimization
-    let use_lto = args.iter().any(|a| a == "--lto");
+    let use_lto = args.flag("lto");
     // 7E.1: Sanitizer flags
-    let sanitize: Option<String> = args.iter().position(|a| a == "--sanitize" || a.starts_with("--sanitize="))
-        .and_then(|i| {
-            if args[i].starts_with("--sanitize=") {
-                args[i].splitn(2, '=').nth(1).map(|s| s.to_string())
-            } else {
-                args.get(i + 1).cloned().filter(|v| !v.starts_with('-'))
-            }
-        });
+    let sanitize: Option<String> = args.value("sanitize");
     // 7E.2: Stack protector
-    let stack_protector = args.iter().any(|a| a == "--stack-protector");
-    let overflow_checks = args.iter().any(|a| a == "--overflow-checks");
-    let strict_exhaustive = args.iter().any(|a| a == "--strict-exhaustive");
+    let stack_protector = args.flag("stack-protector");
+    let overflow_checks = args.flag("overflow-checks");
+    let strict_exhaustive = args.flag("strict-exhaustive");
     // D2.1 (Phase 7): allow `#[unsafe_direct]` (trusted escape hatch) in user code
-    let enable_unsafe_direct = args.iter().any(|a| a == "--enable-unsafe-direct");
+    let enable_unsafe_direct = args.flag("enable-unsafe-direct");
     if enable_unsafe_direct {
         // Security review (2026-08-13): the escape hatch disables the
         // unsafe-confinement guard -- surface it loudly on every invocation so
@@ -434,48 +430,49 @@ fn real_main() {
         );
     }
     // v0.54: Binary cache -- cache compiled binary by SHA-256 source hash
-    let use_cache = args.iter().any(|a| a == "--cache");
+    let use_cache = args.flag("cache");
     // 5e.5f: Incremental compilation flags
-    let incremental = args.iter().any(|a| a == "--incremental");
-    let force_recompile = args.iter().any(|a| a == "--force");
+    let incremental = args.flag("incremental");
+    let force_recompile = args.flag("force");
     // 7C: Parallel compilation flags
-    let parallel = args.iter().any(|a| a == "--parallel") && !args.iter().any(|a| a == "--sequential");
+    let parallel = args.flag("parallel") && !args.flag("sequential");
     // I2: Parallel codegen -- rayon-based per-function IR emission
-    let parallel_codegen = args.iter().any(|a| a == "--parallel-codegen");
-    let jobs: usize = parse_flag_value(&args, "--jobs")
+    let parallel_codegen = args.flag("parallel-codegen");
+    let jobs: usize = args.value("jobs")
         .and_then(|v| v.parse().ok()).unwrap_or(0);
     // 5g AI Pipeline flags
-    let ai_mode = args.iter().any(|a| a == "--ai");
-    let ai_local = args.iter().any(|a| a == "--ai-local");
-    let ai_dry_run = args.iter().any(|a| a == "--ai-dry-run");
-    let ai_silent = args.iter().any(|a| a == "--ai-silent");
-    let ai_strict = args.iter().any(|a| a == "--ai-strict");
-    let _ai_batch = args.iter().any(|a| a == "--ai-batch" || a == "--batch");
-    let ai_model: Option<String> = args.iter().position(|a| a == "--ai-model")
-        .and_then(|i| args.get(i + 1).cloned()).filter(|m| !m.starts_with('-'));
-    let ai_timeout: u32 = parse_flag_value(&args, "--ai-timeout")
+    let ai_mode = args.flag("ai");
+    let ai_local = args.flag("ai-local");
+    let ai_dry_run = args.flag("ai-dry-run");
+    let ai_silent = args.flag("ai-silent");
+    let ai_strict = args.flag("ai-strict");
+    let _ai_batch = args.flag("ai-batch") || args.flag("batch");
+    let ai_model: Option<String> = args.value("ai-model");
+    let ai_timeout: u32 = args.value("ai-timeout")
         .and_then(|v| v.parse().ok()).unwrap_or(10);
-    let test_mode = args.iter().any(|a| a == "--test");
-    let clean_mode = args.iter().any(|a| a == "--clean");
-    let install_mode = args.iter().any(|a| a == "install");
+    let test_mode = args.flag("test");
+    let clean_mode = args.flag("clean");
+    let install_mode = args.raw_has("install");
     let install_pkg = args.iter().position(|a| a == "install")
         .and_then(|i| args.get(i + 1).cloned())
         .filter(|p| !p.starts_with('-'));
-    let publish_mode = args.iter().any(|a| a == "publish");
-    let update_mode = args.iter().any(|a| a == "update");
-    let bench_mode = args.iter().any(|a| a == "bench");
-    let bench_count: u32 = parse_flag_value(&args, "--count")
+    let publish_mode = args.raw_has("publish");
+    let update_mode = args.raw_has("update");
+    let bench_mode = args.raw_has("bench");
+    let bench_count: u32 = args.value("count")
         .and_then(|v| v.parse().ok())
         .unwrap_or(10);
-    let init_mode = args.iter().any(|a| a == "init");
-    let new_mode = args.iter().any(|a| a == "new");
-    let build_mode = args.iter().any(|a| a == "build");
-    let doctor_mode = args.iter().any(|a| a == "doctor" || a == "--doctor");
-    let doc_mode = args.iter().any(|a| a == "doc" || a == "--doc");
-    let graph_mode = args.iter().any(|a| a == "--graph");
-    let graph_format = if args.iter().any(|a| a == "--graph=mermaid" || a == "--graph-format=mermaid") {
+    let init_mode = args.raw_has("init");
+    let new_mode = args.raw_has("new");
+    let build_mode = args.raw_has("build");
+    let doctor_mode = args.raw_has("doctor") || args.flag("doctor");
+    let doc_mode = args.raw_has("doc") || args.flag("doc");
+    let graph_mode = args.present("graph");
+    // Exact-form checks: only `--graph=mermaid`/`--graph-format=mermaid`
+    // select a format; bare `--graph` defaults to dot (legacy contract).
+    let graph_format = if args.raw_has("--graph=mermaid") || args.raw_has("--graph-format=mermaid") {
         Some("mermaid")
-    } else if args.iter().any(|a| a == "--graph=dot" || a == "--graph-format=dot") {
+    } else if args.raw_has("--graph=dot") || args.raw_has("--graph-format=dot") {
         Some("dot")
     } else if graph_mode {
         Some("dot") // default
@@ -485,7 +482,7 @@ fn real_main() {
     let new_name: Option<String> = args.iter().position(|a| a == "new")
         .and_then(|i| args.get(i + 1).cloned())
         .filter(|n| !n.starts_with('-'));
-    let registry_cmd = args.iter().any(|a| a == "registry");
+    let registry_cmd = args.raw_has("registry");
 
     if registry_cmd {
         handle_registry(&args);
@@ -503,7 +500,7 @@ fn real_main() {
     }
 
     if clean_mode {
-        let clean_cache = args.iter().any(|a| a == "--cache");
+        let clean_cache = args.flag("cache");
         if clean_cache {
             let _ = xiom::jit::cache_clean();
             return;
@@ -527,7 +524,7 @@ fn real_main() {
     }
 
     if install_mode || update_mode {
-        let registry_url = parse_flag_value(&args, "--registry")
+        let registry_url = args.value("registry")
             .unwrap_or_else(|| "https://registry.xiom-lang.org/packages.json".to_string());
         handle_install(&args, install_pkg.as_deref(), &registry_url, update_mode);
         return;
@@ -553,20 +550,20 @@ fn real_main() {
         return;
     }
 
-    let verify = args.iter().any(|a| a == "--verify") || args.iter().any(|a| a == "--verify-output");
-    let verify_output = parse_flag_value(&args, "--verify-output");
+    let verify = args.flag("verify") || args.raw_has("--verify-output");
+    let verify_output = args.value("verify-output");
 
-    let output_file = parse_flag_value(&args, "-o");
+    let output_file = args.value("output");
 
-    let link_libs = parse_all_flag_values(&args, "--link");
-    let link_paths = parse_all_flag_values(&args, "--link-path");
-    let c_sources = parse_all_flag_values(&args, "--c-source");
+    let link_libs = args.values("link");
+    let link_paths = args.values("link-path");
+    let c_sources = args.values("c-source");
 
     // Resolved early so the timeout watchdog can consult the project
     // manifest ([compiler] timeout-secs) before spawning.
     let source_paths = resolve_source_files(&args);
 
-    let timeout_secs: u64 = parse_flag_value(&args, "--timeout")
+    let timeout_secs: u64 = args.value("timeout")
         .and_then(|v| v.parse().ok())
         .or_else(|| {
             // AUDIT #18 (completion): xiom.toml [compiler] timeout-secs is a
@@ -582,7 +579,7 @@ fn real_main() {
         })
         .unwrap_or(300);
 
-    let max_recursion_depth: u32 = parse_flag_value(&args, "--max-depth")
+    let max_recursion_depth: u32 = args.value("max-depth")
         .and_then(|v| v.parse().ok())
         .unwrap_or(500);
     let max_recursion_depth = std::cmp::min(max_recursion_depth, 10000u32);
@@ -599,7 +596,7 @@ fn real_main() {
         });
     }
 
-    let max_memory_mb: u64 = parse_flag_value(&args, "--max-memory-mb")
+    let max_memory_mb: u64 = args.value("max-memory-mb")
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);
 
@@ -628,8 +625,8 @@ fn real_main() {
     let source_paths = resolve_source_files(&args);
 
     // -- M10.2: xiom build --standalone -- script-to-binary ----------
-    let standalone_mode = args.iter().any(|a| a == "--standalone");
-    let scaffold_mode = args.iter().any(|a| a == "--scaffold");
+    let standalone_mode = args.flag("standalone");
+    let scaffold_mode = args.flag("scaffold");
 
     if standalone_mode && !source_paths.is_empty() {
         let script_path = &source_paths[0];
@@ -711,7 +708,7 @@ fn real_main() {
             shared_lib,
             static_lib,
             max_recursion_depth,
-            dump_contracts: args.iter().any(|a| a == "--dump-contracts"),
+            dump_contracts: args.flag("dump-contracts"),
             verify,
             verify_output,
             output_file,
@@ -753,12 +750,12 @@ fn real_main() {
                 config.incremental = true;
             }
             if let Some(d) = cc.max_depth {
-                if parse_flag_value(&args, "--max-depth").is_none() {
+                if args.value("max-depth").is_none() {
                     config.max_recursion_depth = d;
                 }
             }
             if let Some(t) = &cc.target {
-                if !args.iter().any(|a| a == "--target") {
+                if args.value("target").is_none() {
                     match t.as_str() {
                         "wasm" => config.target = Target::Wasm,
                         "wasi" => config.target = Target::Wasi,
@@ -1181,35 +1178,14 @@ fn print_usage() {
     eprintln!("  xiom --verify examples/phase1_contracts.xi");
 }
 
-fn parse_target(args: &[String]) -> Target {
-    match parse_flag_value(args, "--target").as_deref() {
+fn parse_target(target: Option<&str>) -> Target {
+    match target {
         Some("wasm") => Target::Wasm,
         Some("wasi") => Target::Wasi,
         Some("arm") => Target::Arm,
         Some("riscv") => Target::RisCv,
         _ => Target::Native,
     }
-}
-
-fn parse_flag_value(args: &[String], flag: &str) -> Option<String> {
-    let pos = args.iter().position(|a| a == flag)?;
-    args.get(pos + 1).cloned()
-}
-
-fn parse_all_flag_values(args: &[String], flag: &str) -> Vec<String> {
-    let mut values = Vec::new();
-    for (i, arg) in args.iter().enumerate() {
-        if arg == flag {
-            match args.get(i + 1) {
-                Some(val) if !val.starts_with('-') => values.push(val.clone()),
-                _ => {
-                    eprintln!("error: '{flag}' requires a value");
-                    process::exit(1);
-                }
-            }
-        }
-    }
-    values
 }
 
 fn get_process_memory_bytes() -> Option<u64> {
@@ -1248,11 +1224,15 @@ fn get_process_memory_bytes() -> Option<u64> {
     }
 }
 
-fn run_xiom_tests(args: &[String]) {
+fn run_xiom_tests(args: &cli::Cli) {
     use std::process::Command as Cmd;
 
-    let test_dir = parse_flag_value(args, "--test")
-        .or_else(|| parse_flag_value(args, "--test-dir"))
+    // Legacy contract: `--test <dir>` used the token after `--test` as the
+    // directory (even though `--test` is also a bool flag); `--test-dir` is
+    // the explicit spelling. Kept on the raw view to preserve that quirk.
+    let test_dir = args.iter().position(|a| a == "--test")
+        .and_then(|i| args.get(i + 1).cloned())
+        .or_else(|| args.value("test-dir"))
         .unwrap_or_else(|| "examples".to_string());
 
     let mut test_files: Vec<String> = Vec::new();
@@ -1655,11 +1635,14 @@ fn handle_registry(args: &[String]) {
     }
 }
 
-fn run_benchmarks(args: &[String], iterations: u32) {
-    let bench_dir = parse_flag_value(args, "bench")
+fn run_benchmarks(args: &cli::Cli, iterations: u32) {
+    // `xiom bench [<dir>]` -- the directory is the positional word after
+    // `bench`; `--bench-file` selects a single file.
+    let bench_dir = args.iter().position(|a| a == "bench")
+        .and_then(|i| args.get(i + 1).cloned())
         .unwrap_or_else(|| "benches".to_string());
 
-    let bench_file = parse_flag_value(args, "--bench-file")
+    let bench_file = args.value("bench-file")
         .or_else(|| args.iter().find(|a| a.ends_with(".xi")).cloned());
 
     let mut bench_files: Vec<String> = Vec::new();

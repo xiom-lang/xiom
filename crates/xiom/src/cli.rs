@@ -5,18 +5,24 @@
 // The driver historically scanned `env::args()` ad hoc: booleans via
 // `args.iter().any(|a| a == "--flag")`, values via
 // `parse_flag_value(&args, "--flag")`, optional `--flag=value` spellings via
-// `starts_with`. That surface is now DEFINED here with clap: one
-// authoritative table of every flag, its arity and short aliases.
+// `starts_with`. This module is now the parser of record: `parse` runs clap
+// over argv and returns a `Cli` whose matches drive the flag reads in
+// `main.rs`.
 //
-// Compatibility contract (byte-compatible CLI): `parse` runs clap in
-// lenient mode (`ignore_errors`) so unknown arguments keep being ignored and
-// missing values for optional flags keep behaving as before, and it returns
-// the ORIGINAL vector unchanged -- every legacy scan in `main.rs` sees
-// exactly the argv it saw before. This is migration step 1 of 2; step 2
-// (replacing the scan reads with the parsed matches) can proceed
-// flag-by-flag without touching the surface definition.
+// Compatibility contract (byte-compatible CLI):
+// - clap runs with `ignore_errors`, so unknown arguments keep being silently
+//   ignored exactly as before;
+// - help and version auto-flags are disabled -- `print_usage()` and the
+//   `--version` arm own that output;
+// - `Cli` derefs to the ORIGINAL argv, so the legacy scans that remain
+//   (command words like `install`/`build`, `run`'s private mini-language,
+//   and the `--flag=`-form-sensitive sandbox/graph checks) see the exact
+//   vector they saw before;
+// - `flag`/`value`/`values`/`present` read the clap matches; `raw_has`
+//   covers the checks that intentionally distinguish `--flag=value` from
+//   `--flag value`.
 
-use clap::{Arg, ArgAction, Command};
+use clap::{Arg, ArgAction, ArgMatches, Command};
 
 /// Flags that take a required value (`--flag value` or `--flag=value`).
 /// `--output` is the long form of the driver's `-o`.
@@ -30,8 +36,6 @@ const VALUE_FLAGS: &[&str] = &[
     "count",
     "registry",
     "verify-output",
-    "link-path",
-    "c-source",
     "timeout",
     "max-depth",
     "max-memory-mb",
@@ -40,15 +44,17 @@ const VALUE_FLAGS: &[&str] = &[
     "bench-file",
 ];
 
+/// Value flags that may be repeated (`--link a --link b`).
+const APPEND_VALUE_FLAGS: &[&str] = &["link", "link-path", "c-source"];
+
 /// Flags that may appear with or without a value (`--sandbox`,
 /// `--sandbox=strict`, `--graph`, `--graph=mermaid`, `--sandbox-report[=X]`).
 const OPTIONAL_VALUE_FLAGS: &[&str] = &["sandbox", "sandbox-report", "graph"];
 
-/// Boolean flags. This list is the union of every `--flag` the driver reads,
-/// plus dispatch words that must parse (`--clean`, `--doctor`, `--test`,
-/// `--doc`) and the `--`-prefixed flags forwarded to external tooling in
-/// generated contexts (`--locked`, `--frozen`, `--link`, `--batch`,
-/// `--depth`, `--connect-timeout`).
+/// Boolean flags: the union of every `--flag` the driver reads, plus
+/// dispatch words that must parse (`--clean`, `--doctor`, `--test`, `--doc`)
+/// and `--`-prefixed flags appearing in forwarding/generated contexts
+/// (`--locked`, `--frozen`, `--batch`, `--depth`, `--connect-timeout`).
 const FLAG_FLAGS: &[&str] = &[
     "ai",
     "ai-batch",
@@ -79,7 +85,6 @@ const FLAG_FLAGS: &[&str] = &[
     "jit",
     "keep-debug-checks",
     "lazy",
-    "link",
     "locked",
     "lto",
     "no-cache",
@@ -131,6 +136,15 @@ pub fn command() -> Command {
                 .value_name("VALUE"),
         );
     }
+    for name in APPEND_VALUE_FLAGS {
+        cmd = cmd.arg(
+            Arg::new(*name)
+                .long(*name)
+                .num_args(1)
+                .action(ArgAction::Append)
+                .value_name("VALUE"),
+        );
+    }
     cmd = cmd
         .arg(
             Arg::new("output")
@@ -144,13 +158,66 @@ pub fn command() -> Command {
     cmd
 }
 
-/// Parse `argv` with clap for validation/metadata, then return it UNCHANGED
-/// (see the module contract). Errors are intentionally swallowed by
-/// `ignore_errors`: the historical parser silently ignored unknown flags, and
-/// the CLI surface must stay byte-compatible.
-pub fn parse(argv: Vec<String>) -> Vec<String> {
-    let _ = command().try_get_matches_from(&argv);
-    argv
+/// Parsed driver invocation. Derefs to the original argv for the legacy
+/// scans (command words, `run`'s mini-language, exact-form checks).
+pub struct Cli {
+    raw: Vec<String>,
+    matches: ArgMatches,
+}
+
+impl std::ops::Deref for Cli {
+    type Target = Vec<String>;
+    fn deref(&self) -> &Vec<String> {
+        &self.raw
+    }
+}
+
+impl Cli {
+    /// `true` when a boolean flag was given.
+    pub fn flag(&self, name: &str) -> bool {
+        self.matches.get_flag(name)
+    }
+
+    /// First value of a single-value flag, `--flag value` or `--flag=value`.
+    pub fn value(&self, name: &str) -> Option<String> {
+        self.matches.get_one::<String>(name).cloned()
+    }
+
+    /// All values of a repeatable flag, in command-line order.
+    pub fn values(&self, name: &str) -> Vec<String> {
+        self.matches
+            .get_many::<String>(name)
+            .map(|vals| vals.cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// `true` when the flag appeared on the command line, including
+    /// optional-value flags given without a value.
+    pub fn present(&self, name: &str) -> bool {
+        self.matches.value_source(name).is_some()
+    }
+
+    /// Exact raw-token check, for the checks that intentionally distinguish
+    /// `--flag=value` from `--flag value` (sandbox/graph/diagnostics forms).
+    pub fn raw_has(&self, exact: &str) -> bool {
+        self.raw.iter().any(|a| a == exact)
+    }
+
+    /// The original argv.
+    pub fn raw(&self) -> &[String] {
+        &self.raw
+    }
+}
+
+/// Parse `argv` with clap and return the parsed view. Errors are
+/// intentionally swallowed by `ignore_errors`: the historical parser
+/// silently ignored unknown flags, and the CLI surface must stay
+/// byte-compatible.
+pub fn parse(argv: Vec<String>) -> Cli {
+    let matches = command()
+        .try_get_matches_from(&argv)
+        .unwrap_or_else(|_| command().get_matches_from(["xiom"]));
+    Cli { raw: argv, matches }
 }
 
 #[cfg(test)]
@@ -169,6 +236,7 @@ mod tests {
         let cmd = command();
         for name in VALUE_FLAGS
             .iter()
+            .chain(APPEND_VALUE_FLAGS)
             .chain(OPTIONAL_VALUE_FLAGS)
             .chain(FLAG_FLAGS)
         {
@@ -218,6 +286,38 @@ mod tests {
     #[test]
     fn parse_returns_the_original_vector() {
         let input = argv(&["--emit-ir", "--sanitize=address", "file.xi"]);
-        assert_eq!(parse(input.clone()), input);
+        assert_eq!(parse(input.clone()).raw(), input.as_slice());
+    }
+
+    #[test]
+    fn matches_drive_flag_value_reads() {
+        let cli = parse(argv(&[
+            "--emit-ir",
+            "--sanitize=address",
+            "--jobs",
+            "4",
+            "--link",
+            "a",
+            "--link",
+            "b",
+            "file.xi",
+        ]));
+        assert!(cli.flag("emit-ir"));
+        assert!(!cli.flag("release"));
+        assert_eq!(cli.value("sanitize").as_deref(), Some("address"));
+        assert_eq!(cli.value("jobs").as_deref(), Some("4"));
+        assert_eq!(cli.values("link"), vec!["a".to_string(), "b".to_string()]);
+        assert!(!cli.present("sandbox"));
+        assert!(cli.raw_has("--sanitize=address"));
+        // The raw view keeps the legacy scans working.
+        assert!(cli.iter().any(|a| a == "file.xi"));
+    }
+
+    #[test]
+    fn optional_value_flags_report_presence() {
+        assert!(parse(argv(&["--sandbox", "f.xi"])).present("sandbox"));
+        assert!(parse(argv(&["--sandbox=strict", "f.xi"])).present("sandbox"));
+        assert!(parse(argv(&["--graph", "f.xi"])).present("graph"));
+        assert!(!parse(argv(&["f.xi"])).present("sandbox"));
     }
 }
