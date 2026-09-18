@@ -7076,6 +7076,21 @@ became XIOM-correct the definition was no longer reachable early enough.
   compiler-side run: `xiom.os.env_unset` (links `unsetenv`, missing on
   Windows MSVC) and `xiom.async.io.async_read_line(0)` (passes `0 as *UInt8`
   to `fread` -> NULL FILE* abort) -- both stdlib/harness-side, not codegen.
+- stdlib-lane verification on 483f283e: `p_x25519_keypair_codegen.xi` PASS
+  (R43), `p_http_resp_codegen.xi` PASS (R44 rename holds),
+  `p_async_read_line_codegen.xi` PASS, `p_match_vec_codegen.xi` PASS,
+  check_modules 509/509.
+- follow-up (2026-09-18, resolved on 12148d43): the FULL unmodified sweep
+  (`p_sweep_single_param.xi`, incl. `env_unset` + `async_read_line`) does not
+  finish under the debug driver's 300s watchdog and was reported as a >5-15
+  min "hang". Re-measured with the RELEASE driver: codegen+clang complete in
+  **481.6s**, failing only at link with `undefined symbol: unsetenv` (the
+  stdlib Windows gap). No compiler hang: debug codegen is simply much slower
+  on a 139-call/54-module program. The remaining run-time stops are the
+  stdlib/harness items (`unsetenv`, `async_read_line(0)` NULL FILE*, dummy-arg
+  `requires` trips). Debug sweep compile time is a Stage 6 budget candidate,
+  not a correctness defect.
+
 - locks: `e2e_m87_tuple_element_types` (new: comparison, Bool-local, cast,
   and Str/Bool tuples), m21 (triple tuple), m44 (zip/BTreeMap tuple
   payloads), m48 (writeback aggregates) all green; full e2e **2335/2335**,

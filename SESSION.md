@@ -59,8 +59,25 @@ now recorded as DONE. Stage 5 remaining (feature-scale): clap-based arg
 parsing, LSP incremental reparsing + cross-file index, fmt body-inline
 comment trivia, cargo-vet audits.
 
+2026-09-18 update (post-split, `main`): R46 LANDED -- the bench graph is
+**CLANG-CLEAN** (`xiom --emit-ir examples/benchmark/main.xi | clang -c -x ir
+-` exits 0; deterministic at 5,808,645 bytes; locks m87-extended/m88/m89).
+The stdlib lane verified R43/R44/R45 probes and check_modules 509/509 on
+483f283e, and reported the full unmodified sweep as "1 fast clang failure +
+3 hangs >5-15 min". Re-measured here: with the RELEASE driver the sweep's
+codegen+clang finish in **481.6s** and fail only at link
+(`undefined symbol: unsetenv`, the stdlib Windows gap); the debug driver
+exceeds its 300s watchdog, which is what looked like a hang. No compiler
+hang. Remaining OPEN compiler finding: R46 residuals (cross-module
+qualified-receiver and receiver-only generic method instantiation stubs).
+Remaining OPEN class: R44 same-leaf qualification (stdlib has a 16-conflict
+worklist + audit tool ready; waits on the coordination slice). Stdlib status
+for the release lane: their pin is v0.60.0 and release tag v0.60.1 predates
+R43/R45/R46, so `COMPILER_VERSION` moves only when a release contains them
+(their nightly already tests main).
+
 Branch `main` (post-split). The round-83 slice (pre-split housekeeping +
-handoff) and earlier rounds live in the pre-split history; the R32-R42
+handoff) and earlier rounds live in the pre-split history; the R32-R46
 hardening slices are the latest compiler-lane commits.
 Working tree should be clean; `.xiom_ai.json` is generated tooling state and
 is now untracked/ignored (it has been committed before -- `git rm --cached`
@@ -350,45 +367,61 @@ variants; R43 = `&ref` locals, lock m86; R45 = tuple element types +
 early-spliced tuple defs, lock m87; R46 = **bench graph CLANG-CLEAN**
 (generic same-leaf shape triage, literal field-name disambiguation, mono
 param tuples, identifier-sanitized mono names, method-receiver leaf-scope
-variants), locks m88/m89; R44 resolved stdlib-side; fixed on main 2026-09-17
-with unit + e2e locks); e2e 2337/2337; supply chain signed AND COMPLETE for
-the pre-registry phase: ed25519 keygen/trust/sign/verify, fail-closed
-installs, ureq-only publish, git commit pins, TRANSITIVE DEPENDENCY CLOSURE
-(range matcher + cycle-safe closure from the verified manifest; `lock` pins
-the closure with digests; registry e2e 20/20); Stage 6 perf budgets wired
-(determinism canary covers selfhost v092 + bench graph; bench IR 5,808,645
-bytes and `clang -c` accepts it), selfhost v092 compile gate GREEN, release
-R0 compiler-side blockers DONE (R25+R27+R31+R39-R46, release build clean).
-The remaining OPEN compiler findings are the R46 residuals (cross-module /
-non-inferable generic method instantiation stubs) -- see "Open compiler
-findings".
+variants), locks m88/m89; R44 resolved stdlib-side); e2e 2337/2337; supply
+chain signed AND COMPLETE for the pre-registry phase: ed25519
+keygen/trust/sign/verify, fail-closed installs, ureq-only publish, git commit
+pins, TRANSITIVE DEPENDENCY CLOSURE (range matcher + cycle-safe closure from
+the verified manifest; `lock` pins the closure with digests; registry e2e
+20/20); Stage 6 perf budgets wired (determinism canary covers selfhost v092 +
+bench graph; bench IR 5,808,645 bytes and `clang -c` accepts it), selfhost
+v092 compile gate GREEN, release R0 compiler-side blockers DONE, release
+build clean.
 
-Pending (cross-lane): stdlib_api_freeze_no_removals RED (52 drifted
-signatures) and stdlib_tests::stdlib_all_modules_compile_to_ir RED
-(xiom.encoding.ascii85 T001) -- stdlib-lane owned, documented in
-COMPILER_BUGS R31 FIXED. STDLIB_VERSION is `stdlib-v0.60.0`.
+Stdlib lane (verified on 483f283e): R43 x25519 PASS, R44 http PASS,
+async_read_line / match_vec probes PASS, check_modules 509/509; collect 34.9%,
+global clauses 16.6%; pin stays v0.60.0/v0.60.1 (both predate R43/R45/R46) --
+`COMPILER_VERSION` moves when a release contains the fixes; their nightly
+tests main. Their sweep follow-up is RESOLVED compiler-side: no hang (release
+driver finishes codegen+clang in ~482s; debug exceeds its 300s watchdog);
+the only blockers are stdlib/harness-side (`unsetenv` link gap on Windows,
+`async_read_line(0)` NULL FILE*, dummy-arg `requires` trips). R44 has a
+16-conflict worklist + audit tool waiting on the qualification slice.
+Still RED cross-lane (stdlib-owned, pre-existing):
+`stdlib_api_freeze_no_removals` (52 drifted signatures) and
+`stdlib_all_modules_compile_to_ir` (`encoding.ascii85` T001).
 
-Your task, in order (Stage 5 completion; the supply-chain tail, driver
-hygiene and the bench clang-clean goal are CLOSED; the stdlib sweep findings
-R43/R45 are FIXED and R44 is resolved stdlib-side):
-1. Fix the R46 residual generic-method instantiation gaps (OPEN, repro in
-   "Open compiler findings"): qualified-receiver generic calls from other
-   modules and receiver-only type-arg inference both fall back to erased
-   stubs; add locks with the direct call forms removed from m88.
-2. R44 remaining class (coordination slice): the stdlib dedups the genuinely
-   conflicting same-leaf declarations, then land stdlib-wide qualification
-   in R39's pass with their smoke battery green. Until then, stdlib leaf
-   collisions keep first-wins.
-3. clap-based arg parsing (keep the CLI surface byte-compatible); LSP
-   incremental reparsing + cross-file index; fmt body-inline comment trivia;
-   cargo-vet audits.
-4. Stage 6 continuation (incremental engine, parallel mono profiles, linker
-   strategy) and the Stage 7 selfhost ladder -- both on their own branch
-   after the public release gates.
+Your task, in order:
+1. Fix the R46 residual generic-method instantiation gaps (the only OPEN
+   compiler correctness finding; repro in SESSION.md "Open compiler
+   findings" + `tests/regression/m88_generic_same_leaf/`): cross-module calls
+   to generic methods on qualified receivers and receiver-only type-arg
+   inference fall back to erased stubs. When fixed, remove m88's module-local
+   wrappers so the direct call forms are locked.
+2. R44 qualification slice (coordinate with the stdlib lane, whose worklist
+   is ready): standardize the dedup, then include stdlib modules in R39's
+   collision triage and run their smoke battery + `stdlib_execution_tests`.
+3. Stage 5 remainder: clap-based arg parsing (keep the CLI surface
+   byte-compatible); LSP incremental reparsing + cross-file index; fmt
+   body-inline comment trivia; cargo-vet audits.
+4. Stage 6/7 (incremental engine, parallel mono profiles, linker strategy;
+   selfhost ladder): own branch after the public release gates. Note the
+   debug-driver compile cost on sweep-scale programs (~482s release for
+   139 calls / 54 modules; debug >300s) as a Stage 6 budget candidate.
+
+Verification commands: `cargo test -p xiom-codegen --test e2e_tests` (2337,
+~25 min; set XIOM_STDLIB/XIOM_STDLIB_SMOKES for the stdlib-dependent tests);
+`--test feature_regression_tests` (510), `-p xiom-check --lib` (194),
+`--test perf_budget_tests` (determinism canary + budgets),
+`--test robustness_tests` (63), `--test stdlib_execution_tests`
+(83/85 with the two known checkout drifts), `cargo test -p xiom-pkg -p
+xiom-dbg -p xiom-lsp -p xiom-mcp`; IR gate: `xiom --emit-ir
+examples\benchmark\main.xi > b.ll; clang -c b.ll -o NUL` must exit 0.
 
 Rules: the e2e/stdlib harnesses spawn target/debug/xiom.exe -- always
 `cargo build -p xiom` after checker/codegen changes. Capture $LASTEXITCODE
-right after each native command. Use --emit-ir / --sanitize=address for
-miscompile work. Keep commits atomic (code + docs together); never commit
-stdlib/** or the stdlib/ checkout.
+right after each native command. Use --emit-ir / clang -c / --sanitize=address
+for miscompile work (drop temporary debug prints before committing). Keep
+commits atomic (code + docs + locks + CI lock line together); never commit
+`stdlib/**` or the `stdlib/` checkout.
+
 ```
