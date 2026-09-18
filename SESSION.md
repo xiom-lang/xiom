@@ -314,7 +314,21 @@ longer contains stdlib sources:
    implemented. Registry e2e **20/20** (new core fixture + closure install +
    transitive lock assertions).
 2. **clap migration** of the driver parser (large; keep the CLI surface
-   byte-compatible, gate with the full e2e suite).
+   byte-compatible, gate with the full e2e suite). Concrete shape:
+   - add `clap` 4 to `crates/xiom` with `disable_help_flag` +
+     `disable_version_flag` and KEEP the existing `print_usage()` /
+     `--version` text verbatim; `allow_external_subcommands` for
+     `build-runtime`, `repl`, `run <script> [args...]` and `--`
+     pass-through; `trailing_var_arg` for run args.
+   - model the ~60 flags as a derive struct, preserving both spellings the
+     current parser accepts (`--sandbox` / `--sandbox=strict`,
+     `--diagnostics=json`, `-o <path>`, `-g`, `-O2`); unknown flags must
+     keep today's lenient handling unless the e2e suite proves otherwise.
+   - replace every `args.iter().any(...)` / `position(...)` read in
+     main.rs (~100 sites) with struct fields; behavior logic untouched.
+   - capture `xiom --help` and `xiom --version` (all subcommand help)
+     to docs/baselines BEFORE the change and byte-diff after; gate with
+     full e2e (2338) + robustness (63).
 3. **fmt: body-inline comment trivia attachment -- DONE (2026-09-18)**.
    `format_source_text` threads lexer trivia (comments) and closing-brace
    token positions into the Formatter: leading comments emit above the
