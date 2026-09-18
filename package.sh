@@ -7,12 +7,21 @@
 #
 # Usage:
 #   ./package.sh
-#   ./package.sh 0.47.0
+#   ./package.sh 0.61.0
 
 set -euo pipefail
 
-VERSION="${1:-0.46.0}"
 ROOT="$(cd "$(dirname "$0")" && pwd)"
+# CRB-1: the workspace [workspace.package] version is the single source of
+# truth; packaging never edits Cargo.toml and never guesses a default.
+VERSION="${1:-}"
+if [ -z "$VERSION" ]; then
+    VERSION="$(sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$ROOT/Cargo.toml" | head -n1)"
+fi
+if [ -z "$VERSION" ]; then
+    echo "ERROR: cannot read [workspace.package] version from $ROOT/Cargo.toml; pass the version as \$1" >&2
+    exit 1
+fi
 RELEASE_DIR="$ROOT/release"
 PKG_DIR="$RELEASE_DIR/xiom-v$VERSION"
 BIN_DIR="$PKG_DIR/bin"
@@ -28,18 +37,6 @@ echo ""
 # Override these before running to customize the version banner.
 export XIOM_RELEASE_TAG="${XIOM_RELEASE_TAG:-Production}"
 export XIOM_RELEASE_STATS="${XIOM_RELEASE_STATS:-441/441 tests, zero warnings}"
-
-# Bump version in Cargo.toml so the binary reports the correct version.
-# Uses env!("CARGO_PKG_VERSION") at compile time.
-CARGO_TOML="$ROOT/crates/xiom/Cargo.toml"
-if [ -f "$CARGO_TOML" ]; then
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        sed -i '' "s/^version *= *\"[^\"]*\"/version = \"$VERSION\"/" "$CARGO_TOML"
-    else
-        sed -i "s/^version *= *\"[^\"]*\"/version = \"$VERSION\"/" "$CARGO_TOML"
-    fi
-    echo "  Cargo.toml version set to $VERSION"
-fi
 
 # Build all tools
 TOOLS=("xiom" "xiom-fmt" "xiom-doc" "xiom-ffigen" "xiom-pkg" "xiom-lsp" "xiom-mcp" "xiom-dbg" "xiom-verify")
@@ -244,7 +241,7 @@ Manual install:
   3. Run: xiom --help
 
 Contents:
-  bin/       - xiom, xiom-fmt, xiom-doc, etc.
+  bin/       - xiom, xiom-pkg, xiom-fmt, xiom-doc, etc.
   lib/       - Standard library (.xi source files)
   runtime/   - C runtime (xiom_runtime.c)
   install.sh - Installer script

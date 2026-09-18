@@ -9,7 +9,7 @@
     Builds all tools in release mode and packages into distributable folder + zip.
     Optionally signs all binaries with Authenticode (requires code signing certificate).
 .PARAMETER Version
-    Version string (default: 0.49.8)
+    Version string (default: [workspace.package] version from Cargo.toml)
 .PARAMETER Sign
     Sign all .exe binaries after packaging (requires -CertificateThumbprint or -CertificatePath).
 .PARAMETER CertificateThumbprint
@@ -21,15 +21,15 @@
 .EXAMPLE
     ./package.ps1
 .EXAMPLE
-    ./package.ps1 -Version 0.51.0
+    ./package.ps1 -Version 0.61.0
 .EXAMPLE
-    ./package.ps1 -Version 0.51.0 -Sign -CertificateThumbprint "A1B2C3D4..."
+    ./package.ps1 -Version 0.61.0 -Sign -CertificateThumbprint "A1B2C3D4..."
 .EXAMPLE
-    ./package.ps1 -Version 0.51.0 -Sign -CertificatePath .\xiom_code_sign.pfx -CertificatePassword "secret"
+    ./package.ps1 -Version 0.61.0 -Sign -CertificatePath .\xiom_code_sign.pfx -CertificatePassword "secret"
 #>
 
 param(
-    [string]$Version = "0.51.0",
+    [string]$Version = "",
     [switch]$Sign,
     [string]$CertificateThumbprint,
     [string]$CertificatePath,
@@ -38,6 +38,13 @@ param(
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
+# CRB-1: the workspace [workspace.package] version is the single source of
+# truth; packaging never edits Cargo.toml and never guesses a default.
+if (-not $Version) {
+    $versionMatch = Select-String -Path "$root\Cargo.toml" -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1
+    if ($versionMatch) { $Version = $versionMatch.Matches[0].Groups[1].Value }
+    else { throw "cannot read [workspace.package] version from $root\Cargo.toml; pass -Version" }
+}
 $releaseDir = "$root\release"
 $pkgDir = "$releaseDir\xiom-v$Version"
 $binDir = "$pkgDir\bin"
@@ -53,16 +60,6 @@ Write-Host ""
 # Override these before running to customize the version banner.
 if (-not $env:XIOM_RELEASE_TAG)    { $env:XIOM_RELEASE_TAG    = "Production" }
 if (-not $env:XIOM_RELEASE_STATS)  { $env:XIOM_RELEASE_STATS  = "1112 fast-suite / 2240 e2e, zero warnings" }
-
-# Bump version in Cargo.toml so the binary reports the correct version.
-# Uses env!("CARGO_PKG_VERSION") at compile time.
-$cargoTomlPath = "$root\crates\xiom\Cargo.toml"
-if (Test-Path $cargoTomlPath) {
-    $toml = Get-Content $cargoTomlPath -Raw
-    $toml = $toml -replace '(?m)^version\s*=\s*"[^"]+"', "version = `"$Version`""
-    Set-Content $cargoTomlPath -Value $toml -NoNewline
-    Write-Host "  Cargo.toml version set to $Version" -ForegroundColor DarkGray
-}
 
 # Build all tools
 $tools = @("xiom", "xiom-fmt", "xiom-doc", "xiom-ffigen", "xiom-pkg", "xiom-lsp", "xiom-mcp", "xiom-dbg", "xiom-verify")
@@ -185,7 +182,7 @@ Manual install:
   3. Run: xiom --help
 
 Contents:
-  bin\       - xiom.exe, xiom-fmt.exe, xiom-doc.exe, etc.
+  bin\       - xiom.exe, xiom-pkg.exe, xiom-fmt.exe, xiom-doc.exe, etc.
   lib\       - Standard library (.xi source files)
   runtime\   - C runtime (xiom_runtime.c)
   install.bat - Windows installer
@@ -243,4 +240,14 @@ $installShSrc = "$root\tools\installer\install.sh"
 if (Test-Path $installShSrc) {
     Copy-Item $installShSrc "$pkgDir\install.sh" -Force
     Write-Host "    + install.sh (Linux/macOS)" -ForegroundColor DarkGray
+}
+
+# CRB-2: the shipped MCP manifest carries the packaged version, not a
+# hardcoded one (the source manifest tracks the workspace version too).
+$mcpManifest = "$pkgDir\mcp\manifest.json"
+if (Test-Path $mcpManifest) {
+    $manifest = Get-Content $mcpManifest -Raw
+    $manifest = $manifest -replace '("version"\s*:\s*)"[^"]+"', ('$1"' + $Version + '"')
+    Set-Content $mcpManifest -Value $manifest -NoNewline
+    Write-Host "    + mcp/manifest.json version -> $Version" -ForegroundColor DarkGray
 }
