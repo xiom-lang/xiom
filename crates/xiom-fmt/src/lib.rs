@@ -12,11 +12,138 @@ use xiom_ast::*;
 pub struct Formatter {
     buf: String,
     indent: usize,
+    /// R84 (Stage 5): body trivia (comments) with source byte spans,
+    /// sorted by position. Empty unless attached via `with_trivia`.
+    comments: Vec<xiom_lexer::Trivia>,
+    next_comment: usize,
+    /// Byte offset of each source line start (body-relative), used to keep
+    /// a comment on the same line as the statement it followed.
+    line_starts: Vec<u32>,
+    /// Byte offsets of every `}` token, so a block can flush comments that
+    /// sit between its last statement and its closing brace.
+    close_braces: Vec<u32>,
 }
 
 impl Formatter {
     pub fn new() -> Self {
-        Self { buf: String::new(), indent: 0 }
+        Self {
+            buf: String::new(),
+            indent: 0,
+            comments: Vec::new(),
+            next_comment: 0,
+            line_starts: Vec::new(),
+            close_braces: Vec::new(),
+        }
+    }
+
+    /// Attach source comments so body-inline trivia survives `xiom fmt`.
+    /// `source` must be the SAME string the lexer tokenized (byte spans are
+    /// relative to it; the leading shebang/header block is stripped before
+    /// lexing and re-attached by `format_source_text`). `close_braces` are
+    /// the byte offsets of every `}` token, for block-boundary attachment.
+    pub fn with_trivia(
+        mut self,
+        comments: Vec<xiom_lexer::Trivia>,
+        close_braces: Vec<u32>,
+        source: &str,
+    ) -> Self {
+        self.line_starts = source
+            .bytes()
+            .enumerate()
+            .filter(|(_, b)| *b == b'\n')
+            .map(|(i, _)| (i + 1) as u32)
+            .collect();
+        self.comments = comments
+            .into_iter()
+            .filter(|t| {
+                matches!(
+                    t.kind,
+                    xiom_lexer::TriviaKind::LineComment | xiom_lexer::TriviaKind::BlockComment
+                )
+            })
+            .collect();
+        self.comments.sort_by_key(|t| t.span.byte_start);
+        self.close_braces = close_braces;
+        self
+    }
+
+    /// 0-based line index containing `byte` (body-relative).
+    fn line_of_byte(&self, byte: u32) -> usize {
+        match self.line_starts.binary_search(&byte) {
+            Ok(i) => i,
+            Err(i) => i.saturating_sub(1),
+        }
+    }
+
+    fn emit_comment(&mut self, text: &str) {
+        // Never glue a comment onto the previous token: a construct that
+        // closed without a trailing newline (e.g. a `}`) must be terminated
+        // first.
+        if !self.buf.is_empty() && !self.buf.ends_with('\n') {
+            self.buf.push('\n');
+        }
+        for line in text.split('\n') {
+            self.push_indent();
+            self.buf.push_str(line.trim_end());
+            self.buf.push('\n');
+        }
+    }
+
+    /// Smallest `}` byte offset at or after `byte`, or u32::MAX when none.
+    fn next_close_brace_after(&self, byte: u32) -> u32 {
+        self.close_braces
+            .iter()
+            .copied()
+            .filter(|b| *b >= byte)
+            .min()
+            .unwrap_or(u32::MAX)
+    }
+
+    /// Emit every pending comment that starts before `byte` (leading trivia
+    /// for the node about to be formatted).
+    fn flush_comments_before(&mut self, byte: u32) {
+        while let Some(c) = self.comments.get(self.next_comment) {
+            if c.span.byte_start >= byte {
+                break;
+            }
+            let text = c.text.clone();
+            self.emit_comment(&text);
+            self.next_comment += 1;
+        }
+    }
+
+    /// Emit pending comments that follow `end_byte` on the SAME source line
+    /// as the node that just ended (`stmt; // why`) before the newline.
+    fn flush_trailing_after(&mut self, end_byte: u32) {
+        if end_byte == 0 {
+            return;
+        }
+        let node_line = self.line_of_byte(end_byte);
+        while let Some(c) = self.comments.get(self.next_comment) {
+            if c.span.byte_start < end_byte {
+                break;
+            }
+            if self.line_of_byte(c.span.byte_start) != node_line {
+                break;
+            }
+            let text = c.text.clone();
+            if self.buf.ends_with('\n') {
+                self.buf.pop();
+            }
+            self.buf.push_str("  ");
+            self.buf.push_str(text.trim_end());
+            self.buf.push('\n');
+            self.next_comment += 1;
+        }
+    }
+
+    /// Flush everything left (comments after the last item / before EOF).
+    fn flush_remaining_comments(&mut self) {
+        while let Some(c) = self.comments.get(self.next_comment) {
+            let text = c.text.clone();
+            self.emit_comment(&text);
+            self.next_comment += 1;
+        }
     }
 
     pub fn format(&mut self, program: &Program) -> String {
@@ -34,8 +161,16 @@ impl Formatter {
     fn format_program(&mut self, program: &Program) {
         for (i, item) in program.items.iter().enumerate() {
             if i > 0 { self.buf.push('\n'); }
+            let span = top_decl_span(item);
+            if let Some(sp) = span {
+                self.flush_comments_before(sp.byte_start);
+            }
             self.format_top_decl(item);
+            if let Some(sp) = span {
+                self.flush_trailing_after(sp.byte_end);
+            }
         }
+        self.flush_remaining_comments();
         self.buf.push('\n');
     }
 
@@ -137,6 +272,10 @@ impl Formatter {
             self.format_fn_decl(func);
             self.buf.push_str(";\n");
         }
+        let after_last = eb.functions.last().map(|f| f.span.byte_end).filter(|b| *b > 0);
+        if let Some(after) = after_last {
+            self.flush_comments_before(self.next_close_brace_after(after));
+        }
         self.indent -= 1;
         self.push_indent();
         self.buf.push('}');
@@ -145,13 +284,42 @@ impl Formatter {
     fn format_block(&mut self, block: &Block) {
         for item in &block.stmts {
             match item {
-                StmtOrExpr::Stmt(stmt) => self.format_stmt(stmt),
+                StmtOrExpr::Stmt(stmt) => {
+                    let span = stmt_span(stmt);
+                    if let Some(sp) = span {
+                        self.flush_comments_before(sp.byte_start);
+                    }
+                    self.format_stmt(stmt);
+                    if let Some(sp) = span {
+                        self.flush_trailing_after(sp.byte_end);
+                    }
+                }
                 StmtOrExpr::Expr(expr) => {
+                    let sp = expr.span();
+                    self.flush_comments_before(sp.byte_start);
                     self.push_indent();
                     self.format_expr(expr);
                     self.buf.push_str(";\n");
+                    self.flush_trailing_after(sp.byte_end);
                 }
             }
+        }
+        // Comments sitting before the closing brace belong to this block,
+        // not to the statement after it (or the next file item). The parser
+        // does not always give a block a full byte range, so anchor on the
+        // first `}` token after the last statement (or the block start).
+        let after_last = block
+            .stmts
+            .iter()
+            .filter_map(|item| match item {
+                StmtOrExpr::Stmt(stmt) => stmt_span(stmt).map(|sp| sp.byte_end),
+                StmtOrExpr::Expr(expr) => Some(expr.span().byte_end),
+            })
+            .max()
+            .filter(|b| *b > 0)
+            .or(if block.span.byte_start > 0 { Some(block.span.byte_start) } else { None });
+        if let Some(after) = after_last {
+            self.flush_comments_before(self.next_close_brace_after(after));
         }
     }
 
@@ -540,18 +708,62 @@ pub(crate) fn format_float(f: f64) -> String {
     }
 }
 
-/// Format a source file while PRESERVING the shebang line and the leading
-/// comment/blank block (license headers). The AST pretty-printer used to
-/// drop both, so `xiom fmt -i` was destructive on every headered file.
-/// Comments INSIDE the program body are still dropped (trivia attachment to
-/// AST nodes is the follow-on slice; the leading block is the damaging case).
+/// R84 (Stage 5): statement span, or None for synthetic/unknown spans.
+fn stmt_span(stmt: &Stmt) -> Option<Span> {
+    match stmt {
+        Stmt::Let(_, _, _, s)
+        | Stmt::Var(_, _, _, s)
+        | Stmt::Assign(_, _, s)
+        | Stmt::Return(_, s)
+        | Stmt::Expr(_, s)
+        | Stmt::If(_, _, _, _, s)
+        | Stmt::Match(_, _, s)
+        | Stmt::While(_, _, _, s, _)
+        | Stmt::For(_, _, _, s, _)
+        | Stmt::Spawn(_, s, _)
+        | Stmt::Destructure(_, _, s)
+        | Stmt::Break(_, s)
+        | Stmt::Continue(_, s)
+        | Stmt::Defer(_, s)
+        | Stmt::Assert(_, _, s)
+        | Stmt::Debugger(s) => Some(*s),
+        Stmt::Asm(a) => Some(a.span),
+    }
+}
+
+/// R84 (Stage 5): top-level declaration span, or None for synthetic spans.
+fn top_decl_span(decl: &TopDecl) -> Option<Span> {
+    match decl {
+        TopDecl::Module(d) => Some(d.span),
+        TopDecl::Use(d) => Some(d.span),
+        TopDecl::Type(d) => Some(d.span),
+        TopDecl::Enum(d) => Some(d.span),
+        TopDecl::Interface(d) => Some(d.span),
+        TopDecl::Fn(d) => Some(d.span),
+        TopDecl::Const(d) => Some(d.span),
+        TopDecl::Extern(d) => Some(d.span),
+        TopDecl::Impl(d) => Some(d.span),
+        TopDecl::Spawn(_, sp, _) => Some(*sp),
+    }
+}
+
+/// Format a source file while PRESERVING the shebang line, the leading
+/// comment/blank block (license headers), AND body comments (leading to a
+/// statement, trailing on a statement's line, and before a closing brace).
+/// Comments inside expressions/argument lists attach to the next statement
+/// or the enclosing block's close -- their text is never dropped.
 pub fn format_source_text(source: &str) -> Result<String, String> {
     let (prefix, body) = split_leading_trivia(source);
     let mut lexer = xiom_lexer::Lexer::new(body);
-    let tokens = lexer.tokenize();
+    let (tokens, trivia) = lexer.tokenize_with_trivia();
+    let close_braces: Vec<u32> = tokens
+        .iter()
+        .filter(|t| t.kind == xiom_lexer::TokenKind::RBrace)
+        .map(|t| t.span.byte_start)
+        .collect();
     let mut parser = xiom_parser::Parser::new(tokens);
     let program = parser.parse_program().map_err(|e| format!("parse error: {e:?}"))?;
-    let mut formatter = Formatter::new();
+    let mut formatter = Formatter::new().with_trivia(trivia, close_braces, body);
     let formatted = formatter.format(&program);
     if prefix.is_empty() {
         Ok(formatted)
@@ -989,6 +1201,42 @@ mod tests {
         let formatted = format_source_text(src).unwrap();
         assert!(formatted.starts_with("/* header\n   block */"),
             "leading block comment must survive: {formatted}");
+    }
+
+    // R84 (Stage 5): body comments survive formatting.
+    #[test] fn test_body_comments_preserved() {
+        let src = "fn main() -> Int {\n  // leading note\n  let x = 1; // trailing why\n  /* before return */\n  return x;\n  // before close\n}\n";
+        let formatted = format_source_text(src).unwrap();
+        assert!(formatted.contains("// leading note"), "leading comment lost: {formatted}");
+        assert!(formatted.contains("/* before return */"), "block comment lost: {formatted}");
+        assert!(formatted.contains("// before close"), "pre-close comment lost: {formatted}");
+        let stmt_line = formatted
+            .lines()
+            .find(|l| l.contains("let x = 1;"))
+            .expect("let statement must be emitted");
+        assert!(
+            stmt_line.contains("// trailing why"),
+            "trailing comment must stay on the statement line: {formatted}"
+        );
+    }
+
+    #[test] fn test_top_level_comment_between_decls_preserved() {
+        let src = "fn a() -> Int { return 1; }\n\n// why b exists\nfn b() -> Int { return 2; }\n";
+        let formatted = format_source_text(src).unwrap();
+        assert!(formatted.contains("// why b exists"), "comment lost: {formatted}");
+        let comment_pos = formatted.find("// why b exists").unwrap();
+        let b_pos = formatted.find("fn b()").unwrap();
+        assert!(comment_pos < b_pos, "comment must precede fn b: {formatted}");
+    }
+
+    #[test] fn test_body_comments_idempotent() {
+        let src = "fn main() -> Int {\n  // note\n  let x = 1; // trail\n  /* blk */\n  return x;\n}\n";
+        let once = format_source_text(src).unwrap();
+        let twice = format_source_text(&once).unwrap();
+        assert_eq!(once, twice, "comment attachment must be idempotent");
+        for needle in ["// note", "// trail", "/* blk */"] {
+            assert!(once.contains(needle), "{needle} lost: {once}");
+        }
     }
 
     #[test] fn test_string_literal_escapes_round_trip() {

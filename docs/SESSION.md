@@ -239,9 +239,16 @@ perf/determinism 2/2, robustness 63/63, pkg/dbg/lsp/mcp 63/34/44/39.
 Stage 5 tail: **cargo-vet audits bootstrapped** (0.10.2,
 `supply-chain/config.toml` exempts the current 171 crates; `cargo vet` runs
 in the CI hygiene job beside cargo-deny, so new deps/version bumps fail
-until audited or explicitly exempted). Remaining Stage 5 items: clap
-migration, LSP incremental reparsing + cross-file index, fmt body-inline
-comment trivia.
+until audited or explicitly exempted). **fmt body comments LANDED**:
+`format_source_text` attaches lexer trivia to statements/declarations
+(leading, same-line trailing, and pre-close-`}` via brace-token anchors);
+3 new tests, idempotent, real stdlib file round-trips with all comments.
+Also finished version single-sourcing for the banners the CRB-2 list
+missed: xiom-fmt v0.47.6, xiom-ffigen v0.10.1/v0.7.0, xiom-lsp v0.48.9
+(help + window/logMessage), and the emitted IR header `; XIOM v0.50.0
+LLVM IR` -> `env!(CARGO_PKG_VERSION)` (same width; bench IR stays
+5,808,645 bytes, clang exit 0). Remaining Stage 5 items: clap migration,
+LSP incremental reparsing + cross-file index.
 
 ### Round-83 (2026-09-16): pre-split housekeeping + post-split handoff
 

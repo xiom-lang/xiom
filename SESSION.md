@@ -315,8 +315,13 @@ longer contains stdlib sources:
    transitive lock assertions).
 2. **clap migration** of the driver parser (large; keep the CLI surface
    byte-compatible, gate with the full e2e suite).
-3. **fmt**: body-inline comment trivia attachment (stage-2 trivia dependency;
-   shebang/header/string escaping already done round 42).
+3. **fmt: body-inline comment trivia attachment -- DONE (2026-09-18)**.
+   `format_source_text` threads lexer trivia (comments) and closing-brace
+   token positions into the Formatter: leading comments emit above the
+   statement/decl, same-line comments stay trailing, comments before a
+   block's `}` stay inside it; expression-internal comments attach to the
+   next statement or block close (never dropped). Idempotent; 3 new tests
+   + real-file round-trip. Remaining fmt polish: none tracked.
 4. **LSP**: finish the cross-file index work behind the incremental AST
    cache (lsp 44/44 currently).
 5. **Driver hygiene**: randomized temp names (the jit link dir is pid-based).
