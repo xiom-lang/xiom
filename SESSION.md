@@ -320,8 +320,12 @@ longer contains stdlib sources:
 4. **LSP**: finish the cross-file index work behind the incremental AST
    cache (lsp 44/44 currently).
 5. **Driver hygiene**: randomized temp names (the jit link dir is pid-based).
-6. **cargo-vet audits** (cargo-deny already runs in CI; cargo-fuzz and
-   ASAN/sanitizer CI landed round 69).
+6. **cargo-vet audits -- DONE (2026-09-18)**: `cargo vet` (0.10.2) is
+   bootstrapped with `supply-chain/config.toml` exempting the current 171
+   crates ("safe-to-deploy"); the CI hygiene job installs cargo-vet and runs
+   `cargo vet` next to cargo-deny, so any new dependency or version bump is
+   unvetted until audited or explicitly exempted. Imports/audits files are
+   empty until the first upstream audit import.
 7. **Same-leaf TYPE collision -> FIXED (R39, 2026-09-17)**: catalog injection
    module-qualifies colliding non-generic type leaves and rewrites references
    (`type_qualify.rs`; lock m84). The next bench clang error is the generic-mono

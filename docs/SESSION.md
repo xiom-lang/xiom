@@ -233,8 +233,15 @@ Compiler lane, post-split `main`. Three landings:
   `xiom-v0.61.0-windows-x64.zip` carries both binaries, both self-report
   0.61.0.
 
-Gates: e2e 2338/2338, feature-reg 510/510, checker 194/194,
+Gates: e2e 2338/2338, feature-reg 510/510, checker 195/195,
 perf/determinism 2/2, robustness 63/63, pkg/dbg/lsp/mcp 63/34/44/39.
+
+Stage 5 tail: **cargo-vet audits bootstrapped** (0.10.2,
+`supply-chain/config.toml` exempts the current 171 crates; `cargo vet` runs
+in the CI hygiene job beside cargo-deny, so new deps/version bumps fail
+until audited or explicitly exempted). Remaining Stage 5 items: clap
+migration, LSP incremental reparsing + cross-file index, fmt body-inline
+comment trivia.
 
 ### Round-83 (2026-09-16): pre-split housekeeping + post-split handoff
 

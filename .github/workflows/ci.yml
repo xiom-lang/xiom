@@ -25,7 +25,7 @@ env:
 
 jobs:
   hygiene:
-    name: workspace hygiene (all targets, MSRV 1.86, cargo-deny)
+    name: workspace hygiene (all targets, MSRV 1.86, cargo-deny, cargo-vet)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -48,6 +48,18 @@ jobs:
 
       - name: Supply-chain gate (advisories, licenses, bans, sources)
         run: cargo deny check advisories licenses bans sources
+
+      - name: Install cargo-vet
+        uses: taiki-e/install-action@20dbe8975311291f4d8dc8bbf4c4dd67b25920d5 # install-action
+        with:
+          tool: cargo-vet
+
+      # The committed supply-chain/config.toml exempts the CURRENT dependency
+      # tree (171 crates, cargo-vet 0.10.2). Any new dependency or version
+      # bump is unvetted and fails here until it is audited or explicitly
+      # exempted -- the supply-chain regression gate for the registry work.
+      - name: "Supply-chain gate (cargo-vet: audited or explicitly exempted)"
+        run: cargo vet
 
   build-and-test:
     name: ${{ matrix.os }}
