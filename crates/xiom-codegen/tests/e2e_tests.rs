@@ -4961,6 +4961,27 @@ fn e2e_safety_probe() {
     );
 }
 
+// R49 (playground C19 residue): a match arm whose result is a bare conversion
+// call (`Some(v) => to_string(v)`) must keep the i8* result type -- the old
+// i64 inference truncated the string pointer to one byte (L5-42 printed
+// garbage). Needs the stdlib checkout.
+#[test] fn e2e_m98_match_str_to_string() {
+    let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
+    if !stdlib_root.join("xiom").join("io.xi").exists() {
+        let msg = "SKIP: stdlib checkout has no xiom/io.xi";
+        if xiom_graph::paths::require_stdlib() {
+            panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
+        }
+        eprintln!("{msg}");
+        return;
+    }
+    assert_eq!(
+        compile_and_run("tests/regression/m98_match_str_to_string/main.xi"),
+        Some(0),
+        "R49 match-to_string probe must compile and run"
+    );
+}
+
 // R49 (playground C18 residue): fixed arrays of Str elements must keep the
 // i8* element type -- `friends[i]` used to ptrtoint the string handle and
 // print the ADDRESS (L0-11 "Hi, 1406..."). Harness-locked because the

@@ -7861,6 +7861,22 @@ impl IrEmitter {
                                 return rt.clone();
                             }
                         }
+                        // R49 (playground C18 residue): a BARE conversion call
+                        // (`to_string(v)` -> core.to_string -> i8*) has no
+                        // registered bare key. When every module-qualified
+                        // candidate agrees on a return type, use it -- the old
+                        // i64 fallback mistyped match-arm results and the Str
+                        // consumer then truncated the pointer to one byte
+                        // (L5-42 printed garbage).
+                        let mut rets: Vec<String> = Vec::new();
+                        for (k, (_, rt)) in self.types.functions.entries() {
+                            if k.ends_with(&suffix) && !rets.contains(&rt) {
+                                rets.push(rt.clone());
+                            }
+                        }
+                        if rets.len() == 1 {
+                            return rets.into_iter().next().unwrap();
+                        }
                     }
                     // Function pointer call -- look up tracked return type
                     if self.lookup_local(name).is_some() {

@@ -7397,9 +7397,11 @@ verification, with repro commands using the playground lesson sources
   `+` with an i8* operand infers i8*; bare conversion calls resolve a unique
   module-qualified return type) and Some/Ok bindings unbox struct payloads
   (`Vec[Student].get(...)`). L5-32 prints 2/2/First: 1, L5-34 Vec: Bob.
-- **L5-42 (C19 invalid UTF-8)**: NOT in this commit -- fix prepared (bare
-  `to_string(v)` resolves through the unique `.to_string` candidate
-  fallback), gated on its own e2e run.
+- **L5-42 (C19 invalid UTF-8)**: FIXED -- same match-slot class; a bare
+  `to_string(v)` call now resolves its return type through the unique
+  `.to_string` module-qualified candidate (was the i64 fallback, which made
+  the Str consumer truncate the pointer to one byte). Prints 10/20/30; lock
+  `e2e_m98_match_str_to_string`.
 - **@pre call capture (R49-2, stdlib relay)**: `collect_atpre_vars` now
   collects every variable under `expr@pre` (calls/fields), `AtPre` on a
   compound expression rebinds the entry snapshots for its duration (ref
@@ -7430,7 +7432,7 @@ verification, with repro commands using the playground lesson sources
   needed (L3-02, L5-09/20/24/26/29/31/35/36/43 nondeterministic; L3-50 exits
   200; L8-14 deterministically `0xC000001D` -- a trap reached in the
   Map[Str,Str] morse flow; L5-21 Float64.to_str inside Vec[T] generics).
-  L0-11's array-of-Str class is fixed.
+  L0-11's array-of-Str class and L5-32/34/42 match-slot classes are fixed.
 - **Perf: `xiom.fmt` peek closure** costs +2.3-2.5 s per first `.to_str()`
   compile (sweep p50 3.9 -> 7.9 s). Fix shape: a reachable-function-only
   peek -- peek the checker-resolved module shallow, run the reachability

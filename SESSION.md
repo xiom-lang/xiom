@@ -114,11 +114,24 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   args (9 playground L6 lessons), pointer/double match-result zero-init,
   script-cache build identity, native `xiom fmt|lsp|mcp|pkg|dbg|verify|ffigen`
   dispatch, WASM release asset. Lock `e2e_m92_interface_dispatch_zero_init`.
-- **Verified on `56b6e0e3`**: e2e **2340/2340**, feature-reg 510/510,
+- **R49 batch LANDED (2026-09-19)**: playground R48-residue fixes --
+  L6-28 (struct-literal generic inference + annotation type args + concrete
+  Option registration + boxed struct-element load/unbox + clone type),
+  L6-31 (duplicate definition dedupe), L8-15/L8-18 (computed Vec receivers,
+  consistent box/unbox, inline set memcpy), L6-05 (mono param Vec element
+  types), L2-19 (qualified enum variants), L0-11/array-of-Str (i8* element
+  type), L5-32/L5-34 (match slots keep Str + Some/Ok payload unbox),
+  L5-42 (bare conversion-call return type), and the stdlib-relayed
+  `@pre` call-capture bug (all-ident collection + pointer-slot rebind for
+  ref params + Vec-buffer deep snapshot). Locks `e2e_m93..m98` + CI lock
+  line; fixtures `tests/regression/m9[3-8]_*`.
+- **Verified on the R49 batch**: full e2e **2345/2345** (locks m93-m98
+  included). The earlier `56b6e0e3` record (2340/2340, feature-reg 510/510,
   checker 195/195, robustness 63/63, fuzz 24/24, perf/determinism 2/2,
   fmt 86/86, lsp 45/45, stdlib-exec 85/85 (+2 ignored), xiom lib 32/32,
   pkg/dbg/mcp 63/34/39, `cargo deny` + `cargo vet` clean, ASCII guard,
-  bench IR 5,808,645 bytes + `clang -c` exit 0. Workspace version 0.61.0.
+  bench IR 5,808,645 bytes + `clang -c` exit 0) still holds for the
+  unchanged lanes; workspace version 0.61.0.
 - **Release lane**: `release.yml` ships all nine CLI tools + pinned z3
   (tools/z3-pins.json, glibc floor 2.35) + `xiom-wasm-<ver>.wasm`; guard
   (tag == workspace version, ancestor of main) and the `compiler-release`
@@ -126,25 +139,37 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   wired. Pending: stdlib lane green -> bump `STDLIB_VERSION` in the release
   PR -> tag `v0.61.0`; optional rewrite of the protected tags
   `v0.60.0`/`v0.60.1` (old objects remain on the remote).
-- **OPEN compiler bugs = the R48 residue** (exact repros in
-  docs/COMPILER_BUGS.md R48; reproduce from the playground lesson sources):
-  1. C17 interface: L6-28, L6-40 (still `C001 type 'Int' does not
-     implement`).
-  2. C17 clang: L5-40 (`alloca %struct.Option__Vec_Str_`), L6-31
-     (`invalid redefinition of school.students.new_student`), L8-15/L8-18
-     (`i64` where `ptr` expected in `get_Int`).
-  3. C17 runtime AVs: L6-05, L2-19 (build, crash at run `0xC0000005`).
-  4. C18/C19 residue: 19 nondeterministic-pointer lessons, 7 invalid-UTF-8
-     lessons, L5-21 (Float64 bits inside `Vec[T]`).
-  5. Perf: `.to_str()` auto-injected `xiom.fmt` closure +2.3-2.5 s ->
+- **OPEN compiler bugs after R49** (exact repros/evidence in
+  docs/COMPILER_BUGS.md; reproduce from the playground lesson sources):
+  1. L6-40: module-scoped `Runner[T: Plugin]` `create()` -- T is only fixed
+     by a LATER call; needs a fixpoint pre-pass (single-pass inference
+     emits the `0` fallback). Trace evidence captured.
+  2. L5-40: builds now, but `group_by_age` prints 0 -- Map container-payload
+     ABI (insert boxes the Vec then memcpys the unboxed header into an
+     8-byte handle slot; get derefs the handle).
+  3. C18/C19 residue: remaining per-lesson triage (L3-02,
+     L5-09/20/24/26/29/31/35/36/43, L3-50 exit 200, L8-14 `0xC000001D`,
+     L5-21 Float64 bits inside `Vec[T]`).
+  4. R49-1 stdlib relay: module-path/declared-name resolver mismatch
+     (19 modules; same set as the api-freeze resolver misses).
+  5. R49-3 (Result payload contract) / R49-4 (clang ISel crash): filed.
+  6. Perf: `.to_str()` auto-injected `xiom.fmt` closure +2.3-2.5 s ->
      reachable-function-only peek (Stage 6 gate).
-  6. C3 (script-mode flags) / C6 (stdlib `package.xi`): need an exact
+  7. C3 (script-mode flags) / C6 (stdlib `package.xi`): need an exact
      playground repro before changing behavior.
+- **Final-IR tip**: `--emit-ir` prints the INTERMEDIATE emitter output; to
+  get the IR clang actually compiles, force the link to fail
+  (`--link missing_xyz`) and read `<output>.ll` (kept on failure, deleted
+  on success). A later pass rewrites e.g. `Task.to_str` stubs to
+  `Str.to_str`.
 - **Playground repro recipe**: `git clone --depth 1
   https://github.com/xiom-lang/playground tmp/playground`; each lesson
   `lessons/**/Lx-yy.json` carries `.solution`; extract to `tmp/lessons/` and
   run `target\debug\xiom.exe -o tmp\lessons\Lx-yy.exe tmp\lessons\Lx-yy.xi`
   (rebuild `cargo build -p xiom` first; stdlib resolves from `stdlib/`).
+  Do NOT rebuild while an e2e run is active: the harness spawns
+  `target/debug/xiom.exe` and a mid-run replacement produces flaky
+  crashes/false failures.
 
 ## State at handoff
 
