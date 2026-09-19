@@ -350,7 +350,8 @@ archives, and asserts the staged `--version` of each before archiving
 (CRB-3); the installer wrapper also dispatches `xiom pkg`. Verified
 locally: `release/xiom-v0.61.0/bin/xiom-pkg.exe --version` -> v0.61.0.
 
-**Installer / z3 ownership**: the compiler repo owns the installer and the
+**Installer / z3 ownership (superseded by CRB-3b below)**: the compiler repo
+owns the installer and the
 bundle LAYOUT -- `package.ps1` / `package.sh` / `tools/installer/*` build
 the portable folder and copy `z3.exe` into `bin/` when one exists at
 `target\release\z3.exe` or `%TEMP%\z3.exe`; `xiom-verify::find_z3`
@@ -372,6 +373,23 @@ after updating the toolchain: `node tools/generate-expected-outputs.js
 tools/lesson-baseline.json`. C17 (31 lessons cannot run at all) is NOT
 confirmed compiler-side -- the audit's suggested next step; ask them to
 re-run it on the fixed toolchain before assigning.
+
+**Installer / z3 ownership -- RESOLVED (CRB-3b, 2026-09-19)**: ops decided
+every archive ships all nine CLI tools and the pinned z3 solver. The
+compiler repo owns the pin (`tools/z3-pins.json`, z3-4.13.4 SHA256-verified
+per platform, Linux glibc floor 2.35), the platform-aware
+`Z3Runner::find_z3` (bundled sibling `z3[.exe]`, `Z3_PATH`, common installs,
+PATH; `xiom doctor` prints the resolved path), and the release.yml
+bundle/stage/assert steps. Windows archives carry the app-local VC runtime
+DLLs z3.exe needs; macOS carries `libz3.dylib`; both carry `LICENSE-Z3`.
+`package.ps1`/`package.sh` still copy a z3 found at `target/release` or
+`%TEMP%`; the CI path is the pinned download.
+
+**CRB-3b extras**: every tool now self-reports (`xiom-mcp`/`xiom-dbg`/
+`xiom-lsp` gained `--version`/`--help` before their stdio loops), and
+`[profile.release] strip = true` shrinks the nine release binaries. The
+staged-layout assert loop runs `--version` on all nine plus `z3 --version`
+before each archive is sealed; CRB-4 guard and CRB-4b dispatch unchanged.
 
 ## Remaining queue (compiler lane)
 

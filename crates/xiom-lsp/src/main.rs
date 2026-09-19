@@ -60,6 +60,12 @@ pub fn handle_lsp_message(msg: &serde_json::Value, backend: &Backend) -> Vec<ser
 
 fn main() {
     let args: Vec<String> = env::args().collect();
+    // CRB-3b: self-report before starting the stdio server so release-layout
+    // asserts never wait on the editor channel.
+    if args.iter().skip(1).any(|a| a == "--version" || a == "-V") {
+        println!("xiom-lsp v{}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
     if args.iter().any(|a| a == "--help") {
         print_usage();
         return;

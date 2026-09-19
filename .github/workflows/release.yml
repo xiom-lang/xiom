@@ -26,6 +26,15 @@ name: XIOM Release
 # cover xiom-lang/website (Contents: read/write) or the dispatch 404s.
 # Without the secret the step warns and skips; the release is not blocked.
 #
+# Bundle (CRB-3b): every archive ships all nine CLI tools (xiom, xiom-pkg,
+# xiom-fmt, xiom-doc, xiom-lsp, xiom-dbg, xiom-mcp, xiom-verify, xiom-ffigen)
+# plus the pinned Z3 solver next to them (bin/z3[.exe]) with the Z3 MIT
+# license as LICENSE-Z3. The pin lives in tools/z3-pins.json (single version
+# across platforms, SHA256 verified before extraction; Linux uses the oldest
+# glibc build, floor 2.35). Staged-layout asserts run EVERY tool's
+# `--version` (each tool self-reports the workspace version) and the bundled
+# `z3 --version` before archiving.
+#
 # macOS jobs are gated on the repository variable RELEASE_BUILD_MACOS=true
 # (macOS runner minutes bill 10x on private repos; enable once the repo is
 # public or when a macOS release is actually needed):
@@ -140,13 +149,61 @@ jobs:
           restore-keys: ${{ runner.os }}-release-
 
       - name: Build release
-        run: cargo build --release -p xiom -p xiom-pkg
+        run: cargo build --release -p xiom -p xiom-pkg -p xiom-fmt -p xiom-doc -p xiom-lsp -p xiom-dbg -p xiom-mcp -p xiom-verify -p xiom-ffigen
 
       - name: Verify binaries
         shell: bash
         run: |
-          target/release/xiom --version
-          target/release/xiom-pkg --version
+          for t in xiom xiom-pkg xiom-fmt xiom-doc xiom-lsp xiom-dbg xiom-mcp xiom-verify xiom-ffigen; do
+            target/release/$t --version >/dev/null || { echo "::error::$t --version failed"; exit 1; }
+          done
+
+      - name: Bundle z3 (Windows, pinned + SHA256)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $pins = Get-Content tools\z3-pins.json -Raw | ConvertFrom-Json
+          $p = $pins.platforms.'windows-x64'
+          New-Item -ItemType Directory -Force stage\bin | Out-Null
+          $zip = Join-Path $env:TEMP 'xiom-z3.zip'
+          Invoke-WebRequest -Uri $p.url -OutFile $zip
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($actual -ne $p.sha256) { throw "z3 SHA256 mismatch: $actual" }
+          $dir = Join-Path $env:TEMP 'xiom-z3'
+          if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
+          Expand-Archive -Path $zip -DestinationPath $dir -Force
+          Copy-Item (Join-Path $dir ($p.bin -replace '/','\')) (Join-Path 'stage' ($p.target -replace '/','\'))
+          foreach ($f in $p.bundle) { Copy-Item (Join-Path $dir ($f -replace '/','\')) 'stage\bin\' }
+          Copy-Item (Join-Path $dir $pins.license_file) 'stage\LICENSE-Z3'
+          & 'stage\bin\z3.exe' --version
+
+      - name: Bundle z3 (Linux/macOS, pinned + SHA256)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/z3pin.env
+          import json
+          pins = json.load(open("tools/z3-pins.json"))
+          p = pins["platforms"]["${{ matrix.platform }}"]
+          print("Z3_URL=" + p["url"])
+          print("Z3_SHA=" + p["sha256"])
+          print("Z3_BIN=" + p["bin"])
+          print("Z3_TARGET=" + p["target"])
+          print("Z3_FILES=" + " ".join(p.get("bundle", [])))
+          print("Z3_LICENSE=" + pins["license_file"])
+          PY
+          . /tmp/z3pin.env
+          curl -sSL "$Z3_URL" -o /tmp/xiom-z3.zip
+          actual="$(shasum -a 256 /tmp/xiom-z3.zip | awk '{print $1}')"
+          [ "$actual" = "$Z3_SHA" ] || { echo "::error::z3 SHA256 mismatch: $actual"; exit 1; }
+          rm -rf /tmp/xiom-z3 && mkdir -p /tmp/xiom-z3
+          unzip -q /tmp/xiom-z3.zip -d /tmp/xiom-z3
+          mkdir -p stage/bin
+          cp "/tmp/xiom-z3/$Z3_BIN" "stage/$Z3_TARGET"
+          for f in $Z3_FILES; do cp "/tmp/xiom-z3/$f" stage/bin/; done
+          cp "/tmp/xiom-z3/$Z3_LICENSE" stage/LICENSE-Z3
+          "stage/$Z3_TARGET" --version
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
@@ -159,18 +216,22 @@ jobs:
         run: |
           $ver = $env:RELEASE_VERSION -replace '^v', ''
           $stage = 'stage'
+          $tools = 'xiom','xiom-pkg','xiom-fmt','xiom-doc','xiom-lsp','xiom-dbg','xiom-mcp','xiom-verify','xiom-ffigen'
           New-Item -ItemType Directory -Force "$stage/bin", "$stage/lib" | Out-Null
-          Copy-Item target\release\xiom.exe "$stage/bin/"
-          Copy-Item target\release\xiom-pkg.exe "$stage/bin/"
+          foreach ($t in $tools) { Copy-Item "target\release\$t.exe" "$stage/bin/" }
           Copy-Item stdlib\xiom "$stage/lib/xiom" -Recurse
           Copy-Item stdlib\runtime "$stage/lib/runtime" -Recurse
           Copy-Item stdlib\package.xi "$stage/lib/"
           Copy-Item LICENSE-MIT, LICENSE-APACHE, NOTICE, README.md $stage
-          # CRB-3: staged layout must self-report the packaged version.
-          $xiomOut = & "$stage/bin/xiom.exe" --version 2>&1 | Out-String
-          if ($xiomOut -notmatch [regex]::Escape("v$ver")) { throw "staged xiom --version does not report v$ver`: $xiomOut" }
-          $pkgOut = & "$stage/bin/xiom-pkg.exe" --version 2>&1 | Out-String
-          if ($pkgOut -notmatch [regex]::Escape("v$ver")) { throw "staged xiom-pkg --version does not report v$ver`: $pkgOut" }
+          # CRB-3b: every staged tool (and the bundled solver) must run and
+          # self-report the packaged version before the archive is sealed.
+          foreach ($t in $tools) {
+            $out = & "$stage/bin/$t.exe" --version 2>&1 | Out-String
+            $code = $LASTEXITCODE
+            if ($code -ne 0 -or $out -notmatch [regex]::Escape("v$ver")) { throw "$t --version does not report v$ver (exit $code): $out" }
+          }
+          $z3Out = & "$stage/bin/z3.exe" --version 2>&1 | Out-String
+          if ($z3Out -notmatch 'Z3 version') { throw "staged z3 does not run: $z3Out" }
           $name = "xiom-$ver-windows-x64.zip"
           Compress-Archive -Path "$stage/*" -DestinationPath $name
           $hash = (Get-FileHash $name -Algorithm SHA256).Hash.ToLower()
@@ -185,17 +246,21 @@ jobs:
         run: |
           ver="${RELEASE_VERSION#v}"
           mkdir -p stage/bin stage/lib
-          cp target/release/xiom stage/bin/
-          cp target/release/xiom-pkg stage/bin/
+          for t in xiom xiom-pkg xiom-fmt xiom-doc xiom-lsp xiom-dbg xiom-mcp xiom-verify xiom-ffigen; do
+            cp "target/release/$t" stage/bin/
+          done
           cp -r stdlib/xiom stage/lib/xiom
           cp -r stdlib/runtime stage/lib/runtime
           cp stdlib/package.xi stage/lib/
           cp LICENSE-MIT LICENSE-APACHE NOTICE README.md stage/
-          # CRB-3: staged layout must self-report the packaged version.
-          xiom_out="$(stage/bin/xiom --version)"
-          case "$xiom_out" in *"v$ver"*) ;; *) echo "::error::staged xiom --version does not report v$ver: $xiom_out"; exit 1;; esac
-          pkg_out="$(stage/bin/xiom-pkg --version)"
-          case "$pkg_out" in *"v$ver"*) ;; *) echo "::error::staged xiom-pkg --version does not report v$ver: $pkg_out"; exit 1;; esac
+          # CRB-3b: every staged tool (and the bundled solver) must run and
+          # self-report the packaged version before the archive is sealed.
+          for t in xiom xiom-pkg xiom-fmt xiom-doc xiom-lsp xiom-dbg xiom-mcp xiom-verify xiom-ffigen; do
+            out="$(stage/bin/$t --version 2>&1)"
+            case "$out" in *"v$ver"*) ;; *) echo "::error::$t --version does not report v$ver: $out"; exit 1;; esac
+          done
+          z3_out="$(stage/bin/z3 --version 2>&1)"
+          case "$z3_out" in *"Z3 version"*) ;; *) echo "::error::staged z3 does not run: $z3_out"; exit 1;; esac
           name="xiom-$ver-linux-x64.tar.gz"
           tar -czf "$name" -C stage .
           sha256sum "$name" > SHA256SUMS-linux-x64
@@ -262,7 +327,34 @@ jobs:
           restore-keys: ${{ runner.os }}-release-
 
       - name: Build release
-        run: cargo build --release -p xiom -p xiom-pkg
+        run: cargo build --release -p xiom -p xiom-pkg -p xiom-fmt -p xiom-doc -p xiom-lsp -p xiom-dbg -p xiom-mcp -p xiom-verify -p xiom-ffigen
+
+      - name: Bundle z3 (macOS, pinned + SHA256)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/z3pin.env
+          import json
+          pins = json.load(open("tools/z3-pins.json"))
+          p = pins["platforms"]["${{ matrix.platform }}"]
+          print("Z3_URL=" + p["url"])
+          print("Z3_SHA=" + p["sha256"])
+          print("Z3_BIN=" + p["bin"])
+          print("Z3_TARGET=" + p["target"])
+          print("Z3_FILES=" + " ".join(p.get("bundle", [])))
+          print("Z3_LICENSE=" + pins["license_file"])
+          PY
+          . /tmp/z3pin.env
+          curl -sSL "$Z3_URL" -o /tmp/xiom-z3.zip
+          actual="$(shasum -a 256 /tmp/xiom-z3.zip | awk '{print $1}')"
+          [ "$actual" = "$Z3_SHA" ] || { echo "::error::z3 SHA256 mismatch: $actual"; exit 1; }
+          rm -rf /tmp/xiom-z3 && mkdir -p /tmp/xiom-z3
+          unzip -q /tmp/xiom-z3.zip -d /tmp/xiom-z3
+          mkdir -p stage/bin
+          cp "/tmp/xiom-z3/$Z3_BIN" "stage/$Z3_TARGET"
+          for f in $Z3_FILES; do cp "/tmp/xiom-z3/$f" stage/bin/; done
+          cp "/tmp/xiom-z3/$Z3_LICENSE" stage/LICENSE-Z3
+          "stage/$Z3_TARGET" --version
 
       - name: Package (macOS)
         shell: bash
@@ -271,17 +363,21 @@ jobs:
         run: |
           ver="${RELEASE_VERSION#v}"
           mkdir -p stage/bin stage/lib
-          cp target/release/xiom stage/bin/
-          cp target/release/xiom-pkg stage/bin/
+          for t in xiom xiom-pkg xiom-fmt xiom-doc xiom-lsp xiom-dbg xiom-mcp xiom-verify xiom-ffigen; do
+            cp "target/release/$t" stage/bin/
+          done
           cp -r stdlib/xiom stage/lib/xiom
           cp -r stdlib/runtime stage/lib/runtime
           cp stdlib/package.xi stage/lib/
           cp LICENSE-MIT LICENSE-APACHE NOTICE README.md stage/
-          # CRB-3: staged layout must self-report the packaged version.
-          xiom_out="$(stage/bin/xiom --version)"
-          case "$xiom_out" in *"v$ver"*) ;; *) echo "::error::staged xiom --version does not report v$ver: $xiom_out"; exit 1;; esac
-          pkg_out="$(stage/bin/xiom-pkg --version)"
-          case "$pkg_out" in *"v$ver"*) ;; *) echo "::error::staged xiom-pkg --version does not report v$ver: $pkg_out"; exit 1;; esac
+          # CRB-3b: every staged tool (and the bundled solver) must run and
+          # self-report the packaged version before the archive is sealed.
+          for t in xiom xiom-pkg xiom-fmt xiom-doc xiom-lsp xiom-dbg xiom-mcp xiom-verify xiom-ffigen; do
+            out="$(stage/bin/$t --version 2>&1)"
+            case "$out" in *"v$ver"*) ;; *) echo "::error::$t --version does not report v$ver: $out"; exit 1;; esac
+          done
+          z3_out="$(stage/bin/z3 --version 2>&1)"
+          case "$z3_out" in *"Z3 version"*) ;; *) echo "::error::staged z3 does not run: $z3_out"; exit 1;; esac
           name="xiom-$ver-${{ matrix.platform }}.tar.gz"
           tar -czf "$name" -C stage .
           shasum -a 256 "$name" > "SHA256SUMS-${{ matrix.platform }}"

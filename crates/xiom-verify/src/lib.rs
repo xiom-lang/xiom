@@ -1276,6 +1276,11 @@ impl Z3Runner {
     }
 
     /// Auto-detect z3 binary: env override, bundled, common installs, PATH.
+    ///
+    /// CRB-3b: the bundled check is PLATFORM-AWARE (`z3.exe` on Windows,
+    /// `z3` elsewhere) and also probes `<exe_dir>/../bin/`, so the release
+    /// archives' `bin/z3` (Linux/macOS) and `bin/z3.exe` (Windows) are found
+    /// next to the compiler. Z3_PATH and PATH remain as fallbacks.
     pub fn find_z3() -> Option<String> {
         if let Ok(path) = std::env::var("Z3_PATH") {
             if std::path::Path::new(&path).exists() {
@@ -1284,29 +1289,52 @@ impl Z3Runner {
         }
         if let Ok(exe_path) = std::env::current_exe() {
             if let Some(dir) = exe_path.parent() {
-                let bundled = dir.join("z3.exe");
-                if bundled.exists() { return Some(bundled.to_string_lossy().to_string()); }
+                for candidate in Self::bundled_candidates(dir) {
+                    if candidate.exists() {
+                        return Some(candidate.to_string_lossy().to_string());
+                    }
+                }
             }
         }
-        let candidates = [
-            r"C:\Program Files\z3\bin\z3.exe",
-            r"C:\z3\bin\z3.exe",
-        ];
-        for c in &candidates {
+        let candidates: &[&str] = if cfg!(windows) {
+            &[r"C:\Program Files\z3\bin\z3.exe", r"C:\z3\bin\z3.exe"]
+        } else {
+            &[
+                "/usr/bin/z3",
+                "/usr/local/bin/z3",
+                "/opt/homebrew/bin/z3",
+                "/opt/local/bin/z3",
+            ]
+        };
+        for c in candidates {
             if std::path::Path::new(c).exists() {
-                return Some(c.to_string());
+                return Some((*c).to_string());
             }
         }
-        if std::process::Command::new("z3")
+        if std::process::Command::new(Self::Z3_BINARY)
             .arg("--version")
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status()
             .map_or(false, |s| s.success())
         {
-            return Some("z3".to_string());
+            return Some(Self::Z3_BINARY.to_string());
         }
         None
+    }
+
+    /// Platform-correct bundled binary name.
+    pub const Z3_BINARY: &'static str = if cfg!(windows) { "z3.exe" } else { "z3" };
+
+    /// Candidate bundled locations relative to the running executable:
+    /// a sibling (`<archive>/bin/z3` next to `xiom`) and, for dev builds in
+    /// `target/debug|release`, the workspace-side `../bin` layout.
+    pub fn bundled_candidates(exe_dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut out = vec![exe_dir.join(Self::Z3_BINARY)];
+        if let Some(parent) = exe_dir.parent() {
+            out.push(parent.join("bin").join(Self::Z3_BINARY));
+        }
+        out
     }
 
     pub fn with_z3_path(mut self, path: &str) -> Self {
@@ -1560,3 +1588,25 @@ pub fn expr_display(expr: &Expr) -> String {
     }
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// CRB-3b: the bundled-z3 lookup must be platform-aware -- a sibling
+    /// `z3.exe` on Windows, `z3` elsewhere, plus the `../bin` layout.
+    #[test]
+    fn bundled_candidates_are_platform_aware() {
+        let dir = if cfg!(windows) {
+            std::path::Path::new(r"C:\xiom\bin")
+        } else {
+            std::path::Path::new("/opt/xiom/bin")
+        };
+        let expected = if cfg!(windows) { "z3.exe" } else { "z3" };
+        assert_eq!(Z3Runner::Z3_BINARY, expected);
+        let candidates = Z3Runner::bundled_candidates(dir);
+        assert_eq!(candidates[0], dir.join(expected));
+        assert_eq!(candidates[1].file_name().unwrap().to_string_lossy(), expected);
+        assert!(candidates[1].to_string_lossy().contains("bin"));
+    }
+}

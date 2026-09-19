@@ -279,6 +279,22 @@ receivers for the `to_str` sugar (pointer bits / IEEE bits were printed as
 integers before). Lock `e2e_m91_conversion_methods` (no `xiom.fmt` import);
 stdlib-exec 85/85, feature-reg 510/510, perf 2/2.
 
+**CRB-3b LANDED (ops release decision, 2026-09-19)**: every archive ships
+all nine CLI tools (xiom, xiom-pkg, xiom-fmt, xiom-doc, xiom-lsp, xiom-dbg,
+xiom-mcp, xiom-verify, xiom-ffigen) plus the pinned Z3 solver. Compiler
+changes: platform-aware `Z3Runner::find_z3` (bundled `z3[.exe]` sibling and
+`../bin`, `Z3_PATH`, common installs, PATH) with `xiom doctor` printing the
+resolved path; `--version`/`--help` self-report for xiom-mcp/xiom-dbg/
+xiom-lsp before their stdio loops; `[profile.release] strip = true`;
+`tools/z3-pins.json` pins z3-4.13.4 per platform with SHA256 (Linux glibc
+floor 2.35, Windows app-local VC runtime DLLs, macOS libz3.dylib,
+LICENSE-Z3); `release.yml` verifies the SHA256 before extraction, bundles
+z3 on all three platforms, stages all nine tools and asserts every
+`--version` plus `z3 --version` before sealing. Guard/dispatch unchanged.
+Verified locally: release build of all nine (strip) + assert loop, bundled
+z3 discovered by `xiom doctor` from a staged `bin/`, bench IR 5,808,645 and
+clang-clean, lsp 45/45, verify 32/32.
+
 Stage 5 tail (cont.): **driver temp hygiene closed** -- the JIT temp
 directory mixes pid with the time+counter suffix (pid reuse plus a stale
 directory could hit the same `_jit.*` paths) and is removed best-effort

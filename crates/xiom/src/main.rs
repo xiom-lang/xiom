@@ -1805,9 +1805,10 @@ fn run_doctor() {
     let clang_ok = std::process::Command::new("clang").arg("--version").output().map(|o| o.status.success()).unwrap_or(false);
     if clang_ok { println!("  [OK] clang/LLVM found"); }
     else { println!("  [!!] clang NOT FOUND - run: xiom install llvm"); }
-    let z3_ok = xiom_verify::Z3Runner::find_z3().is_some();
-    if z3_ok { println!("  [OK] z3 bundled (contract verification)"); }
-    else { println!("  [--] z3 not found (optional)"); }
+    match xiom_verify::Z3Runner::find_z3() {
+        Some(path) => println!("  [OK] z3 found: {path} (contract verification)"),
+        None => println!("  [--] z3 not found (release archives bundle bin/z3)"),
+    }
     let home = std::env::var("XIOM_HOME").unwrap_or_else(|_| {
         if cfg!(windows) { format!("{}\\xiom", std::env::var("LOCALAPPDATA").unwrap_or_default()) }
         else { format!("{}/xiom", std::env::var("HOME").unwrap_or_default()) }

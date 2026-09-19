@@ -17,7 +17,12 @@
 
 ### Option A: From a release package (recommended for users)
 
-Download the latest release zip. The binary is at `bin/xiom-mcp.exe` (Windows) or `bin/xiom-mcp` (Linux/macOS).
+Download the latest release zip. It ships **all nine CLI tools** --
+`xiom`, `xiom-pkg`, `xiom-fmt`, `xiom-doc`, `xiom-lsp`, `xiom-dbg`,
+`xiom-mcp`, `xiom-verify`, `xiom-ffigen` -- plus the pinned **Z3 solver**
+(`bin/z3.exe` / `bin/z3`, license `LICENSE-Z3`) used by `xiom --verify`.
+The MCP binary is at `bin/xiom-mcp.exe` (Windows) or `bin/xiom-mcp`
+(Linux/macOS); run it with `--version` to confirm the build.
 
 ### Option B: Build from source (for contributors)
 

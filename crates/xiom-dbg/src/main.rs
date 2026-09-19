@@ -300,6 +300,21 @@ fn run_json_mode(args: &[String]) -> io::Result<()> {
 fn main() -> io::Result<()> {
     let args: Vec<String> = std::env::args().collect();
 
+    // CRB-3b: self-report flags before the DAP loop so release-layout
+    // asserts never wait on the editor's stdio channel.
+    if args.iter().skip(1).any(|a| a == "--version" || a == "-V") {
+        println!("xiom-dbg v{}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+    if args.iter().skip(1).any(|a| a == "--help" || a == "-h") {
+        println!(
+            "XIOM Debug Adapter v{} -- DAP server (GDB/MI backend)",
+            env!("CARGO_PKG_VERSION")
+        );
+        println!("usage: xiom-dbg [--json ...] [--version|--help]");
+        return Ok(());
+    }
+
     // Phase 8B: --json mode -- single-command JSON API for GUIs/scripts
     if args.len() >= 2 && args[1] == "--json" {
         return run_json_mode(&args);

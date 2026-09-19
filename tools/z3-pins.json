@@ -1,0 +1,50 @@
+{
+  "comment": "CRB-3b: pinned Z3 bundle for release archives. Single version across platforms (z3-4.13.4, Z3 MIT license copied as LICENSE-Z3). Linux picks the OLDEST glibc build (2.35: Ubuntu 22.04+/Debian 12+) so the distro matrix and older user systems run it; the CI runners (ubuntu-latest, glibc 2.39) satisfy that floor. macOS/Windows archives ship the app-local runtime bits the vendor zip needs (libz3.dylib on macOS; msvcp/vcruntime/vcomp on Windows). Verified during the release build with SHA256 before extraction.",
+  "version": "4.13.4",
+  "license_file": "LICENSE.txt",
+  "platforms": {
+    "windows-x64": {
+      "url": "https://github.com/Z3Prover/z3/releases/download/z3-4.13.4/z3-4.13.4-x64-win.zip",
+      "sha256": "0a36dd5654fe423d23a727c4570c9db9a315926a4301189b868b6eb9bfd5979d",
+      "bin": "z3-4.13.4-x64-win/bin/z3.exe",
+      "target": "bin/z3.exe",
+      "bundle": [
+        "z3-4.13.4-x64-win/bin/msvcp140.dll",
+        "z3-4.13.4-x64-win/bin/msvcp140_1.dll",
+        "z3-4.13.4-x64-win/bin/msvcp140_2.dll",
+        "z3-4.13.4-x64-win/bin/msvcp140_atomic_wait.dll",
+        "z3-4.13.4-x64-win/bin/msvcp140_codecvt_ids.dll",
+        "z3-4.13.4-x64-win/bin/vcomp140.dll",
+        "z3-4.13.4-x64-win/bin/vcruntime140.dll",
+        "z3-4.13.4-x64-win/bin/vcruntime140_1.dll",
+        "z3-4.13.4-x64-win/bin/vcruntime140_threads.dll"
+      ]
+    },
+    "linux-x64": {
+      "url": "https://github.com/Z3Prover/z3/releases/download/z3-4.13.4/z3-4.13.4-x64-glibc-2.35.zip",
+      "sha256": "93f91f9c6f4a00a041c19fc7a74adc1f441c8244ce70d486e19abcd89c6a014b",
+      "glibc_floor": "2.35",
+      "bin": "z3-4.13.4-x64-glibc-2.35/bin/z3",
+      "target": "bin/z3",
+      "bundle": []
+    },
+    "macos-x64": {
+      "url": "https://github.com/Z3Prover/z3/releases/download/z3-4.13.4/z3-4.13.4-x64-osx-13.7.1.zip",
+      "sha256": "7598c2be3129429e83fb5082b92ae973f41a6a289873b4ea33180d9072067e80",
+      "bin": "z3-4.13.4-x64-osx-13.7.1/bin/z3",
+      "target": "bin/z3",
+      "bundle": [
+        "z3-4.13.4-x64-osx-13.7.1/bin/libz3.dylib"
+      ]
+    },
+    "macos-arm64": {
+      "url": "https://github.com/Z3Prover/z3/releases/download/z3-4.13.4/z3-4.13.4-arm64-osx-13.7.1.zip",
+      "sha256": "e23d03005558c1b5d3c1b8bd503e65b84edfe3f1ae4298bd8c4710b5b0a645eb",
+      "bin": "z3-4.13.4-arm64-osx-13.7.1/bin/z3",
+      "target": "bin/z3",
+      "bundle": [
+        "z3-4.13.4-arm64-osx-13.7.1/bin/libz3.dylib"
+      ]
+    }
+  }
+}

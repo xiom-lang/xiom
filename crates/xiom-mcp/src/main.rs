@@ -872,6 +872,25 @@ fn handle_request(req: &RpcRequest) -> RpcResponse {
 // ============================================================================
 
 fn main() -> io::Result<()> {
+    // CRB-3b: self-report flags BEFORE starting the stdio JSON-RPC loop, so
+    // release-layout asserts and humans never block waiting on stdin.
+    for arg in std::env::args().skip(1) {
+        match arg.as_str() {
+            "--version" | "-V" => {
+                println!("xiom-mcp v{}", env!("CARGO_PKG_VERSION"));
+                return Ok(());
+            }
+            "--help" | "-h" => {
+                println!(
+                    "XIOM MCP Server v{} -- stdio JSON-RPC (Model Context Protocol)",
+                    env!("CARGO_PKG_VERSION")
+                );
+                println!("usage: xiom-mcp [--version|--help]");
+                return Ok(());
+            }
+            _ => {}
+        }
+    }
     let stdin = io::stdin();
     let stdout = io::stdout();
     let reader = BufReader::new(stdin.lock());

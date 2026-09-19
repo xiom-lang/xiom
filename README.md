@@ -77,12 +77,13 @@ Download the latest `xiom-v0.61.0-windows-x64.zip` from [Releases](https://githu
 Release folder structure:
 ```
 xiom-v0.61.0\
-|-- bin\              xiom.exe, xiom-fmt.exe, xiom-doc.exe,
-|                     xiom-ffigen.exe, xiom-pkg.exe, xiom-lsp.exe,
-|                     xiom-icon.ico
+|-- bin\              xiom.exe, xiom-pkg.exe, xiom-fmt.exe, xiom-doc.exe,
+|                     xiom-lsp.exe, xiom-dbg.exe, xiom-mcp.exe,
+|                     xiom-verify.exe, xiom-ffigen.exe, z3.exe
 |-- lib\              Standard library (.xi source files)
 |-- runtime\          C runtime (xiom_runtime.c)
 |-- install.bat       Double-click Windows installer
+|-- LICENSE-Z3        Z3 solver license (bundled bin/z3 for --verify)
 `-- README.txt
 ```
 
