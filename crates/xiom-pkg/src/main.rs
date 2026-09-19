@@ -417,8 +417,12 @@ fn resolve_dependencies(pkg: &Package, project_root: &Path) -> HashMap<String, P
     let mut resolved = HashMap::new();
 
     let known_packages = vec![
-        ("xiom-std", "stdlib"),
+        // R50 (registry relay f743308): registry names are dotted now.
+        ("xiom.std", "stdlib"),
         ("xiom", "stdlib/xiom"),
+        // Legacy hyphen spelling (pre-f743308 packages): accepted as an
+        // alias until the pinned stdlib checkout renames its `deps` key.
+        ("xiom-std", "stdlib"),
     ];
 
     for dep_name in pkg.deps.keys() {
@@ -438,8 +442,14 @@ fn resolve_dependencies(pkg: &Package, project_root: &Path) -> HashMap<String, P
     }
 
     let stdlib_path = find_workspace_root(project_root).join("stdlib");
-    if stdlib_path.exists() && !resolved.contains_key("xiom-std") {
-        resolved.insert("xiom-std".to_string(), stdlib_path);
+    if stdlib_path.exists() {
+        // Canonical dotted name plus the legacy hyphen alias (same target).
+        if !resolved.contains_key("xiom.std") {
+            resolved.insert("xiom.std".to_string(), stdlib_path.clone());
+        }
+        if !resolved.contains_key("xiom-std") {
+            resolved.insert("xiom-std".to_string(), stdlib_path);
+        }
     }
 
     resolved
@@ -1176,6 +1186,31 @@ modules: [
     }
 
     #[test]
+    fn test_resolve_dependencies_dotted_and_legacy_alias() {
+        // R50: canonical dotted name resolves, legacy hyphen spelling keeps
+        // working as an alias against the same checkout.
+        let base = std::env::temp_dir().join("xiom_pkg_dotted_std_test");
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(base.join("stdlib")).expect("create stdlib dir");
+        fs::write(base.join("Cargo.toml"), "[workspace]\n").expect("write Cargo.toml");
+        let root = base.join("proj");
+        fs::create_dir_all(&root).expect("create project dir");
+
+        let mut dotted = Package::default();
+        dotted.deps.insert("xiom.std".to_string(), "0.1.0".to_string());
+        let resolved = resolve_dependencies(&dotted, &root);
+        assert!(resolved.contains_key("xiom.std"), "dotted xiom.std must resolve");
+        assert!(resolved.contains_key("xiom-std"), "legacy alias must resolve too");
+
+        let mut legacy = Package::default();
+        legacy.deps.insert("xiom-std".to_string(), "0.1.0".to_string());
+        let resolved_legacy = resolve_dependencies(&legacy, &root);
+        assert!(resolved_legacy.contains_key("xiom-std"), "legacy spelling must still resolve");
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn test_extract_field() {
         assert_eq!(extract_field(r#"name: "test";"#, "name:"), Some("test".to_string()));
         assert_eq!(extract_field(r#"version: "1.2.3";"#, "version:"), Some("1.2.3".to_string()));
@@ -1296,14 +1331,14 @@ deps: { "dep": "^1.5.0" }
   name: "alg";
   version: "0.1.0";
   deps: {
-    "xiom-std": ">=0.5.0,<1.0.0",
+    "xiom.std": ">=0.5.0,<1.0.0",
     "lib": "path:../lib",
     "git-dep" = "git:https://github.com/x/y@0123456789abcdef0123456789abcdef01234567"
   };
 }"#;
         let pkg = parse_manifest(manifest);
         assert_eq!(pkg.deps.len(), 3, "deps: {:?}", pkg.deps);
-        assert_eq!(pkg.deps.get("xiom-std").map(String::as_str), Some(">=0.5.0,<1.0.0"));
+        assert_eq!(pkg.deps.get("xiom.std").map(String::as_str), Some(">=0.5.0,<1.0.0"));
         assert_eq!(pkg.deps.get("lib").map(String::as_str), Some("path:../lib"));
         assert_eq!(pkg.deps.get("git-dep").map(String::as_str), Some("git:https://github.com/x/y@0123456789abcdef0123456789abcdef01234567"));
     }

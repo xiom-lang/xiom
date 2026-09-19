@@ -18,7 +18,6 @@
 //!   xiom --sandbox=strict <source.xi>         block compilation on HIGH findings
 //!   xiom --sandbox-report=json <source.xi>    safety audit as JSON
 
-use std::collections::HashMap;
 use std::env;
 use std::process;
 use std::time::Duration;
@@ -541,11 +540,23 @@ fn real_main() {
         return;
     }
 
-    if install_mode || update_mode {
-        let registry_url = args.value("registry")
-            .unwrap_or_else(|| "https://registry.xiom-lang.org/packages.json".to_string());
-        handle_install(&args, install_pkg.as_deref(), &registry_url, update_mode);
-        return;
+    // R50 (registry relay): `xiom install` / `xiom update` were a SECOND
+    // package channel -- git clone driven by registry /packages.json -- that
+    // bypassed the registry's checksum/signature/yank guarantees. Install now
+    // delegates to the verified `xiom pkg install` client; update is retired
+    // with guidance. Never fetch /packages.json from an install path.
+    if install_mode {
+        eprintln!("note: 'xiom install' is deprecated -- delegating to the verified 'xiom pkg install' client.");
+        let mut forwarded: Vec<String> = vec!["install".to_string()];
+        if let Some(pkg) = install_pkg.clone() {
+            forwarded.push(pkg);
+        }
+        run_tool_dispatch("xiom-pkg", &forwarded);
+    }
+    if update_mode {
+        eprintln!("error: 'xiom update' is retired -- it used the unverified /packages.json git channel.");
+        eprintln!("       Move to a verified version with 'xiom pkg install <package>@<version>'.");
+        process::exit(1);
     }
 
     if bench_mode {
@@ -1374,183 +1385,10 @@ fn run_xiom_tests(args: &cli::Cli) {
 
 // -- Phase 5d: Package Manager ------------------------------------------
 
-fn handle_install(_args: &[String], pkg_name: Option<&str>, registry_url: &str, _update: bool) {
-    // CRB-3c wrinkle: install into the SAME tree as `xiom pkg`
-    // (`<XIOM_HOME>/packages`), not the old `~/.xiom/packages`, so both
-    // spellings see one another. `xiom pkg` remains the supported path.
-    let pkgs_dir = xiom_graph::paths::xiom_home().join("packages");
-    let pkgs_dir = pkgs_dir.to_string_lossy().to_string();
-    std::fs::create_dir_all(&pkgs_dir).ok();
-
-    let deps: Vec<String> = if let Some(name) = pkg_name {
-        vec![name.to_string()]
-    } else {
-        parse_deps_from_manifest("package.xi").unwrap_or_default()
-    };
-
-    if deps.is_empty() {
-        eprintln!("  No dependencies to install. Add packages to package.xi or specify a package name.");
-        eprintln!("  Usage: xiom install <package>");
-        eprintln!("     or: add dependencies to package.xi and run 'xiom install'");
-        return;
-    }
-
-    eprintln!("  Fetching registry index from {}...", registry_url);
-    let index = fetch_registry_index(registry_url);
-    match &index {
-        Ok(idx) => eprintln!("  Registry: {} packages available", idx.len()),
-        Err(e) => {
-            eprintln!("  Warning: cannot fetch registry ({}). Using local cache only.", e);
-            eprintln!("  Make sure {} is accessible or use --registry <url>", registry_url);
-        }
-    }
-
-    eprintln!("  Resolving {} package(s)...", deps.len());
-    let mut installed: Vec<String> = Vec::new();
-    for dep in &deps {
-        let parts: Vec<&str> = dep.splitn(2, ':').collect();
-        let name = parts[0].trim();
-        let _version_req = parts.get(1).map(|s| s.trim()).unwrap_or("*");
-
-        let repo_url = if let Ok(ref idx) = index {
-            idx.get(name).map(|pkg| pkg.repo.clone())
-        } else {
-            None
-        };
-
-        match repo_url {
-            Some(url) => {
-                let pkg_dir = format!("{}/{}", pkgs_dir, name);
-                if std::path::Path::new(&pkg_dir).exists() {
-                    eprintln!("    {} already installed (use 'xiom update' to refresh)", name);
-                } else {
-                    eprintln!("    Installing {} from {}...", name, url);
-                    let status = std::process::Command::new("git")
-                        .args(["clone", "--depth", "1", &url, &pkg_dir])
-                        .status();
-                    match status {
-                        Ok(s) if s.success() => {
-                            eprintln!("      installed {} to {}", name, pkg_dir);
-                            installed.push(name.to_string());
-                        }
-                        Ok(s) => eprintln!("      git clone failed with exit code {}", s.code().unwrap_or(-1)),
-                        Err(e) => eprintln!("      git not found: {}. Install git to clone packages.", e),
-                    }
-                }
-            }
-            None => {
-                eprintln!("    Package '{}' not found in registry", name);
-                eprintln!("    Check that the registry at {} has this package.", registry_url);
-            }
-        }
-    }
-
-    if !installed.is_empty() {
-        let lock_path = "xiom.lock";
-        let lock_content = serde_json::json!({
-            "version": 1,
-            "packages": installed.iter().map(|p| {
-                serde_json::json!({ "name": p, "version": "*", "source": "registry" })
-            }).collect::<Vec<_>>()
-        });
-        if let Ok(json) = serde_json::to_string_pretty(&lock_content) {
-            if std::fs::write(lock_path, &json).is_ok() {
-                eprintln!("  Wrote lockfile: {}", lock_path);
-            }
-        }
-        eprintln!("  Installed {} package(s)", installed.len());
-    }
-    if _args.iter().any(|a| a == "--frozen" || a == "--locked") {
-        let lock_path = "xiom.lock";
-        if std::path::Path::new(lock_path).exists() {
-            eprintln!("  Lockfile verified: {}", lock_path);
-        } else {
-            eprintln!("  Warning: --locked specified but no xiom.lock found.");
-        }
-    }
-}
-
-fn parse_deps_from_manifest(path: &str) -> Result<Vec<String>, String> {
-    let content = std::fs::read_to_string(path).map_err(|e| format!("cannot read {path}: {e}"))?;
-    let mut deps = Vec::new();
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("dependencies:") || trimmed.starts_with("\"dependencies\":") {
-            if let Some(start) = trimmed.find('[') {
-                let inner = &trimmed[start..];
-                for part in inner.trim_matches(|c| c == '[' || c == ']').split(',') {
-                    let cleaned = part.trim().trim_matches('"').trim();
-                    if !cleaned.is_empty() {
-                        deps.push(cleaned.to_string());
-                    }
-                }
-            }
-        }
-    }
-    Ok(deps)
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-#[allow(dead_code)]
-struct RegistryPackage {
-    repo: String,
-    #[serde(default)]
-    description: String,
-    #[serde(default)]
-    license: String,
-}
-
-fn fetch_registry_index(url: &str) -> Result<HashMap<String, RegistryPackage>, String> {
-    let home = dirs_next().unwrap_or_else(|| ".".into());
-    let local_path = format!("{}/.xiom/registry.json", home);
-    if let Ok(content) = std::fs::read_to_string(&local_path) {
-        if let Ok(root) = serde_json::from_str::<serde_json::Value>(&content) {
-            let mut map = HashMap::new();
-            if let Some(obj) = root["packages"].as_object() {
-                for (name, val) in obj {
-                    if let Ok(pkg) = serde_json::from_value::<RegistryPackage>(val.clone()) {
-                        map.insert(name.clone(), pkg);
-                    }
-                }
-            }
-            if !map.is_empty() {
-                return Ok(map);
-            }
-        }
-    }
-    let body = if let Ok(out) = std::process::Command::new("curl")
-        .args(["-sSfL", "--connect-timeout", "10", url])
-        .output()
-    {
-        if out.status.success() { String::from_utf8_lossy(&out.stdout).to_string() }
-        else { return Err(format!("curl failed: {}", String::from_utf8_lossy(&out.stderr))); }
-    } else if let Ok(out) = std::process::Command::new("wget")
-        .args(["-qO-", "--timeout=10", url])
-        .output()
-    {
-        if out.status.success() { String::from_utf8_lossy(&out.stdout).to_string() }
-        else { return Err(format!("wget failed: {}", String::from_utf8_lossy(&out.stderr))); }
-    } else if let Ok(out) = std::process::Command::new("powershell")
-        .args(["-Command", &format!("(Invoke-WebRequest -Uri '{url}' -TimeoutSec 10).Content")])
-        .output()
-    {
-        if out.status.success() { String::from_utf8_lossy(&out.stdout).to_string() }
-        else { return Err("cannot fetch registry (no curl/wget/powershell available)".to_string()); }
-    } else {
-        return Err("cannot fetch registry (no HTTP client available)".to_string());
-    };
-    let root: serde_json::Value = serde_json::from_str(&body).map_err(|e| format!("invalid JSON: {e}"))?;
-    let pkgs = root.get("packages").ok_or("missing 'packages' key in registry")?;
-    let mut map = HashMap::new();
-    if let Some(obj) = pkgs.as_object() {
-        for (name, val) in obj {
-            if let Ok(pkg) = serde_json::from_value::<RegistryPackage>(val.clone()) {
-                map.insert(name.clone(), pkg);
-            }
-        }
-    }
-    Ok(map)
-}
+// R50 (registry relay): the legacy `xiom install` / `xiom update` handlers
+// (git clone from registry /packages.json, no checksum/signature/yank) were
+// removed. `xiom install` now delegates to the verified `xiom pkg install`
+// client and `xiom update` is retired with guidance -- see real_main.
 
 fn handle_publish(_args: &[String]) {
     let manifest_path = "package.xi";

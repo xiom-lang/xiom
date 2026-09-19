@@ -497,7 +497,7 @@ package {
   description: "What it does";
   authors: ["you"];
   modules: ["src/lib.xi"];
-  deps: { xiom-std: "0.47.0"; }
+  deps: { xiom.std: "0.47.0"; }
 }
 
 ## Commands

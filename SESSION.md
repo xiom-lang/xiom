@@ -141,6 +141,18 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   wired. Pending: stdlib lane green -> bump `STDLIB_VERSION` in the release
   PR -> tag `v0.61.0`; optional rewrite of the protected tags
   `v0.60.0`/`v0.60.1` (old objects remain on the remote).
+- **R50 registry follow-ups (2026-09-19, relayed by the registry session)**:
+  `xiom install` now delegates to the verified `xiom pkg install` client and
+  `xiom update` is retired with guidance -- the legacy git-clone-from-
+  `/packages.json` handlers (`handle_install`, `fetch_registry_index`,
+  `parse_deps_from_manifest`, `RegistryPackage`) were deleted so no install
+  path can skip checksum/signature/yank. Package names are dotted: the
+  resolver accepts canonical `xiom.std` and the legacy `xiom-std` alias
+  (the pinned stdlib checkout still declares the hyphen form; coordinate the
+  full switch with the stdlib session). Tests: pkg 64/64, xiom lib 32/32,
+  mcp 39/39, graph 31/31, cli_args 1/1. Queued: `xiom pkg update|outdated`
+  reading /index.json and a SHA256-verified self-update from
+  dl./latest.json; OIDC publish needs no client change.
 - **OPEN compiler bugs after R49** (exact repros/evidence in
   docs/COMPILER_BUGS.md; reproduce from the playground lesson sources):
   1. L6-40: module-scoped `Runner[T: Plugin]` `create()` -- T is only fixed
