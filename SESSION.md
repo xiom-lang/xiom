@@ -141,6 +141,15 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   wired. Pending: stdlib lane green -> bump `STDLIB_VERSION` in the release
   PR -> tag `v0.61.0`; optional rewrite of the protected tags
   `v0.60.0`/`v0.60.1` (old objects remain on the remote).
+- **R52 payload/binding batch (2026-09-19, playground audit §19)**: closed
+  the remaining 11 nondeterministic/pointer-print lessons (L3-02,
+  L5-09/20/24/26/29/31/35/36/43) plus L5-21 via a family of type-erasure
+  fixes: concrete generic-struct field/method typing, match-result and
+  match-expression Str prediction, Map[Str,Str]/unannotated-Some payload
+  binding, redundant explicit-self argument handling, and single evaluation
+  of side-effecting match scrutinees. Locks `e2e_m106..m108`; e2e
+  2356/2356. Still open: L3-50 (Result tuple payload path) and L8-14
+  (Map[Str,Str] morse trap).
 - **R52 verifications (2026-09-19, packages + website relays)**:
   `xiom-verify --check` DOES run the bundled/auto-detected Z3 over the
   generated SMT-LIB (Z3Runner: Z3_PATH -> `<exe_dir>/[../bin/]z3[.exe]` ->

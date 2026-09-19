@@ -146,6 +146,24 @@ impl IrEmitter {
     }
 
     pub(crate) fn compile_call(&mut self, func: &Expr, args: &[Expr]) -> Result<(String, String), String> {
+        // R52 (playground L5-43): tolerate a REDUNDANT explicit receiver
+        // argument (`s.push(&mut s, "Alice")`). The method call already passes
+        // the receiver; the duplicated `&receiver` was emitted as an extra
+        // argument (the callee read the self pointer as the item -> garbage
+        // Vec[Str] and stack corruption). Drop a leading `&X`/`&mut X` when X
+        // names the receiver ident.
+        if let Expr::Field(recv, _, _) = func {
+            if let (Expr::Ident(rid), Some(Expr::Ref(inner, _) | Expr::MutRef(inner, _))) =
+                (recv.as_ref(), args.first())
+            {
+                if let Expr::Ident(sid) = inner.as_ref() {
+                    if rid.name == sid.name && args.len() > 1 {
+                        let rest: Vec<Expr> = args[1..].to_vec();
+                        return self.compile_call_with_types(func, &rest, None);
+                    }
+                }
+            }
+        }
         self.compile_call_with_types(func, args, None)
     }
 
@@ -216,11 +234,63 @@ impl IrEmitter {
     /// the to_str/to_string sugar to pick the right conversion instead of
     /// defaulting to the integer one (which printed pointer bits for Str /
     /// raw IEEE bits for Float64).
-    fn infer_expr_xiom_type_deep(&self, expr: &Expr) -> Option<String> {
+    pub(crate) fn infer_expr_xiom_type_deep(&self, expr: &Expr) -> Option<String> {
         match expr {
             Expr::Paren(inner, _) => self.infer_expr_xiom_type_deep(inner),
             Expr::Ident(id) => self.xiom_type_of_local(&id.name),
+            // R52: literals carry their XIOM type so match arms composed of
+            // literals participate in the common-type prediction below.
+            Expr::Str(..) => Some("Str".to_string()),
+            Expr::Int(..) => Some("Int".to_string()),
+            Expr::Float(..) => Some("Float64".to_string()),
+            Expr::Bool(..) => Some("Bool".to_string()),
+            Expr::Char(..) => Some("Char".to_string()),
             Expr::Index(container, _, _) => self.resolve_vec_elem_xiom(container),
+            // R52 (playground L5-36/L5-43): a match EXPRESSION used as a
+            // `to_str()` operand -- predict the arms' common XIOM type
+            // (pattern-binding payload or body) so a Str-valued match lowers
+            // as Str instead of the erased i64 (printed the pointer).
+            Expr::Match(scrutinee, arms, _) => {
+                let mut common: Option<String> = None;
+                for arm in arms {
+                    let t = match &arm.body {
+                        xiom_ast::MatchBody::Expr(e) => {
+                            let mut arm_t = None;
+                            if let Expr::Ident(id) = e {
+                                if let xiom_ast::Pattern::Some(inner, _)
+                                    | xiom_ast::Pattern::Ok(inner, _)
+                                    | xiom_ast::Pattern::Err(inner, _) = &arm.pattern
+                                {
+                                    if let xiom_ast::Pattern::Ident(pid) = inner.as_ref() {
+                                        if pid.name == id.name {
+                                            let idx = if matches!(&arm.pattern, xiom_ast::Pattern::Err(..)) { 2 } else { 1 };
+                                            arm_t = self.scrutinee_payload_xiom(scrutinee, idx);
+                                        }
+                                    }
+                                }
+                            }
+                            arm_t.or_else(|| self.infer_expr_xiom_type_deep(e))
+                        }
+                        xiom_ast::MatchBody::Block(b) => b.stmts.last().and_then(|s| {
+                            if let xiom_ast::StmtOrExpr::Expr(e) = s {
+                                self.infer_expr_xiom_type_deep(e)
+                            } else {
+                                None
+                            }
+                        }),
+                    };
+                    match (common.as_ref(), t) {
+                        (None, Some(t)) => common = Some(t),
+                        (Some(c), Some(t)) if *c == t => {}
+                        _ => return None,
+                    }
+                }
+                common
+            }
+            // R52 (playground L5-20): field reads carry their declared XIOM
+            // type so `.to_str()`/method dispatch sees Str/Float/container
+            // instead of the erased i64 default.
+            Expr::Field(obj, field, _) => self.infer_field_xiom_type(obj, &field.name),
             Expr::Call(func, _, _) => {
                 if let Some(rt) = self.infer_call_return_xiom(expr) {
                     return Some(rt);
@@ -255,6 +325,45 @@ impl IrEmitter {
             }
             _ => None,
         }
+    }
+
+    /// R52: XIOM type of a FIELD read. Option/Result payload accessors resolve
+    /// through `field_payload_xiom`; a field of a CONCRETE generic base
+    /// (`greeting: Pair[Str, Str]; greeting.first`) substitutes the base's
+    /// type args into the declared field type ("T" -> "Str").
+    fn infer_field_xiom_type(&self, obj: &Expr, field_name: &str) -> Option<String> {
+        if let Some(px) = self.field_payload_xiom(obj, field_name) {
+            return Some(px);
+        }
+        let obj_ty = match obj {
+            Expr::Ident(id) => self.local.local_xiom_types.get(&id.name).cloned()
+                .or_else(|| self.resolve_local_xiom_type(&id.name)),
+            other => self.infer_expr_xiom_type_deep(other),
+        }?;
+        let (base, args) = Self::parse_generic_type_string(&obj_ty);
+        let leaf = base.rsplit('.').next().unwrap_or(base.as_str()).to_string();
+        let field_names: Vec<String> = self.types.types.get(&leaf)
+            .or_else(|| {
+                let sfx = format!(".{leaf}");
+                self.types.types.keys().into_iter().find(|k| k.ends_with(&sfx)).and_then(|k| self.types.types.get(&k))
+            })?;
+        let idx = field_names.iter().position(|f| f == field_name)?;
+        let declared = self.field_xiom_type(&leaf, idx)?;
+        if args.is_empty() {
+            return Some(declared);
+        }
+        let params = match self.types.generic_type_params.get(&leaf.to_string()) {
+            Some(p) => p,
+            None => return Some(declared),
+        };
+        if args.len() < params.len() {
+            return Some(declared);
+        }
+        let mut map = std::collections::HashMap::new();
+        for (p, a) in params.iter().zip(args.iter()) {
+            map.insert(p.clone(), a.clone());
+        }
+        Some(Self::subst_type_tokens(&declared, &map))
     }
 
     /// R46b: scalar expression -> XIOM type name for an index-form type

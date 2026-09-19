@@ -133,11 +133,43 @@ impl IrEmitter {
     /// params: "Map[K, V]" from a generic callee must NOT be recorded
     /// (K/V are placeholders, not concrete types).
     pub(crate) fn infer_call_return_xiom(&self, value: &Expr) -> Option<String> {
-        let func = match value {
-            Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => func.as_ref(),
+        // R52 (playground L3-02): the AST has dedicated Some/Ok/Err nodes (not
+        // Call(Ident)) -- record "Option[Str]" for `let p = Some("x")` so
+        // `p.unwrap_or(y).to_str()` keeps the Str representation.
+        match value {
+            Expr::Some(inner, _) => {
+                return self.infer_expr_xiom_type_deep(inner).map(|t| format!("Option[{t}]"));
+            }
+            Expr::Ok(inner, _) => {
+                return self.infer_expr_xiom_type_deep(inner).map(|t| format!("Result[{t}, Str]"));
+            }
+            Expr::Err(inner, _) => {
+                return self.infer_expr_xiom_type_deep(inner).map(|t| format!("Result[Int, {t}]"));
+            }
+            _ => {}
+        }
+        let (func, args): (&Expr, &Vec<Expr>) = match value {
+            Expr::Call(func, args, _) => (func.as_ref(), args),
+            Expr::GenericCall(func, _, args, _) => (func.as_ref(), args),
             Expr::Paren(inner, _) => return self.infer_call_return_xiom(inner),
             _ => return None,
         };
+        // R52 (playground L3-02): an unannotated Option/Result built by a ctor
+        // (`let p = Some("DragonSlayer")`) must record "Option[Str]" so
+        // `p.unwrap_or(x).to_str()` keeps the Str representation instead of
+        // printing the pointer.
+        if let Expr::Ident(fid) = func {
+            if matches!(fid.name.as_str(), "Some" | "Ok" | "Err") {
+                if let Some(t) = args.first().and_then(|a| self.infer_expr_xiom_type_deep(a)) {
+                    return Some(match fid.name.as_str() {
+                        "Some" => format!("Option[{t}]"),
+                        "Ok" => format!("Result[{t}, Str]"),
+                        "Err" => format!("Result[Int, {t}]"),
+                        _ => return None,
+                    });
+                }
+            }
+        }
         // R49: `x.unwrap()` / `x.unwrap_or(d)` returns the PAYLOAD type, which
         // the erased Option/Result slot hides. Resolve it from the receiver
         // expression so bindings keep the concrete type (`let r =
@@ -165,10 +197,16 @@ impl IrEmitter {
                 // (rejecting it dropped the record: `var items =
                 // ...enumerate().collect()` -> get() loaded the first 8
                 // bytes of the 16-byte tuple slot).
+                // R52 (playground L5-43): require a GENERATED mono key
+                // ("Tuple__Int__Int", "Option__Vec_Str_") -- the bare container
+                // name is a substring of every placeholder type ("Option" is
+                // contained in "Option[T]"), so the old check short-circuited
+                // and the concrete substitution below never ran.
+                let is_generated_key = |k: &str| k.contains("__") || k.contains('[');
                 let contains_registered = self.types.types.keys().into_iter()
-                    .any(|k| rt.contains(k.as_str()))
+                    .any(|k| is_generated_key(k.as_str()) && rt.contains(k.as_str()))
                     || self.types.type_meta.keys().into_iter()
-                        .any(|k| rt.contains(k.as_str()));
+                        .any(|k| is_generated_key(k.as_str()) && rt.contains(k.as_str()));
                 if contains_registered {
                     return Some(rt.clone());
                 }
@@ -183,6 +221,38 @@ impl IrEmitter {
                     let fn_key = self.infer_struct_type_name(recv)
                         .map(|r| format!("{r}.{}", f.name))
                         .unwrap_or_else(|| f.name.clone());
+                    // R52 (playground L5-31): resolve from the RECEIVER's tracked
+                    // concrete type args FIRST (`str_box: Box[Str]` -> T=Str).
+                    // The generic_instantiations lookup is not per-call-site:
+                    // for `Box.get_value` it returned the FIRST instantiation
+                    // (Int, from an earlier call), so the Str call's `.to_str()`
+                    // lowered through xiom_int_to_string and printed the pointer.
+                    if let Expr::Ident(bid) = recv.as_ref() {
+                        if let Some(decl) = self.local.local_xiom_types.get(&bid.name) {
+                            let (base_name, args) = Self::parse_generic_type_string(decl);
+                            let leaf = base_name.rsplit('.').next().unwrap_or(base_name.as_str()).to_string();
+                            if !args.is_empty() {
+                                if let Some(params) = self.types.generic_type_params.get(&leaf.to_string()) {
+                                    let mut type_map: std::collections::HashMap<String, String> =
+                                        std::collections::HashMap::new();
+                                    for (p, a) in params.iter().zip(args.iter()) {
+                                        type_map.insert(p.clone(), a.clone());
+                                    }
+                                    if let Some((_, fd)) = self.find_generic_decl(&fn_key) {
+                                        if let Some(ret) = fd.return_type.as_ref() {
+                                            let subst = Self::substitute_type(ret, ret, &type_map);
+                                            let name = Self::type_string_full(&subst);
+                                            let still_placeholder = name.split(|c: char| !c.is_ascii_alphanumeric())
+                                                .any(|t| t.len() == 1 && t.chars().next().map_or(false, |c| c.is_ascii_uppercase()));
+                                            if !still_placeholder {
+                                                return Some(name);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     if let Some((_, cts)) = self.mono.generic_instantiations.iter()
                         .find(|(k, _)| k == &fn_key)
                     {

@@ -198,8 +198,25 @@ impl IrEmitter {
                 self.local.local_opt_payload.get(&id.name)
             };
             if let Some(t) = tracked {
-                if !t.is_empty() {
+                // R52 (playground L5-43): a stale placeholder ("T") must not
+                // shadow the concrete payload derived from the local's type.
+                if !t.is_empty() && !Self::is_generic_placeholder_name(t) {
                     return Some(t.clone());
+                }
+            }
+            // R52 (playground L3-02): an UNANNOTATED Option/Result local
+            // (`let p = Some("DragonSlayer")`) has no payload map entry -- fall
+            // back to its tracked declared type ("Option[Str]" -> "Str") so
+            // `p.unwrap_or(x).to_str()` keeps the Str representation instead of
+            // printing the pointer.
+            if let Some(decl) = self.local.local_xiom_types.get(&id.name) {
+                if unwrap_err {
+                    if let Some(p) = Self::option_result_err_payload(decl) {
+                        return Some(p);
+                    }
+                }
+                if let Some(p) = Self::option_result_payload(decl) {
+                    return Some(p);
                 }
             }
         }
@@ -234,6 +251,23 @@ impl IrEmitter {
                         let subst = Self::subst_type_tokens(&elem, &map);
                         if !subst.is_empty() {
                             return Some(subst);
+                        }
+                    }
+                    // R52 (playground L5-09): `m.get(k).unwrap()` on a tracked
+                    // container local -- the payload is the container's LAST
+                    // type arg (Map[Str,Str] -> Str), not the bare generic "V".
+                    if let Expr::Ident(rid) = base.as_ref() {
+                        if let Some(decl) = self.local.local_xiom_types.get(&rid.name) {
+                            if let Some(elem) = Self::generic_container_last_arg(decl) {
+                                let mut map = self.mono.current_type_map.clone();
+                                for (k, v) in &self.mono.param_concrete_types {
+                                    map.entry(k.clone()).or_insert_with(|| v.clone());
+                                }
+                                let subst = Self::subst_type_tokens(&elem, &map);
+                                if !subst.is_empty() {
+                                    return Some(subst);
+                                }
+                            }
                         }
                     }
                 }

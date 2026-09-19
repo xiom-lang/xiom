@@ -3000,6 +3000,11 @@ impl IrEmitter {
             || self.types.enum_variants.keys().into_iter().any(|k| k.ends_with(&format!(".{type_name}")))
     }
 
+    /// R52: is `s` an unresolved single-letter generic placeholder ("T", "V")?
+    pub(crate) fn is_generic_placeholder_name(s: &str) -> bool {
+        s.len() == 1 && s.chars().next().map_or(false, |c| c.is_ascii_uppercase())
+    }
+
     /// BUG 43: resolve the declared payload XIOM type of a match scrutinee's
     /// Some/Ok/Err payload (field_idx: 1 = ok payload, 2 = err payload).
     /// Ident scrutinees come from binding tracking (local_opt_payload /
@@ -3012,9 +3017,18 @@ impl IrEmitter {
             Expr::Ident(sid) => {
                 if field_idx == 2 {
                     self.local.local_err_payload.get(&sid.name).cloned()
+                        .filter(|t| !Self::is_generic_placeholder_name(t))
                 } else {
+                    // R52 (playground L5-43): a stale unsubstituted placeholder
+                    // payload ("T" recorded by track_boxed_payload_binding for
+                    // `let a = s.pop()`) must not shadow the concrete
+                    // Option[Str] derived from the local's recorded type.
                     self.local.local_opt_payload.get(&sid.name).cloned()
-                        .or_else(|| self.local.local_opt_payload_xiom.get(&sid.name).cloned())
+                        .filter(|t| !Self::is_generic_placeholder_name(t))
+                        .or_else(|| self.local.local_opt_payload_xiom.get(&sid.name).cloned()
+                            .filter(|t| !Self::is_generic_placeholder_name(t)))
+                        .or_else(|| self.local.local_xiom_types.get(&sid.name)
+                            .and_then(|t| Self::option_result_payload(t)))
                 }
             }
             Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
@@ -3058,8 +3072,22 @@ impl IrEmitter {
                             }
                             if let Expr::Ident(rid) = recv.as_ref() {
                                 if let Some(xiom_ty) = self.local.local_xiom_types.get(&rid.name) {
-                                    if let Some(elem) = xiom_ty.strip_prefix("Vec[").and_then(|r| r.strip_suffix(']')) {
-                                        return Some(elem.to_string());
+                                    // R52 (playground L5-09): Map.get[K,V] on a
+                                    // tracked `Map[Str,Str]` local -- the payload
+                                    // is the LAST type arg (V), not the bare
+                                    // generic "V". Binding it as "V" left the
+                                    // Str payload typed as a generic -> the
+                                    // consumer coerced the i64 pointer through
+                                    // the 1-byte materialization (garbage print).
+                                    if let Some(elem) = Self::generic_container_last_arg(xiom_ty) {
+                                        let mut map = self.mono.current_type_map.clone();
+                                        for (k, v) in &self.mono.param_concrete_types {
+                                            map.entry(k.clone()).or_insert_with(|| v.clone());
+                                        }
+                                        let subst = Self::subst_type_tokens(&elem, &map);
+                                        if !subst.is_empty() {
+                                            return Some(subst);
+                                        }
                                     }
                                 }
                             }
@@ -3072,11 +3100,22 @@ impl IrEmitter {
         }
     }
 
+    /// R52: last generic argument of a bracketed container type string
+    /// ("Map[Str, Str]" -> "Str", "Vec[Task]" -> "Task"); None for
+    /// non-containers. Used to resolve Option/Result payloads for
+    /// `Map.get` / `Vec.get` on tracked locals.
+    pub(crate) fn generic_container_last_arg(decl: &str) -> Option<String> {
+        let (base, args) = Self::parse_generic_type_string(decl);
+        if !matches!(base.as_str(), "Map" | "Vec" | "Set" | "Slice") {
+            return None;
+        }
+        args.last().cloned().filter(|a| !a.is_empty())
+    }
+
     /// round-13 (tuple payloads): normalize a tuple XIOM name ("(Int, Int)") to
     /// the registered struct key ("Tuple__Int__Int") so the boxed-payload deref
     /// can resolve the LLVM type. Non-tuple names pass through unchanged.
-    pub(crate) fn tuple_xiom_to_struct_name(decl: &str) -> String {
-        let trimmed = decl.trim();
+    pub(crate) fn tuple_xiom_to_struct_name(decl: &str) -> String {        let trimmed = decl.trim();
         if trimmed.starts_with('(') && trimmed.ends_with(')') {
             let inner = &trimmed[1..trimmed.len() - 1];
             let parts: Vec<&str> = inner.split(',').map(|p| p.trim()).collect();
@@ -7198,7 +7237,7 @@ impl IrEmitter {
     /// Collects types from ALL arms and picks the widest (struct > i64 > narrower)
     /// so the result alloca is large enough for every arm.  `coerce_value` handles
     /// the actual per-arm conversion during the store.
-    fn infer_match_llvm_type(&self, arms: &[MatchArm], scrutinee_llvm_ty: &str) -> String {
+    fn infer_match_llvm_type(&self, arms: &[MatchArm], scrutinee_llvm_ty: &str, scrutinee: &Expr) -> String {
         // Extract the struct type name from the scrutinee (e.g. %struct.Result__Regex__Str -> Result__Regex__Str)
         let scrutinee_struct_name = if scrutinee_llvm_ty.starts_with("%struct.") {
             Some(&scrutinee_llvm_ty[8..])
@@ -7214,7 +7253,7 @@ impl IrEmitter {
                     if t == "i64" || t == "i8*" || t.is_empty() {
                         if let Expr::Ident(ident) = e {
                             if let Some(payload_ty) = self.infer_pattern_binding_type(
-                                &arm.pattern, &ident.name, scrutinee_struct_name) {
+                                &arm.pattern, &ident.name, scrutinee_struct_name, scrutinee) {
                                 payload_ty
                             } else if t.is_empty() { continue; } else { t }
                         } else if t.is_empty() { continue; } else { t }
@@ -7248,7 +7287,7 @@ impl IrEmitter {
 
     /// For patterns like Ok(r) or Some(v), resolve the bound ident's type from
     /// the scrutinee struct's field list.
-    fn infer_pattern_binding_type(&self, pattern: &Pattern, ident_name: &str, scrutinee_struct_name: Option<&str>) -> Option<String> {
+    fn infer_pattern_binding_type(&self, pattern: &Pattern, ident_name: &str, scrutinee_struct_name: Option<&str>, scrutinee: &Expr) -> Option<String> {
         let scrutinee_name = scrutinee_struct_name?;
         let (inner, field_idx) = match pattern {
             Pattern::Some(inner, _) | Pattern::Ok(inner, _) => (inner.as_ref(), 1),
@@ -7257,7 +7296,27 @@ impl IrEmitter {
         };
         if let Pattern::Ident(id) = inner {
             if id.name == ident_name {
-                return Some(self.field_llvm_type(scrutinee_name, field_idx));
+                // R52 (playground L5-26): predict the arm's value type from the
+                // CONCRETE payload XIOM type (Str -> i8*, Float -> double,
+                // structs/containers -> their struct) instead of the erased
+                // static field type -- the static "Option.value = i64" made the
+                // match RESULT slot i64, so `let name = match ... { Some(n) => n }`
+                // re-truncated the correctly-bound i8* payload through the
+                // 1-byte coercion and printed the ADDRESS.
+                if let Some(px) = self.scrutinee_payload_xiom(scrutinee, field_idx) {
+                    if px.starts_with("Vec[") {
+                        return Some("%struct.Vec".to_string());
+                    }
+                    if let Some(agg) = self.registered_struct_llvm_for(&px) {
+                        return Some(agg);
+                    }
+                    if let Ok(lt) = self.llvm_type_for(&px) {
+                        if lt != "i64" {
+                            return Some(lt);
+                        }
+                    }
+                }
+                return Some(self.field_llvm_type(scrutinee_name, field_idx as usize));
             }
         }
         None
@@ -8058,7 +8117,7 @@ impl IrEmitter {
                     .unwrap_or_else(|| "i64".to_string());
                 if then_ty == "double" || else_ty == "double" { "double".to_string() } else { "i64".to_string() }
             }
-            Expr::Match(_scrutinee, arms, _) => self.infer_match_llvm_type(arms, "i64"),
+            Expr::Match(scrutinee, arms, _) => self.infer_match_llvm_type(arms, "i64", scrutinee),
             Expr::Index(container, _, _) => {
                 // For indexed Vec elements, return the element's struct type.
                 if let Some(elem_type_name) = self.resolve_vec_elem_type(container) {

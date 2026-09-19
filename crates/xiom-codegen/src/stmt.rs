@@ -1934,13 +1934,17 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                     // SLOT, so passing the match-bound payload to a
                                     // `&Vec[T]` param read garbage (len=1 vs 2) and
                                     // crypto's aes_decrypt(&key, &ciphertext) crashed.
-                                    let payload_xiom = self.field_xiom_type(type_name, field_idx as usize)
-                                        // round-8 (rw1): builtin Option/Result have no
-                                        // field_xiom_type -- fall back to the
-                                        // SCRUTINEE's declared payload type
-                                        // ("Option[&Str]" -> "&Str") so reference
-                                        // payloads keep the & and auto-deref on use.
-                                        .or_else(|| scrutinee_payload.clone());
+                                    // R52 (playground L5-26): prefer the
+                                    // SCRUTINEE's concrete payload type over the
+                                    // static field type -- the erased builtin
+                                    // Option carries ("value","i64"), which
+                                    // suppressed the Str reinterpretation
+                                    // (Vec[Str].get -> match Some(n) bound the
+                                    // pointer as i64 and `n + ":"` printed the
+                                    // ADDRESS).
+                                    let payload_xiom = scrutinee_payload.clone()
+                                        .filter(|p| !p.is_empty() && p != "i64")
+                                        .or_else(|| self.field_xiom_type(type_name, field_idx as usize));
                                     if field_llvm_ty == "i64" {
                                         if let Some(pt) = &payload_xiom {
                                             if pt.starts_with("Vec[") || pt.contains(".Vec") || pt.ends_with("]Vec") {
@@ -1950,6 +1954,16 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                                 self.emitln(&format!("  {vl} = load volatile %struct.Vec, %struct.Vec* {vp}"));
                                                 bind_val = vl;
                                                 field_llvm_ty = "%struct.Vec".to_string();
+                                            } else if pt == "Str" {
+                                                // R52 (playground L5-09/L8-14 family): a Str
+                                                // payload in the erased i64 slot IS the pointer.
+                                                // Binding it as i64 made the consumer coerce it
+                                                // through the 1-byte materialization (trunc + alloca i8)
+                                                // so `x` printed stack garbage (Map[Str,Str].get).
+                                                let sp = self.fresh_tmp();
+                                                self.emitln(&format!("  {sp} = inttoptr i64 {bind_val} to i8*"));
+                                                bind_val = sp;
+                                                field_llvm_ty = "i8*".to_string();
                                             } else if let Some(agg) = self.registered_struct_llvm_for(pt)
                                                 .or_else(|| self.boxed_aggregate_llvm_for(pt))
                                             {

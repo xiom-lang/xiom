@@ -4982,6 +4982,40 @@ fn e2e_safety_probe() {
     );
 }
 
+// R52 (playground L5-20/L5-31): Str fields of a CONCRETE generic struct
+// (`Pair[Str,Str].first`, `Box[Str].get_value()`) must keep the Str
+// representation through `.to_str()` (was the erased i64 field whose pointer
+// got printed as a number).
+#[test] fn e2e_m106_generic_field_str() {
+    assert_eq!(
+        compile_and_run("tests/regression/m106_generic_field_str/main.xi"),
+        Some(0),
+        "R52 generic-struct Str field probe must compile and run"
+    );
+}
+
+// R52 (playground L5-26/L5-36/L3-02): Str payloads through Vec.get matches,
+// match-expression results and unannotated Option locals must stay Str (was
+// the erased i64/pointer printed as an integer).
+#[test] fn e2e_m107_match_payload_str() {
+    assert_eq!(
+        compile_and_run("tests/regression/m107_match_payload_str/main.xi"),
+        Some(0),
+        "R52 match/unwrap Str payload probe must compile and run"
+    );
+}
+
+// R52 (playground L5-09/L5-43): Map[Str,Str] payloads bind as i8*; a
+// redundant explicit `&receiver` argument (`s.push(&mut s, x)`) is ignored;
+// a side-effecting match scrutinee (`match s.pop(&mut s)`) is evaluated once.
+#[test] fn e2e_m108_explicit_self_and_map() {
+    assert_eq!(
+        compile_and_run("tests/regression/m108_explicit_self_and_map/main.xi"),
+        Some(0),
+        "R52 explicit-self/Map-Str probe must compile and run"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "…")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

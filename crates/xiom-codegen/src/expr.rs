@@ -2444,6 +2444,47 @@ impl IrEmitter {
                                     let is_result = type_name.ends_with("Result") || type_name.contains(".Result") || type_name.starts_with("Result__");
                                     let is_option = type_name.ends_with("Option") || type_name.contains(".Option") || type_name.starts_with("Option__");
                                     let mut field_llvm_ty = self.field_llvm_type(type_name, field_idx);
+                                    // R52 (playground L5-20): a GENERIC struct
+                                    // field read through a CONCRETE base local
+                                    // (`let greeting: Pair[Str,Str];
+                                    // greeting.first`) must substitute the base's
+                                    // type args into the declared field type -- the
+                                    // static slot type was i64 (unresolved "T"), so
+                                    // the Str field loaded as raw bits and
+                                    // `.to_str()` printed the ADDRESS.
+                                    if field_llvm_ty == "i64" {
+                                        if let Expr::Ident(bid) = obj.as_ref() {
+                                            let decl_opt = self.local.local_xiom_types.get(&bid.name).cloned()
+                                                .or_else(|| self.resolve_local_xiom_type(&bid.name));
+                                            if let Some(decl) = decl_opt {
+                                                let (d_base, args) = Self::parse_generic_type_string(&decl);
+                                                if !args.is_empty()
+                                                    && (d_base == type_name
+                                                        || d_base.ends_with(&format!(".{type_name}")))
+                                                {
+                                                    if let (Some(field_decl), Some(params)) = (
+                                                        self.field_xiom_type(type_name, field_idx),
+                                                        self.types.generic_type_params.get(&type_name.to_string()),
+                                                    ) {
+                                                        if args.len() >= params.len() {
+                                                            let mut map = std::collections::HashMap::new();
+                                                            for (p, a) in params.iter().zip(args.iter()) {
+                                                                map.insert(p.clone(), a.clone());
+                                                            }
+                                                            let subst = Self::subst_type_tokens(&field_decl, &map);
+                                                            if subst != field_decl {
+                                                                if let Ok(lt) = self.llvm_type_for(&subst) {
+                                                                    if lt != "i64" {
+                                                                        field_llvm_ty = lt;
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                     let mut payload_reinterpret = false;
                                     let mut payload_boxed = false;
                                     // gzip-DECOMPRESS fix (2026-08-19): payload
@@ -5339,8 +5380,13 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // `match_result_ptr`), then loading the slot as this expression's value.
                 // The result type is the widest type across all arms (struct > i64),
                 // with `coerce_value` handling per-arm conversions during the store.
-                let (_scrutinee_val, scrutinee_ty) = self.compile_expr(scrutinee)?;
-                let result_ty = self.infer_match_llvm_type(arms, &scrutinee_ty);
+                // R52: do NOT compile the scrutinee here -- the statement-form
+                // match below compiles it once; the old `compile_expr` emitted
+                // a SECOND evaluation, so side-effecting scrutinees ran twice
+                // (`match s.pop(&mut s) { ... }` consumed two elements, and the
+                // bound/printed value came from the duplicate call).
+                let scrutinee_ty = self.infer_llvm_type(scrutinee);
+                let result_ty = self.infer_match_llvm_type(arms, &scrutinee_ty, scrutinee);
                 let result_alloca = self.fresh_tmp();
                 self.emitln(&format!("  {result_alloca} = alloca {result_ty}"));
                 // 5c.37: Initialize match result slot to prevent uninitialized

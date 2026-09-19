@@ -7450,6 +7450,27 @@ verification, with repro commands using the playground lesson sources
   user function cannot hijack the loop into an invalid GEP. Locks
   `e2e_m101_pre_len_receivers` (exit 20), `e2e_m103_pre_len_param` (exit 30),
   `e2e_m102_range_shadowing` (exit 25).
+- **R52 payload/binding batch (playground C18/C19 + L5/L3 lessons)**: FIXED
+  the erased-type family behind the remaining pointer-print lessons --
+  L5-20 (generic struct FIELD read through a concrete base: substitute the
+  base's type args -> i8* instead of the erased i64), L5-31 (generic METHOD
+  return: resolve the receiver's tracked concrete args FIRST; the
+  generic_instantiations lookup returned the first (Int) mono for every
+  call), L5-26/L5-36 (match-result slots and match-EXPRESSION operands keep
+  Str: scrutinee payload preferred over the static `Option.value=i64`,
+  arm-common type prediction, literal/Match arms in the deep inference),
+  L5-43 (explicit redundant `&receiver` argument dropped; side-effecting
+  match scrutinees evaluated ONCE -- the Expr::Match wrapper no longer
+  compiles the scrutinee before delegating to the statement form),
+  L5-09/L3-02 (Map[Str,Str] and unannotated Some(...) payloads bind as
+  Str: last-type-arg payload resolution for tracked container locals,
+  `Some/Ok/Err` return recording, placeholder payloads filtered so a stale
+  "T" cannot shadow the concrete type), L5-36/L5-35 (to_str via match
+  results). Locks `e2e_m106..m108`; all 11 previously nondeterministic
+  lessons (L3-02, L5-09/20/24/26/29/31/35/36/43) plus L5-21 are
+  deterministic now. Still open: L3-50 (Result tuple payload -> printed
+  address; `string.str_to_int` path) and L8-14 (trap in the Map[Str,Str]
+  morse flow).
 - **L5-40 (C17 clang residue)**: builds, but `group_by_age` prints 0.
   Root cause is now two-layered:
   1. `Map[Int, Vec[Str]].new()` monomorphised V=Int (the explicit
