@@ -201,6 +201,9 @@ pub struct TypeContext {
     pub generic_type_params: HashMap<String, Vec<String>>,
     /// Known function signatures: name -> (param_llvm_types, return_llvm_type_or_empty)
     pub functions: SyncRegistry<String, (Vec<String>, String)>,
+    /// R52: keys of PUB functions (bare-call ranking: imported pub exports
+    /// outrank pub helpers, which outrank private same-name functions).
+    pub pub_fns: SyncRegistry<String, bool>,
     /// Declared XIOM return type per function key
     pub fn_return_xiom: SyncRegistry<String, String>,
     /// Maps function pointer parameter names to their LLVM return types

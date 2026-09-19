@@ -591,6 +591,20 @@ pub(crate) fn is_non_registry_spec(spec: &str) -> bool {
         || s.starts_with("https:")
 }
 
+/// R52 (packages relay): the standard library is a PLATFORM package, not a
+/// registry artifact. A manifest may declare `xiom.std: "0.1.0"`; the
+/// closure must treat it as locally satisfied (`resolve_dependencies` maps it
+/// to the checkout) instead of failing "not in the registry". Legacy
+/// hyphen spelling stays accepted.
+pub(crate) fn is_platform_dep(name: &str) -> bool {
+    matches!(name, "xiom.std" | "xiom-std")
+}
+
+/// True when a dependency (name + spec) stays out of the registry closure.
+pub(crate) fn is_non_registry_dep(name: &str, spec: &str) -> bool {
+    is_platform_dep(name) || is_non_registry_spec(spec)
+}
+
 /// Deterministic transitive closure from already-resolved roots.
 ///
 /// Cycle-safe (keyed `name@version`), dependency order sorted at every level,
@@ -618,7 +632,7 @@ fn resolve_closure(
         order.push(ClosureEntry { name: name.clone(), version: version.clone(), sha256 });
         let mut deps: Vec<(String, String)> = deps_of(&name, &version)
             .into_iter()
-            .filter(|(_, spec)| !is_non_registry_spec(spec))
+            .filter(|(dep, spec)| !is_non_registry_dep(dep, spec))
             .collect();
         deps.sort();
         for (dep, spec) in deps.into_iter().rev() {
@@ -1160,6 +1174,32 @@ mod tests {
         assert!(is_non_registry_spec("path:../lib"));
         assert!(is_non_registry_spec("git:https://x/y@0123456789abcdef0123456789abcdef01234567"));
         assert!(!is_non_registry_spec(">=1.0.0"));
+    }
+
+    #[test]
+    fn platform_deps_stay_out_of_the_registry_closure() {
+        // R52: a manifest may declare `xiom.std: "0.1.0"`; the closure must
+        // not demand it from the registry (it is resolved locally).
+        assert!(is_platform_dep("xiom.std"));
+        assert!(is_platform_dep("xiom-std"));
+        assert!(!is_platform_dep("xiom.hello"));
+        assert!(is_non_registry_dep("xiom.std", "0.1.0"));
+        assert!(is_non_registry_dep("lib", "path:../lib"));
+        assert!(!is_non_registry_dep("lib", "^1.0.0"));
+
+        let index = index_with(&[
+            ("hello", "0.1.0", vec![version("0.1.0", &[("xiom.std", "0.1.0")], false)]),
+        ]);
+        let deps_of = |name: &str, ver: &str| -> Vec<(String, String)> {
+            index.packages.get(name)
+                .and_then(|p| p.versions.iter().find(|v| v.version == ver))
+                .map(|v| v.dependencies.iter().map(|(k, s)| (k.clone(), s.clone())).collect())
+                .unwrap_or_default()
+        };
+        let closure = install_closure(&index, "hello", "0.1.0", &deps_of)
+            .expect("a stdlib dep must not fail the registry closure");
+        assert_eq!(closure.len(), 1);
+        assert_eq!(closure[0].name, "hello");
     }
 
     #[test]

@@ -619,6 +619,11 @@ impl IrEmitter {
                 .unwrap_or_else(|| "void".to_string());
             let key = self.fn_key(fd);
             self.types.functions.insert(key.clone(), (param_types.clone(), ret_type.clone()));
+            // R52: track visibility for bare-call ranking (imported pub >
+            // pub > private) without making private helpers unreachable.
+            if fd.is_pub {
+                self.types.pub_fns.insert(key.clone(), true);
+            }
             // R15b: same-leaf same-name modules declared in the USER program
             // share the bare key. Register the MODULE-QUALIFIED key alongside
             // it so (a) aliased delegation (`use alpha.base32 as canon;`
@@ -653,6 +658,11 @@ impl IrEmitter {
             // internal stdlib calls (e.g. env.args_os -> args()) resolve to the
             // qualified key and the emitted symbol matches the definition.
             // Keep-first: a user-defined bare fn (registered earlier) wins.
+            // R52 (packages relay): visibility is tracked in `pub_fns` and
+            // ranked at RESOLUTION time (imported-module exports first, then
+            // pub, then private) -- private helpers must stay reachable from
+            // their own module (`normalize_duration` inside Duration.add) but
+            // must not hijack an unqualified call from an unrelated program.
             if fd.receiver.is_none() {
                 if let Some((_, bare)) = key.rsplit_once('.') {
                     if !bare.is_empty() && bare != key.as_str() {

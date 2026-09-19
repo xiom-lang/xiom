@@ -141,6 +141,18 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   wired. Pending: stdlib lane green -> bump `STDLIB_VERSION` in the release
   PR -> tag `v0.61.0`; optional rewrite of the protected tags
   `v0.60.0`/`v0.60.1` (old objects remain on the remote).
+- **R52 packages relay (2026-09-19)**: (a) unqualified `assert` after
+  `use xiom.test;` returned a corrupt TestResult (F/0) because the keep-first
+  bare alias bound the transitively-imported private `core.assert`; bare-call
+  resolution now only honours a keep-first alias whose target is PUB and
+  otherwise ranks imported-module exports (private helpers inside their own
+  module, e.g. `normalize_duration`, stay reachable). Lock
+  `e2e_m105_unqualified_assert`. (b) `xiom.std` (and legacy `xiom-std`) is a
+  platform dep: a version spec no longer fails the registry closure. (c)
+  `xiom pkg <cmd> --help` prints that command's usage (`keygen --help` no
+  longer writes a key). (d) The local `target/release/xiom.exe` is stale vs
+  source (pre-R48 dispatch); a fresh release build is needed for publishing
+  -- the source is correct.
 - **R51 stdlib residual (2026-09-19, p_pre_capture_callee)**: implication-
   wrapped contract clauses (`result is Some => ...@pre...`) never emitted
   entry snapshots -- the `@pre` walkers had no `Imply`/`Is` arms, so the

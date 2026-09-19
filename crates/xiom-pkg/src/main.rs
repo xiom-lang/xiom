@@ -19,11 +19,21 @@ use crate::registry::{registry_url, search_registry, install_from_registry, http
 
 fn main() {
     let args: Vec<String> = env::args().collect();
+    // R52 (packages relay): `xiom pkg <cmd> --help` must print THAT command's
+    // usage -- the old top-level scan fired first and even made
+    // `keygen --help` WRITE a key. Top-level help applies only when no
+    // subcommand is present.
+    let first_arg = args.get(1).map(|s| s.as_str()).unwrap_or("");
+    let has_subcommand = !first_arg.is_empty() && !first_arg.starts_with('-');
     if args.iter().any(|a| a == "--help") {
+        if has_subcommand {
+            print_command_usage(first_arg);
+            return;
+        }
         print_usage();
         return;
     }
-    if args.iter().any(|a| a == "--version") {
+    if args.iter().any(|a| a == "--version") && !has_subcommand {
         eprintln!("xiom-pkg v{}", env!("CARGO_PKG_VERSION"));
         return;
     }
@@ -958,7 +968,8 @@ fn generate_lockfile() {
     let mut entries: Vec<(String, String, String, String)> = Vec::new();
     let mut registry_roots: Vec<(String, String)> = Vec::new();
     for (name, spec) in &pkg.deps {
-        if crate::registry::is_non_registry_spec(spec) {
+        if crate::registry::is_non_registry_dep(name, spec) {
+            // path/git/URL/platform (xiom.std) deps are not registry artifacts.
             entries.push((name.clone(), spec.clone(), "registry".to_string(), String::new()));
         } else {
             registry_roots.push((name.clone(), spec.clone()));
@@ -994,7 +1005,7 @@ fn generate_lockfile() {
     for entry in &mut entries {
         if entry.3.is_empty()
             && index.is_some()
-            && !crate::registry::is_non_registry_spec(&entry.1)
+            && !crate::registry::is_non_registry_dep(&entry.0, &entry.1)
         {
             let url = format!("{}/packages/{}/{}/package.tar.gz", registry, entry.0, entry.1);
             if let Ok(bytes) = crate::registry::http_get_binary(&url) {
@@ -1016,6 +1027,23 @@ fn generate_lockfile() {
         lock_path.display(),
         lock.packages.len(),
         if unlocked > 0 { format!(", {unlocked} WITHOUT integrity -- install will refuse them until re-locked online") } else { String::new() });
+}
+
+/// R52: per-subcommand `--help` output (top-level help is for bare
+/// `xiom pkg --help` only).
+fn print_command_usage(cmd: &str) {
+    match cmd {
+        "install" => eprintln!("Usage: xiom pkg install <package>[@version]"),
+        "search" => eprintln!("Usage: xiom pkg search <query>"),
+        "publish" => eprintln!("Usage: xiom pkg publish [--token <TOKEN>]"),
+        "keygen" => eprintln!("Usage: xiom pkg keygen [--out <PATH>]"),
+        "trust" => eprintln!("Usage: xiom pkg trust --registry <URL> --key <ed25519-public-hex>"),
+        "trusted" => eprintln!("Usage: xiom pkg trusted"),
+        "sign" => eprintln!("Usage: xiom pkg sign <file> [--key PATH]"),
+        "verify" => eprintln!("Usage: xiom pkg verify <file> <signature-file> [--key HEX]"),
+        "lock" => eprintln!("Usage: xiom pkg lock"),
+        _ => eprintln!("Usage: xiom pkg {cmd} [OPTIONS] (see 'xiom pkg --help')"),
+    }
 }
 
 fn print_usage() {

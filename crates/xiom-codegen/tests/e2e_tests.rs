@@ -4982,6 +4982,29 @@ fn e2e_safety_probe() {
     );
 }
 
+// R52 (packages relay): `use xiom.test; assert(1 == 1, "…")` -- an
+// unqualified call must bind the IMPORTED module's exported TestResult assert
+// (`test.assert`), not a transitively-imported private helper (`core.assert`)
+// or the submodule's void assert (`test.assert.assert`). Private functions no
+// longer register bare cross-module aliases and imported modules rank above
+// the global keep-first alias.
+#[test] fn e2e_m105_unqualified_assert() {
+    let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
+    if !stdlib_root.join("xiom").join("test").join("test.xi").exists() {
+        let msg = "SKIP: stdlib checkout has no xiom/test/test.xi";
+        if xiom_graph::paths::require_stdlib() {
+            panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
+        }
+        eprintln!("{msg}");
+        return;
+    }
+    assert_eq!(
+        compile_and_run("tests/regression/m105_unqualified_assert/main.xi"),
+        Some(0),
+        "R52 unqualified xiom.test.assert probe must compile and run"
+    );
+}
+
 // R51 (stdlib p_pre_capture_callee): contract clauses wrapped in an
 // IMPLICATION (`result is Some => total(b) == total(b)@pre - 1`) must still
 // collect @pre variables and emit entry snapshots -- the walker had no Imply

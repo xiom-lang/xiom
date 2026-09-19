@@ -3226,7 +3226,23 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         if let Some(qualified) = in_caller_module {
                             qualified
                         } else if let Some(qualified) = self.mono.bare_fn_aliases.get(&fn_key) {
-                            qualified.clone()
+                            // R52 (packages relay): a keep-first alias that
+                            // points at a PRIVATE function must not shadow an
+                            // imported module's pub export (`core.assert` vs
+                            // `test.assert`). PUB aliases are authoritative --
+                            // overriding them routed path.xi's `join_paths` to
+                            // io's POSIX variant and broke the separator/join
+                            // pair on Windows.
+                            if !self.types.pub_fns.contains_key(qualified) {
+                                self.pick_imported_bare(&fn_key).unwrap_or_else(|| qualified.clone())
+                            } else {
+                                qualified.clone()
+                            }
+                        } else if let Some(qualified) = self.pick_imported_bare(&fn_key) {
+                            // No keep-first alias at all: prefer an imported
+                            // module's export over an arbitrary same-leaf
+                            // function.
+                            qualified
                         } else if let Some(aliased) = self.mono.use_alias_map.get(&fn_key) {
                             // BUG 25 #2 fix: `use X.Y.f as alias;` -- the alias
                             // resolves through the MODULE-CALL machinery, which

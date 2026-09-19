@@ -7421,6 +7421,25 @@ verification, with repro commands using the playground lesson sources
   function body (or checker-side inference feeding codegen). Trace evidence:
   `create` concrete=[] (emits the `0` fallback), `add_plugin`
   concrete=["EchoPlugin"], `run_all` container miss -> Int -> C001.
+- **R52 packages relay**: FIXED --
+  (1) `use xiom.test; assert(1 == 1, "…")` bound the transitively-imported
+  PRIVATE `core.assert` (keep-first bare alias) instead of the imported
+  module's exported TestResult assert; the result was a zeroed TestResult
+  (F/0) and every unqualified-assert conformance test reported failures.
+  Bare-call resolution now keeps a keep-first alias only when its target is
+  PUB; a private alias defers to the imported-module export ranking
+  (`matches_import` > pub > caller-module > shortest). Lock
+  `e2e_m105_unqualified_assert`; the time smoke (private
+  `normalize_duration` helper) and path/gzip round-6 stay green.
+  (2) `xiom.std` with a VERSION spec failed `xiom pkg install`
+  ("dependency 'xiom.std' is not in the registry"): the stdlib is a platform
+  package now (`is_platform_dep`), excluded from the registry closure like
+  path/git specs; legacy `xiom-std` accepted.
+  (3) `xiom pkg keygen --help` printed the top-level help AND generated a
+  key: `--help` after a subcommand now prints that command's usage.
+  (4) Release artifacts: the local `target/release/xiom.exe` predates the
+  R48 native dispatch; the source is correct (`xiom pkg` execs the sibling
+  xiom-pkg) -- a fresh release build is required for publishing.
 - **R51 L4 cluster (playground audit §19)**: FIXED --
   L4-29/33/39 (`items@pre.len()`, `self@pre.items.len()`): the Vec.len
   dispatch and `infer_struct_type_name` now look through `AtPre` receivers

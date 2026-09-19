@@ -2878,6 +2878,46 @@ impl IrEmitter {
         candidates.into_iter().next()
     }
 
+    /// R52 (packages relay): rank bare-call candidates. A bare call must
+    /// prefer a function that is an EXPORT of a module the program imported
+    /// (`use xiom.test;` -> `test.assert`) over a transitively-imported
+    /// private helper (`core.assert`) or a submodule's same-leaf fn
+    /// (`test.assert.assert`). Only pub functions are aliased, and imported
+    /// modules rank above the global keep-first alias.
+    fn pick_imported_bare(&self, bare: &str) -> Option<String> {
+        let suffix = format!(".{bare}");
+        let mut candidates: Vec<String> = self.types.functions.keys().into_iter()
+            .filter(|k| k.ends_with(&suffix)
+                && !k.starts_with("Tuple__") && !k.starts_with("Option__") && !k.starts_with("Result__"))
+            .collect();
+        if candidates.is_empty() {
+            return None;
+        }
+        if std::env::var_os("XIOM_TRACE_BARE").is_some() {
+            eprintln!("[bare] fn={bare} candidates={candidates:?} imported={:?}",
+                self.config.module_receiver_paths);
+        }
+        let imported: Vec<&String> = self.config.module_receiver_paths.values().collect();
+        let matches_import = |key: &str| -> bool {
+            let module = &key[..key.len() - suffix.len()];
+            let module_leaf = module.rsplit('.').next().unwrap_or(module);
+            imported.iter().any(|p| {
+                let imp_leaf = p.rsplit('.').next().unwrap_or(p.as_str());
+                module == p.as_str() || module == imp_leaf || module_leaf == imp_leaf
+            })
+        };
+        let is_pub = |key: &str| self.types.pub_fns.contains_key(&key.to_string());
+        candidates.sort_by(|a, b| {
+            matches_import(b).cmp(&matches_import(a))
+                .then_with(|| is_pub(b).cmp(&is_pub(a)))
+                .then_with(|| self.module_pref_for(b).cmp(&self.module_pref_for(a)))
+                .then_with(|| a.len().cmp(&b.len()))
+                .then_with(|| a.cmp(b))
+        });
+        let best = candidates.into_iter().next()?;
+        if matches_import(&best) { Some(best) } else { None }
+    }
+
     /// Scope prefixes for bare-variant resolution, most specific first:
     /// the explicit module context when present, then the enclosing function
     /// name's dotted prefixes (`benchmark.generics_hard.test_x` ->
