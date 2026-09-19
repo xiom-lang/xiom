@@ -7511,10 +7511,19 @@ stdlib repro (free fn + method + field/index forms) and locked as
 `e2e_m95_pre_call_capture`. The stdlib session can restore the stronger
 size relations in its clauses.
 
-### R49-3 `p_result_payload_contract` -- scalar + Vec payload Result
+### R49-3 `p_result_payload_contract` -- scalar + Vec payload Result -- FIXED
 One module with a scalar-payload Result contract plus a Vec-payload Result
-contract breaks clang (`%struct.Vec` passed to `xiom_str_len`); blocks
+contract broke clang (`%struct.Vec` passed to `xiom_str_len`); blocked
 Err-payload clauses.
+
+FIX (R49, 2026-09-19): after `result is Ok/Some` the contract base is
+REBOUND to the payload, so `result.value.len()` resolved `.value` through
+the erased i64 field and fell to the Str.len builtin. `field_payload_xiom`
+now returns the rebound container type for `.value` when the base local's
+tracked type is already a container (Vec/Slice/Map/Set), and the `.len()`
+dispatch recognizes Option/Result payload containers
+(`is_payload_container`). Verified with the stdlib repro plus an
+Err-payload Vec form; locked as `e2e_m100_result_payload_contract`.
 
 ### R49-4 `p_sweep_single_param` -- clang 22.1.8 ISel crash
 Still fails with a clang 22.1.8 instruction-selection crash (0xC0000005 on

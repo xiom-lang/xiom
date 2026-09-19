@@ -2098,11 +2098,27 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // M33: Detect Vec handles from Result.unwrap().
                         let is_unwrap_vec = !is_container && recv_ty == "i64"
                             && self.receiver_is_unwrap_of_vec(receiver);
+                        // R49-3 (stdlib relay p_result_payload_contract):
+                        // `result.value.len()` on an Option/Result PAYLOAD --
+                        // field_payload_xiom records "Vec[UInt8]" (or Slice),
+                        // but the erased struct field types as i64, so the
+                        // check below fell to Str.len and passed the loaded
+                        // %struct.Vec as i8* (clang: "defined with type
+                        // %struct.Vec but expected ptr").
+                        let is_payload_container = if let Expr::Field(obj, f, _) = receiver.as_ref() {
+                            self.field_payload_xiom(obj, &f.name).map_or(false, |p| {
+                                p.starts_with("Vec[") || p.starts_with("Slice[")
+                                    || p.starts_with("Map[") || p.starts_with("Set[")
+                            })
+                        } else {
+                            false
+                        };
                         // Also detect Vec/Slice field access where infer_llvm_type
                         // returns i64 (container handle) but compile_expr returns
                         // %struct.Vec -- avoid routing to Str.len() below.
                         let is_vec_field = is_container
                             || is_unwrap_vec
+                            || is_payload_container
                             || Self::is_llvm_struct_named(&recv_ty, "Vec")
                             || Self::is_llvm_struct_named(&recv_ty, "Slice")
                             || (recv_ty == "i64" && self.is_container_vec_field(receiver));

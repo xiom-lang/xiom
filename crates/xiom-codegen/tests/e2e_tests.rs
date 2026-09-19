@@ -4982,6 +4982,18 @@ fn e2e_safety_probe() {
     );
 }
 
+// R49-3 (stdlib relay p_result_payload_contract): one module with scalar +
+// Vec payload Result contracts. `result.value.len()` after `is Ok/Err` must
+// dispatch on the rebound payload container (was xiom_str_len on a
+// %struct.Vec -> clang type error).
+#[test] fn e2e_m100_result_payload_contract() {
+    assert_eq!(
+        compile_and_run("tests/regression/m100_result_payload_contract/main.xi"),
+        Some(0),
+        "R49 result-payload contract probe must compile and run"
+    );
+}
+
 // R49-1 (stdlib relay p_module_path_alias): importing a MOVED module by its
 // file path must register the declared identity, not the alias. The checker
 // resolves the catalog on `xiom --check`, so compiling this program exercises

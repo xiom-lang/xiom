@@ -156,7 +156,9 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
      rewrite + freeze-resolver header index). `stdlib_api_freeze_tests` is
      GREEN (214/214 frozen entries; 52 stale/renamed snapshot lines
      regenerated in the same commit). Lock `e2e_m99_module_path_alias`.
-  5. R49-3 (Result payload contract) / R49-4 (clang ISel crash): filed.
+  5. R49-3 Result payload contract: FIXED (payload rebound `.value`
+     container dispatch; lock `e2e_m100_result_payload_contract`).
+     R49-4 (clang ISel crash) still filed.
   6. Perf: `.to_str()` auto-injected `xiom.fmt` closure +2.3-2.5 s ->
      reachable-function-only peek (Stage 6 gate).
   7. C3 (script-mode flags) / C6 (stdlib `package.xi`): need an exact

@@ -3086,6 +3086,17 @@ impl IrEmitter {
                         }
                         return Self::option_result_payload(decl);
                     }
+                    // R49-3 (stdlib relay p_result_payload_contract): after
+                    // `result is Ok` / `opt is Some` the base may be REBOUND
+                    // to the payload ("Vec[UInt8]"); `.value` is then the
+                    // identity -- return the rebound container type so
+                    // `.value.len()` / `.value.get(...)` dispatch on the
+                    // container, not on the erased i64 field.
+                    if decl.starts_with("Vec[") || decl.starts_with("Slice[")
+                        || decl.starts_with("Map[") || decl.starts_with("Set[")
+                    {
+                        return Some(decl.clone());
+                    }
                 }
                 None
             }
