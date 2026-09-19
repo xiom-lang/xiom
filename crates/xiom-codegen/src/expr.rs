@@ -3012,6 +3012,14 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     if inner_ty.starts_with("%struct.") {
                         return Ok((elem, inner_ty.to_string()));
                     }
+                    // R49 (playground C18 residue): Str elements (i8*) keep
+                    // their pointer type -- val_to_i64 ptrtoint'd the string
+                    // handle, so `"Hi, " + friends[i]` printed the ADDRESS
+                    // (L0-11 "Hi, 1406...") and every other Str consumer saw
+                    // an Int.
+                    if inner_ty == "i8*" {
+                        return Ok((elem, inner_ty.to_string()));
+                    }
                     // Float elements stay FLOAT-typed -- val_to_i64 bitcasts
                     // the double to i64 bits and the binary-op layer then
                     // sitofp'd those bits back (2.5 != 2.5 fired true; m67
@@ -3045,6 +3053,10 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         if matches!(inner_ty.as_str(), "float" | "double" | "fp128") {
                             return Ok((elem, inner_ty));
                         }
+                        // R49: Str (i8*) elements stay typed (see fixed-array path).
+                        if inner_ty == "i8*" {
+                            return Ok((elem, inner_ty));
+                        }
                         let result = self.val_to_i64(&elem, &inner_ty);
                         return Ok((result, LLVM_I64.to_string()));
                     }
@@ -3054,6 +3066,10 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     if matches!(elem_ty, "float" | "double" | "fp128") {
                         return Ok((elem, elem_ty.to_string()));
                     }
+                    // R49: Str (i8*) elements stay typed.
+                    if elem_ty == "i8*" {
+                        return Ok((elem, elem_ty.to_string()));
+                    }
                     let result = self.val_to_i64(&elem, &elem_ty);
                     return Ok((result, LLVM_I64.to_string()));
                 }
@@ -3061,6 +3077,10 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 Ok(("0".to_string(), LLVM_I64.to_string()))
             }
             Expr::AtPre(inner, _) => {
+                if std::env::var_os("XIOM_TRACE_PRE").is_some() {
+                    let d = format!("{:?}", inner);
+                    eprintln!("[atpre] inner={} snapvars={:?}", &d[..d.len().min(90)], self.fctx.pre_snapshot_vars);
+                }
                 // If inner is `self` or any variable, resolve to its pre-state snapshot
                 if let Expr::Ident(id) = inner.as_ref() {
                     let pre_name = if id.name == "self" {
@@ -3074,6 +3094,48 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         return Ok((tmp, llvm_ty));
                     }
                     // Fallback: if no pre snapshot, use current value
+                }
+                // R49 (stdlib relay p_pre_call_capture): `@pre` on a compound
+                // expression (CALL or FIELD/INDEX chain). The old fallback
+                // compiled it in the CURRENT state -- size-relation contracts
+                // like `total(b) == total(b)@pre + 1` always violated at
+                // runtime. Rebind every entry snapshot for the duration of the
+                // expression so it is evaluated against the pre-state (ref
+                // params get the snapshot's ADDRESS, value params the snapshot
+                // itself).
+                if !matches!(inner.as_ref(), Expr::Ident(_))
+                    && !self.fctx.pre_snapshot_vars.is_empty()
+                {
+                    self.push_scope();
+                    for vname in self.fctx.pre_snapshot_vars.clone() {
+                        let pre_name = if vname == "self" {
+                            "__self_pre".to_string()
+                        } else {
+                            format!("__{}_pre", vname)
+                        };
+                        let Some((pre_ptr, pre_ty)) = self.lookup_local(&pre_name).cloned() else { continue; };
+                        let cur_ty = self.lookup_local(&vname).map(|(_, t)| t.clone());
+                        match cur_ty {
+                            // Ref-typed local: its SLOT holds the pointer (a
+                            // value-load through the slot derefs nothing); the
+                            // snapshot alloca IS the pointee, so store its
+                            // address into a fresh pointer slot. Passing the
+                            // alloca directly made `load %struct.C*, %struct.C**`
+                            // read the first struct FIELD as a pointer (AV).
+                            Some(cur) if cur.ends_with('*') && !pre_ty.ends_with('*') => {
+                                let pslot = self.fresh_tmp();
+                                self.emitln(&format!("  {pslot} = alloca {cur}"));
+                                self.emitln(&format!("  store {cur} {pre_ptr}, {cur}* {pslot}"));
+                                self.add_local(&vname, pslot, &cur);
+                            }
+                            _ => {
+                                self.add_local(&vname, pre_ptr, &pre_ty);
+                            }
+                        }
+                    }
+                    let result = self.compile_expr(inner);
+                    self.pop_scope();
+                    return result;
                 }
                 self.compile_expr(inner)
             }

@@ -1063,7 +1063,14 @@ impl IrEmitter {
                             return Ok(());
                         }
                         let fn_name = self.fn_symbol(fd);
-                        self.mono.emitted_fns.insert(fn_name.clone());
+                        // R49 (playground C17 residue): the preassigned symbol
+                        // map returns the SAME name for a duplicated definition
+                        // (L6-31's lesson solution declares `new_student`
+                        // twice); compiling both bodies produced clang
+                        // "invalid redefinition of function". First wins.
+                        if !self.mono.emitted_fns.insert(fn_name.clone()) {
+                            return Ok(());
+                        }
                         // 5e.5a: track pub functions for hot reload thunk dispatch
                         if self.config.hot_reload && fd.is_pub {
                             self.config.pub_functions.insert(fn_name.clone());
@@ -1601,6 +1608,7 @@ impl IrEmitter {
             // permuted across runs; same semantics, non-identical IR).
             let mut pre_vars_sorted: Vec<String> = pre_vars.into_iter().collect();
             pre_vars_sorted.sort();
+            self.fctx.pre_snapshot_vars = pre_vars_sorted.clone();
             for var_name in &pre_vars_sorted {
                 if let Some((ptr, llvm_ty)) = self.lookup_local(var_name).cloned() {
                     // For `&mut T` parameters (llvm_ty ends with `*`), the local
@@ -1616,6 +1624,7 @@ impl IrEmitter {
                         let loaded_val = self.fresh_tmp();
                         self.emitln(&format!("  {loaded_val} = load {inner_ty}, {inner_ty}* {loaded_ptr}"));
                         self.emitln(&format!("  store {inner_ty} {loaded_val}, {inner_ty}* {pre_alloca}"));
+                        self.snapshot_deep_copy_vec_fields(var_name, &pre_alloca, inner_ty);
                         let pre_name = format!("__{}_pre", var_name);
                         self.add_local(&pre_name, pre_alloca, inner_ty);
                     } else {
@@ -1624,6 +1633,7 @@ impl IrEmitter {
                         let loaded = self.fresh_tmp();
                         self.emitln(&format!("  {loaded} = load {llvm_ty}, {llvm_ty}* {ptr}"));
                         self.emitln(&format!("  store {llvm_ty} {loaded}, {llvm_ty}* {pre_alloca}"));
+                        self.snapshot_deep_copy_vec_fields(var_name, &pre_alloca, &llvm_ty);
                         let pre_name = format!("__{}_pre", var_name);
                         self.add_local(&pre_name, pre_alloca, &llvm_ty);
                     }
@@ -1817,6 +1827,86 @@ impl IrEmitter {
         Ok(())
     }
 
+    /// R49 (stdlib relay p_pre_call_capture): a snapshot COPY of a struct
+    /// shares its Vec fields' DATA POINTERS, so `@pre` element reads saw the
+    /// live (post-mutation) buffer -- `total(b) == total(b)@pre + 1` violated.
+    /// Clone each inline `%struct.Vec` field's buffer into fresh memory and
+    /// point the snapshot header at it. Shallow per face: nested container
+    /// elements inside the cloned buffer are still aliased (documented limit).
+    fn snapshot_deep_copy_vec_fields(&mut self, var_name: &str, pre_alloca: &str, struct_llvm_ty: &str) {
+        let raw_name = match self.local.local_xiom_types.get(var_name) {
+            Some(t) => t.clone(),
+            None => return,
+        };
+        let struct_name = raw_name
+            .trim_start_matches('&')
+            .trim_start_matches("mut ")
+            .trim()
+            .to_string();
+        let struct_name = struct_name.split('[').next().unwrap_or(&struct_name).to_string();
+        let key = match self.types.type_meta.get(&struct_name) {
+            Some(_) => struct_name.clone(),
+            None => {
+                let suffix = format!(".{struct_name}");
+                match self.types.type_meta.keys().into_iter().find(|k| k.ends_with(&suffix)) {
+                    Some(k) => k.to_string(),
+                    None => return,
+                }
+            }
+        };
+        let vec_fields: Vec<(usize, String)> = match self.types.type_meta.get(&key) {
+            Some(m) => m
+                .fields
+                .iter()
+                .enumerate()
+                .filter(|(_, (_, t))| t.starts_with("Vec["))
+                .map(|(i, (_, t))| (i, t.clone()))
+                .collect(),
+            None => return,
+        };
+        for (fi, _fty) in vec_fields {
+            let field_llvm = self.field_llvm_type(&key, fi);
+            if field_llvm != "%struct.Vec" { continue; }
+            let fgep = self.fresh_tmp();
+            self.emitln(&format!("  {fgep} = getelementptr {struct_llvm_ty}, {struct_llvm_ty}* {pre_alloca}, i32 0, i32 {fi}"));
+            let dgep = self.fresh_tmp();
+            self.emitln(&format!("  {dgep} = getelementptr %struct.Vec, %struct.Vec* {fgep}, i32 0, i32 0"));
+            let lgep = self.fresh_tmp();
+            self.emitln(&format!("  {lgep} = getelementptr %struct.Vec, %struct.Vec* {fgep}, i32 0, i32 1"));
+            let egep = self.fresh_tmp();
+            self.emitln(&format!("  {egep} = getelementptr %struct.Vec, %struct.Vec* {fgep}, i32 0, i32 3"));
+            let len = self.fresh_tmp();
+            self.emitln(&format!("  {len} = load i64, i64* {lgep}"));
+            let esz = self.fresh_tmp();
+            self.emitln(&format!("  {esz} = load i64, i64* {egep}"));
+            let bytes = self.fresh_tmp();
+            self.emitln(&format!("  {bytes} = mul i64 {len}, {esz}"));
+            let nz = self.fresh_tmp();
+            let do_lbl = self.fresh_block("preclone_do");
+            let done_lbl = self.fresh_block("preclone_done");
+            self.emitln(&format!("  {nz} = icmp sgt i64 {bytes}, 0"));
+            self.emitln(&format!("  br i1 {nz}, label %{do_lbl}, label %{done_lbl}"));
+            self.emitln(&format!("\n{do_lbl}:"));
+            let src = self.fresh_tmp();
+            self.emitln(&format!("  {src} = load i8*, i8** {dgep}"));
+            let buf = self.fresh_tmp();
+            self.emitln(&format!("  {buf} = call i8* @malloc(i64 {bytes})"));
+            let ok_lbl = self.fresh_block("preclone_ok");
+            let fail_lbl = self.fresh_block("preclone_fail");
+            let chk = self.fresh_tmp();
+            self.emitln(&format!("  {chk} = icmp eq i8* {buf}, null"));
+            self.emitln(&format!("  br i1 {chk}, label %{fail_lbl}, label %{ok_lbl}"));
+            self.emitln(&format!("\n{fail_lbl}:"));
+            self.emitln("  call void @llvm.trap()");
+            self.emitln("  unreachable");
+            self.emitln(&format!("\n{ok_lbl}:"));
+            self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {buf}, i8* {src}, i64 {bytes}, i1 false)"));
+            self.emitln(&format!("  store i8* {buf}, i8** {dgep}"));
+            self.emitln(&format!("  br label %{done_lbl}"));
+            self.emitln(&format!("\n{done_lbl}:"));
+        }
+    }
+
     /// Return the LLVM struct type for an `Option<Inner>` with the given
     /// Collect all variable names referenced through `@pre` in an expression.
     pub(crate) fn collect_atpre_vars(expr: &Expr, vars: &mut HashSet<String>) {
@@ -1825,6 +1915,13 @@ impl IrEmitter {
                 if let Expr::Ident(id) = inner.as_ref() {
                     vars.insert(id.name.clone());
                 } else {
+                    // R49 (stdlib relay p_pre_call_capture): `expr@pre` on a
+                    // CALL/FIELD wraps the whole expression; every VARIABLE
+                    // inside it is evaluated in the pre-state, so collect them
+                    // all. The old recursion only handled variables DIRECTLY
+                    // under AtPre (Ident) -- `total(b)@pre` collected NOTHING,
+                    // no snapshot was emitted, and the ensures read post-state.
+                    Self::collect_pre_idents(inner, vars);
                     Self::collect_atpre_vars(inner, vars);
                 }
             }
@@ -1833,6 +1930,31 @@ impl IrEmitter {
             Expr::Call(f, args, _) | Expr::GenericCall(f, _, args, _) => { Self::collect_atpre_vars(f, vars); for a in args { Self::collect_atpre_vars(a, vars); } }
             Expr::Field(e, _, _) | Expr::Index(e, _, _) => Self::collect_atpre_vars(e, vars),
             Expr::Some(e, _) | Expr::Ok(e, _) | Expr::Err(e, _) => Self::collect_atpre_vars(e, vars),
+            _ => {}
+        }
+    }
+
+    /// R49: collect every identifier name appearing in an expression. Used for
+    /// pre-state snapshots under `expr@pre` (a call/field chain evaluates ALL
+    /// of its variables at entry). Unknown variants are skipped conservatively.
+    pub(crate) fn collect_pre_idents(expr: &Expr, vars: &mut HashSet<String>) {
+        match expr {
+            Expr::Ident(id) => { vars.insert(id.name.clone()); }
+            Expr::Binary(l, _, r, _) => { Self::collect_pre_idents(l, vars); Self::collect_pre_idents(r, vars); }
+            Expr::Unary(_, e, _) | Expr::Paren(e, _) | Expr::AtPre(e, _) | Expr::Try(e, _) => Self::collect_pre_idents(e, vars),
+            Expr::Call(f, args, _) | Expr::GenericCall(f, _, args, _) => {
+                Self::collect_pre_idents(f, vars);
+                for a in args { Self::collect_pre_idents(a, vars); }
+            }
+            Expr::Field(e, _, _) | Expr::Index(e, _, _) => Self::collect_pre_idents(e, vars),
+            Expr::Some(e, _) | Expr::Ok(e, _) | Expr::Err(e, _) => Self::collect_pre_idents(e, vars),
+            Expr::Struct(_, fields, _, _) => {
+                for (_, fe) in fields { Self::collect_pre_idents(fe, vars); }
+            }
+            Expr::Tuple(items, _) | Expr::Array(items, _) => {
+                for i in items { Self::collect_pre_idents(i, vars); }
+            }
+            Expr::As(e, _, _) => Self::collect_pre_idents(e, vars),
             _ => {}
         }
     }
@@ -2191,6 +2313,52 @@ impl IrEmitter {
             Type::Ref(inner) => Some(format!("&{}", Self::type_from_ast(inner))),
             Type::MutRef(inner) => Some(format!("&mut {}", Self::type_from_ast(inner))),
             _ => None,
+        }
+    }
+
+    /// R49 (playground C17 residue): bracket-preserving rendering of a type
+    /// ANNOTATION for local type tracking. `type_from_ast` truncates a named
+    /// generic to its base ("PriorityQueue[Task]" -> "PriorityQueue"), which
+    /// starved the generic-method receiver inference: `pq.pop()` on an
+    /// annotated `var pq: PriorityQueue[Task]` fell through to the receiver
+    /// default and mono'd `PriorityQueue.pop_Int` (C001 "Int does not
+    /// implement Priority", L6-28). Container forms keep their existing
+    /// bracket spelling (the same shape ctor-bound locals already store);
+    /// everything else falls through to type_from_ast unchanged.
+    pub(crate) fn type_annotation_name(ty: &Type) -> String {
+        match ty {
+            Type::Named(id, args) if !args.is_empty() => format!(
+                "{}[{}]",
+                id.name,
+                args.iter().map(Self::type_annotation_name).collect::<Vec<_>>().join(", ")
+            ),
+            // R49: container annotations keep their args too -- the generic
+            // receiver inference parses the LOCAL's recorded type
+            // (`m.get(&k)` on `let m: Map[Int, Vec[Str]]` must mono
+            // Map.get[Int, Vec[Str]], not get_Int_Int; L5-40).
+            Type::Vec(inner) => format!("Vec[{}]", Self::type_annotation_name(inner)),
+            Type::Map(k, v) => format!(
+                "Map[{}, {}]",
+                Self::type_annotation_name(k),
+                Self::type_annotation_name(v)
+            ),
+            Type::Set(inner) => format!("Set[{}]", Self::type_annotation_name(inner)),
+            Type::Option(inner) => format!("Option[{}]", Self::type_annotation_name(inner)),
+            Type::Result(ok, err) => format!(
+                "Result[{}, {}]",
+                Self::type_annotation_name(ok),
+                Self::type_annotation_name(err)
+            ),
+            Type::Slice(inner) => format!("Slice[{}]", Self::type_annotation_name(inner)),
+            Type::Array(size_expr, elem) => {
+                let elem_name = Self::type_annotation_name(elem);
+                match size_expr.as_ref() {
+                    Expr::Int(n, _) => format!("[{n} x {elem_name}]"),
+                    Expr::Ident(id) => format!("[{} x {elem_name}]", id.name),
+                    _ => elem_name,
+                }
+            }
+            other => Self::type_from_ast(other),
         }
     }
 

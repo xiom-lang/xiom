@@ -292,7 +292,10 @@ impl IrEmitter {
                 });
                 // M17: Track XIOM type and signedness for narrow-int widening.
                 if let Some(ty) = _ty {
-                    let xiom_name = Self::type_from_ast(ty);
+                    // R49: preserve generic args for user named generics
+                    // ("PriorityQueue[Task]") -- the receiver-type-arg
+                    // inference needs them (L6-28).
+                    let xiom_name = Self::type_annotation_name(ty);
                     self.local.local_xiom_types.insert(name.name.clone(), xiom_name.clone());
                     if Self::is_signed_xiom_type(&xiom_name) {
                         self.local.signed_locals.insert(name.name.clone());
@@ -580,7 +583,10 @@ impl IrEmitter {
                 });
                 // M17: Track XIOM type and signedness for narrow-int widening.
                 if let Some(ty) = _ty {
-                    let xiom_name = Self::type_from_ast(ty);
+                    // R49: preserve generic args for user named generics
+                    // ("PriorityQueue[Task]") -- the receiver-type-arg
+                    // inference needs them (L6-28).
+                    let xiom_name = Self::type_annotation_name(ty);
                     self.local.local_xiom_types.insert(name.name.clone(), xiom_name.clone());
                     if Self::is_signed_xiom_type(&xiom_name) {
                         self.local.signed_locals.insert(name.name.clone());
@@ -1944,6 +1950,23 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                                 self.emitln(&format!("  {vl} = load volatile %struct.Vec, %struct.Vec* {vp}"));
                                                 bind_val = vl;
                                                 field_llvm_ty = "%struct.Vec".to_string();
+                                            } else if let Some(agg) = self.registered_struct_llvm_for(pt)
+                                                .or_else(|| self.boxed_aggregate_llvm_for(pt))
+                                            {
+                                                // R49 (playground C17 residue): a
+                                                // STRUCT/ENUM payload in the erased
+                                                // i64 slot is a heap BOX pointer
+                                                // (Vec.get on struct elements). The
+                                                // old binding used the raw pointer ->
+                                                // `v.id` read ticket-garbage and
+                                                // `s.name` a bogus Str (L5-34 "Vec:
+                                                // not found"). Deref the box.
+                                                let vp = self.fresh_tmp();
+                                                self.emitln(&format!("  {vp} = inttoptr i64 {bind_val} to {agg}*"));
+                                                let vl = self.fresh_tmp();
+                                                self.emitln(&format!("  {vl} = load {agg}, {agg}* {vp}"));
+                                                bind_val = vl;
+                                                field_llvm_ty = agg;
                                             }
                                         }
                                     }

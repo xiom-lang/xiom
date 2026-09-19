@@ -259,6 +259,12 @@ pub struct FunctionContext {
     pub locals: Vec<HashMap<String, (String, String)>>,
     /// Pre-state value of self (for self@pre in ensures)
     pub self_pre_value: Option<String>,
+    /// R49: names snapshotted for `@pre` at function entry (sorted,
+    /// deterministic). `Expr::AtPre` on a CALL needs to rebind ALL of them
+    /// for the duration of the call -- the old fallback compiled the call in
+    /// the current state (`total(b)@pre` read post-state; stdlib
+    /// p_pre_call_capture).
+    pub pre_snapshot_vars: Vec<String>,
     /// Alloca for the result value in ensures expressions
     pub result_ptr: Option<String>,
     /// LLVM type of the result alloca (for per-check `result` scope rebinding)

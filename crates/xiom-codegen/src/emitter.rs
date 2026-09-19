@@ -138,6 +138,19 @@ impl IrEmitter {
             Expr::Paren(inner, _) => return self.infer_call_return_xiom(inner),
             _ => return None,
         };
+        // R49: `x.unwrap()` / `x.unwrap_or(d)` returns the PAYLOAD type, which
+        // the erased Option/Result slot hides. Resolve it from the receiver
+        // expression so bindings keep the concrete type (`let r =
+        // grid.get(i).unwrap()` -> "Vec[Cell]") -- without it the nested get
+        // fell to the scalar element load while the unwrap dereferenced the
+        // tag as a pointer (L8-15 AV).
+        if let Expr::Field(base, m, _) = func {
+            if matches!(m.name.as_str(), "unwrap" | "unwrap_or" | "expect") {
+                if let Some(p) = self.infer_receiver_payload_xiom(base, false) {
+                    return Some(p);
+                }
+            }
+        }
         let rt = self.callee_return_xiom(func)?;
         // Skip unresolved generic placeholders ("Map[K, V]", "Option[T]").
         for token in rt.split(|c: char| !c.is_ascii_alphanumeric()) {

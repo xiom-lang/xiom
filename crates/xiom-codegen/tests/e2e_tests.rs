@@ -4906,6 +4906,101 @@ fn e2e_safety_probe() {
         "R48 interface-dispatch/zero-init probe must compile and run"
     );
 }
+
+// R49 (playground C17 residue): L6-28 -- a struct-literal argument infers the
+// generic (`pq.insert(Task{..})` -> T=Task), an ANNOTATED generic-struct local
+// keeps its type args for receiver inference (`pq.pop()` -> T=Task), and the
+// boxed struct payload unboxes through `.unwrap()`. Needs the stdlib checkout;
+// XIOM_REQUIRE_STDLIB=1 in CI forbids skipping.
+#[test] fn e2e_m93_interface_generic_inference() {
+    let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
+    if !stdlib_root.join("xiom").join("io.xi").exists() {
+        let msg = "SKIP: stdlib checkout has no xiom/io.xi";
+        if xiom_graph::paths::require_stdlib() {
+            panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
+        }
+        eprintln!("{msg}");
+        return;
+    }
+    assert_eq!(
+        compile_and_run("tests/regression/m93_interface_generic_inference/main.xi"),
+        Some(0),
+        "R49 generic-struct inference/unbox probe must compile and run"
+    );
+}
+
+// R49 (playground C17 residue): L8-15/L8-18 -- Vec[Vec[Cell]] nested element
+// access: get boxes the inner Vec, unwrap unboxes it, the inline set memcpys
+// struct/enum element bytes, and computed Vec receivers take the inline path
+// (was clang "i64 where ptr expected", then AV). Needs the stdlib checkout.
+#[test] fn e2e_m94_nested_vec_struct_elem() {
+    let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
+    if !stdlib_root.join("xiom").join("io.xi").exists() {
+        let msg = "SKIP: stdlib checkout has no xiom/io.xi";
+        if xiom_graph::paths::require_stdlib() {
+            panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
+        }
+        eprintln!("{msg}");
+        return;
+    }
+    assert_eq!(
+        compile_and_run("tests/regression/m94_nested_vec_struct_elem/main.xi"),
+        Some(0),
+        "R49 nested-Vec struct-element probe must compile and run"
+    );
+}
+
+// R49 (stdlib relay p_pre_call_capture): @pre on a CALL/field chain must read
+// the ENTRY state -- this needs the pre-snapshot to deep-copy Vec buffers and
+// ref params to be rebound through a pointer slot. Free-function receiver.
+#[test] fn e2e_m95_pre_call_capture() {
+    assert_eq!(
+        compile_and_run("tests/regression/m95_pre_call_capture/main.xi"),
+        Some(0),
+        "R49 @pre call-capture probe must compile and run (stdlib p_pre_call_capture)"
+    );
+}
+
+// R49 (playground C18 residue): fixed arrays of Str elements must keep the
+// i8* element type -- `friends[i]` used to ptrtoint the string handle and
+// print the ADDRESS (L0-11 "Hi, 1406..."). Harness-locked because the
+// output is inside the compiled program (exit code only here).
+#[test] fn e2e_m96_array_str_elem() {
+    let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
+    if !stdlib_root.join("xiom").join("io.xi").exists() {
+        let msg = "SKIP: stdlib checkout has no xiom/io.xi";
+        if xiom_graph::paths::require_stdlib() {
+            panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
+        }
+        eprintln!("{msg}");
+        return;
+    }
+    assert_eq!(
+        compile_and_run("tests/regression/m96_array_str_elem/main.xi"),
+        Some(0),
+        "R49 array-of-Str element probe must compile and run"
+    );
+}
+
+// R49 (playground C17 residue): qualified enum variants in match arms
+// (`TrafficLight.Green`) must infer the parent enum struct; the old i64
+// fallback made `next()` return a mistyped enum (L2-19 AV).
+#[test] fn e2e_m97_enum_variant_match() {
+    let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
+    if !stdlib_root.join("xiom").join("io.xi").exists() {
+        let msg = "SKIP: stdlib checkout has no xiom/io.xi";
+        if xiom_graph::paths::require_stdlib() {
+            panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
+        }
+        eprintln!("{msg}");
+        return;
+    }
+    assert_eq!(
+        compile_and_run("tests/regression/m97_enum_variant_match/main.xi"),
+        Some(0),
+        "R49 enum-variant match probe must compile and run"
+    );
+}
 #[test] fn e2e_m37_nested_vec() { assert_eq!(compile_and_run("tests\\regression\\m37_nested_vec.xi"), Some(0)); }
 #[test] fn e2e_m37_short_circuit() { assert_eq!(compile_and_run("tests\\regression\\m37_short_circuit.xi"), Some(0)); }
 #[test] fn e2e_m37_match_float_payload() { assert_eq!(compile_and_run("tests\\regression\\m37_match_float_payload.xi"), Some(0)); }

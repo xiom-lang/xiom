@@ -7361,27 +7361,76 @@ verification, with repro commands using the playground lesson sources
    publishes `xiom-wasm-<ver>.wasm` as its own release asset (included in
    SHA256SUMS; release `FILES` glob covers `*.wasm`).
 
-### OPEN (precise repros, in priority order)
+### R49 BATCH STATUS (2026-09-19)
 
-- **C17 interface residue -- 2 lessons**: L6-28
-  (`PriorityQueue[T: Priority].insert` method whose `T` is inferred from the
-  struct's generic: still `C001 type 'Int' does not implement 'Priority'`)
-  and L6-40 (module-scoped `Runner[T: Plugin]` interface dispatch:
-  `C001 type 'Int' does not implement 'Plugin'`).
-- **C17 clang residue -- 4 lessons**: L5-40
-  (`alloca %struct.Option__Vec_Str_` -- nested-generic mono name is never
-  defined), L6-31 (`invalid redefinition of function
-  'school.students.new_student'` -- qualified nested constructor emitted
-  twice, C11), L8-15/L8-18
-  (`%tmp defined with type 'i64' but expected 'ptr'` -- a `Vec` receiver
-  reaches `get_Int(%struct.Vec* ...)` as an i64 handle).
-- **C17 runtime AVs -- 2 lessons**: L6-05 and L2-19 exit `0xC0000005`
-  (access violation) deterministically.
-- **C18/C19 residue -- 26 lessons**: 19 nondeterministic pointer prints
-  (L0-11, L3-01/02/07/50, L5-02/05/07/09/20/24/26/29/31/35/36/43, L8-14,
-  L8-20), 7 invalid-UTF-8 outputs (L0-34, L0-49, L0-50, L5-32, L5-34,
-  L5-42, L7-09), and L5-21 (`Float64.to_str()` inside a generic over
-  `Vec[T]` still prints IEEE bit patterns).
+**FIXED in the R49 batch** (codegen + locks; full e2e green, see SESSION.md):
+
+- **L6-28 (C17 interface residue)**: struct-literal arguments now infer the
+  generic (`pq.insert(Task{...})` -> T=Task), ANNOTATED generic-struct locals
+  keep their type args (`type_annotation_name`), the call site REGISTERS the
+  concrete `Option__Task` (`concrete_container_llvm`) so the mono def and the
+  call agree, `Vec.get` boxes struct elements in generic bodies
+  (mono-substituted element types), `.unwrap()` unboxes struct/enum/aggregate
+  payloads, and `clone` returns the COMPILED value type. Lesson builds and
+  runs (Write docs/Fix bug/Deploy). Locks: `e2e_m93_interface_generic_inference`.
+- **L6-31 (C17 clang residue)**: duplicate definitions (the lesson solution
+  declares `new_student`/`new_course` twice) are emitted once -- the serial
+  emitter now dedupes on the pre-assigned symbol (`emitted_fns` first-wins,
+  matching `types.functions`). Lesson builds and runs.
+- **L8-15/L8-18 (C17 clang residue + AV)**: computed Vec receivers
+  (`grid.get(i).unwrap()`) resolve their element type through the unwrap
+  expression, struct/enum elements box/unbox consistently, the inline `set`
+  memcpys element bytes (was storing the boxed pointer), and `unwrap` hint
+  resolution handles enums/aggregates. L8-15 plays a correct game, L8-18
+  renders the board. Lock: `e2e_m94_nested_vec_struct_elem`.
+- **L6-05 (C17 runtime AV)**: generic-method params record their
+  mono-substituted Vec element type (`items: &Vec[T]` with T=Meter), so
+  `items.get(i)` takes the struct-element path. Total prints 30. Lock
+  (L6-05 shape covered by m93's queue work).
+- **L2-19 (C17 runtime AV)**: qualified enum variants (`TrafficLight.Green`)
+  infer the parent enum struct instead of i64; `next()` returns a valid
+  enum. Lock: `e2e_m97_enum_variant_match`.
+- **L0-11 + array-of-Str (C18)**: fixed-array element loads keep `i8*` Str
+  elements (val_to_i64 ptrtoint printed the ADDRESS: "Hi, 1406..."). Lock:
+  `e2e_m96_array_str_elem`.
+- **L5-32/L5-34 (C19 invalid UTF-8)**: match-result slots keep Str (BinOp
+  `+` with an i8* operand infers i8*; bare conversion calls resolve a unique
+  module-qualified return type) and Some/Ok bindings unbox struct payloads
+  (`Vec[Student].get(...)`). L5-32 prints 2/2/First: 1, L5-34 Vec: Bob.
+- **L5-42 (C19 invalid UTF-8)**: NOT in this commit -- fix prepared (bare
+  `to_string(v)` resolves through the unique `.to_string` candidate
+  fallback), gated on its own e2e run.
+- **@pre call capture (R49-2, stdlib relay)**: `collect_atpre_vars` now
+  collects every variable under `expr@pre` (calls/fields), `AtPre` on a
+  compound expression rebinds the entry snapshots for its duration (ref
+  params through a fresh pointer slot -- passing the snapshot alloca
+  directly made a `%struct.T**` load read the first FIELD as a pointer),
+  and struct snapshots deep-copy inline `%struct.Vec` buffers so element
+  reads see entry-state data. `p_pre_call_capture` (free fn + method
+  receivers + field/index forms) passes. Lock: `e2e_m95_pre_call_capture`.
+  Stdlib can restore the stronger size relations in its safe clauses.
+
+**STILL OPEN**:
+
+- **L6-40 (C17 interface residue)**: module-scoped `Runner[T: Plugin]`
+  `create()` has no argument evidence at its call site; T is only fixed by
+  the LATER `add_plugin(&mut runner, EchoPlugin{})`. Codegen inference is
+  single-pass (emission order), so this needs a fixpoint pre-pass over the
+  function body (or checker-side inference feeding codegen). Trace evidence:
+  `create` concrete=[] (emits the `0` fallback), `add_plugin`
+  concrete=["EchoPlugin"], `run_all` container miss -> Int -> C001.
+- **L5-40 (C17 clang residue)**: now builds (nested `Option__Vec_Str_` is
+  registered and defined), but `group_by_age` prints 0 instead of 2. Root
+  cause: Map container-payload ABI -- `Map.insert[Int, Vec[Str]]` boxes the
+  Vec value with malloc then `memcpy`s the UNBOXED header into an 8-byte
+  handle slot, while `Map.get` reads an i64 handle and derefs it. The box
+  pointer is computed and discarded. Fixing needs the Map values store to
+  commit to one convention (handle store) in the injected `insert` path.
+- **Remaining C18/C19 pointer/UTF-8 lessons**: per-lesson triage still
+  needed (L3-02, L5-09/20/24/26/29/31/35/36/43 nondeterministic; L3-50 exits
+  200; L8-14 deterministically `0xC000001D` -- a trap reached in the
+  Map[Str,Str] morse flow; L5-21 Float64.to_str inside Vec[T] generics).
+  L0-11's array-of-Str class is fixed.
 - **Perf: `xiom.fmt` peek closure** costs +2.3-2.5 s per first `.to_str()`
   compile (sweep p50 3.9 -> 7.9 s). Fix shape: a reachable-function-only
   peek -- peek the checker-resolved module shallow, run the reachability
@@ -7393,5 +7442,69 @@ verification, with repro commands using the playground lesson sources
   exact repro from the playground session (changing either without one
   risks breaking the documented script semantics).
 
+**Note for future miscompile work**: `--emit-ir` prints the INTERMEDIATE
+emitter output, not the IR clang compiles (a later pass rewrites e.g.
+`Task.to_str` stubs into `Str.to_str`). To capture the FINAL IR, force the
+link to fail (`--link missing_xyz`) and read `<output>.ll` (kept on failure;
+deleted on success).
 
 
+
+
+
+
+---
+
+## R49 open section -- stdlib-lane relay (2026-09-19)
+
+Findings relayed from the stdlib session; reproduced or filed here before
+fixing. Each entry keeps its stdlib-side repro name.
+
+### R49-1 `p_module_path_alias` -- file-path imports vs declared module name
+Importing a module by FILE PATH whose path differs from the declared module
+name corrupts the catalog: `use xiom.crypto.legacy.md5;` makes `--check`
+emit 33 T001s in `xiom.crypto.rng_crypto` ("cannot call
+'secure_random_bytes' on this expression"); `use xiom.crypto.md5;`
+(declared name) is clean; same for legacy/sha. 19 modules carry
+path/name mismatches (core/{cmp,contracts,platform}, crypto/legacy/{des,
+md5,sha}, crypto/{chacha,ecc,poly1305,rsa}, format/fmt, math/complex,
+num/{bigfloat_agg,bigint}, os/{env,path,process}, string/{char,utf8}).
+This is the SAME set the `stdlib_api_freeze_no_removals` resolver cannot
+find, so one compiler-side resolver fix (module-path resolution in
+`resolve_module_path`/manifest) should clear both. Frozen-gate evidence:
+212 missing entries = 154 resolver misses + 58 signature drifts (49
+pre-existing + 9 R44 renames), pinned baseline 203; snapshot regen is
+compiler-side.
+
+### R49-2 `@pre` on CALL expressions reads post-state -- FIXED (compiler side)
+`@pre` on a call expression captured the CURRENT state instead of the
+entry state, so size-relation contracts (`f(x) == f(x)@pre + 1`) always
+violated at runtime. Field `@pre` works. Minimal 13-line repro filed in the
+stdlib repo as `tools/known_failures/p_pre_call_capture.xi`; reproduced on
+R46 (12148d43) and R46b (504fcc1e), free-function and method receivers.
+Blast radius measured: 11 corpus smokes aborted; the stdlib clauses are
+temporarily replaced with safe forms and `tools/probes/p_wave8_shapes.xi`
+stays red as the regression lock.
+
+FIX (R49, 2026-09-19): `collect_atpre_vars` collected NOTHING for
+`total(b)@pre` (the recursion had no Ident arm under the Call), so no
+snapshot was emitted; `AtPre` on a compound expression additionally fell
+through to compiling in the CURRENT state. Fixes: collect every variable
+under an `@pre` subtree; rebind all entry snapshots while compiling the
+`@pre` expression (ref params through a fresh pointer slot -- the snapshot
+alloca is the POINTEE, so passing it directly made the local load read the
+struct's first field as a pointer); deep-copy inline `%struct.Vec` buffers
+into the snapshot so element reads see entry-state data. Verified with the
+stdlib repro (free fn + method + field/index forms) and locked as
+`e2e_m95_pre_call_capture`. The stdlib session can restore the stronger
+size relations in its clauses.
+
+### R49-3 `p_result_payload_contract` -- scalar + Vec payload Result
+One module with a scalar-payload Result contract plus a Vec-payload Result
+contract breaks clang (`%struct.Vec` passed to `xiom_str_len`); blocks
+Err-payload clauses.
+
+### R49-4 `p_sweep_single_param` -- clang 22.1.8 ISel crash
+Still fails with a clang 22.1.8 instruction-selection crash (0xC0000005 on
+`@__unsafe_block_77`); IR deterministic across R46/R46b, no hang. Filed
+pending a minimized repro.

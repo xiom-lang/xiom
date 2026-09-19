@@ -2785,7 +2785,7 @@ impl IrEmitter {
     /// yet (call sites may compile before the mono def registers it -- the
     /// `-o` compile order), since a struct payload guarantees the definition
     /// emits the concrete struct.
-    pub(crate) fn concrete_container_llvm(&self, name: &str) -> Option<String> {
+    pub(crate) fn concrete_container_llvm(&mut self, name: &str) -> Option<String> {
         let (base, inner) = if let Some(rest) = name.strip_prefix("Result[") {
             ("Result", rest.strip_suffix(']')?)
         } else if let Some(rest) = name.strip_prefix("Option[") {
@@ -2807,6 +2807,22 @@ impl IrEmitter {
         });
         if !any_struct_payload {
             return None;
+        }
+        // R49 (playground C17 residue): a call site that commits to the
+        // concrete layout must REGISTER it. Previously the name was only
+        // formatted; when no other path created the type, the call emitted
+        // `alloca %struct.Option__Task` while the mono definition's
+        // subst_type saw no matching key and returned the erased
+        // `%struct.Option` -> clang "Cannot allocate unsized type"
+        // (L6-28 pop, L5-40 Map.get of a nested Vec[Str] payload).
+        // ensure_concrete_* creates the type_meta entry AND defers the
+        // %struct definition when inside a body, so the layouts agree.
+        if base == "Result" {
+            if payloads.len() >= 2 {
+                self.ensure_concrete_result(payloads[0], payloads[1]);
+            }
+        } else {
+            self.ensure_concrete_option(payloads[0]);
         }
         let concrete = format!(
             "{base}__{}",
@@ -2982,6 +2998,24 @@ impl IrEmitter {
                 if (is_generic_param || payload.is_none()) && field_idx == 1 {
                     if let Expr::Field(recv, f, _) = func.as_ref() {
                         if matches!(f.name.as_str(), "get" | "pop" | "first" | "last") {
+                            // R49: resolve the receiver's Vec ELEMENT type via the
+                            // shared resolver (handles params, locals, fields and
+                            // self.field inside mono bodies), then substitute the
+                            // current mono type map. The old local_xiom_types
+                            // string parse missed `&Vec[T]` params (ref_preserving_name
+                            // drops the args) and returned the bare "T", so
+                            // `match students.get(i) { Some(v) => v }` bound the
+                            // boxed Student payload raw (L5-34 "not found").
+                            if let Some(elem) = self.resolve_vec_elem_xiom(recv) {
+                                let mut map = self.mono.current_type_map.clone();
+                                for (k, v) in &self.mono.param_concrete_types {
+                                    map.entry(k.clone()).or_insert_with(|| v.clone());
+                                }
+                                let subst = Self::subst_type_tokens(&elem, &map);
+                                if !subst.is_empty() {
+                                    return Some(subst);
+                                }
+                            }
                             if let Expr::Ident(rid) = recv.as_ref() {
                                 if let Some(xiom_ty) = self.local.local_xiom_types.get(&rid.name) {
                                     if let Some(elem) = xiom_ty.strip_prefix("Vec[").and_then(|r| r.strip_suffix(']')) {
@@ -4499,9 +4533,11 @@ impl IrEmitter {
         // compiled to `@args`, the later one overwriting the earlier and
         // self-recursing (env.args() -> @args -> @args ... infinite recursion).
         let mut seen_bare: HashSet<String> = HashSet::new();
+        let mut assigned_syms: HashSet<String> = HashSet::new();
         let mut assignments: Vec<(usize, String, HashSet<String>)> = Vec::new();
-        for (idx, prefix, fd) in &functions {
-            let bare = Self::fn_key_with_prefix(fd, prefix);
+        let mut kept: Vec<(usize, String, &FnDecl)> = Vec::with_capacity(functions.len());
+        for (idx, prefix, fd) in functions {
+            let bare = Self::fn_key_with_prefix(&fd, &prefix);
             let snapshot = seen_bare.clone();
             let sym = if seen_bare.contains(&bare) {
                 if prefix.is_empty() {
@@ -4512,9 +4548,26 @@ impl IrEmitter {
             } else {
                 bare.clone()
             };
+            // R49 (playground C17 residue): the same qualified function
+            // declared twice (L6-31's lesson solution duplicates
+            // `school.students.new_student`) was compiled twice -> clang
+            // "invalid redefinition of function". Dispatch is first-wins
+            // everywhere else (`types.functions`), so emit the FIRST body
+            // only.
+            if !assigned_syms.insert(sym.clone()) {
+                if std::env::var_os("XIOM_TRACE_DEDUP").is_some() {
+                    eprintln!("[dedup] SKIP sym={sym} bare={bare} prefix={prefix}");
+                }
+                continue;
+            }
+            if std::env::var_os("XIOM_TRACE_DEDUP").is_some() {
+                eprintln!("[dedup] KEEP sym={sym} bare={bare} prefix={prefix}");
+            }
             seen_bare.insert(bare);
-            assignments.push((*idx, sym, snapshot));
+            assignments.push((idx, sym, snapshot));
+            kept.push((idx, prefix, fd));
         }
+        let functions = kept;
 
         // Step 2: Compile each function in parallel
         let type_ctx = Arc::new(self.types.clone());
@@ -6560,6 +6613,16 @@ impl IrEmitter {
                 self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
                 self.emitln(&format!("  store {llvm_ty} %param{param_idx}, {llvm_ty}* {alloca}"));
                 self.add_local(&param.name.name, alloca, &llvm_ty);
+                // R49 (L6-05): mirror compile_fn's Vec-element param tracking
+                // with the MONO substitution applied -- `items: &Vec[T]` with
+                // T=Meter must record "Meter" so `items.get(i)` takes the
+                // struct-element box path; the old omission scalar-loaded the
+                // first 8 bytes and `.unwrap()` dereferenced that value as a
+                // pointer (AV).
+                if let Some(elem) = Self::vec_elem_from_type_annotation(&param.ty) {
+                    let subst_elem = Self::subst_type_tokens(&elem, &type_map);
+                    self.local.local_vec_elem.insert(param.name.name.clone(), subst_elem);
+                }
                 // round-15 (&[N]T params): the mono param lowers to a bare
                 // ELEMENT pointer ("i8*" for [N]Int8, "i64*" for [N]Int).
                 // Record the element type so the body's arr[i] reads
@@ -7738,6 +7801,14 @@ impl IrEmitter {
                         }
                     }
                 }
+                // R49 (playground C17 residue): a QUALIFIED ENUM VARIANT
+                // expression (`TrafficLight.Green`) lowers to the parent enum
+                // struct. Without this the match arms in `Light.next()` all
+                // inferred i64 -> the match result slot was i64 -> the
+                // %struct-returning fn returned garbage (L2-19 AV).
+                if let Some(enum_key) = self.resolve_enum_for_variant(obj, &field.name) {
+                    return format!("%struct.{enum_key}");
+                }
                 "i64".to_string()
             }
             Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
@@ -7879,7 +7950,25 @@ impl IrEmitter {
                     BinOp::And | BinOp::Or | BinOp::Shl | BinOp::Shr | BinOp::BitXor | BinOp::BitAnd | BinOp::BitOr => "i64".to_string(),
                     BinOp::Assign => self.infer_llvm_type(right),
                     _ => {
-                        if self.is_float_expr(left) || self.is_float_expr(right) { "double".to_string() } else { "i64".to_string() }
+                        if self.is_float_expr(left) || self.is_float_expr(right) {
+                            "double".to_string()
+                        } else if matches!(op, BinOp::Add) {
+                            // R49 (playground C18 residue): mirror the BinOp
+                            // lowering's Str-concat rule -- Add with an i8*
+                            // operand (and not pointer arithmetic) yields
+                            // i8*. The i64 default mistyped match-arm results
+                            // (`match ... { Some(_) => "First: " + s, ... }`)
+                            // and the downstream Str consumer truncated the
+                            // pointer to a single byte (L5-32 invalid UTF-8).
+                            let lt = self.infer_llvm_type(left);
+                            let rt = self.infer_llvm_type(right);
+                            let is_concat = (lt == "i8*" || rt == "i8*")
+                                && !((lt == "i8*" && self.expr_is_pointer(left) && self.expr_is_integer(right))
+                                    || (rt == "i8*" && self.expr_is_pointer(right) && self.expr_is_integer(left)));
+                            if is_concat { "i8*".to_string() } else { "i64".to_string() }
+                        } else {
+                            "i64".to_string()
+                        }
                     }
                 }
             }

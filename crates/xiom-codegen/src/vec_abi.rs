@@ -115,7 +115,24 @@ impl IrEmitter {
     /// the pointer stored as the payload -- matching the val_to_i64 boxing
     /// convention consumed by FIELD-I64 access (`popped.unwrap().x`).
     pub(crate) fn emit_elem_payload_load(&mut self, container: &Expr, elem_ptr: &str, esz_val: &str) -> String {
-        if self.resolve_vec_elem_type(container).is_some() {
+        // R49 (playground C17 residue): a GENERIC-BODY container
+        // (`self.items` inside `PriorityQueue[T].pop`) has element type "T";
+        // resolve_vec_elem_type only consults the registered field type
+        // ("Vec[T]") and misses, so the read fell to the scalar i64 load --
+        // a 24-byte struct element was truncated to its first 8 bytes and
+        // the Option payload became garbage (L6-28 pop -> AV). Substitute
+        // the current mono type map and take the box path when the element
+        // resolves to a registered struct/aggregate.
+        let subst_elem: Option<String> = self.resolve_vec_elem_xiom(container).map(|e| {
+            let mut map = self.mono.current_type_map.clone();
+            for (k, v) in &self.mono.param_concrete_types {
+                map.entry(k.clone()).or_insert_with(|| v.clone());
+            }
+            Self::subst_type_tokens(&e, &map)
+        });
+        let struct_elem = self.resolve_vec_elem_type(container).is_some()
+            || subst_elem.as_deref().map_or(false, |e| self.is_struct_like_vec_elem(e));
+        if struct_elem {
             let raw = self.fresh_tmp();
             self.emitln(&format!("  {raw} = call i8* @malloc(i64 {esz_val})"));
             let ok = self.fresh_block("elem_box_ok");
@@ -139,6 +156,142 @@ impl IrEmitter {
         // container's element XIOM type.
         let signed = self.vec_elem_signed(container);
         self.emit_elem_load(elem_ptr, esz_val, signed)
+    }
+
+    /// R49: is `elem` a struct-like Vec element (registered struct, enum, or
+    /// bracketed container/tuple aggregate) that must take the boxed
+    /// element-load path? Primitives and unknown names return false.
+    pub(crate) fn is_struct_like_vec_elem(&self, elem: &str) -> bool {
+        if elem.is_empty() || Self::is_primitive_type_name(elem) {
+            return false;
+        }
+        if elem.starts_with("Vec[") || elem.starts_with("Option[") || elem.starts_with("Result[")
+            || elem.starts_with("Map[") || elem.starts_with("Set[") || elem.starts_with("Slice[")
+        {
+            return true;
+        }
+        if elem.starts_with('(') || elem.starts_with("Tuple__") {
+            let norm = Self::tuple_xiom_to_struct_name(elem);
+            return self.types.types.keys().into_iter().any(|k| k.as_str() == norm || k.ends_with(&format!(".{norm}")));
+        }
+        if elem.len() == 1 && elem.chars().next().map_or(false, |c| c.is_ascii_uppercase()) {
+            // Unresolved generic param -- not concrete.
+            return false;
+        }
+        self.types.types.keys().into_iter()
+            .any(|k| k.as_str() == elem || k.ends_with(&format!(".{elem}")))
+            || self.types.enum_variants.keys().into_iter()
+                .any(|k| k.as_str() == elem || k.ends_with(&format!(".{elem}")))
+    }
+
+    /// R49: concrete XIOM type of an Option/Result RECEIVER's payload when it
+    /// is recoverable from the expression -- the tracked local payload, the
+    /// receiver call's inferred container return ("Option[Task]"), or the
+    /// Vec element type for `vec.get(i)`. The inline `unwrap` uses this to
+    /// unbox STRUCT payloads (the erased Option slot then holds a heap
+    /// pointer, not the value).
+    pub(crate) fn infer_receiver_payload_xiom(&self, receiver: &Expr, unwrap_err: bool) -> Option<String> {
+        if let Expr::Ident(id) = receiver {
+            let tracked = if unwrap_err {
+                self.local.local_err_payload.get(&id.name)
+            } else {
+                self.local.local_opt_payload.get(&id.name)
+            };
+            if let Some(t) = tracked {
+                if !t.is_empty() {
+                    return Some(t.clone());
+                }
+            }
+        }
+        if let Some(rt) = self.infer_call_return_xiom(receiver) {
+            let (is_result, inner) = if let Some(r) = rt.strip_prefix("Option[") {
+                (false, r)
+            } else if let Some(r) = rt.strip_prefix("Result[") {
+                (true, r)
+            } else {
+                (false, "")
+            };
+            if let Some(inner) = inner.strip_suffix(']') {
+                let payloads: Vec<&str> = inner.split(',').map(|s| s.trim()).collect();
+                    let pick = if is_result && unwrap_err { payloads.get(1) } else { payloads.first() };
+                    if let Some(p) = pick {
+                        let unresolved = p.len() == 1
+                            && p.chars().next().map_or(false, |c| c.is_ascii_uppercase());
+                        if !p.is_empty() && !unresolved {
+                            return Some(p.to_string());
+                        }
+                    }
+            }
+        }
+        if let Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) = receiver {
+            if let Expr::Field(base, f, _) = func.as_ref() {
+                if f.name == "get" {
+                    if let Some(elem) = self.resolve_vec_elem_xiom(base) {
+                        let mut map = self.mono.current_type_map.clone();
+                        for (k, v) in &self.mono.param_concrete_types {
+                            map.entry(k.clone()).or_insert_with(|| v.clone());
+                        }
+                        let subst = Self::subst_type_tokens(&elem, &map);
+                        if !subst.is_empty() {
+                            return Some(subst);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// R49: `%struct.<key>` for a registered user struct/enum payload name
+    /// (bare or module-qualified). Primitives, containers and unresolved
+    /// generic params return None (their payloads are raw scalars/handles,
+    /// not boxed struct pointers).
+    pub(crate) fn registered_struct_llvm_for(&self, hint: &str) -> Option<String> {
+        if hint.is_empty() || Self::is_primitive_type_name(hint) {
+            return None;
+        }
+        if hint.len() == 1 && hint.chars().next().map_or(false, |c| c.is_ascii_uppercase()) {
+            return None;
+        }
+        // R49: general resolution -- llvm_type_for resolves registered
+        // structs, ENUMS (enum_variants), aliases and module-qualified
+        // names. Anything that does not lower to a %struct payload is not
+        // a boxed pointer (primitives/Str/fn pointers).
+        match self.llvm_type_for(hint) {
+            Ok(llvm) if llvm.starts_with("%struct.") => Some(llvm),
+            _ => None,
+        }
+    }
+
+    /// R49: aggregate payloads (nested Vec/Map/Set/tuple) are ALSO boxed in
+    /// the erased generic Option/Result slot -- return the LLVM struct type
+    /// to load after the unbox. Uses the same lowering as the rest of codegen
+    /// (llvm_type_for strips bracketed args to the base container struct).
+    pub(crate) fn boxed_aggregate_llvm_for(&self, hint: &str) -> Option<String> {
+        if hint.is_empty() || Self::is_primitive_type_name(hint) {
+            return None;
+        }
+        if hint.starts_with('(') || hint.starts_with("Tuple__") {
+            let norm = Self::tuple_xiom_to_struct_name(hint);
+            if let Ok(llvm) = self.llvm_type_for(&norm) {
+                if llvm.starts_with("%struct.") {
+                    return Some(llvm);
+                }
+            }
+            return None;
+        }
+        let is_aggregate = hint.starts_with("Vec[") || hint.starts_with("Slice[")
+            || hint.starts_with("Map[") || hint.starts_with("Set[")
+            || hint.starts_with("Option[") || hint.starts_with("Result[");
+        if !is_aggregate {
+            return None;
+        }
+        let llvm = self.llvm_type_for(hint).ok()?;
+        if llvm.starts_with("%struct.") {
+            Some(llvm)
+        } else {
+            None
+        }
     }
 
     /// round-14: resolve the element XIOM type name of a Vec container
@@ -168,6 +321,22 @@ impl IrEmitter {
                 // matching the bare suffix must not send this to None.
                 self.declared_field_type(&base_ty, &fname.name)
                     .and_then(|ft| ft.strip_prefix("Vec[").and_then(|r| r.strip_suffix(']')).map(|s| s.to_string()))
+            }
+            // R49: an UNWRAPPED Vec receiver (`grid.get(i).unwrap()` ->
+            // Vec[Cell]) -- resolve the payload's inner element type so the
+            // nested `get`/index takes the struct/enum element path instead
+            // of the scalar i64 load (L8-15 show_board AV).
+            Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
+                if let Expr::Field(base, f, _) = func.as_ref() {
+                    if f.name == "unwrap" || f.name == "unwrap_or" {
+                        if let Some(p) = self.infer_receiver_payload_xiom(base, false) {
+                            if let Some(inner) = p.strip_prefix("Vec[") {
+                                return inner.strip_suffix(']').map(|s| s.to_string());
+                            }
+                        }
+                    }
+                }
+                None
             }
             _ => None,
         }
@@ -661,10 +830,17 @@ impl IrEmitter {
 
     /// M33: Check if a method-call receiver is the result of `.unwrap()`
     /// on a Result/Option containing a Vec-type payload.
+    /// R49: resolves the payload from the receiver EXPRESSION (so computed
+    /// receivers like `board.grid.get(i).unwrap()` work too).
     pub(crate) fn receiver_is_unwrap_of_vec(&self, receiver: &Expr) -> bool {
         if let Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) = receiver {
             if let Expr::Field(base, field, _) = func.as_ref() {
-                if field.name == "unwrap" || field.name == "unwrap_or" {
+                if field.name == "unwrap" || field.name == "unwrap_or" || field.name == "expect" {
+                    // R49: inspect the OPTION-PRODUCING base (the unwrap call
+                    // itself returns the payload, not an Option).
+                    if let Some(p) = self.infer_receiver_payload_xiom(base, false) {
+                        return p.starts_with("Vec[") || p.starts_with("Slice[") || p.contains(".Vec");
+                    }
                     if let Expr::Ident(id) = base.as_ref() {
                         if let Some(t) = self.local.local_opt_payload.get(&id.name) {
                             return t.starts_with("Vec[") || t.contains(".Vec");

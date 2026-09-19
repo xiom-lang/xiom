@@ -700,10 +700,16 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             && recv_llvm_ty != "i8*"
                             && recv_llvm_ty != "void";
                         if is_scalar {
-                            let (recv_val, _recv_val_ty) = self.compile_expr(receiver)?;
+                            let (recv_val, recv_actual_ty) = self.compile_expr(receiver)?;
                             let is_float = recv_llvm_ty == "double" || recv_llvm_ty == "float";
                             match fn_name.as_str() {
-                                "clone" | "to_owned" => return Ok((recv_val, recv_llvm_ty.clone())),
+                                // R49: return the COMPILED value's type, not the
+                                // inferred one -- `vec.get(i).unwrap().clone()`
+                                // inferred i64 for the unwrap call but compiled
+                                // a %struct.Task value; returning the i64 hint
+                                // made the binding alloca i64 and store the
+                                // struct into it (invalid IR, L6-28 pop).
+                                "clone" | "to_owned" => return Ok((recv_val, recv_actual_ty)),
                                 "hash" if args.is_empty() => {
                                     if is_float {
                                         let bits = if recv_llvm_ty == "double" { "i64" } else { "i32" };
@@ -1242,7 +1248,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             Self::is_llvm_struct_named(&ct, "Vec")
                         });
                         let is_vec = Self::is_llvm_struct_named(&recv_ty, "Vec")
-                            || self.is_container_vec_field(receiver) || is_indexed_vec_elem;
+                            || self.is_container_vec_field(receiver) || is_indexed_vec_elem
+                            || self.receiver_is_unwrap_of_vec(receiver);
                         if !is_vec {
                             // Not a Vec receiver --  fall through to general method dispatch
                         } else {
@@ -1548,7 +1555,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     if let Some(receiver) = receiver_expr {
                         let recv_ty = self.infer_llvm_type(receiver);
                         let is_vec = Self::is_llvm_struct_named(&recv_ty, "Vec")
-                            || self.is_container_vec_field(receiver);
+                            || self.is_container_vec_field(receiver)
+                            || self.receiver_is_unwrap_of_vec(receiver);
                         if is_vec {
                             let (hdr, needs_store_back) = self.resolve_vec_receiver_ptr(receiver)?;
                             let len_gep = self.fresh_tmp();
@@ -1577,7 +1585,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     if let Some(receiver) = receiver_expr {
                         let recv_ty = self.infer_llvm_type(receiver);
                         let is_vec = Self::is_llvm_struct_named(&recv_ty, "Vec")
-                            || self.is_container_vec_field(receiver);
+                            || self.is_container_vec_field(receiver)
+                            || self.receiver_is_unwrap_of_vec(receiver);
                         if is_vec {
                             let is_insert = fn_name == "insert";
                             if !is_insert { self.types.used_builtins.insert("Option".to_string()); }
@@ -1751,7 +1760,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     if let Some(receiver) = receiver_expr {
                         let recv_ty = self.infer_llvm_type(receiver);
                         let is_vec = Self::is_llvm_struct_named(&recv_ty, "Vec")
-                            || self.is_container_vec_field(receiver);
+                            || self.is_container_vec_field(receiver)
+                            || self.receiver_is_unwrap_of_vec(receiver);
                         if is_vec {
                             self.types.used_builtins.insert("Option".to_string());
                             let (recv_val, recv_actual_ty) = self.compile_expr(receiver)?;
@@ -1830,14 +1840,31 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     if let Some(receiver) = receiver_expr {
                         let recv_ty = self.infer_llvm_type(receiver);
                         let is_vec = Self::is_llvm_struct_named(&recv_ty, "Vec")
-                            || self.is_container_vec_field(receiver);
+                            || self.is_container_vec_field(receiver)
+                            || self.receiver_is_unwrap_of_vec(receiver);
                         if is_vec {
                             let (recv_val, recv_actual_ty) = self.compile_expr(receiver)?;
                             let (recv_vec, _) = self.resolve_vec_receiver(receiver, &recv_val, &recv_actual_ty);
                             let (idx_raw, idx_ty) = self.compile_expr(&args[0])?;
                             let idx = self.val_to_i64(&idx_raw, &idx_ty);
                             let (val_raw, val_ty) = self.compile_expr(&args[1])?;
-                            let store_i64 = self.val_to_i64(&val_raw, &val_ty);
+                            // R49: struct/enum elements are stored INLINE in
+                            // the Vec buffer -- the old `val_to_i64` boxing
+                            // turned the value into a heap pointer and
+                            // `emit_elem_store` then wrote those 8 pointer
+                            // bytes (fresh Vec[Task].set / Vec[Cell].set
+                            // corrupted the element -> AV in L8-15's
+                            // place_mark). Copy the element bytes instead.
+                            let elem_xiom = self.resolve_vec_elem_xiom(receiver);
+                            let struct_elem = val_ty.starts_with("%struct.")
+                                || val_ty.starts_with('[')
+                                || elem_xiom.as_deref()
+                                    .map_or(false, |e| self.is_struct_like_vec_elem(e));
+                            let store_i64 = if struct_elem {
+                                String::new()
+                            } else {
+                                self.val_to_i64(&val_raw, &val_ty)
+                            };
                             let vec_alloca = self.fresh_tmp();
                             self.emitln(&format!("  {vec_alloca} = alloca %struct.Vec"));
                             self.emit_vec_store_fields(&recv_vec, &vec_alloca);
@@ -1866,7 +1893,16 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             self.emitln(&format!("  {byte_off} = mul i64 {idx}, {esz_val}"));
                             let elem_ptr = self.fresh_tmp();
                             self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {data_ptr}, i64 {byte_off}"));
-                            self.emit_elem_store(&store_i64, &elem_ptr, &esz_val);
+                            if struct_elem {
+                                let slot = self.fresh_tmp();
+                                self.emitln(&format!("  {slot} = alloca {val_ty}"));
+                                self.emitln(&format!("  store {val_ty} {val_raw}, {val_ty}* {slot}"));
+                                let src = self.fresh_tmp();
+                                self.emitln(&format!("  {src} = bitcast {val_ty}* {slot} to i8*"));
+                                self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {elem_ptr}, i8* {src}, i64 {esz_val}, i1 false)"));
+                            } else {
+                                self.emit_elem_store(&store_i64, &elem_ptr, &esz_val);
+                            }
                             // emit_elem_store's merge label needs a terminator
                             // before our done block (empty blocks are invalid).
                             self.emitln(&format!("  br label %{done_block}"));
@@ -1880,7 +1916,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     if let Some(receiver) = receiver_expr {
                         let recv_ty = self.infer_llvm_type(receiver);
                         let is_vec = Self::is_llvm_struct_named(&recv_ty, "Vec")
-                            || self.is_container_vec_field(receiver);
+                            || self.is_container_vec_field(receiver)
+                            || self.receiver_is_unwrap_of_vec(receiver);
                         if is_vec {
                             self.emit_vec_sort(receiver, recv_ty)?;
                             return Ok(("0".to_string(), "void".to_string()));
@@ -1894,7 +1931,14 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     if let Some(receiver) = receiver_expr {
                         let recv_ty = self.infer_llvm_type(receiver);
                         let is_vec = Self::is_llvm_struct_named(&recv_ty, "Vec")
-                            || self.is_container_vec_field(receiver);
+                            || self.is_container_vec_field(receiver)
+                            // R49: a computed Vec receiver (`grid.get(i).unwrap()`
+                            // -> Vec[Cell]) must take the inline path; the old
+                            // guard missed it and the call fell through to the
+                            // erased generic `get_Int(%struct.Vec* <i64 handle>)`
+                            // (clang "defined with type i64 but expected ptr",
+                            // L8-15/L8-18).
+                            || self.receiver_is_unwrap_of_vec(receiver);
                         if is_vec {
                             self.types.used_builtins.insert("Option".to_string());
                             let (recv_val, recv_actual_ty) = self.compile_expr(receiver)?;
@@ -3005,6 +3049,25 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // from val_to_i64 for struct payloads.  Determine the actual
                             // struct type by resolving the generic return type of the
                             // concrete instantiation (e.g. `Option.unwrap[Point] -> Point`).
+                            //
+                            // R49 (playground C17 residue): FIRST try the receiver's
+                            // own payload type. `vec.get(i)` / `q.pop()` over STRUCT
+                            // elements box the element (heap pointer in the erased i64
+                            // slot); the old generic-decl hint looked up
+                            // `Option.unwrap[T]`'s return "T" and always failed, so the
+                            // box pointer escaped as an i64 -> field access read 0 /
+                            // garbage and `pop().unwrap()` AV'd (L6-28).
+                            if let Some(hint) = self.infer_receiver_payload_xiom(receiver, fn_name == "unwrap_err") {
+                                let payload_llvm = self.registered_struct_llvm_for(&hint)
+                                    .or_else(|| self.boxed_aggregate_llvm_for(&hint));
+                                if let Some(struct_llvm) = payload_llvm {
+                                    let ptr = self.fresh_tmp();
+                                    self.emitln(&format!("  {ptr} = inttoptr i64 {val} to {struct_llvm}*"));
+                                    let loaded = self.fresh_tmp();
+                                    self.emitln(&format!("  {loaded} = load {struct_llvm}, {struct_llvm}* {ptr}"));
+                                    return Ok((loaded, struct_llvm));
+                                }
+                            }
                             let struct_type_hint: Option<String> = {
                                 let fn_key = if is_option { "Option.unwrap" } else { "Result.unwrap" };
                                 self.mono.generic_fn_decls.iter().find(|(k, _)| k == fn_key || k.ends_with(&format!(".{}", fn_name)))
@@ -3431,6 +3494,16 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             }
                             // Find a function parameter whose type directly uses this generic (not wrapped)
                             let mut inferred = false;
+                            // R49 (playground C17 residue): a container param
+                            // whose generic cannot be resolved from THIS
+                            // argument (typically the argument's recorded type
+                            // is itself still generic: `r: &mut Runner[T]` with
+                            // a `Runner[T]` local) must not immediately force
+                            // "Int" -- a LATER param may name the generic
+                            // directly (`p: T` with an `EchoPlugin{}` arg).
+                            // Keep scanning; the historical "Int" default is
+                            // applied below when nothing else resolves.
+                            let mut container_fallback = false;
                             for (param, arg_expr) in fd.params.iter().zip(args.iter()) {
                                 let param_type = Self::type_from_ast(&param.ty);
                                 if param_type == gp.name.name {
@@ -3453,6 +3526,14 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         Expr::Bool(..) => "Bool".to_string(),
                                         Expr::Str(..) => "Str".to_string(),
                                         Expr::Char(..) => "Char".to_string(),
+                                        // R49 (playground C17 residue): a STRUCT
+                                        // LITERAL argument names the concrete type
+                                        // (`pq.insert(Task{...})` with `item: T`).
+                                        // The old `_ => "Int"` arm mono'd
+                                        // PriorityQueue.insert[T: Priority] as
+                                        // insert_Int -> C001 "Int does not implement
+                                        // Priority" (L6-28).
+                                        Expr::Struct(id, _, _, _) => id.name.clone(),
                                         // BUG 52: enum variant constructors
                                         // (`MyVal.Text("x")`) as generic args must
                                         // infer the ENUM type -- the old `_ => "Int"`
@@ -3598,14 +3679,29 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                             // defer to a later param
                                         }
                                         None => {
-                                            concrete_types.push("Int".to_string());
-                                            inferred = true;
-                                            break;
+                                            // R49: defer the historical "Int"
+                                            // default; a later param may still
+                                            // name the generic directly. Applied
+                                            // below in `!inferred` when no later
+                                            // param resolves it (preserves the
+                                            // m35_t28/m35_o06 guard exactly).
+                                            container_fallback = true;
                                         }
                                     }
                                 }
                             }
                             if !inferred {
+                                // R49: container params could not resolve
+                                // the generic from any argument (and no later
+                                // param named it directly). Keep the historical
+                                // "Int" default for this generic param --
+                                // do NOT fall through to the receiver/first-arg
+                                // outer-type fallbacks (the m35_t28/m35_o06
+                                // AVs came from those picking a bogus
+                                // non-type after a container miss).
+                                if container_fallback {
+                                    concrete_types.push("Int".to_string());
+                                } else {
                                 // BUG 52: infer a generic METHOD's type args from a
                                 // LOCAL receiver's recorded container type
                                 // (`var m = Map[Str, MyVal].new()` -> `m.get("b")`
@@ -3666,6 +3762,11 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         // generic Float32 monomorphisation colliding
                                         // with Int (wrong call target, garbage).
                                         Expr::As(_, ty, _) => Self::type_from_ast(ty),
+                                        // R49 (playground C17 residue): struct literals
+                                        // name their type (`pq.insert(Task{...})` ->
+                                        // T=Task). The `_ => "Int"` arm mono'd
+                                        // insert_Int -> C001 (L6-28).
+                                        Expr::Struct(id, _, _, _) => id.name.clone(),
                                         Expr::Ident(id) => {
                                             if let Some(concrete) = self.mono.param_concrete_types.get(&id.name) {
                                                 concrete.clone()
@@ -3701,6 +3802,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         // T to `Int` (its i64 lowering).
                                         concrete_types.push("Int".to_string());
                                     }
+                                }
                                 }
                             }
                         }
