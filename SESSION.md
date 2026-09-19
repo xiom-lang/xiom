@@ -99,6 +99,53 @@ the same branch and sometimes swept the whole tree (re-check `git log --stat`
 if a change seems missing); after the split the stdlib is a separate repo and
 its checkout at `stdlib/` is gitignored.
 
+## Current state (2026-09-19, post-R48) -- READ FIRST
+
+Everything after this section is the pre-R31/r31-r83 history. Live state:
+
+- **Stage 5 is COMPLETE**: clap owns the flag surface (steps 1+2), cargo-vet
+  gate (175 exempted), fmt body-inline comments, LSP cross-file index +
+  parse cache, driver temp hygiene, help parity (full `--help`, `--strict-mode`
+  alias), CRB-1..CRB-5 done with the ops batch, AI-mode audit (installer
+  config fixed, `--ai-local` enforced, HTTPS/plaintext key guard, structured
+  `FIX:/WHY:/Confidence:` hint fields).
+- **Compiler bugs cleared through R48** (docs/COMPILER_BUGS.md is the
+  authority). Fixed in R48: interface dispatch through `&T`/`&mut T` generic
+  args (9 playground L6 lessons), pointer/double match-result zero-init,
+  script-cache build identity, native `xiom fmt|lsp|mcp|pkg|dbg|verify|ffigen`
+  dispatch, WASM release asset. Lock `e2e_m92_interface_dispatch_zero_init`.
+- **Verified on `56b6e0e3`**: e2e **2340/2340**, feature-reg 510/510,
+  checker 195/195, robustness 63/63, fuzz 24/24, perf/determinism 2/2,
+  fmt 86/86, lsp 45/45, stdlib-exec 85/85 (+2 ignored), xiom lib 32/32,
+  pkg/dbg/mcp 63/34/39, `cargo deny` + `cargo vet` clean, ASCII guard,
+  bench IR 5,808,645 bytes + `clang -c` exit 0. Workspace version 0.61.0.
+- **Release lane**: `release.yml` ships all nine CLI tools + pinned z3
+  (tools/z3-pins.json, glibc floor 2.35) + `xiom-wasm-<ver>.wasm`; guard
+  (tag == workspace version, ancestor of main) and the `compiler-release`
+  docs dispatch (`XIOM_RELEASE_TOKEN` must cover xiom-lang/website) are
+  wired. Pending: stdlib lane green -> bump `STDLIB_VERSION` in the release
+  PR -> tag `v0.61.0`; optional rewrite of the protected tags
+  `v0.60.0`/`v0.60.1` (old objects remain on the remote).
+- **OPEN compiler bugs = the R48 residue** (exact repros in
+  docs/COMPILER_BUGS.md R48; reproduce from the playground lesson sources):
+  1. C17 interface: L6-28, L6-40 (still `C001 type 'Int' does not
+     implement`).
+  2. C17 clang: L5-40 (`alloca %struct.Option__Vec_Str_`), L6-31
+     (`invalid redefinition of school.students.new_student`), L8-15/L8-18
+     (`i64` where `ptr` expected in `get_Int`).
+  3. C17 runtime AVs: L6-05, L2-19 (build, crash at run `0xC0000005`).
+  4. C18/C19 residue: 19 nondeterministic-pointer lessons, 7 invalid-UTF-8
+     lessons, L5-21 (Float64 bits inside `Vec[T]`).
+  5. Perf: `.to_str()` auto-injected `xiom.fmt` closure +2.3-2.5 s ->
+     reachable-function-only peek (Stage 6 gate).
+  6. C3 (script-mode flags) / C6 (stdlib `package.xi`): need an exact
+     playground repro before changing behavior.
+- **Playground repro recipe**: `git clone --depth 1
+  https://github.com/xiom-lang/playground tmp/playground`; each lesson
+  `lessons/**/Lx-yy.json` carries `.solution`; extract to `tmp/lessons/` and
+  run `target\debug\xiom.exe -o tmp\lessons\Lx-yy.exe tmp\lessons\Lx-yy.xi`
+  (rebuild `cargo build -p xiom` first; stdlib resolves from `stdlib/`).
+
 ## State at handoff
 
 Stage 3 Item A CLOSED (`strict_catalog_findings = true`), the R-bug queue
@@ -578,82 +625,83 @@ RED (52 drifted signatures since the 2026-08-07 snapshot) and
 ## Paste-ready prompt for the next compiler session
 
 ```
-Continue the AXIOM compiler-lane readiness campaign in E:\xiom-lang\xiom
-(the compiler repo; post-split, branch `main`). Read SESSION.md (repo root)
-and docs/SESSION.md (rounds 61-83; round 83 is the pre-split housekeeping/R31
-handoff) before touching code. The stdlib lives in its own repo: clone
-`xiom-lang/stdlib` at `STDLIB_VERSION` into `stdlib/` or set `XIOM_STDLIB`
-before any stdlib/smoke test; everything resolves through `xiom_graph::paths`
-(XIOM_STDLIB, XIOM_STDLIB_SMOKES, XIOM_REQUIRE_STDLIB=1 in CI; CI checks out
-the pin itself). Never commit the `stdlib/` checkout.
+Continue the AXIOM compiler-lane campaign in E:\xiom-lang\xiom (the compiler
+repo; post-split, branch `main`). Read SESSION.md -- the "Current state
+(2026-09-19, post-R48)" section at the top -- and docs/COMPILER_BUGS.md R48
+before touching code. Stage 5 is COMPLETE and all R-bugs through R48 are
+fixed; this session's mission is to CLOSE ALL OPEN COMPILER BUGS (the R48
+residue) with production-grade fixes, not to start new features.
 
-State: Stage 3 Item A CLOSED (strict catalog findings, checker 194/194),
-R-bugs through R46 CLEARED (R32-R38 = registry-client findings; R39 =
-same-leaf TYPE collision, lock m84; R40 = derive[Clone] on pointer receivers,
-lock m85; R41 = generic pointer-self receiver ABI; R42 = scope-first bare
-variants; R43 = `&ref` locals, lock m86; R45 = tuple element types +
-early-spliced tuple defs, lock m87; R46 = **bench graph CLANG-CLEAN**
-(generic same-leaf shape triage, literal field-name disambiguation, mono
-param tuples, identifier-sanitized mono names, method-receiver leaf-scope
-variants), locks m88/m89; **R46b = qualified-receiver generic-method
-instantiation + receiver-only inference FIXED, m88 wrappers removed**; R44
-resolved stdlib-side); e2e 2337/2337; supply
-chain signed AND COMPLETE for the pre-registry phase: ed25519
-keygen/trust/sign/verify, fail-closed installs, ureq-only publish, git commit
-pins, TRANSITIVE DEPENDENCY CLOSURE (range matcher + cycle-safe closure from
-the verified manifest; `lock` pins the closure with digests; registry e2e
-20/20); Stage 6 perf budgets wired (determinism canary covers selfhost v092 +
-bench graph; bench IR 5,808,645 bytes and `clang -c` accepts it), selfhost
-v092 compile gate GREEN, release R0 compiler-side blockers DONE, release
-build clean.
+Stdlib: clone `xiom-lang/stdlib` at `STDLIB_VERSION` into `stdlib/` or set
+XIOM_STDLIB before any stdlib/smoke test; everything resolves through
+`xiom_graph::paths` (CI uses XIOM_REQUIRE_STDLIB=1 with the pin checked
+out). Never commit the `stdlib/` checkout.
 
-Stdlib lane (verified on 483f283e): R43 x25519 PASS, R44 http PASS,
-async_read_line / match_vec probes PASS, check_modules 509/509; collect 34.9%,
-global clauses 16.6%; pin stays v0.60.0/v0.60.1 (both predate R43/R45/R46) --
-`COMPILER_VERSION` moves when a release contains the fixes; their nightly
-tests main. Their sweep follow-up is RESOLVED compiler-side: no hang (release
-driver finishes codegen+clang in ~482s; debug exceeds its 300s watchdog);
-the only blockers are stdlib/harness-side (`unsetenv` link gap on Windows,
-`async_read_line(0)` NULL FILE*, dummy-arg `requires` trips). R44 has a
-16-conflict worklist + audit tool waiting on the qualification slice.
-Still RED cross-lane (stdlib-owned, pre-existing):
-`stdlib_api_freeze_no_removals` (52 drifted signatures) and
-`stdlib_all_modules_compile_to_ir` (`encoding.ascii85` T001).
+State (verified on 56b6e0e3): e2e 2340/2340, feature-reg 510/510, checker
+195/195, robustness 63/63, fuzz 24/24, perf/determinism 2/2, fmt 86/86,
+lsp 45/45, stdlib-exec 85/85 (+2 ignored), xiom lib 32/32, pkg/dbg/mcp
+63/34/39, cargo deny + cargo vet (175 exempted), ASCII guard, bench IR
+5,808,645 bytes + `clang -c` exit 0. Workspace version 0.61.0. release.yml
+ships all nine tools + pinned z3 + the wasm asset; the tag==version/on-main
+guard and the compiler-release docs dispatch are wired. Git is clean and
+pushed.
 
-Your task, in order:
-1. ~~Fix the R46 residual generic-method instantiation gaps~~ **DONE
-   (R46b, 2026-09-18)**: m88 locks the direct cross-module call forms;
-   see docs/COMPILER_BUGS.md R46b.
-2. R44 qualification slice -- **compiler half DONE (2026-09-18)**: catalog
-   modules participate in the collision triage with the shape-conflict
-   standard; lock `e2e_m90_stdlib_same_leaf_http` + CI lock line. The
-   stdlib half (dedup the 16 groups in their
-   `docs/SAME_LEAF_TYPE_CONFLICTS.md` worklist) is stdlib-lane work; with
-   the compiler standard in place it is layout/API hygiene, not a
-   correctness prerequisite. Re-run their battery after each stdlib batch.
-3. Stage 5 remainder: clap-based arg parsing (keep the CLI surface
-   byte-compatible); LSP incremental reparsing + cross-file index; fmt
-   body-inline comment trivia; cargo-vet audits.
-4. Stage 6/7 (incremental engine, parallel mono profiles, linker strategy;
-   selfhost ladder): own branch after the public release gates. Note the
-   debug-driver compile cost on sweep-scale programs (~482s release for
-   139 calls / 54 modules; debug >300s) as a Stage 6 budget candidate.
+OPEN BUGS (docs/COMPILER_BUGS.md R48 has exact repros -- reproduce each
+BEFORE fixing):
+1. C17 interface residue -- L6-28 (`PriorityQueue[T: Priority].insert`:
+   T must infer from the struct's generic), L6-40 (module-scoped
+   `Runner[T: Plugin]` dispatch). Both still fail codegen with
+   `C001: type 'Int' does not implement ...`.
+2. C17 clang residue -- L5-40 (`alloca %struct.Option__Vec_Str_` nested
+   generic mono name never defined), L6-31 (`invalid redefinition of
+   function 'school.students.new_student'`, the C11 qualified nested
+   constructor emitted twice), L8-15/L8-18
+   (`%tmp defined with type 'i64' but expected 'ptr'` -- a Vec receiver
+   reaches `get_Int(%struct.Vec* ...)` as an i64 handle).
+3. C17 runtime access violations -- L6-05 and L2-19 build but crash with
+   `0xC0000005` at run.
+4. C18/C19 residue (26 lessons) -- 19 nondeterministic pointer prints
+   (L0-11, L3-01/02/07/50, L5-02/05/07/09/20/24/26/29/31/35/36/43, L8-14,
+   L8-20), 7 invalid-UTF-8 outputs (L0-34, L0-49, L0-50, L5-32, L5-34,
+   L5-42, L7-09), L5-21 (Float64 `.to_str()` inside a generic over
+   `Vec[T]` still prints IEEE bit patterns).
+5. Perf -- the auto-injected `xiom.fmt` closure costs +2.3-2.5 s on the
+   first `.to_str()` compile. Implement the reachable-function-only peek in
+   `xiom-check::collect_external_decls` (peek the checker-resolved module
+   shallow, run the reachability filter, then pull the deps named by the
+   SELECTED decls to a fixpoint) and gate it with the full e2e.
+6. C3 (script-mode flags) and C6 (stdlib `package.xi`): request the exact
+   playground repro before changing semantics; document if deferred.
 
-Verification commands: `cargo test -p xiom-codegen --test e2e_tests` (2338,
-~20 min; set XIOM_STDLIB/XIOM_STDLIB_SMOKES for the stdlib-dependent tests;
-`e2e_m90_stdlib_same_leaf_http` needs a stdlib checkout);
-`--test feature_regression_tests` (510), `-p xiom-check --lib` (194),
+Repro recipe: `git clone --depth 1 https://github.com/xiom-lang/playground
+tmp/playground`; every `lessons/**/Lx-yy.json` has a `.solution` field --
+extract it to `tmp/lessons/Lx-yy.xi` and run `target\debug\xiom.exe -o
+tmp\lessons\Lx-yy.exe tmp\lessons\Lx-yy.xi` (run `cargo build -p xiom`
+after any checker/codegen change first). Determinism check: run the exe
+twice and compare stdout hashes.
+
+Method: reproduce -> minimize to a fixture under `tests/regression/m93_*`
+-> fix with the smallest correct change -> add an e2e lock + the CI lock
+line -> mark the finding FIXED in docs/COMPILER_BUGS.md (with the repro and
+the evidence) -> update SESSION.md -> atomic commit (code + docs + locks +
+CI lock line together). Drop temporary debug prints before committing.
+
+Verification commands: `cargo test -p xiom-codegen --test e2e_tests`
+(2340+, ~25 min; the stdlib-dependent tests need the checkout);
+`--test feature_regression_tests` (510), `-p xiom-check --lib` (195),
 `--test perf_budget_tests` (determinism canary + budgets),
-`--test robustness_tests` (63), `--test stdlib_execution_tests`
-(83/85 with the two known checkout drifts), `cargo test -p xiom-pkg -p
-xiom-dbg -p xiom-lsp -p xiom-mcp`; IR gate: `xiom --emit-ir
-examples\benchmark\main.xi > b.ll; clang -c b.ll -o NUL` must exit 0.
+`--test robustness_tests` (63), `--test fuzz_tests` (24),
+`--test stdlib_execution_tests` (85 +2 ignored), `cargo test -p xiom --lib`
+(32), `cargo test -p xiom-pkg -p xiom-dbg -p xiom-lsp -p xiom-mcp`,
+`cargo vet`, `cargo deny check advisories licenses bans sources`, IR gate:
+`xiom --emit-ir examples\benchmark\main.xi > b.ll; clang -c b.ll -o NUL`
+must exit 0. Capture $LASTEXITCODE immediately after every native command.
 
 Rules: the e2e/stdlib harnesses spawn target/debug/xiom.exe -- always
-`cargo build -p xiom` after checker/codegen changes. Capture $LASTEXITCODE
-right after each native command. Use --emit-ir / clang -c / --sanitize=address
-for miscompile work (drop temporary debug prints before committing). Keep
-commits atomic (code + docs + locks + CI lock line together); never commit
-`stdlib/**` or the `stdlib/` checkout.
-
+`cargo build -p xiom` after checker/codegen changes. Use --emit-ir /
+clang -c / --sanitize=address for miscompile work. Never commit `stdlib/**`
+or the `stdlib/` checkout. Conventional commits, atomic slices. The whole
+suite must be green before each commit; a full e2e takes ~25 min, so batch
+related fixes per run and always re-run it after a codegen change.
 ```
+
