@@ -141,6 +141,20 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   wired. Pending: stdlib lane green -> bump `STDLIB_VERSION` in the release
   PR -> tag `v0.61.0`; optional rewrite of the protected tags
   `v0.60.0`/`v0.60.1` (old objects remain on the remote).
+- **R52 verifications (2026-09-19, packages + website relays)**:
+  `xiom-verify --check` DOES run the bundled/auto-detected Z3 over the
+  generated SMT-LIB (Z3Runner: Z3_PATH -> `<exe_dir>/[../bin/]z3[.exe]` ->
+  PATH; verdicts Proven/Violated/Inconclusive/Error), while `xiom --verify`
+  (and `xiom-verify` without `--check`) is EXPORT-ONLY (writes SMT-LIB; only
+  prints "Z3 found -- use 'z3 file.smt2'"). Website `compiler.md` line ~81
+  ("`--verify` runs Z3 over that") is therefore inaccurate -- the corrected
+  wording (exported vs checked vs proved) is relayed for the website lane.
+  `cargo build -p xiom --features nasm` assembles the runtime .asm objects
+  (`stdlib/runtime/*.obj` refreshed by nasm 3.02) and links/runs the asm
+  memop path (m96 fixture exit 0), so both configurations now work. Release
+  artifacts rebuilt from source: `target/release/xiom.exe pkg --help` execs
+  the sibling xiom-pkg (was the stale pre-R48 binary) and `pkg keygen
+  --help` prints the per-command usage; release compile smoke exit 0.
 - **R52 packages relay (2026-09-19)**: (a) unqualified `assert` after
   `use xiom.test;` returned a corrupt TestResult (F/0) because the keep-first
   bare alias bound the transitively-imported private `core.assert`; bare-call
