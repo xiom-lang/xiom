@@ -295,6 +295,15 @@ Verified locally: release build of all nine (strip) + assert loop, bundled
 z3 discovered by `xiom doctor` from a staged `bin/`, bench IR 5,808,645 and
 clang-clean, lsp 45/45, verify 32/32.
 
+**CRB-3c (ops, 2026-09-19)**: installer/doctor home mismatch fixed --
+`xiom_graph::paths::xiom_home()`/`xiom_home_candidates()` resolve the
+installed home (XIOM_HOME > canonical `%LOCALAPPDATA%\xiom` /
+`~/.local/share/xiom` > legacy `~/.local/xiom`, `~/xiom`), used by
+`xiom doctor` (prints searched candidates when stdlib is missing) and
+`xiom doc`; the root `install.sh` now installs to `~/.local/share/xiom`.
+`xiom-graph` 31/31. The readiness plan's stale REMAINING markers for
+clap/LSP-trivia/fmt-comments/cargo-vet were updated to DONE.
+
 **CLI help parity (website review, 2026-09-19)**: `--help-ai` timeout
 default corrected 30 -> 10 (matches main help and code); `xiom --help`
 lists the previously omitted advanced flags (check/emit-tokens/debug/

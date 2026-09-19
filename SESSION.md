@@ -403,6 +403,25 @@ states the real LLM timeout default (10 s, matching `--help` and the
 build-runtime subcommands and the launcher's tool dispatchers; `--strict-mode`
 is now an accepted alias of `--strict` (docs spelling) with a unit test.
 
+**CRB-3c -- XIOM_HOME alignment DONE (2026-09-19)**: `xiom_graph::paths`
+now owns the installed-home resolver: `XIOM_HOME` wins when set, otherwise
+the first EXISTING candidate from the canonical installer layout
+(`%LOCALAPPDATA%\xiom` / `$XDG_DATA_HOME|~/.local/share/xiom`) then legacy
+`~/.local/xiom`, `~/xiom`; when nothing exists it returns the canonical
+default so diagnostics stop guessing `~/xiom`. `xiom doctor` and `xiom doc`
+use it (`doctor` prints the searched list when the stdlib is missing), and
+the root source installer now installs to `~/.local/share/xiom` like the
+shipped installer. `xiom-graph` 31/31 (new candidate-order/dedup test);
+doctor smoke: canonical install found with no env, XIOM_HOME override
+honored.
+
+**Ops release checklist state**: CRB-1 (single-source 0.61.0), CRB-2
+(banner/literal sweep), CRB-4 (tag==workspace-version + on-main guard),
+CRB-4b (compiler-release docs dispatch), CRB-5 (package scripts read the
+workspace version, never rewrite Cargo.toml) are all DONE and on
+`origin/main`; CRB-3 (xiom-pkg) and CRB-3b (nine tools + pinned z3) are
+accepted. The ops list repeating 1/2/4/4b/5 predates those pushes.
+
 ## Remaining queue (compiler lane)
 
 1. **Supply-chain tail -- CLOSED (2026-09-17)**: transitive dependency

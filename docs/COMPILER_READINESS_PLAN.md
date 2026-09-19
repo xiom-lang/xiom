@@ -111,7 +111,10 @@ const errors cleanly, for-loop const eval).
   fixed: unreadable input and parse/parse-error failures now exit 3 instead
   of auditing an empty program. AUDIT #12: no `process::exit` in library
   paths. Temp names randomized per invocation/session (watch, REPL, run,
-  standalone, JIT dir, link staging). REMAINING: clap-based arg parsing.]
+  standalone, JIT dir, link staging). DONE 2026-09-18: clap owns the flag
+  surface (`crates/xiom/src/cli.rs`; step 1 surface + step 2 match-driven
+  reads) with byte-compatible argv semantics, and a 107-line `--help`
+  covering every real flag.]
 - Supply chain (HARD PREREQUISITE for the post-split registry phase): client-side
   sha256 verification of every artifact, ed25519 signatures + trust model, lockfile v2
   pinning {name, version, integrity, source} transitively, ureq-only HTTP with TLS +
@@ -146,15 +149,21 @@ const errors cleanly, for-loop const eval).
   bounded Content-Length buffers (64 MiB cap), mutex-poison recovery instead of 15x
   expect, incremental reparsing, cross-file index.
   [Partial round 43: integer severities + 64 MiB cap (round 16d); UTF-16
-  positions via position.rs and mutex-poison recovery DONE; incremental
-  reparsing + cross-file index remain.]
+  positions via position.rs and mutex-poison recovery DONE. DONE 2026-09-18:
+  incremental tier = the per-uri parse cache (content-hash keyed, only the
+  changed document re-parses) plus the cross-file declaration index behind
+  `textDocument/definition` (lazily built over the open file's project
+  roots, rebuilt after didOpen/didChange/didClose, 4000-file bound). Region-
+  level reparse remains Stage 6 (L1/L2 cache tiers).]
 - fmt: defer support (todo!() crash today), comment/shebang preservation (needs Stage 2
   trivia), string-literal escaping on re-emit.
   [Partial round 42: shebang + leading comment/header blocks preserved and
   string/char literals escaped on re-emit (`xiom_fmt::format_source_text`).
   `defer` DONE (AUDIT #10): formatting a file containing `defer` used to hit
   `todo!()` and crash; the formatter now emits `defer { ... }`.
-  REMAINING: body-inline comment trivia attachment.]
+  DONE 2026-09-18: body-inline comment trivia attachment (leading,
+  same-line trailing, and pre-close-brace comments; brace-token anchored;
+  idempotent).]
 - dbg: MI command quoting (injection via evaluate/breakpoints), async MI reader, 
   .xi DWARF mapping (enabled by Stage 2 spans).
   [Async MI reader DONE round 69: dedicated reader thread classifies result
@@ -176,8 +185,10 @@ const errors cleanly, for-loop const eval).
   LCG harnesses, ASAN/UBSAN runs of the differential suites in CI.
   [Round 44 DONE: workspace version/edition/MSRV inheritance (1.86) + deny.toml
   + CI hygiene job (MSRV check --workspace --all-targets + cargo deny); the
-  job also caught and fixed a rotted xiom-mcp member (E0063). REMAINING:
-  cargo-vet audits, cargo-fuzz targets, ASAN/UBSAN CI runs.]
+  job also caught and fixed a rotted xiom-mcp member (E0063). DONE
+  2026-09-18: cargo-vet audits (supply-chain/config.toml, 175 exempted,
+  `cargo vet` in the hygiene job); cargo-fuzz targets + the weekly
+  heavy.yml ASAN fuzz smoke (30 s/target) and sanitizer wiring.]
 
 ## Stage 6 -- Performance program (audit sec 8.1)
 

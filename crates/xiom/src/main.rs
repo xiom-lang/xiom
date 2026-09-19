@@ -1844,15 +1844,21 @@ fn run_doctor() {
         Some(path) => println!("  [OK] z3 found: {path} (contract verification)"),
         None => println!("  [--] z3 not found (release archives bundle bin/z3)"),
     }
-    let home = std::env::var("XIOM_HOME").unwrap_or_else(|_| {
-        if cfg!(windows) { format!("{}\\xiom", std::env::var("LOCALAPPDATA").unwrap_or_default()) }
-        else { format!("{}/xiom", std::env::var("HOME").unwrap_or_default()) }
-    });
-    println!("  [--] XIOM_HOME={}", home);
-    let lib = std::path::Path::new(&home).join("lib").join("xiom");
+    // CRB-3c: one resolver shared with the installers (canonical
+    // `%LOCALAPPDATA%\xiom` / `~/.local/share/xiom`, legacy layouts accepted).
+    let home = xiom_graph::paths::xiom_home();
+    println!("  [--] XIOM_HOME={}", home.display());
+    let lib = home.join("lib").join("xiom");
     if lib.exists() { println!("  [OK] stdlib installed"); }
-    else { println!("  [!!] stdlib missing - re-run installer"); }
-    let pkgs = std::path::Path::new(&home).join("packages");
+    else {
+        println!("  [!!] stdlib missing - re-run installer");
+        if std::env::var("XIOM_HOME").map_or(true, |v| v.trim().is_empty()) {
+            let searched: Vec<String> = xiom_graph::paths::xiom_home_candidates()
+                .iter().map(|p| p.display().to_string()).collect();
+            println!("       searched: {}", searched.join(", "));
+        }
+    }
+    let pkgs = home.join("packages");
     if pkgs.exists() { println!("  [OK] packages directory exists"); }
     else { println!("  [--] No packages (use: xiom pkg install <name>)"); }
 }
@@ -1865,14 +1871,9 @@ fn run_doc(args: &[String]) {
     let doc_pos = args.iter().position(|a| a == "doc" || a == "--doc").unwrap_or(0);
     let doc_args: Vec<&str> = args[doc_pos + 1..].iter().map(|s| s.as_str()).collect();
 
-    let home = std::env::var("XIOM_HOME").unwrap_or_else(|_| {
-        if cfg!(windows) {
-            format!("{}\\xiom", std::env::var("LOCALAPPDATA").unwrap_or_default())
-        } else {
-            format!("{}/xiom", std::env::var("HOME").unwrap_or_default())
-        }
-    });
-    let doc_bin = std::path::Path::new(&home).join("bin")
+    // CRB-3c: same installer-aligned home resolver as `xiom doctor`.
+    let home = xiom_graph::paths::xiom_home();
+    let doc_bin = home.join("bin")
         .join(if cfg!(windows) { "xiom-doc.exe" } else { "xiom-doc" });
 
     if doc_bin.exists() {

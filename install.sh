@@ -12,7 +12,7 @@
 #   Pre-built:     ./install.sh /path/to/release  (skips build)
 #
 # Environment:
-#   XIOM_INSTALL_DIR   Override install directory (default: ~/.local/xiom)
+#   XIOM_INSTALL_DIR   Override install directory (default: ~/.local/share/xiom)
 #   XIOM_SKIP_DEPS     Set to 1 to skip dependency auto-install
 # ============================================================================
 
@@ -30,9 +30,9 @@ BINARY_PATH="${1:-}"
 if [ -n "${XIOM_INSTALL_DIR:-}" ]; then
     INSTALL_DIR="$XIOM_INSTALL_DIR"
 elif [ "$(uname -s)" = "Darwin" ]; then
-    INSTALL_DIR="$HOME/.local/xiom"
+    INSTALL_DIR="$HOME/.local/share/xiom"
 else
-    INSTALL_DIR="$HOME/.local/xiom"
+    INSTALL_DIR="$HOME/.local/share/xiom"
 fi
 BIN_DIR="$INSTALL_DIR/bin"
 LIB_DIR="$INSTALL_DIR/lib"

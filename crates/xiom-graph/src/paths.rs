@@ -116,6 +116,107 @@ pub fn current_stdlib_candidates() -> Vec<PathBuf> {
     )
 }
 
+/// CRB-3c: filesystem-free XIOM home candidates, canonical first.
+///
+/// The installers put the toolchain at `%LOCALAPPDATA%\\xiom` (Windows) and
+/// `$XDG_DATA_HOME|~/.local/share/xiom` (Unix, shipped installer), while the
+/// source installer historically used `~/.local/xiom` and doctor guessed
+/// `~/xiom`. This list is the single ordering every consumer uses:
+/// canonical installer layout -> legacy layouts.
+pub fn xiom_home_candidates_impl(
+    xdg_data_home: Option<&str>,
+    home: Option<&str>,
+    localappdata: Option<&str>,
+    windows: bool,
+) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    let mut push = |p: PathBuf| {
+        if !out.contains(&p) {
+            out.push(p);
+        }
+    };
+    if windows {
+        if let Some(la) = localappdata.filter(|v| !v.trim().is_empty()) {
+            push(Path::new(la.trim()).join("xiom"));
+        }
+    } else {
+        let data = xdg_data_home
+            .filter(|v| !v.trim().is_empty())
+            .map(|v| PathBuf::from(v.trim()))
+            .or_else(|| {
+                home.filter(|v| !v.trim().is_empty())
+                    .map(|v| Path::new(v.trim()).join(".local").join("share"))
+            });
+        if let Some(d) = data {
+            push(d.join("xiom"));
+        }
+        if let Some(h) = home.filter(|v| !v.trim().is_empty()) {
+            push(Path::new(h.trim()).join(".local").join("xiom"));
+            push(Path::new(h.trim()).join("xiom"));
+        }
+    }
+    out
+}
+
+/// CRB-3c: the installed XIOM home for the RUNNING process.
+///
+/// `XIOM_HOME` wins when set (declared install location). Otherwise the first
+/// EXISTING candidate wins, canonical installer layout first; when nothing
+/// exists the canonical default is returned so diagnostics point at the
+/// expected location instead of a guessed `~/xiom`.
+pub fn xiom_home() -> PathBuf {
+    if let Ok(h) = std::env::var("XIOM_HOME") {
+        if !h.trim().is_empty() {
+            return PathBuf::from(h.trim());
+        }
+    }
+    xiom_home_candidates()
+        .into_iter()
+        .find(|p| p.is_dir())
+        .unwrap_or_else(canonical_xiom_home)
+}
+
+/// CRB-3c: the candidate list for the running process (env-driven).
+pub fn xiom_home_candidates() -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    if let Ok(h) = std::env::var("XIOM_HOME") {
+        if !h.trim().is_empty() {
+            out.push(PathBuf::from(h.trim()));
+        }
+    }
+    for p in xiom_home_candidates_impl(
+        std::env::var("XDG_DATA_HOME").ok().as_deref(),
+        std::env::var("HOME")
+            .ok()
+            .or_else(|| std::env::var("USERPROFILE").ok())
+            .as_deref(),
+        std::env::var("LOCALAPPDATA").ok().as_deref(),
+        cfg!(windows),
+    ) {
+        if !out.contains(&p) {
+            out.push(p);
+        }
+    }
+    out
+}
+
+/// CRB-3c: the canonical install location when no candidate exists
+/// (Windows `%LOCALAPPDATA%\\xiom`, Unix `~/.local/share/xiom`).
+pub fn canonical_xiom_home() -> PathBuf {
+    xiom_home_candidates_impl(
+        std::env::var("XDG_DATA_HOME").ok().as_deref(),
+        std::env::var("HOME")
+            .ok()
+            .or_else(|| std::env::var("USERPROFILE").ok())
+            .as_deref(),
+        std::env::var("LOCALAPPDATA").ok().as_deref(),
+        cfg!(windows),
+    )
+    .into_iter()
+    .next()
+    .unwrap_or_else(|| PathBuf::from("xiom"))
+}
+
 /// R31: the FIRST existing, content-valid stdlib root for this process.
 /// This is the single resolver every cross-repo test and tool uses.
 pub fn stdlib_root() -> Option<PathBuf> {
@@ -338,5 +439,28 @@ mod tests {
     fn r31_repo_root_has_workspace_manifest() {
         assert!(repo_root().join("Cargo.toml").is_file(),
             "repo_root() must point at the workspace root");
+    }
+
+    /// CRB-3c: the canonical home must match the shipped installers
+    /// (`%LOCALAPPDATA%\xiom` on Windows, `~/.local/share/xiom` on Unix) and
+    /// legacy layouts must follow it, deduped.
+    #[test]
+    fn crb3c_home_candidates_canonical_first() {
+        let win = xiom_home_candidates_impl(None, Some(r"C:\Users\dev"), Some(r"C:\Users\dev\AppData\Local"), true);
+        assert_eq!(win[0], PathBuf::from(r"C:\Users\dev\AppData\Local\xiom"));
+
+        let unix = xiom_home_candidates_impl(None, Some("/home/dev"), None, false);
+        assert_eq!(unix[0], PathBuf::from("/home/dev/.local/share/xiom"));
+        assert_eq!(unix[1], PathBuf::from("/home/dev/.local/xiom"));
+        assert_eq!(unix[2], PathBuf::from("/home/dev/xiom"));
+
+        let xdg = xiom_home_candidates_impl(Some("/data"), Some("/home/dev"), None, false);
+        assert_eq!(xdg[0], PathBuf::from("/data/xiom"));
+        assert_eq!(xdg[1], PathBuf::from("/home/dev/.local/xiom"));
+
+        // Dedup: XDG_DATA_HOME == ~/.local/share must not repeat.
+        let dup = xiom_home_candidates_impl(Some("/home/dev/.local/share"), Some("/home/dev"), None, false);
+        assert_eq!(dup.iter().filter(|p| p.ends_with("share/xiom") || p.ends_with("share\\xiom")).count(), 1,
+            "canonical candidate must be deduped: {dup:?}");
     }
 }
