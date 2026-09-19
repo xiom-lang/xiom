@@ -3434,6 +3434,19 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             for (param, arg_expr) in fd.params.iter().zip(args.iter()) {
                                 let param_type = Self::type_from_ast(&param.ty);
                                 if param_type == gp.name.name {
+                                    // R48 (playground C17): `x: &T` arrives
+                                    // with the ref stripped by type_from_ast,
+                                    // so this bare-T branch sees the `&p`
+                                    // argument; unwrap it or every ref arg
+                                    // fell into `_ => "Int"` and
+                                    // `introduce[T: Greetable](&person)`
+                                    // mono'd as introduce_Int (C001).
+                                    let arg_expr = match arg_expr {
+                                        Expr::Ref(i, _) | Expr::MutRef(i, _)
+                                        | Expr::Unary(UnaryOp::Ref, i, _)
+                                        | Expr::Unary(UnaryOp::MutRef, i, _) => i.as_ref(),
+                                        other => other,
+                                    };
                                     let concrete_ty = match arg_expr {
                                         Expr::Int(..) => "Int".to_string(),
                                         Expr::Float(..) => "Float64".to_string(),
@@ -3558,16 +3571,38 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 // params (a later direct `x: V` param can still infer).
                                 let arg_names = Self::extract_type_arg_names(&param.ty);
                                 if arg_names.iter().any(|a| a == &gp.name.name) {
-                                    // Prefer the arg's concrete container args; when the
-                                    // container can't be resolved, keep the historical
-                                    // "Int" fallback and break -- continuing to later
-                                    // params let the outer-type fallback pick a bogus
-                                    // non-type ("Box") as V (m35_t28/m35_o06 AVs).
-                                    let ct = self.infer_generic_arg_from_container(&param.ty, &gp.name.name, arg_expr)
-                                        .unwrap_or_else(|| "Int".to_string());
-                                    concrete_types.push(ct);
-                                    inferred = true;
-                                    break;
+                                    // R48: a BARE generic param that cannot be
+                                    // resolved from THIS argument (a pointer
+                                    // local for `*mut T` in ptr.replace) keeps
+                                    // scanning the remaining params instead of
+                                    // defaulting the whole mono to "Int".
+                                    // CONTAINER params keep the historical
+                                    // "Int" fallback + break (continuing there
+                                    // let the outer-type fallback pick a bogus
+                                    // non-type -- m35_t28/m35_o06 AVs).
+                                    let bare_generic = match &param.ty {
+                                        Type::Named(id, args) => args.is_empty() && id.name == gp.name.name,
+                                        Type::Ref(i) | Type::MutRef(i) | Type::Ptr(i) => matches!(
+                                            i.as_ref(),
+                                            Type::Named(id, args) if args.is_empty() && id.name == gp.name.name
+                                        ),
+                                        _ => false,
+                                    };
+                                    match self.infer_generic_arg_from_container(&param.ty, &gp.name.name, arg_expr) {
+                                        Some(ct) => {
+                                            concrete_types.push(ct);
+                                            inferred = true;
+                                            break;
+                                        }
+                                        None if bare_generic => {
+                                            // defer to a later param
+                                        }
+                                        None => {
+                                            concrete_types.push("Int".to_string());
+                                            inferred = true;
+                                            break;
+                                        }
+                                    }
                                 }
                             }
                             if !inferred {

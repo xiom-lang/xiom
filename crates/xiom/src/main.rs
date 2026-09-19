@@ -191,6 +191,24 @@ fn real_main() {
     // byte-compatible; the reads migrate to the clap matches in follow-up
     // work without touching the surface definition.
     let args = cli::parse(env::args().collect());
+
+    // R48 (playground C2): native tool dispatch FIRST, mirroring the
+    // launcher wrapper so `xiom fmt` / `xiom lsp` / `xiom mcp` / `xiom pkg` /
+    // ... (including their --version/--help) work on Linux/macOS installs
+    // that have no xiom.bat. Execs the sibling binary from bin/.
+    if let Some(tool) = args.get(1).and_then(|w| match w.as_str() {
+        "fmt" => Some("xiom-fmt"),
+        "lsp" => Some("xiom-lsp"),
+        "mcp" => Some("xiom-mcp"),
+        "pkg" => Some("xiom-pkg"),
+        "dbg" => Some("xiom-dbg"),
+        "verify" => Some("xiom-verify"),
+        "ffigen" => Some("xiom-ffigen"),
+        _ => None,
+    }) {
+        run_tool_dispatch(tool, &args[2..]);
+    }
+
     if args.len() < 2 || args.iter().any(|a| a == "--help") {
         print_usage();
         process::exit(if args.iter().any(|a| a == "--help") { 0 } else { 1 });
@@ -1892,6 +1910,34 @@ fn run_doctor() {
     let pkgs = home.join("packages");
     if pkgs.exists() { println!("  [OK] packages directory exists"); }
     else { println!("  [--] No packages (use: xiom pkg install <name>)"); }
+}
+
+/// R48 (playground C2): run a sibling tool binary (`fmt`, `lsp`, `mcp`,
+/// `pkg`, `dbg`, `verify`, `ffigen`) with the remaining arguments and exit
+/// with its status. Mirrors the launcher wrapper's dispatch table so the
+/// tools work on installs that have no xiom.bat.
+fn run_tool_dispatch(tool: &str, rest: &[String]) -> ! {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|p| p.to_path_buf()))
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let name = if cfg!(windows) { format!("{tool}.exe") } else { tool.to_string() };
+    let candidate = exe_dir.join(&name);
+    if !candidate.exists() {
+        eprintln!(
+            "error: {name} not found next to the compiler ({})",
+            exe_dir.display()
+        );
+        eprintln!("       reinstall the toolchain or run `{tool}` from the install launcher");
+        process::exit(1);
+    }
+    match std::process::Command::new(&candidate).args(rest).status() {
+        Ok(status) => process::exit(status.code().unwrap_or(1)),
+        Err(e) => {
+            eprintln!("error: cannot run {}: {e}", candidate.display());
+            process::exit(1);
+        }
+    }
 }
 
 /// 9B: xiom doc -- generate documentation for XIOM source files.

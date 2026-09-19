@@ -308,6 +308,19 @@ docs/AI_PIPELINE corrected. Legacy `xiom install/update/registry` now use
 `XIOM_HOME` so they see `xiom pkg` installs. 5 new ai unit tests;
 `--ai-local` and plaintext-refusal smokes green.
 
+**R48 (playground verification, 2026-09-19)**: fixed interface dispatch
+through `&T` generic arguments (ref-unwrap in the bare-T inference branch +
+bare named types in extract_type_arg_names + a bare-param resolution path),
+pointer/double match-result zero-init (`store i8* 0` / `store double 0` ->
+`null` / `0.0`), the script-cache build identity (source-hash-only keys
+served old binaries across builds), `xiom fmt`/tool native dispatch (C2),
+and the WASM release asset (C8: wasm32 build staged + `xiom-wasm-<ver>.wasm`
+published). Lock `e2e_m92_interface_dispatch_zero_init`; playground L6
+interface lessons and L2-12/14/15/16 build+run. Open classes with exact
+repros are recorded in docs/COMPILER_BUGS.md R48 (L6-28/L6-40, L5-40,
+L6-31, L8-15/18, L6-05/L2-19 AVs, 26 C18/C19-residue lessons), plus the
+`.to_str()` peek-closure perf item deferred to Stage 6.
+
 **CRB-3c (ops, 2026-09-19)**: installer/doctor home mismatch fixed --
 `xiom_graph::paths::xiom_home()`/`xiom_home_candidates()` resolve the
 installed home (XIOM_HOME > canonical `%LOCALAPPDATA%\xiom` /

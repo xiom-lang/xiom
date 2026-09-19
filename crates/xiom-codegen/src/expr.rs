@@ -5285,6 +5285,12 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // reads when all arms return/exit (no fallthrough store).
                 if result_ty.starts_with("%struct.") {
                     self.emitln(&format!("  store {result_ty} zeroinitializer, {result_ty}* {result_alloca}"));
+                } else if result_ty.ends_with('*') {
+                    // R48 (playground C17): a pointer slot needs `null`, not
+                    // the integer constant 0 -- clang rejects `store i8* 0`.
+                    self.emitln(&format!("  store {result_ty} null, {result_ty}* {result_alloca}"));
+                } else if result_ty == "double" || result_ty == "float" {
+                    self.emitln(&format!("  store {result_ty} 0.0, {result_ty}* {result_alloca}"));
                 } else {
                     self.emitln(&format!("  store {result_ty} 0, {result_ty}* {result_alloca}"));
                 }

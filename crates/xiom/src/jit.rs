@@ -86,9 +86,30 @@ pub fn jit_run_wrapped(raw_source: &str) -> Result<i32, String> {
 /// Content-hash based script cache using SHA-256 for strong identity.
 /// Cached binaries live in `~/.xiom/jit/<sha256hex>`.
 /// Returns the cached binary path if it exists and is valid.
+/// R48: identity of THIS compiler build for the script cache. The cache used
+/// to be keyed by the source hash alone, so a freshly built compiler silently
+/// served binaries produced by the previous build (playground verified the
+/// v0.60.1 -> v0.61.0 crossover). Version + OS/arch + pointer width separates
+/// any two builds that can emit different code for the same source.
+pub fn compiler_cache_identity() -> String {
+    format!(
+        "{}|{}-{}|{}",
+        env!("CARGO_PKG_VERSION"),
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        usize::BITS
+    )
+}
+
+/// Cache key: source hash salted with the compiler build identity.
+fn cache_key(source: &str) -> String {
+    hash_source(&format!("xiom-cache-v2|{}|{}", compiler_cache_identity(), source))
+}
+
+/// Look up a cached script binary.
 pub fn script_cache_get(source: &str) -> Option<PathBuf> {
     let cache_dir = jit_cache_dir();
-    let hash = hash_source(source);
+    let hash = cache_key(source);
     let cache_file = cache_dir.join(&hash);
     if cfg!(windows) {
         let exe = cache_file.with_extension("exe");
@@ -98,11 +119,12 @@ pub fn script_cache_get(source: &str) -> Option<PathBuf> {
     None
 }
 
-/// Store a compiled binary in the script cache keyed by SHA-256 of the source.
+/// Store a compiled binary in the script cache keyed by SHA-256 of the source
+/// AND the compiler build identity.
 pub fn script_cache_put(source: &str, binary: &PathBuf) {
     let cache_dir = jit_cache_dir();
     std::fs::create_dir_all(&cache_dir).ok();
-    let hash = hash_source(source);
+    let hash = cache_key(source);
     let cache_file = cache_dir.join(&hash);
     let target = if cfg!(windows) { cache_file.with_extension("exe") } else { cache_file };
     std::fs::copy(binary, &target).ok();
@@ -205,5 +227,20 @@ mod tests {
         let src = "fn main() { }\n";
         let result = jit_execute(src);
         assert!(result.is_ok(), "void main should succeed: {:?}", result.err());
+    }
+
+    /// R48: the script cache must separate compiler builds. Old entries keyed
+    /// by source hash alone made a new build serve the previous build's
+    /// binaries (playground stale-cache hazard).
+    #[test]
+    fn script_cache_key_includes_compiler_build_identity() {
+        assert_eq!(cache_key("src"), cache_key("src"));
+        assert_ne!(cache_key("src"), cache_key("other"));
+        assert!(
+            compiler_cache_identity().contains(env!("CARGO_PKG_VERSION")),
+            "identity must carry the compiler version: {}",
+            compiler_cache_identity()
+        );
+        assert!(cache_key("src").starts_with(|c: char| c.is_ascii_hexdigit()));
     }
 }

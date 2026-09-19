@@ -449,6 +449,22 @@ compiler only read JSON `.xiom_ai_config.json` from cwd/home), and
   XIOM_HOME always wins; an existing legacy `~/.xiom/registry.json` is
   still honored) so the old spelling sees `xiom pkg` installs.
 
+**Playground R48 (2026-09-19) -- fixed 3 classes, cache hazard, fmt dispatch,
+WASM asset**: interface dispatch through `&T` generic args was mono'ing as
+`Int` (type_from_ast strips the ref; the bare-T branch had no Ref arm) and
+now resolves the argument's type (L6-01..07/13/16/30 pass); match-result
+slots zero-init pointer/double as `null`/`0.0` (clang rejects
+`store i8* 0` / `store double 0`; L2-12/14/15/16 build); the script cache
+key now includes the compiler build identity (a new build used to serve the
+old build's binaries); `xiom fmt|lsp|mcp|pkg|dbg|verify|ffigen` dispatch
+natively via the sibling binary; release.yml ships `xiom-wasm-<ver>.wasm`
+plus `bin/xiom-wasm.wasm` (C8). Lock `e2e_m92_interface_dispatch_zero_init`.
+OPEN with repros in docs/COMPILER_BUGS.md R48: L6-28/L6-40 (interface T from
+struct generic), L5-40 (nested-generic mono name), L6-31 (qualified ctor
+redefinition), L8-15/18 (i64 passed as ptr), L6-05/L2-19 runtime AVs, 26
+C18/C19-residue lessons, and the fmt-closure perf item (reachable-function
+peek, deferred to Stage 6).
+
 ## Remaining queue (compiler lane)
 
 1. **Supply-chain tail -- CLOSED (2026-09-17)**: transitive dependency

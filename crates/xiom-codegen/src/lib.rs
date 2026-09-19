@@ -1480,6 +1480,41 @@ impl IrEmitter {
                 }
             }
         }
+        // R48 (playground C17): BARE generic param (`x: T`, `x: &mut T`,
+        // `x: *mut T`). A ref argument (`&p` / `&mut p`) names the VALUE's
+        // type; a plain pointer-typed local passed to a pointer param
+        // (`pd: *mut T` -> `ptr.replace[T]`) must NOT infer from the
+        // pointer's LLVM pointee (that mapped i8** to Int8 for a Str), it
+        // defers to the sibling `src: T` param (the caller keeps scanning on
+        // None since R48).
+        let bare_param = matches!(container_ty, Type::Named(id, args) if args.is_empty() && id.name == gp);
+        if bare_param {
+            let param_is_pointer = matches!(param_ty, Type::Ref(_) | Type::MutRef(_) | Type::Ptr(_));
+            let ref_arg = matches!(
+                arg_expr,
+                Expr::Ref(..) | Expr::MutRef(..)
+                    | Expr::Unary(UnaryOp::Ref, ..) | Expr::Unary(UnaryOp::MutRef, ..)
+            );
+            if !param_is_pointer || ref_arg {
+                if let Expr::Ident(id) = inner {
+                    if let Some(t) = self.local.local_xiom_types.get(&id.name).cloned() {
+                        if let Some(u) = usable(&t) {
+                            return Some(u);
+                        }
+                    }
+                    if let Some(t) = self.resolve_local_xiom_type(&id.name) {
+                        if let Some(u) = usable(&t) {
+                            return Some(u);
+                        }
+                    }
+                }
+                if let Some(rt) = self.infer_call_return_xiom(inner) {
+                    if let Some(u) = usable(&rt) {
+                        return Some(u);
+                    }
+                }
+            }
+        }
         // 3. Call returning a container ("Vec[JsonValue]").
         if let Some(rt) = self.infer_call_return_xiom(inner) {
             let (_base, args) = Self::parse_generic_type_string(&rt);
@@ -1492,6 +1527,11 @@ impl IrEmitter {
 
     fn extract_type_arg_names(ty: &Type) -> Vec<String> {
         match ty {
+            // R48 (playground C17): a BARE named type is itself a type-arg
+            // name (`x: T`, `x: &mut T`, `x: *mut T`). Returning empty made
+            // the generic inference skip such params entirely and fall back
+            // to the first-arg "Int" default (interface calls died in C001).
+            Type::Named(id, args) if args.is_empty() => vec![id.name.clone()],
             Type::Named(_, args) => args.iter().map(|a| Self::type_from_ast(a)).collect(),
             Type::Option(inner) => vec![Self::type_from_ast(inner)],
             Type::Result(ok, err) => vec![Self::type_from_ast(ok), Self::type_from_ast(err)],

@@ -261,9 +261,17 @@ jobs:
           done
           z3_out="$(stage/bin/z3 --version 2>&1)"
           case "$z3_out" in *"Z3 version"*) ;; *) echo "::error::staged z3 does not run: $z3_out"; exit 1;; esac
+          # C8: platform-independent WASM build (browser/playground). Built
+          # once here, shipped inside the archive AND as its own release asset.
+          rustup target add wasm32-unknown-unknown
+          cargo build --release -p xiom-wasm --target wasm32-unknown-unknown
+          cp target/wasm32-unknown-unknown/release/xiom_wasm.wasm stage/bin/xiom-wasm.wasm
+          magic="$(od -An -tx1 -N4 stage/bin/xiom-wasm.wasm | tr -d ' \n')"
+          [ "$magic" = "0061736d" ] || { echo "::error::wasm magic mismatch: $magic"; exit 1; }
+          cp stage/bin/xiom-wasm.wasm "xiom-wasm-$ver.wasm"
           name="xiom-$ver-linux-x64.tar.gz"
           tar -czf "$name" -C stage .
-          sha256sum "$name" > SHA256SUMS-linux-x64
+          sha256sum "$name" "xiom-wasm-$ver.wasm" > SHA256SUMS-linux-x64
           echo "ARTIFACT_NAME=$name" >> "$GITHUB_ENV"
 
       - name: Upload artifact
@@ -433,7 +441,7 @@ jobs:
           GH_TOKEN: ${{ secrets.XIOM_RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           cd artifacts
-          FILES=$(ls *.zip *.tar.gz 2>/dev/null || true)
+          FILES=$(ls *.zip *.tar.gz *.wasm 2>/dev/null || true)
           gh release create "$GITHUB_REF_NAME" $FILES SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \

@@ -7305,4 +7305,93 @@ the pre-fix tree (clang dominance error / garbage output). stdlib-exec
 after this lands, run `node tools/generate-expected-outputs.js --wsl` and
 `node tools/lesson-audit.js --baseline tools/lesson-baseline.json`.
 
+## R48. Playground verification residue: interface dispatch, zero-init, cache identity, WASM asset (2026-09-19)
+
+Context: playground AUDIT.md section 16 (pinned v0.60.1 data; verification
+against the R47 build `16a89615`). The compiler-lane items from that
+verification, with repro commands using the playground lesson sources
+(`tmp/playground/lessons/**` extracted `.solution`).
+
+### FIXED
+
+1. **Interface dispatch through `&T`/`&mut T` generic arguments (C17, 11
+   lessons).** Bare generic params were invisible to the argument
+   inference: `type_from_ast` strips `&` so the bare-`T` branch saw
+   `introduce(&person)`'s `Expr::Ref` with no arm for it (`_ => "Int"`),
+   and `&mut T`/`*mut T` never matched the branch at all because
+   `extract_type_arg_names` returned empty for a bare `T`. The call
+   mono'd as `introduce_Int` and codegen failed
+   `C001: type 'Int' does not implement 'Greetable'`. Fix:
+   - unwrap Ref/MutRef/Unary-Ref in the bare-`T` argument branch
+     (call.rs);
+   - `extract_type_arg_names` reports a bare named type as itself, and
+     `infer_generic_arg_from_container` resolves bare params from the
+     argument (ref args name the VALUE; a pointer local passed to a pointer
+     param defers to the sibling `T` param -- the caller keeps scanning on
+     None for bare params only, preserving the m35 container guard);
+   - `ptr.replace[T](*mut T, T)` (mem.replace body) keeps inferring from
+     `src: T`, so m73's Str path is unchanged.
+   Lock: `e2e_m92_interface_dispatch_zero_init`; m73 + m91 stay green.
+   Verified: L6-01/02/03/04/06/07/13/16/30 build AND run (L6-05, below,
+   now builds but crashes at runtime).
+
+2. **Pointer/double zero-init in match-result slots (C17, clang class).**
+   `expr.rs` emitted `store i8* 0` / `store double 0` for non-struct match
+   result slots; clang rejects both (`integer constant must have integer
+   type`). Now `null` for pointers and `0.0` for double/float in expr.rs and
+   stmt.rs. Verified: L2-12/14/15/16 build; L2-19 builds but crashes at
+   runtime (below).
+
+3. **Run-cache served binaries across compiler builds.** The script cache
+   (`~/.xiom/jit`, `/tmp/xiom_run` in the playground harness) was keyed by
+   the source hash alone, so a new build silently reused the previous
+   build's binaries (the v0.60.1 -> v0.61.0 crossover). `cache_key` now
+   salts the hash with `CARGO_PKG_VERSION|OS-ARCH|pointer-bits` under a
+   `xiom-cache-v2` prefix, invalidating every old entry; unit test added.
+
+4. **`xiom fmt` unwired (C2).** `xiom.exe` now dispatches the first word
+   `fmt|lsp|mcp|pkg|dbg|verify|ffigen` to the sibling tool binary BEFORE its
+   own `--help`/`--version` handling, mirroring the launcher wrapper, so the
+   tools (and their own flags) work on Linux/macOS installs without
+   `xiom.bat`.
+
+5. **No WASM release asset (C8).** `release.yml` now builds
+   `xiom-wasm` for `wasm32-unknown-unknown` in the Linux leg, verifies the
+   `\0asm` magic, stages `bin/xiom-wasm.wasm` inside the archive and
+   publishes `xiom-wasm-<ver>.wasm` as its own release asset (included in
+   SHA256SUMS; release `FILES` glob covers `*.wasm`).
+
+### OPEN (precise repros, in priority order)
+
+- **C17 interface residue -- 2 lessons**: L6-28
+  (`PriorityQueue[T: Priority].insert` method whose `T` is inferred from the
+  struct's generic: still `C001 type 'Int' does not implement 'Priority'`)
+  and L6-40 (module-scoped `Runner[T: Plugin]` interface dispatch:
+  `C001 type 'Int' does not implement 'Plugin'`).
+- **C17 clang residue -- 4 lessons**: L5-40
+  (`alloca %struct.Option__Vec_Str_` -- nested-generic mono name is never
+  defined), L6-31 (`invalid redefinition of function
+  'school.students.new_student'` -- qualified nested constructor emitted
+  twice, C11), L8-15/L8-18
+  (`%tmp defined with type 'i64' but expected 'ptr'` -- a `Vec` receiver
+  reaches `get_Int(%struct.Vec* ...)` as an i64 handle).
+- **C17 runtime AVs -- 2 lessons**: L6-05 and L2-19 exit `0xC0000005`
+  (access violation) deterministically.
+- **C18/C19 residue -- 26 lessons**: 19 nondeterministic pointer prints
+  (L0-11, L3-01/02/07/50, L5-02/05/07/09/20/24/26/29/31/35/36/43, L8-14,
+  L8-20), 7 invalid-UTF-8 outputs (L0-34, L0-49, L0-50, L5-32, L5-34,
+  L5-42, L7-09), and L5-21 (`Float64.to_str()` inside a generic over
+  `Vec[T]` still prints IEEE bit patterns).
+- **Perf: `xiom.fmt` peek closure** costs +2.3-2.5 s per first `.to_str()`
+  compile (sweep p50 3.9 -> 7.9 s). Fix shape: a reachable-function-only
+  peek -- peek the checker-resolved module shallow, run the reachability
+  filter, then pull the deps named by the SELECTED decls to a fixpoint.
+  Deferred to the Stage 6 catalog-index work because it restructures
+  `collect_external_decls`'s peek/reachability order and needs the full e2e
+  as its gate.
+- **C3 script-mode flags / C6 stdlib `package.xi`**: left as-is pending an
+  exact repro from the playground session (changing either without one
+  risks breaking the documented script semantics).
+
+
 

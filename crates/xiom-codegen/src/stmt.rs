@@ -1290,6 +1290,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         self.emitln(&format!("  store {ty} zeroinitializer, {ty}* {ptr}"));
                     } else if ty.ends_with('*') {
                         self.emitln(&format!("  store {ty} null, {ty}* {ptr}"));
+                    } else if ty == "double" || ty == "float" {
+                        // R48 (playground C17): `store double 0` is invalid IR.
+                        self.emitln(&format!("  store {ty} 0.0, {ty}* {ptr}"));
                     } else {
                         self.emitln(&format!("  store {ty} 0, {ty}* {ptr}"));
                     }
