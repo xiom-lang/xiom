@@ -7421,13 +7421,25 @@ verification, with repro commands using the playground lesson sources
   function body (or checker-side inference feeding codegen). Trace evidence:
   `create` concrete=[] (emits the `0` fallback), `add_plugin`
   concrete=["EchoPlugin"], `run_all` container miss -> Int -> C001.
-- **L5-40 (C17 clang residue)**: now builds (nested `Option__Vec_Str_` is
-  registered and defined), but `group_by_age` prints 0 instead of 2. Root
-  cause: Map container-payload ABI -- `Map.insert[Int, Vec[Str]]` boxes the
-  Vec value with malloc then `memcpy`s the UNBOXED header into an 8-byte
-  handle slot, while `Map.get` reads an i64 handle and derefs it. The box
-  pointer is computed and discarded. Fixing needs the Map values store to
-  commit to one convention (handle store) in the injected `insert` path.
+- **L5-40 (C17 clang residue)**: builds, but `group_by_age` prints 0.
+  Root cause is now two-layered:
+  1. `Map[Int, Vec[Str]].new()` monomorphised V=Int (the explicit
+     receiver type-arg rendering used an Ident-only match that turned
+     `Expr::Index` args into "Int"), so the map's `values` Vec was built
+     with 8-byte slots -- fixing the renderer alone yields
+     `Map.new_Int_Vec_Str_` but the payload still mis-reads.
+  2. The container-element ABI disagrees across sites: the index read path
+     (`emit_elem_load` switch -> i64) inttoptr+loads the value as
+     `%struct.Vec`, `Map.insert` stores the header with a runtime-`esz`
+     memcpy, and `record_field_vec_elem` refuses container element types.
+     Committing to ONE element representation (inline header vs handle) is
+     a cross-cutting design change.
+  CIRCUIT BREAKER: three attempts (concrete `Option__Vec_Str_`
+  registration -- kept; index-store/unwrap pairing -- kept; nested
+  type-arg renderer + index substitution -- REVERTED after
+  `e2e_fnptr_vec_index_call` and `e2e_m71_concat_index_elem` regressed,
+  2346/2348). See docs/failed_attempts.md. Needs the architecture
+  decision before a coordinated fix.
 - **Remaining C18/C19 pointer/UTF-8 lessons**: per-lesson triage still
   needed (L3-02, L5-09/20/24/26/29/31/35/36/43 nondeterministic; L3-50 exits
   200; L8-14 deterministically `0xC000001D` -- a trap reached in the
