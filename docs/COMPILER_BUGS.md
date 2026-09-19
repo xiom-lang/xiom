@@ -7468,9 +7468,11 @@ verification, with repro commands using the playground lesson sources
   "T" cannot shadow the concrete type), L5-36/L5-35 (to_str via match
   results). Locks `e2e_m106..m108`; all 11 previously nondeterministic
   lessons (L3-02, L5-09/20/24/26/29/31/35/36/43) plus L5-21 are
-  deterministic now. Still open: L3-50 (Result tuple payload -> printed
-  address; `string.str_to_int` path) and L8-14 (trap in the Map[Str,Str]
-  morse flow).
+  deterministic now. Still open: L3-50 (bisected: a `?`-unwrapped Result
+  with a TUPLE payload -- `let (a, b) = split_two(rest)?` binds garbage and
+  `t.0`/`t.1` read 0, while `split_two(rest).unwrap().1` is correct; the
+  try-payload tuple typing/field access path is the remaining defect) and
+  L8-14 (trap in the Map[Str,Str] morse flow).
 - **L5-40 (C17 clang residue)**: builds, but `group_by_age` prints 0.
   Root cause is now two-layered:
   1. `Map[Int, Vec[Str]].new()` monomorphised V=Int (the explicit
