@@ -7462,21 +7462,31 @@ deleted on success).
 Findings relayed from the stdlib session; reproduced or filed here before
 fixing. Each entry keeps its stdlib-side repro name.
 
-### R49-1 `p_module_path_alias` -- file-path imports vs declared module name
+### R49-1 `p_module_path_alias` -- file-path imports vs declared module name -- FIXED
 Importing a module by FILE PATH whose path differs from the declared module
-name corrupts the catalog: `use xiom.crypto.legacy.md5;` makes `--check`
+name corrupted the catalog: `use xiom.crypto.legacy.md5;` made `--check`
 emit 33 T001s in `xiom.crypto.rng_crypto` ("cannot call
 'secure_random_bytes' on this expression"); `use xiom.crypto.md5;`
-(declared name) is clean; same for legacy/sha. 19 modules carry
+(declared name) was clean; same for legacy/sha. 19 modules carried
 path/name mismatches (core/{cmp,contracts,platform}, crypto/legacy/{des,
 md5,sha}, crypto/{chacha,ecc,poly1305,rsa}, format/fmt, math/complex,
 num/{bigfloat_agg,bigint}, os/{env,path,process}, string/{char,utf8}).
-This is the SAME set the `stdlib_api_freeze_no_removals` resolver cannot
-find, so one compiler-side resolver fix (module-path resolution in
-`resolve_module_path`/manifest) should clear both. Frozen-gate evidence:
-212 missing entries = 154 resolver misses + 58 signature drifts (49
-pre-existing + 9 R44 renames), pinned baseline 203; snapshot regen is
-compiler-side.
+
+FIX (R49, 2026-09-19), three parts:
+1. `Catalog::parse_file` sets `dotted_name` from the file's declared
+   `module` header (was the requested path); `find_owned` caches under that
+   identity, so one file cannot sit in the cache under two names.
+2. `process_use` rewrites a non-declared import path to the declared
+   segments up-front (only for paths absent from the module index, so normal
+   imports pay no extra parse). The parent-chain walk then keys
+   `xiom -> crypto -> md5`, not the bogus `xiom -> crypto -> legacy -> md5`.
+3. The freeze test's resolver gained a one-time declared-header index of the
+   stdlib tree, so moved modules resolve for the snapshot scan.
+Verified: all 19 alias imports `--check` clean; `stdlib_api_freeze_tests`
+green (214/214 frozen entries resolved; the stale snapshot lines were
+regenerated for 52 intentional drifts/typos -- by-ref return removals in
+array/cell, compress `Result<` typos, iter/path/env renames; note `env.var`
+-> `env.get_var`). Lock: `e2e_m99_module_path_alias`.
 
 ### R49-2 `@pre` on CALL expressions reads post-state -- FIXED (compiler side)
 `@pre` on a call expression captured the CURRENT state instead of the

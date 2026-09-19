@@ -4982,6 +4982,28 @@ fn e2e_safety_probe() {
     );
 }
 
+// R49-1 (stdlib relay p_module_path_alias): importing a MOVED module by its
+// file path must register the declared identity, not the alias. The checker
+// resolves the catalog on `xiom --check`, so compiling this program exercises
+// the same path (the old alias corrupted xiom.crypto's exports -> T001s in
+// rng_crypto). Needs the stdlib checkout.
+#[test] fn e2e_m99_module_path_alias() {
+    let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
+    if !stdlib_root.join("xiom").join("crypto").join("legacy").join("md5.xi").exists() {
+        let msg = "SKIP: stdlib checkout has no xiom/crypto/legacy/md5.xi";
+        if xiom_graph::paths::require_stdlib() {
+            panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
+        }
+        eprintln!("{msg}");
+        return;
+    }
+    assert_eq!(
+        compile_and_run("tests/regression/m99_module_path_alias/main.xi"),
+        Some(0),
+        "R49 moved-module path-alias probe must compile and run"
+    );
+}
+
 // R49 (playground C18 residue): fixed arrays of Str elements must keep the
 // i8* element type -- `friends[i]` used to ptrtoint the string handle and
 // print the ADDRESS (L0-11 "Hi, 1406..."). Harness-locked because the

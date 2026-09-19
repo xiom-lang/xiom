@@ -289,8 +289,12 @@ impl ModuleCatalog {
         }
 
         let cached = self.load_module(path_segments)?;
-        self.surface_collision(&key);
-        self.cache.insert(key.clone(), cached.clone());
+        // R49-1: cache under the module's DECLARED identity (parse_file).
+        // Inserting the requested path alias instead would let one file sit
+        // in the cache under two names and be injected twice.
+        let cache_key = cached.dotted_name.clone();
+        self.surface_collision(&cache_key);
+        self.cache.insert(cache_key, cached.clone());
         Some(cached)
     }
 
@@ -364,6 +368,12 @@ impl ModuleCatalog {
         names
     }
 
+    /// R49-1: is `dotted` a DECLARED module name in the index? (Used to skip
+    /// the path-alias rewrite for normal imports.)
+    pub fn is_declared_module(&self, dotted: &str) -> bool {
+        self.module_index.contains_key(dotted)
+    }
+
     /// Every INDEXED dotted module name, sorted (deterministic order).
     /// Stage 3 Item A: drives the full-corpus body check.
     pub fn module_names(&self) -> Vec<String> {
@@ -390,16 +400,16 @@ impl ModuleCatalog {
         for dir in &self.source_dirs {
             let file_path = format!("{}/{}.xi", dir, path_segments.join("/"));
             if Path::new(&file_path).exists() {
-                if let Some(mut cached) = self.parse_file(&file_path, path_segments) {
-                    cached.dotted_name = path_segments.join(".");
+                if let Some(cached) = self.parse_file(&file_path, path_segments) {
+                    // R49-1: keep the DECLARED identity (parse_file); a moved
+                    // module must not be registered under its path alias.
                     return Some(cached);
                 }
             }
             // Also try single-level: <source_dir>/<dotted>.xi
             let file_path2 = format!("{}/{}.xi", dir, path_segments.join("."));
             if Path::new(&file_path2).exists() {
-                if let Some(mut cached) = self.parse_file(&file_path2, path_segments) {
-                    cached.dotted_name = path_segments.join(".");
+                if let Some(cached) = self.parse_file(&file_path2, path_segments) {
                     return Some(cached);
                 }
             }
@@ -414,8 +424,7 @@ impl ModuleCatalog {
                     if let Some(dotted) = self.read_module_header(Path::new(&file_path3)) {
                         let declared: Vec<String> = dotted.split('.').map(|s| s.to_string()).collect();
                         if declared == path_segments {
-                            if let Some(mut cached) = self.parse_file(&file_path3, path_segments) {
-                                cached.dotted_name = path_segments.join(".");
+                            if let Some(cached) = self.parse_file(&file_path3, path_segments) {
                                 return Some(cached);
                             }
                         }
@@ -450,8 +459,7 @@ impl ModuleCatalog {
                         if let Some(dotted) = self.read_module_header(&path) {
                             let declared: Vec<String> = dotted.split('.').map(|s| s.to_string()).collect();
                             if declared == path_segments {
-                                if let Some(mut cached) = self.parse_file(&path.to_string_lossy(), path_segments) {
-                                    cached.dotted_name = path_segments.join(".");
+                                if let Some(cached) = self.parse_file(&path.to_string_lossy(), path_segments) {
                                     return Some(cached);
                                 }
                             }
@@ -620,8 +628,18 @@ impl ModuleCatalog {
         // Flatten the module tree to collect pub items.
         self.collect_pub_items(&program.items, "", &mut types, &mut functions, &mut type_fields);
 
+        // R49-1 (stdlib relay p_module_path_alias): the module's IDENTITY is
+        // the name it DECLARES, not the file path it was looked up by.
+        // Moved modules (crypto/legacy/md5.xi declares `xiom.crypto.md5`)
+        // were registered under the path alias, giving one file two
+        // identities and corrupting the parent module's submodule set
+        // (`use xiom.crypto.legacy.md5;` -> 33 T001s in rng_crypto).
+        let declared_name = self
+            .read_module_header(std::path::Path::new(file_path))
+            .unwrap_or_else(|| path_segments.join("."));
+
         Some(CachedModule {
-            dotted_name: path_segments.join("."),
+            dotted_name: declared_name,
             program,
             types,
             functions,

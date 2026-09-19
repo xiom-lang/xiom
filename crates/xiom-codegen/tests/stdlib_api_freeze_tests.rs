@@ -63,10 +63,10 @@ const FROZEN: &[&str] = &[
         "alloc :: pub fn dealloc_layout(ptr: *mut UInt8, layout: Layout)",
         "array :: pub fn len[T, const N: Int](arr: &[N]T) -> Int",
         "array :: pub fn is_empty[T, const N: Int](arr: &[N]T) -> Bool",
-        "array :: pub fn first[T, const N: Int](arr: &[N]T) -> Option<&T>",
-        "array :: pub fn last[T, const N: Int](arr: &[N]T) -> Option<&T>",
-        "array :: pub fn get[T, const N: Int](arr: &[N]T, index: Int) -> Option<&T>",
-        "array :: pub fn get_mut[T, const N: Int](arr: &mut [N]T, index: Int) -> Option<&mut T>",
+        "array :: pub fn first[T, const N: Int](arr: &[N]T) -> Option[T]",
+        "array :: pub fn last[T, const N: Int](arr: &[N]T) -> Option[T]",
+        "array :: pub fn get[T, const N: Int](arr: &[N]T, index: Int) -> Option[T]",
+        "array :: pub fn get_mut[T, const N: Int](arr: &mut [N]T, index: Int) -> Option[T]",
         "array :: pub fn map[T, U, const N: Int](arr: [N]T, f: fn(T) -> U) -> [N]U",
         "array :: pub fn zip[T, U, const N: Int](a: [N]T, b: [N]U) -> [N](T, U)",
         "array :: pub fn fold[T, B, const N: Int](arr: [N]T, init: B, f: fn(B, T) -> B) -> B",
@@ -111,11 +111,11 @@ const FROZEN: &[&str] = &[
         "cell :: pub fn Cell.replace[T](&mut self, value: T) -> T",
         "cell :: pub fn Cell.swap[T](&mut self, other: &mut Cell[T])",
         "cell :: pub fn RefCell.new[T](value: T) -> RefCell[T]",
-        "cell :: pub fn RefCell.borrow[T](self) -> Ref[T]",
-        "cell :: pub fn RefCell.borrow_mut[T](self) -> RefMut[T]",
-        "cell :: pub fn RefCell.try_borrow[T](self) -> Option[Ref[T]]",
-        "cell :: pub fn RefCell.try_borrow_mut[T](self) -> Option[RefMut[T]]",
-        "cell :: pub fn RefCell.replace[T](self, value: T) -> T",
+        "cell :: pub fn RefCell.borrow[T](&mut self) -> Ref[T]",
+        "cell :: pub fn RefCell.borrow_mut[T](&mut self) -> RefMut[T]",
+        "cell :: pub fn RefCell.try_borrow[T](&mut self) -> Option[Ref[T]]",
+        "cell :: pub fn RefCell.try_borrow_mut[T](&mut self) -> Option[RefMut[T]]",
+        "cell :: pub fn RefCell.replace[T](&mut self, value: T) -> T",
         "cell :: pub fn Ref.release[T](self)",
         "cell :: pub fn Ref.get[T](self) -> T",
         "cell :: pub fn RefMut.release[T](self)",
@@ -156,22 +156,22 @@ const FROZEN: &[&str] = &[
         "collections :: pub fn Vec[T].as_mut_slice(self) -> Slice[T]",
         "compress :: pub fn GzipCompressor.new() -> GzipCompressor",
         "compress :: pub fn GzipCompressor.with_level(level: Int) -> GzipCompressor",
-        "compress :: pub fn gzip_compress(data: &Vec[UInt8]) -> Result<Vec[UInt8], Str]",
-        "compress :: pub fn gzip_compress_level(data: &Vec[UInt8], level: Int) -> Result<Vec[UInt8], Str]",
-        "compress :: pub fn gzip_decompress(data: &Vec[UInt8]) -> Result<Vec[UInt8], Str]",
-        "compress :: pub fn deflate_compress(data: &Vec[UInt8]) -> Result<Vec[UInt8], Str>",
-        "compress :: pub fn deflate_decompress(data: &Vec[UInt8]) -> Result<Vec[UInt8], Str]",
-        "compress :: pub fn deflate_compress_level(data: &Vec[UInt8], level: Int) -> Result<Vec[UInt8], Str]",
-        "compress :: pub fn zlib_compress(data: &Vec[UInt8]) -> Result<Vec[UInt8], Str]",
-        "compress :: pub fn zlib_compress_level(data: &Vec[UInt8], level: Int) -> Result<Vec[UInt8], Str]",
-        "compress :: pub fn zlib_decompress(data: &Vec[UInt8]) -> Result<Vec[UInt8], Str]",
-        "compress :: pub fn brotli_compress(data: &Vec[UInt8]) -> Result<Vec[UInt8], Str]",
-        "compress :: pub fn brotli_compress_level(data: &Vec[UInt8], quality: Int) -> Result<Vec[UInt8], Str]",
-        "compress :: pub fn brotli_decompress(data: &Vec[UInt8]) -> Result<Vec[UInt8], Str]",
-        "compress :: pub fn lz4_compress(data: &Vec[UInt8]) -> Result<Vec[UInt8], Str]",
-        "compress :: pub fn lz4_decompress(data: &Vec[UInt8]) -> Result<Vec[UInt8], Str]",
-        "compress :: pub fn snappy_compress(data: &Vec[UInt8]) -> Result<Vec[UInt8], Str]",
-        "compress :: pub fn snappy_decompress(data: &Vec[UInt8]) -> Result<Vec[UInt8], Str]",
+        "compress :: pub fn gzip_compress(data: &Vec[UInt8]) -> Result[Vec[UInt8], Str]",
+        "compress :: pub fn gzip_compress_level(data: &Vec[UInt8], level: Int) -> Result[Vec[UInt8], Str]",
+        "compress :: pub fn gzip_decompress(data: &Vec[UInt8]) -> Result[Vec[UInt8], Str]",
+        "compress :: pub fn deflate_compress(data: &Vec[UInt8]) -> Result[Vec[UInt8], Str]",
+        "compress :: pub fn deflate_decompress(data: &Vec[UInt8]) -> Result[Vec[UInt8], Str]",
+        "compress :: pub fn deflate_compress_level(data: &Vec[UInt8], level: Int) -> Result[Vec[UInt8], Str]",
+        "compress :: pub fn zlib_compress(data: &Vec[UInt8]) -> Result[Vec[UInt8], Str]",
+        "compress :: pub fn zlib_compress_level(data: &Vec[UInt8], level: Int) -> Result[Vec[UInt8], Str]",
+        "compress :: pub fn zlib_decompress(data: &Vec[UInt8]) -> Result[Vec[UInt8], Str]",
+        "compress :: pub fn brotli_compress(data: &Vec[UInt8]) -> Result[Vec[UInt8], Str]",
+        "compress :: pub fn brotli_compress_level(data: &Vec[UInt8], quality: Int) -> Result[Vec[UInt8], Str]",
+        "compress :: pub fn brotli_decompress(data: &Vec[UInt8]) -> Result[Vec[UInt8], Str]",
+        "compress :: pub fn lz4_compress(data: &Vec[UInt8]) -> Result[Vec[UInt8], Str]",
+        "compress :: pub fn lz4_decompress(data: &Vec[UInt8]) -> Result[Vec[UInt8], Str]",
+        "compress :: pub fn snappy_compress(data: &Vec[UInt8]) -> Result[Vec[UInt8], Str]",
+        "compress :: pub fn snappy_decompress(data: &Vec[UInt8]) -> Result[Vec[UInt8], Str]",
         "compress :: pub fn compression_ratio(original: Int, compressed: Int) -> Float64",
         "compress :: pub fn is_compressed(data: &Vec[UInt8]) -> Bool",
         "compress :: pub fn detect_format(data: &Vec[UInt8]) -> Str",
@@ -288,7 +288,7 @@ const FROZEN: &[&str] = &[
         "encoding :: pub fn utf8_char_len(first_byte: UInt8) -> Int",
         "encoding :: pub fn binary_to_text(data: &Vec[UInt8], format: Int) -> Str",
         "encoding :: pub fn text_to_binary(text: Str, format: Int) -> Result[Vec[UInt8], Str]",
-        "env :: pub fn var(name: Str) -> Result<Str, Str>",
+        "env :: pub fn get_var(name: Str) -> Result<Str, Str>",
         "env :: pub fn var_opt(name: Str) -> Option<Str>",
         "env :: pub fn set_var(name: Str, value: Str)",
         "env :: pub fn remove_var(name: Str)",
@@ -308,7 +308,7 @@ const FROZEN: &[&str] = &[
         "env :: pub fn path_separator() -> Str",
         "error :: pub fn Error.chain(self) -> ErrorChain",
         "error :: pub fn ErrorChain.display(self) -> Str",
-        "error :: pub fn wrap_error[T, E: Error](result: Result[T, E], context: Str) -> Result[T, Str]",
+        "error :: pub fn wrap_error[T, E](result: Result[T, E], context: Str) -> Result[T, Str]",
         "error :: pub fn context[T, E](result: Result[T, E], msg: Str) -> Result[T, Str]",
         "error :: pub fn capture_backtrace() -> Backtrace",
         "error :: pub fn Backtrace.display(self) -> Str",
@@ -364,7 +364,7 @@ const FROZEN: &[&str] = &[
         "hash :: pub fn DefaultHasher.finish(self) -> Int",
         "hash :: pub fn Int.hash(self) -> UInt64",
         "hash :: pub fn Bool.hash(self) -> UInt64",
-        "hash :: pub fn hash_value[T: Hash](value: &T) -> Int",
+        "hash :: pub fn hash_value[T: Hash](value: T) -> Int",
         "hash :: pub fn hash_combine(seed: Int, hash: Int) -> Int",
         "hash :: pub fn hash[T: Hash](value: T) -> UInt64",
         "hash :: pub fn sip_hash(data: &Vec[UInt8]) -> UInt64",
@@ -412,25 +412,25 @@ const FROZEN: &[&str] = &[
         "iter :: pub fn Range.sum(self) -> Int",
         "iter :: pub fn Range.product(self) -> Int",
         "iter :: pub fn RangeInclusive.next(self) -> Option[Int]",
-        "iter :: pub fn Iterator[T].map[U](self, f: fn(T) -> U) -> MapIter[T, U]",
-        "iter :: pub fn Iterator[T].filter(self, predicate: fn(&T) -> Bool) -> FilterIter[T]",
-        "iter :: pub fn Iterator[T].enumerate(self) -> EnumerateIter[T]",
-        "iter :: pub fn Iterator[T].take(self, n: Int) -> TakeIter[T]",
-        "iter :: pub fn Iterator[T].skip(self, n: Int) -> SkipIter[T]",
-        "iter :: pub fn Iterator[T].chain[U](self, other: Iterator[U]) -> ChainIter[T, U]",
-        "iter :: pub fn Iterator[T].zip[U](self, other: Iterator[U]) -> ZipIter[T, U]",
-        "iter :: pub fn Iterator[T].collect(self) -> Vec[T]",
-        "iter :: pub fn Iterator[T].fold[B](self, init: B, f: fn(B, T) -> B) -> B",
-        "iter :: pub fn Iterator[T].count(self) -> Int",
-        "iter :: pub fn Iterator[T].sum(self) -> T",
-        "iter :: pub fn Iterator[T].product(self) -> T",
-        "iter :: pub fn Iterator[T].max(self) -> Option[T]",
-        "iter :: pub fn Iterator[T].min(self) -> Option[T]",
-        "iter :: pub fn Iterator[T].find(self, predicate: fn(&T) -> Bool) -> Option[T]",
-        "iter :: pub fn Iterator[T].all(self, predicate: fn(&T) -> Bool) -> Bool",
-        "iter :: pub fn Iterator[T].any(self, predicate: fn(&T) -> Bool) -> Bool",
-        "iter :: pub fn Iterator[T].nth(self, n: Int) -> Option[T]",
-        "iter :: pub fn Iterator[T].last(self) -> Option[T]",
+        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
+        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
+        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
+        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
+        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
+        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
+        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
+        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
+        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
+        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
+        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
+        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
+        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
+        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
+        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
+        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
+        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
+        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
+        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
         "iter :: pub fn MapIter[T, U].next(self) -> Option[U]",
         "iter :: pub fn FilterIter[T].next(self) -> Option[T]",
         "iter :: pub fn EnumerateIter[T].next(self) -> Option[(Int, T)]",
@@ -639,12 +639,12 @@ const FROZEN: &[&str] = &[
         "path :: pub fn Path.is_dir(self) -> Bool",
         "path :: pub fn Path.metadata(self) -> Result<Metadata, Str>",
         "path :: pub fn Path.canonicalize(self) -> Result<PathBuf, Str>",
-        "path :: pub fn Path.starts_with(self, base: &Path) -> Bool",
-        "path :: pub fn Path.ends_with(self, child: &Path) -> Bool",
-        "path :: pub fn PathBuf.push(self, component: Str) -> PathBuf",
-        "path :: pub fn PathBuf.pop(self) -> (PathBuf, Bool)",
+        "path :: pub fn Path.starts_with(self, base: Path) -> Bool",
+        "path :: pub fn Path.ends_with(self, child: Path) -> Bool",
+        "path :: pub fn PathBuf.push(&mut self, component: Str)",
+        "path :: pub fn PathBuf.pop(&mut self) -> Bool",
         "path :: pub fn PathBuf.as_path(self) -> Path",
-        "path :: pub fn PathBuf.clear(self)",
+        "path :: pub fn PathBuf.clear(&mut self)",
         "path :: pub fn path_separator() -> Str",
         "ptr :: pub fn null[T]() -> *T",
         "ptr :: pub fn null_mut[T]() -> *mut T",
@@ -1069,7 +1069,56 @@ fn resolve_module_path(root: &Path, module: &str) -> Option<std::path::PathBuf> 
     if flat.exists() {
         return Some(flat);
     }
+    // R49-1 (stdlib relay p_module_path_alias): moved modules live under a
+    // path that differs from their DECLARED name (crypto/legacy/md5.xi
+    // declares `xiom.crypto.md5`; the frozen short name is "md5"). The
+    // manifest table lags those moves, so fall back to a one-time header
+    // index of the whole stdlib tree: declared dotted name -> file.
+    let index = stdlib_header_index(&base);
+    if let Some(p) = index.get(&format!("xiom.{module}")) {
+        return Some(p.clone());
+    }
+    if let Some(p) = index.get(module) {
+        return Some(p.clone());
+    }
     None
+}
+
+/// R49-1: one-time recursive `module <dotted>` header index of the stdlib
+/// tree (declared full name and last segment both key the path).
+fn stdlib_header_index(base: &Path) -> &'static std::collections::HashMap<String, std::path::PathBuf> {
+    static IDX: std::sync::OnceLock<std::collections::HashMap<String, std::path::PathBuf>> =
+        std::sync::OnceLock::new();
+    IDX.get_or_init(|| {
+        let mut map = std::collections::HashMap::new();
+        fn walk(dir: &Path, map: &mut std::collections::HashMap<String, std::path::PathBuf>) {
+            let Ok(entries) = fs::read_dir(dir) else { return };
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, map);
+                } else if p.extension().map_or(false, |x| x == "xi") {
+                    let Ok(text) = fs::read_to_string(&p) else { continue };
+                    for line in text.lines() {
+                        let t = line.trim();
+                        if t.is_empty() || t.starts_with("//") { continue; }
+                        if let Some(rest) = t.strip_prefix("module ") {
+                            let decl = rest.trim_end_matches(';').trim();
+                            if !decl.is_empty() {
+                                map.entry(decl.to_string()).or_insert_with(|| p.clone());
+                                if let Some(last) = decl.rsplit('.').next() {
+                                    map.entry(last.to_string()).or_insert_with(|| p.clone());
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        walk(base, &mut map);
+        map
+    })
 }
 
 #[test]

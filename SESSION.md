@@ -125,12 +125,14 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   `@pre` call-capture bug (all-ident collection + pointer-slot rebind for
   ref params + Vec-buffer deep snapshot). Locks `e2e_m93..m98` + CI lock
   line; fixtures `tests/regression/m9[3-8]_*`.
-- **Verified on the R49 batch**: full e2e **2345/2345** (locks m93-m98
-  included). The earlier `56b6e0e3` record (2340/2340, feature-reg 510/510,
-  checker 195/195, robustness 63/63, fuzz 24/24, perf/determinism 2/2,
-  fmt 86/86, lsp 45/45, stdlib-exec 85/85 (+2 ignored), xiom lib 32/32,
-  pkg/dbg/mcp 63/34/39, `cargo deny` + `cargo vet` clean, ASCII guard,
-  bench IR 5,808,645 bytes + `clang -c` exit 0) still holds for the
+- **Verified on the R49 batch**: full e2e **2346/2346** (locks m93-m98
+  included), checker 195/195, feature-reg 510/510, and the
+  `stdlib_api_freeze_tests` gate GREEN after the R49-1 resolver fix +
+  snapshot regen. The earlier `56b6e0e3` record (2340/2340, feature-reg
+  510/510, checker 195/195, robustness 63/63, fuzz 24/24, perf/determinism
+  2/2, fmt 86/86, lsp 45/45, stdlib-exec 85/85 (+2 ignored), xiom lib
+  32/32, pkg/dbg/mcp 63/34/39, `cargo deny` + `cargo vet` clean, ASCII
+  guard, bench IR 5,808,645 bytes + `clang -c` exit 0) still holds for the
   unchanged lanes; workspace version 0.61.0.
 - **Release lane**: `release.yml` ships all nine CLI tools + pinned z3
   (tools/z3-pins.json, glibc floor 2.35) + `xiom-wasm-<ver>.wasm`; guard
@@ -150,8 +152,10 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   3. C18/C19 residue: remaining per-lesson triage (L3-02,
      L5-09/20/24/26/29/31/35/36/43, L3-50 exit 200, L8-14 `0xC000001D`,
      L5-21 Float64 bits inside `Vec[T]`).
-  4. R49-1 stdlib relay: module-path/declared-name resolver mismatch
-     (19 modules; same set as the api-freeze resolver misses).
+  4. R49-1 module-path alias: FIXED (declared-identity parsing + import
+     rewrite + freeze-resolver header index). `stdlib_api_freeze_tests` is
+     GREEN (214/214 frozen entries; 52 stale/renamed snapshot lines
+     regenerated in the same commit). Lock `e2e_m99_module_path_alias`.
   5. R49-3 (Result payload contract) / R49-4 (clang ISel crash): filed.
   6. Perf: `.to_str()` auto-injected `xiom.fmt` closure +2.3-2.5 s ->
      reachable-function-only peek (Stage 6 gate).

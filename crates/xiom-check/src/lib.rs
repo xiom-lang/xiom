@@ -3655,13 +3655,42 @@ impl Checker {
 
         // v0.56: Strip 'stdlib' prefix -- it's a filesystem directory, not a module.
         // `use stdlib.xiom.io` should resolve as `use xiom.io` via source_dirs.
-        let effective_path: Vec<Ident> = if ud.path.len() > 1 && ud.path[0].name == "stdlib" {
+        let mut effective_path: Vec<Ident> = if ud.path.len() > 1 && ud.path[0].name == "stdlib" {
             ud.path[1..].to_vec()
         } else {
             ud.path.clone()
         };
         if effective_path.is_empty() {
             return;
+        }
+        // R49-1 (stdlib relay p_module_path_alias): resolve a PATH-aliased
+        // module to its DECLARED identity up-front. The walks below key
+        // parent chains by the path segments, so importing
+        // `xiom.crypto.legacy.md5` (declares `xiom.crypto.md5`) inserted a
+        // bogus `legacy` branch and left xiom.crypto's exports incomplete
+        // (rng_crypto's `crypto.secure_random_bytes` became unresolvable).
+        // Only non-declared paths are peeked: a declared name needs no
+        // rewrite and must not pay an extra parse.
+        if effective_path.len() >= 2 {
+            let first = effective_path[0].name.clone();
+            // R21/R49-1: a user `use X as Y;` alias (or program-local module
+            // path) must shadow the catalog -- never rewrite those to a
+            // catalog identity (m74/m34_j08).
+            let first_is_user_alias = self.local_module_paths.contains_key(&first)
+                || self.use_alias_paths.contains_key(&first);
+            let requested: Vec<String> = effective_path.iter().map(|p| p.name.clone()).collect();
+            let req_dotted = requested.join(".");
+            if !first_is_user_alias && !self.catalog.is_declared_module(&req_dotted) {
+                if let Some(cached) = self.catalog.peek_owned(&requested) {
+                    let declared = cached.dotted_name.clone();
+                    if declared != req_dotted {
+                        effective_path = declared
+                            .split('.')
+                            .map(|s| Ident { name: s.to_string(), span: xiom_ast::Span::new(0, 0) })
+                            .collect();
+                    }
+                }
+            }
         }
 
         let module_name = &effective_path[0].name;
