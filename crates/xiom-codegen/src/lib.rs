@@ -7341,6 +7341,10 @@ impl IrEmitter {
 
     fn infer_struct_type_name_inner(&self, expr: &Expr) -> Option<String> {
         match expr {
+            // R51 (playground L4-33/39): `self@pre.items.len()` -- a FIELD
+            // base wrapped in @pre must resolve its struct type; the snapshot
+            // has the same struct type as the live local.
+            Expr::AtPre(inner, _) => self.infer_struct_type_name_inner(inner),
             Expr::Ident(ident) => {
                 // `this` is registered as the `self` local inside methods (5c.19).
                 let lookup_name = if ident.name == "this" { "self" } else { ident.name.as_str() };

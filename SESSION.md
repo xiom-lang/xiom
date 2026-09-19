@@ -141,6 +141,14 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   wired. Pending: stdlib lane green -> bump `STDLIB_VERSION` in the release
   PR -> tag `v0.61.0`; optional rewrite of the protected tags
   `v0.60.0`/`v0.60.1` (old objects remain on the remote).
+- **R51 L4 cluster (2026-09-19, playground audit §19)**: closed the four
+  remaining `L4-*` clang failures -- `@pre` receivers in `.len()`
+  (`items@pre.len()`, `self@pre.items.len()`) now resolve through the
+  Vec/field type helpers, and `for i in range(0,n)` resolves the range
+  builtin structurally so a user `fn range(...)` cannot hijack the loop.
+  The playground's C17 residue is now L6-40 (needs the fixpoint inference
+  pre-pass) and L5-40 (container-ABI design, see the L5-40 entry). Locks
+  `e2e_m101..m103`.
 - **R51 playground requests (2026-09-19, audit §19)**: `--opt-level N` is now
   honored on the script-run path (`xiom run [--opt-level N] file.xi`) and is
   part of the script-cache key (`xiom-cache-v3|...|opt=N`), so an -O0 run is

@@ -2094,10 +2094,21 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 if fn_name == "len" && args.is_empty() {
                     if let Some(receiver) = receiver_expr {
                         let recv_ty = self.infer_llvm_type(receiver);
-                        let is_container = self.is_container_vec_field(receiver);
+                        // R51 (playground L4-29/33/39): `items@pre.len()` -- the
+                        // receiver is AtPre(Ident). compile_expr below already
+                        // yields the snapshot value (a %struct.Vec); only the
+                        // Vec DETECTION must look through @pre (it used to fall
+                        // to Str.len -> xiom_str_len(<%struct.Vec>) -> clang
+                        // "defined with type %struct.Vec but expected ptr").
+                        let recv_probe: &Expr = match receiver.as_ref() {
+                            Expr::AtPre(inner, _) => inner.as_ref(),
+                            other => other,
+                        };
+                        let probe_ty = self.infer_llvm_type(recv_probe);
+                        let is_container = self.is_container_vec_field(recv_probe);
                         // M33: Detect Vec handles from Result.unwrap().
-                        let is_unwrap_vec = !is_container && recv_ty == "i64"
-                            && self.receiver_is_unwrap_of_vec(receiver);
+                        let is_unwrap_vec = !is_container && probe_ty == "i64"
+                            && self.receiver_is_unwrap_of_vec(recv_probe);
                         // R49-3 (stdlib relay p_result_payload_contract):
                         // `result.value.len()` on an Option/Result PAYLOAD --
                         // field_payload_xiom records "Vec[UInt8]" (or Slice),
@@ -2105,7 +2116,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // check below fell to Str.len and passed the loaded
                         // %struct.Vec as i8* (clang: "defined with type
                         // %struct.Vec but expected ptr").
-                        let is_payload_container = if let Expr::Field(obj, f, _) = receiver.as_ref() {
+                        let is_payload_container = if let Expr::Field(obj, f, _) = recv_probe {
                             self.field_payload_xiom(obj, &f.name).map_or(false, |p| {
                                 p.starts_with("Vec[") || p.starts_with("Slice[")
                                     || p.starts_with("Map[") || p.starts_with("Set[")
@@ -2119,9 +2130,11 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         let is_vec_field = is_container
                             || is_unwrap_vec
                             || is_payload_container
+                            || Self::is_llvm_struct_named(&probe_ty, "Vec")
+                            || Self::is_llvm_struct_named(&probe_ty, "Slice")
                             || Self::is_llvm_struct_named(&recv_ty, "Vec")
                             || Self::is_llvm_struct_named(&recv_ty, "Slice")
-                            || (recv_ty == "i64" && self.is_container_vec_field(receiver));
+                            || (probe_ty == "i64" && self.is_container_vec_field(recv_probe));
                         // Slice[T] = { data: *T, len: Int } -- a 2-field struct,
                         // NOT a %struct.Vec header (no cap/elem_size fields).
                         // The Vec path below would emit extractvalue 2/3 on a

@@ -2503,8 +2503,41 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // iterator types. Falls back to iterator protocol (.next()
                 // call) for non-Range types.
 
+                // R51 (playground L4-26): `for i in range(a, b)` must use the
+                // RANGE iterator structure, not a same-named user function --
+                // a user `fn range(scores: &Vec[Int]) -> Int` hijacked the
+                // loop lowering and the i64 result was GEP'd as a 2-field
+                // struct (clang "invalid getelementptr indices"). Resolve the
+                // builtin STRUCTURALLY (exactly two args) before name lookup.
+                let builtin_range_args: Option<(&Expr, &Expr)> = match iter {
+                    Expr::Call(f, args, _)
+                        if matches!(f.as_ref(), Expr::Ident(id) if id.name == "range")
+                            && args.len() == 2 =>
+                    {
+                        Some((&args[0], &args[1]))
+                    }
+                    _ => None,
+                };
                 // 1. Compile the iterator expression
-                let (iter_val, iter_ty) = self.compile_expr(iter)?;
+                let (iter_val, iter_ty) = if let Some((lo_e, hi_e)) = builtin_range_args {
+                    let (lo_raw, lo_ty) = self.compile_expr(lo_e)?;
+                    let lo = self.val_to_i64(&lo_raw, &lo_ty);
+                    let (hi_raw, hi_ty) = self.compile_expr(hi_e)?;
+                    let hi = self.val_to_i64(&hi_raw, &hi_ty);
+                    let ra = self.fresh_tmp();
+                    self.emitln(&format!("  {ra} = alloca [2 x i64]"));
+                    let g0 = self.fresh_tmp();
+                    self.emitln(&format!("  {g0} = getelementptr [2 x i64], [2 x i64]* {ra}, i32 0, i32 0"));
+                    self.emitln(&format!("  store i64 {lo}, i64* {g0}"));
+                    let g1 = self.fresh_tmp();
+                    self.emitln(&format!("  {g1} = getelementptr [2 x i64], [2 x i64]* {ra}, i32 0, i32 1"));
+                    self.emitln(&format!("  store i64 {hi}, i64* {g1}"));
+                    let lv = self.fresh_tmp();
+                    self.emitln(&format!("  {lv} = load [2 x i64], [2 x i64]* {ra}"));
+                    (lv, "[2 x i64]".to_string())
+                } else {
+                    self.compile_expr(iter)?
+                };
 
                 // 2. Alloca the iterator struct
                 let iter_alloca = self.fresh_tmp();

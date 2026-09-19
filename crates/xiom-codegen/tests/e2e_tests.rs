@@ -4982,6 +4982,40 @@ fn e2e_safety_probe() {
     );
 }
 
+// R51 (playground L4-33/39): `self@pre.items.len()` in an ensures -- the
+// receiver is Field(AtPre(self), items); type resolution and the Vec.len
+// dispatch must look through @pre (was xiom_str_len(<%struct.Vec>) -> clang
+// "defined with type %struct.Vec but expected ptr").
+#[test] fn e2e_m101_pre_len_receivers() {
+    assert_eq!(
+        compile_and_run("tests/regression/m101_pre_len_receivers/main.xi"),
+        Some(20),
+        "R51 @pre field-base .len() probe must compile and run"
+    );
+}
+
+// R51 (playground L4-26): a user `fn range(scores: &Vec[Int]) -> Int` must not
+// hijack `for i in range(0, n)` -- the loop lowering resolves the builtin
+// structurally (2 args), so the i64 result is not GEP'd as a 2-field struct
+// (clang "invalid getelementptr indices").
+#[test] fn e2e_m102_range_shadowing() {
+    assert_eq!(
+        compile_and_run("tests/regression/m102_range_shadowing/main.xi"),
+        Some(25),
+        "R51 range-shadowing for-in probe must compile and run"
+    );
+}
+
+// R51 (playground L4-29): `items@pre.len()` on a Vec PARAM receiver -- the
+// Vec.len dispatch must look through the top-level @pre (same class as m101).
+#[test] fn e2e_m103_pre_len_param() {
+    assert_eq!(
+        compile_and_run("tests/regression/m103_pre_len_param/main.xi"),
+        Some(30),
+        "R51 @pre param .len() probe must compile and run"
+    );
+}
+
 // R49-3 (stdlib relay p_result_payload_contract): one module with scalar +
 // Vec payload Result contracts. `result.value.len()` after `is Ok/Err` must
 // dispatch on the rebound payload container (was xiom_str_len on a

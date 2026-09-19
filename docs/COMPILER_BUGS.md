@@ -7421,6 +7421,16 @@ verification, with repro commands using the playground lesson sources
   function body (or checker-side inference feeding codegen). Trace evidence:
   `create` concrete=[] (emits the `0` fallback), `add_plugin`
   concrete=["EchoPlugin"], `run_all` container miss -> Int -> C001.
+- **R51 L4 cluster (playground audit §19)**: FIXED --
+  L4-29/33/39 (`items@pre.len()`, `self@pre.items.len()`): the Vec.len
+  dispatch and `infer_struct_type_name` now look through `AtPre` receivers
+  (was `xiom_str_len(<%struct.Vec>)` -> clang "defined with type %struct.Vec
+  but expected ptr"); L4-26 (`for i in range(0,n)` with a user
+  `fn range(scores: &Vec[Int]) -> Int`): the for-in lowering resolves the
+  `range` builtin STRUCTURALLY (exactly two args) instead of by name, so the
+  user function cannot hijack the loop into an invalid GEP. Locks
+  `e2e_m101_pre_len_receivers` (exit 20), `e2e_m103_pre_len_param` (exit 30),
+  `e2e_m102_range_shadowing` (exit 25).
 - **L5-40 (C17 clang residue)**: builds, but `group_by_age` prints 0.
   Root cause is now two-layered:
   1. `Map[Int, Vec[Str]].new()` monomorphised V=Int (the explicit
