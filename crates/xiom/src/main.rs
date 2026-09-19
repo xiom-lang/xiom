@@ -272,9 +272,34 @@ fn real_main() {
         }
 
         let watch_mode = remaining.contains(&"--watch");
-        let effective: Vec<&str> = remaining.iter()
-            .filter(|&&a| a != "--watch" && a != "--cache" && a != "--no-cache" && a != "--jit")
-            .copied().collect();
+        // R51 (playground audit §19.1): honor --opt-level on the script-run
+        // path. It used to leak into `effective` (so `xiom run --opt-level 0
+        // f.xi` tried to read "--opt-level" as the file) AND fall through to
+        // the -O2 compile default -- measured 7.8s vs 2.3s at -O0 on the
+        // lesson corpus. The effective level is also part of the script-cache
+        // key now.
+        let mut script_opt_level: Option<u8> = None;
+        let mut run_args: Vec<&str> = Vec::new();
+        let mut ri = 0;
+        while ri < remaining.len() {
+            let a = remaining[ri];
+            if a == "--opt-level" {
+                if let Some(v) = remaining.get(ri + 1) {
+                    script_opt_level = v.parse().ok();
+                    ri += 2;
+                    continue;
+                }
+            } else if let Some(v) = a.strip_prefix("--opt-level=") {
+                script_opt_level = v.parse().ok();
+                ri += 1;
+                continue;
+            }
+            run_args.push(a);
+            ri += 1;
+        }
+        let effective: Vec<&str> = run_args.into_iter()
+            .filter(|a| *a != "--watch" && *a != "--cache" && *a != "--no-cache" && *a != "--jit")
+            .collect();
         if effective.is_empty() { process::exit(1); }
 
         let source = if effective[0] == "-e" {
@@ -312,8 +337,9 @@ fn real_main() {
         // M10: Check script cache for instant re-run
         let use_jit = effective.contains(&"--jit");
         let no_cache = effective.contains(&"--no-cache");
+        let script_cache_level = xiom::jit::effective_opt_level(script_opt_level, false);
         if !no_cache {
-            if let Some(cached) = xiom::jit::script_cache_get(&source) {
+            if let Some(cached) = xiom::jit::script_cache_get(&source, script_cache_level) {
                 let output = std::process::Command::new(&cached).output();
                 if let Ok(out) = output {
                     if out.status.success() && !use_jit {
@@ -380,6 +406,8 @@ fn real_main() {
             output_file: Some(tmp_out.to_string_lossy().to_string()),
             do_run: true,
             script_mode: true,
+            // R51: thread the script path's --opt-level into the compiler.
+            opt_level: script_opt_level,
             link_paths,
             link_libs,
             c_sources,
@@ -391,7 +419,7 @@ fn real_main() {
 
         // M10: Cache the compiled script for instant re-run
         if !no_cache {
-            xiom::jit::script_cache_put(&source, &tmp_out);
+            xiom::jit::script_cache_put(&source, &tmp_out, script_cache_level);
         }
         return;
     }

@@ -101,15 +101,30 @@ pub fn compiler_cache_identity() -> String {
     )
 }
 
-/// Cache key: source hash salted with the compiler build identity.
-fn cache_key(source: &str) -> String {
-    hash_source(&format!("xiom-cache-v2|{}|{}", compiler_cache_identity(), source))
+/// R51 (playground audit §19.1): the EFFECTIVE optimization level for the
+/// script cache -- an explicit `--opt-level`, else the compiler default
+/// (-O2 debug, -O3 release). Part of the cache key so a binary built at one
+/// level is never served for another.
+pub fn effective_opt_level(config_level: Option<u8>, release: bool) -> u8 {
+    config_level.unwrap_or(if release { 3 } else { 2 })
 }
 
-/// Look up a cached script binary.
-pub fn script_cache_get(source: &str) -> Option<PathBuf> {
+/// Cache key: source hash salted with the compiler build identity AND the
+/// effective optimization level (R51: the level changes the emitted code,
+/// so it must separate cache entries).
+fn cache_key(source: &str, opt_level: u8) -> String {
+    hash_source(&format!(
+        "xiom-cache-v3|{}|opt={}|{}",
+        compiler_cache_identity(),
+        opt_level,
+        source
+    ))
+}
+
+/// Look up a cached script binary (compile-time `opt_level` 0..=3).
+pub fn script_cache_get(source: &str, opt_level: u8) -> Option<PathBuf> {
     let cache_dir = jit_cache_dir();
-    let hash = cache_key(source);
+    let hash = cache_key(source, opt_level);
     let cache_file = cache_dir.join(&hash);
     if cfg!(windows) {
         let exe = cache_file.with_extension("exe");
@@ -120,27 +135,35 @@ pub fn script_cache_get(source: &str) -> Option<PathBuf> {
 }
 
 /// Store a compiled binary in the script cache keyed by SHA-256 of the source
-/// AND the compiler build identity.
-pub fn script_cache_put(source: &str, binary: &PathBuf) {
+/// AND the compiler build identity AND the effective optimization level.
+pub fn script_cache_put(source: &str, binary: &PathBuf, opt_level: u8) {
     let cache_dir = jit_cache_dir();
     std::fs::create_dir_all(&cache_dir).ok();
-    let hash = cache_key(source);
+    let hash = cache_key(source, opt_level);
     let cache_file = cache_dir.join(&hash);
     let target = if cfg!(windows) { cache_file.with_extension("exe") } else { cache_file };
     std::fs::copy(binary, &target).ok();
 }
 
 /// Check if a cached binary exists for the given source (without returning path).
-pub fn script_cache_has(source: &str) -> bool {
-    script_cache_get(source).is_some()
+pub fn script_cache_has(source: &str, opt_level: u8) -> bool {
+    script_cache_get(source, opt_level).is_some()
 }
 
 pub fn jit_cache_dir() -> PathBuf {
-    if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
-        PathBuf::from(home).join(".xiom").join("jit")
-    } else {
-        std::env::temp_dir().join("xiom_jit")
+    // R51 (playground audit §19.3): treat an EMPTY HOME/USERPROFILE as
+    // unavailable -- an empty value produced a cwd-relative ".xiom/jit"
+    // cache (often unwritable, and the playground's sandbox has no HOME)
+    // instead of the temp fallback that keeps the cache working.
+    for key in ["HOME", "USERPROFILE"] {
+        if let Ok(dir) = std::env::var(key) {
+            let dir = dir.trim();
+            if !dir.is_empty() {
+                return PathBuf::from(dir).join(".xiom").join("jit");
+            }
+        }
     }
+    std::env::temp_dir().join("xiom_jit")
 }
 
 const MAX_CACHE_SIZE: u64 = 100 * 1024 * 1024;
@@ -232,15 +255,24 @@ mod tests {
     /// R48: the script cache must separate compiler builds. Old entries keyed
     /// by source hash alone made a new build serve the previous build's
     /// binaries (playground stale-cache hazard).
+    /// R51: the effective optimization level is part of the key too.
     #[test]
     fn script_cache_key_includes_compiler_build_identity() {
-        assert_eq!(cache_key("src"), cache_key("src"));
-        assert_ne!(cache_key("src"), cache_key("other"));
+        assert_eq!(cache_key("src", 2), cache_key("src", 2));
+        assert_ne!(cache_key("src", 2), cache_key("other", 2));
+        assert_ne!(
+            cache_key("src", 0),
+            cache_key("src", 2),
+            "different opt levels must not share a cache entry"
+        );
         assert!(
             compiler_cache_identity().contains(env!("CARGO_PKG_VERSION")),
             "identity must carry the compiler version: {}",
             compiler_cache_identity()
         );
-        assert!(cache_key("src").starts_with(|c: char| c.is_ascii_hexdigit()));
+        assert!(cache_key("src", 2).starts_with(|c: char| c.is_ascii_hexdigit()));
+        assert_eq!(effective_opt_level(None, false), 2);
+        assert_eq!(effective_opt_level(None, true), 3);
+        assert_eq!(effective_opt_level(Some(0), true), 0);
     }
 }

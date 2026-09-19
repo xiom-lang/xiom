@@ -141,6 +141,16 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   wired. Pending: stdlib lane green -> bump `STDLIB_VERSION` in the release
   PR -> tag `v0.61.0`; optional rewrite of the protected tags
   `v0.60.0`/`v0.60.1` (old objects remain on the remote).
+- **R51 playground requests (2026-09-19, audit §19)**: `--opt-level N` is now
+  honored on the script-run path (`xiom run [--opt-level N] file.xi`) and is
+  part of the script-cache key (`xiom-cache-v3|...|opt=N`), so an -O0 run is
+  never served an -O2 binary; the flag is also stripped from the positional
+  args (it used to be read as the file name). An empty/unset HOME or
+  USERPROFILE now falls back to `%TEMP%/xiom_jit` (the cache kept working;
+  earlier an empty HOME produced a cwd-relative path). Verified on the lesson
+  corpus shape: opt=0 and opt=2 builds populate separate entries, cached
+  reruns 0.03-0.08s, HOME-less cached rerun works. Tests: xiom lib 32/32,
+  cli_args 1/1; jit cache-key test covers level separation.
 - **R50 registry follow-ups (2026-09-19, relayed by the registry session)**:
   `xiom install` now delegates to the verified `xiom pkg install` client and
   `xiom update` is retired with guidance -- the legacy git-clone-from-

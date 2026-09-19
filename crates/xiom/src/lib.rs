@@ -689,7 +689,8 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             } else {
                 source
             };
-            if let Some(cached) = crate::jit::script_cache_get(&lookup_source) {
+            let cache_level = crate::jit::effective_opt_level(config.opt_level, config.release);
+            if let Some(cached) = crate::jit::script_cache_get(&lookup_source, cache_level) {
                 let run_status = Command::new(&cached).status();
                 match run_status {
                     Ok(s) => {
@@ -1385,7 +1386,8 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                             } else {
                                 source
                             };
-                            crate::jit::script_cache_put(&cache_source, &PathBuf::from(&abs_output));
+                            let cache_level = crate::jit::effective_opt_level(config.opt_level, config.release);
+                            crate::jit::script_cache_put(&cache_source, &PathBuf::from(&abs_output), cache_level);
                         }
                     }
 
