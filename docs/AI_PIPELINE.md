@@ -109,11 +109,11 @@ xiom --help-ai                # Full setup guide
 +------------------v-------------------------------+
 |  XIOM COMPILER (xiom --ai)                      |
 |  - Compiles the code                             |
-|  - On failure: slices AST context                |
-|  - Calls LLM with hardcoded 400-token prompt     |
-|  - Writes single-sentence hint to .xiom_ai.json  |
+|  - On failure: slices the failing function       |
+|  - Calls the configured LLM (FIX:/WHY:/Confidence)|
+|  - Writes hints to .xiom_ai.json (never source)  |
+|  - Writes only .xiom_ai.json + .xiom_ai_cache/   |
 |  - NEVER modifies source files                   |
-|  - NEVER has filesystem write outside .json      |
 |  - NEVER acts as an agent                        |
 `--------------------------------------------------+
 ```
@@ -132,10 +132,32 @@ xiom --help-ai                # Full setup guide
 
 | Variable | Required | Default | Purpose |
 |----------|----------|---------|---------|
-| `XIOM_AI_KEY` | Yes | -- | API key for cloud LLM; not needed for local |
+| `XIOM_AI_KEY` | Cloud only | -- | API key for cloud LLM; not needed for local. Refused over plaintext HTTP |
 | `XIOM_AI_ENDPOINT` | No | `http://localhost:11434` | Ollama, OpenAI, or custom endpoint |
 | `XIOM_AI_MODEL` | No | `codellama` | Model name override |
-| `XIOM_AI_MAX_TOKENS` | No | `500` | Hard cap on prompt tokens |
+| `XIOM_AI_PROVIDER` | No | auto-detected | `ollama`, `deepseek`, `openai`, `openrouter`, `groq` |
+| `XIOM_AI_TIMEOUT` | No | `10` | Per-request timeout (seconds); `--ai-timeout` wins |
+| `XIOM_AI_MAX_TOKENS` | No | `150` | Response token cap sent to the provider |
+| `XIOM_AI_ALLOW_HTTP` | No | -- | `1` allows a key over `http://` to a trusted non-loopback proxy |
+
+### Config File
+
+`.xiom_ai_config.json` (JSON), searched in order: the current directory,
+`$XIOM_HOME`, then the home directory. The installer writes it to
+`$XIOM_HOME/.xiom_ai_config.json`:
+
+```json
+{
+  "provider": "openai",
+  "endpoint": "https://api.openai.com/v1",
+  "model": "gpt-4o-mini",
+  "api_key": "sk-..."
+}
+```
+
+The file may contain a plaintext key (the installer warns and chmods it
+600); prefer exporting `XIOM_AI_KEY` instead. `.xiom_ai_config.json` is
+gitignored so keys are never committed.
 
 ### CLI Flags
 
@@ -314,22 +336,25 @@ xiom --ai: 2 hints written to .xiom_ai.json (2 API calls, 0 cached, 847ms)
 |------|------------|
 | LLM produces invalid JSON | Strict schema validation; reject on parse error; fall back to deterministic diagnostics |
 | LLM produces executable code in hint | Hint is plain text in a JSON field; outer agent must manually interpret. Never auto-applied. |
-| LLM output > expected size | Truncate at 500 chars; partial hint is better than OOM |
+| LLM output > expected size | Capped by the provider `max_tokens` (default 150; `XIOM_AI_MAX_TOKENS` to change); the error log truncates a malformed response to 200 chars |
 
 ### 3.3 Data Exfiltration
 
 | Risk | Mitigation |
 |------|------------|
-| Source code sent to cloud LLM | `--ai-local` flag enforces local-only; compiler checks for local model before proceeding |
-| Proprietary algorithms in sliced code | Context slicing only includes the FAILING function, not the full codebase. Function names/types are visible but logic is truncated to ~200 tokens. |
+| Source code sent to cloud LLM | `--ai-local` forces the Ollama backend and drops any cloud key; a remote endpoint is refused outright |
+| API key leaked over plaintext HTTP | `validate_endpoint` refuses to send a non-empty key over `http://` to a non-loopback host unless `XIOM_AI_ALLOW_HTTP=1` |
+| Project-local config redirects the key | The non-silent summary prints the endpoint and which file/env supplied it; keys are only sent to HTTPS (or loopback) |
+| Prompt injection through source code | The system prompt marks code snippets as untrusted and instructs the model to ignore embedded instructions |
+| Proprietary algorithms in sliced code | Context slicing only includes the FAILING function, not the full codebase. Function names/types are visible but logic is truncated. |
 | API key in source code | The compiler never sends the XIOM_AI_KEY itself to the LLM. The key is only used for auth headers. |
 
 ### 3.4 Cache Integrity
 
 | Risk | Mitigation |
 |------|------------|
-| Attacker pre-computes cache entries | Cache is salted with a random session ID generated at compiler startup |
-| Stale cached hints after code changes | Cache key includes function content hash -- any code change invalidates the cache |
+| Attacker pre-computes cache entries | Cache lives in the project's `.xiom_ai_cache/` and is keyed by model + error + function-content hash; treat it as a local convenience, not an integrity boundary |
+| Stale cached hints after code changes | Cache key includes the function content hash -- any code change invalidates the entry |
 | Cache poisoning via predictable hashes | SHA256 is not preimage-attackable in practice for this use case |
 
 ### 3.5 Model Drift

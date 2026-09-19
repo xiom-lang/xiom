@@ -82,18 +82,25 @@ if not "%AI_ENDPOINT%"=="" (
     if "%AI_PROVIDER%"=="" set AI_PROVIDER=openai
 )
 
-:: Write AI config
+:: Write AI config (JSON -- the format the compiler actually reads:
+:: cwd -> %XIOM_HOME% -> home; the old KEY=VALUE .xiom_ai_config was dead)
 if not "%AI_ENDPOINT%"=="" (
+    set "AI_ENDPOINT=%AI_ENDPOINT:"=%"
+    set "AI_MODEL=%AI_MODEL:"=%"
+    set "AI_PROVIDER=%AI_PROVIDER:"=%"
     (
-        echo # XIOM AI Configuration
-        echo XIOM_AI_PROVIDER=%AI_PROVIDER%
-        echo XIOM_AI_ENDPOINT=%AI_ENDPOINT%
-        echo XIOM_AI_MODEL=%AI_MODEL%
-        if not "%AI_KEY%"=="" echo XIOM_AI_API_KEY=%AI_KEY%
-        echo XIOM_AI_TIMEOUT=30
-        echo XIOM_AI_CACHE_DIR=%XIOM_DIR%
-    ) > "%XIOM_DIR%\.xiom_ai_config"
-    echo     + AI configuration saved
+        echo {
+        echo   "provider": "%AI_PROVIDER%",
+        echo   "endpoint": "%AI_ENDPOINT%",
+        echo   "model": "%AI_MODEL%",
+        echo   "api_key": "%AI_KEY%"
+        echo }
+    ) > "%XIOM_DIR%\.xiom_ai_config.json"
+    echo     + AI configuration saved: %XIOM_DIR%\.xiom_ai_config.json
+    if not "%AI_KEY%"=="" (
+        echo     ! the API key is stored in PLAINTEXT in that file.
+        echo       Recommended: leave it empty here and set XIOM_AI_KEY instead.
+    )
 )
 
 :: Create xiom.bat wrapper

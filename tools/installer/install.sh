@@ -116,27 +116,36 @@ if [ -n "$AI_ENDPOINT" ]; then
   read -p "  AI Model [gpt-4o]: " AI_MODEL; AI_MODEL="${AI_MODEL:-gpt-4o}"
   read -p "  AI Provider [openai]: " AI_PROVIDER; AI_PROVIDER="${AI_PROVIDER:-openai}"
 
-  cat > "$XIOM_DIR/.xiom_ai_config" << AIEOF
-# XIOM AI Configuration
-XIOM_AI_PROVIDER=$AI_PROVIDER
-XIOM_AI_ENDPOINT=$AI_ENDPOINT
-XIOM_AI_MODEL=$AI_MODEL
-XIOM_AI_TIMEOUT=30
-XIOM_AI_CACHE_DIR=$XIOM_DIR
-
-# MCP Server -- start with: xiom-mcp
-# The MCP server provides AI-assisted diagnostics.
-# See $XIOM_MCP/ for integration guides.
-AIEOF
-  [ -n "$AI_KEY" ] && echo "XIOM_AI_API_KEY=$AI_KEY" >> "$XIOM_DIR/.xiom_ai_config"
-  echo "    + AI configuration saved"
+  # JSON config the compiler actually reads (search: cwd -> $XIOM_HOME ->
+  # home). The old writer produced KEY=VALUE `.xiom_ai_config`, which no
+  # code path loads. Values with quotes/backslashes cannot be represented in
+  # this simple writer, so refuse them instead of writing a broken file.
+  case "$AI_ENDPOINT$AI_KEY$AI_MODEL$AI_PROVIDER" in
+    *[\"\\]*) echo "  [!!] AI values must not contain quotes or backslashes -- skipping AI config"; AI_ENDPOINT="";;
+  esac
+  if [ -n "$AI_ENDPOINT" ]; then
+    {
+      echo "{"
+      printf '  "provider": "%s",\n' "$AI_PROVIDER"
+      printf '  "endpoint": "%s",\n' "$AI_ENDPOINT"
+      printf '  "model": "%s",\n' "$AI_MODEL"
+      if [ -n "$AI_KEY" ]; then printf '  "api_key": "%s"\n' "$AI_KEY"; else printf '  "api_key": ""\n'; fi
+      echo "}"
+    } > "$XIOM_DIR/.xiom_ai_config.json"
+    chmod 600 "$XIOM_DIR/.xiom_ai_config.json" 2>/dev/null || true
+    echo "    + AI configuration saved: $XIOM_DIR/.xiom_ai_config.json"
+    if [ -n "$AI_KEY" ]; then
+      echo "    ! the API key is stored in PLAINTEXT in that file (mode 600)."
+      echo "      Recommended: leave it empty here and export XIOM_AI_KEY instead."
+    fi
+  fi
 fi
 
 # -- Create xiom wrapper script --
 cat > "$XIOM_BIN/xiom" << 'WRAPPER'
 #!/bin/bash
 XIOM_BIN="__XIOM_BIN__"
-XIOM_HOME="__XIOM_HOME__"
+export XIOM_HOME="__XIOM_HOME__"
 case "${1:-}" in
   compile) shift; exec "$XIOM_BIN/xiom" "$@" ;;
   run)     shift; exec "$XIOM_BIN/xiom" --run "$@" ;;

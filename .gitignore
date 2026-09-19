@@ -90,6 +90,9 @@ release/
 # --- Tooling / AI state (generated) ---
 .xiom_ai.json
 .xiom_ai_cache/
+# AI config may contain a plaintext API key -- never commit it.
+.xiom_ai_config.json
+.xiom_ai_config
 xiom_verify_output.smt2
 
 # --- Alternate build targets ---

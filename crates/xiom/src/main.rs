@@ -448,8 +448,8 @@ fn real_main() {
     let ai_strict = args.flag("ai-strict");
     let _ai_batch = args.flag("ai-batch") || args.flag("batch");
     let ai_model: Option<String> = args.value("ai-model");
-    let ai_timeout: u32 = args.value("ai-timeout")
-        .and_then(|v| v.parse().ok()).unwrap_or(10);
+    let ai_timeout: Option<u32> = args.value("ai-timeout")
+        .and_then(|v| v.parse().ok());
     let test_mode = args.flag("test");
     let clean_mode = args.flag("clean");
     let install_mode = args.raw_has("install");
@@ -973,13 +973,19 @@ fn real_main() {
     // 5g AI Pipeline: run check-only compile first to get diagnostics, then call LLM
     if ai_mode || ai_local || ai_dry_run {
         let ai_config = xiom::ai::load_ai_config(ai_model.clone());
-        let ai_config = xiom::ai::AiConfig {
+        let mut ai_config = xiom::ai::AiConfig {
             enabled: true, local_only: ai_local, dry_run: ai_dry_run,
             silent: ai_silent, strict: ai_strict,
-            timeout_secs: ai_timeout,
+            timeout_secs: ai_timeout.unwrap_or(ai_config.timeout_secs),
             model: ai_model.unwrap_or(ai_config.model),
             ..ai_config
         };
+        // AI-05: enforce the --ai-local privacy contract and refuse plaintext
+        // key transmission before any request.
+        if let Err(e) = xiom::ai::finalize_config(&mut ai_config) {
+            eprintln!("[AI] {e}");
+            process::exit(1);
+        }
         eprintln!("[AI] Provider: {}, Model: {}",
             ai_config.provider, ai_config.model);
 
@@ -1351,8 +1357,11 @@ fn run_xiom_tests(args: &cli::Cli) {
 // -- Phase 5d: Package Manager ------------------------------------------
 
 fn handle_install(_args: &[String], pkg_name: Option<&str>, registry_url: &str, _update: bool) {
-    let home = dirs_next().unwrap_or_else(|| ".".into());
-    let pkgs_dir = format!("{}/.xiom/packages", home);
+    // CRB-3c wrinkle: install into the SAME tree as `xiom pkg`
+    // (`<XIOM_HOME>/packages`), not the old `~/.xiom/packages`, so both
+    // spellings see one another. `xiom pkg` remains the supported path.
+    let pkgs_dir = xiom_graph::paths::xiom_home().join("packages");
+    let pkgs_dir = pkgs_dir.to_string_lossy().to_string();
     std::fs::create_dir_all(&pkgs_dir).ok();
 
     let deps: Vec<String> = if let Some(name) = pkg_name {
@@ -1591,8 +1600,30 @@ fn dirs_next() -> Option<String> {
 }
 
 fn handle_registry(args: &[String]) {
-    let home = dirs_next().unwrap_or_else(|| ".".into());
-    let reg_path = format!("{}/.xiom/registry.json", home);
+    // CRB-3c wrinkle: the legacy registry list now lives under XIOM_HOME
+    // (`<home>/registry.json`) so `xiom install/registry` and `xiom pkg`
+    // share one tree; an existing `~/.xiom/registry.json` is still honored
+    // so old setups keep working.
+    let home = xiom_graph::paths::xiom_home();
+    let new_path = home.join("registry.json");
+    let legacy_path = dirs_next()
+        .map(|h| std::path::PathBuf::from(format!("{}/.xiom/registry.json", h)));
+    // An EXPLICIT XIOM_HOME always wins; otherwise prefer the canonical file
+    // and only fall back to the legacy `~/.xiom/registry.json` when it is
+    // the one that actually exists.
+    let xiom_home_explicit = std::env::var("XIOM_HOME")
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false);
+    let reg_path = if xiom_home_explicit || new_path.exists() {
+        new_path
+    } else {
+        legacy_path.filter(|p| p.exists()).unwrap_or(new_path)
+    };
+    let reg_path = reg_path.to_string_lossy().to_string();
+    let reg_dir = std::path::Path::new(&reg_path)
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| home.clone());
 
     let sub_cmd = args.iter()
         .position(|a| a == "registry")
@@ -1603,7 +1634,7 @@ fn handle_registry(args: &[String]) {
         "init" => {
             let initial = serde_json::json!({ "packages": {} });
             if let Ok(json) = serde_json::to_string_pretty(&initial) {
-                std::fs::create_dir_all(format!("{}/.xiom", home)).ok();
+                std::fs::create_dir_all(&reg_dir).ok();
                 if std::fs::write(&reg_path, &json).is_ok() {
                     eprintln!("  Created local registry: {}", reg_path);
                 }
@@ -1638,7 +1669,7 @@ fn handle_registry(args: &[String]) {
                         });
                         pkgs.insert(name.clone(), entry);
                         if let Ok(json) = serde_json::to_string_pretty(&registry) {
-                            std::fs::create_dir_all(format!("{}/.xiom", home)).ok();
+                            std::fs::create_dir_all(&reg_dir).ok();
                             std::fs::write(&reg_path, &json).ok();
                             eprintln!("  Added '{}' to local registry -> {}", name, url);
                         }

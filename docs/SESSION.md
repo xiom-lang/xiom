@@ -295,6 +295,19 @@ Verified locally: release build of all nine (strip) + assert loop, bundled
 z3 discovered by `xiom doctor` from a staged `bin/`, bench IR 5,808,645 and
 clang-clean, lsp 45/45, verify 32/32.
 
+**AI-mode audit (2026-09-19)**: installer AI config was dead (KEY=VALUE
+`.xiom_ai_config` / `XIOM_AI_API_KEY` vs the JSON `.xiom_ai_config.json` the
+compiler reads) and `--ai-local` was parsed but ignored. Now: installers
+write JSON to `$XIOM_HOME`, compiler searches cwd -> XIOM_HOME -> home;
+`--ai-local` forces Ollama/loopback and drops cloud keys; plaintext-HTTP
+key transmission is refused (`XIOM_AI_ALLOW_HTTP=1` opt-out); the
+non-silent summary prints the endpoint source; prompts include the
+diagnostic message/file/version, mark snippets untrusted, and request
+`FIX:/WHY:/Confidence:`; `XIOM_AI_TIMEOUT`/`XIOM_AI_MAX_TOKENS` wired;
+docs/AI_PIPELINE corrected. Legacy `xiom install/update/registry` now use
+`XIOM_HOME` so they see `xiom pkg` installs. 5 new ai unit tests;
+`--ai-local` and plaintext-refusal smokes green.
+
 **CRB-3c (ops, 2026-09-19)**: installer/doctor home mismatch fixed --
 `xiom_graph::paths::xiom_home()`/`xiom_home_candidates()` resolve the
 installed home (XIOM_HOME > canonical `%LOCALAPPDATA%\xiom` /

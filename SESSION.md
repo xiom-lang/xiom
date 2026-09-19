@@ -422,6 +422,33 @@ workspace version, never rewrite Cargo.toml) are all DONE and on
 `origin/main`; CRB-3 (xiom-pkg) and CRB-3b (nine tools + pinned z3) are
 accepted. The ops list repeating 1/2/4/4b/5 predates those pushes.
 
+**AI-mode audit (2026-09-19)**: the installer's AI configuration was DEAD
+(it wrote `KEY=VALUE .xiom_ai_config` with `XIOM_AI_API_KEY`, while the
+compiler only read JSON `.xiom_ai_config.json` from cwd/home), and
+`--ai-local` was parsed but never enforced. Fixed:
+
+- both installers write JSON to `$XIOM_DIR/.xiom_ai_config.json` (the
+  compiler now also searches `XIOM_HOME`), chmod 600 on Unix plus a
+  plaintext-key warning; the shell wrapper exports `XIOM_HOME`;
+  `.xiom_ai_config*` is gitignored.
+- `finalize_config` enforces the `--ai-local` contract: Ollama + loopback,
+  cloud key dropped, cloud-default model swapped to codellama; a remote
+  endpoint is refused.
+- a non-empty API key is refused over plaintext http:// to non-loopback
+  hosts (`XIOM_AI_ALLOW_HTTP=1` opt-out for trusted proxies); the
+  non-silent run prints the endpoint and whether env or a config path
+  supplied it.
+- prompts now carry the diagnostic MESSAGE + file + compiler version, mark
+  code snippets as untrusted input (prompt-injection hardening), and ask
+  for `FIX: / WHY: / Confidence:`; `XIOM_AI_TIMEOUT` and
+  `XIOM_AI_MAX_TOKENS` are wired and documented; docs/AI_PIPELINE corrected
+  (the cache "random session salt" claim was false; install config and HTTP
+  rule documented).
+- legacy `xiom install` / `xiom update` / `xiom registry` now use
+  `<XIOM_HOME>/packages` and `<XIOM_HOME>/registry.json` (an explicit
+  XIOM_HOME always wins; an existing legacy `~/.xiom/registry.json` is
+  still honored) so the old spelling sees `xiom pkg` installs.
+
 ## Remaining queue (compiler lane)
 
 1. **Supply-chain tail -- CLOSED (2026-09-17)**: transitive dependency
