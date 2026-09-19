@@ -391,6 +391,18 @@ DLLs z3.exe needs; macOS carries `libz3.dylib`; both carry `LICENSE-Z3`.
 staged-layout assert loop runs `--version` on all nine plus `z3 --version`
 before each archive is sealed; CRB-4 guard and CRB-4b dispatch unchanged.
 
+**Website help-parity follow-ups -- DONE (2026-09-19)**: `--help-ai` now
+states the real LLM timeout default (10 s, matching `--help` and the
+`unwrap_or(10)` in main.rs); `xiom --help` gained a "MORE OPTIONS
+(advanced)" block listing every real flag it omitted (--check,
+--emit-tokens, --debug/-g, --release, --opt-level, --lto, --cache,
+--no-cache, --jit, --lazy, --parallel-codegen, --strict, --strict-mode,
+--strict-exhaustive, --static, --standalone, --max-depth, --count,
+--bench-file, --test-dir, --test, --scaffold, --clean, --explain,
+--registry, --locked, --frozen, --ai-silent, --batch) plus repl /
+build-runtime subcommands and the launcher's tool dispatchers; `--strict-mode`
+is now an accepted alias of `--strict` (docs spelling) with a unit test.
+
 ## Remaining queue (compiler lane)
 
 1. **Supply-chain tail -- CLOSED (2026-09-17)**: transitive dependency

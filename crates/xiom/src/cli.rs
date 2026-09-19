@@ -118,7 +118,13 @@ pub fn command() -> Command {
         .disable_version_flag(true)
         .ignore_errors(true);
     for name in FLAG_FLAGS {
-        cmd = cmd.arg(Arg::new(*name).long(*name).action(ArgAction::SetTrue));
+        let mut arg = Arg::new(*name).long(*name).action(ArgAction::SetTrue);
+        // Website/docs spelling: `--strict-mode` is an accepted alias of the
+        // historical `--strict` flag (same id, same behavior).
+        if *name == "strict" {
+            arg = arg.alias("strict-mode");
+        }
+        cmd = cmd.arg(arg);
     }
     for name in OPTIONAL_VALUE_FLAGS {
         cmd = cmd.arg(
@@ -311,6 +317,13 @@ mod tests {
         assert!(cli.raw_has("--sanitize=address"));
         // The raw view keeps the legacy scans working.
         assert!(cli.iter().any(|a| a == "file.xi"));
+    }
+
+    /// Docs spelling `--strict-mode` must select the same flag as `--strict`.
+    #[test]
+    fn strict_mode_alias_sets_strict() {
+        assert!(parse(argv(&["--strict-mode", "f.xi"])).flag("strict"));
+        assert!(parse(argv(&["--strict", "f.xi"])).flag("strict"));
     }
 
     #[test]

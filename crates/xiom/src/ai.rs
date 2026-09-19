@@ -692,7 +692,7 @@ AI-ASSISTED COMPILATION (--ai):
     --ai-silent         Suppress stdout, write only .xiom_ai.json
     --ai-strict         Refuse binary output on contract violations
     --ai-model=<name>   Override model (e.g., deepseek-chat, gpt-4o-mini)
-    --ai-timeout=<sec>  LLM timeout in seconds (default: 30)
+    --ai-timeout=<sec>  LLM timeout in seconds (default: 10)
 
   Supported Providers:
     ollama     (local, free)       codellama, llama3, mistral, phi3

@@ -295,6 +295,18 @@ Verified locally: release build of all nine (strip) + assert loop, bundled
 z3 discovered by `xiom doctor` from a staged `bin/`, bench IR 5,808,645 and
 clang-clean, lsp 45/45, verify 32/32.
 
+**CLI help parity (website review, 2026-09-19)**: `--help-ai` timeout
+default corrected 30 -> 10 (matches main help and code); `xiom --help`
+lists the previously omitted advanced flags (check/emit-tokens/debug/
+release/opt-level/lto/cache/jit/lazy/parallel-codegen/strict/strict-mode/
+strict-exhaustive/static/standalone/max-depth/count/bench-file/test-dir/
+test/scaffold/clean/explain/registry/locked/frozen/ai-silent/batch),
+repl + build-runtime subcommands and the launcher's tool dispatchers;
+`--strict-mode` accepted as an alias of `--strict` (6 cli tests). Note:
+MCP_INSTALL.md's "release package" claim IS accurate as of CRB-3b
+(c8914fcc) -- release.yml builds/stages all nine tools; the website saw the
+pre-CRB-3b pushed main.
+
 Stage 5 tail (cont.): **driver temp hygiene closed** -- the JIT temp
 directory mixes pid with the time+counter suffix (pid reuse plus a stale
 directory could hit the same `_jit.*` paths) and is removed best-effort
