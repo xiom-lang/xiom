@@ -304,12 +304,22 @@ which variable or expression triggered the failure.
       "error_type": "ContractViolation",
       "contract": "requires: distance > 0.0",
       "insight": "The inverse-square dampening factor evaluates to zero when distance approaches zero, causing an unmapped division. Clamp distance to a minimum epsilon before calculating force.",
+      "fix": "Clamp distance to a minimum epsilon before dividing.",
+      "why": "The dampening factor reaches zero as distance approaches zero.",
+      "model_confidence": "HIGH",
       "cached": false,
       "timestamp_ms": 0
     }
   ]
 }
 ```
+
+**Structured hints (R48):** when the model answers in the requested
+`FIX: / WHY: / Confidence:` form, those pieces are parsed into the optional
+`fix`, `why` and `model_confidence` fields so outer agents can apply a fix
+without re-parsing prose. `insight` always keeps the full model answer, and
+older cached entries without the new fields still deserialize (the fields
+are optional; `schema_version` stays 1).
 
 **Why append:** The outer agent sees ALL hints from one compilation session, not just the last one. It can fix multiple issues in one pass.
 

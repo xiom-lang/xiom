@@ -246,6 +246,57 @@ pub struct AiHint {
     pub cached: bool, pub timestamp_ms: u64,
     #[serde(skip_serializing_if = "Option::is_none")] pub is_root_cause: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")] pub confidence: Option<String>,
+    /// R48: structured `FIX:` / `WHY:` parsed from the model's answer, so
+    /// outer agents can apply the fix without re-parsing the prose.
+    #[serde(skip_serializing_if = "Option::is_none")] pub fix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")] pub why: Option<String>,
+    /// Confidence reported by the MODEL (distinct from the compiler's own
+    /// error-class confidence in `confidence`).
+    #[serde(skip_serializing_if = "Option::is_none")] pub model_confidence: Option<String>,
+}
+
+/// R48: parse the model's `FIX: / WHY: / Confidence:` answer. Returns the
+/// untouched text plus the structured pieces when present; a plain sentence
+/// without the markers is passed through (backward compatible).
+pub fn parse_structured_hint(text: &str) -> (String, Option<String>, Option<String>, Option<String>) {
+    // Find a marker that starts a word ("fix:" must not match "prefix:").
+    fn find_marker(hay: &str, needle: &str) -> Option<usize> {
+        let mut from = 0;
+        while let Some(rel) = hay[from..].find(needle) {
+            let idx = from + rel;
+            if idx == 0 || !hay.as_bytes()[idx - 1].is_ascii_alphabetic() {
+                return Some(idx);
+            }
+            from = idx + 1;
+        }
+        None
+    }
+    let lower = text.to_ascii_lowercase();
+    let extract = |start: usize, stops: &[&str]| -> Option<String> {
+        let rest = &text[start..];
+        let rest_lower = &lower[start..];
+        let mut end = rest.len();
+        for stop in stops {
+            if let Some(p) = find_marker(rest_lower, stop) {
+                if p < end {
+                    end = p;
+                }
+            }
+        }
+        let value = rest[..end].trim().trim_matches(|c: char| c == ':' || c.is_whitespace());
+        if value.is_empty() { None } else { Some(value.to_string()) }
+    };
+    let fix = find_marker(&lower, "fix:").and_then(|i| extract(i + 4, &["why:", "confidence:"]));
+    let why = find_marker(&lower, "why:").and_then(|i| extract(i + 4, &["confidence:"]));
+    let confidence = find_marker(&lower, "confidence:").and_then(|i| {
+        let value = extract(i + 11, &[])?.trim_end_matches('.').to_ascii_uppercase();
+        if matches!(value.as_str(), "HIGH" | "MEDIUM" | "LOW") {
+            Some(value)
+        } else {
+            None
+        }
+    });
+    (text.to_string(), fix, why, confidence)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -567,6 +618,7 @@ pub fn run_ai_pipeline(config: &AiConfig, source: &str, source_path: &str, diagn
             }
         };
 
+        let (insight, fix_hint, why_hint, model_confidence) = parse_structured_hint(&insight);
         let hint = AiHint {
             file: source_path.to_string(), line: diag.line, column: diag.col,
             error_code: diag.code.clone(), error_type: ctx.error_type.clone(),
@@ -575,6 +627,7 @@ pub fn run_ai_pipeline(config: &AiConfig, source: &str, source_path: &str, diagn
             timestamp_ms: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64,
             is_root_cause: Some(hints.is_empty()),
             confidence: match ctx.error_type.as_str() { "ContractViolation" | "DivisionByZero" => Some("HIGH".into()), _ => Some("MEDIUM".into()) },
+            fix: fix_hint, why: why_hint, model_confidence,
         };
         cache.put(&config.model, &ctx.error_code, &fn_hash, ctx.error_line, &hint);
         hints.push(hint);
@@ -661,6 +714,7 @@ pub fn run_ai_pipeline_batch(
             }
         };
 
+        let (insight, fix_hint, why_hint, model_confidence) = parse_structured_hint(&insight);
         let hint = AiHint {
             file: diag.file.clone(), line: diag.line, column: diag.col,
             error_code: diag.code.clone(), error_type: ctx.error_type.clone(),
@@ -669,6 +723,7 @@ pub fn run_ai_pipeline_batch(
             timestamp_ms: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64,
             is_root_cause: Some(hints.is_empty()),
             confidence: match ctx.error_type.as_str() { "ContractViolation" | "DivisionByZero" => Some("HIGH".into()), _ => Some("MEDIUM".into()) },
+            fix: fix_hint, why: why_hint, model_confidence,
         };
         cache.put(&config.model, &ctx.error_code, &fn_hash, ctx.error_line, &hint);
         hints.push(hint);
@@ -948,5 +1003,40 @@ mod tests {
 
         let minimal: AiConfigFile = serde_json::from_str(r#"{"endpoint":"https://x"}"#).unwrap();
         assert!(minimal.api_key.is_none() && minimal.timeout_secs.is_none());
+    }
+
+    /// R48: the model's FIX:/WHY:/Confidence: answer becomes structured hint
+    /// fields; plain prose stays backward compatible.
+    #[test]
+    fn structured_hint_parsing() {
+        let (text, fix, why, conf) = parse_structured_hint(
+            "FIX: change the return type to Int. WHY: the arm yields an Int. Confidence: high",
+        );
+        assert!(text.contains("FIX:"), "full text is preserved for insight");
+        assert_eq!(fix.as_deref(), Some("change the return type to Int."));
+        assert_eq!(why.as_deref(), Some("the arm yields an Int."));
+        assert_eq!(conf.as_deref(), Some("HIGH"));
+
+        let (_, fix, why, conf) = parse_structured_hint("Just a sentence without markers.");
+        assert!(fix.is_none() && why.is_none() && conf.is_none());
+
+        let (_, _, _, conf) = parse_structured_hint("Confidence: SOMETIMES");
+        assert!(conf.is_none(), "only HIGH/MEDIUM/LOW are accepted");
+
+        // Cache round-trip keeps the structured fields.
+        let hint = AiHint {
+            file: "f.xi".into(), line: 1, column: 1, error_code: "T001".into(),
+            error_type: "TypeError".into(), contract: None,
+            insight: "FIX: x".into(), cached: false, timestamp_ms: 0,
+            is_root_cause: Some(true), confidence: Some("MEDIUM".into()),
+            fix: Some("x".into()), why: Some("y".into()), model_confidence: Some("LOW".into()),
+        };
+        let json = serde_json::to_string(&hint).unwrap();
+        let back: AiHint = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.fix.as_deref(), Some("x"));
+        assert_eq!(back.model_confidence.as_deref(), Some("LOW"));
+        let legacy = r#"{"file":"f","line":1,"column":1,"error_code":"T","error_type":"T","contract":null,"insight":"i","cached":false,"timestamp_ms":0}"#;
+        let old: AiHint = serde_json::from_str(legacy).expect("old cached hints still parse");
+        assert!(old.fix.is_none() && old.model_confidence.is_none());
     }
 }
