@@ -1926,6 +1926,14 @@ impl IrEmitter {
                 }
             }
             Expr::Binary(l, _, r, _) => { Self::collect_atpre_vars(l, vars); Self::collect_atpre_vars(r, vars); }
+            // R51 (stdlib p_pre_capture_callee): contract clauses are usually
+            // IMPLICATIONS (`result is Some => total(b) == total(b)@pre - 1`).
+            // Without an Imply arm the walk never reached the @pre, no entry
+            // snapshot was emitted, and the ensures compared the LIVE pointer
+            // with itself (2 == 2 - 1 violations in list/queue/rbtree/fenwick
+            // and every other implication-wrapped size clause).
+            Expr::Imply(l, r, _) => { Self::collect_atpre_vars(l, vars); Self::collect_atpre_vars(r, vars); }
+            Expr::Is(e, _, _) => Self::collect_atpre_vars(e, vars),
             Expr::Unary(_, e, _) => Self::collect_atpre_vars(e, vars),
             Expr::Call(f, args, _) | Expr::GenericCall(f, _, args, _) => { Self::collect_atpre_vars(f, vars); for a in args { Self::collect_atpre_vars(a, vars); } }
             Expr::Field(e, _, _) | Expr::Index(e, _, _) => Self::collect_atpre_vars(e, vars),
@@ -1941,6 +1949,10 @@ impl IrEmitter {
         match expr {
             Expr::Ident(id) => { vars.insert(id.name.clone()); }
             Expr::Binary(l, _, r, _) => { Self::collect_pre_idents(l, vars); Self::collect_pre_idents(r, vars); }
+            // R51: implications and `is` tests wrap most contract clauses --
+            // descend so `... @pre ...` inside them gets a snapshot.
+            Expr::Imply(l, r, _) => { Self::collect_pre_idents(l, vars); Self::collect_pre_idents(r, vars); }
+            Expr::Is(e, _, _) => Self::collect_pre_idents(e, vars),
             Expr::Unary(_, e, _) | Expr::Paren(e, _) | Expr::AtPre(e, _) | Expr::Try(e, _) => Self::collect_pre_idents(e, vars),
             Expr::Call(f, args, _) | Expr::GenericCall(f, _, args, _) => {
                 Self::collect_pre_idents(f, vars);

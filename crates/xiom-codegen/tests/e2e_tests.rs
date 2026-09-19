@@ -4982,6 +4982,19 @@ fn e2e_safety_probe() {
     );
 }
 
+// R51 (stdlib p_pre_capture_callee): contract clauses wrapped in an
+// IMPLICATION (`result is Some => total(b) == total(b)@pre - 1`) must still
+// collect @pre variables and emit entry snapshots -- the walker had no Imply
+// arm, so no snapshot existed and the ensures compared the live pointer with
+// itself (2 == 2 - 1 violations across list/queue/rbtree/fenwick).
+#[test] fn e2e_m104_pre_capture_callee() {
+    assert_eq!(
+        compile_and_run("tests/regression/m104_pre_capture_callee/main.xi"),
+        Some(0),
+        "R51 implication-wrapped @pre snapshot probe must compile and run"
+    );
+}
+
 // R51 (playground L4-33/39): `self@pre.items.len()` in an ensures -- the
 // receiver is Field(AtPre(self), items); type resolution and the Vec.len
 // dispatch must look through @pre (was xiom_str_len(<%struct.Vec>) -> clang

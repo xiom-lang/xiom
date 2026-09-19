@@ -141,6 +141,13 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   wired. Pending: stdlib lane green -> bump `STDLIB_VERSION` in the release
   PR -> tag `v0.61.0`; optional rewrite of the protected tags
   `v0.60.0`/`v0.60.1` (old objects remain on the remote).
+- **R51 stdlib residual (2026-09-19, p_pre_capture_callee)**: implication-
+  wrapped contract clauses (`result is Some => ...@pre...`) never emitted
+  entry snapshots -- the `@pre` walkers had no `Imply`/`Is` arms, so the
+  ensures compared the live pointer with itself (2 == 2 - 1 in list/queue/
+  rbtree/fenwick). Both walkers now descend; `p_pre_capture_callee.xi` and
+  `p_wave8_shapes.xi` exit 0; lock `e2e_m104_pre_capture_callee`. The stdlib
+  lane can restore the strong `@pre` size clauses in the blocked modules.
 - **R51 L4 cluster (2026-09-19, playground audit §19)**: closed the four
   remaining `L4-*` clang failures -- `@pre` receivers in `.len()`
   (`items@pre.len()`, `self@pre.items.len()`) now resolve through the

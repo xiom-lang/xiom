@@ -7533,6 +7533,18 @@ stdlib repro (free fn + method + field/index forms) and locked as
 `e2e_m95_pre_call_capture`. The stdlib session can restore the stronger
 size relations in its clauses.
 
+RESIDUAL CLOSED (R51, 2026-09-19): the stdlib's follow-up probe
+(`tools/known_failures/p_pre_capture_callee.xi`) showed implication-wrapped
+clauses (`result is Some => total(b) == total(b)@pre - 1`) never snapshotted:
+`collect_atpre_vars`/`collect_pre_idents` had no `Expr::Imply`/`Expr::Is`
+arms, so the walk stopped at the implication, no snapshot was emitted, and
+the ensures compared the LIVE pointer with itself (2 == 2 - 1 across
+list/queue/rbtree/fenwick and the other blocked modules). Both walkers now
+descend through Imply/Is. The residual probe and `tools/probes/
+p_wave8_shapes.xi` both exit 0; lock `e2e_m104_pre_capture_callee`. The
+stdlib session can restore the strong `@pre` size clauses in the previously
+blocked modules.
+
 ### R49-3 `p_result_payload_contract` -- scalar + Vec payload Result -- FIXED
 One module with a scalar-payload Result contract plus a Vec-payload Result
 contract broke clang (`%struct.Vec` passed to `xiom_str_len`); blocked
