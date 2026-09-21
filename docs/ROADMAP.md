@@ -1037,7 +1037,7 @@ This requirement applies to: **M25 (Threading), M26 (Parallelization), M27 (Inli
 **Linux build procedure (WSL):**
 ```bash
 # From Windows PowerShell
-wsl -d Ubuntu -- bash -c "source ~/.cargo/env && cd /mnt/e/Projects/AXIOM && cargo build --release"
+wsl -d Ubuntu -- bash -c "source ~/.cargo/env && cd /mnt/e/xiom-lang/xiom && cargo build --release"
 # Output: target/release/xiom (Linux ELF binary)
 ```
 

@@ -3,7 +3,7 @@
 
 # XIOM Compiler Production-Readiness Audit
 
-**Note:** This session is read-only (Ask mode), so the complete document is delivered below -- it is ready to be saved verbatim as `E:\Projects\AXIOM\xiom-compiler-audit.md` (switch to Code/Architect mode to write it directly).
+**Note:** This session is read-only (Ask mode), so the complete document is delivered below -- it is ready to be saved verbatim as `E:\xiom-lang\xiom\docs\xiom-compiler-audit.md` (switch to Code/Architect mode to write it directly).
 
 ---
 
@@ -598,4 +598,4 @@ ureq-only HTTP -> in-process extraction -> authenticated publish -> lockfile v2.
 
 ---
 
-**Summary of what was delivered:** a complete, evidence-cited production-readiness audit of all 19 crates (~77.8k LOC): scorecard, architecture map, per-crate findings with file:line references, a 20-item severity-ranked defect list, a capability gap matrix against clang/rustc/zig, compiler-throughput and generated-code optimization plans, a security hardening program (supply chain, injection elimination, buffer bounds, solver DoS), and a six-phase pre-self-hosting roadmap with concrete gate criteria. Save the block above to `E:\Projects\AXIOM\xiom-compiler-audit.md` -- or switch me out of Ask mode and I'll write it to disk directly.
+**Summary of what was delivered:** a complete, evidence-cited production-readiness audit of all 19 crates (~77.8k LOC): scorecard, architecture map, per-crate findings with file:line references, a 20-item severity-ranked defect list, a capability gap matrix against clang/rustc/zig, compiler-throughput and generated-code optimization plans, a security hardening program (supply chain, injection elimination, buffer bounds, solver DoS), and a six-phase pre-self-hosting roadmap with concrete gate criteria. Save the block above to `E:\xiom-lang\xiom\docs\xiom-compiler-audit.md` -- or switch me out of Ask mode and I'll write it to disk directly.

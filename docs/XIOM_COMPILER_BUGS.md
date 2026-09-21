@@ -26,7 +26,7 @@ error: clang failed with exit code 1
 ```
 
 ### Root Cause
-`E:\Projects\AXIOM\stdlib\runtime\xiom_runtime.c` lines ~4372-4374 have Windows-only API calls without `#ifdef` guards:
+`E:\xiom-lang\xiom\stdlib\runtime\xiom_runtime.c` lines ~4372-4374 have Windows-only API calls without `#ifdef` guards:
 
 ```c
 // Line 4372 -- WINDOWS ONLY
@@ -52,7 +52,7 @@ Add `#ifdef _WIN32` guard with a Linux fallback (`sysconf(_SC_NPROCESSORS_ONLN)`
 ```
 
 ### Affected files
-- `E:\Projects\AXIOM\stdlib\runtime\xiom_runtime.c` (~line 4372)
+- `E:\xiom-lang\xiom\stdlib\runtime\xiom_runtime.c` (~line 4372)
 - Possibly also `stdlib/runtime/async_runtime.c` (same pattern check)
 
 ### Test
@@ -85,11 +85,11 @@ Verified: `./target/debug/xiom --release --run` on all 5 systems-arena tasks pro
 R4 (Vec alloca leak) and R5 (recursion counter leak) from v0.56.0-pre resolved the underlying crash.
 
 ### Reference files to test against
-- `E:\Projects\AXIOM\xiom-benchmark-chaos\reference\systems-arena\t1-allocator.xi`
-- `E:\Projects\AXIOM\xiom-benchmark-chaos\reference\systems-arena\t2-queue.xi`
-- `E:\Projects\AXIOM\xiom-benchmark-chaos\reference\systems-arena\t3-hot-reload.xi`
-- `E:\Projects\AXIOM\xiom-benchmark-chaos\reference\systems-arena\t4-packet.xi`
-- `E:\Projects\AXIOM\xiom-benchmark-chaos\reference\systems-arena\t5-btree.xi`
+- `E:\xiom-lang\xiom\tests\ecosystem\t1-allocator.xi`
+- `E:\xiom-lang\xiom\tests\ecosystem\t2-queue.xi`
+- `E:\xiom-lang\xiom\tests\ecosystem\t3-hot-reload.xi`
+- `E:\xiom-lang\xiom\tests\ecosystem\t4-packet.xi`
+- `E:\xiom-lang\xiom\tests\ecosystem\t5-btree.xi`
 
 All 5 should compile with `xiom --release --target native --no-contracts -o binary source.xi` and run to output `OK`.
 
@@ -100,7 +100,7 @@ All 5 should compile with `xiom --release --target native --no-contracts -o bina
 1. Fix the bugs in XIOM compiler source
 2. Build: `cargo build` (produces `target/debug/xiom`)
 3. Copy binary to Docker-visible path (if needed):  
-   `cp target/debug/xiom /mnt/e/Projects/AXIOM/target/debug/xiom`
+   `cp target/debug/xiom /mnt/e/xiom-lang/xiom/target/debug/xiom`
 4. Dockerfile at `E:\Projects\AXIOM\xiom-benchmark-chaos\Dockerfile` line 79 copies from `target/debug/xiom`
 5. Rebuild and test:
 ```bash

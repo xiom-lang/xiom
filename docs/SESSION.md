@@ -1665,8 +1665,8 @@ DISCIPLINE TRAPS (learned this campaign, keep honoring):
 
 ### PROMPT FOR THE NEXT COMPILER SESSION (paste-ready, updated 2026-09-12)
 
-You are continuing the AXIOM compiler-lane readiness campaign in
-E:\Projects\AXIOM on branch feat/architect. Read docs/SESSION.md
+You are continuing the XIOM compiler-lane readiness campaign in
+E:\xiom-lang\xiom on branch feat/architect. Read docs/SESSION.md
 (rounds 38-56 + COMPILER-LANE REMAINING QUEUE), docs/COMPILER_BUGS.md and
 docs/ITEM_A_STDLIB_FINDINGS.md (the stdlib handoff from the corpus triage)
 first; COMPILER_READINESS_PLAN.md holds the stage definitions;

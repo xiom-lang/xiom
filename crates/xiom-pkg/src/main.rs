@@ -828,7 +828,7 @@ fn install_local_package(args: &[String]) {
 /// Install a package from the local packages/ directory.
 /// Returns false when the package is absent (caller reports the failure).
 fn install_from_ecosystem(pkg_name: &str) -> bool {
-    // Find the AXIOM workspace root (where Cargo.toml lives)
+    // Find the XIOM workspace root (where Cargo.toml lives)
     let workspace = find_workspace_root(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     let packages_dir = workspace.join("packages");
     let pkg_dir = packages_dir.join(format!("xiom-{}", pkg_name.strip_prefix("xiom.").unwrap_or(pkg_name)));

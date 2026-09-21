@@ -67,7 +67,7 @@ mcp 39/39. Everything below is committed and pushed.
 
 ## Continuation prompt (copy/paste into the next session)
 
-> Continue the AXIOM compiler-lane campaign in `E:\xiom-lang\xiom` (branch
+> Continue the XIOM compiler-lane campaign in `E:\xiom-lang\xiom` (branch
 > `main`, unpushed convention: push only when asked). Read the top section of
 > SESSION.md ("CONTINUATION HANDOFF") and docs/COMPILER_BUGS.md before
 > touching code. All R-bug batches through R54 are fixed and pushed; the
@@ -833,7 +833,7 @@ RED (52 drifted signatures since the 2026-08-07 snapshot) and
 ## Paste-ready prompt for the next compiler session
 
 ```
-Continue the AXIOM compiler-lane campaign in E:\xiom-lang\xiom (the compiler
+Continue the XIOM compiler-lane campaign in E:\xiom-lang\xiom (the compiler
 repo; post-split, branch `main`). Read SESSION.md -- the "Current state
 (2026-09-19, post-R48)" section at the top -- and docs/COMPILER_BUGS.md R48
 before touching code. Stage 5 is COMPLETE and all R-bugs through R48 are

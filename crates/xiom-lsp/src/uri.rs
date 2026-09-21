@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 
 /// Convert an LSP file URI to its parent directory path.
-/// `file:///e%3A/Projects/AXIOM/stdlib/xiom/alloc.xi` -> `e:\Projects\AXIOM\stdlib\xiom`
+/// `file:///e%3A/xiom-lang/xiom/stdlib/xiom/alloc.xi` -> `e:\xiom-lang\xiom\stdlib\xiom`
 pub fn uri_to_parent_dir(uri: &str) -> Option<String> {
     uri_to_file_path(uri).and_then(|p| p.parent().map(|p| p.to_string_lossy().to_string()))
 }

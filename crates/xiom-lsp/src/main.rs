@@ -409,7 +409,7 @@ mod tests {
 
     #[test]
     fn test_uri_to_parent_dir() {
-        let dir = uri::uri_to_parent_dir("file:///e%3A/Projects/AXIOM/stdlib/xiom/alloc.xi");
+        let dir = uri::uri_to_parent_dir("file:///e%3A/xiom-lang/xiom/stdlib/xiom/alloc.xi");
         assert!(dir.is_some());
         let dir = dir.unwrap();
         assert!(dir.contains("stdlib"), "parent dir should contain stdlib: {dir}");

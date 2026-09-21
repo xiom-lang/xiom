@@ -7,5 +7,5 @@ set -e
 export PATH="$HOME/.cargo/bin:$PATH"
 export XIOM_RELEASE_TAG="Production Hardening"
 export XIOM_RELEASE_STATS="1067/1067 tests, M19 complete"
-cd /mnt/e/Projects/AXIOM
+cd /mnt/e/xiom-lang/xiom
 bash package.sh 0.52.9

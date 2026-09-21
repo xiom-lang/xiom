@@ -2142,7 +2142,7 @@ fn regress_7a07_source_root_resolution() {
 fn regress_7a08_project_root_detection() {
     let current = std::env::current_dir().unwrap();
     let root = xiom::find_project_root(&current);
-    // The AXIOM repo root has package.xi, so it should be detectable
+    // The XIOM repo root has package.xi, so it should be detectable
     assert!(root.is_some(), "Must find project root from repo directory");
 }
 
@@ -2312,7 +2312,7 @@ fn regress_7b07_cache_persistence() {
 #[test]
 fn regress_7b08_project_cache_location() {
     let cache = xiom::get_project_cache(std::path::Path::new("examples/benchmark/main.xi"));
-    // Should find a project root (AXIOM repo has package.xi at root)
+    // Should find a project root (XIOM repo has package.xi at root)
     assert!(cache.is_some(), "Must find project cache for files in git repo");
     let c = cache.unwrap();
     assert!(c.cache_dir.ends_with(".xi_cache"), "Cache dir must end with .xi_cache");

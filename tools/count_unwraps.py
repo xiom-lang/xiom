@@ -4,7 +4,7 @@
 """Count production unwraps in ALL crates (excluding tests/comments)."""
 import os, re
 
-workspace = r'E:\Projects\AXIOM'
+workspace = r'E:\xiom-lang\xiom'
 crates_dir = os.path.join(workspace, 'crates')
 total = {}
 
