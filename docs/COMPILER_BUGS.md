@@ -7478,11 +7478,19 @@ verification, with repro commands using the playground lesson sources
   "T" cannot shadow the concrete type), L5-36/L5-35 (to_str via match
   results). Locks `e2e_m106..m108`; all 11 previously nondeterministic
   lessons (L3-02, L5-09/20/24/26/29/31/35/36/43) plus L5-21 are
-  deterministic now. Still open: L3-50 (bisected: a `?`-unwrapped Result
-  with a TUPLE payload -- `let (a, b) = split_two(rest)?` binds garbage and
-  `t.0`/`t.1` read 0, while `split_two(rest).unwrap().1` is correct; the
-  try-payload tuple typing/field access path is the remaining defect) and
-  L8-14 (trap in the Map[Str,Str] morse flow).
+  deterministic now. Still open: L8-14 (trap in the Map[Str,Str] morse flow).
+- **L3-50 (Result tuple payload via `?`)**: FIXED (R57). `let (a, b) =
+  two()?` bound BOTH names to the raw boxed-tuple handle -- `a + b` printed
+  pointer arithmetic and the `Stmt::Destructure` fallback aliased the value
+  for every name. The `?` handler (both the Option and Result paths in
+  expr.rs) now unboxes AGGREGATE payloads out of the erased i64 slot:
+  `try_unbox_payload` derefs the heap box for tuples ("(Int, Int)" ->
+  `Tuple__Int__Int`), nested containers (Vec/Map/Set/Option/Result) and
+  registered structs/enums; primitives, Str and floats stay raw i64. Err
+  propagation is unchanged (`try_err` returns the original Result). Repro:
+  L3-50 prints 8 deterministically; minimal probe prints 8. Lock
+  `e2e_m112_try_result_tuple` (`tests/regression/m112_try_result_tuple`).
+  Full e2e 2360/2360.
 - **L5-40 (C17 clang residue)**: FIXED (R56). Decision: container elements
   are INLINE (`Vec[Str]` slots hold the 32-byte `%struct.Vec` header, matching
   `Vec[Vec[T]]` and `vec_elem_storage_size`); concrete Option/Result layouts

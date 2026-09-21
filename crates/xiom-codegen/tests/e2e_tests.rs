@@ -5075,6 +5075,27 @@ fn e2e_safety_probe() {
     );
 }
 
+// L3-50: `?` on a Result with a TUPLE payload. `let (a, b) = two()?` bound
+// both names to the raw boxed-tuple handle (a+b printed pointer arithmetic);
+// the `?` handler now unboxes aggregate payloads out of the erased i64 slot
+// and the Err propagation path stays intact.
+#[test] fn e2e_m112_try_result_tuple() {
+    let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
+    if !stdlib_root.join("xiom").join("io.xi").exists() {
+        let msg = "SKIP: stdlib checkout has no xiom/io.xi";
+        if xiom_graph::paths::require_stdlib() {
+            panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
+        }
+        eprintln!("{msg}");
+        return;
+    }
+    assert_eq!(
+        compile_and_run("tests/regression/m112_try_result_tuple/main.xi"),
+        Some(0),
+        "L3-50 Result tuple payload via ? must compile and run"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "…")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

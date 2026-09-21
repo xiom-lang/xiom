@@ -1951,12 +1951,25 @@ impl IrEmitter {
                     let val_gep = self.fresh_tmp();
                     let some_val = self.fresh_tmp();
                     self.emitln(&format!("  {val_gep} = getelementptr {opt_ty}, {opt_ty}* {opt_alloca}, i32 0, i32 1"));
-                    let payload_llvm_ty = if opt_ty.starts_with("%struct.") {
+                    let mut payload_llvm_ty = if opt_ty.starts_with("%struct.") {
                         self.field_llvm_type(&opt_ty[8..], 1)
                     } else {
                         "i64".to_string()
                     };
                     self.emitln(&format!("  {some_val} = load {payload_llvm_ty}, {payload_llvm_ty}* {val_gep}"));
+                    // L3-50: an AGGREGATE payload (tuple / nested container /
+                    // struct) is BOXED into the erased i64 slot. Bind the real
+                    // aggregate so a following `let (a, b) = r?` destructures
+                    // fields instead of aliasing the raw heap handle.
+                    let mut some_val = some_val;
+                    if payload_llvm_ty == "i64" {
+                        if let Some(decl) = self.scrutinee_payload_xiom(inner, 1) {
+                            if let Some((v, t)) = self.try_unbox_payload(&some_val, &decl) {
+                                some_val = v;
+                                payload_llvm_ty = t;
+                            }
+                        }
+                    }
                     Ok((some_val, payload_llvm_ty))
                 } else {
                     let result_ty = if inner_ty.starts_with("%struct.") { inner_ty.as_str() } else { "%struct.Result" };
@@ -1998,12 +2011,26 @@ impl IrEmitter {
                     let val_gep = self.fresh_tmp();
                     let ok_val = self.fresh_tmp();
                     self.emitln(&format!("  {val_gep} = getelementptr {result_ty}, {result_ty}* {result_alloca}, i32 0, i32 1"));
-                    let ok_llvm_ty = if result_ty.starts_with("%struct.") {
+                    let mut ok_llvm_ty = if result_ty.starts_with("%struct.") {
                         self.field_llvm_type(&result_ty[8..], 1)
                     } else {
                         "i64".to_string()
                     };
                     self.emitln(&format!("  {ok_val} = load {ok_llvm_ty}, {ok_llvm_ty}* {val_gep}"));
+                    // L3-50: an AGGREGATE payload (tuple / nested container /
+                    // struct) is BOXED into the erased i64 slot. Bind the real
+                    // aggregate so a following `let (a, b) = r?` destructures
+                    // fields instead of aliasing the raw heap handle (`a + b`
+                    // then printed pointer arithmetic).
+                    let mut ok_val = ok_val;
+                    if ok_llvm_ty == "i64" {
+                        if let Some(decl) = self.scrutinee_payload_xiom(inner, 1) {
+                            if let Some((v, t)) = self.try_unbox_payload(&ok_val, &decl) {
+                                ok_val = v;
+                                ok_llvm_ty = t;
+                            }
+                        }
+                    }
                     Ok((ok_val, ok_llvm_ty))
                 }
             }
@@ -5698,6 +5725,21 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
         let Expr::Ident(id) = container else { return false; };
         self.local.param_locals.contains(&id.name)
             && self.local.local_array_elem.contains_key(&id.name)
+    }
+
+    /// L3-50: bind an AGGREGATE payload out of the erased i64 slot.
+    /// `decl` is the declared payload XIOM type ("(Int, Int)", "Vec[Str]",
+    /// "Student", ...). Boxed aggregates (tuples, nested containers, structs,
+    /// enums) are heap handles in the erased Option/Result slot; primitives,
+    /// Str and floats stay raw i64 and return None.
+    pub(crate) fn try_unbox_payload(&mut self, val: &str, decl: &str) -> Option<(String, String)> {
+        let ty = self.boxed_aggregate_llvm_for(decl)
+            .or_else(|| self.registered_struct_llvm_for(decl))?;
+        let p = self.fresh_tmp();
+        self.emitln(&format!("  {p} = inttoptr i64 {val} to {ty}*"));
+        let l = self.fresh_tmp();
+        self.emitln(&format!("  {l} = load {ty}, {ty}* {p}"));
+        Some((l, ty))
     }
 
     /// BUG 31: LLVM type for a STRUCT FIELD -- degrades Unit to i64. The
