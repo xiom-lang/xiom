@@ -6,9 +6,27 @@
   "publisher": "xiom-lang",
   "license": "MIT OR Apache-2.0",
   "icon": "icon.png",
+  "homepage": "https://xiom-lang.org",
   "repository": {
     "type": "git",
     "url": "https://github.com/xiom-lang/xiom"
+  },
+  "bugs": {
+    "url": "https://github.com/xiom-lang/xiom/issues"
+  },
+  "keywords": [
+    "xiom",
+    "language",
+    "compiler",
+    "debugger",
+    "debug adapter",
+    "lsp",
+    "systems programming",
+    "native"
+  ],
+  "galleryBanner": {
+    "color": "#0b1020",
+    "theme": "dark"
   },
   "engines": {
     "vscode": "^1.80.0"

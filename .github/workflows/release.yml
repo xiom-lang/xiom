@@ -47,7 +47,10 @@ name: XIOM Release
 # along on the GitHub Release; publishing to the VS Code Marketplace
 # (secret VSCE_PAT) and Open VSX (secret OVSX_TOKEN) happens only on tag
 # builds and only when the corresponding secret is present, so forks and dry
-# runs never fail.
+# runs never fail. Publishing also requires that marketplace to NOT already
+# have this extension version: bump `editors/vscode/package.json` for every
+# extension change, toolchain-only releases skip publishing cleanly (vsce
+# refuses to republish an existing version).
 
 on:
   push:
@@ -143,15 +146,27 @@ jobs:
           sha256sum "xiom-vscode-$extver.vsix" > "SHA256SUMS-vscode"
           echo "packaged xiom-vscode-$extver.vsix (toolchain v${{ needs.guard.outputs.version }})"
 
-      - name: Publish to VS Code Marketplace (tag builds with VSCE_PAT only)
-        if: startsWith(github.ref, 'refs/tags/v') && env.VSCE_PAT != ''
+      - name: Check whether this extension version is already published
+        id: published
+        shell: bash
+        run: |
+          set -euo pipefail
+          extver="$(node -p "require('./editors/vscode/package.json').version")"
+          mkt_code="$(curl -s -o /dev/null -w '%{http_code}' "https://marketplace.visualstudio.com/_apis/public/gallery/publishers/xiom-lang/vsextensions/xiom/${extver}/vspackage" || true)"
+          ovsx_code="$(curl -s -o /dev/null -w '%{http_code}' "https://open-vsx.org/api/xiom-lang/xiom/${extver}" || true)"
+          if [ "$mkt_code" = "200" ]; then echo "mkt_new=false" >> "$GITHUB_OUTPUT"; else echo "mkt_new=true" >> "$GITHUB_OUTPUT"; fi
+          if [ "$ovsx_code" = "200" ]; then echo "ovsx_new=false" >> "$GITHUB_OUTPUT"; else echo "ovsx_new=true" >> "$GITHUB_OUTPUT"; fi
+          echo "extension $extver: marketplace=$mkt_code openvsx=$ovsx_code (publish only where the version is absent)"
+
+      - name: Publish to VS Code Marketplace (tag builds, new version, VSCE_PAT)
+        if: startsWith(github.ref, 'refs/tags/v') && env.VSCE_PAT != '' && steps.published.outputs.mkt_new == 'true'
         shell: bash
         run: |
           extver="$(node -p "require('./editors/vscode/package.json').version")"
           npx --yes @vscode/vsce@3 publish --packagePath "xiom-vscode-$extver.vsix" --pat "$VSCE_PAT"
 
-      - name: Publish to Open VSX (tag builds with OVSX_TOKEN only)
-        if: startsWith(github.ref, 'refs/tags/v') && env.OVSX_TOKEN != ''
+      - name: Publish to Open VSX (tag builds, new version, OVSX_TOKEN)
+        if: startsWith(github.ref, 'refs/tags/v') && env.OVSX_TOKEN != '' && steps.published.outputs.ovsx_new == 'true'
         shell: bash
         run: |
           extver="$(node -p "require('./editors/vscode/package.json').version")"

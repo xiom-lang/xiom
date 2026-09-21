@@ -270,6 +270,12 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   match `v<ver>`.
   (5) editors/README + vscode/README document the distribution policy;
   Visual Studio is deferred in ROADMAP M13.11; other editors stay config-only.
+  (6) Marketplace metadata: `homepage` (xiom-lang.org), `bugs` (GitHub issues),
+  8 keywords, dark gallery banner, and a valid 256x256 icon; release.yml now
+  gates each publish step on that marketplace NOT already having the extension
+  version -- bump `editors/vscode/package.json` for every extension change,
+  toolchain-only releases skip publishing cleanly (vsce refuses to republish
+  an existing version).
 - **R59/R60 FIXED (2026-09-21, stdlib relay findings)**: (R59)
   `p_result_tuple_vec_loop` -- the enclosing match arm's result slot leaked
   into nested loop bodies (`oid.push(v)` as a while body's last statement
