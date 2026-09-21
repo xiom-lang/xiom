@@ -183,6 +183,68 @@ impl IrEmitter {
                 }
             }
         }
+        // L6-40: module-qualified generic call (`mod.create()`): the declared
+        // return type carries placeholders ("Runner[T]"); substitute the
+        // concrete args from the recorded mono instantiation so the binding
+        // keeps the container type ("Runner[EchoPlugin]") for the later
+        // container inference (`add_plugin(&mut runner, ...)`). Previously the
+        // placeholder was dropped and the binding lost its container type.
+        if let Expr::Field(recv, f, sp) = func {
+            if let Expr::Ident(rid) = recv.as_ref() {
+                if !self.receiver_is_instance(recv) {
+                    let mut key = self.resolve_catalog_call(recv, &f.name, *sp)
+                        .unwrap_or_else(|| self.resolve_module_call(recv, &f.name));
+                    // Generic-only modules are not in `types.functions`, so
+                    // resolve_module_call can come back empty -- fall back to
+                    // the plain module-qualified key (same key emission uses).
+                    if key.is_empty() {
+                        key = format!("{}.{}", rid.name, f.name);
+                    }
+                    // The recorded instantiation may not exist yet: the `var`
+                    // arm records the binding type BEFORE compiling the
+                    // initializer. Fall back to the pre-pass evidence (same
+                    // callee-span key) so the substitution still happens.
+                    let cts_opt: Option<&Vec<String>> = self.mono.generic_instantiations.iter()
+                        .find(|(k, _)| k == &key)
+                        .map(|(_, c)| c)
+                        .or_else(|| {
+                            let csp = func.span();
+                            if csp.byte_start != 0 || csp.byte_end != 0 {
+                                self.mono.prepass_call_types.get(&(csp.byte_start, csp.byte_end))
+                            } else {
+                                None
+                            }
+                        });
+                    if let Some(cts) = cts_opt {
+                        if let Some((_, fd)) = self.find_generic_decl(&key) {
+                            let mut type_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+                            for (gp, ct) in fd.generics.iter().zip(cts.iter()) {
+                                if !gp.is_const {
+                                    type_map.insert(gp.name.name.clone(), ct.clone());
+                                }
+                            }
+                            if let Some(ret) = fd.return_type.as_ref() {
+                                let subst = Self::substitute_type(ret, ret, &type_map);
+                                // type_string_full drops Named ARGS -- render
+                                // them explicitly (mirrors receiver_generic_arg_at).
+                                let name = match &subst {
+                                    Type::Named(id, args) if !args.is_empty() => {
+                                        let parts: Vec<String> = args.iter().map(Self::type_from_ast).collect();
+                                        format!("{}[{}]", id.name, parts.join(", "))
+                                    }
+                                    other => Self::type_string_full(other),
+                                };
+                                let still_placeholder = name.split(|c: char| !c.is_ascii_alphanumeric())
+                                    .any(|t| t.len() == 1 && t.chars().next().map_or(false, |c| c.is_ascii_uppercase()));
+                                if !still_placeholder {
+                                    return Some(name);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         let rt = self.callee_return_xiom(func)?;
         // Skip unresolved generic placeholders ("Map[K, V]", "Option[T]").
         for token in rt.split(|c: char| !c.is_ascii_alphanumeric()) {

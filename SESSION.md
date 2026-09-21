@@ -3,43 +3,36 @@
 
 # CONTINUATION HANDOFF (2026-09-21, compiler lane)
 
-Latest pushed main: `7837b194` (R54 / R49-4 large-array ISel fix). Tree clean,
-full e2e **2357/2357**, checker 195/195, feature-reg 510/510, stdlib-exec
-85/85 (+2 ignored), robustness 63/63, fuzz 24/24, api-freeze 2/2, pkg 67/67,
-mcp 39/39. Everything below is committed and pushed.
+Latest pushed main: `7837b194` (R54 / R49-4 large-array ISel fix). Local main
+adds three unpushed commits: the R53 staging verification record, the
+stale-AXIOM -> XIOM reference cleanup, and R55 (L6-40 fixpoint evidence
+pre-pass). Tree clean, full e2e **2358/2358**, checker 195/195, feature-reg
+510/510, stdlib-exec 85/85 (+2 ignored), robustness 63/63, fuzz 24/24,
+api-freeze 2/2, pkg 67/67, mcp 39/39. Tree state below is committed.
 
 ## Remaining work, priority order
 
-1. **L6-40 (playground C17 residue)** -- module-scoped generic factory with no
-   argument evidence at its call site:
-   `var runner = plugin_runner.create(); plugin_runner.add_plugin(&mut runner,
-   EchoPlugin{}); plugin_runner.run_all(&runner, "x");` -> C001 "Int does not
-   implement Plugin". Trace evidence in docs/COMPILER_BUGS.md: `create`
-   concrete=[] (emits the `0` fallback), `add_plugin` concrete=["EchoPlugin"],
-   `run_all` container miss -> Int. Needs a fixpoint pre-pass over the function
-   body (single-pass emission cannot see the later evidence). Repro lesson:
-   `tmp/lessons/L6-40.xi` (extract via `lessons/**/Lx-yy.json` `.solution`).
-2. **L5-40 (Map container-payload ABI)** -- circuit-broken after 3 attempts;
+1. **L5-40 (Map container-payload ABI)** -- circuit-broken after 3 attempts;
    `docs/failed_attempts.md` has the full evidence. Needs ONE decision: the
    element representation for container-typed Vec elements (inline header vs
    8-byte box handle) applied consistently across `record_field_vec_elem`, the
    index read path, `emit_elem_payload_load`, push and the Option/Result ctor.
-3. **L3-50 (Result tuple payload via `?`)** -- bisected: `let (a,b) =
+2. **L3-50 (Result tuple payload via `?`)** -- bisected: `let (a,b) =
    split_two(rest)?` binds garbage and `t.0`/`t.1` read 0, while
    `split_two(rest).unwrap().1` is correct. Try-payload tuple typing /
    destructuring is the defect. Repro: `tmp/lessons/L3-50.xi`.
-4. **L8-14** -- deterministic `0xC000001D` trap in the Map[Str,Str] morse flow
+3. **L8-14** -- deterministic `0xC000001D` trap in the Map[Str,Str] morse flow
    (`tmp/lessons/L8-14.xi`). Not yet root-caused; Map[Str,Str] get/unwrap is
    now correct in isolation, so the trap is downstream (decode/show path).
-5. **Perf (playground request #2)** -- reachable-function-only peek in
+4. **Perf (playground request #2)** -- reachable-function-only peek in
    `xiom-check::collect_external_decls`: the auto-injected `xiom.fmt` closure
    costs 3-6 s front-end even without `.to_str()`. Shape: peek the
    checker-resolved module shallow, run the reachability filter, then pull the
    deps named by the SELECTED decls to a fixpoint. Gate with the full e2e.
-6. **C3 (script-mode flags) / C6 (stdlib package.xi)** -- need an exact
+5. **C3 (script-mode flags) / C6 (stdlib package.xi)** -- need an exact
    playground repro before changing semantics; currently documented as
    deferred.
-7. **Stdlib-lane side (relay, not compiler work)**: probe-corpus curation
+6. **Stdlib-lane side (relay, not compiler work)**: probe-corpus curation
    (157/175 - triage historical probes), optional io/fs coverage wave, and the
    `STDLIB_VERSION` bump so Windows links the `xiom_env_set/unset` shim
    (pinned checkout's `os/env.xi` still calls `unsetenv` directly).
@@ -70,18 +63,18 @@ mcp 39/39. Everything below is committed and pushed.
 > Continue the XIOM compiler-lane campaign in `E:\xiom-lang\xiom` (branch
 > `main`, unpushed convention: push only when asked). Read the top section of
 > SESSION.md ("CONTINUATION HANDOFF") and docs/COMPILER_BUGS.md before
-> touching code. All R-bug batches through R54 are fixed and pushed; the
-> remaining compiler bugs are L6-40 (fixpoint inference pre-pass), L5-40
-> (container-element representation decision; see docs/failed_attempts.md),
-> L3-50 (Result tuple payload via `?`), L8-14 (Map[Str,Str] morse trap), the
-> perf `xiom.fmt` reachable-only peek, and C3/C6 (need a playground repro).
+> touching code. All R-bug batches through R55 are fixed and pushed; the
+> remaining compiler bugs are L5-40 (container-element representation
+> decision; see docs/failed_attempts.md), L3-50 (Result tuple payload via
+> `?`), L8-14 (Map[Str,Str] morse trap), the perf `xiom.fmt` reachable-only
+> peek, and C3/C6 (need a playground repro).
 > Work repro-first: playground lessons are extracted from
 > `tmp/playground/lessons/**/Lx-yy.json` (`.solution`), run with
 > `target\debug\xiom.exe -o tmp\lessons\Lx-yy.exe tmp\lessons\Lx-yy.xi`.
 > Rebuild `cargo build -p xiom` after checker/codegen changes, add an e2e lock
 > (`e2e_mNNN_*` fixture under `tests/regression/` + the CI lock line in
 > `.github/workflows/ci.yml`), and run the full e2e once per batch. Never
-> rebuild while an e2e is running. Start with L6-40 unless the user says
+> rebuild while an e2e is running. Start with L5-40 unless the user says
 > otherwise.
 
 # XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-83 in docs/SESSION.md)
@@ -233,6 +226,18 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   the pinned stdlib's `os/env.xi` still calls `unsetenv` directly, so the
   probe links on Windows only after the pin moves to the
   `xiom_env_set/unset` shim revision (bump `STDLIB_VERSION`).
+- **R55 / L6-40 FIXED (2026-09-21)**: module-scoped generic factory whose T
+  is fixed only by a LATER call (`var runner = plugin_runner.create();
+  plugin_runner.add_plugin(&mut runner, EchoPlugin{});`) mono'd `run_all` with
+  T=Int -> C001. Added a bounded function-body evidence pre-pass
+  (`prepass_generic_type_evidence`, decl.rs) that runs before each body is
+  emitted, records the factory call site's concrete types (callee byte-span
+  key, consumed before the `0` fallback) and seeds the binding's container
+  type; `infer_call_return_xiom` resolves module-qualified generic returns
+  from the recorded instantiation or the pre-pass evidence (the `var` arm
+  records the binding before compiling its initializer). Lock
+  `e2e_m110_generic_factory_evidence` (fixture
+  `tests/regression/m110_generic_factory_evidence`); full e2e 2358/2358.
 - **R53 registry metadata consumption (2026-09-21, registry relay)**:
   `xiom-pkg` now consumes the server-extracted package metadata
   (`license`, `categories`, `keywords`, `repository`) in the index and

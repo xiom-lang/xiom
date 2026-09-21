@@ -1695,6 +1695,13 @@ impl IrEmitter {
             }
         }
 
+        // L6-40: resolve later-statement evidence for zero-argument generic
+        // factories BEFORE emission -- single-pass emission cannot see the
+        // later `mod.add(&mut r, EchoPlugin{})` that fixes T.
+        if let Some(body) = fd.body.as_ref() {
+            self.prepass_generic_type_evidence(body);
+        }
+
         // Compile body
         if let Some(body) = fd.body.as_ref() {
             self.compile_block(body, fd.return_type.is_some())?;
@@ -2049,6 +2056,329 @@ impl IrEmitter {
             }
             TopDecl::Type(td) => {
                 for f in &td.fields { out.push(f.ty.clone()); }
+            }
+            _ => {}
+        }
+    }
+
+    /// L6-40 (playground C17 residue): bounded evidence pre-pass over a
+    /// function body. Single-pass emission cannot see the argument evidence
+    /// that fixes a module-scoped generic factory's type parameter
+    /// (`var runner = plugin_runner.create();` has no local evidence;
+    /// `plugin_runner.add_plugin(&mut runner, EchoPlugin{})` fixes T).
+    ///
+    /// For every zero-argument generic call bound to a local, scan the body
+    /// for a later call that passes the local at a param of the factory's
+    /// RETURN container while naming the generic parameter concretely at
+    /// another param. The resolved concrete types are recorded for the call
+    /// site and the local's container type is seeded, so emission selects the
+    /// right monomorphisation instead of the `0` fallback (which then made
+    /// `run_all` infer T=Int -> C001 "Int does not implement Plugin").
+    ///
+    /// Conservative by construction: only single-type-param factories with a
+    /// generic return container fire, and only when another argument names
+    /// the type concretely; anything else keeps the historical behavior.
+    fn prepass_generic_type_evidence(&mut self, block: &Block) {
+        let mut calls: Vec<(&Expr, &Vec<Expr>)> = Vec::new();
+        Self::collect_calls_block(block, &mut calls);
+        let mut bindings: Vec<(&Ident, &Expr)> = Vec::new();
+        // Top-level bindings only: seeding a name from a nested block could
+        // mistype a same-named variable elsewhere in the function.
+        for s in &block.stmts {
+            if let StmtOrExpr::Stmt(Stmt::Let(id, _, init, _))
+            | StmtOrExpr::Stmt(Stmt::Var(id, _, init, _)) = s
+            {
+                bindings.push((id, init));
+            }
+        }
+        if bindings.is_empty() || calls.is_empty() {
+            return;
+        }
+        let mut var_types: HashMap<String, String> = HashMap::new();
+        let mut call_types: HashMap<(u32, u32), Vec<String>> = HashMap::new();
+        // Bounded fixpoint: a resolved binding can feed later iterations
+        // (`var a = mod.make(); var b = mod.wrap(&a, X{})` chains).
+        for _ in 0..8 {
+            let mut changed = false;
+            for (name, init) in &bindings {
+                if var_types.contains_key(&name.name) {
+                    continue;
+                }
+                let (callee, args) = match init {
+                    Expr::Paren(inner, _) => match inner.as_ref() {
+                        Expr::Call(f, a, _) => (f.as_ref(), a),
+                        _ => continue,
+                    },
+                    Expr::Call(f, a, _) => (f.as_ref(), a),
+                    _ => continue,
+                };
+                if !args.is_empty() {
+                    continue;
+                }
+                let Some((_key, fd)) = self.prepass_resolve_generic(callee) else { continue };
+                let tparams: Vec<String> = fd.generics.iter()
+                    .filter(|g| !g.is_const)
+                    .map(|g| g.name.name.clone())
+                    .collect();
+                if tparams.len() != 1 {
+                    continue;
+                }
+                let tp = &tparams[0];
+                let Some(base) = Self::prepass_return_container_base(fd.return_type.as_ref(), tp) else { continue };
+                for (callee2, args2) in &calls {
+                    let Some((_key2, fd2)) = self.prepass_resolve_generic(callee2) else { continue };
+                    let Some(idx) = args2.iter().position(|a| Self::prepass_arg_is_var(a, &name.name)) else { continue };
+                    let Some(p2) = fd2.params.get(idx) else { continue };
+                    if !Self::prepass_param_matches_container(&p2.ty, &base, tp) {
+                        continue;
+                    }
+                    let mut concrete: Option<String> = None;
+                    for (j, p) in fd2.params.iter().enumerate() {
+                        if j == idx {
+                            continue;
+                        }
+                        let Some(a2) = args2.get(j) else { continue };
+                        if Self::extract_type_arg_names(&p.ty).iter().any(|a| a == tp) {
+                            if let Some(t) = self.prepass_arg_concrete_type(a2, &var_types) {
+                                concrete = Some(t);
+                                break;
+                            }
+                        }
+                    }
+                    if let Some(t) = concrete {
+                        var_types.insert(name.name.clone(), format!("{base}[{t}]"));
+                        let sp = callee.span();
+                        if sp.byte_start != 0 || sp.byte_end != 0 {
+                            call_types.insert((sp.byte_start, sp.byte_end), vec![t]);
+                        }
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        for (var, ty) in &var_types {
+            self.local.local_xiom_types.entry(var.clone()).or_insert_with(|| ty.clone());
+        }
+        self.mono.prepass_call_types.extend(call_types);
+    }
+
+    /// Resolve a callee expression to a generic decl (pre-pass; mirrors the
+    /// module/instance key resolution used at emission, without emission
+    /// side effects).
+    fn prepass_resolve_generic(&self, func: &Expr) -> Option<(String, FnDecl)> {
+        let key = match func {
+            Expr::Paren(inner, _) => return self.prepass_resolve_generic(inner),
+            Expr::Ident(id) => id.name.clone(),
+            Expr::Field(recv, f, sp) => {
+                let recv_ident = match recv.as_ref() {
+                    Expr::Ident(i) => i.clone(),
+                    _ => return None,
+                };
+                if self.lookup_local(&recv_ident.name).is_some()
+                    || self.local.local_xiom_types.contains_key(&recv_ident.name)
+                    || self.local.module_globals.contains_key(&recv_ident.name)
+                {
+                    let base = self.local.local_xiom_types.get(&recv_ident.name)
+                        .map(|t| Self::parse_generic_type_string(t).0)
+                        .unwrap_or_else(|| recv_ident.name.clone());
+                    format!("{base}.{}", f.name)
+                } else {
+                    let resolved = self.resolve_catalog_call(recv, &f.name, *sp)
+                        .unwrap_or_else(|| self.resolve_module_call(recv, &f.name));
+                    if resolved.is_empty() {
+                        format!("{}.{}", recv_ident.name, f.name)
+                    } else {
+                        resolved
+                    }
+                }
+            }
+            _ => return None,
+        };
+        self.find_generic_decl(&key)
+    }
+
+    /// The factory's declared return container base when it mentions `tp`
+    /// (`Runner[T]` -> `Runner`); None for non-container returns.
+    fn prepass_return_container_base(ret: Option<&Type>, tp: &str) -> Option<String> {
+        match ret? {
+            Type::Named(id, args)
+                if args.iter().any(|a| Self::type_from_ast(a) == tp) =>
+            {
+                Some(id.name.clone())
+            }
+            _ => None,
+        }
+    }
+
+    /// True when `ty` is `base[..tp..]`, optionally behind a reference.
+    fn prepass_param_matches_container(ty: &Type, base: &str, tp: &str) -> bool {
+        let inner = match ty {
+            Type::Ref(i) | Type::MutRef(i) | Type::Ptr(i) => i.as_ref(),
+            other => other,
+        };
+        match inner {
+            Type::Named(id, args) => {
+                let leaf = id.name.rsplit('.').next().unwrap_or(id.name.as_str());
+                (leaf == base || id.name == base)
+                    && args.iter().any(|a| Self::type_from_ast(a) == tp)
+            }
+            _ => false,
+        }
+    }
+
+    /// True when `arg` is the bare local `name` or a reference to it.
+    fn prepass_arg_is_var(arg: &Expr, name: &str) -> bool {
+        match arg {
+            Expr::Ident(id) => id.name == name,
+            Expr::Ref(i, _) | Expr::MutRef(i, _) => {
+                matches!(i.as_ref(), Expr::Ident(id) if id.name == name)
+            }
+            Expr::Unary(op, i, _) if matches!(op, UnaryOp::Ref | UnaryOp::MutRef) => {
+                matches!(i.as_ref(), Expr::Ident(id) if id.name == name)
+            }
+            Expr::Paren(i, _) => Self::prepass_arg_is_var(i, name),
+            _ => false,
+        }
+    }
+
+    /// Concrete XIOM type named by an evidence argument, using the pre-pass
+    /// facts plus literals/struct literals/known locals/returns.
+    fn prepass_arg_concrete_type(&self, arg: &Expr, var_types: &HashMap<String, String>) -> Option<String> {
+        match arg {
+            Expr::Paren(e, _) | Expr::Ref(e, _) | Expr::MutRef(e, _) => {
+                self.prepass_arg_concrete_type(e, var_types)
+            }
+            Expr::Unary(op, e, _) if matches!(op, UnaryOp::Ref | UnaryOp::MutRef) => {
+                self.prepass_arg_concrete_type(e, var_types)
+            }
+            Expr::Struct(id, _, _, _) => Some(id.name.clone()),
+            Expr::Int(..) => Some("Int".to_string()),
+            Expr::Float(..) => Some("Float64".to_string()),
+            Expr::Bool(..) => Some("Bool".to_string()),
+            Expr::Str(..) => Some("Str".to_string()),
+            Expr::Char(..) => Some("Char".to_string()),
+            Expr::Ident(id) => var_types.get(&id.name).cloned()
+                .or_else(|| self.local.local_xiom_types.get(&id.name).cloned())
+                .map(|t| Self::parse_generic_type_string(&t).0),
+            Expr::Call(..) | Expr::GenericCall(..) => self.infer_call_return_xiom(arg)
+                .map(|t| Self::parse_generic_type_string(&t).0),
+            _ => None,
+        }
+    }
+
+    /// Recursively collect every Call/GenericCall in a block.
+    fn collect_calls_block<'a>(block: &'a Block, out: &mut Vec<(&'a Expr, &'a Vec<Expr>)>) {
+        for s in &block.stmts {
+            match s {
+                StmtOrExpr::Stmt(st) => Self::collect_calls_stmt(st, out),
+                StmtOrExpr::Expr(e) => Self::collect_calls_expr(e, out),
+            }
+        }
+    }
+
+    fn collect_calls_stmt<'a>(stmt: &'a Stmt, out: &mut Vec<(&'a Expr, &'a Vec<Expr>)>) {
+        match stmt {
+            Stmt::Let(_, _, init, _) | Stmt::Var(_, _, init, _) | Stmt::Destructure(_, init, _) => {
+                Self::collect_calls_expr(init, out);
+            }
+            Stmt::Assign(l, r, _) => {
+                Self::collect_calls_expr(l, out);
+                Self::collect_calls_expr(r, out);
+            }
+            Stmt::Return(Some(e), _) | Stmt::Expr(e, _) => Self::collect_calls_expr(e, out),
+            Stmt::If(c, b, elifs, eb, _) => {
+                Self::collect_calls_expr(c, out);
+                Self::collect_calls_block(b, out);
+                for (c2, b2) in elifs {
+                    Self::collect_calls_expr(c2, out);
+                    Self::collect_calls_block(b2, out);
+                }
+                if let Some(b2) = eb {
+                    Self::collect_calls_block(b2, out);
+                }
+            }
+            Stmt::While(c, b, _, _, _) => {
+                Self::collect_calls_expr(c, out);
+                Self::collect_calls_block(b, out);
+            }
+            Stmt::For(_, it, b, _, _) => {
+                Self::collect_calls_expr(it, out);
+                Self::collect_calls_block(b, out);
+            }
+            Stmt::Match(scr, arms, _) => {
+                Self::collect_calls_expr(scr, out);
+                for arm in arms {
+                    match &arm.body {
+                        MatchBody::Block(b) => Self::collect_calls_block(b, out),
+                        MatchBody::Expr(e) => Self::collect_calls_expr(e, out),
+                    }
+                }
+            }
+            Stmt::Spawn(b, _, _) | Stmt::Defer(b, _) => Self::collect_calls_block(b, out),
+            Stmt::Assert(e, m, _) => {
+                Self::collect_calls_expr(e, out);
+                if let Some(m) = m {
+                    Self::collect_calls_expr(m, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_calls_expr<'a>(expr: &'a Expr, out: &mut Vec<(&'a Expr, &'a Vec<Expr>)>) {
+        match expr {
+            Expr::Call(f, args, _) | Expr::GenericCall(f, _, args, _) => {
+                out.push((f.as_ref(), args));
+                Self::collect_calls_expr(f, out);
+                for a in args {
+                    Self::collect_calls_expr(a, out);
+                }
+            }
+            Expr::Binary(a, _, b, _) => {
+                Self::collect_calls_expr(a, out);
+                Self::collect_calls_expr(b, out);
+            }
+            Expr::Unary(_, e, _) | Expr::Paren(e, _) | Expr::Ref(e, _) | Expr::MutRef(e, _)
+            | Expr::Some(e, _) | Expr::Ok(e, _) | Expr::Err(e, _) | Expr::Try(e, _)
+            | Expr::As(e, _, _) => Self::collect_calls_expr(e, out),
+            Expr::Field(o, _, _) => Self::collect_calls_expr(o, out),
+            Expr::Index(a, i, _) => {
+                Self::collect_calls_expr(a, out);
+                Self::collect_calls_expr(i, out);
+            }
+            Expr::If(c, b, elifs, eb, _) => {
+                Self::collect_calls_expr(c, out);
+                Self::collect_calls_block(b, out);
+                for (c2, b2) in elifs {
+                    Self::collect_calls_expr(c2, out);
+                    Self::collect_calls_block(b2, out);
+                }
+                if let Some(b2) = eb {
+                    Self::collect_calls_block(b2, out);
+                }
+            }
+            Expr::Match(scr, arms, _) => {
+                Self::collect_calls_expr(scr, out);
+                for arm in arms {
+                    match &arm.body {
+                        MatchBody::Block(b) => Self::collect_calls_block(b, out),
+                        MatchBody::Expr(e) => Self::collect_calls_expr(e, out),
+                    }
+                }
+            }
+            Expr::Tuple(items, _) | Expr::Array(items, _) => {
+                for i in items {
+                    Self::collect_calls_expr(i, out);
+                }
+            }
+            Expr::Struct(_, elems, _, _) => {
+                for (_, e) in elems {
+                    Self::collect_calls_expr(e, out);
+                }
             }
             _ => {}
         }

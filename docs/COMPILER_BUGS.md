@@ -7414,13 +7414,23 @@ verification, with repro commands using the playground lesson sources
 
 **STILL OPEN**:
 
-- **L6-40 (C17 interface residue)**: module-scoped `Runner[T: Plugin]`
-  `create()` has no argument evidence at its call site; T is only fixed by
-  the LATER `add_plugin(&mut runner, EchoPlugin{})`. Codegen inference is
-  single-pass (emission order), so this needs a fixpoint pre-pass over the
-  function body (or checker-side inference feeding codegen). Trace evidence:
-  `create` concrete=[] (emits the `0` fallback), `add_plugin`
-  concrete=["EchoPlugin"], `run_all` container miss -> Int -> C001.
+- **L6-40 (C17 interface residue)**: FIXED (R55) -- module-scoped
+  `Runner[T: Plugin]` `create()` has no argument evidence at its call site; T
+  is fixed only by the LATER `add_plugin(&mut runner, EchoPlugin{})`. Codegen
+  inference is single-pass, so `create` emitted the `0` fallback and `run_all`
+  mono'd T=Int -> C001 "Int does not implement Plugin". A bounded
+  function-body evidence pre-pass (`prepass_generic_type_evidence`, decl.rs)
+  now runs before each body is emitted: for a zero-argument generic call bound
+  to a local it scans the body for a later call passing that local at a param
+  of the factory's RETURN container while naming the type parameter
+  concretely at another param, records the call site's concrete types (keyed
+  by the callee byte-span, consumed in `compile_call_with_types` before the
+  `0` fallback) and seeds the binding's container type. `infer_call_return_xiom`
+  also resolves module-qualified generic returns from the recorded
+  instantiation or the pre-pass evidence (the `var` arm records the binding
+  BEFORE compiling its initializer, so the pre-pass map is the fallback
+  source). Fixture `tests/regression/m110_generic_factory_evidence`, lock
+  `e2e_m110_generic_factory_evidence` + CI line. Full e2e 2358/2358.
 - **R52 packages relay**: FIXED --
   (1) `use xiom.test; assert(1 == 1, "…")` bound the transitively-imported
   PRIVATE `core.assert` (keep-first bare alias) instead of the imported

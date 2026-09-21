@@ -307,6 +307,14 @@ pub struct MonoContext {
     pub fn_typed_params: HashMap<String, Vec<(usize, String)>>,
     /// Tracked generic instantiations: (fn_original_name, vec![concrete_type_names])
     pub generic_instantiations: Vec<(String, Vec<String>)>,
+    /// L6-40: call-site concrete type args resolved by the function-body
+    /// evidence pre-pass, keyed by the CALLEE expression span
+    /// (byte_start, byte_end). A zero-argument generic factory
+    /// (`var r = mod.create()`) has no local evidence at its call site; the
+    /// later `mod.add(&mut r, EchoPlugin{})` fixes T. The pre-pass records it
+    /// here so emission picks the right monomorphisation instead of the `0`
+    /// fallback.
+    pub prepass_call_types: HashMap<(u32, u32), Vec<String>>,
     /// Const-generic value map: monomorphised_fn_name -> {const_param_name -> value}
     pub const_value_map: HashMap<String, HashMap<String, i64>>,
     /// Specialized monomorphised function names already emitted

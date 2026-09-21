@@ -3982,6 +3982,20 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             }
                         }
                     }
+                    // L6-40: a zero-argument generic factory has no local
+                    // evidence at its call site; the function-body evidence
+                    // pre-pass may have resolved it from a later call
+                    // (`add_plugin(&mut runner, EchoPlugin{})` fixes T). Without
+                    // this the call emitted the `0` fallback and the container
+                    // chain defaulted to Int (C001 bound failure).
+                    if concrete_types.is_empty() {
+                        let sp = func.span();
+                        if sp.byte_start != 0 || sp.byte_end != 0 {
+                            if let Some(pre) = self.mono.prepass_call_types.get(&(sp.byte_start, sp.byte_end)) {
+                                concrete_types = pre.clone();
+                            }
+                        }
+                    }
                     if !concrete_types.is_empty() {
                         let specialized_name = self.monomorphised_fn_name(&fn_key, &concrete_types);
                         // Record this instantiation if not already tracked
