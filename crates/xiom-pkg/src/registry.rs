@@ -233,6 +233,15 @@ pub(crate) struct RegistryPackage {
     pub(crate) description: String,
     #[serde(default)]
     pub(crate) repository: String,
+    /// R53 (registry relay): server-extracted metadata from package.xi.
+    /// Field names match the index wire shape exactly.
+    #[serde(default)]
+    pub(crate) license: String,
+    #[serde(default)]
+    pub(crate) categories: Vec<String>,
+    #[serde(default)]
+    pub(crate) keywords: Vec<String>,
+    #[serde(default)]
     pub(crate) latest: String,
     /// AUDIT #4 FIX: the server publishes per-version metadata INCLUDING
     /// the tarball sha256 (registry/server.js writes `versions[version] =
@@ -349,23 +358,169 @@ pub(crate) fn fetch_registry_index(registry: &str) -> Result<RegistryIndex, Stri
     Ok(index)
 }
 
-pub(crate) fn search_registry(query: &str, registry: &str) -> Result<(), String> {
-    let index = fetch_registry_index(registry)?;
+/// R53: pure filter used by `search_registry` (unit-testable offline).
+/// `category` filters by exact category name (case-insensitive); the text
+/// query matches name, description, keywords and categories.
+pub(crate) fn filter_packages<'a>(
+    packages: &'a HashMap<String, RegistryPackage>,
+    query: &str,
+    category: Option<&str>,
+) -> Vec<(&'a String, &'a RegistryPackage)> {
     let q = query.to_lowercase();
-    let mut found = 0;
-    println!("Searching '{}' in {}...", query, registry);
-    for (name, pkg) in &index.packages {
-        if q.is_empty() || name.to_lowercase().contains(&q) || pkg.description.to_lowercase().contains(&q) {
-            println!("  {} v{}", name, pkg.latest);
-            println!("    {}", pkg.description);
-            if !pkg.repository.is_empty() {
-                println!("    repo: {}", pkg.repository);
+    let cat = category.map(|c| c.to_lowercase());
+    let mut matches: Vec<(&String, &RegistryPackage)> = packages.iter()
+        .filter(|(name, pkg)| {
+            if let Some(ref c) = cat {
+                if !pkg.categories.iter().any(|pc| pc.to_lowercase() == *c) {
+                    return false;
+                }
             }
-            println!();
-            found += 1;
+            q.is_empty()
+                || name.to_lowercase().contains(&q)
+                || pkg.description.to_lowercase().contains(&q)
+                || pkg.keywords.iter().any(|k| k.to_lowercase().contains(&q))
+                || pkg.categories.iter().any(|c| c.to_lowercase().contains(&q))
+        })
+        .collect();
+    matches.sort_by(|a, b| a.0.cmp(b.0));
+    matches
+}
+
+/// R53 (registry relay): `xiom pkg search` -- keyword/category aware listing.
+/// `category` filters the locally fetched index (no server change needed);
+/// keywords and categories participate in the text match.
+pub(crate) fn search_registry(query: &str, registry: &str, category: Option<&str>, json: bool) -> Result<(), String> {
+    let index = fetch_registry_index(registry)?;
+    let matches = filter_packages(&index.packages, query, category);
+    if json {
+        let packages: Vec<serde_json::Value> = matches.iter()
+            .map(|(name, pkg)| package_summary_json(name, pkg))
+            .collect();
+        let out = serde_json::json!({
+            "query": query,
+            "category": category.unwrap_or(""),
+            "packages": packages,
+        });
+        println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+        return Ok(());
+    }
+    println!("Searching '{}' in {}...", query, registry);
+    for (name, pkg) in &matches {
+        println!("  {} v{}", name, pkg.latest);
+        if !pkg.description.is_empty() {
+            println!("    {}", pkg.description);
+        }
+        if !pkg.categories.is_empty() {
+            println!("    categories: {}", pkg.categories.join(", "));
+        }
+        if !pkg.keywords.is_empty() {
+            println!("    keywords: {}", pkg.keywords.join(", "));
+        }
+        if !pkg.license.is_empty() {
+            println!("    license: {}", pkg.license);
+        }
+        if !pkg.repository.is_empty() {
+            println!("    repo: {}", pkg.repository);
+        }
+        println!();
+    }
+    println!("{} package(s) found.", matches.len());
+    Ok(())
+}
+
+/// Wire-shaped package summary (field names mirror the registry index).
+fn package_summary_json(name: &str, pkg: &RegistryPackage) -> serde_json::Value {
+    serde_json::json!({
+        "name": name,
+        "description": pkg.description,
+        "categories": pkg.categories,
+        "keywords": pkg.keywords,
+        "latest": pkg.latest,
+        "license": pkg.license,
+        "repository": pkg.repository,
+    })
+}
+
+/// R53: fetch `/packages/:name` -- tolerates a bare package object or a
+/// `{"package": {...}}` wrapper.
+pub(crate) fn fetch_package_metadata(registry: &str, name: &str) -> Result<RegistryPackage, String> {
+    let url = format!("{registry}/packages/{name}");
+    let body = http_get(&url)?;
+    let root: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| format!("Invalid package metadata: {e}"))?;
+    let obj = match root.get("package") {
+        Some(p) if p.is_object() => p.clone(),
+        _ => root,
+    };
+    serde_json::from_value::<RegistryPackage>(obj)
+        .map_err(|e| format!("Invalid package metadata for '{name}': {e}"))
+}
+
+/// R53: `xiom pkg info <name>[@version]` (+ `--json` for the MCP tool).
+pub(crate) fn package_info(name: &str, version: Option<&str>, registry: &str, json: bool) -> Result<(), String> {
+    let trimmed = name.trim_end_matches('/');
+    let pkg = fetch_package_metadata(registry, trimmed)?;
+    if json {
+        let versions: Vec<serde_json::Value> = pkg.versions.iter().map(|v| serde_json::json!({
+            "version": v.version,
+            "sha256": v.sha256,
+            "signature": v.signature,
+            "publicKey": v.public_key,
+            "yanked": v.yanked,
+            "dependencies": v.dependencies,
+        })).collect();
+        let out = serde_json::json!({
+            "name": trimmed,
+            "description": pkg.description,
+            "categories": pkg.categories,
+            "keywords": pkg.keywords,
+            "license": pkg.license,
+            "repository": pkg.repository,
+            "latest": pkg.latest,
+            "versions": versions,
+        });
+        println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+        return Ok(());
+    }
+    println!("{} v{}", trimmed, if pkg.latest.is_empty() { "?" } else { &pkg.latest });
+    if !pkg.description.is_empty() {
+        println!("  {}", pkg.description);
+    }
+    if !pkg.categories.is_empty() {
+        println!("  categories: {}", pkg.categories.join(", "));
+    }
+    if !pkg.keywords.is_empty() {
+        println!("  keywords: {}", pkg.keywords.join(", "));
+    }
+    if !pkg.license.is_empty() {
+        println!("  license: {}", pkg.license);
+    }
+    if !pkg.repository.is_empty() {
+        println!("  repository: {}", pkg.repository);
+    }
+    if let Some(v) = version {
+        match pkg.versions.iter().find(|rv| rv.version == v) {
+            Some(rv) => {
+                println!("  version {}:", rv.version);
+                println!("    sha256: {}", if rv.sha256.is_empty() { "(none)" } else { &rv.sha256 });
+                println!("    signature: {}", if rv.signature.is_empty() { "(unsigned)" } else { &rv.signature });
+            }
+            None => eprintln!("xiom pkg info: version '{v}' not found for '{trimmed}'"),
         }
     }
-    println!("{} package(s) found.", found);
+    println!("  versions:");
+    let mut vs: Vec<&RegistryVersion> = pkg.versions.iter().collect();
+    vs.sort_by(|a, b| a.version.cmp(&b.version));
+    for rv in vs {
+        let yanked = if rv.yanked { " (yanked)" } else { "" };
+        let digest = if rv.sha256.is_empty() {
+            "no digest".to_string()
+        } else {
+            format!("sha256 {}", &rv.sha256[..rv.sha256.len().min(12)])
+        };
+        let sig = if rv.signature.is_empty() { "unsigned" } else { "signed" };
+        println!("    {} -- {}, {}{}", rv.version, digest, sig, yanked);
+    }
     Ok(())
 }
 
@@ -1040,6 +1195,9 @@ mod tests {
         RegistryPackage {
             description: String::new(),
             repository: String::new(),
+            license: String::new(),
+            categories: Vec::new(),
+            keywords: Vec::new(),
             latest: latest.to_string(),
             versions: versions.iter().map(|v| RegistryVersion {
                 version: v.to_string(),
@@ -1071,11 +1229,50 @@ mod tests {
                 (name.to_string(), RegistryPackage {
                     description: String::new(),
                     repository: String::new(),
+                    license: String::new(),
+                    categories: Vec::new(),
+                    keywords: Vec::new(),
                     latest: latest.to_string(),
                     versions: versions.clone(),
                 })
             }).collect(),
         }
+    }
+
+    #[test]
+    fn search_filters_by_category_and_keywords() {
+        let mut packages = HashMap::new();
+        packages.insert("render".to_string(), RegistryPackage {
+            description: "Rendering helpers".to_string(),
+            repository: String::new(),
+            license: "MIT".to_string(),
+            categories: vec!["graphics".to_string()],
+            keywords: vec!["gpu".to_string(), "shader".to_string()],
+            latest: "1.0.0".to_string(),
+            versions: vec![],
+        });
+        packages.insert("cli".to_string(), RegistryPackage {
+            description: "Command line tools".to_string(),
+            repository: String::new(),
+            license: String::new(),
+            categories: vec!["tools".to_string()],
+            keywords: vec!["terminal".to_string()],
+            latest: "0.1.0".to_string(),
+            versions: vec![],
+        });
+        // text match on a KEYWORD
+        let hits = filter_packages(&packages, "gpu", None);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].0, "render");
+        // text match on a CATEGORY
+        let hits = filter_packages(&packages, "tools", None);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].0, "cli");
+        // category filter is case-insensitive and combines with an empty query
+        let hits = filter_packages(&packages, "", Some("GRAPHICS"));
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].0, "render");
+        assert!(filter_packages(&packages, "", Some("nope")).is_empty());
     }
 
     #[test]
@@ -1101,6 +1298,9 @@ mod tests {
         let p = RegistryPackage {
             description: String::new(),
             repository: String::new(),
+            license: String::new(),
+            categories: Vec::new(),
+            keywords: Vec::new(),
             latest: "1.2.0".to_string(),
             versions: vec![
                 version("1.0.0", &[], false),

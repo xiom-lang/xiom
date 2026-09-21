@@ -141,6 +141,19 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   wired. Pending: stdlib lane green -> bump `STDLIB_VERSION` in the release
   PR -> tag `v0.61.0`; optional rewrite of the protected tags
   `v0.60.0`/`v0.60.1` (old objects remain on the remote).
+- **R53 registry metadata consumption (2026-09-21, registry relay)**:
+  `xiom-pkg` now consumes the server-extracted package metadata
+  (`license`, `categories`, `keywords`, `repository`) in the index and
+  `/packages/:name`; `search` matches keywords/categories, prints them, and
+  takes `--category <c>` (local filter) plus `--json`; new `info
+  <pkg>[@version]` renders description/categories/keywords/license/repo,
+  the pinned version's digest/signature and the sorted version list (human
+  and JSON); publish prints 201-body `warnings`. Manifest parsing tolerates
+  inline and multi-line metadata arrays (locked by test). MCP gained
+  `search_packages({query?, category?})` and `package_info(name)` (16 tools
+  total) invoking `xiom-pkg --json`, returning the exact index field names.
+  Tests: pkg 67/67, mcp 39/39. Live smoke: search/info JSON + `xiom pkg`
+  dispatch verified against the staging registry.
 - **R52 payload/binding batch (2026-09-19, playground audit §19)**: closed
   the remaining 11 nondeterministic/pointer-print lessons (L3-02,
   L5-09/20/24/26/29/31/35/36/43) plus L5-21 via a family of type-erasure

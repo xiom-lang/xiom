@@ -603,6 +603,16 @@ fn list_tools() -> Vec<ToolDef> {
             description: "Runs xiom-verify on source code: checks function contracts (requires/ensures) with Z3 SMT solver and returns proof results with counterexamples. Use to verify 'if it compiles, it won't crash' guarantees.".into(),
             input_schema: json!({"type":"object","properties":{"file":{"type":"string","description":"Path to XIOM source file with contracts"},"check":{"type":"boolean","description":"Run Z3 to verify (requires z3 on PATH)","default":false}},"required":["file"]}),
         },
+        ToolDef {
+            name: "search_packages".into(),
+            description: "Search the XIOM package registry (read-only, no token). Returns name, description, categories, keywords, latest, license and repository for each match. The optional query matches name, description, keywords and categories; the optional category filters exactly.".into(),
+            input_schema: json!({"type":"object","properties":{"query":{"type":"string","description":"Text query (matches name, description, keywords, categories)"},"category":{"type":"string","description":"Exact category filter (e.g. graphics)"}}}),
+        },
+        ToolDef {
+            name: "package_info".into(),
+            description: "Fetch registry metadata for one XIOM package (read-only, no token): description, categories, keywords, license, repository, latest, and the version list with sha256 digests and ed25519 signatures, plus per-version dependencies.".into(),
+            input_schema: json!({"type":"object","properties":{"name":{"type":"string","description":"Package name (e.g. xiom.hello)"}},"required":["name"]}),
+        },
     ]
 }
 
@@ -802,6 +812,8 @@ fn call_tool(name: &str, params: &Value) -> Result<Value, String> {
         "compile_and_fix" => tool_compile_and_fix(params).map(|s| json!({ "content": [{ "type": "text", "text": s }] })),
         "hot_reload_watch" => tool_hot_reload_watch(params).map(|s| json!({ "content": [{ "type": "text", "text": s }] })),
         "verify_contracts" => tool_verify_contracts(params).map(|s| json!({ "content": [{ "type": "text", "text": s }] })),
+        "search_packages" => tool_search_packages(params).map(|v| json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default() }] })),
+        "package_info" => tool_package_info(params).map(|v| json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default() }] })),
         "xiom_cheatsheet" => tool_xiom_cheatsheet(params).map(|s| json!({ "content": [{ "type": "text", "text": s }] })),
         "xiom_stdlib_reference" => {
             let module = params["module"].as_str();
@@ -817,6 +829,44 @@ fn call_tool(name: &str, params: &Value) -> Result<Value, String> {
         }
         _ => Err(format!("Unknown tool: {name}")),
     }
+}
+
+/// R53 (registry relay): registry-backed, read-only package tools. They invoke
+/// the sibling `xiom-pkg --json` client so the field names match the registry
+/// index exactly and no HTTP/token logic is duplicated in the MCP server.
+fn tool_search_packages(params: &Value) -> Result<Value, String> {
+    let mut args: Vec<String> = vec!["search".into(), "--json".into()];
+    if let Some(q) = params["query"].as_str() {
+        if !q.is_empty() {
+            args.push(q.to_string());
+        }
+    }
+    if let Some(c) = params["category"].as_str() {
+        if !c.is_empty() {
+            args.push("--category".into());
+            args.push(c.to_string());
+        }
+    }
+    run_pkg_json(&args)
+}
+
+fn tool_package_info(params: &Value) -> Result<Value, String> {
+    let name = params["name"].as_str().ok_or("Missing package name")?;
+    run_pkg_json(&["info".into(), name.to_string(), "--json".into()])
+}
+
+/// Run `xiom-pkg <args>` and parse its JSON stdout.
+fn run_pkg_json(args: &[String]) -> Result<Value, String> {
+    let output = Command::new("xiom-pkg")
+        .args(args)
+        .output()
+        .map_err(|e| format!("Failed to spawn xiom-pkg: {e} (put the XIOM tools on PATH)"))?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("xiom-pkg {} failed: {}", args.join(" "), stderr.trim()));
+    }
+    serde_json::from_str(&stdout).map_err(|e| format!("invalid xiom-pkg JSON output: {e}"))
 }
 
 // ============================================================================
@@ -951,8 +1001,11 @@ mod tests {
     #[test]
     fn test_list_tools_returns_fourteen_tools() {
         let tools = list_tools();
-        assert_eq!(tools.len(), 14, "Production MCP must have 14 tools");
+        // R53: + search_packages / package_info (registry metadata tools).
+        assert_eq!(tools.len(), 16, "Production MCP must have 16 tools");
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
+        assert!(names.contains(&"search_packages"));
+        assert!(names.contains(&"package_info"));
         assert!(names.contains(&"compile_and_analyze"));
         assert!(names.contains(&"explain_error_code"));
         assert!(names.contains(&"get_contract_signature"));

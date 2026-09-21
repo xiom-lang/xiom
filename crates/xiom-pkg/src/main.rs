@@ -15,7 +15,7 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process;
 
-use crate::registry::{registry_url, search_registry, install_from_registry, http_get_binary};
+use crate::registry::{registry_url, search_registry, package_info, install_from_registry, http_get_binary};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -41,10 +41,51 @@ fn main() {
     // 5e.7b: Remote registry commands
     if let Some(cmd) = args.get(1) {
         if cmd == "search" {
-            let query = args.get(2).map(|s| s.as_str()).unwrap_or("");
+            // R53 (registry relay): `--category <c>` filters the locally
+            // fetched index; `--json` emits the wire-shaped result for the
+            // MCP tool. Positional arg = text query.
+            let mut query = String::new();
+            let mut category: Option<String> = None;
+            let mut json = false;
+            let mut i = 2;
+            while i < args.len() {
+                let a = args[i].as_str();
+                if a == "--json" {
+                    json = true;
+                } else if a == "--category" {
+                    if let Some(c) = args.get(i + 1) {
+                        category = Some(c.clone());
+                        i += 1;
+                    }
+                } else if let Some(c) = a.strip_prefix("--category=") {
+                    category = Some(c.to_string());
+                } else if !a.starts_with('-') && query.is_empty() {
+                    query = a.to_string();
+                }
+                i += 1;
+            }
             let registry = registry_url();
-            if let Err(e) = search_registry(query, &registry) {
+            if let Err(e) = search_registry(&query, &registry, category.as_deref(), json) {
                 eprintln!("xiom pkg search: {e}");
+                process::exit(1);
+            }
+            return;
+        }
+        if cmd == "info" {
+            let target = args.get(2).cloned().unwrap_or_default();
+            if target.is_empty() {
+                eprintln!("Usage: xiom pkg info <package>[@version] [--json]");
+                process::exit(1);
+            }
+            let json = args.iter().any(|a| a == "--json");
+            let (name, version) = if let Some(at) = target.find('@') {
+                (&target[..at], Some(&target[at + 1..]))
+            } else {
+                (target.as_str(), None)
+            };
+            let registry = registry_url();
+            if let Err(e) = package_info(name, version, &registry, json) {
+                eprintln!("xiom pkg info: {e}");
                 process::exit(1);
             }
             return;
@@ -663,6 +704,17 @@ fn publish_package(_args: &[String]) {
     match registry::http_post_multipart(&format!("{}/publish", registry), &tarball_path, "package", &fields) {
         Ok(resp) => {
             println!("Published {} v{} -- {}", pkg.name, pkg.version, resp.trim());
+            // R53 (registry relay): a 201 body may carry non-fatal warnings
+            // (e.g. "unknown category 'foo' ignored") -- surface them.
+            if let Ok(body) = serde_json::from_str::<serde_json::Value>(resp.trim()) {
+                if let Some(warnings) = body.get("warnings").and_then(|w| w.as_array()) {
+                    for w in warnings {
+                        if let Some(text) = w.as_str() {
+                            eprintln!("  warning: {text}");
+                        }
+                    }
+                }
+            }
             // Clean up temp file
             let _ = fs::remove_file(&tarball_path);
         }
@@ -1034,7 +1086,8 @@ fn generate_lockfile() {
 fn print_command_usage(cmd: &str) {
     match cmd {
         "install" => eprintln!("Usage: xiom pkg install <package>[@version]"),
-        "search" => eprintln!("Usage: xiom pkg search <query>"),
+        "search" => eprintln!("Usage: xiom pkg search [query] [--category <c>] [--json]"),
+        "info" => eprintln!("Usage: xiom pkg info <package>[@version] [--json]"),
         "publish" => eprintln!("Usage: xiom pkg publish [--token <TOKEN>]"),
         "keygen" => eprintln!("Usage: xiom pkg keygen [--out <PATH>]"),
         "trust" => eprintln!("Usage: xiom pkg trust --registry <URL> --key <ed25519-public-hex>"),
@@ -1051,7 +1104,10 @@ fn print_usage() {
     eprintln!();
     eprintln!("USAGE:");
     eprintln!("  xiom pkg [OPTIONS] --root <dir>");
-    eprintln!("  xiom pkg search [query]           Search registry for packages");
+    eprintln!("  xiom pkg search [query] [--category <c>] [--json]");
+    eprintln!("                                     Search registry (keywords/categories)");
+    eprintln!("  xiom pkg info <pkg>[@version] [--json]");
+    eprintln!("                                     Show package metadata + versions");
     eprintln!("  xiom pkg install <pkg>[@version]  Install package (local packages fallback)");
     eprintln!("  xiom pkg publish                   Publish package to registry");
     eprintln!("  xiom pkg lock                      Generate xiom.lock from package.xi");
@@ -1354,8 +1410,52 @@ deps: { "dep": "^1.5.0" }
         assert_eq!(pkg.deps.get("dep").map(String::as_str), Some("^1.5.0"));
     }
 
-    #[test] fn test_parse_deps_multiline_with_commas() {
-        let manifest = r#"package alg {
+    #[test]
+    fn test_parse_annotated_manifest_tolerates_metadata_arrays() {
+        // R53 (registry relay step 1): server-extracted metadata fields
+        // (categories/keywords/license/repository) may appear inline or as
+        // multi-line arrays in package.xi; they must not disturb
+        // name/version/deps parsing.
+        let manifest = r#"package annotated {
+  name: "annotated";
+  version: "1.2.3";
+  description: "Annotated package";
+  license: "MIT OR Apache-2.0";
+  repository: "https://github.com/xiom-lang/annotated";
+  categories: ["graphics", "math"];
+  keywords: [
+    "rendering",
+    "gpu"
+  ];
+  deps: {
+    "xiom.std": "0.1.0",
+    "lib": "path:../lib"
+  };
+}"#;
+        let pkg = parse_manifest(manifest);
+        assert_eq!(pkg.name, "annotated");
+        assert_eq!(pkg.version, "1.2.3");
+        assert_eq!(pkg.description, "Annotated package");
+        assert_eq!(pkg.deps.len(), 2, "deps: {:?}", pkg.deps);
+        assert_eq!(pkg.deps.get("xiom.std").map(String::as_str), Some("0.1.0"));
+        assert_eq!(pkg.deps.get("lib").map(String::as_str), Some("path:../lib"));
+
+        // Multi-line arrays whose items are not quoted fields.
+        let manifest2 = r#"package annotated2 {
+  name: "annotated2";
+  version: "0.2.0";
+  categories: [
+    graphics
+  ];
+  deps: { "a": "^1.0.0" };
+}"#;
+        let pkg2 = parse_manifest(manifest2);
+        assert_eq!(pkg2.name, "annotated2");
+        assert_eq!(pkg2.version, "0.2.0");
+        assert_eq!(pkg2.deps.len(), 1, "deps: {:?}", pkg2.deps);
+    }
+
+    #[test] fn test_parse_deps_multiline_with_commas() {        let manifest = r#"package alg {
   name: "alg";
   version: "0.1.0";
   deps: {
