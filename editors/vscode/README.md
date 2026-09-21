@@ -30,21 +30,37 @@ Syntax highlighting, autocomplete, go-to-definition, diagnostics, and **debuggin
 
 ## Package as .vsix (Distribution)
 
+The extension ships as ONE universal package -- no platform binaries are
+bundled, so the same VSIX works on Windows, Linux and macOS:
+
 ```bash
-npm install -g @vscode/vsce
 cd editors/vscode
-vsce package
-# Produces xiom-0.11.0.vsix -- install via:
-#   code --install-extension xiom-0.11.0.vsix
+npx --yes @vscode/vsce@3 package --out xiom-vscode-0.12.0.vsix
+code --install-extension xiom-vscode-0.12.0.vsix
 ```
+
+Release publishing is automated: on a `v*` tag, `release.yml` attaches the
+VSIX (plus a SHA256SUMS entry) to the GitHub Release and publishes to the
+VS Code Marketplace (`VSCE_PAT`) and Open VSX (`OVSX_TOKEN`, covers
+VSCodium/Cursor/Gitpod) when those secrets are configured.
+
+## First-Run Toolchain Check
+
+On activation the extension verifies `xiom`, `xiom-lsp` and `xiom-dbg`. When
+any is missing it shows a notification with an install button
+(<https://xiom-lang.org/install>) and registers `XIOM: Recheck toolchain`.
+It never installs anything silently -- the official installer is the single
+install path. **Minimum toolchain: v0.61.0** (the LSP/DAP protocol this
+extension speaks).
 
 ## Binary Resolution Order
 
-Both `xiom-lsp` and `xiom-dbg` are found automatically:
-1. VS Code setting (`xiom.lsp.path` / `xiom.dbg.path`) -- explicit override
+`xiom-lsp` and `xiom-dbg` are resolved at runtime in this order:
+1. VS Code setting (`xiom.lsp.path` / `xiom.debugAdapterPath`) -- explicit override
 2. **`PATH`** -- the installed XIOM toolchain (standard for end users; release zip's `bin/` on PATH)
 3. `<workspace>/target/release/` and `target/debug/` -- compiler developers working in the XIOM repo
-4. The extension's own directory (bundled binaries)
+
+The old `xiom.dbg.path` setting is still honored as a deprecated alias.
 
 ## Debug Launch Configuration
 

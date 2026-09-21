@@ -5,7 +5,8 @@
 set -e
 . "$HOME/.cargo/env" 2>/dev/null
 export PATH="$HOME/.cargo/bin:$PATH"
-export XIOM_RELEASE_TAG="Production Hardening"
-export XIOM_RELEASE_STATS="1067/1067 tests, M19 complete"
+# Version stamps are NOT set here: `xiom --version` always reports the
+# workspace version (release.yml guards tag == version). Set
+# XIOM_RELEASE_TAG / XIOM_RELEASE_STATS only for a real release build.
 cd /mnt/e/xiom-lang/xiom
 bash package.sh 0.52.9

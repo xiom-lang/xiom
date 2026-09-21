@@ -5,8 +5,9 @@
 
 Latest pushed main: `7837b194` (R54 / R49-4 large-array ISel fix). Local main
 adds unpushed commits: the R53 staging verification record, the stale
-old-name -> XIOM reference cleanup, and R55 (L6-40 fixpoint evidence
-pre-pass). Tree clean, full e2e **2358/2358**, checker 195/195, feature-reg
+old-name -> XIOM reference cleanup, R55 (L6-40 fixpoint evidence pre-pass),
+and the IDE-distribution/release batch. Tree clean, full e2e **2358/2358**,
+checker 195/195, feature-reg
 510/510, stdlib-exec 85/85 (+2 ignored), robustness 63/63, fuzz 24/24,
 api-freeze 2/2, pkg 67/67, mcp 39/39. Tree state below is committed.
 
@@ -226,6 +227,25 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   the pinned stdlib's `os/env.xi` still calls `unsetenv` directly, so the
   probe links on Windows only after the pin moves to the
   `xiom_env_set/unset` shim revision (bump `STDLIB_VERSION`).
+- **IDE distribution + release batch (2026-09-21, registry relay via owner)**:
+  (1) the VS Code VSIX is now UNIVERSAL -- `program: ./xiom-dbg.exe` is gone
+  from `editors/vscode/package.json`; `xiom-lsp`/`xiom-dbg` resolve at runtime
+  (`xiom.debugAdapterPath` / `xiom.lsp.path` -> PATH -> workspace `target/`;
+  `xiom.dbg.path` is a deprecated alias) and the bundled-binary fallback is
+  removed. Verified locally with `vsce package` (9 files, 70.55 KB, no .exe).
+  (2) First-run UX: activation verifies `xiom`/`xiom-lsp`/`xiom-dbg` and shows
+  a notification linking to xiom-lang.org/install plus `XIOM: Recheck
+  toolchain`; the toolchain is NEVER installed silently.
+  (3) release.yml gained the `vscode` job: universal VSIX + SHA256SUMS ride on
+  the GitHub Release; `vsce publish`/`ovsx publish` run only on tag builds and
+  only when `VSCE_PAT`/`OVSX_TOKEN` are present; the release job waits on it.
+  (4) `xiom --version`/`-V` always reports the workspace version; the stale
+  hardcoded stats/tag defaults are gone (XIOM_RELEASE_TAG/STATS are optional
+  build-time stamps) and `_build_linux.sh` no longer stamps ancient values.
+  All nine tools self-report v0.61.0; the release guard + staged asserts still
+  match `v<ver>`.
+  (5) editors/README + vscode/README document the distribution policy;
+  Visual Studio is deferred in ROADMAP M13.11; other editors stay config-only.
 - **R55 / L6-40 FIXED (2026-09-21)**: module-scoped generic factory whose T
   is fixed only by a LATER call (`var runner = plugin_runner.create();
   plugin_runner.add_plugin(&mut runner, EchoPlugin{});`) mono'd `run_all` with

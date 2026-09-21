@@ -39,6 +39,15 @@ name: XIOM Release
 # (macOS runner minutes bill 10x on private repos; enable once the repo is
 # public or when a macOS release is actually needed):
 #   gh variable set RELEASE_BUILD_MACOS --body true --repo xiom-lang/xiom
+#
+# VSIX (CRB-5): the `vscode` job packages ONE universal extension from
+# editors/vscode -- no platform binaries are bundled; the extension resolves
+# xiom-lsp/xiom-dbg from PATH or a workspace target/ build, so a single VSIX
+# works on Windows, Linux and macOS. The .vsix plus a SHA256SUMS entry ride
+# along on the GitHub Release; publishing to the VS Code Marketplace
+# (secret VSCE_PAT) and Open VSX (secret OVSX_TOKEN) happens only on tag
+# builds and only when the corresponding secret is present, so forks and dry
+# runs never fail.
 
 on:
   push:
@@ -101,6 +110,60 @@ jobs:
             exit 1
           fi
           echo "guard OK: v$tag == workspace $ver; tag is an ancestor of main"
+
+  vscode:
+    name: package VS Code extension (.vsix)
+    needs: [guard]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      # Optional secrets: publishing is skipped when absent so forks and
+      # workflow_dispatch dry runs never fail.
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_TOKEN: ${{ secrets.OVSX_TOKEN }}
+    steps:
+      - name: Checkout xiom
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4
+        with:
+          node-version: 20
+
+      - name: Package universal VSIX (no bundled platform binaries)
+        shell: bash
+        run: |
+          set -euo pipefail
+          extver="$(node -p "require('./editors/vscode/package.json').version")"
+          cd editors/vscode
+          npx --yes @vscode/vsce@3 package --out "xiom-vscode-$extver.vsix"
+          mv "xiom-vscode-$extver.vsix" "$GITHUB_WORKSPACE/"
+          cd "$GITHUB_WORKSPACE"
+          sha256sum "xiom-vscode-$extver.vsix" > "SHA256SUMS-vscode"
+          echo "packaged xiom-vscode-$extver.vsix (toolchain v${{ needs.guard.outputs.version }})"
+
+      - name: Publish to VS Code Marketplace (tag builds with VSCE_PAT only)
+        if: startsWith(github.ref, 'refs/tags/v') && env.VSCE_PAT != ''
+        shell: bash
+        run: |
+          extver="$(node -p "require('./editors/vscode/package.json').version")"
+          npx --yes @vscode/vsce@3 publish --packagePath "xiom-vscode-$extver.vsix" --pat "$VSCE_PAT"
+
+      - name: Publish to Open VSX (tag builds with OVSX_TOKEN only)
+        if: startsWith(github.ref, 'refs/tags/v') && env.OVSX_TOKEN != ''
+        shell: bash
+        run: |
+          extver="$(node -p "require('./editors/vscode/package.json').version")"
+          npx --yes ovsx@0.10 publish "xiom-vscode-$extver.vsix" -p "$OVSX_TOKEN"
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: xiom-vscode-${{ github.run_id }}
+          path: |
+            xiom-vscode-*.vsix
+            SHA256SUMS-vscode
 
   build:
     name: package ${{ matrix.platform }}
@@ -407,7 +470,7 @@ jobs:
   release:
     name: publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build]
+    needs: [build, vscode]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout (version + stdlib pin for the docs payload)
@@ -441,7 +504,7 @@ jobs:
           GH_TOKEN: ${{ secrets.XIOM_RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           cd artifacts
-          FILES=$(ls *.zip *.tar.gz *.wasm 2>/dev/null || true)
+          FILES=$(ls *.zip *.tar.gz *.wasm *.vsix 2>/dev/null || true)
           gh release create "$GITHUB_REF_NAME" $FILES SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \

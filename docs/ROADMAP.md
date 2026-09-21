@@ -417,6 +417,23 @@ Refreshed on `xiom pkg install`. Enables `use mypkg; mypkg.` completion.
 Follow `use` chains transitively. `use ./a;` where `./a.xi` has `use ./b;`
 resolves functions from `b` through `a`.
 
+### M13.11 -- IDE distribution (2026-09-21)
+
+- **VS Code** ships ONE universal VSIX (`editors/vscode`): no platform
+  binaries are bundled; the extension resolves `xiom-lsp`/`xiom-dbg` from the
+  `xiom.debugAdapterPath` / `xiom.lsp.path` settings, then PATH, then a
+  workspace `target/` build. On activation it verifies `xiom`, `xiom-lsp` and
+  `xiom-dbg` and, when missing, points at xiom-lang.org/install (never
+  installs silently); `XIOM: Recheck toolchain` re-runs the check.
+- **Marketplace publishing** happens in release.yml on tag builds: the VSIX
+  and a SHA256SUMS entry ride on the GitHub Release; `vsce publish` /
+  `ovsx publish` run only when `VSCE_PAT` / `OVSX_TOKEN` are present (Open
+  VSX covers VSCodium/Cursor/Gitpod).
+- **Other editors stay config-only** in `editors/` (Emacs, Helix, Neovim,
+  Sublime, JetBrains via LSP4IJ) -- no per-ecosystem publishing for now.
+- **Visual Studio** (separate marketplace) is DEFERRED: revisit only if
+  demand appears; do not build.
+
 ---
 
 ## 4.7 PHASE M14 -- Production Cleanup & Quality Gates (v0.51.0)

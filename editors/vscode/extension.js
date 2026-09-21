@@ -4,15 +4,19 @@
 const vscode = require('vscode');
 const { spawn, spawnSync } = require('child_process');
 
+const TOOLCHAIN_INSTALL_URL = 'https://xiom-lang.org/install';
+
 /**
  * Resolve a XIOM toolchain binary. Production resolution order:
  *   1. Explicit VS Code setting (highest priority)
- *   2. PATH -- the installed release toolchain (standard for end users)
+ *   2. PATH -- the installed release toolchain (the official installer puts
+ *      bin/ on PATH)
  *   3. Workspace target/release, target/debug -- compiler developers
- *   4. Extension directory -- bundled binaries
- * Returns the resolved path/command or null.
+ * The VSIX bundles NO platform binaries: one universal package works on
+ * Windows, Linux and macOS, and the adapter always matches the user's
+ * installed toolchain version. Returns the resolved path/command or null.
  */
-async function resolveXiomBinary(name, settingValue, context) {
+async function resolveXiomBinary(name, settingValue) {
   if (settingValue) return settingValue;
 
   // 2. PATH resolution via where/which -- end-user installs
@@ -35,12 +39,6 @@ async function resolveXiomBinary(name, settingValue, context) {
       candidates.push(vscode.Uri.joinPath(vscode.Uri.file(rootFolder), 'target', 'debug', fn));
     }
   }
-  // 4. Extension directory -- bundled
-  if (context?.extensionUri) {
-    for (const fn of fileNames) {
-      candidates.push(vscode.Uri.joinPath(context.extensionUri, fn));
-    }
-  }
   for (const uri of candidates) {
     try {
       await vscode.workspace.fs.stat(uri);
@@ -50,19 +48,74 @@ async function resolveXiomBinary(name, settingValue, context) {
   return null;
 }
 
+/**
+ * Resolve the three toolchain entry points the extension needs. The command
+ * palette (`XIOM: Recheck toolchain`) and activation both use this.
+ */
+async function resolveToolchain() {
+  const config = vscode.workspace.getConfiguration('xiom');
+  const [compiler, lsp, dbg] = await Promise.all([
+    resolveXiomBinary('xiom', ''),
+    resolveXiomBinary('xiom-lsp', config.get('lsp.path') || ''),
+    resolveXiomBinary('xiom-dbg', config.get('debugAdapterPath') || config.get('dbg.path') || ''),
+  ]);
+  const missing = [];
+  if (!compiler) missing.push('xiom');
+  if (!lsp) missing.push('xiom-lsp');
+  if (!dbg) missing.push('xiom-dbg');
+  return { compiler, lsp, dbg, missing };
+}
+
+/**
+ * First-run UX: NEVER install the toolchain silently -- the official
+ * installer is the single install path. Points at xiom-lang.org/install and
+ * offers a recheck.
+ */
+async function showToolchainMissing(missing) {
+  const pick = await vscode.window.showWarningMessage(
+    `XIOM toolchain not found (${missing.join(', ')}). Install it from xiom-lang.org/install`,
+    'Open install page',
+    'Recheck toolchain'
+  );
+  if (pick === 'Open install page') {
+    await vscode.env.openExternal(vscode.Uri.parse(TOOLCHAIN_INSTALL_URL));
+  } else if (pick === 'Recheck toolchain') {
+    await vscode.commands.executeCommand('xiom.recheckToolchain');
+  }
+}
+
 let client;
 
-function activate(context) {
+async function activate(context) {
   console.log('XIOM extension activated');
 
+  context.subscriptions.push(
+    vscode.commands.registerCommand('xiom.recheckToolchain', async () => {
+      const toolchain = await resolveToolchain();
+      if (toolchain.missing.length === 0) {
+        vscode.window.showInformationMessage(
+          'XIOM toolchain OK: xiom, xiom-lsp and xiom-dbg resolved.'
+        );
+      } else {
+        await showToolchainMissing(toolchain.missing);
+      }
+    })
+  );
+
+  // Verify the toolchain once per activation; never install silently.
+  const toolchain = await resolveToolchain();
+  if (toolchain.missing.length > 0) {
+    await showToolchainMissing(toolchain.missing);
+  }
+
   // LSP client
-  client = new LspClient(context);
+  client = new LspClient(context, toolchain.lsp);
   client.start().catch(() => {
     console.log('XIOM LSP not available -- syntax highlighting only');
   });
 
   // DAP debug adapter
-  const dbgProvider = new XiomDebugAdapterDescriptorFactory(context);
+  const dbgProvider = new XiomDebugAdapterDescriptorFactory();
   context.subscriptions.push(
     vscode.debug.registerDebugAdapterDescriptorFactory('xiom', dbgProvider)
   );
@@ -80,20 +133,19 @@ function deactivate() {
 }
 
 // ============================================================================
-// Debug Adapter Descriptor Factory -- resolves xiom-dbg binary path
+// Debug Adapter Descriptor Factory -- resolves xiom-dbg AT RUNTIME
 // ============================================================================
 
 class XiomDebugAdapterDescriptorFactory {
-  constructor(context) {
-    this.context = context;
-  }
-
   async createDebugAdapterDescriptor(session, executable) {
     const config = vscode.workspace.getConfiguration('xiom');
-    const dbgPath = await resolveXiomBinary('xiom-dbg', config.get('dbg.path') || '', this.context);
+    const dbgPath = await resolveXiomBinary(
+      'xiom-dbg',
+      config.get('debugAdapterPath') || config.get('dbg.path') || ''
+    );
 
     if (!dbgPath) {
-      vscode.window.showErrorMessage('XIOM Debugger: xiom-dbg binary not found. Install the XIOM toolchain (PATH), set xiom.dbg.path, or build with: cargo build --release -p xiom-dbg');
+      await showToolchainMissing(['xiom-dbg']);
       throw new Error('xiom-dbg not found');
     }
 
@@ -124,8 +176,9 @@ class XiomDebugConfigProvider {
 }
 
 class LspClient {
-  constructor(context) {
+  constructor(context, lspPath) {
     this.context = context;
+    this.lspPath = lspPath;
     this.server = null;
     this.buffer = '';
     this.nextId = 1;
@@ -135,20 +188,15 @@ class LspClient {
   }
 
   async start() {
-    const config = vscode.workspace.getConfiguration('xiom');
-    const lspPath = await resolveXiomBinary('xiom-lsp', config.get('lsp.path') || '', this.context);
-
-    if (!lspPath) {
-      vscode.window.showInformationMessage(
-        'XIOM LSP not found. Build it with: cargo build -p xiom-lsp\nSyntax highlighting is still active. Auto-completion and go-to-definition will be unavailable.'
-      );
-      // Register providers anyway so they show "LSP not found" hints
+    if (!this.lspPath) {
+      // The activation toolchain check already surfaced the install hint.
+      console.log('XIOM LSP not found -- syntax highlighting only');
       this._registerProviders();
       this._registerDocumentListeners();
       return;
     }
 
-    this.server = spawn(lspPath, [], { stdio: ['pipe', 'pipe', 'pipe'] });
+    this.server = spawn(this.lspPath, [], { stdio: ['pipe', 'pipe', 'pipe'] });
 
     this.server.stdout.on('data', (data) => this._handleData(data));
     this.server.stderr.on('data', (data) => console.log('LSP stderr: ' + data.toString()));

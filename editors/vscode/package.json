@@ -2,10 +2,14 @@
   "name": "xiom",
   "displayName": "XIOM Language Support",
   "description": "Syntax highlighting, autocomplete, go-to-definition, diagnostics, and debugging for the XIOM programming language.",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "publisher": "xiom-lang",
   "license": "MIT OR Apache-2.0",
   "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xiom-lang/xiom"
+  },
   "engines": {
     "vscode": "^1.80.0"
   },
@@ -31,8 +35,6 @@
     "debuggers": [{
       "type": "xiom",
       "label": "XIOM Debugger",
-      "program": "./xiom-dbg.exe",
-      "runtime": "node",
       "configurationAttributes": {
         "launch": {
           "properties": {
@@ -93,14 +95,27 @@
         "xiom.lsp.path": {
           "type": "string",
           "default": "",
-          "description": "Path to the xiom-lsp binary. Leave empty to use bundled binary."
+          "description": "Path to the xiom-lsp binary. Leave empty to resolve xiom-lsp from PATH (the toolchain installer puts bin/ on PATH) or from a workspace target/ build."
+        },
+        "xiom.debugAdapterPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the xiom-dbg debug adapter. Leave empty to resolve xiom-dbg from PATH (the toolchain installer puts bin/ on PATH) or from a workspace target/ build."
         },
         "xiom.dbg.path": {
           "type": "string",
           "default": "",
-          "description": "Path to the xiom-dbg debug adapter. Leave empty for auto-detection."
+          "deprecationMessage": "Use xiom.debugAdapterPath instead.",
+          "description": "Deprecated alias for xiom.debugAdapterPath."
         }
       }
-    }
+    },
+    "commands": [
+      {
+        "command": "xiom.recheckToolchain",
+        "title": "Recheck toolchain",
+        "category": "XIOM"
+      }
+    ]
   }
 }

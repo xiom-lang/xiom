@@ -219,10 +219,8 @@ fn real_main() {
         process::exit(0);
     }
 
-    if args.iter().any(|a| a == "--version") {
-        let tag = option_env!("XIOM_RELEASE_TAG").unwrap_or("Production Polish");
-        let stats = option_env!("XIOM_RELEASE_STATS").unwrap_or("27/27 E2E core, 516+ unit tests, 19/19 gates");
-        println!("XIOM Compiler v{} \"{tag}\" - {stats}", env!("CARGO_PKG_VERSION"));
+    if args.iter().any(|a| a == "--version" || a == "-V") {
+        println!("{}", version_line());
         return;
     }
 
@@ -1164,17 +1162,36 @@ fn real_main() {
     compile_or_exit(&config, &source_paths);
 }
 
+/// `--version` / `-V` line. The version is ALWAYS the workspace version from
+/// Cargo.toml -- release.yml's guard refuses a tag that does not match it, and
+/// every staged tool must contain `v<version>` before the archive is sealed.
+/// The release tag and stats suffix are optional BUILD-TIME stamps: when the
+/// packaging workflow does not set them, the output is just the true version
+/// (no hardcoded, stale milestone claims).
+fn version_line() -> String {
+    let mut line = format!("XIOM Compiler v{}", env!("CARGO_PKG_VERSION"));
+    if let Some(tag) = option_env!("XIOM_RELEASE_TAG") {
+        if !tag.is_empty() {
+            line.push_str(&format!(" \"{tag}\""));
+        }
+    }
+    if let Some(stats) = option_env!("XIOM_RELEASE_STATS") {
+        if !stats.is_empty() {
+            line.push_str(&format!(" - {stats}"));
+        }
+    }
+    line
+}
+
 fn print_usage() {
-        let tag = option_env!("XIOM_RELEASE_TAG").unwrap_or("Production Polish");
-        let stats = option_env!("XIOM_RELEASE_STATS").unwrap_or("27/27 E2E core, 516+ unit tests, 19/19 gates");
-        eprintln!("XIOM Compiler v{} \"{tag}\" -- {stats}", env!("CARGO_PKG_VERSION"));
+    eprintln!("{}", version_line());
     eprintln!();
     eprintln!("USAGE:");
     eprintln!("  xiom [OPTIONS] <source.xi>");
     eprintln!();
     eprintln!("OPTIONS:");
     eprintln!("  --help              Show this help message");
-    eprintln!("  --version           Print version");
+    eprintln!("  --version, -V       Print version");
     eprintln!("  -o <output>         Output binary path (default: a.exe on Windows, a.out on Linux/macOS)");
     eprintln!("  --run               Compile and run (requires fn main())");
     eprintln!("  run <file.xi>       Execute as script (auto-wraps in fn main())");
