@@ -48,6 +48,45 @@ impl IrEmitter {
         }
     }
 
+    /// L5-40: infer a generic type argument from a bare local identifier.
+    /// Prefers `param_concrete_types`, then the local's tracked XIOM type
+    /// WITH args ("Vec[Str]" -- the LLVM slot type is erased), then the
+    /// erased `resolve_local_xiom_type`, then the generic param name.
+    fn infer_generic_ident_type(&self, name: &str, gp_fallback: &str) -> String {
+        if let Some(concrete) = self.mono.param_concrete_types.get(name) {
+            return concrete.clone();
+        }
+        if let Some((_, _llvm_ty)) = self.lookup_local(name) {
+            let tracked = self.local.local_xiom_types.get(name)
+                .cloned()
+                .map(|t| Self::subst_type_tokens(&t, &self.mono.current_type_map));
+            return match tracked {
+                Some(t) if Self::is_generic_container_name(&t)
+                    && !Self::has_unresolved_generic_token(&t) => t,
+                _ => self.resolve_local_xiom_type(name).unwrap_or_else(|| "Int".to_string()),
+            };
+        }
+        gp_fallback.to_string()
+    }
+
+    /// True when `s` is a generic CONTAINER spelling ("Vec[Str]", "Map[K,V]")
+    /// -- an identifier followed by '['. Fixed-array spellings ("[5 x i64]")
+    /// start with '[' and must NOT match: for array locals the element type is
+    /// the correct generic argument (round-15), not the array itself.
+    pub(crate) fn is_generic_container_name(s: &str) -> bool {
+        match s.find('[') {
+            Some(0) | None => false,
+            Some(i) => s.as_bytes().get(i - 1).map_or(false, |b| b.is_ascii_alphanumeric()),
+        }
+    }
+
+    /// L5-40: does a rendered type name still contain an unresolved generic
+    /// parameter (single ASCII-uppercase identifier token like `T` or `V`)?
+    pub(crate) fn has_unresolved_generic_token(s: &str) -> bool {
+        s.split(|c: char| !c.is_ascii_alphanumeric())
+            .any(|t| t.len() == 1 && t.chars().next().map_or(false, |c| c.is_ascii_uppercase()))
+    }
+
     /// R8/regex fix: register the CONCRETE container type for an element name
     /// ("Option[Match]" -> Option__Match) BEFORE its storage size is computed.
     /// `vec_elem_storage_size` can then sum the real fields instead of using
@@ -3537,7 +3576,18 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                             if parts.is_empty() { None } else { Some(format!("Tuple__{}", parts.join("__"))) }
                                         }
                                         Expr::Tuple(elems, _) => elems.get(idx)
-                                            .and_then(|e| if let Expr::Ident(id) = e { Some(id.name.clone()) } else { None }),
+                                            .map(|e| {
+                                                // L5-40: nested container type args
+                                                // (`Map[Int, Vec[Str]].new()`) must
+                                                // render WITH args ("Vec[Str]"), not
+                                                // fall to "Int" -- three different V
+                                                // spellings mono'd new/insert/get as
+                                                // _Int_Int / _Int_Vec / _Int_Vec_Str_
+                                                // and the values Vec element size
+                                                // disagreed (8 vs 32 bytes).
+                                                let n = Self::type_arg_to_name(e);
+                                                Self::subst_type_tokens(&n, &self.mono.current_type_map)
+                                            }),
                                         _ => None,
                                     }
                                 } else {
@@ -3739,15 +3789,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                 _ => "Int".to_string(),
                                             }
                                         }
-                                        Expr::Ident(id) => {
-                                            if let Some(concrete) = self.mono.param_concrete_types.get(&id.name) {
-                                                concrete.clone()
-                                            } else if let Some((_, _llvm_ty)) = self.lookup_local(&id.name) {
-                                                self.resolve_local_xiom_type(&id.name).unwrap_or_else(|| "Int".to_string())
-                                            } else {
-                                                gp.name.name.clone()
-                                            }
-                                        }
+                                        Expr::Ident(id) => self.infer_generic_ident_type(&id.name, &gp.name.name),
                                         _ => "Int".to_string(),
                                     };
                                     concrete_types.push(concrete_ty);
@@ -3887,9 +3929,12 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     let type_names: Vec<String> = match ta {
                                         Expr::Ident(id) => vec![id.name.clone()],
                                         Expr::Tuple(elems, _) => elems.iter()
-                                            .map(|e| match e {
-                                                Expr::Ident(id) => id.name.clone(),
-                                                _ => "Int".to_string(),
+                                            .map(|e| {
+                                                // L5-40: nested container type args
+                                                // must keep their args (see the
+                                                // explicit branch above).
+                                                let n = Self::type_arg_to_name(e);
+                                                Self::subst_type_tokens(&n, &self.mono.current_type_map)
                                             })
                                             .collect(),
                                         _ => vec!["Int".to_string()],
@@ -3921,15 +3966,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         // T=Task). The `_ => "Int"` arm mono'd
                                         // insert_Int -> C001 (L6-28).
                                         Expr::Struct(id, _, _, _) => id.name.clone(),
-                                        Expr::Ident(id) => {
-                                            if let Some(concrete) = self.mono.param_concrete_types.get(&id.name) {
-                                                concrete.clone()
-                                            } else if let Some((_, _llvm_ty)) = self.lookup_local(&id.name) {
-                                                self.resolve_local_xiom_type(&id.name).unwrap_or_else(|| "Int".to_string())
-                                            } else {
-                                                gp.name.name.clone()
-                                            }
-                                        }
+                                        Expr::Ident(id) => self.infer_generic_ident_type(&id.name, &gp.name.name),
                                         _ => "Int".to_string(),
                                     };
                                     concrete_types.push(concrete_ty);

@@ -5,6 +5,19 @@ stop, log here, and escalate.
 
 ## 2026-09-19 -- L5-40 `Map[Int, Vec[Str]]` container-payload ABI (playground C17 residue)
 
+**RESOLVED 2026-09-21 (R56).** The coordinated fix landed: nested type-arg
+rendering in BOTH explicit-arg fallbacks (`type_arg_to_name` + mono
+substitution), container-typed bare-local generic inference
+(`infer_generic_ident_type`, with fixed-array brackets explicitly excluded),
+container acceptance in `record_field_vec_elem`, container lowering for
+substituted names in the mono signature builder, and concrete-Option-aware
+match payload binding. Decision: container elements are INLINE
+(`Vec[Str]` slots hold the 32-byte `%struct.Vec` header -- matching
+`Vec[Vec[T]]` and `vec_elem_storage_size`); concrete Option/Result layouts
+keep inline payloads and consumers resolve fields through the concrete
+registration. L5-40 prints 2; lock `e2e_m111_map_vec_container_payload`; full
+e2e 2359/2359. Details in the COMPILER_BUGS R56 entry.
+
 Symptom: `group_by_age` prints 0 (expected 2); the reduced probe
 `Map[Int, Vec[Str]]` prints `1` for `m.len()` and a garbage length for the
 retrieved Vec (`m.get(&25)` match payload).

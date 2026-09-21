@@ -7483,25 +7483,36 @@ verification, with repro commands using the playground lesson sources
   `t.0`/`t.1` read 0, while `split_two(rest).unwrap().1` is correct; the
   try-payload tuple typing/field access path is the remaining defect) and
   L8-14 (trap in the Map[Str,Str] morse flow).
-- **L5-40 (C17 clang residue)**: builds, but `group_by_age` prints 0.
-  Root cause is now two-layered:
-  1. `Map[Int, Vec[Str]].new()` monomorphised V=Int (the explicit
-     receiver type-arg rendering used an Ident-only match that turned
-     `Expr::Index` args into "Int"), so the map's `values` Vec was built
-     with 8-byte slots -- fixing the renderer alone yields
-     `Map.new_Int_Vec_Str_` but the payload still mis-reads.
-  2. The container-element ABI disagrees across sites: the index read path
-     (`emit_elem_load` switch -> i64) inttoptr+loads the value as
-     `%struct.Vec`, `Map.insert` stores the header with a runtime-`esz`
-     memcpy, and `record_field_vec_elem` refuses container element types.
-     Committing to ONE element representation (inline header vs handle) is
-     a cross-cutting design change.
-  CIRCUIT BREAKER: three attempts (concrete `Option__Vec_Str_`
-  registration -- kept; index-store/unwrap pairing -- kept; nested
-  type-arg renderer + index substitution -- REVERTED after
-  `e2e_fnptr_vec_index_call` and `e2e_m71_concat_index_elem` regressed,
-  2346/2348). See docs/failed_attempts.md. Needs the architecture
-  decision before a coordinated fix.
+- **L5-40 (C17 clang residue)**: FIXED (R56). Decision: container elements
+  are INLINE (`Vec[Str]` slots hold the 32-byte `%struct.Vec` header, matching
+  `Vec[Vec[T]]` and `vec_elem_storage_size`); concrete Option/Result layouts
+  keep inline payloads and consumers resolve fields through the concrete
+  registration. The coordinated change (all sites must agree -- the previous
+  single-site attempts regressed):
+  1. `Map.new` explicit type-arg rendering: both fallbacks render tuple
+     elements with `type_arg_to_name` + mono substitution, so
+     `Map[Int, Vec[Str]].new()` commits V=`Vec[Str]` (was `_Int_Int`).
+  2. Bare-local generic-argument inference (`infer_generic_ident_type`)
+     prefers the tracked local XIOM type WITH args over the erased LLVM slot
+     type (`Map.insert` was `_Int_Vec`).
+  3. `record_field_vec_elem` accepts container element types, so
+     `values: Vec[V]` with V=`Vec[Str]` records the element and the index read
+     memcpys the inline header (`Map.get` was `_Int_Vec_Str_` but read an
+     8-byte handle).
+  4. The mono signature builder lowers SUBSTITUTED container names
+     (`V` -> `Vec[Str]`) to `%struct.Vec`/`Map`/`Set`/concrete Option/Result
+     instead of the i64 fallback (insert kept `i64 value` while the caller
+     passed `%struct.Vec`).
+  5. Match payload binding resolves field 1 through the CONCRETE
+     `%struct.Option__Vec_Str_`/`Result__*` registration when available
+     (previously the erased "Option[Vec[Str]]" registration said i64, so the
+     inline payload was read as a box handle and inttoptr'd).
+  Repro: L5-40 prints 2; reduced `Map[Int, Vec[Str]]` probe prints 1 then 2.
+  Lock `e2e_m111_map_vec_container_payload`
+  (`tests/regression/m111_map_vec_container_payload`). Full e2e 2359/2359;
+  the two locks earlier attempts broke (`e2e_fnptr_vec_index_call`,
+  `e2e_m71_concat_index_elem`) are green (fixed-array brackets are excluded
+  from container-name detection).
 - **Remaining C18/C19 pointer/UTF-8 lessons**: per-lesson triage still
   needed (L3-02, L5-09/20/24/26/29/31/35/36/43 nondeterministic; L3-50 exits
   200; L8-14 deterministically `0xC000001D` -- a trap reached in the

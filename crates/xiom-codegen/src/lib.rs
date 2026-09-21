@@ -6181,7 +6181,7 @@ impl IrEmitter {
                 for (k, v) in type_map {
                     sub = sub.replace(k, v);
                 }
-                if self.is_struct_or_enum_type(&sub) {
+                if self.is_struct_or_enum_type(&sub) || self.is_struct_like_vec_elem(&sub) {
                     self.local.local_vec_elem.insert(field_name.to_string(), sub);
                 }
             }
@@ -6416,7 +6416,37 @@ impl IrEmitter {
                                 .unwrap_or(raw);
                             format!("%struct.{qualified}")
                         } else {
-                            Self::xiom_to_llvm_type(&raw).to_string()
+                            // L5-40: a SUBSTITUTED container name ("Vec[Str]"
+                            // from V=Vec[Str], "Option[Task]", ...) must lower
+                            // to its container struct -- the old
+                            // xiom_to_llvm_type fallback returned i64, so
+                            // `Map.insert[Int, Vec[Str]]` kept `i64 value` in
+                            // its signature while the caller passed a
+                            // %struct.Vec (name/signature mismatch).
+                            let (base, args) = Self::parse_generic_type_string(&raw);
+                            match base.as_str() {
+                                "Vec" | "Slice" => "%struct.Vec".to_string(),
+                                "Map" => "%struct.Map".to_string(),
+                                "Set" => "%struct.Set".to_string(),
+                                "Option" | "Result" => {
+                                    let concrete = format!(
+                                        "{}__{}",
+                                        base,
+                                        args.iter()
+                                            .map(|a| Self::sanitize_container_arg(a))
+                                            .collect::<Vec<_>>()
+                                            .join("__")
+                                    );
+                                    let qualified = struct_types.iter()
+                                        .find(|k| k.as_str() == concrete || k.ends_with(&format!(".{concrete}")))
+                                        .cloned();
+                                    match qualified {
+                                        Some(k) => format!("%struct.{k}"),
+                                        None => format!("%struct.{base}"),
+                                    }
+                                }
+                                _ => Self::xiom_to_llvm_type(&raw).to_string(),
+                            }
                         }
                     }
                     // Pointer / mutable-scalar-ref types: substitute the inner

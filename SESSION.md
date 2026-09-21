@@ -6,34 +6,30 @@
 Latest pushed main: `7837b194` (R54 / R49-4 large-array ISel fix). Local main
 adds unpushed commits: the R53 staging verification record, the stale
 old-name -> XIOM reference cleanup, R55 (L6-40 fixpoint evidence pre-pass),
-and the IDE-distribution/release batch. Tree clean, full e2e **2358/2358**,
+R56 (L5-40 container-payload ABI), and the IDE-distribution/release batch.
+Tree clean, full e2e **2359/2359**,
 checker 195/195, feature-reg
 510/510, stdlib-exec 85/85 (+2 ignored), robustness 63/63, fuzz 24/24,
 api-freeze 2/2, pkg 67/67, mcp 39/39. Tree state below is committed.
 
 ## Remaining work, priority order
 
-1. **L5-40 (Map container-payload ABI)** -- circuit-broken after 3 attempts;
-   `docs/failed_attempts.md` has the full evidence. Needs ONE decision: the
-   element representation for container-typed Vec elements (inline header vs
-   8-byte box handle) applied consistently across `record_field_vec_elem`, the
-   index read path, `emit_elem_payload_load`, push and the Option/Result ctor.
-2. **L3-50 (Result tuple payload via `?`)** -- bisected: `let (a,b) =
+1. **L3-50 (Result tuple payload via `?`)** -- bisected: `let (a,b) =
    split_two(rest)?` binds garbage and `t.0`/`t.1` read 0, while
    `split_two(rest).unwrap().1` is correct. Try-payload tuple typing /
    destructuring is the defect. Repro: `tmp/lessons/L3-50.xi`.
-3. **L8-14** -- deterministic `0xC000001D` trap in the Map[Str,Str] morse flow
+2. **L8-14** -- deterministic `0xC000001D` trap in the Map[Str,Str] morse flow
    (`tmp/lessons/L8-14.xi`). Not yet root-caused; Map[Str,Str] get/unwrap is
    now correct in isolation, so the trap is downstream (decode/show path).
-4. **Perf (playground request #2)** -- reachable-function-only peek in
+3. **Perf (playground request #2)** -- reachable-function-only peek in
    `xiom-check::collect_external_decls`: the auto-injected `xiom.fmt` closure
    costs 3-6 s front-end even without `.to_str()`. Shape: peek the
    checker-resolved module shallow, run the reachability filter, then pull the
    deps named by the SELECTED decls to a fixpoint. Gate with the full e2e.
-5. **C3 (script-mode flags) / C6 (stdlib package.xi)** -- need an exact
+4. **C3 (script-mode flags) / C6 (stdlib package.xi)** -- need an exact
    playground repro before changing semantics; currently documented as
    deferred.
-6. **Stdlib-lane side (relay, not compiler work)**: probe-corpus curation
+5. **Stdlib-lane side (relay, not compiler work)**: probe-corpus curation
    (157/175 - triage historical probes), optional io/fs coverage wave, and the
    `STDLIB_VERSION` bump so Windows links the `xiom_env_set/unset` shim
    (pinned checkout's `os/env.xi` still calls `unsetenv` directly).
@@ -64,18 +60,17 @@ api-freeze 2/2, pkg 67/67, mcp 39/39. Tree state below is committed.
 > Continue the XIOM compiler-lane campaign in `E:\xiom-lang\xiom` (branch
 > `main`, unpushed convention: push only when asked). Read the top section of
 > SESSION.md ("CONTINUATION HANDOFF") and docs/COMPILER_BUGS.md before
-> touching code. All R-bug batches through R55 are fixed and pushed; the
-> remaining compiler bugs are L5-40 (container-element representation
-> decision; see docs/failed_attempts.md), L3-50 (Result tuple payload via
-> `?`), L8-14 (Map[Str,Str] morse trap), the perf `xiom.fmt` reachable-only
-> peek, and C3/C6 (need a playground repro).
+> touching code. All R-bug batches through R56 are fixed (R55/R56 unpushed);
+> the remaining compiler bugs are L3-50 (Result tuple payload via `?`), L8-14
+> (Map[Str,Str] morse trap), the perf `xiom.fmt` reachable-only peek, and
+> C3/C6 (need a playground repro).
 > Work repro-first: playground lessons are extracted from
 > `tmp/playground/lessons/**/Lx-yy.json` (`.solution`), run with
 > `target\debug\xiom.exe -o tmp\lessons\Lx-yy.exe tmp\lessons\Lx-yy.xi`.
 > Rebuild `cargo build -p xiom` after checker/codegen changes, add an e2e lock
 > (`e2e_mNNN_*` fixture under `tests/regression/` + the CI lock line in
 > `.github/workflows/ci.yml`), and run the full e2e once per batch. Never
-> rebuild while an e2e is running. Start with L5-40 unless the user says
+> rebuild while an e2e is running. Start with L3-50 unless the user says
 > otherwise.
 
 # XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-83 in docs/SESSION.md)
@@ -246,6 +241,22 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   match `v<ver>`.
   (5) editors/README + vscode/README document the distribution policy;
   Visual Studio is deferred in ROADMAP M13.11; other editors stay config-only.
+- **R56 / L5-40 FIXED (2026-09-21)**: `Map[Int, Vec[Str]]` container payload.
+  Decision: container elements are INLINE (32-byte `%struct.Vec` header in the
+  slot, matching `Vec[Vec[T]]`); concrete Option/Result layouts keep inline
+  payloads. Coordinated five-site change: (1) both explicit type-arg fallbacks
+  render nested args via `type_arg_to_name` + mono substitution
+  (`Map.new` was `_Int_Int`); (2) `infer_generic_ident_type` prefers the
+  tracked local type with args over the erased LLVM slot (`Map.insert` was
+  `_Int_Vec`); (3) `record_field_vec_elem` accepts container element types
+  (index read now memcpys the inline header); (4) the mono signature builder
+  lowers substituted container names (`V` -> `Vec[Str]`) to `%struct.Vec`
+  instead of i64; (5) match payload binding resolves fields through the
+  CONCRETE `%struct.Option__*`/`Result__*` registration when present. L5-40
+  prints 2; lock `e2e_m111_map_vec_container_payload`; the two locks earlier
+  attempts broke (`e2e_fnptr_vec_index_call`, `e2e_m71_concat_index_elem`)
+  are green -- fixed-array brackets are excluded from container detection.
+  Full e2e 2359/2359.
 - **R55 / L6-40 FIXED (2026-09-21)**: module-scoped generic factory whose T
   is fixed only by a LATER call (`var runner = plugin_runner.create();
   plugin_runner.add_plugin(&mut runner, EchoPlugin{});`) mono'd `run_all` with

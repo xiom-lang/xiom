@@ -5052,6 +5052,29 @@ fn e2e_safety_probe() {
     );
 }
 
+// L5-40: a container PAYLOAD inside a generic container
+// (`Map[Int, Vec[Str]]`). Three sites disagreed on V (_Int_Int / _Int_Vec /
+// _Int_Vec_Str_), so `values` was allocated with 8-byte slots while insert
+// stored a 32-byte %struct.Vec header, and the match binder read the concrete
+// inline Option payload as an 8-byte box handle. The probe asserts length,
+// element count, and element contents.
+#[test] fn e2e_m111_map_vec_container_payload() {
+    let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
+    if !stdlib_root.join("xiom").join("io.xi").exists() {
+        let msg = "SKIP: stdlib checkout has no xiom/io.xi";
+        if xiom_graph::paths::require_stdlib() {
+            panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
+        }
+        eprintln!("{msg}");
+        return;
+    }
+    assert_eq!(
+        compile_and_run("tests/regression/m111_map_vec_container_payload/main.xi"),
+        Some(0),
+        "L5-40 Map[Int, Vec[Str]] container-payload probe must compile and run"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "…")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

@@ -1899,9 +1899,32 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         if let Some((inner_pat, field_idx)) = payload_field {
                             if let Pattern::Ident(ident) = inner_pat {
                                 if let Some((ref alloca, ref type_name, ref struct_ty)) = scrutinee_alloca_info {
+                                    // L5-40: a mono'd generic body can return a
+                                    // CONCRETE container Option (`Map.get[Int,
+                                    // Vec[Str]] -> %struct.Option__Vec_Str_` with
+                                    // an INLINE Vec payload). The XIOM-level
+                                    // scrutinee name ("Option[Vec[Str]]") resolves
+                                    // field 1 through the ERASED registration
+                                    // (i64), so the payload was read as a box
+                                    // handle and inttoptr'd as a Vec. When the
+                                    // match alloca is a concrete
+                                    // %struct.Option__*/Result__* type, resolve
+                                    // fields through the concrete registration so
+                                    // aggregate payloads bind inline.
+                                    let concrete_name: String = struct_ty
+                                        .strip_prefix("%struct.")
+                                        .unwrap_or("")
+                                        .to_string();
+                                    let field_owner: &str = if !concrete_name.is_empty()
+                                        && self.types.type_meta.contains_key(&concrete_name)
+                                    {
+                                        &concrete_name
+                                    } else {
+                                        type_name
+                                    };
                                     let gep = self.fresh_tmp();
                                     self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {field_idx}"));
-                                    let mut field_llvm_ty = self.field_llvm_type(type_name, field_idx as usize);
+                                    let mut field_llvm_ty = self.field_llvm_type(field_owner, field_idx as usize);
                                     let loaded = self.fresh_tmp();
                                     self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
                                     // BUG 22 #4 fix: Some(5.0)/Ok(2.5) store the
@@ -1909,7 +1932,6 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                     // back when the payload's XIOM type is a float,
                                     // so match-bound vars carry real doubles/floats
                                     // (unary minus / arithmetic on them was garbage).
-                                    let scrutinee_name = if let Expr::Ident(sid) = expr_match { Some(sid.name.clone()) } else { None };
                                     let scrutinee_payload = self.scrutinee_payload_xiom(expr_match, field_idx);
                                     // R23: a FN-MARKER payload (`Some(task)` off
                                     // `Vec[fn()].pop()`) holds closure ENV bits.
@@ -1933,10 +1955,6 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                         {
                                             self.local.fn_local_returns.insert(ident.name.clone(), ret_str);
                                         }
-                                    }
-                                    if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() {
-                                        eprintln!("[matchpay] scrutinee={scrutinee_name:?} field_llvm_ty={field_llvm_ty} payload_xiom={:?}",
-                                            scrutinee_name.as_ref().and_then(|n| self.local.local_opt_payload_xiom.get(n)));
                                     }
                                     let mut bind_val = loaded.clone();
                                     if field_llvm_ty == "i64" {
@@ -1975,7 +1993,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                     // ADDRESS).
                                     let payload_xiom = scrutinee_payload.clone()
                                         .filter(|p| !p.is_empty() && p != "i64")
-                                        .or_else(|| self.field_xiom_type(type_name, field_idx as usize));
+                                        .or_else(|| self.field_xiom_type(field_owner, field_idx as usize));
                                     if field_llvm_ty == "i64" {
                                         if let Some(pt) = &payload_xiom {
                                             if pt.starts_with("Vec[") || pt.contains(".Vec") || pt.ends_with("]Vec") {
@@ -2296,9 +2314,28 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     };
                     if let Some((inner, val_field)) = payload_binding {
                         if let Some((ref alloca, ref type_name, ref struct_ty)) = scrutinee_alloca_info {
+                            // L5-40: resolve payload fields through the CONCRETE
+                            // struct registration when the match alloca is a
+                            // concrete container Option/Result
+                            // (%struct.Option__Vec_Str_ = { i64, %struct.Vec }).
+                            // The XIOM-level name ("Option[Vec[Str]]") resolves
+                            // field 1 through the ERASED registration (i64), so
+                            // an inline aggregate payload was read as an 8-byte
+                            // box handle and inttoptr'd (garbage).
+                            let concrete_name: String = struct_ty
+                                .strip_prefix("%struct.")
+                                .unwrap_or("")
+                                .to_string();
+                            let field_owner: &str = if !concrete_name.is_empty()
+                                && self.types.type_meta.contains_key(&concrete_name)
+                            {
+                                &concrete_name
+                            } else {
+                                type_name
+                            };
                             let val_gep = self.fresh_tmp();
                             self.emitln(&format!("  {val_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {val_field}"));
-                            let field_ty = self.field_llvm_type(type_name, val_field as usize);
+                            let field_ty = self.field_llvm_type(field_owner, val_field as usize);
                             let loaded = self.fresh_tmp();
                             self.emitln(&format!("  {loaded} = load {field_ty}, {field_ty}* {val_gep}"));
                             if let Pattern::Ident(ident) = inner {
@@ -2382,7 +2419,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                         // M12: Handle the case where field_ty is i64 (fallback for unregistered structs)
                                         // but the actual XIOM type is a pointer (Str, *T, etc.)
                                         if field_ty == "i64" {
-                                            let xiom_ty = self.field_xiom_type(type_name, val_field as usize);
+                                            let xiom_ty = self.field_xiom_type(field_owner, val_field as usize);
                                             if let Some(ref xt) = xiom_ty {
                                                 if xt == "Str" || xt.starts_with('*') {
                                                     let sptr = self.fresh_tmp();
