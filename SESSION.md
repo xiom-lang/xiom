@@ -4,8 +4,8 @@
 # CONTINUATION HANDOFF (2026-09-21, compiler lane)
 
 Latest pushed main: `7837b194` (R54 / R49-4 large-array ISel fix). Local main
-adds three unpushed commits: the R53 staging verification record, the
-stale-AXIOM -> XIOM reference cleanup, and R55 (L6-40 fixpoint evidence
+adds unpushed commits: the R53 staging verification record, the stale
+old-name -> XIOM reference cleanup, and R55 (L6-40 fixpoint evidence
 pre-pass). Tree clean, full e2e **2358/2358**, checker 195/195, feature-reg
 510/510, stdlib-exec 85/85 (+2 ignored), robustness 63/63, fuzz 24/24,
 api-freeze 2/2, pkg 67/67, mcp 39/39. Tree state below is committed.
