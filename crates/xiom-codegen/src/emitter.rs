@@ -245,6 +245,31 @@ impl IrEmitter {
                 }
             }
         }
+        // R7 residual (p_generic_push/p_gp_b/p_gp_c): a LOCAL explicit-generic
+        // call (`var h = make_holder[JsonValue]()`) must record the
+        // substituted return type ("Holder[JsonValue]"). Without the args the
+        // later field element resolution (`h.values[0]`) lost them and the
+        // index read fell to the scalar i64 switch, loading the first 8 bytes
+        // of an inline 112-byte aggregate as a pointer (0xC0000005).
+        if let Expr::GenericCall(callee, type_args, _, _) = value {
+            if !type_args.is_empty() {
+                if let Some((_, fd)) = self.prepass_resolve_generic(callee) {
+                    if let Some(ret) = fd.return_type.as_ref() {
+                        let mut type_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+                        for (gp, ta) in fd.generics.iter().zip(type_args.iter()) {
+                            if !gp.is_const {
+                                type_map.insert(gp.name.name.clone(), Self::type_annotation_name(ta));
+                            }
+                        }
+                        let subst = Self::substitute_type(ret, ret, &type_map);
+                        let name = Self::type_annotation_name(&subst);
+                        if !name.is_empty() && !Self::has_unresolved_generic_token(&name) {
+                            return Some(name);
+                        }
+                    }
+                }
+            }
+        }
         let rt = self.callee_return_xiom(func)?;
         // Skip unresolved generic placeholders ("Map[K, V]", "Option[T]").
         for token in rt.split(|c: char| !c.is_ascii_alphanumeric()) {

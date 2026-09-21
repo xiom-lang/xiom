@@ -245,12 +245,32 @@ pub fn expand_impl_blocks(program: &Program) -> Program {
                     let iface_name = impl_decl.trait_name.name.clone();
                     seen_impls.insert((type_name.clone(), iface_name.clone()));
                     let mut provided_methods: std::collections::HashSet<String> = std::collections::HashSet::new();
+                    // R7 residual (p_hash_probe): `impl Trait[Args]` methods are
+                    // STATIC (no receiver), but a `self` PARAM still denotes the
+                    // impl type -- the parser types it as `Self`, so a body like
+                    // `hasher.write_int(self)` failed T001 (expected Int, found
+                    // Self). Retype `Self` params to the impl type for the
+                    // non-`for` form; the `for` form keeps its receiver path.
+                    let retype_self_params = |fd: &mut FnDecl| {
+                        for p in fd.params.iter_mut() {
+                            if p.name.name != "self" && p.name.name != "this" { continue; }
+                            let self_span = match &p.ty {
+                                Type::Named(id, _) if id.name == "Self" => Some(id.span),
+                                _ => None,
+                            };
+                            if let Some(span) = self_span {
+                                p.ty = Type::Named(Ident { name: type_name.clone(), span }, vec![]);
+                            }
+                        }
+                    };
                     for member in &impl_decl.members {
                         if let ImplItem::Fn(fn_decl) = member {
                             let mut new_fn = fn_decl.clone();
                             new_fn.name = Ident { name: format!("{}.{}", type_name, fn_decl.name.name), span: fn_decl.name.span };
                             if has_for_type {
                                 new_fn.receiver = Some(Ident { name: type_name.clone(), span: impl_decl.type_name.span });
+                            } else {
+                                retype_self_params(&mut new_fn);
                             }
                             provided_methods.insert(fn_decl.name.name.clone());
                             out.push(TopDecl::Fn(new_fn));
@@ -264,6 +284,8 @@ pub fn expand_impl_blocks(program: &Program) -> Program {
                             new_fn.name = Ident { name: format!("{}.{}", type_name, method_name), span: impl_decl.span };
                             if has_for_type {
                                 new_fn.receiver = Some(Ident { name: type_name.clone(), span: impl_decl.type_name.span });
+                            } else {
+                                retype_self_params(&mut new_fn);
                             }
                             out.push(TopDecl::Fn(new_fn));
                         }

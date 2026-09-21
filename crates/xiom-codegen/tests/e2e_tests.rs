@@ -5142,6 +5142,31 @@ fn e2e_safety_probe() {
     );
 }
 
+// R7 residual: a generic constructor's Holder[V] built with `Vec[V].new()`,
+// then an aggregate element read through the holder FIELD (`h.values[0]`).
+// Local explicit-generic calls never recorded "Holder[V]" with args, so the
+// index read fell to the scalar i64 switch (p_generic_push/p_gp_b/p_gp_c AV).
+#[test] fn e2e_m116_generic_ctor_field_index() {
+    assert_eq!(
+        compile_and_run("tests/regression/m116_generic_ctor_field_index/main.xi"),
+        Some(0),
+        "R7 residual generic-ctor holder aggregate field index must compile and run"
+    );
+}
+
+// Interface value-receiver ABI is NOT implemented: an interface-typed
+// parameter receiving an aggregate by value must fail LOUDLY (the old path
+// emitted a call that silently returned wrong values -- hash probe a=5381,
+// a == c). Lock the diagnostic so a future ABI implementation replaces it
+// deliberately.
+#[test] fn e2e_m117_interface_value_abi_rejected() {
+    assert_eq!(
+        compile_and_run("tests/regression/m117_interface_value_abi/main.xi"),
+        None,
+        "interface-typed parameter with an aggregate argument must be rejected loudly"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "…")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

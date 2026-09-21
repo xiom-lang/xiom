@@ -8,9 +8,10 @@ verification record, the stale old-name -> XIOM reference cleanup, R55 (L6-40
 fixpoint evidence pre-pass), R56 (L5-40 container-payload ABI), R57 (L3-50
 `?` tuple payload), R58 (L8-14 Map[Str,Str] morse trap), R59/R60 (stdlib
 relay findings: match-slot leak into loop bodies; reference-ctor tuple
-element names), and the IDE-distribution/release batch are all committed AND
+element names), R61 (R7 residual generic-ctor field index + interface-ABI
+ruling), and the IDE-distribution/release batch are all committed AND
 PUSHED. Tree clean,
-full e2e **2363/2363**,
+full e2e **2365/2365**,
 checker 195/195, feature-reg
 510/510, stdlib-exec 85/85 (+2 ignored), robustness 63/63, fuzz 24/24,
 api-freeze 2/2, pkg 67/67, mcp 39/39. Tree state below is committed.
@@ -47,12 +48,17 @@ the release.
    playground repro before changing semantics; currently documented as
    deferred.
 3. **Stdlib-lane side (relay, not compiler work)**: re-run the generated
-   tranches against R59/R60 and mark `p_result_tuple_vec_loop` /
-   `p_ref_tuple_mangle` RESOLVED (both compile+run here); TLS is no longer
-   compiler-blocked. Their remaining non-blocked work: struct-param fns
-   without a usable ctor (44), fn-params with non-scalar shapes, generic fns
-   (83), repeatable coverage waves, tzdata phase 2, registry activation
-   (user).
+   tranches against the current main and update the known-failures triage:
+   `p_result_tuple_vec_loop` / `p_ref_tuple_mangle` RESOLVED (R59/R60);
+   `p_generic_push` / `p_gp_b` / `p_gp_c` now RUN correctly (R61) -- promote
+   them to `tools/probes/`; `p_hash_probe` has its RULING (R61d): the
+   interface value-receiver ABI is unimplemented and the shape is rejected
+   LOUDLY (C001), so it stays a documented known failure, not a silent
+   miscompile. Still open: `p_async_read_line_codegen` (0xC0000409 at EOF) and
+   `p_fnref` (function-value identity needs a language ruling). Their
+   remaining non-blocked work: struct-param fns without a usable ctor (44),
+   fn-params with non-scalar shapes, generic fns (83), repeatable coverage
+   waves, tzdata phase 2, registry activation (user).
 
 ## Environment / method notes (learned the hard way)
 
@@ -276,6 +282,19 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   version -- bump `editors/vscode/package.json` for every extension change,
   toolchain-only releases skip publishing cleanly (vsce refuses to republish
   an existing version).
+- **R61 FIXED (2026-09-21)**: R7 residual + interface-ABI ruling. (a) local
+  explicit-generic calls (`var h = make_holder[JsonValue]()`) never recorded
+  the substituted return type, so `h.values[0]` lost the element type and the
+  index read loaded the first 8 bytes of an inline aggregate as a pointer
+  (0xC0000005 in `p_generic_push`/`p_gp_b`/`p_gp_c`); `infer_call_return_xiom`
+  now substitutes `Expr::GenericCall` explicit type args. (b) `impl
+  Trait[Args]` self PARAMs are retyped from `Self` to the impl type (T001).
+  (c) zero-generic entries in `generic_fn_decls` no longer route into the
+  generic path (silent 0/no call). (d) RULING: the interface value-receiver
+  ABI is unimplemented; codegen now rejects aggregate args for interface-typed
+  params LOUDLY (`p_hash_probe` no longer silently returns 5381). Locks
+  `e2e_m116_generic_ctor_field_index`,
+  `e2e_m117_interface_value_abi_rejected`; full e2e 2365/2365.
 - **R59/R60 FIXED (2026-09-21, stdlib relay findings)**: (R59)
   `p_result_tuple_vec_loop` -- the enclosing match arm's result slot leaked
   into nested loop bodies (`oid.push(v)` as a while body's last statement

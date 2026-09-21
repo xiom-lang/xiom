@@ -3522,9 +3522,9 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 } else {
                     fn_key
                 };
-                let is_generic = self.mono.generic_fn_decls.iter().any(|(k, _)| k == &fn_key)
+                let is_generic = self.mono.generic_fn_decls.iter().any(|(k, fd)| k == &fn_key && !fd.generics.is_empty())
                     || (!self.types.functions.contains_key(&fn_key)
-                        && (self.mono.generic_fn_decls.iter().any(|(k, _)| k.ends_with(&format!(".{}", fn_key)))
+                        && (self.mono.generic_fn_decls.iter().any(|(k, fd)| !fd.generics.is_empty() && k.ends_with(&format!(".{}", fn_key)))
                             // `iter.range(1, 4).collect()` resolves fn_key to
                             // "Range.collect", but the generic decl is registered
                             // as "Iterator[T].collect". Match on the LEAF method
@@ -3542,6 +3542,16 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // receiver -> invalid IR). find_generic_decl's
                             // abstract-receiver preference uses the same rule.
                             || (fn_key.split('.').count() == 2
+                                // R7 residual (p_hash_probe): a REGISTERED
+                                // concrete impl fn must own the call -- the
+                                // leaf match below hijacked `Int.hash` (a
+                                // scalar receiver is never in types.types, so
+                                // recv_is_abstract is true) onto an unrelated
+                                // generic decl with leaf "hash", and the
+                                // monomorphisation path then silently dropped
+                                // the dispatch (no `Int.hash` call emitted).
+                                && !self.types.functions.contains_key(&fn_key)
+                                && !self.mono.emitted_fns.contains(&fn_key)
                                 && {
                                     let recv_part = fn_key.rsplit_once('.').map(|(r, _)| r).unwrap_or("");
                                     let recv_is_abstract = !recv_part.is_empty()
@@ -3550,8 +3560,9 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         && !self.types.type_meta.keys().into_iter().any(|k| k.ends_with(&format!(".{}", recv_part)))
                                         && !self.types.generic_type_names.iter().any(|k| k == recv_part || k.ends_with(&format!(".{}", recv_part)));
                                     recv_is_abstract
-                                        && self.mono.generic_fn_decls.iter().any(|(k, _)| {
-                                            k.rsplit('.').next() == fn_key.rsplit('.').next()
+                                        && self.mono.generic_fn_decls.iter().any(|(k, fd)| {
+                                            !fd.generics.is_empty()
+                                                && k.rsplit('.').next() == fn_key.rsplit('.').next()
                                         })
                                 })));
                 if is_generic {
@@ -5279,6 +5290,42 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         }
                         self.emitln(&format!("  {tmp} = call {ret_llvm} {fn_ptr}({args_str})"));
                         return Ok((tmp, ret_llvm));
+                    }
+                    // p_hash_probe guard: an interface-typed parameter is
+                    // erased to i64 and the value-receiver ABI (box the
+                    // aggregate at the call, deref it in the callee) is NOT
+                    // implemented. Refuse loudly instead of emitting a call
+                    // that silently returns wrong values (`a=5381` in the
+                    // hash probe: the impl body writes through a slot address
+                    // instead of the caller's aggregate).
+                    if let Some((_, fd)) = self.mono.generic_fn_decls.iter()
+                        .find(|(k, _)| k == &resolved_fn_key || k.ends_with(&format!(".{}", resolved_fn_key)))
+                    {
+                        let fd = fd.clone();
+                        let recv_slot = usize::from(
+                            receiver_expr.is_some()
+                                && fd.params.first().map_or(false, |p| {
+                                    p.name.name == "self"
+                                        || matches!(&p.ty, Type::Named(id, _) if id.name == "Self")
+                                }),
+                        );
+                        for (j, a) in args.iter().enumerate() {
+                            let Some(p) = fd.params.get(j + recv_slot) else { break };
+                            let pty_name = match &p.ty {
+                                Type::Named(id, _) => id.name.clone(),
+                                _ => continue,
+                            };
+                            let is_iface = self.types.interfaces.keys().iter().any(|k| {
+                                k == &pty_name || k.rsplit('.').next() == Some(pty_name.as_str())
+                            });
+                            let aty = self.infer_llvm_type(a);
+                            if is_iface && aty.starts_with("%struct.") && !aty.ends_with('*') {
+                                return Err(format!(
+                                    "unsupported: interface-typed parameter '{}' of '{}' receiving aggregate argument '{}' -- the interface value-receiver ABI is not implemented yet (p_hash_probe)",
+                                    p.name.name, resolved_fn_key, aty
+                                ));
+                            }
+                        }
                     }
                     // BUG 22 #11 fix: emit the PRE-ASSIGNED symbol for the
                     // resolved key (bare or qualified) -- definitions and call

@@ -2168,8 +2168,9 @@ impl IrEmitter {
 
     /// Resolve a callee expression to a generic decl (pre-pass; mirrors the
     /// module/instance key resolution used at emission, without emission
-    /// side effects).
-    fn prepass_resolve_generic(&self, func: &Expr) -> Option<(String, FnDecl)> {
+    /// side effects). Also reused by `infer_call_return_xiom` for explicit
+    /// generic calls (R7 residual: `make_holder[JsonValue]()`).
+    pub(crate) fn prepass_resolve_generic(&self, func: &Expr) -> Option<(String, FnDecl)> {
         let key = match func {
             Expr::Paren(inner, _) => return self.prepass_resolve_generic(inner),
             Expr::Ident(id) => id.name.clone(),

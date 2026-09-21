@@ -7516,6 +7516,30 @@ verification, with repro commands using the playground lesson sources
   shared-namer version broke (`e2e_m37_tuple_struct`,
   `e2e_m44_round13_tuple_payloads`, `e2e_m48_round14c_writeback_aggregates`)
   are green. Full e2e 2363/2363.
+- **R61 (R7 residual + interface ABI ruling)**: FIXED/CLOSED.
+  (a) `p_generic_push` / `p_gp_b` / `p_gp_c`: local explicit-generic calls
+  (`var h = make_holder[JsonValue]()`) never recorded their substituted return
+  type, so `h.values[0]` lost the element type and the index read fell to the
+  scalar i64 switch, loading the first 8 bytes of an inline aggregate as a
+  pointer (0xC0000005). `infer_call_return_xiom` now substitutes the declared
+  return type for `Expr::GenericCall` explicit type args. All three probes
+  print `A=[42]` / `B=["tree"]` / `C=[9]`. Lock
+  `e2e_m116_generic_ctor_field_index`.
+  (b) `impl Trait[Args]` desugaring left the `self` PARAM typed `Self`
+  (T001: expected Int, found Self); it is retyped to the impl type.
+  (c) A REGISTERED impl fn with ZERO generics (`Int.hash` also sits in
+  `generic_fn_decls`) was routed into the generic path, which returned a
+  silent `0` with no call emitted; `is_generic` now requires a non-empty
+  generic list.
+  (d) RULING on `p_hash_probe`: the interface VALUE-RECEIVER ABI (box the
+  aggregate at the call, deref it in the callee) is not implemented. Instead
+  of the old silent wrong answer (`a=5381` for every input), codegen now
+  rejects the shape loudly: `unsupported: interface-typed parameter ...
+  receiving aggregate argument`. Lock
+  `e2e_m117_interface_value_abi_rejected` (asserts the compile error).
+  Implementing the ABI is a feature, not a bug fix -- `xiom/hash.xi`
+  documents the interface as having no concrete impls.
+  Full e2e 2365/2365.
 - **L3-50 (Result tuple payload via `?`)**: FIXED (R57). `let (a, b) =
   two()?` bound BOTH names to the raw boxed-tuple handle -- `a + b` printed
   pointer arithmetic and the `Stmt::Destructure` fallback aliased the value
