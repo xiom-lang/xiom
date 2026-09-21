@@ -54,8 +54,13 @@ the release.
    them to `tools/probes/`; `p_hash_probe` has its RULING (R61d): the
    interface value-receiver ABI is unimplemented and the shape is rejected
    LOUDLY (C001), so it stays a documented known failure, not a silent
-   miscompile. Still open: `p_async_read_line_codegen` (0xC0000409 at EOF) and
-   `p_fnref` (function-value identity needs a language ruling). Their
+   miscompile. COMPILER RULING on `p_async_read_line_codegen`: NOT a compiler
+   bug -- the stdlib body passes an integer fd as the `FILE*` argument of
+   `fread` (`fread(&byte_buf[0], 1, 1, fd as *UInt8)`); with stdin at EOF the
+   CRT dereferences it and the process dies with 0xC0000409 (reproduced under
+   inherited stdio; the cast itself compiles). The stdlib lane should read
+   from the descriptor (`read`/a runtime fd helper), not `fread`. `p_fnref`
+   remains a language-spec ruling (function-value identity). Their
    remaining non-blocked work: struct-param fns without a usable ctor (44),
    fn-params with non-scalar shapes, generic fns (83), repeatable coverage
    waves, tzdata phase 2, registry activation (user).
