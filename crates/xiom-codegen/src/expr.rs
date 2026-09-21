@@ -995,10 +995,15 @@ impl IrEmitter {
                                     // identifiers ("Tuple__Vec[Int]__Vec[Int]" ->
                                     // clang "expected '=' after name") and broke
                                     // tuple types over containers (smoke_iter).
-                                    return match xiom.find('[') {
-                                        Some(b) => xiom[..b].to_string(),
-                                        None => xiom.clone(),
-                                    };
+                                    // R60 (stdlib p_ref_tuple_mangle): ALSO strip
+                                    // reference markers -- a "&Vec[UInt8]" local
+                                    // named the element "&Vec" and mangled the
+                                    // struct name ("Tuple__&Vec__Vec" -> clang
+                                    // "expected '=' after name").
+                                    let bare = xiom.split('[').next().unwrap_or(xiom.as_str());
+                                    let bare = bare.trim().trim_start_matches('&').trim();
+                                    let bare = bare.strip_prefix("mut ").unwrap_or(bare).trim();
+                                    return bare.to_string();
                                 }
                             }
                             // R45: comparisons, logical ops and tracked Bool
@@ -1018,6 +1023,26 @@ impl IrEmitter {
                             // code_point_to_utf16).
                             if let Expr::As(_, ty, _) = i {
                                 return Self::type_from_ast(ty);
+                            }
+                            // R60 (stdlib p_ref_tuple_mangle): a container CTOR
+                            // call element ("Vec[UInt8].new()") is erased to
+                            // i64 by infer_llvm_type -- name it by the container
+                            // base so both namers agree on Tuple__Vec__Vec.
+                            // Non-ctor calls keep their inferred name (m37).
+                            if matches!(i, Expr::Call(..) | Expr::GenericCall(..))
+                                && self.infer_llvm_type(i) == "i64"
+                            {
+                                if let Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) = i {
+                                    if let Expr::Field(recv, f, _) = func.as_ref() {
+                                        if matches!(f.name.as_str(), "new" | "with_capacity" | "from") {
+                                            let recv_name = Self::type_arg_to_name(recv);
+                                            let bare = recv_name.split('[').next().unwrap_or(recv_name.as_str()).trim();
+                                            if !bare.is_empty() && bare != "Int" {
+                                                return bare.to_string();
+                                            }
+                                        }
+                                    }
+                                }
                             }
                             // BUG 29 (BUG 28 #6): name LITERALS by their XIOM type
                             // too. infer_llvm_type erases Bool->i64->"Int", so

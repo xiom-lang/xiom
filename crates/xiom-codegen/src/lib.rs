@@ -8133,6 +8133,28 @@ impl IrEmitter {
                         if let Expr::As(_, ty, _) = i {
                             return Self::type_from_ast(ty);
                         }
+                        // R60: a container CTOR call element ("Vec[UInt8].new()")
+                        // is erased to i64 by infer_llvm_type -- name it by the
+                        // container base so the construction matches the
+                        // signature's Tuple__Vec__Vec (stdlib
+                        // p_ref_tuple_mangle). Non-ctor calls (mk_big(7), whose
+                        // infer_llvm_type is a QUALIFIED %struct) keep the
+                        // original qualified name (m37_tuple_struct.Big).
+                        if matches!(i, Expr::Call(..) | Expr::GenericCall(..))
+                            && self.infer_llvm_type(i) == "i64"
+                        {
+                            if let Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) = i {
+                                if let Expr::Field(recv, f, _) = func.as_ref() {
+                                    if matches!(f.name.as_str(), "new" | "with_capacity" | "from") {
+                                        let recv_name = Self::type_arg_to_name(recv);
+                                        let bare = recv_name.split('[').next().unwrap_or(recv_name.as_str()).trim();
+                                        if !bare.is_empty() && bare != "Int" {
+                                            return bare.to_string();
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         match i {
                             Expr::Int(..) | Expr::BigInt(..) => "Int".to_string(),
                             Expr::Str(..) => "Str".to_string(),

@@ -5118,6 +5118,30 @@ fn e2e_safety_probe() {
     );
 }
 
+// R59 (stdlib p_result_tuple_vec_loop): a match arm's result slot leaked into
+// nested loop bodies -- `oid.push(value)` as the while's last expression
+// stored a %struct.Vec into the arm's %struct.Result slot (invalid IR).
+// While/For/Spawn bodies are statement contexts now.
+#[test] fn e2e_m114_result_tuple_vec_loop() {
+    assert_eq!(
+        compile_and_run("tests/regression/m114_result_tuple_vec_loop/main.xi"),
+        Some(0),
+        "R59 Result tuple payload with a loop-built Vec must compile and run"
+    );
+}
+
+// R60 (stdlib p_ref_tuple_mangle): a reference-typed tuple element mangled
+// the tuple struct name ("Tuple__&Vec__Vec" -> clang "expected '=' after
+// name") and a container-ctor element was named by its erased LLVM type
+// ("Vec[UInt8].new()" -> "Int"). The shared element namer fixes both.
+#[test] fn e2e_m115_ref_tuple_mangle() {
+    assert_eq!(
+        compile_and_run("tests/regression/m115_ref_tuple_mangle/main.xi"),
+        Some(0),
+        "R60 reference-typed tuple elements must not mangle the struct name"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "…")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

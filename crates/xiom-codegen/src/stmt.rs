@@ -2571,7 +2571,17 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // BUG 22 #6: bindings inside the body hoist their alloca to the
                 // fn entry (loop-body allocas don't dominate later blocks).
                 self.local.loop_depth += 1;
-                self.compile_block(body, false)?;
+                // R59 (stdlib p_result_tuple_vec_loop): a loop body is a
+                // STATEMENT context -- its tail expression must NOT store into
+                // the enclosing match arm's result slot. Only the direct arm
+                // body does (the R29 guard covered same-block expression
+                // statements, not nested loops; `oid.push(v)` as the while's
+                // last statement stored a %struct.Vec into the arm's
+                // %struct.Result slot -> invalid IR).
+                let saved_match_ptr = self.fctx.match_result_ptr.take();
+                let body_res = self.compile_block(body, false);
+                self.fctx.match_result_ptr = saved_match_ptr;
+                body_res?;
                 self.local.loop_depth -= 1;
                 self.local.loop_stack.pop();
                 self.emitln(&format!("  br label %{loop_cond}"));
@@ -2669,7 +2679,11 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // BUG 22 #6: bindings inside the body hoist their alloca to the
                 // fn entry (loop-body allocas don't dominate later blocks).
                 self.local.loop_depth += 1;
-                self.compile_block(body, false)?;
+                // R59: see the While body -- statement context, no match-store.
+                let saved_match_ptr = self.fctx.match_result_ptr.take();
+                let body_res = self.compile_block(body, false);
+                self.fctx.match_result_ptr = saved_match_ptr;
+                body_res?;
                 self.local.loop_depth -= 1;
 
                 self.local.loop_stack.pop();
@@ -2760,7 +2774,12 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // Bump counters past capture unpacking to avoid name conflicts with body
                 self.tmp_counter = 1000;
                 self.block_counter = 1000;
-                self.compile_block(body, false)?;
+                // R59: the spawned body is a separate function -- it must not
+                // inherit the enclosing match arm's result slot.
+                let saved_match_ptr = self.fctx.match_result_ptr.take();
+                let spawn_body_res = self.compile_block(body, false);
+                self.fctx.match_result_ptr = saved_match_ptr;
+                spawn_body_res?;
                 self.emitln("  ret void");
                 self.emitln("}");
                 self.pop_scope(); // R2: pop the spawn function's scope

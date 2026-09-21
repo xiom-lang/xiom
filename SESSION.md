@@ -7,8 +7,10 @@ Latest pushed main: `7837b194` (R54 / R49-4 large-array ISel fix). Local main
 adds unpushed commits: the R53 staging verification record, the stale
 old-name -> XIOM reference cleanup, R55 (L6-40 fixpoint evidence pre-pass),
 R56 (L5-40 container-payload ABI), R57 (L3-50 `?` tuple payload), R58 (L8-14
-Map[Str,Str] morse trap), and the IDE-distribution/release batch. Tree clean,
-full e2e **2361/2361**,
+Map[Str,Str] morse trap), R59/R60 (stdlib relay findings: match-slot leak into
+loop bodies; reference-ctor tuple element names), and the
+IDE-distribution/release batch. Tree clean,
+full e2e **2363/2363**,
 checker 195/195, feature-reg
 510/510, stdlib-exec 85/85 (+2 ignored), robustness 63/63, fuzz 24/24,
 api-freeze 2/2, pkg 67/67, mcp 39/39. Tree state below is committed.
@@ -23,10 +25,13 @@ api-freeze 2/2, pkg 67/67, mcp 39/39. Tree state below is committed.
 2. **C3 (script-mode flags) / C6 (stdlib package.xi)** -- need an exact
    playground repro before changing semantics; currently documented as
    deferred.
-3. **Stdlib-lane side (relay, not compiler work)**: probe-corpus curation
-   (157/175 - triage historical probes), optional io/fs coverage wave, and the
-   `STDLIB_VERSION` bump so Windows links the `xiom_env_set/unset` shim
-   (pinned checkout's `os/env.xi` still calls `unsetenv` directly).
+3. **Stdlib-lane side (relay, not compiler work)**: re-run the generated
+   tranches against R59/R60 and mark `p_result_tuple_vec_loop` /
+   `p_ref_tuple_mangle` RESOLVED (both compile+run here); TLS is no longer
+   compiler-blocked. Their remaining non-blocked work: struct-param fns
+   without a usable ctor (44), fn-params with non-scalar shapes, generic fns
+   (83), repeatable coverage waves, tzdata phase 2, registry activation
+   (user).
 
 ## Environment / method notes (learned the hard way)
 
@@ -54,9 +59,11 @@ api-freeze 2/2, pkg 67/67, mcp 39/39. Tree state below is committed.
 > Continue the XIOM compiler-lane campaign in `E:\xiom-lang\xiom` (branch
 > `main`, unpushed convention: push only when asked). Read the top section of
 > SESSION.md ("CONTINUATION HANDOFF") and docs/COMPILER_BUGS.md before
-> touching code. All R-bug batches through R58 are fixed (R55-R58 unpushed);
+> touching code. All R-bug batches through R60 are fixed (R55-R60 unpushed);
 > the remaining compiler work is the perf `xiom.fmt` reachable-only peek and
-> C3/C6 (need a playground repro).
+> C3/C6 (need a playground repro). The stdlib relay findings
+> (`p_result_tuple_vec_loop`, `p_ref_tuple_mangle`) are fixed (R59/R60) --
+> TLS is no longer compiler-blocked.
 > Work repro-first: playground lessons are extracted from
 > `tmp/playground/lessons/**/Lx-yy.json` (`.solution`), run with
 > `target\debug\xiom.exe -o tmp\lessons\Lx-yy.exe tmp\lessons\Lx-yy.xi`.
@@ -234,6 +241,19 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   match `v<ver>`.
   (5) editors/README + vscode/README document the distribution policy;
   Visual Studio is deferred in ROADMAP M13.11; other editors stay config-only.
+- **R59/R60 FIXED (2026-09-21, stdlib relay findings)**: (R59)
+  `p_result_tuple_vec_loop` -- the enclosing match arm's result slot leaked
+  into nested loop bodies (`oid.push(v)` as a while body's last statement
+  stored `%struct.Vec` into the arm's `%struct.Result` slot); While/For/Spawn
+  bodies now save+clear `match_result_ptr`. (R60) `p_ref_tuple_mangle` --
+  reference-typed tuple elements kept their `&` ("&Vec" -> mangled
+  `Tuple__&Vec__Vec`) and container-ctor elements were named by their erased
+  LLVM type (`Vec[UInt8].new()` -> "Int"); the expr-side namer strips
+  reference markers and BOTH namers resolve container-ctor elements to the
+  container base (non-ctor calls keep their qualified inferred name).
+  Locks `e2e_m114_result_tuple_vec_loop` / `e2e_m115_ref_tuple_mangle`; the
+  three locks an over-broad shared-namer version broke (m37/m44/m48) are
+  green. Full e2e 2363/2363.
 - **R58 / L8-14 FIXED (2026-09-21)**: Map[Str,Str] morse trap. Payload-type
   resolution for `unwrap`/`unwrap_or` only handled Ident receivers, and a
   `&Map[Str, Str]` param's tracked type was truncated to `"&Map"` (args

@@ -7493,6 +7493,29 @@ verification, with repro commands using the playground lesson sources
   receivers and unbox aggregate payloads via `try_unbox_payload`. Lock
   `e2e_m113_map_str_str_morse` (`tests/regression/m113_map_str_str_morse`).
   Full e2e 2361/2361.
+- **R59 (stdlib p_result_tuple_vec_loop)**: FIXED. The enclosing match arm's
+  result slot leaked into nested LOOP bodies: with the arm's
+  `match_result_ptr` still set, `oid.push(value)` as a while body's LAST
+  expression stored a `%struct.Vec` into the arm's `%struct.Result` slot
+  (`'%tmp157' defined with type '%struct.Vec' but expected '%struct.Result'`).
+  The R29 guard only covered expression statements in the same block, not
+  nested loops. While/For/Spawn bodies now save+clear `match_result_ptr`
+  around `compile_block` (statement contexts must not store into the arm
+  slot). Lock `e2e_m114_result_tuple_vec_loop`.
+- **R60 (stdlib p_ref_tuple_mangle)**: FIXED. Two element-naming defects in
+  tuples: (1) a reference-typed local named the element with its `&`
+  ("&Vec" -> mangled `%struct.Tuple__&Vec__Vec`, clang "expected '=' after
+  name"); (2) a container CTOR element (`Vec[UInt8].new()`) was named by its
+  erased LLVM type ("Int") so the construction (`Tuple__Vec__Int`) differed
+  from the signature (`Tuple__Vec__Vec`). The expr-side registration namer
+  now strips reference markers, and BOTH namers (expr-side registration and
+  `infer_llvm_type`'s tuple arm) resolve container-ctor elements to the
+  container base. Non-ctor calls keep the original inferred (often
+  module-qualified) name so `Tuple__m37_tuple_struct.Big__...` stays intact.
+  Lock `e2e_m115_ref_tuple_mangle`; the three locks an over-broad
+  shared-namer version broke (`e2e_m37_tuple_struct`,
+  `e2e_m44_round13_tuple_payloads`, `e2e_m48_round14c_writeback_aggregates`)
+  are green. Full e2e 2363/2363.
 - **L3-50 (Result tuple payload via `?`)**: FIXED (R57). `let (a, b) =
   two()?` bound BOTH names to the raw boxed-tuple handle -- `a + b` printed
   pointer arithmetic and the `Stmt::Destructure` fallback aliased the value
