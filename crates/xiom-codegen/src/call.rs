@@ -1060,7 +1060,27 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 return Ok((sv, LLVM_STR_PTR.to_string()));
                             }
                             if xiom_ty == "Float64" || xiom_ty == "Float32" {
-                                if self.types.functions.contains_key(&"convert.float_to_string".to_string()) {
+                                // R62 (playground perf): xiom.convert is now
+                                // peeked only for float receivers; its fns are
+                                // injected for codegen but are not necessarily
+                                // present in types.functions under this exact
+                                // key -- resolve through the symbol map so the
+                                // conversion is emitted instead of silently
+                                // falling through to an undefined
+                                // @Float64.to_str (empty output).
+                                let fts_key = self.mono.fn_symbol_map.keys().into_iter()
+                                    .find(|k| {
+                                        k.as_str() == "convert.float_to_string"
+                                            || k.as_str() == "float_to_string"
+                                            || k.ends_with(".float_to_string")
+                                    })
+                                    .cloned();
+                                if self.types.functions.contains_key(&"convert.float_to_string".to_string())
+                                    || fts_key.is_some()
+                                {
+                                    let sym = fts_key
+                                        .and_then(|k| self.mono.fn_symbol_map.get(&k).cloned())
+                                        .unwrap_or_else(|| "convert.float_to_string".to_string());
                                     let (val, vty) = self.compile_expr(op_expr)?;
                                     let fv = if vty == "double" {
                                         val
@@ -1074,7 +1094,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         b
                                     };
                                     let tmp = self.fresh_tmp();
-                                    self.emitln(&format!("  {tmp} = call i8* @convert.float_to_string(double {fv})"));
+                                    self.emitln(&format!("  {tmp} = call i8* @{sym}(double {fv})"));
                                     return Ok((tmp, LLVM_STR_PTR.to_string()));
                                 }
                             }

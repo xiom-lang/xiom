@@ -155,6 +155,9 @@ pub struct Checker {
     /// crashed with ret-null + inttoptr garbage). collect_external_decls
     /// iterates this set alongside catalog.all_cached().
     peeked_resolved: HashSet<String>,
+    /// R62: leaf names the peeked modules must keep (see the field of the
+    /// same name on the main struct).
+    peeked_leaves: HashSet<String>,
     /// Checker-only local module name -> FULL dotted path (recorded for every
     /// `use`, not just aliases) so the qualified-call walk can map the first
     /// segment to its catalog path when descending submodule segments.
@@ -276,6 +279,12 @@ struct CatalogImportContext {
     /// program never referenced (m43 closure adapters changed codegen).
     submodule_aliases: HashMap<String, HashMap<String, ModuleExport>>,
     peeked_resolved: HashSet<String>,
+    /// R62 (playground perf): LEAF names that the peeked modules must keep
+    /// even when the user program never spells them -- codegen builtins may
+    /// lower to them without an AST call site (`.to_str()` on Float64 emits
+    /// `convert.float_to_string`). Seeded into the injection reachability
+    /// filter.
+    peeked_leaves: HashSet<String>,
 }
 
 impl Checker {
@@ -320,6 +329,7 @@ impl Checker {
             cached_loaded: HashSet::new(),
             submodule_aliases: HashMap::new(),
             peeked_resolved: HashSet::new(),
+            peeked_leaves: HashSet::new(),
             local_module_paths: HashMap::new(),
             module_import_paths: HashMap::new(),
             pending_catalog_bodies: Vec::new(),
@@ -567,6 +577,7 @@ impl Checker {
             extern_fns: self.extern_fns.clone(),
             submodule_aliases: self.submodule_aliases.clone(),
             peeked_resolved: self.peeked_resolved.clone(),
+            peeked_leaves: self.peeked_leaves.clone(),
         }
     }
 
@@ -584,6 +595,7 @@ impl Checker {
         self.extern_fns = ctx.extern_fns;
         self.submodule_aliases = ctx.submodule_aliases;
         self.peeked_resolved = ctx.peeked_resolved;
+        self.peeked_leaves = ctx.peeked_leaves;
     }
 
     /// Stage 3 Item A: type-check EVERY indexed catalog module body through
@@ -3396,6 +3408,10 @@ impl Checker {
         // Seed with names referenced by the program itself.
         let mut referenced: HashSet<String> = HashSet::new();
         collect_referenced_names(&program.items, &mut referenced);
+        // R62: codegen builtins may lower to peeked-module fns that the AST
+        // never names (Float64 `.to_str()` -> convert.float_to_string); keep
+        // those leaves alive through the reachability filter.
+        referenced.extend(self.peeked_leaves.iter().cloned());
 
         // Split candidate function decls from always-kept decls.
         let mut fn_candidates: Vec<FnDecl> = Vec::new();
@@ -5781,6 +5797,20 @@ impl Checker {
                             .map(|b| b.trim().to_string())
                             .unwrap_or_else(|| type_name.name().to_string());
                         let method_key = format!("{}.{}", base_name, method.name);
+                        // R62 (playground perf): annotated float locals arrive
+                        // as Named("Float64") and take THIS registered-sig path
+                        // (not the primitive-variant arm), where the concrete
+                        // `Float64.to_str` used to come from the broad fmt
+                        // peek. Codegen's builtin needs only the small
+                        // xiom.convert module -- record that here so the
+                        // conversion is not silently dropped when fmt stays
+                        // unpeeked.
+                        if matches!(method.name.as_str(), "to_str" | "to_string")
+                            && matches!(base_name.as_str(), "Float64" | "Float32" | "Float128")
+                        {
+                            self.peeked_resolved.insert("xiom.convert".to_string());
+                            self.peeked_leaves.insert("float_to_string".to_string());
+                        }
                         if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() && method.name == "sum" {
                             eprintln!("[sum] obj_ty={} key={} in_functions={} methods_keys={:?}", type_name, method_key, self.functions.contains_key(&method_key), self.methods.keys().collect::<Vec<_>>());
                         }
@@ -6029,11 +6059,28 @@ impl Checker {
                             "c_str" if prim_ty == CheckedType::Str => return CheckedType::Named("Ptr".into()),
                             "byte_len" if prim_ty == CheckedType::Str => return CheckedType::Int,
                             "to_str" | "to_string" => {
-                                // R47 (playground C18/C19): see the container
-                                // arm below -- the concrete conversion methods
-                                // live in xiom.fmt and must reach codegen even
-                                // when the program never `use`d it.
-                                self.peeked_resolved.insert("xiom.fmt".to_string());
+                                // R62 (playground perf): the fmt peek used to
+                                // pull the whole xiom.fmt closure (+8 deps)
+                                // for EVERY to_str call. Primitive receivers
+                                // have codegen builtins (xiom_int_to_string,
+                                // inline Bool/Str), so they need no peek at
+                                // all; Float64 uses the small xiom.convert
+                                // module (convert.xi + xiom.string). Anything
+                                // else keeps the R47 fmt fallback.
+                                match &prim_ty {
+                                    CheckedType::Float64 | CheckedType::Float32 | CheckedType::Float128 => {
+                                        self.peeked_resolved.insert("xiom.convert".to_string());
+                                        self.peeked_leaves.insert("float_to_string".to_string());
+                                    }
+                                    CheckedType::Int | CheckedType::Int8 | CheckedType::Int16
+                                    | CheckedType::Int32 | CheckedType::Int64 | CheckedType::Int128
+                                    | CheckedType::UInt | CheckedType::UInt8 | CheckedType::UInt16
+                                    | CheckedType::UInt32 | CheckedType::UInt64 | CheckedType::UInt128
+                                    | CheckedType::Bool | CheckedType::Str | CheckedType::Char => {}
+                                    _ => {
+                                        self.peeked_resolved.insert("xiom.fmt".to_string());
+                                    }
+                                }
                                 return CheckedType::Str;
                             }
                             // M12/P0: Str conversions from C strings / byte buffers.
@@ -6122,7 +6169,24 @@ impl Checker {
                                 // zero-arg i64 stub (Str printed empty; Float64
                                 // printed its raw bit pattern on older pins).
                                 // Same pattern as BUG 28 #4's peeked submodules.
-                                self.peeked_resolved.insert("xiom.fmt".to_string());
+                                //
+                                // R62 (playground perf): only pull what the
+                                // receiver needs -- primitives with codegen
+                                // builtins need NOTHING, Float64/Float32 need
+                                // the small xiom.convert module; other
+                                // receivers keep the fmt fallback.
+                                match base {
+                                    "Float64" | "Float32" | "Float128" => {
+                                        self.peeked_resolved.insert("xiom.convert".to_string());
+                                        self.peeked_leaves.insert("float_to_string".to_string());
+                                    }
+                                    "Int" | "Int8" | "Int16" | "Int32" | "Int64" | "Int128"
+                                    | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64" | "UInt128"
+                                    | "Bool" | "Str" | "Char" => {}
+                                    _ => {
+                                        self.peeked_resolved.insert("xiom.fmt".to_string());
+                                    }
+                                }
                                 return CheckedType::Str;
                             }
                             // v0.56: Time/counter methods

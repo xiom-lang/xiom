@@ -7540,6 +7540,34 @@ verification, with repro commands using the playground lesson sources
   Implementing the ABI is a feature, not a bug fix -- `xiom/hash.xi`
   documents the interface as having no concrete impls.
   Full e2e 2365/2365.
+- **R62 (playground request #2): fmt reachable-only peek -- FIXED.** Every
+  `.to_str()`/`.to_string()` used to peek the whole `xiom.fmt` module plus its
+  8-module dep closure (table/units/ansi/text/markup/string/convert/io/num),
+  making the front-end 4-6x slower than the v0.60.1 release on the playground
+  harness (to_str emit-ir 2400 ms vs hello 1540 ms on R55). The peek is now
+  receiver-aware:
+  - Int/IntN/UInt*/Bool/Str/Char peek NOTHING -- codegen already lowers them
+    (`xiom_int_to_string`, inline Bool select, Str identity);
+  - Float64/Float32/Float128 peek the small `xiom.convert` module
+    (convert/convert.xi, 268 lines, deps: xiom.string);
+  - every other receiver (generics, user types) keeps the R47 fmt fallback.
+  Supporting changes: `peeked_leaves` seeds the injection reachability filter
+  with `float_to_string` (codegen lowers to it without any AST reference, so
+  the filter previously pruned it); the codegen float builtin resolves the
+  conversion symbol through `fn_symbol_map` (peeked-module fns are injected
+  for codegen but are not in `types.functions` under that key).
+  Measured with the playground harness (`tools/bench-cold-compile.js`, clean
+  TEMP, same machine, 3 samples): to_str/hello emit-ir ratio **1.81x -> 1.12x**
+  (acceptance <= 1.3x), to_str emit-ir 2660 -> 2077 ms (-22%), loop_200
+  3358 -> 2333 ms (-31%); `fmt.*` symbols in the IR 1 -> 0 while the program
+  still prints `42` / `1.5`. Gates: full e2e 2365/2365, feature-reg 510/510,
+  stdlib-exec 85/85, diff 24/24, robustness 63/63, api-freeze 2/2.
+  Pre-existing failures found while gating (present on the stashed baseline
+  too -- NOT R62): `stdlib_tests::stdlib_all_modules_compile_to_ir` fails on
+  `xiom.encoding.ascii85` `Result[Vec[UInt8], Str]` vs `Option[Vec[UInt8]]`
+  and `xiom.core` `cannot call 'float_to_string'`; generic `T.to_str()`
+  prints a denormal even with `use xiom.fmt;` (recorded in SESSION.md as
+  open findings, not in the gated suite list).
 - **L3-50 (Result tuple payload via `?`)**: FIXED (R57). `let (a, b) =
   two()?` bound BOTH names to the raw boxed-tuple handle -- `a + b` printed
   pointer arithmetic and the `Stmt::Destructure` fallback aliased the value

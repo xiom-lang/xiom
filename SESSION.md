@@ -9,7 +9,9 @@ fixpoint evidence pre-pass), R56 (L5-40 container-payload ABI), R57 (L3-50
 `?` tuple payload), R58 (L8-14 Map[Str,Str] morse trap), R59/R60 (stdlib
 relay findings: match-slot leak into loop bodies; reference-ctor tuple
 element names), R61 (R7 residual generic-ctor field index + interface-ABI
-ruling), and the IDE-distribution/release batch are all committed AND
+ruling), R62 (fmt reachable-only peek; to_str/hello front-end ratio
+1.81x -> 1.12x on the playground bench), and the IDE-distribution/release
+batch are all committed AND
 PUSHED. Tree clean,
 full e2e **2365/2365**,
 checker 195/195, feature-reg
@@ -43,19 +45,33 @@ the release.
 
 ## Remaining work, priority order
 
-1. **Perf (playground request #2) -- NOT reproducible here (2026-09-22)**: on
-   R61 `xiom.fmt` is pulled ONLY by actual `to_str`/`to_string` call sites
-   (verified: 0 `fmt.` symbols in the IR for a no-import program AND for an
-   io-only program; 1 with `n.to_str()`), so the "costs 3-6 s even without
-   `.to_str()`" claim does not reproduce in this workspace (debug build;
-   timings were noise-dominated). The remaining optimization -- reachable-only
-   injection when a `to_str` call sits in a DEAD function -- needs the
-   playground cold-compile repro/measurement to verify; do not refactor
-   `collect_external_decls` blind.
-2. **C3 (script-mode flags) / C6 (stdlib package.xi)** -- need an exact
-   playground repro before changing semantics; currently documented as
-   deferred.
-3. **Stdlib compiler-finding triage CLOSED (2026-09-22, compiler R61
+1. **Perf (playground request #2) -- DONE (R62, 2026-09-22)**: the broad
+   `xiom.fmt` peek is now receiver-aware (primitives peek nothing, floats peek
+   the small `xiom.convert`, generics keep the fmt fallback); measured with the
+   playground harness (`E:\xiom-lang\playground\tools\bench-cold-compile.js`,
+   clean TEMP so the stray %TEMP% module scan does not dominate): to_str/hello
+   emit-ir ratio 1.81x -> 1.12x (acceptance <= 1.3x), loop_200 emit-ir -31%;
+   `fmt.*` IR symbols 1 -> 0; output still `42`/`1.5`. Gates: e2e 2365/2365,
+   feature-reg 510/510, stdlib-exec 85/85, diff 24/24, robustness 63/63,
+   api-freeze 2/2. Runbook: `node .../bench-cold-compile.js --bin
+   <debug|release> --stdlib <tree>\stdlib --runs 3 --json before.json`, then
+   `--compare before.json`.
+2. **New/recorded findings (pre-existing, present on the stashed baseline)**:
+   - `stdlib_tests::stdlib_all_modules_compile_to_ir` fails:
+     `xiom.encoding.ascii85` returns `Option[Vec[UInt8]]` against
+     `Result[Vec[UInt8], Str]` (lines 35/89) and `xiom.core` (line ~799)
+     "cannot call 'float_to_string'/'bool_to_string'". This suite is NOT in
+     the handoff gate list; it needs its own triage (likely stdlib+checker).
+   - generic `T.to_str()` prints a denormal (`4.89e-322` for 99) even with
+     `use xiom.fmt;` -- generic-method conversion dispatch gap; repro in
+     `tmp/cleanbench/to_str_edges.xi`. Needs a ruling (Display-bound monomorph
+     vs builtin per-concrete-type expansion).
+3. **C3 (script-mode `--opt-level`) / C6 (benchmark `package.xi`)** -- exact
+   repros now in `E:\xiom-lang\playground\docs\COMPILER_REPROS.md` (C3: four
+   invocations; `run` ignores the level and never caches, compile-only honors
+   it; C6: the pinned `lib/package.xi` is the xiom-bench manifest). Also:
+   script cache must work without a writable HOME (falls back to temp).
+4. **Stdlib compiler-finding triage CLOSED (2026-09-22, compiler R61
    `ff293f8e`)**: `tools/known_failures/README.md` reports NO open findings --
    the generic_push family and result_tuple/ref_tuple are RESOLVED and
    promoted to `tools/probes/`; `p_hash_probe` is RULED (loud C001, archived
