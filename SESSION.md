@@ -15,6 +15,10 @@ full e2e **2365/2365**,
 checker 195/195, feature-reg
 510/510, stdlib-exec 85/85 (+2 ignored), robustness 63/63, fuzz 24/24,
 api-freeze 2/2, pkg 67/67, mcp 39/39. Tree state below is committed.
+**Compiler bug queue: EMPTY as of R61** -- the stdlib re-triage
+(`tools/known_failures/README.md`, 2026-09-22) reports no open findings; the
+only remaining compiler-side items are perf (playground repro/measurement
+needed) and C3/C6 (repros needed).
 
 Release dry run (2026-09-21, workflow_dispatch on pushed main): guard 8s;
 linux-x64 2m49s; windows-x64 4m44s; VSIX job 23s producing
@@ -39,31 +43,28 @@ the release.
 
 ## Remaining work, priority order
 
-1. **Perf (playground request #2)** -- reachable-function-only peek in
-   `xiom-check::collect_external_decls`: the auto-injected `xiom.fmt` closure
-   costs 3-6 s front-end even without `.to_str()`. Shape: peek the
-   checker-resolved module shallow, run the reachability filter, then pull the
-   deps named by the SELECTED decls to a fixpoint. Gate with the full e2e.
+1. **Perf (playground request #2) -- NOT reproducible here (2026-09-22)**: on
+   R61 `xiom.fmt` is pulled ONLY by actual `to_str`/`to_string` call sites
+   (verified: 0 `fmt.` symbols in the IR for a no-import program AND for an
+   io-only program; 1 with `n.to_str()`), so the "costs 3-6 s even without
+   `.to_str()`" claim does not reproduce in this workspace (debug build;
+   timings were noise-dominated). The remaining optimization -- reachable-only
+   injection when a `to_str` call sits in a DEAD function -- needs the
+   playground cold-compile repro/measurement to verify; do not refactor
+   `collect_external_decls` blind.
 2. **C3 (script-mode flags) / C6 (stdlib package.xi)** -- need an exact
    playground repro before changing semantics; currently documented as
    deferred.
-3. **Stdlib-lane side (relay, not compiler work)**: re-run the generated
-   tranches against the current main and update the known-failures triage:
-   `p_result_tuple_vec_loop` / `p_ref_tuple_mangle` RESOLVED (R59/R60);
-   `p_generic_push` / `p_gp_b` / `p_gp_c` now RUN correctly (R61) -- promote
-   them to `tools/probes/`; `p_hash_probe` has its RULING (R61d): the
-   interface value-receiver ABI is unimplemented and the shape is rejected
-   LOUDLY (C001), so it stays a documented known failure, not a silent
-   miscompile. COMPILER RULING on `p_async_read_line_codegen`: NOT a compiler
-   bug -- the stdlib body passes an integer fd as the `FILE*` argument of
-   `fread` (`fread(&byte_buf[0], 1, 1, fd as *UInt8)`); with stdin at EOF the
-   CRT dereferences it and the process dies with 0xC0000409 (reproduced under
-   inherited stdio; the cast itself compiles). The stdlib lane should read
-   from the descriptor (`read`/a runtime fd helper), not `fread`. `p_fnref`
-   remains a language-spec ruling (function-value identity). Their
-   remaining non-blocked work: struct-param fns without a usable ctor (44),
-   fn-params with non-scalar shapes, generic fns (83), repeatable coverage
-   waves, tzdata phase 2, registry activation (user).
+3. **Stdlib compiler-finding triage CLOSED (2026-09-22, compiler R61
+   `ff293f8e`)**: `tools/known_failures/README.md` reports NO open findings --
+   the generic_push family and result_tuple/ref_tuple are RESOLVED and
+   promoted to `tools/probes/`; `p_hash_probe` is RULED (loud C001, archived
+   under evidence for when the interface ABI lands); `p_fnref` is RULED a
+   LANGUAGE-SPEC decision (function-value identity -- an attempted loud
+   binding rejection was reverted; the stdlib lane's ruling stands);
+   `p_async_read_line_codegen` is RESOLVED stdlib-side via the runtime
+   `xiom_read`/`xiom_write` helpers. Their remaining work (coverage waves,
+   untested-surface tail, tzdata phase 2) does not gate the release.
 
 ## Environment / method notes (learned the hard way)
 
