@@ -3,17 +3,33 @@
 
 # CONTINUATION HANDOFF (2026-09-21, compiler lane)
 
-Latest pushed main: `7837b194` (R54 / R49-4 large-array ISel fix). Local main
-adds unpushed commits: the R53 staging verification record, the stale
-old-name -> XIOM reference cleanup, R55 (L6-40 fixpoint evidence pre-pass),
-R56 (L5-40 container-payload ABI), R57 (L3-50 `?` tuple payload), R58 (L8-14
-Map[Str,Str] morse trap), R59/R60 (stdlib relay findings: match-slot leak into
-loop bodies; reference-ctor tuple element names), and the
-IDE-distribution/release batch. Tree clean,
+Latest pushed main: `30c5a483` (R59/R60 + CRB-6 release fix). The R53 staging
+verification record, the stale old-name -> XIOM reference cleanup, R55 (L6-40
+fixpoint evidence pre-pass), R56 (L5-40 container-payload ABI), R57 (L3-50
+`?` tuple payload), R58 (L8-14 Map[Str,Str] morse trap), R59/R60 (stdlib
+relay findings: match-slot leak into loop bodies; reference-ctor tuple
+element names), and the IDE-distribution/release batch are all committed AND
+PUSHED. Tree clean,
 full e2e **2363/2363**,
 checker 195/195, feature-reg
 510/510, stdlib-exec 85/85 (+2 ignored), robustness 63/63, fuzz 24/24,
 api-freeze 2/2, pkg 67/67, mcp 39/39. Tree state below is committed.
+
+Release dry run (2026-09-21, workflow_dispatch on pushed main): guard 8s;
+linux-x64 2m49s; windows-x64 4m44s; VSIX job 23s producing
+`xiom-vscode-0.12.0.vsix` + `SHA256SUMS-vscode`
+(sha256 e426f8e0...ab681) as workflow artifacts; both marketplace publish
+steps SKIPPED (tag-gated) and the GitHub Release job SKIPPED. The first
+dispatch (35646447417) surfaced a pre-existing workflow bug: the z3 bundle
+copied `LICENSE.txt` from the extraction ROOT while the vendor archives nest
+it under their version dir (`z3-4.13.4-x64-glibc-2.35/LICENSE.txt`); fixed in
+CRB-6 (30c5a483) by resolving the license by name in all three z3 steps. The
+second dispatch (35647022547) is fully green. macOS jobs remain gated on the
+`RELEASE_BUILD_MACOS` repo variable. Tag checklist before `git tag v0.61.0`:
+marketplace 0.12.0 absent on both (404, checked 2026-09-21), workspace version
+0.61.0, extension README/LICENSE/icon committed, secrets live (VSCE_PAT,
+OVSX_TOKEN). NO TAG YET -- pending owner go + the stdlib lane's re-sweep on
+R59/R60.
 
 ## Remaining work, priority order
 
@@ -222,6 +238,14 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   the pinned stdlib's `os/env.xi` still calls `unsetenv` directly, so the
   probe links on Windows only after the pin moves to the
   `xiom_env_set/unset` shim revision (bump `STDLIB_VERSION`).
+- **CRB-6 / release dry run (2026-09-21)**: `release.yml`'s three z3 bundle
+  steps now resolve the vendor license by NAME under the extraction tree
+  (`find`/`Get-ChildItem -Recurse`) instead of assuming `LICENSE.txt` sits at
+  the archive root -- both platform jobs had failed with `cp: cannot stat
+  '/tmp/xiom-z3/LICENSE.txt'`. Committed `30c5a483`, pushed. Dispatch
+  35647022547 is fully green: guard, linux-x64, windows-x64, VSIX
+  (`xiom-vscode-0.12.0.vsix` + `SHA256SUMS-vscode`); marketplace publishes
+  and the GitHub Release are skipped (tag-gated). No tag yet.
 - **IDE distribution + release batch (2026-09-21, registry relay via owner)**:
   (1) the VS Code VSIX is now UNIVERSAL -- `program: ./xiom-dbg.exe` is gone
   from `editors/vscode/package.json`; `xiom-lsp`/`xiom-dbg` resolve at runtime
