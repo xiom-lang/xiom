@@ -5016,6 +5016,18 @@ fn e2e_safety_probe() {
     );
 }
 
+// R54 (p_sweep_single_param clang ISel crash): a LARGE fixed array must not
+// materialize whole-aggregate values -- clang 22.1.8 X86 ISel crashes on
+// `alloca [65536 x i8]` + `store zeroinitializer` / whole-array loads.
+// Codegen byte-zeros arrays >= 16 KiB with memset and accesses them by address.
+#[test] fn e2e_m109_large_fixed_array() {
+    assert_eq!(
+        compile_and_run("tests/regression/m109_large_fixed_array/main.xi"),
+        Some(0),
+        "R54 large fixed-array probe must compile and run"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "…")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

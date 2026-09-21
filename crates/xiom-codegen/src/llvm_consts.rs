@@ -29,3 +29,9 @@ pub const LLVM_STR_PTR: &str = "i8*";
 // === Struct prefix ===
 /// `%struct.` prefix used when emitting named LLVM struct types
 pub const LLVM_STRUCT: &str = "%struct.";
+
+/// R54: fixed-array locals of at least this many bytes are accessed by ADDRESS
+/// (no whole-aggregate value materialization / zero-initializer store) because
+/// clang 22.1.8 X86 ISel crashes on huge aggregate values
+/// (p_sweep_single_param: alloca [65536 x i8] + store zeroinitializer / load).
+pub const LARGE_ARRAY_MIN_BYTES: i64 = 16384;

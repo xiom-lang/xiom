@@ -2726,7 +2726,12 @@ impl IrEmitter {
                 // Index into a Vec (builtin {i8*, i64, i64}) or a Str (i8*).
                 // Fixed-size arrays [N x T] (from Expr::Array literals or stack
                 // arrays) are handled by the `[N x T]` GEP path below.
-                let (cont_val, cont_ty) = self.compile_expr(container)?;
+                // R54: a LARGE array local is used via its ADDRESS -- do not
+                // materialize the whole aggregate (clang ISel crash).
+                let (cont_val, cont_ty) = match self.large_array_local_addr(container) {
+                    Some(addr) => addr,
+                    None => self.compile_expr(container)?,
+                };
                 let (idx_raw, idx_ty) = self.compile_expr(index)?;
                 let idx = self.val_to_i64(&idx_raw, &idx_ty);
                 // round-15 (&[N]T mono params): the mono param lowers to a

@@ -410,7 +410,22 @@ impl IrEmitter {
                 } else {
                     self.emitln(&format!("  {alloca} = alloca {llvm_ty}{}", self.alloca_align(&llvm_ty)));
                 }
-                self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}{}", self.store_align(&llvm_ty)));
+                // R54 (p_sweep_single_param clang ISel crash): a LARGE fixed
+                // array's zero-initialization must not be an aggregate
+                // `store [N x T] zeroinitializer` -- clang 22.1.8 X86 ISel
+                // crashes on the huge DAG (>= ~32 KiB). Byte-zero with memset
+                // instead (identical semantics for zero-initialization).
+                let large_array_zero = store_val == "zeroinitializer"
+                    && llvm_ty.starts_with('[')
+                    && self.array_type_bytes(&llvm_ty).map_or(false, |b| b >= LARGE_ARRAY_MIN_BYTES);
+                if large_array_zero {
+                    let bytes = self.array_type_bytes(&llvm_ty).unwrap_or(0);
+                    let p = self.fresh_tmp();
+                    self.emitln(&format!("  {p} = bitcast {llvm_ty}* {alloca} to i8*"));
+                    self.emitln(&format!("  call void @llvm.memset.p0i8.i64(i8* {p}, i8 0, i64 {bytes}, i1 false)"));
+                } else {
+                    self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}{}", self.store_align(&llvm_ty)));
+                }
                 self.add_local(&name.name, alloca, &llvm_ty);
                 // Check invariants if the value is a struct with invariants
                 if self.config.check_contracts {
@@ -752,7 +767,18 @@ impl IrEmitter {
                 } else {
                     self.emitln(&format!("  {alloca} = alloca {llvm_ty}{}", self.alloca_align(&llvm_ty)));
                 }
-                self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}{}", self.store_align(&llvm_ty)));
+                // R54: large fixed-array zero-init via memset (see Let arm).
+                let large_array_zero = store_val == "zeroinitializer"
+                    && llvm_ty.starts_with('[')
+                    && self.array_type_bytes(&llvm_ty).map_or(false, |b| b >= LARGE_ARRAY_MIN_BYTES);
+                if large_array_zero {
+                    let bytes = self.array_type_bytes(&llvm_ty).unwrap_or(0);
+                    let p = self.fresh_tmp();
+                    self.emitln(&format!("  {p} = bitcast {llvm_ty}* {alloca} to i8*"));
+                    self.emitln(&format!("  call void @llvm.memset.p0i8.i64(i8* {p}, i8 0, i64 {bytes}, i1 false)"));
+                } else {
+                    self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}{}", self.store_align(&llvm_ty)));
+                }
                 self.add_local(&name.name, alloca, &llvm_ty);
                 // Check invariants if the value is a struct with invariants
                 if self.config.check_contracts {
@@ -832,7 +858,12 @@ impl IrEmitter {
                 // {i8*, i64, i64}) -- write an i64-wide slot at data[idx]. Str is
                 // immutable at the ABI, so only Vec/Slice are handled.
                 if let Expr::Index(container, index, _) = place {
-                    let (cont_val, cont_ty) = self.compile_expr(container)?;
+                    // R54: a LARGE array local is used via its ADDRESS -- do not
+                    // materialize the whole aggregate just to discard it.
+                    let (cont_val, cont_ty) = match self.large_array_local_addr(container) {
+                        Some(addr) => addr,
+                        None => self.compile_expr(container)?,
+                    };
                     let (vec_val, vec_ty) = self.resolve_vec_receiver(container, &cont_val, &cont_ty);
 let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
 || Self::is_llvm_struct_named(&vec_ty, "Slice");

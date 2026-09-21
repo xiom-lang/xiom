@@ -3654,6 +3654,55 @@ impl IrEmitter {
         self.struct_byte_size_depth(type_name, 0)
     }
 
+    /// R54: total byte size of a fixed-array LLVM type ("[N x T]"), when the
+    /// element is statically sized (scalar, pointer, nested array, or a
+    /// registered struct). None when any part is unknown.
+    pub(crate) fn array_type_bytes(&self, ty: &str) -> Option<i64> {
+        let t = ty.trim();
+        let inner = t.strip_prefix('[')?.strip_suffix(']')?;
+        let (n_str, elem) = inner.split_once(" x ")?;
+        let n: i64 = n_str.trim().parse().ok()?;
+        let elem = elem.trim();
+        let elem_size: i64 = if elem.starts_with('[') {
+            self.array_type_bytes(elem)?
+        } else if let Some(name) = elem.strip_prefix("%struct.") {
+            self.struct_byte_size(name) as i64
+        } else {
+            match elem {
+                "i1" | "i8" => 1,
+                "i16" => 2,
+                "i32" | "float" => 4,
+                "i64" | "double" | "ptr" => 8,
+                "i128" | "fp128" => 16,
+                _ if elem.ends_with('*') => 8,
+                _ => return None,
+            }
+        };
+        Some(n.saturating_mul(elem_size))
+    }
+
+    /// R54 (p_sweep_single_param clang ISel crash): a LARGE fixed-array LOCAL
+    /// must be accessed through its ADDRESS. Materializing the whole aggregate
+    /// (`load [65536 x i8]`) or zero-initializing it with an aggregate
+    /// `store ... zeroinitializer` crashes clang 22.1.8 X86 ISel above
+    /// ~32 KiB. Returns (alloca, ty) for array locals of at least
+    /// LARGE_ARRAY_MIN_BYTES; callers fall back to compile_expr otherwise.
+    pub(crate) fn large_array_local_addr(&self, container: &Expr) -> Option<(String, String)> {
+        let (ptr, ty) = match container {
+            Expr::Ident(id) => self.lookup_local(&id.name)?,
+            _ => return None,
+        };
+        if !ty.starts_with('[') {
+            return None;
+        }
+        let bytes = self.array_type_bytes(ty)?;
+        if bytes >= crate::llvm_consts::LARGE_ARRAY_MIN_BYTES {
+            Some((ptr.clone(), ty.clone()))
+        } else {
+            None
+        }
+    }
+
     /// Real byte size of a Vec ELEMENT type -- the storage width used by the
     /// inline Vec buffer (ctor alloc, grow realloc, element strides).
     /// Container fields count FULLY: a Vec field is 32 bytes (i8* + 3 x i64),

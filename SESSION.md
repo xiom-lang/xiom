@@ -141,6 +141,15 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   wired. Pending: stdlib lane green -> bump `STDLIB_VERSION` in the release
   PR -> tag `v0.61.0`; optional rewrite of the protected tags
   `v0.60.0`/`v0.60.1` (old objects remain on the remote).
+- **R54 / R49-4 CLOSED (2026-09-21)**: the clang 22.1.8 ISel crash is fixed
+  in codegen -- large fixed-array locals (>= 16 KiB) are zero-initialized
+  with `llvm.memset` instead of an aggregate `store zeroinitializer`, and
+  indexed access uses their address (no whole-array value materialization).
+  `p_sweep_single_param.xi` compiles AND links in ~56 s (previously clang
+  ISel 0xC0000005); lock `e2e_m109_large_fixed_array`. Windows-pin note:
+  the pinned stdlib's `os/env.xi` still calls `unsetenv` directly, so the
+  probe links on Windows only after the pin moves to the
+  `xiom_env_set/unset` shim revision (bump `STDLIB_VERSION`).
 - **R53 registry metadata consumption (2026-09-21, registry relay)**:
   `xiom-pkg` now consumes the server-extracted package metadata
   (`license`, `categories`, `keywords`, `repository`) in the index and

@@ -7601,7 +7601,35 @@ dispatch recognizes Option/Result payload containers
 (`is_payload_container`). Verified with the stdlib repro plus an
 Err-payload Vec form; locked as `e2e_m100_result_payload_contract`.
 
-### R49-4 `p_sweep_single_param` -- clang 22.1.8 ISel crash
-Still fails with a clang 22.1.8 instruction-selection crash (0xC0000005 on
-`@__unsafe_block_77`); IR deterministic across R46/R46b, no hang. Filed
-pending a minimized repro.
+### R49-4 `p_sweep_single_param` -- clang 22.1.8 ISel crash -- FIXED (R54)
+Symptom: `clang -c` on the emitted IR crashed (0xC0000005) in X86 DAG->DAG
+Instruction Selection; the old evidence pointed at `@__unsafe_block_77`
+with a 65536-byte stack alloca.
+
+Root cause (bisected to a 5-line LLVM repro): the essential trigger is an
+**aggregate zero-initializer store of a huge fixed array**
+(`alloca [65536 x i8]` + `store [65536 x i8] zeroinitializer`); a whole-array
+`load [65536 x i8]` in the same function compounds it. Threshold: 32768-byte
+arrays compile, 65536 crash. `memset` alone or the alloca alone are fine.
+
+Fix (codegen, R54):
+- Fixed-array locals >= 16 KiB are zero-initialized with
+  `llvm.memset.p0i8.i64(..., i64 bytes, ...)` instead of an aggregate
+  `store zeroinitializer` (Let and Var declaration stores).
+- Indexed access to such locals goes through their ADDRESS
+  (`large_array_local_addr`) so codegen no longer materializes the whole
+  aggregate just to discard it (index read and index-assign paths).
+- Helpers: `array_type_bytes`, `large_array_local_addr`,
+  `LARGE_ARRAY_MIN_BYTES = 16384`.
+
+Evidence: minimal 15-line repro (`var buf: [65536]UInt8;`) now compiles;
+`tools/known_failures/p_sweep_single_param.xi` compiles AND LINKS in ~56 s
+(was: clang ISel crash) -- the Linux acceptance path is compile/link for
+this compile-only sweep probe. Lock `e2e_m109_large_fixed_array` + CI line.
+
+Note for the stdlib lane: the pinned checkout's `xiom/os/env.xi` still calls
+`unsetenv` directly, so on WINDOWS this probe fails at LINK with
+`undefined symbol: unsetenv` until `STDLIB_VERSION` moves to a revision
+carrying the `xiom_env_set/xiom_env_unset` shim (the newer stdlib tree links
+only when `XIOM_STDLIB` and `XIOM_RUNTIME_DIR` are both pointed at it -- the
+runtime C files resolve separately from the source root).
