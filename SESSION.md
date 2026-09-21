@@ -29,7 +29,12 @@ second dispatch (35647022547) is fully green. macOS jobs remain gated on the
 marketplace 0.12.0 absent on both (404, checked 2026-09-21), workspace version
 0.61.0, extension README/LICENSE/icon committed, secrets live (VSCE_PAT,
 OVSX_TOKEN). NO TAG YET -- pending owner go + the stdlib lane's re-sweep on
-R59/R60.
+R59/R60. NOTE (2026-09-21): the stdlib lane's "R58 re-baseline" predates
+R59/R60 -- both relayed findings (`p_result_tuple_vec_loop`,
+`p_ref_tuple_mangle`) compile+run (RC=0) here with their own files on
+d990e535, so those red groups are already clear; they only need to pull
+main and re-run. Their remaining untested-surface/coverage waves do NOT gate
+the release.
 
 ## Remaining work, priority order
 
