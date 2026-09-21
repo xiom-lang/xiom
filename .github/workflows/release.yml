@@ -237,7 +237,11 @@ jobs:
           Expand-Archive -Path $zip -DestinationPath $dir -Force
           Copy-Item (Join-Path $dir ($p.bin -replace '/','\')) (Join-Path 'stage' ($p.target -replace '/','\'))
           foreach ($f in $p.bundle) { Copy-Item (Join-Path $dir ($f -replace '/','\')) 'stage\bin\' }
-          Copy-Item (Join-Path $dir $pins.license_file) 'stage\LICENSE-Z3'
+          # CRB-6: the archive nests the license under its version directory
+          # (z3-4.13.4-x64-win/LICENSE.txt) -- resolve it by name.
+          $lic = Get-ChildItem -Path $dir -Recurse -File -Filter ([IO.Path]::GetFileName($pins.license_file)) | Select-Object -First 1
+          if (-not $lic) { throw "z3 license $($pins.license_file) not found in archive" }
+          Copy-Item $lic.FullName 'stage\LICENSE-Z3'
           & 'stage\bin\z3.exe' --version
 
       - name: Bundle z3 (Linux/macOS, pinned + SHA256)
@@ -265,7 +269,12 @@ jobs:
           mkdir -p stage/bin
           cp "/tmp/xiom-z3/$Z3_BIN" "stage/$Z3_TARGET"
           for f in $Z3_FILES; do cp "/tmp/xiom-z3/$f" stage/bin/; done
-          cp "/tmp/xiom-z3/$Z3_LICENSE" stage/LICENSE-Z3
+          # CRB-6: the license lives under the archive's version directory
+          # (e.g. z3-4.13.4-x64-glibc-2.35/LICENSE.txt), so resolve it by
+          # name instead of assuming it sits at the extraction root.
+          lic="$(find /tmp/xiom-z3 -type f -name "$(basename "$Z3_LICENSE")" | head -n 1)"
+          [ -n "$lic" ] || { echo "::error::z3 license $Z3_LICENSE not found in archive"; exit 1; }
+          cp "$lic" stage/LICENSE-Z3
           "stage/$Z3_TARGET" --version
 
       - name: Package (Windows)
@@ -424,7 +433,12 @@ jobs:
           mkdir -p stage/bin
           cp "/tmp/xiom-z3/$Z3_BIN" "stage/$Z3_TARGET"
           for f in $Z3_FILES; do cp "/tmp/xiom-z3/$f" stage/bin/; done
-          cp "/tmp/xiom-z3/$Z3_LICENSE" stage/LICENSE-Z3
+          # CRB-6: the license lives under the archive's version directory
+          # (e.g. z3-4.13.4-x64-glibc-2.35/LICENSE.txt), so resolve it by
+          # name instead of assuming it sits at the extraction root.
+          lic="$(find /tmp/xiom-z3 -type f -name "$(basename "$Z3_LICENSE")" | head -n 1)"
+          [ -n "$lic" ] || { echo "::error::z3 license $Z3_LICENSE not found in archive"; exit 1; }
+          cp "$lic" stage/LICENSE-Z3
           "stage/$Z3_TARGET" --version
 
       - name: Package (macOS)
