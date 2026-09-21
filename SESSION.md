@@ -1,6 +1,89 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
+# CONTINUATION HANDOFF (2026-09-21, compiler lane)
+
+Latest pushed main: `7837b194` (R54 / R49-4 large-array ISel fix). Tree clean,
+full e2e **2357/2357**, checker 195/195, feature-reg 510/510, stdlib-exec
+85/85 (+2 ignored), robustness 63/63, fuzz 24/24, api-freeze 2/2, pkg 67/67,
+mcp 39/39. Everything below is committed and pushed.
+
+## Remaining work, priority order
+
+1. **L6-40 (playground C17 residue)** -- module-scoped generic factory with no
+   argument evidence at its call site:
+   `var runner = plugin_runner.create(); plugin_runner.add_plugin(&mut runner,
+   EchoPlugin{}); plugin_runner.run_all(&runner, "x");` -> C001 "Int does not
+   implement Plugin". Trace evidence in docs/COMPILER_BUGS.md: `create`
+   concrete=[] (emits the `0` fallback), `add_plugin` concrete=["EchoPlugin"],
+   `run_all` container miss -> Int. Needs a fixpoint pre-pass over the function
+   body (single-pass emission cannot see the later evidence). Repro lesson:
+   `tmp/lessons/L6-40.xi` (extract via `lessons/**/Lx-yy.json` `.solution`).
+2. **L5-40 (Map container-payload ABI)** -- circuit-broken after 3 attempts;
+   `docs/failed_attempts.md` has the full evidence. Needs ONE decision: the
+   element representation for container-typed Vec elements (inline header vs
+   8-byte box handle) applied consistently across `record_field_vec_elem`, the
+   index read path, `emit_elem_payload_load`, push and the Option/Result ctor.
+3. **L3-50 (Result tuple payload via `?`)** -- bisected: `let (a,b) =
+   split_two(rest)?` binds garbage and `t.0`/`t.1` read 0, while
+   `split_two(rest).unwrap().1` is correct. Try-payload tuple typing /
+   destructuring is the defect. Repro: `tmp/lessons/L3-50.xi`.
+4. **L8-14** -- deterministic `0xC000001D` trap in the Map[Str,Str] morse flow
+   (`tmp/lessons/L8-14.xi`). Not yet root-caused; Map[Str,Str] get/unwrap is
+   now correct in isolation, so the trap is downstream (decode/show path).
+5. **Perf (playground request #2)** -- reachable-function-only peek in
+   `xiom-check::collect_external_decls`: the auto-injected `xiom.fmt` closure
+   costs 3-6 s front-end even without `.to_str()`. Shape: peek the
+   checker-resolved module shallow, run the reachability filter, then pull the
+   deps named by the SELECTED decls to a fixpoint. Gate with the full e2e.
+6. **C3 (script-mode flags) / C6 (stdlib package.xi)** -- need an exact
+   playground repro before changing semantics; currently documented as
+   deferred.
+7. **Stdlib-lane side (relay, not compiler work)**: probe-corpus curation
+   (157/175 - triage historical probes), optional io/fs coverage wave, and the
+   `STDLIB_VERSION` bump so Windows links the `xiom_env_set/unset` shim
+   (pinned checkout's `os/env.xi` still calls `unsetenv` directly).
+
+## Environment / method notes (learned the hard way)
+
+- **Never rebuild `target/debug/xiom.exe` while a cargo e2e runs** -- the
+  harness spawns it; mid-run replacement produces flaky crashes/false results.
+  One e2e is ~25 min; batch fixes per run.
+- **`--emit-ir` prints the INTERMEDIATE emitter output.** For the IR clang
+  actually compiles, force a link failure (`--link missing_xyz`) and read
+  `<output>.ll` (kept on failure, deleted on success).
+- **Large fixed arrays**: >= 16 KiB locals are memset-zeroed and accessed by
+  address (`LARGE_ARRAY_MIN_BYTES`); do not reintroduce whole-aggregate
+  stores/loads for them -- clang 22.1.8 XESel crashes above 32 KiB.
+- Repro harnesses: `tmp/repro_lessons.ps1 -IdList a,b,c` and
+  `tmp/output_check.ps1 -IdList ...` (3-run determinism + UTF-8 validation).
+  Playground clone at `tmp/playground` (uses each JSON's `id`, not filename).
+- The stdlib checkout is the PINNED `stdlib/`; to test a newer stdlib set
+  BOTH `XIOM_STDLIB` and `XIOM_RUNTIME_DIR` (runtime C files resolve
+  separately).
+- ISel/LLVM minimizer: `tmp/extract_closure.py` (auto-detects the crashing
+  function, extracts its transitive closure) + hand-built matrix .ll files
+  under `tmp/preprobe/`.
+
+## Continuation prompt (copy/paste into the next session)
+
+> Continue the AXIOM compiler-lane campaign in `E:\xiom-lang\xiom` (branch
+> `main`, unpushed convention: push only when asked). Read the top section of
+> SESSION.md ("CONTINUATION HANDOFF") and docs/COMPILER_BUGS.md before
+> touching code. All R-bug batches through R54 are fixed and pushed; the
+> remaining compiler bugs are L6-40 (fixpoint inference pre-pass), L5-40
+> (container-element representation decision; see docs/failed_attempts.md),
+> L3-50 (Result tuple payload via `?`), L8-14 (Map[Str,Str] morse trap), the
+> perf `xiom.fmt` reachable-only peek, and C3/C6 (need a playground repro).
+> Work repro-first: playground lessons are extracted from
+> `tmp/playground/lessons/**/Lx-yy.json` (`.solution`), run with
+> `target\debug\xiom.exe -o tmp\lessons\Lx-yy.exe tmp\lessons\Lx-yy.xi`.
+> Rebuild `cargo build -p xiom` after checker/codegen changes, add an e2e lock
+> (`e2e_mNNN_*` fixture under `tests/regression/` + the CI lock line in
+> `.github/workflows/ci.yml`), and run the full e2e once per batch. Never
+> rebuild while an e2e is running. Start with L6-40 unless the user says
+> otherwise.
+
 # XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-83 in docs/SESSION.md)
 
 2026-09-17 update (post-split, `main`): the registry-client findings
