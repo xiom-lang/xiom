@@ -246,6 +246,24 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   total) invoking `xiom-pkg --json`, returning the exact index field names.
   Tests: pkg 67/67, mcp 39/39. Live smoke: search/info JSON + `xiom pkg`
   dispatch verified against the staging registry.
+- **R53 staging verification (2026-09-21, registry relay #2)**: re-verified
+  live against `https://staging.registry.xiom-lang.org` via the `XIOM_REGISTRY`
+  override. MCP `search_packages({category:"core"})` and
+  `search_packages({query:"matrix"})` both return `xiom.math` with
+  categories/keywords populated; the `matrix` hit is keyword-only (the name is
+  `xiom.math` and the description has no `matrix`), proving keyword indexing
+  is consumed. MCP `package_info("xiom.math")` returns description, categories,
+  keywords, license, repository, latest, and per-version
+  sha256/signature/publicKey/dependencies/yanked. CLI parity holds for
+  `xiom-pkg` and the `xiom pkg` forwarder (`search --category core --json`,
+  `search matrix --json`, `info xiom.math --json`). Wire-shape gaps reported
+  to the registry: index top-level `registry`/`version` are declared but
+  unused and `updated_at` is ignored (no schema-version negotiation);
+  version-level `size`, `published`, `yankedAt`, `yankReason` and the
+  duplicated per-version metadata block are dropped; the server `/search`
+  endpoint emits `results` while the client `--json` envelope uses `packages`
+  (the client filters `/index.json` locally, so a server-side search switch
+  would need a mapping); `/categories` has no client surface.
 - **R52 payload/binding batch (2026-09-19, playground audit §19)**: closed
   the remaining 11 nondeterministic/pointer-print lessons (L3-02,
   L5-09/20/24/26/29/31/35/36/43) plus L5-21 via a family of type-erasure
