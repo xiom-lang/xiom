@@ -3106,7 +3106,12 @@ impl IrEmitter {
     /// `Map.get` / `Vec.get` on tracked locals.
     pub(crate) fn generic_container_last_arg(decl: &str) -> Option<String> {
         let (base, args) = Self::parse_generic_type_string(decl);
-        if !matches!(base.as_str(), "Map" | "Vec" | "Set" | "Slice") {
+        // L8-14: reference-qualified containers ("&Map[Str, Str]" params,
+        // "&mut Vec[T]") must resolve the same as their value spelling --
+        // the base came back as "&Map" and the payload lookup missed.
+        let base = base.trim_start_matches('&').trim();
+        let base = base.strip_prefix("mut ").unwrap_or(base).trim();
+        if !matches!(base, "Map" | "Vec" | "Set" | "Slice") {
             return None;
         }
         args.last().cloned().filter(|a| !a.is_empty())

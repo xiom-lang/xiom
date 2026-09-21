@@ -3153,18 +3153,32 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     // payload ABI type when the receiver is a tracked
                                     // local (mirrors the 5d unwrap path below).
                                     if field_ty == "i64" {
-                                        if let Expr::Ident(rid) = receiver.as_ref() {
-                                            if let Some(decl_ty) = self.local.local_opt_payload.get(&rid.name).cloned() {
-                                                if decl_ty == "Str" {
-                                                    let sptr = self.fresh_tmp();
-                                                    self.emitln(&format!("  {sptr} = inttoptr i64 {phi} to i8*"));
-                                                    return Ok((sptr, LLVM_STR_PTR.to_string()));
-                                                }
-                                                if decl_ty == "Float64" {
-                                                    let f = self.fresh_tmp();
-                                                    self.emitln(&format!("  {f} = bitcast i64 {phi} to double"));
-                                                    return Ok((f, "double".to_string()));
-                                                }
+                                        // L8-14: the receiver is often a direct
+                                        // CALL (`morse.get(k).unwrap_or("?")`),
+                                        // not a tracked local. Resolve the
+                                        // declared payload via the shared
+                                        // scrutinee resolver (last type-arg for
+                                        // Map.get, Vec element for Vec.get, ...)
+                                        // so Str keeps its pointer ABI and
+                                        // aggregates unbox instead of escaping
+                                        // as raw i64 handles.
+                                        let decl_ty = match receiver.as_ref() {
+                                            Expr::Ident(rid) => self.local.local_opt_payload.get(&rid.name).cloned(),
+                                            other => self.scrutinee_payload_xiom(other, 1),
+                                        };
+                                        if let Some(decl_ty) = decl_ty {
+                                            if decl_ty == "Str" {
+                                                let sptr = self.fresh_tmp();
+                                                self.emitln(&format!("  {sptr} = inttoptr i64 {phi} to i8*"));
+                                                return Ok((sptr, LLVM_STR_PTR.to_string()));
+                                            }
+                                            if decl_ty == "Float64" {
+                                                let f = self.fresh_tmp();
+                                                self.emitln(&format!("  {f} = bitcast i64 {phi} to double"));
+                                                return Ok((f, "double".to_string()));
+                                            }
+                                            if let Some((v, t)) = self.try_unbox_payload(&phi, &decl_ty) {
+                                                return Ok((v, t));
                                             }
                                         }
                                     }
@@ -3193,13 +3207,22 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // values instead of raw i64 (fixes msg.len() -> @len
                             // miscompile on Str payloads).
                             if field_ty == "i64" {
-                                let declared: Option<String> = if let Expr::Ident(rid) = receiver.as_ref() {
-                                    if fn_name == "unwrap_err" {
-                                        self.local.local_err_payload.get(&rid.name).cloned()
-                                    } else {
-                                        self.local.local_opt_payload.get(&rid.name).cloned()
+                                // L8-14: call receivers resolve through the
+                                // shared scrutinee payload helper (see the
+                                // unwrap_or path above).
+                                let declared: Option<String> = match receiver.as_ref() {
+                                    Expr::Ident(rid) => {
+                                        if fn_name == "unwrap_err" {
+                                            self.local.local_err_payload.get(&rid.name).cloned()
+                                        } else {
+                                            self.local.local_opt_payload.get(&rid.name).cloned()
+                                        }
                                     }
-                                } else { None };
+                                    other => {
+                                        let fidx = if fn_name == "unwrap_err" { 2 } else { 1 };
+                                        self.scrutinee_payload_xiom(other, fidx)
+                                    }
+                                };
                                 if let Some(decl_ty) = declared {
                                     if decl_ty == "Str" {
                                         let sptr = self.fresh_tmp();
@@ -3210,6 +3233,9 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         let f = self.fresh_tmp();
                                         self.emitln(&format!("  {f} = bitcast i64 {val} to double"));
                                         return Ok((f, "double".to_string()));
+                                    }
+                                    if let Some((v, t)) = self.try_unbox_payload(&val, &decl_ty) {
+                                        return Ok((v, t));
                                     }
                                 }
                             }

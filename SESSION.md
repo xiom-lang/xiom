@@ -6,26 +6,24 @@
 Latest pushed main: `7837b194` (R54 / R49-4 large-array ISel fix). Local main
 adds unpushed commits: the R53 staging verification record, the stale
 old-name -> XIOM reference cleanup, R55 (L6-40 fixpoint evidence pre-pass),
-R56 (L5-40 container-payload ABI), R57 (L3-50 `?` tuple payload), and the
-IDE-distribution/release batch. Tree clean, full e2e **2360/2360**,
+R56 (L5-40 container-payload ABI), R57 (L3-50 `?` tuple payload), R58 (L8-14
+Map[Str,Str] morse trap), and the IDE-distribution/release batch. Tree clean,
+full e2e **2361/2361**,
 checker 195/195, feature-reg
 510/510, stdlib-exec 85/85 (+2 ignored), robustness 63/63, fuzz 24/24,
 api-freeze 2/2, pkg 67/67, mcp 39/39. Tree state below is committed.
 
 ## Remaining work, priority order
 
-1. **L8-14** -- deterministic `0xC000001D` trap in the Map[Str,Str] morse flow
-   (`tmp/lessons/L8-14.xi`). Not yet root-caused; Map[Str,Str] get/unwrap is
-   now correct in isolation, so the trap is downstream (decode/show path).
-2. **Perf (playground request #2)** -- reachable-function-only peek in
+1. **Perf (playground request #2)** -- reachable-function-only peek in
    `xiom-check::collect_external_decls`: the auto-injected `xiom.fmt` closure
    costs 3-6 s front-end even without `.to_str()`. Shape: peek the
    checker-resolved module shallow, run the reachability filter, then pull the
    deps named by the SELECTED decls to a fixpoint. Gate with the full e2e.
-3. **C3 (script-mode flags) / C6 (stdlib package.xi)** -- need an exact
+2. **C3 (script-mode flags) / C6 (stdlib package.xi)** -- need an exact
    playground repro before changing semantics; currently documented as
    deferred.
-4. **Stdlib-lane side (relay, not compiler work)**: probe-corpus curation
+3. **Stdlib-lane side (relay, not compiler work)**: probe-corpus curation
    (157/175 - triage historical probes), optional io/fs coverage wave, and the
    `STDLIB_VERSION` bump so Windows links the `xiom_env_set/unset` shim
    (pinned checkout's `os/env.xi` still calls `unsetenv` directly).
@@ -56,17 +54,17 @@ api-freeze 2/2, pkg 67/67, mcp 39/39. Tree state below is committed.
 > Continue the XIOM compiler-lane campaign in `E:\xiom-lang\xiom` (branch
 > `main`, unpushed convention: push only when asked). Read the top section of
 > SESSION.md ("CONTINUATION HANDOFF") and docs/COMPILER_BUGS.md before
-> touching code. All R-bug batches through R57 are fixed (R55-R57 unpushed);
-> the remaining compiler bugs are L8-14 (Map[Str,Str] morse trap), the perf
-> `xiom.fmt` reachable-only peek, and C3/C6 (need a playground repro).
+> touching code. All R-bug batches through R58 are fixed (R55-R58 unpushed);
+> the remaining compiler work is the perf `xiom.fmt` reachable-only peek and
+> C3/C6 (need a playground repro).
 > Work repro-first: playground lessons are extracted from
 > `tmp/playground/lessons/**/Lx-yy.json` (`.solution`), run with
 > `target\debug\xiom.exe -o tmp\lessons\Lx-yy.exe tmp\lessons\Lx-yy.xi`.
 > Rebuild `cargo build -p xiom` after checker/codegen changes, add an e2e lock
 > (`e2e_mNNN_*` fixture under `tests/regression/` + the CI lock line in
 > `.github/workflows/ci.yml`), and run the full e2e once per batch. Never
-> rebuild while an e2e is running. Start with L8-14 unless the user says
-> otherwise.
+> rebuild while an e2e is running. Start with the perf peek unless the user
+> says otherwise.
 
 # XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-83 in docs/SESSION.md)
 
@@ -236,6 +234,16 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   match `v<ver>`.
   (5) editors/README + vscode/README document the distribution policy;
   Visual Studio is deferred in ROADMAP M13.11; other editors stay config-only.
+- **R58 / L8-14 FIXED (2026-09-21)**: Map[Str,Str] morse trap. Payload-type
+  resolution for `unwrap`/`unwrap_or` only handled Ident receivers, and a
+  `&Map[Str, Str]` param's tracked type was truncated to `"&Map"` (args
+  dropped), so `morse.get(ch).unwrap_or("?")` returned the Str payload as a
+  raw i64 handle and `result + code` printed pointers. Fixed
+  `ref_preserving_name` (bracket-preserving via `type_annotation_name`),
+  `generic_container_last_arg` (&/&mut stripping), and both unwrap builtins
+  (call receivers resolve via `scrutinee_payload_xiom`; aggregates unbox via
+  `try_unbox_payload`). L8-14 prints all four lines; lock
+  `e2e_m113_map_str_str_morse`; full e2e 2361/2361.
 - **R57 / L3-50 FIXED (2026-09-21)**: `?` on a Result with a tuple payload.
   `let (a, b) = two()?` bound both names to the raw boxed-tuple handle
   (`a + b` printed pointer arithmetic). The `?` handler now unboxes AGGREGATE

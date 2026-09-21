@@ -7478,7 +7478,21 @@ verification, with repro commands using the playground lesson sources
   "T" cannot shadow the concrete type), L5-36/L5-35 (to_str via match
   results). Locks `e2e_m106..m108`; all 11 previously nondeterministic
   lessons (L3-02, L5-09/20/24/26/29/31/35/36/43) plus L5-21 are
-  deterministic now. Still open: L8-14 (trap in the Map[Str,Str] morse flow).
+  deterministic now.
+- **L8-14 (Map[Str,Str] morse trap)**: FIXED (R58). The `0xC000001D` trap is
+  gone; the lesson prints `... --- ...` / `SOS` / `.... ..` / `HI`. Root
+  cause: payload-type resolution for `unwrap`/`unwrap_or` only handled Ident
+  receivers, and the tracked type of a `&Map[Str, Str]` PARAM was truncated to
+  `"&Map"` by `ref_preserving_name` (args dropped), so
+  `morse.get(ch).unwrap_or("?")` returned the Str payload as a raw i64 handle
+  and `result + code` printed pointers (later the decode path trapped).
+  Fixes: (1) `ref_preserving_name` renders refs with `type_annotation_name`
+  (args preserved); (2) `generic_container_last_arg` strips `&`/`&mut` so
+  reference-qualified containers resolve; (3) both the `unwrap` and
+  `unwrap_or` builtins fall back to `scrutinee_payload_xiom` for CALL
+  receivers and unbox aggregate payloads via `try_unbox_payload`. Lock
+  `e2e_m113_map_str_str_morse` (`tests/regression/m113_map_str_str_morse`).
+  Full e2e 2361/2361.
 - **L3-50 (Result tuple payload via `?`)**: FIXED (R57). `let (a, b) =
   two()?` bound BOTH names to the raw boxed-tuple handle -- `a + b` printed
   pointer arithmetic and the `Stmt::Destructure` fallback aliased the value

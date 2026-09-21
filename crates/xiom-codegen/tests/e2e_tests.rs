@@ -5096,6 +5096,28 @@ fn e2e_safety_probe() {
     );
 }
 
+// L8-14: Map[Str, Str] morse flow trapped with 0xC000001D.
+// `param.get(k).unwrap_or("?")` resolved payload types only for Ident
+// receivers; a `&Map[Str, Str]` param had lost its args ("&Map"), so the Str
+// payload escaped as a raw i64 handle and string concatenation printed
+// pointers. The lock asserts the encode/decode round trips.
+#[test] fn e2e_m113_map_str_str_morse() {
+    let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
+    if !stdlib_root.join("xiom").join("io.xi").exists() {
+        let msg = "SKIP: stdlib checkout has no xiom/io.xi";
+        if xiom_graph::paths::require_stdlib() {
+            panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
+        }
+        eprintln!("{msg}");
+        return;
+    }
+    assert_eq!(
+        compile_and_run("tests/regression/m113_map_str_str_morse/main.xi"),
+        Some(0),
+        "L8-14 Map[Str, Str] morse flow must compile and run without trapping"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "…")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

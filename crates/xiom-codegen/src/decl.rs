@@ -2662,8 +2662,13 @@ impl IrEmitter {
     /// the & is the only discriminator from a plain T.
     pub(crate) fn ref_preserving_name(ty: &Type) -> Option<String> {
         match ty {
-            Type::Ref(inner) => Some(format!("&{}", Self::type_from_ast(inner))),
-            Type::MutRef(inner) => Some(format!("&mut {}", Self::type_from_ast(inner))),
+            // L8-14: preserve generic args through the reference
+            // ("&Map[Str, Str]" -- type_from_ast truncated it to "&Map", so
+            // payload resolution on `param.get(k)` saw a bare "&Map" and
+            // could not derive the value type). Same bracket-preserving shape
+            // as type_annotation_name for annotations.
+            Type::Ref(inner) => Some(format!("&{}", Self::type_annotation_name(inner))),
+            Type::MutRef(inner) => Some(format!("&mut {}", Self::type_annotation_name(inner))),
             _ => None,
         }
     }
