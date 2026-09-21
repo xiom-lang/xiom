@@ -1,7 +1,7 @@
 // XIOM -- Huge Monomorphisation Benchmark
 // Forces the compiler to generate 15+ struct instantiations, 10+ function
 // instantiations, nested generics, and cross-product instantiations.
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 module benchmark.monomorph

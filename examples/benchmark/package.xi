@@ -1,6 +1,6 @@
 // XIOM -- Compiler Stress-Test Benchmark Suite
 // Multi-file modular benchmark that pushes every language feature to its limits.
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 package {

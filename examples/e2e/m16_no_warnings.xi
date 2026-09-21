@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // M16: Hello World compiles with ZERO warnings (was 5 warnings before fix)

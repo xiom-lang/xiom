@@ -1,5 +1,5 @@
 // XIOM -- Lexer
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! XIOM Lexer -- converts UTF-8 source to a flat token stream.

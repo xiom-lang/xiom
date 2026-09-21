@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // M36-C12: Every loop pattern -- while true, while cond, while break, while continue, nested loops, infinite+break

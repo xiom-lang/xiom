@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // m39_round9_set_abi -- round-9 (2026-08-20) regression:

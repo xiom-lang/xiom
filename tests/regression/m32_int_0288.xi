@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // M32: Int8(-1) < UInt8(1) must be true (-1 sign-extended as signed)

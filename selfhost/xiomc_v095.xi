@@ -1,5 +1,5 @@
 // XIOM -- Self-Hosted Compiler v0.9.5
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 fn xiom_read_file(path: Str) -> Int;

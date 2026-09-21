@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // M35-T10: Struct with all field types -- Bool, Int, Int8/16/32/64, Float64, Str (no Char in large struct)

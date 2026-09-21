@@ -1,6 +1,6 @@
 // XIOM -- I/O and Serialization Stress Benchmark
 // Exercises file I/O patterns, serialization, encoding, and data transformation.
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 module benchmark.serialize

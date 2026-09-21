@@ -1,5 +1,5 @@
 // XIOM Language Server -- LSP position math
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! LSP positions are zero-based line + UTF-16 code units. XIOM spans carry

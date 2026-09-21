@@ -1,6 +1,6 @@
 // XIOM -- Generics Stress Benchmark
 // Exercises generic functions, generic types, type constraints, and multiple type parameters.
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 module benchmark.generics

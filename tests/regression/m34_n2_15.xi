@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // M34-N2-15: 8-level type alias chain -- T0 -> T1 -> T2 -> T3 -> T4 -> T5 -> T6 -> T7

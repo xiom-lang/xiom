@@ -1,6 +1,6 @@
 // XIOM -- Enum/Match Stress Benchmark
 // Exercises large enums, exhaustive matching, pattern matching, and enum with data.
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 module benchmark.enums

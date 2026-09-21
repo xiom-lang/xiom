@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // M36-X30: ALL FEATURES COMBINED -- struct+enum+generic+match+while+if+contract+invariant+derive+impl+module+Option+Result+array+pointer+unsafe+cast+compound_assign+const+type_alias+recursion+bool

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 fn classify(n: Int) -> Int { if n < 0 { return 1; } elif n == 0 { return 2; } elif n < 100 { return 3; } else { return 4; } }

@@ -1,6 +1,6 @@
 // XIOM Language Server -- LSP method handlers
 // Each handler is extracted from the monolith handle_lsp_message dispatch.
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use crate::ai::get_ai_insight_for_line;

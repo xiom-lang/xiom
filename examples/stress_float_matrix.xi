@@ -1,5 +1,5 @@
 // XIOM -- stress_float_matrix
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 fn dot(a: Float64, b: Float64, c: Float64, d: Float64) -> Float64 { return a * b + c * d; }

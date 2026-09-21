@@ -2,7 +2,7 @@
 // Pushes the selfhost compiler to its absolute limits.
 // 28 inline modules: 24 benchmarks + 3 data modules + 1 data processor
 // Total: ~10,000 lines of extreme compiler stress testing.
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // --- Shared Benchmark Result Type ---

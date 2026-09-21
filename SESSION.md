@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2026 Eleftherios Notas and XIOM Foundation -->
+<!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
 # XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-83 in docs/SESSION.md)

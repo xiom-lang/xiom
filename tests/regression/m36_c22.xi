@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // M36-C22: Every pointer pattern -- null pointer, deref, pointer arithmetic, pointer chain, pointer cast, pointer in struct

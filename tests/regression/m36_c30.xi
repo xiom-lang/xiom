@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // M36-C30: Combined mega test 3 -- ALL_FEATURES: struct+enum+match+while+if+derive+module+Option+Result+array+pointer+unsafe+cast+compound_assign+const+type_alias+recursion

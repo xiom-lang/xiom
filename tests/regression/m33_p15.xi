@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // M33-P15: 30-chained fn + 20-struct + 15-enum + 5-module cross-ref + 20-foot mega struct + 50-var fn

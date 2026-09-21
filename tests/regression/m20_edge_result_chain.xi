@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 fn div(a: Int, b: Int) -> Result[Int, Str] { if b == 0 { return Err("div0"); } return Ok(a / b); }

@@ -1,5 +1,5 @@
 // XIOM -- shared repository/path resolution (R27 + R31).
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //
 // R31 (release/infra, pre-split): ONE helper for every cross-repo test and

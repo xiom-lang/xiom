@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // M36-C10: Every cast direction between numeric types -- Int<->Int8, Int<->Int16, Int<->Int32, Int<->Float64, Float64<->Int, pointer casts

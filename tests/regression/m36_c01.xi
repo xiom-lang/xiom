@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // M36-C01: Every operator with every type -- arithmetic, bitwise, shift, cmp, logic, bool across Int, Int8, Int16, Int32, Float64, Bool, Char

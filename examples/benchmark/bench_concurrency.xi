@@ -1,6 +1,6 @@
 // XIOM -- Concurrency & Async Stress Benchmark
 // Exercises spawn, channels, async/await patterns.
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 module benchmark.concurrency

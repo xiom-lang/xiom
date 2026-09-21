@@ -1,7 +1,7 @@
 // XIOM -- Massive Contract Verification Benchmark
 // Exercises generic invariants, contract chains, multi-ensures,
 // combined requires+ensures, and invariant-rich types.
-// Copyright (c) 2026 Eleftherios Notas and XIOM Foundation
+// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 module benchmark.contracts_hard
