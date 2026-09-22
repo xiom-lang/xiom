@@ -101,7 +101,7 @@ pub fn compiler_cache_identity() -> String {
     )
 }
 
-/// R51 (playground audit §19.1): the EFFECTIVE optimization level for the
+/// R51 (playground audit S19.1): the EFFECTIVE optimization level for the
 /// script cache -- an explicit `--opt-level`, else the compiler default
 /// (-O2 debug, -O3 release). Part of the cache key so a binary built at one
 /// level is never served for another.
@@ -151,7 +151,7 @@ pub fn script_cache_has(source: &str, opt_level: u8) -> bool {
 }
 
 pub fn jit_cache_dir() -> PathBuf {
-    // R51 (playground audit §19.3): treat an EMPTY HOME/USERPROFILE as
+    // R51 (playground audit S19.3): treat an EMPTY HOME/USERPROFILE as
     // unavailable -- an empty value produced a cwd-relative ".xiom/jit"
     // cache (often unwritable, and the playground's sandbox has no HOME)
     // instead of the temp fallback that keeps the cache working.
@@ -160,7 +160,7 @@ pub fn jit_cache_dir() -> PathBuf {
             let dir = dir.trim();
             if !dir.is_empty() {
                 let candidate = PathBuf::from(dir).join(".xiom").join("jit");
-                // R63 (playground repro pack §4): a SET but UNWRITABLE home
+                // R63 (playground repro pack S4): a SET but UNWRITABLE home
                 // (readonly HOME, sandbox) used to disable the script cache
                 // silently -- every `xiom run` recompiled. Probe the
                 // directory by creating it and fall back to temp on failure.

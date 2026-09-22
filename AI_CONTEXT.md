@@ -40,7 +40,7 @@ Flags: `--opt-level N` (`-O0..-O3`), `--no-contracts`, `--diagnostics=json`,
 `--sandbox-report=json`, `--timeout SECS`, `-l LIB`, `-L PATH`,
 `--c-source FILE.c`.
 
-Scripts (`xiom run` — implicit `fn main()`, top-level statements allowed):
+Scripts (`xiom run` -- implicit `fn main()`, top-level statements allowed):
 ```
 xiom run script.xi               # execute
 xiom run -e "io.println(\"hi\")" # inline expression
@@ -54,8 +54,8 @@ effective opt level) in `$HOME/.xiom/jit`, with a `$TMPDIR/xiom_jit` fallback
 when HOME is unset or unwritable.
 
 Other: `xiom doc`, `xiom graph[=mermaid]`, `xiom --standalone script.xi -o out`,
-`xiom new NAME`, `xiom init`, `xiom install` (deprecated → `xiom pkg install`),
-`xiom update` (RETIRED — it used an unverified channel; a verified updater is
+`xiom new NAME`, `xiom init`, `xiom install` (deprecated -> `xiom pkg install`),
+`xiom update` (RETIRED -- it used an unverified channel; a verified updater is
 planned, see `docs/POST_RELEASE_PLAN.md`).
 
 ## Packages and the registry
@@ -97,10 +97,10 @@ xiom pkg lock
   destructuring, `unwrap` / `unwrap_or` / `expect`. Tuple payloads through `?`
   are supported.
 - Generics: functions/types with bounds; interfaces via
-  `impl Trait[Type] { ... }` (methods are STATIC there — `self` is the impl
+  `impl Trait[Type] { ... }` (methods are STATIC there -- `self` is the impl
   type). Calls on interface-typed VALUES with aggregate arguments are NOT
   implemented and are rejected loudly; function-value identity (`f == g` for
-  named functions) is unspecified — do not rely on it.
+  named functions) is unspecified -- do not rely on it.
 - Modules: `module a.b.c`, `use a.b;`, `pub` exports; the stdlib resolves as
   `xiom.<module>` from the bundled `lib/`.
 - Unsafe/FFI: `unsafe { ... }`, `extern "C"` with confinement gates
@@ -118,13 +118,13 @@ Tools: `compile_and_analyze`, `compile_and_fix`, `check_xiom_syntax`,
 `xiom_language_guide`, `xiom_workflow_guide`, `search_packages`,
 `package_info`.
 
-- `xiom_stdlib_reference {module?}` — live-parses the bundled stdlib: module
+- `xiom_stdlib_reference {module?}` -- live-parses the bundled stdlib: module
   list, then public signatures **with contracts**.
-- `get_contract_signature {file, function_name?}` — requires/ensures/
+- `get_contract_signature {file, function_name?}` -- requires/ensures/
   invariants for project code.
-- `verify_contracts {file, check?}` — Z3 proof results + counterexamples
+- `verify_contracts {file, check?}` -- Z3 proof results + counterexamples
   (needs `z3`; it is bundled in `bin/`).
-- `search_packages` / `package_info` — registry search/info (read-only, no
+- `search_packages` / `package_info` -- registry search/info (read-only, no
   token); staging-verified.
 - Guide topics: `xiom_language_guide {topic}` and
   `xiom_workflow_guide {topic}`; use topic **`context`** for this file.
@@ -133,7 +133,7 @@ Tools: `compile_and_analyze`, `compile_and_fix`, `check_xiom_syntax`,
 
 - Interface value-receiver ABI not implemented (loud compile error).
 - Named function values are not first-class; identity is unspecified.
-- Generic `T.to_str()` conversion dispatch prints invalid values — use a
+- Generic `T.to_str()` conversion dispatch prints invalid values -- use a
   concrete type or `fmt.format1`.
 - `xiom update` retired; toolchain updates are manual until the verified
   updater lands (`docs/POST_RELEASE_PLAN.md`).

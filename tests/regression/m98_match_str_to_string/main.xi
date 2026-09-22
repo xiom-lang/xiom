@@ -1,4 +1,4 @@
-﻿use xiom.io;
+use xiom.io;
 
 use xiom.string;
 type Queue[T] = {

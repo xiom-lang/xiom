@@ -5189,7 +5189,7 @@ fn e2e_safety_probe() {
     );
 }
 
-// R52 (packages relay): `use xiom.test; assert(1 == 1, "…")` -- an
+// R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)
 // or the submodule's void assert (`test.assert.assert`). Private functions no

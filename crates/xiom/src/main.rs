@@ -288,7 +288,7 @@ fn real_main() {
         }
 
         let watch_mode = remaining.contains(&"--watch");
-        // R51 (playground audit §19.1): honor --opt-level on the script-run
+        // R51 (playground audit S19.1): honor --opt-level on the script-run
         // path. It used to leak into `effective` (so `xiom run --opt-level 0
         // f.xi` tried to read "--opt-level" as the file) AND fall through to
         // the -O2 compile default -- measured 7.8s vs 2.3s at -O0 on the

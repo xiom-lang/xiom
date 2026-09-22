@@ -528,7 +528,7 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   endpoint emits `results` while the client `--json` envelope uses `packages`
   (the client filters `/index.json` locally, so a server-side search switch
   would need a mapping); `/categories` has no client surface.
-- **R52 payload/binding batch (2026-09-19, playground audit §19)**: closed
+- **R52 payload/binding batch (2026-09-19, playground audit S19)**: closed
   the remaining 11 nondeterministic/pointer-print lessons (L3-02,
   L5-09/20/24/26/29/31/35/36/43) plus L5-21 via a family of type-erasure
   fixes: concrete generic-struct field/method typing, match-result and
@@ -570,7 +570,7 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   rbtree/fenwick). Both walkers now descend; `p_pre_capture_callee.xi` and
   `p_wave8_shapes.xi` exit 0; lock `e2e_m104_pre_capture_callee`. The stdlib
   lane can restore the strong `@pre` size clauses in the blocked modules.
-- **R51 L4 cluster (2026-09-19, playground audit §19)**: closed the four
+- **R51 L4 cluster (2026-09-19, playground audit S19)**: closed the four
   remaining `L4-*` clang failures -- `@pre` receivers in `.len()`
   (`items@pre.len()`, `self@pre.items.len()`) now resolve through the
   Vec/field type helpers, and `for i in range(0,n)` resolves the range
@@ -578,7 +578,7 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   The playground's C17 residue is now L6-40 (needs the fixpoint inference
   pre-pass) and L5-40 (container-ABI design, see the L5-40 entry). Locks
   `e2e_m101..m103`.
-- **R51 playground requests (2026-09-19, audit §19)**: `--opt-level N` is now
+- **R51 playground requests (2026-09-19, audit S19)**: `--opt-level N` is now
   honored on the script-run path (`xiom run [--opt-level N] file.xi`) and is
   part of the script-cache key (`xiom-cache-v3|...|opt=N`), so an -O0 run is
   never served an -O2 binary; the flag is also stripped from the positional
