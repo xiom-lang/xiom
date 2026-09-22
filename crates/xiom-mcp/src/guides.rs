@@ -27,9 +27,15 @@ pub fn workflow_guide(topic: &str) -> String {
         "script" => W_SCRIPT.into(),
         "package" => W_PACKAGE.into(),
         "sandbox" => W_SANDBOX.into(),
+        // R64: the shipped AI context is the single source of truth for the
+        // toolchain this MCP server belongs to (bundled as lib/AI_CONTEXT.md).
+        "context" => AI_CONTEXT.into(),
         _ => W_OVERVIEW.into(),
     }
 }
+
+/// The shipped AI context (compiled in, so it always matches this build).
+const AI_CONTEXT: &str = include_str!("../../../AI_CONTEXT.md");
 
 const OVERVIEW: &str = r#"# XIOM Language Guide -- Topics
 
@@ -337,8 +343,10 @@ Call `xiom_workflow_guide {topic}` with one of:
 - `compile` -- build binaries, IR, WASM; flags reference
 - `test` -- write and run XIOM tests
 - `debug` -- symbols, debugger, contract traps
-- `package` -- package.xi manifest, lockfile, publish to registry
+- `script` -- `xiom run`, implicit main, script cache
+- `package` -- package.xi manifest, registry search/info/install/publish
 - `sandbox` -- safety audit + CI/CD gating
+- `context` -- the shipped AI_CONTEXT.md (toolchain, CLI, registry, limits)
 
 ## Toolchain binaries
 | Tool | Purpose |
@@ -347,11 +355,13 @@ Call `xiom_workflow_guide {topic}` with one of:
 | xiom-fmt | Canonical formatter (--check, --in-place) |
 | xiom-lsp | Language server (editors) |
 | xiom-dbg | DAP debug adapter (VS Code/JetBrains) |
-| xiom-pkg | Package manager (install/publish/lock) |
+| xiom-pkg | Package manager (search/info/install/publish/keygen/sign) |
 | xiom-doc | Markdown doc generator |
 | xiom-ffigen | C header -> XIOM bindings |
 | xiom-verify | SMT-LIB contract export (Z3) |
-| xiom-mcp | This MCP server |"#;
+| xiom-mcp | This MCP server |
+| z3 | Bundled SMT solver (Z3); libz3.dylib on macOS |
+| xiom-wasm.wasm | Browser/wasm build of the compiler"#;
 
 const W_COMPILE: &str = r#"# Compile Workflows
 
@@ -359,6 +369,7 @@ const W_COMPILE: &str = r#"# Compile Workflows
 xiom file.xi                    # print LLVM IR to stdout
 xiom -o app.exe main.xi         # native binary
 xiom --run main.xi              # compile + run, prints exit code
+xiom run main.xi                # script mode (implicit fn main(), cached)
 xiom -o app.exe a.xi b.xi c.xi  # multi-file
 
 ## Targets
@@ -370,10 +381,12 @@ xiom --target arm / riscv       # cross-compile triples
 --emit-ir            print LLVM IR
 -g                   debug symbols (DWARF via clang)
 --release            optimized build
+--opt-level N, -ON   optimization level for compile and `run` (0..3)
 --no-contracts       strip runtime contract checks
 --diagnostics=json   machine-readable errors
 --dump-contracts     contract index as JSON
 --explain CODE       error-code reference
+--timeout SECS       watchdog for compile (also xiom.toml timeout-secs)
 -l LIB -L PATH       link native libs
 --c-source FILE.c    compile+link a C bridge file
 
@@ -405,7 +418,8 @@ echo $LASTEXITCODE   # 0 = green
 
 ## Compiler's own suite (contributors)
 ./test_summary.ps1   (Windows)  |  ./test_summary.sh  (Unix)
-cargo test --all     # 716 tests: compiler 495 + tooling 221"#;
+cargo test --all     # full workspace: e2e, feature-regression, stdlib-exec,
+                     # robustness, fuzz, api-freeze, pkg, mcp"#;
 
 const W_DEBUG: &str = r#"# Debug Workflows
 
@@ -460,6 +474,7 @@ xiom run script.xi              # Execute a .xi script (auto-wraps in fn main())
 xiom run -e "print(42)"         # Execute inline expression
 echo "print(1+1)" | xiom run -  # Execute from stdin
 xiom run --watch script.xi      # Watch file, re-run on changes
+xiom run --opt-level 0 script.xi # or -O0 (also accepted before `run`)
 
 ## Implicit main -- no boilerplate needed
 Scripts can write statements directly at the top level. The compiler
@@ -481,7 +496,8 @@ xiom --standalone --scaffold script.xi  # Also create project structure
 
 ## Script cache
 Repeated runs of the same script are instant -- binaries are content-hash
-cached in ~/.xiom/jit/. No recompilation needed.
+cached in $HOME/.xiom/jit (source + compiler build + opt level; falls back to
+$TMPDIR/xiom_jit when HOME is unset or unwritable). `--no-cache` bypasses it.
 
 ## AI agent usage (MCP)
 When generating XIOM code via MCP, use `xiom run -e "code"` for rapid
@@ -491,25 +507,31 @@ source (it auto-wraps implicit main)."#;
 const W_PACKAGE: &str = r#"# Package & Publish Workflows
 
 ## Manifest: package.xi at project root
-package {
+package mylib {
   name: "mylib";
   version: "0.1.0";
   description: "What it does";
   authors: ["you"];
-  modules: ["src/lib.xi"];
-  deps: { xiom.std: "0.47.0"; }
+  deps: { "xiom-std": "0.61.0"; }
 }
 
-## Commands
-xiom-pkg --list --root .        # list modules
-xiom-pkg --resolve --root .     # dependency tree
-xiom-pkg lock                   # write xiom.lock (reproducible builds)
-xiom-pkg install <name>         # fetch from registry
-xiom-pkg publish                # publish current package
+## Commands (verified client: `xiom pkg`)
+xiom pkg search --query matrix --category core --json
+xiom pkg info xiom-std --json
+xiom pkg install <name>@<version>   # verified install (local fallback)
+xiom pkg publish                    # sign + upload the current package
+xiom pkg keygen                     # ephemeral ed25519 signing key
+xiom pkg sign <file> [--key PATH]
+xiom pkg lock                       # write xiom.lock (commit it)
+xiom pkg list                       # installed packages
 
 ## Registry
-Default: https://registry.xiom-lang.com
-Override: XIOM_REGISTRY=https://my-registry.example.com
+Production: https://registry.xiom-lang.org
+Staging:    https://staging.registry.xiom-lang.org
+Override:   XIOM_REGISTRY=https://my-registry.example.com
+Search/info are read-only (no token). Publishing needs a bearer token; CI uses
+GitHub OIDC trusted publishing (audience `xiom-registry`) plus an ed25519
+signature from `xiom pkg keygen` -- no long-lived secret in the client.
 Lockfile (xiom.lock) pins dep versions -- commit it."#;
 
 const W_SANDBOX: &str = r#"# Safety Audit (Sandbox) Workflows

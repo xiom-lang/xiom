@@ -97,6 +97,15 @@ the release.
    `p_async_read_line_codegen` is RESOLVED stdlib-side via the runtime
    `xiom_read`/`xiom_write` helpers. Their remaining work (coverage waves,
    untested-surface tail, tzdata phase 2) does not gate the release.
+5. **Verified toolchain updater + MCP contract queries -- SPEC'D, agreed
+   post-0.61.1 (`docs/POST_RELEASE_PLAN.md`)**: `xiom toolchain
+   check|update` (GitHub Releases only; SHA256SUMS + provenance attestation;
+   atomic swap with rollback; never touches user data) and MCP
+   `get_contracts` / `search_symbols` (structured JSON across stdlib and
+   project symbols, optional Z3 counterexamples) -- with acceptance criteria.
+6. **AI context**: keep `AI_CONTEXT.md` current on every syntax/flag/registry
+   change (it is compiled into the MCP and shipped as `lib/AI_CONTEXT.md`);
+   the website can render it directly.
 
 ## Environment / method notes (learned the hard way)
 
@@ -322,6 +331,19 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   version -- bump `editors/vscode/package.json` for every extension change,
   toolchain-only releases skip publishing cleanly (vsce refuses to republish
   an existing version).
+- **R64 (2026-09-22, AI context + post-release spec)**: `AI_CONTEXT.md` at the
+  repo root is now the single source of truth for toolchain facts: compiled
+  into `xiom-mcp` via `include_str!` and served as
+  `xiom_workflow_guide {topic:"context"}` (verified over stdio), shipped in
+  every archive as `lib/AI_CONTEXT.md` (release staging + `package.ps1`/sh),
+  and renderable by the website docs. Refreshed `crates/xiom-mcp/src/guides.rs`
+  where stale: registry URL is now `registry.xiom-lang.org` (was `.com`),
+  `xiom pkg` command set (search/info/install/publish/keygen/sign/lock/list),
+  OIDC publishing note, `xiom run --opt-level/-O` + script-cache temp
+  fallback, `--timeout`, the bundled `z3`/`xiom-wasm.wasm` in the binary
+  table, and the long-stale "716 tests" note. Added
+  `docs/POST_RELEASE_PLAN.md` spec'ing the verified toolchain updater and the
+  MCP `get_contracts`/`search_symbols` tools (owner-approved, post-0.61.1).
 - **CRB-8 / RELEASE v0.61.1 PUBLISHED (2026-09-22)**: first public release.
   Two live issues found and fixed during the tag run:
   (a) the VSIX publish to the VS Code Marketplace was rejected by the

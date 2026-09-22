@@ -1090,8 +1090,14 @@ mod tests {
         // Sandbox must document exit codes for CI
         let sandbox = workflow_guide("sandbox");
         assert!(sandbox.contains("exit 3") || sandbox.contains("3 = strict"), "sandbox must document exit codes");
-        // Package must mention the registry
-        assert!(workflow_guide("package").contains("registry.xiom-lang.com"));
+        // Package must mention the registry (production host, .org)
+        assert!(workflow_guide("package").contains("registry.xiom-lang.org"));
+        assert!(workflow_guide("package").contains("xiom pkg search"));
+        // R64: the shipped AI context is served as a workflow topic and must
+        // be the real file (compiled in via include_str!).
+        let ctx = workflow_guide("context");
+        assert!(ctx.starts_with("# XIOM AI Context"), "context topic must serve AI_CONTEXT.md");
+        assert!(ctx.contains("## Toolchain layout"), "context topic must describe the toolchain");
     }
 
     #[test]

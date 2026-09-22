@@ -129,6 +129,8 @@ if (-not (Test-Path "$stdlibSrc\package.xi")) {
     throw "stdlib checkout missing at $stdlibSrc -- run scripts/fetch-stdlib.ps1 (or set XIOM_STDLIB) before packaging"
 }
 Copy-Item "$stdlibSrc\*" "$libDir\" -Recurse -Force
+# R64: AI context ships alongside the bundled stdlib.
+Copy-Item "$root\AI_CONTEXT.md" "$libDir\" -Force
 Write-Host "    + stdlib/ -> lib/ (pin: $((Get-Content "$root\STDLIB_VERSION" -Raw).Trim()))" -ForegroundColor DarkGray
 $rtSrc = "$stdlibSrc\runtime\xiom_runtime.c"
 if (Test-Path $rtSrc) {

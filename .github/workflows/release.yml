@@ -309,6 +309,9 @@ jobs:
           Copy-Item stdlib\xiom "$stage/lib/xiom" -Recurse
           Copy-Item stdlib\runtime "$stage/lib/runtime" -Recurse
           Copy-Item stdlib\package.xi "$stage/lib/"
+          # R64: ship the AI context inside lib/ (MCP serves the same file
+          # compiled in; agents get the toolchain-accurate copy).
+          Copy-Item AI_CONTEXT.md "$stage/lib/"
           Copy-Item LICENSE-MIT, LICENSE-APACHE, NOTICE, README.md $stage
           # CRB-3b: every staged tool (and the bundled solver) must run and
           # self-report the packaged version before the archive is sealed.
@@ -339,6 +342,8 @@ jobs:
           cp -r stdlib/xiom stage/lib/xiom
           cp -r stdlib/runtime stage/lib/runtime
           cp stdlib/package.xi stage/lib/
+          # R64: ship the AI context inside lib/ (see the Windows staging step).
+          cp AI_CONTEXT.md stage/lib/
           cp LICENSE-MIT LICENSE-APACHE NOTICE README.md stage/
           # CRB-3b: every staged tool (and the bundled solver) must run and
           # self-report the packaged version before the archive is sealed.
@@ -471,6 +476,8 @@ jobs:
           cp -r stdlib/xiom stage/lib/xiom
           cp -r stdlib/runtime stage/lib/runtime
           cp stdlib/package.xi stage/lib/
+          # R64: ship the AI context inside lib/ (see the Windows staging step).
+          cp AI_CONTEXT.md stage/lib/
           cp LICENSE-MIT LICENSE-APACHE NOTICE README.md stage/
           # CRB-3b: every staged tool (and the bundled solver) must run and
           # self-report the packaged version before the archive is sealed.

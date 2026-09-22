@@ -79,6 +79,8 @@ if [ ! -f "$ROOT/stdlib/package.xi" ]; then
     exit 1
 fi
 cp -r "$ROOT/stdlib/"* "$LIB_DIR/"
+# R64: AI context ships alongside the bundled stdlib.
+cp "$ROOT/AI_CONTEXT.md" "$LIB_DIR/"
 echo "    + stdlib/ -> lib/ (pin: $(tr -d '[:space:]' < "$ROOT/STDLIB_VERSION"))"
 if [ -f "$ROOT/stdlib/runtime/xiom_runtime.c" ]; then
     cp "$ROOT/stdlib/runtime/xiom_runtime.c" "$RT_DIR/"
