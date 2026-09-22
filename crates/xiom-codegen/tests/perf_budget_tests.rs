@@ -70,9 +70,9 @@ fn emit_ir(source: &str) -> (Vec<u8>, u128) {
 fn perf_budget_emitted_ir_bytes() {
     // (source, byte budget) -- see the module docs for the baseline table.
     let cases: &[(&str, u64)] = &[
-        ("examples\\benchmark\\main.xi", 6_300_000),
-        ("selfhost\\xiomc_v092.xi", 175_000),
-        ("tests\\ecosystem\\test_json.xi", 185_000),
+        ("examples/benchmark//main.xi", 6_300_000),
+        ("selfhost/xiomc_v092.xi", 175_000),
+        ("tests/ecosystem//test_json.xi", 185_000),
     ];
     for (source, budget) in cases {
         let (ir, ms) = emit_ir(source);
@@ -96,7 +96,7 @@ fn perf_determinism_ir_is_byte_identical() {
     // `@benchmark.comptime.is_even`, swapped mono emission order, and
     // unsorted concrete-Option builtins all drifted the IR. Both graphs must
     // now emit byte-identically.
-    for source in ["selfhost\\xiomc_v092.xi", "examples\\benchmark\\main.xi"] {
+    for source in ["selfhost/xiomc_v092.xi", "examples/benchmark//main.xi"] {
         let (first, _) = emit_ir(source);
         let (second, _) = emit_ir(source);
         assert_eq!(

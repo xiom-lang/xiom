@@ -50,17 +50,17 @@ fn rust_ir(source: &str) -> Vec<String> {
 fn selfhost_ir(example: &str) -> Vec<String> {
     let id = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
     let stem = example.replace(".xi", "");
-    let temp_src = format!("selfhost\\_diff_{}_{}.xi", stem, id);
+    let temp_src = format!("selfhost/_diff_{}_{}.xi", stem, id);
     let temp_exe = format!("_diff_{}_{}.exe", stem, id);
     let root = project_root();
 
-    let v10_path = root.join("selfhost\\xiomc_v10.xi");
+    let v10_path = root.join("selfhost/xiomc_v10.xi");
     let original = fs::read_to_string(&v10_path)
         .unwrap_or_else(|e| panic!("cannot read {:?}: {}", v10_path, e));
 
     let modified = original.replace(
-        "selfhost\\\\xiomc_v10.xi",
-        &format!("examples\\\\{}", example),
+        "selfhost///xiomc_v10.xi",
+        &format!("examples///{}", example),
     );
     fs::write(root.join(&temp_src), &modified)
         .unwrap_or_else(|e| panic!("failed to write {}: {}", temp_src, e));
@@ -153,7 +153,7 @@ macro_rules! diff_test {
         #[test]
         #[ignore = "selfhost phase pending: compares Rust-compiler IR against selfhost/xiomc_v10.xi output; will be re-enabled during the selfhost phase"]
         fn $name() {
-            let source = format!("examples\\{}", $file);
+            let source = format!("examples/{}", $file);
             let rust = rust_ir(&source);
             let selfhost = selfhost_ir($file);
 
@@ -304,7 +304,7 @@ diff_test!(diff_stress_generic, "stress_generic_5chain.xi", 1, 0.5, 0.16, 1.5, 2
 #[test]
 #[ignore = "selfhost phase pending: compares against selfhost/xiomc_v10.xi output"]
 fn diff_benchmark() {
-    let source = "examples\\benchmark_selfhost.xi";
+    let source = "examples/benchmark_selfhost.xi";
     let rust = rust_ir(source);
     assert!(rust.len() > 0, "Rust IR should be non-empty");
     assert!(
@@ -355,7 +355,7 @@ fn diff_benchmark() {
 #[test]
 #[ignore = "selfhost phase pending: full-diff suite compares against selfhost output"]
 fn diff_stress_body_parser() {
-    let rust = rust_ir("examples\\stress_body_parser.xi");
+    let rust = rust_ir("examples/stress_body_parser.xi");
     assert!(rust.len() > 0);
     assert!(rust.iter().any(|l| l.contains("define i64 @test_negative")));
     assert!(rust.iter().any(|l| l.contains("define i64 @test_paren_expr")));
