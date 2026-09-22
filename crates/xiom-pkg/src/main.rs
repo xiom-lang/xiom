@@ -526,7 +526,9 @@ fn find_manifest() -> PathBuf {
 }
 
 /// `xiom pkg keygen [--out PATH]` -- write a hex ed25519 secret key and print
-/// the public key + fingerprint to pin with `xiom pkg trust`.
+/// the public key + fingerprint. The key is a PUBLISHER key and is typically
+/// ephemeral per release (CI generates one per run), so it is NOT what
+/// consumers pin: `xiom pkg trust` pins the REGISTRY key instead.
 fn keygen_command(args: &[String]) {
     let out = args.iter().position(|a| a == "--out")
         .and_then(|i| args.get(i + 1))
@@ -551,7 +553,8 @@ fn keygen_command(args: &[String]) {
     println!("Secret key written to {}", out.display());
     println!("Public key: {}", public);
     println!("Fingerprint: {}", signing::fingerprint(&public));
-    println!("Pin it on consumers with: xiom pkg trust --registry <URL> --key {}", public);
+    println!("Note: this is the PUBLISHER signing key; release pipelines generate one per run.");
+    println!("Consumers pin the REGISTRY key instead: xiom pkg trust --registry <URL> --key <registry-key>");
 }
 
 /// `xiom pkg trust --registry URL --key HEX` -- pin a registry's signing key.
