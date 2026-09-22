@@ -221,9 +221,12 @@ fn build_standalone(content: &str) -> std::process::Output {
 
 #[test] fn test_cache_no_panic() {
     use xiom::jit;
-    let _ = jit::script_cache_get("fn main() -> Int { return 1; }");
-    let _ = jit::script_cache_get("fn main() -> Int { return 2; }");
-    let _ = jit::script_cache_get("fn main() -> Int { return 42; }");
+    // R51/R63: the script cache key carries the EFFECTIVE opt level (an
+    // explicit --opt-level, else the compiler default), so the lookups take it.
+    let opt = jit::effective_opt_level(None, false);
+    let _ = jit::script_cache_get("fn main() -> Int { return 1; }", opt);
+    let _ = jit::script_cache_get("fn main() -> Int { return 2; }", opt);
+    let _ = jit::script_cache_get("fn main() -> Int { return 42; }", opt);
 }
 
 #[test] fn test_cache_dir_exists() {
