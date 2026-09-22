@@ -3,7 +3,8 @@
 
 # CONTINUATION HANDOFF (2026-09-21, compiler lane)
 
-Latest pushed main: `30c5a483` (R59/R60 + CRB-6 release fix). The R53 staging
+Latest pushed main: `0072707b` (CRB-7 macOS release enablement). The R53
+staging
 verification record, the stale old-name -> XIOM reference cleanup, R55 (L6-40
 fixpoint evidence pre-pass), R56 (L5-40 container-payload ABI), R57 (L3-50
 `?` tuple payload), R58 (L8-14 Map[Str,Str] morse trap), R59/R60 (stdlib
@@ -40,7 +41,8 @@ green; the shipped `xiom-0.61.0-linux-x64.tar.gz` was downloaded and checked:
 manifest and `lib/xiom/os/env.xi` carries the `xiom_env_set`/`xiom_env_unset`
 shim (C6 CLOSED). The dispatch also emitted a Node-20-deprecation notice for
 actions/checkout (forced onto Node 24, still green) -- bump the action pins
-when convenient. macOS jobs remain gated on the
+when convenient. The all-platform dispatch (35679231885, CRB-7) is green,
+including both macOS builds. macOS jobs remain gated on the
 `RELEASE_BUILD_MACOS` repo variable. Tag checklist before `git tag v0.61.0`:
 marketplace 0.12.0 absent on both (404, checked 2026-09-21), workspace version
 0.61.0, extension README/LICENSE/icon committed, secrets live (VSCE_PAT,
@@ -320,6 +322,24 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   version -- bump `editors/vscode/package.json` for every extension change,
   toolchain-only releases skip publishing cleanly (vsce refuses to republish
   an existing version).
+- **CRB-7 (macOS release enablement, 2026-09-22)**: enabling
+  `RELEASE_BUILD_MACOS` exposed two real portability bugs, both fixed:
+  (a) `.cargo/config.toml` carried target-wide `-Wl,-stack_size` rustflags for
+  macOS, which Apple's `ld` rejects for non-executables -- every proc-macro
+  dylib failed (`ld: -stack_size option can only be used when linking a main
+  executable`); the macOS entries are removed (macOS main-thread stack is
+  8 MB; use `cargo:rustc-link-arg-bins` if a bin ever needs more).
+  (b) `std::arch::is_x86_feature_detected!("avx512f")` sat under a
+  `cfg!(target_arch = "x86_64")` RUNTIME check, so it still COMPILED (and
+  failed) on arm64; the block is now `#[cfg(target_arch = "x86_64")]`.
+  (c) `macos-x64` moved from the retiring `macos-13` (queued >1 h) to
+  `macos-15-intel`; the release job now `needs: [build, vscode, build-macos]`
+  with `!failure() && !cancelled()` so the optional macOS dependency neither
+  skips nor stalls a release. Verified: dispatch 35679231885 is green for
+  guard + linux-x64 + windows-x64 + macos-arm64 + macos-x64 + VSIX; the
+  downloaded `xiom-0.61.0-macos-arm64.tar.gz` contains all nine tools
+  (incl. `xiom-dbg`), `z3` + `libz3.dylib`, `LICENSE-Z3`, and the correct
+  `xiom-std` manifest.
 - **R63 FIXED (2026-09-22, playground C3/C6 pack)**: script-run `--opt-level`
   dispatch behind leading global flags + `-O<n>` spelling; JIT/script cache
   falls back to `$TMPDIR/xiom_jit` when HOME is set but unwritable;
