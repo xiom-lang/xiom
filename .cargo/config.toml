@@ -12,8 +12,12 @@ rustflags = ["-C", "link-args=-Wl,-z,stack-size=16777216"]
 [target.'cfg(all(target_os = "linux", target_arch = "aarch64"))']
 rustflags = ["-C", "link-args=-Wl,-z,stack-size=16777216"]
 
-[target.'cfg(all(target_os = "macos", target_arch = "x86_64"))']
-rustflags = ["-C", "link-args=-Wl,-stack_size,0x1000000"]
-
-[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))']
-rustflags = ["-C", "link-args=-Wl,-stack_size,0x1000000"]
+# macOS: NO global `-stack_size` link args here. They apply to EVERY linked
+# artifact for the target -- including proc-macro dylibs compiled for the
+# host -- and Apple's ld rejects them for non-executables:
+#   ld: -stack_size option can only be used when linking a main executable
+# (macos-arm64 release builds failed on zerofrom/yoke/zerovec derive crates).
+# The macOS main thread defaults to an 8 MB stack, so the compiler keeps
+# ample headroom; if a deep-recursion case ever needs more, add
+# `cargo:rustc-link-arg-bins=...` in the bin crates' build scripts instead of
+# a target-wide rustflag.
