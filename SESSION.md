@@ -33,7 +33,14 @@ dispatch (35646447417) surfaced a pre-existing workflow bug: the z3 bundle
 copied `LICENSE.txt` from the extraction ROOT while the vendor archives nest
 it under their version dir (`z3-4.13.4-x64-glibc-2.35/LICENSE.txt`); fixed in
 CRB-6 (30c5a483) by resolving the license by name in all three z3 steps. The
-second dispatch (35647022547) is fully green. macOS jobs remain gated on the
+second dispatch (35647022547) is fully green. A third dispatch
+(35670811407, 2026-09-22) after the R63 `STDLIB_VERSION` bump is also fully
+green; the shipped `xiom-0.61.0-linux-x64.tar.gz` was downloaded and checked:
+`lib/package.xi` is the correct `package xiom_std { name: "xiom-std" }`
+manifest and `lib/xiom/os/env.xi` carries the `xiom_env_set`/`xiom_env_unset`
+shim (C6 CLOSED). The dispatch also emitted a Node-20-deprecation notice for
+actions/checkout (forced onto Node 24, still green) -- bump the action pins
+when convenient. macOS jobs remain gated on the
 `RELEASE_BUILD_MACOS` repo variable. Tag checklist before `git tag v0.61.0`:
 marketplace 0.12.0 absent on both (404, checked 2026-09-21), workspace version
 0.61.0, extension README/LICENSE/icon committed, secrets live (VSCE_PAT,
