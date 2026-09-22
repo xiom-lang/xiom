@@ -472,7 +472,13 @@ mod tests {
     #[test]
     fn crb3c_home_candidates_canonical_first() {
         let win = xiom_home_candidates_impl(None, Some(r"C:\Users\dev"), Some(r"C:\Users\dev\AppData\Local"), true);
-        assert_eq!(win[0], PathBuf::from(r"C:\Users\dev\AppData\Local\xiom"));
+        // PathBuf::join uses the HOST separator, so on Unix the Windows-style
+        // candidate is "...Local/xiom"; normalize before comparing so this
+        // test runs on every host (it asserted only on Windows before).
+        assert_eq!(
+            win[0].to_string_lossy().replace('/', "\\"),
+            r"C:\Users\dev\AppData\Local\xiom"
+        );
 
         let unix = xiom_home_candidates_impl(None, Some("/home/dev"), None, false);
         assert_eq!(unix[0], PathBuf::from("/home/dev/.local/share/xiom"));
