@@ -1246,11 +1246,14 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 // themselves must match the host. Builds on AVX-512 machines
                 // still get the full set; the simd_runtime dispatch covers
                 // foreign machines at execution time.
-                if std::arch::is_x86_feature_detected!("avx512f") {
-                    cmd.arg("-mavx512f");
-                    cmd.arg("-mavx512bw");
-                    cmd.arg("-mavx512dq");
-                    cmd.arg("-mavx512vl");
+                #[cfg(target_arch = "x86_64")]
+                {
+                    if std::arch::is_x86_feature_detected!("avx512f") {
+                        cmd.arg("-mavx512f");
+                        cmd.arg("-mavx512bw");
+                        cmd.arg("-mavx512dq");
+                        cmd.arg("-mavx512vl");
+                    }
                 }
             }
             if asm_objects.is_empty() { cmd.arg("-DXIOM_NO_ASM"); }
