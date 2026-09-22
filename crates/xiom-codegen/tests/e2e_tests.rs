@@ -33,6 +33,17 @@ fn compile_and_run(source_path: &str) -> Option<i32> {
     compile_and_run_with_flags(source_path, &[])
 }
 
+/// The stdlib checkout layout varies: module files live EITHER flat
+/// (`xiom/io.xi`, older pins) OR in module directories (`xiom/io/io.xi`, the
+/// current xiom-lang/stdlib layout). Accept both so the guarded tests RUN
+/// wherever a checkout exists -- the old flat-only probe made every
+/// stdlib-guarded test panic in CI (XIOM_REQUIRE_STDLIB=1) even though the
+/// checkout was present.
+fn stdlib_layout_ok(root: &std::path::Path) -> bool {
+    root.join("xiom").join("io.xi").exists()
+        || root.join("xiom").join("io").join("io.xi").exists()
+}
+
 /// Compile with extra flags (e.g. --parallel-codegen) and return exit code
 ///
 /// Retries up to 3 times: the parallel benchmark/stdlib session rebuilds
@@ -4871,7 +4882,7 @@ fn e2e_safety_probe() {
 // skipping.
 #[test] fn e2e_m91_conversion_methods() {
     let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
-    if !stdlib_root.join("xiom").join("io.xi").exists() {
+    if !stdlib_layout_ok(&stdlib_root) {
         let msg = "SKIP: stdlib checkout has no xiom/io.xi";
         if xiom_graph::paths::require_stdlib() {
             panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
@@ -4892,7 +4903,7 @@ fn e2e_safety_probe() {
 // the stdlib checkout; XIOM_REQUIRE_STDLIB=1 in CI forbids skipping.
 #[test] fn e2e_m92_interface_dispatch_zero_init() {
     let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
-    if !stdlib_root.join("xiom").join("io.xi").exists() {
+    if !stdlib_layout_ok(&stdlib_root) {
         let msg = "SKIP: stdlib checkout has no xiom/io.xi";
         if xiom_graph::paths::require_stdlib() {
             panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
@@ -4914,7 +4925,7 @@ fn e2e_safety_probe() {
 // XIOM_REQUIRE_STDLIB=1 in CI forbids skipping.
 #[test] fn e2e_m93_interface_generic_inference() {
     let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
-    if !stdlib_root.join("xiom").join("io.xi").exists() {
+    if !stdlib_layout_ok(&stdlib_root) {
         let msg = "SKIP: stdlib checkout has no xiom/io.xi";
         if xiom_graph::paths::require_stdlib() {
             panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
@@ -4935,7 +4946,7 @@ fn e2e_safety_probe() {
 // (was clang "i64 where ptr expected", then AV). Needs the stdlib checkout.
 #[test] fn e2e_m94_nested_vec_struct_elem() {
     let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
-    if !stdlib_root.join("xiom").join("io.xi").exists() {
+    if !stdlib_layout_ok(&stdlib_root) {
         let msg = "SKIP: stdlib checkout has no xiom/io.xi";
         if xiom_graph::paths::require_stdlib() {
             panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
@@ -4967,7 +4978,7 @@ fn e2e_safety_probe() {
 // garbage). Needs the stdlib checkout.
 #[test] fn e2e_m98_match_str_to_string() {
     let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
-    if !stdlib_root.join("xiom").join("io.xi").exists() {
+    if !stdlib_layout_ok(&stdlib_root) {
         let msg = "SKIP: stdlib checkout has no xiom/io.xi";
         if xiom_graph::paths::require_stdlib() {
             panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
@@ -5037,7 +5048,7 @@ fn e2e_safety_probe() {
 // from the later call and seeds the binding's container type.
 #[test] fn e2e_m110_generic_factory_evidence() {
     let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
-    if !stdlib_root.join("xiom").join("io.xi").exists() {
+    if !stdlib_layout_ok(&stdlib_root) {
         let msg = "SKIP: stdlib checkout has no xiom/io.xi";
         if xiom_graph::paths::require_stdlib() {
             panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
@@ -5060,7 +5071,7 @@ fn e2e_safety_probe() {
 // element count, and element contents.
 #[test] fn e2e_m111_map_vec_container_payload() {
     let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
-    if !stdlib_root.join("xiom").join("io.xi").exists() {
+    if !stdlib_layout_ok(&stdlib_root) {
         let msg = "SKIP: stdlib checkout has no xiom/io.xi";
         if xiom_graph::paths::require_stdlib() {
             panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
@@ -5081,7 +5092,7 @@ fn e2e_safety_probe() {
 // and the Err propagation path stays intact.
 #[test] fn e2e_m112_try_result_tuple() {
     let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
-    if !stdlib_root.join("xiom").join("io.xi").exists() {
+    if !stdlib_layout_ok(&stdlib_root) {
         let msg = "SKIP: stdlib checkout has no xiom/io.xi";
         if xiom_graph::paths::require_stdlib() {
             panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
@@ -5103,7 +5114,7 @@ fn e2e_safety_probe() {
 // pointers. The lock asserts the encode/decode round trips.
 #[test] fn e2e_m113_map_str_str_morse() {
     let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
-    if !stdlib_root.join("xiom").join("io.xi").exists() {
+    if !stdlib_layout_ok(&stdlib_root) {
         let msg = "SKIP: stdlib checkout has no xiom/io.xi";
         if xiom_graph::paths::require_stdlib() {
             panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
@@ -5174,7 +5185,7 @@ fn e2e_safety_probe() {
 // and passes on both Windows and Linux after it.
 #[test] fn e2e_m118_env_platform_constants() {
     let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
-    if !stdlib_root.join("xiom").join("io.xi").exists() {
+    if !stdlib_layout_ok(&stdlib_root) {
         let msg = "SKIP: stdlib checkout has no xiom/io.xi";
         if xiom_graph::paths::require_stdlib() {
             panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
@@ -5299,7 +5310,7 @@ fn e2e_safety_probe() {
 // output is inside the compiled program (exit code only here).
 #[test] fn e2e_m96_array_str_elem() {
     let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
-    if !stdlib_root.join("xiom").join("io.xi").exists() {
+    if !stdlib_layout_ok(&stdlib_root) {
         let msg = "SKIP: stdlib checkout has no xiom/io.xi";
         if xiom_graph::paths::require_stdlib() {
             panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
@@ -5319,7 +5330,7 @@ fn e2e_safety_probe() {
 // fallback made `next()` return a mistyped enum (L2-19 AV).
 #[test] fn e2e_m97_enum_variant_match() {
     let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
-    if !stdlib_root.join("xiom").join("io.xi").exists() {
+    if !stdlib_layout_ok(&stdlib_root) {
         let msg = "SKIP: stdlib checkout has no xiom/io.xi";
         if xiom_graph::paths::require_stdlib() {
             panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
