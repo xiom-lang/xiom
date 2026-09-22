@@ -187,7 +187,7 @@ fn test_differential_async() {
 
 #[test]
 fn test_differential_full() {
-    let ir = compile_to_ir("examples\\phase1_full.xi");
+    let ir = compile_to_ir("examples/phase1_full.xi");
     assert!(ir.contains("define %struct.Point @Point.clone"));
     assert!(ir.contains("define double @distance"));
     assert!(ir.contains("define %struct.Point @make_point"));
@@ -198,28 +198,28 @@ fn test_differential_full() {
 
 #[test]
 fn test_differential_hardening() {
-    let ir = compile_to_ir("examples\\phase1_hardening.xi");
+    let ir = compile_to_ir("examples/phase1_hardening.xi");
     assert!(ir.contains("define"));
     assert!(ir.contains("icmp") || ir.contains("fcmp"));
 }
 
 #[test]
 fn test_differential_selfhost_sim() {
-    let ir = compile_to_ir("examples\\phase1_selfhost.xi");
+    let ir = compile_to_ir("examples/phase1_selfhost.xi");
     assert!(ir.contains("define"));
     assert!(ir.contains("call"));
 }
 
 #[test]
 fn test_differential_stress() {
-    let ir = compile_to_ir("examples\\phase1_stress.xi");
+    let ir = compile_to_ir("examples/phase1_stress.xi");
     assert!(ir.contains("define"));
     assert!(ir.contains("add") || ir.contains("mul"));
 }
 
 #[test]
 fn test_stress_derive_50field() {
-    let ir = compile_to_ir("examples\\stress_derive_50field.xi");
+    let ir = compile_to_ir("examples/stress_derive_50field.xi");
     assert!(ir.contains("define i64 @BigStruct.eq"));
     assert!(ir.contains("define %struct.BigStruct @BigStruct.clone"));
     assert!(ir.contains("define i64 @BigStruct.hash"));
@@ -227,21 +227,21 @@ fn test_stress_derive_50field() {
 
 #[test]
 fn test_stress_borrow_10level() {
-    let ir = compile_to_ir("examples\\stress_borrow_10level.xi");
+    let ir = compile_to_ir("examples/stress_borrow_10level.xi");
     assert!(ir.contains("define i64 @read10"));
     assert!(ir.contains("define i64 @read1"));
 }
 
 #[test]
 fn test_stress_generic_5chain() {
-    let ir = compile_to_ir("examples\\stress_generic_5chain.xi");
+    let ir = compile_to_ir("examples/stress_generic_5chain.xi");
     assert!(ir.contains("define i64 @quad_Int"));
     assert!(ir.contains("call i64 @triple_Int"));
 }
 
 #[test]
 fn test_stress_float_matrix() {
-    let ir = compile_to_ir("examples\\stress_float_matrix.xi");
+    let ir = compile_to_ir("examples/stress_float_matrix.xi");
     assert!(ir.contains("fmul double"));
     assert!(ir.contains("fadd double"));
 }

@@ -165,37 +165,37 @@ fn compile_and_run_once(source_path: &str) -> Option<i32> {
 #[test]
 #[ignore = "stdlib-side: interface Eq has no impls (core.contains always false)"]
 fn stdlib_exec_core_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_core.xi"), Some(0), "core smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_core.xi"), Some(0), "core smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_array_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_array.xi"), Some(0), "array smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_array.xi"), Some(0), "array smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_string_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_string.xi"), Some(0), "string smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_string.xi"), Some(0), "string smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_collections_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_collections.xi"), Some(0), "collections smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_collections.xi"), Some(0), "collections smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_fmt_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_fmt.xi"), Some(0), "fmt smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_fmt.xi"), Some(0), "fmt smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_iter_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_iter.xi"), Some(0), "iter smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_iter.xi"), Some(0), "iter smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_math_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_math.xi"), Some(0), "math smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_math.xi"), Some(0), "math smoke failed to run/return 0");
 }
 
 // smoke_math_edge fix (2026-09-11): the math.shl/shr builtin emitted raw
@@ -203,7 +203,7 @@ fn stdlib_exec_math_runs() {
 // (0xC000001D). The builtin now emits the stdlib's defined semantics.
 #[test]
 fn stdlib_exec_math_edge_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_math_edge.xi"), Some(0), "math edge smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_math_edge.xi"), Some(0), "math edge smoke failed to run/return 0");
 }
 
 // smoke_ptr_offset fix (2026-09-11): substitute_type double-wrapped `*T`
@@ -211,7 +211,7 @@ fn stdlib_exec_math_edge_runs() {
 // pointer/i64 comparisons emitted invalid icmp (the i64 side now inttoptrs).
 #[test]
 fn stdlib_exec_ptr_offset_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_ptr_offset.xi"), Some(0), "ptr offset smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_ptr_offset.xi"), Some(0), "ptr offset smoke failed to run/return 0");
 }
 
 // smoke_convert_escape fix (2026-09-11): `decoded.value.len()` on a
@@ -220,7 +220,7 @@ fn stdlib_exec_ptr_offset_runs() {
 // field_payload_xiom for payload fields.
 #[test]
 fn stdlib_exec_convert_escape_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_convert_escape.xi"), Some(0), "convert escape smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_convert_escape.xi"), Some(0), "convert escape smoke failed to run/return 0");
 }
 
 // smoke_array_zip fix (2026-09-11): `[N](T,U)` arrays need the monomorphic
@@ -230,7 +230,7 @@ fn stdlib_exec_convert_escape_runs() {
 // type_meta field names with numeric-field resolution.
 #[test]
 fn stdlib_exec_array_zip_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_array_zip.xi"), Some(0), "array zip smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_array_zip.xi"), Some(0), "array zip smoke failed to run/return 0");
 }
 
 // R10 (2026-09-11): Captures.get reads Vec[Option[Match]] elements; the
@@ -239,117 +239,117 @@ fn stdlib_exec_array_zip_runs() {
 // and the field-element scan spans all matching type_meta keys.
 #[test]
 fn stdlib_exec_regex_captures_get_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_stress_regex_captures_get.xi"), Some(0), "regex captures get smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_stress_regex_captures_get.xi"), Some(0), "regex captures get smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_num_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_num.xi"), Some(0), "num smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_num.xi"), Some(0), "num smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_cmp_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_cmp.xi"), Some(0), "cmp smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_cmp.xi"), Some(0), "cmp smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_hash_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_hash.xi"), Some(0), "hash smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_hash.xi"), Some(0), "hash smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_mem_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_mem.xi"), Some(0), "mem smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_mem.xi"), Some(0), "mem smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_ptr_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_ptr.xi"), Some(0), "ptr smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_ptr.xi"), Some(0), "ptr smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_char_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_char.xi"), Some(0), "char smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_char.xi"), Some(0), "char smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_path_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_path.xi"), Some(0), "path smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_path.xi"), Some(0), "path smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_convert_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_convert.xi"), Some(0), "convert smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_convert.xi"), Some(0), "convert smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_ffi_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_ffi.xi"), Some(0), "ffi smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_ffi.xi"), Some(0), "ffi smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_sync_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_sync.xi"), Some(0), "sync smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_sync.xi"), Some(0), "sync smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_log_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_log.xi"), Some(0), "log smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_log.xi"), Some(0), "log smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_serialize_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_serialize.xi"), Some(0), "serialize smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_serialize.xi"), Some(0), "serialize smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_crypto_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_crypto.xi"), Some(0), "crypto smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_crypto.xi"), Some(0), "crypto smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_regex_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_regex.xi"), Some(0), "regex smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_regex.xi"), Some(0), "regex smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_encoding_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_encoding.xi"), Some(0), "encoding smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_encoding.xi"), Some(0), "encoding smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_compress_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_compress.xi"), Some(0), "compress smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_compress.xi"), Some(0), "compress smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_contracts_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_contracts.xi"), Some(0), "contracts smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_contracts.xi"), Some(0), "contracts smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_reflect_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_reflect.xi"), Some(0), "reflect smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_reflect.xi"), Some(0), "reflect smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_cell_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_cell.xi"), Some(0), "cell smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_cell.xi"), Some(0), "cell smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_rc_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_rc.xi"), Some(0), "rc smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_rc.xi"), Some(0), "rc smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_alloc_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_alloc.xi"), Some(0), "alloc smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_alloc.xi"), Some(0), "alloc smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_error_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_error.xi"), Some(0), "error smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_error.xi"), Some(0), "error smoke failed to run/return 0");
 }
 
 // smoke_error2 has-mid flake FIXED (2026-09-11): `Option[ChainError]` from
@@ -361,7 +361,7 @@ fn stdlib_exec_error_runs() {
 // others. Permanent gate for the former flake.
 #[test]
 fn stdlib_exec_error2_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_error2.xi"), Some(0), "error2 smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_error2.xi"), Some(0), "error2 smoke failed to run/return 0");
 }
 
 // CRT-family AV flips (2026-09-10 compiler round):
@@ -375,17 +375,17 @@ fn stdlib_exec_error2_runs() {
 //   struct payload as if it were an erased i64 heap box.
 #[test]
 fn stdlib_exec_array_slice_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_array_slice.xi"), Some(0), "array_slice smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_array_slice.xi"), Some(0), "array_slice smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_core_box_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_core_box.xi"), Some(0), "core_box smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_core_box.xi"), Some(0), "core_box smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_regex_find_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_stress_regex_find.xi"), Some(0), "regex_find smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_stress_regex_find.xi"), Some(0), "regex_find smoke failed to run/return 0");
 }
 
 // Stack-cookie / KDF family (2026-09-10 compiler round):
@@ -396,12 +396,12 @@ fn stdlib_exec_regex_find_runs() {
 // into a handle slot. All three fixed in codegen.
 #[test]
 fn stdlib_exec_pbkdf2_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_stress_crypto_pbkdf2.xi"), Some(0), "pbkdf2 smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_stress_crypto_pbkdf2.xi"), Some(0), "pbkdf2 smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_pbkdf2_iterations_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_stress_crypto_pbkdf2_iterations.xi"), Some(0), "pbkdf2 iterations smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_stress_crypto_pbkdf2_iterations.xi"), Some(0), "pbkdf2 iterations smoke failed to run/return 0");
 }
 
 // R7 (2026-09-10): generic container mono for large aggregate V.
@@ -417,12 +417,12 @@ fn stdlib_exec_pbkdf2_iterations_runs() {
 //   (`var found: Option[JsonValue];` allocated opaque %struct.Option).
 #[test]
 fn stdlib_exec_serialize_json_nested_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_stress_serialize_json_nested.xi"), Some(0), "json nested smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_stress_serialize_json_nested.xi"), Some(0), "json nested smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_serialize_large_json_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_stress_serialize_large_json.xi"), Some(0), "large json smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_stress_serialize_large_json.xi"), Some(0), "large json smoke failed to run/return 0");
 }
 
 // ============================================================================
@@ -438,7 +438,7 @@ fn stdlib_exec_serialize_large_json_runs() {
 #[test]
 #[ignore = "latent MSVC-CRT miscompile: smoke_simd binary layout-dependent 0xC0000005 (pre-existing)"]
 fn stdlib_exec_simd_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_simd.xi"), Some(0), "simd smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_simd.xi"), Some(0), "simd smoke failed to run/return 0");
 }
 
 // ============================================================================
@@ -449,22 +449,22 @@ fn stdlib_exec_simd_runs() {
 
 #[test]
 fn stdlib_exec_io_runs() {
-    assert!(compile_and_run("examples\\stdlib_smoke\\smoke_io.xi").is_some(), "io smoke failed to run/return 0");
+    assert!(compile_and_run("examples/stdlib_smoke//smoke_io.xi").is_some(), "io smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_thread_runs() {
-    assert!(compile_and_run("examples\\stdlib_smoke\\smoke_thread.xi").is_some(), "thread smoke failed to run/return 0");
+    assert!(compile_and_run("examples/stdlib_smoke//smoke_thread.xi").is_some(), "thread smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_async_runs() {
-    assert!(compile_and_run("examples\\stdlib_smoke\\smoke_async.xi").is_some(), "async smoke failed to run/return 0");
+    assert!(compile_and_run("examples/stdlib_smoke//smoke_async.xi").is_some(), "async smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_net_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_net.xi"), Some(0), "net smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_net.xi"), Some(0), "net smoke failed to run/return 0");
 }
 
 // R5/R6 (2026-09-10 compiler round): the catalog's fuzzy module lookup used
@@ -475,42 +475,42 @@ fn stdlib_exec_net_runs() {
 // strict locks.
 #[test]
 fn stdlib_exec_net_address_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_net_address.xi"), Some(0), "net.address smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_net_address.xi"), Some(0), "net.address smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_net_http2_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_net_http2.xi"), Some(0), "net.http2 smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_net_http2.xi"), Some(0), "net.http2 smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_os_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_os.xi"), Some(0), "os smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_os.xi"), Some(0), "os smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_time_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_time.xi"), Some(0), "time smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_time.xi"), Some(0), "time smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_test_runs() {
-    assert!(compile_and_run("examples\\stdlib_smoke\\smoke_test.xi").is_some(), "test smoke failed to run/return 0");
+    assert!(compile_and_run("examples/stdlib_smoke//smoke_test.xi").is_some(), "test smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_bench_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_bench.xi"), Some(0), "bench smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_bench.xi"), Some(0), "bench smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_rand_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_rand.xi"), Some(0), "rand smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_rand.xi"), Some(0), "rand smoke failed to run/return 0");
 }
 
 #[test]
 fn stdlib_exec_env_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_env.xi"), Some(0), "env smoke failed to run/return 0");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_env.xi"), Some(0), "env smoke failed to run/return 0");
 }
 
 // ============================================================================
@@ -522,7 +522,7 @@ fn stdlib_exec_env_runs() {
 
 #[test]
 fn stdlib_exec_cross_module_serialize_convert() {
-    let rel = "examples\\stdlib_smoke\\smoke_cross_serialize_convert.xi";
+    let rel = "examples/stdlib_smoke//smoke_cross_serialize_convert.xi";
     if !project_root().join(rel).exists() {
         eprintln!("  [SKIP] {rel} not present (parallel agent owns examples/stdlib_smoke) -- skipping cross-module test");
         return;
@@ -541,82 +541,82 @@ fn stdlib_exec_cross_module_serialize_convert() {
 
 #[test]
 fn stdlib_exec_sort_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_sort.xi"), Some(0), "sort smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_sort.xi"), Some(0), "sort smoke failed");
 }
 
 #[test]
 fn stdlib_exec_search_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_search.xi"), Some(0), "search smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_search.xi"), Some(0), "search smoke failed");
 }
 
 #[test]
 fn stdlib_exec_bits_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_bits.xi"), Some(0), "bits smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_bits.xi"), Some(0), "bits smoke failed");
 }
 
 #[test]
 fn stdlib_exec_geom_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_geom.xi"), Some(0), "geom smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_geom.xi"), Some(0), "geom smoke failed");
 }
 
 #[test]
 fn stdlib_exec_complex_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_complex.xi"), Some(0), "complex smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_complex.xi"), Some(0), "complex smoke failed");
 }
 
 #[test]
 fn stdlib_exec_bigint_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_bigint.xi"), Some(0), "bigint smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_bigint.xi"), Some(0), "bigint smoke failed");
 }
 
 #[test]
 fn stdlib_exec_chacha_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_chacha.xi"), Some(0), "chacha smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_chacha.xi"), Some(0), "chacha smoke failed");
 }
 
 #[test]
 fn stdlib_exec_poly1305_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_poly1305.xi"), Some(0), "poly1305 smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_poly1305.xi"), Some(0), "poly1305 smoke failed");
 }
 
 #[test]
 fn stdlib_exec_ecc_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_ecc.xi"), Some(0), "ecc smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_ecc.xi"), Some(0), "ecc smoke failed");
 }
 
 #[test]
 fn stdlib_exec_rsa_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_rsa.xi"), Some(0), "rsa smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_rsa.xi"), Some(0), "rsa smoke failed");
 }
 
 #[test]
 fn stdlib_exec_des_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_des.xi"), Some(0), "des smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_des.xi"), Some(0), "des smoke failed");
 }
 
 #[test]
 fn stdlib_exec_utf8_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_utf8.xi"), Some(0), "utf8 smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_utf8.xi"), Some(0), "utf8 smoke failed");
 }
 
 #[test]
 fn stdlib_exec_platform_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_platform.xi"), Some(0), "platform smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_platform.xi"), Some(0), "platform smoke failed");
 }
 
 #[test]
 fn stdlib_exec_debug_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_debug.xi"), Some(0), "debug smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_debug.xi"), Some(0), "debug smoke failed");
 }
 
 #[test]
 fn stdlib_exec_misc_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_misc.xi"), Some(0), "misc smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_misc.xi"), Some(0), "misc smoke failed");
 }
 
 #[test]
 fn stdlib_exec_process_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_process.xi"), Some(0), "process smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_process.xi"), Some(0), "process smoke failed");
 }
 
 // ============================================================================
@@ -625,77 +625,77 @@ fn stdlib_exec_process_runs() {
 
 #[test]
 fn stdlib_exec_collect_tree_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_collect_tree.xi"), Some(0), "collect/tree smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_collect_tree.xi"), Some(0), "collect/tree smoke failed");
 }
 
 #[test]
 fn stdlib_exec_collect_cache_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_collect_cache.xi"), Some(0), "collect/cache+hash+queue+graph smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_collect_cache.xi"), Some(0), "collect/cache+hash+queue+graph smoke failed");
 }
 
 #[test]
 fn stdlib_exec_hash_folder_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_hash_folder.xi"), Some(0), "hash/ folder smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_hash_folder.xi"), Some(0), "hash/ folder smoke failed");
 }
 
 #[test]
 fn stdlib_exec_text_similarity_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_text_similarity.xi"), Some(0), "text/similarity smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_text_similarity.xi"), Some(0), "text/similarity smoke failed");
 }
 
 #[test]
 fn stdlib_exec_rand_folder_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_rand_folder.xi"), Some(0), "rand/ folder smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_rand_folder.xi"), Some(0), "rand/ folder smoke failed");
 }
 
 #[test]
 fn stdlib_exec_net_folder_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_net_folder.xi"), Some(0), "net/ folder smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_net_folder.xi"), Some(0), "net/ folder smoke failed");
 }
 
 #[test]
 fn stdlib_exec_os_folder_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_os_folder.xi"), Some(0), "os/ folder smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_os_folder.xi"), Some(0), "os/ folder smoke failed");
 }
 
 #[test]
 fn stdlib_exec_num_format_folder_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_num_format_folder.xi"), Some(0), "num/convert + format/ smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_num_format_folder.xi"), Some(0), "num/convert + format/ smoke failed");
 }
 
 #[test]
 fn stdlib_exec_d1_native128_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_d1_native128.xi"), Some(0), "D1 native Int128/UInt128/Float128 smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_d1_native128.xi"), Some(0), "D1 native Int128/UInt128/Float128 smoke failed");
 }
 
 #[test]
 fn stdlib_exec_hardening_generics_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_hardening_generics.xi"), Some(0), "hardening generics/impl-dispatch smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_hardening_generics.xi"), Some(0), "hardening generics/impl-dispatch smoke failed");
 }
 
 #[test]
 fn stdlib_exec_generic_tower_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_generic_tower.xi"), Some(0), "3c generic numeric tower smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_generic_tower.xi"), Some(0), "3c generic numeric tower smoke failed");
 }
 
 #[test]
 fn stdlib_exec_math_core_runs() {
     // BUG 29 (new 512-module layout): smoke_math_core.xi was renamed to
     // smoke_math_tower.xi by the stdlib session.
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_math_tower.xi"), Some(0), "math/core generic tower module smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_math_tower.xi"), Some(0), "math/core generic tower module smoke failed");
 }
 
 #[test]
 fn stdlib_exec_guard_heap_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_guard_heap.xi"), Some(0), "guard heap + Copy-Out smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_guard_heap.xi"), Some(0), "guard heap + Copy-Out smoke failed");
 }
 
 #[test]
 fn stdlib_exec_guard_fault_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_guard_fault.xi"), Some(0), "hardware fault trap smoke (AV/SIGILL/SIGFPE) failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_guard_fault.xi"), Some(0), "hardware fault trap smoke (AV/SIGILL/SIGFPE) failed");
 }
 
 #[test]
 fn stdlib_exec_guard_retry_runs() {
-    assert_eq!(compile_and_run("examples\\stdlib_smoke\\smoke_guard_retry.xi"), Some(0), "transient fault retry smoke failed");
+    assert_eq!(compile_and_run("examples/stdlib_smoke//smoke_guard_retry.xi"), Some(0), "transient fault retry smoke failed");
 }
