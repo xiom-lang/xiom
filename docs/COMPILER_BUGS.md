@@ -7432,7 +7432,7 @@ verification, with repro commands using the playground lesson sources
   source). Fixture `tests/regression/m110_generic_factory_evidence`, lock
   `e2e_m110_generic_factory_evidence` + CI line. Full e2e 2358/2358.
 - **R52 packages relay**: FIXED --
-  (1) `use xiom.test; assert(1 == 1, "…")` bound the transitively-imported
+  (1) `use xiom.test; assert(1 == 1, "...")` bound the transitively-imported
   PRIVATE `core.assert` (keep-first bare alias) instead of the imported
   module's exported TestResult assert; the result was a zeroed TestResult
   (F/0) and every unqualified-assert conformance test reported failures.
@@ -7450,7 +7450,7 @@ verification, with repro commands using the playground lesson sources
   (4) Release artifacts: the local `target/release/xiom.exe` predates the
   R48 native dispatch; the source is correct (`xiom pkg` execs the sibling
   xiom-pkg) -- a fresh release build is required for publishing.
-- **R51 L4 cluster (playground audit §19)**: FIXED --
+- **R51 L4 cluster (playground audit S19)**: FIXED --
   L4-29/33/39 (`items@pre.len()`, `self@pre.items.len()`): the Vec.len
   dispatch and `infer_struct_type_name` now look through `AtPre` receivers
   (was `xiom_str_len(<%struct.Vec>)` -> clang "defined with type %struct.Vec

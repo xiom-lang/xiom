@@ -1,4 +1,4 @@
-﻿use xiom.io;
+use xiom.io;
 
 fn safe_pop(items: &mut Vec[Int]) -> Int
   requires: items.len() > 0;

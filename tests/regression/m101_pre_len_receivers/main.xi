@@ -1,4 +1,4 @@
-﻿use xiom.io;
+use xiom.io;
 
 type Stack = {
   items: Vec[Int];

@@ -80,7 +80,7 @@ unknown symbols produce a clear error with close matches.
 `AI_CONTEXT.md` (repo root) is the single source of truth for toolchain
 facts. It is:
 - **compiled into** `xiom-mcp` (`include_str!`) and served as
-  `xiom_workflow_guide {topic: "context"}` — always matches the build;
+  `xiom_workflow_guide {topic: "context"}` -- always matches the build;
 - **shipped** in every archive at `lib/AI_CONTEXT.md` (release staging +
   `package.ps1`/`package.sh`);
 - the reference the website docs can render for an "AI/agent usage" page.
