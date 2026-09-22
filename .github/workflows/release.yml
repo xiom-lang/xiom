@@ -498,8 +498,13 @@ jobs:
 
   release:
     name: publish GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, vscode]
+    # build-macos is OPTIONAL (gated on RELEASE_BUILD_MACOS); a plain `needs`
+    # on a skipped job would skip the release, and `always()` would run it on
+    # failed builds. `!failure() && !cancelled()` runs when every dependency
+    # either succeeded or was skipped, so the release waits for macOS when it
+    # is enabled and proceeds without it when it is not.
+    if: startsWith(github.ref, 'refs/tags/v') && !failure() && !cancelled()
+    needs: [build, vscode, build-macos]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout (version + stdlib pin for the docs payload)
