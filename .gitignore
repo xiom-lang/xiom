@@ -61,6 +61,11 @@ Thumbs.db
 a.exe
 test_*.exe
 e2e_*.exe
+# e2e harness outputs at the REPO ROOT (the helper names them
+# `e2e_<stem>_<counter>[.exe]`; some targets emit no extension at all, which
+# left 71 untracked files behind). Root-anchored so tests/e2e_*.xi fixtures
+# are unaffected.
+/e2e_*
 selfhost_*.exe
 diff_*.exe
 output.exe
