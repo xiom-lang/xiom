@@ -258,6 +258,38 @@ fn smt_own_axiom_not_assumed() {
         "a function's own axiom must NOT be assumed while checking its body:\n{smt}");
 }
 
+#[test]
+fn smt_declares_constants_and_opaque_sorts() {
+    // R64 regressions: module constants must be declared+asserted (contracts
+    // referencing MAX_ORDER failed z3 with "unknown constant"), and every
+    // aggregate-typed signature sort must be declared (stdlib registration
+    // made z3 parse all stdlib signatures -> "unknown sort" otherwise).
+    let src = r#"
+module test_consts
+
+const LIMIT: Int = 8;
+
+type Box = { value: Int; }
+
+fn bounded(v: Int) -> Int
+    requires: v >= 0
+    ensures: result <= LIMIT
+{ if v > LIMIT { return LIMIT; } return v; }
+
+fn read_box(b: &Box) -> Int
+    requires: b.value >= 0
+{ return b.value; }
+"#;
+    let tmp = unique_temp_name("consts");
+    std::fs::write(&tmp, src).expect("write test file");
+    let smt = smt_for(tmp.to_str().unwrap());
+    let _ = std::fs::remove_file(&tmp);
+
+    assert!(smt.contains("(declare-const LIMIT Int)"), "module constants must be declared:\n{smt}");
+    assert!(smt.contains("(assert (= LIMIT 8))"), "module constants must carry their value:\n{smt}");
+    assert!(smt.contains("(declare-sort"), "aggregate signature sorts must be declared:\n{smt}");
+}
+
 // =========================================================================
 // Z3 Integration Tests (require z3)
 // =========================================================================

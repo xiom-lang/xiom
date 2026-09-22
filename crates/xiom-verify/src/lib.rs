@@ -169,6 +169,10 @@ pub struct SMTGenerator {
     /// globally -- a function must not assume its own contract while its body
     /// is being proved (that proved every `ensures` vacuously).
     contract_axioms: Vec<(String, String)>,
+    /// R64 fix: module-level constants (name, type, value). Uncollected,
+    /// `MAX_ORDER` in a contract became an "unknown constant" and z3 rejected
+    /// the whole script.
+    consts: Vec<(String, Type, Expr)>,
     report: GenReport,
 }
 
@@ -193,6 +197,7 @@ impl SMTGenerator {
             unsupported: None,
             body_unsupported: None,
             contract_axioms: Vec::new(),
+            consts: Vec::new(),
             report: GenReport::default(),
         }
     }
@@ -218,9 +223,20 @@ impl SMTGenerator {
         // Pass 1: collect structs and function signatures (declaration order).
         self.collect_structs(program);
         self.collect_fns(program);
+        self.collect_consts(&program.items);
 
         // Emit struct datatypes BEFORE any function section references them.
         self.emit_datatypes();
+
+        // R64 fix: sorts for non-mappable types (refs, Vec[T], unknown
+        // structs) must be DECLARED before declare-fun uses them. Registering
+        // the stdlib made z3 parse every stdlib signature, and every
+        // aggregate-typed parameter produced "unknown sort" until this pass.
+        self.emit_opaque_sorts();
+
+        // R64 fix: declare module constants + their defining values so
+        // contracts and bodies can refer to them (MAX_ORDER, MIN_BLOCK, ...).
+        self.emit_consts();
 
         // Pass 2: contracted function signatures. Axioms are NOT asserted here
         // -- they are scoped into each check section (R64 soundness fix).
@@ -271,6 +287,44 @@ impl SMTGenerator {
                 _ => {}
             }
         }
+    }
+
+    /// R64: collect module-level constants (including inside modules).
+    fn collect_consts(&mut self, items: &[TopDecl]) {
+        for item in items {
+            match item {
+                TopDecl::Const(c) => self.consts.push((c.name.name.clone(), c.ty.clone(), c.value.clone())),
+                TopDecl::Module(m) => self.collect_consts(&m.items),
+                _ => {}
+            }
+        }
+    }
+
+    /// R64: declare module constants and assert their values. Contract clauses
+    /// and bodies can then reason about them instead of z3 rejecting the
+    /// script with "unknown constant".
+    fn emit_consts(&mut self) {
+        if self.consts.is_empty() {
+            return;
+        }
+        self.emit("; --- module constants ---");
+        // Declare all first so constants may reference each other.
+        for (name, ty, _) in self.consts.clone() {
+            let sort = self.sort_for(&ty);
+            self.emit(&format!("(declare-const {} {})", smt_escape(&name), sort));
+            self.var_sort_map.insert(name.clone(), sort);
+        }
+        for (name, _, value) in self.consts.clone() {
+            let saved = self.unsupported.take();
+            let term = self.translate_expr_to_val(&value);
+            let unsup = self.unsupported.take();
+            self.unsupported = saved;
+            match unsup {
+                Some(reason) => self.emit(&format!("; const {} value unsupported: {}", name, reason)),
+                None => self.emit(&format!("(assert (= {} {}))", smt_escape(&name), term)),
+            }
+        }
+        self.emit("");
     }
 
     fn field_sort(&self, ty: &Type, declared: &HashSet<String>) -> Option<String> {
@@ -341,6 +395,29 @@ impl SMTGenerator {
                 format!("({} {})", fname, self.sort_for(fty))
             }).collect();
             self.emit(&format!("(declare-datatype {} ((mk-{} {})))", name, name, parts.join(" ")));
+        }
+        self.emit("");
+    }
+
+    /// R64: declare every non-datatype sort used by function signatures as an
+    /// opaque (uninterpreted) sort. Without this, any function taking a
+    /// reference/Vec/unknown-struct emitted `(declare-fun ... |xiom_&T| ...)`
+    /// with no matching declaration -- z3 rejects the whole script.
+    fn emit_opaque_sorts(&mut self) {
+        let mut sorts: Vec<String> = Vec::new();
+        for (_, (psorts, rsort)) in &self.fn_sigs {
+            for s in psorts.iter().chain(rsort.iter()) {
+                if s.starts_with("|xiom_") && !self.datatype_sorts.contains(s) && !sorts.contains(s) {
+                    sorts.push(s.clone());
+                }
+            }
+        }
+        if sorts.is_empty() {
+            return;
+        }
+        self.emit("; --- opaque sorts (non-mappable types) ---");
+        for s in sorts {
+            self.emit(&format!("(declare-sort {} 0)", s));
         }
         self.emit("");
     }
