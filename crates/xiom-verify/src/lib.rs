@@ -163,6 +163,12 @@ pub struct SMTGenerator {
     /// |result| is unconstrained -- every obligation must be skipped
     /// (otherwise ensures checks run against nothing and fire spuriously).
     body_unsupported: Option<String>,
+    /// R64 soundness fix: contracted functions and their modular axioms
+    /// (`forall ... (requires => ensures)`), in declaration order. The axioms
+    /// are assumed per CHECK SCOPE (see `emit_assumed_axioms`), never
+    /// globally -- a function must not assume its own contract while its body
+    /// is being proved (that proved every `ensures` vacuously).
+    contract_axioms: Vec<(String, String)>,
     report: GenReport,
 }
 
@@ -186,6 +192,7 @@ impl SMTGenerator {
             side_conditions: Vec::new(),
             unsupported: None,
             body_unsupported: None,
+            contract_axioms: Vec::new(),
             report: GenReport::default(),
         }
     }
@@ -215,10 +222,11 @@ impl SMTGenerator {
         // Emit struct datatypes BEFORE any function section references them.
         self.emit_datatypes();
 
-        // Pass 2: contract axioms (modular verification).
+        // Pass 2: contracted function signatures. Axioms are NOT asserted here
+        // -- they are scoped into each check section (R64 soundness fix).
         let contracted = self.collect_contracted_fns(program);
         if !contracted.is_empty() {
-            self.emit("; --- contract axioms (modular verification) ---");
+            self.emit("; --- contracted function signatures (axioms scoped per check) ---");
             for (name, params, ret, reqs, enss) in &contracted {
                 self.emit_fn_decl(name, params, ret.as_ref());
                 self.emit_contract_axiom(name, params, ret.as_ref(), reqs, enss);
@@ -340,10 +348,11 @@ impl SMTGenerator {
     fn emit_fn_decl(&mut self, name: &str, params: &[(String, Type)], ret: Option<&Type>) {
         let psorts: Vec<String> = params.iter().map(|(_, t)| self.sort_for(t)).collect();
         let rsort = ret.map(|t| self.sort_for(t)).unwrap_or_else(|| "Bool".to_string());
-        let args: Vec<String> = params.iter().zip(psorts.iter())
-            .map(|((n, _), s)| format!("({} {})", smt_escape(n), s))
-            .collect();
-        self.emit(&format!("(declare-fun |{}| ({}) {})", smt_escape(name), args.join(" "), rsort));
+        // R64 fix: declare-fun takes SORTS only. The previous `(name sort)`
+        // pair formatting emitted `(declare-fun |f| ((x Int)) Int)`, which z3
+        // rejects with "unknown sort 'x'" -- every contract proof failed.
+        // Binder NAMES stay in the contract axiom's `forall`, not here.
+        self.emit(&format!("(declare-fun |{}| ({}) {})", smt_escape(name), psorts.join(" "), rsort));
     }
 
     fn collect_contracted_fns(&self, program: &Program)
@@ -432,8 +441,12 @@ impl SMTGenerator {
             } else {
                 format!("(=> (and {}) (and {}))", req_terms.join(" "), ens_terms.join(" "))
             };
-            self.emit(&format!("(assert (! (forall ({}) {}) :named |contract_{}|))",
-                binders.join(" "), body, smt_escape(name)));
+            let axiom = format!("(forall ({}) {})", binders.join(" "), body);
+            // Remember the term; the caller scopes it into check sections
+            // (all axioms except the function's own, plus all of them for
+            // type-invariant checks). Never assert globally: assuming a
+            // function's own contract while proving its body is unsound.
+            self.contract_axioms.push((name.to_string(), axiom));
         }
 
         self.latest = saved_latest;
@@ -461,6 +474,19 @@ impl SMTGenerator {
         }
     }
 
+    /// R64: assert the modular contract axioms available to the CURRENT check
+    /// scope, skipping `skip` (the function whose body is being proved).
+    /// Emitted with a readable `; assumes` comment for auditability.
+    fn emit_assumed_axioms(&mut self, skip: Option<&str>) {
+        for (name, axiom) in self.contract_axioms.clone() {
+            if Some(name.as_str()) == skip {
+                continue;
+            }
+            self.emit(&format!("; assumes |contract_{}|", name));
+            self.emit(&format!("(assert {})", axiom));
+        }
+    }
+
     // =====================================================================
     // Function verification
     // =====================================================================
@@ -473,6 +499,12 @@ impl SMTGenerator {
         self.latest.clear();
         self.ssa_counter = 0;
         self.body_unsupported = None;
+
+        // R64 soundness fix: assume every OTHER function's contract axiom
+        // (call-site composition), never this function's own -- assuming its
+        // own contract made every `ensures` vacuously "proven"
+        // (test_buggy_abs proved despite returning -x).
+        self.emit_assumed_axioms(Some(&fname));
 
         // Register param sorts.
         for param in &f.params {
@@ -905,6 +937,8 @@ impl SMTGenerator {
         let tname = td.name.name.clone();
         self.emit(&format!("; === Type: {} -- Invariants ===", tname));
         self.emit("(push)");
+        // Invariant checks are not body checks -- all callable contracts hold.
+        self.emit_assumed_axioms(None);
         let sort = self.sort_for_named(&tname);
         self.emit(&format!("(declare-const |self| {})", sort));
         self.var_sort_map.insert("self".to_string(), sort.clone());

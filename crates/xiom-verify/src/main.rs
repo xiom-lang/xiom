@@ -63,6 +63,13 @@ fn main() {
     if let Some(parent) = std::path::Path::new(file_path).parent() {
         checker.add_source_dir(parent.to_string_lossy().to_string());
     }
+    // R64 fix: register the bundled stdlib like the compiler driver does,
+    // otherwise `use xiom.math;` fails with "undefined variable 'math'"
+    // before SMT generation (only import-free files could be verified).
+    for stdlib_dir in xiom_graph::paths::stdlib_source_dirs() {
+        checker.add_source_dir(stdlib_dir);
+    }
+    checker.build_catalog_index();
     if let Err(errors) = checker.check_program(&program) {
         for e in &errors {
             eprintln!("  {e:?}");
@@ -191,6 +198,13 @@ fn main() {
         if !output_file.is_some() && errors == 0 {
             let smt_path = "xiom_verify_output.smt2";
             fs::write(smt_path, &smt_output).ok();
+        }
+
+        // R64 fix: the exit code is a verdict. Previously the process always
+        // exited 0, so scripts/CI treating success as "verified" accepted
+        // failed z3 invocations and violated contracts.
+        if errors > 0 || violated > 0 {
+            process::exit(1);
         }
     }
 }

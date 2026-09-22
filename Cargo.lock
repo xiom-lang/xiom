@@ -1671,6 +1671,7 @@ version = "0.61.1"
 dependencies = [
  "xiom-ast",
  "xiom-check",
+ "xiom-graph",
  "xiom-lexer",
  "xiom-parser",
 ]

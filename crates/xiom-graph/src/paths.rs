@@ -116,6 +116,23 @@ pub fn current_stdlib_candidates() -> Vec<PathBuf> {
     )
 }
 
+/// R64 fix: the source directories a checker/verifier must register so
+/// `use xiom.*` imports resolve against the bundled stdlib -- the stdlib root
+/// plus its `xiom/` module tree. The compiler driver registers exactly these
+/// (`find_stdlib_dirs`); xiom-verify now shares the helper instead of silently
+/// type-checking without a stdlib.
+pub fn stdlib_source_dirs() -> Vec<String> {
+    let mut dirs: Vec<String> = Vec::new();
+    if let Some(root) = existing_stdlib_roots(&current_stdlib_candidates()).into_iter().next() {
+        dirs.push(root.to_string_lossy().to_string());
+        let xiom_sub = root.join("xiom");
+        if xiom_sub.is_dir() {
+            dirs.push(xiom_sub.to_string_lossy().to_string());
+        }
+    }
+    dirs
+}
+
 /// CRB-3c: filesystem-free XIOM home candidates, canonical first.
 ///
 /// The installers put the toolchain at `%LOCALAPPDATA%\\xiom` (Windows) and

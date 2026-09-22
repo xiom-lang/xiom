@@ -76,6 +76,12 @@ fn smt_abs_has_body_encoding() {
     assert!(smt.contains("; --- body encoding ---"), "Must have body section");
     assert!(smt.contains("(check-sat)"), "Must have check-sat");
     assert!(!smt.contains("QF_NRA"), "Must not use QF_NRA");
+    // R64 regression: declare-fun takes SORTS only. The old emitter produced
+    // `(declare-fun |abs| ((x Int)) Int)` -> z3 "unknown sort 'x'".
+    assert!(smt.contains("(declare-fun |abs| (Int) Int)"),
+        "declare-fun must take sorts only; got: {}",
+        smt.lines().find(|l| l.contains("declare-fun")).unwrap_or("<none>"));
+    assert!(!smt.contains("((x Int))"), "named binders inside declare-fun are invalid SMT-LIB");
 }
 
 #[test]
@@ -237,9 +243,19 @@ fn clamp(x: Int, lo: Int, hi: Int) -> Int
 #[test]
 fn smt_compose_has_contract_axioms() {
     let smt = smt_for("tests/verify/test_compose.xi");
-    assert!(smt.contains("contract axioms"), "Must have contract composition");
+    assert!(smt.contains("axioms scoped per check"), "Must document axiom scoping");
     assert!(smt.contains("declare-fun |square|"), "square must be declared as uninterpreted");
-    assert!(smt.contains("contract_square"), "Must have axiom for square");
+    assert!(smt.contains("; assumes |contract_square|"),
+        "use_square's body check must assume square's contract (call-site composition)");
+}
+
+#[test]
+fn smt_own_axiom_not_assumed() {
+    // R64 soundness regression: assuming a function's own contract while
+    // proving its body made every ensures vacuously "proven".
+    let smt = smt_for("tests/verify/test_buggy.xi");
+    assert!(!smt.contains("; assumes |contract_buggy_abs|"),
+        "a function's own axiom must NOT be assumed while checking its body:\n{smt}");
 }
 
 // =========================================================================
@@ -251,6 +267,11 @@ fn z3_abs_proven() {
     if z3_path().is_none() { eprintln!("SKIP: z3 not found"); return; }
     let output = verify_with_z3("tests/verify/test_abs.xi");
     let stderr = String::from_utf8_lossy(&output.stderr);
+    // R64 regression: a z3 parse error used to still print [OK] VERIFIED and
+    // exit 0. Prove the positive path is genuinely clean.
+    assert!(!stderr.contains("[RED] ERROR"), "abs must not hit verifier errors:\n{stderr}");
+    assert!(stderr.contains("0 errors"), "abs summary must report 0 errors:\n{stderr}");
+    assert!(output.status.success(), "abs verification must exit 0:\n{stderr}");
     assert!(stderr.contains("VERIFIED"), "abs must be proven:\n{stderr}");
 }
 
@@ -261,6 +282,25 @@ fn z3_buggy_violated() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("VIOLATED") || stderr.contains("COUNTEREXAMPLE"),
         "buggy_abs must be violated:\n{stderr}");
+    // R64 regression: violated contracts must produce a non-zero exit code.
+    assert!(!output.status.success(), "violated contracts must exit non-zero:\n{stderr}");
+}
+
+#[test]
+fn z3_stdlib_import_resolves() {
+    // R64 regression: the verifier must register the bundled stdlib, so files
+    // using `use xiom.math;` no longer fail with "undefined variable 'math'".
+    // Skips when no stdlib is installed (CI without the toolchain).
+    if z3_path().is_none() { eprintln!("SKIP: z3 not found"); return; }
+    if xiom_graph::paths::stdlib_source_dirs().is_empty() {
+        eprintln!("SKIP: no stdlib installed");
+        return;
+    }
+    let output = verify_with_z3("tests/verify/test_stdlib_import.xi");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("CheckError"), "stdlib imports must type-check:\n{stderr}");
+    assert!(!stderr.contains("undefined variable 'math'"),
+        "stdlib modules must resolve:\n{stderr}");
 }
 
 #[test]

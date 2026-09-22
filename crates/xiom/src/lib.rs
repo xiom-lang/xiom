@@ -1738,21 +1738,9 @@ fn parse_package_manifest(path: &str) -> Result<Vec<String>, String> {
 /// exactly this way). Extra project dirs come from the dependency graph, not
 /// from stdlib discovery.
 pub fn find_stdlib_dirs() -> Vec<String> {
-    let mut dirs: Vec<String> = Vec::new();
-    if let Some(root) = xiom_graph::paths::existing_stdlib_roots(&xiom_graph::paths::current_stdlib_candidates()).into_iter().next() {
-        let root_str = root.to_string_lossy().to_string();
-        if !dirs.contains(&root_str) {
-            dirs.push(root_str);
-        }
-        let xiom_sub = root.join("xiom");
-        if xiom_sub.is_dir() {
-            let sub_str = xiom_sub.to_string_lossy().to_string();
-            if !dirs.contains(&sub_str) {
-                dirs.push(sub_str);
-            }
-        }
-    }
-    dirs
+    // Shared with xiom-verify (R64 fix): the stdlib root plus its `xiom/`
+    // module tree, resolved from XIOM_STDLIB/exe-relative/XIOM_HOME.
+    xiom_graph::paths::stdlib_source_dirs()
 }
 
 /// 5e.3 G-30/G-31: walk up from a source file's parent directory looking for
