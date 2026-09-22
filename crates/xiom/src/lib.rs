@@ -1289,7 +1289,17 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             if config.stack_protector {
                 cmd.arg("-fstack-protector");
             }
-            if config.shared_lib { cmd.arg("-shared"); }
+            if config.shared_lib {
+                cmd.arg("-shared");
+                // R66 (CI jit tests on Linux): clang compiles the runtime C
+                // sources in this SAME invocation, and a shared object needs
+                // position-independent code -- otherwise ld rejects the
+                // runtime's TLS relocations
+                // (R_X86_64_TPOFF32 ... recompile with -fPIC).
+                if !cfg!(windows) {
+                    cmd.arg("-fPIC");
+                }
+            }
             if config.static_lib { cmd.arg("-c"); }
             match config.target {
                 Target::Wasm => {
