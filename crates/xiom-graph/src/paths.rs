@@ -447,9 +447,17 @@ mod tests {
     fn r31_skip_guard_existing_and_missing() {
         let dir = r31_dir("guard");
         assert!(!skip_if_missing("test path", &dir), "existing path must not skip");
-        assert!(skip_if_missing("test path", &dir.join("nope")),
-            "missing path must skip (no XIOM_REQUIRE_STDLIB in this test process)");
-        assert!(!require_stdlib(), "XIOM_REQUIRE_STDLIB must be unset in unit tests");
+        let missing = dir.join("nope");
+        if require_stdlib() {
+            // CI runs the unit tests with XIOM_REQUIRE_STDLIB=1: a missing
+            // cross-repo path must PANIC (fail-closed) instead of skipping.
+            let panicked = std::panic::catch_unwind(|| skip_if_missing("test path", &missing))
+                .is_err();
+            assert!(panicked, "missing path must panic under XIOM_REQUIRE_STDLIB=1");
+        } else {
+            assert!(skip_if_missing("test path", &missing),
+                "missing path must skip when XIOM_REQUIRE_STDLIB is unset");
+        }
     }
 
     #[test]
