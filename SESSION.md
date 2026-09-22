@@ -322,6 +322,29 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   version -- bump `editors/vscode/package.json` for every extension change,
   toolchain-only releases skip publishing cleanly (vsce refuses to republish
   an existing version).
+- **CRB-8 / RELEASE v0.61.1 PUBLISHED (2026-09-22)**: first public release.
+  Two live issues found and fixed during the tag run:
+  (a) the VSIX publish to the VS Code Marketplace was rejected by the
+  name-similarity policy (`Similar extension display names: ... Language
+  Support`); `displayName` is now **"XIOM Toolchain"** (package id stays
+  `xiom-lang.xiom`, version 0.12.0).
+  (b) The `v0.61.0` tag could not be moved to the fix commit -- the repo's
+  release-tags ruleset blocks tag deletion/updates (verified: remote rejected)
+  -- so the release was cut as **v0.61.1** (workspace version + README bumped;
+  all nine tools report v0.61.1). The `v0.61.0` tag remains as a dead,
+  release-less tag; nothing was ever published under it.
+  (c) The GitHub Release job failed only at the LAST step, the
+  `compiler-release` dispatch to xiom-lang/website: `Resource not accessible
+  by personal access token (403)` -- `XIOM_RELEASE_TOKEN` lacks Contents:
+  read/write on the website repo. The step is now `if ! gh api ...` +
+  warn/exit 0 so a docs-dispatch failure can never fail a release; the PAT
+  still needs extending for automatic docs publishing.
+  Verified live: GitHub Release `v0.61.1` carries `SHA256SUMS`,
+  `xiom-0.61.1-{linux-x64,macos-arm64,macos-x64,windows-x64}` and
+  `xiom-vscode-0.12.0.vsix`; the linux archive contains `bin/xiom-pkg`,
+  `bin/xiom-dbg`, `bin/z3` and the `xiom-std` manifest; VS Marketplace
+  `xiom-lang.xiom` 0.12.0 and its item page return 200; Open VSX 0.12.0
+  returns 200. Staging canary prerequisites are satisfied.
 - **CRB-7 (macOS release enablement, 2026-09-22)**: enabling
   `RELEASE_BUILD_MACOS` exposed two real portability bugs, both fixed:
   (a) `.cargo/config.toml` carried target-wide `-Wl,-stack_size` rustflags for

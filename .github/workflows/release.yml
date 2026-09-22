@@ -565,9 +565,17 @@ jobs:
             exit 0
           fi
           stdlib_ref="$(tr -d '\r\n ' < xiom-src/STDLIB_VERSION)"
-          gh api "repos/$DOCS_REPO/dispatches" \
+          # A docs-dispatch failure must NEVER fail the release: the artifacts
+          # and marketplace listings are already published at this point. The
+          # usual cause is a PAT that does not cover the docs repo
+          # (v0.61.1: "Resource not accessible by personal access token",
+          # HTTP 403) -- warn and continue.
+          if ! gh api "repos/$DOCS_REPO/dispatches" \
             -f event_type=compiler-release \
             -f "client_payload[tag]=$TAG" \
             -f "client_payload[stdlib_ref]=$stdlib_ref" \
-            -f "client_payload[compiler_ref]=$COMPILER_REF"
+            -f "client_payload[compiler_ref]=$COMPILER_REF"; then
+            echo "::warning::compiler-release dispatch to $DOCS_REPO failed (extend XIOM_RELEASE_TOKEN to Contents: read/write on $DOCS_REPO) -- release is unaffected"
+            exit 0
+          fi
           echo "dispatched compiler-release to $DOCS_REPO (tag=$TAG stdlib_ref=$stdlib_ref compiler_ref=$COMPILER_REF)"
