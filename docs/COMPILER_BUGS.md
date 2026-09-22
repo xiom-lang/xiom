@@ -7568,6 +7568,25 @@ verification, with repro commands using the playground lesson sources
   and `xiom.core` `cannot call 'float_to_string'`; generic `T.to_str()`
   prints a denormal even with `use xiom.fmt;` (recorded in SESSION.md as
   open findings, not in the gated suite list).
+- **R63 (playground C3/C6 + cache HOME)**: FIXED. (a) C3 script-mode
+  `--opt-level`: `xiom run` already honored `--opt-level`/`--opt-level=N`
+  (R51) and keyed the script cache by level, but `xiom --opt-level=0 run f.xi`
+  still read `run` as the source (dispatch required args[1] == "run") and the
+  short spelling `-O0` was not accepted. The driver now finds `run` behind
+  leading global flags and parses `-O<n>`; verified all four
+  COMPILER_REPROS forms plus a cache hit at the same level and a recompile at
+  a different level. (b) Script/JIT cache with an unwritable HOME:
+  `jit_cache_dir` returned `$HOME/.xiom/jit` whenever HOME was non-empty, so a
+  readonly HOME silently disabled caching; it now probes `create_dir_all` and
+  falls back to `$TMPDIR/xiom_jit` (verified: cache hit with HOME set to an
+  unwritable path; the entry landed in the temp fallback). (c) C6 stdlib
+  manifest: the pin `stdlib-v0.60.0` still carried the xiom_bench
+  `package.xi`; `STDLIB_VERSION` is now the pushed stdlib main commit
+  `385e1e44fac37a9403cd04cdb5e13d4c122a8710`, whose manifest is
+  `package xiom_std { name: "xiom-std" }` and which also carries the
+  `xiom_env_set`/`xiom_env_unset` shim (the earlier Windows-link ask). The
+  local `stdlib/` checkout is updated to the same SHA; gates on the new pin:
+  e2e 2365/2365, stdlib-exec 85/85, feature-reg 510/510, diff 24/24.
 - **L3-50 (Result tuple payload via `?`)**: FIXED (R57). `let (a, b) =
   two()?` bound BOTH names to the raw boxed-tuple handle -- `a + b` printed
   pointer arithmetic and the `Stmt::Destructure` fallback aliased the value

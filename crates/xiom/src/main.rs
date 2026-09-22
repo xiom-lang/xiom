@@ -259,8 +259,26 @@ fn real_main() {
     }
 
     // -- M10: xiom run -- JIT/scripting execution ---------------------
-    if args.get(1).map_or(false, |a| a == "run") {
-        let remaining: Vec<&str> = args.iter().skip(2).map(|s| s.as_str()).collect();
+    // R63 (playground C3): accept global flags BEFORE the `run` subcommand
+    // (`xiom --opt-level=0 run f.xi`). The old check required args[1] ==
+    // "run", so a leading flag made the driver read "run" as the source file.
+    let run_pos = args.iter().position(|a| a == "run");
+    let leading_run_flags_ok = run_pos.map_or(false, |p| {
+        p > 0
+            && args[1..p].iter().all(|a| {
+                a.starts_with("--opt-level")
+                    || a.starts_with("-O")
+                    || a == "--force"
+                    || a == "--no-cache"
+                    || a == "--jit"
+            })
+    });
+    if run_pos == Some(1) || leading_run_flags_ok {
+        let run_pos = run_pos.unwrap();
+        // Fold any leading global flags into `remaining` so the existing
+        // --opt-level/-O parser below sees them.
+        let mut remaining: Vec<&str> = args[1..run_pos].iter().map(|s| s.as_str()).collect();
+        remaining.extend(args.iter().skip(run_pos + 1).map(|s| s.as_str()));
         if remaining.is_empty() {
             eprintln!("usage: xiom run <file.xi>     execute a script");
             eprintln!("       xiom run -e \"<code>\"   execute inline code");
@@ -291,6 +309,14 @@ fn real_main() {
                 script_opt_level = v.parse().ok();
                 ri += 1;
                 continue;
+            } else if let Some(v) = a.strip_prefix("-O") {
+                // R63: accept the short spelling the playground driver probes
+                // for (`xiom run -O0 file.xi`).
+                if !v.is_empty() {
+                    script_opt_level = v.parse().ok();
+                    ri += 1;
+                    continue;
+                }
             }
             run_args.push(a);
             ri += 1;

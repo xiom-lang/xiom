@@ -159,7 +159,15 @@ pub fn jit_cache_dir() -> PathBuf {
         if let Ok(dir) = std::env::var(key) {
             let dir = dir.trim();
             if !dir.is_empty() {
-                return PathBuf::from(dir).join(".xiom").join("jit");
+                let candidate = PathBuf::from(dir).join(".xiom").join("jit");
+                // R63 (playground repro pack §4): a SET but UNWRITABLE home
+                // (readonly HOME, sandbox) used to disable the script cache
+                // silently -- every `xiom run` recompiled. Probe the
+                // directory by creating it and fall back to temp on failure.
+                if std::fs::create_dir_all(&candidate).is_ok() {
+                    return candidate;
+                }
+                break;
             }
         }
     }

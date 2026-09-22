@@ -10,7 +10,9 @@ fixpoint evidence pre-pass), R56 (L5-40 container-payload ABI), R57 (L3-50
 relay findings: match-slot leak into loop bodies; reference-ctor tuple
 element names), R61 (R7 residual generic-ctor field index + interface-ABI
 ruling), R62 (fmt reachable-only peek; to_str/hello front-end ratio
-1.81x -> 1.12x on the playground bench), and the IDE-distribution/release
+1.81x -> 1.12x on the playground bench), R63 (script-run `--opt-level`
+dispatch + cache HOME fallback + `STDLIB_VERSION` pin bump to
+`385e1e44fac37a9403cd04cdb5e13d4c122a8710`), and the IDE-distribution/release
 batch are all committed AND
 PUSHED. Tree clean,
 full e2e **2365/2365**,
@@ -66,11 +68,16 @@ the release.
      `use xiom.fmt;` -- generic-method conversion dispatch gap; repro in
      `tmp/cleanbench/to_str_edges.xi`. Needs a ruling (Display-bound monomorph
      vs builtin per-concrete-type expansion).
-3. **C3 (script-mode `--opt-level`) / C6 (benchmark `package.xi`)** -- exact
-   repros now in `E:\xiom-lang\playground\docs\COMPILER_REPROS.md` (C3: four
-   invocations; `run` ignores the level and never caches, compile-only honors
-   it; C6: the pinned `lib/package.xi` is the xiom-bench manifest). Also:
-   script cache must work without a writable HOME (falls back to temp).
+3. **C3 (script-mode `--opt-level`) / C6 (benchmark `package.xi`) / cache
+   HOME -- DONE (R63, 2026-09-22)**: `xiom --opt-level=0 run f.xi` and
+   `xiom run -O0 f.xi` now work (the cache key carries the level; verified hit
+   at the same level / recompile at another); `jit_cache_dir` falls back to
+   `$TMPDIR/xiom_jit` when HOME is set but unwritable (verified cache hit);
+   `STDLIB_VERSION` bumped from the stale `stdlib-v0.60.0` tag to the pushed
+   stdlib main commit `385e1e44fac37a9403cd04cdb5e13d4c122a8710` (correct
+   `xiom-std` manifest + `xiom_env_set`/`xiom_env_unset` shim), local
+   `stdlib/` checkout updated to the same SHA. Gates on the new pin: e2e
+   2365/2365, stdlib-exec 85/85, feature-reg 510/510, diff 24/24.
 4. **Stdlib compiler-finding triage CLOSED (2026-09-22, compiler R61
    `ff293f8e`)**: `tools/known_failures/README.md` reports NO open findings --
    the generic_push family and result_tuple/ref_tuple are RESOLVED and
@@ -96,7 +103,9 @@ the release.
 - Repro harnesses: `tmp/repro_lessons.ps1 -IdList a,b,c` and
   `tmp/output_check.ps1 -IdList ...` (3-run determinism + UTF-8 validation).
   Playground clone at `tmp/playground` (uses each JSON's `id`, not filename).
-- The stdlib checkout is the PINNED `stdlib/`; to test a newer stdlib set
+- The stdlib checkout is the PINNED `stdlib/`, refreshed 2026-09-22 to
+  stdlib main `385e1e44fac37a9403cd04cdb5e13d4c122a8710` (matches
+  `STDLIB_VERSION`); to test a newer stdlib set
   BOTH `XIOM_STDLIB` and `XIOM_RUNTIME_DIR` (runtime C files resolve
   separately).
 - ISel/LLVM minimizer: `tmp/extract_closure.py` (auto-detects the crashing
@@ -304,6 +313,19 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   version -- bump `editors/vscode/package.json` for every extension change,
   toolchain-only releases skip publishing cleanly (vsce refuses to republish
   an existing version).
+- **R63 FIXED (2026-09-22, playground C3/C6 pack)**: script-run `--opt-level`
+  dispatch behind leading global flags + `-O<n>` spelling; JIT/script cache
+  falls back to `$TMPDIR/xiom_jit` when HOME is set but unwritable;
+  `STDLIB_VERSION` bumped from `stdlib-v0.60.0` to stdlib main
+  `385e1e44fac37a9403cd04cdb5e13d4c122a8710` (correct `xiom-std` manifest,
+  env shim, waves 15-20), local checkout refreshed. Gates on the new pin:
+  e2e 2365/2365, stdlib-exec 85/85, feature-reg 510/510, diff 24/24.
+- **R62 FIXED (2026-09-22, playground request #2)**: fmt reachable-only peek
+  -- primitives peek nothing (codegen builtins), floats peek the small
+  `xiom.convert`, generics keep the R47 fmt fallback; `peeked_leaves` keeps
+  `float_to_string` through the injection reachability filter and the codegen
+  float builtin resolves its symbol via `fn_symbol_map`. Bench:
+  to_str/hello emit-ir ratio 1.81x -> 1.12x, loop_200 -31%; output `42`/`1.5`.
 - **R61 FIXED (2026-09-21)**: R7 residual + interface-ABI ruling. (a) local
   explicit-generic calls (`var h = make_holder[JsonValue]()`) never recorded
   the substituted return type, so `h.values[0]` lost the element type and the
