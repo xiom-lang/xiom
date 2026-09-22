@@ -1,6 +1,6 @@
 {
   "name": "xiom",
-  "displayName": "XIOM Language Support",
+  "displayName": "XIOM Toolchain",
   "description": "Syntax highlighting, autocomplete, go-to-definition, diagnostics, and debugging for the XIOM programming language.",
   "version": "0.12.0",
   "publisher": "xiom-lang",
