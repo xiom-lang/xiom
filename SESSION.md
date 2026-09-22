@@ -331,6 +331,22 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   version -- bump `editors/vscode/package.json` for every extension change,
   toolchain-only releases skip publishing cleanly (vsce refuses to republish
   an existing version).
+- **Registry staging canary VERIFIED + stdlib 0.61.3 (2026-09-22)**: the
+  registry lane independently verified `xiom-std@0.61.3` on staging
+  (provenance: xiom-lang/stdlib / publish-registry.yml / refs/heads/main /
+  runUrl; sha256 + signature re-checked against the served tarball). Stdlib
+  release 35726136818: validate + both gates + package + canary-dispatch all
+  green; the **pin-PR job failed** on `GraphQL: Resource not accessible by
+  personal access token (createPullRequest)` -- the branch was pushed, so the
+  compiler lane opened **PR #3** (pins `STDLIB_VERSION` to `stdlib-v0.61.3`).
+  Keygen hint corrected (`898ab391`): publisher keys are ephemeral per run;
+  consumers pin the REGISTRY key via `xiom pkg trust`. **PAT scope gap**
+  (owner): `XIOM_RELEASE_TOKEN` needs Contents: read/write on
+  `xiom-lang/website` (docs dispatch 403) and Pull requests: read/write on
+  `xiom-lang/xiom` (pin-PR 403). Production debut: approve run 35726136811
+  after ops deploys `trusted-publishers.json` (refs/tags/stdlib-v*) and
+  rebuilds production; packages canary still needs the curated batch +
+  packages staging entries in ops' file.
 - **R65 FIXED (2026-09-22, stdlib p_platform_env)**: `xiom.env.OS/ARCH/FAMILY`
   were hardcoded literals in the stdlib ("windows"/"x86_64"), so a Linux build
   reported windows while runtime detection said linux. Codegen now computes
