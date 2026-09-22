@@ -331,6 +331,17 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   version -- bump `editors/vscode/package.json` for every extension change,
   toolchain-only releases skip publishing cleanly (vsce refuses to republish
   an existing version).
+- **R65 FIXED (2026-09-22, stdlib p_platform_env)**: `xiom.env.OS/ARCH/FAMILY`
+  were hardcoded literals in the stdlib ("windows"/"x86_64"), so a Linux build
+  reported windows while runtime detection said linux. Codegen now computes
+  them from the TARGET at the module-qualified reference site
+  (`target_platform_constants`: wasm -> unknown/wasm32/wasm; aarch64/riscv64
+  -> linux/<arch>/unix; Native -> the compiler's own OS/ARCH/FAMILY), and
+  seeds the leaf key for bare references. Verified on Windows and Linux (WSL)
+  with the stdlib's exact probe: `env.OS=[linux] env.FAMILY=[unix]
+  env.ARCH=[x86_64]`. Lock `e2e_m118_env_platform_constants`; full e2e
+  2366/2366. Cleanup note: remove `tmp/` archive extracts after verification
+  (duplicate stdlib trees trip `e2e_m17_zero_warnings`).
 - **R64 (2026-09-22, AI context + post-release spec)**: `AI_CONTEXT.md` at the
   repo root is now the single source of truth for toolchain facts: compiled
   into `xiom-mcp` via `include_str!` and served as

@@ -440,6 +440,29 @@ impl IrEmitter {
         self.mono.fn_symbol_map = map;
     }
 
+    /// R65 (stdlib p_platform_env): target-accurate values for the
+    /// `xiom.env.OS/ARCH/FAMILY` compile-time constants. Cross targets are
+    /// identified by their triples; a Native build uses the compiler's own
+    /// OS/arch (correct even on arm64 hosts, where the driver's hardcoded
+    /// `x86_64-*` triple prefix would lie).
+    pub(crate) fn target_platform_constants(&self) -> (String, String, String) {
+        let triple = self.config.target_triple.as_str();
+        if triple.contains("wasm32") || triple.contains("wasm64") {
+            return ("unknown".into(), "wasm32".into(), "wasm".into());
+        }
+        if triple.contains("aarch64") {
+            return ("linux".into(), "aarch64".into(), "unix".into());
+        }
+        if triple.contains("riscv64") {
+            return ("linux".into(), "riscv64".into(), "unix".into());
+        }
+        (
+            std::env::consts::OS.to_string(),
+            std::env::consts::ARCH.to_string(),
+            if std::env::consts::OS == "windows" { "windows" } else { "unix" }.to_string(),
+        )
+    }
+
     pub(crate) fn register_functions(&mut self, item: &TopDecl) {
         if let TopDecl::Const(cd) = item {
             if cd.is_mut {

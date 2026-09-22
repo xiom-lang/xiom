@@ -7568,6 +7568,23 @@ verification, with repro commands using the playground lesson sources
   and `xiom.core` `cannot call 'float_to_string'`; generic `T.to_str()`
   prints a denormal even with `use xiom.fmt;` (recorded in SESSION.md as
   open findings, not in the gated suite list).
+- **R65 (stdlib p_platform_env)**: FIXED. `xiom.env.OS/ARCH/FAMILY` were
+  hardcoded literals in `xiom/os/env.xi` ("windows"/"x86_64"/"windows"), so a
+  Linux build reported windows while `platform_is_linux()` was true. They are
+  compile-time TARGET facts: codegen now overrides the value at the
+  module-qualified reference site (catalog decls are injected flattened, so
+  the definition carries no module path) via `target_platform_constants()`:
+  wasm -> unknown/wasm32/wasm; aarch64/riscv64 linux triples -> linux/<arch>/
+  unix; Native -> the compiler's own OS/ARCH/FAMILY (correct on arm64 hosts,
+  where the driver's hardcoded x86_64-* triple prefix would lie). The override
+  also seeds the leaf key so later bare references agree. Verified on Windows
+  and on Linux (WSL) with the stdlib's own probe:
+  `env.OS=[linux] env.FAMILY=[unix] env.ARCH=[x86_64]` (was `windows`/`windows`).
+  Lock `e2e_m118_env_platform_constants` (host-agnostic: derives the host from
+  `$OS`). Full e2e 2366/2366. NOTE for future artifact checks: extracting
+  release archives under `tmp/` creates duplicate stdlib trees that break the
+  `e2e_m17_zero_warnings` duplicate-module assertion -- clean them after
+  verification.
 - **R63 (playground C3/C6 + cache HOME)**: FIXED. (a) C3 script-mode
   `--opt-level`: `xiom run` already honored `--opt-level`/`--opt-level=N`
   (R51) and keyed the script cache by level, but `xiom --opt-level=0 run f.xi`

@@ -2309,12 +2309,47 @@ impl IrEmitter {
                 }
                 Ok(("1".to_string(), LLVM_I64.to_string()))
             }
-            Expr::Field(obj, field, _) => {
+            Expr::Field(obj, field, span) => {
                 // Module-qualified constant, e.g. `simd.SIMD_SSE`: when the object is
                 // NOT a value instance (a module path), and the leaf names a known
                 // constant, substitute its literal value. Constants are keyed by their
                 // bare name, so `simd.SIMD_SSE` resolves via `SIMD_SSE`.
                 if !self.receiver_is_instance(obj) {
+                    // R65 (stdlib p_platform_env): `xiom.env.OS/ARCH/FAMILY` are
+                    // compile-time TARGET facts. The stdlib declares them as
+                    // literals ("windows"/"x86_64"), which are wrong on Linux and
+                    // for every cross target -- override at the reference site,
+                    // where the module path is still visible (catalog decls are
+                    // injected flattened, so the definition site has no module).
+                    if matches!(field.name.as_str(), "OS" | "ARCH" | "FAMILY") {
+                        let mut segs: Vec<String> = Vec::new();
+                        let mut cur: &Expr = obj.as_ref();
+                        let mut ok = true;
+                        loop {
+                            match cur {
+                                Expr::Ident(id) => { segs.push(id.name.clone()); break; }
+                                Expr::Field(i, f, _) => { segs.push(f.name.clone()); cur = i.as_ref(); }
+                                _ => { ok = false; break; }
+                            }
+                        }
+                        if ok {
+                            segs.reverse();
+                            let is_env = segs == ["xiom", "env"] || segs == ["env"];
+                            if is_env {
+                                let (os, arch, family) = self.target_platform_constants();
+                                let v = match field.name.as_str() {
+                                    "OS" => os,
+                                    "ARCH" => arch,
+                                    _ => family,
+                                };
+                                let lit = Expr::Str(v, *span);
+                                // Seed the leaf so later bare references use the
+                                // corrected value too.
+                                self.local.constants.insert(field.name.clone(), lit.clone());
+                                return self.compile_expr(&lit);
+                            }
+                        }
+                    }
                     if let Some(cval) = self.local.constants.get(&field.name).cloned() {
                         return self.compile_expr(&cval);
                     }

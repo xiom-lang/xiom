@@ -5167,6 +5167,28 @@ fn e2e_safety_probe() {
     );
 }
 
+// R65: `xiom.env.OS/ARCH/FAMILY` are compile-time TARGET facts. They were
+// hardcoded to windows/x86_64 in the stdlib, so a Linux build reported
+// windows (stdlib p_platform_env). The fixture derives the host from
+// $OS and asserts the constants agree -- it fails on Linux before the fix
+// and passes on both Windows and Linux after it.
+#[test] fn e2e_m118_env_platform_constants() {
+    let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
+    if !stdlib_root.join("xiom").join("io.xi").exists() {
+        let msg = "SKIP: stdlib checkout has no xiom/io.xi";
+        if xiom_graph::paths::require_stdlib() {
+            panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
+        }
+        eprintln!("{msg}");
+        return;
+    }
+    assert_eq!(
+        compile_and_run("tests/regression/m118_env_platform_constants/main.xi"),
+        Some(0),
+        "R65 platform constants must match the running host"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "…")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)
