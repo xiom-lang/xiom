@@ -331,6 +331,41 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   version -- bump `editors/vscode/package.json` for every extension change,
   toolchain-only releases skip publishing cleanly (vsce refuses to republish
   an existing version).
+- **CI health batch (2026-09-22, from PR #3 triage)**: the stdlib pin PR #3
+  surfaced PRE-EXISTING CI breakage (CI never runs on main pushes, so the
+  suite hadn't been compiled in CI since R51-era changes). Fixed on main:
+  1. `crates/xiom/tests/scripting_tests.rs`: `script_cache_get` takes the opt
+     level since R51 -- `--all-targets` had never compiled it.
+  2. Encoding: `python tools/ascii_guard.py repair --apply` (13 tracked files:
+     BOMs + typographic chars) and pinned `actions/checkout` in `dco.yml`
+     (repo policy requires full SHAs; the DCO workflow was unpinned, so every
+     DCO run failed with "action is not allowed").
+  3. `paths.rs`: the r31 skip-guard test is now CI-aware (`XIOM_REQUIRE_STDLIB=1`
+     panics by design) and the crb3c home-candidate assertion is
+     host-separator-agnostic.
+  4. **JIT on Linux (real bug)**: the shared-lib JIT links the runtime C inline;
+     without `-fPIC` ld rejects the runtime TLS relocation
+     (`R_X86_64_TPOFF32 ... recompile with -fPIC` ->
+     `failed to set dynamic section sizes`). The driver now passes `-fPIC` for
+     `-shared` on non-Windows. Linux jit tests 4/4.
+  5. e2e stdlib guard accepts BOTH layouts (`xiom/io.xi` flat or
+     `xiom/io/io.xi` module dirs); the flat-only probe made every guarded test
+     panic under `XIOM_REQUIRE_STDLIB=1` in CI even though the checkout existed.
+  6. Test fixture paths normalized `\` -> `/` across five test files (~2400
+     literals) for Linux CI portability; intentional escape sequences
+     untouched.
+  PR #3 outcome: ubuntu-latest fully GREEN on cd42f5d7; windows-latest failed
+  only `e2e_p1_contract_methods` (RUN-time access violation `-1073741819`),
+  deterministic on the runner (2/2) but NOT reproducible locally with either
+  stdlib pin, debug or release compiler, NASM present (RC=0 against the
+  v0.61.3 tree). PR closed as superseded and the pin landed directly:
+  **`9f78c853` STDLIB_VERSION -> `stdlib-v0.61.3`**.
+  Follow-ups: (a) Windows-runner-only AV on `e2e_p1_contract_methods` (CI-side
+  toolchain triage); (b) the `xiom-benchmark-chaos\reference\systems\*` e2e
+  paths are monorepo remains -- the benchmark moved to its own repo under the
+  xiom-project org and now uses the DOWNLOADED compiler; consider dropping or
+  relocating those tests; (c) main CI still does not run on pushes (PR +
+  dispatch only), so main health is only checked when a PR opens.
 - **Registry staging canary VERIFIED + stdlib 0.61.3 (2026-09-22)**: the
   registry lane independently verified `xiom-std@0.61.3` on staging
   (provenance: xiom-lang/stdlib / publish-registry.yml / refs/heads/main /
