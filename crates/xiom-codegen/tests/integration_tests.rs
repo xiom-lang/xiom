@@ -112,8 +112,23 @@ fn test_contract_collection_declares() {
 
 #[test]
 fn test_contract_collection_method_form() {
-    let ir = compile("type Items = { x: Int; } fn check(items: Items) -> Bool { return items.is_sorted(); }").unwrap();
-    assert!(ir.contains("is_sorted"));
+    // m119: the method form is lowered INLINE over the receiver's Vec header.
+    // The old lowering called the xiom_is_sorted runtime intrinsic with a
+    // pointer to the receiver VALUE; the runtime read data[0] as the element
+    // COUNT, so a %struct.Vec receiver scanned its DATA POINTER as a length
+    // (Windows-CI AV on e2e_p1_contract_methods, wrong answers elsewhere).
+    let ir = compile("fn check(items: Vec[Int]) -> Bool { return items.is_sorted(); }").unwrap();
+    assert!(ir.contains("csorted_loop"), "m119 inline scan must be emitted");
+    assert!(ir.contains("is_sorted")); // the declare block still carries the symbol
+}
+
+#[test]
+fn test_contract_collection_method_rejects_unsupported_receiver() {
+    // A receiver with no concrete element type (a plain struct) must be
+    // rejected LOUDLY -- the pre-m119 code emitted a call that scanned
+    // whatever memory followed the receiver alloca.
+    let err = compile("type Items = { x: Int; } fn check(items: Items) -> Bool { return items.is_sorted(); }").unwrap_err();
+    assert!(err.contains("unsupported: 'is_sorted'"), "unexpected error: {err}");
 }
 
 // ========================================================================

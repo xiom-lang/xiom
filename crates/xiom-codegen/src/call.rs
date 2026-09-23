@@ -722,7 +722,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 // Check for contract collection methods -- only intercept when
                 // there is no user-defined function with the same name; otherwise
                 // a regular `fn is_sorted(arr: &Vec[Int]) -> Bool` gets hijacked
-                // and replaced with a `call @xiom_is_sorted` builtin.
+                // and replaced with the builtin lowering.
                 let is_contract_method = matches!(fn_name.as_str(), "is_sorted" | "all" | "none" | "contains");
                 if is_contract_method {
                     // Skip contract builtin if a user function with this name exists
@@ -732,10 +732,32 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         || self.mono.emitted_fns.iter().any(|k| k.ends_with(&format!(".{}", fn_name)))
                         || self.types.functions.keys().into_iter().any(|k| k.ends_with(&format!(".{}", fn_name)));
                     if !has_user_fn {
-                    let tmp = self.fresh_tmp();
                     if let Some(receiver) = &receiver_expr {
                         if self.receiver_is_instance(receiver) {
                             // Method form: receiver.method(args)
+                            //
+                            // P1-4/m119: is_sorted/contains are lowered INLINE
+                            // over the receiver's Vec header (see
+                            // `emit_contract_is_sorted`). The legacy
+                            // xiom_is_sorted/xiom_contains runtime intrinsics
+                            // expected a counted `[len, e0, ...]` buffer, but
+                            // the pointer they received addressed the receiver
+                            // VALUE -- for a `%struct.Vec` the DATA POINTER was
+                            // read as the element count, so the scan walked
+                            // arbitrary memory (Windows-CI AV on
+                            // e2e_p1_contract_methods) and answered garbage.
+                            if matches!(fn_name.as_str(), "is_sorted" | "contains") {
+                                let res = if fn_name == "is_sorted" {
+                                    self.emit_contract_is_sorted(receiver)?
+                                } else {
+                                    let value = args.first().ok_or_else(|| {
+                                        "unsupported: 'contains' requires a value argument".to_string()
+                                    })?;
+                                    self.emit_contract_contains(receiver, value)?
+                                };
+                                return Ok((res, LLVM_I64.to_string()));
+                            }
+                            let tmp = self.fresh_tmp();
                             let (recv_val, recv_llvm_ty) = self.compile_expr(receiver)?;
                             let recv_alloca = self.fresh_tmp();
                             self.emitln(&format!("  {recv_alloca} = alloca {recv_llvm_ty}"));
@@ -745,10 +767,11 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             let extra_args: Vec<String> = args.iter()
                                 .map(|a| self.compile_expr(a).map(|(v, _)| v))
                                 .collect::<Result<Vec<_>, _>>()?;
+                            // all/none keep the legacy runtime stub semantics
+                            // (len=0 => trivially true) -- pending a real
+                            // predicate-call lowering; they are NOT the
+                            // reported AV and are locked as-is.
                             match fn_name.as_str() {
-                                "is_sorted" => {
-                                    self.emitln(&format!("  {tmp} = call i64 @xiom_is_sorted(i8* {ptr})"));
-                                }
                                 "all" => {
                                     let pred = extra_args.first().cloned().unwrap_or_else(|| "0".to_string());
                                     self.emitln(&format!("  {tmp} = call i64 @xiom_all(i8* {ptr}, i64 0, i8* {pred})"));
@@ -757,16 +780,29 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     let pred = extra_args.first().cloned().unwrap_or_else(|| "0".to_string());
                                     self.emitln(&format!("  {tmp} = call i64 @xiom_none(i8* {ptr}, i64 0, i8* {pred})"));
                                 }
-                                "contains" => {
-                                    let val = extra_args.first().cloned().unwrap_or_else(|| "0".to_string());
-                                    self.emitln(&format!("  {tmp} = call i64 @xiom_contains(i8* {ptr}, i64 {val})"));
-                                }
                                 _ => unreachable!("set method with unexpected argument count"),
                             }
                             return Ok((tmp, LLVM_I64.to_string()));
                         }
                     }
-                    // Direct form: method(args) -- compile all args
+                    // Direct form: method(args) -- same inline lowering with
+                    // the container as the first argument.
+                    if matches!(fn_name.as_str(), "is_sorted" | "contains") {
+                        let container = args.first().ok_or_else(|| {
+                            format!("unsupported: '{fn_name}' requires a container argument")
+                        })?;
+                        let res = if fn_name == "is_sorted" {
+                            self.emit_contract_is_sorted(container)?
+                        } else {
+                            let value = args.get(1).ok_or_else(|| {
+                                "unsupported: 'contains' requires a value argument".to_string()
+                            })?;
+                            self.emit_contract_contains(container, value)?
+                        };
+                        return Ok((res, LLVM_I64.to_string()));
+                    }
+                    let tmp = self.fresh_tmp();
+                    // Direct form: all/none -- compile all args
                     let compiled_args: Vec<String> = args.iter()
                         .map(|a| self.compile_expr(a).map(|(v, _)| v))
                         .collect::<Result<Vec<_>, _>>()?;
@@ -784,9 +820,6 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         arg_ptr
                     };
                     match fn_name.as_str() {
-                        "is_sorted" => {
-                            self.emitln(&format!("  {tmp} = call i64 @xiom_is_sorted(i8* {ptr})"));
-                        }
                         "all" => {
                             let len = compiled_args.get(1).cloned().unwrap_or_else(|| "0".to_string());
                             let pred = compiled_args.get(2).cloned().unwrap_or_else(|| "0".to_string());
@@ -796,10 +829,6 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             let len = compiled_args.get(1).cloned().unwrap_or_else(|| "0".to_string());
                             let pred = compiled_args.get(2).cloned().unwrap_or_else(|| "0".to_string());
                             self.emitln(&format!("  {tmp} = call i64 @xiom_none(i8* {ptr}, i64 {len}, i8* {pred})"));
-                        }
-                        "contains" => {
-                            let val = compiled_args.get(1).cloned().unwrap_or_else(|| "0".to_string());
-                            self.emitln(&format!("  {tmp} = call i64 @xiom_contains(i8* {ptr}, i64 {val})"));
                         }
                         _ => unreachable!("contains method with unexpected argument count"),
                     }

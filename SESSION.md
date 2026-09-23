@@ -11,10 +11,16 @@ all green: windows-x64, linux-x64, macos-arm64, macos-x64, universal
 version-absent gate, as designed). `main` = `8b9841f3`, tree clean and in sync
 with origin.
 
-**Gates on the release tree:** full e2e **2366/2366**, checker 195/195,
-feature-reg 510/510, stdlib-exec 85/85 (+2 ignored), robustness 63/63, fuzz
-24/24, api-freeze 2/2, pkg 67/67, mcp 39/39; ascii_guard OK; CI ubuntu-latest
-fully green; CI windows-latest fails only the runner-only AV below.
+**Gates on the release tree:** full e2e **2367/2367** (R66/m119 lock added),
+checker 195/195, feature-reg 510/510, stdlib-exec 85/85 (+2 ignored), robustness
+63/63, fuzz 24/24, api-freeze 1/2 (see below), pkg 67/67, mcp 39/39; ascii_guard
+OK; CI ubuntu-latest fully green; the Windows-runner-only AV on
+`e2e_p1_contract_methods` is FIXED (R66, 2026-09-23) -- CI has NOT been re-run
+since (pushes to main do not trigger CI), so the windows-latest leg is
+unverified until the next PR/dispatch.
+`stdlib_api_freeze_no_removals` is RED (9 snapshot signatures missing:
+`async.Executor.*`, `net.http_get/http_post`) and fails identically at the
+pre-R66 baseline -- stale snapshot vs pinned stdlib tree, cross-lane.
 
 **Registry:** staging canary VERIFIED (`xiom-std@0.61.3`: provenance,
 signature and byte-level re-check against the served tarball). Production
@@ -27,11 +33,14 @@ website lane pulls releases manually.
 
 ## Remaining work, priority order
 
-1. **Windows-runner-only AV** -- `e2e_p1_contract_methods` returns
+1. ~~**Windows-runner-only AV** -- `e2e_p1_contract_methods` returns
    `-1073741819` (access violation at RUN time) on `windows-latest`,
    deterministic (2/2) but NOT reproducible locally with either stdlib pin,
    debug or release compiler, with NASM present (RC=0). Needs CI-side
-   runner/toolchain triage (not a pin blocker).
+   runner/toolchain triage (not a pin blocker).~~ **FIXED 2026-09-23 (R66)**:
+   the AV was the broken P1-4 contract-method lowering (the runtime intrinsic
+   read the Vec DATA POINTER as the element count); `is_sorted`/`contains` now
+   lower inline over the Vec header. Lock `e2e_m119_contract_method_values`.
 2. **`stdlib_tests::stdlib_all_modules_compile_to_ir`** (pre-existing; this
    suite is NOT in the handoff gate list): `xiom.encoding.ascii85` returns
    `Option[Vec[UInt8]]` against `Result[Vec<UInt8>, Str]` (lines 35/89), and
@@ -123,22 +132,23 @@ website lane pulls releases manually.
 > ("CONTINUATION HANDOFF (2026-09-23)") and docs/COMPILER_BUGS.md before
 > touching code. Compiler **v0.61.3** is released and matches stdlib
 > **v0.61.3**; `STDLIB_VERSION` pins `stdlib-v0.61.3`; every playground/stdlib
-> bug batch through R65 is fixed and pushed; the tree is clean and the full
-> e2e is 2366/2366. The registry staging canary is verified; production
+> bug batch through R66 is fixed; the tree is clean and the full e2e is
+> 2367/2367. The registry staging canary is verified; production
 > publish waits on the owner's environment approval.
 > Work repro-first; rebuild `cargo build -p xiom` after checker/codegen
 > changes, add an e2e lock (`e2e_mNNN_*` fixture + the CI lock line in
 > `.github/workflows/ci.yml`), and run the full e2e once per batch; never
 > rebuild while an e2e is running.
-> Remaining queue, in order: (1) the Windows-CI-only AV on
-> `e2e_p1_contract_methods`; (2) `stdlib_tests::stdlib_all_modules_compile_to_ir`
-> (ascii85 Option/Result + xiom.core float_to_string); (3) generic `T.to_str()`
-> denormal (design decision); (4) deterministic publish bytes /
-> publish-existing-tarball (registry relay); (5) the agreed verified toolchain
+> Remaining queue, in order: (1) `stdlib_tests::stdlib_all_modules_compile_to_ir`
+> (ascii85 Option/Result + xiom.core float_to_string); (2) generic `T.to_str()`
+> denormal (design decision); (3) deterministic publish bytes /
+> publish-existing-tarball (registry relay); (4) the agreed verified toolchain
 > updater + MCP `get_contracts`/`search_symbols` per
-> `docs/POST_RELEASE_PLAN.md`; (6) Stage 6 (performance program) and Stage 7
-> (selfhost gate) -- Stage 5 is CLEAR. Start with item 1 unless the user says
-> otherwise.
+> `docs/POST_RELEASE_PLAN.md`; (5) Stage 6 (performance program) and Stage 7
+> (selfhost gate) -- Stage 5 is CLEAR. Also open, cross-lane:
+> `stdlib_api_freeze_no_removals` (9 stale snapshot signatures, red at
+> baseline). The R66 Windows-CI AV item is DONE. Start with item 1 unless the
+> user says otherwise.
 # XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-83 in docs/SESSION.md)
 
 2026-09-17 update (post-split, `main`): the registry-client findings
@@ -383,6 +393,25 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   after ops deploys `trusted-publishers.json` (refs/tags/stdlib-v*) and
   rebuilds production; packages canary still needs the curated batch +
   packages staging entries in ops' file.
+- **R66 FIXED (2026-09-23, P1-4 contract methods -- the Windows-CI AV)**:
+  `e2e_p1_contract_methods` AV'd (`-1073741819`) only on `windows-latest`;
+  locally it returned a WRONG answer instead (sorted `[1..5]` reported false).
+  The contract lowering passed a pointer to the receiver VALUE to
+  `xiom_is_sorted(i8*)`/`xiom_contains(i8*, i64)`; the runtime reads `data[0]`
+  as the element COUNT, and for a `%struct.Vec` that word is the DATA POINTER
+  -> unbounded scan (runner: unmapped memory; locally: garbage words decided
+  the answer). `is_sorted`/`contains` now lower INLINE over the real Vec
+  header (len/data/elem-size; sign-correct int loads, `fcmp` for floats,
+  `strcmp` for Str; array-literal/fixed-array receivers bridge to a heap Vec;
+  unsupported element kinds and non-collection receivers fail LOUDLY).
+  Lock `e2e_m119_contract_method_values` + CI line; the p1 fixture now asserts
+  values; integration tests updated (inline scan + loud-rejection negative).
+  `all`/`none` keep the legacy `len=0` stub (not the reported AV).
+  Full e2e **2367/2367**; feature-reg 510/510, stdlib-exec 85/85 (+2 ignored),
+  diff 24/24, robustness 63/63, fuzz 24/24. NOTE: `stdlib_api_freeze_no_removals`
+  is RED at 9 missing signatures (`async.Executor.*`, `net.http_get/http_post`)
+  and fails IDENTICALLY at the pre-R66 baseline -- snapshot vs pinned-tree
+  drift, cross-lane (stdlib lane), NOT this change.
 - **R65 FIXED (2026-09-22, stdlib p_platform_env)**: `xiom.env.OS/ARCH/FAMILY`
   were hardcoded literals in the stdlib ("windows"/"x86_64"), so a Linux build
   reported windows while runtime detection said linux. Codegen now computes

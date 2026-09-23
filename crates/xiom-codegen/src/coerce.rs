@@ -251,7 +251,7 @@ impl IrEmitter {
     /// `Vec[T]` param may PUSH, and realloc on a stack view corrupts the heap
     /// (test_algo concat: `var result = a; result.push(...)`). Read-only
     /// `&Slice[T]` consumers are equally happy with the heap backing.
-    fn array_as_vec_arg(&mut self, arg_expr: &Expr) -> Option<String> {
+    pub(crate) fn array_as_vec_arg(&mut self, arg_expr: &Expr) -> Option<String> {
         let mut inner: &Expr = arg_expr;
         loop {
             match inner {

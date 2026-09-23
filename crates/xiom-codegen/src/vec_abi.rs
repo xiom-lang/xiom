@@ -4,6 +4,20 @@
 use super::IrEmitter;
 use xiom_ast::*;
 
+/// P1-4 contract collection scans (`is_sorted`/`contains`): element kinds the
+/// inline IR lowering supports. Anything else is rejected LOUDLY -- the old
+/// `xiom_is_sorted`/`xiom_contains` runtime intrinsics accepted any receiver
+/// and scanned garbage (see `emit_contract_is_sorted`).
+enum ContractElem {
+    /// Integer-like element (Bool/Char included): compared as i64 with the
+    /// element's sign semantics; `emit_elem_load` handles 1/2/4/8-byte widths.
+    Int { signed: bool },
+    /// Float element compared with `fcmp` at its own LLVM width.
+    Float { llvm: String },
+    /// `Str` element: pointer slots compared with `strcmp` (content order).
+    Str,
+}
+
 impl IrEmitter {
     /// When a value's LLVM type is a pointer to a Vec (e.g. `%struct.Vec*` from
     /// an `&mut Vec[T]` parameter), emit a load to get the actual Vec value.
@@ -1151,5 +1165,353 @@ impl IrEmitter {
         let vec_back = self.emit_vec_load_fields(&vec_alloca);
         self.store_back_to_receiver(receiver, &vec_back, "%struct.Vec");
         Ok(())
+    }
+
+    // =====================================================================
+    // P1-4 contract collection scans (is_sorted / contains)
+    // =====================================================================
+
+    /// P1-4/m119: lower `is_sorted()` INLINE over the receiver's Vec header.
+    ///
+    /// The legacy lowering called the `xiom_is_sorted(i8*)` runtime intrinsic
+    /// with a pointer to the receiver VALUE -- a `%struct.Vec` alloca whose
+    /// first field is the DATA POINTER. The runtime (stdlib
+    /// `runtime/xiom_runtime.c`) reads `data[0]` as the element COUNT, so the
+    /// loop length was a heap address: the scan walked arbitrary memory until
+    /// it happened to find a decreasing pair (Windows-CI access violation
+    /// `-1073741819` on `e2e_p1_contract_methods`; locally it returned a WRONG
+    /// answer -- a sorted `[1..5]` reported false). Literal and fixed-array
+    /// receivers were equally wrong (an alloca OF the pointer, or the raw
+    /// array's first element read as the count).
+    ///
+    /// The scan below reads the receiver's real len/data/elem-size from the
+    /// `%struct.Vec` header and compares elements directly:
+    /// * integers (Int/UInt/IntN/UIntN/Bool/Char) via the width-aware,
+    ///   sign-correct element load;
+    /// * Float32/Float64 via `fcmp ogt`;
+    /// * Str via `strcmp > 0` (lexicographic).
+    /// Unsupported element kinds (structs, containers, unresolved generics)
+    /// are rejected with a compile error instead of silently scanning bytes.
+    pub(crate) fn emit_contract_is_sorted(&mut self, receiver: &Expr) -> Result<String, String> {
+        let (dp, len, esz, elem) = self.resolve_contract_vec_scan("is_sorted", receiver)?;
+        let res = self.fresh_tmp();
+        self.emitln(&format!("  {res} = alloca i64"));
+        self.emitln(&format!("  store i64 1, i64* {res}"));
+        let i_slot = self.fresh_tmp();
+        self.emitln(&format!("  {i_slot} = alloca i64"));
+        self.emitln(&format!("  store i64 1, i64* {i_slot}"));
+        let loop_b = self.fresh_block("csorted_loop");
+        let body_b = self.fresh_block("csorted_body");
+        let viol_b = self.fresh_block("csorted_viol");
+        let next_b = self.fresh_block("csorted_next");
+        let done_b = self.fresh_block("csorted_done");
+        self.emitln(&format!("  br label %{loop_b}"));
+        self.emitln(&format!("\n{loop_b}:"));
+        let iv = self.fresh_tmp();
+        self.emitln(&format!("  {iv} = load i64, i64* {i_slot}"));
+        let cont = self.fresh_tmp();
+        self.emitln(&format!("  {cont} = icmp slt i64 {iv}, {len}"));
+        self.emitln(&format!("  br i1 {cont}, label %{body_b}, label %{done_b}"));
+        self.emitln(&format!("\n{body_b}:"));
+        let im1 = self.fresh_tmp();
+        self.emitln(&format!("  {im1} = sub i64 {iv}, 1"));
+        let offp = self.fresh_tmp();
+        self.emitln(&format!("  {offp} = mul i64 {im1}, {esz}"));
+        let prev_ptr = self.fresh_tmp();
+        self.emitln(&format!("  {prev_ptr} = getelementptr i8, i8* {dp}, i64 {offp}"));
+        let offc = self.fresh_tmp();
+        self.emitln(&format!("  {offc} = mul i64 {iv}, {esz}"));
+        let cur_ptr = self.fresh_tmp();
+        self.emitln(&format!("  {cur_ptr} = getelementptr i8, i8* {dp}, i64 {offc}"));
+        let prev = self.emit_contract_elem_load(&prev_ptr, &esz, &elem);
+        let cur = self.emit_contract_elem_load(&cur_ptr, &esz, &elem);
+        let bad = self.emit_contract_gt(&prev, &cur, &elem);
+        self.emitln(&format!("  br i1 {bad}, label %{viol_b}, label %{next_b}"));
+        self.emitln(&format!("\n{viol_b}:"));
+        self.emitln(&format!("  store i64 0, i64* {res}"));
+        self.emitln(&format!("  br label %{done_b}"));
+        self.emitln(&format!("\n{next_b}:"));
+        let iv1 = self.fresh_tmp();
+        self.emitln(&format!("  {iv1} = add i64 {iv}, 1"));
+        self.emitln(&format!("  store i64 {iv1}, i64* {i_slot}"));
+        self.emitln(&format!("  br label %{loop_b}"));
+        self.emitln(&format!("\n{done_b}:"));
+        let out = self.fresh_tmp();
+        self.emitln(&format!("  {out} = load i64, i64* {res}"));
+        Ok(out)
+    }
+
+    /// P1-4/m119: lower `contains(value)` INLINE over the receiver's Vec
+    /// header (same root cause as `emit_contract_is_sorted`). Returns the i64
+    /// Bool register (1 when an element equals `value`).
+    pub(crate) fn emit_contract_contains(&mut self, receiver: &Expr, value: &Expr) -> Result<String, String> {
+        let (dp, len, esz, elem) = self.resolve_contract_vec_scan("contains", receiver)?;
+        let (vv, vt) = self.compile_expr(value)?;
+        // Coerce the searched value into the element representation: i64 slots
+        // for integers (val_to_i64), the element float width, or the Str ptr.
+        let want = match &elem {
+            ContractElem::Int { .. } => self.val_to_i64(&vv, &vt),
+            ContractElem::Float { llvm } => self.coerce_value(&vv, &vt, llvm),
+            ContractElem::Str => self.coerce_value(&vv, &vt, "i8*"),
+        };
+        let res = self.fresh_tmp();
+        self.emitln(&format!("  {res} = alloca i64"));
+        self.emitln(&format!("  store i64 0, i64* {res}"));
+        let i_slot = self.fresh_tmp();
+        self.emitln(&format!("  {i_slot} = alloca i64"));
+        self.emitln(&format!("  store i64 0, i64* {i_slot}"));
+        let loop_b = self.fresh_block("ccont_loop");
+        let body_b = self.fresh_block("ccont_body");
+        let found_b = self.fresh_block("ccont_found");
+        let next_b = self.fresh_block("ccont_next");
+        let done_b = self.fresh_block("ccont_done");
+        self.emitln(&format!("  br label %{loop_b}"));
+        self.emitln(&format!("\n{loop_b}:"));
+        let iv = self.fresh_tmp();
+        self.emitln(&format!("  {iv} = load i64, i64* {i_slot}"));
+        let cont = self.fresh_tmp();
+        self.emitln(&format!("  {cont} = icmp slt i64 {iv}, {len}"));
+        self.emitln(&format!("  br i1 {cont}, label %{body_b}, label %{done_b}"));
+        self.emitln(&format!("\n{body_b}:"));
+        let off = self.fresh_tmp();
+        self.emitln(&format!("  {off} = mul i64 {iv}, {esz}"));
+        let elem_ptr = self.fresh_tmp();
+        self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {dp}, i64 {off}"));
+        let cur = self.emit_contract_elem_load(&elem_ptr, &esz, &elem);
+        let hit = self.emit_contract_eq(&cur, &want, &elem);
+        self.emitln(&format!("  br i1 {hit}, label %{found_b}, label %{next_b}"));
+        self.emitln(&format!("\n{found_b}:"));
+        self.emitln(&format!("  store i64 1, i64* {res}"));
+        self.emitln(&format!("  br label %{done_b}"));
+        self.emitln(&format!("\n{next_b}:"));
+        let iv1 = self.fresh_tmp();
+        self.emitln(&format!("  {iv1} = add i64 {iv}, 1"));
+        self.emitln(&format!("  store i64 {iv1}, i64* {i_slot}"));
+        self.emitln(&format!("  br label %{loop_b}"));
+        self.emitln(&format!("\n{done_b}:"));
+        let out = self.fresh_tmp();
+        self.emitln(&format!("  {out} = load i64, i64* {res}"));
+        Ok(out)
+    }
+
+    /// P1-4: resolve a contract-scan receiver to
+    /// `(data_ptr, len, elem_size, elem_kind)` or a LOUD error naming the
+    /// method (never a silent garbage scan).
+    fn resolve_contract_vec_scan(
+        &mut self,
+        method: &str,
+        receiver: &Expr,
+    ) -> Result<(String, String, String, ContractElem), String> {
+        let elem_name = self.contract_elem_xiom(receiver).ok_or_else(|| {
+            format!(
+                "unsupported: '{method}' receiver does not expose a concrete Vec/Slice/Array \
+                 element type (the inline contract scan needs one)"
+            )
+        })?;
+        let elem = self.contract_elem_kind(&elem_name).ok_or_else(|| {
+            format!(
+                "unsupported: '{method}' on elements of type '{elem_name}' \
+                 (the inline contract scan supports integer, float and Str elements)"
+            )
+        })?;
+        let (val, ty) = self.compile_expr(receiver)?;
+        // Array-literal registers are counted `[len][elem...]` buffers; turn
+        // them into a heap-backed Vec (val_to_struct forces a stride of 8) so
+        // the scan works off the standard header.
+        if ty == "i8*" && self.local.array_value_regs.contains(&val) {
+            if matches!(&elem, ContractElem::Float { llvm } if llvm != "double") {
+                return Err(format!(
+                    "unsupported: '{method}' on a Float32 array literal \
+                     (its counted buffer has 4-byte slots)"
+                ));
+            }
+            let vec = self.val_to_struct(&val, "i8*", "%struct.Vec");
+            return Ok(self.contract_vec_header_parts(&vec, elem));
+        }
+        // Fixed-array bindings (`let a = [...]`, `var a: [N]T`) go through
+        // the same heap-backed Vec bridge the by-value Slice/Vec param path
+        // uses.
+        if ty.starts_with('[') {
+            if let Some(vec) = self.array_as_vec_arg(receiver) {
+                return Ok(self.contract_vec_header_parts(&vec, elem));
+            }
+        }
+        let (vec, vec_ty) = self.resolve_vec_receiver(receiver, &val, &ty);
+        if !Self::is_llvm_struct_named(&vec_ty, "Vec") {
+            return Err(format!(
+                "unsupported: '{method}' receiver is not a Vec/Slice/Array \
+                 (compiled as '{ty}')"
+            ));
+        }
+        Ok(self.contract_vec_header_parts(&vec, elem))
+    }
+
+    /// P1-4: read `(data_ptr, len, elem_size)` out of a `%struct.Vec` value.
+    fn contract_vec_header_parts(
+        &mut self,
+        vec: &str,
+        elem: ContractElem,
+    ) -> (String, String, String, ContractElem) {
+        let slot = self.fresh_tmp();
+        self.emitln(&format!("  {slot} = alloca %struct.Vec"));
+        self.emit_vec_store_fields(vec, &slot);
+        let dg = self.fresh_tmp();
+        let dp = self.fresh_tmp();
+        self.emitln(&format!("  {dg} = getelementptr %struct.Vec, %struct.Vec* {slot}, i32 0, i32 0"));
+        self.emitln(&format!("  {dp} = load i8*, i8** {dg}"));
+        let lg = self.fresh_tmp();
+        let len = self.fresh_tmp();
+        self.emitln(&format!("  {lg} = getelementptr %struct.Vec, %struct.Vec* {slot}, i32 0, i32 1"));
+        self.emitln(&format!("  {len} = load i64, i64* {lg}"));
+        let eg = self.fresh_tmp();
+        let esz = self.fresh_tmp();
+        self.emitln(&format!("  {eg} = getelementptr %struct.Vec, %struct.Vec* {slot}, i32 0, i32 3"));
+        self.emitln(&format!("  {esz} = load i64, i64* {eg}"));
+        (dp, len, esz, elem)
+    }
+
+    /// P1-4: concrete element XIOM type of a contract-scan receiver. Uses the
+    /// same tracking as the index/Option paths, widened here to `&`-qualified
+    /// and `Slice[...]` local annotations and fixed arrays, and applies the
+    /// current mono substitution so generic bodies (`self.items` with T=Int)
+    /// resolve to the concrete element.
+    fn contract_elem_xiom(&self, receiver: &Expr) -> Option<String> {
+        let raw = self.resolve_vec_elem_xiom(receiver).or_else(|| match receiver {
+            // Array literals: the element type is the first element's type
+            // (the same rule `Expr::Array` materialization uses).
+            Expr::Array(elems, _) => match elems.first()? {
+                Expr::Int(..) => Some("Int".to_string()),
+                Expr::Float(..) => Some("Float64".to_string()),
+                Expr::Bool(..) => Some("Bool".to_string()),
+                Expr::Str(..) => Some("Str".to_string()),
+                Expr::Char(..) => Some("Char".to_string()),
+                _ => None,
+            },
+            Expr::Ident(id) => {
+                let t = self.local.local_xiom_types.get(&id.name)?;
+                let t = Self::strip_ref_prefix(t);
+                if let Some(rest) = t.strip_prefix("Vec[").or_else(|| t.strip_prefix("Slice[")) {
+                    return rest.strip_suffix(']').map(|s| s.to_string());
+                }
+                if let Some(rest) = t.strip_prefix('[') {
+                    // "[N]T" annotation: the element is the text after ']'.
+                    let close = rest.find(']')?;
+                    let elem = rest[close + 1..].trim();
+                    if !elem.is_empty() {
+                        return Some(elem.to_string());
+                    }
+                }
+                None
+            }
+            _ => None,
+        })?;
+        let mut map = self.mono.current_type_map.clone();
+        for (k, v) in &self.mono.param_concrete_types {
+            map.entry(k.clone()).or_insert_with(|| v.clone());
+        }
+        Some(Self::subst_type_tokens(&raw, &map))
+    }
+
+    /// P1-4: strip `&`/`&mut` (and whitespace) from a tracked XIOM type.
+    fn strip_ref_prefix(t: &str) -> &str {
+        let mut s = t.trim();
+        loop {
+            if let Some(rest) = s.strip_prefix('&') {
+                s = rest.trim_start();
+                if let Some(rest) = s.strip_prefix("mut ") {
+                    s = rest.trim_start();
+                }
+                continue;
+            }
+            break;
+        }
+        s
+    }
+
+    /// P1-4: classify a concrete element XIOM type for the inline scan.
+    /// Returns None for anything that is not a scalar integer, float or Str
+    /// (aggregates/containers/generics) -- the caller reports a loud error.
+    fn contract_elem_kind(&self, elem: &str) -> Option<ContractElem> {
+        let e = elem.trim();
+        if e == "Str" {
+            return Some(ContractElem::Str);
+        }
+        if e == "Float64" || e == "Float" {
+            return Some(ContractElem::Float { llvm: "double".to_string() });
+        }
+        if e == "Float32" {
+            return Some(ContractElem::Float { llvm: "float".to_string() });
+        }
+        if e.contains('[') || e.starts_with('(') || e.starts_with('%')
+            || e.contains("->") || self.is_struct_like_vec_elem(e)
+        {
+            return None;
+        }
+        match self.llvm_type_for(e) {
+            Ok(t) if t.starts_with('i') => {
+                Some(ContractElem::Int { signed: Self::is_signed_xiom_type(e) })
+            }
+            _ => None,
+        }
+    }
+
+    /// P1-4: load one scan element as (i64 | float | i8*) according to its kind.
+    fn emit_contract_elem_load(&mut self, ptr: &str, esz: &str, elem: &ContractElem) -> String {
+        match elem {
+            ContractElem::Int { signed } => self.emit_elem_load(ptr, esz, *signed),
+            ContractElem::Float { llvm } => {
+                let p = self.fresh_tmp();
+                self.emitln(&format!("  {p} = bitcast i8* {ptr} to {llvm}*"));
+                let v = self.fresh_tmp();
+                self.emitln(&format!("  {v} = load {llvm}, {llvm}* {p}"));
+                v
+            }
+            ContractElem::Str => {
+                let p = self.fresh_tmp();
+                self.emitln(&format!("  {p} = bitcast i8* {ptr} to i8**"));
+                let v = self.fresh_tmp();
+                self.emitln(&format!("  {v} = load i8*, i8** {p}"));
+                v
+            }
+        }
+    }
+
+    /// P1-4: `a > b` for a scan element (i1 result register).
+    fn emit_contract_gt(&mut self, a: &str, b: &str, elem: &ContractElem) -> String {
+        let r = self.fresh_tmp();
+        match elem {
+            ContractElem::Int { signed } => {
+                let op = if *signed { "sgt" } else { "ugt" };
+                self.emitln(&format!("  {r} = icmp {op} i64 {a}, {b}"));
+            }
+            ContractElem::Float { llvm } => {
+                self.emitln(&format!("  {r} = fcmp ogt {llvm} {a}, {b}"));
+            }
+            ContractElem::Str => {
+                let c = self.fresh_tmp();
+                self.emitln(&format!("  {c} = call i32 @strcmp(i8* {a}, i8* {b})"));
+                self.emitln(&format!("  {r} = icmp sgt i32 {c}, 0"));
+            }
+        }
+        r
+    }
+
+    /// P1-4: `a == b` for a scan element (i1 result register).
+    fn emit_contract_eq(&mut self, a: &str, b: &str, elem: &ContractElem) -> String {
+        let r = self.fresh_tmp();
+        match elem {
+            ContractElem::Int { .. } => {
+                self.emitln(&format!("  {r} = icmp eq i64 {a}, {b}"));
+            }
+            ContractElem::Float { llvm } => {
+                self.emitln(&format!("  {r} = fcmp oeq {llvm} {a}, {b}"));
+            }
+            ContractElem::Str => {
+                let c = self.fresh_tmp();
+                self.emitln(&format!("  {c} = call i32 @strcmp(i8* {a}, i8* {b})"));
+                self.emitln(&format!("  {r} = icmp eq i32 {c}, 0"));
+            }
+        }
+        r
     }
 }

@@ -7585,6 +7585,46 @@ verification, with repro commands using the playground lesson sources
   release archives under `tmp/` creates duplicate stdlib trees that break the
   `e2e_m17_zero_warnings` duplicate-module assertion -- clean them after
   verification.
+- **R66 (P1-4 contract methods, Windows-CI AV)**: FIXED. `e2e_p1_contract_methods`
+  returned `-1073741819` (RUN-time access violation) on `windows-latest`,
+  deterministic (2/2) on the runner but NOT reproducible locally (RC=0 with
+  debug and release compilers). Root cause (reproduced locally as a WRONG
+  ANSWER, not an AV): the contract block in `call.rs` compiled the receiver,
+  allocad the value, bitcast the slot to `i8*` and called
+  `xiom_is_sorted(i8*)` / `xiom_contains(i8*, i64)`. The stdlib runtime
+  (`runtime/xiom_runtime.c`) reads `data[0]` as the element COUNT and elements
+  at `data[1..]`, but the pointer addresses the receiver VALUE -- for a
+  `%struct.Vec` (`{data, len, cap, elem_size}`) word 0 is the DATA POINTER, so
+  the loop bound was a heap address. Locally the garbage words produced an
+  early decreasing pair (a sorted `[1..5]` reported FALSE -- minimal repro
+  `if arr.is_sorted() { return 11; }` exited 22); on the runner `xiom_contains`
+  walked far enough to hit unmapped memory -> AV. Literal receivers were also
+  broken twice over (an alloca OF the pointer; the buffer's own `[len]` slot
+  never reached the intrinsic), and `let a = [...]` fixed arrays read their
+  first ELEMENT as the count.
+  FIX (codegen): `is_sorted`/`contains` are now lowered INLINE over the real
+  `%struct.Vec` header (`vec_abi.rs`: `emit_contract_is_sorted`,
+  `emit_contract_contains`, `resolve_contract_vec_scan`): len/data/elem-size
+  are read from the header and elements are compared in their own
+  representation -- width/sign-correct integer loads, `fcmp ogt/oeq` for
+  Float32/Float64, `strcmp` for Str. Array-literal registers (counted
+  `[len][elem...]` buffers) and fixed-array bindings are bridged to a heap
+  Vec first (`val_to_struct` / `array_as_vec_arg`). Receivers with no concrete
+  element type, or element kinds the scan cannot compare (structs,
+  containers, unresolved generics), now fail LOUDLY with
+  `unsupported: '<method>' ...` instead of scanning garbage -- the m117
+  precedent for silent-wrong paths. `all`/`none` keep the legacy `len=0`
+  stub semantics (trivially true) pending a real predicate-call lowering;
+  they were not the reported AV.
+  VERIFICATION: probes exit as expected for sorted/unsorted `Vec[Int]`,
+  `contains` hit/miss, `let`/literal/struct-field/Slice-param receivers,
+  `Vec[Str]` (lexicographic), `Vec[Float64]`, empty/single-element Vecs and a
+  generic body (`T=Int` via mono). Locks: `e2e_m119_contract_method_values`
+  (+ CI line) and the `e2e_p1_contract_methods` fixture now ASSERTS the
+  values (it previously returned 0 unconditionally, which hid the garbage);
+  `integration_tests` updated: the method form asserts the inline scan and a
+  new negative test pins the loud rejection for non-collection receivers.
+  Full e2e 2367/2367 (2366 baseline + the m119 lock).
 - **R63 (playground C3/C6 + cache HOME)**: FIXED. (a) C3 script-mode
   `--opt-level`: `xiom run` already honored `--opt-level`/`--opt-level=N`
   (R51) and keyed the script cache by level, but `xiom --opt-level=0 run f.xi`

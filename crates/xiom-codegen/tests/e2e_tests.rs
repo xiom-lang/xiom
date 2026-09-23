@@ -5200,6 +5200,23 @@ fn e2e_safety_probe() {
     );
 }
 
+// P1-4 m119: `is_sorted()`/`contains()` are lowered INLINE over the
+// receiver's Vec header. The legacy runtime intrinsics read data[0] as the
+// element COUNT; for a `%struct.Vec` receiver that word is the DATA POINTER,
+// so the scan walked arbitrary memory -- a deterministic access violation
+// (`-1073741819`) on the Windows CI runner against
+// `e2e_p1_contract_methods`, a wrong answer everywhere else (sorted [1..5]
+// reported false). The fixture pins the correct values across Vec/fixed
+// array/array literal/Str/Float64/empty/struct-field receivers; unsupported
+// element kinds are compiler-rejected instead of scanned.
+#[test] fn e2e_m119_contract_method_values() {
+    assert_eq!(
+        compile_and_run("tests/regression/m119_contract_method_values/main.xi"),
+        Some(0),
+        "P1-4 contract methods must return correct values across Vec/array/Str/Float shapes"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)
