@@ -3642,7 +3642,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // generic %struct.Option (payload-slot mismatch -> corruption).
                 let ctor_ret = self.fctx.enclosing_return_type.clone()
                     .unwrap_or_else(|| self.fctx.current_return_type.clone());
-                let ret_is_option = ctor_ret.contains("Option");
+                let ret_is_option = Self::is_llvm_container_struct(&ctor_ret, "Option");
                 let mut opt_ty = if ret_is_option && ctor_ret.starts_with("%struct.") {
                     ctor_ret
                 } else {
@@ -3707,7 +3707,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // BUG 55: unsafe-block fns consult the ENCLOSING return type.
                 let ctor_ret = self.fctx.enclosing_return_type.clone()
                     .unwrap_or_else(|| self.fctx.current_return_type.clone());
-                let ret_is_option = ctor_ret.contains("Option");
+                let ret_is_option = Self::is_llvm_container_struct(&ctor_ret, "Option");
                 let opt_ty = if ret_is_option && ctor_ret.starts_with("%struct.") {
                     ctor_ret
                 } else {
@@ -3740,7 +3740,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // BUG 55: unsafe-block fns consult the ENCLOSING return type.
                 let ctor_ret = self.fctx.enclosing_return_type.clone()
                     .unwrap_or_else(|| self.fctx.current_return_type.clone());
-                let ret_is_result = ctor_ret.contains("Result");
+                let ret_is_result = Self::is_llvm_container_struct(&ctor_ret, "Result");
                 let result_ty = if ret_is_result && ctor_ret.starts_with("%struct.") {
                     ctor_ret
                 } else {
@@ -3807,7 +3807,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // BUG 55: unsafe-block fns consult the ENCLOSING return type.
                 let ctor_ret = self.fctx.enclosing_return_type.clone()
                     .unwrap_or_else(|| self.fctx.current_return_type.clone());
-                let ret_is_result = ctor_ret.contains("Result");
+                let ret_is_result = Self::is_llvm_container_struct(&ctor_ret, "Result");
                 let result_ty = if ret_is_result && ctor_ret.starts_with("%struct.") {
                     ctor_ret
                 } else {

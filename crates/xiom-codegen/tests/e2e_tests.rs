@@ -5217,6 +5217,35 @@ fn e2e_safety_probe() {
     );
 }
 
+// R67: Some/None/Ok/Err chose their container struct with a substring test
+// on the enclosing function's return type (`contains("Option"/"Result")`).
+// A function returning a USER struct with that substring (`TestResult`,
+// `Options`) made `Ok(5)` emit a `%struct.TestResult` payload (clang:
+// "invalid getelementptr indices") and `Some(3)` a `%struct.Options` payload.
+// The check is now the strict container leaf (bare `Result`/`Option` or a
+// concrete `Result__A__B`/`Option__T`); concrete container returns must keep
+// working (5c.35).
+#[test] fn e2e_m120_ctor_user_struct_return() {
+    assert_eq!(
+        compile_and_run("tests/regression/m120_ctor_user_struct_return/main.xi"),
+        Some(0),
+        "R67 ctors inside struct-returning functions must build their own container type"
+    );
+}
+
+// R68: `extern "C" { ... }` inside a function body (legacy package shape)
+// used to fall into the expression parser and report "'extern' is a reserved
+// keyword and cannot be used as an identifier". Extern fns carry no body, so
+// the block is now hoisted to the enclosing module just before the enclosing
+// declaration; duplicate per-function declarations merge.
+#[test] fn e2e_m121_nested_extern() {
+    assert_eq!(
+        compile_and_run("tests/regression/m121_nested_extern/main.xi"),
+        Some(0),
+        "R68 nested extern blocks must hoist and link"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

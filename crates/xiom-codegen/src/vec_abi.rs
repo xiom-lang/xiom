@@ -592,6 +592,20 @@ impl IrEmitter {
         leaf == name
     }
 
+    /// R67: true when `ty` names the container type ITSELF -- the leaf is
+    /// exactly `name` (module-qualified leaves included) or a concrete
+    /// instantiation (`Option__Point`, `Result__Int__Str`). Strict replacement
+    /// for the `contains("Option")`/`contains("Result")` substring tests used
+    /// by the Some/None/Ok/Err constructors: those matched user types like
+    /// `%struct.TestResult`, so `Ok(5)` inside `fn f() -> TestResult` built a
+    /// `%struct.TestResult` payload (clang: "invalid getelementptr indices").
+    pub(crate) fn is_llvm_container_struct(ty: &str, name: &str) -> bool {
+        let base = ty.trim_end_matches('*');
+        let leaf = base.strip_prefix("%struct.").unwrap_or(base);
+        let leaf = leaf.rsplit('.').next().unwrap_or(leaf);
+        leaf == name || leaf.starts_with(&format!("{name}__"))
+    }
+
     /// round-8 (rw1): AUTO-DEREF a reference-typed operand in VALUE positions.
     /// `&T` compiles to the T slot's ADDRESS (i64 bits) -- whether from
     /// `Some(&items[i])` payloads, `&local`, or `&self.field`. Consumers that

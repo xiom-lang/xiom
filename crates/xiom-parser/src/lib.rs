@@ -26,6 +26,11 @@ pub struct Parser {
     /// Each failed `check()` inserts a bit; `bump()` clears it; the error path
     /// formats the set as "expected one of X, Y, found Z".
     expected: u128,
+    /// R68: `extern "C" { ... }` blocks found inside function bodies. Extern
+    /// fns carry no body -- they only declare C symbols -- so the block is
+    /// hoisted to the enclosing module, immediately BEFORE the declaration
+    /// whose body contained it (so call sites resolve).
+    pending_externs: Vec<TopDecl>,
 }
 
 /// Maximum expression/type nesting depth (rustc uses 128). Each level costs
@@ -39,7 +44,7 @@ const MAX_EXPR_DEPTH: usize = 128;
 impl Parser {
         pub fn errors(&self) -> &[ParseError] { &self.errors }
     pub fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, pos: 0, restrict_struct: false, depth: 0, errors: Vec::new(), expected: 0 }
+        Self { tokens, pos: 0, restrict_struct: false, depth: 0, errors: Vec::new(), expected: 0, pending_externs: Vec::new() }
     }
 
     /// Maximum number of parse errors before aborting (Phase 5c error recovery).
@@ -298,8 +303,8 @@ impl Parser {
         let start = self.peek().span;
         let file_module_path = self.parse_file_module_header()?;
         while !self.peek().is_eof() {
-            match self.parse_top_decl() {
-                Ok(item) => items.push(item),
+            match self.parse_top_decl_with_pending() {
+                Ok(decls) => items.extend(decls),
                 Err(e) => {
                     // Phase 5c error recovery: record, skip to sync point, continue
                     let span = e.span;
@@ -400,6 +405,16 @@ impl Parser {
         }
     }
 
+    /// R68: parse one top-level declaration, emitting any `extern` blocks
+    /// collected from its function bodies (or nested modules) FIRST, so the
+    /// FFI declarations are registered before the code that calls them.
+    fn parse_top_decl_with_pending(&mut self) -> Result<Vec<TopDecl>, ParseError> {
+        let item = self.parse_top_decl()?;
+        let mut decls = std::mem::take(&mut self.pending_externs);
+        decls.push(item);
+        Ok(decls)
+    }
+
     fn parse_module(&mut self, is_pub: bool) -> Result<TopDecl, ParseError> {
         let start = self.advance().span;
         let mut path = vec![self.parse_ident()?];
@@ -410,7 +425,8 @@ impl Parser {
             self.advance();
             let mut items = Vec::new();
             while !self.check(|k| matches!(k, TokenKind::RBrace | TokenKind::Eof)) {
-                items.push(self.parse_top_decl()?);
+                let decls = self.parse_top_decl_with_pending()?;
+                items.extend(decls);
             }
             self.expect_kind(TokenKind::RBrace, "'}'")?;
             return Ok(Self::build_file_module_result(path, items, start));
@@ -418,7 +434,8 @@ impl Parser {
         // Brace-less file-level module: `module a.b.c` wraps the rest of the file.
         let mut items = Vec::new();
         while !self.peek().is_eof() {
-            items.push(self.parse_top_decl()?);
+            let decls = self.parse_top_decl_with_pending()?;
+            items.extend(decls);
         }
         Ok(Self::build_file_module_result(path, items, start))
     }
@@ -1120,6 +1137,17 @@ impl Parser {
         let mut items = Vec::new();
         while !self.check(|k| matches!(k, TokenKind::RBrace | TokenKind::Eof)) {
             if self.skip(TokenKind::Semicolon) { continue; }
+            // R68: legacy nested FFI -- `extern "C" { ... }` inside a function
+            // body declares C symbols only (no bodies), so it is hoisted to
+            // the enclosing module and emitted just before this declaration.
+            // Before this arm the block fell into parse_expr and reported
+            // "'extern' is a reserved keyword and cannot be used as an
+            // identifier" (legacy packages, e.g. the audio_beep shape).
+            if self.peek_kind() == &TokenKind::Extern {
+                let block = self.parse_extern_block()?;
+                self.pending_externs.push(block);
+                continue;
+            }
             items.push(self.parse_stmt_or_expr()?);
         }
         self.expect_kind(TokenKind::RBrace, "'}'")?;
@@ -2601,6 +2629,27 @@ mod tests {
     #[test] fn test_parse_extern_block_with_functions() { let src = "extern \"C\" {\n  fn malloc(size: Int) -> *UInt8;\n  fn free(ptr: *UInt8);\n}"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Extern(_)))); }
     #[test] fn test_parse_extern_block_with_variadic() { let src = "extern \"C\" {\n  fn printf(format: *UInt8, ...) -> Int32;\n}"; let prog = parse(src).unwrap(); assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Extern(_)))); }
     #[test] fn test_parse_extern_block_multiple_functions() { let src = "extern \"C\" {\n  fn malloc(size: Int) -> *UInt8;\n  fn free(ptr: *UInt8);\n  fn strlen(s: *UInt8) -> Int;\n}"; let prog = parse(src).unwrap(); if let Some(TopDecl::Extern(eb)) = prog.items.iter().find(|i| matches!(i, TopDecl::Extern(_))) { assert_eq!(eb.functions.len(), 3); } else { panic!("expected Extern block"); } }
+
+    // R68: a nested `extern "C" { ... }` inside a function body is hoisted to
+    // the module level BEFORE the enclosing declaration (the old path fell
+    // into parse_expr and errored with "'extern' is a reserved keyword").
+    #[test] fn test_parse_nested_extern_block_hoists_before_fn() {
+        let src = "fn main() -> Int {\n  extern \"C\" {\n    fn clock() -> Int;\n  }\n  return 0;\n}";
+        let prog = parse(src).unwrap();
+        let extern_pos = prog.items.iter().position(|i| matches!(i, TopDecl::Extern(_)));
+        let fn_pos = prog.items.iter().position(|i| matches!(i, TopDecl::Fn(_)));
+        assert!(extern_pos.is_some(), "nested extern must hoist to the module level");
+        assert!(fn_pos.is_some(), "the enclosing function must still parse");
+        assert!(extern_pos < fn_pos, "the hoisted extern must precede its enclosing fn");
+    }
+
+    // R68: duplicate per-function declarations of the same extern fn merge.
+    #[test] fn test_parse_duplicate_nested_extern_blocks() {
+        let src = "fn a() -> Int { extern \"C\" { fn clock() -> Int; } return 0; }\nfn b() -> Int { extern \"C\" { fn clock() -> Int; } return 0; }";
+        let prog = parse(src).unwrap();
+        let externs = prog.items.iter().filter(|i| matches!(i, TopDecl::Extern(_))).count();
+        assert_eq!(externs, 2, "both blocks are preserved for the checker to merge");
+    }
 
     // top-level var
     #[test] fn test_parse_top_level_var() { let src = "module test\nvar PI: Float64 = 3.14159;"; let prog = parse(src).unwrap(); assert!(prog.items.len() >= 1); }

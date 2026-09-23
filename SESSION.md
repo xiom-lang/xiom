@@ -11,9 +11,10 @@ all green: windows-x64, linux-x64, macos-arm64, macos-x64, universal
 version-absent gate, as designed). `main` = `8b9841f3` + local
 **UNPUSHED** `edea2f5d` (R66 fix + lock, full e2e 2367/2367); tree clean.
 
-**Gates on the release tree:** full e2e **2367/2367** (R66/m119 lock added),
-checker 195/195, feature-reg 510/510, stdlib-exec 85/85 (+2 ignored), robustness
-63/63, fuzz 24/24, api-freeze 1/2 (see below), pkg 67/67, mcp 39/39; ascii_guard
+**Gates on the release tree:** full e2e **2369/2369** (R66/m119 + R67/m120 +
+R68/m121 locks added), checker 195/195, feature-reg 510/510, stdlib-exec 85/85
+(+2 ignored), robustness 63/63, fuzz 24/24, api-freeze 1/2 (see below),
+pkg 67/67, mcp 39/39; ascii_guard
 OK; CI ubuntu-latest fully green; the Windows-runner-only AV on
 `e2e_p1_contract_methods` is FIXED (R66, 2026-09-23) -- CI has NOT been re-run
 since (pushes to main do not trigger CI), so the windows-latest leg is
@@ -41,33 +42,50 @@ website lane pulls releases manually.
    the AV was the broken P1-4 contract-method lowering (the runtime intrinsic
    read the Vec DATA POINTER as the element count); `is_sorted`/`contains` now
    lower inline over the Vec header. Lock `e2e_m119_contract_method_values`.
-2. **`stdlib_tests::stdlib_all_modules_compile_to_ir`** (pre-existing; this
+2. ~~**`stdlib_tests::stdlib_all_modules_compile_to_ir`** (pre-existing; this
    suite is NOT in the handoff gate list): `xiom.encoding.ascii85` returns
    `Option[Vec[UInt8]]` against `Result[Vec<UInt8>, Str]` (lines 35/89), and
    `xiom.core` (~line 799) hits "cannot call `float_to_string` /
-   `bool_to_string`". Triage checker + stdlib semantics.
+   `bool_to_string`". Triage checker + stdlib semantics.~~ **GREEN
+   2026-09-23**: passes on the current pin (with and without
+   `XIOM_REQUIRE_STDLIB=1`); the findings were resolved by the stdlib pin
+   refresh -- no compiler change needed.
 3. **Generic `T.to_str()` prints a denormal** even with `use xiom.fmt;`
    (repro `tmp/cleanbench/to_str_edges.xi`). Needs a design decision:
    Display-bound monomorphisation vs per-concrete builtin expansion.
-4. **Deterministic publish bytes (registry relay)** -- `xiom pkg publish`
+4. **`stdlib_api_freeze_no_removals`** is RED (9 missing frozen signatures:
+   `async.Executor.*`, `net.http_get/http_post`; identical at the pre-R66
+   baseline). The snapshot no longer matches the pinned stdlib tree -- needs
+   an intentional snapshot regeneration (stdlib/API lanes) after deciding
+   whether the drift is rename or removal.
+5. **`all`/`none` contract stubs**: the method-form `.all(pred)`/`.none(pred)`
+   on Vec/Slice/array still use the legacy `len=0` runtime stubs (trivially
+   true). Needs a real predicate-call lowering (same family as R66; NOT the
+   reported AV, deliberately left).
+6. **Legacy-package migration (packages lane, policy)**: the rule-drift
+   inventory (declarations without terminators, extern/unsafe contract
+   requirements) needs a migration note or codemod, not parser changes; the
+   nested-extern idiom is FIXED (R68). The `xiom.ffi` triage abort
+   ("no source modules found" instead of a FAIL summary) is harness-side.
+6. **Deterministic publish bytes (registry relay)** -- `xiom pkg publish`
    RE-PACKS, so the published bytes differ from the release asset and across
    runs. To "promote exactly the canary bytes": add deterministic packing
    (`SOURCE_DATE_EPOCH` / fixed mtimes) or a publish-existing-tarball mode.
    Also: re-running a release job regenerates the asset, which invalidates the
    canary's artifact claim -- re-canary after such a re-run.
-5. **Verified toolchain updater + MCP contract queries** (agreed; full spec +
+7. **Verified toolchain updater + MCP contract queries** (agreed; full spec +
    acceptance in `docs/POST_RELEASE_PLAN.md`): `xiom toolchain check|update`
    (GitHub Releases only; SHA256SUMS + provenance attestation; atomic swap
    with rollback; never touches user data) and MCP `get_contracts` /
    `search_symbols` (structured JSON across stdlib and project symbols,
    optional Z3 counterexamples).
-6. **Small cleanups**: the `xiom-benchmark-chaos\reference\systems\*` paths in
+8. **Small cleanups**: the `xiom-benchmark-chaos\reference\systems\*` paths in
    `e2e_tests.rs` are monorepo remains -- the benchmark now lives in its own
    repo under the xiom-project org and uses the DOWNLOADED compiler; drop or
    relocate those tests. The e2e harness leaves thousands of `e2e_*` outputs at
    the repo root (now ignored via root-anchored `/e2e_*`); consider making the
    harness delete outputs after each run.
-7. **Stage status**: **Stage 5 (toolchain trust & security) is CLEAR** -- clap
+9. **Stage status**: **Stage 5 (toolchain trust & security) is CLEAR** -- clap
    arg surface, sandbox false-green, no `process::exit` in library paths,
    supply chain (sha256/ureq/HTTPS, commit-pinned git deps, token auth,
    fail-closed trusted registries, signed publishes), LSP hardening
@@ -132,23 +150,25 @@ website lane pulls releases manually.
 > ("CONTINUATION HANDOFF (2026-09-23)") and docs/COMPILER_BUGS.md before
 > touching code. Compiler **v0.61.3** is released and matches stdlib
 > **v0.61.3**; `STDLIB_VERSION` pins `stdlib-v0.61.3`; every playground/stdlib
-> bug batch through R66 is fixed; the tree is clean and the full e2e is
-> 2367/2367. The registry staging canary is verified; production
+> bug batch through R68 is fixed; the full e2e is 2369/2369 (local commits
+> UNPUSHED). The registry staging canary is verified; production
 > publish waits on the owner's environment approval.
 > Work repro-first; rebuild `cargo build -p xiom` after checker/codegen
 > changes, add an e2e lock (`e2e_mNNN_*` fixture + the CI lock line in
 > `.github/workflows/ci.yml`), and run the full e2e once per batch; never
 > rebuild while an e2e is running.
-> Remaining queue, in order: (1) `stdlib_tests::stdlib_all_modules_compile_to_ir`
-> (ascii85 Option/Result + xiom.core float_to_string); (2) generic `T.to_str()`
-> denormal (design decision); (3) deterministic publish bytes /
-> publish-existing-tarball (registry relay); (4) the agreed verified toolchain
-> updater + MCP `get_contracts`/`search_symbols` per
-> `docs/POST_RELEASE_PLAN.md`; (5) Stage 6 (performance program) and Stage 7
-> (selfhost gate) -- Stage 5 is CLEAR. Also open, cross-lane:
-> `stdlib_api_freeze_no_removals` (9 stale snapshot signatures, red at
-> baseline). The R66 Windows-CI AV item is DONE. Start with item 1 unless the
-> user says otherwise.
+> Remaining queue, in order: (1) generic `T.to_str()` denormal (design
+> decision: Display-bound monomorphisation vs per-concrete builtin
+> expansion); (2) `all`/`none` contract stubs (method form returns trivially
+> true); (3) deterministic publish bytes / publish-existing-tarball (registry
+> relay); (4) the agreed verified toolchain updater + MCP
+> `get_contracts`/`search_symbols` per `docs/POST_RELEASE_PLAN.md`;
+> (5) Stage 6 (performance program) and Stage 7 (selfhost gate) -- Stage 5 is
+> CLEAR. Cross-lane, not compiler bugs: `stdlib_api_freeze_no_removals`
+> (9 stale snapshot signatures, red at baseline; snapshot regeneration) and
+> the legacy-package migration note/codemod (packages lane). Done this
+> session: R66 (Windows-CI AV), R67 (ctor container typing), R68 (nested
+> extern). Start with item 1 unless the user says otherwise.
 # XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-83 in docs/SESSION.md)
 
 2026-09-17 update (post-split, `main`): the registry-client findings
@@ -393,6 +413,44 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   after ops deploys `trusted-publishers.json` (refs/tags/stdlib-v*) and
   rebuilds production; packages canary still needs the curated batch +
   packages staging entries in ops' file.
+- **R67 FIXED (2026-09-23, benchmark/option-porter relay)**: `Ok(x)`/`Err(x)`
+  (and `Some`/`None`) inside a function returning a USER struct whose name
+  contains "Result"/"Option" (`TestResult`, `Options`) built the WRONG struct
+  -- the ctor sites chose the container with `ctor_ret.contains("Result")`, so
+  `%struct.TestResult` became the Result type (clang: "invalid getelementptr
+  indices"; porter workaround was helper ctors). Fixed via the strict
+  container-leaf test `is_llvm_container_struct` (bare `Result`/`Option`,
+  module-qualified, or concrete `Result__A__B`/`Option__T`) at all four ctor
+  sites; concrete `Option[Point]`/`Result[Point, Str]` returns still build
+  their concrete containers. Lock `e2e_m120_ctor_user_struct_return` + CI line.
+  Full e2e **2368/2368**.
+- **R68 FIXED (2026-09-23, packages relay -- legacy nested `extern`)**:
+  `extern "C" { ... }` inside a function body (the audio_beep/legacy-package
+  idiom) fell into the expression parser and produced the misleading
+  `P001: 'extern' is a reserved keyword and cannot be used as an identifier`.
+  The parser now parses nested extern blocks in `parse_block` and hoists them
+  to the module level immediately before the enclosing declaration (all three
+  top-level loops), so the FFI symbols are declared before their call sites;
+  duplicate per-function blocks merge. Parser unit tests + probes (main,
+  second fn, if-body, block-form module, duplicates) pass; lock
+  `e2e_m121_nested_extern` + CI line. The remaining rule-drift inventory
+  (declarations without terminators, extern/unsafe contract requirements) is
+  a dialect-migration policy item, not a parser bug; the `xiom.ffi` triage
+  abort lives in the packages harness (message absent from this repo).
+  Full e2e **2369/2369** (R67+R68 batch).
+- **Item-2 VERIFIED GREEN (2026-09-23)**: `stdlib_tests::
+  stdlib_all_modules_compile_to_ir` passes on the current pin (with and
+  without `XIOM_REQUIRE_STDLIB=1`); the R62-era ascii85/`float_to_string`
+  findings were resolved by the stdlib pin refresh. Remaining red:
+  `stdlib_api_freeze_no_removals` (9 stale snapshot signatures
+  `async.Executor.*`, `net.http_get/http_post`; red at baseline) -- cross-lane
+  snapshot regeneration, not a compiler bug.
+- **Cross-lane relay (benchmark repo, 2026-09-23)**: releases v0.61.1/v0.61.3
+  exist but the benchmark's `COMPILER_VERSION` still pins v0.61.0 (absent).
+  Recommend bumping to v0.61.3, then re-run the four benchmark suites and
+  refresh the STATUS compiler fields (they currently record the pin while the
+  suites ran on the installed v0.61.3). Publishing stays blocked on repo
+  protection + registry scope additions (owner). Not actionable in this repo.
 - **R66 FIXED (2026-09-23, P1-4 contract methods -- the Windows-CI AV)**:
   `e2e_p1_contract_methods` AV'd (`-1073741819`) only on `windows-latest`;
   locally it returned a WRONG answer instead (sorted `[1..5]` reported false).

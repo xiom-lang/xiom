@@ -7625,6 +7625,61 @@ verification, with repro commands using the playground lesson sources
   `integration_tests` updated: the method form asserts the inline scan and a
   new negative test pins the loud rejection for non-collection receivers.
   Full e2e 2367/2367 (2366 baseline + the m119 lock).
+- **R67 (benchmark/option-porter relay, v0.61.3)**: FIXED. Constructing
+  `Ok(x)`/`Err(x)` (and the same class for `Some`/`None`) inside a function
+  whose return type is a USER struct whose name CONTAINS "Result"/"Option"
+  miscompiled. Root cause: the ctor sites chose the container type with a
+  SUBSTRING test on the enclosing return type
+  (`ctor_ret.contains("Result")` -> used `%struct.TestResult` as the Result
+  struct). `Ok(5)` in `fn f() -> TestResult` emitted a `%struct.TestResult`
+  payload with three GEP indices -> clang `invalid getelementptr indices`
+  (the porter's exact failure; helper ctors returning Result was the
+  workaround). `Some(3)` in `fn f() -> Options` / `MyOption` had the same
+  shape (the relayed report is Result; Option is the same bug class).
+  FIX: strict container-leaf test `is_llvm_container_struct(ty, name)`
+  (`vec_abi.rs`) -- leaf exactly `Result`/`Option` (module-qualified included)
+  or a concrete `Result__A__B`/`Option__T` instantiation; a user leaf like
+  `TestResult` no longer matches. Applied to all four ctor sites
+  (`Expr::Some/None/Ok/Err`, expr.rs). `%struct.MyResult` never appears for
+  `type MyResult = Result[Int, Str]` (aliases resolve to `%struct.Result`),
+  so the strict test loses nothing.
+  VERIFICATION: repro probes (Ok/Err locals in a 2-field TestResult fn) now
+  compile/run; `Options`/`MyOption` Some/None shapes compile/run;
+  concrete `Option[Point]`/`Result[Point, Str]` returns still build their
+  concrete containers (5c.35 preserved). Lock
+  `e2e_m120_ctor_user_struct_return` + CI line. Full e2e 2368/2368.
+- **R68 (packages relay: legacy nested `extern`)**: FIXED. `extern "C" { ... }`
+  inside a FUNCTION BODY (a legacy-package idiom, e.g. the audio_beep shape)
+  fell through `parse_block` into the expression parser, which called
+  `parse_ident` on the `extern` token and reported the misleading
+  `P001: 'extern' is a reserved keyword and cannot be used as an identifier`.
+  FIX (parser): `parse_block` now parses a nested extern block and pushes it
+  onto `pending_externs`; `parse_top_decl_with_pending` flushes those blocks
+  immediately BEFORE the declaration whose body contained them (all three
+  top-level loops -- file program, block-form module, brace-less module), so
+  call sites resolve and module nesting is preserved. Extern fns carry no
+  body, so hoisting is semantically transparent; duplicate per-function
+  declarations merge in the checker (verified, not deduped in the parser).
+  VERIFICATION: parser unit tests (hoist-before-fn ordering, duplicate
+  blocks); probes: nested in `main`, in a second fn, inside an `if` body, in
+  a block-form module, duplicate declarations -- all compile and run
+  (`clock` here). Lock `e2e_m121_nested_extern` + CI line.
+  Full e2e 2369/2369 for the R67+R68 batch.
+  REMAINING (packages lane, policy): the rest of the rule-drift inventory
+  (declarations without terminators, `extern`/`unsafe` contract requirements
+  on legacy packages) is a dialect-migration question, not a parser bug --
+  a migration note/codemod is the suggested path. The `xiom.ffi` triage
+  abort ("no source modules found" instead of a FAIL summary) is in the
+  packages harness, not in this repo (message does not exist here).
+- **Item-2 status update (2026-09-23)**: `stdlib_tests::
+  stdlib_all_modules_compile_to_ir` now PASSES on the current pin (verified
+  with and without `XIOM_REQUIRE_STDLIB=1`; 42 s, all modules together). The
+  R62-era findings (`xiom.encoding.ascii85` Option/Result vs
+  `Result[Vec[UInt8], Str]`, `xiom.core` `float_to_string`) were resolved by
+  the stdlib pin refresh -- no compiler change was needed. The remaining
+  red in this family is `stdlib_api_freeze_no_removals` (9 stale snapshot
+  signatures: `async.Executor.*`, `net.http_get/http_post`), which fails
+  identically at the pre-R66 baseline -- cross-lane, snapshot regeneration.
 - **R63 (playground C3/C6 + cache HOME)**: FIXED. (a) C3 script-mode
   `--opt-level`: `xiom run` already honored `--opt-level`/`--opt-level=N`
   (R51) and keyed the script cache by level, but `xiom --opt-level=0 run f.xi`
