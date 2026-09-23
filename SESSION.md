@@ -331,6 +331,17 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   version -- bump `editors/vscode/package.json` for every extension change,
   toolchain-only releases skip publishing cleanly (vsce refuses to republish
   an existing version).
+- **RELEASE v0.61.3 PUBLISHED (2026-09-23)**: compiler version now MATCHES
+  stdlib-v0.61.3 (the owner asked for version parity). Run 35889350771 fully
+  green: guard, windows-x64, linux-x64, macos-arm64, macos-x64, VSIX, GitHub
+  Release. Assets: `SHA256SUMS`, `xiom-0.61.3-{linux-x64,macos-arm64,macos-x64,
+  windows-x64}` and `xiom-vscode-0.12.0.vsix`. The extension publish steps were
+  SKIPPED by the version-absent gate (0.12.0 already live on both
+  marketplaces) -- the gate works as designed. The release job's docs dispatch
+  SUCCEEDED this time (the owner's PAT scope fix), so the website received
+  `compiler-release` automatically. Note: `gh` was active as
+  `Lefteris-Ngonart` (no write access to the org) after the token change; the
+  compiler lane switched back to `Lefteris-Notas` and pushed with its token.
 - **CI health batch (2026-09-22, from PR #3 triage)**: the stdlib pin PR #3
   surfaced PRE-EXISTING CI breakage (CI never runs on main pushes, so the
   suite hadn't been compiled in CI since R51-era changes). Fixed on main:
