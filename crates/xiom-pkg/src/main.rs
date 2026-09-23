@@ -7,6 +7,7 @@
 mod lockfile;
 mod registry;
 mod signing;
+mod tarball;
 
 use std::collections::HashMap;
 use std::env;
@@ -644,7 +645,7 @@ fn verify_command(args: &[String]) {
     }
 }
 
-fn publish_package(_args: &[String]) {
+fn publish_package(args: &[String]) {
     let manifest_path = find_manifest();
     let manifest = fs::read_to_string(&manifest_path).unwrap_or_else(|e| {
         eprintln!("xiom pkg: cannot read {}: {}", manifest_path.display(), e);
@@ -660,18 +661,50 @@ fn publish_package(_args: &[String]) {
     let pkg_dir = manifest_path.parent().expect("package.xi must be in a directory");
     let pkg_name = &pkg.name;
 
-    // Build tarball from package directory
-    let tmp = std::env::temp_dir().join(format!("xiom_publish_{}.tar.gz", pkg_name));
-    let tarball_path = tmp.to_string_lossy().to_string();
+    // m126: `xiom pkg publish --tarball <path>` promotes EXACTLY the given
+    // bytes (e.g. the verified canary/release asset) instead of re-packing
+    // the directory. Deterministic packing makes the two agree, but promotion
+    // must never silently rebuild; the SHA256 of the promoted bytes is
+    // printed so the artifact claim stays auditable.
+    let existing_tarball = args
+        .iter()
+        .position(|a| a == "--tarball")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
+    let tmp_tarball = existing_tarball.is_none();
+    let tarball_path = match &existing_tarball {
+        Some(p) => {
+            if !Path::new(p).is_file() {
+                eprintln!("xiom pkg: --tarball {p} is not a file");
+                process::exit(1);
+            }
+            match fs::read(p) {
+                Ok(bytes) => {
+                    println!("Promoting existing tarball {p} ({} bytes, no re-pack)", bytes.len());
+                    println!("  sha256: {}", crate::lockfile::sha256_hex(&bytes));
+                }
+                Err(e) => {
+                    eprintln!("xiom pkg: cannot read --tarball {p}: {e}");
+                    process::exit(1);
+                }
+            }
+            p.clone()
+        }
+        None => std::env::temp_dir()
+            .join(format!("xiom_publish_{}.tar.gz", pkg_name))
+            .to_string_lossy()
+            .to_string(),
+    };
 
     println!("Packaging {} v{}...", pkg.name, pkg.version);
-    if let Err(e) = create_tarball(pkg_dir, &tarball_path) {
-        eprintln!("xiom pkg: cannot create tarball: {e}");
-        eprintln!("  Install 'tar' to create packages, or manually tar the directory.");
-        process::exit(1);
+    if tmp_tarball {
+        if let Err(e) = create_tarball(pkg_dir, &tarball_path) {
+            eprintln!("xiom pkg: cannot create tarball: {e}");
+            process::exit(1);
+        }
     }
     let tarball_size = fs::metadata(&tarball_path).map(|m| m.len()).unwrap_or(0);
-    println!("  Created tarball: {} bytes", tarball_size);
+    println!("  Tarball: {} bytes", tarball_size);
 
     // Stage 5: sign the artifact when a local key exists. The registry stores
     // the signature + public key in its version metadata; consumers with a
@@ -718,12 +751,17 @@ fn publish_package(_args: &[String]) {
                     }
                 }
             }
-            // Clean up temp file
-            let _ = fs::remove_file(&tarball_path);
+            // Clean up the temp tarball only; a --tarball artifact belongs to
+            // the caller and must survive the publish.
+            if tmp_tarball {
+                let _ = fs::remove_file(&tarball_path);
+            }
         }
         Err(e) => {
             eprintln!("xiom pkg: publish failed: {e}");
-            let _ = fs::remove_file(&tarball_path);
+            if tmp_tarball {
+                let _ = fs::remove_file(&tarball_path);
+            }
             process::exit(1);
         }
     }
@@ -736,44 +774,15 @@ fn load_signing_key() -> Option<signing::KeyPair> {
     signing::KeyPair::from_secret_hex(&secret).ok()
 }
 
-/// Create a gzipped tarball of a package directory.
+/// Create a deterministic gzipped tarball of a package directory.
+///
+/// m126: previously shelled out to the system `tar`/PowerShell, so published
+/// bytes changed run to run (mtimes, uid/gid, gzip timestamp). Now delegates
+/// to the in-repo deterministic writer (`tarball.rs`): sorted entries, ustar
+/// headers with `SOURCE_DATE_EPOCH` mtime (default 0), fixed modes/ownership,
+/// gzip MTIME 0. Identical trees -> identical bytes.
 fn create_tarball(dir: &std::path::Path, output: &str) -> Result<(), String> {
-    let parent = dir.parent().expect("pkg dir has parent");
-    let dirname = dir.file_name().expect("pkg dir has name").to_string_lossy();
-
-    // Try system tar command first
-    let status = process::Command::new("tar")
-        .args(["-czf", output, "-C"])
-        .arg(parent)
-        .arg(dirname.as_ref())
-        .status()
-        .map_err(|e| format!("tar: {e}"))?;
-
-    if status.success() {
-        return Ok(());
-    }
-
-    // On Windows, try PowerShell Compress-Archive -> .zip -> rename
-    #[cfg(windows)]
-    {
-        let zip_path = output.replace(".tar.gz", ".zip");
-        let ps_cmd = format!(
-            "Compress-Archive -Path '{}' -DestinationPath '{}' -Force",
-            dir.display(),
-            zip_path
-        );
-        let status = process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", &ps_cmd])
-            .status()
-            .map_err(|e| format!("powershell: {e}"))?;
-        if status.success() {
-            // Rename .zip to .tar.gz (the registry accepts either format)
-            fs::rename(&zip_path, output).map_err(|e| format!("rename: {e}"))?;
-            return Ok(());
-        }
-    }
-
-    Err("no tar or PowerShell available".to_string())
+    tarball::write_tar_gz(dir, std::path::Path::new(output))
 }
 
 /// Install without the registry: the local `packages/index.json` channel
@@ -1091,7 +1100,7 @@ fn print_command_usage(cmd: &str) {
         "install" => eprintln!("Usage: xiom pkg install <package>[@version]"),
         "search" => eprintln!("Usage: xiom pkg search [query] [--category <c>] [--json]"),
         "info" => eprintln!("Usage: xiom pkg info <package>[@version] [--json]"),
-        "publish" => eprintln!("Usage: xiom pkg publish [--token <TOKEN>]"),
+        "publish" => eprintln!("Usage: xiom pkg publish [--token <TOKEN>] [--tarball <PATH>]"),
         "keygen" => eprintln!("Usage: xiom pkg keygen [--out <PATH>]"),
         "trust" => eprintln!("Usage: xiom pkg trust --registry <URL> --key <ed25519-public-hex>"),
         "trusted" => eprintln!("Usage: xiom pkg trusted"),
@@ -1112,7 +1121,8 @@ fn print_usage() {
     eprintln!("  xiom pkg info <pkg>[@version] [--json]");
     eprintln!("                                     Show package metadata + versions");
     eprintln!("  xiom pkg install <pkg>[@version]  Install package (local packages fallback)");
-    eprintln!("  xiom pkg publish                   Publish package to registry");
+    eprintln!("  xiom pkg publish [--tarball <PATH>]  Publish package (re-packs, or promotes");
+    eprintln!("                                     exactly the given .tar.gz bytes)");
     eprintln!("  xiom pkg lock                      Generate xiom.lock from package.xi");
     eprintln!("  xiom pkg list                       List installed packages");
     eprintln!();

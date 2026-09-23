@@ -16,7 +16,7 @@ R68/m121 + R69/m122 + R70/m123 + R71/m124 locks added), checker 195/195,
 feature-reg 510/510,
 stdlib-exec 85/85
 (+2 ignored), robustness 63/63, fuzz 24/24, api-freeze 2/2 (m125: rename-only snapshot regeneration),
-pkg 67/67, mcp 39/39; ascii_guard OK; CI ubuntu-latest fully green; the
+pkg 72/72, mcp 39/39; ascii_guard OK; CI ubuntu-latest fully green; the
 Windows-runner-only AV on
 `e2e_p1_contract_methods` is FIXED (R66, 2026-09-23) -- CI has NOT been re-run
 since (pushes to main do not trigger CI), so the windows-latest leg is
@@ -93,12 +93,14 @@ website lane pulls releases manually.
    requirements) needs a migration note or codemod, not parser changes; the
    nested-extern idiom is FIXED (R68). The `xiom.ffi` triage abort
    ("no source modules found" instead of a FAIL summary) is harness-side.
-10. **Deterministic publish bytes (registry relay)** -- `xiom pkg publish`
+10. ~~**Deterministic publish bytes (registry relay)** -- `xiom pkg publish`
     RE-PACKS, so the published bytes differ from the release asset and across
     runs. To "promote exactly the canary bytes": add deterministic packing
     (`SOURCE_DATE_EPOCH` / fixed mtimes) or a publish-existing-tarball mode.
     Also: re-running a release job regenerates the asset, which invalidates the
-    canary's artifact claim -- re-canary after such a re-run.
+    canary's artifact claim -- re-canary after such a re-run.~~ **FIXED
+    2026-09-24 (m126)**: deterministic in-repo tar.gz writer +
+    `publish --tarball <PATH>` promote mode (prints the promoted SHA256).
 11. **Verified toolchain updater + MCP contract queries** (agreed; full spec +
     acceptance in `docs/POST_RELEASE_PLAN.md`): `xiom toolchain check|update`
     (GitHub Releases only; SHA256SUMS + provenance attestation; atomic swap
@@ -517,8 +519,20 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   `Result[NetHttpResponse, NetError]` (R44 rename). No API removals, so the
   FROZEN snapshot was regenerated with the new names (header documents the
   decision) and both freeze tests are GREEN (2/2). The gate was absent from
-  the CI path; a `Stdlib API freeze` CI step now runs it. Test-only + CI
+  the   CI path; a `Stdlib API freeze` CI step now runs it. Test-only + CI
   change (no compiler code). Checker 195/195 unaffected.
+- **m126 FIXED (2026-09-24, deterministic publish bytes)**: `create_tarball`
+  shelled out to `tar`/PowerShell, so published bytes varied run to run and
+  never matched a release asset. New in-repo deterministic writer
+  (`xiom-pkg/src/tarball.rs`): sorted entries, ustar headers with
+  `SOURCE_DATE_EPOCH` mtime (default 0), uid/gid 0, fixed modes 0644/0755,
+  gzip MTIME 0/OS 255 with STORED deflate blocks -- no new dependencies
+  (supply-chain gate stays audited-only), byte-identical archives for the
+  same tree. Symlinks/special files refused loudly. New
+  `xiom pkg publish --tarball <PATH>` promotes exactly the given bytes
+  (prints their SHA256; temp-only cleanup). 5 new unit tests + Python
+  `tarfile` round-trip validation; pkg 72/72 (was 67). Operational note
+  unchanged: re-canary after a release re-run.
 - **Item-2 VERIFIED GREEN (2026-09-23)**: `stdlib_tests::
   stdlib_all_modules_compile_to_ir` passes on the current pin (with and
   without `XIOM_REQUIRE_STDLIB=1`); the R62-era ascii85/`float_to_string`
@@ -712,7 +726,7 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   inline and multi-line metadata arrays (locked by test). MCP gained
   `search_packages({query?, category?})` and `package_info(name)` (16 tools
   total) invoking `xiom-pkg --json`, returning the exact index field names.
-  Tests: pkg 67/67, mcp 39/39. Live smoke: search/info JSON + `xiom pkg`
+  Tests: pkg 72/72, mcp 39/39. Live smoke: search/info JSON + `xiom pkg`
   dispatch verified against the staging registry.
 - **R53 staging verification (2026-09-21, registry relay #2)**: re-verified
   live against `https://staging.registry.xiom-lang.org` via the `XIOM_REGISTRY`

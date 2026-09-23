@@ -7787,6 +7787,30 @@ verification, with repro commands using the playground lesson sources
   are 2/2 GREEN. The freeze gate was also absent from the CI path -- it is
   now a CI step (`Stdlib API freeze`), so renames cannot drift silently
   again. Test-only + CI change; no compiler code touched.
+- **m126 (deterministic publish bytes, registry relay)**: FIXED.
+  `create_tarball` shelled out to the system `tar` (or PowerShell
+  `Compress-Archive` on Windows), so the published bytes changed run to run
+  (entry mtimes, uid/gid, gzip header timestamp, tool extensions) and never
+  matched a release asset built elsewhere -- "promote exactly the canary
+  bytes" was impossible.
+  FIX: new in-repo deterministic writer (`crates/xiom-pkg/src/tarball.rs`):
+  entries sorted byte-wise; ustar headers with `mtime = SOURCE_DATE_EPOCH`
+  (default 0), uid/gid 0, fixed modes 0644/0755, empty uname/gname; gzip with
+  MTIME 0 and OS 255 carrying STORED deflate blocks (no external compressor;
+  the workspace supply-chain gate stays audited-only -- no new dependency).
+  Identical trees produce byte-identical archives. Symlinks/special files are
+  refused loudly; ustar prefix splitting covers long paths.
+  Also added `xiom pkg publish --tarball <PATH>` (publish-existing-tarball
+  mode): promotes EXACTLY the given bytes without re-packing and prints their
+  SHA256 for the artifact claim; only temp tarballs are cleaned up.
+  VERIFICATION: 5 new unit tests (byte-identical repacks, mtime independence,
+  SOURCE_DATE_EPOCH affects only the header, gzip CRC32/ISIZE against an
+  independent bitwise CRC, ustar header shape + checksum verification);
+  the archive round-trips through Python's `tarfile` (members, 0644 modes,
+  mtime 0, uid/gid 0). pkg suite 72/72 (was 67).
+  OPERATIONAL NOTE (unchanged): re-running a release job regenerates the
+  asset, so re-canary after such a re-run; with deterministic packing the
+  regenerated asset is now byte-stable for the same tree.
 - **Item-2 status update (2026-09-23)**: `stdlib_tests::
   stdlib_all_modules_compile_to_ir` now PASSES on the current pin (verified
   with and without `XIOM_REQUIRE_STDLIB=1`; 42 s, all modules together). The
