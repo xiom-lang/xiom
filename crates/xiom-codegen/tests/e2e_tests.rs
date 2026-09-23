@@ -5288,6 +5288,20 @@ fn e2e_safety_probe() {
     );
 }
 
+// R72/m127: fn references stored as collection ELEMENTS were raw code
+// addresses while every call path loads field 0 as the code pointer and
+// prepends the env -- `fns[i]()` dereferenced machine code and took an
+// access violation (packages relay, xiom.test.run_all). Array literals now
+// wrap fn references into closure envs (with a forwarding thunk) like the
+// other fn-valued positions.
+#[test] fn e2e_m127_fn_vec_indexed_calls() {
+    assert_eq!(
+        compile_and_run("tests/regression/m127_fn_vec_indexed_calls/main.xi"),
+        Some(0),
+        "R72 indexed calls through Vec[fn] elements must call, not crash"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

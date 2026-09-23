@@ -7811,6 +7811,37 @@ verification, with repro commands using the playground lesson sources
   OPERATIONAL NOTE (unchanged): re-running a release job regenerates the
   asset, so re-canary after such a re-run; with deterministic packing the
   regenerated asset is now byte-stable for the same tree.
+- **m127 (packages relay: indexed calls through `Vec[fn]` elements)**: FIXED
+  for the relayed shape. An array literal of fn REFERENCES (`[ten, twenty]`)
+  stored the RAW code address (`ptrtoint i64 ()* @ten`) as the element, while
+  every call path uses the uniform closure ENV convention (load env[0] as the
+  code pointer and prepend the env). `fns[i]()` therefore loaded field 0 from
+  the function's MACHINE CODE and called it -- deterministic access violation
+  (`-1073741819`; the packages lane's `xiom.test.run_all`, whose workaround was
+  `run_test_at(index)`).
+  FIX: `compile_array_as_vec` (vec_abi.rs) now wraps bare fn-reference
+  elements into closure envs via the existing `wrap_fn_ref_env` (B-007
+  forwarding thunk), matching `Vec.push`/fn-typed args/struct fields. The
+  thunk's return type is derived from the `fn(...) -> R` element spelling
+  (`fn_type_return_xiom`) when present, else Int.
+  VERIFICATION: probes for `fns[i]()` (annotated and bare bindings), the
+  relayed `run_all(&Vec[fn() -> Int])` shape with indexed calls in a range
+  loop, and a call through a fn-typed param receiving `fns[0]`; lock
+  `e2e_m127_fn_vec_indexed_calls` + CI line.
+  OPEN (same convention family, pre-existing, loud-vs-silent triage pending;
+  repros kept in `tmp/probe_p1/`): (a) `Vec[fn...].new(); v.push(ten); v[0]()`
+  still AVs -- the push call resolves to the stdlib `Vec.push` generic, whose
+  `T` param is not `Type::Fn`, so the B-007 wrap never runs (the inline push
+  handler's `starts_with("fn(")` element check also misses the bare "fn"
+  spelling); (b) `var g = fns[0]; g()` still AVs -- the index value's element
+  type resolves to "Int" in the tracked maps, so the local is not marked as a
+  closure and the call takes the raw-code path; (c) a fn-typed element called
+  through a struct field (`s.tests[0]()`) fails the CHECKER
+  ("cannot call 'tests' on this expression"). Fixing (a)-(c) needs one
+  consistent fn-value convention across generic instantiation, element-type
+  tracking and the raw-code call path -- a dedicated refactor, not a patch.
+  Full e2e 2373/2373; checker 195/195; feature-reg 510/510; integration
+  130/130; robustness 63/63; fuzz 24/24.
 - **Item-2 status update (2026-09-23)**: `stdlib_tests::
   stdlib_all_modules_compile_to_ir` now PASSES on the current pin (verified
   with and without `XIOM_REQUIRE_STDLIB=1`; 42 s, all modules together). The

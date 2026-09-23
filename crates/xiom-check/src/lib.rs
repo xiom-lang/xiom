@@ -4739,17 +4739,35 @@ impl Checker {
     /// full generic name ("Vec[Int]"); array literals register `Vec[elem]` so
     /// a `for` loop over the binding knows the element type -- the bare
     /// "Vec" spelling lost it and `for s in words` bound Int.
+    ///
+    /// m127: element names that are not concrete types (`fn`, `fn(Int) ->
+    /// Bool`, `_`) keep the historical bare-Vec binding -- registering
+    /// `Vec[fn]` broke parameter compatibility with `Vec[fn() -> Int]`.
     fn inferred_binding_type(&mut self, value: &Expr, val_ty: &CheckedType) -> CheckedType {
         if let Expr::Array(elems, _) = value {
             if let Some(first) = elems.first() {
                 let elem = self.check_expr(first).name();
-                return CheckedType::named(format!("Vec[{elem}]"));
+                if Self::is_concrete_element_type_name(&elem) {
+                    return CheckedType::named(format!("Vec[{elem}]"));
+                }
             }
             return val_ty.clone();
         }
         self.generic_ctor_type_name(value)
             .map(|s| CheckedType::from_str(&s))
             .unwrap_or_else(|| val_ty.clone())
+    }
+
+    /// m127: true when `name` is a concrete element type worth carrying in a
+    /// `Vec[...]` binding (excludes fn/closure spellings and wildcards).
+    fn is_concrete_element_type_name(name: &str) -> bool {
+        let n = name.trim();
+        !(n.is_empty()
+            || n == "_"
+            || n.starts_with("fn")
+            || n.starts_with("Fn")
+            || n.contains("->")
+            || n.contains('('))
     }
 
     fn check_stmt(&mut self, stmt: &Stmt) {

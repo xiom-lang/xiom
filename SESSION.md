@@ -11,8 +11,8 @@ all green: windows-x64, linux-x64, macos-arm64, macos-x64, universal
 version-absent gate, as designed). `main` = `8b9841f3` + local
 **UNPUSHED** `edea2f5d` (R66 fix + lock, full e2e 2367/2367); tree clean.
 
-**Gates on the release tree:** full e2e **2372/2372** (R66/m119 + R67/m120 +
-R68/m121 + R69/m122 + R70/m123 + R71/m124 locks added), checker 195/195,
+**Gates on the release tree:** full e2e **2373/2373** (R66/m119 + R67/m120 +
+R68/m121 + R69/m122 + R70/m123 + R71/m124 + R72/m127 locks added), checker 195/195,
 feature-reg 510/510,
 stdlib-exec 85/85
 (+2 ignored), robustness 63/63, fuzz 24/24, api-freeze 2/2 (m125: rename-only snapshot regeneration),
@@ -178,7 +178,7 @@ website lane pulls releases manually.
 > ("CONTINUATION HANDOFF (2026-09-23)") and docs/COMPILER_BUGS.md before
 > touching code. Compiler **v0.61.3** is released and matches stdlib
 > **v0.61.3**; `STDLIB_VERSION` pins `stdlib-v0.61.3`; every playground/stdlib
-> bug batch through R71 is fixed; the full e2e is 2372/2372 and the stdlib
+> bug batch through R72 is fixed; the full e2e is 2373/2373 and the stdlib
 > API freeze gate is green (local commits UNPUSHED). The registry staging
 > canary is verified; production
 > publish waits on the owner's environment approval.
@@ -533,6 +533,21 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   (prints their SHA256; temp-only cleanup). 5 new unit tests + Python
   `tarfile` round-trip validation; pkg 72/72 (was 67). Operational note
   unchanged: re-canary after a release re-run.
+- **m127 FIXED (2026-09-24, packages relay -- indexed `Vec[fn]` calls)**: an
+  array literal of fn REFERENCES stored the RAW code address as the element
+  while every call path uses the closure ENV convention, so `fns[i]()` loaded
+  field 0 from machine code -> deterministic AV (the relayed
+  `xiom.test.run_all`; workaround `run_test_at(index)`). `compile_array_as_vec`
+  now wraps fn-reference elements into envs via `wrap_fn_ref_env` (B-007
+  thunk), with the return type derived from the `fn(...) -> R` spelling. Lock
+  `e2e_m127_fn_vec_indexed_calls` + CI line; checker 195/195; feature-reg
+  510/510; integration 130/130; robustness 63/63; fuzz 24/24; full e2e
+  **2373/2373**.
+  OPEN (documented in COMPILER_BUGS, repros in tmp/probe_p1/):
+  `Vec[fn].new()+push` elements, element-to-local calls, and fn-element calls
+  through struct fields still break -- they need a unified fn-value
+  convention across generic instantiation, element tracking and the raw-code
+  call path (dedicated refactor).
 - **Item-2 VERIFIED GREEN (2026-09-23)**: `stdlib_tests::
   stdlib_all_modules_compile_to_ir` passes on the current pin (with and
   without `XIOM_REQUIRE_STDLIB=1`); the R62-era ascii85/`float_to_string`

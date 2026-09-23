@@ -505,6 +505,19 @@ impl IrEmitter {
     /// Compile an array literal `[e1, e2, ...]` into a proper `%struct.Vec`
     /// value, handling malloc + per-element copy. Used when an array literal
     /// appears in a context that expects a Vec (e.g., `Some([1,2,3])`).
+    /// m127: return XIOM name from an `fn(...) -> R` type spelling, when the
+    /// spelling carries one (`fn() -> Int` -> "Int"). Bare "fn"/"Int" element
+    /// annotations yield None and the caller defaults to Int.
+    pub(crate) fn fn_type_return_xiom(ty: &str) -> Option<String> {
+        let t = ty.trim();
+        if !t.starts_with("fn") {
+            return None;
+        }
+        let idx = t.find("->")?;
+        let ret = t[idx + 2..].trim();
+        if ret.is_empty() { None } else { Some(ret.to_string()) }
+    }
+
     pub(crate) fn compile_array_as_vec(&mut self, elems: &[xiom_ast::Expr], elem_xiom_type: &str) -> Result<(String, String), String> {
         let n = elems.len() as i64;
         // 5c.39: Resolve the element's LLVM type and byte size from the type
@@ -551,7 +564,26 @@ impl IrEmitter {
         self.emitln(&format!("  store i64 {elem_size}, i64* {eg}"));
         // Copy elements into buffer
         for (i, e) in elems.iter().enumerate() {
-            let (ev, ety) = self.compile_expr(e)?;
+            let (mut ev, ety) = self.compile_expr(e)?;
+            // m127: a bare fn REFERENCE stored as a DATA element must become
+            // the uniform closure ENV value (B-007): every call path loads
+            // field 0 as the code pointer and prepends the env, so storing the
+            // raw code address made `fns[i]()` dereference machine code ->
+            // 0xC0000005 (packages relay, xiom.test.run_all). The `Vec.push` /
+            // fn-typed-arg / struct-field paths already wrap; array literals
+            // were the remaining gap.
+            if let Expr::Ident(id) = e {
+                let is_fn_ref = (self.types.functions.contains_key(&id.name)
+                    || self.types.functions.keys().into_iter().any(|k| k.ends_with(&format!(".{}", id.name)))
+                    || self.mono.emitted_fns.contains(&id.name))
+                    && !self.local.closure_locals.contains(&id.name);
+                if is_fn_ref {
+                    let (_, params) = self.resolve_fn_ref_arg(id);
+                    let ret = Self::fn_type_return_xiom(elem_xiom_type)
+                        .unwrap_or_else(|| "Int".to_string());
+                    ev = self.wrap_fn_ref_env(&id.name, &ev, &ret, params);
+                }
+            }
             let offset = i as i64 * elem_size;
             let dest = self.fresh_tmp();
             self.emitln(&format!("  {dest} = getelementptr i8, i8* {data_ptr}, i64 {offset}"));
