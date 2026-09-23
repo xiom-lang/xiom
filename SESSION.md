@@ -1,131 +1,117 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
-# CONTINUATION HANDOFF (2026-09-21, compiler lane)
+# CONTINUATION HANDOFF (2026-09-23, compiler lane)
 
-Latest pushed main: `0072707b` (CRB-7 macOS release enablement). The R53
-staging
-verification record, the stale old-name -> XIOM reference cleanup, R55 (L6-40
-fixpoint evidence pre-pass), R56 (L5-40 container-payload ABI), R57 (L3-50
-`?` tuple payload), R58 (L8-14 Map[Str,Str] morse trap), R59/R60 (stdlib
-relay findings: match-slot leak into loop bodies; reference-ctor tuple
-element names), R61 (R7 residual generic-ctor field index + interface-ABI
-ruling), R62 (fmt reachable-only peek; to_str/hello front-end ratio
-1.81x -> 1.12x on the playground bench), R63 (script-run `--opt-level`
-dispatch + cache HOME fallback + `STDLIB_VERSION` pin bump to
-`385e1e44fac37a9403cd04cdb5e13d4c122a8710`), and the IDE-distribution/release
-batch are all committed AND
-PUSHED. Tree clean,
-full e2e **2365/2365**,
-checker 195/195, feature-reg
-510/510, stdlib-exec 85/85 (+2 ignored), robustness 63/63, fuzz 24/24,
-api-freeze 2/2, pkg 67/67, mcp 39/39. Tree state below is committed.
-**Compiler bug queue: EMPTY as of R61** -- the stdlib re-triage
-(`tools/known_failures/README.md`, 2026-09-22) reports no open findings; the
-only remaining compiler-side items are perf (playground repro/measurement
-needed) and C3/C6 (repros needed).
+**Released:** compiler **v0.61.3** -- GitHub Release `v0.61.3` (run 35889350771
+all green: windows-x64, linux-x64, macos-arm64, macos-x64, universal
+`xiom-vscode-0.12.0.vsix`, combined `SHA256SUMS`). The compiler version now
+**matches stdlib v0.61.3**; `STDLIB_VERSION` pins `stdlib-v0.61.3`. Extension
+0.12.0 is LIVE on both marketplaces (the v0.61.3 run skipped publishing via the
+version-absent gate, as designed). `main` = `8b9841f3`, tree clean and in sync
+with origin.
 
-Release dry run (2026-09-21, workflow_dispatch on pushed main): guard 8s;
-linux-x64 2m49s; windows-x64 4m44s; VSIX job 23s producing
-`xiom-vscode-0.12.0.vsix` + `SHA256SUMS-vscode`
-(sha256 e426f8e0...ab681) as workflow artifacts; both marketplace publish
-steps SKIPPED (tag-gated) and the GitHub Release job SKIPPED. The first
-dispatch (35646447417) surfaced a pre-existing workflow bug: the z3 bundle
-copied `LICENSE.txt` from the extraction ROOT while the vendor archives nest
-it under their version dir (`z3-4.13.4-x64-glibc-2.35/LICENSE.txt`); fixed in
-CRB-6 (30c5a483) by resolving the license by name in all three z3 steps. The
-second dispatch (35647022547) is fully green. A third dispatch
-(35670811407, 2026-09-22) after the R63 `STDLIB_VERSION` bump is also fully
-green; the shipped `xiom-0.61.0-linux-x64.tar.gz` was downloaded and checked:
-`lib/package.xi` is the correct `package xiom_std { name: "xiom-std" }`
-manifest and `lib/xiom/os/env.xi` carries the `xiom_env_set`/`xiom_env_unset`
-shim (C6 CLOSED). The dispatch also emitted a Node-20-deprecation notice for
-actions/checkout (forced onto Node 24, still green) -- bump the action pins
-when convenient. The all-platform dispatch (35679231885, CRB-7) is green,
-including both macOS builds. macOS jobs remain gated on the
-`RELEASE_BUILD_MACOS` repo variable. Tag checklist before `git tag v0.61.0`:
-marketplace 0.12.0 absent on both (404, checked 2026-09-21), workspace version
-0.61.0, extension README/LICENSE/icon committed, secrets live (VSCE_PAT,
-OVSX_TOKEN). NO TAG YET -- pending owner go + the stdlib lane's re-sweep on
-R59/R60. NOTE (2026-09-21): the stdlib lane's "R58 re-baseline" predates
-R59/R60 -- both relayed findings (`p_result_tuple_vec_loop`,
-`p_ref_tuple_mangle`) compile+run (RC=0) here with their own files on
-d990e535, so those red groups are already clear; they only need to pull
-main and re-run. Their remaining untested-surface/coverage waves do NOT gate
-the release.
+**Gates on the release tree:** full e2e **2366/2366**, checker 195/195,
+feature-reg 510/510, stdlib-exec 85/85 (+2 ignored), robustness 63/63, fuzz
+24/24, api-freeze 2/2, pkg 67/67, mcp 39/39; ascii_guard OK; CI ubuntu-latest
+fully green; CI windows-latest fails only the runner-only AV below.
+
+**Registry:** staging canary VERIFIED (`xiom-std@0.61.3`: provenance,
+signature and byte-level re-check against the served tarball). Production
+publish run **35726136811** is WAITING on the `registry-publish` environment:
+owner writes the ops-prepared production trusted-publishers entry, recreates
+production, then approves. Packages canary entries follow once ready. The
+release workflow now dispatches `compiler-release` successfully (PAT fixed),
+but **no website workflow listens for `repository_dispatch` yet** -- the
+website lane pulls releases manually.
 
 ## Remaining work, priority order
 
-1. **Perf (playground request #2) -- DONE (R62, 2026-09-22)**: the broad
-   `xiom.fmt` peek is now receiver-aware (primitives peek nothing, floats peek
-   the small `xiom.convert`, generics keep the fmt fallback); measured with the
-   playground harness (`E:\xiom-lang\playground\tools\bench-cold-compile.js`,
-   clean TEMP so the stray %TEMP% module scan does not dominate): to_str/hello
-   emit-ir ratio 1.81x -> 1.12x (acceptance <= 1.3x), loop_200 emit-ir -31%;
-   `fmt.*` IR symbols 1 -> 0; output still `42`/`1.5`. Gates: e2e 2365/2365,
-   feature-reg 510/510, stdlib-exec 85/85, diff 24/24, robustness 63/63,
-   api-freeze 2/2. Runbook: `node .../bench-cold-compile.js --bin
-   <debug|release> --stdlib <tree>\stdlib --runs 3 --json before.json`, then
-   `--compare before.json`.
-2. **New/recorded findings (pre-existing, present on the stashed baseline)**:
-   - `stdlib_tests::stdlib_all_modules_compile_to_ir` fails:
-     `xiom.encoding.ascii85` returns `Option[Vec[UInt8]]` against
-     `Result[Vec[UInt8], Str]` (lines 35/89) and `xiom.core` (line ~799)
-     "cannot call 'float_to_string'/'bool_to_string'". This suite is NOT in
-     the handoff gate list; it needs its own triage (likely stdlib+checker).
-   - generic `T.to_str()` prints a denormal (`4.89e-322` for 99) even with
-     `use xiom.fmt;` -- generic-method conversion dispatch gap; repro in
-     `tmp/cleanbench/to_str_edges.xi`. Needs a ruling (Display-bound monomorph
-     vs builtin per-concrete-type expansion).
-3. **C3 (script-mode `--opt-level`) / C6 (benchmark `package.xi`) / cache
-   HOME -- DONE (R63, 2026-09-22)**: `xiom --opt-level=0 run f.xi` and
-   `xiom run -O0 f.xi` now work (the cache key carries the level; verified hit
-   at the same level / recompile at another); `jit_cache_dir` falls back to
-   `$TMPDIR/xiom_jit` when HOME is set but unwritable (verified cache hit);
-   `STDLIB_VERSION` bumped from the stale `stdlib-v0.60.0` tag to the pushed
-   stdlib main commit `385e1e44fac37a9403cd04cdb5e13d4c122a8710` (correct
-   `xiom-std` manifest + `xiom_env_set`/`xiom_env_unset` shim), local
-   `stdlib/` checkout updated to the same SHA. Gates on the new pin: e2e
-   2365/2365, stdlib-exec 85/85, feature-reg 510/510, diff 24/24.
-4. **Stdlib compiler-finding triage CLOSED (2026-09-22, compiler R61
-   `ff293f8e`)**: `tools/known_failures/README.md` reports NO open findings --
-   the generic_push family and result_tuple/ref_tuple are RESOLVED and
-   promoted to `tools/probes/`; `p_hash_probe` is RULED (loud C001, archived
-   under evidence for when the interface ABI lands); `p_fnref` is RULED a
-   LANGUAGE-SPEC decision (function-value identity -- an attempted loud
-   binding rejection was reverted; the stdlib lane's ruling stands);
-   `p_async_read_line_codegen` is RESOLVED stdlib-side via the runtime
-   `xiom_read`/`xiom_write` helpers. Their remaining work (coverage waves,
-   untested-surface tail, tzdata phase 2) does not gate the release.
-5. **Verified toolchain updater + MCP contract queries -- SPEC'D, agreed
-   post-0.61.1 (`docs/POST_RELEASE_PLAN.md`)**: `xiom toolchain
-   check|update` (GitHub Releases only; SHA256SUMS + provenance attestation;
-   atomic swap with rollback; never touches user data) and MCP
-   `get_contracts` / `search_symbols` (structured JSON across stdlib and
-   project symbols, optional Z3 counterexamples) -- with acceptance criteria.
-6. **AI context**: keep `AI_CONTEXT.md` current on every syntax/flag/registry
-   change (it is compiled into the MCP and shipped as `lib/AI_CONTEXT.md`);
-   the website can render it directly.
+1. **Windows-runner-only AV** -- `e2e_p1_contract_methods` returns
+   `-1073741819` (access violation at RUN time) on `windows-latest`,
+   deterministic (2/2) but NOT reproducible locally with either stdlib pin,
+   debug or release compiler, with NASM present (RC=0). Needs CI-side
+   runner/toolchain triage (not a pin blocker).
+2. **`stdlib_tests::stdlib_all_modules_compile_to_ir`** (pre-existing; this
+   suite is NOT in the handoff gate list): `xiom.encoding.ascii85` returns
+   `Option[Vec[UInt8]]` against `Result[Vec<UInt8>, Str]` (lines 35/89), and
+   `xiom.core` (~line 799) hits "cannot call `float_to_string` /
+   `bool_to_string`". Triage checker + stdlib semantics.
+3. **Generic `T.to_str()` prints a denormal** even with `use xiom.fmt;`
+   (repro `tmp/cleanbench/to_str_edges.xi`). Needs a design decision:
+   Display-bound monomorphisation vs per-concrete builtin expansion.
+4. **Deterministic publish bytes (registry relay)** -- `xiom pkg publish`
+   RE-PACKS, so the published bytes differ from the release asset and across
+   runs. To "promote exactly the canary bytes": add deterministic packing
+   (`SOURCE_DATE_EPOCH` / fixed mtimes) or a publish-existing-tarball mode.
+   Also: re-running a release job regenerates the asset, which invalidates the
+   canary's artifact claim -- re-canary after such a re-run.
+5. **Verified toolchain updater + MCP contract queries** (agreed; full spec +
+   acceptance in `docs/POST_RELEASE_PLAN.md`): `xiom toolchain check|update`
+   (GitHub Releases only; SHA256SUMS + provenance attestation; atomic swap
+   with rollback; never touches user data) and MCP `get_contracts` /
+   `search_symbols` (structured JSON across stdlib and project symbols,
+   optional Z3 counterexamples).
+6. **Small cleanups**: the `xiom-benchmark-chaos\reference\systems\*` paths in
+   `e2e_tests.rs` are monorepo remains -- the benchmark now lives in its own
+   repo under the xiom-project org and uses the DOWNLOADED compiler; drop or
+   relocate those tests. The e2e harness leaves thousands of `e2e_*` outputs at
+   the repo root (now ignored via root-anchored `/e2e_*`); consider making the
+   harness delete outputs after each run.
+7. **Stage status**: **Stage 5 (toolchain trust & security) is CLEAR** -- clap
+   arg surface, sandbox false-green, no `process::exit` in library paths,
+   supply chain (sha256/ureq/HTTPS, commit-pinned git deps, token auth,
+   fail-closed trusted registries, signed publishes), LSP hardening
+   (severities, UTF-16, 64 MiB cap, mutex recovery, incremental parse cache +
+   cross-file index), fmt (defer, trivia, escaping), dbg (MI quoting, async
+   reader, DWARF), JSON diagnostics v1, cargo-deny/vet + MSRV + fuzz/ASAN are
+   all DONE. Open: **Stage 6** (performance program: real incremental engine
+   L1/L2 tiers, parallel monomorphisation, linker strategy, benchmark CI
+   budgets) and **Stage 7** (selfhost gate: zero-ICE self-build, -O0/-O2/-O3
+   differential, strict bounds/borrow, Stage-5 controls for obtaining the
+   toolchain, bootstrap equivalence harness, full e2e on the release binary).
+   `p_hash_probe` (interface value-receiver ABI, loud C001) and `p_fnref`
+   (function-value identity) remain ruled/waiting on a language-spec decision,
+   not compiler fixes.
 
 ## Environment / method notes (learned the hard way)
 
+- **Identity**: the gh active account must be **Lefteris-Notas**
+  (`gh auth switch --user Lefteris-Notas`); `gh auth setup-git` is configured.
+  `Lefteris-Ngonart` stays logged in for unrelated work. Repo-local git
+  identity is `Lefteris Notas <lefterisnotas@gmail.com>` (the GLOBAL email
+  differs -- leave it). If a push 403s, check the active gh account first.
+- **CI does NOT run on pushes to main** (PR + `workflow_dispatch` only), so
+  main's health is only validated when a PR opens or a dispatch runs. The
+  release workflow dispatches `compiler-release` to `xiom-lang/website`, but no
+  website workflow subscribes to `repository_dispatch` -- website pulls
+  releases manually.
 - **Never rebuild `target/debug/xiom.exe` while a cargo e2e runs** -- the
   harness spawns it; mid-run replacement produces flaky crashes/false results.
-  One e2e is ~25 min; batch fixes per run.
+  One e2e is ~23-25 min; batch fixes per run.
 - **`--emit-ir` prints the INTERMEDIATE emitter output.** For the IR clang
   actually compiles, force a link failure (`--link missing_xyz`) and read
   `<output>.ll` (kept on failure, deleted on success).
 - **Large fixed arrays**: >= 16 KiB locals are memset-zeroed and accessed by
   address (`LARGE_ARRAY_MIN_BYTES`); do not reintroduce whole-aggregate
-  stores/loads for them -- clang 22.1.8 XESel crashes above 32 KiB.
+  stores/loads for them -- clang 22.1.8 ISel crashes above 32 KiB.
 - Repro harnesses: `tmp/repro_lessons.ps1 -IdList a,b,c` and
   `tmp/output_check.ps1 -IdList ...` (3-run determinism + UTF-8 validation).
   Playground clone at `tmp/playground` (uses each JSON's `id`, not filename).
-- The stdlib checkout is the PINNED `stdlib/`, refreshed 2026-09-22 to
-  stdlib main `385e1e44fac37a9403cd04cdb5e13d4c122a8710` (matches
-  `STDLIB_VERSION`); to test a newer stdlib set
-  BOTH `XIOM_STDLIB` and `XIOM_RUNTIME_DIR` (runtime C files resolve
-  separately).
+- The stdlib checkout is the PINNED `stdlib/`, currently refreshed to
+  `stdlib-v0.61.3` (matches `STDLIB_VERSION`); to test a newer stdlib set BOTH
+  `XIOM_STDLIB` and `XIOM_RUNTIME_DIR` (runtime C files resolve separately).
+- **Test paths must use `/`** (backslash literals only resolve on Windows); the
+  e2e stdlib guard accepts both layouts (`xiom/io.xi` flat or `xiom/io/io.xi`).
+- **CI proxy on Linux (WSL)**: set `XIOM_REQUIRE_STDLIB=1` to exercise guarded
+  tests and run the curated list from `ci.yml`; unit/perf/tooling/e2e all pass
+  there except the Windows-only AV above.
+- **Bench harness on Windows**: set a clean `TMP`/`TEMP` first -- stale `.xi`
+  trees under `%TEMP%` inflate the front-end ~30x and emit W001 floods.
+- **ascii_guard**: staged files must be pure ASCII
+  (`python tools/ascii_guard.py check`; repair with `--apply`).
+- **Delete extracted release archives after verification** -- duplicate stdlib
+  trees under `tmp/` trip `e2e_m17_zero_warnings`.
 - ISel/LLVM minimizer: `tmp/extract_closure.py` (auto-detects the crashing
   function, extracts its transitive closure) + hand-built matrix .ll files
   under `tmp/preprobe/`.
@@ -133,22 +119,26 @@ the release.
 ## Continuation prompt (copy/paste into the next session)
 
 > Continue the XIOM compiler-lane campaign in `E:\xiom-lang\xiom` (branch
-> `main`, unpushed convention: push only when asked). Read the top section of
-> SESSION.md ("CONTINUATION HANDOFF") and docs/COMPILER_BUGS.md before
-> touching code. All R-bug batches through R60 are fixed (R55-R60 unpushed);
-> the remaining compiler work is the perf `xiom.fmt` reachable-only peek and
-> C3/C6 (need a playground repro). The stdlib relay findings
-> (`p_result_tuple_vec_loop`, `p_ref_tuple_mangle`) are fixed (R59/R60) --
-> TLS is no longer compiler-blocked.
-> Work repro-first: playground lessons are extracted from
-> `tmp/playground/lessons/**/Lx-yy.json` (`.solution`), run with
-> `target\debug\xiom.exe -o tmp\lessons\Lx-yy.exe tmp\lessons\Lx-yy.xi`.
-> Rebuild `cargo build -p xiom` after checker/codegen changes, add an e2e lock
-> (`e2e_mNNN_*` fixture under `tests/regression/` + the CI lock line in
-> `.github/workflows/ci.yml`), and run the full e2e once per batch. Never
-> rebuild while an e2e is running. Start with the perf peek unless the user
-> says otherwise.
-
+> `main`; push only when asked). Read the top section of SESSION.md
+> ("CONTINUATION HANDOFF (2026-09-23)") and docs/COMPILER_BUGS.md before
+> touching code. Compiler **v0.61.3** is released and matches stdlib
+> **v0.61.3**; `STDLIB_VERSION` pins `stdlib-v0.61.3`; every playground/stdlib
+> bug batch through R65 is fixed and pushed; the tree is clean and the full
+> e2e is 2366/2366. The registry staging canary is verified; production
+> publish waits on the owner's environment approval.
+> Work repro-first; rebuild `cargo build -p xiom` after checker/codegen
+> changes, add an e2e lock (`e2e_mNNN_*` fixture + the CI lock line in
+> `.github/workflows/ci.yml`), and run the full e2e once per batch; never
+> rebuild while an e2e is running.
+> Remaining queue, in order: (1) the Windows-CI-only AV on
+> `e2e_p1_contract_methods`; (2) `stdlib_tests::stdlib_all_modules_compile_to_ir`
+> (ascii85 Option/Result + xiom.core float_to_string); (3) generic `T.to_str()`
+> denormal (design decision); (4) deterministic publish bytes /
+> publish-existing-tarball (registry relay); (5) the agreed verified toolchain
+> updater + MCP `get_contracts`/`search_symbols` per
+> `docs/POST_RELEASE_PLAN.md`; (6) Stage 6 (performance program) and Stage 7
+> (selfhost gate) -- Stage 5 is CLEAR. Start with item 1 unless the user says
+> otherwise.
 # XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-83 in docs/SESSION.md)
 
 2026-09-17 update (post-split, `main`): the registry-client findings
