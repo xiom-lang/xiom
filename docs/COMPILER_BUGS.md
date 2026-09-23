@@ -7671,6 +7671,32 @@ verification, with repro commands using the playground lesson sources
   a migration note/codemod is the suggested path. The `xiom.ffi` triage
   abort ("no source modules found" instead of a FAIL summary) is in the
   packages harness, not in this repo (message does not exist here).
+- **R69 (generic `T.to_str()` denormal -- the queued design-decision item)**:
+  FIXED as a codegen bug, not a design change. `local_xiom_types` is a GLOBAL
+  map that is never cleared per function; `compile_fn` records every param's
+  XIOM type, but the MONOMORPHISATION param loop (`lib.rs`) recorded only
+  Vec-elem/array-elem/fn-typed params. A generic `x: T` therefore kept a
+  STALE entry from an earlier emitted function: with `use xiom.io`, xiom.fmt
+  emits `x: Float64` first, so
+  `fn show[T](x: T) -> Str { return x.to_str(); }` lowered `x.to_str()`
+  through the Float64 conversion -- show(99) printed `4.89124989382835e-322`
+  (the i64 99 bits read as a double), show("hi") printed `0`, show(true)
+  printed `4.94e-324`; only show(2.5) was accidentally right. (Repro
+  `tmp/cleanbench/to_str_edges.xi`; the minimal delta is any imported module
+  that compiles a function with a Float64 local/param named `x` before the
+  generic instantiation.)
+  FIX: the mono param loop now mirrors `compile_fn` -- records
+  `ref_preserving_name(param.ty)` / `type_from_ast(param.ty)` with the
+  `type_map` substitution applied, for EVERY param (`x: T` with T=Int ->
+  "Int", unresolved T stays "T" and falls through to the erased LLVM
+  inference).
+  VERIFICATION: `to_str_edges.xi` now prints 42/1.5/2.5/true/hello/7/65/99/123;
+  a dedicated probe covers T = Int/Str/Bool/Float64/UInt and two-param
+  generics in both argument orders. Lock `e2e_m122_generic_param_type` + CI
+  line. (The "Display-bound monomorphisation vs per-concrete expansion"
+  question is moot for this failure mode: the erased-LLVM fallback is correct
+  once the stale entry is gone).
+  Full e2e 2370/2370 (R69 batch).
 - **Item-2 status update (2026-09-23)**: `stdlib_tests::
   stdlib_all_modules_compile_to_ir` now PASSES on the current pin (verified
   with and without `XIOM_REQUIRE_STDLIB=1`; 42 s, all modules together). The

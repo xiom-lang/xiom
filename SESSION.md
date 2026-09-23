@@ -11,11 +11,12 @@ all green: windows-x64, linux-x64, macos-arm64, macos-x64, universal
 version-absent gate, as designed). `main` = `8b9841f3` + local
 **UNPUSHED** `edea2f5d` (R66 fix + lock, full e2e 2367/2367); tree clean.
 
-**Gates on the release tree:** full e2e **2369/2369** (R66/m119 + R67/m120 +
-R68/m121 locks added), checker 195/195, feature-reg 510/510, stdlib-exec 85/85
+**Gates on the release tree:** full e2e **2370/2370** (R66/m119 + R67/m120 +
+R68/m121 + R69/m122 locks added), checker 195/195, feature-reg 510/510,
+stdlib-exec 85/85
 (+2 ignored), robustness 63/63, fuzz 24/24, api-freeze 1/2 (see below),
-pkg 67/67, mcp 39/39; ascii_guard
-OK; CI ubuntu-latest fully green; the Windows-runner-only AV on
+pkg 67/67, mcp 39/39; ascii_guard OK; CI ubuntu-latest fully green; the
+Windows-runner-only AV on
 `e2e_p1_contract_methods` is FIXED (R66, 2026-09-23) -- CI has NOT been re-run
 since (pushes to main do not trigger CI), so the windows-latest leg is
 unverified until the next PR/dispatch.
@@ -50,42 +51,57 @@ website lane pulls releases manually.
    2026-09-23**: passes on the current pin (with and without
    `XIOM_REQUIRE_STDLIB=1`); the findings were resolved by the stdlib pin
    refresh -- no compiler change needed.
-3. **Generic `T.to_str()` prints a denormal** even with `use xiom.fmt;`
+3. ~~**Generic `T.to_str()` prints a denormal** even with `use xiom.fmt;`
    (repro `tmp/cleanbench/to_str_edges.xi`). Needs a design decision:
-   Display-bound monomorphisation vs per-concrete builtin expansion.
-4. **`stdlib_api_freeze_no_removals`** is RED (9 missing frozen signatures:
+   Display-bound monomorphisation vs per-concrete builtin expansion.~~
+   **FIXED 2026-09-23 (R69)**: not a design question -- the mono param loop
+   left `local_xiom_types` stale, so `x: T` inherited `x: Float64`. Lock
+   `e2e_m122_generic_param_type`.
+4. **NEW (packages relay, 2026-09-23)**: indexed calls through `Vec[fn]`
+   elements miscompile to an access violation (affects `xiom.test.run_all`;
+   workaround `run_test_at(index)`). Repro needed from the package tree.
+5. **NEW (packages relay, 2026-09-23)**: untyped `Vec[Int]` element reads can
+   mis-lower to Str comparisons (`let x: Int = v[i]` fixes it, `xiom.diff`);
+   and `byte_at(...)` compared directly against a UInt8 constant is always
+   false for bytes >= 128 (`(byte_at(s,i) as Int) & 0xFF` fixes it,
+   `xiom.typography`). Both are integer-width/signedness inference bugs --
+   needs minimal repros.
+6. **Previously relayed, not yet reproduced here**: qualified enum patterns
+   vs the exhaustiveness checker; `mut` pattern bindings; a free `log` symbol
+   colliding with libm.
+7. **`stdlib_api_freeze_no_removals`** is RED (9 missing frozen signatures:
    `async.Executor.*`, `net.http_get/http_post`; identical at the pre-R66
    baseline). The snapshot no longer matches the pinned stdlib tree -- needs
    an intentional snapshot regeneration (stdlib/API lanes) after deciding
    whether the drift is rename or removal.
-5. **`all`/`none` contract stubs**: the method-form `.all(pred)`/`.none(pred)`
+8. **`all`/`none` contract stubs**: the method-form `.all(pred)`/`.none(pred)`
    on Vec/Slice/array still use the legacy `len=0` runtime stubs (trivially
    true). Needs a real predicate-call lowering (same family as R66; NOT the
    reported AV, deliberately left).
-6. **Legacy-package migration (packages lane, policy)**: the rule-drift
+9. **Legacy-package migration (packages lane, policy)**: the rule-drift
    inventory (declarations without terminators, extern/unsafe contract
    requirements) needs a migration note or codemod, not parser changes; the
    nested-extern idiom is FIXED (R68). The `xiom.ffi` triage abort
    ("no source modules found" instead of a FAIL summary) is harness-side.
-6. **Deterministic publish bytes (registry relay)** -- `xiom pkg publish`
-   RE-PACKS, so the published bytes differ from the release asset and across
-   runs. To "promote exactly the canary bytes": add deterministic packing
-   (`SOURCE_DATE_EPOCH` / fixed mtimes) or a publish-existing-tarball mode.
-   Also: re-running a release job regenerates the asset, which invalidates the
-   canary's artifact claim -- re-canary after such a re-run.
-7. **Verified toolchain updater + MCP contract queries** (agreed; full spec +
-   acceptance in `docs/POST_RELEASE_PLAN.md`): `xiom toolchain check|update`
-   (GitHub Releases only; SHA256SUMS + provenance attestation; atomic swap
-   with rollback; never touches user data) and MCP `get_contracts` /
-   `search_symbols` (structured JSON across stdlib and project symbols,
-   optional Z3 counterexamples).
-8. **Small cleanups**: the `xiom-benchmark-chaos\reference\systems\*` paths in
-   `e2e_tests.rs` are monorepo remains -- the benchmark now lives in its own
-   repo under the xiom-project org and uses the DOWNLOADED compiler; drop or
-   relocate those tests. The e2e harness leaves thousands of `e2e_*` outputs at
-   the repo root (now ignored via root-anchored `/e2e_*`); consider making the
-   harness delete outputs after each run.
-9. **Stage status**: **Stage 5 (toolchain trust & security) is CLEAR** -- clap
+10. **Deterministic publish bytes (registry relay)** -- `xiom pkg publish`
+    RE-PACKS, so the published bytes differ from the release asset and across
+    runs. To "promote exactly the canary bytes": add deterministic packing
+    (`SOURCE_DATE_EPOCH` / fixed mtimes) or a publish-existing-tarball mode.
+    Also: re-running a release job regenerates the asset, which invalidates the
+    canary's artifact claim -- re-canary after such a re-run.
+11. **Verified toolchain updater + MCP contract queries** (agreed; full spec +
+    acceptance in `docs/POST_RELEASE_PLAN.md`): `xiom toolchain check|update`
+    (GitHub Releases only; SHA256SUMS + provenance attestation; atomic swap
+    with rollback; never touches user data) and MCP `get_contracts` /
+    `search_symbols` (structured JSON across stdlib and project symbols,
+    optional Z3 counterexamples).
+12. **Small cleanups**: the `xiom-benchmark-chaos\reference\systems\*` paths in
+    `e2e_tests.rs` are monorepo remains -- the benchmark now lives in its own
+    repo under the xiom-project org and uses the DOWNLOADED compiler; drop or
+    relocate those tests. The e2e harness leaves thousands of `e2e_*` outputs at
+    the repo root (now ignored via root-anchored `/e2e_*`); consider making the
+    harness delete outputs after each run.
+13. **Stage status**: **Stage 5 (toolchain trust & security) is CLEAR** -- clap
    arg surface, sandbox false-green, no `process::exit` in library paths,
    supply chain (sha256/ureq/HTTPS, commit-pinned git deps, token auth,
    fail-closed trusted registries, signed publishes), LSP hardening
@@ -150,7 +166,7 @@ website lane pulls releases manually.
 > ("CONTINUATION HANDOFF (2026-09-23)") and docs/COMPILER_BUGS.md before
 > touching code. Compiler **v0.61.3** is released and matches stdlib
 > **v0.61.3**; `STDLIB_VERSION` pins `stdlib-v0.61.3`; every playground/stdlib
-> bug batch through R68 is fixed; the full e2e is 2369/2369 (local commits
+> bug batch through R69 is fixed; the full e2e is 2370/2370 (local commits
 > UNPUSHED). The registry staging canary is verified; production
 > publish waits on the owner's environment approval.
 > Work repro-first; rebuild `cargo build -p xiom` after checker/codegen
@@ -438,6 +454,18 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   a dialect-migration policy item, not a parser bug; the `xiom.ffi` triage
   abort lives in the packages harness (message absent from this repo).
   Full e2e **2369/2369** (R67+R68 batch).
+- **R69 FIXED (2026-09-23, the queued generic `T.to_str()` denormal)**:
+  root cause was NOT the design question -- `local_xiom_types` is global and
+  never cleared, and the monomorphisation param loop recorded only
+  Vec/array/fn params. A generic `x: T` kept a STALE `x: Float64` from
+  xiom.fmt, so `fn show[T](x: T) -> Str { return x.to_str(); }` lowered
+  through the Float64 conversion: show(99) printed the i64 bits as a double
+  (4.891e-322), show("hi") printed 0. The mono path now mirrors `compile_fn`
+  and records the substituted param type (T=Int -> "Int"; unresolved T stays
+  "T" and falls through to the correct erased-LLVM inference). Verified with
+  `tmp/cleanbench/to_str_edges.xi` (now 42/1.5/2.5/true/hello/7/65/99/123)
+  and the T = Int/Str/Bool/Float64/UInt + two-param lock
+  `e2e_m122_generic_param_type` + CI line. Full e2e **2370/2370**.
 - **Item-2 VERIFIED GREEN (2026-09-23)**: `stdlib_tests::
   stdlib_all_modules_compile_to_ir` passes on the current pin (with and
   without `XIOM_REQUIRE_STDLIB=1`); the R62-era ascii85/`float_to_string`

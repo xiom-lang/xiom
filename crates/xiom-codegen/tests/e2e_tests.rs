@@ -5246,6 +5246,20 @@ fn e2e_safety_probe() {
     );
 }
 
+// R69: `local_xiom_types` is global across functions; the mono param path
+// never recorded plain params, so a generic `x: T` kept a STALE entry from an
+// earlier emitted fn (`x: Float64` in xiom.fmt). `fn show[T](x: T) -> Str {
+// return x.to_str(); }` then lowered through the Float64 conversion --
+// show(99) printed 4.891e-322 (i64 bits read as a double), show("hi") printed
+// 0. The mono path now records the substituted param type.
+#[test] fn e2e_m122_generic_param_type() {
+    assert_eq!(
+        compile_and_run("tests/regression/m122_generic_param_type/main.xi"),
+        Some(0),
+        "R69 generic params must carry their own (substituted) XIOM type"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

@@ -6787,6 +6787,20 @@ impl IrEmitter {
                 self.emitln(&format!("  {alloca} = alloca {llvm_ty}"));
                 self.emitln(&format!("  store {llvm_ty} %param{param_idx}, {llvm_ty}* {alloca}"));
                 self.add_local(&param.name.name, alloca, &llvm_ty);
+                // R69: record the param's XIOM type (mono substitution applied).
+                // `local_xiom_types` is GLOBAL across functions and is never
+                // cleared per function; the mono path used to skip this insert
+                // for plain params, so a generic `x: T` kept a STALE entry from
+                // an earlier function -- `fn show[T](x: T) -> Str { return
+                // x.to_str(); }` lowered through the Float64 conversion when an
+                // earlier builtin/emitted fn had `x: Float64` (xiom.fmt), so
+                // show(99) printed 4.891e-322 (the i64 bits read as a double)
+                // and show("hi") printed 0. Mirror compile_fn exactly, with the
+                // type_map substitution so T=Int yields "Int".
+                let param_xiom = Self::ref_preserving_name(&param.ty)
+                    .unwrap_or_else(|| Self::type_from_ast(&param.ty));
+                let param_xiom = Self::subst_type_tokens(&param_xiom, &type_map);
+                self.local.local_xiom_types.insert(param.name.name.clone(), param_xiom);
                 // R49 (L6-05): mirror compile_fn's Vec-element param tracking
                 // with the MONO substitution applied -- `items: &Vec[T]` with
                 // T=Meter must record "Meter" so `items.get(i)` takes the
