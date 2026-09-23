@@ -131,6 +131,18 @@ fn test_contract_collection_method_rejects_unsupported_receiver() {
     assert!(err.contains("unsupported: 'is_sorted'"), "unexpected error: {err}");
 }
 
+#[test]
+fn test_contract_all_none_rejects_fn_name_predicate() {
+    // m124: a plain function NAME is not a closure value in the predicate
+    // position (calling through it produced an access violation), so the
+    // method form must reject it loudly and point at the library form.
+    let err = compile(
+        "fn is_positive(x: Int) -> Bool { return x > 0; } fn main() -> Int { var v = [2, 4]; if v.all(is_positive) { return 1; } return 0; }",
+    )
+    .unwrap_err();
+    assert!(err.contains("needs a closure or function predicate"), "unexpected error: {err}");
+}
+
 // ========================================================================
 // GAP 2: Invariant Check After Let/Var
 // ========================================================================

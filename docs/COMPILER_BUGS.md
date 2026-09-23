@@ -7742,6 +7742,38 @@ verification, with repro commands using the playground lesson sources
   for-loop family -- `run_all` iterating tests), untyped `Vec[Int]` element
   reads lowered as Str comparisons (the `Vec[elem]` binding refinement may
   cover it), and `byte_at(...) == <UInt8 const>` for bytes >= 128.
+- **R71 (queued `all`/`none` contract stubs)**: FIXED. Two failure modes, both
+  silent:
+  (a) the method form called the `xiom_all`/`xiom_none` runtime stubs with
+  `len = 0`, so `v.all(pred)`/`v.none(pred)` returned TRUE for every
+  collection (the stubs' third argument was never a real callable either);
+  (b) worse, in any program where the core module was registered (e.g.
+  `use xiom.io`), `has_user_fn` saw the generic `core.all` helper and the
+  method form resolved to it -- `core.all` is never monomorphised for that
+  call shape, so it landed on the emitter's "erased-generic dead-code callee"
+  auto-stub `define i64 @core.all() { ret i64 0 }` and `v.all(pred)` was
+  silently FALSE (same shape for `.none`).
+  FIX: `emit_contract_all_none` (vec_abi.rs) lowers both INLINE over the Vec
+  header. The predicate is a closure VALUE (env pointer; code pointer at
+  env[0]); closure params are uniformly i64 in this ABI, so each element is
+  loaded with the width/sign-aware scan load and passed as i64
+  (raw bits/pointer); the scan is fail-fast (`all`: first zero result ->
+  false; `none`: first non-zero -> false) and empty collections are
+  vacuously true. Plain function NAMES are rejected loudly (they are not
+  closure values in this position -- calling through one took an access
+  violation), pointing at `xiom.core.all/none(items, predicate)`. Call-site
+  precedence (call.rs): a METHOD-form call on a COLLECTION receiver always
+  uses the inline lowering, even when a helper is registered; the
+  `has_user_fn` guard still protects the direct form and non-collection
+  receivers (Set/Map/iterator/user methods).
+  VERIFICATION: probes for closure/pipe-closure predicates over Int and Str
+  elements, empty collections, fail-fast and struct-field receivers; the
+  qualified `core.all/none` library path still works; a negative integration
+  test pins the loud rejection for a function-name predicate; Set/Map
+  `.contains` and iterator `.all` (m39/m48) unchanged. Lock
+  `e2e_m124_contract_all_none` + CI line. checker 195/195; feature-reg
+  510/510; robustness 63/63; fuzz 24/24; stdlib-exec 85/85 (+2 ignored);
+  full e2e 2372/2372.
 - **Item-2 status update (2026-09-23)**: `stdlib_tests::
   stdlib_all_modules_compile_to_ir` now PASSES on the current pin (verified
   with and without `XIOM_REQUIRE_STDLIB=1`; 42 s, all modules together). The

@@ -5274,6 +5274,20 @@ fn e2e_safety_probe() {
     );
 }
 
+// m124: `all(predicate)`/`none(predicate)` on collections. The legacy
+// lowering called the xiom_all/xiom_none runtime stubs with len=0 (silently
+// true), and in programs with the core module registered the method form
+// resolved to the generic core.all helper, which is never monomorphised for
+// this shape and landed on the returning-zero auto-stub (silently false).
+// Both now lower inline over the Vec header with the closure ABI.
+#[test] fn e2e_m124_contract_all_none() {
+    assert_eq!(
+        compile_and_run("tests/regression/m124_contract_all_none/main.xi"),
+        Some(0),
+        "m124 all/none must evaluate their predicate over collection elements"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

@@ -1490,6 +1490,138 @@ impl IrEmitter {
         }
     }
 
+    /// P1-4/m124: lower `all(predicate)`/`none(predicate)` INLINE over the
+    /// receiver's Vec header. The legacy path called the
+    /// `xiom_all`/`xiom_none` runtime stubs with `len = 0`, so the method
+    /// form silently returned true for every collection (and the stubs' third
+    /// argument was never a valid callable). The predicate here is a closure
+    /// VALUE: an env pointer whose first word is the code pointer; closure
+    /// params are uniformly i64 in this ABI, so each element is passed as
+    /// i64 (raw bits / pointer) and a zero result is false.
+    pub(crate) fn emit_contract_all_none(
+        &mut self,
+        method: &str,
+        receiver: &Expr,
+        predicate: &Expr,
+    ) -> Result<String, String> {
+        if !self.predicate_is_callable(predicate) {
+            return Err(format!(
+                "unsupported: '{method}' needs a closure or function predicate \
+                 (use xiom.core.{method}(items, predicate) for other forms)"
+            ));
+        }
+        let (dp, len, esz, elem) = self.resolve_contract_vec_scan(method, receiver)?;
+        let (pv, pt) = self.compile_expr(predicate)?;
+        let env = self.val_to_i64(&pv, &pt);
+        let env_ptr = self.fresh_tmp();
+        self.emitln(&format!("  {env_ptr} = inttoptr i64 {env} to i64*"));
+        let fn_code = self.fresh_tmp();
+        self.emitln(&format!("  {fn_code} = load i64, i64* {env_ptr}"));
+        let fn_ptr = self.fresh_tmp();
+        self.emitln(&format!("  {fn_ptr} = inttoptr i64 {fn_code} to i64 (i64, i64)*"));
+
+        let res = self.fresh_tmp();
+        self.emitln(&format!("  {res} = alloca i64"));
+        self.emitln(&format!("  store i64 1, i64* {res}"));
+        let i_slot = self.fresh_tmp();
+        self.emitln(&format!("  {i_slot} = alloca i64"));
+        self.emitln(&format!("  store i64 0, i64* {i_slot}"));
+        let loop_b = self.fresh_block("call_loop");
+        let body_b = self.fresh_block("call_body");
+        let fail_b = self.fresh_block("call_fail");
+        let next_b = self.fresh_block("call_next");
+        let done_b = self.fresh_block("call_done");
+        self.emitln(&format!("  br label %{loop_b}"));
+        self.emitln(&format!("\n{loop_b}:"));
+        let iv = self.fresh_tmp();
+        self.emitln(&format!("  {iv} = load i64, i64* {i_slot}"));
+        let cont = self.fresh_tmp();
+        self.emitln(&format!("  {cont} = icmp slt i64 {iv}, {len}"));
+        self.emitln(&format!("  br i1 {cont}, label %{body_b}, label %{done_b}"));
+        self.emitln(&format!("\n{body_b}:"));
+        let off = self.fresh_tmp();
+        self.emitln(&format!("  {off} = mul i64 {iv}, {esz}"));
+        let elem_ptr = self.fresh_tmp();
+        self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {dp}, i64 {off}"));
+        let arg = self.emit_contract_elem_i64(&elem_ptr, &esz, &elem);
+        let call = self.fresh_tmp();
+        self.emitln(&format!("  {call} = call i64 {fn_ptr}(i64 {env}, i64 {arg})"));
+        let hit = self.fresh_tmp();
+        let op = if method == "all" { "eq" } else { "ne" };
+        self.emitln(&format!("  {hit} = icmp {op} i64 {call}, 0"));
+        self.emitln(&format!("  br i1 {hit}, label %{fail_b}, label %{next_b}"));
+        self.emitln(&format!("\n{fail_b}:"));
+        self.emitln(&format!("  store i64 0, i64* {res}"));
+        self.emitln(&format!("  br label %{done_b}"));
+        self.emitln(&format!("\n{next_b}:"));
+        let iv1 = self.fresh_tmp();
+        self.emitln(&format!("  {iv1} = add i64 {iv}, 1"));
+        self.emitln(&format!("  store i64 {iv1}, i64* {i_slot}"));
+        self.emitln(&format!("  br label %{loop_b}"));
+        self.emitln(&format!("\n{done_b}:"));
+        let out = self.fresh_tmp();
+        self.emitln(&format!("  {out} = load i64, i64* {res}"));
+        Ok(out)
+    }
+
+    /// m124: a predicate argument must be a closure literal, a pipe closure or
+    /// a local holding a closure -- a plain function NAME is not a closure
+    /// value in this position (calling through it produced an access
+    /// violation), so it is rejected loudly instead of emitting a call
+    /// through a non-code pointer.
+    fn predicate_is_callable(&self, pred: &Expr) -> bool {
+        match pred {
+            Expr::Closure(..) | Expr::PipeClosure(..) => true,
+            Expr::Ident(id) => self.local.closure_locals.contains(&id.name),
+            _ => false,
+        }
+    }
+
+    /// m124: receiver check for the contract-method interception -- true when
+    /// `receiver` is the Vec/Slice/fixed-array/array-literal family the inline
+    /// lowerings can scan. Type-based only (element resolution happens inside
+    /// the lowering, where a failure is reported loudly): the method form on a
+    /// COLLECTION receiver must use the blessed inline semantics instead of
+    /// resolving to the generic `core.<name>` helper (never monomorphised for
+    /// this shape -> returning-zero auto-stub -> silently false) or to the
+    /// legacy runtime stubs.
+    pub(crate) fn is_contract_collection_receiver(&self, receiver: &Expr) -> bool {
+        if matches!(receiver, Expr::Array(..)) {
+            return true;
+        }
+        let ty = self.infer_llvm_type(receiver);
+        (ty.starts_with('[') && ty.contains(" x "))
+            || ty == "%struct.Vec"
+            || ty == "%struct.Vec*"
+            || Self::is_llvm_struct_named(&ty, "Vec")
+            || self.is_container_vec_field(receiver)
+            || self.receiver_is_unwrap_of_vec(receiver)
+    }
+
+    /// m124: load one scan element as the i64 the closure ABI expects
+    /// (integers via the width/sign-aware load, floats by bit pattern,
+    /// Str as the pointer bits).
+    fn emit_contract_elem_i64(&mut self, ptr: &str, esz: &str, elem: &ContractElem) -> String {
+        let (v, ty) = match elem {
+            ContractElem::Int { signed } => (self.emit_elem_load(ptr, esz, *signed), "i64".to_string()),
+            ContractElem::Float { llvm } => {
+                let p = self.fresh_tmp();
+                self.emitln(&format!("  {p} = bitcast i8* {ptr} to {llvm}*"));
+                let f = self.fresh_tmp();
+                self.emitln(&format!("  {f} = load {llvm}, {llvm}* {p}"));
+                (f, llvm.clone())
+            }
+            ContractElem::Str => {
+                let p = self.fresh_tmp();
+                self.emitln(&format!("  {p} = bitcast i8* {ptr} to i8**"));
+                let s = self.fresh_tmp();
+                self.emitln(&format!("  {s} = load i8*, i8** {p}"));
+                (s, "i8*".to_string())
+            }
+        };
+        self.val_to_i64(&v, &ty)
+    }
+
     /// P1-4: `a > b` for a scan element (i1 result register).
     fn emit_contract_gt(&mut self, a: &str, b: &str, elem: &ContractElem) -> String {
         let r = self.fresh_tmp();

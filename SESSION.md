@@ -11,8 +11,9 @@ all green: windows-x64, linux-x64, macos-arm64, macos-x64, universal
 version-absent gate, as designed). `main` = `8b9841f3` + local
 **UNPUSHED** `edea2f5d` (R66 fix + lock, full e2e 2367/2367); tree clean.
 
-**Gates on the release tree:** full e2e **2371/2371** (R66/m119 + R67/m120 +
-R68/m121 + R69/m122 + R70/m123 locks added), checker 195/195, feature-reg 510/510,
+**Gates on the release tree:** full e2e **2372/2372** (R66/m119 + R67/m120 +
+R68/m121 + R69/m122 + R70/m123 + R71/m124 locks added), checker 195/195,
+feature-reg 510/510,
 stdlib-exec 85/85
 (+2 ignored), robustness 63/63, fuzz 24/24, api-freeze 1/2 (see below),
 pkg 67/67, mcp 39/39; ascii_guard OK; CI ubuntu-latest fully green; the
@@ -171,7 +172,7 @@ website lane pulls releases manually.
 > ("CONTINUATION HANDOFF (2026-09-23)") and docs/COMPILER_BUGS.md before
 > touching code. Compiler **v0.61.3** is released and matches stdlib
 > **v0.61.3**; `STDLIB_VERSION` pins `stdlib-v0.61.3`; every playground/stdlib
-> bug batch through R70 is fixed; the full e2e is 2371/2371 (local commits
+> bug batch through R71 is fixed; the full e2e is 2372/2372 (local commits
 > UNPUSHED). The registry staging canary is verified; production
 > publish waits on the owner's environment approval.
 > Work repro-first; rebuild `cargo build -p xiom` after checker/codegen
@@ -490,6 +491,20 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   Remaining relayed (package repros needed; local probes pass): indexed
   `Vec[fn]` calls, untyped `Vec[Int]` reads lowered as Str compares, and
   `byte_at(...) == UInt8` for bytes >= 128.
+- **R71 FIXED (2026-09-24, queued `all`/`none` stubs)**: the method form
+  returned TRUE for every collection in programs without the core module
+  (legacy `xiom_all`/`xiom_none` stubs called with len=0) and silently FALSE
+  in programs WITH it (`v.all(pred)` resolved to the generic `core.all`,
+  never monomorphised -> returning-zero auto-stub). Both now lower INLINE
+  over the Vec header with the closure ABI (env[0] = code pointer, i64
+  element args, fail-fast, empty = vacuously true); function-NAME predicates
+  fail loudly with a pointer to `xiom.core.all/none`. Method-form calls on
+  collection receivers now prefer the inline semantics even when a helper is
+  registered; the user-function guard still protects the direct form and
+  non-collection receivers (Set/Map/iterator methods unchanged -- m39/m48).
+  Lock `e2e_m124_contract_all_none` + CI line; checker 195/195; feature-reg
+  510/510; robustness 63/63; fuzz 24/24; stdlib-exec 85/85 (+2 ignored);
+  full e2e **2372/2372**.
 - **Item-2 VERIFIED GREEN (2026-09-23)**: `stdlib_tests::
   stdlib_all_modules_compile_to_ir` passes on the current pin (with and
   without `XIOM_REQUIRE_STDLIB=1`); the R62-era ascii85/`float_to_string`

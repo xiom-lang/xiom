@@ -731,7 +731,24 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         || self.types.functions.contains_key(&fn_name.to_string())
                         || self.mono.emitted_fns.iter().any(|k| k.ends_with(&format!(".{}", fn_name)))
                         || self.types.functions.keys().into_iter().any(|k| k.ends_with(&format!(".{}", fn_name)));
-                    if !has_user_fn {
+                    // m124: a METHOD-form call on a COLLECTION receiver always
+                    // uses the inline lowering, even when a matching helper is
+                    // registered. The registered helpers are the generic
+                    // `core.<name>` functions (never monomorphised for this
+                    // call shape -- they land on returning-zero auto-stubs,
+                    // which made `v.all(pred)` silently false) or the legacy
+                    // runtime stubs. Non-collection receivers and the direct
+                    // form keep the user-function guard.
+                    let intercept = if let Some(r) = receiver_expr.as_ref() {
+                        if self.receiver_is_instance(r) && self.is_contract_collection_receiver(r) {
+                            true
+                        } else {
+                            !has_user_fn
+                        }
+                    } else {
+                        !has_user_fn
+                    };
+                    if intercept {
                     if let Some(receiver) = &receiver_expr {
                         if self.receiver_is_instance(receiver) {
                             // Method form: receiver.method(args)
@@ -746,93 +763,54 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // read as the element count, so the scan walked
                             // arbitrary memory (Windows-CI AV on
                             // e2e_p1_contract_methods) and answered garbage.
-                            if matches!(fn_name.as_str(), "is_sorted" | "contains") {
-                                let res = if fn_name == "is_sorted" {
-                                    self.emit_contract_is_sorted(receiver)?
-                                } else {
-                                    let value = args.first().ok_or_else(|| {
-                                        "unsupported: 'contains' requires a value argument".to_string()
-                                    })?;
-                                    self.emit_contract_contains(receiver, value)?
+                            // m124: all/none lower inline too (the legacy
+                            // runtime stubs received len=0 and silently
+                            // returned true for every collection).
+                            if matches!(fn_name.as_str(), "is_sorted" | "contains" | "all" | "none") {
+                                let res = match fn_name.as_str() {
+                                    "is_sorted" => self.emit_contract_is_sorted(receiver)?,
+                                    "contains" => {
+                                        let value = args.first().ok_or_else(|| {
+                                            "unsupported: 'contains' requires a value argument".to_string()
+                                        })?;
+                                        self.emit_contract_contains(receiver, value)?
+                                    }
+                                    _ => {
+                                        let pred = args.first().ok_or_else(|| {
+                                            format!("unsupported: '{fn_name}' requires a predicate argument")
+                                        })?;
+                                        self.emit_contract_all_none(&fn_name, receiver, pred)?
+                                    }
                                 };
                                 return Ok((res, LLVM_I64.to_string()));
                             }
-                            let tmp = self.fresh_tmp();
-                            let (recv_val, recv_llvm_ty) = self.compile_expr(receiver)?;
-                            let recv_alloca = self.fresh_tmp();
-                            self.emitln(&format!("  {recv_alloca} = alloca {recv_llvm_ty}"));
-                            self.emitln(&format!("  store {recv_llvm_ty} {recv_val}, {recv_llvm_ty}* {recv_alloca}"));
-                            let ptr = self.fresh_tmp();
-                            self.emitln(&format!("  {ptr} = bitcast {recv_llvm_ty}* {recv_alloca} to i8*"));
-                            let extra_args: Vec<String> = args.iter()
-                                .map(|a| self.compile_expr(a).map(|(v, _)| v))
-                                .collect::<Result<Vec<_>, _>>()?;
-                            // all/none keep the legacy runtime stub semantics
-                            // (len=0 => trivially true) -- pending a real
-                            // predicate-call lowering; they are NOT the
-                            // reported AV and are locked as-is.
-                            match fn_name.as_str() {
-                                "all" => {
-                                    let pred = extra_args.first().cloned().unwrap_or_else(|| "0".to_string());
-                                    self.emitln(&format!("  {tmp} = call i64 @xiom_all(i8* {ptr}, i64 0, i8* {pred})"));
-                                }
-                                "none" => {
-                                    let pred = extra_args.first().cloned().unwrap_or_else(|| "0".to_string());
-                                    self.emitln(&format!("  {tmp} = call i64 @xiom_none(i8* {ptr}, i64 0, i8* {pred})"));
-                                }
-                                _ => unreachable!("set method with unexpected argument count"),
-                            }
-                            return Ok((tmp, LLVM_I64.to_string()));
+                            unreachable!("contract method without an inline lowering")
                         }
                     }
                     // Direct form: method(args) -- same inline lowering with
                     // the container as the first argument.
-                    if matches!(fn_name.as_str(), "is_sorted" | "contains") {
+                    if matches!(fn_name.as_str(), "is_sorted" | "contains" | "all" | "none") {
                         let container = args.first().ok_or_else(|| {
                             format!("unsupported: '{fn_name}' requires a container argument")
                         })?;
-                        let res = if fn_name == "is_sorted" {
-                            self.emit_contract_is_sorted(container)?
-                        } else {
-                            let value = args.get(1).ok_or_else(|| {
-                                "unsupported: 'contains' requires a value argument".to_string()
-                            })?;
-                            self.emit_contract_contains(container, value)?
+                        let res = match fn_name.as_str() {
+                            "is_sorted" => self.emit_contract_is_sorted(container)?,
+                            "contains" => {
+                                let value = args.get(1).ok_or_else(|| {
+                                    "unsupported: 'contains' requires a value argument".to_string()
+                                })?;
+                                self.emit_contract_contains(container, value)?
+                            }
+                            _ => {
+                                let pred = args.get(1).ok_or_else(|| {
+                                    format!("unsupported: '{fn_name}' requires a predicate argument")
+                                })?;
+                                self.emit_contract_all_none(&fn_name, container, pred)?
+                            }
                         };
                         return Ok((res, LLVM_I64.to_string()));
                     }
-                    let tmp = self.fresh_tmp();
-                    // Direct form: all/none -- compile all args
-                    let compiled_args: Vec<String> = args.iter()
-                        .map(|a| self.compile_expr(a).map(|(v, _)| v))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    // Convert first argument to i8* pointer via alloca+bitcast
-                    let ptr_val = compiled_args.first().cloned().unwrap_or_else(|| "0".to_string());
-                    let ptr_ty = if let Some(arg) = args.first() { self.infer_llvm_type(arg) } else { LLVM_I64.to_string() };
-                    let ptr = if ptr_ty == "i8*" {
-                        ptr_val
-                    } else {
-                        let arg_alloca = self.fresh_tmp();
-                        self.emitln(&format!("  {arg_alloca} = alloca {ptr_ty}"));
-                        self.emitln(&format!("  store {ptr_ty} {ptr_val}, {ptr_ty}* {arg_alloca}"));
-                        let arg_ptr = self.fresh_tmp();
-                        self.emitln(&format!("  {arg_ptr} = bitcast {ptr_ty}* {arg_alloca} to i8*"));
-                        arg_ptr
-                    };
-                    match fn_name.as_str() {
-                        "all" => {
-                            let len = compiled_args.get(1).cloned().unwrap_or_else(|| "0".to_string());
-                            let pred = compiled_args.get(2).cloned().unwrap_or_else(|| "0".to_string());
-                            self.emitln(&format!("  {tmp} = call i64 @xiom_all(i8* {ptr}, i64 {len}, i8* {pred})"));
-                        }
-                        "none" => {
-                            let len = compiled_args.get(1).cloned().unwrap_or_else(|| "0".to_string());
-                            let pred = compiled_args.get(2).cloned().unwrap_or_else(|| "0".to_string());
-                            self.emitln(&format!("  {tmp} = call i64 @xiom_none(i8* {ptr}, i64 {len}, i8* {pred})"));
-                        }
-                        _ => unreachable!("contains method with unexpected argument count"),
-                    }
-                    return Ok((tmp, LLVM_I64.to_string()));
+                    unreachable!("contract method without an inline lowering")
                 }
                 } // if !has_user_fn -- contract builtin guard
                 // Primitive interface methods (Ord.compare, Eq.eq/ne, comparison ops,
