@@ -38,6 +38,11 @@ fn project_root() -> &'static Path {
 
 /// Frozen snapshot: module :: pub fn signature for every public function
 /// in the contract stdlib modules (post Tier-1 consolidation, 2026-08-07).
+/// 2026-09-24 (m125): the 9 missing entries were RENAME-ONLY drift against
+/// the pinned stdlib-v0.61.3 tree -- `Executor` -> `AsyncExecutor` (same 7
+/// methods, same signatures) and `net.HttpResponse` -> `net.NetHttpResponse`
+/// (same http_get/http_post signatures). Renamed here so the freeze keeps
+/// guarding against real removals.
 const FROZEN: &[&str] = &[
         "aes :: pub fn aes_sbox(b: Int) -> Int",
         "aes :: pub fn aes_inv_sbox(b: Int) -> Int",
@@ -83,13 +88,13 @@ const FROZEN: &[&str] = &[
         "array :: pub fn sort_by[T, const N: Int](arr: &mut [N]T, compare: fn(&T, &T) -> Ordering)",
         "array :: pub fn binary_search[T: Ord, const N: Int](arr: &[N]T, x: &T) -> Result[Int, Int]",
         "array :: pub fn contains[T: Eq, const N: Int](arr: &[N]T, x: &T) -> Bool",
-        "async :: pub fn Executor.new() -> Executor",
-        "async :: pub fn Executor.spawn(self, task: fn())",
-        "async :: pub fn Executor.at(self, deadline: Int, task: fn())",
-        "async :: pub fn Executor.step(self) -> Bool",
-        "async :: pub fn Executor.fire_due_timers(self)",
-        "async :: pub fn Executor.run(self)",
-        "async :: pub fn Executor.block_on(self, task: fn())",
+        "async :: pub fn AsyncExecutor.new() -> AsyncExecutor",
+        "async :: pub fn AsyncExecutor.spawn(self, task: fn())",
+        "async :: pub fn AsyncExecutor.at(self, deadline: Int, task: fn())",
+        "async :: pub fn AsyncExecutor.step(self) -> Bool",
+        "async :: pub fn AsyncExecutor.fire_due_timers(self)",
+        "async :: pub fn AsyncExecutor.run(self)",
+        "async :: pub fn AsyncExecutor.block_on(self, task: fn())",
         "async :: pub fn spawn(task: fn())",
         "async :: pub fn run()",
         "async :: pub fn block_on(task: fn())",
@@ -538,8 +543,8 @@ const FROZEN: &[&str] = &[
         "net :: pub fn TcpStream.write(self, data: &Vec[UInt8]) -> Result[Int, NetError]",
         "net :: pub fn TcpStream.close(self) -> Result[Unit, NetError]",
         "net :: pub fn TcpListener.accept(self) -> Result[(TcpStream, Str), NetError]",
-        "net :: pub fn http_get(url: Str) -> Result[HttpResponse, NetError]",
-        "net :: pub fn http_post(url: Str, body: Str) -> Result[HttpResponse, NetError]",
+        "net :: pub fn http_get(url: Str) -> Result[NetHttpResponse, NetError]",
+        "net :: pub fn http_post(url: Str, body: Str) -> Result[NetHttpResponse, NetError]",
         "net :: pub fn udp_bind(host: Str, port: Int) -> Result[UdpSocket, NetError]",
         "net :: pub fn UdpSocket.send_to(self, data: &Vec[UInt8], addr: Str, port: Int) -> Result[Int, NetError]",
         "net :: pub fn UdpSocket.recv_from(self, buf: &mut Vec[UInt8]) -> Result[(Int, Str, Int), NetError]",

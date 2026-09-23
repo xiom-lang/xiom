@@ -15,15 +15,15 @@ version-absent gate, as designed). `main` = `8b9841f3` + local
 R68/m121 + R69/m122 + R70/m123 + R71/m124 locks added), checker 195/195,
 feature-reg 510/510,
 stdlib-exec 85/85
-(+2 ignored), robustness 63/63, fuzz 24/24, api-freeze 1/2 (see below),
+(+2 ignored), robustness 63/63, fuzz 24/24, api-freeze 2/2 (m125: rename-only snapshot regeneration),
 pkg 67/67, mcp 39/39; ascii_guard OK; CI ubuntu-latest fully green; the
 Windows-runner-only AV on
 `e2e_p1_contract_methods` is FIXED (R66, 2026-09-23) -- CI has NOT been re-run
 since (pushes to main do not trigger CI), so the windows-latest leg is
 unverified until the next PR/dispatch.
-`stdlib_api_freeze_no_removals` is RED (9 snapshot signatures missing:
-`async.Executor.*`, `net.http_get/http_post`) and fails identically at the
-pre-R66 baseline -- stale snapshot vs pinned stdlib tree, cross-lane.
+`stdlib_api_freeze_no_removals` FIXED (m125): the drift was rename-only
+(`AsyncExecutor.*`, `NetHttpResponse`), the snapshot is regenerated and the
+gate now runs in CI -- no red gates remain.
 
 **Registry:** staging canary VERIFIED (`xiom-std@0.61.3`: provenance,
 signature and byte-level re-check against the served tarball). Production
@@ -75,15 +75,19 @@ website lane pulls releases manually.
 6. **Previously relayed, not yet reproduced here**: qualified enum patterns
    vs the exhaustiveness checker; `mut` pattern bindings; a free `log` symbol
    colliding with libm.
-7. **`stdlib_api_freeze_no_removals`** is RED (9 missing frozen signatures:
+7. ~~**`stdlib_api_freeze_no_removals`** is RED (9 missing frozen signatures:
    `async.Executor.*`, `net.http_get/http_post`; identical at the pre-R66
    baseline). The snapshot no longer matches the pinned stdlib tree -- needs
    an intentional snapshot regeneration (stdlib/API lanes) after deciding
-   whether the drift is rename or removal.
-8. **`all`/`none` contract stubs**: the method-form `.all(pred)`/`.none(pred)`
+   whether the drift is rename or removal.~~ **FIXED 2026-09-24 (m125)**:
+   rename-only drift (`AsyncExecutor.*`, `NetHttpResponse`), snapshot
+   regenerated, gate added to CI.
+8. ~~**`all`/`none` contract stubs**: the method-form `.all(pred)`/`.none(pred)`
    on Vec/Slice/array still use the legacy `len=0` runtime stubs (trivially
    true). Needs a real predicate-call lowering (same family as R66; NOT the
-   reported AV, deliberately left).
+   reported AV, deliberately left).~~ **FIXED 2026-09-24 (R71/m124)**: inline
+   lowering with the closure ABI; method-form on collections prefers the
+   inline semantics.
 9. **Legacy-package migration (packages lane, policy)**: the rule-drift
    inventory (declarations without terminators, extern/unsafe contract
    requirements) needs a migration note or codemod, not parser changes; the
@@ -172,8 +176,9 @@ website lane pulls releases manually.
 > ("CONTINUATION HANDOFF (2026-09-23)") and docs/COMPILER_BUGS.md before
 > touching code. Compiler **v0.61.3** is released and matches stdlib
 > **v0.61.3**; `STDLIB_VERSION` pins `stdlib-v0.61.3`; every playground/stdlib
-> bug batch through R71 is fixed; the full e2e is 2372/2372 (local commits
-> UNPUSHED). The registry staging canary is verified; production
+> bug batch through R71 is fixed; the full e2e is 2372/2372 and the stdlib
+> API freeze gate is green (local commits UNPUSHED). The registry staging
+> canary is verified; production
 > publish waits on the owner's environment approval.
 > Work repro-first; rebuild `cargo build -p xiom` after checker/codegen
 > changes, add an e2e lock (`e2e_mNNN_*` fixture + the CI lock line in
@@ -505,6 +510,15 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   Lock `e2e_m124_contract_all_none` + CI line; checker 195/195; feature-reg
   510/510; robustness 63/63; fuzz 24/24; stdlib-exec 85/85 (+2 ignored);
   full e2e **2372/2372**.
+- **m125 FIXED (2026-09-24, stdlib API freeze -- the last red gate)**: the 9
+  missing frozen signatures were RENAME-ONLY drift vs the pinned
+  stdlib-v0.61.3 tree: `async.Executor.*` -> `AsyncExecutor.*` (same 7
+  methods/signatures) and `net.http_get/http_post` returning
+  `Result[NetHttpResponse, NetError]` (R44 rename). No API removals, so the
+  FROZEN snapshot was regenerated with the new names (header documents the
+  decision) and both freeze tests are GREEN (2/2). The gate was absent from
+  the CI path; a `Stdlib API freeze` CI step now runs it. Test-only + CI
+  change (no compiler code). Checker 195/195 unaffected.
 - **Item-2 VERIFIED GREEN (2026-09-23)**: `stdlib_tests::
   stdlib_all_modules_compile_to_ir` passes on the current pin (with and
   without `XIOM_REQUIRE_STDLIB=1`); the R62-era ascii85/`float_to_string`

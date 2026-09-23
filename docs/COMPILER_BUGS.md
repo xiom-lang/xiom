@@ -7772,8 +7772,21 @@ verification, with repro commands using the playground lesson sources
   test pins the loud rejection for a function-name predicate; Set/Map
   `.contains` and iterator `.all` (m39/m48) unchanged. Lock
   `e2e_m124_contract_all_none` + CI line. checker 195/195; feature-reg
-  510/510; robustness 63/63; fuzz 24/24; stdlib-exec 85/85 (+2 ignored);
+  510/510; robustness 63/63;   fuzz 24/24; stdlib-exec 85/85 (+2 ignored);
   full e2e 2372/2372.
+- **m125 (stdlib API freeze, the last red gate)**: FIXED. The 9 missing
+  frozen signatures were RENAME-ONLY drift against the pinned
+  stdlib-v0.61.3 tree, verified 1:1 against the module sources:
+  `async.Executor.*` (7 entries: new/spawn/at/step/fire_due_timers/run/
+  block_on) is now `AsyncExecutor.*` in `xiom/async/async.xi`, same method
+  set and signatures; `net.http_get`/`http_post` return
+  `Result[NetHttpResponse, NetError]` in `xiom/net/net.xi` (the R44
+  `HttpResponse` -> `NetHttpResponse` rename). No API was removed, so the
+  FROZEN snapshot was regenerated with the new names (documented in the
+  test header) and `stdlib_api_freeze_no_removals` + `_all_modules_compile`
+  are 2/2 GREEN. The freeze gate was also absent from the CI path -- it is
+  now a CI step (`Stdlib API freeze`), so renames cannot drift silently
+  again. Test-only + CI change; no compiler code touched.
 - **Item-2 status update (2026-09-23)**: `stdlib_tests::
   stdlib_all_modules_compile_to_ir` now PASSES on the current pin (verified
   with and without `XIOM_REQUIRE_STDLIB=1`; 42 s, all modules together). The
