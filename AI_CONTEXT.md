@@ -5,7 +5,7 @@ inside every release archive as `lib/AI_CONTEXT.md` and is served by the XIOM
 MCP server (`xiom_workflow_guide {topic: "context"}`), so it always describes
 the toolchain it ships with.
 
-- Compiler version: **0.61.1** (release tags are `v<workspace version>`).
+- Compiler version: **0.61.3** (release tags are `v<workspace version>`).
 - Stdlib: bundled in `lib/` at the stdlib ref pinned by `STDLIB_VERSION`
   (`package xiom_std { name: "xiom-std" }`); upgrading the toolchain upgrades
   the bundled stdlib in lockstep.
@@ -129,7 +129,7 @@ Tools: `compile_and_analyze`, `compile_and_fix`, `check_xiom_syntax`,
 - Guide topics: `xiom_language_guide {topic}` and
   `xiom_workflow_guide {topic}`; use topic **`context`** for this file.
 
-## Known limitations (0.61.1)
+## Known limitations (0.61.3)
 
 - Interface value-receiver ABI not implemented (loud compile error).
 - Named function values are not first-class; identity is unspecified.
