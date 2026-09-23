@@ -186,18 +186,22 @@ website lane pulls releases manually.
 > changes, add an e2e lock (`e2e_mNNN_*` fixture + the CI lock line in
 > `.github/workflows/ci.yml`), and run the full e2e once per batch; never
 > rebuild while an e2e is running.
-> Remaining queue, in order: (1) generic `T.to_str()` denormal (design
-> decision: Display-bound monomorphisation vs per-concrete builtin
-> expansion); (2) `all`/`none` contract stubs (method form returns trivially
-> true); (3) deterministic publish bytes / publish-existing-tarball (registry
-> relay); (4) the agreed verified toolchain updater + MCP
-> `get_contracts`/`search_symbols` per `docs/POST_RELEASE_PLAN.md`;
-> (5) Stage 6 (performance program) and Stage 7 (selfhost gate) -- Stage 5 is
-> CLEAR. Cross-lane, not compiler bugs: `stdlib_api_freeze_no_removals`
-> (9 stale snapshot signatures, red at baseline; snapshot regeneration) and
-> the legacy-package migration note/codemod (packages lane). Done this
-> session: R66 (Windows-CI AV), R67 (ctor container typing), R68 (nested
-> extern). Start with item 1 unless the user says otherwise.
+> Remaining queue, in order: (1) the fn-VALUE convention unification
+> (open m127 residuals: `Vec[fn].new()+push` elements, element-to-local
+> calls, fn-element calls through struct fields -- repros in
+> `tmp/probe_p1/`, spec in docs/COMPILER_BUGS.md m127); (2) the agreed
+> verified toolchain updater + MCP `get_contracts`/`search_symbols` per
+> `docs/POST_RELEASE_PLAN.md` (updater needs in-process provenance
+> attestation verification -- dependency-procurement step first);
+> (3) Stage 6 (performance program) and Stage 7 (selfhost gate) -- Stage 5
+> is CLEAR. Cross-lane: legacy-package migration note/codemod (packages
+> lane), benchmark `COMPILER_VERSION` bump to v0.61.3 (benchmark lane),
+> re-canary after any release re-run (registry lane).
+> Done this session: R66 (Windows-CI AV), R67 (ctor container typing),
+> R68 (nested extern), R69 (generic to_str), R70 (for-in collections),
+> R71 (all/none), R72/m127 (fn-vec indexed calls), m125 (API-freeze
+> snapshot + CI gate), m126 (deterministic publish bytes + promote mode).
+> Start with item 1 unless the user says otherwise.
 # XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-83 in docs/SESSION.md)
 
 2026-09-17 update (post-split, `main`): the registry-client findings
