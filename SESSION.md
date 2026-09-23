@@ -8,8 +8,8 @@ all green: windows-x64, linux-x64, macos-arm64, macos-x64, universal
 `xiom-vscode-0.12.0.vsix`, combined `SHA256SUMS`). The compiler version now
 **matches stdlib v0.61.3**; `STDLIB_VERSION` pins `stdlib-v0.61.3`. Extension
 0.12.0 is LIVE on both marketplaces (the v0.61.3 run skipped publishing via the
-version-absent gate, as designed). `main` = `8b9841f3`, tree clean and in sync
-with origin.
+version-absent gate, as designed). `main` = `8b9841f3` + local
+**UNPUSHED** `edea2f5d` (R66 fix + lock, full e2e 2367/2367); tree clean.
 
 **Gates on the release tree:** full e2e **2367/2367** (R66/m119 lock added),
 checker 195/195, feature-reg 510/510, stdlib-exec 85/85 (+2 ignored), robustness
