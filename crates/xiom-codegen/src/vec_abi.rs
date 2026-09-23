@@ -1389,7 +1389,7 @@ impl IrEmitter {
     /// and `Slice[...]` local annotations and fixed arrays, and applies the
     /// current mono substitution so generic bodies (`self.items` with T=Int)
     /// resolve to the concrete element.
-    fn contract_elem_xiom(&self, receiver: &Expr) -> Option<String> {
+    pub(crate) fn contract_elem_xiom(&self, receiver: &Expr) -> Option<String> {
         let raw = self.resolve_vec_elem_xiom(receiver).or_else(|| match receiver {
             // Array literals: the element type is the first element's type
             // (the same rule `Expr::Array` materialization uses).

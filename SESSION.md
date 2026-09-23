@@ -11,8 +11,8 @@ all green: windows-x64, linux-x64, macos-arm64, macos-x64, universal
 version-absent gate, as designed). `main` = `8b9841f3` + local
 **UNPUSHED** `edea2f5d` (R66 fix + lock, full e2e 2367/2367); tree clean.
 
-**Gates on the release tree:** full e2e **2370/2370** (R66/m119 + R67/m120 +
-R68/m121 + R69/m122 locks added), checker 195/195, feature-reg 510/510,
+**Gates on the release tree:** full e2e **2371/2371** (R66/m119 + R67/m120 +
+R68/m121 + R69/m122 + R70/m123 locks added), checker 195/195, feature-reg 510/510,
 stdlib-exec 85/85
 (+2 ignored), robustness 63/63, fuzz 24/24, api-freeze 1/2 (see below),
 pkg 67/67, mcp 39/39; ascii_guard OK; CI ubuntu-latest fully green; the
@@ -57,15 +57,20 @@ website lane pulls releases manually.
    **FIXED 2026-09-23 (R69)**: not a design question -- the mono param loop
    left `local_xiom_types` stale, so `x: T` inherited `x: Float64`. Lock
    `e2e_m122_generic_param_type`.
-4. **NEW (packages relay, 2026-09-23)**: indexed calls through `Vec[fn]`
+4. ~~**NEW (packages relay, 2026-09-23)**: indexed calls through `Vec[fn]`
    elements miscompile to an access violation (affects `xiom.test.run_all`;
-   workaround `run_test_at(index)`). Repro needed from the package tree.
+   workaround `run_test_at(index)`). Repro needed from the package tree.~~
+   **LIKELY FIXED by R70**: `run_all` iterates the test Vec; the old For
+   lowering corrupted the Vec's data pointer. Local probes for direct/indexed
+   `Vec[fn]` calls and `s.tests[i]()` pass; needs the package re-run to
+   confirm.
 5. **NEW (packages relay, 2026-09-23)**: untyped `Vec[Int]` element reads can
    mis-lower to Str comparisons (`let x: Int = v[i]` fixes it, `xiom.diff`);
    and `byte_at(...)` compared directly against a UInt8 constant is always
    false for bytes >= 128 (`(byte_at(s,i) as Int) & 0xFF` fixes it,
-   `xiom.typography`). Both are integer-width/signedness inference bugs --
-   needs minimal repros.
+   `xiom.typography`). Local probes for both simple shapes pass after R70
+   (the `Vec[elem]` binding refinement may cover the first) -- needs the
+   package repros.
 6. **Previously relayed, not yet reproduced here**: qualified enum patterns
    vs the exhaustiveness checker; `mut` pattern bindings; a free `log` symbol
    colliding with libm.
@@ -166,7 +171,7 @@ website lane pulls releases manually.
 > ("CONTINUATION HANDOFF (2026-09-23)") and docs/COMPILER_BUGS.md before
 > touching code. Compiler **v0.61.3** is released and matches stdlib
 > **v0.61.3**; `STDLIB_VERSION` pins `stdlib-v0.61.3`; every playground/stdlib
-> bug batch through R69 is fixed; the full e2e is 2370/2370 (local commits
+> bug batch through R70 is fixed; the full e2e is 2371/2371 (local commits
 > UNPUSHED). The registry staging canary is verified; production
 > publish waits on the owner's environment approval.
 > Work repro-first; rebuild `cargo build -p xiom` after checker/codegen
@@ -466,6 +471,25 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   `tmp/cleanbench/to_str_edges.xi` (now 42/1.5/2.5/true/hello/7/65/99/123)
   and the T = Int/Str/Bool/Float64/UInt + two-param lock
   `e2e_m122_generic_param_type` + CI line. Full e2e **2370/2370**.
+- **R70 FIXED (2026-09-23, packages relay -- `for x in <collection>`)**: the
+  For lowering treated EVERY iterable as `Range{start,end}`: a `%struct.Vec`
+  used its DATA POINTER as the index and stored `data+1` back into field 0
+  (silent data-pointer corruption), so Vec loops ran ZERO times (heap address
+  > len) and any Vec touched by a loop produced BUG-17-family garbage (the
+  geometer's "str_len garbage on Vec[Str] elements"); `&Vec` iterables emitted
+  invalid IR (clang "invalid getelementptr indices"). The checker bound the
+  loop var to Int ("simplified"), so `for s in vec_of_str` mistyped.
+  Collections now lower to real element loops (Vec value/`&Vec` header/array
+  literal/fixed array; typed element loads; break/continue/nesting intact);
+  `range_inclusive`/`0..=b` lower with end+1; real `Range` values keep
+  {start,end}; anything else fails LOUDLY. Checker: element-typed loop vars +
+  `Vec[elem]` registered for array-literal bindings. Lock
+  `e2e_m123_for_in_collections` + CI line. checker 195/195, parser 101/101,
+  feature-reg 510/510, integration 129/129, robustness 63/63, fuzz 24/24,
+  full e2e **2371/2371**.
+  Remaining relayed (package repros needed; local probes pass): indexed
+  `Vec[fn]` calls, untyped `Vec[Int]` reads lowered as Str compares, and
+  `byte_at(...) == UInt8` for bytes >= 128.
 - **Item-2 VERIFIED GREEN (2026-09-23)**: `stdlib_tests::
   stdlib_all_modules_compile_to_ir` passes on the current pin (with and
   without `XIOM_REQUIRE_STDLIB=1`); the R62-era ascii85/`float_to_string`

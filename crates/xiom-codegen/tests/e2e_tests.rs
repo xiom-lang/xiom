@@ -5260,6 +5260,20 @@ fn e2e_safety_probe() {
     );
 }
 
+// R70: `for x in <collection>` treated every iterable as Range{start,end}:
+// a %struct.Vec used field 0 (the DATA POINTER) as the loop index and wrote
+// data+1 back into it (silent corruption; zero iterations for heap Vecs),
+// and the checker bound the loop variable to Int (so `for s in vec_of_str`
+// failed type-checking). Collections now lower to a real element loop and
+// the checker binds the element type; unsupported iterables fail loudly.
+#[test] fn e2e_m123_for_in_collections() {
+    assert_eq!(
+        compile_and_run("tests/regression/m123_for_in_collections/main.xi"),
+        Some(0),
+        "R70 for-in over collections must iterate elements correctly"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

@@ -26,6 +26,182 @@ impl IrEmitter {
         }
     }
 
+    /// R70: lower `for <var> in <collection>` as a real element loop.
+    ///
+    /// Supported iterables: `Vec`/`Slice` values (`%struct.Vec`), references
+    /// to them (`%struct.Vec*` headers) and fixed arrays (`[N x T]`, which
+    /// also covers array-literal registers converted to Vec by the caller).
+    /// Anything else is a LOUD error -- the previous lowering treated every
+    /// iterable as `Range{start,end}`, so a Vec loop used the DATA POINTER as
+    /// the index and wrote `data+1` back into field 0.
+    fn emit_for_collection(
+        &mut self,
+        var: &Ident,
+        iter: &Expr,
+        iter_val: &str,
+        iter_alloca: &str,
+        iter_ty: &str,
+        body: &Block,
+        label: Option<&Ident>,
+    ) -> Result<(), String> {
+        let vec_like = iter_ty == "%struct.Vec"
+            || iter_ty == "%struct.Vec*"
+            || Self::is_llvm_struct_named(iter_ty, "Vec");
+        let fixed_array = iter_ty.starts_with('[') && iter_ty.contains(" x ");
+        // A real `Range` VALUE (xiom.iter.Range = {start, end}) keeps the
+        // historical {start,end} iteration -- it is the only non-collection
+        // iterable the old lowering handled correctly. NOTE: a 2-element
+        // fixed array `[2 x i64]` must NOT match -- it iterates elements.
+        let range_like = Self::is_llvm_struct_named(iter_ty, "Range");
+        if range_like {
+            let loop_cond = self.fresh_block("for_cond");
+            let loop_body = self.fresh_block("for_body");
+            let loop_exit = self.fresh_block("for_exit");
+            let start_gep = self.fresh_tmp();
+            self.emitln(&format!("  {start_gep} = getelementptr {iter_ty}, {iter_ty}* {iter_alloca}, i32 0, i32 0"));
+            let end_gep = self.fresh_tmp();
+            self.emitln(&format!("  {end_gep} = getelementptr {iter_ty}, {iter_ty}* {iter_alloca}, i32 0, i32 1"));
+            self.emitln(&format!("  br label %{loop_cond}"));
+            self.emitln(&format!("\n{loop_cond}:"));
+            let sv = self.fresh_tmp();
+            self.emitln(&format!("  {sv} = load i64, i64* {start_gep}"));
+            let end_val = self.fresh_tmp();
+            self.emitln(&format!("  {end_val} = load i64, i64* {end_gep}"));
+            let cond = self.fresh_tmp();
+            self.emitln(&format!("  {cond} = icmp slt i64 {sv}, {end_val}"));
+            self.emitln(&format!("  br i1 {cond}, label %{loop_body}, label %{loop_exit}"));
+            self.emitln(&format!("\n{loop_body}:"));
+            let var_alloca = self.fresh_tmp();
+            self.emitln(&format!("  {var_alloca} = alloca i64"));
+            self.emitln(&format!("  store i64 {sv}, i64* {var_alloca}"));
+            self.add_local(&var.name, var_alloca, "i64");
+            self.local.local_xiom_types.insert(var.name.clone(), "Int".to_string());
+            let next = self.fresh_tmp();
+            self.emitln(&format!("  {next} = add i64 {sv}, 1"));
+            self.emitln(&format!("  store i64 {next}, i64* {start_gep}"));
+            let label_name = label.map(|l| l.name.clone());
+            self.local.loop_stack.push((label_name, loop_cond.clone(), loop_exit.clone()));
+            self.local.loop_depth += 1;
+            let saved_match_ptr = self.fctx.match_result_ptr.take();
+            let body_res = self.compile_block(body, false);
+            self.fctx.match_result_ptr = saved_match_ptr;
+            body_res?;
+            self.local.loop_depth -= 1;
+            self.local.loop_stack.pop();
+            self.emitln(&format!("  br label %{loop_cond}"));
+            self.emitln(&format!("\n{loop_exit}:"));
+            return Ok(());
+        }
+        if !vec_like && !fixed_array {
+            return Err(format!(
+                "unsupported: `for` over '{iter_ty}' (only range(), Vec/Slice, fixed arrays and array literals can be iterated)"
+            ));
+        }
+
+        let elem_xiom = self.contract_elem_xiom(iter).ok_or_else(|| {
+            format!("unsupported: `for` over '{iter_ty}' (element type could not be resolved)")
+        })?;
+        let elem_llvm = if fixed_array {
+            Self::extract_array_elem_ty(iter_ty)
+        } else {
+            self.llvm_type_for(&elem_xiom).map_err(|_| {
+                format!("unsupported: `for` over '{iter_ty}' (no LLVM type for element '{elem_xiom}')")
+            })?
+        };
+
+        let loop_cond = self.fresh_block("for_cond");
+        let loop_body = self.fresh_block("for_body");
+        let loop_exit = self.fresh_block("for_exit");
+
+        let i_slot = self.fresh_tmp();
+        self.emitln(&format!("  {i_slot} = alloca i64"));
+        self.emitln(&format!("  store i64 0, i64* {i_slot}"));
+
+        // (data_ptr, len, elem_stride) for the Vec form; (slot, const, None)
+        // for fixed arrays (the element GEP handles the stride).
+        let (data_ptr, len_val, stride) = if vec_like {
+            let hdr = if iter_ty == "%struct.Vec*" { iter_val.to_string() } else { iter_alloca.to_string() };
+            let data_gep = self.fresh_tmp();
+            self.emitln(&format!("  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {hdr}, i32 0, i32 0"));
+            let data = self.fresh_tmp();
+            self.emitln(&format!("  {data} = load i8*, i8** {data_gep}"));
+            let len_gep = self.fresh_tmp();
+            self.emitln(&format!("  {len_gep} = getelementptr %struct.Vec, %struct.Vec* {hdr}, i32 0, i32 1"));
+            let len = self.fresh_tmp();
+            self.emitln(&format!("  {len} = load i64, i64* {len_gep}"));
+            let esz_gep = self.fresh_tmp();
+            self.emitln(&format!("  {esz_gep} = getelementptr %struct.Vec, %struct.Vec* {hdr}, i32 0, i32 3"));
+            let esz = self.fresh_tmp();
+            self.emitln(&format!("  {esz} = load i64, i64* {esz_gep}"));
+            (data, len, Some(esz))
+        } else {
+            let n = iter_ty
+                .trim_start_matches('[')
+                .split(" x ")
+                .next()
+                .and_then(|n| n.trim().parse::<i64>().ok())
+                .ok_or_else(|| format!("unsupported: `for` over '{iter_ty}' (non-constant array bound)"))?;
+            (String::new(), n.to_string(), None)
+        };
+
+        self.emitln(&format!("  br label %{loop_cond}"));
+        self.emitln(&format!("\n{loop_cond}:"));
+        let iv = self.fresh_tmp();
+        self.emitln(&format!("  {iv} = load i64, i64* {i_slot}"));
+        let cont = self.fresh_tmp();
+        self.emitln(&format!("  {cont} = icmp slt i64 {iv}, {len_val}"));
+        self.emitln(&format!("  br i1 {cont}, label %{loop_body}, label %{loop_exit}"));
+
+        self.emitln(&format!("\n{loop_body}:"));
+        let elem_ptr = if vec_like {
+            let off = self.fresh_tmp();
+            self.emitln(&format!("  {off} = mul i64 {iv}, {}", stride.as_deref().unwrap_or("1")));
+            let ep = self.fresh_tmp();
+            self.emitln(&format!("  {ep} = getelementptr i8, i8* {data_ptr}, i64 {off}"));
+            ep
+        } else {
+            let gep = self.fresh_tmp();
+            self.emitln(&format!("  {gep} = getelementptr {iter_ty}, {iter_ty}* {iter_alloca}, i64 0, i64 {iv}"));
+            gep
+        };
+        let elem_val = if vec_like {
+            let cast = self.fresh_tmp();
+            self.emitln(&format!("  {cast} = bitcast i8* {elem_ptr} to {elem_llvm}*"));
+            let v = self.fresh_tmp();
+            self.emitln(&format!("  {v} = load {elem_llvm}, {elem_llvm}* {cast}"));
+            v
+        } else {
+            let v = self.fresh_tmp();
+            self.emitln(&format!("  {v} = load {elem_llvm}, {elem_llvm}* {elem_ptr}"));
+            v
+        };
+        let var_alloca = self.fresh_tmp();
+        self.emitln(&format!("  {var_alloca} = alloca {elem_llvm}"));
+        self.emitln(&format!("  store {elem_llvm} {elem_val}, {elem_llvm}* {var_alloca}"));
+        self.add_local(&var.name, var_alloca, &elem_llvm);
+        self.local.local_xiom_types.insert(var.name.clone(), elem_xiom.clone());
+
+        // Increment BEFORE the body (mirrors the Range path): `continue`
+        // jumps to the condition and must not re-run the current element.
+        let iv1 = self.fresh_tmp();
+        self.emitln(&format!("  {iv1} = add i64 {iv}, 1"));
+        self.emitln(&format!("  store i64 {iv1}, i64* {i_slot}"));
+
+        let label_name = label.map(|l| l.name.clone());
+        self.local.loop_stack.push((label_name, loop_cond.clone(), loop_exit.clone()));
+        self.local.loop_depth += 1;
+        let saved_match_ptr = self.fctx.match_result_ptr.take();
+        let body_res = self.compile_block(body, false);
+        self.fctx.match_result_ptr = saved_match_ptr;
+        body_res?;
+        self.local.loop_depth -= 1;
+        self.local.loop_stack.pop();
+
+        self.emitln(&format!("  br label %{loop_cond}"));
+        self.emitln(&format!("\n{loop_exit}:"));
+        Ok(())
+    }
+
     pub(crate) fn compile_stmt_impl(&mut self, stmt: &Stmt) -> Result<(), String> {
         match stmt {
             Stmt::Let(name, _ty, value, _) => {
@@ -2601,21 +2777,31 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // loop lowering and the i64 result was GEP'd as a 2-field
                 // struct (clang "invalid getelementptr indices"). Resolve the
                 // builtin STRUCTURALLY (exactly two args) before name lookup.
-                let builtin_range_args: Option<(&Expr, &Expr)> = match iter {
-                    Expr::Call(f, args, _)
-                        if matches!(f.as_ref(), Expr::Ident(id) if id.name == "range")
-                            && args.len() == 2 =>
-                    {
-                        Some((&args[0], &args[1]))
-                    }
+                let builtin_range_args: Option<(&Expr, &Expr, bool)> = match iter {
+                    Expr::Call(f, args, _) if args.len() == 2 => match f.as_ref() {
+                        Expr::Ident(id) if id.name == "range" => Some((&args[0], &args[1], false)),
+                        // R70: `a..=b` desugars to range_inclusive(a, b); lower it
+                        // structurally too (it was previously compiled as an
+                        // undefined i64 call and iterated garbage).
+                        Expr::Ident(id) if id.name == "range_inclusive" => Some((&args[0], &args[1], true)),
+                        _ => None,
+                    },
                     _ => None,
                 };
                 // 1. Compile the iterator expression
-                let (iter_val, iter_ty) = if let Some((lo_e, hi_e)) = builtin_range_args {
+                let (iter_val, iter_ty) = if let Some((lo_e, hi_e, inclusive)) = builtin_range_args {
                     let (lo_raw, lo_ty) = self.compile_expr(lo_e)?;
                     let lo = self.val_to_i64(&lo_raw, &lo_ty);
                     let (hi_raw, hi_ty) = self.compile_expr(hi_e)?;
                     let hi = self.val_to_i64(&hi_raw, &hi_ty);
+                    // `a..=b` is the half-open range [a, b+1).
+                    let hi = if inclusive {
+                        let inc = self.fresh_tmp();
+                        self.emitln(&format!("  {inc} = add i64 {hi}, 1"));
+                        inc
+                    } else {
+                        hi
+                    };
                     let ra = self.fresh_tmp();
                     self.emitln(&format!("  {ra} = alloca [2 x i64]"));
                     let g0 = self.fresh_tmp();
@@ -2627,6 +2813,16 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     let lv = self.fresh_tmp();
                     self.emitln(&format!("  {lv} = load [2 x i64], [2 x i64]* {ra}"));
                     (lv, "[2 x i64]".to_string())
+                } else if matches!(iter, Expr::Array(..)) {
+                    // R70: an array LITERAL iterable compiles to a heap Vec
+                    // (its counted-buffer register has no per-element stride
+                    // metadata, so the Vec header is the only sound form).
+                    let elem_xiom = self.contract_elem_xiom(iter).unwrap_or_else(|| "Int".to_string());
+                    if let Expr::Array(elems, _) = iter {
+                        self.compile_array_as_vec(elems, &elem_xiom)?
+                    } else {
+                        unreachable!()
+                    }
                 } else {
                     self.compile_expr(iter)?
                 };
@@ -2635,6 +2831,18 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 let iter_alloca = self.fresh_tmp();
                 self.emitln(&format!("  {iter_alloca} = alloca {iter_ty}"));
                 self.emitln(&format!("  store {iter_ty} {iter_val}, {iter_ty}* {iter_alloca}"));
+
+                // R70: COLLECTION iteration -- the old lowering treated every
+                // iterable as Range{start: i64, end: i64}: for a %struct.Vec it
+                // read field 0 (the DATA POINTER) as the loop index and STORED
+                // data+1 back into it (silent corruption of the Vec's data
+                // pointer), so `for x in v` silently iterated zero times (heap
+                // address > len) or over garbage. Collection iterables now get
+                // a real element loop; unsupported iterables are rejected
+                // loudly instead of looping over whatever field 0 holds.
+                if builtin_range_args.is_none() {
+                    return self.emit_for_collection(var, iter, &iter_val, &iter_alloca, &iter_ty, body, label.as_ref());
+                }
 
                 // 3. Create loop blocks
                 let loop_cond = self.fresh_block("for_cond");

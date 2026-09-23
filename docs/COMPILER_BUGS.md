@@ -7697,6 +7697,51 @@ verification, with repro commands using the playground lesson sources
   question is moot for this failure mode: the erased-LLVM fallback is correct
   once the stale entry is gone).
   Full e2e 2370/2370 (R69 batch).
+- **R70 (packages relay: `for x in <collection>` / BUG-17-family garbage)**:
+  FIXED. Two coupled defects:
+  (a) CODEGEN: the For lowering compiled the iterable and ALWAYS treated it as
+  `Range{start: i64, end: i64}` -- field 0 = index, field 1 = bound. For a
+  `%struct.Vec` field 0 is the DATA POINTER and field 1 the length, so
+  `for x in v` used a heap address as the index, `icmp slt data_ptr, len` was
+  false (heap address > len) and the loop silently ran ZERO times; had it
+  iterated, `store data+1` would have CORRUPTED the Vec's data pointer. The
+  loop variable was bound to field 0 (a pointer), never to an element.
+  Non-2-field iterables GEP'd a pointer base and clang rejected the IR
+  (`invalid getelementptr indices`, e.g. `&Vec` params). The checker also
+  bound the loop variable to `CheckedType::Int` unconditionally
+  ("simplified"), so `for s in vec_of_str { str_len(s) }` failed with
+  "expected Str, found Int" and struct-element loops typed `p.x` as Int.
+  This is the BUG-17 family the geometer relayed as "str_len()/.len() garbage
+  for Str values read back from Vec[Str] elements": any Vec touched by a
+  `for` loop had its data pointer rewritten.
+  FIX (codegen, stmt.rs): `for` over a collection lowers to a REAL element
+  loop -- `%struct.Vec` values and `%struct.Vec*` headers read
+  data/len/esz from the header and load elements at `i*esz` in their own
+  LLVM type (Int/Str/struct/Bool elements verified); array LITERALS compile
+  to a heap Vec first (their counted-buffer register has no stride
+  metadata); fixed arrays `[N x T]` iterate with a typed GEP; a real
+  `Range` value keeps {start,end} iteration; `range_inclusive`/`0..=b` is
+  lowered structurally with `end+1` (previously an undefined i64 call that
+  iterated garbage); anything else fails LOUDLY. Loop var gets its element
+  LLVM type (and XIOM name) recorded, `break`/`continue`/labels/nesting keep
+  working (increment before the body, like the Range path).
+  FIX (checker): `CheckedType::for_loop_element_type` maps
+  `Vec[T]`/`&Vec[T]`/`Slice[T]`/`Set[T]`/`[N]T` -> T (`Range` -> Int, other
+  iterables keep the historical Int); `let`/`var` bindings of array literals
+  now register `Vec[elem]` via `inferred_binding_type` so a loop over the
+  BINDING knows the element type (`var words = ["a","bbb"]; for s in words`).
+  VERIFICATION: probes for Vec locals, `&Vec` params, array literals, fixed
+  arrays (incl. a 2-element array that must NOT be read as a Range), Vec[Str]
+  with `str_len`, Vec[Point] element field access, nested loops,
+  break/continue, `range`, `0..b`, `0..=b` and a `Range` value. Lock
+  `e2e_m123_for_in_collections` + CI line. checker 195/195; parser 101/101;
+  feature-reg 510/510; integration 129/129; robustness 63/63; fuzz 24/24;
+  full e2e 2371/2371.
+  REMAINING from the relay (need the package repros; simple local probes for
+  each shape pass): indexed calls through `Vec[fn]` elements (likely the same
+  for-loop family -- `run_all` iterating tests), untyped `Vec[Int]` element
+  reads lowered as Str comparisons (the `Vec[elem]` binding refinement may
+  cover it), and `byte_at(...) == <UInt8 const>` for bytes >= 128.
 - **Item-2 status update (2026-09-23)**: `stdlib_tests::
   stdlib_all_modules_compile_to_ir` now PASSES on the current pin (verified
   with and without `XIOM_REQUIRE_STDLIB=1`; 42 s, all modules together). The

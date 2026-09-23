@@ -335,6 +335,51 @@ impl CheckedType {
         }
     }
 
+    /// R70: element type of a `for`-in iterable.
+    /// * `Vec[T]` / `&Vec[T]` / `Slice[T]` / `Set[T]` -> `T`
+    /// * fixed array `[N]T` -> `T`
+    /// * `Range` -> `Int`
+    /// * anything else keeps the historical `Int` binding (the codegen
+    ///   rejects iterables it cannot lower, so a collection loop can no
+    ///   longer be silently mis-typed or mis-lowered).
+    pub fn for_loop_element_type(iter_ty: &CheckedType) -> CheckedType {
+        let name = iter_ty.name();
+        let mut name = name.trim();
+        loop {
+            if let Some(rest) = name.strip_prefix('&') {
+                name = rest.trim_start();
+                if let Some(rest) = name.strip_prefix("mut ") {
+                    name = rest.trim_start();
+                }
+                continue;
+            }
+            break;
+        }
+        for prefix in ["Vec[", "Slice[", "Set["] {
+            if let Some(rest) = name.strip_prefix(prefix) {
+                if let Some(inner) = rest.strip_suffix(']') {
+                    let inner = inner.trim();
+                    // Single-argument containers only (Map yields pairs).
+                    if !inner.is_empty() && !inner.contains(',') {
+                        return CheckedType::from_str(inner);
+                    }
+                }
+            }
+        }
+        if let Some(rest) = name.strip_prefix('[') {
+            if let Some(close) = rest.find(']') {
+                let elem = rest[close + 1..].trim();
+                if !elem.is_empty() {
+                    return CheckedType::from_str(elem);
+                }
+            }
+        }
+        if name == "Range" || name.starts_with("Range[") {
+            return CheckedType::Int;
+        }
+        CheckedType::Int
+    }
+
     pub fn from_str(s: &str) -> Self {
         // Stage 2c: every Named value is interned CANONICALLY. Spelling
         // variants ("Result[Int,Str]" / " Result[ Int , Str ] ") therefore
