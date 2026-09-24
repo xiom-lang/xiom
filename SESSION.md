@@ -32,8 +32,8 @@ timeline below are the detailed log -- read the newest entries for evidence.
   feature-reg 510/510, robustness 63/63, fuzz 24/24.
 - stdlib-dependent (re-run on the pin): api-freeze **2/2** (m125 regen),
   stdlib-exec **85/85 (+2 ignored)**.
-- tooling: pkg 72/72 (m126), release-notes **6/6** (new), mcp 39/39,
-  ascii_guard OK.
+- tooling: pkg **74/74** (m126 + m128), release-notes **6/6** (new),
+  mcp 39/39, ascii_guard OK.
 - CI: ubuntu-latest green on the pushed R66 state. The Windows CI leg has NOT
   been re-run since R66 (pushes to main do not trigger CI) -- the next push/PR
   validates it; R66 removed the previous Windows-only failure.
