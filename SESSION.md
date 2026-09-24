@@ -200,8 +200,14 @@ website lane pulls releases manually.
 > element-to-local calls, fn-element calls through struct fields) PLUS the
 > packages lane's three reproduced probes (fn-ptr struct field -> clang
 > ptr/i64 mismatch; generic `[T,U]` fn-ptr with U=Str -> corrupt Str;
-> generic `Vec[U] map` -> mis-written elements + AV for U=Str); repros in
-> `tmp/probe_p1/` + `tmp/fp_probe/`, spec in docs/COMPILER_BUGS.md m127.
+> generic `Vec[U] map` -> mis-written elements + AV for U=Str) PLUS the
+> stdlib lane's cross-type callback matrix (cross-type returns wrong:
+> Int->Str by-ref/by-value, Int->Float64, `sort_by_key[Int,Str]`;
+> same-type and concrete are correct) -- the call/return ABI must follow the
+> monomorphised instantiation. Also in Sprint C: the E001 conservatism
+> checker fix (no warning for consumed temporary borrows; never weaken the
+> genuine-overlap warning). Repro dirs: `tmp/probe_p1/`, `tmp/fp_probe/`;
+> specs in docs/COMPILER_BUGS.md m127 + this timeline entry.
 > (2) the agreed verified toolchain updater + MCP
 > `get_contracts`/`search_symbols` per `docs/POST_RELEASE_PLAN.md`
 > (`xiom toolchain check --json` can ship without the attestation
@@ -602,6 +608,47 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   TLS/schannel FFI hardening (stdlib B-list, gates any HTTPS/TLS claim) must
   either ship in this same window or be explicitly excluded in the release
   notes.
+- **Website "What's new" compliance (2026-09-24)**: new tool
+  `crates/xiom-release-notes` (std-only, no deps) implements the website
+  contract (schema v1, `xiom-lang/website` `docs/release-notes-schema.md`):
+  `convert` parses `release-notes/<tag>.md`, merges the stdlib fragment at
+  `<stdlib>/release-notes/<tag>.md` (highlights default to `kind: stdlib`),
+  validates HARD (ASCII/plain-text/no internal ids or hashes, summary 1-240
+  without a version, 1-6 highlights, title<=60, text<=320, kind enum, present
+  `breaking` where `- None.` becomes `[]`, docs https), and writes
+  `release-notes/<tag>.json` deterministically; `verify` regenerates from the
+  markdown and fails unless the committed JSON is byte-identical. Wired:
+  `release-notes/TEMPLATE.md` + `README.md`, a CI test step
+  (`cargo test -p xiom-release-notes`, 6 unit tests), and the release workflow
+  gate BEFORE `gh release create` (stdlib checkout at the pin + toolchain +
+  `verify`), plus `client_payload[notes_path]` in the `compiler-release`
+  dispatch so the website lane can publish the same file to
+  `dl.xiom-lang.org/releases/<tag>/release.json` and set `"notes": true` in
+  `releases/index.json` (requirement 5 lives in the website/ops lane).
+  Smoke-tested end-to-end via the CLI (convert + verify + JSON parse with
+  Python; fragment kinds merged correctly).
+- **stdlib relay #2 triage (2026-09-24)**: recorded, fixes scheduled:
+  * E001 conservatism: deterministic repro at their
+    `tools/probes/evidence/p_e001_borrow_conservatism.xi` (pattern: a
+    `&local` call, then a later `&mut local` call; 7 warnings in
+    `smoke_collect_sparse`, compile/run green). New checker item: E001 must
+    not fire for non-overlapping/consumed temporary borrows, WITHOUT weakening
+    the genuine-overlap warning. Scheduled with Sprint C.
+  * Generic fn-pointer cross-type matrix: 4 repros filed in their
+    `tools/known_failures/` (fnptr Int->Str by-ref; map Int->Str and
+    Int->Float64 by value; Option[Int].map[U]; sort_by_key[Int,Str] silent
+    mis-sort). Matrix: concrete and same-type generic callbacks are CORRECT;
+    CROSS-TYPE callback returns are wrong (Str->Int is correct). Stdlib
+    surfaces to avoid until fixed: `sort_by_key[Int,Str]` and
+    array/Range/MapIter/Option/Result `.map` with cross-type U; they locked
+    the working surface with `smoke_sort_by_key`. Same root family as the
+    packages' fp probes: the call/return ABI must follow the MONOMORPHISED
+    instantiation, not the erased generic signature.
+  * m125 closed independently on compiler main (freeze 2/2 in 46s).
+  * Shape re-probes confirmed R67/R68/R69/R70/R72 and the still-open
+    `Vec[fn]` literal / `.new()+push` AVs (matches our m127 residuals);
+    their green lock `p_r70_pending_shapes.xi` is parked for promotion in the
+    pin-bump commit.
 - **Front-end audit + backlog (2026-09-24, NOT implemented)**: after a Win11
   first-run report (`xiom doctor` said LLVM missing although LLVM was
   installed; it pointed at the dead `xiom install llvm`), a read-only audit of

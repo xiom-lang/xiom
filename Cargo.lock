@@ -1666,6 +1666,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "xiom-release-notes"
+version = "0.61.3"
+
+[[package]]
 name = "xiom-verify"
 version = "0.61.3"
 dependencies = [

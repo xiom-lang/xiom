@@ -21,6 +21,7 @@ members = [
     "crates/xiom-dbg",
     "crates/xiom-display",
     "crates/xiom-graph",
+    "crates/xiom-release-notes",
     "crates/xiom-wasm",
     "crates/xiom-ctfe",
     "crates/xiom-jit",

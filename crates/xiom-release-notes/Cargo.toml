@@ -1,0 +1,15 @@
+# Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+[package]
+license.workspace = true
+publish = false
+name = "xiom-release-notes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+# No dependencies on purpose: the converter/validator must run in the release
+# job with nothing but the toolchain, and the supply-chain gate stays
+# audited-only.
+[dependencies]

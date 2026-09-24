@@ -521,6 +521,30 @@ jobs:
         with:
           path: xiom-src
 
+      - name: Read STDLIB_VERSION
+        id: notes_pin
+        shell: bash
+        run: echo "ref=$(tr -d '\r\n ' < xiom-src/STDLIB_VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout stdlib at the pin (release-notes fragment)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: xiom-lang/stdlib
+          ref: ${{ steps.notes_pin.outputs.ref }}
+          path: stdlib
+          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN || github.token }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+
+      - name: Verify release notes ("What's new")
+        # The contract (xiom-lang/website docs/release-notes-schema.md, schema
+        # v1) requires the JSON to be committed BEFORE the tag; `verify`
+        # regenerates it from the markdown sources (+ the stdlib fragment) and
+        # fails the release on any schema violation or drift.
+        working-directory: xiom-src
+        run: cargo run --quiet -p xiom-release-notes -- verify --tag "$GITHUB_REF_NAME" --stdlib ../stdlib
+
       - name: Download all artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -581,7 +605,8 @@ jobs:
             -f event_type=compiler-release \
             -f "client_payload[tag]=$TAG" \
             -f "client_payload[stdlib_ref]=$stdlib_ref" \
-            -f "client_payload[compiler_ref]=$COMPILER_REF"; then
+            -f "client_payload[compiler_ref]=$COMPILER_REF" \
+            -f "client_payload[notes_path]=release-notes/$TAG.json"; then
             echo "::warning::compiler-release dispatch to $DOCS_REPO failed (extend XIOM_RELEASE_TOKEN to Contents: read/write on $DOCS_REPO) -- release is unaffected"
             exit 0
           fi

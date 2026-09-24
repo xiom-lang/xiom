@@ -121,6 +121,9 @@ jobs:
       - name: Run unit tests
         run: cargo test --workspace --lib
 
+      - name: Release-notes converter/validator tests
+        run: cargo test -p xiom-release-notes
+
       - name: Compiler robustness + fuzz-regression suites
         run: |
           cargo test -p xiom-codegen --test fuzz_tests
