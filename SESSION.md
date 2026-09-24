@@ -26,9 +26,9 @@ timeline below are the detailed log -- read the newest entries for evidence.
 
 ## Gates (latest evidence)
 
-- Full e2e **2377/2377** -- re-run ON THE PIN for the Sprint C batch
-  (2026-09-24, 1512.3 s; includes m129..m132). Sprint B ran 2374/2374
-  (1691.6 s); Sprint A ran 2373/2373 (1851.5 s).
+- Full e2e **2377/2377** -- re-run ON THE PIN for the Sprint D batch
+  (2026-09-24, 1449.5 s). Sprint C ran 2377/2377 (1512.3 s); Sprint B
+  2374/2374 (1691.6 s); Sprint A 2373/2373 (1851.5 s).
 - checkers: checker 195/195, parser 102/102, integration 130/130,
   feature-reg 510/510, robustness 63/63, fuzz 24/24.
 - stdlib-dependent (re-run on the pin): api-freeze **2/2** (m125 regen),
@@ -94,14 +94,22 @@ item; one batch or split by root cause, each with locks):
 Specs: `docs/COMPILER_BUGS.md` (m127, R66-R72) + the 2026-09-24 timeline
 entries.
 
-**Sprint D**: the agreed verified toolchain updater + MCP
-`get_contracts`/`search_symbols` (`docs/POST_RELEASE_PLAN.md`).
-`xiom toolchain check --json` needs no new dependencies and ships first; the
-full `update` needs in-process provenance-attestation verification
-(dependency procurement first).
+**Sprint D**: LANDED (2026-09-24) -- `xiom toolchain check [--json]` and the
+MCP `get_contracts`/`search_symbols` tools shipped (see "Sprint D landed").
+The `update`/`rollback` half still needs in-process provenance-attestation
+verification (dependency procurement first); it refuses with exit 3 and the
+status is recorded in `docs/POST_RELEASE_PLAN.md` section 1.
 
 **Sprint E**: Stage 6 (performance program) and Stage 7 (selfhost gate).
-**Stage 5 is CLEAR** (compiler lane).
+**Stage 5 is CLEAR** (compiler lane). Starting points, from the Stage 6/7
+notes: Stage 6 has its gate (`crates/xiom-codegen/tests/perf_budget_tests.rs`:
+IR byte budgets + 180s ceiling + byte-identical determinism canary, CI-wired)
+and one landed step (deterministic `pick_deterministic` selection); its
+continuation items are the real incremental engine (only reachable functions
+re-emitted, per-body snapshot cache) and parallel codegen. Stage 7 is the
+selfhost ladder (v092..v11 milestone emitters, not yet a self-compiling
+chain). Both are multi-session programs; scope the first batch from the
+Stage 6 notes before touching code.
 
 **Small cleanups** (from older handoffs, still open): drop/relocate the
 `xiom-benchmark-chaos` paths in `e2e_tests.rs`; consider making the e2e
@@ -169,13 +177,13 @@ lane policy).
 > `main`; push only when asked). Read the top section of SESSION.md
 > ("CONTINUATION HANDOFF (2026-09-24, compiler lane)") plus
 > `docs/FRONTEND_AUDIT.md` (the owner-approved P0/P1 backlog) and
-> `docs/COMPILER_BUGS.md` (R66-R72, m127, Sprints A+B) before touching code.
+> `docs/COMPILER_BUGS.md` (R66-R72, m127, Sprints A-D) before touching code.
 >
 > State: compiler v0.61.3 released; `STDLIB_VERSION` pins `stdlib-v0.61.3`
 > (the local `stdlib/` checkout is detached at that tag); `origin/main` has
 > R66 only, with the whole campaign unpushed on local `main` (R67-R72, m125,
-> m126, m128, the audit, the release-notes publisher, Sprints A-C, docs).
-> Full e2e 2377/2377 on the pin (Sprint C batch); api-freeze 2/2 and
+> m126, m128, the audit, the release-notes publisher, Sprints A-D, docs).
+> Full e2e 2377/2377 on the pin (Sprint D batch); api-freeze 2/2 and
 > stdlib-exec 85/85 on the pin; no red gates. The owner
 > batched everything into ONE release (no intermediate tags; recommend
 > v0.62.0), sequenced as: compiler Sprints A+B+C -> stdlib completes its plan
@@ -185,12 +193,13 @@ lane policy).
 > the tag) -> version bump + push + tag -> registry re-canary, website
 > publishes the notes to dl.
 >
-> Sprints A-C are LANDED -- see "Sprint C landed" above; do not redo them.
-> Start with **Sprint D (toolchain)** unless the user says otherwise: first
-> `xiom toolchain check --json` (read-only, verifies the install against the
-> release manifest), then the full verified updater and the MCP contract
-> queries (FE-7 JSON shapes are already in place from Sprint A). Follow
-> SESSION.md's toolchain section for the exact scope and acceptance.
+> Sprints A-D are LANDED -- see "Sprint D landed" above; do not redo them.
+> Start with **Sprint E (Stage 6/7)** unless the user says otherwise; the
+> "Sprint E" queue note above lists the concrete starting points (Stage 6
+> gate exists at `crates/xiom-codegen/tests/perf_budget_tests.rs`; the real
+> incremental engine + parallel codegen and the Stage 7 selfhost ladder are
+> the open work). Stage 5 is CLEAR. Scope the first batch from the Stage 6
+> notes before touching code.
 >
 > Method (non-negotiable): work repro-first; rebuild `cargo build -p xiom`
 > after checker/codegen changes; add an e2e lock (`e2e_mNNN_*` fixture + the
@@ -199,7 +208,9 @@ lane policy).
 > keep `python tools/ascii_guard.py check` green; commit atomically with
 > evidence in SESSION.md and docs/COMPILER_BUGS.md.
 >
-> Then Sprint E (Stage 6/7; Stage 5 CLEAR).
+> After Sprint E: the release sequence in the State paragraph (stdlib
+> completes -> pin bump -> full gates -> release-notes/v0.62.0.md -> version
+> bump + push + tag -> registry re-canary, website notes to dl).
 
 ## Sprint A landed (2026-09-24, compiler lane)
 
@@ -282,8 +293,27 @@ root causes in docs/COMPILER_BUGS.md ("2026-09-24 -- Sprint C").
   fn-typed param declares `fn(T) -> U` by value (runtime AV); needs a
   fn-signature compatibility check.
 
-Next: Sprint D (toolchain `check --json`, then the verified updater + MCP),
-then Sprint E (Stage 6/7).
+## Sprint D landed (2026-09-24, compiler lane)
+
+`xiom toolchain check` + the MCP structured-contract tools; details in
+docs/COMPILER_BUGS.md ("2026-09-24 -- Sprint D") and the status note in
+docs/POST_RELEASE_PLAN.md section 1.
+
+- `crates/xiom/src/toolchain_cmd.rs`: GitHub-Releases-only `check [--json]`
+  (`current/latest/platform/up_to_date/notes` + `install_kind/asset/exe`),
+  exit codes 0/1/2, package-manager + dev install detection; verified live
+  (v0.61.3 = latest, exit 0). `xiom doctor` points at the command.
+- `update`/`rollback` refuse with exit 3 pending in-process attestation
+  verification (dependency procurement); the refusal names `check` + the
+  release installer. POST_RELEASE_PLAN records the block precisely.
+- MCP: `get_contracts {symbol, verify?, file?}` (structured signature +
+  requires/ensures/invariants with source lines; Z3 fold when `verify:true`)
+  and `search_symbols {query, file?}` (ranked stdlib + project hits), built on
+  the same live stdlib catalog scan as `xiom_stdlib_reference`. 18 tools.
+- Gates: full e2e **2377/2377** on the pin (1449.5 s); MCP 44/44 (5 new
+  contract tests); workspace all-targets clean; live check green.
+
+Next: Sprint E (Stage 6/7).
 
 # XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-83 in docs/SESSION.md)
 
