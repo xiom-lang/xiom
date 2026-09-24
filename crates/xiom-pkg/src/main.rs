@@ -198,6 +198,11 @@ struct Package {
     authors: Vec<String>,
     modules: Vec<String>,
     deps: HashMap<String, String>,
+    /// m128 (registry relay): optional toolchain tag this version was built
+    /// with (`compiler: "v0.61.3"`). Travels with the package and is sent to
+    /// the registry as the per-version `compiler` field so the website can
+    /// correlate packages with toolchain releases. Immutable per version.
+    compiler: Option<String>,
 }
 
 fn parse_manifest(manifest: &str) -> Package {
@@ -220,6 +225,8 @@ fn parse_manifest(manifest: &str) -> Package {
             pkg.version = value;
         } else if let Some(value) = extract_field(line, "description:") {
             pkg.description = value;
+        } else if let Some(value) = extract_field(line, "compiler:") {
+            pkg.compiler = Some(value);
         } else if line.starts_with("authors:") {
             let (values, consumed) = read_array(&lines, i);
             pkg.authors = values;
@@ -456,6 +463,23 @@ fn validate_git_pin(dep: &str, spec: &str) -> Result<(), String> {
         "git dependency '{dep}' is pinned to the MUTABLE ref '{rev}' ({url}); \
          pin a full commit hash (40 hex chars) or set XIOM_PKG_ALLOW_MUTABLE_GIT=1"
     ))
+}
+
+/// m128: validate the toolchain tag sent as the registry's per-version
+/// `compiler` field (m128): 1-64 ASCII chars shaped like `vX.Y.Z` (a leading
+/// `v` is optional; a `-suffix` is allowed).
+fn validate_compiler_tag(raw: &str) -> Result<String, String> {
+    let s = raw.trim();
+    if s.is_empty() || s.len() > 64 || !s.is_ascii() {
+        return Err(format!("--compiler '{raw}' must be 1-64 ASCII characters"));
+    }
+    let core = s.strip_prefix('v').unwrap_or(s);
+    let core = core.split('-').next().unwrap_or(core);
+    let parts: Vec<&str> = core.split('.').collect();
+    if parts.len() != 3 || parts.iter().any(|p| p.is_empty() || !p.chars().all(|c| c.is_ascii_digit())) {
+        return Err(format!("--compiler '{raw}' must look like vX.Y.Z (suffix allowed)"));
+    }
+    Ok(s.to_string())
 }
 
 fn validate_dependency_specs(pkg: &Package) -> Result<(), String> {
@@ -731,6 +755,38 @@ fn publish_package(args: &[String]) {
     if let (Some(sig), Some(pk)) = (signature.as_deref(), public_key.as_deref()) {
         fields.push(("signature", sig));
         fields.push(("publicKey", pk));
+    }
+    // m128 (registry relay): the registry stores a per-version `compiler`
+    // field (capped at 64 chars) and the website correlates packages with
+    // toolchain releases through it. `--compiler <tag>` wins over the
+    // manifest's `compiler:` field; both are validated as a vX.Y.Z tag.
+    let compiler_raw = args
+        .iter()
+        .position(|a| a == "--compiler")
+        .and_then(|i| args.get(i + 1))
+        .cloned()
+        .or_else(|| pkg.compiler.clone());
+    let compiler_field = match compiler_raw {
+        Some(raw) => match validate_compiler_tag(&raw) {
+            Ok(tag) => {
+                println!("  compiler: {tag}");
+                Some(tag)
+            }
+            Err(e) => {
+                eprintln!("xiom pkg: {e}");
+                process::exit(1);
+            }
+        },
+        None => {
+            eprintln!(
+                "  note: no `compiler:` field in package.xi and no --compiler flag -- \
+                 the registry will not be able to correlate this version with a toolchain release"
+            );
+            None
+        }
+    };
+    if let Some(tag) = compiler_field.as_deref() {
+        fields.push(("compiler", tag));
     }
 
     // Upload tarball to registry via multipart form (ureq-only).
@@ -1100,7 +1156,7 @@ fn print_command_usage(cmd: &str) {
         "install" => eprintln!("Usage: xiom pkg install <package>[@version]"),
         "search" => eprintln!("Usage: xiom pkg search [query] [--category <c>] [--json]"),
         "info" => eprintln!("Usage: xiom pkg info <package>[@version] [--json]"),
-        "publish" => eprintln!("Usage: xiom pkg publish [--token <TOKEN>] [--tarball <PATH>]"),
+        "publish" => eprintln!("Usage: xiom pkg publish [--token <TOKEN>] [--tarball <PATH>] [--compiler <tag>]"),
         "keygen" => eprintln!("Usage: xiom pkg keygen [--out <PATH>]"),
         "trust" => eprintln!("Usage: xiom pkg trust --registry <URL> --key <ed25519-public-hex>"),
         "trusted" => eprintln!("Usage: xiom pkg trusted"),
@@ -1123,6 +1179,9 @@ fn print_usage() {
     eprintln!("  xiom pkg install <pkg>[@version]  Install package (local packages fallback)");
     eprintln!("  xiom pkg publish [--tarball <PATH>]  Publish package (re-packs, or promotes");
     eprintln!("                                     exactly the given .tar.gz bytes)");
+    eprintln!("                   [--compiler <tag>] Records the toolchain tag this release was");
+    eprintln!("                                     built with (vX.Y.Z; also read from the");
+    eprintln!("                                     package.xi `compiler:` field)");
     eprintln!("  xiom pkg lock                      Generate xiom.lock from package.xi");
     eprintln!("  xiom pkg list                       List installed packages");
     eprintln!();
@@ -1162,6 +1221,33 @@ modules: ["src/mod1.xi", "src/mod2.xi"];
         assert_eq!(pkg.version, "0.1.0");
         assert_eq!(pkg.description, "A test package");
         assert_eq!(pkg.modules, vec!["src/mod1.xi".to_string(), "src/mod2.xi".to_string()]);
+    }
+
+    #[test]
+    fn test_parse_manifest_compiler_field() {
+        let manifest = r#"
+name: "mypkg";
+version: "0.1.0";
+compiler: "v0.61.3";
+"#;
+        let pkg = parse_manifest(manifest);
+        assert_eq!(pkg.compiler.as_deref(), Some("v0.61.3"));
+        // Absent -> None (publish warns, does not fail).
+        let pkg = parse_manifest("name: \"x\";\nversion: \"1.0.0\";\n");
+        assert_eq!(pkg.compiler, None);
+    }
+
+    #[test]
+    fn test_validate_compiler_tag() {
+        assert_eq!(validate_compiler_tag("v0.61.3").unwrap(), "v0.61.3");
+        assert_eq!(validate_compiler_tag(" 0.62.0 ").unwrap(), "0.62.0");
+        assert_eq!(validate_compiler_tag("v1.2.3-rc1").unwrap(), "v1.2.3-rc1");
+        assert!(validate_compiler_tag("").is_err());
+        assert!(validate_compiler_tag("nightly").is_err());
+        assert!(validate_compiler_tag("v0.61").is_err());
+        assert!(validate_compiler_tag("v0.61.3.4").is_err());
+        assert!(validate_compiler_tag(&"v".repeat(70)).is_err());
+        assert!(validate_compiler_tag("v0.61.\u{e9}").is_err());
     }
 
     #[test]
