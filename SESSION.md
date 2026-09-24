@@ -337,6 +337,22 @@ docs/COMPILER_BUGS.md ("2026-09-24 -- Relay").
 - Gates: full e2e **2379/2379** on the pin (1871.5 s); checker 195/195;
   catalog corpus clean; workspace all-targets clean.
 
+## Stage 6 increment (2026-09-24, compiler lane)
+
+Sprint E started with the smallest safe bite: the fmt-peek closure shape now
+has its own perf budget. `tests/perf/fmt_peek.xi` (Int/Float64 `.to_str()`,
+the shape that pulls `xiom.fmt` through `collect_external_decls`'s peek) is
+covered by `perf_budget_tests.rs::perf_budget_fmt_peek_shape`: byte budget
+95,000 (baseline 80,300) plus a 20 s debug-profile ceiling, so the documented
+sweep p50 3.9 -> 7.9 s regression cannot grow unnoticed while the real fix
+waits. Perf 3/3.
+
+Stage 6 open (unchanged): the reachable-function-only peek restructure (fix
+shape in COMPILER_BUGS: peek the checker-resolved module shallow, run the
+reachability filter, then pull the deps named by the SELECTED decls to a
+fixpoint), parallel monomorphization profiles, linker strategy, more budget
+metrics. Stage 7: the selfhost ladder (multi-phase).
+
 # XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-83 in docs/SESSION.md)
 
 2026-09-17 update (post-split, `main`): the registry-client findings

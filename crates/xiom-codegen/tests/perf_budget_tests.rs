@@ -89,6 +89,28 @@ fn perf_budget_emitted_ir_bytes() {
     }
 }
 
+/// Stage 6: the fmt-peek closure shape (`n.to_str()` pulls `xiom.fmt` through
+/// `collect_external_decls`'s peek). Baseline 2026-09-24 (debug): 80,300
+/// bytes, ~1.0-1.1 s; sweep p50 3.9 -> 7.9 s when the closure peek regressed.
+/// The documented fix (reachable-function-only peek) is deferred to the
+/// Stage 6 catalog-index work; until then this locks the emitted IR and a
+/// generous per-case ceiling so the shape cannot disappear from the gate.
+#[test]
+fn perf_budget_fmt_peek_shape() {
+    let (ir, ms) = emit_ir("tests/perf/fmt_peek.xi");
+    let bytes = ir.len() as u64;
+    println!("[perf] tests/perf/fmt_peek.xi: {bytes} bytes IR in {ms} ms (budget 95,000)");
+    assert!(
+        bytes <= 95_000,
+        "tests/perf/fmt_peek.xi: emitted IR regressed: {bytes} bytes > budget 95000"
+    );
+    // Debug-profile timeout only; the byte budget is the deterministic signal.
+    assert!(
+        ms < 20_000,
+        "tests/perf/fmt_peek.xi: {ms} ms -- the fmt-peek closure regression is back"
+    );
+}
+
 #[test]
 fn perf_determinism_ir_is_byte_identical() {
     // R25: the bench graph (30 modules, same-leaf fns in several modules) was
