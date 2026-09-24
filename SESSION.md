@@ -172,13 +172,14 @@ lane policy).
 > `main`; push only when asked). Read the top section of SESSION.md
 > ("CONTINUATION HANDOFF (2026-09-24, compiler lane)") plus
 > `docs/FRONTEND_AUDIT.md` (the owner-approved P0/P1 backlog) and
-> `docs/COMPILER_BUGS.md` (R66-R72, m127) before touching code.
+> `docs/COMPILER_BUGS.md` (R66-R72, m127, Sprint A) before touching code.
 >
 > State: compiler v0.61.3 released; `STDLIB_VERSION` pins `stdlib-v0.61.3`
 > (the local `stdlib/` checkout is detached at that tag); `origin/main` has
-> R66 only, with 10 unpushed commits on local `main` (R67-R72, m125, m126,
-> the audit, the release-notes publisher). Full e2e 2373/2373 (pre-pin);
-> api-freeze 2/2 and stdlib-exec 85/85 on the pin; no red gates. The owner
+> R66 only, with 17 unpushed commits on local `main` (R67-R72, m125, m126,
+> m128, the audit, the release-notes publisher, Sprint A). Full e2e
+> 2373/2373 re-run ON THE PIN for the Sprint A batch; api-freeze 2/2 and
+> stdlib-exec 85/85 on the pin; no red gates. The owner
 > batched everything into ONE release (no intermediate tags; recommend
 > v0.62.0), sequenced as: compiler Sprints A+B+C -> stdlib completes its plan
 > + cuts its release + ships its release-notes fragment -> bump
