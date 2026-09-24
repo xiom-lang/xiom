@@ -12,11 +12,11 @@ timeline below are the detailed log -- read the newest entries for evidence.
   VSIX 0.12.0 live on both marketplaces). Compiler matches stdlib v0.61.3;
   `STDLIB_VERSION` pins `stdlib-v0.61.3`.
 - **Git:** `origin/main` = `1f7a9fbc` (R66 + its handoff note are PUSHED).
-  Local `main` with **11 unpushed commits**: R67+R68, R69, R70, R71,
+  Local `main` is **13 commits ahead of origin**: R67+R68, R69, R70, R71,
   R72/m127, m125 (freeze + CI gate), m126 (deterministic publish bytes +
   `publish --tarball`), m128 (publish sends the registry `compiler` field),
-  session/handoff docs, the front-end audit (`docs/FRONTEND_AUDIT.md`), and
-  the website release-notes publisher (`crates/xiom-release-notes`).
+  the front-end audit (`docs/FRONTEND_AUDIT.md`), the website release-notes
+  publisher (`crates/xiom-release-notes`), and the docs/handoff commits.
   Tree clean.
 - **stdlib checkout:** `stdlib/` is now **detached at the pin**
   `stdlib-v0.61.3` (`c7b4027`). It had been 6 commits stale (`385e1e4`);
