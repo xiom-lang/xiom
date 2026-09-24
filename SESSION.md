@@ -26,10 +26,11 @@ timeline below are the detailed log -- read the newest entries for evidence.
 
 ## Gates (latest evidence)
 
-- Full e2e **2373/2373** -- re-run ON THE PIN for the Sprint A batch
-  (2026-09-24, 1851.5 s); the earlier 2373 run (R66/m119..R72/m127 locks) was
-  pre-pin and predates Sprint A.
-- checkers: checker 195/195, parser 101/101, integration 130/130,
+- Full e2e **2374/2374** -- re-run ON THE PIN for the Sprint B batch
+  (2026-09-24, 1691.6 s; includes the new m129 lock). The Sprint A batch ran
+  2373/2373 on the pin (1851.5 s); the earlier pre-pin run
+  (R66/m119..R72/m127 locks) also stood at 2373/2373.
+- checkers: checker 195/195, parser 102/102, integration 130/130,
   feature-reg 510/510, robustness 63/63, fuzz 24/24.
 - stdlib-dependent (re-run on the pin): api-freeze **2/2** (m125 regen),
   stdlib-exec **85/85 (+2 ignored)**.
@@ -72,11 +73,8 @@ ship in this same window or be explicitly excluded from the release notes.
 landed" note above. FE-1..FE-5, FE-7, FE-8, FE-9 complete (+FE-16 via the
 embedded pin); FE-6 (`doctor --deep`) deliberately deferred to Sprint B.
 
-**Sprint B -- front-end P1**: FE-10 installers ship all 9 tools + the archive
-runtime layout; FE-11 `install_deps.ps1` LLVM fallback (pin + SHA256 or
-winget-only); FE-12 grouped user-facing `--help`; FE-13/14/15 duplicates,
-banners, uninstall PATH cleanup; FE-17 `module x;` trailing-semicolon
-tolerance.
+**Sprint B -- front-end P1: LANDED (2026-09-24)** -- see the "Sprint B
+landed" note above (FE-6, FE-10..FE-15, FE-17 complete).
 
 **Sprint C -- fn-value / generic-mono ABI unification** (highest correctness
 item; one batch or split by root cause, each with locks):
@@ -172,13 +170,13 @@ lane policy).
 > `main`; push only when asked). Read the top section of SESSION.md
 > ("CONTINUATION HANDOFF (2026-09-24, compiler lane)") plus
 > `docs/FRONTEND_AUDIT.md` (the owner-approved P0/P1 backlog) and
-> `docs/COMPILER_BUGS.md` (R66-R72, m127, Sprint A) before touching code.
+> `docs/COMPILER_BUGS.md` (R66-R72, m127, Sprints A+B) before touching code.
 >
 > State: compiler v0.61.3 released; `STDLIB_VERSION` pins `stdlib-v0.61.3`
 > (the local `stdlib/` checkout is detached at that tag); `origin/main` has
 > R66 only, with the whole campaign unpushed on local `main` (R67-R72, m125,
-> m126, m128, the audit, the release-notes publisher, Sprint A, docs). Full e2e
-> 2373/2373 re-run ON THE PIN for the Sprint A batch; api-freeze 2/2 and
+> m126, m128, the audit, the release-notes publisher, Sprints A+B, docs).
+> Full e2e 2374/2374 on the pin (Sprint B batch); api-freeze 2/2 and
 > stdlib-exec 85/85 on the pin; no red gates. The owner
 > batched everything into ONE release (no intermediate tags; recommend
 > v0.62.0), sequenced as: compiler Sprints A+B+C -> stdlib completes its plan
@@ -188,14 +186,17 @@ lane policy).
 > the tag) -> version bump + push + tag -> registry re-canary, website
 > publishes the notes to dl.
 >
-> Sprint A (front-end P0) is LANDED -- see "Sprint A landed" above; do not
-> redo it. Start with **Sprint B (front-end P1)** unless the user says
-> otherwise: FE-10/FE-14 (installers ship all 9 tools + the archive `lib/`
-> runtime layout + modern banners), FE-11 (`install_deps.ps1` LLVM fallback:
-> pin + SHA256 or winget-only), FE-12 (grouped user-facing `--help`),
-> FE-13/FE-15 (`xiom.bat` precedence + uninstaller PATH cleanup), FE-17
-> (`module x;` trailing-semicolon tolerance), and FE-6 (`doctor --deep`),
-> which Sprint A deliberately deferred (documented in FRONTEND_AUDIT.md).
+> Sprints A and B (front-end P0/P1) are LANDED -- see "Sprint B landed"
+> above; do not redo them. Start with **Sprint C (fn-value / generic-mono
+> ABI unification)** unless the user says otherwise: the m127 residuals
+> (`tmp/probe_p1/`: `Vec[fn].new()+push` elements, element-to-local calls,
+> fn-element calls through struct fields), the packages' three confirmed
+> probes (`tmp/fp_probe/`: fn-ptr struct field, generic `[T,U]` fn-ptr with
+> U=Str, generic `Vec[U]` map), the stdlib cross-type callback matrix
+> (Int->Str by-ref/by-value, Int->Float64, `sort_by_key[Int,Str]`; same-type
+> and concrete are correct), and the E001 conservatism checker fix (no
+> warning for consumed temporary borrows; never weaken the genuine-overlap
+> warning). One batch or split by root cause, each with locks.
 >
 > Method (non-negotiable): work repro-first; rebuild `cargo build -p xiom`
 > after checker/codegen changes; add an e2e lock (`e2e_mNNN_*` fixture + the
@@ -204,14 +205,8 @@ lane policy).
 > keep `python tools/ascii_guard.py check` green; commit atomically with
 > evidence in SESSION.md and docs/COMPILER_BUGS.md.
 >
-> After Sprint B: Sprint C -- the
-> fn-value / generic-mono ABI unification covering the m127 residuals
-> (`tmp/probe_p1/`), the packages' three confirmed probes
-> (`tmp/fp_probe/`), the stdlib cross-type callback matrix
-> (Int->Str by-ref/by-value, Int->Float64, `sort_by_key[Int,Str]`; same-type
-> and concrete are correct) and the E001 conservatism checker fix. Then
-> Sprint D (toolchain `check --json` first, then the full verified updater +
-> MCP contract queries) and Sprint E (Stage 6/7; Stage 5 is CLEAR).
+> Then Sprint D (toolchain `check --json` first, then the full verified
+> updater + MCP contract queries) and Sprint E (Stage 6/7; Stage 5 CLEAR).
 
 ## Sprint A landed (2026-09-24, compiler lane)
 
@@ -241,7 +236,29 @@ implemented and gated. Details + evidence: docs/COMPILER_BUGS.md
 - Deferred: clang version floor (no agreed floor), `doctor --deep`/`--fix`
   (Sprint B FE-6), installers FE-10..FE-15, grouped help FE-12.
 
-Next: Sprint B (FE-10..FE-15, FE-17), then Sprint C (fn-value/generic-mono).
+Next: Sprint C (fn-value/generic-mono), then Sprint D, E.
+
+## Sprint B landed (2026-09-24, compiler lane)
+
+Front-end P1 (FE-6, FE-10..FE-15, FE-17) is implemented and gated; details in
+docs/COMPILER_BUGS.md ("2026-09-24 -- Front-end audit Sprint B").
+
+- FE-17: one optional `;` after a `module` header (brace-less and block form)
+  is tolerated; lock `e2e_m129_module_trailing_semicolon` (+CI line) and a
+  parser unit test.
+- FE-6: `xiom doctor --deep` compiles AND RUNS a trivial program end-to-end.
+- FE-12: grouped `xiom --help` (no sprint tags; every flag kept; tool help
+  line for the dispatcher).
+- FE-13: `xiom --version` prints the install root; `xiom.bat` prefers its own
+  directory over a stale LOCALAPPDATA install.
+- FE-10/FE-14: installers ship all 9 tools + the archive `lib/` layout and
+  finish with `xiom doctor` (`--json` in CI); modern banners. Found and fixed
+  a pre-existing `-Unattended` crash (`$registerExt` vs the `$RegisterExt`
+  switch parameter).
+- FE-15: the generated uninstaller cleans PATH (user + best-effort machine).
+- FE-11: unpinned LLVM direct downloads removed from install_deps.ps1/.sh.
+- Gates: parser 102/102; full e2e **2374/2374** on the pin; workspace
+  all-targets check clean; ascii guard clean.
 
 # XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-83 in docs/SESSION.md)
 
