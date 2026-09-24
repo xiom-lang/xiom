@@ -12,11 +12,12 @@ timeline below are the detailed log -- read the newest entries for evidence.
   VSIX 0.12.0 live on both marketplaces). Compiler matches stdlib v0.61.3;
   `STDLIB_VERSION` pins `stdlib-v0.61.3`.
 - **Git:** `origin/main` = `1f7a9fbc` (R66 + its handoff note are PUSHED).
-  Local `main` is **13 commits ahead of origin**: R67+R68, R69, R70, R71,
+  Local `main` is **17 commits ahead of origin**: R67+R68, R69, R70, R71,
   R72/m127, m125 (freeze + CI gate), m126 (deterministic publish bytes +
   `publish --tarball`), m128 (publish sends the registry `compiler` field),
   the front-end audit (`docs/FRONTEND_AUDIT.md`), the website release-notes
-  publisher (`crates/xiom-release-notes`), and the docs/handoff commits.
+  publisher (`crates/xiom-release-notes`), the docs/handoff commits, and the
+  Sprint A front-end batch (shared toolchain probe + doctor v2 + FE-8/FE-9).
   Tree clean.
 - **stdlib checkout:** `stdlib/` is now **detached at the pin**
   `stdlib-v0.61.3` (`c7b4027`). It had been 6 commits stale (`385e1e4`);
@@ -25,15 +26,17 @@ timeline below are the detailed log -- read the newest entries for evidence.
 
 ## Gates (latest evidence)
 
-- Full e2e **2373/2373** -- last full run was BEFORE the pin refresh:
-  R66/m119, R67/m120, R68/m121, R69/m122, R70/m123, R71/m124, R72/m127 locks.
-  The next batch (Sprint A) runs the full e2e again, on the pin.
+- Full e2e **2373/2373** -- re-run ON THE PIN for the Sprint A batch
+  (2026-09-24, 1851.5 s); the earlier 2373 run (R66/m119..R72/m127 locks) was
+  pre-pin and predates Sprint A.
 - checkers: checker 195/195, parser 101/101, integration 130/130,
   feature-reg 510/510, robustness 63/63, fuzz 24/24.
 - stdlib-dependent (re-run on the pin): api-freeze **2/2** (m125 regen),
   stdlib-exec **85/85 (+2 ignored)**.
-- tooling: pkg **74/74** (m126 + m128), release-notes **6/6** (new),
-  mcp 39/39, ascii_guard OK.
+- tooling: pkg **75/75** (m126 + m128 + FE-9 alias), release-notes **6/6**
+  (new), mcp 39/39, ascii_guard OK; new front-end locks: toolchain 7/7 +
+  doctor 10/10 unit tests and `doctor_cli` 2/2 (CI step "Front-end CLI
+  lock").
 - CI: ubuntu-latest green on the pushed R66 state. The Windows CI leg has NOT
   been re-run since R66 (pushes to main do not trigger CI) -- the next push/PR
   validates it; R66 removed the previous Windows-only failure.
@@ -65,15 +68,9 @@ ship in this same window or be explicitly excluded from the release notes.
 
 ## Queue, in order
 
-**Sprint A -- front-end P0** (spec: `docs/FRONTEND_AUDIT.md` FE-1..FE-9):
-doctor v2 with ONE shared toolchain probe for clang+nasm used by doctor AND
-the driver (PATH then per-OS candidates; kill the hardcoded personal NASM
-path in `lib.rs`), resolved paths + versions, OS-specific remediation
-instead of the dead `xiom install llvm`, identity block (exe/install root/
-XIOM_HOME/stdlib root via `paths::stdlib_root()` + version/LLVM/NASM/z3),
-`--json` + exit codes, retire the legacy `xiom publish` (alias to
-`xiom pkg publish`), fix `xiom update`'s text and the `xiom pkg` help
-example, and align `xiom.std` vs the registry's `xiom-std` (FE-9).
+**Sprint A -- front-end P0: LANDED (2026-09-24)** -- see the "Sprint A
+landed" note above. FE-1..FE-5, FE-7, FE-8, FE-9 complete (+FE-16 via the
+embedded pin); FE-6 (`doctor --deep`) deliberately deferred to Sprint B.
 
 **Sprint B -- front-end P1**: FE-10 installers ship all 9 tools + the archive
 runtime layout; FE-11 `install_deps.ps1` LLVM fallback (pin + SHA256 or
@@ -190,13 +187,14 @@ lane policy).
 > the tag) -> version bump + push + tag -> registry re-canary, website
 > publishes the notes to dl.
 >
-> Start with **Sprint A (front-end P0)** unless the user says otherwise:
-> FE-1/FE-2/FE-3 (one shared clang+nasm probe used by doctor AND the driver;
-> resolved paths/versions; OS-specific remediation instead of the dead
-> `xiom install llvm`), FE-4/FE-5/FE-7 (doctor identity block, stdlib via
-> `paths::stdlib_root()`, `--json` + exit codes), FE-8 (retire legacy
-> `xiom publish`, fix `xiom update` text and the pkg help example), FE-9
-> (`xiom.std` vs registry `xiom-std` alignment).
+> Sprint A (front-end P0) is LANDED -- see "Sprint A landed" above; do not
+> redo it. Start with **Sprint B (front-end P1)** unless the user says
+> otherwise: FE-10/FE-14 (installers ship all 9 tools + the archive `lib/`
+> runtime layout + modern banners), FE-11 (`install_deps.ps1` LLVM fallback:
+> pin + SHA256 or winget-only), FE-12 (grouped user-facing `--help`),
+> FE-13/FE-15 (`xiom.bat` precedence + uninstaller PATH cleanup), FE-17
+> (`module x;` trailing-semicolon tolerance), and FE-6 (`doctor --deep`),
+> which Sprint A deliberately deferred (documented in FRONTEND_AUDIT.md).
 >
 > Method (non-negotiable): work repro-first; rebuild `cargo build -p xiom`
 > after checker/codegen changes; add an e2e lock (`e2e_mNNN_*` fixture + the
@@ -205,7 +203,7 @@ lane policy).
 > keep `python tools/ascii_guard.py check` green; commit atomically with
 > evidence in SESSION.md and docs/COMPILER_BUGS.md.
 >
-> After Sprint A: Sprint B (FE-10..FE-15, FE-17), then Sprint C -- the
+> After Sprint B: Sprint C -- the
 > fn-value / generic-mono ABI unification covering the m127 residuals
 > (`tmp/probe_p1/`), the packages' three confirmed probes
 > (`tmp/fp_probe/`), the stdlib cross-type callback matrix
@@ -213,6 +211,36 @@ lane policy).
 > and concrete are correct) and the E001 conservatism checker fix. Then
 > Sprint D (toolchain `check --json` first, then the full verified updater +
 > MCP contract queries) and Sprint E (Stage 6/7; Stage 5 is CLEAR).
+
+## Sprint A landed (2026-09-24, compiler lane)
+
+Front-end P0/P1 (FE-1..FE-5, FE-7, FE-8, FE-9; FE-16 via the pin embed) is
+implemented and gated. Details + evidence: docs/COMPILER_BUGS.md
+("2026-09-24 -- Front-end audit Sprint A").
+
+- `crates/xiom/src/toolchain.rs`: ONE clang/opt/nasm probe for doctor AND the
+  driver (PATH first, resolved to absolute paths; then per-OS known locations
+  incl. the winget globs; the personal NASM path and `find_tool`/`find_nasm`
+  are gone; `opt` follows clang's directory).
+- `crates/xiom/src/doctor.rs`: doctor v2 -- identity block (exe/install root/
+  XIOM_HOME/stdlib root via `paths::stdlib_root()` + version/tool path+version/
+  runtime), warnings (compiler<->stdlib version, stdlib<->embedded pin,
+  runtime missing, duplicate installs), OS-specific remediation with no
+  `xiom install llvm`, `--json`, exit codes 0/1/2.
+- FE-8: `xiom publish` is a deprecation alias for `xiom pkg publish` (legacy
+  git-tag flow deleted); `xiom update` points at the reinstall one-liner /
+  future `xiom toolchain update`; pkg help example fixed; the old improvement
+  plan is marked historical.
+- FE-9: `xiom.std` <-> `xiom-std` client aliases; live-verified (`info` both
+  spellings -> v0.61.3 sha256 1ad1b33a5caa; `install xiom.hello` end-to-end
+  into a temp XIOM_HOME).
+- Locks: 7 toolchain + 10 doctor unit tests; `doctor_cli` 2 binary tests
+  (CI step "Front-end CLI lock"). Workspace all-targets check clean; ascii
+  guard clean; **full e2e 2373/2373 on the pin**.
+- Deferred: clang version floor (no agreed floor), `doctor --deep`/`--fix`
+  (Sprint B FE-6), installers FE-10..FE-15, grouped help FE-12.
+
+Next: Sprint B (FE-10..FE-15, FE-17), then Sprint C (fn-value/generic-mono).
 
 # XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-83 in docs/SESSION.md)
 
