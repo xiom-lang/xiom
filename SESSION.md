@@ -26,10 +26,11 @@ timeline below are the detailed log -- read the newest entries for evidence.
 
 ## Gates (latest evidence)
 
-- Full e2e **2379/2379** -- re-run ON THE PIN for the relay batch
-  (2026-09-24, 1871.5 s; includes m134/m136). Sprint D ran 2377/2377
-  (1449.5 s); Sprint C 2377/2377 (1512.3 s); Sprint B 2374/2374 (1691.6 s);
-  Sprint A 2373/2373 (1851.5 s).
+- Full e2e **2375/2375 (+4 ignored)** -- re-run ON THE PIN for the
+  non-blocker batch (2026-09-24, 1809.8 s; the 4 ignored are the relocated
+  benchmark-chaos runs). The relay batch ran 2379/2379 (1871.5 s); Sprint D
+  2377/2377 (1449.5 s); Sprint C 2377/2377 (1512.3 s); Sprint B 2374/2374
+  (1691.6 s); Sprint A 2373/2373 (1851.5 s).
 - checkers: checker 195/195, parser 102/102, integration 130/130,
   feature-reg 510/510, robustness 63/63, fuzz 24/24.
 - stdlib-dependent (re-run on the pin): api-freeze **2/2** (m125 regen),
@@ -118,10 +119,12 @@ selfhost ladder (v092..v11 milestone emitters, not yet a self-compiling
 chain). Both are multi-session programs; scope the first batch from the
 Stage 6 notes before touching code.
 
-**Small cleanups** (from older handoffs, still open): drop/relocate the
-`xiom-benchmark-chaos` paths in `e2e_tests.rs`; consider making the e2e
-harness delete its outputs; legacy-package migration note/codemod (packages
-lane policy).
+**Small cleanups** (from older handoffs): DONE (2026-09-24) -- the
+`xiom-benchmark-chaos` e2e tests t2-t5 no longer point at the removed
+monorepo checkout (relocated to the internal `tests/ecosystem/t*.xi` copies,
+ignored with a reason; compile coverage stays in `e2e_i2_parallel_codegen`),
+and the e2e harness deletes its per-invocation outputs (binary + .wasm).
+Legacy-package migration note/codemod remains the packages lane's policy.
 
 ## Cross-lane status
 
@@ -190,8 +193,8 @@ lane policy).
 > (the local `stdlib/` checkout is detached at that tag); `origin/main` has
 > R66 only, with the whole campaign unpushed on local `main` (R67-R72, m125,
 > m126, m128, the audit, the release-notes publisher, Sprints A-D, docs).
-> Full e2e 2379/2379 on the pin (relay batch); api-freeze 2/2 and
-> stdlib-exec 85/85 on the pin; no red gates. The owner
+> Full e2e 2375/2375 (+4 ignored) on the pin (non-blocker batch); api-freeze
+> 2/2 and stdlib-exec 85/85 on the pin; no red gates. The owner
 > batched everything into ONE release (no intermediate tags; recommend
 > v0.62.0), sequenced as: compiler Sprints A+B+C -> stdlib completes its plan
 > + cuts its release + ships its release-notes fragment -> bump
@@ -369,7 +372,8 @@ The compiler side is release-ready on the current pin; the only external
 dependency left is the stdlib lane's own release.
 
 - Gate battery re-run on the pin after all of Sprints A-D + the relay batch:
-  full e2e **2379/2379**, checker 195/195, parser 102/102, integration
+  full e2e **2375/2375 (+4 ignored)** on the final tree, checker 195/195,
+  parser 102/102, integration
   130/130, feature-reg 510/510, robustness 63/63, fuzz 24/24, api-freeze
   2/2, stdlib-exec 85/85 (+2 ignored), stdlib modules 40/40, mcp 44/44,
   pkg 75/75, release-notes 6/6, perf 3/3; workspace all-targets clean.
@@ -385,9 +389,39 @@ dependency left is the stdlib lane's own release.
   run since R66 -- the Windows leg is the main unknown) -> tag v0.62.0
   (guard: tag == workspace version + ancestor of main) -> registry
   re-canary -> website publishes the notes to dl with notes: true.
-- Not release-blocking: the attested updater (D2 tail, procurement), private
-  enum same-leaf triage, the older small cleanups (e2e harness output
-  deletion, benchmark-chaos path cleanup).
+- Not release-blocking: the attested updater (D2 tail, procurement) and the
+  legacy-package migration note/codemod (packages lane policy). The earlier
+  follow-ups (strict clause default, `@pre`-on-call runtime, private enums,
+  e2e/harness cleanups) are landed or switched -- see "Non-blocker batch
+  landed".
+
+## Non-blocker batch landed (2026-09-24, compiler lane)
+
+The known non-blocking items are cleared or moved behind a switch; details in
+docs/COMPILER_BUGS.md (relay follow-ups, status 2026-09-24 evening).
+
+- `@pre` on a METHOD CALL -- FIXED at runtime: the pre-state collector
+  recorded the callee name instead of the receiver, so `len()@pre` read the
+  live length (ensures `len() == len()@pre + 1` fired although the length grew
+  by exactly 1). Bare callee idents are no longer collected as variables, and
+  a method with any `@pre` always snapshots `self`. m136 now runs the real
+  clause at runtime.
+- Full predicate-Bool clause checking -- TRANSITION SWITCH:
+  `XIOM_STRICT_CLAUSES=1` enables the strict rule while the default stays
+  light. All 8 stdlib clause sites were triaged as GENUINE stdlib issues (no
+  checker gaps): ptr 91 undefined `old_value`, math 201/561 Float64-vs-Int,
+  sync 378 / rc 29 bare `strong_count` without `()`, array 219 nonexistent
+  `is_sorted_by`. The stdlib lane verifies with
+  `XIOM_STRICT_CLAUSES=1 cargo test -p xiom-check catalog_corpus_is_clean`;
+  when that is green, flip the default (one condition in
+  `check_clause_bool_mix`). Fixture m137 + checker lock cover both modes.
+- Private ENUM same-leaf triage -- landed: pub AND private enums now
+  participate like types; identical layouts keep the shared key.
+- Cleanups -- benchmark-chaos tests relocated to the internal copies and
+  ignored (compile coverage stays in `e2e_i2_parallel_codegen`); the e2e
+  harness now deletes its per-invocation outputs.
+- Gates: full e2e **2375/2375 (+4 ignored)**, checker 195/195, catalog corpus
+  clean, workspace all-targets clean.
 
 # XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-83 in docs/SESSION.md)
 
