@@ -32,15 +32,17 @@ use xiom_ast::*;
 /// mono/concrete-container keys are leaf-derived; the shape triage decides
 /// renaming (identical layouts keep the legacy single key).
 ///
-/// Enums stay pub-only: private enums are not injected directly, and a
-/// private enum-vs-type leaf collision is a separate follow-up.
+/// Enums are included too (pub AND private): like private types, a private
+/// enum referenced by an injected body is pulled into the program, so a
+/// same-leaf private enum pair can collide the same way. Identical layouts
+/// keep the shared key via the shape triage.
 pub(crate) fn declared_type_leaves(items: &[TopDecl], out: &mut BTreeSet<String>) {
     for item in items {
         match item {
             TopDecl::Type(td) => {
                 out.insert(td.name.name.clone());
             }
-            TopDecl::Enum(ed) if ed.is_pub => {
+            TopDecl::Enum(ed) => {
                 out.insert(ed.name.name.clone());
             }
             TopDecl::Module(md) => declared_type_leaves(&md.items, out),
@@ -114,8 +116,7 @@ pub(crate) fn enum_decl_shape(ed: &EnumDecl) -> String {
 }
 
 /// Injectable type/enum leaves mapped to `(shape, is_generic)`.
-/// Types include private decls (see `declared_type_leaves`); enums stay
-/// pub-only.
+/// Types AND enums include private decls (see `declared_type_leaves`).
 pub(crate) fn declared_type_shapes(items: &[TopDecl], out: &mut BTreeMap<String, (String, bool)>) {
     for item in items {
         match item {
@@ -125,7 +126,7 @@ pub(crate) fn declared_type_shapes(items: &[TopDecl], out: &mut BTreeMap<String,
                     (type_decl_shape(td), !td.generics.is_empty()),
                 );
             }
-            TopDecl::Enum(ed) if ed.is_pub => {
+            TopDecl::Enum(ed) => {
                 out.insert(ed.name.name.clone(), (enum_decl_shape(ed), false));
             }
             TopDecl::Module(md) => declared_type_shapes(&md.items, out),

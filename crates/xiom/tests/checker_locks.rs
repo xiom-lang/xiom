@@ -62,3 +62,33 @@ fn m136_well_typed_clauses_still_run() {
     let _ = std::fs::remove_file(&exe);
     assert_eq!(run.code(), Some(0), "m136 must exit 0");
 }
+
+#[test]
+fn m137_strict_clause_mode_rejects_non_bool_predicates() {
+    // Default (light) mode: `requires: x` (Int) is accepted.
+    let (stderr, code, exe) = run_on("m137_clause_non_bool");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(code, Some(0), "light mode must accept the fixture. stderr:\n{stderr}");
+
+    // Strict mode: the full predicate rule rejects it. The stdlib lane runs
+    // the same switch over the catalog corpus before the default flips.
+    let exe = std::env::temp_dir().join(format!(
+        "xiom_check_strict_{}{}",
+        std::process::id(),
+        if cfg!(windows) { ".exe" } else { "" }
+    ));
+    let output = Command::new(xiom_bin())
+        .arg(fixture("m137_clause_non_bool"))
+        .arg("-o")
+        .arg(&exe)
+        .env("XIOM_STRICT_CLAUSES", "1")
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn '{}': {e}", xiom_bin()));
+    let _ = std::fs::remove_file(&exe);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_ne!(output.status.code(), Some(0), "strict mode must reject. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("contract clause must be Bool"),
+        "expected the strict predicate diagnostic, got:\n{stderr}"
+    );
+}

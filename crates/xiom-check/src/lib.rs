@@ -4559,6 +4559,12 @@ impl Checker {
     /// unrelated stdlib clause shapes (undefined old-value names, method
     /// resolution gaps, Float/Int semantics) are untouched.
     fn check_clause_bool_mix(&mut self, fd: &FnDecl) {
+        // Transition switch for the stdlib clause cleanup (see
+        // docs/COMPILER_BUGS.md "Relay"): with XIOM_STRICT_CLAUSES=1 every
+        // clause must type as Bool. The light validator below stays active in
+        // both modes; the default remains light until the 8 stdlib clause
+        // sites are fixed and the corpus gate is re-run with strict on.
+        let strict = std::env::var_os("XIOM_STRICT_CLAUSES").is_some();
         let has_ensures = fd
             .contracts
             .iter()
@@ -4574,9 +4580,29 @@ impl Checker {
             None
         };
         for clause in &fd.contracts {
-            let expr = match clause {
-                ContractClause::Requires(e, _) | ContractClause::Ensures(e, _) => e,
+            let (expr, span) = match clause {
+                ContractClause::Requires(e, s) => (e, *s),
+                ContractClause::Ensures(e, s) => (e, *s),
             };
+            if strict {
+                self.push_scope();
+                if let Some(ret) = &result_ty {
+                    self.add_local("result", ret.clone());
+                }
+                let ty = self.check_expr(expr);
+                let ok = matches!(&ty, CheckedType::Bool | CheckedType::Error)
+                    || matches!(&ty, CheckedType::Named(n) if n == "_");
+                if !ok {
+                    self.error(
+                        format!(
+                            "contract clause must be Bool, found {} (strict mode)",
+                            ty.name()
+                        ),
+                        span,
+                    );
+                }
+                self.pop_scope();
+            }
             self.walk_clause_bool_mix(expr, result_ty.as_ref());
         }
     }

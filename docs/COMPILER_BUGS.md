@@ -8232,21 +8232,41 @@ catalog corpus clean.
   catalog corpus and would require stdlib-lane fixes first. The light
   validator deliberately stays silent on anything it cannot resolve, so the
   reported class is closed without that coupling.
-- **Follow-ups recorded**:
-  1. Full predicate-Bool clause checking needs these stdlib clause fixes (or
-     checker triage): `xiom.ptr` 91 (`result == old_value`, undefined name),
-     `xiom.math` 201/561 (`base >= 0.0 || exp == to_int(exp)` reports a
-     Float64/Int mix), `xiom.sync` 378 and `xiom.rc` 29
-     (`strong_count == 1` reports "cannot compare fn with Int"),
-     `xiom.array` 219 (`arr.is_sorted_by(compare)` -> "cannot call
-     'is_sorted_by' on this expression").
-  2. `@pre` on a METHOD CALL (`len()@pre`, the collections `Vec.push` shape)
-     compiles and types but its RUNTIME snapshot is wrong: a `bump()` whose
-     ensures is `len() == len()@pre + 1` fires "contract violated" although
-     the length grew by exactly 1. Param-position `@pre` is unaffected.
-     Pre-existing; the m136 lock intentionally exercises only the typing
-     contract (`len()@pre >= 0`).
-  3. Private ENUM same-leaf collisions are still untriaged (types only).
+- **Follow-ups recorded** (status 2026-09-24 evening):
+  1. Full predicate-Bool clause checking -- ALL EIGHT sites triaged and
+     confirmed GENUINE stdlib clause issues (no checker gaps): `xiom.ptr` 91
+     (`result == old_value`, undefined name; use `(*dest)@pre`),
+     `xiom.math` 201/561 (Float64 `exp` compared with the Int from
+     `to_int(exp)`), `xiom.sync` 378 and `xiom.rc` 29 (bare `strong_count`
+     without `()` resolves to the method name), `xiom.array` 219
+     (`arr.is_sorted_by(compare)` -- no such method exists in the module).
+     TRANSITION SWITCH LANDED: `XIOM_STRICT_CLAUSES=1` enables the full
+     predicate rule (every clause must type as Bool) while the default stays
+     on the light validator. The stdlib lane verifies with
+     `XIOM_STRICT_CLAUSES=1 cargo test -p xiom-check catalog_corpus_is_clean`
+     (or any build with the env set); when their fixes land, flip the default
+     (one condition in `check_clause_bool_mix`). Fixture m137 + checker lock
+     cover both modes.
+  2. `@pre` on a METHOD CALL -- FIXED (2026-09-24). Root cause:
+     `collect_atpre_vars`/`collect_pre_idents` recorded the CALLEE ident
+     (`len`) as if it were a variable and never collected the receiver, so
+     `pre_snapshot_vars = ["len"]`, no `self` snapshot was emitted, and
+     `len()@pre` evaluated against the live receiver (ensures
+     `len() == len()@pre + 1` fired although the length grew by exactly 1).
+     Fix: bare callee idents are no longer collected as variables, and a
+     method body with any `@pre` always snapshots `self` (the existing
+     ref-receiver rebind then evaluates the call against `__self_pre`). The
+     m136 lock now runs the real clause at runtime.
+  3. Private ENUM same-leaf collisions -- TRIAGED (2026-09-24): enums now
+     participate in the collision set for pub AND private decls, matching the
+     private-type fix; identical layouts keep the shared key. Catalog corpus
+     + full e2e green.
+  4. Small cleanups -- DONE (2026-09-24): the benchmark-chaos e2e tests t2-t5
+     no longer point at the removed monorepo checkout (relocated to the
+     internal `tests/ecosystem/t*.xi` copies, ignored with a reason; compile
+     coverage stays in `e2e_i2_parallel_codegen`), and the e2e harness now
+     deletes its per-invocation `e2e_*` binary (plus `compile_wasm`'s .wasm)
+     so full runs leave no artifacts.
 
 
 

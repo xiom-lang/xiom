@@ -1635,6 +1635,15 @@ impl IrEmitter {
             for expr in &self.fctx.current_ensures {
                 Self::collect_atpre_vars(expr, &mut pre_vars);
             }
+            // Relay follow-up: `len()@pre` (implicit-self method call) collects
+            // only the callee NAME -- the receiver is never a variable in the
+            // expression, so no `self` snapshot was emitted and the @pre call
+            // evaluated against the LIVE receiver. Any @pre in a method body
+            // may depend on the receiver: snapshot it whenever the fn has a
+            // `self` local.
+            if self.lookup_local("self").is_some() {
+                pre_vars.insert("self".to_string());
+            }
             // R25: SORT the snapshot worklist -- HashSet iteration assigned the
             // per-field pre-slots in a different order per run, shifting the
             // emitted alloca numbering (Gauge.adjust: `%tmp9/%tmp11/%tmp13`
@@ -1975,7 +1984,16 @@ impl IrEmitter {
             Expr::Imply(l, r, _) => { Self::collect_atpre_vars(l, vars); Self::collect_atpre_vars(r, vars); }
             Expr::Is(e, _, _) => Self::collect_atpre_vars(e, vars),
             Expr::Unary(_, e, _) => Self::collect_atpre_vars(e, vars),
-            Expr::Call(f, args, _) | Expr::GenericCall(f, _, args, _) => { Self::collect_atpre_vars(f, vars); for a in args { Self::collect_atpre_vars(a, vars); } }
+            Expr::Call(f, args, _) | Expr::GenericCall(f, _, args, _) => {
+                // A BARE callee ident is a function/method NAME, not a
+                // variable (`len()@pre` collected "len", so the rebind loop
+                // looked for a nonexistent `__len_pre`). Field/Index callees
+                // still contribute their base (`total(b)@pre`).
+                if !matches!(f.as_ref(), Expr::Ident(_)) {
+                    Self::collect_atpre_vars(f, vars);
+                }
+                for a in args { Self::collect_atpre_vars(a, vars); }
+            }
             Expr::Field(e, _, _) | Expr::Index(e, _, _) => Self::collect_atpre_vars(e, vars),
             Expr::Some(e, _) | Expr::Ok(e, _) | Expr::Err(e, _) => Self::collect_atpre_vars(e, vars),
             _ => {}
@@ -1995,7 +2013,11 @@ impl IrEmitter {
             Expr::Is(e, _, _) => Self::collect_pre_idents(e, vars),
             Expr::Unary(_, e, _) | Expr::Paren(e, _) | Expr::AtPre(e, _) | Expr::Try(e, _) => Self::collect_pre_idents(e, vars),
             Expr::Call(f, args, _) | Expr::GenericCall(f, _, args, _) => {
-                Self::collect_pre_idents(f, vars);
+                // See collect_atpre_vars: bare callee idents are names, not
+                // variables.
+                if !matches!(f.as_ref(), Expr::Ident(_)) {
+                    Self::collect_pre_idents(f, vars);
+                }
                 for a in args { Self::collect_pre_idents(a, vars); }
             }
             Expr::Field(e, _, _) | Expr::Index(e, _, _) => Self::collect_pre_idents(e, vars),
