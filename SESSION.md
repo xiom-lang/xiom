@@ -188,28 +188,42 @@ website lane pulls releases manually.
 > rebuild while an e2e is running.
 > Remaining queue, in order: (0) **docs/FRONTEND_AUDIT.md** -- the
 > user-facing/first-run audit + backlog (FE-1..FE-16, P0/P1/P2, two decision
-> briefs); the owner prioritizes it before anything else. Sprint A (P0):
-> FE-1/FE-2/FE-3 (doctor LLVM+NASM detection and dead `xiom install llvm`
-> remediation), FE-8 (retire legacy `xiom publish`, fix `xiom update` text),
-> FE-9 (align `xiom.std` vs registry `xiom-std` with the registry lane).
-> (1) the fn-VALUE convention unification (open m127 residuals:
-> `Vec[fn].new()+push` elements, element-to-local calls, fn-element calls
-> through struct fields -- repros in `tmp/probe_p1/`, spec in
-> docs/COMPILER_BUGS.md m127); (2) the agreed verified toolchain updater +
-> MCP `get_contracts`/`search_symbols` per `docs/POST_RELEASE_PLAN.md`
-> (updater needs in-process provenance attestation verification --
-> dependency-procurement step first; `xiom toolchain check --json` can ship
-> without it); (3) Stage 6 (performance program) and Stage 7 (selfhost gate)
-> -- Stage 5 is CLEAR. Cross-lane: legacy-package migration note/codemod
-> (packages lane), benchmark `COMPILER_VERSION` bump to v0.61.3 (benchmark
-> lane), stdlib pin bump carrying R66-R72 (stdlib lane), re-canary policy
-> settled (registry lane, 5c1cdcb).
-> Done this session: R66 (Windows-CI AV), R67 (ctor container typing),
+> briefs), owner-approved. Sprint A (P0): FE-1/FE-2/FE-3 (doctor LLVM+NASM
+> detection and dead `xiom install llvm` remediation), FE-4/FE-5/FE-7 (doctor
+> identity block, shared stdlib resolver, `--json` + exit codes), FE-8
+> (retire legacy `xiom publish`, fix `xiom update` text and the pkg help
+> example), FE-9 (align `xiom.std` vs registry `xiom-std` with the registry
+> lane). Sprint B (P1): FE-10..FE-15 + FE-17 (`module x;` trailing-semicolon
+> tolerance). Then:
+> (1) **Sprint C -- fn-VALUE / generic-mono ABI unification** (the highest
+> correctness item): m127 residuals (`Vec[fn].new()+push` elements,
+> element-to-local calls, fn-element calls through struct fields) PLUS the
+> packages lane's three reproduced probes (fn-ptr struct field -> clang
+> ptr/i64 mismatch; generic `[T,U]` fn-ptr with U=Str -> corrupt Str;
+> generic `Vec[U] map` -> mis-written elements + AV for U=Str); repros in
+> `tmp/probe_p1/` + `tmp/fp_probe/`, spec in docs/COMPILER_BUGS.md m127.
+> (2) the agreed verified toolchain updater + MCP
+> `get_contracts`/`search_symbols` per `docs/POST_RELEASE_PLAN.md`
+> (`xiom toolchain check --json` can ship without the attestation
+> dependency); (3) Stage 6 (performance program) and Stage 7 (selfhost
+> gate) -- Stage 5 is CLEAR. **Release strategy (owner, Git free-plan):
+> ONE combined release, no intermediate tags** -- compiler Sprints A+B+C
+> land on `main` first; stdlib completes its 100% readiness plan and cuts
+> ITS next release; then we bump `STDLIB_VERSION`, run the full gates on the
+> pin, and cut the single compiler release (recommend v0.62.0). Registry
+> re-canary after that tag.
+> Cross-lane: legacy-package migration note/codemod (packages lane),
+> benchmark `COMPILER_VERSION` bump (benchmark lane), stdlib pin bump
+> (stdlib lane, after their release), re-canary policy settled (registry
+> lane, 5c1cdcb). TLS/schannel FFI hardening ships in this window or is
+> excluded from the release notes.
+> Done so far: R66 (Windows-CI AV), R67 (ctor container typing),
 > R68 (nested extern), R69 (generic to_str), R70 (for-in collections),
 > R71 (all/none), R72/m127 (fn-vec indexed calls), m125 (API-freeze
 > snapshot + CI gate), m126 (deterministic publish bytes + promote mode),
-> front-end audit/backlog (docs-only). Start with item 0 unless the user
-> says otherwise.
+> front-end audit/backlog, Phase 0 pin refresh (freeze 2/2 + stdlib-exec
+> 85/85 on `stdlib-v0.61.3`). Start with item 0 unless the user says
+> otherwise.
 # XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-83 in docs/SESSION.md)
 
 2026-09-17 update (post-split, `main`): the registry-client findings
@@ -545,6 +559,49 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   (prints their SHA256; temp-only cleanup). 5 new unit tests + Python
   `tarfile` round-trip validation; pkg 72/72 (was 67). Operational note
   unchanged: re-canary after a release re-run.
+- **Packages relay triage + Phase 0 (2026-09-24)**: the packages lane sent
+  three minimal repros (probes in
+  `C:\Users\lefte\AppData\Local\Temp\kilo\fp-probe\`), REPRODUCED on the
+  current build (R66-R72 + m127) and confirmed as the fn-value / generic-mono
+  ABI family:
+  * `fp4_structfield.xi` (`type Op = { f: fn(&Int) -> Int; }`; `(op.f)(&3)`)
+    -> compile fails: clang `%tmp16 defined with type ptr but expected i64`
+    in `inttoptr i64 %tmp16 to i64 (i64)*` (fn-typed struct-field load not
+    coerced for the call path). Concrete, small, highest-priority of the three.
+  * `fp5_two_params_scalar_str.xi` (generic `conv[T, U]` with `U = Str`)
+    -> compiles, returns the wrong Str (rc=1 vs the green U=Int control).
+    The mono'd closure/return ABI uses the erased/generic type for U.
+  * `fp4_maptou.xi` (generic `Vec[U] map`, `U = Str`) -> runtime AV
+    `-1073741819`; `fp6_diag_vec.xi` (U = Int) -> rc=100 (`w[0]==0`: generic
+    `Vec[U]` push/element stride writes the wrong value). Concrete
+    `fp4_vecmap.xi`/`fp5_two_params_scalar.xi` controls pass.
+  These fold into **Sprint C (fn-value convention unification)** and extend
+  it with the generic-mono return/element ABI; probes accepted -- packages
+  will commit them under `docs/repro/` (copies kept in `tmp/fp_probe/`).
+  Hygiene: `module x;` (trailing semicolon on a brace-less module header)
+  -> P001 at the `;`; the diagnostic is clear but the spelling is natural --
+  add a small parser tolerance (queue item FE-17).
+  Phase 0 executed: local `stdlib/` was 6 commits BEHIND the pin
+  (`385e1e4` vs `stdlib-v0.61.3` = `c7b4027`); refreshed to the tag and
+  re-gated -- api-freeze 2/2, stdlib-exec 85/85 (+2 ignored) ON THE PIN. The
+  full e2e on the pin runs with the next batch (Sprint A), so the recorded
+  2373 is pre-pin-honesty only for the suites re-run here.
+- **Release strategy REVISED (owner, 2026-09-24 -- Git free-plan build
+  minutes)**: **ONE combined release**, no intermediate tags. Ordering:
+  1. Compiler lane completes Sprints A (front-end P0), B (P1), C (fn-value +
+     the three packages repros), plus the small FE-17; commits/pushes are
+     free, so all work lands on `main` first.
+  2. Stdlib lane completes its A-list (coverage waves, dedup TUs, tzdata
+     phase 2, untested-surface classes, stub re-triage) and cuts ITS next
+     release (stdlib repo budget).
+  3. Compiler bumps `STDLIB_VERSION` to the new stdlib tag, runs the full
+     gate list on the pin, and cuts the single compiler release (recommend
+     **v0.62.0**: user-visible behavior changes, doctor v2, publish alias).
+  4. Registry re-canary after that release (assets deterministic; same bytes
+     on re-run, but new tag = new asset).
+  TLS/schannel FFI hardening (stdlib B-list, gates any HTTPS/TLS claim) must
+  either ship in this same window or be explicitly excluded in the release
+  notes.
 - **Front-end audit + backlog (2026-09-24, NOT implemented)**: after a Win11
   first-run report (`xiom doctor` said LLVM missing although LLVM was
   installed; it pointed at the dead `xiom install llvm`), a read-only audit of
