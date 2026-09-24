@@ -4160,7 +4160,28 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 self.emitln(&format!("  {gep0_i64} = bitcast {elem_llvm_ty}* {gep0} to i64*"));
                 self.emitln(&format!("  store i64 {n}, i64* {gep0_i64}"));
                 for (i, e) in elems.iter().enumerate() {
-                    let (v, val_ty) = self.compile_expr(e)?;
+                    let (mut v, val_ty) = self.compile_expr(e)?;
+                    // C1: a bare fn-REFERENCE element in a raw array buffer must
+                    // become the uniform closure ENV (B-007). val_to_struct
+                    // memcpy's this buffer into a Vec whose elements are called
+                    // env-first, so storing the raw code address made the call
+                    // dereference machine code as an env struct (AV) --
+                    // `Suite{ tests: [ten] }; s.tests[0]()`.
+                    if let Expr::Ident(id) = e {
+                        let is_fn_ref = (self.types.functions.contains_key(&id.name)
+                            || self.types.functions.keys().into_iter().any(|k| k.ends_with(&format!(".{}", id.name)))
+                            || self.mono.emitted_fns.contains(&id.name))
+                            && !self.local.closure_locals.contains(&id.name);
+                        if is_fn_ref {
+                            let (_, params) = self.resolve_fn_ref_arg(id);
+                            let ret = self
+                                .fn_ref_marker_xiom(e)
+                                .as_deref()
+                                .and_then(Self::fn_type_return_xiom)
+                                .unwrap_or_else(|| "Int".to_string());
+                            v = self.wrap_fn_ref_env(&id.name, &v, &ret, params);
+                        }
+                    }
                     let gep = self.fresh_tmp();
                     let idx = (i + 1) as i64;
                     self.emitln(&format!("  {gep} = getelementptr {elem_llvm_ty}, {elem_llvm_ty}* {buf}, i64 {idx}"));

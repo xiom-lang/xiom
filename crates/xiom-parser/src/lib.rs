@@ -2519,6 +2519,9 @@ impl Parser {
                 Box::new(Expr::Ident(Ident::new(&format!("{},{}", self.type_name_str(ok), self.type_name_str(err)), self.peek().span))),
                 self.peek().span,
             ),
+            // C1: keep the fn marker in type-argument position (see
+            // type_name_str) so codegen can detect fn-typed elements.
+            Type::Fn(_, _) => Expr::Ident(Ident::new(&self.type_name_str(t), self.peek().span)),
             _ => Expr::Ident(Ident::new("_", self.peek().span)),
         }
     }
@@ -2548,6 +2551,17 @@ impl Parser {
                 let parts: Vec<String> = types.iter().map(|t| self.type_name_str(t)).collect();
                 format!("({})", parts.join(","))
             }
+            // C1 (fn-value ABI): a fn type in expression position must NOT
+            // degrade to "_" -- `Vec[fn() -> Int].new()` lost the element
+            // marker, so `.push(ten)` stored a raw code address (AV). Render
+            // the canonical "fn(P, Q) -> R" spelling codegen matches on.
+            Type::Fn(params, ret) => {
+                let parts: Vec<String> = params.iter().map(|t| self.type_name_str(t)).collect();
+                format!("fn({}) -> {}", parts.join(", "), self.type_name_str(ret))
+            }
+            Type::Ref(inner) => format!("&{}", self.type_name_str(inner)),
+            Type::MutRef(inner) => format!("&mut {}", self.type_name_str(inner)),
+            Type::Ptr(inner) => format!("*{}", self.type_name_str(inner)),
             _ => "_".to_string(),
         }
     }

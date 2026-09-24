@@ -4746,6 +4746,11 @@ impl Checker {
     fn inferred_binding_type(&mut self, value: &Expr, val_ty: &CheckedType) -> CheckedType {
         if let Expr::Array(elems, _) = value {
             if let Some(first) = elems.first() {
+                // C1: keep the FULL fn marker for bare references so later
+                // `for f in fns` / annotated bindings see a callable element.
+                if let Some(marker) = self.fn_ref_marker(first) {
+                    return CheckedType::named(format!("Vec[{marker}]"));
+                }
                 let elem = self.check_expr(first).name();
                 if Self::is_concrete_element_type_name(&elem) {
                     return CheckedType::named(format!("Vec[{elem}]"));
@@ -4768,6 +4773,32 @@ impl Checker {
             || n.starts_with("Fn")
             || n.contains("->")
             || n.contains('('))
+    }
+
+    /// C1: the fn-type marker for a bare function reference. `[ten, twenty]`
+    /// then types as `Vec[fn() -> Int]` instead of the bare `Vec[fn]` that no
+    /// annotation accepts and no call path can invoke. Closures keep the bare
+    /// "fn" (their signature is not resolved here); `from_marker` models that
+    /// as a wildcard-returning Fn so `f()` still types.
+    fn fn_ref_marker(&self, e: &Expr) -> Option<String> {
+        match e {
+            Expr::Ident(id) => {
+                let sig = self.functions.get(&id.name).or_else(|| {
+                    self.current_module
+                        .as_ref()
+                        .and_then(|m| self.functions.get(&format!("{}.{}", m, id.name)))
+                })?;
+                let params: Vec<String> = sig.params.iter().map(|(_, t)| t.name()).collect();
+                let ret = sig
+                    .return_type
+                    .as_ref()
+                    .map(|t| t.name())
+                    .unwrap_or_else(|| "Unit".to_string());
+                Some(format!("fn({}) -> {}", params.join(", "), ret))
+            }
+            Expr::Closure(..) | Expr::PipeClosure(..) => Some("fn".to_string()),
+            _ => None,
+        }
     }
 
     fn check_stmt(&mut self, stmt: &Stmt) {
@@ -4964,7 +4995,24 @@ impl Checker {
                 // use of the loop variable was mis-typed. Array literals are
                 // typed as bare `Vec`, so their element comes from item 0.
                 let var_ty = if let Expr::Array(elems, _) = iter {
-                    elems.first().map(|e| self.check_expr(e)).unwrap_or(CheckedType::Int)
+                    elems
+                        .first()
+                        .map(|e| {
+                            // C1: a bare fn reference carries its full marker
+                            // (`fn() -> Int`); closures fall back to the
+                            // wildcard-returning Fn. Either way the loop
+                            // variable is callable.
+                            if let Some(marker) = self.fn_ref_marker(e) {
+                                return CheckedType::from_marker(&marker);
+                            }
+                            let t = self.check_expr(e);
+                            if matches!(&t, CheckedType::Named(n) if n == "fn") {
+                                CheckedType::Fn(Vec::new(), Box::new(CheckedType::Named("_".into())))
+                            } else {
+                                t
+                            }
+                        })
+                        .unwrap_or(CheckedType::Int)
                 } else {
                     CheckedType::for_loop_element_type(&iter_ty)
                 };
@@ -5188,7 +5236,11 @@ impl Checker {
         }
         let args: Vec<String> = match idx.as_ref() {
             Expr::Tuple(items, _) => items.iter().map(|t| self.check_expr(t).name()).collect(),
-            Expr::Ident(_) => vec![self.check_expr(idx).name()],
+            // C1: type args in expression position are TYPE spellings, not
+            // variables -- resolving them via check_expr reported
+            // "undefined variable 'fn() -> Int'" once the parser stopped
+            // degrading fn type args to "_".
+            Expr::Ident(id) => vec![id.name.clone()],
             _ => Vec::new(),
         };
         if args.is_empty() {
@@ -5796,7 +5848,36 @@ impl Checker {
                 };
                 let method_target = match func_unwrapped {
                     Expr::Field(..) => Some(func_unwrapped),
-                    Expr::Index(field_expr, _, _) if matches!(field_expr.as_ref(), Expr::Field(..)) => Some(field_expr.as_ref()),
+                    // `Type.method[TypeArg](...)`, `module.fn[TypeArg](...)`
+                    // and `local.method[TypeArg](...)` are type-parameterized
+                    // calls; `value.field[i](...)` is an fn-typed ELEMENT
+                    // call (`s.tests[0]()`, m127c). Route by whether the
+                    // index expression looks like a TYPE argument: numeric /
+                    // string literals and lowercase value locals are value
+                    // indices; uppercase idents, tuples and type-ish
+                    // spellings keep the historical method path.
+                    Expr::Index(field_expr, idx, _)
+                        if matches!(field_expr.as_ref(), Expr::Field(..)) =>
+                    {
+                        let idx_is_typeish = match idx.as_ref() {
+                            Expr::Int(..) | Expr::Float(..) | Expr::Str(..)
+                            | Expr::Char(..) | Expr::Bool(..) => false,
+                            Expr::Ident(id) => {
+                                let n = &id.name;
+                                let builtin = matches!(n.as_str(),
+                                    "Int" | "Int8" | "Int16" | "Int32" | "Int64"
+                                    | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
+                                    | "Float32" | "Float64" | "Bool" | "Char" | "Str"
+                                    | "Unit" | "Never");
+                                builtin
+                                    || n.chars().next().map_or(false, |c| c.is_ascii_uppercase())
+                                    || n.contains('[') || n.contains("->") || n.contains(',')
+                                    || (self.contains_type(n) && self.lookup_local(n).is_none())
+                            }
+                            _ => true,
+                        };
+                        if idx_is_typeish { Some(field_expr.as_ref()) } else { None }
+                    }
                     _ => None,
                 };
                 // Save field call info for fn-typed field fallback
@@ -6790,7 +6871,9 @@ impl Checker {
                         // name.split('[') (BUG 51).
                         let args_str: Vec<String> = match idx.as_ref() {
                             Expr::Tuple(items, _) => items.iter().map(|t| self.check_expr(t).name()).collect(),
-                            Expr::Ident(_) => vec![self.check_expr(idx).name()],
+                            // C1: same as the ctor path above -- a type arg is
+                            // never a variable reference.
+                            Expr::Ident(id) => vec![id.name.clone()],
                             _ => Vec::new(),
                         };
                         if args_str.is_empty() {
@@ -6817,35 +6900,10 @@ impl Checker {
                         let inner = crate::structural::container_parts(name)
                             .and_then(|(_, args)| args.into_iter().next())
                             .unwrap_or_else(|| name.name().to_string());
-                        // BUG 51 (2026-08-18): fn-typed elements
+                        // BUG 51 (2026-08-18) + C1: fn-typed elements
                         // (Vec[fn() -> Int]) must parse into a REAL Fn
-                        // CheckedType -- from_str yields a bare Named
-                        // ("fn() -> Int") that mismatches the annotation's
-                        // Fn(...) ("type mismatch in var: annotated
-                        // fn() -> Int, found fn() -> Int" -- test_fnptr).
-                        if inner.starts_with("fn(") {
-                            if let Some(ret_pos) = inner.find("->") {
-                                let params_part = inner[3..ret_pos].trim();
-                                let ret_part = inner[ret_pos + 2..].trim();
-                                let params_body = params_part
-                                    .trim_start_matches('(')
-                                    .trim_end_matches(')')
-                                    .trim();
-                                let params: Vec<CheckedType> = if params_body.is_empty() {
-                                    Vec::new()
-                                } else {
-                                    params_body
-                                        .split(',')
-                                        .map(|p| CheckedType::from_str(p.trim()))
-                                        .collect()
-                                };
-                                CheckedType::Fn(params, Box::new(CheckedType::from_str(ret_part)))
-                            } else {
-                                CheckedType::from_str(&inner)
-                            }
-                        } else {
-                            CheckedType::from_str(&inner)
-                        }
+                        // CheckedType -- see CheckedType::from_marker.
+                        CheckedType::from_marker(&inner)
                     }
                     // smoke_array_zip fix (2026-09-11): fixed arrays keep their
                     // element type ("Array[Tuple__Int__Int]"); indexing yields
@@ -6975,6 +7033,12 @@ impl Checker {
                         if !self.types_compatible(&first_ty, &item_ty) && item_ty != CheckedType::Error {
                             // soft error -- arrays should be homogeneous
                         }
+                    }
+                    // C1: an array literal of bare fn references carries the
+                    // FULL element marker (`[ten]` -> Vec[fn() -> Int]) so
+                    // annotated bindings agree and loop variables are callable.
+                    if let Some(marker) = self.fn_ref_marker(&items[0]) {
+                        return CheckedType::named(format!("Vec[{marker}]"));
                     }
                     CheckedType::Named("Vec".into())
                 }
@@ -7597,6 +7661,12 @@ impl BorrowChecker {
                 }
                 BorrowType::Write => {
                     info.state = BorrowState::Owned;
+                    // E001 conservatism: the write path used to seed
+                    // read_borrow_count = 1 as a sentinel, so a later read
+                    // borrow released back to 1 (never 0) and left the
+                    // variable marked ReadBorrowed forever -- every following
+                    // `&mut` warned. Count write borrows as zero reads.
+                    info.read_borrow_count = 0;
                 }
             }
         }
@@ -7740,7 +7810,7 @@ impl BorrowChecker {
         if ok {
             if let Some(info) = self.find_var_mut(name) {
                 info.state = BorrowState::WriteBorrowed;
-                info.read_borrow_count = 1;
+                info.read_borrow_count = 0;
             }
             if let Some(borrows) = self.borrow_stack.last_mut() {
                 borrows.push(ScopeBorrow {
@@ -7889,6 +7959,61 @@ impl BorrowChecker {
     }
 
     fn check_stmt(&mut self, stmt: &Stmt) {
+        let borrow_mark = self.borrow_stack.last().map(|b| b.len()).unwrap_or(0);
+        let loan_mark = self.active_loans.mark();
+        self.check_stmt_inner(stmt);
+
+        // E001 conservatism (Sprint C): a borrow created INSIDE this statement
+        // and not bound to a local is a TEMPORARY consumed by the statement
+        // (`sparse_contains(&s, 5)` then `sparse_add(&mut s, 5)` warned 7
+        // times in smoke_collect_sparse although each borrow dies with its
+        // call). Release temporaries at statement end; a binding
+        // (`let r = &m;`, or a ref stored into an aggregate/assignment) keeps
+        // its borrow until scope end, so the genuine-overlap warning
+        // (`let r = &m; take_mut(&mut m); use r`) is unchanged.
+        let keeps_borrow = match stmt {
+            Stmt::Let(_, _, value, _) | Stmt::Var(_, _, value, _) => Self::expr_binds_ref(value),
+            Stmt::Assign(place, value, _) => {
+                matches!(place, Expr::Ident(_)) && Self::expr_binds_ref(value)
+            }
+            _ => false,
+        };
+        if !keeps_borrow {
+            self.release_borrows_since(borrow_mark);
+            self.active_loans.release_since(loan_mark);
+        }
+    }
+
+    /// True when the expression can BIND a reference (so its borrow must stay
+    /// live past the statement): `&x`, `&mut x`, parens, aggregates holding
+    /// refs. Calls CONSUME their argument temporaries and so are not refs.
+    fn expr_binds_ref(expr: &Expr) -> bool {
+        match expr {
+            Expr::Ref(..) | Expr::MutRef(..) => true,
+            Expr::Unary(UnaryOp::Ref, ..) | Expr::Unary(UnaryOp::MutRef, ..) => true,
+            Expr::Paren(inner, _) => Self::expr_binds_ref(inner),
+            Expr::Tuple(items, _) | Expr::Array(items, _) => {
+                items.iter().any(Self::expr_binds_ref)
+            }
+            Expr::Struct(_, fields, _, _) => fields.iter().any(|(_, v)| Self::expr_binds_ref(v)),
+            Expr::Some(inner, _) | Expr::Ok(inner, _) | Expr::Err(inner, _) => {
+                Self::expr_binds_ref(inner)
+            }
+            _ => false,
+        }
+    }
+
+    fn release_borrows_since(&mut self, mark: usize) {
+        let released: Vec<ScopeBorrow> = match self.borrow_stack.last_mut() {
+            Some(borrows) if borrows.len() > mark => borrows.split_off(mark),
+            _ => Vec::new(),
+        };
+        for scope_borrow in released {
+            self.release_borrow(&scope_borrow.var_name, scope_borrow.borrow_type);
+        }
+    }
+
+    fn check_stmt_inner(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::Let(name, type_ann, value, _) => {
                 let _ = self.check_expr(value);

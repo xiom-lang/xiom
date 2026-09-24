@@ -518,11 +518,25 @@ impl IrEmitter {
         if ret.is_empty() { None } else { Some(ret.to_string()) }
     }
 
+    /// C1: an fn-typed marker spelling -- either the full "fn(...) -> R" or
+    /// the bare "fn" some annotations use. The ABI erases both to i64 slots,
+    /// but the env-wrap / closure-call paths must trigger for either spelling.
+    pub(crate) fn is_fn_marker(ty: &str) -> bool {
+        let t = ty.trim();
+        t == "fn" || t.starts_with("fn(")
+    }
+
     pub(crate) fn compile_array_as_vec(&mut self, elems: &[xiom_ast::Expr], elem_xiom_type: &str) -> Result<(String, String), String> {
         let n = elems.len() as i64;
         // 5c.39: Resolve the element's LLVM type and byte size from the type
         // annotation, falling back to i64 (8 bytes) for unknown types.
-        let elem_llvm_ty = self.llvm_type_for(elem_xiom_type).unwrap_or_else(|_| "i64".to_string());
+        // C1: fn markers erase to an i64 ENV slot (llvm_type_for would build a
+        // real fn-pointer type for the marker string).
+        let elem_llvm_ty = if Self::is_fn_marker(elem_xiom_type) {
+            "i64".to_string()
+        } else {
+            self.llvm_type_for(elem_xiom_type).unwrap_or_else(|_| "i64".to_string())
+        };
         let elem_size: i64 = if elem_llvm_ty.starts_with("%struct.") {
             let struct_name = &elem_llvm_ty[8..]; // strip "%struct." prefix (8 chars)
             self.struct_byte_size(struct_name) as i64

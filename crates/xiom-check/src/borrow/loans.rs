@@ -67,6 +67,20 @@ impl LoanSet {
         self.loans.clear();
     }
 
+    /// Snapshot point for per-statement temporary-borrow release.
+    pub fn mark(&self) -> usize {
+        self.loans.len()
+    }
+
+    /// Drop every loan granted after `mark` -- the temporaries created while
+    /// one statement was checked. Loans are only ever pushed during a
+    /// statement, so truncation is exact (no scope exit happens inside).
+    pub fn release_since(&mut self, mark: usize) {
+        if self.loans.len() > mark {
+            self.loans.truncate(mark);
+        }
+    }
+
     /// Human-readable display of a place.
     fn place_display(&self, p: &Place) -> String {
         let mut s = p.local.clone();

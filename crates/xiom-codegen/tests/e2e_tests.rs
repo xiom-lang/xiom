@@ -5313,6 +5313,38 @@ fn e2e_safety_probe() {
     );
 }
 
+// C1 (Sprint C): fn-value ABI -- fn-typed elements keep the uniform closure
+// ENV representation through push / apply / struct fields / closures /
+// for-in / element-to-local, and unannotated fn arrays keep their marker.
+#[test] fn e2e_m130_fn_value_abi() {
+    assert_eq!(
+        compile_and_run("tests/regression/m130_fn_value_abi/main.xi"),
+        Some(0),
+        "fn-value call ABI must follow the element's fn marker"
+    );
+}
+
+// C1 (Sprint C): generic-mono ABI -- cross-type generic callbacks
+// (U=Str / U=Float64) through fn-typed params, Vec[U] returns and
+// array.map by value.
+#[test] fn e2e_m131_generic_fn_callback_abi() {
+    assert_eq!(
+        compile_and_run("tests/regression/m131_generic_fn_callback_abi/main.xi"),
+        Some(0),
+        "generic callback ABI must follow the monomorphised instantiation"
+    );
+}
+
+// E001 conservatism: consumed temporary borrows must not warn (the warning
+// itself is asserted by crates/xiom/tests/borrow_e001.rs).
+#[test] fn e2e_m132_e001_consumed_borrow() {
+    assert_eq!(
+        compile_and_run("tests/regression/m132_e001_consumed_borrow/main.xi"),
+        Some(0),
+        "temporary-borrow E001 false positives must stay gone"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

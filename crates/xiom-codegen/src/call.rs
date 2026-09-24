@@ -69,6 +69,98 @@ impl IrEmitter {
         gp_fallback.to_string()
     }
 
+    /// C1: infer a generic from a fn-typed param using the ARGUMENT's own
+    /// signature: a generic in param position maps to the argument fn's
+    /// position-matched parameter (refs stripped); a generic in the return
+    /// maps to the argument fn's declared return. Closures have no resolved
+    /// signature here and fall through to the caller's other inference paths.
+    fn fn_arg_generic_binding(
+        &self,
+        fn_params: &[xiom_ast::Type],
+        fn_ret: &xiom_ast::Type,
+        gp: &str,
+        arg_expr: &Expr,
+    ) -> Option<String> {
+        let (arg_params, arg_ret) = match arg_expr {
+            Expr::Ident(id) => self.resolve_fn_ref_signature(id)?,
+            Expr::Paren(inner, _) => match inner.as_ref() {
+                Expr::Ident(id) => self.resolve_fn_ref_signature(id)?,
+                _ => return None,
+            },
+            _ => return None,
+        };
+        if let Some(pos) = fn_params
+            .iter()
+            .position(|p| Self::type_contains_generic(p, gp))
+        {
+            let raw = arg_params.get(pos)?.clone();
+            // The registry signature is LLVM-typed ("i64*", "i8*", "double");
+            // map back to the XIOM spelling the monomorphiser expects.
+            let ty = Self::llvm_name_to_xiom(raw.trim_end_matches('*'))
+                .map(|s| s.to_string())?;
+            let ty = ty.trim_start_matches(['&', '*']).trim().to_string();
+            if ty.is_empty() || ty == gp {
+                return None;
+            }
+            return Some(ty);
+        }
+        if Self::type_contains_generic(fn_ret, gp) {
+            let bare = match fn_ret {
+                xiom_ast::Type::Named(id, args) => args.is_empty() && id.name == gp,
+                xiom_ast::Type::Ref(i) | xiom_ast::Type::MutRef(i) | xiom_ast::Type::Ptr(i) => {
+                    matches!(i.as_ref(), xiom_ast::Type::Named(id, args) if args.is_empty() && id.name == gp)
+                }
+                _ => false,
+            };
+            if bare {
+                let ret = Self::llvm_name_to_xiom(arg_ret.trim())?.to_string();
+                if ret != gp {
+                    return Some(ret);
+                }
+            }
+        }
+        None
+    }
+
+    /// C1: LLVM spelling -> canonical XIOM name for inference results.
+    /// Compound/ambiguous spellings (i8, %struct.*) return None so the
+    /// caller defers to its other inference paths instead of mono-ing a
+    /// bogus name.
+    fn llvm_name_to_xiom(llvm: &str) -> Option<&'static str> {
+        match llvm.trim() {
+            "i64" => Some("Int"),
+            "i32" => Some("Int32"),
+            "i16" => Some("Int16"),
+            "i1" => Some("Bool"),
+            "double" => Some("Float64"),
+            "float" => Some("Float32"),
+            "i8*" => Some("Str"),
+            _ => None,
+        }
+    }
+
+    /// C1: does a type mention the generic param `gp` anywhere?
+    fn type_contains_generic(ty: &xiom_ast::Type, gp: &str) -> bool {
+        use xiom_ast::Type;
+        match ty {
+            Type::Named(id, args) => {
+                id.name == gp || args.iter().any(|a| Self::type_contains_generic(a, gp))
+            }
+            Type::Ref(i) | Type::MutRef(i) | Type::Ptr(i) | Type::Slice(i) | Type::Vec(i)
+            | Type::Set(i) | Type::Option(i) => Self::type_contains_generic(i, gp),
+            Type::Map(k, v) | Type::Result(k, v) => {
+                Self::type_contains_generic(k, gp) || Self::type_contains_generic(v, gp)
+            }
+            Type::Tuple(items) => items.iter().any(|t| Self::type_contains_generic(t, gp)),
+            Type::Array(_, elem) => Self::type_contains_generic(elem, gp),
+            Type::Fn(params, ret) => {
+                params.iter().any(|p| Self::type_contains_generic(p, gp))
+                    || Self::type_contains_generic(ret, gp)
+            }
+            _ => false,
+        }
+    }
+
     /// True when `s` is a generic CONTAINER spelling ("Vec[Str]", "Map[K,V]")
     /// -- an identifier followed by '['. Fixed-array spellings ("[5 x i64]")
     /// start with '[' and must NOT match: for array locals the element type is
@@ -489,6 +581,15 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     // D1: `fn[TypeArgs](args)` -- GenericCall with explicit type
                     // args (captured in explicit_generic_types above).
                     Expr::GenericCall(base, _, _, _) => (base.as_ref(), None),
+                    // C1: `(op.f)(x)` / `(g)(x)` -- a parenthesized call target
+                    // is the same target. Unwrapping routes fn-FIELD receivers
+                    // to the env-first field path instead of the generic
+                    // "inttoptr the loaded value" fallback (which emitted
+                    // inttoptr ptr->ptr for `(op.f)(&3)` -- invalid IR).
+                    Expr::Paren(inner, _) => match inner.as_ref() {
+                        Expr::Index(base, idx, _) if idx_is_type(&idx) => (base.as_ref(), Some(idx.as_ref())),
+                        own => (own, None),
+                    },
                     other => (other, None),
                 };
                 let (fn_name_opt, receiver_expr) = match func_unwrapped {
@@ -1447,7 +1548,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 _ => None,
                             };
                             let mut wrapped = None;
-                            if elem_xiom.as_deref().map_or(false, |x| x.starts_with("fn(")) {
+                            if elem_xiom.as_deref().map_or(false, Self::is_fn_marker) {
                                 if let Some(ae) = args.first() {
                                     let is_fn_ref = matches!(ae, Expr::Ident(id)
                                         if (self.types.functions.contains_key(&id.name)
@@ -1458,7 +1559,14 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         if let Expr::Ident(id) = ae {
                                             // R25: deterministic scope-first param lookup.
                                             let (_, params) = self.resolve_fn_ref_arg(id);
-                                            let ret = elem_xiom.as_deref().unwrap_or("Int").to_string();
+                                            // C1: the wrap returns the CALLEE's return
+                                            // type (extracted from the fn marker), not
+                                            // the marker string itself -- the old code
+                                            // passed "fn() -> Int" to llvm_type_for.
+                                            let ret = elem_xiom
+                                                .as_deref()
+                                                .and_then(Self::fn_type_return_xiom)
+                                                .unwrap_or_else(|| "Int".to_string());
                                             wrapped = Some(self.wrap_fn_ref_env(&id.name, &val_raw, &ret, params));
                                         }
                                     }
@@ -3859,6 +3967,22 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     concrete_types.push(concrete_ty);
                                     inferred = true;
                                     break;
+                                }
+                                // C1: the generic lives in the PARAM's fn type
+                                // (`f: fn(&T) -> U`). Infer from the ARGUMENT's
+                                // own signature: the position-matched parameter
+                                // for T, the declared return for U. Without this
+                                // the container/default path mono'd
+                                // `conv(7, to_s)` as conv_Int_Int -- the Str
+                                // result was then treated as an i64 and the
+                                // caller compared garbage pointer bits
+                                // (fp5_two_params_scalar_str, fp4_maptou).
+                                if let Type::Fn(fn_params, fn_ret) = &param.ty {
+                                    if let Some(ct) = self.fn_arg_generic_binding(fn_params, fn_ret, &gp.name.name, arg_expr) {
+                                        concrete_types.push(ct);
+                                        inferred = true;
+                                        break;
+                                    }
                                 }
                                 // round-14c (typed [N]T declarations):
                                 // `arr: [N]T` or `arr: &[N]T` -- the generic is

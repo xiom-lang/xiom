@@ -2739,6 +2739,14 @@ impl IrEmitter {
                     _ => elem_name,
                 }
             }
+            // C1: fn annotations record the "fn(...) -> R" marker (same as
+            // type_from_ast_with_args) so `var f: fn() -> Int = ...` locals
+            // are recognized as closure-valued by element/call paths.
+            Type::Fn(params, ret) => format!(
+                "fn({}) -> {}",
+                params.iter().map(Self::type_annotation_name).collect::<Vec<_>>().join(", "),
+                Self::type_annotation_name(ret)
+            ),
             other => Self::type_from_ast(other),
         }
     }

@@ -361,7 +361,7 @@ impl CheckedType {
                     let inner = inner.trim();
                     // Single-argument containers only (Map yields pairs).
                     if !inner.is_empty() && !inner.contains(',') {
-                        return CheckedType::from_str(inner);
+                        return CheckedType::from_marker(inner);
                     }
                 }
             }
@@ -370,7 +370,7 @@ impl CheckedType {
             if let Some(close) = rest.find(']') {
                 let elem = rest[close + 1..].trim();
                 if !elem.is_empty() {
-                    return CheckedType::from_str(elem);
+                    return CheckedType::from_marker(elem);
                 }
             }
         }
@@ -378,6 +378,42 @@ impl CheckedType {
             return CheckedType::Int;
         }
         CheckedType::Int
+    }
+
+    /// C1: element-type marker -> CheckedType, expanding an `fn(...) -> R`
+    /// spelling into a REAL `CheckedType::Fn`. `from_str` yields a bare Named
+    /// ("fn() -> Int"): the call path then cannot invoke it (`f()` typed as
+    /// Unit -- "right operand must be numeric, found ()" in for-in loops) and
+    /// a var initializer cannot unify it with the annotation's `Fn(...)`.
+    pub fn from_marker(s: &str) -> Self {
+        let t = s.trim();
+        // C1: the bare "fn" marker (bare fn references and unannotated
+        // `[ten, twenty]` arrays) is callable too -- model it as a
+        // zero-arg-visible Fn returning the wildcard so `f()` types as "_".
+        if t == "fn" {
+            return CheckedType::Fn(Vec::new(), Box::new(CheckedType::Named("_".into())));
+        }
+        if let Some(rest) = t.strip_prefix("fn(") {
+            if let Some(ret_pos) = rest.find("->") {
+                let params_body = rest[..ret_pos]
+                    .trim()
+                    .trim_end_matches(')')
+                    .trim();
+                let params: Vec<CheckedType> = if params_body.is_empty() {
+                    Vec::new()
+                } else {
+                    params_body
+                        .split(',')
+                        .map(|p| CheckedType::from_str(p.trim()))
+                        .collect()
+                };
+                let ret = rest[ret_pos + 2..].trim();
+                return CheckedType::Fn(params, Box::new(CheckedType::from_str(ret)));
+            }
+            // `fn()` with no arrow: unit return.
+            return CheckedType::Fn(Vec::new(), Box::new(CheckedType::Unit));
+        }
+        CheckedType::from_str(t)
     }
 
     pub fn from_str(s: &str) -> Self {

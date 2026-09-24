@@ -8056,6 +8056,84 @@ clean, ascii guard clean.
   (deferred; remediation text instead), `xiom toolchain check --json`
   (Sprint D), the website one-liner script (not in this repo).
 
+## 2026-09-24 -- Sprint C: fn-value / generic-mono ABI unification + E001 conservatism
+
+Closes the m127 residuals, the packages lane's confirmed fp probes, the
+stdlib cross-type callback matrix and the E001 conservatism item.
+Repro-first on every shape; all 15 probe_p1 + 7 fp-probe shapes re-run
+green, 3 new e2e locks (m130/m131/m132) + 2 binary E001 locks, full e2e
+**2377/2377**, checker 195/195, parser 102/102, workspace all-targets clean.
+
+### fn-value ABI (C1)
+
+- **Parser lost fn type args**: `Vec[fn() -> Int].new()` parsed the type arg
+  as `Ident("_")` (`type_to_expr_ident` had no Fn arm), so the ctor recorded
+  element `"_"` and `.push(ten)` stored a raw code address (AV). Fixed:
+  `type_name_str` renders `fn(...) -> R` (+ Ref/MutRef/Ptr), and the Fn arm
+  in `type_to_expr_ident` keeps that marker. The checker no longer resolves
+  type args as variables ("undefined variable 'fn() -> Int'"), and the
+  `method_target` guard distinguishes `Type.method[TypeArg]()` /
+  `module.fn[TypeArg]()` from `value.field[i]()` by whether the index looks
+  like a type (numeric / local-variable indices are value indices).
+- **Codegen `type_from_ast` rendered `Type::Fn` as "Int"** (the catch-all),
+  so `var fns: Vec[fn() -> Int] = [ten]; var g = fns[0]; g()` tracked the
+  element as Int and called the env pointer as code (AV). The marker now
+  lives in `type_string_full`/`type_annotation_name` (erased to i64 by
+  `llvm_type_for`/`xiom_to_llvm_type`); annotated fn locals allocate an i64
+  slot.
+- **Unannotated fn arrays lost their marker**: `var fns = [ten]; for f in
+  fns { f() }` failed with "element type could not be resolved", and
+  `var g = arr[0]; g()` treated the env as code. `fn_ref_marker_xiom`
+  records the full `fn(...) -> R` for array-literal bindings, the for-loop
+  lowering allocates an i64 slot and marks fn elements as closure locals
+  (env-first calls), and the raw array-buffer emitter wraps bare fn refs.
+- **Struct-literal Vec fields** (`Suite{ tests: [ten] }`) memcpy'd a buffer
+  of raw code addresses into the Vec; the raw buffer emitter now wraps bare
+  fn refs into closure envs (AV -> green).
+- **`(op.f)(x)`**: a parenthesized call target is unwrapped, routing fn
+  field receivers to the env-first field path (the generic fallback emitted
+  `inttoptr ptr -> ptr`, invalid IR).
+
+### Generic-mono ABI (C1)
+
+- **Cross-type callback inference**: `conv[T, U](x: T, f: fn(&T) -> U)` with
+  `to_s: fn(&Int) -> Str` mono'd as `conv_Int_Int` -- the fn-typed param
+  contributed nothing to U, which fell to the "Int" default and truncated
+  the Str result to pointer bits (wrong compare; fp5). Generic inference now
+  reads the ARGUMENT's registered signature through `fn_arg_generic_binding`
+  (position-matched param for T, declared return for U) and maps the
+  registry's LLVM spellings back to XIOM names (`i8*` -> Str, `double` ->
+  Float64, ...). `fp4_maptou` (Vec[U] with U=Str) and `array.map`
+  Int->Str / Int->Float64 are green.
+- Checker `for`-loop element typing: array literals of bare fn refs now type
+  as `Vec[fn(...) -> R]` via `fn_ref_marker` and `CheckedType::from_marker`
+  turns markers (and bare "fn") into real `Fn` types, so `f()` in a loop
+  body types and calls correctly.
+
+### E001 conservatism
+
+- **Temporary borrows are released per statement**: `check_stmt` records
+  borrow/loan marks and releases everything created by a statement unless
+  the statement BINDS a ref (`let r = &m;`, refs stored into aggregates or
+  reassigned through a local). `smoke_collect_sparse` went 7 warnings -> 0
+  and the genuine-overlap warning (`let r = &m; take_mut(&mut m)`) is
+  unchanged (locked by m133 + `borrow_e001`).
+- **Root cause found while fixing**: `write_borrow` seeded
+  `read_borrow_count = 1` as a sentinel, so every read borrow released back
+  to 1 and left the variable permanently `ReadBorrowed` -- the "7 warnings"
+  were this counter bug, not actually-live borrows. Write borrows now count
+  zero reads.
+- `LoanSet::mark`/`release_since` give the same per-statement semantics to
+  the Place-level loan engine.
+
+### Open (recorded, not fixed)
+
+- The checker accepts a BY-REF callback (`fn(&Int) -> Str`) where a fn-typed
+  param declares `fn(T) -> U` by value (`array.map`); the call monomorphises
+  and the callee dereferences the scalar argument as a pointer (AV in
+  `m131c_array_map_ref`). Needs a fn-signature compatibility check in the
+  checker -- follow-up, out of this batch's scope.
+
 
 
 

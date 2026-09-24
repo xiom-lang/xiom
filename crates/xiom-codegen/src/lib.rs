@@ -1678,6 +1678,11 @@ impl IrEmitter {
             Type::Ref(inner) => format!("&{}", Self::type_string_full(inner)),
             Type::MutRef(inner) => format!("&mut {}", Self::type_string_full(inner)),
             Type::Ptr(inner) => format!("*{}", Self::type_string_full(inner)),
+            // C1: fn-typed annotations/values keep the "fn(...) -> R" MARKER
+            // (type_from_ast renders the i64-erased "Int"): the marker is what
+            // `Vec[fn() -> Int]` element recording, closure-binding detection
+            // and element calls match on. The ABI still erases it to i64.
+            Type::Fn(_, _) => Self::type_from_ast_with_args(ty),
             other => Self::type_from_ast(other),
         }
     }
@@ -5107,6 +5112,30 @@ impl IrEmitter {
                 (id.name.clone(), params)
             }
             None => (String::new(), Vec::new()),
+        }
+    }
+
+    /// C1: the registered signature `(param_types, return_type)` for a bare
+    /// fn-reference ident, when it names a free function. Feeds generic-arg
+    /// inference through fn-typed params (`conv(7, to_s)` -> U=Str).
+    pub(crate) fn resolve_fn_ref_signature(&self, id: &Ident) -> Option<(Vec<String>, String)> {
+        let key = self.resolve_bare_fn_ref_key(&id.name)?;
+        self.types.functions.get(&key)
+    }
+
+    /// C1: the fn-type marker for a bare fn reference / closure VALUE
+    /// (`[ten]` -> "fn() -> Int"). Used when recording array-literal element
+    /// types so `for f in fns` and element calls resolve; closures keep the
+    /// bare "fn" (signature not resolved here).
+    pub(crate) fn fn_ref_marker_xiom(&self, e: &Expr) -> Option<String> {
+        match e {
+            Expr::Ident(id) => {
+                let key = self.resolve_bare_fn_ref_key(&id.name)?;
+                let (params, ret) = self.types.functions.get(&key)?;
+                Some(format!("fn({}) -> {}", params.join(", "), ret))
+            }
+            Expr::Closure(..) | Expr::PipeClosure(..) => Some("fn".to_string()),
+            _ => None,
         }
     }
 

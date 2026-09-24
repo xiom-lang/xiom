@@ -101,7 +101,12 @@ impl IrEmitter {
         let elem_xiom = self.contract_elem_xiom(iter).ok_or_else(|| {
             format!("unsupported: `for` over '{iter_ty}' (element type could not be resolved)")
         })?;
-        let elem_llvm = if fixed_array {
+        let elem_llvm = if Self::is_fn_marker(&elem_xiom) {
+            // C1: Vec[fn]/arrays of fn references store the closure ENV
+            // pointer in an erased i64 slot; the loop variable is called
+            // env-first (see the closure marking below).
+            LLVM_I64.to_string()
+        } else if fixed_array {
             Self::extract_array_elem_ty(iter_ty)
         } else {
             self.llvm_type_for(&elem_xiom).map_err(|_| {
@@ -180,6 +185,15 @@ impl IrEmitter {
         self.emitln(&format!("  store {elem_llvm} {elem_val}, {elem_llvm}* {var_alloca}"));
         self.add_local(&var.name, var_alloca, &elem_llvm);
         self.local.local_xiom_types.insert(var.name.clone(), elem_xiom.clone());
+        // C1: a loop variable over fn-typed elements holds a closure ENV --
+        // mark it so calls go through the env-first path (B-007/M20-A1)
+        // instead of inttoptr-ing the env pointer as code.
+        if Self::is_fn_marker(&elem_xiom) {
+            self.local.closure_locals.insert(var.name.clone());
+            if let Some(ret) = Self::fn_type_return_xiom(&elem_xiom) {
+                self.local.fn_local_returns.insert(var.name.clone(), ret);
+            }
+        }
 
         // Increment BEFORE the body (mirrors the Range path): `continue`
         // jumps to the condition and must not re-run the current element.
@@ -231,6 +245,14 @@ impl IrEmitter {
                         }
                         // 5c.30: record array size for const-generic inference
                         self.local.local_array_sizes.insert(name.name.clone(), elems.len() as i64);
+                        // C1: an array literal of bare fn references records
+                        // the fn marker so `for f in fns` and element calls
+                        // resolve (previously the element type was unknown and
+                        // the for-lowering reported "element type could not be
+                        // resolved").
+                        if let Some(marker) = elems.first().and_then(|e| self.fn_ref_marker_xiom(e)) {
+                            self.local.local_vec_elem.insert(name.name.clone(), marker);
+                        }
                         // M33: When an array literal of struct elements is
                         // converted to a Vec, record the element type so that
                         // `resolve_vec_elem_type` finds it later. Without this,
@@ -464,6 +486,13 @@ impl IrEmitter {
                     // large_json clang failure). concrete_type_for keeps scalars
                     // and non-container types unchanged.
                     let name = self.concrete_type_for(t);
+                    // C1: fn-typed locals allocate an ERASED i64 slot (R23
+                    // env-first closure ABI). llvm_type_for would build a real
+                    // fn-pointer alloca, and binding/element casts then emit
+                    // `inttoptr ptr -> ptr` (invalid IR, clang rejects).
+                    if Self::is_fn_marker(&name) {
+                        return LLVM_I64.to_string();
+                    }
                     self.llvm_type_for(&name).unwrap_or_else(|_| LLVM_I64.to_string())
                 });
                 // M17: Track XIOM type and signedness for narrow-int widening.
@@ -640,6 +669,11 @@ impl IrEmitter {
                         }
                         // 5c.30: record array size for const-generic inference
                         self.local.local_array_sizes.insert(name.name.clone(), elems.len() as i64);
+                        // C1: see the let-binding arm -- fn-reference elements
+                        // keep their marker for for-in and element calls.
+                        if let Some(marker) = elems.first().and_then(|e| self.fn_ref_marker_xiom(e)) {
+                            self.local.local_vec_elem.insert(name.name.clone(), marker);
+                        }
                         // M33: track Vec element type for array-literal-to-Vec conversion
                         if let Some(elem_xiom) = elems.first()
                             .and_then(|e| self.infer_struct_type_name(e))
@@ -770,6 +804,13 @@ impl IrEmitter {
                     // large_json clang failure). concrete_type_for keeps scalars
                     // and non-container types unchanged.
                     let name = self.concrete_type_for(t);
+                    // C1: fn-typed locals allocate an ERASED i64 slot (R23
+                    // env-first closure ABI). llvm_type_for would build a real
+                    // fn-pointer alloca, and binding/element casts then emit
+                    // `inttoptr ptr -> ptr` (invalid IR, clang rejects).
+                    if Self::is_fn_marker(&name) {
+                        return LLVM_I64.to_string();
+                    }
                     self.llvm_type_for(&name).unwrap_or_else(|_| LLVM_I64.to_string())
                 });
                 // M17: Track XIOM type and signedness for narrow-int widening.
