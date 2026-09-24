@@ -26,9 +26,10 @@ timeline below are the detailed log -- read the newest entries for evidence.
 
 ## Gates (latest evidence)
 
-- Full e2e **2377/2377** -- re-run ON THE PIN for the Sprint D batch
-  (2026-09-24, 1449.5 s). Sprint C ran 2377/2377 (1512.3 s); Sprint B
-  2374/2374 (1691.6 s); Sprint A 2373/2373 (1851.5 s).
+- Full e2e **2379/2379** -- re-run ON THE PIN for the relay batch
+  (2026-09-24, 1871.5 s; includes m134/m136). Sprint D ran 2377/2377
+  (1449.5 s); Sprint C 2377/2377 (1512.3 s); Sprint B 2374/2374 (1691.6 s);
+  Sprint A 2373/2373 (1851.5 s).
 - checkers: checker 195/195, parser 102/102, integration 130/130,
   feature-reg 510/510, robustness 63/63, fuzz 24/24.
 - stdlib-dependent (re-run on the pin): api-freeze **2/2** (m125 regen),
@@ -183,7 +184,7 @@ lane policy).
 > (the local `stdlib/` checkout is detached at that tag); `origin/main` has
 > R66 only, with the whole campaign unpushed on local `main` (R67-R72, m125,
 > m126, m128, the audit, the release-notes publisher, Sprints A-D, docs).
-> Full e2e 2377/2377 on the pin (Sprint D batch); api-freeze 2/2 and
+> Full e2e 2379/2379 on the pin (relay batch); api-freeze 2/2 and
 > stdlib-exec 85/85 on the pin; no red gates. The owner
 > batched everything into ONE release (no intermediate tags; recommend
 > v0.62.0), sequenced as: compiler Sprints A+B+C -> stdlib completes its plan
@@ -314,6 +315,27 @@ docs/POST_RELEASE_PLAN.md section 1.
   contract tests); workspace all-targets clean; live check green.
 
 Next: Sprint E (Stage 6/7).
+
+## Relay batch landed (2026-09-24, compiler lane)
+
+Two stdlib-relayed compiler findings fixed (the third, the cross-type
+callback matrix + E001 repro, landed in Sprint C); full details in
+docs/COMPILER_BUGS.md ("2026-09-24 -- Relay").
+
+- Private same-leaf type collision (R44/Timer case): the collision triage now
+  includes private type decls, so `xiom.async.Timer` (private) and
+  `xiom.async.timer.Timer` (pub) emit distinct qualified layouts instead of
+  silently sharing one. Lock `e2e_m134_private_same_leaf`.
+- Clause-position `Bool == Int`: clauses were never type-checked; a light
+  clause validator now rejects Bool-vs-concrete comparisons (plus an
+  `@pre` typing arm). Locks `checker_locks.rs` (m135 reject, m136 green) +
+  `e2e_m136_well_typed_clauses`.
+- Deferred with precise evidence (needs stdlib-lane clause fixes before the
+  compiler can require every clause to be Bool): the 8 stdlib clause sites
+  listed in COMPILER_BUGS. Also recorded: `@pre` on a method call has a wrong
+  RUNTIME snapshot (typing-only lock).
+- Gates: full e2e **2379/2379** on the pin (1871.5 s); checker 195/195;
+  catalog corpus clean; workspace all-targets clean.
 
 # XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-83 in docs/SESSION.md)
 
