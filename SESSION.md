@@ -38,6 +38,12 @@ timeline below are the detailed log -- read the newest entries for evidence.
   (new), mcp 39/39, ascii_guard OK; new front-end locks: toolchain 7/7 +
   doctor 10/10 unit tests and `doctor_cli` 2/2 (CI step "Front-end CLI
   lock").
+- pre-flight for the combined release (2026-09-24, on the current pin):
+  workspace lib scan clean, integration 130/130, feature-reg 510/510,
+  robustness 63/63, fuzz 24/24, api-freeze 2/2, stdlib-exec 85/85 (+2
+  ignored), stdlib modules 40/40, mcp 44/44, pkg 75/75, release-notes 6/6,
+  perf 3/3; release-notes/v0.62.0.md+json drafted and `verify`-green
+  (fragment-free; re-convert after the pin bump).
 - CI: ubuntu-latest green on the pushed R66 state. The Windows CI leg has NOT
   been re-run since R66 (pushes to main do not trigger CI) -- the next push/PR
   validates it; R66 removed the previous Windows-only failure.
@@ -195,12 +201,16 @@ lane policy).
 > publishes the notes to dl.
 >
 > Sprints A-D are LANDED -- see "Sprint D landed" above; do not redo them.
-> Start with **Sprint E (Stage 6/7)** unless the user says otherwise; the
-> "Sprint E" queue note above lists the concrete starting points (Stage 6
+> OWNER SEQUENCE (2026-09-24): ship the combined release BEFORE Stage 6.
+> The compiler side is release-ready -- see "Release pre-flight" above; it
+> waits only on the stdlib lane (their plan -> their release with the
+> release-notes/v0.62.0.md fragment -> the ref). If the pin has landed, run
+> the release sequence (bump STDLIB_VERSION -> stdlib-dependent gates on the
+> new pin -> re-convert notes -> version bump -> push -> tag -> canary);
+> otherwise start Stage 6's non-blocking prep. Stage 5 is CLEAR. The Stage 6
 > gate exists at `crates/xiom-codegen/tests/perf_budget_tests.rs`; the real
 > incremental engine + parallel codegen and the Stage 7 selfhost ladder are
-> the open work). Stage 5 is CLEAR. Scope the first batch from the Stage 6
-> notes before touching code.
+> the open work.
 >
 > Method (non-negotiable): work repro-first; rebuild `cargo build -p xiom`
 > after checker/codegen changes; add an e2e lock (`e2e_mNNN_*` fixture + the
@@ -352,6 +362,32 @@ shape in COMPILER_BUGS: peek the checker-resolved module shallow, run the
 reachability filter, then pull the deps named by the SELECTED decls to a
 fixpoint), parallel monomorphization profiles, linker strategy, more budget
 metrics. Stage 7: the selfhost ladder (multi-phase).
+
+## Release pre-flight (2026-09-24, compiler lane)
+
+The compiler side is release-ready on the current pin; the only external
+dependency left is the stdlib lane's own release.
+
+- Gate battery re-run on the pin after all of Sprints A-D + the relay batch:
+  full e2e **2379/2379**, checker 195/195, parser 102/102, integration
+  130/130, feature-reg 510/510, robustness 63/63, fuzz 24/24, api-freeze
+  2/2, stdlib-exec 85/85 (+2 ignored), stdlib modules 40/40, mcp 44/44,
+  pkg 75/75, release-notes 6/6, perf 3/3; workspace all-targets clean.
+- Compiler-side release notes DRAFTED and committed:
+  `release-notes/v0.62.0.md` + `.json` (4 highlights, 3 breaking, 2 docs);
+  `xiom-release-notes verify --tag v0.62.0` is green fragment-free. The
+  stdlib fragment in the JSON is re-converted after the pin bump.
+- Remaining sequence (blocked on the stdlib lane): stdlib completes its plan
+  -> cuts its release carrying `release-notes/v0.62.0.md` -> hand over the
+  ref -> bump `STDLIB_VERSION` -> re-run the stdlib-dependent gates on the
+  new pin (api-freeze, stdlib-exec, stdlib modules, full e2e) -> re-convert
+  the notes -> version bump 0.61.3 -> 0.62.0 -> push origin/main (FIRST CI
+  run since R66 -- the Windows leg is the main unknown) -> tag v0.62.0
+  (guard: tag == workspace version + ancestor of main) -> registry
+  re-canary -> website publishes the notes to dl with notes: true.
+- Not release-blocking: the attested updater (D2 tail, procurement), private
+  enum same-leaf triage, the older small cleanups (e2e harness output
+  deletion, benchmark-chaos path cleanup).
 
 # XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-83 in docs/SESSION.md)
 
