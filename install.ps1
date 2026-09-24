@@ -136,7 +136,8 @@ if ($BinaryPath) {
     Write-Host ""
 
     Push-Location $xiomRoot
-    $tools = @("xiom", "xiom-fmt", "xiom-doc", "xiom-ffigen", "xiom-pkg", "xiom-lsp")
+    # FE-10: the full release tool set (all 9 tools, matching release.yml).
+    $tools = @("xiom", "xiom-pkg", "xiom-fmt", "xiom-doc", "xiom-lsp", "xiom-dbg", "xiom-mcp", "xiom-verify", "xiom-ffigen")
     $built = 0
     $total = $tools.Count
 
@@ -163,13 +164,20 @@ Write-Host "Installing to $installDir..." -ForegroundColor Cyan
 New-Item -ItemType Directory -Force -Path $binDir | Out-Null
 
 $files = @(
-    "xiom.exe", "xiom-fmt.exe", "xiom-doc.exe",
-    "xiom-ffigen.exe", "xiom-pkg.exe", "xiom-lsp.exe"
+    "xiom.exe", "xiom-pkg.exe", "xiom-fmt.exe", "xiom-doc.exe", "xiom-lsp.exe",
+    "xiom-dbg.exe", "xiom-mcp.exe", "xiom-verify.exe", "xiom-ffigen.exe",
+    "z3.exe"
 )
 foreach ($file in $files) {
-    Copy-Item "$releaseDir\$file" "$binDir\$file" -Force
-    $tag = if ($BinaryPath) { " (pre-built)" } else { "" }
-    Write-Host "  + $file$tag" -ForegroundColor DarkGray
+    if (Test-Path "$releaseDir\$file") {
+        Copy-Item "$releaseDir\$file" "$binDir\$file" -Force
+        $tag = if ($BinaryPath) { " (pre-built)" } else { "" }
+        Write-Host "  + $file$tag" -ForegroundColor DarkGray
+    } elseif ($file -eq "z3.exe") {
+        Write-Host "  - z3.exe not bundled (optional; contract verification)" -ForegroundColor DarkGray
+    } else {
+        Write-Host "  ! $file missing from $releaseDir" -ForegroundColor Yellow
+    }
 }
 Copy-Item "$xiomRoot\xiom.bat" "$binDir\xiom.bat" -Force
 Copy-Item "$xiomRoot\resource\img\xiom-icon.ico" "$binDir\xiom-icon.ico" -Force
@@ -230,13 +238,16 @@ if ($createShortcut -eq "y" -or $createShortcut -eq "Y") {
 # .xi file association (Windows)
 # ============================================================================
 if ($Unattended) {
-    $registerExt = if ($RegisterExt) { "y" } else { "n" }
+    # NOTE: a local named $registerExt would collide with the $RegisterExt
+    # switch parameter (PowerShell variables are case-insensitive) and the
+    # string assignment throws; keep a distinct name.
+    $registerExtChoice = if ($RegisterExt) { "y" } else { "n" }
 } else {
     Write-Host ""
     Write-Host "Register .xi files with XIOM icon? (admin required) [y/N]:" -ForegroundColor Yellow -NoNewline
-    $registerExt = Read-Host
+    $registerExtChoice = Read-Host
 }
-if ($registerExt -eq "y" -or $registerExt -eq "Y") {
+if ($registerExtChoice -eq "y" -or $registerExtChoice -eq "Y") {
     try {
         $regPath = "HKCU:\Software\Classes\.xi"
         New-Item -Path $regPath -Force | Out-Null
@@ -255,40 +266,55 @@ if ($registerExt -eq "y" -or $registerExt -eq "Y") {
 # ============================================================================
 # Uninstaller
 # ============================================================================
-$uninstaller = @"
+# FE-15: the generated uninstaller removes the install's bin dir from the user
+# (and, best effort, machine) PATH instead of telling the user to do it by
+# hand. The template is single-quoted so the inner PowerShell variables stay
+# literal; placeholders are replaced after.
+$uninstaller = @'
 @echo off
-echo XIOM Uninstaller v$xiomVersion
+echo XIOM Uninstaller v__VERSION__
 echo.
-echo This will remove XIOM from: $installDir
+echo This will remove XIOM from: __INSTALL_DIR__
 echo.
 set /p confirm="Continue? [y/N]: "
 if /i not "%confirm%"=="y" exit /b
-rmdir /s /q "$installDir"
+rmdir /s /q "__INSTALL_DIR__"
 reg delete "HKCU\Software\Classes\.xi" /f >nul 2>nul
 reg delete "HKCU\Software\Classes\XIOM.Source" /f >nul 2>nul
+echo Cleaning PATH...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$b='__BIN_DIR__'.TrimEnd('\'); $u=[Environment]::GetEnvironmentVariable('Path','User'); if($u){$n=(($u -split ';') | Where-Object { $_ -and $_.TrimEnd('\') -ne $b }) -join ';'; [Environment]::SetEnvironmentVariable('Path',$n,'User')}; try{$m=[Environment]::GetEnvironmentVariable('Path','Machine'); if($m){$k=(($m -split ';') | Where-Object { $_ -and $_.TrimEnd('\') -ne $b }) -join ';'; [Environment]::SetEnvironmentVariable('Path',$k,'Machine')}}catch{}; Write-Host 'XIOM removed from PATH (restart the terminal).'"
 echo XIOM has been removed.
-echo.
-echo NOTE: You may need to manually remove XIOM from your system PATH.
-echo   Settings ^> System ^> About ^> Advanced system settings ^> Environment Variables
 pause
-"@
+'@
+$uninstaller = $uninstaller.Replace('__VERSION__', $xiomVersion).Replace('__INSTALL_DIR__', $installDir).Replace('__BIN_DIR__', $binDir)
 Set-Content -Path "$binDir\uninstall.bat" -Value $uninstaller -Encoding ASCII
 
 # ============================================================================
-# Install stdlib + runtime
+# Install stdlib + runtime (FE-10: mirror the release archive exactly:
+# lib/xiom, lib/runtime, lib/package.xi -- the resolver's preferred layout)
 # ============================================================================
 Write-Host ""
 Write-Host "Installing standard library..." -ForegroundColor Cyan
 $libDir = "$installDir\lib"
 New-Item -ItemType Directory -Force -Path $libDir | Out-Null
-Copy-Item "$xiomRoot\stdlib\*" "$libDir\" -Recurse -Force
-Write-Host "  + stdlib -> $libDir" -ForegroundColor DarkGray
 
-# Runtime
-$rtDir = "$installDir\runtime"
-New-Item -ItemType Directory -Force -Path $rtDir | Out-Null
-Copy-Item "$xiomRoot\stdlib\runtime\*" "$rtDir\" -Force
-Write-Host "  + runtime -> $rtDir" -ForegroundColor DarkGray
+$archiveLib = Join-Path (Split-Path -Parent $releaseDir) "lib"
+if ($BinaryPath -and (Test-Path $archiveLib)) {
+    Copy-Item "$archiveLib\*" "$libDir\" -Recurse -Force
+    Write-Host "  + lib -> $libDir (from the release layout)" -ForegroundColor DarkGray
+} elseif (Test-Path "$xiomRoot\stdlib") {
+    foreach ($part in @("xiom", "runtime", "package.xi")) {
+        if (Test-Path "$xiomRoot\stdlib\$part") {
+            Copy-Item "$xiomRoot\stdlib\$part" "$libDir\" -Recurse -Force
+        }
+    }
+    Write-Host "  + stdlib -> $libDir" -ForegroundColor DarkGray
+} else {
+    Write-Host "  ! stdlib checkout not found at $xiomRoot\stdlib -- set XIOM_STDLIB or run scripts\fetch-stdlib.ps1" -ForegroundColor Yellow
+}
+if (-not (Test-Path "$libDir\runtime\xiom_runtime.c")) {
+    Write-Host "  ! runtime C source missing at $libDir\runtime (native linking may fail)" -ForegroundColor Yellow
+}
 
 # Documentation (optional)
 $docsDir = "$installDir\docs"
@@ -317,9 +343,21 @@ Write-Host "  XIOM v$xiomVersion installed successfully!" -ForegroundColor Green
 Write-Host "============================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Restart your terminal, then try:" -ForegroundColor White
-Write-Host "    xiom --help" -ForegroundColor Cyan
-Write-Host "    xiom compile hello.xi" -ForegroundColor Cyan
+Write-Host "    xiom doctor" -ForegroundColor Cyan
+Write-Host "    xiom run hello.xi" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  Uninstall:" -ForegroundColor DarkGray
 Write-Host "    $binDir\uninstall.bat" -ForegroundColor DarkGray
 Write-Host ""
+
+# FE-10: verify the install with the compiler's own doctor (JSON in CI). The
+# exit code is informational -- warnings on multi-install machines are normal
+# and must not fail an otherwise successful install.
+if (Test-Path "$binDir\xiom.exe") {
+    Write-Host "Verifying the installation..." -ForegroundColor Cyan
+    if ($env:CI) {
+        & "$binDir\xiom.exe" doctor --json
+    } else {
+        & "$binDir\xiom.exe" doctor
+    }
+}

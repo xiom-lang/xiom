@@ -68,6 +68,7 @@ const FLAG_FLAGS: &[&str] = &[
     "clean",
     "connect-timeout",
     "debug",
+    "deep",
     "depth",
     "doc",
     "doctor",

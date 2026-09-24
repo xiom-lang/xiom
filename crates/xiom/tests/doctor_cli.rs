@@ -120,6 +120,34 @@ fn doctor_json_reports_identity_and_exit_codes_match_the_report() {
 }
 
 #[test]
+fn doctor_deep_runs_an_end_to_end_compile() {
+    let install = FakeInstall::new("deep", "0.61.3");
+    let out = install.run(&["doctor", "--json", "--deep"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("doctor --json --deep must emit valid JSON: {e}\n{stdout}"));
+    let checks = parsed["checks"].as_array().expect("checks array");
+    let deep = checks
+        .iter()
+        .find(|c| c["name"] == "deep")
+        .expect("--deep must add a deep check");
+    let status = deep["status"].as_str().unwrap_or_default();
+    match status {
+        // clang present: the trivial program must compile AND run.
+        "ok" => assert!(
+            deep["detail"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("end-to-end"),
+            "unexpected deep detail: {deep}"
+        ),
+        // No clang on this machine: the deep check is informational.
+        "info" => assert!(parsed["errors"].as_array().unwrap().len() >= 1),
+        other => panic!("deep check failed on a working install: {status}: {deep}"),
+    }
+}
+
+#[test]
 fn doctor_text_has_identity_block_and_no_retired_command() {
     let install = FakeInstall::new("text", "0.61.3");
     let out = install.run(&["doctor"]);

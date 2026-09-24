@@ -5302,6 +5302,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// FE-17: a trailing semicolon after a brace-less `module x;` header used to
+// surface as "expected declaration, found ';'" (P001). The parser now skips
+// one optional semicolon after the header (and after a block close).
+#[test] fn e2e_m129_module_trailing_semicolon() {
+    assert_eq!(
+        compile_and_run("tests/regression/m129_module_trailing_semicolon/main.xi"),
+        Some(0),
+        "`module x;` trailing semicolon must compile and run"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

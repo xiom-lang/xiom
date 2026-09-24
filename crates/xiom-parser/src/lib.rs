@@ -344,6 +344,11 @@ impl Parser {
                 if _is_pub { return Err(self.error("'pub' not valid on module declarations")); }
                 let mut path = vec![first];
                 while self.skip(TokenKind::Dot) { path.push(self.parse_ident()?); }
+                // FE-17: `module m;` -- the trailing semicolon is tolerated
+                // (packages write it; the brace-less header has no terminator
+                // otherwise). Without this, the ';' fell through to the
+                // top-level parser as "expected declaration, found ';'".
+                let _ = self.skip(TokenKind::Semicolon);
                 Ok(Some(path))
             }
         }
@@ -429,9 +434,14 @@ impl Parser {
                 items.extend(decls);
             }
             self.expect_kind(TokenKind::RBrace, "'}'")?;
+            // FE-17: `module m { ... };` -- one trailing semicolon is
+            // tolerated after the closing brace as well.
+            let _ = self.skip(TokenKind::Semicolon);
             return Ok(Self::build_file_module_result(path, items, start));
         }
         // Brace-less file-level module: `module a.b.c` wraps the rest of the file.
+        // FE-17: `module a.b.c;` (trailing semicolon) is tolerated too.
+        let _ = self.skip(TokenKind::Semicolon);
         let mut items = Vec::new();
         while !self.peek().is_eof() {
             let decls = self.parse_top_decl_with_pending()?;
@@ -2613,6 +2623,21 @@ mod tests {
     #[test] fn test_generic_fn() { let prog = parse("fn max[T: Comparable](a: T, b: T) -> T { if a > b { return a; } return b; }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => { assert_eq!(f.generics.len(), 1); } _ => panic!("expected function"), } }
     #[test] fn test_method_decl() { let prog = parse("pub fn Vec3.dot(other: &Vec3) -> Float32 { return x * other.x + y * other.y; }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => { assert!(f.is_method()); assert_eq!(f.name.name, "dot"); } _ => panic!("expected method"), } }
     #[test] fn test_module() { let prog = parse("module math { pub fn add(a: Int, b: Int) -> Int { return a + b; } }").unwrap(); match &prog.items[0] { TopDecl::Module(m) => { assert_eq!(m.name.name, "math"); } _ => panic!("expected module"), } }
+
+    // FE-17: a trailing semicolon after a `module` header is tolerated in
+    // both the brace-less (`module m;`) and block (`module m { } ;`) forms.
+    #[test] fn test_module_trailing_semicolon_tolerated() {
+        let (result, errors) = parse_with_errors("module m;\nfn main() -> Int { return 0; }");
+        assert!(errors.is_empty(), "brace-less `module m;`: {errors:?}");
+        assert!(result.is_ok());
+        let (result, errors) = parse_with_errors("module m { pub fn f() -> Int { return 1; } };");
+        assert!(errors.is_empty(), "block `module m {{ }};`: {errors:?}");
+        assert!(result.is_ok());
+        // The no-semicolon forms must stay green (regression guard).
+        let (result, errors) = parse_with_errors("module m\nfn main() -> Int { return 0; }");
+        assert!(errors.is_empty(), "brace-less without ';': {errors:?}");
+        assert!(result.is_ok());
+    }
     #[test] fn test_use_decl() { let prog = parse("use math.vector.Vec3 as V3;").unwrap(); match &prog.items[0] { TopDecl::Use(u) => { assert_eq!(u.path.len(), 3); } _ => panic!("expected use"), } }
     #[test] fn test_if_elif_else() { let prog = parse("fn test(x: Int) -> Int { if x > 0 { return 1; } elif x < 0 { return -1; } else { return 0; } }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => { let body = f.body.as_ref().unwrap(); if let StmtOrExpr::Stmt(Stmt::If(_, _, elifs, else_block, _)) = &body.stmts[0] { assert_eq!(elifs.len(), 1); assert!(else_block.is_some()); } else { panic!("expected if stmt"); } } _ => panic!("expected function"), } }
     #[test] fn test_match_expr() { let prog = parse("fn check(x: Option[Int]) -> Int { match x { Some(v) => v, None => 0, } }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => { let body = f.body.as_ref().unwrap(); if let StmtOrExpr::Stmt(Stmt::Match(_, arms, _)) = &body.stmts[0] { assert_eq!(arms.len(), 2); } else { panic!("expected match stmt"); } } _ => panic!("expected function"), } }

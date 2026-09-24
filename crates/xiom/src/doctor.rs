@@ -108,9 +108,22 @@ pub struct DoctorReport {
     pub errors: Vec<String>,
 }
 
-/// Gather the machine state and evaluate it.
-pub fn build_report() -> DoctorReport {
-    evaluate(gather())
+/// Gather the machine state and evaluate it. `deep` adds the end-to-end
+/// compile+run check (FE-6): the only check that proves the whole chain and
+/// names the missing component (e.g. MSVC headers) before the user tries.
+pub fn build_report(deep: bool) -> DoctorReport {
+    let input = gather();
+    let mut checks = checks_for(&input);
+    if deep {
+        checks.push(deep_compile_check(&input));
+    }
+    let (warnings, errors) = summarize(&checks);
+    DoctorReport {
+        input,
+        checks,
+        warnings,
+        errors,
+    }
 }
 
 /// Capture the host state for one doctor run.
@@ -169,9 +182,19 @@ pub fn gather() -> DoctorInput {
     }
 }
 
-/// Pure evaluation: checks, warnings, errors. Unit-tested over synthetic
-/// inputs (see the tests at the bottom).
+/// Pure evaluation of the default checks (unit-tested over synthetic inputs).
 pub fn evaluate(input: DoctorInput) -> DoctorReport {
+    let checks = checks_for(&input);
+    let (warnings, errors) = summarize(&checks);
+    DoctorReport {
+        input,
+        checks,
+        warnings,
+        errors,
+    }
+}
+
+fn checks_for(input: &DoctorInput) -> Vec<Check> {
     let mut checks: Vec<Check> = Vec::new();
 
     // Required: clang (FE-1/FE-2). Missing clang is an error with the exact
@@ -358,6 +381,11 @@ pub fn evaluate(input: DoctorInput) -> DoctorReport {
         }
     }
 
+    checks
+}
+
+/// Warning/error strings derived from the check statuses.
+fn summarize(checks: &[Check]) -> (Vec<String>, Vec<String>) {
     let warnings: Vec<String> = checks
         .iter()
         .filter(|c| c.status == Status::Warn)
@@ -368,12 +396,76 @@ pub fn evaluate(input: DoctorInput) -> DoctorReport {
         .filter(|c| c.status == Status::Error)
         .map(|c| c.detail.clone())
         .collect();
+    (warnings, errors)
+}
 
-    DoctorReport {
-        input,
-        checks,
-        warnings,
-        errors,
+/// FE-6 `--deep`: compile AND RUN a trivial program end-to-end. The default
+/// checks can all pass while the link step still fails (missing MSVC headers,
+/// a broken runtime tree); this is the only check that proves the chain.
+fn deep_compile_check(input: &DoctorInput) -> Check {
+    if input.clang.is_none() {
+        return Check {
+            name: "deep",
+            status: Status::Info,
+            detail: "deep check skipped -- clang is not available".to_string(),
+            remediation: Vec::new(),
+        };
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let dir = std::env::temp_dir().join(format!(
+        "xiom_doctor_deep_{}_{:x}",
+        std::process::id(),
+        stamp
+    ));
+    let src = dir.join("doctor_deep.xi");
+    let exe = dir.join(if cfg!(windows) { "doctor_deep.exe" } else { "doctor_deep" });
+    let result = (|| -> Result<(), String> {
+        std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create temp dir: {e}"))?;
+        std::fs::write(&src, "fn main() -> Int { return 0; }\n")
+            .map_err(|e| format!("cannot write test program: {e}"))?;
+        let config = crate::CompileConfig {
+            output_file: Some(exe.to_string_lossy().to_string()),
+            force: true,
+            cache: false,
+            ..crate::CompileConfig::default()
+        };
+        crate::compile(&config, &[src.to_string_lossy().to_string()]).map_err(|errors| {
+            if errors.is_empty() {
+                "compilation failed".to_string()
+            } else {
+                errors.join("; ")
+            }
+        })?;
+        let status = std::process::Command::new(&exe)
+            .output()
+            .map_err(|e| format!("cannot run the compiled program: {e}"))?;
+        if !status.status.success() {
+            return Err(format!(
+                "compiled program exited {}",
+                status.status.code().unwrap_or(-1)
+            ));
+        }
+        Ok(())
+    })();
+    let _ = std::fs::remove_dir_all(&dir);
+    match result {
+        Ok(()) => Check {
+            name: "deep",
+            status: Status::Ok,
+            detail: "end-to-end compile + run of a trivial program succeeded".to_string(),
+            remediation: Vec::new(),
+        },
+        Err(e) => Check {
+            name: "deep",
+            status: Status::Error,
+            detail: format!("deep check failed: {e}"),
+            remediation: vec![
+                "re-run the same compile manually to see the full clang/linker output".to_string(),
+            ],
+        },
     }
 }
 
@@ -661,7 +753,8 @@ fn snapshot(t: toolchain::ToolInfo) -> ToolSnapshot {
 }
 
 /// Install root: the parent of `bin/` for a release layout, else the exe dir.
-fn install_root_of(exe: &Path) -> Option<PathBuf> {
+/// Shared by `xiom doctor` and `xiom --version` (FE-13).
+pub fn install_root_of(exe: &Path) -> Option<PathBuf> {
     let dir = exe.parent()?;
     let is_bin = dir
         .file_name()

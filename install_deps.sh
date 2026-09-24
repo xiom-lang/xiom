@@ -212,41 +212,17 @@ else
             ;;
     esac
 
-    # Fallback: download pre-built LLVM binary
+    # FE-11: NO unauthenticated direct download. The old fallback fetched a
+    # hardcoded LLVM 19.1.0 tarball and unpacked it without any SHA256
+    # verification -- a supply-chain hole. Distribution package managers are
+    # the only automated paths; otherwise print the manual options.
     if ! $installed_clang && ! command -v clang >/dev/null 2>&1; then
-        LLVM_VER="19.1.0"
-        info "Downloading LLVM $LLVM_VER pre-built binary..."
-        case "$(uname -m)" in
-            x86_64|amd64)  ARCH="x86_64" ;;
-            aarch64|arm64) ARCH="aarch64" ;;
-            *)             ARCH="x86_64" ;;
-        esac
-        case "$OS_TYPE" in
-            macos)   LLVM_TAR="clang+llvm-${LLVM_VER}-${ARCH}-apple-darwin.tar.xz" ;;
-            linux)   LLVM_TAR="clang+llvm-${LLVM_VER}-${ARCH}-linux-gnu-ubuntu-24.04.tar.xz" ;;
-        esac
-        LLVM_URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_VER}/${LLVM_TAR}"
-        LLVM_DIR="$HOME/.local/llvm-${LLVM_VER}"
-
-        mkdir -p "$LLVM_DIR"
-        curl -L "$LLVM_URL" -o "/tmp/${LLVM_TAR}" --progress-bar
-        tar -xf "/tmp/${LLVM_TAR}" -C "$LLVM_DIR" --strip-components=1
-        rm -f "/tmp/${LLVM_TAR}"
-
-        # Add to PATH for this session and profile
-        export PATH="$LLVM_DIR/bin:$PATH"
-        if ! grep -q "llvm-${LLVM_VER}" "$HOME/.bashrc" 2>/dev/null; then
-            echo "export PATH=\"$LLVM_DIR/bin:\$PATH\"" >> "$HOME/.bashrc"
-        fi
-        if [ -f "$HOME/.zshrc" ] && ! grep -q "llvm-${LLVM_VER}" "$HOME/.zshrc" 2>/dev/null; then
-            echo "export PATH=\"$LLVM_DIR/bin:\$PATH\"" >> "$HOME/.zshrc"
-        fi
-
-        if command -v clang >/dev/null 2>&1; then
-            ok "LLVM installed to $LLVM_DIR"
-            ((installed++))
-            installed_clang=true
-        fi
+        warn "Could not install LLVM/clang automatically."
+        info "  macOS (Homebrew):      brew install llvm"
+        info "  Debian/Ubuntu:         sudo apt install clang"
+        info "  Fedora/RHEL:           sudo dnf install clang"
+        info "  Arch:                  sudo pacman -S clang"
+        info "  Or download from:      https://github.com/llvm/llvm-project/releases"
     fi
 
     if $installed_clang || command -v clang >/dev/null 2>&1; then

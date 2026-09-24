@@ -184,26 +184,16 @@ if (Test-Command "clang") {
         if ($hasChoco -and -not $installed) {
             $installed = Invoke-ChocoInstall "llvm" "LLVM/clang"
         }
-        # Fallback: direct LLVM download
+        # FE-11: NO unauthenticated direct download. The old fallback fetched a
+        # hardcoded LLVM 19.1.0 installer and executed it without any SHA256
+        # verification -- a supply-chain hole in an otherwise careful project.
+        # winget/choco are the only automated paths; otherwise print the manual
+        # options (the caller reports the failure loudly).
         if (-not $installed) {
-            $llvmVersion = "19.1.0"
-            $llvmUrl = "https://github.com/llvm/llvm-project/releases/download/llvmorg-$llvmVersion/LLVM-$llvmVersion-win64.exe"
-            $llvmExe = "$env:TEMP\LLVM-$llvmVersion-win64.exe"
-            Write-Info "Downloading LLVM $llvmVersion..."
-            try {
-                Invoke-WebRequest -Uri $llvmUrl -OutFile $llvmExe -UseBasicParsing -TimeoutSec 120
-                Write-Info "Running LLVM installer (unattended, add to PATH)..."
-                $proc = Start-Process -FilePath $llvmExe -ArgumentList "/S /D=C:\Program Files\LLVM" -Wait -PassThru -NoNewWindow
-                Remove-Item $llvmExe -Force -ErrorAction SilentlyContinue
-                if ($proc.ExitCode -eq 0) {
-                    Write-Ok "LLVM installed. Restart terminal for PATH to take effect."
-                    $script:installedCount++
-                    $installed = $true
-                }
-            } catch {
-                Write-Warn "LLVM download failed (timeout/network): $_"
-                Write-Info "  Install manually: https://github.com/llvm/llvm-project/releases"
-            }
+            Write-Warn "Could not install LLVM automatically (winget/choco unavailable or failed)."
+            Write-Info "  Install with winget: winget install LLVM.LLVM"
+            Write-Info "  Install with choco:  choco install llvm -y"
+            Write-Info "  Or download from:    https://github.com/llvm/llvm-project/releases"
         }
 
         if ($installed) {

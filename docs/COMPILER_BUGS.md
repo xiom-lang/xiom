@@ -8001,6 +8001,61 @@ unit tests plus a new binary integration test on the CI path.
   alignment FE-10..FE-15/FE-17, grouped `--help` (FE-12). FE-4's "clang
   version floor" is the only identity-block sub-item not implemented.
 
+## 2026-09-24 -- Front-end audit Sprint B (FE-6, FE-10..FE-15, FE-17): P1 first-run pass
+
+Follow-up to Sprint A (same day). The one compiler-visible change is FE-17
+(parser); the rest is CLI/installer surface. Gates: parser 102/102 (+1 unit
+test), full e2e **2374/2374** (new lock m129), workspace all-targets check
+clean, ascii guard clean.
+
+- **FE-17 (module trailing semicolon)**: `module m;` parsed the header and
+  left the `;` to the top-level parser -> spurious
+  `error[P001]: expected declaration, found ';'` (reproduced before the fix).
+  `parse_file_module_header` and the brace-less `parse_module` arm now skip
+  ONE optional semicolon; the block form `module m { ... };` is tolerated
+  too (skip after `}`). Lock `e2e_m129_module_trailing_semicolon` + CI line;
+  the parser unit test covers all three spellings.
+- **FE-6 (`xiom doctor --deep`)**: compiles AND RUNS a trivial program
+  end-to-end in a temp dir -- the only check that proves the whole chain
+  (linker/MSVC headers included); reported as info when clang is absent.
+  `doctor_cli` integration test added.
+- **FE-12 (grouped help)**: `xiom --help` is now grouped (Getting started /
+  Project / Tools / Output / Safety / Build and cache / Packages,
+  benchmarks, AI / Subcommands / Dependencies / Examples) with the internal
+  sprint tags removed and a `<tool> --help` line for the dispatcher. Every
+  flag from the old flat list is still documented.
+- **FE-13 (which xiom)**: `xiom --version` prints the install root under the
+  version line (`xiom::doctor::install_root_of`, shared with doctor).
+  `xiom.bat` now prefers the binaries NEXT TO THE SCRIPT (a freshly unpacked
+  tree is no longer shadowed by a stale `%LOCALAPPDATA%\xiom` install);
+  LOCALAPPDATA is the fallback. Verified: running the bat from
+  `target\debug` reports that install root.
+- **FE-10 (installers mirror the archive)**: install.ps1/install.sh ship all
+  9 tools (+ optional z3 when present), put the stdlib at `lib/xiom`,
+  `lib/runtime`, `lib/package.xi` (previously install.sh created
+  `lib/stdlib/**` and both installers also copied the runtime to
+  `<root>/runtime`), and finish by running `xiom doctor` (`--json` in CI);
+  the archive `lib/` is preferred when `-BinaryPath` points at
+  `<archive>\bin`. Sandbox-verified on Windows: 9 tools copied, the `lib/`
+  layout resolves as the stdlib root, doctor runs. FIXED while testing:
+  `-Unattended` crashed because the local `$registerExt` collided with the
+  `$RegisterExt` switch parameter (PowerShell variable names are
+  case-insensitive) -- pre-existing; the local is now `$registerExtChoice`.
+- **FE-14 (banners)**: both installers end with `xiom doctor` / `xiom run
+  hello.xi` instead of the legacy `xiom compile` idiom.
+- **FE-15 (uninstaller PATH)**: the generated uninstall.bat removes the
+  install's bin dir from the user PATH (and best-effort machine PATH) with a
+  `powershell -Command` one-liner built from a token-substituted template;
+  the Where-Object filter drops plain and trailing-backslash variants
+  (parse-checked and logic-tested).
+- **FE-11 (install_deps)**: the unauthenticated direct LLVM downloads
+  (hardcoded 19.1.0, no SHA256) are removed from install_deps.ps1 AND
+  install_deps.sh; winget/choco (and the distro package managers) are the
+  only automated paths, otherwise the exact manual commands print.
+- **REMAINING**: clang version floor (no agreed floor), `doctor --fix`
+  (deferred; remediation text instead), `xiom toolchain check --json`
+  (Sprint D), the website one-liner script (not in this repo).
+
 
 
 

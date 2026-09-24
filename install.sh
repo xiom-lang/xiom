@@ -36,7 +36,6 @@ else
 fi
 BIN_DIR="$INSTALL_DIR/bin"
 LIB_DIR="$INSTALL_DIR/lib"
-RUNTIME_DIR="$INSTALL_DIR/runtime"
 
 # -- Colors --------------------------------------------------------------
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -77,7 +76,7 @@ else
     echo -e "${CYAN}Building XIOM toolchain (release mode)...${NC}"
     cd "$SCRIPT_DIR"
 
-    TOOLS=("xiom" "xiom-fmt" "xiom-doc" "xiom-ffigen" "xiom-pkg" "xiom-lsp")
+    TOOLS=("xiom" "xiom-pkg" "xiom-fmt" "xiom-doc" "xiom-lsp" "xiom-dbg" "xiom-mcp" "xiom-verify" "xiom-ffigen")
     for tool in "${TOOLS[@]}"; do
         echo "  Building $tool..."
         cargo build -p "$tool" --release 2>/dev/null || {
@@ -91,16 +90,20 @@ fi
 # -- Step 2: Install -----------------------------------------------------
 echo ""
 echo -e "${CYAN}Installing to $INSTALL_DIR...${NC}"
-mkdir -p "$BIN_DIR" "$LIB_DIR" "$RUNTIME_DIR"
+mkdir -p "$BIN_DIR" "$LIB_DIR"
 
-# Binaries
-for exe in xiom xiom-fmt xiom-doc xiom-ffigen xiom-pkg xiom-lsp; do
+# Binaries (FE-10: the full release tool set, all 9 tools + optional z3).
+for exe in xiom xiom-pkg xiom-fmt xiom-doc xiom-lsp xiom-dbg xiom-mcp xiom-verify xiom-ffigen z3; do
     if [ -f "$RELEASE_DIR/$exe" ]; then
         cp "$RELEASE_DIR/$exe" "$BIN_DIR/"
         echo -e "  ${GREEN}[OK]${NC} $exe"
     elif [ -f "$RELEASE_DIR/${exe}.exe" ]; then
         cp "$RELEASE_DIR/${exe}.exe" "$BIN_DIR/$exe"
         echo -e "  ${GREEN}[OK]${NC} $exe"
+    elif [ "$exe" = "z3" ]; then
+        echo -e "  ${YELLOW}[--]${NC} z3 not bundled (optional; contract verification)"
+    else
+        echo -e "  ${YELLOW}[!!]${NC} $exe missing from $RELEASE_DIR"
     fi
 done
 
@@ -116,19 +119,29 @@ case "${1:-}" in
     ffigen)  shift; exec "$BIN_DIR/xiom-ffigen" "$@" ;;
     pkg)     shift; exec "$BIN_DIR/xiom-pkg" "$@" ;;
     lsp)     shift; exec "$BIN_DIR/xiom-lsp" "$@" ;;
+    dbg)     shift; exec "$BIN_DIR/xiom-dbg" "$@" ;;
+    mcp)     shift; exec "$BIN_DIR/xiom-mcp" "$@" ;;
+    verify)  shift; exec "$BIN_DIR/xiom-verify" "$@" ;;
     *)       exec "$BIN_DIR/xiom" "$@" ;;
 esac
 WRAPPER
 chmod +x "$BIN_DIR/xiom"
 
-# Stdlib + runtime
-if [ -d "$SCRIPT_DIR/stdlib" ]; then
-    cp -r "$SCRIPT_DIR/stdlib" "$LIB_DIR/"
-    echo -e "  ${GREEN}[OK]${NC} stdlib"
+# Stdlib + runtime (FE-10: mirror the release archive exactly:
+# lib/xiom, lib/runtime, lib/package.xi -- the resolver's preferred layout).
+if [ -d "$RELEASE_DIR/../lib" ]; then
+    cp -R "$RELEASE_DIR/../lib/." "$LIB_DIR/"
+    echo -e "  ${GREEN}[OK]${NC} lib (release layout)"
+elif [ -d "$SCRIPT_DIR/stdlib" ]; then
+    for part in xiom runtime package.xi; do
+        [ -e "$SCRIPT_DIR/stdlib/$part" ] && cp -R "$SCRIPT_DIR/stdlib/$part" "$LIB_DIR/"
+    done
+    echo -e "  ${GREEN}[OK]${NC} stdlib -> $LIB_DIR"
+else
+    echo -e "  ${YELLOW}[!!]${NC} stdlib checkout not found at $SCRIPT_DIR/stdlib"
 fi
-if [ -d "$SCRIPT_DIR/stdlib/runtime" ]; then
-    cp -r "$SCRIPT_DIR/stdlib/runtime"/* "$RUNTIME_DIR/"
-    echo -e "  ${GREEN}[OK]${NC} runtime"
+if [ ! -f "$LIB_DIR/runtime/xiom_runtime.c" ]; then
+    echo -e "  ${YELLOW}[!!]${NC} runtime C source missing at $LIB_DIR/runtime (native linking may fail)"
 fi
 
 # Icon (if present)
@@ -167,6 +180,14 @@ export PATH="$BIN_DIR:$PATH"
 
 if [ -x "$BIN_DIR/xiom" ]; then
     "$BIN_DIR/xiom" --version 2>/dev/null || true
+    echo -e "  ${CYAN}Running xiom doctor...${NC}"
+    # FE-10: verify with the compiler's own doctor (JSON in CI). Informational
+    # only -- warnings on multi-install machines must not fail the install.
+    if [ -n "${CI:-}" ]; then
+        "$BIN_DIR/xiom" doctor --json || true
+    else
+        "$BIN_DIR/xiom" doctor || true
+    fi
     echo -e "  ${GREEN}[OK]${NC} xiom is ready"
 else
     echo -e "  ${RED}[FAIL]${NC} xiom not found in $BIN_DIR"
@@ -179,9 +200,10 @@ echo -e "  ${MAGENTA}XIOM installed successfully!${NC}"
 echo -e "  ${MAGENTA}========================================${NC}"
 echo ""
 echo -e "  Binary:   ${GREEN}$BIN_DIR/xiom${NC}"
-echo -e "  Usage:    ${GREEN}xiom compile file.xi${NC}"
-echo -e "            ${GREEN}xiom fmt file.xi${NC}"
-echo -e "            ${GREEN}xiom doc .${NC}"
+echo -e "  Usage:    ${GREEN}xiom doctor${NC}            Check the toolchain"
+echo -e "            ${GREEN}xiom run hello.xi${NC}       Compile and run"
+echo -e "            ${GREEN}xiom fmt file.xi${NC}        Format source"
+echo -e "            ${GREEN}xiom pkg install xiom.std${NC}  Packages"
 echo ""
 echo -e "  ${YELLOW}Run 'source $SHELL_RC' or restart your terminal to use 'xiom'.${NC}"
 echo ""

@@ -2,13 +2,13 @@
 REM XIOM Toolchain Dispatcher
 
 setlocal
-set "XIOM_BIN=%LOCALAPPDATA%\xiom\bin"
-
-REM If binaries exist in LOCALAPPDATA, use those
+REM FE-13: prefer the binaries NEXT TO THIS SCRIPT (a freshly unpacked or dev
+REM tree must not be shadowed by a stale %LOCALAPPDATA%\xiom install).
+set "XIOM_BIN=%~dp0"
 if exist "%XIOM_BIN%\xiom.exe" goto :check_args
 
-REM Fallback: look in project root (same dir as this bat)
-set "XIOM_BIN=%~dp0"
+REM Fallback: the canonical installer location.
+set "XIOM_BIN=%LOCALAPPDATA%\xiom\bin"
 if exist "%XIOM_BIN%\xiom.exe" goto :check_args
 
 echo XIOM not found. Run install.ps1 first.
