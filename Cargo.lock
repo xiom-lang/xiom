@@ -1642,6 +1642,7 @@ dependencies = [
  "xiom-graph",
  "xiom-lexer",
  "xiom-parser",
+ "xiom-verify",
 ]
 
 [[package]]

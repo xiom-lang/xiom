@@ -10,6 +10,7 @@ pub mod graph_viz;
 pub mod implicit_main;
 pub mod jit;
 pub mod toolchain;
+pub mod toolchain_cmd;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};

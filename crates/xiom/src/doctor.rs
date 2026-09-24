@@ -351,6 +351,16 @@ fn checks_for(input: &DoctorInput) -> Vec<Check> {
         remediation: Vec::new(),
     });
 
+    // D-2: point at the read-only release check. Doctor itself stays offline
+    // (a diagnostic must work with no network).
+    checks.push(Check {
+        name: "toolchain-check",
+        status: Status::Info,
+        detail: "run 'xiom toolchain check' to compare this install to the latest release"
+            .to_string(),
+        remediation: Vec::new(),
+    });
+
     // Duplicate installs (FE-4/FE-13): the launcher/precedence trap.
     if input.xiom_on_path.len() > 1 {
         let list = input

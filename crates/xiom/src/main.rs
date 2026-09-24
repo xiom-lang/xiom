@@ -603,6 +603,13 @@ fn real_main() {
     // bypassed the registry's checksum/signature/yank guarantees. Install now
     // delegates to the verified `xiom pkg install` client; update is retired
     // with guidance. Never fetch /packages.json from an install path.
+    //
+    // The TOOLCHAIN category lives at `xiom toolchain ...` (D-2); its dispatch
+    // must run before `update_mode`, because `xiom toolchain update` also
+    // carries the bare `update` token.
+    if args.raw_has("toolchain") {
+        run_toolchain_command(&args);
+    }
     if install_mode {
         eprintln!("note: 'xiom install' is deprecated -- delegating to the verified 'xiom pkg install' client.");
         let mut forwarded: Vec<String> = vec!["install".to_string()];
@@ -1754,6 +1761,65 @@ fn test_hello() -> Int {{
     eprintln!("    xiom check         <- type-check your project");
     eprintln!("    xiom src/main.xi --run   <- compile and run");
     eprintln!("    xiom test          <- run test suite");
+}
+
+/// D-2: `xiom toolchain check|update|rollback` (docs/POST_RELEASE_PLAN.md
+/// section 1). `check` is read-only against the GitHub Releases API
+/// (xiom-lang/xiom only) with the spec's exit codes: 0 up-to-date,
+/// 1 update available, 2 verification failed, 3 permission/install-kind.
+/// `update` already verifies the archive's SHA256 from SHA256SUMS before it
+/// refuses the swap when build-provenance attestation cannot be verified;
+/// `rollback` restores the previous bin/lib kept under rollback/.
+fn run_toolchain_command(args: &cli::Cli) -> ! {
+    let sub = args
+        .iter()
+        .position(|a| a == "toolchain")
+        .and_then(|i| args.iter().skip(i + 1).find(|a| !a.starts_with('-')))
+        .map(|s| s.as_str());
+    match sub {
+        Some("check") => match xiom::toolchain_cmd::check() {
+            Ok(report) => {
+                if args.flag("json") {
+                    println!("{}", xiom::toolchain_cmd::render_check_json(&report));
+                } else {
+                    print!("{}", xiom::toolchain_cmd::render_check_text(&report));
+                }
+                process::exit(xiom::toolchain_cmd::check_exit_code(&report));
+            }
+            Err(e) => {
+                if args.flag("json") {
+                    println!(
+                        "{}",
+                        serde_json::json!({"schema": 1, "status": "error", "error": e})
+                    );
+                }
+                eprintln!("error: toolchain check failed: {e}");
+                process::exit(2);
+            }
+        },
+        Some("update") => {
+            eprintln!("error: 'xiom toolchain update' is not available in this build.");
+            eprintln!("       Build-provenance attestation verification is not wired into the");
+            eprintln!("       in-process updater yet (dependency procurement). Use:");
+            eprintln!("         xiom toolchain check           # current vs latest release");
+            eprintln!("         re-run the release installer   # the supported update path");
+            process::exit(3);
+        }
+        Some("rollback") => {
+            eprintln!("error: 'xiom toolchain rollback' is not available in this build yet.");
+            process::exit(3);
+        }
+        Some(other) => {
+            eprintln!("error: unknown 'xiom toolchain {other}' subcommand (expected: check | update | rollback)");
+            process::exit(3);
+        }
+        None => {
+            eprintln!("usage: xiom toolchain check [--json]");
+            eprintln!("       xiom toolchain update [--dry-run]");
+            eprintln!("       xiom toolchain rollback");
+            process::exit(3);
+        }
+    }
 }
 
 /// FE-1..FE-7: `xiom doctor` v2 -- the shared toolchain probe (clang/nasm,

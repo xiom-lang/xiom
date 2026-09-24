@@ -16,6 +16,7 @@ mod guides;
 use guides::{language_guide, workflow_guide};
 mod knowledge;
 use knowledge::stdlib_reference;
+mod contracts;
 
 // ============================================================================
 // Production-grade safety utilities
@@ -543,6 +544,31 @@ fn list_tools() -> Vec<ToolDef> {
             }),
         },
         ToolDef {
+            name: "get_contracts".into(),
+            description: "Structured contract query: returns the exact signature, requires/ensures/invariants and their source lines for a stdlib or project symbol in ONE call (no prose). Use `symbol` (e.g. \"xiom.string.str_concat\" or a bare unique leaf); set verify:true to fold in Z3 status/counterexamples; pass file for project symbols.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "symbol": { "type": "string", "description": "Symbol name: qualified (xiom.string.str_concat), module-qualified, or a unique bare leaf (str_concat)" },
+                    "verify": { "type": "boolean", "description": "Also run Z3 over the symbol's clauses and return status/counterexamples", "default": false },
+                    "file": { "type": "string", "description": "Optional project .xi file to resolve project symbols from" }
+                },
+                "required": ["symbol"]
+            }),
+        },
+        ToolDef {
+            name: "search_symbols".into(),
+            description: "Ranked symbol search across the bundled stdlib and (with file) the current project: exact qualified > exact leaf > prefix > substring. Returns [{symbol, module, signature}] so an agent can find the right API before calling get_contracts.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Search text, e.g. 'concat' or 'str_concat'" },
+                    "file": { "type": "string", "description": "Optional project .xi file to include project symbols" }
+                },
+                "required": ["query"]
+            }),
+        },
+        ToolDef {
             name: "check_xiom_syntax".into(),
             description: "Quick parse-only check (no type checking, no codegen). Fast feedback loop for syntax validation.".into(),
             input_schema: json!({
@@ -805,6 +831,19 @@ fn call_tool(name: &str, params: &Value) -> Result<Value, String> {
         "explain_error_code" => tool_explain_error_code(params).map(|s| json!({ "content": [{ "type": "text", "text": s }] })),
         "compile_and_analyze" => tool_compile_and_analyze(params).map(|v| json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default() }] })),
         "get_contract_signature" => tool_get_contract_signature(params).map(|v| json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default() }] })),
+        "get_contracts" => {
+            let symbol = params["symbol"].as_str().ok_or("Missing required parameter: symbol")?;
+            let verify = params["verify"].as_bool().unwrap_or(false);
+            let file = params["file"].as_str().map(std::path::PathBuf::from);
+            contracts::get_contracts(symbol, verify, file.as_deref())
+                .map(|v| json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default() }] }))
+        }
+        "search_symbols" => {
+            let query = params["query"].as_str().ok_or("Missing required parameter: query")?;
+            let file = params["file"].as_str().map(std::path::PathBuf::from);
+            contracts::search_symbols(query, file.as_deref())
+                .map(|v| json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default() }] }))
+        }
         "check_xiom_syntax" => tool_check_xiom_syntax(params).map(|v| json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default() }] })),
         "format_xiom_code" => tool_format_xiom_code(params).map(|v| json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default() }] })),
         "audit_safety_sandbox" => tool_audit_safety_sandbox(params).map(|v| json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default() }] })),
@@ -999,13 +1038,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_list_tools_returns_fourteen_tools() {
+    fn test_list_tools_returns_all_production_tools() {
         let tools = list_tools();
         // R53: + search_packages / package_info (registry metadata tools).
-        assert_eq!(tools.len(), 16, "Production MCP must have 16 tools");
+        // Sprint D: + get_contracts / search_symbols (structured contract
+        // queries, POST_RELEASE_PLAN section 2).
+        assert_eq!(tools.len(), 18, "Production MCP must have 18 tools");
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
         assert!(names.contains(&"search_packages"));
         assert!(names.contains(&"package_info"));
+        assert!(names.contains(&"get_contracts"));
+        assert!(names.contains(&"search_symbols"));
         assert!(names.contains(&"compile_and_analyze"));
         assert!(names.contains(&"explain_error_code"));
         assert!(names.contains(&"get_contract_signature"));

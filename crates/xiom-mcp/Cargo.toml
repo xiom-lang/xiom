@@ -18,3 +18,5 @@ xiom-graph = { path = "../xiom-graph" }
 xiom-ast = { path = "../xiom-ast" }
 xiom-lexer = { path = "../xiom-lexer" }
 xiom-parser = { path = "../xiom-parser" }
+# get_contracts verify:true folds Z3 status into the response (POST_RELEASE_PLAN 2).
+xiom-verify = { path = "../xiom-verify" }

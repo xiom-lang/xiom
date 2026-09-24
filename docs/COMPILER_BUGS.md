@@ -8134,6 +8134,59 @@ green, 3 new e2e locks (m130/m131/m132) + 2 binary E001 locks, full e2e
   `m131c_array_map_ref`). Needs a fn-signature compatibility check in the
   checker -- follow-up, out of this batch's scope.
 
+## 2026-09-24 -- Sprint D: `xiom toolchain check` + MCP contract queries
+
+Sprint D of the release plan (docs/POST_RELEASE_PLAN.md sections 1 + 2).
+The toolchain updater's read-only half and the MCP structured-contract tools
+landed; the attested swap half is blocked on dependency procurement and
+refuses explicitly.
+
+- **`xiom toolchain check [--json]`** (`crates/xiom/src/toolchain_cmd.rs`):
+  GitHub Releases API for `xiom-lang/xiom` ONLY (spec rule 1); no download,
+  no writes. JSON = `{schema, current, latest, platform, up_to_date, notes,
+  install_kind, asset, exe}` (POST_RELEASE_PLAN shape plus the classification
+  fields). Exit codes: 0 up-to-date, 1 update available, 2
+  network/API/parse failure. `install_kind` implements spec rule 5's
+  package-manager detection (path heuristic for /usr/bin, Homebrew, nix,
+  Chocolatey/Scoop/winget trees, plus an optional `.xiom-package-manager`
+  marker) and distinguishes dev builds (`target/debug|release`).
+  Asset naming matches release.yml staging (`xiom-<v>-windows-x64.zip`,
+  `xiom-<v>-linux-x64.tar.gz`, `SHA256SUMS-*`). `xiom doctor` now prints an
+  INFO row pointing at the command (the diagnostic itself stays offline).
+- **`xiom toolchain update|rollback` refuse with exit 3** (guidance names
+  `check` and the release installer). Reason: in-process build-provenance
+  attestation verification is not wired yet (dependency procurement), and a
+  SHA256SUMS-only swap would weaken spec rule 2. Status recorded in
+  POST_RELEASE_PLAN section 1.
+- **MCP `get_contracts {symbol, verify?, file?}`** (`crates/xiom-mcp/src/
+  contracts.rs`): resolves a stdlib symbol (`xiom.string.str_concat`,
+  module-qualified, or a unique bare leaf; receiver methods as `Str.len`)
+  against the SAME live stdlib catalog scan as `xiom_stdlib_reference`, and a
+  project symbol from an optional `file` via AST parsing. Response is the
+  spec object: symbol/module/signature/requires/ensures/invariants/
+  pre_refs/post_refs/qualified with exact clause source lines. `verify: true`
+  re-parses the declaration into a single-symbol program, generates SMT for
+  its clauses and runs Z3, mapping results 1:1 (proved / counterexample with
+  model values / unknown+reason; "unknown" when z3 is absent or the mapping
+  is not 1:1). Type invariants report unknown (not encoded).
+- **MCP `search_symbols {query, file?}`**: ranked hits (exact qualified >
+  exact leaf > prefix > substring, alphabetical tiebreak, deduped, top 25)
+  across the bundled stdlib plus the optional project file; returns
+  `[{symbol, module, signature}]`.
+- **Locks/tests**: 5 `toolchain_cmd` unit tests (version compare, asset
+  names, payload parse, install-kind, JSON keys) + the
+  `toolchain_check_reports_api_failure_as_exit_two` binary lock (closed-port
+  override, deterministic); 5 `contracts` tests (spec example symbol,
+  bare-leaf + close matches, ranked search, JSON shape, Z3 fold alignment);
+  MCP tool-count test updated (18 tools). Workspace all-targets clean;
+  `xiom toolchain check` verified live against GitHub (v0.61.3 = latest,
+  exit 0).
+- **REMAINING (Sprint D tail, procurement-blocked)**: attested `update`
+  (download -> attestation verify -> SHA256 -> stage -> atomic swap ->
+  `rollback`) and the `--dry-run` mode. The refusal path, asset naming and
+  install-kind detection are already in place for it.
+
+
 
 
 

@@ -148,6 +148,23 @@ fn doctor_deep_runs_an_end_to_end_compile() {
 }
 
 #[test]
+fn toolchain_check_reports_api_failure_as_exit_two() {
+    let install = FakeInstall::new("tc", "0.61.3");
+    let out = Command::new(xiom_bin())
+        .args(["toolchain", "check", "--json"])
+        // Closed port: deterministic failure, no network dependency.
+        .env("XIOM_TOOLCHAIN_API", "http://127.0.0.1:9/releases/latest")
+        .env("XIOM_HOME", install.home())
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn '{}': {e}", xiom_bin()));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("toolchain check --json must emit JSON even on failure: {e}\n{stdout}"));
+    assert_eq!(parsed["status"], "error");
+    assert_eq!(out.status.code(), Some(2));
+}
+
+#[test]
 fn doctor_text_has_identity_block_and_no_retired_command() {
     let install = FakeInstall::new("text", "0.61.3");
     let out = install.run(&["doctor"]);

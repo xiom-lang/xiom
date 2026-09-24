@@ -38,18 +38,14 @@ fn declared_module_name(source: &str) -> Option<String> {
     None
 }
 
-/// List all stdlib modules, or describe one module's full public API.
-pub fn stdlib_reference(module_filter: Option<&str>) -> Result<String, String> {
+/// List all stdlib modules as `(dotted name without the xiom. prefix, path)`.
+/// Shared by `xiom_stdlib_reference` and the structured contract queries
+/// (`get_contracts`/`search_symbols`) so both use the same catalog scan.
+pub fn stdlib_module_files() -> Result<Vec<(String, std::path::PathBuf)>, String> {
     let dirs = xiom::find_stdlib_dirs();
     if dirs.is_empty() {
         return Err("No stdlib directory found. Set XIOM_STDLIB or run from the XIOM repo/release.".into());
     }
-
-    // Recursive scan of stdlib/xiom/**/*.xi (the 512-module layout uses
-    // subdirectories: os/file.xi -> module xiom.os.file). Module names are
-    // the dotted relative path ("memory.alloc"), and the LEGACY bare stem
-    // ("alloc") resolves when unique -- keeps old tooling/agents working
-    // against the frozen layout.
     let mut modules: Vec<(String, std::path::PathBuf)> = Vec::new(); // (dotted name, path)
     for dir in &dirs {
         let xiom_subdir = std::path::Path::new(dir).join("xiom");
@@ -84,6 +80,12 @@ pub fn stdlib_reference(module_filter: Option<&str>) -> Result<String, String> {
         if !modules.is_empty() { break; } // first stdlib root wins (mirrors compiler)
     }
     modules.sort();
+    Ok(modules)
+}
+
+/// List all stdlib modules, or describe one module's full public API.
+pub fn stdlib_reference(module_filter: Option<&str>) -> Result<String, String> {
+    let modules = stdlib_module_files()?;
 
     if let Some(want) = module_filter {
         let want_norm = want.trim().trim_start_matches("xiom.").to_lowercase();

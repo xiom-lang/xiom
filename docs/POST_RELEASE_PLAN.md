@@ -7,6 +7,20 @@ Status: **v0.61.1 shipped** (2026-09-22). Nothing in this document blocks it.
 
 ## 1. Verified toolchain updater (`xiom toolchain check` / `update`)
 
+Status (2026-09-24, Sprint D): **`xiom toolchain check [--json]` SHIPPED**
+(`crates/xiom/src/toolchain_cmd.rs`): GitHub Releases API only, `current /
+latest / platform / up_to_date / notes` (+ `install_kind`, `asset`, `exe`),
+exit codes 0 up-to-date / 1 update available / 2 verification-or-network
+failure; package-manager and dev installs are classified from the exe path +
+a `.xiom-package-manager` marker; `xiom doctor` points at the command.
+**`update` / `rollback` refuse with exit 3** in this build: in-process
+build-provenance attestation verification is not available yet (dependency
+procurement), and shipping a SHA256SUMS-only swap would weaken the
+non-negotiable rule 2. The refusal names `xiom toolchain check` and the
+release installer as the supported update path. The remaining steps
+(attestation verify -> stage -> atomic swap -> one-version rollback) stay
+specified below and are the first Sprint D follow-up after procurement.
+
 Problem: `xiom update` is retired (it used an unverified channel), so users
 must re-download release archives manually. We want one command with no
 weakening of the supply-chain posture.
