@@ -394,6 +394,26 @@ dependency left is the stdlib lane's own release.
   follow-ups (strict clause default, `@pre`-on-call runtime, private enums,
   e2e/harness cleanups) are landed or switched -- see "Non-blocker batch
   landed".
+- Cross-lane update (2026-09-24 evening, stdlib relay): their clause cleanup
+  landed (`Rc`/`Arc.new` -> `result.strong_count() == 1`, `ptr.replace` ->
+  `dest != null`, `math.pow`/`pow_pure` `as Float64`, `array.is_sorted_by`
+  implemented), and STRICT MODE is verified GREEN on their main with our
+  built compiler (`XIOM_STRICT_CLAUSES=1 ... catalog_corpus_is_clean` -> 1
+  passed). Their notes fragment was trimmed to 2 highlights (our 4 + their 2
+  = the schema max of 6). Their release cut is gated on reaching 100%
+  (coverage waves, control_theory + lp_simplex, collect/lfu dedup, geom API
+  unit, tzdata phase 2, untested-surface generator), per their
+  docs/RELEASE_CHECKLIST.md.
+- PIN-BUMP ORDERING NOTE: the strict-default flip must land WITH the pin
+  bump -- the current `stdlib-v0.61.3` checkout still carries the 8 unfixed
+  clause sites and `catalog_corpus_is_clean` indexes the repo `stdlib/`
+  checkout directly (it does NOT honor XIOM_STDLIB), so flipping now would
+  red the corpus gate. Sequence at the bump: set `stdlib/` to their release
+  ref -> bump `STDLIB_VERSION` -> `XIOM_STRICT_CLAUSES=1 cargo test -p
+  xiom-check catalog_corpus_is_clean` (expect green) -> remove the env gate
+  in `check_clause_bool_mix` (default becomes strict) -> re-run the
+  stdlib-dependent gates + full e2e -> re-convert the notes -> version bump
+  -> push -> tag.
 
 ## Non-blocker batch landed (2026-09-24, compiler lane)
 
