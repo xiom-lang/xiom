@@ -12,8 +12,8 @@ timeline below are the detailed log -- read the newest entries for evidence.
   VSIX 0.12.0 live on both marketplaces). Compiler matches stdlib v0.61.3;
   `STDLIB_VERSION` pins `stdlib-v0.61.3`.
 - **Git:** `origin/main` = `1f7a9fbc` (R66 + its handoff note are PUSHED).
-  Local `main` is **17 commits ahead of origin**: R67+R68, R69, R70, R71,
-  R72/m127, m125 (freeze + CI gate), m126 (deterministic publish bytes +
+  Local `main` carries the whole campaign ahead of origin: R67+R68, R69, R70,
+  R71, R72/m127, m125 (freeze + CI gate), m126 (deterministic publish bytes +
   `publish --tarball`), m128 (publish sends the registry `compiler` field),
   the front-end audit (`docs/FRONTEND_AUDIT.md`), the website release-notes
   publisher (`crates/xiom-release-notes`), the docs/handoff commits, and the
@@ -176,8 +176,8 @@ lane policy).
 >
 > State: compiler v0.61.3 released; `STDLIB_VERSION` pins `stdlib-v0.61.3`
 > (the local `stdlib/` checkout is detached at that tag); `origin/main` has
-> R66 only, with 17 unpushed commits on local `main` (R67-R72, m125, m126,
-> m128, the audit, the release-notes publisher, Sprint A). Full e2e
+> R66 only, with the whole campaign unpushed on local `main` (R67-R72, m125,
+> m126, m128, the audit, the release-notes publisher, Sprint A, docs). Full e2e
 > 2373/2373 re-run ON THE PIN for the Sprint A batch; api-freeze 2/2 and
 > stdlib-exec 85/85 on the pin; no red gates. The owner
 > batched everything into ONE release (no intermediate tags; recommend
