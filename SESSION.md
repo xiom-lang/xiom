@@ -186,22 +186,30 @@ website lane pulls releases manually.
 > changes, add an e2e lock (`e2e_mNNN_*` fixture + the CI lock line in
 > `.github/workflows/ci.yml`), and run the full e2e once per batch; never
 > rebuild while an e2e is running.
-> Remaining queue, in order: (1) the fn-VALUE convention unification
-> (open m127 residuals: `Vec[fn].new()+push` elements, element-to-local
-> calls, fn-element calls through struct fields -- repros in
-> `tmp/probe_p1/`, spec in docs/COMPILER_BUGS.md m127); (2) the agreed
-> verified toolchain updater + MCP `get_contracts`/`search_symbols` per
-> `docs/POST_RELEASE_PLAN.md` (updater needs in-process provenance
-> attestation verification -- dependency-procurement step first);
-> (3) Stage 6 (performance program) and Stage 7 (selfhost gate) -- Stage 5
-> is CLEAR. Cross-lane: legacy-package migration note/codemod (packages
-> lane), benchmark `COMPILER_VERSION` bump to v0.61.3 (benchmark lane),
-> re-canary after any release re-run (registry lane).
+> Remaining queue, in order: (0) **docs/FRONTEND_AUDIT.md** -- the
+> user-facing/first-run audit + backlog (FE-1..FE-16, P0/P1/P2, two decision
+> briefs); the owner prioritizes it before anything else. Sprint A (P0):
+> FE-1/FE-2/FE-3 (doctor LLVM+NASM detection and dead `xiom install llvm`
+> remediation), FE-8 (retire legacy `xiom publish`, fix `xiom update` text),
+> FE-9 (align `xiom.std` vs registry `xiom-std` with the registry lane).
+> (1) the fn-VALUE convention unification (open m127 residuals:
+> `Vec[fn].new()+push` elements, element-to-local calls, fn-element calls
+> through struct fields -- repros in `tmp/probe_p1/`, spec in
+> docs/COMPILER_BUGS.md m127); (2) the agreed verified toolchain updater +
+> MCP `get_contracts`/`search_symbols` per `docs/POST_RELEASE_PLAN.md`
+> (updater needs in-process provenance attestation verification --
+> dependency-procurement step first; `xiom toolchain check --json` can ship
+> without it); (3) Stage 6 (performance program) and Stage 7 (selfhost gate)
+> -- Stage 5 is CLEAR. Cross-lane: legacy-package migration note/codemod
+> (packages lane), benchmark `COMPILER_VERSION` bump to v0.61.3 (benchmark
+> lane), stdlib pin bump carrying R66-R72 (stdlib lane), re-canary policy
+> settled (registry lane, 5c1cdcb).
 > Done this session: R66 (Windows-CI AV), R67 (ctor container typing),
 > R68 (nested extern), R69 (generic to_str), R70 (for-in collections),
 > R71 (all/none), R72/m127 (fn-vec indexed calls), m125 (API-freeze
-> snapshot + CI gate), m126 (deterministic publish bytes + promote mode).
-> Start with item 1 unless the user says otherwise.
+> snapshot + CI gate), m126 (deterministic publish bytes + promote mode),
+> front-end audit/backlog (docs-only). Start with item 0 unless the user
+> says otherwise.
 # XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-83 in docs/SESSION.md)
 
 2026-09-17 update (post-split, `main`): the registry-client findings
@@ -537,6 +545,48 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   (prints their SHA256; temp-only cleanup). 5 new unit tests + Python
   `tarfile` round-trip validation; pkg 72/72 (was 67). Operational note
   unchanged: re-canary after a release re-run.
+- **Front-end audit + backlog (2026-09-24, NOT implemented)**: after a Win11
+  first-run report (`xiom doctor` said LLVM missing although LLVM was
+  installed; it pointed at the dead `xiom install llvm`), a read-only audit of
+  everything a new user sees is in **docs/FRONTEND_AUDIT.md** with a
+  prioritized backlog (FE-1..FE-16) and two decision briefs. Headlines:
+  doctor's LLVM/NASM probes are PATH-only while the driver falls back to the
+  standard locations (FE-1/FE-3, root cause of the report); doctor's
+  remediation string is a dead command (FE-2); `xiom publish` still runs the
+  legacy git-tag flow and `xiom update`'s text points at the wrong thing
+  (FE-8); the registry hosts the stdlib as `xiom-std` while manifests depend
+  on `xiom.std` and the pkg help examples say `xiom.stdlib` (FE-9, registry
+  lane); installers ship 6 of 9 tools and a non-archive runtime layout
+  (FE-10); `install_deps.ps1`'s LLVM fallback is an unsigned 19.1.0 download
+  (FE-11). D-1 recommendation: keep the stdlib bundled (platform dep) and
+  align names; D-2: yes, build the agreed `xiom toolchain check|update`
+  (POST_RELEASE_PLAN 1), starting with `check --json`.
+- **Cross-lane relays (2026-09-24, for awareness -- no action taken)**:
+  * stdlib lane: R66-R70 fixes are on compiler `main` but NOT in the v0.61.3
+    pin (e2e 2371 there); next pin bump carries them and unlocks the
+    `for x in <Vec>` probe shapes. Their
+    `stdlib_api_freeze_no_removals` snapshot item is now RESOLVED here
+    (m125, rename-only regeneration + CI step) -- the duplication-gate twin
+    removal was waiting on it. Their waves remaining (recon ready): math
+    number_theory/factorial/combinatorics, text, regex, test, collections
+    (~35 safe clauses), error/io tails; dedup translation units
+    (hash vs linkedhash, cache vs lru) need the freeze-snapshot regen (done);
+    tzdata phase 2 + untested-surface tail (44 struct-param fns without a
+    usable ctor, non-scalar fn params, 83 generic fns) needs new
+    gen_call_probes.ps1 generator classes.
+  * registry lane: recorded in their SESSION.md at 5c1cdcb. Policy now reads
+    that deterministic assets make re-runs byte-stable, but re-canary after
+    (a) any asset regeneration or (b) any change to release packing (the
+    canary validates the auth/mapping/provenance path and the publish-time
+    signature, not the bytes). `xiom pkg publish` still re-packs, so
+    byte-identical staging->production promotion needs the client to pack
+    deterministically or to publish an existing tarball -- m126 delivered
+    BOTH (deterministic writer + `publish --tarball`), so the registry lane
+    now has the client-side half; they noted it as optional/unscheduled.
+    Nothing pending from ops or registry config.
+  * benchmark lane: `COMPILER_VERSION` still pins the absent v0.61.0;
+    recommend bumping to v0.61.3 and refreshing the STATUS fields after
+    re-running the four suites.
 - **m127 FIXED (2026-09-24, packages relay -- indexed `Vec[fn]` calls)**: an
   array literal of fn REFERENCES stored the RAW code address as the element
   while every call path uses the closure ENV convention, so `fns[i]()` loaded
