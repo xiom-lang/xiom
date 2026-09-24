@@ -1,235 +1,219 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
-# CONTINUATION HANDOFF (2026-09-23, compiler lane)
+# CONTINUATION HANDOFF (2026-09-24, compiler lane)
 
-**Released:** compiler **v0.61.3** -- GitHub Release `v0.61.3` (run 35889350771
-all green: windows-x64, linux-x64, macos-arm64, macos-x64, universal
-`xiom-vscode-0.12.0.vsix`, combined `SHA256SUMS`). The compiler version now
-**matches stdlib v0.61.3**; `STDLIB_VERSION` pins `stdlib-v0.61.3`. Extension
-0.12.0 is LIVE on both marketplaces (the v0.61.3 run skipped publishing via the
-version-absent gate, as designed). `main` = `8b9841f3` + local
-**UNPUSHED** `edea2f5d` (R66 fix + lock, full e2e 2367/2367); tree clean.
+Supersedes the 2026-09-23 header. The 2026-09-16 handoff and the dated
+timeline below are the detailed log -- read the newest entries for evidence.
 
-**Gates on the release tree:** full e2e **2373/2373** (R66/m119 + R67/m120 +
-R68/m121 + R69/m122 + R70/m123 + R71/m124 + R72/m127 locks added), checker 195/195,
-feature-reg 510/510,
-stdlib-exec 85/85
-(+2 ignored), robustness 63/63, fuzz 24/24, api-freeze 2/2 (m125: rename-only snapshot regeneration),
-pkg 72/72, mcp 39/39; ascii_guard OK; CI ubuntu-latest fully green; the
-Windows-runner-only AV on
-`e2e_p1_contract_methods` is FIXED (R66, 2026-09-23) -- CI has NOT been re-run
-since (pushes to main do not trigger CI), so the windows-latest leg is
-unverified until the next PR/dispatch.
-`stdlib_api_freeze_no_removals` FIXED (m125): the drift was rename-only
-(`AsyncExecutor.*`, `NetHttpResponse`), the snapshot is regenerated and the
-gate now runs in CI -- no red gates remain.
+## Status snapshot
 
-**Registry:** staging canary VERIFIED (`xiom-std@0.61.3`: provenance,
-signature and byte-level re-check against the served tarball). Production
-publish run **35726136811** is WAITING on the `registry-publish` environment:
-owner writes the ops-prepared production trusted-publishers entry, recreates
-production, then approves. Packages canary entries follow once ready. The
-release workflow now dispatches `compiler-release` successfully (PAT fixed),
-but **no website workflow listens for `repository_dispatch` yet** -- the
-website lane pulls releases manually.
+- **Released:** compiler **v0.61.3** (release run 35889350771, all platforms +
+  VSIX 0.12.0 live on both marketplaces). Compiler matches stdlib v0.61.3;
+  `STDLIB_VERSION` pins `stdlib-v0.61.3`.
+- **Git:** `origin/main` = `1f7a9fbc` (R66 + its handoff note are PUSHED).
+  Local `main` with **11 unpushed commits**: R67+R68, R69, R70, R71,
+  R72/m127, m125 (freeze + CI gate), m126 (deterministic publish bytes +
+  `publish --tarball`), m128 (publish sends the registry `compiler` field),
+  session/handoff docs, the front-end audit (`docs/FRONTEND_AUDIT.md`), and
+  the website release-notes publisher (`crates/xiom-release-notes`).
+  Tree clean.
+- **stdlib checkout:** `stdlib/` is now **detached at the pin**
+  `stdlib-v0.61.3` (`c7b4027`). It had been 6 commits stale (`385e1e4`);
+  Phase 0 refreshed it and re-ran the stdlib-dependent suites on the pin.
+- **No red gates.**
 
-## Remaining work, priority order
+## Gates (latest evidence)
 
-1. ~~**Windows-runner-only AV** -- `e2e_p1_contract_methods` returns
-   `-1073741819` (access violation at RUN time) on `windows-latest`,
-   deterministic (2/2) but NOT reproducible locally with either stdlib pin,
-   debug or release compiler, with NASM present (RC=0). Needs CI-side
-   runner/toolchain triage (not a pin blocker).~~ **FIXED 2026-09-23 (R66)**:
-   the AV was the broken P1-4 contract-method lowering (the runtime intrinsic
-   read the Vec DATA POINTER as the element count); `is_sorted`/`contains` now
-   lower inline over the Vec header. Lock `e2e_m119_contract_method_values`.
-2. ~~**`stdlib_tests::stdlib_all_modules_compile_to_ir`** (pre-existing; this
-   suite is NOT in the handoff gate list): `xiom.encoding.ascii85` returns
-   `Option[Vec[UInt8]]` against `Result[Vec<UInt8>, Str]` (lines 35/89), and
-   `xiom.core` (~line 799) hits "cannot call `float_to_string` /
-   `bool_to_string`". Triage checker + stdlib semantics.~~ **GREEN
-   2026-09-23**: passes on the current pin (with and without
-   `XIOM_REQUIRE_STDLIB=1`); the findings were resolved by the stdlib pin
-   refresh -- no compiler change needed.
-3. ~~**Generic `T.to_str()` prints a denormal** even with `use xiom.fmt;`
-   (repro `tmp/cleanbench/to_str_edges.xi`). Needs a design decision:
-   Display-bound monomorphisation vs per-concrete builtin expansion.~~
-   **FIXED 2026-09-23 (R69)**: not a design question -- the mono param loop
-   left `local_xiom_types` stale, so `x: T` inherited `x: Float64`. Lock
-   `e2e_m122_generic_param_type`.
-4. ~~**NEW (packages relay, 2026-09-23)**: indexed calls through `Vec[fn]`
-   elements miscompile to an access violation (affects `xiom.test.run_all`;
-   workaround `run_test_at(index)`). Repro needed from the package tree.~~
-   **LIKELY FIXED by R70**: `run_all` iterates the test Vec; the old For
-   lowering corrupted the Vec's data pointer. Local probes for direct/indexed
-   `Vec[fn]` calls and `s.tests[i]()` pass; needs the package re-run to
-   confirm.
-5. **NEW (packages relay, 2026-09-23)**: untyped `Vec[Int]` element reads can
-   mis-lower to Str comparisons (`let x: Int = v[i]` fixes it, `xiom.diff`);
-   and `byte_at(...)` compared directly against a UInt8 constant is always
-   false for bytes >= 128 (`(byte_at(s,i) as Int) & 0xFF` fixes it,
-   `xiom.typography`). Local probes for both simple shapes pass after R70
-   (the `Vec[elem]` binding refinement may cover the first) -- needs the
-   package repros.
-6. **Previously relayed, not yet reproduced here**: qualified enum patterns
-   vs the exhaustiveness checker; `mut` pattern bindings; a free `log` symbol
-   colliding with libm.
-7. ~~**`stdlib_api_freeze_no_removals`** is RED (9 missing frozen signatures:
-   `async.Executor.*`, `net.http_get/http_post`; identical at the pre-R66
-   baseline). The snapshot no longer matches the pinned stdlib tree -- needs
-   an intentional snapshot regeneration (stdlib/API lanes) after deciding
-   whether the drift is rename or removal.~~ **FIXED 2026-09-24 (m125)**:
-   rename-only drift (`AsyncExecutor.*`, `NetHttpResponse`), snapshot
-   regenerated, gate added to CI.
-8. ~~**`all`/`none` contract stubs**: the method-form `.all(pred)`/`.none(pred)`
-   on Vec/Slice/array still use the legacy `len=0` runtime stubs (trivially
-   true). Needs a real predicate-call lowering (same family as R66; NOT the
-   reported AV, deliberately left).~~ **FIXED 2026-09-24 (R71/m124)**: inline
-   lowering with the closure ABI; method-form on collections prefers the
-   inline semantics.
-9. **Legacy-package migration (packages lane, policy)**: the rule-drift
-   inventory (declarations without terminators, extern/unsafe contract
-   requirements) needs a migration note or codemod, not parser changes; the
-   nested-extern idiom is FIXED (R68). The `xiom.ffi` triage abort
-   ("no source modules found" instead of a FAIL summary) is harness-side.
-10. ~~**Deterministic publish bytes (registry relay)** -- `xiom pkg publish`
-    RE-PACKS, so the published bytes differ from the release asset and across
-    runs. To "promote exactly the canary bytes": add deterministic packing
-    (`SOURCE_DATE_EPOCH` / fixed mtimes) or a publish-existing-tarball mode.
-    Also: re-running a release job regenerates the asset, which invalidates the
-    canary's artifact claim -- re-canary after such a re-run.~~ **FIXED
-    2026-09-24 (m126)**: deterministic in-repo tar.gz writer +
-    `publish --tarball <PATH>` promote mode (prints the promoted SHA256).
-11. **Verified toolchain updater + MCP contract queries** (agreed; full spec +
-    acceptance in `docs/POST_RELEASE_PLAN.md`): `xiom toolchain check|update`
-    (GitHub Releases only; SHA256SUMS + provenance attestation; atomic swap
-    with rollback; never touches user data) and MCP `get_contracts` /
-    `search_symbols` (structured JSON across stdlib and project symbols,
-    optional Z3 counterexamples).
-12. **Small cleanups**: the `xiom-benchmark-chaos\reference\systems\*` paths in
-    `e2e_tests.rs` are monorepo remains -- the benchmark now lives in its own
-    repo under the xiom-project org and uses the DOWNLOADED compiler; drop or
-    relocate those tests. The e2e harness leaves thousands of `e2e_*` outputs at
-    the repo root (now ignored via root-anchored `/e2e_*`); consider making the
-    harness delete outputs after each run.
-13. **Stage status**: **Stage 5 (toolchain trust & security) is CLEAR** -- clap
-   arg surface, sandbox false-green, no `process::exit` in library paths,
-   supply chain (sha256/ureq/HTTPS, commit-pinned git deps, token auth,
-   fail-closed trusted registries, signed publishes), LSP hardening
-   (severities, UTF-16, 64 MiB cap, mutex recovery, incremental parse cache +
-   cross-file index), fmt (defer, trivia, escaping), dbg (MI quoting, async
-   reader, DWARF), JSON diagnostics v1, cargo-deny/vet + MSRV + fuzz/ASAN are
-   all DONE. Open: **Stage 6** (performance program: real incremental engine
-   L1/L2 tiers, parallel monomorphisation, linker strategy, benchmark CI
-   budgets) and **Stage 7** (selfhost gate: zero-ICE self-build, -O0/-O2/-O3
-   differential, strict bounds/borrow, Stage-5 controls for obtaining the
-   toolchain, bootstrap equivalence harness, full e2e on the release binary).
-   `p_hash_probe` (interface value-receiver ABI, loud C001) and `p_fnref`
-   (function-value identity) remain ruled/waiting on a language-spec decision,
-   not compiler fixes.
+- Full e2e **2373/2373** -- last full run was BEFORE the pin refresh:
+  R66/m119, R67/m120, R68/m121, R69/m122, R70/m123, R71/m124, R72/m127 locks.
+  The next batch (Sprint A) runs the full e2e again, on the pin.
+- checkers: checker 195/195, parser 101/101, integration 130/130,
+  feature-reg 510/510, robustness 63/63, fuzz 24/24.
+- stdlib-dependent (re-run on the pin): api-freeze **2/2** (m125 regen),
+  stdlib-exec **85/85 (+2 ignored)**.
+- tooling: pkg 72/72 (m126), release-notes **6/6** (new), mcp 39/39,
+  ascii_guard OK.
+- CI: ubuntu-latest green on the pushed R66 state. The Windows CI leg has NOT
+  been re-run since R66 (pushes to main do not trigger CI) -- the next push/PR
+  validates it; R66 removed the previous Windows-only failure.
 
-## Environment / method notes (learned the hard way)
+## Owner decision: ONE combined release (no intermediate tags)
 
-- **Identity**: the gh active account must be **Lefteris-Notas**
-  (`gh auth switch --user Lefteris-Notas`); `gh auth setup-git` is configured.
-  `Lefteris-Ngonart` stays logged in for unrelated work. Repo-local git
-  identity is `Lefteris Notas <lefterisnotas@gmail.com>` (the GLOBAL email
-  differs -- leave it). If a push 403s, check the active gh account first.
-- **CI does NOT run on pushes to main** (PR + `workflow_dispatch` only), so
-  main's health is only validated when a PR opens or a dispatch runs. The
-  release workflow dispatches `compiler-release` to `xiom-lang/website`, but no
-  website workflow subscribes to `repository_dispatch` -- website pulls
-  releases manually.
-- **Never rebuild `target/debug/xiom.exe` while a cargo e2e runs** -- the
-  harness spawns it; mid-run replacement produces flaky crashes/false results.
-  One e2e is ~23-25 min; batch fixes per run.
-- **`--emit-ir` prints the INTERMEDIATE emitter output.** For the IR clang
-  actually compiles, force a link failure (`--link missing_xyz`) and read
-  `<output>.ll` (kept on failure, deleted on success).
-- **Large fixed arrays**: >= 16 KiB locals are memset-zeroed and accessed by
-  address (`LARGE_ARRAY_MIN_BYTES`); do not reintroduce whole-aggregate
-  stores/loads for them -- clang 22.1.8 ISel crashes above 32 KiB.
-- Repro harnesses: `tmp/repro_lessons.ps1 -IdList a,b,c` and
-  `tmp/output_check.ps1 -IdList ...` (3-run determinism + UTF-8 validation).
-  Playground clone at `tmp/playground` (uses each JSON's `id`, not filename).
-- The stdlib checkout is the PINNED `stdlib/`, currently refreshed to
-  `stdlib-v0.61.3` (matches `STDLIB_VERSION`); to test a newer stdlib set BOTH
-  `XIOM_STDLIB` and `XIOM_RUNTIME_DIR` (runtime C files resolve separately).
-- **Test paths must use `/`** (backslash literals only resolve on Windows); the
-  e2e stdlib guard accepts both layouts (`xiom/io.xi` flat or `xiom/io/io.xi`).
-- **CI proxy on Linux (WSL)**: set `XIOM_REQUIRE_STDLIB=1` to exercise guarded
-  tests and run the curated list from `ci.yml`; unit/perf/tooling/e2e all pass
-  there except the Windows-only AV above.
-- **Bench harness on Windows**: set a clean `TMP`/`TEMP` first -- stale `.xi`
-  trees under `%TEMP%` inflate the front-end ~30x and emit W001 floods.
+Git free-plan build minutes are charged, so everything ships in a single tag.
+Recommended version: **v0.62.0** (user-visible behavior + UX changes).
+Ordering:
+
+1. Compiler lane completes **Sprint A (front-end P0)**, **Sprint B (P1)** and
+   **Sprint C (fn-value / generic-mono ABI + E001)**, each batch with its lock
+   + one full e2e, committed/pushed as we go (pushes are free).
+2. **stdlib lane** completes its 100% readiness plan (coverage waves, dedup
+   translation units, tzdata phase 2, untested-surface classes, stub
+   re-triage), adds `release-notes/<tag>.md` for the new tag, and cuts ITS
+   release.
+3. Compiler bumps `STDLIB_VERSION` to the new stdlib tag, runs the full gate
+   list on the pin, bumps the workspace version to `0.62.0`, authors
+   `release-notes/v0.62.0.md` (the release workflow's `verify` gate REQUIRES
+   the committed JSON before the tag), pushes, and tags.
+4. **Registry** re-canary after the tag. **Website lane** publishes the notes
+   JSON to `dl.xiom-lang.org/releases/<tag>/release.json` and sets
+   `"notes": true` in `releases/index.json` (the dispatch now carries
+   `client_payload[notes_path]`).
+
+TLS/schannel FFI hardening (stdlib B-list, gates any HTTPS/TLS claim) must
+ship in this same window or be explicitly excluded from the release notes.
+
+## Queue, in order
+
+**Sprint A -- front-end P0** (spec: `docs/FRONTEND_AUDIT.md` FE-1..FE-9):
+doctor v2 with ONE shared toolchain probe for clang+nasm used by doctor AND
+the driver (PATH then per-OS candidates; kill the hardcoded personal NASM
+path in `lib.rs`), resolved paths + versions, OS-specific remediation
+instead of the dead `xiom install llvm`, identity block (exe/install root/
+XIOM_HOME/stdlib root via `paths::stdlib_root()` + version/LLVM/NASM/z3),
+`--json` + exit codes, retire the legacy `xiom publish` (alias to
+`xiom pkg publish`), fix `xiom update`'s text and the `xiom pkg` help
+example, and align `xiom.std` vs the registry's `xiom-std` (FE-9).
+
+**Sprint B -- front-end P1**: FE-10 installers ship all 9 tools + the archive
+runtime layout; FE-11 `install_deps.ps1` LLVM fallback (pin + SHA256 or
+winget-only); FE-12 grouped user-facing `--help`; FE-13/14/15 duplicates,
+banners, uninstall PATH cleanup; FE-17 `module x;` trailing-semicolon
+tolerance.
+
+**Sprint C -- fn-value / generic-mono ABI unification** (highest correctness
+item; one batch or split by root cause, each with locks):
+- m127 residuals: `Vec[fn].new()+push` elements, element-to-local calls,
+  fn-element calls through struct fields (repros `tmp/probe_p1/`).
+- packages lane's 3 confirmed probes (`tmp/fp_probe/`, originals under
+  `%TEMP%\kilo\fp-probe\`): fn-ptr struct field (clang ptr/i64 mismatch),
+  generic `[T,U]` fn-ptr with U=Str (corrupt Str), generic `Vec[U]` map
+  (mis-written elements; AV for U=Str).
+- stdlib lane's cross-type callback matrix (their `tools/known_failures/`):
+  cross-type returns wrong (Int->Str by-ref/by-value, Int->Float64,
+  `sort_by_key[Int,Str]`); same-type and concrete correct; Str->Int correct.
+  Root cause: the call/return ABI must follow the MONOMORPHISED
+  instantiation, not the erased generic signature.
+- E001 conservatism: no warning for consumed temporary borrows; never weaken
+  the genuine-overlap warning (their
+  `tools/probes/evidence/p_e001_borrow_conservatism.xi`).
+Specs: `docs/COMPILER_BUGS.md` (m127, R66-R72) + the 2026-09-24 timeline
+entries.
+
+**Sprint D**: the agreed verified toolchain updater + MCP
+`get_contracts`/`search_symbols` (`docs/POST_RELEASE_PLAN.md`).
+`xiom toolchain check --json` needs no new dependencies and ships first; the
+full `update` needs in-process provenance-attestation verification
+(dependency procurement first).
+
+**Sprint E**: Stage 6 (performance program) and Stage 7 (selfhost gate).
+**Stage 5 is CLEAR** (compiler lane).
+
+**Small cleanups** (from older handoffs, still open): drop/relocate the
+`xiom-benchmark-chaos` paths in `e2e_tests.rs`; consider making the e2e
+harness delete its outputs; legacy-package migration note/codemod (packages
+lane policy).
+
+## Cross-lane status
+
+- **stdlib:** m125 freeze regen CLOSED independently on their side (2/2 on
+  compiler main). They re-probed R67/R68/R69/R70/R72 and confirmed the
+  still-open `Vec[fn]` literal / `.new()+push` AVs; their green lock
+  `p_r70_pending_shapes.xi` is parked for the pin-bump commit. They still owe:
+  the full readiness plan, a `release-notes/<tag>.md` fragment for the next
+  release, and (optional) minimal repros for checker E001 + the generic
+  fn-pointer limitation (now delivered for the latter).
+- **registry:** policy settled at their `5c1cdcb`: deterministic assets make
+  re-runs byte-stable; re-canary after any asset regeneration or packing
+  change. m126 delivered the client-side half of exact-bytes promotion
+  (deterministic writer + `publish --tarball`, printed SHA256) and m128 now
+  sends the per-version `compiler` field (manifest `compiler:` or
+  `--compiler <tag>`; warns when absent) so the website can correlate
+  packages with toolchain releases. Nothing pending from ops; production
+  publish waits on the owner's environment approval. Open: FE-9 name
+  alignment (`xiom.std` vs `xiom-std`); package repos should add `compiler:`
+  to their manifests.
+- **packages:** 3 repros confirmed on our build; they will commit the probes
+  under `docs/repro/`. Their migration-note request (old dialect) is policy,
+  not a parser bug; the `xiom.ffi` triage abort is harness-side.
+- **website:** schema-v1 contract implemented on our side (publisher + gate +
+  CI tests); requirement 5 (dl + `releases/index.json` `notes: true`) is
+  their lane; the dispatch now carries `notes_path`.
+- **benchmark:** `COMPILER_VERSION` still pins the absent v0.61.0 -- they
+  should bump after our next release exists.
+
+## Environment / method notes
+
+- **Identity**: gh active account must be **Lefteris-Notas**
+  (`gh auth switch --user Lefteris-Notas`). Repo-local git identity is
+  `Lefteris Notas <lefterisnotas@gmail.com>` (global differs; leave it).
+- **CI does NOT run on pushes to main** (PR + `workflow_dispatch` only).
+- **Never rebuild `target/debug/xiom.exe` while a cargo e2e runs.** One e2e
+  is ~23-28 min; batch fixes per run.
+- **`--emit-ir` prints INTERMEDIATE output.** For the IR clang compiles,
+  force a link failure (`--link missing_xyz`) and read `<output>.ll`.
+- **Large fixed arrays** (>= 16 KiB) are memset-zeroed and accessed by
+  address (`LARGE_ARRAY_MIN_BYTES`); clang 22 ISel crashes above 32 KiB.
+- Repro harnesses: `tmp/repro_lessons.ps1`, `tmp/output_check.ps1`;
+  playground clone `tmp/playground`.
+- Stdlib override for a NEWER stdlib: set BOTH `XIOM_STDLIB` and
+  `XIOM_RUNTIME_DIR` (runtime C resolves separately).
+- **Test paths must use `/`**; the e2e stdlib guard accepts both layouts.
+- WSL/Linux CI proxy: `XIOM_REQUIRE_STDLIB=1` + the curated `ci.yml` list.
+- Bench harness on Windows: set a clean `TMP`/`TEMP` first.
 - **ascii_guard**: staged files must be pure ASCII
-  (`python tools/ascii_guard.py check`; repair with `--apply`).
-- **Delete extracted release archives after verification** -- duplicate stdlib
-  trees under `tmp/` trip `e2e_m17_zero_warnings`.
-- ISel/LLVM minimizer: `tmp/extract_closure.py` (auto-detects the crashing
-  function, extracts its transitive closure) + hand-built matrix .ll files
-  under `tmp/preprobe/`.
+  (`python tools/ascii_guard.py check`).
+- Delete extracted release archives after verification (stale stdlib trees
+  trip `e2e_m17_zero_warnings`).
+- ISel/LLVM minimizer: `tmp/extract_closure.py` + `tmp/preprobe/`.
+- Local repro dirs: `tmp/probe_p1/` (R66-R72 + m127), `tmp/fp_probe/`
+  (packages fp probes), `tmp/relnotes_smoke/` (release-notes CLI smoke).
 
 ## Continuation prompt (copy/paste into the next session)
 
 > Continue the XIOM compiler-lane campaign in `E:\xiom-lang\xiom` (branch
 > `main`; push only when asked). Read the top section of SESSION.md
-> ("CONTINUATION HANDOFF (2026-09-23)") and docs/COMPILER_BUGS.md before
-> touching code. Compiler **v0.61.3** is released and matches stdlib
-> **v0.61.3**; `STDLIB_VERSION` pins `stdlib-v0.61.3`; every playground/stdlib
-> bug batch through R72 is fixed; the full e2e is 2373/2373 and the stdlib
-> API freeze gate is green (local commits UNPUSHED). The registry staging
-> canary is verified; production
-> publish waits on the owner's environment approval.
-> Work repro-first; rebuild `cargo build -p xiom` after checker/codegen
-> changes, add an e2e lock (`e2e_mNNN_*` fixture + the CI lock line in
-> `.github/workflows/ci.yml`), and run the full e2e once per batch; never
-> rebuild while an e2e is running.
-> Remaining queue, in order: (0) **docs/FRONTEND_AUDIT.md** -- the
-> user-facing/first-run audit + backlog (FE-1..FE-16, P0/P1/P2, two decision
-> briefs), owner-approved. Sprint A (P0): FE-1/FE-2/FE-3 (doctor LLVM+NASM
-> detection and dead `xiom install llvm` remediation), FE-4/FE-5/FE-7 (doctor
-> identity block, shared stdlib resolver, `--json` + exit codes), FE-8
-> (retire legacy `xiom publish`, fix `xiom update` text and the pkg help
-> example), FE-9 (align `xiom.std` vs registry `xiom-std` with the registry
-> lane). Sprint B (P1): FE-10..FE-15 + FE-17 (`module x;` trailing-semicolon
-> tolerance). Then:
-> (1) **Sprint C -- fn-VALUE / generic-mono ABI unification** (the highest
-> correctness item): m127 residuals (`Vec[fn].new()+push` elements,
-> element-to-local calls, fn-element calls through struct fields) PLUS the
-> packages lane's three reproduced probes (fn-ptr struct field -> clang
-> ptr/i64 mismatch; generic `[T,U]` fn-ptr with U=Str -> corrupt Str;
-> generic `Vec[U] map` -> mis-written elements + AV for U=Str) PLUS the
-> stdlib lane's cross-type callback matrix (cross-type returns wrong:
-> Int->Str by-ref/by-value, Int->Float64, `sort_by_key[Int,Str]`;
-> same-type and concrete are correct) -- the call/return ABI must follow the
-> monomorphised instantiation. Also in Sprint C: the E001 conservatism
-> checker fix (no warning for consumed temporary borrows; never weaken the
-> genuine-overlap warning). Repro dirs: `tmp/probe_p1/`, `tmp/fp_probe/`;
-> specs in docs/COMPILER_BUGS.md m127 + this timeline entry.
-> (2) the agreed verified toolchain updater + MCP
-> `get_contracts`/`search_symbols` per `docs/POST_RELEASE_PLAN.md`
-> (`xiom toolchain check --json` can ship without the attestation
-> dependency); (3) Stage 6 (performance program) and Stage 7 (selfhost
-> gate) -- Stage 5 is CLEAR. **Release strategy (owner, Git free-plan):
-> ONE combined release, no intermediate tags** -- compiler Sprints A+B+C
-> land on `main` first; stdlib completes its 100% readiness plan and cuts
-> ITS next release; then we bump `STDLIB_VERSION`, run the full gates on the
-> pin, and cut the single compiler release (recommend v0.62.0). Registry
-> re-canary after that tag.
-> Cross-lane: legacy-package migration note/codemod (packages lane),
-> benchmark `COMPILER_VERSION` bump (benchmark lane), stdlib pin bump
-> (stdlib lane, after their release), re-canary policy settled (registry
-> lane, 5c1cdcb). TLS/schannel FFI hardening ships in this window or is
-> excluded from the release notes.
-> Done so far: R66 (Windows-CI AV), R67 (ctor container typing),
-> R68 (nested extern), R69 (generic to_str), R70 (for-in collections),
-> R71 (all/none), R72/m127 (fn-vec indexed calls), m125 (API-freeze
-> snapshot + CI gate), m126 (deterministic publish bytes + promote mode),
-> front-end audit/backlog, Phase 0 pin refresh (freeze 2/2 + stdlib-exec
-> 85/85 on `stdlib-v0.61.3`). Start with item 0 unless the user says
-> otherwise.
+> ("CONTINUATION HANDOFF (2026-09-24, compiler lane)") plus
+> `docs/FRONTEND_AUDIT.md` (the owner-approved P0/P1 backlog) and
+> `docs/COMPILER_BUGS.md` (R66-R72, m127) before touching code.
+>
+> State: compiler v0.61.3 released; `STDLIB_VERSION` pins `stdlib-v0.61.3`
+> (the local `stdlib/` checkout is detached at that tag); `origin/main` has
+> R66 only, with 10 unpushed commits on local `main` (R67-R72, m125, m126,
+> the audit, the release-notes publisher). Full e2e 2373/2373 (pre-pin);
+> api-freeze 2/2 and stdlib-exec 85/85 on the pin; no red gates. The owner
+> batched everything into ONE release (no intermediate tags; recommend
+> v0.62.0), sequenced as: compiler Sprints A+B+C -> stdlib completes its plan
+> + cuts its release + ships its release-notes fragment -> bump
+> STDLIB_VERSION -> full gates on the pin -> author release-notes/v0.62.0.md
+> (the release workflow's `verify` gate requires the committed JSON BEFORE
+> the tag) -> version bump + push + tag -> registry re-canary, website
+> publishes the notes to dl.
+>
+> Start with **Sprint A (front-end P0)** unless the user says otherwise:
+> FE-1/FE-2/FE-3 (one shared clang+nasm probe used by doctor AND the driver;
+> resolved paths/versions; OS-specific remediation instead of the dead
+> `xiom install llvm`), FE-4/FE-5/FE-7 (doctor identity block, stdlib via
+> `paths::stdlib_root()`, `--json` + exit codes), FE-8 (retire legacy
+> `xiom publish`, fix `xiom update` text and the pkg help example), FE-9
+> (`xiom.std` vs registry `xiom-std` alignment).
+>
+> Method (non-negotiable): work repro-first; rebuild `cargo build -p xiom`
+> after checker/codegen changes; add an e2e lock (`e2e_mNNN_*` fixture + the
+> CI lock line in `.github/workflows/ci.yml`) for every compiler behavior
+> change; run the full e2e ONCE per batch; never rebuild while an e2e runs;
+> keep `python tools/ascii_guard.py check` green; commit atomically with
+> evidence in SESSION.md and docs/COMPILER_BUGS.md.
+>
+> After Sprint A: Sprint B (FE-10..FE-15, FE-17), then Sprint C -- the
+> fn-value / generic-mono ABI unification covering the m127 residuals
+> (`tmp/probe_p1/`), the packages' three confirmed probes
+> (`tmp/fp_probe/`), the stdlib cross-type callback matrix
+> (Int->Str by-ref/by-value, Int->Float64, `sort_by_key[Int,Str]`; same-type
+> and concrete are correct) and the E001 conservatism checker fix. Then
+> Sprint D (toolchain `check --json` first, then the full verified updater +
+> MCP contract queries) and Sprint E (Stage 6/7; Stage 5 is CLEAR).
+
 # XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-83 in docs/SESSION.md)
 
 2026-09-17 update (post-split, `main`): the registry-client findings
@@ -691,6 +675,16 @@ Everything after this section is the pre-R31/r31-r83 history. Live state:
   * benchmark lane: `COMPILER_VERSION` still pins the absent v0.61.0;
     recommend bumping to v0.61.3 and refreshing the STATUS fields after
     re-running the four suites.
+- **m128 FIXED (2026-09-24, registry relay -- package/toolchain correlation)**:
+  `xiom pkg publish` never sent the registry's per-version `compiler` field
+  (the server reads `req.body.compiler`, capped at 64 chars), so the website
+  could not correlate packages with toolchain releases. Publish now resolves
+  the tag from `--compiler <tag>` (wins) or the manifest's optional
+  `compiler: "v0.61.3"` field, validates it as `vX.Y.Z` (suffix allowed,
+  1-64 ASCII), prints it, and adds it to the multipart fields; publishing
+  without one warns loudly (not fatal). The field starts flowing with the
+  next release; package repos should add `compiler:` to their manifests.
+  pkg tests 74/74 (2 new).
 - **m127 FIXED (2026-09-24, packages relay -- indexed `Vec[fn]` calls)**: an
   array literal of fn REFERENCES stored the RAW code address as the element
   while every call path uses the closure ENV convention, so `fns[i]()` loaded
