@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "tag": "v0.62.0",
+  "summary": "Your toolchain now finds the compiler, reports exactly what it found, and passes callbacks through generics with the correct ABI.",
+  "highlights": [
+    {
+      "kind": "tooling",
+      "title": "The doctor tells the whole truth",
+      "text": "It finds clang and NASM at their standard locations instead of PATH only, prints an identity block with exact paths and versions, warns on version mismatches and duplicate installs, explains how to install missing tools for your operating system, and adds --json plus 0/1/2 exit codes for CI."
+    },
+    {
+      "kind": "compiler",
+      "title": "Generics pass callbacks with the right ABI",
+      "text": "Generic functions that accept a callback now infer the callback's result type from its real return type, so callbacks returning Str or Float64 are correct across types. Function values in vectors, arrays, struct fields and for-in loops share one closure representation."
+    },
+    {
+      "kind": "fix",
+      "title": "Borrow warnings you can trust again",
+      "text": "The borrow checker no longer warns about borrows that a call already consumed, while a still-live borrow followed by a mutation still warns. A comparison between Bool and a concrete type in a contract clause is now a compile error instead of being silently coerced."
+    },
+    {
+      "kind": "tooling",
+      "title": "Cleaner installs, all nine tools, update check",
+      "text": "Installers ship all nine tools plus the lib/ layout and clean PATH when uninstalled. The help output is grouped by task, --version prints the install root, a trailing semicolon after a module header is accepted, and the new toolchain check command compares your install to the latest release."
+    }
+  ],
+  "breaking": [
+    "The install and publish commands are now deprecation aliases for the xiom pkg client, and the old update command is retired with guidance to the supported update paths.",
+    "The doctor exits 1 on warnings and 2 on errors; scripts that only accept a zero exit status should treat 1 as success.",
+    "A contract clause comparing Bool with a concrete type no longer compiles; compare matching types or remove the clause."
+  ],
+  "known_issues": [
+    "Requiring every clause to type as Bool waits on a standard library clause cleanup; for now only Bool-versus-primitive clause comparisons are rejected.",
+    "At-pre on a method call currently captures the value after the call; prefer at-pre on parameters until this is fixed.",
+    "The toolchain update command refuses to run until build provenance can be verified in-process; use the release installer to update."
+  ],
+  "docs": [
+    {
+      "title": "How to install and update",
+      "url": "https://github.com/xiom-lang/xiom/releases/latest"
+    },
+    {
+      "title": "Contracts reference",
+      "url": "https://docs.xiom-lang.org/latest/contracts/"
+    }
+  ],
+  "full_changelog": "https://github.com/xiom-lang/xiom/releases/tag/v0.62.0"
+}
