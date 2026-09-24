@@ -1199,7 +1199,7 @@ fn print_usage() {
     eprintln!();
     eprintln!("EXAMPLES:");
     eprintln!("  xiom pkg search vulkan");
-    eprintln!("  xiom pkg install xiom.stdlib");
+    eprintln!("  xiom pkg install xiom.std");
     eprintln!("  xiom pkg install xiom.vulkan@0.5.0");
     eprintln!("  xiom pkg --list --root stdlib");
 }

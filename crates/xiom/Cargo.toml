@@ -45,3 +45,8 @@ xiom-jit = { path = "../xiom-jit" }
 default = []
 nasm = []  # Enable NASM assembly of .asm files for hardware acceleration
 full-e2e = []  # Enable full compile+run execution tests (requires runtime linking)
+
+[dev-dependencies]
+# Doctor CLI lock (crates/xiom/tests/doctor_cli.rs) parses `--json` output.
+# Same crate/version as the regular dependency: no new supply-chain entry.
+serde_json = "1"

@@ -7934,6 +7934,73 @@ emitter output, not the IR clang compiles (a later pass rewrites e.g.
 link to fail (`--link missing_xyz`) and read `<output>.ll` (kept on failure;
 deleted on success).
 
+## 2026-09-24 -- Front-end audit Sprint A (FE-1..FE-9): doctor v2 + shared toolchain probe + retired surfaces
+
+The owner-approved front-end backlog (`docs/FRONTEND_AUDIT.md`, written after
+the Win11 laptop report: doctor said "clang NOT FOUND" although LLVM was
+installed) landed as one batch. No compiler semantics changed; the locks are
+unit tests plus a new binary integration test on the CI path.
+
+- **FE-1/FE-3 (ONE shared probe)**: new `crates/xiom/src/toolchain.rs` is the
+  single clang/opt/nasm resolver used by the driver AND doctor. Order is PATH
+  first (each PATH dir resolved to its absolute entry), then per-OS known
+  locations: Windows `%ProgramFiles%\LLVM\bin`,
+  `%LOCALAPPDATA%\Programs\LLVM\bin`, `%LOCALAPPDATA%\Microsoft\WinGet\Links`
+  and the `WinGet\Packages\LLVM.LLVM_*` globs (User + ProgramData -- the list
+  `install_deps.ps1` already probes); NASM `%LOCALAPPDATA%\bin\NASM`,
+  `%ProgramFiles%\NASM`, `%ProgramFiles(x86)%\NASM`,
+  `WinGet\Packages\NASM.NASM_*`; Unix `/usr/bin`, `/usr/local/bin`,
+  `/opt/homebrew/opt/llvm/bin`, `/usr/lib/llvm-*/bin` (glob). Wildcards are
+  expanded by scanning the directory that holds them. The driver's hardcoded
+  personal NASM path (`C:\Users\lefte\...`) is REMOVED, `find_tool`/
+  `find_nasm` are deleted, and `opt` now prefers the directory clang resolved
+  in (LLVM tools ship together). Versions come from executing the RESOLVED
+  path (`--version`); a file that cannot spawn is skipped, not returned.
+- **FE-2 (dead remediation)**: doctor no longer prints `xiom install llvm`
+  (no such package exists). Missing clang prints the OS-specific command:
+  Windows `winget install LLVM.LLVM` / `choco install llvm -y`; macOS
+  `brew install llvm` + the PATH line; Linux apt/dnf/pacman/zypper selected
+  from `/etc/os-release`.
+- **FE-4/FE-5/FE-16 (identity + parity)**: doctor reports the resolved
+  xiom.exe, install root, XIOM_HOME, the SHARED
+  `xiom_graph::paths::stdlib_root()` + its `package.xi` version, clang/nasm/
+  z3 paths+versions, runtime C presence and the packages dir. Warnings:
+  compiler vs stdlib version mismatch, stdlib vs the embedded `STDLIB_VERSION`
+  pin (`build.rs` now emits `XIOM_STDLIB_PIN`, closing the FE-16 gap),
+  runtime C missing, and duplicate installs (multiple xiom binaries on PATH,
+  or the running binary shadowed by the first PATH entry).
+- **FE-7 (`--json` + exit codes)**: `xiom doctor --json` emits
+  `{schema, ok, compiler, identity{...}, checks[], warnings[], errors[]}`;
+  exit 0 all-OK, 1 warnings, 2 errors.
+- **FE-8 (retired surfaces)**: `xiom publish` now mirrors `xiom install` -- a
+  deprecation note plus delegation to `xiom pkg publish`; the legacy git-tag
+  handler (which advertised the retired `xiom install {name}` channel) is
+  deleted. `xiom update` points at the release installer / future
+  `xiom toolchain update` (toolchain category) and keeps the package advice
+  separate. The pkg help example is `xiom pkg install xiom.std`.
+  COMPILER_IMPROVEMENT_PLAN.md carries the historical banner for the old
+  command names.
+- **FE-9 (stdlib registry naming)**: the client resolves the dotted
+  `xiom.std` and the legacy `xiom-std` for both index lookups
+  (`find_index_package`) and metadata
+  (`fetch_package_metadata_alias`); `xiom.stdlib` is NOT an alias (it was a
+  bad help example). VERIFIED live against `registry.xiom-lang.org`:
+  `info xiom.hello` -> v0.1.0; `info xiom.std` and `info xiom-std` both
+  resolve v0.61.3 with the same sha256 `1ad1b33a5caa`; `install xiom.hello`
+  completes checksum + signature verification into a temp XIOM_HOME.
+- **VERIFICATION**: toolchain 7 unit tests (PATH-first order, per-OS lists,
+  no personal path, glob expansion, version-line parsing, dead-file skip);
+  doctor 10 unit tests (statuses, warning rules, exit codes, JSON keys);
+  `crates/xiom/tests/doctor_cli.rs` 2 integration tests on the built binary
+  (identity + `--json` shape + exit-code contract against a fake mismatched
+  stdlib root). CI gains the `Front-end CLI lock` step. Workspace
+  `cargo check --workspace --all-targets` clean; ascii guard clean;
+  **full e2e 2373/2373** on the pinned stdlib.
+- **REMAINING (deferred, noted in FRONTEND_AUDIT)**: clang version floor (no
+  agreed floor yet), `doctor --deep`/`--fix` (Sprint B FE-6), installer
+  alignment FE-10..FE-15/FE-17, grouped `--help` (FE-12). FE-4's "clang
+  version floor" is the only identity-block sub-item not implemented.
+
 
 
 

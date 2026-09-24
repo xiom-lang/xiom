@@ -138,6 +138,12 @@ jobs:
       - name: Stdlib API freeze (no removals, all modules compile)
         run: cargo test -p xiom-codegen --test stdlib_api_freeze_tests
 
+      # FE-1..FE-7: the shared toolchain probe + doctor v2 report. Unit tests
+      # (toolchain/doctor) ride the workspace --lib step above; this lock runs
+      # the built binary (identity block, --json shape, exit codes).
+      - name: Front-end CLI lock (doctor probe/report + --json)
+        run: cargo test -p xiom --test doctor_cli
+
       - name: Tooling unit tests (bin-only crates)
         run: cargo test -p xiom-pkg -p xiom-dbg -p xiom-lsp -p xiom-mcp
 

@@ -83,6 +83,7 @@ const FLAG_FLAGS: &[&str] = &[
     "hot-reload-contracts",
     "incremental",
     "jit",
+    "json",
     "keep-debug-checks",
     "lazy",
     "locked",

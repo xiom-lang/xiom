@@ -5,6 +5,7 @@
 
 **Date:** 2026-07-11
 **Status:** Living plan -- updated as the compiler evolves. **Phase 0 items mostly resolved since v0.22.1.** Phases 1-4 of the CODEGEN_PRODUCTION_PLAN delivered.
+**Historical command surface (2026-09-24):** the package commands below were written as `xiom install` / `xiom publish`. Those legacy git-tag / `packages.json` channels are retired (R50); the shipped, verified client is `xiom pkg install` / `xiom pkg publish`. See `docs/PACKAGE_MANAGER.md`.
 **Companion to:** `docs/COMPILER_ARCHITECTURE.md` (source of truth for current state), `docs/XIOM_DISTRIBUTION_SPEC.md` (distribution + installer spec), `docs/XIOM_TOOLING_SPEC.md` (debugger, benchmarks, LSP, hot reload), `docs/XIOM_ECOSYSTEM_ROADMAP.md` (packages, FFI, demos)
 
 > This document describes what the compiler SHOULD become. `COMPILER_ARCHITECTURE.md` describes what it IS.
@@ -557,8 +558,8 @@ fn get_mut(v: &mut Vec[Int]) -> &mut Int { return &mut v[0]; }
 | `xiom doc` | Generate documentation | `xiom doc` |
 | `xiom new` | Create new project | `xiom new myapp` |
 | `xiom init` | Initialize in current folder | `xiom init` |
-| `xiom install` | Install package from registry | `xiom install http-server` |
-| `xiom publish` | Publish package to registry | `xiom publish` |
+| `xiom pkg install` | Install package from registry (verified client) | `xiom pkg install xiom.std` |
+| `xiom pkg publish` | Publish package to registry (verified client) | `xiom pkg publish` |
 | `xiom clean` | Remove build artifacts | `xiom clean` |
 | `xiom version` | Print version + platform info | `xiom --version` |
 
@@ -846,7 +847,15 @@ The improvement plan covers compiler internals. But a compiler alone is not a la
 
 ### 5.2 Package Manager + Registry
 
-**Current state:** No package manager. No registry. Multi-file projects work via merge, but there's no dependency resolution.
+**HISTORICAL (2026-09-24, FE-8):** this section records the original plan. The
+shipped surface is the verified `xiom pkg install` / `xiom pkg publish` client
+(`crates/xiom-pkg`: SHA-256 + signature + yank verification, deterministic
+tarballs, per-version `compiler:` field); the `xiom install` / `xiom publish`
+git-tag flow and the `/packages.json` index described below are retired (R50).
+`xiom install` and `xiom publish` remain only as deprecation aliases that
+delegate to the client.
+
+**Current state (at the time of writing):** No package manager. No registry. Multi-file projects work via merge, but there's no dependency resolution.
 
 **What production needs:**
 

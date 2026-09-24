@@ -607,7 +607,9 @@ fn real_main() {
     }
     if update_mode {
         eprintln!("error: 'xiom update' is retired -- it used the unverified /packages.json git channel.");
-        eprintln!("       Move to a verified version with 'xiom pkg install <package>@<version>'.");
+        eprintln!("       To update the TOOLCHAIN, re-run the release installer for your platform");
+        eprintln!("       (or 'xiom toolchain update' once it ships).");
+        eprintln!("       For packages: 'xiom pkg install <package>@<version>'.");
         process::exit(1);
     }
 
@@ -616,13 +618,20 @@ fn real_main() {
         return;
     }
 
+    // FE-8: `xiom publish` ran a legacy git-tag flow whose closing advice was
+    // the retired `xiom install {name}` channel. Mirror `xiom install`:
+    // delegate to the verified client with a deprecation note.
     if publish_mode {
-        handle_publish(&args);
-        return;
+        eprintln!("note: 'xiom publish' is deprecated -- delegating to the verified 'xiom pkg publish' client.");
+        let mut forwarded: Vec<String> = vec!["publish".to_string()];
+        if let Some(pos) = args.iter().position(|a| a == "publish") {
+            forwarded.extend(args.iter().skip(pos + 1).cloned());
+        }
+        run_tool_dispatch("xiom-pkg", &forwarded);
     }
 
     if doctor_mode {
-        run_doctor();
+        run_doctor(&args);
         return;
     }
 
@@ -1460,65 +1469,8 @@ fn run_xiom_tests(args: &cli::Cli) {
 // (git clone from registry /packages.json, no checksum/signature/yank) were
 // removed. `xiom install` now delegates to the verified `xiom pkg install`
 // client and `xiom update` is retired with guidance -- see real_main.
-
-fn handle_publish(_args: &[String]) {
-    let manifest_path = "package.xi";
-    if !std::path::Path::new(manifest_path).exists() {
-        eprintln!("  No package.xi found. Create one with 'xiom init' first.");
-        eprintln!("  See docs/PACKAGE_MANAGER.md for manifest format.");
-        return;
-    }
-
-    let content = match std::fs::read_to_string(manifest_path) {
-        Ok(c) => c,
-        Err(e) => { eprintln!("  Cannot read package.xi: {e}"); return; }
-    };
-
-    let mut name = String::new();
-    let mut version = String::new();
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("name:") {
-            name = trimmed.trim_start_matches("name:").trim().trim_matches('"').to_string();
-        }
-        if trimmed.starts_with("version:") {
-            version = trimmed.trim_start_matches("version:").trim().trim_matches('"').to_string();
-        }
-    }
-
-    if name.is_empty() || version.is_empty() {
-        eprintln!("  package.xi must have 'name' and 'version' fields.");
-        eprintln!("  Example:  name: \"my-package\"");
-        eprintln!("           version: \"1.0.0\"");
-        return;
-    }
-
-    eprintln!("  Publishing {name} v{version}...");
-    eprintln!("  Tagging v{version}...");
-    let tag = format!("v{version}");
-    let tag_status = std::process::Command::new("git")
-        .args(["tag", "-a", &tag, "-m", &format!("Release {tag}")])
-        .status();
-    match tag_status {
-        Ok(s) if s.success() => eprintln!("    created tag {tag}"),
-        Ok(s) => eprintln!("    git tag failed (exit {}). Tag may already exist.", s.code().unwrap_or(-1)),
-        Err(e) => eprintln!("    git not found: {e}"),
-    }
-
-    eprintln!("  Push to remote...");
-    let push_status = std::process::Command::new("git")
-        .args(["push", "origin", &tag])
-        .status();
-    match push_status {
-        Ok(s) if s.success() => eprintln!("    pushed tag {tag}"),
-        _ => eprintln!("    manual push required: git push origin {tag}"),
-    }
-
-    eprintln!("  Next steps:");
-    eprintln!("    1. Create a release on your Git host (Gitea/GitHub)");
-    eprintln!("    2. Submit a PR to the registry repo to add your package");
-    eprintln!("    3. Your package will be available via 'xiom install {name}'");
-}
+// FE-8: the legacy `xiom publish` git-tag flow was removed the same way; it
+// now delegates to `xiom pkg publish`.
 
 fn dirs_next() -> Option<String> {
     std::env::var("USERPROFILE")
@@ -1789,36 +1741,18 @@ fn test_hello() -> Int {{
     eprintln!("    xiom test          <- run test suite");
 }
 
-/// 9A: xiom doctor -- check all dependencies and report status.
-fn run_doctor() {
-    println!("XIOM Doctor v{}", env!("CARGO_PKG_VERSION"));
-    println!("====================");
-    println!();
-    println!("  [OK] xiom v{}", env!("CARGO_PKG_VERSION"));
-    let clang_ok = std::process::Command::new("clang").arg("--version").output().map(|o| o.status.success()).unwrap_or(false);
-    if clang_ok { println!("  [OK] clang/LLVM found"); }
-    else { println!("  [!!] clang NOT FOUND - run: xiom install llvm"); }
-    match xiom_verify::Z3Runner::find_z3() {
-        Some(path) => println!("  [OK] z3 found: {path} (contract verification)"),
-        None => println!("  [--] z3 not found (release archives bundle bin/z3)"),
+/// FE-1..FE-7: `xiom doctor` v2 -- the shared toolchain probe (clang/nasm,
+/// PATH then per-OS known locations) and the shared stdlib resolver
+/// (`xiom_graph::paths::stdlib_root`), an identity block, OS-specific
+/// remediation, and `--json`. Exit codes: 0 all-OK, 1 warnings, 2 errors.
+fn run_doctor(args: &cli::Cli) {
+    let report = xiom::doctor::build_report();
+    if args.flag("json") {
+        println!("{}", xiom::doctor::render_json(&report));
+    } else {
+        print!("{}", xiom::doctor::render_text(&report));
     }
-    // CRB-3c: one resolver shared with the installers (canonical
-    // `%LOCALAPPDATA%\xiom` / `~/.local/share/xiom`, legacy layouts accepted).
-    let home = xiom_graph::paths::xiom_home();
-    println!("  [--] XIOM_HOME={}", home.display());
-    let lib = home.join("lib").join("xiom");
-    if lib.exists() { println!("  [OK] stdlib installed"); }
-    else {
-        println!("  [!!] stdlib missing - re-run installer");
-        if std::env::var("XIOM_HOME").map_or(true, |v| v.trim().is_empty()) {
-            let searched: Vec<String> = xiom_graph::paths::xiom_home_candidates()
-                .iter().map(|p| p.display().to_string()).collect();
-            println!("       searched: {}", searched.join(", "));
-        }
-    }
-    let pkgs = home.join("packages");
-    if pkgs.exists() { println!("  [OK] packages directory exists"); }
-    else { println!("  [--] No packages (use: xiom pkg install <name>)"); }
+    process::exit(xiom::doctor::exit_code(&report));
 }
 
 /// R48 (playground C2): run a sibling tool binary (`fmt`, `lsp`, `mcp`,

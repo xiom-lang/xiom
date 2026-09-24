@@ -5,9 +5,11 @@
 // -----------------------------------------------------------------------
 
 pub mod ai;
+pub mod doctor;
 pub mod graph_viz;
 pub mod implicit_main;
 pub mod jit;
+pub mod toolchain;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -1129,14 +1131,17 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         generate_export_manifest(&program, output);
     }
 
-    let opt = find_tool("opt", &[
-        "C:\\Program Files\\LLVM\\bin\\opt.exe",
-        "/usr/bin/opt",
-        "/usr/local/bin/opt",
-    ]);
+    // FE-1/FE-3: ONE shared probe for clang/opt/nasm (PATH first, then the
+    // per-OS known locations). `opt` prefers the directory clang resolved in
+    // (LLVM tools ship together) and falls back to the known list.
+    let clang = crate::toolchain::probe_clang();
+    let opt = clang
+        .as_ref()
+        .and_then(|c| crate::toolchain::sibling_tool(&c.path, "opt"))
+        .or_else(crate::toolchain::probe_opt);
 
-    if let Some(opt_path) = &opt {
-        let verify_status = Command::new(opt_path)
+    if let Some(opt_info) = &opt {
+        let verify_status = Command::new(&opt_info.path)
             .args(["-verify", &ir_path])
             .output();
         match verify_status {
@@ -1162,8 +1167,8 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         match lvl { 0 => "-O0", 1 => "-O1", 2 => "-O2", _ => "-O3" }.to_string()
     } else if config.release { "-O3".to_string() } else { "-O2".to_string() };
 
-    if let Some(opt_path) = &opt {
-        let opt_status = Command::new(opt_path)
+    if let Some(opt_info) = &opt {
+        let opt_status = Command::new(&opt_info.path)
             .args([&opt_level, "-S", "-o", &ir_path, &ir_path])
             .status();
         if let Ok(s) = opt_status {
@@ -1182,14 +1187,14 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             std::path::Path::new(&p).parent().map(|d| d.to_path_buf())
         });
         let build_dir = std::path::PathBuf::from("build");
-        let nasm = find_nasm();
-        if let (Some(nasm_path), Some(rt_dir)) = (&nasm, &runtime_dir) {
+        let nasm = crate::toolchain::probe_nasm();
+        if let (Some(nasm_info), Some(rt_dir)) = (&nasm, &runtime_dir) {
             let asm_files = ["crypto_x86_64.asm", "mem_x86_64.asm", "context_switch.asm"];
             let obj_ext = if cfg!(target_os = "windows") { "obj" } else { "o" };
             let nasm_fmt = if cfg!(target_os = "windows") { "win64" }
                            else if cfg!(target_os = "macos") { "macho64" }
                            else { "elf64" };
-            let nasm_path = nasm_path.clone();
+            let nasm_path = nasm_info.path.clone();
             for asm_file in &asm_files {
                 let asm_path = rt_dir.join(asm_file);
                 let obj_name = format!("{}.{}", asm_file, obj_ext);
@@ -1215,15 +1220,9 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         }
     }
 
-    let clang = find_tool("clang", &[
-        "C:\\Program Files\\LLVM\\bin\\clang.exe",
-        "/usr/bin/clang",
-        "/usr/local/bin/clang",
-    ]);
-
     match clang {
-        Some(clang_path) => {
-            let mut cmd = Command::new(&clang_path);
+        Some(clang_info) => {
+            let mut cmd = Command::new(&clang_info.path);
             // v0.58: full ISA enablement for the NATIVE x86_64 runtime. SSE/SSE2
             // are x86-64 baseline; AES-NI + AVX + AVX2 + AVX-512 (F/BW/DQ/VL) are
             // enabled unconditionally so stdlib runtime C can use the whole SIMD/
@@ -1978,33 +1977,9 @@ pub fn find_runtime_c_files() -> Vec<String> {
     Vec::new()
 }
 
-pub fn find_tool(name: &str, extra_paths: &[&str]) -> Option<String> {
-    for path in extra_paths {
-        if std::path::Path::new(path).exists() {
-            return Some(path.to_string());
-        }
-    }
-    if Command::new(name).arg("--version").output().is_ok() {
-        return Some(name.to_string());
-    }
-    None
-}
-
-pub fn find_nasm() -> Option<String> {
-    let candidates: Vec<&str> = if cfg!(target_os = "windows") {
-        vec![
-            "C:\\Program Files\\NASM\\nasm.exe",
-            "C:\\Users\\lefte\\AppData\\Local\\bin\\NASM\\nasm.exe",
-        ]
-    } else {
-        vec![
-            "/usr/local/bin/nasm",
-            "/usr/bin/nasm",
-            "/opt/homebrew/bin/nasm",
-        ]
-    };
-    find_tool("nasm", &candidates)
-}
+// FE-1/FE-3: host tool resolution lives in `crate::toolchain` (shared with
+// `xiom doctor`). The old `find_tool`/`find_nasm` pair (personal NASM path,
+// extra-paths-before-PATH order) was removed with the audit fix.
 
 pub fn is_newer(src: &std::path::Path, dst: &std::path::Path) -> bool {
     if let (Ok(sm), Ok(dm)) = (src.metadata(), dst.metadata()) {

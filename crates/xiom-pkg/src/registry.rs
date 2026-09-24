@@ -456,10 +456,23 @@ pub(crate) fn fetch_package_metadata(registry: &str, name: &str) -> Result<Regis
         .map_err(|e| format!("Invalid package metadata for '{name}': {e}"))
 }
 
+/// FE-9: fetch `name`'s metadata, falling back to its documented alias
+/// (`xiom.std` <-> `xiom-std`). Non-stdlib names keep a single request.
+pub(crate) fn fetch_package_metadata_alias(registry: &str, name: &str) -> Result<RegistryPackage, String> {
+    let mut last_err = None;
+    for candidate in registry_name_candidates(name) {
+        match fetch_package_metadata(registry, candidate) {
+            Ok(pkg) => return Ok(pkg),
+            Err(e) => last_err = Some(e),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| format!("package '{name}' not found")))
+}
+
 /// R53: `xiom pkg info <name>[@version]` (+ `--json` for the MCP tool).
 pub(crate) fn package_info(name: &str, version: Option<&str>, registry: &str, json: bool) -> Result<(), String> {
     let trimmed = name.trim_end_matches('/');
-    let pkg = fetch_package_metadata(registry, trimmed)?;
+    let pkg = fetch_package_metadata_alias(registry, trimmed)?;
     if json {
         let versions: Vec<serde_json::Value> = pkg.versions.iter().map(|v| serde_json::json!({
             "version": v.version,
@@ -760,6 +773,33 @@ pub(crate) fn is_non_registry_dep(name: &str, spec: &str) -> bool {
     is_platform_dep(name) || is_non_registry_spec(spec)
 }
 
+/// FE-9: registry-side spellings of the standard library. The canonical
+/// dotted name is `xiom.std` (R50 naming); the live registry entry and the
+/// stdlib's own manifest still use `xiom-std`. Both resolve client-side, so
+/// `xiom pkg install xiom.std` and `xiom pkg install xiom-std` reach the same
+/// artifact while the registry-side rename lands. Every other name maps to
+/// itself only -- `xiom.stdlib` was a bad help example and is NOT an alias.
+pub(crate) fn registry_name_candidates(name: &str) -> Vec<&str> {
+    match name {
+        "xiom.std" => vec!["xiom.std", "xiom-std"],
+        "xiom-std" => vec!["xiom-std", "xiom.std"],
+        other => vec![other],
+    }
+}
+
+/// FE-9: first registry entry matching `name` or a documented alias.
+pub(crate) fn find_index_package<'a>(
+    index: &'a RegistryIndex,
+    name: &str,
+) -> Option<(&'a String, &'a RegistryPackage)> {
+    for candidate in registry_name_candidates(name) {
+        if let Some((key, pkg)) = index.packages.get_key_value(candidate) {
+            return Some((key, pkg));
+        }
+    }
+    None
+}
+
 /// Deterministic transitive closure from already-resolved roots.
 ///
 /// Cycle-safe (keyed `name@version`), dependency order sorted at every level,
@@ -996,18 +1036,21 @@ pub(crate) fn install_from_registry(
 ) -> Result<(), InstallError> {
     let index = fetch_registry_index(registry).map_err(InstallError::RegistryUnavailable)?;
 
-    let pkg_info = index.packages.get(package).ok_or_else(|| {
+    // FE-9: resolve the requested name (or its stdlib alias) to the entry the
+    // registry actually hosts; the resolved name drives the download URL, the
+    // closure, and the installed directory.
+    let (resolved_name, pkg_info) = find_index_package(&index, package).ok_or_else(|| {
         InstallError::NotFound(format!(
             "package '{}' not found in registry. Try: xiom pkg search {}",
             package, package
         ))
     })?;
-    let ver_meta = resolve_version(package, pkg_info, version)?;
+    let ver_meta = resolve_version(resolved_name, pkg_info, version)?;
     let root_version = ver_meta.version.clone();
 
     // Root artifact first, then its transitive closure; every artifact goes
     // through the full verification path (sha256 + signature + lockfile).
-    let root_dir = install_verified(&index, package, &root_version, registry)?;
+    let root_dir = install_verified(&index, resolved_name, &root_version, registry)?;
 
     // Dependency source: the VERIFIED tarball's own package.xi (authoritative),
     // falling back to index metadata when the package ships no manifest.
@@ -1022,10 +1065,10 @@ pub(crate) fn install_from_registry(
                 .unwrap_or_default()
         })
     };
-    let closure = install_closure(&index, package, &root_version, &deps_of)?;
+    let closure = install_closure(&index, resolved_name, &root_version, &deps_of)?;
     let mut installed_deps = 0usize;
     for entry in &closure {
-        if entry.name == package && entry.version == root_version {
+        if entry.name == *resolved_name && entry.version == root_version {
             continue;
         }
         println!("Installing dependency {} v{}...", entry.name, entry.version);
@@ -1033,7 +1076,7 @@ pub(crate) fn install_from_registry(
         installed_deps += 1;
     }
 
-    println!("Installed {} v{} to {}", package, root_version, root_dir.display());
+    println!("Installed {} v{} to {}", resolved_name, root_version, root_dir.display());
     if installed_deps > 0 {
         println!(
             "  {} transitive dependenc{} installed",
@@ -1042,7 +1085,7 @@ pub(crate) fn install_from_registry(
         );
     }
     println!("  Add to your package.xi dependencies:");
-    println!("    dependencies = {{ {} = \"{}\" }}", package, root_version);
+    println!("    dependencies = {{ {} = \"{}\" }}", resolved_name, root_version);
     Ok(())
 }
 
@@ -1400,6 +1443,36 @@ mod tests {
             .expect("a stdlib dep must not fail the registry closure");
         assert_eq!(closure.len(), 1);
         assert_eq!(closure[0].name, "hello");
+    }
+
+    #[test]
+    fn stdlib_registry_name_aliases_resolve_both_spellings() {
+        // FE-9: the dotted canonical name and the legacy hyphen entry are the
+        // same artifact; `xiom.stdlib` is not an alias (it was a bad example).
+        assert_eq!(registry_name_candidates("xiom.std"), vec!["xiom.std", "xiom-std"]);
+        assert_eq!(registry_name_candidates("xiom-std"), vec!["xiom-std", "xiom.std"]);
+        assert_eq!(registry_name_candidates("xiom.stdlib"), vec!["xiom.stdlib"]);
+        assert_eq!(registry_name_candidates("xiom.hello"), vec!["xiom.hello"]);
+
+        // A registry still hosting only `xiom-std` answers `xiom.std`.
+        let hyphen_only = index_with(&[(
+            "xiom-std",
+            "0.61.3",
+            vec![version("0.61.3", &[], false)],
+        )]);
+        let (name, _) = find_index_package(&hyphen_only, "xiom.std").expect("dotted alias");
+        assert_eq!(name, "xiom-std");
+
+        // A renamed registry answers the legacy hyphen spelling.
+        let dotted = index_with(&[(
+            "xiom.std",
+            "0.62.0",
+            vec![version("0.62.0", &[], false)],
+        )]);
+        let (name, _) = find_index_package(&dotted, "xiom-std").expect("hyphen alias");
+        assert_eq!(name, "xiom.std");
+
+        assert!(find_index_package(&hyphen_only, "xiom.hello").is_none());
     }
 
     #[test]
