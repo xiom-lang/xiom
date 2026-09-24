@@ -23,15 +23,21 @@ use xiom_ast::*;
 /// Injectable type/enum leaves declared in `items` (recursing module
 /// wrappers) that participate in the collision qualification.
 ///
-/// Includes generic pub types (`Box[T]`): generic leaves are renamed only
-/// when their DECLARED SHAPES conflict (see `declared_type_shapes` and the
-/// triage in `collect_external_decls`), because mono/concrete-container keys
-/// (`Option__Pair`) are leaf-derived and identical re-declarations must keep
-/// the legacy single key. Interfaces have no layout and are not renamed.
+/// Includes ALL struct/type decls -- pub AND private. Private types are
+/// injected too when an injected body/signature references them (BUG 9/29
+/// layout walk), so a private same-leaf pair across modules collides exactly
+/// like a pub one (relay finding: `xiom.async.Timer {deadline, task}` private
+/// vs `xiom.async.timer.Timer {deadline, armed}` pub -- first-wins silently
+/// reused one layout). Generic pub types are included because their
+/// mono/concrete-container keys are leaf-derived; the shape triage decides
+/// renaming (identical layouts keep the legacy single key).
+///
+/// Enums stay pub-only: private enums are not injected directly, and a
+/// private enum-vs-type leaf collision is a separate follow-up.
 pub(crate) fn declared_type_leaves(items: &[TopDecl], out: &mut BTreeSet<String>) {
     for item in items {
         match item {
-            TopDecl::Type(td) if td.is_pub || !td.generics.is_empty() => {
+            TopDecl::Type(td) => {
                 out.insert(td.name.name.clone());
             }
             TopDecl::Enum(ed) if ed.is_pub => {
@@ -108,10 +114,12 @@ pub(crate) fn enum_decl_shape(ed: &EnumDecl) -> String {
 }
 
 /// Injectable type/enum leaves mapped to `(shape, is_generic)`.
+/// Types include private decls (see `declared_type_leaves`); enums stay
+/// pub-only.
 pub(crate) fn declared_type_shapes(items: &[TopDecl], out: &mut BTreeMap<String, (String, bool)>) {
     for item in items {
         match item {
-            TopDecl::Type(td) if td.is_pub || !td.generics.is_empty() => {
+            TopDecl::Type(td) => {
                 out.insert(
                     td.name.name.clone(),
                     (type_decl_shape(td), !td.generics.is_empty()),

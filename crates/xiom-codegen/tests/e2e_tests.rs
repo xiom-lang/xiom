@@ -5345,6 +5345,26 @@ fn e2e_safety_probe() {
     );
 }
 
+// Relay 2026-09-24: PRIVATE same-leaf types across project modules must keep
+// distinct layouts (the Timer case; the triage only saw pub types before).
+#[test] fn e2e_m134_private_same_leaf() {
+    assert_eq!(
+        compile_and_run("tests/regression/m134_private_same_leaf/main.xi"),
+        Some(0),
+        "private same-leaf types must not share one layout"
+    );
+}
+
+// Relay 2026-09-24: well-typed clauses (implicit self, @pre, result) stay
+// green after the clause Bool-mix rejection.
+#[test] fn e2e_m136_well_typed_clauses() {
+    assert_eq!(
+        compile_and_run("tests/regression/m136_well_typed_clauses/main.xi"),
+        Some(0),
+        "well-typed contract clauses must compile and run"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

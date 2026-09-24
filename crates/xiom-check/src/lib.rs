@@ -4496,6 +4496,14 @@ impl Checker {
         // at least one `requires` clause (pre-entry validation, requirement c).
         self.current_fn_has_requires = fd.contracts.iter().any(|c| matches!(c, ContractClause::Requires(..)));
 
+        // Relay finding (2026-09-24): clause-position comparisons were never
+        // checked, so `requires: x == true` (x: Int) compiled and was
+        // silently coerced. Clauses are validated by a LIGHT rule only:
+        // comparisons whose operands resolve to known primitive types must
+        // not compare Bool with a concrete non-Bool type. (Full predicate
+        // typing would flag unrelated stdlib clauses -- tracked separately.)
+        self.check_clause_bool_mix(fd);
+
         // Check body
         if let Some(body) = fd.body.as_ref() {
             // D2.1 (T007, requirement c): a fn whose ENTIRE body is one
@@ -4543,6 +4551,94 @@ impl Checker {
         self.current_fn_has_contracts = false;
         self.current_fn_has_requires = false;
         self.current_fn_qual = prev_fn_qual;
+    }
+
+    /// Relay 2026-09-24: clause-position Bool-vs-concrete comparisons must be
+    /// rejected. Clauses get a LIGHT validator (not full `check_expr`): only
+    /// operands that resolve to known primitive types are compared, so
+    /// unrelated stdlib clause shapes (undefined old-value names, method
+    /// resolution gaps, Float/Int semantics) are untouched.
+    fn check_clause_bool_mix(&mut self, fd: &FnDecl) {
+        let has_ensures = fd
+            .contracts
+            .iter()
+            .any(|c| matches!(c, ContractClause::Ensures(..)));
+        let result_ty = if has_ensures {
+            Some(
+                fd.return_type
+                    .as_ref()
+                    .map(|t| CheckedType::from_ast_type(t))
+                    .unwrap_or(CheckedType::Unit),
+            )
+        } else {
+            None
+        };
+        for clause in &fd.contracts {
+            let expr = match clause {
+                ContractClause::Requires(e, _) | ContractClause::Ensures(e, _) => e,
+            };
+            self.walk_clause_bool_mix(expr, result_ty.as_ref());
+        }
+    }
+
+    fn walk_clause_bool_mix(&mut self, expr: &Expr, result_ty: Option<&CheckedType>) {
+        match expr {
+            Expr::Binary(l, op, r, span) => {
+                if matches!(
+                    op,
+                    BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge
+                ) {
+                    let lt = self.clause_operand_type(l, result_ty);
+                    let rt = self.clause_operand_type(r, result_ty);
+                    let bad = match (&lt, &rt) {
+                        (Some(CheckedType::Bool), Some(other))
+                            if *other != CheckedType::Bool => Some(other.clone()),
+                        (Some(other), Some(CheckedType::Bool))
+                            if *other != CheckedType::Bool => Some(other.clone()),
+                        _ => None,
+                    };
+                    if let Some(other) = bad {
+                        self.error(
+                            format!(
+                                "contract clause compares Bool with {}; mixed comparisons are not coerced (compare matching types)",
+                                other.name()
+                            ),
+                            *span,
+                        );
+                    }
+                }
+                self.walk_clause_bool_mix(l, result_ty);
+                self.walk_clause_bool_mix(r, result_ty);
+            }
+            Expr::Unary(_, inner, _)
+            | Expr::Paren(inner, _)
+            | Expr::AtPre(inner, _)
+            | Expr::Ref(inner, _)
+            | Expr::MutRef(inner, _) => self.walk_clause_bool_mix(inner, result_ty),
+            Expr::Imply(l, r, _) => {
+                self.walk_clause_bool_mix(l, result_ty);
+                self.walk_clause_bool_mix(r, result_ty);
+            }
+            _ => {}
+        }
+    }
+
+    /// Best-effort primitive type of a clause operand. `None` = unknown (the
+    /// light validator stays silent rather than guess).
+    fn clause_operand_type(&self, e: &Expr, result_ty: Option<&CheckedType>) -> Option<CheckedType> {
+        match e {
+            Expr::Bool(_, _) => Some(CheckedType::Bool),
+            Expr::Int(_, _) | Expr::BigInt(_, _) => Some(CheckedType::Int),
+            Expr::Float(_, _) => Some(CheckedType::Float64),
+            Expr::Str(_, _) => Some(CheckedType::Str),
+            Expr::Char(_, _) => Some(CheckedType::Char),
+            Expr::Ident(id) if id.name == "result" => result_ty.cloned(),
+            Expr::Ident(id) => self.lookup_local(&id.name).cloned(),
+            Expr::Paren(inner, _) | Expr::AtPre(inner, _) | Expr::Unary(_, inner, _) => {
+                self.clause_operand_type(inner, result_ty)
+            }
+            _ => None,
+        }
     }
 
     /// True if the block is exactly one `unsafe { }` expression statement
@@ -5470,6 +5566,10 @@ impl Checker {
             Expr::Char(_, _) => CheckedType::Char,
             Expr::Bool(_, _) => CheckedType::Bool,
             Expr::Paren(inner, _) => self.check_expr(inner),
+            // Relay 2026-09-24: `@pre` had no typing arm at all -- clauses were
+            // never checked, so `len()@pre` silently typed as Unit. The
+            // snapshot has the same type as the wrapped expression.
+            Expr::AtPre(inner, _) => self.check_expr(inner),
             Expr::Tuple(items, _) => {
                 // 5c.36: Multi-element tuples produce a tuple type.
                 // Single-element is a parenthesized expression (element type).

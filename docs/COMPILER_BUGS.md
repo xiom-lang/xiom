@@ -8186,6 +8186,68 @@ refuses explicitly.
   `rollback`) and the `--dry-run` mode. The refusal path, asset naming and
   install-kind detection are already in place for it.
 
+## 2026-09-24 -- Relay: private same-leaf triage + clause Bool-mix rejection
+
+Two compiler-lane findings relayed from the stdlib lane (plus their
+cross-type callback matrix + E001 repro, already fixed in Sprint C).
+Repro-first; locks m134/m135/m136; full e2e **2379/2379**; checker 195/195;
+catalog corpus clean.
+
+- **Private same-leaf type collision (R44 class, Timer case)** -- REPRO:
+  `xiom.async` declares a PRIVATE `Timer = { deadline: Int; task: fn() }`;
+  `xiom.async.timer` declares a PUB `Timer = { deadline: Int; armed: Bool }`.
+  The R44 triage's `declared_type_leaves`/`declared_type_shapes` only
+  collected `is_pub || generic` decls, so the private Timer never entered the
+  collision set: one bare `%struct.Timer` definition was emitted (first-wins)
+  and the losing module silently reused the other layout -- no clang error,
+  no diagnostic.
+  FIX: triage now includes ALL type decls (pub and private; enums stay
+  pub-only -- private enums are not injected directly). Conflicting private
+  groups qualify module-wise exactly like pub groups; identical private
+  layouts keep the shared key. Evidence: the program now emits
+  `%struct.xiom.async.Timer = { i64, i64 ()* }` AND
+  `%struct.xiom.async.timer.Timer = { i64, i64 }` (no bare `%struct.Timer`).
+  Lock `e2e_m134_private_same_leaf` (multi-file project fixture via the
+  package graph).
+  Scope note: the compiler-side R44 experiment's warning still holds --
+  wholesale qualification of catalog modules broke smokes; this change only
+  adds private decls to the SHAPE-CONFLICT triage (identical layouts are
+  untouched), and the catalog corpus + full e2e stay green.
+- **Clause-position `Bool == Int` silently coerced** -- REPRO:
+  `fn f(x: Int) -> Int requires: x == true ensures: result == false`
+  compiled (exit 0) and ran; the requires comparison was coerced. Root cause:
+  contract clause expressions were NEVER type-checked -- only name-collected
+  and reachability-scanned. There was also no `Expr::AtPre` typing arm, so
+  `len()@pre` typed as Unit.
+  FIX: (a) `check_expr` types `@pre` as its wrapped expression; (b) a LIGHT
+  clause validator (`check_clause_bool_mix`) rejects comparisons where both
+  operands resolve to known primitive types and one is Bool (locals, params,
+  literals, `result` bound to the return type inside ensures; parens/@pre/
+  unary unwrapped). The mixed comparison now fails:
+  "contract clause compares Bool with Int; mixed comparisons are not
+  coerced". Locks: `checker_locks.rs` (m135 rejected; m136 well-typed
+  clauses with implicit self / @pre / result stay green) + e2e_m136.
+  WHY NOT FULL PREDICATE TYPING YET: running the full `check_expr` on every
+  clause surfaces 8 stdlib clause sites (below) -- enabling it reds the
+  catalog corpus and would require stdlib-lane fixes first. The light
+  validator deliberately stays silent on anything it cannot resolve, so the
+  reported class is closed without that coupling.
+- **Follow-ups recorded**:
+  1. Full predicate-Bool clause checking needs these stdlib clause fixes (or
+     checker triage): `xiom.ptr` 91 (`result == old_value`, undefined name),
+     `xiom.math` 201/561 (`base >= 0.0 || exp == to_int(exp)` reports a
+     Float64/Int mix), `xiom.sync` 378 and `xiom.rc` 29
+     (`strong_count == 1` reports "cannot compare fn with Int"),
+     `xiom.array` 219 (`arr.is_sorted_by(compare)` -> "cannot call
+     'is_sorted_by' on this expression").
+  2. `@pre` on a METHOD CALL (`len()@pre`, the collections `Vec.push` shape)
+     compiles and types but its RUNTIME snapshot is wrong: a `bump()` whose
+     ensures is `len() == len()@pre + 1` fires "contract violated" although
+     the length grew by exactly 1. Param-position `@pre` is unaffected.
+     Pre-existing; the m136 lock intentionally exercises only the typing
+     contract (`len()@pre >= 0`).
+  3. Private ENUM same-leaf collisions are still untriaged (types only).
+
 
 
 
