@@ -26,10 +26,9 @@ timeline below are the detailed log -- read the newest entries for evidence.
 
 ## Gates (latest evidence)
 
-- Full e2e **2374/2374** -- re-run ON THE PIN for the Sprint B batch
-  (2026-09-24, 1691.6 s; includes the new m129 lock). The Sprint A batch ran
-  2373/2373 on the pin (1851.5 s); the earlier pre-pin run
-  (R66/m119..R72/m127 locks) also stood at 2373/2373.
+- Full e2e **2377/2377** -- re-run ON THE PIN for the Sprint C batch
+  (2026-09-24, 1512.3 s; includes m129..m132). Sprint B ran 2374/2374
+  (1691.6 s); Sprint A ran 2373/2373 (1851.5 s).
 - checkers: checker 195/195, parser 102/102, integration 130/130,
   feature-reg 510/510, robustness 63/63, fuzz 24/24.
 - stdlib-dependent (re-run on the pin): api-freeze **2/2** (m125 regen),
@@ -175,8 +174,8 @@ lane policy).
 > State: compiler v0.61.3 released; `STDLIB_VERSION` pins `stdlib-v0.61.3`
 > (the local `stdlib/` checkout is detached at that tag); `origin/main` has
 > R66 only, with the whole campaign unpushed on local `main` (R67-R72, m125,
-> m126, m128, the audit, the release-notes publisher, Sprints A+B, docs).
-> Full e2e 2374/2374 on the pin (Sprint B batch); api-freeze 2/2 and
+> m126, m128, the audit, the release-notes publisher, Sprints A-C, docs).
+> Full e2e 2377/2377 on the pin (Sprint C batch); api-freeze 2/2 and
 > stdlib-exec 85/85 on the pin; no red gates. The owner
 > batched everything into ONE release (no intermediate tags; recommend
 > v0.62.0), sequenced as: compiler Sprints A+B+C -> stdlib completes its plan
@@ -186,17 +185,12 @@ lane policy).
 > the tag) -> version bump + push + tag -> registry re-canary, website
 > publishes the notes to dl.
 >
-> Sprints A and B (front-end P0/P1) are LANDED -- see "Sprint B landed"
-> above; do not redo them. Start with **Sprint C (fn-value / generic-mono
-> ABI unification)** unless the user says otherwise: the m127 residuals
-> (`tmp/probe_p1/`: `Vec[fn].new()+push` elements, element-to-local calls,
-> fn-element calls through struct fields), the packages' three confirmed
-> probes (`tmp/fp_probe/`: fn-ptr struct field, generic `[T,U]` fn-ptr with
-> U=Str, generic `Vec[U]` map), the stdlib cross-type callback matrix
-> (Int->Str by-ref/by-value, Int->Float64, `sort_by_key[Int,Str]`; same-type
-> and concrete are correct), and the E001 conservatism checker fix (no
-> warning for consumed temporary borrows; never weaken the genuine-overlap
-> warning). One batch or split by root cause, each with locks.
+> Sprints A-C are LANDED -- see "Sprint C landed" above; do not redo them.
+> Start with **Sprint D (toolchain)** unless the user says otherwise: first
+> `xiom toolchain check --json` (read-only, verifies the install against the
+> release manifest), then the full verified updater and the MCP contract
+> queries (FE-7 JSON shapes are already in place from Sprint A). Follow
+> SESSION.md's toolchain section for the exact scope and acceptance.
 >
 > Method (non-negotiable): work repro-first; rebuild `cargo build -p xiom`
 > after checker/codegen changes; add an e2e lock (`e2e_mNNN_*` fixture + the
@@ -205,8 +199,7 @@ lane policy).
 > keep `python tools/ascii_guard.py check` green; commit atomically with
 > evidence in SESSION.md and docs/COMPILER_BUGS.md.
 >
-> Then Sprint D (toolchain `check --json` first, then the full verified
-> updater + MCP contract queries) and Sprint E (Stage 6/7; Stage 5 CLEAR).
+> Then Sprint E (Stage 6/7; Stage 5 CLEAR).
 
 ## Sprint A landed (2026-09-24, compiler lane)
 
@@ -237,6 +230,7 @@ implemented and gated. Details + evidence: docs/COMPILER_BUGS.md
   (Sprint B FE-6), installers FE-10..FE-15, grouped help FE-12.
 
 Next: Sprint C (fn-value/generic-mono), then Sprint D, E.
+(Landed -- see "Sprint C landed" below.)
 
 ## Sprint B landed (2026-09-24, compiler lane)
 
@@ -259,6 +253,37 @@ docs/COMPILER_BUGS.md ("2026-09-24 -- Front-end audit Sprint B").
 - FE-11: unpinned LLVM direct downloads removed from install_deps.ps1/.sh.
 - Gates: parser 102/102; full e2e **2374/2374** on the pin; workspace
   all-targets check clean; ascii guard clean.
+
+## Sprint C landed (2026-09-24, compiler lane)
+
+fn-value / generic-mono ABI unification + E001 conservatism; full details and
+root causes in docs/COMPILER_BUGS.md ("2026-09-24 -- Sprint C").
+
+- Parser/checker: `Vec[fn() -> Int]` type args keep the fn marker (no more
+  `Ident("_")`); `method_target` distinguishes `Type.method[Arg]()` /
+  `module.fn[Arg]()` from `value.field[i]()`; array literals of fn refs type
+  as `Vec[fn(...) -> R]`.
+- Codegen: fn markers in `type_string_full`/`type_annotation_name`, i64-erased
+  fn locals, fn-ref markers recorded for array bindings, for-loop fn elements
+  called env-first, raw array buffers wrap fn refs, `(op.f)(x)` unwraps to the
+  env-first field path.
+- Generic mono: fn-typed params infer T/U from the argument's registered
+  signature (`fn_arg_generic_binding` + LLVM->XIOM name mapping) -- cross-type
+  U=Str / U=Float64 callbacks and `Vec[U]` returns are correct.
+- E001: per-statement temporary-borrow release + the `read_borrow_count`
+  sentinel fix; `smoke_collect_sparse` 7 -> 0 warnings, genuine overlap still
+  warns.
+- Locks: e2e m130 (fn-value ABI), m131 (generic callback ABI), m132 (E001
+  consumed); `crates/xiom/tests/borrow_e001.rs` (m132/m133 warning contract,
+  CI step extended). Probes: 15 probe_p1 + 7 fp + stdlib matrix all green.
+- Gates: full e2e **2377/2377** on the pin (1512.3 s); checker 195/195;
+  parser 102/102; workspace all-targets clean.
+- Open follow-up recorded: the checker accepts a by-ref callback where a
+  fn-typed param declares `fn(T) -> U` by value (runtime AV); needs a
+  fn-signature compatibility check.
+
+Next: Sprint D (toolchain `check --json`, then the verified updater + MCP),
+then Sprint E (Stage 6/7).
 
 # XIOM Handoff -- 2026-09-16 (compiler lane; rounds 61-83 in docs/SESSION.md)
 
