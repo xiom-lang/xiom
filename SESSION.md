@@ -158,9 +158,17 @@ Legacy-package migration note/codemod remains the packages lane's policy.
   their lane; the dispatch now carries `notes_path`.
   - Playground UX observation (2026-09-25, owner probe): a program that
     crashes (e.g. infinite mutual recursion -> stack overflow, exit
-    `0xC00000FD`) is reported as "Program ran with no output". The runner
+    `0xC000001D`) is reported as "Program ran with no output". The runner
     should surface the non-zero/crash exit instead of only the empty stdout.
     Not a compiler bug (repro in the relay below); website-lane fix.
+  - Semicolon rule relay (2026-09-25, owner decision: KEEP option (a), the
+    Rust-like tail form): website syntax docs + playground starter should
+    state that `;` ends statements and ONLY a block's final value expression
+    may omit it, and starter/multi-statement examples should use `;` on every
+    statement. A `P001` note pointing at the missing separator is queued in
+    Stage 6 (`docs/STAGE6_LINT_WAVE.md`, companion polish); `AI_CONTEXT.md`
+    and the MCP language guide were updated on our side (commit in this
+    batch).
 - **benchmark:** `COMPILER_VERSION` still pins the absent v0.61.0 -- they
   should bump after our next release exists.
 

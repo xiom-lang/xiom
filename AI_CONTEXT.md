@@ -89,6 +89,15 @@ xiom pkg lock
 
 ## Language essentials
 
+- Statements end with `;`. The FINAL expression of a block is its VALUE and is
+  written WITHOUT `;` -- `fn min(a: Int, b: Int) -> Int { if a <= b { a } else
+  { b } }`. Only the tail may omit it: a statement before another statement
+  always needs the `;` (a missing separator is a hard `P001` parse error, so
+  `io.println("a")` then `io.println("b")` on the next line does NOT compile).
+  A Unit-returning call may also sit in tail position without `;`, which is
+  why a single-statement `fn main() { io.println("hi") }` is accepted. When
+  generating code, prefer `;` on EVERY statement and `return expr;` in value
+  blocks unless a short tail expression reads better.
 - Contracts: `requires:` / `ensures:` clauses and type invariants; runtime
   checks can be stripped with `--no-contracts`; `xiom --dump-contracts` emits
   a JSON contract index; Z3 verification via `xiom-verify` / the MCP

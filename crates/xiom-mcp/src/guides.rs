@@ -51,6 +51,11 @@ Call `xiom_language_guide {topic}` with one of:
 Quick facts:
 - Files end in `.xi`. Entry point: `fn main() -> Int`.
 - Statements end with `;`. Blocks are `{ }`. Types after names: `x: Int`.
+  The block's FINAL expression is its value and may omit the `;` (e.g.
+  `fn min(a: Int, b: Int) -> Int { if a <= b { a } else { b } }`); only the
+  tail may omit it, and a statement before another statement needs the `;`
+  (P001 otherwise). When generating code, end every statement with `;` and
+  use `return expr;` unless a short tail expression reads better.
 - Generics use SQUARE brackets: `Vec[Int]`, `fn first[T](...)`.
 - No garbage collector: ownership + ARC where needed.
 - Contracts are built into the language, not comments."#;
