@@ -378,7 +378,10 @@ playground reporting "ran with no output" is a website-lane fix), W003
 unreachable statement after a diverging statement, W004 unreachable match
 arm, then tier 2 (literal `/ 0` -- today it traps at runtime; `1 << 64` --
 today runs with a garbage result; non-float self-comparison); warning-only,
-user-program scope, two locks per lint. (2) the reachable-function-only peek
+user-program scope, two locks per lint; plus the companion P001
+missing-semicolon suggestion + beginner-docs pass, and an explicit decision
+against newline-as-separator -- see the spec's "Companion diagnostics
+polish"). (2) the reachable-function-only peek
 restructure (fix shape in COMPILER_BUGS: peek the checker-resolved module
 shallow, run the reachability filter, then pull the deps named by the
 SELECTED decls to a fixpoint). (3) parallel monomorphization profiles,

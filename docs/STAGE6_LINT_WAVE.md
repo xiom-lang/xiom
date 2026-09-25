@@ -116,6 +116,39 @@ values)`. Complements `--strict-exhaustive`, which covers MISSING arms.
    proves it).
 5. SESSION.md evidence entry with the fixture names.
 
+## Companion diagnostics polish (same UX theme, not a lint)
+
+The 2026-09-25 owner questions also exposed a teachability gap in `P001`.
+Verified deterministic behavior:
+
+| Shape | Result |
+|---|---|
+| `stmt;` + `stmt;` | compiles |
+| `stmt` + `stmt` (none) | `error[P001]: 5:3: expected ';', found io` |
+| `stmt;` + `stmt` (last omitted) | compiles (tail expression) |
+| `stmt` + `stmt;` (first omitted) | `error[P001]: 5:3: expected ';', found io` |
+
+`;` separates statements; it is optional only on a block's FINAL expression
+(the block's value -- needed by expression-oriented returns). A one-statement
+body is always tail position, so both one-liners compile; that is what makes
+the rule feel inconsistent to a beginner.
+
+Queued work (no grammar change):
+
+1. `P001` missing-semicolon suggestion: when `expect(';')` fails and the next
+   token begins a statement on a later line, emit
+   `note: only the last expression in a block may omit ';'; add ';' after
+   line N`. Both spans are already known to the parser. Keep the existing
+   error text so message-matching tests are untouched (the note is additive).
+2. Docs/starter-snippet pass: state the rule where beginners meet it ("every
+   statement ends with `;`; the last expression in a block may omit it") and
+   make the multi-statement starter example use `;` on every statement.
+3. Explicitly DO NOT add newline-as-statement-separator (ASI): grammar
+   ambiguity (method chains, multi-line operators, continuations), divergence
+   from the frozen grammar, and it only relocates the confusion ("when does a
+   newline end a statement?"). That is a versioned language-design decision,
+   not a patch.
+
 ## Suggested order
 
 W002 + W003 first (the probe class and the most common dead-code class), then
