@@ -6,6 +6,8 @@
 // correct (they resolve through xiom_type_of_local).
 module m138_u8_const_widen;
 
+pub type Holder = { b: UInt8; }
+
 fn main() -> Int {
   let a = 239u8 as Int;
   if a != 239 { return 1; }
@@ -18,6 +20,10 @@ fn main() -> Int {
 
   let x: UInt8 = 239;
   if x as Int != 239 { return 5; }
+
+  // Field source (ntriples shape): a UInt8 STRUCT FIELD must zero-extend.
+  var h = Holder{ b: 239u8 };
+  if h.b as Int != 239 { return 9; }
 
   // Signed narrow sources keep sign-extending.
   let d = -17i8 as Int;

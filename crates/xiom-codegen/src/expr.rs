@@ -665,6 +665,37 @@ impl IrEmitter {
                 .map(|xiom_ty| Self::is_signed_xiom_type(&xiom_ty))
                 .unwrap_or(true),
             Expr::As(_, src_ty, _) => Self::is_signed_xiom_type(&Self::type_from_ast(src_ty)),
+            // Packages relay #2: a FIELD access was another sext hole --
+            // `h.b as Int` sign-extended a UInt8 field to -17 (ntriples'
+            // raw UTF-8 byte checks). Resolve the field's declared XIOM type.
+            Expr::Field(base, field, _) => self
+                .infer_struct_type_name(base)
+                .and_then(|struct_name| {
+                    let meta = self
+                        .types
+                        .type_meta
+                        .get(&struct_name)
+                        .or_else(|| {
+                            self.local
+                                .current_module
+                                .as_ref()
+                                .and_then(|m| self.types.type_meta.get(&format!("{m}.{struct_name}")))
+                        })
+                        .or_else(|| {
+                            self.types
+                                .type_meta
+                                .entries()
+                                .into_iter()
+                                .find(|(k, _)| k.ends_with(&format!(".{struct_name}")))
+                                .map(|(_, v)| v)
+                        })?;
+                    meta.fields
+                        .iter()
+                        .find(|(n, _)| n == &field.name)
+                        .map(|(_, t)| t.clone())
+                })
+                .map(|xiom_ty| Self::is_signed_xiom_type(&xiom_ty))
+                .unwrap_or(true),
             Expr::Paren(e, _) => self.as_source_is_signed(e),
             _ => true,
         }

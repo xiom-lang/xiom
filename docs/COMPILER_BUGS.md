@@ -8347,6 +8347,46 @@ Relay received from the packages lane (their traps 12-13). Triage result:
   stated in `AI_CONTEXT.md`: convert with `xiom.convert.int_to_string` /
   `float_to_string` or format with `xiom.fmt`.
 
+### Follow-up same day (packages commit 6310dba + our probes)
+
+- **`&struct.field` to `&Vec` -- NARROWED to the Result-payload shape and
+  REPRODUCED.** Their `probe_struct_field.xi` (plain field) is green, matching
+  our non-repro; their `probe_result_value.xi` is the minimal broken shape:
+  `Result[Vec[UInt8], Str]`, `&r.value` passed to a `&Vec` parameter reads 0,
+  while `let v = r.value; &v` reads 3 (`&r.value.data` is green). Our
+  `tmp/sprintc/pkg_result_value_ref.xi` reproduces it exactly (RUN=1 on the
+  first check, second check would pass). Same by-value Vec-handle
+  copy/materialization class as the by-value receiver finding; queued as the
+  next codegen batch (`&Field` on a Result payload must pass the payload
+  slot's address, not a materialized temp).
+- **Arity enforcement -- IMPLEMENTED, GATED OFF.** The three exact-count
+  checks (bare, method with receiver offset, module-prefix) were written and
+  verified against the packages' repro (all three now report
+  "'X' expects N argument(s), found M"), then held back because the stdlib
+  corpus relies on the laxness in these call sites:
+  `xiom.io` printf (1 param, 2 args), `xiom.io.console` printf x2,
+  `xiom.crypto.kdf` `_scrypt_blockmix` (2 params, 1 arg) x2,
+  `xiom.collections` `get` (2 params, 1 arg), `xiom.path` `replace` (2, 3),
+  `xiom.cell` `ptr.is_null` (1, 0) x2 (this last one may be a receiver-style
+  registration false positive that needs the G-20 offset path, not a stdlib
+  typo). Flip the three comparisons to `!=` after the stdlib wave fixes the
+  call sites; the checks stay documented in-line at the three sites.
+- **Bracket strictness -- IMPLEMENTED, GATED OFF.** Matching-closer parsing
+  was written and verified (`Vec<UInt8]` -> P001), then reverted because the
+  stdlib has EIGHTEEN mixed-bracket type sites that only parsed due to the
+  laxness: `core/contracts.xi` (1), `io/console.xi` (1), `io/fs.xi` (10),
+  `io/pipe.xi` (1), `math/approximation.xi` (1), `test/harness.xi` (2),
+  `test/test.xi` (2) -- all `Result[X, Str>`-style typos. The strict closer
+  check re-lands with the pin bump after the stdlib wave (their side), with
+  the parser unit test and a compile-fail lock.
+- **Widened UNSIGNED FIELD sources -- FIXED** (`h.b as Int` printed -17; the
+  `as_source_is_signed` helper now resolves `Field` through the struct meta,
+  alongside `Ident`/`Call`/`As`/`Paren`). `e2e_m138_u8_const_widen` extended
+  with the field shape; full e2e 2376/2376 (+4 ignored).
+- **Packages porting notes (informational, no compiler action):** trap 16
+  (parallel-Vec drift guard) and trap 17 (`as` reserved; `int_to_base` lives
+  in `xiom.convert.int`).
+
 
 
 
