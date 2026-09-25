@@ -3394,6 +3394,44 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                             self.emitln(&format!("  {gep} = getelementptr {base_ty}, {base_ty}* {base_ptr}, i32 0, i32 {fi}"));
                                             return Ok((gep, format!("{field_llvm_ty}*")));
                                         }
+                                        // Packages relay #2: BOXED payload
+                                        // fields (Result/Option `value`/
+                                        // `error`) hold a HANDLE to the heap
+                                        // box, not the payload inline. `&r.value`
+                                        // must yield the POINTEE pointer: the
+                                        // slot address made the callee read the
+                                        // handle bits as data (`take(&r.value)`
+                                        // saw length 0 while `let v = r.value;
+                                        // take(&v)` saw 3). Payload type comes
+                                        // from the local's XIOM type.
+                                        let bare_type = type_name.rsplit('.').next().unwrap_or(&type_name).to_string();
+                                        let is_boxed_payload = (bare_type == "Result"
+                                            || bare_type == "Option"
+                                            || bare_type.ends_with("Result")
+                                            || bare_type.ends_with("Option"))
+                                            && matches!(field_name_expr.name.as_str(), "value" | "error");
+                                        if is_boxed_payload {
+                                            let payload_xiom = self
+                                                .xiom_type_of_local(&base_ident.name)
+                                                .and_then(|local_xiom| {
+                                                    let (_, args) = crate::structural::container_parts(&local_xiom)?;
+                                                    let idx = if field_name_expr.name == "value" { 0 } else { 1 };
+                                                    args.get(idx).cloned()
+                                                });
+                                            if let Some(payload_xiom) = payload_xiom {
+                                                let pointee = self.llvm_type_for_fallback(&payload_xiom);
+                                                if !pointee.is_empty() && pointee != "void" {
+                                                    let bgep = self.fresh_tmp();
+                                                    self.emitln(&format!("  {bgep} = getelementptr {base_ty}, {base_ty}* {base_ptr}, i32 0, i32 {fi}"));
+                                                    let handle = self.fresh_tmp();
+                                                    self.emitln(&format!("  {handle} = load i64, i64* {bgep}"));
+                                                    let ptr_ty = format!("{pointee}*");
+                                                    let ptr_val = self.fresh_tmp();
+                                                    self.emitln(&format!("  {ptr_val} = inttoptr i64 {handle} to {ptr_ty}"));
+                                                    return Ok((ptr_val, ptr_ty));
+                                                }
+                                            }
+                                        }
                                         // 5c.31: Scalar-typed fields (i64, i8, etc.)
                                         // must also return the field ADDRESS, not the
                                         // value. Emit GEP + ptrtoint to i64 so the

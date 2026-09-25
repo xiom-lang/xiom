@@ -5368,6 +5368,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// Packages relay #2: references to BOXED Result payload fields must yield the
+// pointee (the real Vec), not the handle slot's address; `&mut r.value`
+// mutation must reach the box.
+#[test] fn e2e_m140_result_payload_ref() {
+    assert_eq!(
+        compile_and_run("tests/regression/m140_result_payload_ref/main.xi"),
+        Some(0),
+        "&Result.payload must pass the boxed pointee"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

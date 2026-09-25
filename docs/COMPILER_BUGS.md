@@ -8350,15 +8350,19 @@ Relay received from the packages lane (their traps 12-13). Triage result:
 ### Follow-up same day (packages commit 6310dba + our probes)
 
 - **`&struct.field` to `&Vec` -- NARROWED to the Result-payload shape and
-  REPRODUCED.** Their `probe_struct_field.xi` (plain field) is green, matching
-  our non-repro; their `probe_result_value.xi` is the minimal broken shape:
-  `Result[Vec[UInt8], Str]`, `&r.value` passed to a `&Vec` parameter reads 0,
-  while `let v = r.value; &v` reads 3 (`&r.value.data` is green). Our
-  `tmp/sprintc/pkg_result_value_ref.xi` reproduces it exactly (RUN=1 on the
-  first check, second check would pass). Same by-value Vec-handle
-  copy/materialization class as the by-value receiver finding; queued as the
-  next codegen batch (`&Field` on a Result payload must pass the payload
-  slot's address, not a materialized temp).
+  FIXED.** Their `probe_struct_field.xi` (plain field) is green, matching
+  our non-repro; their `probe_result_value.xi` was the minimal broken shape:
+  `Result[Vec[UInt8], Str]`, `&r.value` passed to a `&Vec` parameter read 0,
+  while `let v = r.value; &v` read 3. Root cause: `%struct.Result` stores
+  payloads as BOXED i64 HANDLES (`{i64, i64, i64}`), but the `&field` arm's
+  scalar branch returned the handle SLOT's address, so the callee interpreted
+  the handle bits as the Vec struct (length 0). FIX (expr.rs): when the field
+  is a boxed payload (`Result`/`Option` `value`/`error`), resolve the payload
+  type from the local's XIOM type via `container_parts`, load the handle and
+  `inttoptr` to the POINTEE pointer. `take(&r.value)` = 3, `let v = r.value;
+  take(&v)` = 3, and `push_more(&mut r.value)` mutation reaches the box
+  (length 4). Lock `e2e_m140_result_payload_ref`; full e2e **2377/2377
+  (+4 ignored)**; catalog corpus clean.
 - **Arity enforcement -- IMPLEMENTED, GATED OFF.** The three exact-count
   checks (bare, method with receiver offset, module-prefix) were written and
   verified against the packages' repro (all three now report
