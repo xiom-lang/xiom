@@ -8391,6 +8391,47 @@ Relay received from the packages lane (their traps 12-13). Triage result:
   (parallel-Vec drift guard) and trap 17 (`as` reserved; `int_to_base` lives
   in `xiom.convert.int`).
 
+## 2026-09-25 -- Stdlib relay: `ptr.is_null()` receiver offset + strict-parser prep
+
+- **`ptr.is_null()` (pointer FIELD receiver on a free fn) -- CONFIRMED
+  compiler-side, OPEN.**
+  - Decl: `stdlib/xiom/ptr/ptr.xi:36` `pub fn is_null[T](ptr: *const T) -> Bool`.
+  - Calls: `stdlib/xiom/cell/cell.xi:155,181` `ptr.is_null()` inside
+    `Ref.release` / `RefMut.release`, where `ptr` is the handle's pointer
+    FIELD (registered as a prologue GEP local).
+  - Checker: the method path's `first_param_matches_receiver` compares
+    canonical names only; a ref-ish receiver (`*RefBlock`) never matches the
+    ref-ish generic param (`*const T`), so the G-20 offset stays 0 and the
+    receiver is treated as a missing argument (the strict-arity run reports
+    "'ptr.is_null' expects 1 argument(s), found 0").
+  - Codegen (probe `tmp/sprintc/pkg_isnull_probe2.xi`): the METHOD form
+    passes a NON-NULL value for a null field -- `z.p as Int = 0`, direct
+    `is_null(z.p) = 1` (true), but `z.p.is_null() = 0` (false). It looks like
+    the field's ADDRESS (or a temp) is passed where the pointer VALUE is
+    required; direct calls are correct.
+  - A checker-side receiver extension (ref-ish vs ref-ish -> offset 1) was
+    prototyped and REVERTED: it made the method form compile but still pass
+    the wrong value, so the checker offset and the codegen receiver emission
+    must land TOGETHER with a lock. WORKAROUND for the stdlib lane until
+    then: call `is_null(ptr)` directly (verified correct), not
+    `ptr.is_null()`.
+- **Strict-parser prep (packages relay #3 + stdlib reply):**
+  - Packages: 0 mixed-bracket sites in their repo; they are ready for the
+    strict flip. Stdlib: `xiom.cell` is theirs; `xiom.sqlite`'s
+    `SqliteValue.is_null(val:)` is called statically with exact arity, so it
+    is NOT the offset case.
+  - The stdlib lane could not match the 18-site list because their main
+    differs from our PIN checkout (their `io/fs.xi` has zero angle generics;
+    ~100 matched angle sites remain in 15 files, which strict parsing
+    ACCEPTS). EXACT PIN LIST (mixed `Result[X, Str>`-style, file:line):
+    `core/contracts.xi:231`, `io/console.xi:47`, `io/fs.xi:50,80,110,124,
+    138,162,212,227,296,335`, `io/pipe.xi:181`, `math/approximation.xi:496`,
+    `test/harness.xi:34,97`, `test/test.xi:180,194` -- 18 sites, 7 files.
+  - Next step for coordination: land the strict parser behind
+    `XIOM_STRICT_BRACKETS=1` (transition switch, like
+    `XIOM_STRICT_CLAUSES`) so the stdlib lane can run the exact diagnostics
+    on their tree before we flip the default at the pin bump.
+
 
 
 
