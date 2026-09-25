@@ -8404,17 +8404,24 @@ Relay received from the packages lane (their traps 12-13). Triage result:
     ref-ish generic param (`*const T`), so the G-20 offset stays 0 and the
     receiver is treated as a missing argument (the strict-arity run reports
     "'ptr.is_null' expects 1 argument(s), found 0").
-  - Codegen (probe `tmp/sprintc/pkg_isnull_probe2.xi`): the METHOD form
-    passes a NON-NULL value for a null field -- `z.p as Int = 0`, direct
-    `is_null(z.p) = 1` (true), but `z.p.is_null() = 0` (false). It looks like
-    the field's ADDRESS (or a temp) is passed where the pointer VALUE is
-    required; direct calls are correct.
-  - A checker-side receiver extension (ref-ish vs ref-ish -> offset 1) was
-    prototyped and REVERTED: it made the method form compile but still pass
-    the wrong value, so the checker offset and the codegen receiver emission
-    must land TOGETHER with a lock. WORKAROUND for the stdlib lane until
-    then: call `is_null(ptr)` directly (verified correct), not
-    `ptr.is_null()`.
+  - Codegen (probes `tmp/sprintc/pkg_isnull_probe2/4.xi`): the METHOD form is a
+    SILENT STUB. `z.p as Int = 0`, direct `is_null(z.p) = 1` (true) and
+    `is_null_inline(h.p) = 1` / `is_null_tramp(h.p) = 1` (both correct, via
+    field receivers too), but `h.p.is_null_inline()` and
+    `h.p.is_null_tramp()` both evaluate to 0 (false) for a null pointer. The
+    final IR contains ONLY the direct calls -- the method form emitted no
+    call at all (the auto-stub path for unresolved methods returns a default
+    value), so this is the same silent-stub class as the historical Str
+    sugar (`Str.trim()` -> len 0xFFFFFFFF), not a bad receiver argument.
+    LOCAL pointer receivers are at least honest: the checker reports
+    "cannot call 'X' on this expression".
+  - Fix direction: resolve UFCS-style method calls (`value.method(...)` ->
+    free fn whose first param accepts the receiver, including ref-ish
+    receivers) in BOTH the checker and codegen, and turn the codegen
+    unresolved-method fallback into a hard error instead of a silent stub.
+    WORKAROUND for the stdlib lane: the DIRECT call `is_null(ptr)` is
+    verified correct (both inline and whole-body-unsafe forms); use it
+    instead of `ptr.is_null()` until the resolution lands.
 - **Strict-parser prep (packages relay #3 + stdlib reply):**
   - Packages: 0 mixed-bracket sites in their repo; they are ready for the
     strict flip. Stdlib: `xiom.cell` is theirs; `xiom.sqlite`'s
