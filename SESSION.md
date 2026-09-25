@@ -151,6 +151,11 @@ Legacy-package migration note/codemod remains the packages lane's policy.
 - **website:** schema-v1 contract implemented on our side (publisher + gate +
   CI tests); requirement 5 (dl + `releases/index.json` `notes: true`) is
   their lane; the dispatch now carries `notes_path`.
+  - Playground UX observation (2026-09-25, owner probe): a program that
+    crashes (e.g. infinite mutual recursion -> stack overflow, exit
+    `0xC00000FD`) is reported as "Program ran with no output". The runner
+    should surface the non-zero/crash exit instead of only the empty stdout.
+    Not a compiler bug (repro in the relay below); website-lane fix.
 - **benchmark:** `COMPILER_VERSION` still pins the absent v0.61.0 -- they
   should bump after our next release exists.
 
