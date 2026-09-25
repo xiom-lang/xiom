@@ -1,6 +1,145 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
+# CONTINUATION HANDOFF (2026-09-25, compiler lane -- post-relay)
+
+Supersedes the 2026-09-24 header (kept below as history). Full evidence for
+this stretch lives in docs/COMPILER_BUGS.md under the 2026-09-24/25 sections
+(Sprint A-D, relay batches, packages relay #1-#3, stdlib relay).
+
+## Status snapshot
+
+- **Released:** compiler **v0.61.3**; stdlib pinned at `stdlib-v0.61.3` (the
+  local `stdlib/` checkout is detached there). `origin/main` = R66 only;
+  local `main` carries the whole campaign **UNPUSHED** (50 commits: R67-R72,
+  m125/m126/m128, the front-end audit, the release-notes publisher, Sprints
+  A-D, the relay batches and fixes). Tree clean.
+- **Release notes DRAFTED:** `release-notes/v0.62.0.md` + `.json` (4
+  compiler highlights; the stdlib fragment budget is 2 -> schema max 6);
+  `xiom-release-notes verify --tag v0.62.0` is green fragment-free.
+  Re-convert after the pin bump so their fragment merges.
+- **Gates (latest evidence):** full e2e **2377/2377 (+4 ignored)**; checker
+  195/195; parser unit tests green incl. the new bracket lax/strict test;
+  integration 130; feature-reg 510; robustness 63; fuzz 24; api-freeze 2/2;
+  stdlib-exec 85/85 (+2 ignored); stdlib modules 40/40; mcp 44; pkg 75;
+  release-notes 6; perf 3/3; catalog corpus clean; workspace all-targets
+  clean. (Earlier full runs: relay 2379, Sprint D 2377, Sprint C 2377,
+  Sprint B 2374, Sprint A 2373.)
+
+## Landed this campaign (do NOT redo)
+
+- **Sprint A-D**: shared toolchain probe + doctor v2 (`--json`, exit codes,
+  `--deep`, identity block, OS remediation); FE-8 deprecations (`xiom
+  install|publish` -> `xiom pkg` aliases, `xiom update` retired, pkg help,
+  plan banner); FE-10..15/FE-17 (installers ship 9 tools + `lib/` layout,
+  banners, uninstall PATH, grouped `--help`, `--version` install root,
+  `module x;`); `xiom toolchain check [--json]`; MCP `get_contracts` /
+  `search_symbols`; FE-16 pin embed.
+- **Sprint C**: fn-value/generic-mono ABI unification (parser `type_to_expr_ident`
+  / `type_name_str`; checker `from_marker`, method_target guard; codegen
+  marker/locals/for-loop/array-buffer/paren-target fixes; `fn_arg_generic_binding`
+  + LLVM->XIOM mapping) and E001 conservatism (`check_stmt` per-statement
+  release, `write_borrow` sentinel fix, `LoanSet` mark/release_since).
+- **Post-relay fixes**: private same-leaf triage (types + enums); clause
+  Bool-mix rejection + `@pre` typing (light validator, `XIOM_STRICT_CLAUSES=1`
+  strict mode; stdlib verified green under it); `@pre`-on-method-call runtime
+  snapshot (`as_source...`/pre-vars collector); unsigned CONSTANT + FIELD
+  sign-extension (`as_source_is_signed`); **Result payload `&r.value` ->
+  boxed pointee** (`f2a14f07`, lock `e2e_m140_result_payload_ref`);
+  **`XIOM_STRICT_BRACKETS=1`** transition switch (`bbb6bf0b`, lock m141);
+  benchmark-chaos tests relocated + e2e harness deletes outputs; Stage 6
+  fmt-peek perf budget + `docs/STAGE6_LINT_WAVE.md` lint-wave spec.
+
+## Remaining work order (compiler lane)
+
+1. **`ptr.is_null()` silent-stub kill** (live: `xiom.cell` `Ref.release` /
+   `RefMut.release` at 155/181; METHOD form emits NO call -> false; direct
+   `is_null(ptr)` is correct). Plan in COMPILER_BUGS "Stdlib relay" -> NEXT
+   BATCH: (a) `emitter.rs::emit_undefined_symbol_stubs` collects unresolved
+   called symbols and the compiler fails loudly (C001 naming the symbol)
+   instead of synthesizing `ret 0`; (b) checker aligns FIELD receivers with
+   the LOCAL "cannot call 'X' on this expression" error and adds the UFCS
+   lookup (receiver as arg 0, ref-ish incl.); (c) codegen same UFCS lookup;
+   (d) lock: null pointer field, direct+method both true, non-null control.
+   Stdlib workaround until then: direct `is_null(ptr)`.
+2. **By-value receiver Vec mutation**: `fn S.add(self)` with `self.v.push(x)`
+   loses the mutation (`tmp/sprintc/pkg_e001_accessor.xi`); the receiver is
+   already a pointer in IR, so audit the container-FIELD access path for
+   by-value-self methods, fix, lock, e2e.
+3. **Re-land exact arity** only after the stdlib wave fixes its call sites:
+   checks are documented in-line at three sites (bare ~6810, method offset
+   ~6246, module-prefix ~4065); stdlib list: io `printf` x3,
+   `_scrypt_blockmix` x2, `collections.get`, `path.replace`; `xiom.cell` is
+   OURS (item 1). Flip the three `>` to `!=`, corpus + e2e.
+4. **Pin bump + release** (blocked on the stdlib's 100%): stdlib release
+   carrying `release-notes/v0.62.0.md` -> set `stdlib/` to that ref + bump
+   `STDLIB_VERSION` -> stdlib-dependent gates on the pin -> flip the
+   `XIOM_STRICT_BRACKETS` default (and the clause default once they confirm)
+   -> re-convert notes -> version bump 0.61.3 -> 0.62.0 -> push (FIRST CI
+   since R66; Windows leg unverified) -> tag -> registry canary -> website
+   notes. Then Stage 6 (lint wave first, fmt-peek restructure next), Stage 7.
+
+## Cross-lane status (2026-09-25)
+
+- **stdlib:** wave 31 complete (factorial contracts; modules 509/509, corpus
+  951/951, probes 183/183, barename 0/509); wave 32/33 queued plus fix-first
+  probes; their main canonicalized the 13 remaining mixed-bracket sites and
+  re-checks clean; they need `XIOM_STRICT_BRACKETS=1` self-verification and
+  the pin; arity call-site list outstanding; strict clause mode verified
+  green on their main. Trap-4 re-runs belong to packages (no aiff port there).
+- **packages:** trap 4 re-run happened on the RELEASED 0.61.3 (fix staged for
+  the next build; their README/SESSION pin it); 0 mixed-bracket sites; trap 14
+  extended (parameter/local bracket laxness); traps 16/17 informational.
+- **website/playground:** relays delivered (commits `6424002` / `9fc587f`):
+  semicolon rule docs/lessons, crash-exit reporting, `--explain` cwd gap
+  (Stage 6 item), diagnostic-code corrections actioned on our side
+  (`b5b816b0`).
+
+## Environment / method
+
+- Repo-local identity `Lefteris Notas <lefterisnotas@gmail.com>`; the website
+  repo requires `git commit -s` (DCO).
+- CI does NOT run on main pushes (PR + dispatch only) -> the release push is
+  the first CI run since R66; the Windows leg is the main risk.
+- Never rebuild `target/debug/xiom.exe` while a cargo e2e runs; full e2e is
+  ~30 min; run it ONCE per batch; commit atomically; run `python
+  tools/ascii_guard.py check` on STAGED files before every commit (chain with
+  `if ($?)` so a guard failure blocks the commit).
+- Stale `%TEMP%\kilo\*` stdlib trees cause W001 module-collision noise --
+  delete them.
+
+## Continuation prompt (paste into the next session)
+
+> Continue the XIOM SWARM. Read the top section of SESSION.md (the 2026-09-25
+> compiler-lane handoff above), docs/FRONTEND_AUDIT.md, docs/COMPILER_BUGS.md
+> (the 2026-09-24/25 sections) and docs/STAGE6_LINT_WAVE.md before touching
+> code.
+>
+> State: v0.61.3 released; `stdlib/` detached at `stdlib-v0.61.3`; local
+> `main` carries the whole campaign UNPUSHED (50 commits); tree clean; full
+> e2e 2377/2377 (+4 ignored); no red gates. The combined v0.62.0 release
+> waits on the stdlib's 100% + tag handover (order it per "Remaining work
+> order" item 4; do NOT bump the version or tag before their ref lands).
+> Sprints A-D are DONE -- do not redo them.
+>
+> Start with item 1: the `ptr.is_null()` silent-stub kill (emitter stub pass
+> -> C001, checker field-receiver alignment + UFCS, codegen UFCS, lock), then
+> item 2 (by-value receiver Vec mutation). Item 3 (exact arity) re-lands only
+> after the stdlib fixes its call sites; `xiom.cell`'s `is_null` is ours.
+>
+> Method (non-negotiable): repro-first with a minimal probe under
+> `tmp/sprintc/`; fix with locks (e2e fixture `tests/regression/mNNN_*` +
+> test + CI line for e2e-able behavior; `crates/xiom/tests/checker_locks.rs`
+> for compile-fail and env-switch behavior); run the full e2e ONCE per batch
+> (~30 min, no rebuilds during); `python tools/ascii_guard.py check` green
+> before every commit; commit atomically with evidence in SESSION.md and
+> docs/COMPILER_BUGS.md; update the cross-lane lists whenever a fix changes
+> what stdlib/packages must do.
+>
+> Environment: identity `Lefteris Notas <lefterisnotas@gmail.com>`; pushes
+> only when the owner asks (the release push is deliberate); never rebuild
+> target/debug while e2e runs; delete stale `%TEMP%\kilo\*` stdlib trees.
+
 # CONTINUATION HANDOFF (2026-09-24, compiler lane)
 
 Supersedes the 2026-09-23 header. The 2026-09-16 handoff and the dated

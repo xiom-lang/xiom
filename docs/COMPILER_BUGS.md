@@ -8428,6 +8428,22 @@ Relay received from the packages lane (their traps 12-13). Triage result:
     WORKAROUND for the stdlib lane: the DIRECT call `is_null(ptr)` is
     verified correct (both inline and whole-body-unsafe forms); use it
     instead of `ptr.is_null()` until the resolution lands.
+  - NEXT BATCH (implementation plan, budget-gated):
+    1. `emitter.rs::emit_undefined_symbol_stubs` is the post-pass that
+       synthesizes `ret 0` for any `call @sym` with no define/declare. It
+       should COLLECT the unresolved called symbols and return them so the
+       compiler fails loudly (C001, naming the symbol and its call site)
+       instead of emitting a stub. Expect fallout: run corpus + full e2e and
+       fix each reachable case by real resolution (the historical comment
+       trail shows most stub arrivals were bugs already fixed -- B-001 etc.).
+    2. Checker: the method path accepts FIELD receivers that resolve to
+       nothing (silent '_'), while LOCAL pointer receivers already error
+       ("cannot call 'X' on this expression"). Align the field case with an
+       error, then implement the UFCS lookup (receiver as first arg) so
+       `h.p.is_null()` is accepted and TYPED as the free fn call.
+    3. Codegen: give the same UFCS lookup in the method path so the receiver
+       is emitted as arg 0; lock with `is_null` on a null pointer field
+       (direct and method forms both true) plus a non-null control.
 - **Strict-parser prep (packages relay #3 + stdlib reply):**
   - Packages: 0 mixed-bracket sites in their repo; they are ready for the
     strict flip. Stdlib: `xiom.cell` is theirs; `xiom.sqlite`'s
