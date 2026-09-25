@@ -2006,7 +2006,7 @@ pub fn explain_error(code: &str) -> bool {
         Err(_) => {
             eprintln!("Unknown error code: {code}");
             eprintln!("Available codes are listed in docs/error_codes/README.md");
-            eprintln!("Run: xiom --explain X0010  (for type mismatch)");
+            eprintln!("Run: xiom --explain T001  (for type errors)");
             // AUDIT #12 FIX: no process::exit in library code -- the caller
             // maps false to its own exit code.
             false

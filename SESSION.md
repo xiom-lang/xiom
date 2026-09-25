@@ -169,6 +169,20 @@ Legacy-package migration note/codemod remains the packages lane's policy.
     Stage 6 (`docs/STAGE6_LINT_WAVE.md`, companion polish); `AI_CONTEXT.md`
     and the MCP language guide were updated on our side (commit in this
     batch).
+  - Diagnostic-code drift (website request 2026-09-22) ACTIONED on our side:
+    `AI_CONTEXT.md` no longer claims an emitted `X` family (L/P/T/E/C/W, T
+    umbrella; runtime contract violations print without a code; X reserved),
+    the MCP `explain_error_code` example is `T001`, its fallback maps `W` and
+    labels `X` reserved, and the `--explain` unknown-code hint no longer
+    suggests `X0010`; `docs/AI_PIPELINE.md` carries a historical note.
+  - NEW compile-side gap found while fixing that: `xiom --explain` and the
+    MCP `explain_error_code` resolve `docs/error_codes/<code>.md` from the
+    CURRENT DIRECTORY, and the compiler repo has no such directory -- the
+    reference only works inside a checkout that contains the pages (e.g. the
+    website repo), not from a user project or an install. Stage 6 item:
+    stage the pages into `lib/docs/error_codes/` in the release archives
+    (release.yml fetch) or embed a minimal index; coordinate with
+    website/ops. Recorded in the relay to website.
 - **benchmark:** `COMPILER_VERSION` still pins the absent v0.61.0 -- they
   should bump after our next release exists.
 
@@ -393,7 +407,10 @@ polish"). (2) the reachable-function-only peek
 restructure (fix shape in COMPILER_BUGS: peek the checker-resolved module
 shallow, run the reachability filter, then pull the deps named by the
 SELECTED decls to a fixpoint). (3) parallel monomorphization profiles,
-linker strategy, more budget metrics. Stage 7: the selfhost ladder
+linker strategy, more budget metrics. (4) `--explain` reference resolution:
+ship `docs/error_codes/` under `lib/docs/` in the release archives (or embed a
+minimal index) so the command works outside a checkout that contains the
+pages; today it is cwd-relative. Stage 7: the selfhost ladder
 (multi-phase).
 
 ## Release pre-flight (2026-09-24, compiler lane)

@@ -238,7 +238,7 @@ fn real_main() {
             }
             return;
         }
-        eprintln!("usage: xiom --explain <code>  (e.g., xiom --explain X0010)");
+        eprintln!("usage: xiom --explain <code>  (e.g., xiom --explain T001)");
         process::exit(1);
     }
 

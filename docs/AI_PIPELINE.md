@@ -6,6 +6,14 @@
 > **Status:** [OK] Implemented (5g.1 MVP complete). 14 MCP tools. Zero warnings. 768/768 tests.
 > **Version:** v0.48.8
 > **Implementation date:** 2026-07-20
+>
+> **Diagnostic-code note (2026-09-25):** the `X0010` / `X0100` codes used as
+> examples in this historical document are NOT emitted. The current families
+> are `L` lexer, `P` parse, `T` type (umbrella; compile-time contract issues
+> land here), `E` ownership/borrow, `C` codegen, `W` warnings; runtime
+> contract violations print `contract violated: ...` with no code, and `X` is
+> reserved. Use `T001` as the `--explain` example. Canonical pages:
+> `docs.xiom-lang.org/latest/error-codes/`.
 
 ## Implementation Summary
 

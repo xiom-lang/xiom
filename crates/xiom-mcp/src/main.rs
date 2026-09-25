@@ -89,9 +89,11 @@ fn tool_explain_error_code(params: &Value) -> Result<String, String> {
     match std::fs::read_to_string(&doc_path) {
         Ok(content) => Ok(content),
         Err(_) => {
-            // Fallback: generic explanation
+            // Fallback: generic explanation. Code families as of v0.62.0:
+            // L lexer, P parse, T type, E ownership/borrow, C codegen,
+            // W warnings; X is reserved and never emitted.
             let category = if code.starts_with('X') {
-                "Syntax/Compiler"
+                "Reserved (not emitted by the current compiler)"
             } else if code.starts_with('L') {
                 "Lexer"
             } else if code.starts_with('P') {
@@ -102,6 +104,8 @@ fn tool_explain_error_code(params: &Value) -> Result<String, String> {
                 "Code Generation"
             } else if code.starts_with('E') {
                 "Borrow Checker"
+            } else if code.starts_with('W') {
+                "Warning (non-fatal)"
             } else {
                 "Unknown"
             };
@@ -109,6 +113,8 @@ fn tool_explain_error_code(params: &Value) -> Result<String, String> {
                 "# XIOM Error Code: {code}\n\n\
                  **Category:** {category}\n\n\
                  **Note:** No detailed documentation file found at `{doc_path}`.\n\
+                 The canonical pages are published at \
+                 https://docs.xiom-lang.org/latest/error-codes/ .\n\
                  Run `xiom --explain {code}` for compiler-provided details.\n"
             ))
         }
@@ -521,7 +527,7 @@ fn list_tools() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "explain_error_code".into(),
-            description: "Get the full reference documentation for a XIOM error code (e.g., X0100, P001, T001).".into(),
+            description: "Get the full reference documentation for a XIOM error code (e.g., P001, T001, E001, W001).".into(),
             input_schema: json!({
                 "type": "object",
                 "properties": {

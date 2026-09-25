@@ -114,9 +114,14 @@ xiom pkg lock
   `xiom.<module>` from the bundled `lib/`.
 - Unsafe/FFI: `unsafe { ... }`, `extern "C"` with confinement gates
   (T002/T003/T005/T006/T007); `xiom --sandbox` scores unsafe blocks.
-- Diagnostics: codes `T` type, `C` codegen, `P` parse, `X` contract,
-  `E` ownership/borrow, `L` lexer; `xiom --explain <code>` prints the
-  reference; `--diagnostics=json` for machine consumption.
+- Diagnostics: emitted families are `L` lexer, `P` parse, `T` type (the
+  umbrella -- compile-time contract issues land here), `E` ownership/borrow,
+  `C` codegen, and `W` warnings (`W000` checker, `W001` catalog module
+  collision). Runtime contract violations print `contract violated: ...` with
+  NO code; the `X` family is reserved and never emitted. `xiom --explain
+  <code>` reads `docs/error_codes/<code>.md` from the current directory (the
+  canonical pages live at `docs.xiom-lang.org/latest/error-codes/`);
+  `--diagnostics=json` for machine consumption.
 
 ## MCP server (`xiom-mcp`)
 
