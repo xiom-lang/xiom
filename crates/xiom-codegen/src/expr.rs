@@ -647,6 +647,29 @@ impl IrEmitter {
     }
 
     /// True when the expression is a fully-folded compile-time literal.
+    /// Packages relay (2026-09-25): is the SOURCE of an `as` widening signed?
+    /// Plain locals resolve through `xiom_type_of_local` and calls through
+    /// `callee_return_xiom`; a SUFFIXED numeric literal is parser-desugared to
+    /// `As(Int(239), UInt8)` and needs its own arm -- `239u8 as Int` used to
+    /// fall to the sext default and print -17 (the packages' syslog BOM
+    /// corruption; masks like `(c as Int) & 0xFF` were the workaround).
+    /// Parens unwrap; unknown sources keep the historical sext default.
+    fn as_source_is_signed(&self, inner: &Expr) -> bool {
+        match inner {
+            Expr::Ident(id) => self
+                .xiom_type_of_local(&id.name)
+                .map(|xiom_ty| Self::is_signed_xiom_type(&xiom_ty))
+                .unwrap_or(true),
+            Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => self
+                .callee_return_xiom(func)
+                .map(|xiom_ty| Self::is_signed_xiom_type(&xiom_ty))
+                .unwrap_or(true),
+            Expr::As(_, src_ty, _) => Self::is_signed_xiom_type(&Self::type_from_ast(src_ty)),
+            Expr::Paren(e, _) => self.as_source_is_signed(e),
+            _ => true,
+        }
+    }
+
     fn is_const_literal(e: &xiom_ast::Expr) -> bool {
         match e {
             xiom_ast::Expr::Int(..)
@@ -4859,25 +4882,10 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             self.emitln(&format!("  {tmp} = trunc {a} {val} to {b}"));
                         } else {
                             // BUG 14 fix: unsigned sources must ZERO-extend when
-                            // widening (UInt64->UInt128, UInt8->Int128). Resolve the
-                            // source's REGISTERED XIOM type (xiom_type_of_local
-                            // prefers local_xiom_types -- the LLVM-slot-derived
-                            // name loses signedness); unknown sources default to
-                            // sext (historical behavior).
-                            let src_signed = match inner.as_ref() {
-                                Expr::Ident(id) => self.xiom_type_of_local(&id.name)
-                                    .map(|xiom_ty| Self::is_signed_xiom_type(&xiom_ty))
-                                    .unwrap_or(true),
-                                // round-14 (BUG 26 #7): UInt*-RETURNING CALLS
-                                // widen zext -- `byte_at(s, 1) as Int` on a
-                                // UInt8 byte (0xCE = 206) was sext'd to -50.
-                                Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
-                                    self.callee_return_xiom(func)
-                                        .map(|xiom_ty| Self::is_signed_xiom_type(&xiom_ty))
-                                        .unwrap_or(true)
-                                }
-                                _ => true,
-                            };
+                            // widening (UInt64->UInt128, UInt8->Int128). The
+                            // SOURCE signedness helper also covers parser-
+                            // desugared suffixed literals (`239u8 as Int`).
+                            let src_signed = self.as_source_is_signed(inner);
                             let extop = if src_signed { "sext" } else { "zext" };
                             self.emitln(&format!("  {tmp} = {extop} {a} {val} to {b}"));
                         }

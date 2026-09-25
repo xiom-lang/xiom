@@ -151,5 +151,7 @@ Tools: `compile_and_analyze`, `compile_and_fix`, `check_xiom_syntax`,
   concrete type or `fmt.format1`.
 - `xiom update` retired; toolchain updates are manual until the verified
   updater lands (`docs/POST_RELEASE_PLAN.md`).
+- `Str` is NUL-terminated: an embedded `0x00` byte is unrepresentable, so
+  binary data (BOM bytes, archive names) must use byte buffers, not `Str`.
 - Some `xiom.sort`/`search`/`bits`/`geom` APIs carry contracts; coverage is
   partial and documented in the stdlib repo.

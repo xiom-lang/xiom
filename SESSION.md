@@ -26,11 +26,11 @@ timeline below are the detailed log -- read the newest entries for evidence.
 
 ## Gates (latest evidence)
 
-- Full e2e **2375/2375 (+4 ignored)** -- re-run ON THE PIN for the
-  non-blocker batch (2026-09-24, 1809.8 s; the 4 ignored are the relocated
-  benchmark-chaos runs). The relay batch ran 2379/2379 (1871.5 s); Sprint D
-  2377/2377 (1449.5 s); Sprint C 2377/2377 (1512.3 s); Sprint B 2374/2374
-  (1691.6 s); Sprint A 2373/2373 (1851.5 s).
+- Full e2e **2376/2376 (+4 ignored)** -- re-run ON THE PIN for the
+  packages-relay batch (2026-09-25, 1980.4 s; adds e2e_m138). The
+  non-blocker batch ran 2375/2375 (+4 ignored, 1809.8 s); the relay batch
+  2379/2379 (1871.5 s); Sprint D 2377/2377 (1449.5 s); Sprint C 2377/2377
+  (1512.3 s); Sprint B 2374/2374 (1691.6 s); Sprint A 2373/2373 (1851.5 s).
 - checkers: checker 195/195, parser 102/102, integration 130/130,
   feature-reg 510/510, robustness 63/63, fuzz 24/24.
 - stdlib-dependent (re-run on the pin): api-freeze **2/2** (m125 regen),
@@ -153,6 +153,18 @@ Legacy-package migration note/codemod remains the packages lane's policy.
 - **packages:** 3 repros confirmed on our build; they will commit the probes
   under `docs/repro/`. Their migration-note request (old dialect) is policy,
   not a parser bug; the `xiom.ffi` triage abort is harness-side.
+  - Relay 2026-09-25 (traps 12-13): the widened-UNSIGNED-CONSTANT
+    sign-extension (`239u8 as Int` = -17) was NOT previously tracked; FIXED
+    this batch (`as_source_is_signed`, lock `e2e_m138_u8_const_widen`). The
+    `&mut` call-site silent copy (`push_one(v)` mutating a temporary) was NOT
+    tracked either; reproduced, OPEN as a design decision (require explicit
+    `&mut` vs auto-borrow the place) -- COMPILER_BUGS 2026-09-25 entry. The
+    NUL-terminated Str note is a known by-design limitation, now listed in
+    `AI_CONTEXT.md`.
+  - Relay 2026-09-25 (trap 14 + §10): arity laxness, `Vec<UInt8]` bracket
+    laxness, E001 advisory after an immutable accessor, and `&struct.field`
+    trapping only for `&Vec` params -- triage in progress (see the next
+    COMPILER_BUGS entry).
 - **website:** schema-v1 contract implemented on our side (publisher + gate +
   CI tests); requirement 5 (dl + `releases/index.json` `notes: true`) is
   their lane; the dispatch now carries `notes_path`.
@@ -225,8 +237,8 @@ Legacy-package migration note/codemod remains the packages lane's policy.
 > (the local `stdlib/` checkout is detached at that tag); `origin/main` has
 > R66 only, with the whole campaign unpushed on local `main` (R67-R72, m125,
 > m126, m128, the audit, the release-notes publisher, Sprints A-D, docs).
-> Full e2e 2375/2375 (+4 ignored) on the pin (non-blocker batch); api-freeze
-> 2/2 and stdlib-exec 85/85 on the pin; no red gates. The owner
+> Full e2e 2376/2376 (+4 ignored) on the pin (packages-relay batch);
+> api-freeze 2/2 and stdlib-exec 85/85 on the pin; no red gates. The owner
 > batched everything into ONE release (no intermediate tags; recommend
 > v0.62.0), sequenced as: compiler Sprints A+B+C -> stdlib completes its plan
 > + cuts its release + ships its release-notes fragment -> bump

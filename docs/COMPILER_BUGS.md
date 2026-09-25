@@ -8268,6 +8268,43 @@ catalog corpus clean.
      deletes its per-invocation `e2e_*` binary (plus `compile_wasm`'s .wasm)
      so full runs leave no artifacts.
 
+## 2026-09-25 -- Packages relay: unsigned-constant widening + &mut call-site copies
+
+Relay received from the packages lane (their traps 12-13). Triage result:
+
+- **Widened UNSIGNED constants sign-extended -- FIXED.** Repro: `let a =
+  239u8 as Int;` printed **-17** (`tmp/sprintc/pkg_u8_cast.xi`,
+  `pkg_u8_detail.xi`), while the runtime-local form was already correct
+  (`let x: UInt8 = 239; x as Int` = 239). Root cause: a suffixed literal is
+  parser-desugared to `As(Expr::Int(239), UInt8)`, and the widening arm's
+  source-signedness match had arms only for `Ident` and `Call` -- the `As`
+  source fell to the sext default, so the i8 bits 0xEF sign-extended to
+  -17. Fix: new `as_source_is_signed` helper (expr.rs) resolves `Ident`
+  (xiom_type_of_local), `Call`/`GenericCall` (callee_return_xiom),
+  `As(_, src_ty)` (the suffixed literal) and `Paren` recursion; unknown
+  sources keep the historical sext default. `239u8 as Int` = 239;
+  `-17i8 as Int` stays -17; the packages' `(c as Int) & 0xFF` mask workaround
+  still works but is no longer needed. Lock `e2e_m138_u8_const_widen`. This
+  is the CONSTANT path of the class whose runtime path (`byte_at`) was fixed
+  earlier ("VERIFIED FIXED ... UInt8 as Int zexts").
+- **`&mut` call sites silently copy -- OPEN (design decision needed).**
+  Repro (`tmp/sprintc/pkg_mut_vec_copy.xi`):
+  `fn push_one(v: &mut Vec[Int])` called as `push_one(v)` on a `var v`
+  COMPILES with no diagnostic, mutates a temporary copy, and the caller's
+  Vec is unchanged (length check fails); `push_one(&mut v)` works. The
+  checker accepts a value argument for a `&mut` parameter and codegen
+  materializes a temporary address. Impact: silent loss of mutation, the
+  packages' xiom.tga failures. Options: (a) require explicit `&`/`&mut` at
+  call sites for ref parameters -- a T001 checker error, consistent with the
+  stdlib and with Rust; (b) auto-borrow the PLACE (pass the real address) --
+  ergonomic but diverges from XIOM's explicit-borrow model. Recommendation:
+  (a); it is a checker+corpus sweep, NOT a small pre-release change, so it is
+  queued for the owner/Stage 6 decision.
+- **Str is NUL-terminated (embedded 0x00 unrepresentable) -- KNOWN by
+  design.** Confirmed again by the packages' cpio worker (binary names).
+  Already documented (strlen-based runtime; "Str values are NUL-terminated");
+  now also listed in `AI_CONTEXT.md` known limitations.
+
 
 
 

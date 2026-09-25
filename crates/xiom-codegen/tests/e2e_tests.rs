@@ -5358,6 +5358,16 @@ fn e2e_safety_probe() {
     );
 }
 
+// Packages relay 2026-09-25: widened unsigned CONSTANTS must zero-extend
+// (`239u8 as Int` used to sign-extend to -17; runtime locals were fine).
+#[test] fn e2e_m138_u8_const_widen() {
+    assert_eq!(
+        compile_and_run("tests/regression/m138_u8_const_widen/main.xi"),
+        Some(0),
+        "unsigned suffixed constants must zero-extend when widened"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)
