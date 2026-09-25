@@ -2635,6 +2635,21 @@ mod tests {
         assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(f) if f.name.name == "ok")), "recovery must keep the valid fn");
     }
     #[test] fn test_generic_fn() { let prog = parse("fn max[T: Comparable](a: T, b: T) -> T { if a > b { return a; } return b; }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => { assert_eq!(f.generics.len(), 1); } _ => panic!("expected function"), } }
+
+    // Packages relay #2: both bracket families are supported for generic
+    // type arguments. MIXED pairs (`Vec<UInt8]`) are still ACCEPTED today
+    // because the closer is matched loosely; the strict form (closer must
+    // match the opener) is queued behind the stdlib typo list
+    // (`stdlib/xiom/io/console.xi:47` uses `Result[Str, Str>`) -- see
+    // COMPILER_BUGS 2026-09-25 "Packages relay #2".
+    #[test] fn test_generic_brackets_valid_forms() {
+        let (_, errs) = parse_with_errors("fn g() -> Vec[UInt8] { return Vec[UInt8].new(); }");
+        assert!(errs.is_empty(), "bracket form must parse: {errs:?}");
+        let (_, errs) = parse_with_errors("fn g() -> Vec<UInt8> { return Vec[UInt8].new(); }");
+        assert!(errs.is_empty(), "angle form must parse: {errs:?}");
+        let (_, errs) = parse_with_errors("fn g() -> Map<Int, Str> { return 0; }");
+        assert!(errs.is_empty(), "angle Map pair must parse: {errs:?}");
+    }
     #[test] fn test_method_decl() { let prog = parse("pub fn Vec3.dot(other: &Vec3) -> Float32 { return x * other.x + y * other.y; }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => { assert!(f.is_method()); assert_eq!(f.name.name, "dot"); } _ => panic!("expected method"), } }
     #[test] fn test_module() { let prog = parse("module math { pub fn add(a: Int, b: Int) -> Int { return a + b; } }").unwrap(); match &prog.items[0] { TopDecl::Module(m) => { assert_eq!(m.name.name, "math"); } _ => panic!("expected module"), } }
 

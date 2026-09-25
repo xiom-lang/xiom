@@ -4053,6 +4053,9 @@ impl Checker {
         // AUDIT FIX (readiness Stage 1): arity was never checked on
         // module-prefix calls -- `convert.float_to_string(3.14159, 2)` against
         // the 1-param def compiled and silently dropped the extra argument.
+        // Packages relay #2: too FEW is the mirror hole; the exact-count form
+        // (`!=`) is IMPLEMENTED but OFF until the stdlib call-site fixes land
+        // (see COMPILER_BUGS for the list).
         if args.len() > sig.params.len() {
             self.error(
                 format!("{} expects {} argument(s), found {}",
@@ -6229,6 +6232,13 @@ impl Checker {
                             } else {
                                 0 // constructor -- no self at all
                             };
+                            // Packages relay #2 (arity): exact-count enforcement
+                            // on the method path is IMPLEMENTED but OFF until
+                            // the stdlib call-site fixes land (see the bare-path
+                            // note and COMPILER_BUGS for the exact list). The
+                            // offset table makes the expected count precise:
+                            //   let expected_args = sig.params.len() - param_offset;
+                            //   if args.len() != expected_args { error }
                             for (i, arg) in args.iter().enumerate() {
                                 let arg_ty = self.check_expr(arg);
                                 let param_idx = i + param_offset;
@@ -6803,6 +6813,13 @@ impl Checker {
                                 sig = alt;
                             }
                         }
+                        // Packages relay #2 (arity): exact-arity enforcement is
+                        // IMPLEMENTED but not enabled yet -- the stdlib corpus
+                        // relies on the laxness in 5+ call sites (printf,
+                        // _scrypt_blockmix, collections.get, path.replace,
+                        // cell is_null); the stdlib lane fixes those first,
+                        // then this check flips to `sig.params.len() !=
+                        // arg_types.len()` with the list in COMPILER_BUGS.
                         // Build generic substitution map from the call arguments.
                         // round-15 (probe_zip_j/k): explicit type args from
                         // `apply_g[(Int, Int)](...)` win over arg inference --
