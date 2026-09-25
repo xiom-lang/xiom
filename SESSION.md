@@ -181,6 +181,12 @@ Legacy-package migration note/codemod remains the packages lane's policy.
     the by-value Vec-handle copy class; the FIELD sign-extend shape
     (`h.b as Int` = -17) is FIXED; `io.println` Str-only is by design and is
     now stated in `AI_CONTEXT.md`.
+  - Relay #2 trap 4 (Result-payload `&field` to `&Vec`) FIXED (`f2a14f07`):
+    boxed payloads were addressed at the handle SLOT instead of the pointee;
+    `take(&r.value)` now reads the real Vec and `&mut r.value` mutation
+    reaches the box. Lock `e2e_m140_result_payload_ref`; full e2e
+    2377/2377 (+4 ignored). Remaining in the copy class: by-value RECEIVER
+    methods on Vec fields (`S.add(self)` losing `self.v.push`) -- next batch.
 - **website:** schema-v1 contract implemented on our side (publisher + gate +
   CI tests); requirement 5 (dl + `releases/index.json` `notes: true`) is
   their lane; the dispatch now carries `notes_path`.
