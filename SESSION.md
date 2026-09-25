@@ -161,7 +161,7 @@ Legacy-package migration note/codemod remains the packages lane's policy.
     `&mut` vs auto-borrow the place) -- COMPILER_BUGS 2026-09-25 entry. The
     NUL-terminated Str note is a known by-design limitation, now listed in
     `AI_CONTEXT.md`.
-  - Relay 2026-09-25 (trap 14 + §10): arity laxness, `Vec<UInt8]` bracket
+  - Relay 2026-09-25 (trap 14 + section 10): arity laxness, `Vec<UInt8]` bracket
     laxness, E001 advisory after an immutable accessor, and `&struct.field`
     trapping only for `&Vec` params -- triage in progress (see the next
     COMPILER_BUGS entry).
