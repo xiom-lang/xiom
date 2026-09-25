@@ -114,7 +114,12 @@ notes: Stage 6 has its gate (`crates/xiom-codegen/tests/perf_budget_tests.rs`:
 IR byte budgets + 180s ceiling + byte-identical determinism canary, CI-wired)
 and one landed step (deterministic `pick_deterministic` selection); its
 continuation items are the real incremental engine (only reachable functions
-re-emitted, per-body snapshot cache) and parallel codegen. Stage 7 is the
+re-emitted, per-body snapshot cache) and parallel codegen.
+**Stage 6 also has a queued work order now: the control-flow lint wave --
+`docs/STAGE6_LINT_WAVE.md` (W002 unconditional recursive cycle from the
+2026-09-25 owner playground probe, W003 unreachable-after-divergence, W004
+unreachable match arm, tier-2 W005-W007; warning-only, user-program scope).**
+Stage 7 is the
 selfhost ladder (v092..v11 milestone emitters, not yet a self-compiling
 chain). Both are multi-session programs; scope the first batch from the
 Stage 6 notes before touching code.
@@ -365,11 +370,20 @@ covered by `perf_budget_tests.rs::perf_budget_fmt_peek_shape`: byte budget
 sweep p50 3.9 -> 7.9 s regression cannot grow unnoticed while the real fix
 waits. Perf 3/3.
 
-Stage 6 open (unchanged): the reachable-function-only peek restructure (fix
-shape in COMPILER_BUGS: peek the checker-resolved module shallow, run the
-reachability filter, then pull the deps named by the SELECTED decls to a
-fixpoint), parallel monomorphization profiles, linker strategy, more budget
-metrics. Stage 7: the selfhost ladder (multi-phase).
+Stage 6 open work order: (1) the control-flow lint wave
+(`docs/STAGE6_LINT_WAVE.md`) -- W002 unconditional recursive cycle (the
+2026-09-25 owner playground probe: `a() { b(); print; } b() { a(); print; }`
+never prints and dies via the runtime fault trap, exit `0xC000001D`; the
+playground reporting "ran with no output" is a website-lane fix), W003
+unreachable statement after a diverging statement, W004 unreachable match
+arm, then tier 2 (literal `/ 0` -- today it traps at runtime; `1 << 64` --
+today runs with a garbage result; non-float self-comparison); warning-only,
+user-program scope, two locks per lint. (2) the reachable-function-only peek
+restructure (fix shape in COMPILER_BUGS: peek the checker-resolved module
+shallow, run the reachability filter, then pull the deps named by the
+SELECTED decls to a fixpoint). (3) parallel monomorphization profiles,
+linker strategy, more budget metrics. Stage 7: the selfhost ladder
+(multi-phase).
 
 ## Release pre-flight (2026-09-24, compiler lane)
 
