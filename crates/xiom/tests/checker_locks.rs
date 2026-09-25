@@ -44,6 +44,37 @@ fn run_on(name: &str) -> (String, Option<i32>, PathBuf) {
 }
 
 #[test]
+fn m141_mixed_brackets_lax_then_strict() {
+    // LAX transition default: the legacy mixed spelling still compiles+run.
+    let (stderr, code, exe) = run_on("m141_mixed_bracket_switch");
+    assert_eq!(code, Some(0), "lax default must accept the mixed spelling. stderr:\n{stderr}");
+    let run = Command::new(&exe).status().expect("run m141");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(run.code(), Some(0), "m141 must exit 0");
+
+    // STRICT switch: the closer must match the opener -> P001.
+    let exe = std::env::temp_dir().join(format!(
+        "xiom_brackets_strict_{}{}",
+        std::process::id(),
+        if cfg!(windows) { ".exe" } else { "" }
+    ));
+    let output = Command::new(xiom_bin())
+        .arg(fixture("m141_mixed_bracket_switch"))
+        .arg("-o")
+        .arg(&exe)
+        .env("XIOM_STRICT_BRACKETS", "1")
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn '{}': {e}", xiom_bin()));
+    let _ = std::fs::remove_file(&exe);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_ne!(output.status.code(), Some(0), "strict mode must reject. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("expected '>'") || stderr.contains("expected ']'"),
+        "expected a bracket P001 diagnostic, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn m135_clause_bool_mix_is_rejected() {
     let (stderr, code, exe) = run_on("m135_clause_bool_int");
     let _ = std::fs::remove_file(&exe);

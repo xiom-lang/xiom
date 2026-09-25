@@ -181,6 +181,12 @@ Legacy-package migration note/codemod remains the packages lane's policy.
     the by-value Vec-handle copy class; the FIELD sign-extend shape
     (`h.b as Int` = -17) is FIXED; `io.println` Str-only is by design and is
     now stated in `AI_CONTEXT.md`.
+  - Strict-bracket switch LANDED (`XIOM_STRICT_BRACKETS=1`, parser + m141
+    lock + unit tests; lax default keeps the pin green; full e2e 2377/2377
+    (+4 ignored), corpus clean). Stdlib wave 31 canonicalized their 13
+    remaining mixed sites; they can self-verify with the switch. Default
+    flips at the pin bump. Packages tested trap 4 on the RELEASED 0.61.3
+    (fix is in local main; closes on the next build).
   - Relay #2 trap 4 (Result-payload `&field` to `&Vec`) FIXED (`f2a14f07`):
     boxed payloads were addressed at the handle SLOT instead of the pointee;
     `take(&r.value)` now reads the real Vec and `&mut r.value` mutation

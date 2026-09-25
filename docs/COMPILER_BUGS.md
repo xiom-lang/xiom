@@ -8375,14 +8375,20 @@ Relay received from the packages lane (their traps 12-13). Triage result:
   registration false positive that needs the G-20 offset path, not a stdlib
   typo). Flip the three comparisons to `!=` after the stdlib wave fixes the
   call sites; the checks stay documented in-line at the three sites.
-- **Bracket strictness -- IMPLEMENTED, GATED OFF.** Matching-closer parsing
-  was written and verified (`Vec<UInt8]` -> P001), then reverted because the
-  stdlib has EIGHTEEN mixed-bracket type sites that only parsed due to the
-  laxness: `core/contracts.xi` (1), `io/console.xi` (1), `io/fs.xi` (10),
-  `io/pipe.xi` (1), `math/approximation.xi` (1), `test/harness.xi` (2),
-  `test/test.xi` (2) -- all `Result[X, Str>`-style typos. The strict closer
-  check re-lands with the pin bump after the stdlib wave (their side), with
-  the parser unit test and a compile-fail lock.
+- **Bracket strictness -- SWITCH LANDED (`XIOM_STRICT_BRACKETS=1`).** The
+  parser now enforces closer-matches-opener when the env var is set
+  (`Vec<UInt8]` -> `expected '>', found ]`), while the LAX default keeps the
+  legacy mixed spellings so the pinned stdlib still builds. Locks: parser
+  unit tests (valid forms + strict/lax via `with_strict_brackets`) and
+  `checker_locks.rs::m141_mixed_brackets_lax_then_strict` (lax compiles+runs,
+  strict rejects). Full e2e 2377/2377 (+4 ignored) with the lax default;
+  catalog corpus clean. The default flips at the pin bump after the stdlib
+  wave. STDLIB STATUS (wave 31, commit 0823433): the 13 mixed sites remaining
+  on their main were canonicalized (`io/fs.xi` x10 at shifted lines,
+  `io/console.xi:47`, `io/pipe.xi:185`, `core/contracts.xi:231`) and 5 were
+  already canonical; their modules re-check clean. They can self-verify with
+  `XIOM_STRICT_BRACKETS=1 cargo test -p xiom-check catalog_corpus_is_clean`
+  on a checkout at their ref.
 - **Widened UNSIGNED FIELD sources -- FIXED** (`h.b as Int` printed -17; the
   `as_source_is_signed` helper now resolves `Field` through the struct meta,
   alongside `Ident`/`Call`/`As`/`Paren`). `e2e_m138_u8_const_widen` extended
@@ -8426,7 +8432,10 @@ Relay received from the packages lane (their traps 12-13). Triage result:
   - Packages: 0 mixed-bracket sites in their repo; they are ready for the
     strict flip. Stdlib: `xiom.cell` is theirs; `xiom.sqlite`'s
     `SqliteValue.is_null(val:)` is called statically with exact arity, so it
-    is NOT the offset case.
+    is NOT the offset case. Their trap-4 re-run was on the RELEASED 0.61.3
+    (`probe_result_value.xi` still reads 0 there), which is expected: the fix
+    lives in local main and closes on the next build/pin bump; their
+    README/SESSION pin that status.
   - The stdlib lane could not match the 18-site list because their main
     differs from our PIN checkout (their `io/fs.xi` has zero angle generics;
     ~100 matched angle sites remain in 15 files, which strict parsing

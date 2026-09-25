@@ -31,6 +31,13 @@ pub struct Parser {
     /// hoisted to the enclosing module, immediately BEFORE the declaration
     /// whose body contained it (so call sites resolve).
     pending_externs: Vec<TopDecl>,
+    /// Transition switch (stdlib relay, 2026-09-25): when true, a generic
+    /// type's CLOSER must match its opener (`Vec<UInt8]` becomes a P001).
+    /// Default is LAX because the pinned stdlib checkout still carries mixed
+    /// sites; the stdlib lane verifies their main with
+    /// `XIOM_STRICT_BRACKETS=1`, then the default flips at the pin bump
+    /// (COMPILER_BUGS "Stdlib relay").
+    strict_brackets: bool,
 }
 
 /// Maximum expression/type nesting depth (rustc uses 128). Each level costs
@@ -44,7 +51,44 @@ const MAX_EXPR_DEPTH: usize = 128;
 impl Parser {
         pub fn errors(&self) -> &[ParseError] { &self.errors }
     pub fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, pos: 0, restrict_struct: false, depth: 0, errors: Vec::new(), expected: 0, pending_externs: Vec::new() }
+        Self {
+            tokens,
+            pos: 0,
+            restrict_struct: false,
+            depth: 0,
+            errors: Vec::new(),
+            expected: 0,
+            pending_externs: Vec::new(),
+            strict_brackets: std::env::var_os("XIOM_STRICT_BRACKETS").is_some(),
+        }
+    }
+
+    /// Test/diagnostic hook: force the strict closer-matching mode without
+    /// touching the process environment.
+    pub fn with_strict_brackets(mut self, on: bool) -> Self {
+        self.strict_brackets = on;
+        self
+    }
+
+    /// Close a generic type argument list. STRICT mode requires the closer to
+    /// match the opener; the LAX transition default accepts either closer.
+    fn close_generic_type(&mut self, used_bracket: bool) -> Result<(), ParseError> {
+        if self.strict_brackets {
+            if used_bracket {
+                self.expect_kind(TokenKind::RBracket, "']'")?;
+            } else {
+                self.expect_kind(TokenKind::Gt, "'>'")?;
+            }
+            return Ok(());
+        }
+        if used_bracket {
+            if !self.skip(TokenKind::RBracket) {
+                self.expect_kind(TokenKind::Gt, "'>'")?;
+            }
+        } else if !self.skip(TokenKind::Gt) {
+            self.expect_kind(TokenKind::RBracket, "']'")?;
+        }
+        Ok(())
     }
 
     /// Maximum number of parse errors before aborting (Phase 5c error recovery).
@@ -1077,12 +1121,12 @@ impl Parser {
         let peeked = match self.peek_kind() { TokenKind::Ident(s) => Some(s.clone()), _ => None };
         if let Some(ref s) = peeked {
             match s.as_str() {
-                "Option" => { if self.peek_ahead(1) == Some(&TokenKind::LBracket) || self.peek_ahead(1) == Some(&TokenKind::Lt) { self.advance(); if !self.skip(TokenKind::LBracket) { self.expect_kind(TokenKind::Lt, "'<'")?; } let inner = self.parse_type()?; if !self.skip(TokenKind::RBracket) { self.expect_kind(TokenKind::Gt, "'>'")?; } return Ok(Type::Option(Box::new(inner))); } }
-                "Result" => { if self.peek_ahead(1) == Some(&TokenKind::LBracket) || self.peek_ahead(1) == Some(&TokenKind::Lt) { self.advance(); if !self.skip(TokenKind::LBracket) { self.expect_kind(TokenKind::Lt, "'<'")?; } let ok = self.parse_type()?; self.expect_kind(TokenKind::Comma, "','")?; let err = self.parse_type()?; if !self.skip(TokenKind::RBracket) { self.expect_kind(TokenKind::Gt, "'>'")?; } return Ok(Type::Result(Box::new(ok), Box::new(err))); } }
-                "Vec" => { if self.peek_ahead(1) == Some(&TokenKind::LBracket) || self.peek_ahead(1) == Some(&TokenKind::Lt) { self.advance(); if !self.skip(TokenKind::LBracket) { self.expect_kind(TokenKind::Lt, "'<'")?; } let inner = self.parse_type()?; if !self.skip(TokenKind::RBracket) { self.expect_kind(TokenKind::Gt, "'>'")?; } return Ok(Type::Vec(Box::new(inner))); } }
-                "Slice" => { if self.peek_ahead(1) == Some(&TokenKind::LBracket) || self.peek_ahead(1) == Some(&TokenKind::Lt) { self.advance(); if !self.skip(TokenKind::LBracket) { self.expect_kind(TokenKind::Lt, "'<'")?; } let inner = self.parse_type()?; if !self.skip(TokenKind::RBracket) { self.expect_kind(TokenKind::Gt, "'>'")?; } return Ok(Type::Slice(Box::new(inner))); } }
-                "Map" => { if self.peek_ahead(1) == Some(&TokenKind::LBracket) || self.peek_ahead(1) == Some(&TokenKind::Lt) { self.advance(); if !self.skip(TokenKind::LBracket) { self.expect_kind(TokenKind::Lt, "'<'")?; } let k = self.parse_type()?; self.expect_kind(TokenKind::Comma, "','")?; let v = self.parse_type()?; if !self.skip(TokenKind::RBracket) { self.expect_kind(TokenKind::Gt, "'>'")?; } return Ok(Type::Map(Box::new(k), Box::new(v))); } }
-                "Set" => { if self.peek_ahead(1) == Some(&TokenKind::LBracket) || self.peek_ahead(1) == Some(&TokenKind::Lt) { self.advance(); if !self.skip(TokenKind::LBracket) { self.expect_kind(TokenKind::Lt, "'<'")?; } let inner = self.parse_type()?; if !self.skip(TokenKind::RBracket) { self.expect_kind(TokenKind::Gt, "'>'")?; } return Ok(Type::Set(Box::new(inner))); } }
+                "Option" => { if self.peek_ahead(1) == Some(&TokenKind::LBracket) || self.peek_ahead(1) == Some(&TokenKind::Lt) { self.advance(); let used_bracket = self.skip(TokenKind::LBracket); if !used_bracket { self.expect_kind(TokenKind::Lt, "'<'")?; } let inner = self.parse_type()?; self.close_generic_type(used_bracket)?; return Ok(Type::Option(Box::new(inner))); } }
+                "Result" => { if self.peek_ahead(1) == Some(&TokenKind::LBracket) || self.peek_ahead(1) == Some(&TokenKind::Lt) { self.advance(); let used_bracket = self.skip(TokenKind::LBracket); if !used_bracket { self.expect_kind(TokenKind::Lt, "'<'")?; } let ok = self.parse_type()?; self.expect_kind(TokenKind::Comma, "','")?; let err = self.parse_type()?; self.close_generic_type(used_bracket)?; return Ok(Type::Result(Box::new(ok), Box::new(err))); } }
+                "Vec" => { if self.peek_ahead(1) == Some(&TokenKind::LBracket) || self.peek_ahead(1) == Some(&TokenKind::Lt) { self.advance(); let used_bracket = self.skip(TokenKind::LBracket); if !used_bracket { self.expect_kind(TokenKind::Lt, "'<'")?; } let inner = self.parse_type()?; self.close_generic_type(used_bracket)?; return Ok(Type::Vec(Box::new(inner))); } }
+                "Slice" => { if self.peek_ahead(1) == Some(&TokenKind::LBracket) || self.peek_ahead(1) == Some(&TokenKind::Lt) { self.advance(); let used_bracket = self.skip(TokenKind::LBracket); if !used_bracket { self.expect_kind(TokenKind::Lt, "'<'")?; } let inner = self.parse_type()?; self.close_generic_type(used_bracket)?; return Ok(Type::Slice(Box::new(inner))); } }
+                "Map" => { if self.peek_ahead(1) == Some(&TokenKind::LBracket) || self.peek_ahead(1) == Some(&TokenKind::Lt) { self.advance(); let used_bracket = self.skip(TokenKind::LBracket); if !used_bracket { self.expect_kind(TokenKind::Lt, "'<'")?; } let k = self.parse_type()?; self.expect_kind(TokenKind::Comma, "','")?; let v = self.parse_type()?; self.close_generic_type(used_bracket)?; return Ok(Type::Map(Box::new(k), Box::new(v))); } }
+                "Set" => { if self.peek_ahead(1) == Some(&TokenKind::LBracket) || self.peek_ahead(1) == Some(&TokenKind::Lt) { self.advance(); let used_bracket = self.skip(TokenKind::LBracket); if !used_bracket { self.expect_kind(TokenKind::Lt, "'<'")?; } let inner = self.parse_type()?; self.close_generic_type(used_bracket)?; return Ok(Type::Set(Box::new(inner))); } }
                 _ => {}
             }
         }
@@ -2637,11 +2681,10 @@ mod tests {
     #[test] fn test_generic_fn() { let prog = parse("fn max[T: Comparable](a: T, b: T) -> T { if a > b { return a; } return b; }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => { assert_eq!(f.generics.len(), 1); } _ => panic!("expected function"), } }
 
     // Packages relay #2: both bracket families are supported for generic
-    // type arguments. MIXED pairs (`Vec<UInt8]`) are still ACCEPTED today
-    // because the closer is matched loosely; the strict form (closer must
-    // match the opener) is queued behind the stdlib typo list
-    // (`stdlib/xiom/io/console.xi:47` uses `Result[Str, Str>`) -- see
-    // COMPILER_BUGS 2026-09-25 "Packages relay #2".
+    // type arguments. The LAX default still accepts mixed pairs while the
+    // pinned stdlib carries legacy spellings; STRICT mode
+    // (`XIOM_STRICT_BRACKETS=1`, or the test hook below) requires the closer
+    // to match the opener. The default flips at the pin bump.
     #[test] fn test_generic_brackets_valid_forms() {
         let (_, errs) = parse_with_errors("fn g() -> Vec[UInt8] { return Vec[UInt8].new(); }");
         assert!(errs.is_empty(), "bracket form must parse: {errs:?}");
@@ -2649,6 +2692,29 @@ mod tests {
         assert!(errs.is_empty(), "angle form must parse: {errs:?}");
         let (_, errs) = parse_with_errors("fn g() -> Map<Int, Str> { return 0; }");
         assert!(errs.is_empty(), "angle Map pair must parse: {errs:?}");
+    }
+
+    #[test] fn test_generic_brackets_strict_mode() {
+        let mixed = "fn g() -> Vec<UInt8] { return Vec[UInt8].new(); }";
+        let strict_errs = {
+            let mut p = Parser::new(Lexer::new(mixed).tokenize()).with_strict_brackets(true);
+            let _ = p.parse_program();
+            p.errors().len()
+        };
+        assert!(strict_errs > 0, "strict mode must reject 'Vec<UInt8]'");
+        let lax_errs = {
+            let mut p = Parser::new(Lexer::new(mixed).tokenize()).with_strict_brackets(false);
+            let _ = p.parse_program();
+            p.errors().len()
+        };
+        assert_eq!(lax_errs, 0, "lax default keeps the legacy mixed spelling");
+        let valid = "fn g() -> Vec<UInt8> { return Vec[UInt8].new(); }";
+        let strict_valid = {
+            let mut p = Parser::new(Lexer::new(valid).tokenize()).with_strict_brackets(true);
+            let _ = p.parse_program();
+            p.errors().len()
+        };
+        assert_eq!(strict_valid, 0, "strict mode keeps matched angles");
     }
     #[test] fn test_method_decl() { let prog = parse("pub fn Vec3.dot(other: &Vec3) -> Float32 { return x * other.x + y * other.y; }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => { assert!(f.is_method()); assert_eq!(f.name.name, "dot"); } _ => panic!("expected method"), } }
     #[test] fn test_module() { let prog = parse("module math { pub fn add(a: Int, b: Int) -> Int { return a + b; } }").unwrap(); match &prog.items[0] { TopDecl::Module(m) => { assert_eq!(m.name.name, "math"); } _ => panic!("expected module"), } }
