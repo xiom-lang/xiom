@@ -149,6 +149,48 @@ Queued work (no grammar change):
    newline end a statement?"). That is a versioned language-design decision,
    not a patch.
 
+### Semicolon rule: why the tail form exists (design options)
+
+The rule is NOT "the last statement is special"; it is "`;` ends a
+statement, and a block's VALUE is its final expression, which is not a
+statement". XIOM's own stdlib depends on it:
+
+```
+// stdlib/xiom/core/cmp.xi:96
+pub fn max_int(a: Int, b: Int) -> Int {
+  if a >= b { a } else { b }      // tail VALUE, no ';', no 'return'
+}
+// cmp.xi:88 (match arms as values)
+```
+
+and `fn add(a: Int, b: Int) -> Int { a + b }` compiles today (probe
+`tmp/sprintc/tail_expr_probe.xi`). The single-statement hello-world case is
+a CONSEQUENCE of the rule, not its purpose.
+
+Three coherent options, for a future versioned decision (v0.62.0 keeps the
+current semantics -- the artifact is frozen and the stdlib relies on tails):
+
+- **(a) Current / Rust-like**: `;` separates statements; the tail expression
+  is the block value. Pros: concise value blocks, `if`/`match` stay
+  expressions, no `return` noise. Cons: a Unit-returning one-liner
+  (`fn main() { io.println("hi") }`) teaches the wrong habit; needs the
+  queued P001 note + docs.
+- **(b) C-style**: `;` after every statement; value blocks require explicit
+  `return`; `if`/`match` are not expressions in value position. Pros: one
+  unconditional rule for beginners. Cons: breaking sweep (stdlib cmp.xi and
+  friends, tests, docs), more verbose, loses expression orientation.
+- **(c) Hybrid / Unit-tail rule**: tails stay allowed only when they produce
+  a NON-Unit value; a Unit-typed tail expression (`io.println(...)`) must
+  end with `;`. Pros: removes the hello-world trap while keeping `a + b` /
+  `if..else` tails. Cons: still conditional (the rule depends on the type),
+  and it breaks existing Unit-tail bodies -> also a breaking, versioned
+  change.
+
+Recommendation: keep (a) through v0.62.0; if the beginner trap is judged
+worth removing later, take (c) as an explicit language-design change with a
+migration note and a corpus sweep -- do not patch the grammar around a
+release.
+
 ## Suggested order
 
 W002 + W003 first (the probe class and the most common dead-code class), then
