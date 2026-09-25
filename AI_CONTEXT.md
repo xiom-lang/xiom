@@ -102,6 +102,9 @@ xiom pkg lock
   checks can be stripped with `--no-contracts`; `xiom --dump-contracts` emits
   a JSON contract index; Z3 verification via `xiom-verify` / the MCP
   `verify_contracts` tool.
+- `io.println` takes a `Str`: convert numbers with
+  `xiom.convert.int_to_string` / `float_to_string`, or format with
+  `xiom.fmt` (e.g. `format1`).
 - Errors: `Option[T]` / `Result[T, E]` with `?` propagation, `match`
   destructuring, `unwrap` / `unwrap_or` / `expect`. Tuple payloads through `?`
   are supported.

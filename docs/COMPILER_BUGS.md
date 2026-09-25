@@ -8305,6 +8305,48 @@ Relay received from the packages lane (their traps 12-13). Triage result:
   Already documented (strlen-based runtime; "Str values are NUL-terminated");
   now also listed in `AI_CONTEXT.md` known limitations.
 
+## 2026-09-25 -- Packages relay #2 (trap 14 + section 10 notes)
+
+- **Call arity is not validated on the primary call path -- CONFIRMED,
+  OPEN.** Repro `tmp/sprintc/pkg_arity.xi`: `fn f(a: Int, b: Int) -> Int`
+  called as `f(1)` COMPILES (exit 0) and returns 1 -- the missing `b` is
+  silently 0; the method form `s.set(1)` (declared
+  `fn Box.set(self, x: Int, y: Int)`) behaves the same (`t == 1`). Extra
+  arguments are also silently dropped for plain calls
+  (`tmp/sprintc/pkg_arity_extra.xi`: `f(1, 2, 3)` compiles, EXIT=0). Only
+  the module-prefix path (lib.rs ~4056) and the impl-dispatch path (~3979)
+  reject EXTRA args; the method path has the G-20 arity/offset heuristic
+  (~6212-6246) but no exact-count error, and codegen pads missing params.
+  Impact: silent wrong results (the packages' ar test). Fix shape:
+  exact-count errors on the primary call and method paths (too few + too
+  many), then a corpus/e2e sweep.
+- **Mismatched generic brackets accepted -- CONFIRMED, OPEN.** Repro
+  `tmp/sprintc/pkg_bracket.xi`: `fn g() -> Vec<UInt8]` compiles and runs.
+  Root cause is explicit in `crates/xiom-parser/src/lib.rs` (~1080-1085 and
+  ~1137): the container arms accept `[` OR `<` to open and independently
+  accept `]` OR `>` to close, never checking that the closer matches the
+  opener. Fix shape: remember which opener was consumed and require the
+  matching closer (both families stay supported; only mixed forms become a
+  P001 error).
+- **E001 advisory after an immutable accessor -- NOT reproduced as a
+  warning; reproduced as MUTATION LOSS.** `tmp/sprintc/pkg_e001_accessor.xi`
+  compiles with NO E001: `let n = s.count(); s.add(1);` where
+  `S = { v: Vec[Int] }` and `add` uses a by-value receiver, then
+  `s.count()` still returns 0 -- the push mutated a COPY of the Vec handle.
+  Same copy-semantics class as the open `&mut` finding above
+  (Vec fields + receiver/value passing), not a borrow-warning false
+  positive. The packages' exact E001 probe is needed to classify their
+  warning shape.
+- **`&struct.field` to a `&Vec` parameter -- NOT reproduced with the simple
+  shape.** `fn take(v: &Vec[Int])` called as `take(&h.v)` for
+  `Holder = { v: Vec[Int] }` compiles and returns the right length
+  (`tmp/sprintc/pkg_field_ref_vec.xi`, exit 0); a plain `&Holder` parameter
+  is also fine. The packages' probe (exact field type/ownership context) is
+  needed to classify the trap.
+- **`io.println` takes `Str` (ints need conversion) -- BY DESIGN**, now
+  stated in `AI_CONTEXT.md`: convert with `xiom.convert.int_to_string` /
+  `float_to_string` or format with `xiom.fmt`.
+
 
 
 

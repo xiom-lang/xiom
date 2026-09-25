@@ -165,6 +165,15 @@ Legacy-package migration note/codemod remains the packages lane's policy.
     laxness, E001 advisory after an immutable accessor, and `&struct.field`
     trapping only for `&Vec` params -- triage in progress (see the next
     COMPILER_BUGS entry).
+  - Relay #2 triage DONE (COMPILER_BUGS 2026-09-25 "Packages relay #2"):
+    arity is unvalidated on the primary call path (plain + method; missing
+    args silently 0, extra args dropped) -- OPEN, exact fix shape recorded;
+    `Vec<UInt8]` accepted because the parser never checks closer-matches-opener
+    -- OPEN, one-family fix recorded; the accessor case reproduced as Vec
+    MUTATION LOSS (same copy class as the open `&mut` finding), not as an E001
+    warning -- their exact probe needed; `&struct.field` to `&Vec` did NOT
+    reproduce with the simple shape -- their probe needed; `io.println`
+    Str-only is by design and is now stated in `AI_CONTEXT.md`.
 - **website:** schema-v1 contract implemented on our side (publisher + gate +
   CI tests); requirement 5 (dl + `releases/index.json` `notes: true`) is
   their lane; the dispatch now carries `notes_path`.
