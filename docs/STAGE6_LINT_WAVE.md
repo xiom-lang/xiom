@@ -191,6 +191,15 @@ worth removing later, take (c) as an explicit language-design change with a
 migration note and a corpus sweep -- do not patch the grammar around a
 release.
 
+**DECISION (owner, 2026-09-25): (a) is the language's model and stays.**
+Rationale: XIOM is already expression-oriented (`if`/`match` tails, block
+values; stdlib `core/cmp.xi` depends on them), the modern/AI-generated idiom
+is Rust-like tails, and the beginner friction is a diagnostics/docs problem
+with a cheap fix. Mitigation shipped/queued as a package: the P001
+missing-separator note (this wave), `AI_CONTEXT.md` + MCP language guide
+updated, and the website/playground relay (SESSION cross-lane). Options
+(b)/(c) stay recorded for reference only.
+
 ## Suggested order
 
 W002 + W003 first (the probe class and the most common dead-code class), then
