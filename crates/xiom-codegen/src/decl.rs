@@ -591,9 +591,13 @@ impl IrEmitter {
                     // BUG 38b (iter family): BARE receiver-field assignments
                     // (`start = start + 1` in Range.next) get the same pointer
                     // ABI (by-value copies lost the mutation -> infinite loops).
+                    // m143: container-mutating method calls on receiver state
+                    // (`self.v.push(x)`) need the pointer ABI too -- a by-value
+                    // copy keeps the Vec/Map header update in the callee.
                     let is_mut = fd.params.iter().any(|p| p.name.name == "self" && p.is_mut_self)
                         || self.block_mutates_self(fd)
-                        || self.block_mutates_receiver_state(fd);
+                        || self.block_mutates_receiver_state(fd)
+                        || self.block_mutates_receiver_container(fd);
                     if is_mut && base.starts_with('%') {
                         param_types.push(format!("{base}*"));
                     } else {
@@ -1320,9 +1324,13 @@ impl IrEmitter {
                 // (`start = start + 1` in Range.next) need the same pointer
                 // ABI -- a by-value copy silently dropped the mutation and
                 // iterators looped forever on the first element.
+                // m143: container-mutating method calls on receiver state
+                // (`self.v.push(x)`) need the pointer ABI too (Vec/Map header
+                // mutation must land in the caller's storage).
                 let is_mut = fd.params.iter().any(|p| p.name.name == "self" && p.is_mut_self)
                     || self.block_mutates_self(fd)
-                    || self.block_mutates_receiver_state(fd);
+                    || self.block_mutates_receiver_state(fd)
+                    || self.block_mutates_receiver_container(fd);
                 if is_mut && base.starts_with('%') { format!("{base}*") } else { base }
             })
         } else if is_this_based {

@@ -8698,3 +8698,57 @@ Two layers, both silent:
   or lint), `match` on a persistent `Option[T]` binds a copy, `/* */` should
   get a targeted "block comments unsupported" diagnostic.
 
+## 2026-09-26 -- m143: by-value receiver container mutation (pointer self ABI)
+
+### Symptom (packages relay, `tmp/sprintc/pkg_e001_accessor.xi`)
+```xi
+pub type S = { v: Vec[Int]; }
+pub fn S.add(self, x: Int) { self.v.push(x); }
+...
+var s = S{ v: Vec[Int].new() };
+s.add(1);
+if s.count() != 1 { return 2; }   // fired: count() == 0
+```
+The element landed in the shared buffer but the caller's Vec header kept
+`len == 0`: the update lived only in the callee's copy.
+
+### Root cause
+`compile_fn` (decl.rs) decides the self ABI via
+`is_mut = is_mut_self || block_mutates_self || block_mutates_receiver_state`.
+Both detectors only match ASSIGNMENTS (`self.field = ...`, bare
+`field = ...`). A container mutation through a method call
+(`self.v.push(x)`) has no assignment anywhere, so `fn S.add(self, x)` was
+registered AND defined BY VALUE
+(`define void @S.add(%struct.S %param_self, i64 %param1)`). The push handler
+does store the mutated Vec header back through `store_back_to_receiver`, but
+against the callee's COPY -- the caller's storage never sees it. (Read-after
+in the same function worked, which is why the failure only shows across the
+call boundary.)
+
+### Fix
+- New `IrEmitter::block_mutates_receiver_container(fd)`: walks the body for
+  a container-mutating method call whose receiver is receiver state --
+  `self.<field>.<mutator>(...)`, `this.<field>.<mutator>(...)`, nested
+  `self.a.b.<mutator>(...)`, or a bare `field.<mutator>(...)` in a
+  this-based method (field set shadow-aware like the existing detectors).
+  Mutator leaves covered: push/pop/push_back/push_front/pop_back/pop_front/
+  insert/remove/clear/extend/reserve/truncate/append/set/put/add/delete/
+  retain/shrink_to_fit/swap/swap_remove/enqueue/dequeue/update/sort/sort_by/
+  sort_unstable/reverse/dedup/dedup_by/merge/split_off.
+- `is_mut` at BOTH ABI sites (`register_fn_impl` param types and
+  `compile_fn`'s `self_llvm_ty`) now includes it, so registration and
+  definition agree on `%struct.S* %param_self`; the call-site pointer
+  coercion (call.rs receiver handling) already existed for `&mut self`.
+- Read-only accessors (e.g. `fn S.count(self) -> Int`) keep the by-value
+  ABI -- the detector is mutation-only.
+
+### Evidence / lock
+- `tmp/sprintc/m143_byvalue_vec_probe.xi` (before: printed "after add(1):
+  wrong", exit 2; after: exit 0) and `tmp/sprintc/m143_receiver_mutation_probe.xi`
+  (Vec push, Map insert, Set insert, bare-field push, read-only accessor).
+- Lock `tests/regression/m143_receiver_container_mutation/main.xi` +
+  `e2e_m143_receiver_container_mutation` + CI line.
+- Gates: full e2e **2379/2379 (+4 ignored)** in one run; stdlib-exec 85/85
+  (+2 ignored); stdlib modules 40/40; feature-reg 510/510; integration 130;
+  robustness 63; fuzz 24; `pkg_e001_accessor` exit 0; ascii_guard green.
+

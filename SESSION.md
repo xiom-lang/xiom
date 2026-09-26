@@ -1,14 +1,27 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
-# CONTINUATION HANDOFF (2026-09-26, compiler lane -- item 1 landed)
+# CONTINUATION HANDOFF (2026-09-26, compiler lane -- items 1+2 landed)
 
-Supersedes the 2026-09-25 header below (kept as history). Evidence for this
-batch: docs/COMPILER_BUGS.md "2026-09-26 -- m142: ptr.is_null() silent-stub
-kill + UFCS".
+Supersedes the 2026-09-25 header below (kept as history). Evidence for these
+batches: docs/COMPILER_BUGS.md "2026-09-26 -- m142: ptr.is_null() silent-stub
+kill + UFCS" and "2026-09-26 -- m143: by-value receiver container mutation".
 
 ## Status snapshot
 
+- **Item 2 DONE (m143)**: an explicit by-value `self` method that mutates a
+  CONTAINER FIELD (`self.v.push(x)`, `self.m.insert(...)`,
+  `self.s.insert(...)`) now uses the POINTER receiver ABI. Root cause: the
+  registration + definition `is_mut` detection only recognized FIELD
+  ASSIGNMENTS (BUG 31/38b), so `fn S.add(self, x)` was registered/defined
+  by-value; the callee's `self.v` push updated a COPY of the Vec header
+  (len/cap) and the caller's container silently kept the old length.
+  New detector `block_mutates_receiver_container` (decl.rs registration +
+  definition) recognizes container-mutator calls on `self`/`this`/bare
+  receiver fields; pure accessors keep the by-value ABI. Bare-field
+  (this-based) and read-only forms are locked too. Lock
+  `tests/regression/m143_receiver_container_mutation/main.xi` +
+  `e2e_m143_receiver_container_mutation` + CI line.
 - **Item 1 DONE (m142)**: the `ptr.is_null()` silent-stub class is killed.
   - `emitter.rs::emit_undefined_symbol_stubs` now FAILS the compile (C001)
     for any called-but-undefined symbol, naming symbol/return type/IR
@@ -39,14 +52,18 @@ kill + UFCS".
   (feature-reg/integration/robustness/fuzz) opt into
   `set_legacy_stub_unresolved(true)` because they compile without checker
   and stdlib.
-- **Gates (this batch)**: full e2e **2378/2378 (+4 ignored)** (two runs:
+- **Gates (m142 batch)**: full e2e **2378/2378 (+4 ignored)** (two runs:
   2376 pass/2 fail -> fixed -> 2378/2378; the failures were the parallel
   state bug and the missing `type_id` fold); checker 195/195; feature-reg
   510/510; integration 130; robustness 63; fuzz 24; stdlib-exec 85/85
   (+2 ignored); stdlib modules 40/40; api-freeze 2/2; perf 3/3; diff 24;
   xiom lib 54; checker_locks/doctor/borrow green; tool tests green;
   ascii_guard green.
-- **Git**: local `main` = origin/main + 52 commits (all UNPUSHED; pushes
+- **Gates (m143 batch)**: full e2e **2379/2379 (+4 ignored)** in one run;
+  stdlib-exec 85/85 (+2 ignored); stdlib modules 40/40; feature-reg
+  510/510; integration 130; robustness 63; fuzz 24; probes green
+  (`m143_receiver_mutation_probe`, `pkg_e001_accessor`); ascii_guard green.
+- **Git**: local `main` = origin/main + 53 commits (all UNPUSHED; pushes
   only on the owner's ask). stdlib checkout still detached at
   `stdlib-v0.61.3`.
 
@@ -77,10 +94,8 @@ kill + UFCS".
 ## Remaining work order (compiler lane)
 
 1. ~~`ptr.is_null()` silent-stub kill~~ DONE (m142).
-2. **By-value receiver Vec mutation**: `fn S.add(self)` with `self.v.push(x)`
-   loses the mutation (`tmp/sprintc/pkg_e001_accessor.xi`); the receiver is
-   already a pointer in IR, so audit the container-FIELD access path for
-   by-value-self methods, fix, lock, e2e.
+2. ~~By-value receiver Vec mutation~~ DONE (m143): pointer receiver ABI for
+   explicit-`self` methods that mutate container fields.
 3. **Re-land exact arity** only after the stdlib wave fixes its call sites
    (list unchanged: io `printf` x3, `_scrypt_blockmix` x2,
    `collections.get`, `path.replace`); flip the three `>` to `!=`, corpus +

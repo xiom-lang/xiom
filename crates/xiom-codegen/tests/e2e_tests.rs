@@ -5392,6 +5392,18 @@ fn e2e_safety_probe() {
     );
 }
 
+// By-value receiver container mutation: an explicit-`self` method that
+// pushes/inserts into a container FIELD must use the pointer receiver ABI,
+// or the Vec/Map/Set header update stays in the callee copy and the caller's
+// container silently keeps its old length.
+#[test] fn e2e_m143_receiver_container_mutation() {
+    assert_eq!(
+        compile_and_run("tests/regression/m143_receiver_container_mutation/main.xi"),
+        Some(0),
+        "self.v.push / self.m.insert / self.s.insert (and the bare-field form) must persist"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

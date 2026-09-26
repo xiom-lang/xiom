@@ -1063,6 +1063,157 @@ impl IrEmitter {
         block_assigns_field(body, &candidates)
     }
 
+    /// m143 (by-value receiver Vec mutation): true when the fn body CALLS a
+    /// container-mutating method on receiver state -- `self.v.push(x)`,
+    /// `this.m.insert(k, v)`, or a bare `v.push(x)` in a this-based method.
+    /// Such methods must use the POINTER self ABI: with a by-value receiver
+    /// copy the Vec/Map header update (len/cap, realloc'd data pointer) lands
+    /// only in the callee's copy, so the caller's container silently keeps
+    /// the old len -- `s.add(1); s.count() == 0`. Mirrors the BUG 31/38b
+    /// assignment detectors for the method-call case.
+    pub(crate) fn block_mutates_receiver_container(&self, fd: &FnDecl) -> bool {
+        let Some(body) = fd.body.as_ref() else { return false };
+        let Some(recv) = fd.receiver.as_ref() else { return false };
+        // Receiver field names (types first, then type_meta -- catalog-loaded).
+        let types_fields = self.types.types.get(&recv.name)
+            .or_else(|| {
+                let suffix = format!(".{}", recv.name);
+                self.types.types.keys().into_iter().find(|k| k.ends_with(&suffix))
+                    .and_then(|k| self.types.types.get(&k))
+            });
+        let fields: Vec<String> = types_fields
+            .or_else(|| {
+                self.types.type_meta.get(&recv.name)
+                    .map(|m| m.fields.iter().map(|(n, _)| n.clone()).collect())
+            })
+            .or_else(|| {
+                let suffix = format!(".{}", recv.name);
+                self.types.type_meta.keys().into_iter().find(|k| k.ends_with(&suffix))
+                    .and_then(|k| self.types.type_meta.get(&k))
+                    .map(|m| m.fields.iter().map(|(n, _)| n.clone()).collect())
+            })
+            .unwrap_or_default();
+        let mut bound: std::collections::HashSet<String> =
+            fd.params.iter().map(|p| p.name.name.clone()).collect();
+        Self::collect_bound_names(body, &mut bound);
+        let candidates: std::collections::HashSet<String> = fields.into_iter()
+            .filter(|f| !bound.contains(f))
+            .collect();
+
+        /// Container-mutating method leaves (Vec/Map/Set/deque families).
+        fn is_container_mutator(name: &str) -> bool {
+            matches!(name,
+                "push" | "pop" | "push_back" | "push_front" | "pop_back" | "pop_front"
+                    | "insert" | "remove" | "clear" | "extend" | "reserve" | "truncate"
+                    | "append" | "set" | "put" | "add" | "delete" | "retain"
+                    | "shrink_to_fit" | "swap" | "swap_remove" | "enqueue" | "dequeue"
+                    | "update" | "sort" | "sort_by" | "sort_unstable" | "reverse"
+                    | "dedup" | "dedup_by" | "merge" | "split_off")
+        }
+        fn is_receiver_base(e: &Expr, candidates: &std::collections::HashSet<String>) -> bool {
+            match e {
+                Expr::Ident(id) => id.name == "self" || id.name == "this"
+                    || candidates.contains(&id.name),
+                Expr::Field(base, _, _) => {
+                    matches!(base.as_ref(), Expr::Ident(id)
+                        if id.name == "self" || id.name == "this")
+                        || is_receiver_base(base.as_ref(), candidates)
+                }
+                Expr::Index(base, _, _) => is_receiver_base(base.as_ref(), candidates),
+                Expr::Unary(UnaryOp::Deref, inner, _) => is_receiver_base(inner.as_ref(), candidates),
+                _ => false,
+            }
+        }
+        fn expr_calls_mutator(e: &Expr, candidates: &std::collections::HashSet<String>) -> bool {
+            match e {
+                Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => {
+                    if let Expr::Field(base, method, _) = func.as_ref() {
+                        if is_container_mutator(&method.name)
+                            && is_receiver_base(base.as_ref(), candidates)
+                        {
+                            return true;
+                        }
+                    }
+                    expr_calls_mutator(func, candidates)
+                        || args.iter().any(|a| expr_calls_mutator(a, candidates))
+                }
+                Expr::Paren(inner, _) | Expr::Unary(_, inner, _) | Expr::Try(inner, _)
+                | Expr::Ref(inner, _) | Expr::MutRef(inner, _)
+                | Expr::Some(inner, _) | Expr::Ok(inner, _) | Expr::Err(inner, _)
+                | Expr::As(inner, _, _) => expr_calls_mutator(inner, candidates),
+                Expr::Binary(a, _, b, _) => {
+                    expr_calls_mutator(a, candidates) || expr_calls_mutator(b, candidates)
+                }
+                Expr::Field(obj, _, _) => expr_calls_mutator(obj, candidates),
+                Expr::Index(arr, idx, _) => {
+                    expr_calls_mutator(arr, candidates) || expr_calls_mutator(idx, candidates)
+                }
+                Expr::Unsafe(b, _) | Expr::BlockExpr(b, _) => block_calls_mutator(b, candidates),
+                Expr::If(cond, then_b, elifs, else_b, _) => {
+                    expr_calls_mutator(cond, candidates)
+                        || block_calls_mutator(then_b, candidates)
+                        || elifs.iter().any(|(c, b)| {
+                            expr_calls_mutator(c, candidates) || block_calls_mutator(b, candidates)
+                        })
+                        || else_b.as_ref().map_or(false, |b| block_calls_mutator(b, candidates))
+                }
+                Expr::Match(scrut, arms, _) => {
+                    expr_calls_mutator(scrut, candidates)
+                        || arms.iter().any(|arm| match &arm.body {
+                            MatchBody::Block(b) => block_calls_mutator(b, candidates),
+                            MatchBody::Expr(e) => expr_calls_mutator(e, candidates),
+                        })
+                }
+                Expr::Array(elems, _) | Expr::Tuple(elems, _) => {
+                    elems.iter().any(|el| expr_calls_mutator(el, candidates))
+                }
+                Expr::Struct(_, fields, base, _) => {
+                    fields.iter().any(|(_, v)| expr_calls_mutator(v, candidates))
+                        || base.as_ref().map_or(false, |b| expr_calls_mutator(b, candidates))
+                }
+                _ => false,
+            }
+        }
+        fn stmt_calls_mutator(s: &Stmt, candidates: &std::collections::HashSet<String>) -> bool {
+            match s {
+                Stmt::Expr(e, _) | Stmt::Return(Some(e), _) => expr_calls_mutator(e, candidates),
+                Stmt::Let(_, _, init, _) | Stmt::Var(_, _, init, _) => expr_calls_mutator(init, candidates),
+                Stmt::Assign(lhs, rhs, _) => {
+                    expr_calls_mutator(lhs, candidates) || expr_calls_mutator(rhs, candidates)
+                }
+                Stmt::If(cond, then_b, elifs, else_b, _) => {
+                    expr_calls_mutator(cond, candidates)
+                        || block_calls_mutator(then_b, candidates)
+                        || elifs.iter().any(|(c, b)| {
+                            expr_calls_mutator(c, candidates) || block_calls_mutator(b, candidates)
+                        })
+                        || else_b.as_ref().map_or(false, |b| block_calls_mutator(b, candidates))
+                }
+                Stmt::While(cond, b, _, _, _) => {
+                    expr_calls_mutator(cond, candidates) || block_calls_mutator(b, candidates)
+                }
+                Stmt::For(_, iter, b, _, _) => {
+                    expr_calls_mutator(iter, candidates) || block_calls_mutator(b, candidates)
+                }
+                Stmt::Match(scrut, arms, _) => {
+                    expr_calls_mutator(scrut, candidates)
+                        || arms.iter().any(|arm| match &arm.body {
+                            MatchBody::Block(b) => block_calls_mutator(b, candidates),
+                            MatchBody::Expr(e) => expr_calls_mutator(e, candidates),
+                        })
+                }
+                _ => false,
+            }
+        }
+        fn block_calls_mutator(b: &Block, candidates: &std::collections::HashSet<String>) -> bool {
+            b.stmts.iter().any(|s| match s {
+                StmtOrExpr::Stmt(stmt) => stmt_calls_mutator(stmt, candidates),
+                StmtOrExpr::Expr(e) => expr_calls_mutator(e, candidates),
+            })
+        }
+        block_calls_mutator(body, &candidates)
+    }
+
     fn block_mentions_self(block: &Block) -> bool {
         block.stmts.iter().any(|s| match s {
             StmtOrExpr::Stmt(stmt) => Self::stmt_mentions_self(stmt),
