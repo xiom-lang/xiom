@@ -8823,3 +8823,49 @@ needs the implicit-this offset (a receiver-method hit with
 `args.len() + 1 == sig.params.len()` must not error) or the `owned_here`
 G-10 gate must let receiver-method hits through.
 
+## 2026-09-26 -- m145 (R-1): C-family/Rust bitwise precedence
+
+### Symptom (benchmark relay, R-1)
+`(1 << 8) | 2` written without the inner parens as `1 << 8 | 2` evaluated to
+1024, not 258: bit-assembly code silently produced wrong numbers. `3 | 4 << 1`
+evaluated to 14 (`(3|4) << 1`). `a & b * c` grouped as `(a & b) * c`.
+
+### Root cause
+The parser's precedence chain was
+`parse_cmp -> parse_shift -> parse_add -> parse_mul`, with `^`, `&` and `|`
+sharing the `*`/`/`/`%` level in `parse_mul_expr`. Shifts were therefore
+TIGHTER than `*`/`&`/`|` but LOOSER than nothing at the bitwise level --
+`1 << 8 | 2` parsed its right operand at the mul level and swallowed `8 | 2`.
+
+### Fix (parser-only)
+New nesting:
+`parse_cmp -> parse_bit_or -> parse_bit_xor -> parse_bit_and -> parse_shift
+ -> parse_add -> parse_mul -> parse_as`.
+`parse_mul_expr` now handles only `* / %`. Semantics match Rust/C:
+shift > `&` > `^` > `|` > comparisons, while `+`/`*` stay tighter than
+shifts and bitwise stays tighter than comparisons (the stdlib's
+`(n >> hi) & 1 == 1` shape keeps its meaning).
+
+### Evidence / locks
+- Probe `tmp/sprintc/m145_shift_precedence_probe.xi`: before 1024/14/8/0,
+  after 258/11/8/0.
+- Parser unit tests `test_shift_binds_tighter_than_bit_or` and
+  `test_bitwise_above_comparisons_like_rust` assert the AST shapes
+  (`|(<<(1,8),2)`, `|(3,<<(4,1))`, `==(&((>>(n,hi)),1),1)`,
+  `&(8,<<(3,1))`, `&(*(2,3),4)`, `&(2,*(3,4))`, `|(^(1,2),&(3,4))`).
+- Lock `tests/regression/m145_shift_precedence/main.xi` + e2e + CI line
+  (runtime values incl. bit-packing helpers and the popcount-shape compare).
+- stdlib audit before the change: every shift/bitwise mix is either
+  parenthesized or already in the new grouping (`(n >> hi) & 1 == 1`,
+  `(n << shift) | (n >> (64 - shift))`); stdlib-exec 85/85 unchanged.
+- Gates: full e2e **2381/2381 (+4 ignored)**; parser 106/106; checker
+  195/195; stdlib-exec 85/85 (+2 ignored); stdlib modules 40/40;
+  feature-reg 510/510; integration 130; robustness 63; fuzz 24; perf 3/3;
+  diff 24.
+
+### Cross-lane
+Benchmark lane: `docs/FAIRNESS-RELAY-2026-09-26.md` R-1 is fixed; the
+parenthesized form `(1 << 8) | 2` keeps its meaning, and unparenthesized
+bit-packing now behaves like C/Rust. R-2 (match binds a copy for persistent
+`Option[T]`) and R-3 (block-comment diagnostic) remain open.
+

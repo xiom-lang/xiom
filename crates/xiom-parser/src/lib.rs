@@ -1912,10 +1912,43 @@ impl Parser {
     }
 
     fn parse_cmp_expr(&mut self) -> Result<Expr, ParseError> {
-        let mut left = self.parse_shift_expr()?;
+        let mut left = self.parse_bit_or_expr()?;
         loop {
             let op = match self.peek_kind() { TokenKind::EqEq => BinOp::Eq, TokenKind::Neq => BinOp::Neq, TokenKind::Lt => BinOp::Lt, TokenKind::Gt => BinOp::Gt, TokenKind::Le => BinOp::Le, TokenKind::Ge => BinOp::Ge, _ => break };
-            self.advance(); let right = self.parse_shift_expr()?; let span = left.span(); left = Expr::Binary(Box::new(left), op, Box::new(right), span);
+            self.advance(); let right = self.parse_bit_or_expr()?; let span = left.span(); left = Expr::Binary(Box::new(left), op, Box::new(right), span);
+        }
+        Ok(left)
+    }
+
+    // R-1 (benchmark relay): C-family/Rust bitwise precedence. Shifts bind
+    // TIGHTER than `&`/`^`/`|`, which in turn bind tighter than comparisons:
+    //   `1 << 8 | 2` == 258  (was 1 << (8|2) == 1024 -- silent wrong values)
+    //   `(n >> hi) & 1 == 1` == ((n>>hi)&1) == 1 (stdlib shape, unchanged)
+    // `&`/`^`/`|` used to share the `*`/`/` level, so `a & b * c` parsed as
+    // `(a & b) * c`; it now parses `a & (b * c)` like Rust/C.
+    fn parse_bit_or_expr(&mut self) -> Result<Expr, ParseError> {
+        let mut left = self.parse_bit_xor_expr()?;
+        loop {
+            if self.peek_kind() != &TokenKind::Pipe { break; }
+            self.advance(); let right = self.parse_bit_xor_expr()?; let span = left.span(); left = Expr::Binary(Box::new(left), BinOp::BitOr, Box::new(right), span);
+        }
+        Ok(left)
+    }
+
+    fn parse_bit_xor_expr(&mut self) -> Result<Expr, ParseError> {
+        let mut left = self.parse_bit_and_expr()?;
+        loop {
+            if self.peek_kind() != &TokenKind::Caret { break; }
+            self.advance(); let right = self.parse_bit_and_expr()?; let span = left.span(); left = Expr::Binary(Box::new(left), BinOp::BitXor, Box::new(right), span);
+        }
+        Ok(left)
+    }
+
+    fn parse_bit_and_expr(&mut self) -> Result<Expr, ParseError> {
+        let mut left = self.parse_shift_expr()?;
+        loop {
+            if self.peek_kind() != &TokenKind::Ampersand { break; }
+            self.advance(); let right = self.parse_shift_expr()?; let span = left.span(); left = Expr::Binary(Box::new(left), BinOp::BitAnd, Box::new(right), span);
         }
         Ok(left)
     }
@@ -1944,7 +1977,7 @@ impl Parser {
     fn parse_mul_expr(&mut self) -> Result<Expr, ParseError> {
         let mut left = self.parse_as_expr()?;
         loop {
-            let op = match self.peek_kind() { TokenKind::Star => BinOp::Mul, TokenKind::Slash => BinOp::Div, TokenKind::Percent => BinOp::Rem, TokenKind::Caret => BinOp::BitXor, TokenKind::Ampersand => BinOp::BitAnd, TokenKind::Pipe => BinOp::BitOr, _ => break };
+            let op = match self.peek_kind() { TokenKind::Star => BinOp::Mul, TokenKind::Slash => BinOp::Div, TokenKind::Percent => BinOp::Rem, _ => break };
             self.advance(); let right = self.parse_as_expr()?; let span = left.span(); left = Expr::Binary(Box::new(left), op, Box::new(right), span);
         }
         Ok(left)
@@ -2679,6 +2712,58 @@ mod tests {
         assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(f) if f.name.name == "ok")), "recovery must keep the valid fn");
     }
     #[test] fn test_generic_fn() { let prog = parse("fn max[T: Comparable](a: T, b: T) -> T { if a > b { return a; } return b; }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => { assert_eq!(f.generics.len(), 1); } _ => panic!("expected function"), } }
+
+    // R-1 (benchmark relay): C-family/Rust bitwise precedence. `a << b | c`
+    // parsed as `a << (b | c)` (silent wrong values); `&`/`^`/`|` shared the
+    // `*`/`/` level, so `a & b * c` parsed `(a & b) * c`. Shifts now bind
+    // tighter than `&` > `^` > `|` > comparisons, like Rust/C.
+    fn bitop_shape(e: &Expr) -> String {
+        match e {
+            Expr::Int(n, _) => n.to_string(),
+            Expr::Ident(id) => id.name.clone(),
+            Expr::Binary(a, op, b, _) => {
+                let sym = match op {
+                    BinOp::Shl => "<<", BinOp::Shr => ">>",
+                    BinOp::BitAnd => "&", BinOp::BitXor => "^", BinOp::BitOr => "|",
+                    BinOp::Mul => "*", BinOp::Div => "/", BinOp::Rem => "%",
+                    BinOp::Add => "+", BinOp::Sub => "-",
+                    BinOp::Eq => "==", BinOp::Neq => "!=",
+                    BinOp::Lt => "<", BinOp::Gt => ">", BinOp::Le => "<=", BinOp::Ge => ">=",
+                    _ => "?",
+                };
+                format!("{sym}({},{})", bitop_shape(a), bitop_shape(b))
+            }
+            Expr::Paren(inner, _) => format!("({})", bitop_shape(inner)),
+            _ => "<other>".to_string(),
+        }
+    }
+
+    fn expr_shape_of_return(src_expr: &str) -> String {
+        let src = format!("fn f(n: Int, hi: Int) -> Int {{ return {src_expr}; }}");
+        let prog = parse(&src).unwrap();
+        match &prog.items[0] {
+            TopDecl::Fn(f) => match f.body.as_ref().and_then(|b| b.stmts.first()) {
+                Some(StmtOrExpr::Stmt(Stmt::Return(Some(e), _))) => bitop_shape(e),
+                other => panic!("unexpected body stmt: {other:?}"),
+            },
+            _ => panic!("expected function"),
+        }
+    }
+
+    #[test] fn test_shift_binds_tighter_than_bit_or() {
+        assert_eq!(expr_shape_of_return("1 << 8 | 2"), "|(<<(1,8),2)");
+        assert_eq!(expr_shape_of_return("3 | 4 << 1"), "|(3,<<(4,1))");
+    }
+
+    #[test] fn test_bitwise_above_comparisons_like_rust() {
+        assert_eq!(expr_shape_of_return("(n >> hi) & 1 == 1"), "==(&((>>(n,hi)),1),1)");
+        assert_eq!(expr_shape_of_return("1 << 2 + 1"), "<<(1,+(2,1))");
+        assert_eq!(expr_shape_of_return("8 & 3 << 1"), "&(8,<<(3,1))");
+        // `&`/`^`/`|` are looser than `*` but tighter than comparisons.
+        assert_eq!(expr_shape_of_return("2 * 3 & 4"), "&(*(2,3),4)");
+        assert_eq!(expr_shape_of_return("2 & 3 * 4"), "&(2,*(3,4))");
+        assert_eq!(expr_shape_of_return("1 ^ 2 | 3 & 4"), "|(^(1,2),&(3,4))");
+    }
 
     // Packages relay #2: both bracket families are supported for generic
     // type arguments. The LAX default still accepts mixed pairs while the

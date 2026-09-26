@@ -10,6 +10,32 @@ kill + UFCS", "2026-09-26 -- m143: by-value receiver container mutation" and
 
 ## Status snapshot
 
+- **R-1 DONE (m145, benchmark relay)**: C-family/Rust bitwise precedence.
+  `1 << 8 | 2` parsed as `1 << (8|2)` (silent wrong values: 1024);
+  `& ^ |` shared the `*`/`/` level (`3 | 4 << 1` == 14, `a & b * c` ==
+  `(a&b)*c`). The parser now nests `parse_cmp -> bit_or -> bit_xor ->
+  bit_and -> shift -> add -> mul`: shifts bind tighter than `&` > `^` > `|`
+  > comparisons, additive/mul stay tighter than shifts, and the stdlib's
+  `(n >> hi) & 1 == 1` shape is unchanged. Locks: 2 parser AST-shape unit
+  tests + `tests/regression/m145_shift_precedence` + e2e + CI line.
+- **New relay received (playground, net.tcp_connect)**: confirmed on
+  Windows -- `tcp_connect("127.0.0.1", 1)` returns Ok on a refused
+  connection. Root cause pinned: the extern is `declare i64
+  @xiom_socket_connect` while C returns `int` (i32), AND the binding path
+  records a call-return XIOM type without updating `signed_locals`, so the
+  narrow load widens `zext i32 -1 to i64` == 4294967295 -> `result < 0` is
+  false. Fix (next batch): keep `signed_locals` in sync in the let/var
+  inference arms + a deterministic lock (strcmp-based extern Int32 fixture).
+- **Interface-shape answer for the stdlib's Error.chain wave**: empirically
+  (probes m146_*): interface dispatch works when the concrete type is
+  statically known at the call site (including default methods calling
+  siblings); generic bounds `[T: Error]` monomorphise; interface-typed
+  params taking aggregates are C001; interface VALUES in `Option[Error]`
+  payloads/unknown receivers are the W005 erased gap (no dynamic dispatch).
+  Expected shape: make error data a CONCRETE closed type (`ErrorInfo`
+  struct/enum with `cause` as an index/handle) and keep max one interface
+  as a generic bound; never use the interface itself as a value type in
+  signatures (`Option[Error]`, `e: Error`).
 - **Sibling-method receiver binding DONE (m144)**, found during the item-3
   arity survey: `HashMap.insert/get/contains` crashed with an access
   violation on the pinned stdlib (pre-existing: the 2026-09-22 release binary
@@ -91,7 +117,12 @@ kill + UFCS", "2026-09-26 -- m143: by-value receiver container mutation" and
   in-batch); stdlib modules 40/40 (one flaky 6-min timeout on the first
   run, green on rerun); feature-reg 510/510; integration 130; robustness
   63; fuzz 24; perf 3/3; diff 24; ascii_guard green.
-- **Git**: local `main` = origin/main + 54 commits (all UNPUSHED; pushes
+- **Gates (m145 batch)**: full e2e **2381/2381 (+4 ignored)** in one run;
+  parser 106/106 (2 new precedence locks); checker 195/195; stdlib-exec
+  85/85 (+2 ignored); stdlib modules 40/40; feature-reg 510/510;
+  integration 130; robustness 63; fuzz 24; perf 3/3; diff 24;
+  ascii_guard green.
+- **Git**: local `main` = origin/main + 55 commits (all UNPUSHED; pushes
   only on the owner's ask). stdlib checkout still detached at
   `stdlib-v0.61.3`.
 

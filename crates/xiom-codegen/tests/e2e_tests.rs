@@ -5416,6 +5416,16 @@ fn e2e_safety_probe() {
     );
 }
 
+// R-1 (benchmark relay): C-family/Rust bitwise precedence. `a << b | c`
+// parsed as `a << (b | c)` (silent wrong values: (1 << 8) | 2 == 1024).
+#[test] fn e2e_m145_shift_precedence() {
+    assert_eq!(
+        compile_and_run("tests/regression/m145_shift_precedence/main.xi"),
+        Some(0),
+        "shift > & > ^ > | > comparisons; bit-packing must group shifts first"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)
