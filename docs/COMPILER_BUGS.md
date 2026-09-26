@@ -8961,3 +8961,66 @@ Never use the interface as a value type in signatures (`Option[Error]`,
 interface-typed aggregate params are larger follow-up features, not
 prerequisites for the restructure.
 
+## 2026-09-26 -- m147: G-10 receiver-registry fix + item-3 arity flip readiness
+
+### Symptom (found by the item-3 arity survey, fixed here)
+With the exact-arity checks temporarily enabled, the corpus flagged
+`collections.xi:1040` -- `get(key)` inside `HashMap.contains` -- as
+"expects 2 argument(s), found 1". The call is the implicit-this form of
+`HashMap.get[K, V](key: &K)`.
+
+### Root cause
+`check_implicit_self_method` classified a registry hit as a receiver method
+only when `uses_implicit_this` was set or the FIRST PARAM was
+`self`/`Self`/the receiver type. THIS-BASED GENERIC methods whose signature
+omits the receiver entirely (`HashMap.get` has params `[key]`) failed that
+heuristic, so G-10 returned None; the bare path then bound the first-wins
+bare slot `get` == xiom.array's free `get(arr: Array[T], idx)` (2 params)
+and the exact-arity check errored. The checker's typing of the call was
+also not the receiver method; codegen compensated since m144's sibling
+binding, but the checker-side resolution stayed wrong.
+
+### Fix
+- Any hit in the receiver's method registry (primary `methods[recv]` or the
+  `.{recv}` suffix scan) IS the receiver method; the first-param heuristic
+  now only decides whether the receiver occupies `params[0]`
+  (`receiver_in_params`).
+- Call shape: receiver-in-params -> `args.len()+1 == params.len()` with
+  `param_offset=1` (explicit-self methods; Vec4f historical case
+  unchanged); receiver-omitted -> `args.len() == params.len()` with
+  `param_offset=0` (this-based generic methods).
+- The G-10 module-shadow gate was refined alongside (a module owning only
+  same-leaf METHODS no longer blocks G-10; it shadows only when it has a
+  same-leaf FREE fn, module-qualified key, that fits the exact arity).
+
+### Item-3 flip readiness (verified, not yet committed)
+The four exact-arity hunks are implemented and were temporarily enabled:
+1. impl-method call site: `args.len() != sig.params.len()`.
+2. module-prefix call site: same.
+3. method path: `expected_args = sig.params.len() - param_offset;
+   if args.len() != expected_args { error }`.
+4. bare path: exact OR the implicit-this allowance
+   (`args.len()+1 == params.len()` for receiver-method sigs).
+Verification used a locally patched stdlib mirroring 90e9185
+(`printf` -> `(format, arg)`, `_scrypt_blockmix(&x, r)`,
+`xiom.string.replace(...)`): corpus GREEN and full e2e GREEN (2382/2382
++4 ignored), stdlib-exec 85/85, feature-reg 510/510. The hunks are OFF in
+this commit: the stdlib ref 90e9185 is UNPUSHED (origin/main still
+49b4731) and `STDLIB_VERSION` is stdlib-v0.61.3 -- flipping now would make
+the repo red on its own pin. Landing plan: on the stdlib push, bump
+`STDLIB_VERSION` to that ref (or wait for their release tag per item 4),
+apply the four hunks, run the full gates once.
+
+### Evidence / gates (committed state)
+G-10 registry fix + checks OFF + official pin: full e2e **2382/2382
+(+4 ignored)**; checker 195/195; stdlib-exec 85/85 (+2 ignored);
+feature-reg 510/510; integration 130; robustness 63; fuzz 24; perf 3/3;
+diff 24.
+
+### Benchmark blockers
+The relay pointer lists R-1/R-2/R-3/R-5/R-6, but
+`docs/FAIRNESS-RELAY-2026-09-26.md` is not present in this tree. R-1 is
+fixed (m145); R-2 (match binds a copy for persistent `Option[T]`) and R-3
+(block-comment diagnostic) are summarized; R-5/R-6 need the document or a
+summarized relay.
+

@@ -4059,6 +4059,9 @@ impl Checker {
             if let Some(sig) = sig {
                 // AUDIT FIX (readiness Stage 1): arity was never checked --
                 // extra arguments were silently DROPPED at codegen.
+                // Item 3 (2026-09-26): the exact-count flip (`!=`) is verified
+                // and READY; it lands with the stdlib pin carrying the fixed
+                // call sites (stdlib 90e9185, still unpushed -- see SESSION).
                 if args.len() > sig.params.len() {
                     self.error(
                         format!("{} expects {} argument(s), found {}",
@@ -4137,8 +4140,8 @@ impl Checker {
         // module-prefix calls -- `convert.float_to_string(3.14159, 2)` against
         // the 1-param def compiled and silently dropped the extra argument.
         // Packages relay #2: too FEW is the mirror hole; the exact-count form
-        // (`!=`) is IMPLEMENTED but OFF until the stdlib call-site fixes land
-        // (see COMPILER_BUGS for the list).
+        // (`!=`) is IMPLEMENTED and VERIFIED but OFF until the stdlib pin
+        // carries the fixed call sites (stdlib 90e9185, still unpushed).
         if args.len() > sig.params.len() {
             self.error(
                 format!("{} expects {} argument(s), found {}",
@@ -5522,23 +5525,34 @@ impl Checker {
             }
         }
         let sig = msig?;
-        let is_receiver_method = sig.uses_implicit_this
+        // Item 3 (2026-09-26): a hit in the RECEIVER'S method registry (the
+        // primary `methods[recv]` lookup or the `.{recv}` suffix scan above)
+        // IS the receiver method. The old first-param heuristic
+        // (self/Self/recv-typed) missed this-based GENERIC methods whose sig
+        // excludes the receiver entirely (`HashMap.get[K,V](key: &K)` has
+        // params=[key] only), so `HashMap.contains`'s bare `get(key)` fell
+        // through to xiom.array's free `get(arr, idx)` and tripped exact
+        // arity. Keep the heuristic only to classify whether the RECEIVER
+        // occupies params[0] (explicit-self methods) or is implicit.
+        let receiver_in_params = sig.uses_implicit_this
             || sig.params.first().map_or(false, |(p, t)| {
                 p == "self" || p == "Self"
                     || matches!(t, CheckedType::Named(n) if n.name() == recv || n.name() == "Self")
             });
-        if !is_receiver_method {
-            return None;
-        }
         // Call-site shape decides whether a bare call is the receiver method:
         //   implicit: `get(0)` inside `Vec4f.normalize` -- args are the
-        //     receiver's explicit params (params[1..]).
+        //     receiver's explicit params (params[1..] when the receiver is
+        //     param 0, params[..] when the sig omits it).
         //   explicit: `len(self)` inside `Vec4f.normalize` -- the receiver is
         //     passed as the first argument (params[..]).
         // `scale(self, k)` inside `Rect.scale` (recursing into the FREE
         // `scale[T](r, k)`) is also explicit-shaped; the free fn whose first
         // param accepts the receiver keeps ownership of that call.
-        let implicit_shape = args.len() + 1 == sig.params.len();
+        let implicit_shape = if receiver_in_params {
+            args.len() + 1 == sig.params.len()
+        } else {
+            args.len() == sig.params.len()
+        };
         let explicit_shape = args.len() == sig.params.len()
             && matches!(args.first(), Some(Expr::Ident(id)) if id.name == "self" || id.name == "this");
         if !implicit_shape && !explicit_shape {
@@ -5563,7 +5577,9 @@ impl Checker {
                 }
             }
         }
-        let param_offset = if implicit_shape { 1 } else { 0 };
+        // Only skip param 0 when the RECEIVER is actually in the param list;
+        // this-based generic sigs omit it (HashMap.get: args map to params[0..]).
+        let param_offset = if implicit_shape && receiver_in_params { 1 } else { 0 };
         // Check the explicit args against the matching params slice.
         for (i, arg) in args.iter().enumerate() {
             let arg_ty = self.check_expr(arg);
@@ -6330,6 +6346,7 @@ impl Checker {
                             // offset table makes the expected count precise:
                             //   let expected_args = sig.params.len() - param_offset;
                             //   if args.len() != expected_args { error }
+                            // (Item 3 flip verified locally; lands with the pin.)
                             for (i, arg) in args.iter().enumerate() {
                                 let arg_ty = self.check_expr(arg);
                                 let param_idx = i + param_offset;
@@ -6887,7 +6904,23 @@ impl Checker {
                         .map(|owners| owners.iter().any(|m| {
                             Some(m.as_str()) == self.current_module.as_deref()
                         }))
-                        .unwrap_or(false);
+                        .unwrap_or(false)
+                        // Item 3 (2026-09-26): a module "owning" only same-leaf
+                        // METHODS must not block G-10. Shadow the receiver
+                        // method only when the module has a same-leaf FREE fn
+                        // (module-qualified key) that can serve this exact
+                        // arity. `HashMap.contains`'s bare `get(key)` used to
+                        // bind xiom.array's free `get(arr, idx)` (first-wins
+                        // bare slot) and trip exact arity; the receiver method
+                        // HashMap.get with the implicit `self` is the call.
+                        && self.current_module.as_ref().map_or(false, |m| {
+                            self.functions.get(&format!("{m}.{}", name.name))
+                                .map(|sig| {
+                                    !sig.uses_implicit_this
+                                        && sig.params.len() == args.len()
+                                })
+                                .unwrap_or(false)
+                        });
                     // G-10 precedence: inside a method body, a bare call that
                     // names one of the receiver's own methods binds to
                     // `self.name(...)` ahead of imported free fns (the
@@ -6948,12 +6981,14 @@ impl Checker {
                             }
                         }
                         // Packages relay #2 (arity): exact-arity enforcement is
-                        // IMPLEMENTED but not enabled yet -- the stdlib corpus
-                        // relies on the laxness in 5+ call sites (printf,
-                        // _scrypt_blockmix, collections.get, path.replace,
-                        // cell is_null); the stdlib lane fixes those first,
-                        // then this check flips to `sig.params.len() !=
-                        // arg_types.len()` with the list in COMPILER_BUGS.
+                        // IMPLEMENTED and VERIFIED LOCALLY (incl. the
+                        // implicit-this allowance for receiver sigs) but OFF
+                        // until the stdlib pin carries the fixed call sites
+                        // (stdlib 90e9185, still unpushed): the bare slot for
+                        // `get` is xiom.array's 2-param free fn, so
+                        // HashMap.contains' `get(key)` needs G-10 to bind the
+                        // receiver method (the registry fix above) for the
+                        // flip to be clean. Flip recipe in SESSION.md.
                         // Build generic substitution map from the call arguments.
                         // round-15 (probe_zip_j/k): explicit type args from
                         // `apply_g[(Int, Int)](...)` win over arg inference --

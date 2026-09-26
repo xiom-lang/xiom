@@ -10,6 +10,24 @@ kill + UFCS", "2026-09-26 -- m143: by-value receiver container mutation" and
 
 ## Status snapshot
 
+- **Item 3 PREP DONE (m147): G-10 receiver-registry fix + flip verified.**
+  The stdlib reports item 3 fixed on their side (90e9185: printf x3,
+  _scrypt_blockmix x2, path.replace) but that ref is UNPUSHED
+  (origin/main still 49b4731) and `STDLIB_VERSION` is stdlib-v0.61.3, so
+  the exact-arity flip cannot be committed green yet. What landed:
+  `check_implicit_self_method` now treats ANY hit in the receiver's method
+  registry as the receiver method (the old first-param heuristic missed
+  this-based GENERIC methods -- `HashMap.get[K,V](key)` omits the receiver
+  from params -- so `HashMap.contains`'s bare `get(key)` fell through to
+  xiom.array's free `get(arr, idx)` and tripped exact arity);
+  `receiver_in_params` decides the shape/offset, preserving the Vec4f
+  historical behavior. The four arity flips (impl `!=`, module `!=`,
+  method-path expected_args, bare-path with implicit-this allowance) were
+  implemented, temporarily enabled, and VERIFIED: corpus + full e2e green
+  against a locally patched pin mirroring 90e9185. They are OFF in the
+  commit (flip recipe in COMPILER_BUGS). On the stdlib push: bump
+  STDLIB_VERSION to the ref, apply the four hunks, full gates; at release
+  re-pin to their tag (item 4).
 - **R-1 DONE (m145, benchmark relay)**: C-family/Rust bitwise precedence.
   `1 << 8 | 2` parsed as `1 << (8|2)` (silent wrong values: 1024);
   `& ^ |` shared the `*`/`/` level (`3 | 4 << 1` == 14, `a & b * c` ==
@@ -135,7 +153,17 @@ kill + UFCS", "2026-09-26 -- m143: by-value receiver container mutation" and
   integration 130; robustness 63; fuzz 24; perf 3/3; diff 24; probes
   (`m146_tcp_int32_probe` exit 0 = Err correct; `m146_i32_widen_probe`
   exit 0); ascii_guard green.
-- **Git**: local `main` = origin/main + 56 commits (all UNPUSHED; pushes
+- **Gates (m147 batch, checks OFF + official pin)**: full e2e
+  **2382/2382 (+4 ignored)**; checker 195/195; stdlib-exec 85/85
+  (+2 ignored); feature-reg 510/510; integration 130; robustness 63;
+  fuzz 24; perf 3/3; diff 24; ascii_guard green. (Flip-enabled
+  verification runs: corpus green + full e2e green against the patched
+  pin, 2 runs.)
+- **New benchmark blocker list**: R-1/R-2/R-3/R-5/R-6 per the relay, but
+  `docs/FAIRNESS-RELAY-2026-09-26.md` is NOT in this tree -- R-1 fixed
+  (m145), R-2/R-3 summarized earlier, R-5/R-6 contents unknown; need the
+  doc or a summarized relay to act.
+- **Git**: local `main` = origin/main + 57 commits (all UNPUSHED; pushes
   only on the owner's ask). stdlib checkout still detached at
   `stdlib-v0.61.3`.
 
