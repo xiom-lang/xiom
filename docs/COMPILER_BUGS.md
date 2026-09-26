@@ -8752,3 +8752,74 @@ call boundary.)
   (+2 ignored); stdlib modules 40/40; feature-reg 510/510; integration 130;
   robustness 63; fuzz 24; `pkg_e001_accessor` exit 0; ascii_guard green.
 
+## 2026-09-26 -- m144: sibling-method receiver binding (HashMap crash class)
+
+### Symptom (discovered by the item-3 arity survey)
+`HashMap[Int, Int]` crashed with an access violation on the pinned stdlib:
+`new`, `insert`, `get`, `contains`, `count` each reproduced (0xC0000005 /
+0xC000005D). PRE-EXISTING: the 2026-09-22 `target/release/xiom.exe`
+(v0.61.3-era) reproduces the same probes, so nothing from m142/m143 caused
+it. The stdlib smokes never exercised HashMap.
+
+### Root causes (four, stacked)
+1. **G-10 dead in monomorphised bodies**: `compile_generic_monomorphisations`
+   set `current_fn` but never `current_receiver`, so
+   `resolve_implicit_self_call` always returned None inside every generic
+   method body.
+2. **Arg shift for generic siblings**: with G-10 dead, a bare
+   `insert(old_data[i].key, old_data[i].value)` (HashMap.resize) went through
+   the GENERIC path, which maps explicit args positionally to the decl's
+   params. `self` is not in the AST params for receiver-style methods, so the
+   KEY was coerced to the callee's first param (`inttoptr i64 key -> http://
+   %struct.HashMap*`) and dropped: `call @HashMap.insert_Int_Int(receiver=
+   key, value)` -- a 2-arg call against a 3-param definition. `HashMap.contains`
+   read the wrong bucket (`call @HashMap.contains(i64* key)` -- the key as
+   the receiver).
+3. **No receiver slot**: `body_uses_receiver_state` only counted `this`, bare
+   FIELD mentions and assignments; a body whose only receiver usage is a bare
+   sibling call got NO `%param_self` while the method call site still passed
+   one (arg shift in the other direction). This is also why the item-3 survey
+   flagged `collections.get` (2 params vs 1 arg): the checker's `owned_here`
+   gate skips G-10 for module-owned leaves.
+4. **Broken receiver-type comparison**: the G-10 injection's
+   `fp.ends_with(self_base)` compared `%struct.X*` against `%struct.X`
+   (false -- the string ends with `*`), silently dropping the receiver for
+   non-generic this-based sibling calls (`Holder.get` from `Holder.contains`);
+   and primitive by-value receivers passed the alloca address (`double*`)
+   where the callee's param was `double` (clang: "'%tmp3' defined with type
+   'ptr' but expected 'double'", os/folder + net/http2 smokes).
+
+### Fix
+- `compile_generic_monomorphisations` now sets
+  `fctx.current_receiver = fd.receiver.name` for the body.
+- Bare calls whose G-10 resolution hits a GENERIC sibling are rerouted as
+  the equivalent `self.<name>(args)` (synthetic receiver AST node), so the
+  method machinery prepends the receiver and offsets the explicit args.
+- `body_uses_receiver_state` (lib.rs, the live impl -- note
+  `crates/xiom-codegen/src/types.rs` is NOT a module and its copy is dead)
+  now counts bare calls to sibling methods as receiver state via
+  `block_calls_sibling_method_keys` (bare or module-qualified keys).
+- The G-10 injection compares star-trimmed pointee names and loads the value
+  for any non-pointer self slot (primitives included).
+
+### Evidence / lock
+- Probes: `tmp/sprintc/m143_hashmap_steps.xi`, `m143_hashmap_triage.xi`,
+  `m143_hm_after_insert.xi`, `m143_implicit_this_probe4.xi` (all exit 0;
+  pre-batch release binary exits 2 / AV).
+- Lock `tests/regression/m144_sibling_method_calls/main.xi` +
+  `e2e_m144_sibling_method_calls` + CI line: non-generic Holder chain plus a
+  20-insert HashMap roundtrip that forces `resize` (bare `insert` in the
+  re-insert loop) and exercises get/contains/count on present and missing
+  keys. Pre-batch release binary exits 2 on the same fixture.
+- Gates: full e2e **2380/2380 (+4 ignored)**; checker 195/195; stdlib-exec
+  85/85 (+2 ignored); stdlib modules 40/40; feature-reg 510/510;
+  integration 130; robustness 63; fuzz 24; perf 3/3; diff 24.
+
+### Item-3 note
+The exact-arity flip list shrinks by one: `collections.get` was this compiler
+gap, not a stdlib call-site bug. Remaining stdlib fixes: `io.printf` x3,
+`_scrypt_blockmix` x2, `path.replace`. When flipping, the checker's bare path
+needs the implicit-this offset (a receiver-method hit with
+`args.len() + 1 == sig.params.len()` must not error) or the `owned_here`
+G-10 gate must let receiver-method hits through.
+

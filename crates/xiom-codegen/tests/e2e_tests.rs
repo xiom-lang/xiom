@@ -5404,6 +5404,18 @@ fn e2e_safety_probe() {
     );
 }
 
+// Sibling-method receiver binding: receiver-qualified fns whose bodies only
+// call siblings bare must get the %param_self slot and resolve via G-10.
+// The old flow emitted 2-arg calls against 3-param definitions (KEY
+// inttoptr'd as receiver) and AV'd inside HashMap.insert/get/contains.
+#[test] fn e2e_m144_sibling_method_calls() {
+    assert_eq!(
+        compile_and_run("tests/regression/m144_sibling_method_calls/main.xi"),
+        Some(0),
+        "bare sibling calls in this-based methods (HashMap, Holder) must bind the receiver"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

@@ -597,6 +597,40 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     Expr::Field(obj, field, _) => (Some(field.name.clone()), Some(obj)),
                     _ => (None, None),
                 };
+                // m143b: bare sibling-method call to a GENERIC receiver method
+                // (`insert(old_data[i].key, old_data[i].value)` inside
+                // HashMap.resize; `get(key)` inside HashMap.contains). The
+                // generic path mapped the explicit args positionally to
+                // (self, ...): it inttoptr'd the KEY as the receiver pointer and
+                // dropped it from the call (clang accepted the 2-arg call
+                // against the 3-param definition; AV at runtime, and
+                // `HashMap.contains` read the wrong bucket). Reroute as the
+                // equivalent `self.<name>(args)` so the method machinery
+                // prepends the receiver and maps the explicit args to params.
+                let synthetic_self: Option<Box<Expr>> = if receiver_expr.is_none()
+                    && !args.is_empty()
+                    && self.lookup_local("self").is_some()
+                {
+                    let bare_name = fn_name_opt.clone().unwrap_or_default();
+                    self.resolve_implicit_self_call(&bare_name).and_then(|isk| {
+                        let is_generic_sibling = self.mono.generic_fn_decls.iter()
+                            .any(|(k, _)| k == &isk || k.ends_with(&format!(".{isk}")));
+                        if is_generic_sibling {
+                            Some(Box::new(Expr::Ident(Ident {
+                                name: "self".to_string(),
+                                span: func.span(),
+                            })))
+                        } else {
+                            None
+                        }
+                    })
+                } else {
+                    None
+                };
+                let receiver_expr: Option<&Box<Expr>> = match &synthetic_self {
+                    Some(s) => Some(s),
+                    None => receiver_expr,
+                };
                 // m142 (stdlib relay): `T()` inside a monomorphised generic
                 // body is the DEFAULT/ZERO value of the concrete substitution
                 // (`ThreadLocal[T]{ init: init; value: T(); ... }`). Without
@@ -5255,14 +5289,29 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 let callee_pts = self.types.functions.get(&resolved_fn_key).map(|(p, _)| p.clone());
                                 let first_pt = callee_pts.as_ref().and_then(|p| p.first().cloned());
                                 let self_base = self_ty.trim_end_matches('*').to_string();
+                                // m143b: compare STAR-TRIMMED pointee names.
+                                // The old `fp.ends_with(&self_base)` compared
+                                // `%struct.X*` against `%struct.X` -- false
+                                // (the string ends with '*'), so the receiver
+                                // was silently DROPPED for every this-based
+                                // sibling call whose self slot held the struct
+                                // pointer type (`Holder.get` called from
+                                // `Holder.contains` emitted a 1-arg call against
+                                // the 2-param definition -> AV).
                                 let takes_self = first_pt.as_ref().map_or(false, |fp| {
-                                    fp == &self_ty || fp == &self_base || fp.ends_with(&self_base)
+                                    fp == &self_ty
+                                        || fp.trim_end_matches('*') == self_base
+                                        || fp.trim_end_matches('*') == self_base.trim_end_matches('*')
                                 });
                                 if takes_self {
                                     let callee_self_ty = first_pt.unwrap_or(self_ty.clone());
-                                    // Slot is an alloca (by-value receiver): load the struct.
-                                    // Slot is a register (pointer receiver): pass directly.
-                                    let self_val = if self_ty.starts_with("%struct.") && !self_ty.ends_with('*') {
+                                    // Slot is an alloca (by-value receiver): load the value.
+                                    // Slot is a register (typed-pointer receiver, incl. Str's
+                                    // i8*): pass directly. The old struct-only condition left
+                                    // PRIMITIVE by-value receivers passing `double*` where the
+                                    // callee's param was `double` (clang: "%tmp3 defined with
+                                    // type ptr but expected double", os/folder smoke).
+                                    let self_val = if !self_ty.ends_with('*') {
                                         let loaded = self.fresh_tmp();
                                         self.emitln(&format!("  {loaded} = load {self_ty}, {self_ty}* {self_slot}"));
                                         loaded

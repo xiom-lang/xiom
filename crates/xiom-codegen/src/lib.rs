@@ -851,6 +851,21 @@ impl IrEmitter {
         if Self::block_uses_this(body) {
             return true;
         }
+        // m143b: a BARE call to a sibling method (`insert(k, v)` inside
+        // HashMap.resize, `get(k)` inside HashMap.contains) is receiver state
+        // too. Without the %param_self slot the method call site still passes
+        // a receiver and the definition silently read the FIRST EXPLICIT ARG
+        // as that receiver (arg shift -> garbage pointer -> AV in every
+        // generic method whose body only calls siblings).
+        if let Some(recv) = fd.receiver.as_ref() {
+            if Self::block_calls_sibling_method_keys(
+                body,
+                &recv.name,
+                &self.types.functions.keys(),
+            ) {
+                return true;
+            }
+        }
         let Some(recv) = fd.receiver.as_ref() else { return false };
         // 5e.3: check BOTH types and type_meta -- catalog-loaded types (e.g.,
         // benchmark modules) may only be in type_meta, not types.
@@ -886,6 +901,113 @@ impl IrEmitter {
             .collect();
         if candidates.is_empty() { return false; }
         Self::block_mentions_any_ident(body, &candidates)
+    }
+
+    /// m143b: does the block contain a BARE call whose leaf resolves to a
+    /// method of the receiver (`insert(...)` -> "*HashMap.insert*")? Keys are
+    /// matched bare or module-qualified (`HashMap.insert`,
+    /// `xiom.collections.HashMap.insert`). Such receiver-qualified fns need
+    /// the %param_self slot even when they never touch a field directly.
+    pub(crate) fn block_calls_sibling_method_keys(block: &Block, recv: &str, keys: &[String]) -> bool {
+        block.stmts.iter().any(|s| match s {
+            StmtOrExpr::Stmt(stmt) => Self::stmt_calls_sibling_method_keys(stmt, recv, keys),
+            StmtOrExpr::Expr(expr) => Self::expr_calls_sibling_method_keys(expr, recv, keys),
+        })
+    }
+
+    fn stmt_calls_sibling_method_keys(stmt: &Stmt, recv: &str, keys: &[String]) -> bool {
+        match stmt {
+            Stmt::Expr(e, _) | Stmt::Return(Some(e), _) => {
+                Self::expr_calls_sibling_method_keys(e, recv, keys)
+            }
+            Stmt::Let(_, _, init, _) | Stmt::Var(_, _, init, _) => {
+                Self::expr_calls_sibling_method_keys(init, recv, keys)
+            }
+            Stmt::Assign(lhs, rhs, _) => {
+                Self::expr_calls_sibling_method_keys(lhs, recv, keys)
+                    || Self::expr_calls_sibling_method_keys(rhs, recv, keys)
+            }
+            Stmt::If(cond, then_b, elifs, else_b, _) => {
+                Self::expr_calls_sibling_method_keys(cond, recv, keys)
+                    || Self::block_calls_sibling_method_keys(then_b, recv, keys)
+                    || elifs.iter().any(|(c, b)| {
+                        Self::expr_calls_sibling_method_keys(c, recv, keys)
+                            || Self::block_calls_sibling_method_keys(b, recv, keys)
+                    })
+                    || else_b.as_ref().map_or(false, |b| Self::block_calls_sibling_method_keys(b, recv, keys))
+            }
+            Stmt::While(cond, body, _, _, _) => {
+                Self::expr_calls_sibling_method_keys(cond, recv, keys)
+                    || Self::block_calls_sibling_method_keys(body, recv, keys)
+            }
+            Stmt::For(_, iter, body, _, _) => {
+                Self::expr_calls_sibling_method_keys(iter, recv, keys)
+                    || Self::block_calls_sibling_method_keys(body, recv, keys)
+            }
+            Stmt::Match(scrut, arms, _) => {
+                Self::expr_calls_sibling_method_keys(scrut, recv, keys)
+                    || arms.iter().any(|arm| match &arm.body {
+                        MatchBody::Block(b) => Self::block_calls_sibling_method_keys(b, recv, keys),
+                        MatchBody::Expr(e) => Self::expr_calls_sibling_method_keys(e, recv, keys),
+                    })
+            }
+            _ => false,
+        }
+    }
+
+    fn expr_calls_sibling_method_keys(expr: &Expr, recv: &str, keys: &[String]) -> bool {
+        match expr {
+            Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => {
+                if let Expr::Ident(id) = func.as_ref() {
+                    let bare = format!("{recv}.{}", id.name);
+                    let qualified = format!(".{recv}.{}", id.name);
+                    if keys.iter().any(|k| k == &bare || k.ends_with(&qualified)) {
+                        return true;
+                    }
+                }
+                Self::expr_calls_sibling_method_keys(func, recv, keys)
+                    || args.iter().any(|a| Self::expr_calls_sibling_method_keys(a, recv, keys))
+            }
+            Expr::Paren(e, _) | Expr::Unary(_, e, _) | Expr::Try(e, _)
+            | Expr::Ref(e, _) | Expr::MutRef(e, _)
+            | Expr::Some(e, _) | Expr::Ok(e, _) | Expr::Err(e, _)
+            | Expr::As(e, _, _) => Self::expr_calls_sibling_method_keys(e, recv, keys),
+            Expr::Binary(a, _, b, _) => {
+                Self::expr_calls_sibling_method_keys(a, recv, keys)
+                    || Self::expr_calls_sibling_method_keys(b, recv, keys)
+            }
+            Expr::Field(obj, _, _) => Self::expr_calls_sibling_method_keys(obj, recv, keys),
+            Expr::Index(arr, idx, _) => {
+                Self::expr_calls_sibling_method_keys(arr, recv, keys)
+                    || Self::expr_calls_sibling_method_keys(idx, recv, keys)
+            }
+            Expr::Unsafe(block, _) => Self::block_calls_sibling_method_keys(block, recv, keys),
+            Expr::BlockExpr(block, _) => Self::block_calls_sibling_method_keys(block, recv, keys),
+            Expr::If(cond, then_b, elifs, else_b, _) => {
+                Self::expr_calls_sibling_method_keys(cond, recv, keys)
+                    || Self::block_calls_sibling_method_keys(then_b, recv, keys)
+                    || elifs.iter().any(|(c, b)| {
+                        Self::expr_calls_sibling_method_keys(c, recv, keys)
+                            || Self::block_calls_sibling_method_keys(b, recv, keys)
+                    })
+                    || else_b.as_ref().map_or(false, |b| Self::block_calls_sibling_method_keys(b, recv, keys))
+            }
+            Expr::Match(scrut, arms, _) => {
+                Self::expr_calls_sibling_method_keys(scrut, recv, keys)
+                    || arms.iter().any(|arm| match &arm.body {
+                        MatchBody::Block(b) => Self::block_calls_sibling_method_keys(b, recv, keys),
+                        MatchBody::Expr(e) => Self::expr_calls_sibling_method_keys(e, recv, keys),
+                    })
+            }
+            Expr::Array(elems, _) | Expr::Tuple(elems, _) => {
+                elems.iter().any(|e| Self::expr_calls_sibling_method_keys(e, recv, keys))
+            }
+            Expr::Struct(_, fields, base, _) => {
+                fields.iter().any(|(_, v)| Self::expr_calls_sibling_method_keys(v, recv, keys))
+                    || base.as_ref().map_or(false, |b| Self::expr_calls_sibling_method_keys(b, recv, keys))
+            }
+            _ => false,
+        }
     }
 
     /// 5c.32: Returns true if the block contains any reference to the `self`
@@ -6854,6 +6976,13 @@ impl IrEmitter {
             self.fctx.current_return_type = specialized_ret_type.clone();
             self.fctx.current_param_llvm_types = specialized_param_types.clone();
             self.fctx.current_fn = Some(specialized_name.clone());
+            // m143b: the monomorphisation path never set the receiver context,
+            // so G-10 implicit-self resolution (`resolve_implicit_self_call`)
+            // was dead inside EVERY generic method body: a bare sibling call
+            // (`insert(k, v)` in HashMap.resize, `get(k)` in
+            // HashMap.contains) fell to the generic/free-fn paths and
+            // mis-mapped the explicit args positionally to (self, ...).
+            self.fctx.current_receiver = fd.receiver.as_ref().map(|r| r.name.clone());
 
             let self_offset: usize = if self_llvm_ty.is_some() { 1 } else { 0 };
             let mut params_str: Vec<String> = Vec::new();

@@ -1,14 +1,36 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
-# CONTINUATION HANDOFF (2026-09-26, compiler lane -- items 1+2 landed)
+# CONTINUATION HANDOFF (2026-09-26, compiler lane -- items 1+2 + sibling-bind)
 
 Supersedes the 2026-09-25 header below (kept as history). Evidence for these
 batches: docs/COMPILER_BUGS.md "2026-09-26 -- m142: ptr.is_null() silent-stub
-kill + UFCS" and "2026-09-26 -- m143: by-value receiver container mutation".
+kill + UFCS", "2026-09-26 -- m143: by-value receiver container mutation" and
+"2026-09-26 -- m144: sibling-method receiver binding (HashMap crash class)".
 
 ## Status snapshot
 
+- **Sibling-method receiver binding DONE (m144)**, found during the item-3
+  arity survey: `HashMap.insert/get/contains` crashed with an access
+  violation on the pinned stdlib (pre-existing: the 2026-09-22 release binary
+  reproduces). Four root causes, all fixed:
+  1. monomorphised generic bodies never set `current_receiver`, so G-10
+     implicit-self resolution was DEAD in every generic method body;
+  2. bare sibling calls to generic methods mapped the explicit args
+     positionally to (self, ...) -- the KEY was inttoptr'd as the receiver
+     pointer and dropped (2-arg call vs 3-param def);
+  3. `body_uses_receiver_state` did not count bare sibling calls, so such
+     methods were registered WITHOUT a `%param_self` slot while the call site
+     still passed one (arg shift);
+  4. the G-10 receiver check compared `%struct.X*` vs `%struct.X` with
+     `ends_with` (false -- the string ends with `*`), dropping the receiver
+     for non-generic this-based sibling calls; and primitive by-value
+     receivers passed the alloca address where the value was expected.
+  Also reroutes generic bare sibling calls through `self.<name>(args)` and
+  loads primitive receiver values. Lock
+  `tests/regression/m144_sibling_method_calls/main.xi` + e2e + CI line
+  (HashMap insert/resize re-insert/get/contains/count roundtrip + the
+  non-generic Holder chain; pre-batch release binary exits 2).
 - **Item 2 DONE (m143)**: an explicit by-value `self` method that mutates a
   CONTAINER FIELD (`self.v.push(x)`, `self.m.insert(...)`,
   `self.s.insert(...)`) now uses the POINTER receiver ABI. Root cause: the
@@ -63,9 +85,37 @@ kill + UFCS" and "2026-09-26 -- m143: by-value receiver container mutation".
   stdlib-exec 85/85 (+2 ignored); stdlib modules 40/40; feature-reg
   510/510; integration 130; robustness 63; fuzz 24; probes green
   (`m143_receiver_mutation_probe`, `pkg_e001_accessor`); ascii_guard green.
-- **Git**: local `main` = origin/main + 53 commits (all UNPUSHED; pushes
+- **Gates (m144 batch)**: full e2e **2380/2380 (+4 ignored)** in one run;
+  checker 195/195; stdlib-exec 85/85 (+2 ignored; two smokes failed on the
+  first run -- os/folder + net/http2 primitive-receiver clang error -- fixed
+  in-batch); stdlib modules 40/40 (one flaky 6-min timeout on the first
+  run, green on rerun); feature-reg 510/510; integration 130; robustness
+  63; fuzz 24; perf 3/3; diff 24; ascii_guard green.
+- **Git**: local `main` = origin/main + 54 commits (all UNPUSHED; pushes
   only on the owner's ask). stdlib checkout still detached at
   `stdlib-v0.61.3`.
+
+## Item-3 arity survey (2026-09-26, temporary local flip -- reverted)
+
+With all four exact-arity checks temporarily enabled (`!=` at the impl and
+module-prefix sites + the documented method-path/bare-path formulas), the
+corpus reports EXACTLY the seven known stdlib call sites and nothing else:
+`io.printf` x3 (io.xi:73, io/console.xi:92,162 -- C printf 2 args vs the
+1-param wrapper), `_scrypt_blockmix` x2 (crypto/kdf.xi:353,365 -- 2-param sig,
+1 arg), `collections.get` (collections.xi:1040, `get(key)` inside
+`HashMap.contains`), `path.replace` (os/path.xi:160 -- 2-param sig, 3 args).
+A sweep of 147 fixtures/probes (tests/regression + examples/e2e +
+tmp/sprintc) found ZERO new violations.
+
+`collections.get` is NOT a stdlib call-site bug: it is the G-10
+bare-sibling/implicit-this compiler gap FIXED by m144 (the checker's bare
+path chose the 2-param method sig because `owned_here` skips G-10 when the
+module owns same-leaf methods). When item 3's flip lands, the checker's bare
+path must account for implicit-this: when the selected sig is a receiver
+method of the current receiver and `args.len() + 1 == sig.params.len()`,
+accept without error (or relax the `owned_here` gate for receiver-method
+hits). Remaining true stdlib fixes for item 3: printf x3,
+_scrypt_blockmix x2, path.replace.
 
 ## Cross-lane updates (what stdlib/packages must now do)
 
