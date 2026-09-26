@@ -8584,3 +8584,117 @@ Note for the stdlib lane: the pinned checkout's `xiom/os/env.xi` still calls
 carrying the `xiom_env_set/xiom_env_unset` shim (the newer stdlib tree links
 only when `XIOM_STDLIB` and `XIOM_RUNTIME_DIR` are both pointed at it -- the
 runtime C files resolve separately from the source root).
+
+## 2026-09-26 -- m142: `ptr.is_null()` silent-stub kill + method-position UFCS
+
+### Symptom (stdlib relay, `xiom.cell` 155/181)
+`Ref.release`: `if ptr.is_null() { return; }` compiled, exited 0, but the
+guard never fired: `release` always decremented `borrows`, including for a
+dead handle. Direct `is_null(ptr)` was correct; the METHOD form emitted no
+call at all (or a garbage symbol) and answered `false` for every pointer.
+
+### Root cause
+Two layers, both silent:
+1. The receiver path root `ptr` inside `Ref.release` is the implicit-self
+   FIELD `*mut RefCell[T]` -- but `xiom.cell` also imports the `xiom.ptr`
+   MODULE alias, and `Checker::check_module_call` bound the module first:
+   it typed a zero-arg module call `xiom.ptr.is_null` (arity checks are
+   gated off). Codegen then emitted `call i64 @ptr.is_null(%struct.RefCell*
+   %recv)`, a symbol with no definition, and
+   `emitter.rs::emit_undefined_symbol_stubs` synthesized a zero-arg
+   `define i64 @ptr.is_null() { ret 0 }`: clang tolerates the signature
+   mismatch, so every call returned the stub default (false / 0).
+2. When the receiver was a pointer FIELD/local and no module shadowed it,
+   the checker's R8 method-position free-fn block rejected `*Int` vs the
+   free fn's `*const T` first parameter ("cannot call 'is_null' on this
+   expression"), and codegen resolved the receiver-derived key
+   (`RefCell.is_null`) to nothing -- no call, default `0`.
+
+### Fix (all four planned parts)
+- **(a) FAIL LOUDLY** (`emit_undefined_symbol_stubs`): no more synthesized
+  stubs on the default path. Every called-but-undefined symbol is a hard
+  error (C001) naming the symbol, return type, first-call IR line and the
+  enclosing `@fn`. Two KNOWN gaps keep the historical typed stub but now
+  print `warning[W005]`: unresolved calls inside CONTRACT CLAUSES (clause
+  expressions are light-validated until the W002-W004 lint wave) and leaves
+  that name an INTERFACE method with no concrete impl (erased interface
+  dispatch; `Error.chain`'s `self.description()`/`self.source()`). A symbol
+  called from both a tolerated and a non-tolerated site is a HARD error.
+  The scan also ignores text inside `c"..."` string constants (the selfhost
+  compiler embeds generated IR; matching it produced phantom `@sq`/`@add`
+  calls and a false C001).
+- **(b) Checker value-shadow + UFCS**: `value_member_resolves` skips
+  `check_module_call` when the receiver path is rooted in a bound local that
+  can resolve the member itself (`ptr.is_null()` -> the field; module-only
+  members like `ptr.from_ref(self)` still bind the module). The R8 block
+  now strips `&`, `*`, `mut`, `const` and matches leaves/generics, so a
+  `*Int` receiver accepts `*T`/`*const T` and a `Vec` receiver accepts
+  `&Vec` (auto-ref UFCS).
+- **(c) Codegen UFCS**: method-position calls over pointer-like receivers
+  resolve to the free fn (generic decl leaf preferred; registered fn with a
+  pointer first param otherwise); the receiver is passed as arg 0
+  (`ufcs_receiver` ABI flag -- it used to be DROPPED, producing a zero-arg
+  call against a 1-param definition); the generic type arg is inferred from
+  the receiver's pointee/leaf (`*Int` -> Int, `%struct.RefCell*` ->
+  RefCell), so the monomorphised name and its param ABI match the value.
+- **(d) Lock**: `tests/regression/m142_ptr_isnull_ufcs/main.xi` (null field:
+  direct+method both true; non-null control both false; the stdlib
+  module-shadow shape decrements a real borrow counter; a null handle
+  returns early), `e2e_m142_ptr_isnull_ufcs` + CI line, and the codegen unit
+  test `m142_undefined_symbols_fail_loudly` (hard error names the symbol, no
+  stub emitted, quoted IR text ignored).
+
+### Real bugs the loud C001 surfaced and fixed in the same batch
+- `panic(msg)` had NO lowering: every `panic` call emitted `@panic`/`@core.panic`
+  and was silently stubbed (`ret 0`), i.e. panic never panicked
+  (`core.assert` included). Now lowers to `@xiom_panic` + `unreachable`,
+  leaf-matched so `xiom.core.panic(msg)` works; value receivers named
+  `panic` are not hijacked.
+- `T()` in an erased generic body (`ThreadLocal[T]{ value: T(); ... }`) is
+  the concrete zero of the substitution (`current_type_map`), not a stub.
+- `type_id::<T>()` / `field_offset::<T>(x)` are CTFE intrinsics but had no
+  runtime fold; bare calls now fold to the same FNV-1a id / byte offset
+  used by `evaluate_const_init`. Receiver-guarded: `typeinfo.type_id[T]()`
+  stays the stdlib function (documented LIMITED 0).
+- **Parallel codegen resolution state**: `--parallel-codegen` built fresh
+  per-function emitters that never saw the preassign/decl-pass state
+  (`use_alias_map`, `bare_fn_aliases`, `fn_symbol_map`, `generic_fn_decls`,
+  `fn_typed_params`, `prepass_call_types`). Bare imported calls
+  (`is_nan(x)` with `use xiom.math.is_nan;`) and generic calls silently
+  stubbed in parallel mode only; they are seeded now.
+- In-process IR harnesses (`feature_regression_tests`, `integration_tests`,
+  `robustness_tests`, `fuzz_tests`) compile without checker/stdlib, so they
+  explicitly opt into `CodegenConfig::legacy_stub_unresolved` (W005-stubbed)
+  instead of hard-erroring on derive/builtin helpers. The CLI never sets it.
+  Hygiene backlog: ~22 feature-regression sources are only parse-able via
+  error recovery (legacy `;`-separated enum variants, `= struct {}`); they
+  should be modernized.
+
+### Evidence
+- Before: `tmp/sprintc/pkg_isnull_probe2.xi` printed `0` for the method form
+  (IR had no call at all); `m142_cellmock.xi` (faithful `Ref.release` shape)
+  emitted `call i64 @ptr.is_null(%struct.RefCell* %tmp2)` + auto-stub.
+- After: the m142 fixture exits 0 through `compile_and_run`; the cellmock's
+  `release` decrements to 0 and the null handle returns early; full e2e
+  **2378/2378 (+4 ignored)**, stdlib-exec **85/85 (+2 ignored)**, stdlib
+  modules 40/40, checker 195/195, feature-reg 510/510, perf 3/3, diff 24,
+  api-freeze 2/2, tool suites green, ascii_guard green. (First full e2e of
+  the batch: 2376 pass / 2 fail -- `e2e_i2_parallel_codegen` and
+  `e2e_p2_turbofish`, both fixed above; second run 2378/2378.)
+
+### Cross-lane
+- **stdlib**: revert the workaround -- `ptr.is_null()` is now correct in
+  method form (`xiom.cell` `Ref.release`/`RefMut.release`). W005 names the
+  two remaining known gaps for their wave: the invalid `Int.hash` ensures
+  (`a == b => a.hash() == b.hash()` with undeclared `a`/`b`) and the
+  interface-default dispatch gap in `Error.chain`.
+- **Release lane (backlog C8)**: v0.61.3 GitHub release lists
+  `xiom-wasm-0.61.3.wasm` in SHA256SUMS but ships no such asset (mirror
+  404s; the other five artifacts verify OK). Upload the wasm or regenerate
+  SHA256SUMS; ops' dl-deploy.sh now warns on listed-but-absent assets and
+  publishes nothing unverified.
+- **Benchmark relay (backlog R-1..R-3, `docs/FAIRNESS-RELAY-2026-09-26.md`)**:
+  `a << b | c` parses as `a << (b | c)` (silent wrong values; fix precedence
+  or lint), `match` on a persistent `Option[T]` binds a copy, `/* */` should
+  get a targeted "block comments unsupported" diagnostic.
+

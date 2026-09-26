@@ -33,6 +33,8 @@ fn compile(source: &str) -> Result<String, String> {
             let tokens = Lexer::new(&src).tokenize();
             let program = Parser::new(tokens).parse_program().map_err(|e| e.to_string())?;
             let mut emitter = IrEmitter::new();
+            // m142: checker/stdlib-less in-process compile -- legacy stubs.
+            emitter.set_legacy_stub_unresolved(true);
             emitter.compile_program(&program)
         })
         .expect("spawn compile thread")

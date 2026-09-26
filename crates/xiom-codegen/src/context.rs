@@ -100,6 +100,15 @@ pub struct CodegenConfig {
     pub pub_functions: HashSet<String>,
     /// Globals to save/restore across hot reload: (symbol, llvm_type, byte_size)
     pub xiom_hot_globals: Vec<(String, String, usize)>,
+    /// m142: LEGACY in-process harness compatibility. The IR-emission test
+    /// harnesses (`feature_regression_tests`, `integration_tests`,
+    /// `robustness_tests`, `fuzz_tests`) compile WITHOUT the checker and
+    /// stdlib, so derive/builtin helpers (`to_str`, `Vec.eq`, `unwrap`, ...)
+    /// can stay unresolved there. When true, called-but-undefined symbols
+    /// receive the historical typed default stubs (with W005 notes) instead
+    /// of failing the compile. The CLI/driver NEVER sets this: real
+    /// compilations hard-error on unresolved calls.
+    pub legacy_stub_unresolved: bool,
     /// I2: Enable parallel codegen (rayon-based per-function IR emission)
     pub parallel_codegen: bool,
     /// R1: Enable DWARF debug info emission from .xi source
@@ -157,6 +166,7 @@ impl Default for CodegenConfig {
             overflow_checks: true, // v0.56: ON by default (AI-safe systems compiler)
             pub_functions: HashSet::new(),
             xiom_hot_globals: Vec::new(),
+            legacy_stub_unresolved: false,
             parallel_codegen: false,
             debug_symbols: false,
             source_file: "unknown.xi".to_string(),

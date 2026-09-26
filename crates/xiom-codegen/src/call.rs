@@ -597,6 +597,27 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     Expr::Field(obj, field, _) => (Some(field.name.clone()), Some(obj)),
                     _ => (None, None),
                 };
+                // m142 (stdlib relay): `T()` inside a monomorphised generic
+                // body is the DEFAULT/ZERO value of the concrete substitution
+                // (`ThreadLocal[T]{ init: init; value: T(); ... }`). Without
+                // this the call fell to the zero-arg auto-stub pass.
+                if args.is_empty() && receiver_expr.is_none() {
+                    if let Some(pname) = fn_name_opt.as_deref() {
+                        let is_generic_param_name = pname.len() == 1
+                            && pname.chars().next().map_or(false, |c| c.is_ascii_uppercase());
+                        if is_generic_param_name {
+                            let concrete = self.mono.current_type_map.get(pname)
+                                .or_else(|| self.mono.param_concrete_types.get(pname))
+                                .cloned();
+                            if let Some(concrete) = concrete {
+                                let vt = self.llvm_type_for(&concrete)
+                                    .unwrap_or_else(|_| LLVM_I64.to_string());
+                                let zero = Self::default_const_for(&vt);
+                                return Ok((zero, vt));
+                            }
+                        }
+                    }
+                }
                 // M20-A1: Closure call detection -- if the callee is a local
                 // variable (bare Ident, not a known function), check if it's
                 // a closure and dispatch with env pointer.
@@ -2814,6 +2835,26 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     self.emitln("  unreachable");
                     return Ok(("0".to_string(), LLVM_I64.to_string()));
                 }
+                // m142 (stdlib relay): panic(msg) -> @xiom_panic + unreachable.
+                // The checker models `panic` as a global builtin and documents
+                // that "codegen emits @xiom_panic for it", but no intercept
+                // existed: every call (core.assert included) fell to the
+                // auto-stub and silently did nothing. Match the LEAF so both
+                // the bare and module-qualified spellings (core.panic) lower.
+                {
+                    let panic_leaf = fn_name.rsplit('.').next().unwrap_or(fn_name.as_str());
+                    // Bare `panic(msg)` or module-path `xiom.core.panic(msg)`;
+                    // a METHOD named panic on a value receiver is NOT builtin.
+                    let recv_not_instance = receiver_expr
+                        .map_or(true, |r| !self.receiver_is_instance(r));
+                    if panic_leaf == "panic" && recv_not_instance && compiled_args.len() == 1 {
+                        let (msg_val, msg_ty) = &compiled_args[0];
+                        let msg_ptr = self.val_to_i8ptr(msg_val, msg_ty);
+                        self.emitln(&format!("  call void @xiom_panic(i8* {msg_ptr})"));
+                        self.emitln("  unreachable");
+                        return Ok(("0".to_string(), LLVM_I64.to_string()));
+                    }
+                }
                 // v0.56 I3: Mutex builtins for thread synchronization
                 let is_mutex_fn = matches!(fn_name.as_str(), "Mutex.new" | "Mutex.lock" | "Mutex.unlock" | "Mutex.destroy");
                 // v0.56: Numeric conversion builtins -- to_float (sitofp) and to_int (fptosi).
@@ -3122,6 +3163,41 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         }
                     }
                     return Ok(("8".to_string(), LLVM_I64.to_string()));
+                }
+                // m142: `type_id::<T>()` / `field_offset::<T>(field)` are CTFE
+                // intrinsics (expr.rs folds them in const position); runtime
+                // calls must fold to the SAME stable constants (FNV-1a type
+                // id / field byte offset) instead of falling to a zero-arg
+                // auto-stub that answered 0 for every type.
+                // Receiver guard: `mod.type_id[T]()` is the STDLIB function
+                // (xiom.reflect.typeinfo.documents a 0 placeholder), not the
+                // intrinsic -- only BARE intrinsic calls fold here.
+                if receiver_expr.is_none()
+                    && (fn_name == "type_id" || fn_name == "field_offset") {
+                    let ty_name = explicit_generic_types.first().cloned()
+                        .or_else(|| type_arg.map(|t| match t {
+                            Expr::Ident(id) => id.name.clone(),
+                            Expr::Field(_, f, _) => f.name.clone(),
+                            Expr::Index(base, _, _) => match base.as_ref() {
+                                Expr::Ident(id) => id.name.clone(),
+                                _ => String::new(),
+                            },
+                            _ => String::new(),
+                        }))
+                        .unwrap_or_default();
+                    if !ty_name.is_empty() {
+                        if fn_name == "type_id" {
+                            return Ok((Self::type_id_of(&ty_name).to_string(), LLVM_I64.to_string()));
+                        }
+                        let field_name = args.first().map(|a| match a {
+                            Expr::Str(s, _) => s.clone(),
+                            Expr::Ident(id) => id.name.clone(),
+                            _ => String::new(),
+                        }).unwrap_or_default();
+                        if !field_name.is_empty() {
+                            return Ok((self.field_offset_of(&ty_name, &field_name).to_string(), LLVM_I64.to_string()));
+                        }
+                    }
                 }
                 // Enum variant constructor: `TypeName.Variant(args)`.
                 // Detects when the call is constructing an enum variant and emits
@@ -3631,6 +3707,24 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     } else {
                         fn_key
                     }
+                };
+                // m142 (stdlib relay): method-position UFCS over a POINTER /
+                // FIELD / REFERENCE receiver (`ptr.is_null()`,
+                // `h.p.is_null()`). The receiver-derived key
+                // ("RefCell.is_null") is not registered and no suffix
+                // resolution applies; route the call to the free fn whose
+                // first parameter accepts the receiver, so the generic path
+                // monomorphises the real symbol with the receiver as arg 0.
+                // The old flow kept the garbage key, emitted `@RefCell.is_null`
+                // and the stub pass answered it with a silent 0.
+                let fn_key = if !self.types.functions.contains_key(&fn_key)
+                    && !self.mono.generic_fn_decls.iter().any(|(k, _)| k == &fn_key)
+                {
+                    receiver_expr
+                        .and_then(|r| self.ufcs_generic_leaf_for_receiver(r, &fn_name, args.len()))
+                        .unwrap_or(fn_key)
+                } else {
+                    fn_key
                 };
                 // Interface dispatch fallback: when the receiver type is a known
                 // interface (e.g. `Error.description`), search all registered
@@ -4168,8 +4262,26 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     let recv_arg = fd.generics.iter()
                                         .position(|g| g.name.name == gp.name.name)
                                         .and_then(|idx| self.receiver_generic_arg_at(recv, idx));
+                                    // m142 (stdlib relay): UFCS receiver
+                                    // inference. When param 0 is a pointer or
+                                    // reference to this generic
+                                    // (`is_null[T](ptr: *const T)`), the
+                                    // receiver IS the argument -- bind gp to
+                                    // the receiver's pointee/leaf ("*Int" ->
+                                    // Int, "*RefCell" -> RefCell) so the mono
+                                    // name and its param ABI match the value
+                                    // actually passed.
+                                    let p0_refish = fd.params.first().map_or(false, |p| {
+                                        matches!(&p.ty,
+                                            Type::Ptr(_) | Type::Ref(_) | Type::MutRef(_))
+                                    });
                                     if let Some(arg) = recv_arg {
                                         concrete_types.push(arg);
+                                    } else if p0_refish {
+                                        match self.ufcs_receiver_type_arg(recv) {
+                                            Some(leaf) => concrete_types.push(leaf),
+                                            None => concrete_types.push("Int".to_string()),
+                                        }
                                     } else if self.infer_struct_type_name(recv).is_some() {
                                         // Receiver-bound generic with NO explicit
                                         // args (e.g. `Cell[T].get(self) -> T`,
@@ -4602,9 +4714,29 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     fd.receiver.is_some() && self.body_uses_receiver_state(fd)
                                 })
                                 .unwrap_or(true);
+                            // m142 (stdlib relay): method-position UFCS -- the
+                            // receiver stands in for param 0 even though the
+                            // parameter is not named `self` (`is_null[T](ptr:
+                            // *const T)` called as `ptr.is_null()`). Without
+                            // this flag the receiver was DROPPED from the call
+                            // ABI (zero-arg call against a 1-param definition).
+                            let ufcs_receiver = self.mono.generic_fn_decls.iter()
+                                .find(|(k, _)| k == &fn_key)
+                                .map_or(false, |(_, fd)| {
+                                    fd.receiver.is_none()
+                                        && fd.params.first().map_or(false, |p| {
+                                            p.name.name != "self"
+                                                && matches!(&p.ty,
+                                                    Type::Ptr(_) | Type::Ref(_) | Type::MutRef(_))
+                                        })
+                                });
                             // Pass the receiver if it's an instance AND either the
-                            // signature includes a self param or the generic decl does.
-                            if is_instance && (has_receiver_in_params || generic_has_self) {
+                            // signature includes a self param, the generic decl
+                            // does, or the call is a method-position UFCS form
+                            // (receiver = free fn param 0).
+                            if is_instance
+                                && (has_receiver_in_params || generic_has_self || ufcs_receiver)
+                            {
                                 let (recv_val, recv_llvm_ty) = self.compile_expr(receiver)?;
                                 // If callee expects a pointer self (&mut Struct),
                                 // pass the receiver's alloca address instead.
@@ -4812,6 +4944,18 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     // when the receiver type is i64 (not a named struct), so the bare-call
                     // skip must NOT apply.
                     if !self.types.functions.contains_key(&resolved_fn_key) {
+                        // m142 (stdlib relay): pointer-receiver UFCS must win
+                        // over the same-leaf module alias scan below. The
+                        // suffix search bound `ptr.is_null()` to the module
+                        // key "ptr.is_null" (a symbol with no definition),
+                        // which the stub pass answered with 0; the precise
+                        // free-fn shape (ref-ish param 0 + receiver arity)
+                        // is the real callee.
+                        if let Some(hit) = receiver_expr.and_then(|r| {
+                            self.ufcs_registered_fn_for_receiver(r, &fn_name, args.len())
+                        }) {
+                            resolved_fn_key = hit;
+                        } else {
                         // 5e.3: when resolved_fn_key is Type.method (e.g. "Layout.new"),
                         // try ".Type.method" suffix FIRST so alloc.Layout.new(..)
                         // resolves to xiom.alloc.Layout.new even when Rc.new confuses
@@ -4858,6 +5002,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         }
                         if !found.is_empty() {
                             resolved_fn_key = found;
+                        }
                         }
                     }
                     let args_str = if let Some(receiver) = receiver_expr {
@@ -5597,6 +5742,139 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     .unwrap_or(arg);
                 return Some(concrete);
             }
+        }
+        None
+    }
+
+    /// m142 (stdlib relay): is the receiver pointer-like (`*T`, `&T`,
+    /// generic `Ptr`)? The UFCS fallbacks only fire for these -- a value
+    /// receiver must keep its method/registered-fn resolution.
+    /// Implicit-self POINTER fields (`ptr: *mut RefCell[T]`) register only
+    /// their pointee's struct name in the XIOM map while the LLVM slot holds
+    /// the pointer, so the slot type is consulted as a second source.
+    fn receiver_pointer_like(&self, receiver: &Expr) -> bool {
+        if let Some(t) = self.infer_expr_xiom_type_deep(receiver) {
+            let t = t.trim();
+            if t == "Ptr" || t.starts_with('*') || t.starts_with('&') {
+                return true;
+            }
+        }
+        if let Expr::Ident(id) = receiver {
+            if let Some((_, llvm_ty)) = self.lookup_local(&id.name) {
+                if llvm_ty.ends_with('*') && !llvm_ty.ends_with("**") {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// m142: the type argument a UFCS receiver contributes when the free
+    /// fn's first parameter is a pointer/reference to a generic
+    /// (`is_null[T](ptr: *const T)`): the receiver's pointee/leaf
+    /// ("*Int" -> Int, "*RefCell" -> RefCell, "&Pair" -> Pair). Falls back to
+    /// the receiver's struct type name for receivers whose XIOM type is only
+    /// known through the LLVM slot (implicit-self pointer fields).
+    fn ufcs_receiver_type_arg(&self, recv: &Expr) -> Option<String> {
+        let raw = self.infer_expr_xiom_type_deep(recv)
+            .or_else(|| self.infer_struct_type_name(recv))?;
+        let mut leaf = raw.trim();
+        loop {
+            if let Some(r) = leaf.strip_prefix('*').or_else(|| leaf.strip_prefix('&')) {
+                leaf = r.trim_start();
+            } else if let Some(r) = leaf.strip_prefix("mut ") {
+                leaf = r.trim_start();
+            } else if let Some(r) = leaf.strip_prefix("const ") {
+                leaf = r.trim_start();
+            } else {
+                break;
+            }
+        }
+        let leaf = leaf.rsplit('.').next().unwrap_or(leaf);
+        let leaf = leaf.split('[').next().unwrap_or(leaf).trim();
+        if leaf.is_empty() || leaf == "Ptr" || leaf == "_" {
+            return None;
+        }
+        Some(leaf.to_string())
+    }
+
+    /// m142 (stdlib relay): generic UFCS candidate for `value.method(...)`.
+    /// Returns the free fn's registered key when the receiver is pointer-like
+    /// and a GENERIC decl with this leaf has exactly `nargs + 1` params (the
+    /// receiver stands in for param 0), is NOT a receiver-style method, and
+    /// takes a ref-ish first parameter (`*T` / `&T` / `&mut T`). The caller
+    /// routes the key into the generic path, which already prepends the
+    /// receiver and (with `ufcs_receiver_type_arg`) binds the type args.
+    fn ufcs_generic_leaf_for_receiver(
+        &self,
+        receiver: &Expr,
+        fn_name: &str,
+        nargs: usize,
+    ) -> Option<String> {
+        if !self.receiver_pointer_like(receiver) {
+            return None;
+        }
+        let mut hits: Vec<String> = self.mono.generic_fn_decls.iter()
+            .filter(|(key, fd)| {
+                let leaf = key.rsplit('.').next().unwrap_or(key.as_str());
+                leaf == fn_name
+                    && fd.receiver.is_none()
+                    && fd.params.len() == nargs + 1
+                    && fd.params.first().map_or(false, |p| {
+                        matches!(&p.ty, Type::Ptr(_) | Type::Ref(_) | Type::MutRef(_))
+                    })
+            })
+            .map(|(k, _)| k.clone())
+            .collect();
+        hits.sort();
+        hits.dedup();
+        // Prefer the BARE leaf key (the plain free fn); a single qualified
+        // candidate is acceptable too. Multiple qualified candidates stay
+        // unresolved (the loud C001 will name the call).
+        if let Some(bare) = hits.iter().find(|k| !k.contains('.')) {
+            return Some(bare.clone());
+        }
+        if hits.len() == 1 {
+            return hits.into_iter().next();
+        }
+        None
+    }
+
+    /// m142 (stdlib relay): non-generic UFCS candidate for `value.method(...)`.
+    /// The receiver is pointer-like and a registered fn with this leaf takes
+    /// exactly `nargs + 1` LLVM params with a pointer first parameter (the
+    /// receiver is param 0). Unique candidate, bare leaf preferred; the
+    /// method path prepends the receiver via its instance handling.
+    fn ufcs_registered_fn_for_receiver(
+        &self,
+        receiver: &Expr,
+        fn_name: &str,
+        nargs: usize,
+    ) -> Option<String> {
+        if !self.receiver_pointer_like(receiver) {
+            return None;
+        }
+        let mut hits: Vec<String> = self.types.functions.keys().into_iter()
+            .filter(|k| {
+                let leaf = k.rsplit('.').next().unwrap_or(k.as_str());
+                leaf == fn_name
+                    && !k.contains('[')
+                    && !k.starts_with("Tuple__")
+                    && !k.starts_with("Option__")
+                    && !k.starts_with("Result__")
+                    && self.types.functions.get(k).map_or(false, |(pts, _)| {
+                        pts.len() == nargs + 1
+                            && pts.first().map_or(false, |p| p.ends_with('*'))
+                    })
+            })
+            .collect();
+        hits.sort();
+        hits.dedup();
+        if let Some(bare) = hits.iter().find(|k| !k.contains('.')) {
+            return Some(bare.clone());
+        }
+        if hits.len() == 1 {
+            return hits.into_iter().next();
         }
         None
     }

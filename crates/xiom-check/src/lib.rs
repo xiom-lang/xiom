@@ -3964,6 +3964,89 @@ impl Checker {
     }
 
     /// Try to resolve a module-qualified call: `module.func(args)` or `module.submodule.func(args)`
+    /// m142 (stdlib relay): does `obj.method(args)` resolve against the VALUE
+    /// `obj` (a bound local, including implicit-self receiver fields)? XIOM
+    /// lets a value shadow an imported module alias of the same name --
+    /// `ptr.is_null()` inside `Ref.release` names the `ptr` FIELD, not the
+    /// `xiom.ptr` module. Without this guard `check_module_call` bound the
+    /// module first, typed a zero-arg module call, and codegen emitted a
+    /// garbage symbol (`@ptr.is_null`) that the auto-stub pass answered with
+    /// `0`. Module-only members (`ptr.from_ref(self)`) have no value
+    /// counterpart here and keep resolving through the module path.
+    fn value_member_resolves(&self, obj: &Expr, method: &Ident, nargs: usize) -> bool {
+        let mut root = obj;
+        loop {
+            match root {
+                Expr::Field(inner, _, _) => root = inner,
+                _ => break,
+            }
+        }
+        let Expr::Ident(id) = root else { return false; };
+        let Some(recv_ty) = self.lookup_local(&id.name) else { return false; };
+        let recv_name = recv_ty.name();
+        let recv_base = {
+            let b = recv_name.rsplit('.').next().unwrap_or(&recv_name);
+            b.split('[').next().unwrap_or(b).trim().to_string()
+        };
+        if recv_base.is_empty() || recv_base == "_" {
+            return false;
+        }
+        let strip_ref_marks = |s: &str| -> String {
+            let mut t = s.trim();
+            loop {
+                let next = if let Some(r) = t.strip_prefix('&') {
+                    Some(r)
+                } else if let Some(r) = t.strip_prefix('*') {
+                    Some(r)
+                } else if let Some(r) = t.strip_prefix("mut ") {
+                    Some(&r[4..])
+                } else if let Some(r) = t.strip_prefix("const ") {
+                    Some(&r[6..])
+                } else {
+                    None
+                };
+                match next {
+                    Some(r) => t = r.trim_start(),
+                    None => break,
+                }
+            }
+            t.to_string()
+        };
+        if self.methods.get(&recv_base).map_or(false, |m| m.contains_key(&method.name))
+            || self.functions.contains_key(&format!("{recv_base}.{}", method.name))
+        {
+            return true;
+        }
+        let recv_leaf = strip_ref_marks(&recv_base);
+        let recv_refish = recv_ty.as_ptr_like() || recv_base.starts_with('&');
+        for (key, sig) in self.functions.iter() {
+            if key.rsplit('.').next() != Some(method.name.as_str()) {
+                continue;
+            }
+            if sig.params.len() != nargs + 1 {
+                continue;
+            }
+            let Some((_, first)) = sig.params.first() else { continue };
+            let first_name = first.name();
+            let first_base = {
+                let b = first_name.rsplit('.').next().unwrap_or(&first_name);
+                b.split('[').next().unwrap_or(b).trim().to_string()
+            };
+            let first_refish = first_base.starts_with('*') || first_base.starts_with('&');
+            let first_leaf = strip_ref_marks(&first_base);
+            let first_is_generic = sig.generics.iter().any(|g| g == &first_leaf);
+            if first_base == recv_base
+                || first_base == "_"
+                || (first_refish
+                    && (recv_refish || first_leaf == recv_leaf)
+                    && (first_is_generic || first_leaf == recv_leaf))
+            {
+                return true;
+            }
+        }
+        false
+    }
+
     fn check_module_call(&mut self, obj: &Expr, method: &Ident, args: &[Expr], span: Span) -> Option<CheckedType> {
         // D1 (2026-08-08): interface impl dispatch -- `Trait[Args].method(args)`
         // resolves to the registered impl's `Type.method` freestanding fn
@@ -6015,9 +6098,17 @@ impl Checker {
                     _ => None,
                 };
                     if let Some(Expr::Field(obj, method, _)) = method_target {
-                        // Try module-qualified call first
-                    if let Some(return_ty) = self.check_module_call(obj, method, args, *span) {
-                        return return_ty;
+                        // m142: a value-rooted receiver whose member resolves
+                        // against the VALUE shadows an imported module alias of
+                        // the same name (`ptr` in xiom.cell is the Ref field,
+                        // not the xiom.ptr module). Let the method/UFCS path
+                        // below own those calls; module-only members
+                        // (`ptr.from_ref(self)`) still resolve as module calls.
+                        // Try module-qualified call first otherwise.
+                    if !self.value_member_resolves(obj, method, args.len()) {
+                        if let Some(return_ty) = self.check_module_call(obj, method, args, *span) {
+                            return return_ty;
+                        }
                     }
                     // Try method call: receiver.method(args)
                     let obj_ty = self.check_expr(obj);
@@ -6649,7 +6740,35 @@ impl Checker {
                     // Without this the checker rejected the call and catalog
                     // bodies compiled it to a constant-0 stub (the json char_at
                     // ensures evaluated 0 and aborted every Some return).
+                    //
+                    // m142 (stdlib relay): the receiver may be a POINTER or
+                    // REFERENCE (`h.p.is_null()`, `ptr.is_null()`) and the free
+                    // fn's first parameter a ref-ish GENERIC (`*const T`,
+                    // `&T`). Compare the reference markers and pointees, not the
+                    // raw spellings, so `*Int` matches `*T` / `*const T` and a
+                    // plain `Vec` receiver matches `&Vec` (auto-ref UFCS).
                     {
+                        let strip_ref_marks = |s: &str| -> String {
+                            let mut t = s.trim();
+                            loop {
+                                let next = if let Some(r) = t.strip_prefix('&') {
+                                    Some(r)
+                                } else if let Some(r) = t.strip_prefix('*') {
+                                    Some(r)
+                                } else if let Some(r) = t.strip_prefix("mut ") {
+                                    Some(&r[4..])
+                                } else if let Some(r) = t.strip_prefix("const ") {
+                                    Some(&r[6..])
+                                } else {
+                                    None
+                                };
+                                match next {
+                                    Some(r) => t = r.trim_start(),
+                                    None => break,
+                                }
+                            }
+                            t.to_string()
+                        };
                         let recv_base = match &obj_ty {
                             CheckedType::Named(tn) => {
                                 let b = tn.rsplit('.').next().unwrap_or(tn.name());
@@ -6659,6 +6778,9 @@ impl Checker {
                             _ => String::new(),
                         };
                         if !recv_base.is_empty() {
+                            let recv_refish = obj_ty.as_ptr_like()
+                                || recv_base.starts_with('&');
+                            let recv_leaf = strip_ref_marks(&recv_base);
                             let mut rets: Vec<CheckedType> = Vec::new();
                             for (key, sig) in self.functions.iter() {
                                 let leaf = key.rsplit('.').next().unwrap_or(key.as_str());
@@ -6670,7 +6792,19 @@ impl Checker {
                                 };
                                 let first_base = first.rsplit('.').next().unwrap_or(&first);
                                 let first_base = first_base.split('[').next().unwrap_or(first_base);
-                                if first_base == recv_base || first_base == "_" {
+                                let first_refish = first_base.starts_with('*')
+                                    || first_base.starts_with('&');
+                                let first_leaf = strip_ref_marks(first_base);
+                                let first_is_generic = sig.generics.iter().any(|g| g == &first_leaf);
+                                // UFCS over a ref-ish first parameter: the
+                                // receiver is the argument, so X accepts the
+                                // address of a X/base-matched receiver and a
+                                // generic pointee (`*const T`) accepts any
+                                // pointer-like receiver.
+                                let ufcs_refish = first_refish
+                                    && (recv_refish || first_leaf == recv_leaf)
+                                    && (first_is_generic || first_leaf == recv_leaf);
+                                if first_base == recv_base || first_base == "_" || ufcs_refish {
                                     rets.push(sig.return_type.clone().unwrap_or(CheckedType::Named("_".into())));
                                 }
                             }

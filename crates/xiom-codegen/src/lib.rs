@@ -165,6 +165,13 @@ impl IrEmitter {
     pub fn set_check_contracts(&mut self, enabled: bool) {
         self.config.check_contracts = enabled;
     }
+
+    /// m142: LEGACY in-process harness compatibility -- unresolved called
+    /// symbols get typed default stubs (W005) instead of a hard error. Only
+    /// the checker-less IR test harnesses set this; the driver never does.
+    pub fn set_legacy_stub_unresolved(&mut self, enabled: bool) {
+        self.config.legacy_stub_unresolved = enabled;
+    }
     /// Security review (2026-08-13): release builds strip assert/dbg!/debugger;
     /// `--keep-debug-checks` (or a debug build) retains them.
     pub fn set_strip_debug_checks(&mut self, enabled: bool) {
@@ -4474,15 +4481,12 @@ impl IrEmitter {
             self.emitln("");
         }
 
-        // Safety net: stub any called-but-undefined function symbol. Such symbols
-        // only arise from erased-generic dead-code method bodies (e.g. a
-        // `data.len()` inside a monomorphised-away `BinaryHeap.push` where `self`
-        // is opaque), which would otherwise make clang reject the whole module
-        // with "use of undefined value '@name'". On any well-formed program (all
-        // callees resolved) this pass emits nothing, so it is a strict no-op on
-        // the existing test gate. A stub returns a typed default, so it can never
-        // manufacture a *correct* live result -- only unblock linking.
-        self.emit_undefined_symbol_stubs();
+        // m142: any called-but-undefined function symbol is a hard error. The
+        // pass used to synthesize a `ret 0` stub, which answered unresolved
+        // calls (`ptr.is_null()` -> `@ptr.is_null`) with a silently wrong
+        // value. On a well-formed program (all callees resolved) it finds
+        // nothing and returns Ok.
+        self.emit_undefined_symbol_stubs()?;
 
         // BUG 3 fix: emit the @llvm.global_ctors initializer bodies for
         // module-level `var` globals with runtime initializer expressions.
@@ -4737,6 +4741,20 @@ impl IrEmitter {
                 let mut emitter = IrEmitter::new();
                 emitter.types = (*type_ctx).clone();
                 emitter.config = (*cfg).clone();
+                // m142 (parallel-codegen resolution fix): the preassign pass
+                // ran on the MAIN emitter and built the call-resolution state
+                // (use-import aliases, pre-assigned symbols, generic decls).
+                // Fresh per-function emitters must see the SAME state, or a
+                // bare call to an imported fn (`is_nan(x)` with
+                // `use xiom.math.is_nan;`) and any generic call falls through
+                // to an unresolved symbol -- serial mode resolved those by
+                // accumulating state across bodies, parallel did not.
+                emitter.mono.use_alias_map = self.mono.use_alias_map.clone();
+                emitter.mono.fn_symbol_map = self.mono.fn_symbol_map.clone();
+                emitter.mono.generic_fn_decls = self.mono.generic_fn_decls.clone();
+                emitter.mono.bare_fn_aliases = self.mono.bare_fn_aliases.clone();
+                emitter.mono.fn_typed_params = self.mono.fn_typed_params.clone();
+                emitter.mono.prepass_call_types = self.mono.prepass_call_types.clone();
                 *emitter.ctfe.borrow_mut() = (*ctfe_snapshot).clone();
                 emitter.local.constants = (*local_constants).clone();
                 emitter.local.current_module = if prefix.is_empty() { None } else { Some(prefix.clone()) };

@@ -8,10 +8,15 @@ use xiom_lexer::Lexer;
 use xiom_parser::Parser;
 use xiom_codegen::IrEmitter;
 
+// m142: these in-process IR locks compile WITHOUT the checker and stdlib, so
+// derive/builtin helpers stay unresolved; opt into the legacy typed-stub mode
+// explicitly. The hard-error behavior is exercised end-to-end by the e2e
+// suite and the CLI (see emit_undefined_symbol_stubs).
 fn compile(source: &str) -> Result<String, String> {
     let tokens = Lexer::new(source).tokenize();
     let program = Parser::new(tokens).parse_program().map_err(|e| e.to_string())?;
     let mut emitter = IrEmitter::new();
+    emitter.set_legacy_stub_unresolved(true);
     emitter.compile_program(&program)
 }
 
@@ -20,6 +25,7 @@ fn compile_hot_reload(source: &str) -> Result<String, String> {
     let program = Parser::new(tokens).parse_program().map_err(|e| e.to_string())?;
     let mut emitter = IrEmitter::new();
     emitter.set_hot_reload(true);
+    emitter.set_legacy_stub_unresolved(true);
     emitter.compile_program(&program)
 }
 
@@ -35,6 +41,7 @@ fn compile_checked(source: &str) -> Result<String, String> {
         return Err("type error".to_string());
     }
     let mut emitter = IrEmitter::new();
+    emitter.set_legacy_stub_unresolved(true);
     emitter.compile_program(&program)
 }
 

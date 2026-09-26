@@ -5379,6 +5379,19 @@ fn e2e_safety_probe() {
     );
 }
 
+// Stdlib relay (is_null): method-position `ptr.is_null()` over a pointer
+// FIELD and over a `ptr` field that shadows the imported `xiom.ptr` module
+// alias must bind the free fn with the receiver as arg 0. The old flow
+// emitted a garbage symbol (`@ptr.is_null`) that the auto-stub pass answered
+// with a silent `ret 0`, so every pointer read as non-null.
+#[test] fn e2e_m142_ptr_isnull_ufcs() {
+    assert_eq!(
+        compile_and_run("tests/regression/m142_ptr_isnull_ufcs/main.xi"),
+        Some(0),
+        "ptr.is_null() (direct, method, module-shadow) must agree on null/non-null"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

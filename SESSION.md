@@ -1,6 +1,93 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
+# CONTINUATION HANDOFF (2026-09-26, compiler lane -- item 1 landed)
+
+Supersedes the 2026-09-25 header below (kept as history). Evidence for this
+batch: docs/COMPILER_BUGS.md "2026-09-26 -- m142: ptr.is_null() silent-stub
+kill + UFCS".
+
+## Status snapshot
+
+- **Item 1 DONE (m142)**: the `ptr.is_null()` silent-stub class is killed.
+  - `emitter.rs::emit_undefined_symbol_stubs` now FAILS the compile (C001)
+    for any called-but-undefined symbol, naming symbol/return type/IR
+    line/caller; two known gaps stay stubbed but LOUDLY (W005): unresolved
+    calls inside CONTRACT CLAUSES and to INTERFACE method leaves with no
+    concrete impl (`Error.description`/`source`). A symbol called from both
+    a tolerated and a non-tolerated site is a hard error.
+  - Checker: a value-rooted receiver shadows a same-named imported module
+    alias (`ptr.is_null()` in `Ref.release` bound the FIELD, not `xiom.ptr`);
+    R8 method-position free-fn resolution now matches ref-ish/generic first
+    params (`*Int` vs `*const T`).
+  - Codegen: UFCS resolution + receiver-as-arg-0 ABI for generic and
+    registered free fns; receiver type-arg inference from field/pointer
+    slots; pointer-like receiver detection.
+  - Real bugs surfaced by the loud C001 and fixed: `panic(msg)` had NO
+    lowering (every panic silently no-oped); `T()` in erased generic bodies
+    is the concrete zero; `type_id::<T>()`/`field_offset::<T>(x)` runtime
+    folds; **parallel codegen (`--parallel-codegen`) never seeded the
+    call-resolution state** (use-imports, bare aliases, preassigned symbols,
+    generic decls) into per-function emitters -- bare imported/generic calls
+    silently stubbed in parallel mode.
+  - The stub-pass IR scan now ignores text inside string constants (the
+    selfhost compiler embeds generated IR in `c"..."` literals -- a false
+    C001 for `@sq`/`@add`).
+- **Lock**: `tests/regression/m142_ptr_isnull_ufcs/main.xi` + `e2e_m142_ptr_isnull_ufcs`
+  + CI line + codegen unit test `m142_undefined_symbols_fail_loudly`
+  (includes the quoted-IR negative case). In-process IR harnesses
+  (feature-reg/integration/robustness/fuzz) opt into
+  `set_legacy_stub_unresolved(true)` because they compile without checker
+  and stdlib.
+- **Gates (this batch)**: full e2e **2378/2378 (+4 ignored)** (two runs:
+  2376 pass/2 fail -> fixed -> 2378/2378; the failures were the parallel
+  state bug and the missing `type_id` fold); checker 195/195; feature-reg
+  510/510; integration 130; robustness 63; fuzz 24; stdlib-exec 85/85
+  (+2 ignored); stdlib modules 40/40; api-freeze 2/2; perf 3/3; diff 24;
+  xiom lib 54; checker_locks/doctor/borrow green; tool tests green;
+  ascii_guard green.
+- **Git**: local `main` = origin/main + 52 commits (all UNPUSHED; pushes
+  only on the owner's ask). stdlib checkout still detached at
+  `stdlib-v0.61.3`.
+
+## Cross-lane updates (what stdlib/packages must now do)
+
+- **stdlib**: the `ptr.is_null()` workaround can be reverted -- `ptr.is_null()`
+  (method form) now compiles AND returns the real result; `Ref.release` /
+  `RefMut.release` in `xiom.cell` may switch back from `is_null(ptr)`.
+  W005 lists the exact spots their wave should still fix: (a)
+  `xiom.hash` `Int.hash` ensures `a == b => a.hash() == b.hash()` references
+  UNDECLARED `a`/`b` (invalid clause; currently stubbed); (b) the
+  interface-default dispatch gap (`Error.chain`'s `self.description()` /
+  `self.source()`) stays W005-stubbed until dynamic interface dispatch
+  lands. The arity call-site list is unchanged (item 3 gate).
+- **packages/website**: no action; W005 warnings appear only for the two
+  gaps above.
+- **Backlog (added, not started)**: C8 release-lane: v0.61.3 GitHub release
+  lists `xiom-wasm-0.61.3.wasm` in SHA256SUMS but ships no such asset (mirror
+  404s; other five verify OK; ops' dl-deploy warns until fixed -- upload the
+  wasm or regenerate SHA256SUMS). R-1..R-3 from
+  `docs/FAIRNESS-RELAY-2026-09-26.md` (benchmark relay): `a << b | c` parses
+  as `a << (b | c)` (silent wrong values; fix precedence or lint), `match` on
+  a persistent `Option[T]` binds a copy, `/* */` deserves a targeted
+  "block comments unsupported" diagnostic. Test-hygiene backlog: ~22
+  feature-regression sources use legacy `;`-separated enum variants /
+  `= struct {}` spellings and only compile via parse-error recovery.
+
+## Remaining work order (compiler lane)
+
+1. ~~`ptr.is_null()` silent-stub kill~~ DONE (m142).
+2. **By-value receiver Vec mutation**: `fn S.add(self)` with `self.v.push(x)`
+   loses the mutation (`tmp/sprintc/pkg_e001_accessor.xi`); the receiver is
+   already a pointer in IR, so audit the container-FIELD access path for
+   by-value-self methods, fix, lock, e2e.
+3. **Re-land exact arity** only after the stdlib wave fixes its call sites
+   (list unchanged: io `printf` x3, `_scrypt_blockmix` x2,
+   `collections.get`, `path.replace`); flip the three `>` to `!=`, corpus +
+   e2e.
+4. **Pin bump + release** (blocked on the stdlib's 100%): unchanged from the
+   2026-09-25 section (do NOT bump the version or tag before their ref).
+
 # CONTINUATION HANDOFF (2026-09-25, compiler lane -- post-relay)
 
 Supersedes the 2026-09-24 header (kept below as history). Full evidence for

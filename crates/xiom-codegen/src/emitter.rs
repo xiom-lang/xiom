@@ -1233,19 +1233,41 @@ impl IrEmitter {
         self.local.di_node_counter = 6; // 0-5 used above
     }
 
-    /// Emit `define` stubs for any `@symbol` that is *called* in the emitted IR
-    /// but never `define`d or `declare`d. LLVM/clang rejects such references, but
-    /// they legitimately occur in erased-generic dead code (method bodies that
-    /// were monomorphised away leave behind unresolved bare method calls). Each
-    /// stub returns a typed default matching the return type observed at a call
-    /// site. clang tolerates call/definition signature mismatches, so a single
-    /// zero-arg stub satisfies every call form for that symbol.
-    pub(crate) fn emit_undefined_symbol_stubs(&mut self) {
+    /// Legacy safety net for `@symbol`s that are *called* in the emitted IR
+    /// but never `define`d or `declare`d. This pass used to synthesize a typed
+    /// default `define` (`ret 0`) for every such symbol -- clang tolerates the
+    /// call/definition signature mismatch, so the call silently returned the
+    /// default instead of the real function (the `ptr.is_null()` class: the
+    /// compiler emitted `call i64 @ptr.is_null(...)` for an unresolved method
+    /// binding and the stub answered `false` for every pointer).
+    ///
+    /// m142: the pass now performs the same scan but FAILS LOUDLY (the driver
+    /// reports the returned message as `error[C001]`) instead of synthesizing
+    /// a stub. Any symbol reaching this pass is a compiler resolution bug at
+    /// the call site (or genuinely missing code); it must be fixed by real
+    /// resolution, never papered over with a wrong-value default.
+    pub(crate) fn emit_undefined_symbol_stubs(&mut self) -> Result<(), String> {
         use std::collections::{HashMap, HashSet};
         let mut defined: HashSet<String> = HashSet::new();
         let mut declared: HashSet<String> = HashSet::new();
-        // Preferred return type per called symbol (first non-void wins).
-        let mut called: HashMap<String, String> = HashMap::new();
+        // Preferred return type per called symbol (first non-void wins) and
+        // the IR line of the first call + the enclosing definition, so the
+        // diagnostic can name all three.
+        let mut called: HashMap<String, (String, usize, String)> = HashMap::new();
+        let mut current_define = String::from("<module>");
+        // m142: known-gap tolerance. Unresolved calls from a CONTRACT CLAUSE
+        // (clause expressions are only light-validated today -- W002-W004 lint
+        // wave is landing) or naming an INTERFACE method with no concrete impl
+        // (erased interface dispatch: the stdlib Error.description gap) stay
+        // stubbed, but LOUDLY (W005). A symbol called from BOTH a tolerated and
+        // a non-tolerated site is a hard error -- the bug must not hide behind
+        // an unrelated tolerant site.
+        let iface_methods: Vec<String> = self.types.interfaces.entries().iter()
+            .flat_map(|(_, ms)| ms.iter().map(|(m, _)| m.clone()))
+            .collect();
+        let mut tolerated_syms: HashSet<String> = HashSet::new();
+        let mut intolerant_syms: HashSet<String> = HashSet::new();
+        let mut in_contract_clause = false;
 
         let take_name = |rest: &str| -> Option<String> {
             // rest begins right after '@'; take the identifier up to '('.
@@ -1258,12 +1280,29 @@ impl IrEmitter {
             Some(rest[..end].to_string())
         };
 
-        for line in self.output.lines() {
-            let t = line.trim_start();
+        for (ir_line, line) in self.output.lines().enumerate() {
+            // m142: scan only the IR CODE, never the contents of string
+            // constants -- the selfhost compiler embeds generated IR in
+            // `c"... call double @sq(...) ..."` literals, and matching those
+            // registered phantom calls/definitions (a false C001).
+            let t = match line.find('"') {
+                Some(q) => &line[..q],
+                None => line,
+            };
+            let t = t.trim_start();
+            // Contract-clause window: `; contract: ...` opens, `contract_okN:`
+            // closes (see contracts.rs::compile_contract_check).
+            if t.starts_with("; contract:") {
+                in_contract_clause = true;
+            }
+            if in_contract_clause && t.starts_with("contract_ok") && t.ends_with(':') {
+                in_contract_clause = false;
+            }
             if let Some(rest) = t.strip_prefix("define ") {
                 if let Some(at) = rest.find('@') {
                     if let Some(name) = take_name(&rest[at + 1..]) {
-                        defined.insert(name);
+                        defined.insert(name.clone());
+                        current_define = name;
                     }
                 }
             } else if let Some(rest) = t.strip_prefix("declare ") {
@@ -1284,9 +1323,18 @@ impl IrEmitter {
                     if let Some(ret_ty) = head.rsplit(char::is_whitespace).next() {
                         if !ret_ty.is_empty() && !ret_ty.ends_with(')') {
                             if let Some(name) = take_name(&after[at + 1..]) {
-                                let entry = called.entry(name).or_insert_with(|| ret_ty.to_string());
-                                if *entry == "void" && ret_ty != "void" {
-                                    *entry = ret_ty.to_string();
+                                let leaf = name.rsplit('.').next().unwrap_or(name.as_str());
+                                let tolerated = in_contract_clause
+                                    || iface_methods.iter().any(|m| m == leaf);
+                                if tolerated {
+                                    tolerated_syms.insert(name.clone());
+                                } else {
+                                    intolerant_syms.insert(name.clone());
+                                }
+                                let entry = called.entry(name)
+                                    .or_insert_with(|| (ret_ty.to_string(), ir_line + 1, current_define.clone()));
+                                if entry.0 == "void" && ret_ty != "void" {
+                                    entry.0 = ret_ty.to_string();
                                 }
                             }
                         }
@@ -1295,9 +1343,10 @@ impl IrEmitter {
             }
         }
 
-        let mut missing: Vec<(String, String)> = called
+        let mut missing: Vec<(String, String, usize, String)> = called
             .into_iter()
-            .filter(|(name, _)| {
+            .map(|(name, (ret_ty, line, from))| (name, ret_ty, line, from))
+            .filter(|(name, _, _, _)| {
                 !defined.contains(name)
                     && !declared.contains(name)
                     && !name.starts_with("llvm.")
@@ -1321,25 +1370,55 @@ impl IrEmitter {
             })
             .collect();
         if missing.is_empty() {
-            return;
+            return Ok(());
         }
         missing.sort();
-        self.emitln("");
-        self.emitln("; --- auto-stubs for erased-generic dead-code callees ---");
-        for (name, ret_ty) in missing {
+        let legacy_harness = self.config.legacy_stub_unresolved;
+        let (soft, hard): (Vec<_>, Vec<_>) = missing.into_iter().partition(|(name, _, _, _)| {
+            legacy_harness || (tolerated_syms.contains(name) && !intolerant_syms.contains(name))
+        });
+        // Known-gap sites: keep the historical typed stub, but make the gap
+        // visible on every compile (W005) instead of silently answering 0.
+        for (name, ret_ty, line, from) in &soft {
+            eprintln!(
+                "warning[W005]: unresolved call '@{name}' from @{from} (IR line {line}) \
+                 is a known erased-interface/contract-clause gap; emitting a typed default \
+                 stub (see docs/COMPILER_BUGS.md)"
+            );
             if ret_ty == "void" {
                 self.emitln(&format!("define void @{name}() {{"));
                 self.emitln("entry:");
                 self.emitln("  ret void");
                 self.emitln("}");
             } else {
-                let default = Self::default_const_for(&ret_ty);
+                let default = Self::default_const_for(ret_ty);
                 self.emitln(&format!("define {ret_ty} @{name}() {{"));
                 self.emitln("entry:");
                 self.emitln(&format!("  ret {ret_ty} {default}"));
                 self.emitln("}");
             }
         }
+        if hard.is_empty() {
+            return Ok(());
+        }
+        // m142: FAIL LOUDLY. A called-but-undefined symbol outside the known
+        // gaps means the compiler resolved a call to something it never
+        // emitted a definition for (historically auto-stubbed to `ret 0`).
+        // Name every symbol, its return type, the IR line and the enclosing
+        // definition so the resolution bug is actionable.
+        let detail: Vec<String> = hard
+            .iter()
+            .map(|(name, ret_ty, line, from)| {
+                format!("'{name}' (returns {ret_ty}, first call at IR line {line}, from @{from})")
+            })
+            .collect();
+        Err(format!(
+            "unresolved function symbol(s) called but never defined or declared: {}. \
+             These calls previously received a silent zero/default auto-stub; fix the call \
+             resolution (or provide the missing function) instead. Re-run with --emit-ir to \
+             inspect the call sites.",
+            detail.join(", ")
+        ))
     }
 
     /// Walk all top-level declarations (recursing into modules) and emit
@@ -1807,5 +1886,43 @@ impl IrEmitter {
     /// matching the convention already used for contract/display strings.
     pub(crate) fn escape_ir_string(s: &str) -> String {
         s.replace('\\', "\\\\").replace('"', "\\22")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// m142: a called-but-undefined symbol must FAIL the compilation instead
+    /// of receiving a silent `ret 0` auto-stub (see the is_null relay).
+    #[test]
+    fn m142_undefined_symbols_fail_loudly() {
+        let mut em = IrEmitter::new();
+        em.emitln("define i64 @real_fn() {");
+        em.emitln("entry:");
+        em.emitln("  ret i64 0");
+        em.emitln("}");
+        em.emitln("define i64 @caller() {");
+        em.emitln("entry:");
+        em.emitln("  %t = call i64 @ghost_fn(i64 1)");
+        em.emitln("  ret i64 %t");
+        em.emitln("}");
+        let err = em.emit_undefined_symbol_stubs()
+            .expect_err("an undefined called symbol must be a hard error");
+        assert!(err.contains("ghost_fn"), "diagnostic must name the symbol: {err}");
+        assert!(!em.output.contains("define i64 @ghost_fn"),
+            "no stub may be synthesized");
+        // A fully-defined module is a strict no-op -- and IR text embedded in
+        // STRING CONSTANTS (the selfhost compiler's c"... call @sq() ..."
+        // literals) must not register phantom calls/definitions.
+        let mut ok = IrEmitter::new();
+        ok.emitln("define i64 @real_fn() {");
+        ok.emitln("entry:");
+        ok.emitln("  ret i64 0");
+        ok.emitln("}");
+        ok.emitln("%t = call i64 @real_fn()");
+        ok.emitln("@.str0 = private unnamed_addr constant [30 x i8] c\"  call i64 @phantom_fn()\\00\"");
+        assert!(ok.emit_undefined_symbol_stubs().is_ok(),
+            "resolved calls must not error, quoted IR text must be ignored");
     }
 }
