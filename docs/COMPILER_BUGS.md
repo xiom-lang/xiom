@@ -8869,3 +8869,95 @@ parenthesized form `(1 << 8) | 2` keeps its meaning, and unparenthesized
 bit-packing now behaves like C/Rust. R-2 (match binds a copy for persistent
 `Option[T]`) and R-3 (block-comment diagnostic) remain open.
 
+## 2026-09-26 -- m146: signed narrow widening for let-bound extern results (net.tcp_connect relay)
+
+### Symptom (playground relay, full repro)
+```
+match net.tcp_connect("127.0.0.1", 1) {  // no listener
+  Ok(s)  => io.println("closed=Ok"),
+  Err(e) => io.println("closed=Err"),
+}
+```
+printed `closed=Ok`. REPRODUCED on Windows with the same shape (exit 7 =
+Ok). The runtime wrapper is correct (`xiom_socket_connect` returns
+`connect(2)`'s result; SOCK_STREAM is blocking so no completion wait is
+needed), so the defect is in the compiler's handling of narrow extern
+results.
+
+### Root cause (two stacked issues)
+1. **ABI width**: the pinned `xiom.net` declares
+   `fn xiom_socket_connect(...) -> Int` -- the compiler emits
+   `declare i64 @xiom_socket_connect` while the C function returns `int`
+   (i32). On x86-64 `mov eax, -1` zero-extends into RAX, so the i64 caller
+   sees 4294967295, not -1. Not fixable at the binding site: the extern
+   DECLARATION must say `Int32` (or the runtime must return a 64-bit
+   sentinel). This is a stdlib-source decision.
+2. **Missing signedness tracking (compiler bug, fixed here)**: with the
+   extern correctly declared `-> Int32`, the call still misbehaved: the
+   let/var binding path recorded the inferred XIOM return type
+   (`infer_call_return_xiom`) into `local_xiom_types` WITHOUT updating
+   `signed_locals`. The narrow load's widening consults `signed_locals`
+   and a missing entry means UNSIGNED, so the i32 -1 widened
+   `zext i32 -1 to i64` -> `result < 0` false. Without this fix a stdlib
+   switch to `Int32` would NOT have repaired tcp_connect.
+
+### Fix
+`IrEmitter::track_local_signedness(name, xiom_type)` keeps `signed_locals`
+in sync, applied to all four inference arms (`infer_if_xiom_type`,
+`infer_try_xiom_type`, `infer_field_payload_xiom`,
+`infer_call_return_xiom`) in BOTH the `let` and `var` paths. The two arms
+that already updated the map inline are unchanged in effect. Unsigned and
+aggregate types remove the entry, so a stale signed binding under the same
+name cannot leak in.
+
+### Evidence / lock
+- `tmp/sprintc/m146_tcp_int32_probe.xi` (extern declared `-> Int32`, refused
+  connect): before the fix exit 7 (false Ok), after exit 0 (Err correct).
+  IR check: `%tmp46 = zext i32 %tmp45 to i64` (before) vs
+  `sext i32 ... to i64` (after).
+- Lock `tests/regression/m146_signed_extern_result/main.xi` + e2e + CI line:
+  `strcmp("a","b")` (declared `Int32`) let-bound and compared `< 0`, `== 0`
+  on equal strings and `> 0` reversed; deterministic, no sockets.
+- `tmp/sprintc/m146_tcp_connect_probe.xi` (pinned `net.tcp_connect`) still
+  reports Ok -- expected until the stdlib declares `Int32`.
+
+### Cross-lane
+- **stdlib**: declare int-returning externs as `Int32` (sweep the extern
+  block; `xiom_socket_*`, `xiom_dns_resolve`, ...) once a pin carries this
+  fix; this fix is a PREREQUISITE for the declaration change to work.
+  Optional: propagate errno/WSAGetLastError in the `NetError.code` field
+  (currently the wrapper reports the -1 sentinel). The pending release with
+  the wasm asset (C8) does NOT fix tcp_connect -- it needs this compiler
+  change + the stdlib declaration + a pin carrying both.
+
+## 2026-09-26 -- interface-as-value support matrix (answer for the stdlib Error.chain wave)
+
+The stdlib deferred the `Error.chain` W005 restructure pending the compiler
+lane's expected interface shape. Probes (`tmp/sprintc/m146_iface_*_probe.xi`)
+establish what works TODAY:
+
+| shape | status |
+| --- | --- |
+| interface method call, concrete receiver known at the call site | works (static dispatch, incl. default methods calling siblings on `self`) |
+| interface-typed struct FIELD whose concrete value is locally tracked | works (`Box{ item: SomeError }.item.describe()`) |
+| generic bound `fn f[T: Error](e: &T)` (monomorphised per call site) | works |
+| interface-typed PARAM receiving an aggregate (`e: Error` called with a struct) | C001 "unsupported: interface-typed parameter ... receiving aggregate argument" |
+| interface VALUE in `Option[Error]` payloads / erased receivers | W005 erased-dispatch gap: bare unresolved call, default stub (the `Error.description`/`source` case) |
+
+There is NO dynamic dispatch (no vtable/tag) for interface values, so
+heterogeneous error storage cannot use the interface itself.
+
+**Expected shape for the Error wave**: make the error DATA a CONCRETE closed
+type and keep interfaces only as static bounds:
+```xi
+pub type ErrorInfo = { kind: ErrorKind; message: Str; cause: Int; } // cause: index/handle, -1 = none
+pub enum ErrorKind { Io, Parse, Net, ... }
+pub fn chain(info: ErrorInfo, arena: &Vec[ErrorInfo]) -> ErrorChain { ... }
+// optional: pub interface Error { fn info(self) -> ErrorInfo; }  // concrete return type
+//            fn f[T: Error](e: &T) ...                            // generic helpers only
+```
+Never use the interface as a value type in signatures (`Option[Error]`,
+`e: Error`, `cause: Error`). Full dynamic interface dispatch (vtables) and
+interface-typed aggregate params are larger follow-up features, not
+prerequisites for the restructure.
+

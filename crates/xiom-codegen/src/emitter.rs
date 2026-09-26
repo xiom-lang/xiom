@@ -468,6 +468,23 @@ impl IrEmitter {
         }
     }
 
+    /// m146 (playground relay, net.tcp_connect): keep `signed_locals` in sync
+    /// whenever a local's XIOM type is recorded by INFERENCE (call returns,
+    /// if-joins, `?` payloads, field payloads). Narrow loads consult
+    /// `signed_locals` and a missing entry means UNSIGNED, so a let-bound
+    /// extern returning `Int32` (-1 on failure) widened `zext i32 -1 to i64`
+    /// == 4294967295: `result < 0` was false and tcp_connect reported Ok on a
+    /// refused connection. Also REMOVES the entry for unsigned/aggregate types
+    /// (e.g. "UInt8", "Vec[UInt8]") so an earlier signed binding under the
+    /// same name cannot leak in.
+    pub(crate) fn track_local_signedness(&mut self, name: &str, xiom_type: &str) {
+        if Self::is_signed_xiom_type(xiom_type) {
+            self.local.signed_locals.insert(name.to_string());
+        } else {
+            self.local.signed_locals.remove(name);
+        }
+    }
+
     /// gzip-DECOMPRESS fix (2026-08-19): `let v = r.value;` / `var v = r.error;`
     /// -- record the payload XIOM type of a payload-FIELD access so method
     /// dispatch on the binding sees "Vec[UInt8]" instead of degrading to

@@ -18,14 +18,22 @@ kill + UFCS", "2026-09-26 -- m143: by-value receiver container mutation" and
   > comparisons, additive/mul stay tighter than shifts, and the stdlib's
   `(n >> hi) & 1 == 1` shape is unchanged. Locks: 2 parser AST-shape unit
   tests + `tests/regression/m145_shift_precedence` + e2e + CI line.
-- **New relay received (playground, net.tcp_connect)**: confirmed on
-  Windows -- `tcp_connect("127.0.0.1", 1)` returns Ok on a refused
-  connection. Root cause pinned: the extern is `declare i64
-  @xiom_socket_connect` while C returns `int` (i32), AND the binding path
-  records a call-return XIOM type without updating `signed_locals`, so the
-  narrow load widens `zext i32 -1 to i64` == 4294967295 -> `result < 0` is
-  false. Fix (next batch): keep `signed_locals` in sync in the let/var
-  inference arms + a deterministic lock (strcmp-based extern Int32 fixture).
+- **Playground relay DONE (m146, net.tcp_connect)**: reproduced on Windows --
+  `tcp_connect("127.0.0.1", 1)` returned Ok on a refused connection. Two
+  stacked causes: (1) the binding path recorded a call-return XIOM type
+  WITHOUT updating `signed_locals`, so an `Int32` result widened `zext i32
+  -1 to i64` == 4294967295 and `result < 0` was false; fixed (all four
+  inference arms in the let/var paths now track signedness). (2) The pinned
+  `xiom.net` declares the extern `-> Int` (i64) while C returns `int` (i32):
+  `mov eax,-1` zero-extends across the ABI, so even a correct comparison
+  cannot see the sign -- stdlib action: declare int-returning externs
+  `Int32` (needs this fix in the pin to behave), or add a runtime shim
+  returning a 64-bit sentinel. Runtime inspection: `xiom_socket_connect`
+  correctly returns `connect(2)`'s result and uses a blocking SOCK_STREAM
+  (no completion wait needed); errno/WSAGetLastError is not propagated in
+  the `code` field (enhancement). Not fixed by the wasm asset upload --
+  needs the stdlib change + pin carrying both. Lock:
+  `tests/regression/m146_signed_extern_result` + e2e + CI line.
 - **Interface-shape answer for the stdlib's Error.chain wave**: empirically
   (probes m146_*): interface dispatch works when the concrete type is
   statically known at the call site (including default methods calling
@@ -122,7 +130,12 @@ kill + UFCS", "2026-09-26 -- m143: by-value receiver container mutation" and
   85/85 (+2 ignored); stdlib modules 40/40; feature-reg 510/510;
   integration 130; robustness 63; fuzz 24; perf 3/3; diff 24;
   ascii_guard green.
-- **Git**: local `main` = origin/main + 55 commits (all UNPUSHED; pushes
+- **Gates (m146 batch)**: full e2e **2382/2382 (+4 ignored)** in one run;
+  checker 195/195; stdlib-exec 85/85 (+2 ignored); feature-reg 510/510;
+  integration 130; robustness 63; fuzz 24; perf 3/3; diff 24; probes
+  (`m146_tcp_int32_probe` exit 0 = Err correct; `m146_i32_widen_probe`
+  exit 0); ascii_guard green.
+- **Git**: local `main` = origin/main + 56 commits (all UNPUSHED; pushes
   only on the owner's ask). stdlib checkout still detached at
   `stdlib-v0.61.3`.
 

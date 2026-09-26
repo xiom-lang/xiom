@@ -522,25 +522,35 @@ impl IrEmitter {
                 } else if let Some(ix) = self.infer_if_xiom_type(value) {
                     // gzip fix (2026-08-19): `let v = if c { f() } else { g() };`
                     // -- the binding keeps the arm tail's XIOM type ("Vec[UInt8]").
-                    self.local.local_xiom_types.insert(name.name.clone(), ix);
+                    self.local.local_xiom_types.insert(name.name.clone(), ix.clone());
+                    self.track_local_signedness(&name.name, &ix);
                 } else if let Some(tx) = self.infer_try_xiom_type(value) {
                     // Round-6 fix (2026-08-19): `let name = f()?;` -- the binding
                     // keeps the Option/Result payload XIOM type ("Str") so
                     // method dispatch on it works.
-                    self.local.local_xiom_types.insert(name.name.clone(), tx);
+                    self.local.local_xiom_types.insert(name.name.clone(), tx.clone());
+                    self.track_local_signedness(&name.name, &tx);
                 } else if let Some(px) = self.infer_field_payload_xiom(value) {
                     // gzip-DECOMPRESS fix (2026-08-19): `let v = r.value;` --
                     // the binding keeps the Option/Result payload type
                     // ("Vec[UInt8]") so method dispatch/indexing/&passing on it
                     // work (was untyped -> degraded to Str/i64 -> AV).
-                    self.local.local_xiom_types.insert(name.name.clone(), px);
+                    self.local.local_xiom_types.insert(name.name.clone(), px.clone());
+                    self.track_local_signedness(&name.name, &px);
                 } else if let Some(rt) = self.infer_call_return_xiom(value) {
                     // BUG 52: `var m = make_map()` -- a local bound to a fn
                     // call keeps the callee's declared return type ("Map[Str,
                     // MyVal]") so generic METHOD calls on it can infer type
                     // args (m.get("b") must mono Map.get[Str, MyVal], not
                     // [Str, Str]).
-                    self.local.local_xiom_types.insert(name.name.clone(), rt);
+                    // m146 (playground relay, net.tcp_connect): ALSO keep
+                    // `signed_locals` in sync. A let-bound extern returning
+                    // `Int32` (-1 on failure) widened `zext i32 -1 to i64` ==
+                    // 4294967295 because a missing entry means UNSIGNED, so
+                    // `result < 0` was false and tcp_connect reported Ok on a
+                    // refused connection.
+                    self.local.local_xiom_types.insert(name.name.clone(), rt.clone());
+                    self.track_local_signedness(&name.name, &rt);
                 }
                 // round-13 (tuple payloads): derive the Vec ELEMENT type from
                 // the recorded XIOM type ("Vec[(Int, Int)]" -> "(Int, Int)") so
@@ -838,25 +848,35 @@ impl IrEmitter {
                 } else if let Some(ix) = self.infer_if_xiom_type(value) {
                     // gzip fix (2026-08-19): `let v = if c { f() } else { g() };`
                     // -- the binding keeps the arm tail's XIOM type ("Vec[UInt8]").
-                    self.local.local_xiom_types.insert(name.name.clone(), ix);
+                    self.local.local_xiom_types.insert(name.name.clone(), ix.clone());
+                    self.track_local_signedness(&name.name, &ix);
                 } else if let Some(tx) = self.infer_try_xiom_type(value) {
                     // Round-6 fix (2026-08-19): `let name = f()?;` -- the binding
                     // keeps the Option/Result payload XIOM type ("Str") so
                     // method dispatch on it works.
-                    self.local.local_xiom_types.insert(name.name.clone(), tx);
+                    self.local.local_xiom_types.insert(name.name.clone(), tx.clone());
+                    self.track_local_signedness(&name.name, &tx);
                 } else if let Some(px) = self.infer_field_payload_xiom(value) {
                     // gzip-DECOMPRESS fix (2026-08-19): `let v = r.value;` --
                     // the binding keeps the Option/Result payload type
                     // ("Vec[UInt8]") so method dispatch/indexing/&passing on it
                     // work (was untyped -> degraded to Str/i64 -> AV).
-                    self.local.local_xiom_types.insert(name.name.clone(), px);
+                    self.local.local_xiom_types.insert(name.name.clone(), px.clone());
+                    self.track_local_signedness(&name.name, &px);
                 } else if let Some(rt) = self.infer_call_return_xiom(value) {
                     // BUG 52: `var m = make_map()` -- a local bound to a fn
                     // call keeps the callee's declared return type ("Map[Str,
                     // MyVal]") so generic METHOD calls on it can infer type
                     // args (m.get("b") must mono Map.get[Str, MyVal], not
                     // [Str, Str]).
-                    self.local.local_xiom_types.insert(name.name.clone(), rt);
+                    // m146 (playground relay, net.tcp_connect): ALSO keep
+                    // `signed_locals` in sync. A let-bound extern returning
+                    // `Int32` (-1 on failure) widened `zext i32 -1 to i64` ==
+                    // 4294967295 because a missing entry means UNSIGNED, so
+                    // `result < 0` was false and tcp_connect reported Ok on a
+                    // refused connection.
+                    self.local.local_xiom_types.insert(name.name.clone(), rt.clone());
+                    self.track_local_signedness(&name.name, &rt);
                 }
                 // round-13 (tuple payloads): derive the Vec ELEMENT type from
                 // the recorded XIOM type ("Vec[(Int, Int)]" -> "(Int, Int)") so

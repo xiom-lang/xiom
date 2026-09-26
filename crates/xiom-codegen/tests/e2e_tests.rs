@@ -5426,6 +5426,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// A let-bound extern returning a signed narrow int must sign-extend its
+// negative values (`strcmp < 0`); the binding used to zext, so a false
+// success reported (the net.tcp_connect relay class).
+#[test] fn e2e_m146_signed_extern_result() {
+    assert_eq!(
+        compile_and_run("tests/regression/m146_signed_extern_result/main.xi"),
+        Some(0),
+        "Int32 extern results must widen sext (negative comparison)"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)
