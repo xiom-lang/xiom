@@ -5437,6 +5437,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// R-2 (benchmark relay): match bindings on a persistent Option[T] must ALIAS
+// the boxed aggregate payload (field writes and Vec pushes through the
+// binding used to mutate a stack copy; the payload kept the old value).
+#[test] fn e2e_m148_match_payload_alias() {
+    assert_eq!(
+        compile_and_run("tests/regression/m148_match_payload_alias/main.xi"),
+        Some(0),
+        "Some(v) bindings must alias the boxed payload (struct field + Vec push)"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

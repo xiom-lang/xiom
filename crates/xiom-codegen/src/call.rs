@@ -369,6 +369,10 @@ impl IrEmitter {
         match expr {
             Expr::Paren(inner, _) => self.infer_expr_xiom_type_deep(inner),
             Expr::Ident(id) => self.xiom_type_of_local(&id.name),
+            // m148b: struct literals carry their named type -- needed by
+            // `match Some(Cell{ n: 9 }) { Some(t) => t.n }` (temporary
+            // scrutinees) so the arm binding dereferences the boxed payload.
+            Expr::Struct(name, _, _, _) => Some(name.name.clone()),
             // R52: literals carry their XIOM type so match arms composed of
             // literals participate in the common-type prediction below.
             Expr::Str(..) => Some("Str".to_string()),

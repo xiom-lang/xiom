@@ -10,6 +10,27 @@ kill + UFCS", "2026-09-26 -- m143: by-value receiver container mutation" and
 
 ## Status snapshot
 
+- **R-2 DONE (m148, benchmark relay): match payload bindings ALIAS the box.**
+  `match o { Some(v) => { v.n = 6; } }` on a persistent `Option[Cell]` used
+  to mutate a stack copy (re-read saw the old value); `Some(v) => v.push(x)`
+  on a Vec payload kept len 0. The arm binding now registers the payload
+  ADDRESS with the pointer-backed struct-local convention for aggregate and
+  Vec payloads (field writes, method receivers and pushes hit the box).
+  Also fixed in the same batch (pre-existing on the 2026-09-22 release
+  binary): temporary scrutinees (`match Some(Cell{ n: 9 }) { Some(t) => t.n }`)
+  bound the raw i64 handle and read 0 -- `scrutinee_payload_xiom` now
+  infers `Some/Ok/Err` literal inner types and
+  `infer_expr_xiom_type_deep` handles `Expr::Struct`. Lock
+  `tests/regression/m148_match_payload_alias` + e2e + CI line.
+  Harness fix: stdlib_tests compiles now pass `--timeout 900` (the CLI's
+  300s default tripped deterministically under the 39-way parallel load;
+  two incidents, solo runtime ~120s).
+- **Playground relay answer (tcp_connect)**: the stdlib's `Int32` extern
+  declaration change is committed on their side but NOT yet pushed
+  (origin/main still 49b4731). It ships in the first release whose
+  `STDLIB_VERSION` carries that ref AND whose compiler carries m146; the
+  wasm-asset release does not fix it. Verify tcp_connect at the first such
+  pin (absorption step 6).
 - **Item 3 PREP DONE (m147): G-10 receiver-registry fix + flip verified.**
   The stdlib reports item 3 fixed on their side (90e9185: printf x3,
   _scrypt_blockmix x2, path.replace) but that ref is UNPUSHED
@@ -159,11 +180,16 @@ kill + UFCS", "2026-09-26 -- m143: by-value receiver container mutation" and
   fuzz 24; perf 3/3; diff 24; ascii_guard green. (Flip-enabled
   verification runs: corpus green + full e2e green against the patched
   pin, 2 runs.)
+- **Gates (m148 batch)**: full e2e **2383/2383 (+4 ignored)**; checker
+  195/195; stdlib-exec 85/85 (+2 ignored); stdlib modules 40/40 (timeout
+  fix); feature-reg 510/510; integration 130; robustness 63; fuzz 24;
+  perf 3/3; diff 24; probes green (`m148_match_bind_probe` after=6,
+  `m148_match_vec_payload_probe` len=1); ascii_guard green.
 - **New benchmark blocker list**: R-1/R-2/R-3/R-5/R-6 per the relay, but
   `docs/FAIRNESS-RELAY-2026-09-26.md` is NOT in this tree -- R-1 fixed
-  (m145), R-2/R-3 summarized earlier, R-5/R-6 contents unknown; need the
-  doc or a summarized relay to act.
-- **Git**: local `main` = origin/main + 57 commits (all UNPUSHED; pushes
+  (m145), R-2 fixed (m148), R-3 (block-comment diagnostic) summarized,
+  R-5/R-6 contents unknown; need the doc or a summarized relay to act.
+- **Git**: local `main` = origin/main + 58 commits (all UNPUSHED; pushes
   only on the owner's ask). stdlib checkout still detached at
   `stdlib-v0.61.3`.
 

@@ -9024,3 +9024,59 @@ fixed (m145); R-2 (match binds a copy for persistent `Option[T]`) and R-3
 (block-comment diagnostic) are summarized; R-5/R-6 need the document or a
 summarized relay.
 
+## 2026-09-26 -- m148 (R-2): match payload bindings alias the box
+
+### Symptom (benchmark relay R-2)
+`match o { Some(v) => { v.n = 6; } }` on a persistent `Option[Cell]` did not
+change `o`'s payload: the re-read saw 5, and `Some(v) => v.push(7)` on a
+Vec payload left `len == 0` (relay's workaround was a one-element Vec).
+
+### Root cause
+The match arm's payload binding load-dereferenced the boxed payload into a
+FRESH alloca (`%v = alloca %struct.Cell; store loaded, ...`) and registered
+that alloca as the binding -- every field write mutated the stack copy.
+A second, pre-existing defect: TEMPORARY scrutinees
+(`match Some(Cell{ n: 9 }) { Some(t) => t.n }`) had no declared payload type
+(`scrutinee_payload_xiom` handled locals/calls only), so the arm fell to the
+i64-handle fallback and `t.n` read 0 (reproduced on the 2026-09-22 release
+binary).
+
+### Fix
+- Aggregate and Vec payloads are now bound by ADDRESS: the binding
+  registers (payload-pointer register, %struct.X) -- the standard
+  pointer-backed struct-local convention used for receivers -- so field
+  GEPs, method receivers, `&v` materialization and container pushes target
+  the payload in the box. Scalar payloads (Str/Float/number) keep their
+  existing value bindings; scalar arm reassignment stays a rebind.
+- `scrutinee_payload_xiom` infers `Some/Ok/Err` literal scrutinee inner
+  types via `infer_expr_xiom_type_deep`, which now handles `Expr::Struct`
+  (named struct literal -> its type name).
+
+### Evidence / lock
+- Probes: `tmp/sprintc/m148_match_bind_probe.xi` before after=5/orig=5 ->
+  after after=6/orig=5 (the source struct passed into `Some` is still a
+  copy -- standard value semantics); `m148_match_vec_payload_probe.xi`
+  before vec_len=0 -> after vec_len=1.
+- Lock `tests/regression/m148_match_payload_alias/main.xi` + e2e + CI line:
+  struct field mutation, Vec push + element read, read-only temporary
+  match, and the scalar-rebind control.
+- Gates: full e2e **2383/2383 (+4 ignored)**; checker 195/195; stdlib-exec
+  85/85 (+2 ignored); stdlib modules 40/40; feature-reg 510/510;
+  integration 130; robustness 63; fuzz 24; perf 3/3; diff 24.
+
+### Harness fix (same batch)
+`crates/xiom-codegen/tests/stdlib_tests.rs` now compiles with
+`--timeout 900`: the CLI's 300s default tripped deterministically when
+`stdlib_all_modules_compile_to_ir` ran alongside the 39 per-module tests
+(each compiles the whole program; solo ~120s, parallel ~430s), producing
+"compilation timed out after 300 seconds" flakes in two batches.
+
+### Cross-lane
+- Benchmark lane: R-2 closed; R-1 closed (m145); R-3 open; R-5/R-6 need
+  the relay document.
+- Playground lane (tcp_connect): the stdlib `Int32` extern declaration is
+  committed on the stdlib side but NOT pushed (origin/main 49b4731); it
+  ships in the first release whose pin carries it together with m146 --
+  verify tcp_connect at that pin (absorption step 6); the wasm-asset
+  release does not fix it.
+

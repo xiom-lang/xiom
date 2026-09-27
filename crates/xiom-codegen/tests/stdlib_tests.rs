@@ -132,9 +132,13 @@ fn stdlib_all_modules_compile_to_ir() {
     f.write_all(program.as_bytes()).expect("write temp file");
     let tmp_path = tmp_file.to_str().unwrap().to_string();
 
-    // Compile with --emit-ir (checker pass is required)
+    // Compile with --emit-ir (checker pass is required). Timeout raised past
+    // the CLI's 300s default: this test compiles ALL modules in one unit and
+    // runs alongside 39 per-module tests that each compile the whole program
+    // too, so under parallel CPU load the default tripped (deterministic
+    // "compilation timed out after 300 seconds" flakes; solo runtime ~120s).
     let output = Command::new(xiom_path())
-        .args(["--emit-ir", &tmp_path])
+        .args(["--emit-ir", "--timeout", "900", &tmp_path])
         .current_dir(&project_dir)
         .output()
         .expect("failed to execute xiom");
@@ -164,7 +168,7 @@ fn compile_module(module: &str) -> bool {
     fs::write(&tmp_file, program).expect("write temp file");
     let tmp_path = tmp_file.to_str().unwrap().to_string();
     let output = Command::new(xiom_path())
-        .args(["--emit-ir", &tmp_path])
+        .args(["--emit-ir", "--timeout", "900", &tmp_path])
         .current_dir(&project_dir)
         .output()
         .expect("failed to execute xiom");

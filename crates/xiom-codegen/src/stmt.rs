@@ -2584,6 +2584,17 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                 // callee's declared Option/Result return type.
                                 let declared = self.scrutinee_payload_xiom(expr_match, val_field);
 
+                                // m148 (benchmark relay R-2): when the payload
+                                // is an aggregate living in the heap box, bind
+                                // an ALIAS of the box (register = payload
+                                // address, ty = struct) instead of loading a
+                                // COPY. Consumers treat (reg, %struct.X) like
+                                // any struct local; field writes through the
+                                // binding now land in the payload:
+                                // `match o { Some(v) => { v.n = 6; } }` used to
+                                // mutate a stack copy and read back the old
+                                // value.
+                                let mut alias_payload = false;
                                 let (bind_val_inner, bind_ty_inner) = match declared.as_deref() {
                                     Some("Str") if field_ty == "i64" => {
                                         let sptr = self.fresh_tmp();
@@ -2613,9 +2624,15 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                     Some(decl) if field_ty == "i64" && (decl.starts_with("Vec[") || decl.contains(".Vec")) => {
                                         let vp = self.fresh_tmp();
                                         self.emitln(&format!("  {vp} = inttoptr i64 {loaded} to %struct.Vec*"));
-                                        let vl = self.fresh_tmp();
-                                        self.emitln(&format!("  {vl} = load volatile %struct.Vec, %struct.Vec* {vp}"));
-                                        (vl, "%struct.Vec".to_string())
+                                        // m148 (R-2): bind the boxed Vec header
+                                        // by ADDRESS so `Some(v) => v.push(x)`
+                                        // updates the payload (len/data) instead
+                                        // of a stack copy of the header (the
+                                        // re-read saw len 0). The (register,
+                                        // %struct.Vec) pair is the standard
+                                        // pointer-backed struct-local convention.
+                                        alias_payload = true;
+                                        (vp, "%struct.Vec".to_string())
                                     }
                                     // Struct payload: the i64 is a heap pointer to a
                                     // boxed struct (Option/Result/enum). Load the struct
@@ -2643,11 +2660,11 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                         if s_ty.starts_with('%') {
                                             let sptr = self.fresh_tmp();
                                             self.emitln(&format!("  {sptr} = inttoptr i64 {loaded} to {s_ty}*"));
-                                            let sload = self.fresh_tmp();
-                                            self.emitln(&format!("  {sload} = load volatile {s_ty}, {s_ty}* {sptr}"));
                                             // Track inner variable's struct type for subsequent matches
                                             self.local.local_boxed_struct.insert(ident.name.clone(), norm.clone());
-                                            (sload, s_ty)
+                                            // m148 (R-2): alias the boxed payload.
+                                            alias_payload = true;
+                                            (sptr, s_ty)
                                         } else {
                                             (loaded.clone(), field_ty.clone())
                                         }
@@ -2673,10 +2690,19 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                         }
                                     },
                                 };
-                                let field_alloca = self.fresh_tmp();
-                                self.emitln(&format!("  {field_alloca} = alloca {bind_ty_inner}"));
-                                self.emitln(&format!("  store {bind_ty_inner} {bind_val_inner}, {bind_ty_inner}* {field_alloca}"));
-                                self.add_local(&ident.name, field_alloca, &bind_ty_inner);
+                                if alias_payload {
+                                    // m148 (R-2): `bind_val_inner` is the
+                                    // payload ADDRESS; register it under the
+                                    // struct type (the pointer-receiver local
+                                    // convention) so field GEPs/loads target
+                                    // the box and mutations persist.
+                                    self.add_local(&ident.name, bind_val_inner, &bind_ty_inner);
+                                } else {
+                                    let field_alloca = self.fresh_tmp();
+                                    self.emitln(&format!("  {field_alloca} = alloca {bind_ty_inner}"));
+                                    self.emitln(&format!("  store {bind_ty_inner} {bind_val_inner}, {bind_ty_inner}* {field_alloca}"));
+                                    self.add_local(&ident.name, field_alloca, &bind_ty_inner);
+                                }
                                 // R23: FN-MARKER payload (`Vec[fn()].pop()` ->
                                 // `Some(task)`): the i64 slot holds closure ENV
                                 // bits. Mark the binding so `task()` takes the

@@ -3298,7 +3298,15 @@ impl IrEmitter {
     /// return type ("Result[Float64, Str]") -- without this, Float64 payloads
     /// bound as raw i64 bits and float ops sitofp'd 3.14's pattern (~4.6e18).
     fn scrutinee_payload_xiom(&self, expr_match: &Expr, field_idx: i32) -> Option<String> {
+        // m148b: temporary literal scrutinees -- `match Some(Cell{ n: 9 })
+        // { Some(t) => ... }`. Without a payload type the arm binding fell to
+        // the i64-handle fallback and `t.n` read 0 (pre-existing on the
+        // 2026-09-22 release binary too). Infer the inner expression's type.
         match expr_match {
+            Expr::Some(inner, _) | Expr::Ok(inner, _) | Expr::Err(inner, _) => {
+                self.infer_expr_xiom_type_deep(inner)
+                    .filter(|t| !Self::is_generic_placeholder_name(t))
+            }
             Expr::Ident(sid) => {
                 if field_idx == 2 {
                     self.local.local_err_payload.get(&sid.name).cloned()
