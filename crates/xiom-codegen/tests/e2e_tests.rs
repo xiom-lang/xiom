@@ -5448,6 +5448,32 @@ fn e2e_safety_probe() {
     );
 }
 
+// Item 3 (exact arity): the flip must reject real mismatches while both
+// previously-false-positive shapes stay accepted -- receiver-sugar calls to
+// receiver-style generic methods (`fn Box.get[T](b: &Box[T])`, the
+// smoke_core_box shape) and generic bound methods (`T: Ord` -> interface
+// dispatch, the xiom.cmp shape).
+#[test] fn e2e_m150_exact_arity() {
+    assert_eq!(
+        compile_and_run("tests/regression/m150_exact_arity/main.xi"),
+        Some(0),
+        "receiver-sugar + generic-bound calls must stay arity-clean under the flip"
+    );
+}
+
+// Item 3 (exact arity): extra and missing arguments must fail the compile
+// (codegen used to drop extras and default the missing).
+#[test] fn e2e_m150_exact_arity_rejects() {
+    assert!(
+        compile_and_run("tests/regression/m150_exact_arity/reject_extra.xi").is_none(),
+        "extra arguments must be rejected"
+    );
+    assert!(
+        compile_and_run("tests/regression/m150_exact_arity/reject_missing.xi").is_none(),
+        "missing arguments must be rejected"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

@@ -9114,3 +9114,85 @@ Start with W002 + W003 (spec order). Plumbing findings for the next session:
   not fire after loops with a reachable `break` or after a diverging
   `if` branch the block continues from.
 
+## 2026-09-27 -- item 3 landed: exact arity ON (stdlib pin 0c50ac6) + resolver fixes
+
+`STDLIB_VERSION` -> stdlib main tip `0c50ac6e5cd9c749834e3d8993ccca44eb0708cf`
+(pushed; carries the 90e9185 call-site fixes -- printf x3,
+`_scrypt_blockmix` x2, `path.replace` -- plus c193bc4 m146 prep). The four
+exact-arity hunks from the m147 recipe are FLIPPED ON with call-shape-correct
+expected counts:
+
+1. impl-method call site: `args.len() != sig.params.len()`.
+2. module-prefix call site: same.
+3. method path: `expected = params.len() - param_offset`, where
+   - explicit-receiver instance calls (`s.push(&mut s, "Alice")`, the R52
+     lock shape) use offset 0 when `args.len() == params.len()`;
+   - implicit-this STATIC calls (`Color.is_red(&r)`) expect
+     `params.len() + 1` (arg 0 is the receiver and the params follow);
+   - otherwise the 6370 offset table applies unchanged.
+4. bare path: exact count with the implicit-this receiver allowance.
+
+The flip surfaced three latent resolution defects; this batch fixes them so
+the catalog corpus is clean under enforcement:
+
+- **Wildcard singleton capture (generic `T: Ord`).** `Path` derives Ord, so
+  `register_derived_method` registers a params-less `compare` under
+  `methods["Path"]`; as the ONLY registered `compare` it captured every
+  generic `x.compare(y)` via the singleton path, and the exact check flagged
+  catalog bodies (xiom.cmp + xiom.collections; 22 findings in the path
+  smoke). Fix: a generic receiver whose interface bound declares the method
+  now defers to interface dispatch (the wildcard capture is skipped).
+- **Receiver-sugar shape (smoke_core_box).** `fn Box.get[T](b: &Box[T])`
+  called as `b.get()` matched no exact name, so the receiver counted as an
+  argument ("'get' expects 1 argument(s), found 0"). Fix:
+  `first_param_matches_receiver` compares normalized leaves (module prefix,
+  generic args and ref marks stripped); the duplicated `strip_ref_marks`
+  closures are now one shared helper.
+- **Interface member arity model (m37_bug45).** Method-form interfaces
+  (`interface Eq5 { fn eq(other: &Self) -> Bool }`) stored the operand as
+  `"Self"`, which `want_of` counted as a receiver (want 0 for a 1-arg call).
+  Fix: interface registration keeps the distinction -- a param NAMED self
+  stores the "self" marker; a ref-marked non-self first param keeps its ref
+  mark; `want_of` only counts an UNREF'd self/Self/receiver-typed first
+  param as the receiver.
+
+### Locks
+`tests/regression/m150_exact_arity/{main,reject_extra,reject_missing}.xi`
+(receiver-sugar + generic-bound calls accepted; extra/missing args must
+fail), e2e `e2e_m150_exact_arity` + `e2e_m150_exact_arity_rejects`, CI line
+in `.github/workflows/ci.yml`.
+
+### Gates (all green)
+- Full e2e **2385/2385 (+4 ignored)**, run with `-- --test-threads 16`.
+  Default-thread runs on this box storm the ~300 contiguous m35 compiles
+  into 31-32 SILENT spurious compile failures (0 diagnostics; all fixtures
+  clean individually, 300/300 in isolation, failure subsets differ per run)
+  -- infrastructure fragility, filed for harness hardening. The harness
+  does not retry `None` compiles, and the driver prints nothing when
+  clang/link fails (silent-failure gap). 20,400 stale `e2e_*.exe` (6.3 GB)
+  were cleaned from the repo root before the green run.
+- checker 195/195; strict-clause catalog corpus 1/1; stdlib-exec 85/85
+  (+2 ignored); stdlib modules 40/40; feature-reg 510/510; integration 130;
+  robustness 63; fuzz 24; perf 3/3; diff 24 (+1 ignored).
+- Pin absorption step 6: `tcp_connect("127.0.0.1", 1)` takes the Err path
+  with a negative code (`tmp/sprintc/p_pin_tcp_refused.xi`: `ERR code=-1`),
+  so the Int32 extern result widening holds on this pin.
+- ascii_guard clean before commit.
+
+### Cross-lane
+- Benchmark lane: R-5 withdrawn to `%TEMP%\kilo\bench_r5_*` during the
+  two-writer recovery (owner relayed); resume in a worktree after this
+  commit. `io.parse_int` -> bare `@is_empty` C001 is a separate follow-on.
+- Playground probes (relays, filed as backlog): `12 + 2.to_string()` prints
+  "122" (silent Int+Str coercion -- checker hole, own batch);
+  `(2 + 2.5).to_str()` takes the W005 stub (prints 0) while
+  `float_to_string(2 + 2.5)` prints 4.5 and annotated Float64 locals work;
+  `for x in range(...)`/Range values emit repeated `unknown type
+  'Iterator' -- defaulting to i64` warnings (semantics correct; Vec/array
+  loops are quiet). `12.to_str()`, `(12).to_str()`, `(-12).to_str()` and
+  `12.to_string()` are all guaranteed.
+- Packages `docs/COMPILER-FINDINGS.md`: the "compiler does not validate
+  arity" row is FIXED by this batch; remaining compiler-lane rows (`&mut
+  Int` write-through, loop-carried CSE, mixed brackets, sign-bit tests,
+  `byte_at` >= 128) are the next candidates.
+

@@ -1,6 +1,113 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
+# CONTINUATION HANDOFF (2026-09-27 (2), compiler lane -- item 3 landed; Stage 6 lint wave next)
+
+Supersedes the 2026-09-27 header below (kept as history). Evidence for the
+item-3 landing lives in docs/COMPILER_BUGS.md "2026-09-27 -- item 3 landed:
+exact arity ON".
+
+## Next-session kickoff prompt (copy/paste)
+
+> Continue the XIOM SWARM compiler lane. Read the top section of SESSION.md
+> and docs/STAGE6_LINT_WAVE.md first. State: v0.61.3 released; stdlib
+> checkout detached at stdlib main `0c50ac6` (pushed); local main carries
+> the campaign UNPUSHED (60 commits after this docs commit); tree clean;
+> latest full e2e 2385/2385 (+4 ignored) -- run it with
+> `-- --test-threads 16` on this box: default-thread runs storm the ~300
+> contiguous m35 compiles and produce silent spurious failures (all clean
+> individually and in isolation; infrastructure, not code). No red gates.
+> Item 3 (exact arity) is DONE and ON: pin `0c50ac6` + the four hunks + three
+> resolver fixes (wildcard bound-ownership deferral, receiver-leaf matching,
+> interface member arity model), locks `m150_exact_arity` + CI. Items 1, 2
+> and R-1, R-2, R-3 are DONE -- do not redo. Item 4 (pin bump + release)
+> follows the 2026-09-25 order and is blocked on the stdlib release tag
+> (100%). Meanwhile run the Stage 6 lint wave: W002 + W003 first per
+> docs/STAGE6_LINT_WAVE.md (warning-only, user-program scope, one code per
+> lint, two locks per lint: positive warns + exit 0, negative silent;
+> corpus/e2e stay zero-warning). Plumbing notes below. Method: repro-first
+> under tmp/sprintc/, locks (tests/regression fixture + checker_locks entry
+> + CI line where e2e-able), full e2e ONCE per batch (~30 min, no rebuilds
+> during), python tools/ascii_guard.py check before every commit, commit
+> atomically with SESSION.md + COMPILER_BUGS.md evidence. Identity Lefteris
+> Notas <lefterisnotas@gmail.com>; pushes only when the owner asks; never
+> rebuild target/debug while e2e runs.
+
+## Status snapshot (2026-09-27 (2))
+
+- **Item 3 LANDED: exact arity ON.** `STDLIB_VERSION` -> stdlib main tip
+  `0c50ac6` (pushed; carries the 90e9185 call-site fixes + c193bc4 m146
+  prep). Four hunks flipped (COMPILER_BUGS m147 recipe) with
+  call-shape-correct expected counts (explicit-receiver instance calls,
+  implicit-this static calls). The flip surfaced and this batch fixed three
+  latent resolution defects: wildcard singleton capture of a derived
+  `compare` for generic `T: Ord` receivers (bind-bound receivers now defer
+  to interface dispatch); receiver-sugar shape `fn Box.get[T](b: &Box[T])`
+  + `b.get()` (normalized receiver-leaf matching); and the interface member
+  arity model (`&Self` operands vs implicit receivers, m37_bug45). Locks:
+  `tests/regression/m150_exact_arity/{main,reject_extra,reject_missing}.xi`
+  + `e2e_m150_exact_arity`/`_rejects` + CI line. Pin absorption step 6
+  verified: `tcp_connect("127.0.0.1", 1)` takes Err with a negative code.
+- **Gates (all green)**: full e2e 2385/2385 (+4 ignored; --test-threads 16),
+  checker 195/195, strict-clause catalog corpus 1/1, stdlib-exec 85/85
+  (+2 ignored), stdlib modules 40/40, feature-reg 510/510, integration 130,
+  robustness 63, fuzz 24, perf 3/3, diff 24 (+1 ignored). Harness fragility
+  filed: default-thread e2e storms the m35 block into silent spurious
+  compile failures; the harness does not retry `None` compiles and the
+  driver prints nothing when clang/link fails (silent-failure gap); 20,400
+  stale `e2e_*.exe` (6.3 GB) were cleaned from the repo root.
+- **Stage 6 lint wave READY to start** (spec: docs/STAGE6_LINT_WAVE.md;
+  order: W002 + W003, then W004, then W005-W007). Sized plumbing:
+  - Checker warnings are `CheckError { message, span, cause, guaranteed }`
+    (crates/xiom-check/src/types.rs:610), pushed via `warn`/`warn_at`
+    (lib.rs:1350/1356), catalog-scoped by the "catalog body" prefix.
+    Only 8 `CheckError {` literal sites -> adding `pub code: Option<String>`
+    is feasible; alternatively carry "W002:"/"W003:" prefixes.
+  - Driver printing: crates/xiom/src/lib.rs:868-879 partitions
+    `catalog_warns` (W000, capped 5) vs `own_warns` (W000) -- own_warns
+    must print the per-lint code. JSON envelope currently carries errors
+    only; spec item 2 wants the new `kind`/`code` in the v1 diagnostics
+    (docs/JSON_DIAGNOSTICS_V1.md); `Diagnostic{kind,code,...}` already
+    exists for W001 (lib.rs:582).
+  - Lint scope = the USER program only; `checking_catalog` guards the
+    stdlib so `catalog_corpus_is_clean` + the zero-warning e2e tests stay
+    green structurally.
+  - Two locks per lint: positive fixture (binary test asserts
+    `warning[WNNN]` in stderr AND exit 0) + negative fixture (silent),
+    pattern in crates/xiom/tests/checker_locks.rs; CI line for e2e-able
+    cases. W002 = call graph over direct calls by name, warn only when
+    every function in an SCC unconditionally reaches a cycle call before
+    any exit (guard-first recursion must stay silent). W003 = unreachable
+    statement after a diverger in the same block (per-block, not across
+    labels).
+- **Release side**: item 4 order (from the 2026-09-25 section): stdlib ref
+  with release-notes/v0.62.0.md -> pin + STDLIB_VERSION -> stdlib gates ->
+  `XIOM_STRICT_BRACKETS` default flip (+ clause default once confirmed) ->
+  re-convert notes -> version 0.61.3 -> 0.62.0 -> push (FIRST CI since R66)
+  -> tag -> registry canary -> website notes. Version still 0.61.3.
+- **Git**: local `main` = origin/main + 60 commits after this docs commit
+  (all UNPUSHED; pushes only on the owner's ask). stdlib checkout detached
+  at `0c50ac6`; compiler tree clean.
+- **Backlog (new)**:
+  - Benchmark lane resume: R-5 fix + fixtures saved at
+    `%TEMP%\kilo\bench_r5_withdraw.patch` / `bench_r5_fixtures\` /
+    `bench_r5_NOTES.md` (owner relayed); resume in a dedicated worktree
+    (branch `bench/r5-extern-gate`), then the `io.parse_int` -> bare
+    `@is_empty` C001 follow-on batch.
+  - Packages findings (`E:\xiom-packages\packages\docs\COMPILER-FINDINGS.md`):
+    the arity row is FIXED by item 3; next compiler-lane candidates:
+    `&mut Int` write-through miscompile (upnp), loop-carried CSE miscompile
+    (amqp:1266), mixed-bracket typos accepted silently (parser diagnostic),
+    bit tests with sign bit set, `byte_at` vs UInt8 >= 128.
+  - Playground findings: `12 + 2.to_string()` silently concatenates
+    ("122"); `(2 + 2.5).to_str()` hits the W005 stub (prints 0) while
+    `float_to_string(...)` prints 4.5 and annotated Float64 locals work;
+    `for x in range(...)`/Range values emit `unknown type 'Iterator' --
+    defaulting to i64` warnings (semantics correct; Vec/array loops quiet).
+  - Harness hardening: retry/telemetry for silent (`None`) compile
+    failures; driver should print the clang/link failure (no silent
+    failures); artifact retention in the repo root.
+
 # CONTINUATION HANDOFF (2026-09-27, compiler lane -- waiting on stdlib; Stage 6 lint wave next)
 
 Supersedes the 2026-09-26 header below (kept as history). All evidence for

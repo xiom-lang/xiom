@@ -287,6 +287,24 @@ struct CatalogImportContext {
     peeked_leaves: HashSet<String>,
 }
 
+/// Strip leading reference/pointer/mutability marks from a type spelling:
+/// `&mut Box[T]` -> `Box[T]`, `*const T` -> `T`. Shared by the method-call
+/// resolution helpers (receiver-shape and UFCS matching).
+fn strip_ref_marks(s: &str) -> String {
+    let mut t = s.trim();
+    loop {
+        let next = t.strip_prefix('&')
+            .or_else(|| t.strip_prefix('*'))
+            .or_else(|| t.strip_prefix("mut "))
+            .or_else(|| t.strip_prefix("const "));
+        match next {
+            Some(r) => t = r.trim_start(),
+            None => break,
+        }
+    }
+    t.to_string()
+}
+
 impl Checker {
     pub fn new() -> Self {
         let mut checker = Self {
@@ -1837,7 +1855,29 @@ impl Checker {
                 for member in &id.members {
                     if let InterfaceMember::FnSignature(fd) = member {
                         let param_type_names: Vec<String> = fd.params.iter()
-                            .map(|p| CheckedType::from_ast_type(&p.ty).name())
+                            .map(|p| {
+                                // Item 3 (2026-09-27): keep the receiver
+                                // distinction the two interface spellings need.
+                                // A param NAMED self is the receiver (method
+                                // form, `fn message(&self)`); a REF-marked
+                                // first param NOT named self is an explicit
+                                // operand under the method form (`fn
+                                // eq(other: &Self)`); unqualified `a: T` /
+                                // `a: Self` stay as the free-fn form with the
+                                // receiver included as param 0. Dropping the
+                                // ref mark made both spellings store "Self"
+                                // and want_of counted the operand as a
+                                // receiver (m37_bug45's `x.eq(&y)`).
+                                if p.name.name == "self" || p.name.name == "Self" {
+                                    return "self".to_string();
+                                }
+                                let name = CheckedType::from_ast_type(&p.ty).name();
+                                match &p.ty {
+                                    Type::Ref(_) | Type::MutRef(_) => format!("&{name}"),
+                                    Type::Ptr(_) => format!("*{name}"),
+                                    _ => name,
+                                }
+                            })
                             .collect();
                         let ret_name = fd.return_type.as_ref().map(|t| CheckedType::from_ast_type(t).name());
                         members.push((fd.name.name.clone(), param_type_names, ret_name));
@@ -3991,27 +4031,6 @@ impl Checker {
         if recv_base.is_empty() || recv_base == "_" {
             return false;
         }
-        let strip_ref_marks = |s: &str| -> String {
-            let mut t = s.trim();
-            loop {
-                let next = if let Some(r) = t.strip_prefix('&') {
-                    Some(r)
-                } else if let Some(r) = t.strip_prefix('*') {
-                    Some(r)
-                } else if let Some(r) = t.strip_prefix("mut ") {
-                    Some(&r[4..])
-                } else if let Some(r) = t.strip_prefix("const ") {
-                    Some(&r[6..])
-                } else {
-                    None
-                };
-                match next {
-                    Some(r) => t = r.trim_start(),
-                    None => break,
-                }
-            }
-            t.to_string()
-        };
         if self.methods.get(&recv_base).map_or(false, |m| m.contains_key(&method.name))
             || self.functions.contains_key(&format!("{recv_base}.{}", method.name))
         {
@@ -4059,10 +4078,9 @@ impl Checker {
             if let Some(sig) = sig {
                 // AUDIT FIX (readiness Stage 1): arity was never checked --
                 // extra arguments were silently DROPPED at codegen.
-                // Item 3 (2026-09-26): the exact-count flip (`!=`) is verified
-                // and READY; it lands with the stdlib pin carrying the fixed
-                // call sites (stdlib 90e9185, still unpushed -- see SESSION).
-                if args.len() > sig.params.len() {
+                // Item 3 (2026-09-27): FLIPPED to the exact count; the stdlib
+                // pin carries the fixed call sites (stdlib 0c50ac6).
+                if args.len() != sig.params.len() {
                     self.error(
                         format!("{} expects {} argument(s), found {}",
                             sig_key, sig.params.len(), args.len()),
@@ -4139,10 +4157,10 @@ impl Checker {
         // AUDIT FIX (readiness Stage 1): arity was never checked on
         // module-prefix calls -- `convert.float_to_string(3.14159, 2)` against
         // the 1-param def compiled and silently dropped the extra argument.
-        // Packages relay #2: too FEW is the mirror hole; the exact-count form
-        // (`!=`) is IMPLEMENTED and VERIFIED but OFF until the stdlib pin
-        // carries the fixed call sites (stdlib 90e9185, still unpushed).
-        if args.len() > sig.params.len() {
+        // Packages relay #2: too FEW is the mirror hole; Item 3 (2026-09-27)
+        // FLIPPED to the exact count with the pin carrying the fixed stdlib
+        // call sites (0c50ac6).
+        if args.len() != sig.params.len() {
             self.error(
                 format!("{} expects {} argument(s), found {}",
                     path.join("."), sig.params.len(), args.len()),
@@ -6200,6 +6218,24 @@ impl Checker {
                             if method.name == "clone" {
                                 None
                             } else {
+                                // Item 3 (2026-09-27): a GENERIC receiver whose
+                                // interface bound declares this method owns the
+                                // call through interface dispatch (the branch
+                                // further down). The wildcard singleton capture
+                                // used to grab an unrelated same-leaf
+                                // registration (`Path.compare` -- derived Ord
+                                // with no explicit params) for every generic
+                                // `x.compare(y)`; the exact-arity flip then
+                                // flagged those catalog-body calls in
+                                // `xiom.cmp` / `xiom.collections`. Defer.
+                                if let CheckedType::Named(tn) = &obj_ty {
+                                    let bound_owns = self.current_generic_bounds.get(tn.name()).map_or(false, |bounds| {
+                                        bounds.iter().any(|b| self.interface_bound_declares(b, &method.name))
+                                    });
+                                    if bound_owns {
+                                        return None;
+                                    }
+                                }
                                 // "Rc[Int]" -> "Rc"; "Vec[Int]" -> "Vec"
                                 let base = base_name.split('[').next().unwrap_or(&base_name).to_string();
                                 // A receiver FIELD with this name shadows cross-
@@ -6306,8 +6342,27 @@ impl Checker {
                                 .map_or(false, |(pname, pty)| {
                                     pname == "self" || matches!(pty, CheckedType::Named(n) if n == "Self")
                                 });
+                            // Item 3 (2026-09-27): receiver-style fns spell the
+                            // receiver as a REF-qualified generic first param
+                            // (`fn Box.get[T](b: &Box[T])`); exact spelling
+                            // equality against the call receiver ("Box[Int]")
+                            // missed those, so `b.get()` read as a 1-arg call
+                            // and the exact-arity check rejected a valid
+                            // receiver-sugar call (smoke_core_box). Compare
+                            // normalized leaves (module prefix, generic args
+                            // and ref marks stripped).
                             let first_param_matches_receiver = sig.params.first().map_or(false, |(_, pty)| {
-                                matches!(pty, CheckedType::Named(n) if n.name() == type_name)
+                                let pname = pty.name();
+                                let rname = type_name.name();
+                                if pname == rname {
+                                    return true;
+                                }
+                                let leaf = |s: &str| -> String {
+                                    let b = s.rsplit('.').next().unwrap_or(s);
+                                    let b = b.split('[').next().unwrap_or(b).trim();
+                                    strip_ref_marks(b)
+                                };
+                                leaf(&pname) == leaf(rname)
                             });
                             // G-20 fix: `fn V2.lerp(other: V2, t: Float32)` -- a first
                             // param of the receiver TYPE is ambiguous between
@@ -6332,21 +6387,36 @@ impl Checker {
                             //     param matching. The codegen's self_offset handles the actual
                             //     argument layout independently.
                             //   constructor    + any call       -> args map directly, no self (offset=0)
+                            // Item 3 (2026-09-27): call-shape-correct expected
+                            // count for the exact-arity check.
+                            //   explicit-receiver instance call (`s.push(&mut s, x)`,
+                            //     the R52 lock shape): the arg count already equals
+                            //     the param count -> offset 0;
+                            //   implicit-this STATIC call (`Color.is_red(&r)`):
+                            //     arg 0 is the receiver and params follow ->
+                            //     params.len() + 1;
+                            //   everything else: params.len() - param_offset.
+                            let receiver_passed_explicitly = arity_direct && !is_static_call
+                                && (first_param_is_self_named || first_param_matches_receiver);
                             let param_offset: usize = if has_explicit_self {
-                                if is_static_call { 0 } else { 1 }
+                                if is_static_call || receiver_passed_explicitly { 0 } else { 1 }
                             } else if sig.uses_implicit_this {
                                 if is_static_call { 1 } else { 0 }
                             } else {
                                 0 // constructor -- no self at all
                             };
-                            // Packages relay #2 (arity): exact-count enforcement
-                            // on the method path is IMPLEMENTED but OFF until
-                            // the stdlib call-site fixes land (see the bare-path
-                            // note and COMPILER_BUGS for the exact list). The
-                            // offset table makes the expected count precise:
-                            //   let expected_args = sig.params.len() - param_offset;
-                            //   if args.len() != expected_args { error }
-                            // (Item 3 flip verified locally; lands with the pin.)
+                            let expected_args = if is_static_call && sig.uses_implicit_this {
+                                sig.params.len() + 1
+                            } else {
+                                sig.params.len().saturating_sub(param_offset)
+                            };
+                            if args.len() != expected_args {
+                                self.error(
+                                    format!("'{}' expects {} argument(s), found {}",
+                                        method.name, expected_args, args.len()),
+                                    *span,
+                                );
+                            }
                             for (i, arg) in args.iter().enumerate() {
                                 let arg_ty = self.check_expr(arg);
                                 let param_idx = i + param_offset;
@@ -6659,8 +6729,19 @@ impl Checker {
                             // (`interface Eq[T] { fn eq(a: T, b: T) }`) also
                             // take the receiver as their FIRST param when
                             // called as `recv.eq(other)`.
+                            //
+                            // Item 3 (2026-09-27): a REF-qualified first param
+                            // (`&Self`) is an explicit operand, not the
+                            // receiver -- method-form interfaces declare the
+                            // receiver implicitly (`interface Eq5 { fn
+                            // eq(other: &Self) -> Bool }`). Stripping the ref
+                            // mark first made `&Self` look like "Self", so
+                            // want_of returned 0 for a 1-arg method and
+                            // `x.eq(&y)` failed (m37_bug45).
                             if params.first().map_or(false, |p| {
-                                p == "self" || p == "Self" || p == &recv_name
+                                let raw = p.trim();
+                                let ref_marked = raw.starts_with('&') || raw.starts_with('*');
+                                !ref_marked && (raw == "self" || raw == "Self" || raw == recv_name)
                             }) {
                                 params.len().saturating_sub(1)
                             } else {
@@ -6765,27 +6846,6 @@ impl Checker {
                     // raw spellings, so `*Int` matches `*T` / `*const T` and a
                     // plain `Vec` receiver matches `&Vec` (auto-ref UFCS).
                     {
-                        let strip_ref_marks = |s: &str| -> String {
-                            let mut t = s.trim();
-                            loop {
-                                let next = if let Some(r) = t.strip_prefix('&') {
-                                    Some(r)
-                                } else if let Some(r) = t.strip_prefix('*') {
-                                    Some(r)
-                                } else if let Some(r) = t.strip_prefix("mut ") {
-                                    Some(&r[4..])
-                                } else if let Some(r) = t.strip_prefix("const ") {
-                                    Some(&r[6..])
-                                } else {
-                                    None
-                                };
-                                match next {
-                                    Some(r) => t = r.trim_start(),
-                                    None => break,
-                                }
-                            }
-                            t.to_string()
-                        };
                         let recv_base = match &obj_ty {
                             CheckedType::Named(tn) => {
                                 let b = tn.rsplit('.').next().unwrap_or(tn.name());
@@ -6980,15 +7040,21 @@ impl Checker {
                                 sig = alt;
                             }
                         }
-                        // Packages relay #2 (arity): exact-arity enforcement is
-                        // IMPLEMENTED and VERIFIED LOCALLY (incl. the
-                        // implicit-this allowance for receiver sigs) but OFF
-                        // until the stdlib pin carries the fixed call sites
-                        // (stdlib 90e9185, still unpushed): the bare slot for
-                        // `get` is xiom.array's 2-param free fn, so
-                        // HashMap.contains' `get(key)` needs G-10 to bind the
-                        // receiver method (the registry fix above) for the
-                        // flip to be clean. Flip recipe in SESSION.md.
+                        // Item 3 (2026-09-27): exact-arity enforcement on the
+                        // bare path, FLIPPED with the pin carrying the fixed
+                        // stdlib call sites (0c50ac6). The implicit-this form
+                        // of a receiver method (receiver omitted, one fewer
+                        // explicit arg) stays allowed.
+                        let expected_args = sig.params.len();
+                        let implicit_receiver = sig.uses_implicit_this
+                            && args.len() + 1 == expected_args;
+                        if args.len() != expected_args && !implicit_receiver {
+                            self.error(
+                                format!("'{}' expects {} argument(s), found {}",
+                                    name.name, expected_args, args.len()),
+                                *span,
+                            );
+                        }
                         // Build generic substitution map from the call arguments.
                         // round-15 (probe_zip_j/k): explicit type args from
                         // `apply_g[(Int, Int)](...)` win over arg inference --
