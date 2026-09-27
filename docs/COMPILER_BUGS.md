@@ -9196,3 +9196,71 @@ in `.github/workflows/ci.yml`.
   Int` write-through, loop-carried CSE, mixed brackets, sign-bit tests,
   `byte_at` >= 128) are the next candidates.
 
+## 2026-09-27 -- Stage 6 lint wave: W002 + W003 (warning-only, user scope)
+
+First landings of the Stage 6 control-flow lint wave
+(docs/STAGE6_LINT_WAVE.md): warning-only, user-program scope, one code per
+lint.
+
+- **W003 unreachable statement after a diverger**: `return`, `break`,
+  `continue`, an `if` whose every branch diverges, a `match` with a
+  catch-all whose every arm diverges, or `while true` with no `break` of
+  its own. Warns once per block, on the first statement after the
+  diverger. `debugger` is not a diverger; a return behind an `if` branch
+  the block continues from, and loops with a reachable break, stay silent.
+  The break scan is complete on purpose (a missed break would fabricate a
+  false "unreachable").
+- **W002 unconditional recursive cycle**: call graph over the user unit's
+  non-generic free fns (direct bare calls by name; recurses through
+  `module X { ... }` wrappers -- a file with a module header parses as a
+  single Module item, which the first cut missed). The graph is built from
+  CERTAIN-call edges only: a call is certain when every path evaluates it
+  before any exit (short-circuit `&&`/`||` keep only the left side;
+  closures never count; `if`/`match` branches intersect, a missing
+  `else`/catch-all contributes nothing; any statement that may exit early
+  stops the walk). A cycle in that graph is exactly the unconditional
+  shape, so no separate dominance pass is needed. Warns once per SCC:
+  `'a' is part of an unconditional recursive cycle a -> b -> a; this call
+  chain can never terminate`. Guard-first recursion and branch-reached
+  mutual recursion stay silent.
+
+Plumbing:
+- `CheckError` gains `pub code: Option<String>` (6 construction sites).
+  `warn_coded_at` emits coded warnings with the same catalog scoping as
+  `warn_at`. `check_program` keeps CODED lint warnings in the warning
+  stream even when hard errors exist, so the driver still renders
+  `warning[WNNN]` on the error path instead of mislabelling them `T001`
+  (probe `p_lint_mixed_error.xi`: `warning[W003]` + `error[T001]`).
+- Driver: the `own_warns` loop prints `warning[{}]` with the code (W000
+  fallback); the `--diagnostics=json` error envelope now carries the
+  warning stream (kind `warning`) ahead of the errors; the
+  `compile_with_diagnostics` mapping uses `w.code`.
+- `docs/JSON_DIAGNOSTICS_V1.md`: `warning` kind added; codes W000-W003.
+- Four `checking_catalog` guards keep stdlib/catalog bodies structurally
+  lint-free; corpus + zero-warning e2e gates stay green.
+
+### Locks
+`tests/regression/m151_w002_cycle` + `m151_w003_unreachable` (positive:
+code in stderr, compile exit 0) and `m151_w002_guard` +
+`m151_w003_guarded` (negative: silent); 4 new
+`crates/xiom/tests/checker_locks.rs` tests (covered by the CI
+`checker_locks` step; the W002 fixture is compiled but never executed --
+it cannot terminate).
+
+### Gates (all green)
+full e2e 2385/2385 (+4 ignored, `-- --test-threads 12`), checker 195/195,
+strict-clause corpus 1/1, stdlib-exec 85/85 (+2 ignored), stdlib modules
+40/40, feature-reg 510/510, integration 130, robustness 63, fuzz 24,
+perf 3/3, diff 24 (+1 ignored), checker_locks 8/8.
+
+### Cross-lane: transient silent compile failure corroborated
+The e2e m35 storm signature (31-32 spurious silent compile failures in
+loaded runs, 0 diagnostics, all fixtures green solo/in isolation) matches
+packages `COMPILER-FINDINGS.md` row 28 (`program_exit=-1`, empty output,
+three sightings, green on re-run). `stdlib_tests` reproduced it too under
+concurrent lane load (0/40, then 32/40 with a different failing set; 40/40
+at `--test-threads 8`). This is now a cross-lane-corroborated flake class:
+never record a silent failure as a pass without a re-run; a capture batch
+(exit code + dump on a loaded re-run) is queued behind the `&mut`
+write-through fix.
+

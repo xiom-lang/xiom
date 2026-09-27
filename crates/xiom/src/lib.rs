@@ -589,7 +589,10 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
     }
     for w in checker.take_warnings() {
         result.diagnostics.push(Diagnostic {
-            kind: "warning".into(), code: "W000".into(),
+            // Stage 6: coded lint warnings (W002/W003/...) carry their code;
+            // legacy checker warnings stay W000.
+            kind: "warning".into(),
+            code: w.code.clone().unwrap_or_else(|| "W000".into()),
             message: w.message.clone(),
             line: w.span.line, col: w.span.col, file: "<unknown>".into(),
             suggestion: None,
@@ -875,17 +878,26 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         eprintln!("warning[W000]: ... {} more catalog-body warning(s) suppressed", catalog_warns.len() - 5);
     }
     for w in &own_warns {
-        eprintln!("warning[W000]: {l}:{c}: {m}", l = w.span.line, c = w.span.col, m = w.message);
+        eprintln!("warning[{}]: {l}:{c}: {m}", w.code.as_deref().unwrap_or("W000"), l = w.span.line, c = w.span.col, m = w.message);
     }
     if let Err(errors) = check_outcome {
         if config.diagnostics_json {
-            let diags: Vec<Diagnostic> = errors.iter().map(|err| Diagnostic {
+            // Stage 6: the envelope carries the warning stream (with codes)
+            // ahead of the hard errors so CI can match on `code`.
+            let mut diags: Vec<Diagnostic> = catalog_warns.iter().chain(own_warns.iter()).map(|w| Diagnostic {
+                kind: "warning".into(),
+                code: w.code.clone().unwrap_or_else(|| "W000".into()),
+                message: w.message.clone(), line: w.span.line, col: w.span.col,
+                file: effective_sources.first().map(|s| s.as_str()).unwrap_or("<unknown>").to_string(),
+                suggestion: None, help: None, note: None,
+            }).collect();
+            diags.extend(errors.iter().map(|err| Diagnostic {
                 kind: "type_error".into(), code: "T001".into(),
                 message: err.message.clone(), line: err.span.line, col: err.span.col,
                 file: "<unknown>".into(),
                 suggestion: Some(suggest_fix(&err.message)),
                 help: None, note: None,
-            }).collect();
+            }));
             println!("{}", diagnostics_json(&diags));
         } else {
             for err in &errors {

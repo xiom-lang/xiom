@@ -616,6 +616,10 @@ pub struct CheckError {
     /// real now. Downstream passes can rely on its presence to skip
     /// error-poisoned work instead of string-matching messages.
     pub guaranteed: xiom_ast::ErrorGuaranteed,
+    /// Stage 6 lint wave: the stable warning code (`W002`, `W003`, ...) for
+    /// coded lints; `None` for legacy W000-class warnings and for errors
+    /// (errors are typed by the driver, e.g. `T001`).
+    pub code: Option<String>,
 }
 
 /// Stage 3 Item A: the full-catalog body-check report returned by

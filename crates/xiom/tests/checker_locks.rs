@@ -123,3 +123,70 @@ fn m137_strict_clause_mode_rejects_non_bool_predicates() {
         "expected the strict predicate diagnostic, got:\n{stderr}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Stage 6 lint wave (W002/W003): warning-only, user-program scope. Each lint
+// gets a positive fixture (code in stderr AND compile exit 0) and a negative
+// fixture that must stay silent.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn m151_w002_unconditional_cycle_warns() {
+    let (stderr, code, exe) = run_on("m151_w002_cycle");
+    let _ = std::fs::remove_file(&exe);
+    // Compile exit 0: the lint is warning-only and must never block a build.
+    // (The fixture is deliberately NOT executed -- the cycle cannot
+    // terminate.)
+    assert_eq!(code, Some(0), "W002 must not block the build. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("warning[W002]"),
+        "expected warning[W002] in stderr, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("unconditional recursive cycle"),
+        "expected the cycle message, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn m151_w002_guard_stays_silent() {
+    let (stderr, code, exe) = run_on("m151_w002_guard");
+    assert_eq!(code, Some(0), "guard-first recursion must compile. stderr:\n{stderr}");
+    assert!(
+        !stderr.contains("warning[W002]"),
+        "guard-first recursion must stay silent, got:\n{stderr}"
+    );
+    let run = Command::new(&exe).output().expect("run m151_w002_guard");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(run.status.code(), Some(0), "the guard fixture must run cleanly");
+}
+
+#[test]
+fn m151_w003_unreachable_warns() {
+    let (stderr, code, exe) = run_on("m151_w003_unreachable");
+    assert_eq!(code, Some(0), "W003 must not block the build. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("warning[W003]"),
+        "expected warning[W003] in stderr, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("unreachable statement"),
+        "expected the unreachable-statement message, got:\n{stderr}"
+    );
+    let run = Command::new(&exe).output().expect("run m151_w003_unreachable");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(run.status.code(), Some(0), "the W003 fixture must still run cleanly");
+}
+
+#[test]
+fn m151_w003_guarded_stays_silent() {
+    let (stderr, code, exe) = run_on("m151_w003_guarded");
+    assert_eq!(code, Some(0), "guarded fixture must compile. stderr:\n{stderr}");
+    assert!(
+        !stderr.contains("warning[W003]"),
+        "guarded shapes must stay silent, got:\n{stderr}"
+    );
+    let run = Command::new(&exe).output().expect("run m151_w003_guarded");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(run.status.code(), Some(0), "the guarded fixture must run cleanly");
+}

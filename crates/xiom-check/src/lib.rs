@@ -664,6 +664,7 @@ impl Checker {
                     span: *span,
                     cause: crate::types::TypeCause::Other,
                     guaranteed: xiom_ast::ErrorGuaranteed::new(),
+                    code: None,
                 });
             }
         }
@@ -1350,6 +1351,7 @@ impl Checker {
                 span,
                 cause,
                 guaranteed: _proof,
+                code: None,
             });
         } else {
             let message = if self.checking_catalog {
@@ -1357,7 +1359,7 @@ impl Checker {
             } else {
                 msg
             };
-            self.errors.push(CheckError { message, span, cause, guaranteed: _proof });
+            self.errors.push(CheckError { message, span, cause, guaranteed: _proof, code: None });
             self.error_count += 1;
         }
         CheckedType::Error
@@ -1390,6 +1392,7 @@ impl Checker {
                 span,
                 cause: crate::types::TypeCause::Other,
                 guaranteed: xiom_ast::ErrorGuaranteed::new(),
+                code: None,
             });
             self.error_count += 1;
             return;
@@ -1399,6 +1402,38 @@ impl Checker {
             span,
             cause: crate::types::TypeCause::Other,
             guaranteed: xiom_ast::ErrorGuaranteed::new(),
+            code: None,
+        });
+    }
+
+    /// Stage 6 lint wave: a warning WITH a stable code so the driver prints
+    /// `warning[WNNN]` (and the JSON envelope carries the code). Mirrors
+    /// [`Self::warn_at`]'s catalog scoping so a coded lint can never leak a
+    /// catalog finding into the user-warning stream.
+    fn warn_coded_at(&mut self, code: &str, message: impl Into<String>, span: Span) {
+        let msg = message.into();
+        let message = if self.checking_catalog && !msg.starts_with("catalog body") {
+            format!("catalog body: {msg}")
+        } else {
+            msg
+        };
+        if self.checking_catalog && self.strict_catalog_findings {
+            self.errors.push(CheckError {
+                message,
+                span,
+                cause: crate::types::TypeCause::Other,
+                guaranteed: xiom_ast::ErrorGuaranteed::new(),
+                code: Some(code.to_string()),
+            });
+            self.error_count += 1;
+            return;
+        }
+        self.warnings.push(CheckError {
+            message,
+            span,
+            cause: crate::types::TypeCause::Other,
+            guaranteed: xiom_ast::ErrorGuaranteed::new(),
+            code: Some(code.to_string()),
         });
     }
 
@@ -1597,13 +1632,31 @@ impl Checker {
         self.collect_signatures(program);
         self.check_all_bodies(program);
 
+        // Stage 6 W002: unconditional recursive cycles. User-program scope
+        // only; warning-only (never error).
+        if !self.checking_catalog {
+            self.lint_w002_unconditional_cycles(program);
+        }
+
         // S2: Append warnings to errors for display, but only if there are
         // already real errors (warnings alone don't block compilation).
         // AUDIT FIX (readiness Stage 1): on the SUCCESS path warnings were
         // silently DISCARDED here. They now stay in self.warnings; callers
         // surface them via take_warnings().
+        //
+        // Stage 6: CODED lint warnings (W002/W003/...) stay in the warning
+        // stream even when hard errors exist, so the driver still renders
+        // them as `warning[WNNN]` instead of mislabelling them `T001`.
         if !self.errors.is_empty() {
-            self.errors.append(&mut self.warnings);
+            let mut uncoded = Vec::new();
+            for w in std::mem::take(&mut self.warnings) {
+                if w.code.is_some() {
+                    self.warnings.push(w);
+                } else {
+                    uncoded.push(w);
+                }
+            }
+            self.errors.append(&mut uncoded);
         }
 
         if self.errors.is_empty() {
@@ -4858,8 +4911,21 @@ impl Checker {
         let mut last_expr_ty = None;
         let mut has_return = false;
         let mut tail_diverges = false;
+        // Stage 6 W003: warn once per block for the first statement that
+        // follows an unconditional diverger (user program only; catalog
+        // bodies are excluded so the corpus stays finding-free).
+        let mut w003_diverged = false;
+        let mut w003_warned = false;
 
         for item in &block.stmts {
+            if w003_diverged && !w003_warned && !self.checking_catalog {
+                self.warn_coded_at(
+                    "W003",
+                    "unreachable statement (the previous statement always exits)",
+                    Self::stmt_or_expr_span(item),
+                );
+                w003_warned = true;
+            }
             match item {
                 StmtOrExpr::Stmt(stmt) => {
                     self.check_stmt(stmt);
@@ -4877,6 +4943,9 @@ impl Checker {
                     // never observed. Production pattern in FFI wrappers.
                     tail_diverges = Self::expr_always_returns(expr);
                 }
+            }
+            if Self::stmt_or_expr_always_diverges(item) {
+                w003_diverged = true;
             }
         }
 
@@ -4961,6 +5030,540 @@ impl Checker {
         match body {
             MatchBody::Block(b) => Self::block_always_returns(b),
             MatchBody::Expr(e) => Self::expr_always_returns(e),
+        }
+    }
+
+    // ========================================================================
+    // Stage 6 lint wave: W003 (unreachable statement after a diverger) and
+    // W002 (unconditional recursive cycle). Warning-only; every call site
+    // guards on `!self.checking_catalog`, so catalog/stdlib bodies are never
+    // linted and the corpus + zero-warning gates stay green structurally.
+    // ========================================================================
+
+    const FLOW_RETURN: u8 = 1;
+    const FLOW_BREAK: u8 = 2;
+    const FLOW_CONTINUE: u8 = 4;
+
+    fn stmt_or_expr_span(item: &StmtOrExpr) -> Span {
+        match item {
+            StmtOrExpr::Stmt(s) => Self::stmt_span(s),
+            StmtOrExpr::Expr(e) => e.span(),
+        }
+    }
+
+    fn stmt_span(stmt: &Stmt) -> Span {
+        match stmt {
+            Stmt::Let(_, _, _, s) | Stmt::Var(_, _, _, s) | Stmt::Assign(_, _, s)
+            | Stmt::Return(_, s) | Stmt::Expr(_, s) | Stmt::If(_, _, _, _, s)
+            | Stmt::Match(_, _, s) | Stmt::While(_, _, _, s, _) | Stmt::For(_, _, _, s, _)
+            | Stmt::Spawn(_, s, _) | Stmt::Destructure(_, _, s) | Stmt::Break(_, s)
+            | Stmt::Continue(_, s) | Stmt::Defer(_, s) | Stmt::Assert(_, _, s)
+            | Stmt::Debugger(s) => *s,
+            Stmt::Asm(a) => a.span,
+        }
+    }
+
+    // ---- W003 -----------------------------------------------------------------
+
+    fn stmt_or_expr_always_diverges(item: &StmtOrExpr) -> bool {
+        match item {
+            StmtOrExpr::Stmt(s) => Self::stmt_always_diverges(s),
+            StmtOrExpr::Expr(e) => Self::expr_always_diverges(e),
+        }
+    }
+
+    /// W003: does this statement transfer control away unconditionally?
+    /// `return`/`break`/`continue`, an `if` whose every branch diverges, a
+    /// `match` with a catch-all whose every arm diverges, or `while true`
+    /// with no `break` of its own. `debugger` is NOT a diverger (it is a
+    /// no-op without an attached debugger).
+    fn stmt_always_diverges(stmt: &Stmt) -> bool {
+        match stmt {
+            Stmt::Return(..) | Stmt::Break(..) | Stmt::Continue(..) => true,
+            Stmt::Expr(e, ..) => Self::expr_always_diverges(e),
+            Stmt::If(_, then_b, elifs, Some(else_b), _) => {
+                Self::block_always_diverges(then_b)
+                    && elifs.iter().all(|(_, b)| Self::block_always_diverges(b))
+                    && Self::block_always_diverges(else_b)
+            }
+            Stmt::Match(_, arms, _) => Self::match_arms_all_diverge(arms),
+            Stmt::While(cond, body, ..) => {
+                matches!(cond, Expr::Bool(true, _)) && !Self::block_has_flow(body, Self::FLOW_BREAK)
+            }
+            _ => false,
+        }
+    }
+
+    fn expr_always_diverges(expr: &Expr) -> bool {
+        match expr {
+            Expr::Unsafe(block, _) | Expr::BlockExpr(block, _) => Self::block_always_diverges(block),
+            Expr::Paren(inner, _) => Self::expr_always_diverges(inner),
+            Expr::If(_, then_b, elifs, Some(else_b), _) => {
+                Self::block_always_diverges(then_b)
+                    && elifs.iter().all(|(_, b)| Self::block_always_diverges(b))
+                    && Self::block_always_diverges(else_b)
+            }
+            Expr::Match(_, arms, _) => Self::match_arms_all_diverge(arms),
+            _ => false,
+        }
+    }
+
+    fn block_always_diverges(block: &Block) -> bool {
+        block.stmts.iter().any(Self::stmt_or_expr_always_diverges)
+    }
+
+    fn match_arms_all_diverge(arms: &[MatchArm]) -> bool {
+        if arms.is_empty() || !arms.iter().any(|a| Self::pattern_is_catch_all(&a.pattern)) {
+            return false;
+        }
+        arms.iter().all(|a| match &a.body {
+            MatchBody::Block(b) => Self::block_always_diverges(b),
+            MatchBody::Expr(e) => Self::expr_always_diverges(e),
+        })
+    }
+
+    fn pattern_is_catch_all(pattern: &Pattern) -> bool {
+        match pattern {
+            Pattern::Wildcard(_) | Pattern::Ident(_) => true,
+            Pattern::Or(alts, _) => alts.iter().any(Self::pattern_is_catch_all),
+            _ => false,
+        }
+    }
+
+    /// Complete flow-transfer scan over expressions: true when evaluation can
+    /// reach a `return`/`break`/`continue` (per `kinds`) anywhere, including
+    /// nested blocks and closures. Completeness is deliberate: W003's
+    /// `while true` diverger must find every `break` (a miss would create a
+    /// false "unreachable" warning) and W002 treats any transfer as "not
+    /// guaranteed to fall through" (over-approximation only suppresses
+    /// warnings).
+    fn expr_has_flow(expr: &Expr, kinds: u8) -> bool {
+        match expr {
+            Expr::BlockExpr(b, _) | Expr::Unsafe(b, _) => Self::block_has_flow(b, kinds),
+            Expr::Closure(_, _, b, _) => Self::block_has_flow(b, kinds),
+            Expr::PipeClosure(_, e, _) => Self::expr_has_flow(e, kinds),
+            Expr::Paren(e, _) | Expr::Unary(_, e, _) | Expr::Try(e, _) | Expr::Field(e, _, _)
+            | Expr::AtPre(e, _) | Expr::Ref(e, _) | Expr::MutRef(e, _) | Expr::Some(e, _)
+            | Expr::Ok(e, _) | Expr::Err(e, _) | Expr::ConstBlock(e, _) | Expr::Await(e, _)
+            | Expr::Comptime(e, _) | Expr::As(e, _, _) => Self::expr_has_flow(e, kinds),
+            Expr::Binary(l, _, r, _) | Expr::Imply(l, r, _) => {
+                Self::expr_has_flow(l, kinds) || Self::expr_has_flow(r, kinds)
+            }
+            Expr::Is(e, _, _) => Self::expr_has_flow(e, kinds),
+            Expr::Call(c, args, _) => {
+                Self::expr_has_flow(c, kinds) || args.iter().any(|a| Self::expr_has_flow(a, kinds))
+            }
+            Expr::GenericCall(c, _, args, _) => {
+                Self::expr_has_flow(c, kinds) || args.iter().any(|a| Self::expr_has_flow(a, kinds))
+            }
+            Expr::Index(l, r, _) => Self::expr_has_flow(l, kinds) || Self::expr_has_flow(r, kinds),
+            Expr::Struct(_, fields, base, _) => {
+                fields.iter().any(|(_, e)| Self::expr_has_flow(e, kinds))
+                    || base.as_deref().map_or(false, |b| Self::expr_has_flow(b, kinds))
+            }
+            Expr::Array(elems, _) | Expr::Tuple(elems, _) => {
+                elems.iter().any(|e| Self::expr_has_flow(e, kinds))
+            }
+            Expr::If(_, then_b, elifs, else_b, _) => {
+                Self::block_has_flow(then_b, kinds)
+                    || elifs.iter().any(|(c, b)| {
+                        Self::expr_has_flow(c, kinds) || Self::block_has_flow(b, kinds)
+                    })
+                    || else_b.as_ref().map_or(false, |b| Self::block_has_flow(b, kinds))
+            }
+            Expr::Match(scrut, arms, _) => {
+                Self::expr_has_flow(scrut, kinds)
+                    || arms.iter().any(|a| {
+                        a.guard.as_ref().map_or(false, |g| Self::expr_has_flow(g, kinds))
+                            || match &a.body {
+                                MatchBody::Block(b) => Self::block_has_flow(b, kinds),
+                                MatchBody::Expr(e) => Self::expr_has_flow(e, kinds),
+                            }
+                    })
+            }
+            _ => false,
+        }
+    }
+
+    fn stmt_has_flow(stmt: &Stmt, kinds: u8) -> bool {
+        let leaf = |flag: u8| kinds & flag != 0;
+        match stmt {
+            Stmt::Return(..) => leaf(Self::FLOW_RETURN),
+            Stmt::Break(..) => leaf(Self::FLOW_BREAK),
+            Stmt::Continue(..) => leaf(Self::FLOW_CONTINUE),
+            Stmt::If(cond, t, elifs, e, _) => {
+                Self::expr_has_flow(cond, kinds)
+                    || Self::block_has_flow(t, kinds)
+                    || elifs.iter().any(|(c, b)| {
+                        Self::expr_has_flow(c, kinds) || Self::block_has_flow(b, kinds)
+                    })
+                    || e.as_ref().map_or(false, |b| Self::block_has_flow(b, kinds))
+            }
+            Stmt::Match(scrut, arms, _) => {
+                Self::expr_has_flow(scrut, kinds)
+                    || arms.iter().any(|a| {
+                        a.guard.as_ref().map_or(false, |g| Self::expr_has_flow(g, kinds))
+                            || match &a.body {
+                                MatchBody::Block(b) => Self::block_has_flow(b, kinds),
+                                MatchBody::Expr(e) => Self::expr_has_flow(e, kinds),
+                            }
+                    })
+            }
+            Stmt::While(cond, body, inv, _, _) => {
+                Self::expr_has_flow(cond, kinds)
+                    || inv.as_ref().map_or(false, |e| Self::expr_has_flow(e, kinds))
+                    || Self::block_has_flow(body, kinds)
+            }
+            Stmt::For(_, iter, body, _, _) => {
+                Self::expr_has_flow(iter, kinds) || Self::block_has_flow(body, kinds)
+            }
+            Stmt::Spawn(b, _, _) => Self::block_has_flow(b, kinds),
+            Stmt::Defer(b, _) => Self::block_has_flow(b, kinds),
+            Stmt::Let(_, _, e, _) | Stmt::Var(_, _, e, _) | Stmt::Destructure(_, e, _) => {
+                Self::expr_has_flow(e, kinds)
+            }
+            Stmt::Assign(l, r, _) => {
+                Self::expr_has_flow(l, kinds) || Self::expr_has_flow(r, kinds)
+            }
+            Stmt::Return(Some(e), _) => Self::expr_has_flow(e, kinds),
+            Stmt::Expr(e, _) => Self::expr_has_flow(e, kinds),
+            Stmt::Assert(e, m, _) => {
+                Self::expr_has_flow(e, kinds)
+                    || m.as_ref().map_or(false, |x| Self::expr_has_flow(x, kinds))
+            }
+            _ => false,
+        }
+    }
+
+    fn block_has_flow(block: &Block, kinds: u8) -> bool {
+        block.stmts.iter().any(|item| match item {
+            StmtOrExpr::Stmt(s) => Self::stmt_has_flow(s, kinds),
+            StmtOrExpr::Expr(e) => Self::expr_has_flow(e, kinds),
+        })
+    }
+
+    // ---- W002 -----------------------------------------------------------------
+
+    /// W002: the user-fn names this expression CERTAINLY calls when it is
+    /// evaluated (on every path), in encounter order. Short-circuit
+    /// operators keep only their left side; closures never count (they may
+    /// never run). Union-of-set semantics per sequence, intersection across
+    /// `if`/`match` branches.
+    fn expr_certain_calls(expr: &Expr, fns: &HashSet<String>) -> Vec<String> {
+        match expr {
+            Expr::Call(callee, args, _) => {
+                let mut out = Vec::new();
+                if let Expr::Ident(id) = &**callee {
+                    if fns.contains(&id.name) {
+                        out.push(id.name.clone());
+                    }
+                }
+                for a in args {
+                    out.extend(Self::expr_certain_calls(a, fns));
+                }
+                out
+            }
+            Expr::GenericCall(callee, _, args, _) => {
+                let mut out = Vec::new();
+                if let Expr::Ident(id) = &**callee {
+                    if fns.contains(&id.name) {
+                        out.push(id.name.clone());
+                    }
+                }
+                for a in args {
+                    out.extend(Self::expr_certain_calls(a, fns));
+                }
+                out
+            }
+            // Arguments of a method/field call are still certainly evaluated.
+            Expr::Field(base, _, _) => Self::expr_certain_calls(base, fns),
+            Expr::Paren(e, _) | Expr::Unary(_, e, _) | Expr::Try(e, _) | Expr::AtPre(e, _)
+            | Expr::Ref(e, _) | Expr::MutRef(e, _) | Expr::Some(e, _) | Expr::Ok(e, _)
+            | Expr::Err(e, _) | Expr::ConstBlock(e, _) | Expr::Await(e, _)
+            | Expr::Comptime(e, _) | Expr::As(e, _, _) => Self::expr_certain_calls(e, fns),
+            Expr::Is(e, _, _) => Self::expr_certain_calls(e, fns),
+            Expr::BlockExpr(b, _) | Expr::Unsafe(b, _) => Self::block_certain_calls(b, fns),
+            // `&&`/`||` short-circuit: the right side may never run.
+            Expr::Binary(l, op, _, _) if matches!(op, BinOp::And | BinOp::Or) => {
+                Self::expr_certain_calls(l, fns)
+            }
+            Expr::Binary(l, _, r, _) | Expr::Imply(l, r, _) => {
+                let mut out = Self::expr_certain_calls(l, fns);
+                out.extend(Self::expr_certain_calls(r, fns));
+                out
+            }
+            Expr::Index(l, r, _) => {
+                let mut out = Self::expr_certain_calls(l, fns);
+                out.extend(Self::expr_certain_calls(r, fns));
+                out
+            }
+            Expr::Struct(_, fields, base, _) => {
+                let mut out = Vec::new();
+                for (_, e) in fields {
+                    out.extend(Self::expr_certain_calls(e, fns));
+                }
+                if let Some(b) = base.as_deref() {
+                    out.extend(Self::expr_certain_calls(b, fns));
+                }
+                out
+            }
+            Expr::Array(elems, _) | Expr::Tuple(elems, _) => {
+                let mut out = Vec::new();
+                for e in elems {
+                    out.extend(Self::expr_certain_calls(e, fns));
+                }
+                out
+            }
+            Expr::If(_, then_b, elifs, else_b, _) => {
+                Self::if_certain_calls(then_b, elifs, else_b.as_ref(), fns)
+            }
+            Expr::Match(_, arms, _) => Self::match_certain_calls(arms, fns),
+            // Closures/pipe closures may never be invoked; fn-pointer
+            // dispatch is explicitly deferred.
+            _ => Vec::new(),
+        }
+    }
+
+    fn block_certain_calls(block: &Block, fns: &HashSet<String>) -> Vec<String> {
+        let mut out = Vec::new();
+        for item in &block.stmts {
+            match item {
+                StmtOrExpr::Stmt(s) => {
+                    out.extend(Self::stmt_certain_calls(s, fns));
+                    if Self::stmt_may_exit_early(s) {
+                        return out;
+                    }
+                }
+                StmtOrExpr::Expr(e) => {
+                    out.extend(Self::expr_certain_calls(e, fns));
+                    return out;
+                }
+            }
+        }
+        out
+    }
+
+    fn stmt_certain_calls(stmt: &Stmt, fns: &HashSet<String>) -> Vec<String> {
+        match stmt {
+            Stmt::Expr(e, _) => Self::expr_certain_calls(e, fns),
+            Stmt::Let(_, _, e, _) | Stmt::Var(_, _, e, _) | Stmt::Destructure(_, e, _) => {
+                Self::expr_certain_calls(e, fns)
+            }
+            Stmt::Assign(l, r, _) => {
+                let mut out = Self::expr_certain_calls(l, fns);
+                out.extend(Self::expr_certain_calls(r, fns));
+                out
+            }
+            Stmt::Return(Some(e), _) => Self::expr_certain_calls(e, fns),
+            Stmt::If(cond, then_b, elifs, else_b, _) => {
+                let mut out = Self::expr_certain_calls(cond, fns);
+                out.extend(Self::if_certain_calls(
+                    then_b,
+                    elifs,
+                    else_b.as_ref(),
+                    fns,
+                ));
+                out
+            }
+            Stmt::Match(scrut, arms, _) => {
+                let mut out = Self::expr_certain_calls(scrut, fns);
+                out.extend(Self::match_certain_calls(arms, fns));
+                out
+            }
+            Stmt::While(cond, body, _, _, _) if matches!(cond, Expr::Bool(true, _)) => {
+                let mut out = Self::expr_certain_calls(cond, fns);
+                out.extend(Self::block_certain_calls(body, fns));
+                out
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// Intersection of the certain-call sets of every `if`/`elif` branch; a
+    /// missing `else` contributes an empty set (the fall-through path calls
+    /// nothing).
+    fn if_certain_calls(
+        then_b: &Block,
+        elifs: &[(Expr, Block)],
+        else_b: Option<&Block>,
+        fns: &HashSet<String>,
+    ) -> Vec<String> {
+        let mut sets: Vec<Vec<String>> = vec![Self::block_certain_calls(then_b, fns)];
+        for (_, b) in elifs {
+            sets.push(Self::block_certain_calls(b, fns));
+        }
+        sets.push(match else_b {
+            Some(b) => Self::block_certain_calls(b, fns),
+            None => Vec::new(),
+        });
+        Self::intersect_certain(&sets)
+    }
+
+    /// Intersection of the certain-call sets of every arm; requires a
+    /// catch-all (non-exhaustive matches fall through without calling).
+    fn match_certain_calls(arms: &[MatchArm], fns: &HashSet<String>) -> Vec<String> {
+        if arms.is_empty() || !arms.iter().any(|a| Self::pattern_is_catch_all(&a.pattern)) {
+            return Vec::new();
+        }
+        let mut sets: Vec<Vec<String>> = Vec::new();
+        for a in arms {
+            let mut set = match &a.guard {
+                Some(g) => Self::expr_certain_calls(g, fns),
+                None => Vec::new(),
+            };
+            match &a.body {
+                MatchBody::Block(b) => set.extend(Self::block_certain_calls(b, fns)),
+                MatchBody::Expr(e) => set.extend(Self::expr_certain_calls(e, fns)),
+            }
+            sets.push(set);
+        }
+        Self::intersect_certain(&sets)
+    }
+
+    fn intersect_certain(sets: &[Vec<String>]) -> Vec<String> {
+        let Some(first) = sets.first() else {
+            return Vec::new();
+        };
+        let mut out = first.clone();
+        out.retain(|name| sets.iter().all(|s| s.contains(name)));
+        out
+    }
+
+    /// W002: "not guaranteed to fall through to the next statement" -- any
+    /// return/break/continue anywhere, or a statement that always diverges.
+    fn stmt_may_exit_early(stmt: &Stmt) -> bool {
+        Self::stmt_has_flow(
+            stmt,
+            Self::FLOW_RETURN | Self::FLOW_BREAK | Self::FLOW_CONTINUE,
+        ) || Self::stmt_always_diverges(stmt)
+    }
+
+    /// True when `from` reaches `to` in the given edge graph.
+    fn graph_reaches(
+        edges: &HashMap<String, Vec<String>>,
+        from: &str,
+        to: &str,
+    ) -> bool {
+        let mut stack: Vec<&str> = vec![from];
+        let mut seen: HashSet<&str> = HashSet::new();
+        while let Some(n) = stack.pop() {
+            if n == to {
+                return true;
+            }
+            if !seen.insert(n) {
+                continue;
+            }
+            if let Some(ts) = edges.get(n) {
+                for t in ts {
+                    stack.push(t.as_str());
+                }
+            }
+        }
+        false
+    }
+
+    /// One deterministic in-cycle path from `start` back to itself.
+    fn cycle_path(
+        start: &str,
+        edges: &HashMap<String, Vec<String>>,
+        members: &[String],
+    ) -> String {
+        let mut path: Vec<String> = vec![start.to_string()];
+        let mut cur = start.to_string();
+        for _ in 0..=members.len() {
+            let next = edges
+                .get(&cur)
+                .and_then(|ts| ts.iter().find(|t| members.contains(t)).cloned());
+            match next {
+                Some(n) => {
+                    path.push(n.clone());
+                    if n == start {
+                        break;
+                    }
+                    cur = n;
+                }
+                // Defensive: a qualifying SCC always has an in-cycle target.
+                None => break,
+            }
+        }
+        path.join(" -> ")
+    }
+
+    /// W002: warn for every cycle whose members ALL unconditionally reach a
+    /// call back into the cycle (direct bare calls by name; method dispatch,
+    /// generics and fn pointers are deferred). The graph is built from
+    /// CERTAIN-call edges only: a cycle there is exactly the
+    /// unconditional-cycle shape (a graph edge means "certainly calls on
+    /// every path before any exit"), so no separate reachability pass is
+    /// needed.
+    fn lint_w002_unconditional_cycles(&mut self, program: &Program) {
+        /// The user unit's free fns, recursing through `module X { ... }`
+        /// wrappers (a file with a module header parses as one Module item).
+        fn collect_fns<'a>(items: &'a [TopDecl], fns: &mut HashMap<String, &'a FnDecl>) {
+            for item in items {
+                match item {
+                    TopDecl::Fn(fd) => {
+                        if fd.receiver.is_none() && fd.body.is_some() && fd.generics.is_empty() {
+                            fns.entry(fd.name.name.clone()).or_insert(fd);
+                        }
+                    }
+                    TopDecl::Module(md) => collect_fns(&md.items, fns),
+                    _ => {}
+                }
+            }
+        }
+        let mut fns: HashMap<String, &FnDecl> = HashMap::new();
+        collect_fns(&program.items, &mut fns);
+        if fns.is_empty() {
+            return;
+        }
+        let names: HashSet<String> = fns.keys().cloned().collect();
+        let mut edges: HashMap<String, Vec<String>> = HashMap::new();
+        for (name, fd) in &fns {
+            let body = fd.body.as_ref().expect("filtered to bodies above");
+            let mut targets = Self::block_certain_calls(body, &names);
+            let mut seen = HashSet::new();
+            targets.retain(|t| seen.insert(t.clone()));
+            edges.insert(name.clone(), targets);
+        }
+
+        // SCCs by mutual reachability (fn counts are small; no recursion).
+        let mut unassigned: Vec<String> = fns.keys().cloned().collect();
+        unassigned.sort();
+        let mut warned_cycles: Vec<Vec<String>> = Vec::new();
+        while let Some(seed) = unassigned.first().cloned() {
+            let comp: Vec<String> = unassigned
+                .iter()
+                .filter(|n| {
+                    Self::graph_reaches(&edges, &seed, n) && Self::graph_reaches(&edges, n, &seed)
+                })
+                .cloned()
+                .collect();
+            unassigned.retain(|n| !comp.contains(n));
+            let self_loop = comp.len() == 1
+                && edges
+                    .get(&comp[0])
+                    .map_or(false, |ts| ts.contains(&comp[0]));
+            if comp.len() >= 2 || self_loop {
+                warned_cycles.push(comp);
+            }
+        }
+
+        for mut comp in warned_cycles {
+            comp.sort();
+            let start = &comp[0];
+            let path = Self::cycle_path(start, &edges, &comp);
+            let span = fns
+                .get(start)
+                .map_or(Span::new(0, 0), |fd| fd.name.span);
+            self.warn_coded_at(
+                "W002",
+                format!(
+                    "'{}' is part of an unconditional recursive cycle {}; this call chain can never terminate",
+                    start, path
+                ),
+                span,
+            );
         }
     }
 
@@ -8763,6 +9366,7 @@ mod tests {
                 span: e.span,
                 cause: crate::types::TypeCause::Other,
                 guaranteed: e.guaranteed,
+                code: None,
             }]),
         }
     }
