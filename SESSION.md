@@ -1,6 +1,84 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
+# CONTINUATION HANDOFF (2026-09-27, compiler lane -- waiting on stdlib; Stage 6 lint wave next)
+
+Supersedes the 2026-09-26 header below (kept as history). All evidence for
+2026-09-26/27 lives in docs/COMPILER_BUGS.md (m142-m148 + R-1/R-2/R-3).
+
+## Next-session kickoff prompt (copy/paste)
+
+> Continue the XIOM SWARM compiler lane. Read the top section of SESSION.md
+> and docs/STAGE6_LINT_WAVE.md first. State: v0.61.3 released; stdlib
+> detached at stdlib-v0.61.3; local main carries the campaign UNPUSHED
+> (59 commits after this docs commit); tree clean; latest full e2e
+> 2383/2383 (+4 ignored); no red gates. Items 1, 2 and R-1, R-2, R-3 are
+> DONE -- do not redo. Item 3 (exact arity) is implemented and VERIFIED but
+> OFF: it lands only with a pin carrying stdlib 90e9185 (unpushed as of
+> 2026-09-27; origin/main 49b4731) -- on their push: bump STDLIB_VERSION to
+> that ref, apply the four hunks (COMPILER_BUGS m147 section), full gates.
+> Item 4 (pin bump + release) follows the 2026-09-25 order. Meanwhile run
+> the Stage 6 lint wave: W002 + W003 first per docs/STAGE6_LINT_WAVE.md
+> (warning-only, user-program scope, one code per lint, two locks per lint:
+> positive warns + exit 0, negative silent; corpus/e2e stay zero-warning).
+> Plumbing notes below. Method: repro-first under tmp/sprintc/, locks
+> (tests/regression fixture + checker_locks entry + CI line where
+> e2e-able), full e2e ONCE per batch (~30 min, no rebuilds during),
+> python tools/ascii_guard.py check before every commit, commit atomically
+> with SESSION.md + COMPILER_BUGS.md evidence. Identity Lefteris Notas
+> <lefterisnotas@gmail.com>; pushes only when the owner asks; never rebuild
+> target/debug while e2e runs.
+
+## Status snapshot (2026-09-27)
+
+- **R-3 CLOSED as already-fixed**: block comments `/* ... */` are an
+  intentional lexer feature (crates/xiom-lexer/src/lib.rs:102) and compile
+  in block/type/expression positions; an unterminated one reports
+  `error[L001]: <line>:<col>: unterminated block comment` (probes
+  tmp/sprintc/m149_block_comment_probe{,2,3}.xi). The benchmark relay's
+  R-3 is stale; no compiler change. Benchmark trio R-1/R-2/R-3 all closed.
+- **Stage 6 lint wave READY to start** (spec: docs/STAGE6_LINT_WAVE.md;
+  order: W002 + W003, then W004, then W005-W007). Sized plumbing:
+  - Checker warnings are `CheckError { message, span, cause, guaranteed }`
+    (crates/xiom-check/src/types.rs:610), pushed via `warn`/`warn_at`
+    (lib.rs:1350/1356), catalog-scoped by the "catalog body" prefix.
+    Only 8 `CheckError {` literal sites -> adding `pub code: Option<String>`
+    is feasible; alternatively carry "W002:"/"W003:" prefixes.
+  - Driver printing: crates/xiom/src/lib.rs:868-879 partitions
+    `catalog_warns` (W000, capped 5) vs `own_warns` (W000) -- own_warns
+    must print the per-lint code. JSON envelope currently carries errors
+    only; spec item 2 wants the new `kind`/`code` in the v1 diagnostics
+    (docs/JSON_DIAGNOSTICS_V1.md); `Diagnostic{kind,code,...}` already
+    exists for W001 (lib.rs:582).
+  - Lint scope = the USER program only; `checking_catalog` guards the
+    stdlib so `catalog_corpus_is_clean` + the zero-warning e2e tests stay
+    green structurally.
+  - Two locks per lint: positive fixture (binary test asserts
+    `warning[WNNN]` in stderr AND exit 0) + negative fixture (silent),
+    pattern in crates/xiom/tests/checker_locks.rs; CI line for e2e-able
+    cases. W002 = call graph over direct calls by name, warn only when
+    every function in an SCC unconditionally reaches a cycle call before
+    any exit (guard-first recursion must stay silent). W003 = unreachable
+    statement after a diverger in the same block (per-block, not across
+    labels).
+- **Release side**: item 3 flip verified locally against a patched pin
+  mirroring stdlib 90e9185 (corpus + full e2e green); blocked on their
+  push. Item 4 order (from the 2026-09-25 section): stdlib ref with
+  release-notes/v0.62.0.md -> pin + STDLIB_VERSION -> stdlib gates ->
+  `XIOM_STRICT_BRACKETS` default flip (+ clause default once confirmed) ->
+  re-convert notes (currently `xiom-release-notes verify --tag v0.62.0`
+  green, 4 highlights; tests 6/6) -> version 0.61.3 -> 0.62.0 -> push
+  (FIRST CI since R66; Windows leg unverified) -> tag -> registry canary ->
+  website notes. Version still 0.61.3.
+- **Git**: local `main` = origin/main + 59 commits after this docs commit
+  (all UNPUSHED; pushes only on the owner's ask). stdlib checkout detached
+  at `stdlib-v0.61.3`; origin/main 49b4731.
+- **Backlog**: R-5/R-6 (need docs/FAIRNESS-RELAY-2026-09-26.md, not in
+  this tree); C8 wasm asset (release-lane hygiene, not compiler code);
+  tier-2/3 lints (W005-W007 then the noise-budget decision); post-pin
+  check that the W005 hash/Error.chain tolerances are dead in the stdlib
+  ref (keep the tolerance mechanism as safety).
+
 # CONTINUATION HANDOFF (2026-09-26, compiler lane -- items 1+2 + sibling-bind)
 
 Supersedes the 2026-09-25 header below (kept as history). Evidence for these

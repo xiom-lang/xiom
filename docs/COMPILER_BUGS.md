@@ -9080,3 +9080,37 @@ binary).
   verify tcp_connect at that pin (absorption step 6); the wasm-asset
   release does not fix it.
 
+## 2026-09-27 -- R-3 closed (already fixed) + Stage 6 lint-wave sizing
+
+### R-3 (benchmark relay): block comments -- no code change needed
+The relay reported `/* */` -> "expected type expression, found '/'". On the
+current tree block comments are an intentional lexer feature
+(crates/xiom-lexer/src/lib.rs:102) and compile in block, type-annotation and
+expression positions (`tmp/sprintc/m149_block_comment_probe{,2}.xi`: exit 0);
+an UNTERMINATED block comment reports
+`error[L001]: <line>:<col>: unterminated block comment`
+(probe 3, lexer lib.rs:288). The report is stale (fixed sometime during the
+campaign). Benchmark trio R-1 (m145), R-2 (m148), R-3 (stale) closed.
+
+### Stage 6 lint wave sizing (docs/STAGE6_LINT_WAVE.md)
+Start with W002 + W003 (spec order). Plumbing findings for the next session:
+- Checker warnings: `CheckError { message, span, cause, guaranteed }`
+  (crates/xiom-check/src/types.rs:610), pushed by `warn`/`warn_at`
+  (lib.rs:1350/1356); catalog scope is the "catalog body" message prefix.
+  8 literal construction sites -> a `code: Option<String>` field is cheap;
+  a "W002:"/"W003:" prefix convention is the zero-struct-churn alternative.
+- Driver: crates/xiom/src/lib.rs:868-879 partitions catalog warnings (W000,
+  capped at 5) from own warnings (currently W000); own warnings must print
+  per-lint codes (`warning[WNNN]`). `Diagnostic{kind,code,...}` exists
+  (W001 at lib.rs:582); spec item 2 wants the new codes in the JSON
+  envelope + docs/JSON_DIAGNOSTICS_V1.md.
+- Scope guard: lint only the user program (`checking_catalog` keeps the
+  stdlib out) so `catalog_corpus_is_clean` and the zero-warning e2e tests
+  (m16/m17) stay green structurally.
+- Locks per lint: positive fixture (stderr contains the code, exit 0) +
+  negative fixture (silent), via crates/xiom/tests/checker_locks.rs; add
+  the CI e2e-name line where the fixture is e2e-able. W002 must stay silent
+  for guard-first recursion; W003 is per-block (not across labels) and must
+  not fire after loops with a reachable `break` or after a diverging
+  `if` branch the block continues from.
+
