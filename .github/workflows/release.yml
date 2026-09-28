@@ -615,7 +615,7 @@ jobs:
           GH_TOKEN: ${{ secrets.XIOM_RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           cd artifacts
-          FILES=$(ls *.zip *.tar.gz *.wasm *.vsix 2>/dev/null || true)
+          FILES=$(ls *.zip *.tar.gz *.wasm *.js *.d.ts *.vsix 2>/dev/null || true)
           gh release create "$GITHUB_REF_NAME" $FILES SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \

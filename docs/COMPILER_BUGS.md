@@ -9423,6 +9423,18 @@ full e2e **2389/2389 (+4 ignored)**, checker 195/195, stdlib-exec 85/85
 integration 130, robustness 63, fuzz 24, perf 3/3, diff 24 (+1 ignored),
 CLI suites, MCP 44, pkg 75, release-notes 6, workspace `--lib`.
 
+Release run notes: the first publish attempt was failed by the new
+checksum guard on a FALSE NEGATIVE -- the Windows leg writes its checksum
+file via PowerShell (CRLF), so the guard saw
+`xiom-0.62.1-windows-x64.zip\r` and reported the (present) asset missing.
+The combined SHA256SUMS is now CR-normalized and the guard strips a
+trailing CR (`f93f4ee6`); the tag was re-cut onto that commit and the
+release run went fully green. The create-release glob also omitted
+`*.js`/`*.d.ts`, so the wasm glue JS/types were checksummed and staged but
+not attached: fixed for future releases (`*.js *.d.ts` in FILES) and
+fix-forward on v0.62.1 by uploading the exact CI-built glue from the
+release run's linux artifact (hashes match SHA256SUMS).
+
 ### C8 recurrence fix-forward (same day)
 v0.62.0 shipped a `SHA256SUMS` entry for `xiom-wasm-0.62.0.wasm` with the
 asset missing from the release: the linux leg builds the wasm and writes
