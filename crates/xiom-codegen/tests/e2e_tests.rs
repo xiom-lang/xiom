@@ -5474,6 +5474,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// R53 (packages relay): a PLAIN-local argument fed to a `&mut`/pointer
+// out-param must write through to the caller (v0.61.3 materialized a temp
+// copy and lost every write; a `&mut Struct` variant corrupted memory).
+#[test] fn e2e_m152_mut_write_through() {
+    assert_eq!(
+        compile_and_run("tests/regression/m152_mut_write_through/main.xi"),
+        Some(0),
+        "plain-local calls to &mut out-params must write through (and explicit &mut must stay correct)"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

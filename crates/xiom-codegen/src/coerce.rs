@@ -164,6 +164,48 @@ impl IrEmitter {
             // an i64 address inttoptrs to the real pointer, a struct value
             // takes the existing struct->pointer slot path (coerce_value),
             // and a Vec data pointer coerces directly.
+            // R53 (packages relay, mut-int-write-through): a PLAIN lvalue
+            // argument fed to a pointer param is the implicit form of the
+            // explicit `&x`/`&mut x` branch above -- pass the local's slot
+            // ADDRESS. BUG 31's temp materialization below used to make every
+            // write through the callee land in a discarded copy (`set_one(x)`
+            // left x == 0; the `&mut Bag` variant corrupted memory). Value
+            // expressions (literals, calls, arithmetic) keep materializing a
+            // temp. Excluded: array bindings (their own element-pointer
+            // paths), address-carrying `&T` params/locals (`ref_params` /
+            // `ref_locals` -- their slot holds the address VALUE, not the
+            // pointee) and pointer-typed slots (already pointer values).
+            if lvalue.is_none() {
+                if let Expr::Ident(id) = arg_expr {
+                    // Locals whose slot holds POINTER BITS (or an address as
+                    // i64) must keep their existing value paths: passing the
+                    // slot address would add a spurious indirection. The
+                    // declared-type sets miss INFERRED pointer locals
+                    // (`var p = ptr.null[Int]()` -- slot i64, XIOM type
+                    // `*T`), so the XIOM-type inference guards those.
+                    let ptr_valued = self
+                        .xiom_type_of_local(&id.name)
+                        .as_deref()
+                        .map_or(false, |t| t == "Str" || t.starts_with('*'));
+                    let skip = ptr_valued
+                        || self.local.array_locals.contains(&id.name)
+                        || self.local.ref_locals.contains(&id.name)
+                        || self.local.ref_params.contains(&id.name)
+                        || self.local.closure_locals.contains(&id.name)
+                        || self.local.fn_local_returns.contains_key(&id.name)
+                        || self.local.ptr_locals.contains(&id.name)
+                        || self.local.local_vec_handle.contains_key(&id.name)
+                        || self.local.local_boxed_struct.contains_key(&id.name);
+                    if !skip {
+                        if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
+                            if !slot_ty.ends_with('*') {
+                                let addr_ty = format!("{slot_ty}*");
+                                return self.coerce_value(&slot, &addr_ty, param_ty);
+                            }
+                        }
+                    }
+                }
+            }
             // BUG 52 (2026-08-18): `key: &K` with K=Str -- the mono param is
             // `i8**` (address OF a slot holding the string handle). A Str
             // VALUE arg (`m.get("b")`, a Vec[Str] element) must be

@@ -69,7 +69,20 @@ docs/COMPILER_BUGS.md "2026-09-27 -- item 3 landed: exact arity ON" and
   findings). Await the stdlib relay before executing the 2026-09-25
   order; `XIOM_STRICT_BRACKETS` default flip and the release-notes
   re-conversion are in that order.
-- **Git**: local `main` = origin/main + 62 commits after the last docs
+- **R53 LANDED: `&mut` out-param write-through.** Plain-local calls to
+  `&mut`/pointer params (`set_one(x)`) now pass the local's slot address
+  (the implicit form of the explicit-borrow branch) instead of BUG-31's
+  discarded temp copy; the guard set covers inferred pointer locals,
+  address-carrying ref params/locals, arrays, closures, fn-typed locals and
+  handle locals. Packages `probe_out_params.xi` `bad=0`; struct-bag variant
+  green. Locks: `m152_mut_write_through` + e2e + CI. Gates: e2e
+  2386/2386 (+4 ignored), stdlib-exec 85, feature-reg 510, modules 40/40,
+  checker 195, strict 1, quick suites, locks 8/8.
+- **Release UNBLOCKED**: the stdlib cut v0.62.0 (`80e767b`, pushed tip
+  `1770ce6`) and handed over: cut `stdlib-v0.62.0`, pin `STDLIB_VERSION`
+  to the tag, run the full pin gates, then the combined compiler release
+  (owner go-ahead relayed). Execute the 2026-09-25 order next.
+- **Git**: local `main` = origin/main + 64 commits after the last docs
   commit (all UNPUSHED; pushes only on the owner's ask). stdlib checkout
   detached at `0c50ac6`; compiler tree clean.
 

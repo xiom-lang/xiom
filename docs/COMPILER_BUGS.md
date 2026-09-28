@@ -9264,3 +9264,49 @@ never record a silent failure as a pass without a re-run; a capture batch
 (exit code + dump on a loaded re-run) is queued behind the `&mut`
 write-through fix.
 
+## 2026-09-27 -- R53: `&mut` out-param write-through (plain-local implicit borrow)
+
+Packages relay (repro battery `mut-int-write-through/`): a call to a
+function taking a `&mut T` parameter with a PLAIN local argument
+(`set_one(x)`, no explicit `&mut` at the call site) compiled silently and
+operated on a copy -- every write through the parameter was lost; a
+`&mut Struct` variant additionally corrupted memory (a bag push wrote
+`1859382800640`). Reproduced on the current build before the fix:
+`probe_out_params.xi` `bad=6`.
+
+Root cause: the checker erases references from its type model
+(`CheckedType::from_ast_type` maps `Ref`/`MutRef` to the pointee), so the
+plain-local form is accepted; in codegen, `coerce_arg_for_param`'s
+`param_ty.ends_with('*')` path only passed a lvalue's slot ADDRESS for the
+explicit `&x`/`&mut x` wrapper (BUG 31). A plain scalar ident fell into the
+BUG-31 temp materialization (`alloca` + `store` + pass the temp), so the
+callee wrote into a discarded copy.
+
+Fix (`crates/xiom-codegen/src/coerce.rs`): a plain lvalue ident fed to a
+pointer param is the implicit form of the explicit-borrow branch -- pass
+the local's slot ADDRESS (`coerce_value(slot, "{slot_ty}*", param_ty)`).
+Value expressions (literals, calls, arithmetic) keep materializing a temp.
+Guard set (skip to preserve existing value paths): inferred pointer-valued
+locals (`Str` / `*T` XIOM type -- `var p = ptr.null[Int]()` has slot i64
+and is NOT in the declared-type `ptr_locals`), `array_locals`,
+`ref_locals`, `ref_params` (address-as-i64 params), `closure_locals`,
+fn-typed locals, `ptr_locals`, `local_vec_handle`, `local_boxed_struct`,
+and pointer-typed slots. The first cut missed the inferred-pointer case and
+regressed `smoke_ptr`/`smoke_ptr_offset` (caught by stdlib-exec, fixed).
+
+### Locks
+`tests/regression/m152_mut_write_through/main.xi` (plain single/two
+out-params, read-modify-write, struct field + Vec push, explicit `&mut`
+control; exits with the failure count) + `e2e_m152_mut_write_through` + CI
+line.
+
+### Gates (all green)
+full e2e 2386/2386 (+4 ignored, quiet-window `-- --test-threads 12`),
+stdlib-exec 85/85 (+2 ignored), feature-reg 510/510, stdlib modules 40/40,
+checker 195/195, strict-clause corpus 1/1, integration 130, robustness 63,
+fuzz 24, perf 3/3, diff 24 (+1 ignored), checker_locks 8/8; packages
+`probe_out_params.xi` `bad=0` and the struct-bag probe passes
+(`v=99 len=1 e0=7`). Loaded-run e2e attempts hit the m35 storm (12/25
+spurious silent compile failures; every examined fixture compiles and runs
+green on direct retry) -- consistent with the cross-lane flake class above.
+
