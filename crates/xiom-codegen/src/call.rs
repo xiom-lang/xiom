@@ -4947,7 +4947,38 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 } else {
                     // For method calls, resolve the fully qualified function name
                     let mut implicit_self_resolved = false;
-                    let mut resolved_fn_key = if let Some(receiver) = receiver_expr {                        let recv_type = self.infer_struct_type_name(receiver);
+                    let mut resolved_fn_key = if let Some(receiver) = receiver_expr {                        let recv_type = self.infer_struct_type_name(receiver).or_else(|| {
+                            // C001 (benchmark relay): a VALUE receiver local whose
+                            // XIOM type was never recorded (e.g. `let trimmed =
+                            // s.trim();` where `trim` is a receiver-sugar FREE fn)
+                            // still has a concrete LLVM type. When the matching
+                            // primitive method key exists, use it so `x.method()`
+                            // resolves to the TYPE method ("Str.is_empty") instead
+                            // of being mistaken for a module receiver and
+                            // collapsing to the bare leaf (C001: unresolved
+                            // @is_empty from @io.parse_int). Self-validating: the
+                            // synthesis only fires when the `Type.method` key is
+                            // actually registered.
+                            if let Expr::Ident(id) = &**receiver {
+                                let llvm = self.lookup_local(&id.name).map(|(_, t)| t.clone());
+                                let prim = match llvm.as_deref() {
+                                    Some("i8*") => "Str",
+                                    Some("double") => "Float64",
+                                    Some("float") => "Float32",
+                                    Some("i1") => "Bool",
+                                    _ => "",
+                                };
+                                if !prim.is_empty()
+                                    && self.types.functions.contains_key(&format!("{prim}.{fn_name}"))
+                                {
+                                    Some(prim.to_string())
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        });
                         if let Some(rt) = recv_type {
                             format!("{}.{}", rt, fn_name)
                         } else if !self.mono.current_type_map.is_empty() {

@@ -80,19 +80,29 @@ docs/COMPILER_BUGS.md "2026-09-27 -- item 3 landed: exact arity ON" and
   green. Locks: `m152_mut_write_through` + e2e + CI. Gates: e2e
   2386/2386 (+4 ignored), stdlib-exec 85, feature-reg 510, modules 40/40,
   checker 195, strict 1, quick suites, locks 8/8.
-- **Release v0.62.0 PREPARED (item 4 executed locally; pushes pending the
-  owner's go)**: `STDLIB_VERSION` -> `stdlib-v0.62.0` (tag created locally
-  on the stdlib release cut `80e767b`; NOT pushed yet), workspace version
-  0.61.3 -> 0.62.0 (`Cargo.toml` + `cargo update -w` lock refresh),
-  release notes re-converted with the stdlib fragment (6 highlights,
-  verify green). Strict-CLAUSE default ON (`XIOM_STRICT_CLAUSES=0` opts
-  out) with the literal-0 null-cast exemption; strict-BRACKETS default
-  flip HELD (3 stdlib mixed sites relayed: `io/fs.xi` 36+244,
-  `math/algebra_extended.xi` 311; lands next release). Gates: full e2e
-  2386/2386 (+4 ignored; script cache redirected -- Defender blocks
-  `%TEMP%\xiom_run` exes, os error 225), checker 195, stdlib-exec 85,
-  modules 40/40, feature-reg 510, parser 106, notes 6, integration 130,
-  robustness 63, fuzz 24, perf 3, diff 24, CLI suites, MCP 44, pkg 75.
+- **C001 LANDED (benchmark unblocker)**: `io.parse_int` -> bare
+  `@is_empty` fixed -- a let-bound Str from a receiver-sugar free fn
+  (`let trimmed = s.trim();`) never recorded its XIOM type, so
+  `trimmed.is_empty()` mis-resolved the receiver as a MODULE and emitted
+  an undefined `@is_empty`. The resolver now derives the primitive from
+  the receiver local's LLVM type (`i8*`->Str, ...) when the matching
+  `Type.method` key exists. Lock: `m153_parse_int_trim_isempty` + e2e +
+  CI. Gates: e2e 2387/2387 (+4 ignored), checker 195, stdlib-exec 85,
+  modules 40/40, feature-reg 510, quick suites, locks 8/8. Awaiting
+  0.62.1 with the R-5 PR.
+- **Release v0.62.0 RELEASED (pushes done 2026-09-28)**: `STDLIB_VERSION`
+  -> `stdlib-v0.62.0` (tag on the stdlib release cut `80e767b`, pushed),
+  workspace version 0.61.3 -> 0.62.0 (`Cargo.toml` + `cargo update -w`
+  lock refresh), release notes re-converted with the stdlib fragment
+  (6 highlights, verify green). Strict-CLAUSE default ON
+  (`XIOM_STRICT_CLAUSES=0` opts out) with the literal-0 null-cast
+  exemption; strict-BRACKETS default flip HELD (3 stdlib mixed sites
+  relayed: `io/fs.xi` 36+244, `math/algebra_extended.xi` 311; lands next
+  release). Gates: full e2e 2386/2386 (+4 ignored; script cache
+  redirected -- Defender blocks `%TEMP%\xiom_run` exes, os error 225),
+  checker 195, stdlib-exec 85, modules 40/40, feature-reg 510, parser
+  106, notes 6, integration 130, robustness 63, fuzz 24, perf 3, diff 24,
+  CLI suites, MCP 44, pkg 75.
   Pending push sequence: DONE -- stdlib tag `stdlib-v0.62.0`, compiler
   `main` = `7e4d0909`, annotated tag `v0.62.0`; XIOM Release 36438304704
   all green (guard, 5 packages incl. windows-x64, publish, docs dispatch)

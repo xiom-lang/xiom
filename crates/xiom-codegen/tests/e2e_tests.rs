@@ -5485,6 +5485,19 @@ fn e2e_safety_probe() {
     );
 }
 
+// C001 (benchmark relay): `let trimmed = s.trim(); trimmed.is_empty()`
+// inside a catalog body resolved the value receiver as a MODULE and emitted
+// an undefined `@is_empty` (unresolved symbol from @io.parse_int). The
+// primitive method key is now synthesised from the receiver local's LLVM
+// type when its XIOM type was never recorded.
+#[test] fn e2e_m153_parse_int_trim_isempty() {
+    assert_eq!(
+        compile_and_run("tests/regression/m153_parse_int_trim_isempty/main.xi"),
+        Some(0),
+        "trim + is_empty on a let-bound Str must resolve and run (C001)"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

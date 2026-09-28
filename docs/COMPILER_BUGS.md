@@ -9396,3 +9396,41 @@ Extension note: the VSIX publish steps correctly SKIPPED for v0.62.0
 the marketplace already has it -- bump the version only for real
 extension changes).
 
+## 2026-09-28 -- C001 FIXED: value receiver resolved as a MODULE -> bare `@is_empty`
+
+Benchmark relay's unblocker (`io.parse_int` -> bare `@is_empty`). Repro:
+`tests/regression/m150_dl_num_parse/main.xi` (their fixture, on the R-5
+branch) and the standalone shape in `tests/regression/m153_parse_int_trim_isempty/main.xi`.
+
+**Root cause chain** (traced with env-gated instrumentation, since
+removed): `io.parse_int`'s body does `let trimmed = s.trim();` then
+`trimmed.is_empty()`. `trim` is a receiver-sugar FREE fn, so
+`callee_return_xiom` could not resolve a declared return type for the
+binding and `local_xiom_types` never recorded `trimmed: Str`. At the
+`trimmed.is_empty()` call site, `infer_struct_type_name(trimmed)`
+returned None, so the resolver took the "receiver is a MODULE" fallback
+(`resolve_catalog_call`) which produced the bare leaf `is_empty`; the
+suffix pass then saw TWO emittable `.is_empty` candidates
+(`Str.is_empty`, `string.is_empty`) and declined to pick, so the call
+emitted `@is_empty` -- registered only as an alias, never emitted -> the
+m142 unresolved-symbol gate raised C001 from `@io.parse_int`.
+
+**Fix** (`crates/xiom-codegen/src/call.rs`, method-call resolved-key
+initializer): when the receiver is an Ident local whose XIOM type was
+never recorded, derive the primitive from its LLVM type (`i8*`->Str,
+`double`->Float64, `float`->Float32, `i1`->Bool) and use it **only when
+the matching `Type.method` key is registered** (self-validating synth).
+`trimmed` -> `Str.is_empty` (registered) -> call binds `@Str.is_empty`,
+which the method definition emits.
+
+**Locks**: `tests/regression/m153_parse_int_trim_isempty/main.xi` (exact
+trim/is_empty shape + `io.parse_int` runtime values; exits with the
+failure count) + `e2e_m153_parse_int_trim_isempty` + CI line. The
+benchmark's `m150_dl_num_parse` graduates to an e2e run lock when the R-5
+PR lands (its check phase needs R-5).
+
+**Gates**: full e2e 2387/2387 (+4 ignored), checker 195/195,
+stdlib-exec 85/85 (+2 ignored), stdlib modules 40/40, feature-reg 510/510
+(one load-flake rerun clean), integration 130, robustness 63, fuzz 24,
+perf 3/3, diff 24 (+1 ignored), checker_locks 8/8.
+
