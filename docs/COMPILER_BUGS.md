@@ -9358,3 +9358,24 @@ execute step there (it passed in the R53 full run hours earlier; and with
 redirected to a repo-local `tmp/e2etemp`. This is machine AV state, not a
 compiler defect.
 
+### Post-push (same day)
+Pushed: stdlib tag `stdlib-v0.62.0` (80e767b), compiler `main` =
+`7e4d0909`, annotated tag `v0.62.0`. XIOM Release run 36438304704: guard,
+all five packages (incl. windows-x64), publish, and the docs
+`repository_dispatch` ALL GREEN
+(https://github.com/xiom-lang/xiom/releases/tag/v0.62.0). CodeQL on main
+green. Extra XIOM CI dispatch on main (run 36439203600) surfaced THREE
+PRE-EXISTING CI-only failures, none from this tree's behavior and none
+blocking the release:
+1. `test_moderate_nesting_ok` (xiom-parser) overflows the test-harness
+   stack on windows-latest AND ubuntu-latest (`STATUS_STACK_OVERFLOW`):
+   the driver compiles on a big-stack thread, the unit test does not.
+2. `toolchain::tests::candidates_are_path_first_then_known_locations` and
+   `windows_llvm_locations_cover_winget_and_local_programs` (xiom lib) are
+   Windows-specific assertions that run (and fail) on ubuntu-latest.
+3. Scheduled `XIOM Heavy Suites` fails fast (38-45s) on 9/21 and 9/28 --
+   pre-existing, needs its own look.
+Follow-up batch queued: CI hygiene (big-stack test threads or
+RUST_MIN_STACK in CI, `#[cfg(windows)]` gating for the path tests, Heavy
+Suites triage). Registry canary remains the external lane's step.
+

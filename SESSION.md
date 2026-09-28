@@ -93,10 +93,14 @@ docs/COMPILER_BUGS.md "2026-09-27 -- item 3 landed: exact arity ON" and
   `%TEMP%\xiom_run` exes, os error 225), checker 195, stdlib-exec 85,
   modules 40/40, feature-reg 510, parser 106, notes 6, integration 130,
   robustness 63, fuzz 24, perf 3, diff 24, CLI suites, MCP 44, pkg 75.
-  Pending push sequence: (1) push the stdlib tag `stdlib-v0.62.0`,
-  (2) push compiler `main` (FIRST CI since R66; Windows leg is the risk),
-  (3) tag `v0.62.0` on the release commit, (4) registry canary + website
-  notes per the 2026-09-25 order.
+  Pending push sequence: DONE -- stdlib tag `stdlib-v0.62.0`, compiler
+  `main` = `7e4d0909`, annotated tag `v0.62.0`; XIOM Release 36438304704
+  all green (guard, 5 packages incl. windows-x64, publish, docs dispatch)
+  -> https://github.com/xiom-lang/xiom/releases/tag/v0.62.0. CodeQL on
+  main green. Extra CI dispatch 36439203600 found 3 PRE-EXISTING CI-only
+  failures (parser stack overflow on both OSes; 2 Windows-path lib tests
+  run on Linux) -- follow-up CI-hygiene batch queued; registry canary
+  remains the external lane's step.
 - **Git**: local `main` = origin/main + 65 commits after this docs commit
   (all UNPUSHED; pushes only on the owner's ask). stdlib checkout
   detached at `stdlib-v0.62.0`; compiler tree clean.
