@@ -5512,6 +5512,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// Benchmark relay's exact num + ffi.dl program: promoted from the R-5
+// check-only lock once the C001 codegen fix landed (its comment asked for
+// exactly this graduation).
+#[test] fn e2e_m150_dl_num_parse() {
+    assert_eq!(
+        compile_and_run("tests/regression/m150_dl_num_parse/main.xi"),
+        Some(0),
+        "num + ffi.dl with io.parse_int must compile and run (R-5 + C001)"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

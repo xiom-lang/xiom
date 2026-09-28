@@ -9398,6 +9398,31 @@ freeze tests pass locally (2/2) and the workspace `--lib` + CLI gates are
 green. The scheduled `XIOM Heavy Suites` fast-fail (38-45s, 9/21 + 9/28)
 still needs its own look.
 
+## 2026-09-28 -- v0.62.1 patch release
+
+Patch release carrying the post-v0.62.0 fixes:
+- **R-5** (PR #4, benchmark relay): local fn definitions shadow same-named
+  externs in the T002 gate; catalog-body findings render with
+  module-qualified attribution. Merged with ALL required checks green
+  (first fully green CI on this repo; admin merge for the review policy).
+- **C001**: value receiver no longer resolved as a module (bare
+  `@is_empty`) -- see the C001 FIXED section.
+- **C9 + C8b** (playground): LLVM-18 `opt` verification syntax; wasm glue
+  published (fix-forward on v0.62.0 + release.yml).
+- **CI hygiene** (2 batches): parser big-stack nesting test,
+  `#[cfg(windows)]` path tests, freeze-test binary path + the intentional
+  contracts snapshot update.
+- **Promoted `m150_dl_num_parse` to an e2e run lock** (the benchmark's
+  ask): R-5 + C001 together make the exact num + ffi.dl program compile
+  and run (`e2e_m150_dl_num_parse` + CI line).
+
+Version 0.62.1 (`Cargo.toml` + lock refresh); `release-notes/v0.62.1.md`
+(4 highlights) converted and `verify` green. Gates on the release state:
+full e2e **2389/2389 (+4 ignored)**, checker 195/195, stdlib-exec 85/85
+(+2 ignored), stdlib modules 40/40, feature-reg 510/510, freeze 2/2,
+integration 130, robustness 63, fuzz 24, perf 3/3, diff 24 (+1 ignored),
+CLI suites, MCP 44, pkg 75, release-notes 6, workspace `--lib`.
+
 ### C8 recurrence fix-forward (same day)
 v0.62.0 shipped a `SHA256SUMS` entry for `xiom-wasm-0.62.0.wasm` with the
 asset missing from the release: the linux leg builds the wasm and writes

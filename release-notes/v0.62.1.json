@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "tag": "v0.62.1",
+  "summary": "A small follow-up release that clears the blockers reported by the benchmark and playground lanes since v0.62.0.",
+  "highlights": [
+    {
+      "kind": "fix",
+      "title": "Numeric parsing works with dynamic libraries",
+      "text": "Programs that combine numeric parsing with dynamic-library calls (for example xiom.num together with xiom.ffi.dl) now compile and run. A string helper invoked inside the standard library's integer parser could previously emit a call to an internal symbol that was never defined."
+    },
+    {
+      "kind": "compiler",
+      "title": "A function you define is no longer mistaken for C",
+      "text": "The safety check for foreign calls now only flags calls that really reach a foreign declaration. Ordinary standard-library code that shares a name with a C function (such as abs) passes cleanly again."
+    },
+    {
+      "kind": "tooling",
+      "title": "No more spurious optimizer warning",
+      "text": "The compiler no longer prints \"LLVM IR verification failed\" on systems with LLVM 18, where the optimizer's legacy flag spelling was removed. IR verification now works on both old and new LLVM, and unsupported verifiers are skipped quietly."
+    },
+    {
+      "kind": "tooling",
+      "title": "The playground build ships with its JavaScript bindings",
+      "text": "The browser build of the compiler now ships with its JavaScript module and type definitions, so the playground can load the current compiler directly."
+    }
+  ],
+  "breaking": [],
+  "known_issues": [],
+  "docs": [],
+  "full_changelog": "https://github.com/xiom-lang/xiom/releases/tag/v0.62.1"
+}
