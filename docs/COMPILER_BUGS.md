@@ -9379,3 +9379,20 @@ Follow-up batch queued: CI hygiene (big-stack test threads or
 RUST_MIN_STACK in CI, `#[cfg(windows)]` gating for the path tests, Heavy
 Suites triage). Registry canary remains the external lane's step.
 
+### C8 recurrence fix-forward (same day)
+v0.62.0 shipped a `SHA256SUMS` entry for `xiom-wasm-0.62.0.wasm` with the
+asset missing from the release: the linux leg builds the wasm and writes
+`SHA256SUMS-linux-x64` (including it) but its `upload-artifact` step only
+listed the tarball + checksums, so the publish job never had the file.
+Fix-forward: extracted `bin/xiom-wasm.wasm` from the published linux
+tarball, verified sha256 == the checksummed value
+(`6df21583...1059cc`), and uploaded it to the v0.62.0 release as
+`xiom-wasm-0.62.0.wasm`. Durable fix in `.github/workflows/release.yml`:
+the artifact upload now includes `xiom-wasm-*.wasm`, and the publish job
+gains a "Verify checksums reference shipped files" step that fails the
+release when any `SHA256SUMS` entry has no artifact in `artifacts/`.
+Extension note: the VSIX publish steps correctly SKIPPED for v0.62.0
+(toolchain-only release; `editors/vscode/package.json` stays 0.12.0 and
+the marketplace already has it -- bump the version only for real
+extension changes).
+

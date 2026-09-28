@@ -373,6 +373,11 @@ jobs:
           path: |
             ${{ env.ARTIFACT_NAME }}
             SHA256SUMS-*
+            # C8 regression (v0.62.0): the wasm asset is checksummed by the
+            # linux leg but must ALSO ride the artifact set, or the publish
+            # job has nothing to upload and the release ships a SHA256SUMS
+            # entry for a missing file. (Matches nothing on the windows leg.)
+            xiom-wasm-*.wasm
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
@@ -557,6 +562,23 @@ jobs:
           cat SHA256SUMS-* > SHA256SUMS
           echo "--- SHA256SUMS ---"
           cat SHA256SUMS
+
+      # C8 recurrence guard (v0.62.0 shipped a SHA256SUMS entry for a wasm
+      # asset that never reached this job): every checksummed file must be
+      # present in artifacts/ BEFORE the release is created.
+      - name: Verify checksums reference shipped files
+        run: |
+          cd artifacts
+          missing=0
+          while read -r _hash file; do
+            [ -z "$file" ] && continue
+            if [ ! -f "$file" ]; then
+              echo "::error::SHA256SUMS references a file that was not uploaded: $file"
+              missing=1
+            fi
+          done < SHA256SUMS
+          [ "$missing" -eq 0 ] || exit 1
+          echo "all checksummed files present"
 
       - name: Token check (diagnostic; shows token type and scopes only)
         env:
