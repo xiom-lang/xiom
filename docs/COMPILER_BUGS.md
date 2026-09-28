@@ -9629,3 +9629,32 @@ Gates: full e2e 2389/2389 (+4 ignored), checker 195/195, stdlib-exec 85/85
 integration 130, robustness 63, fuzz 24, perf 3/3, diff 24 (+1 ignored),
 checker_locks 12/12.
 
+## 2026-09-28 -- R-2d FIXED: `--check` implicit-main-wrapped LIBRARY files
+
+Benchmark relay (their `--check` failure on the t3 solution/templates):
+`xiom --check` applied the implicit-main wrapper to ANY file without
+`fn main`, including library files with top-level declarations. Wrapping
+put every `fn`/`type` inside a fn body and the parse failed with a bogus
+`error[P001]: <shifted line>: expected ';', found :` at the first
+`requires:` clause -- while a full compile of the same file succeeded
+(and the reported line was shifted by the wrapped prelude length).
+
+Fix (`crates/xiom/src/lib.rs`): the check-only wrap now requires the
+source to be SCRIPT-LIKE (`source_has_top_level_decls`: no line starting
+with fn/type/interface/enum/module/impl, `pub` stripped; `use` lines do
+NOT count, scripts routinely import the catalog). `script_mode` (`xiom
+run`) keeps its unconditional wrap; full compiles are untouched (the
+changed branch is `check_only`-only, so the e2e suite -- which never uses
+`--check` -- is structurally unaffected).
+
+Verified against the benchmark's actual files:
+`E:\xiom-projects\xiom-benchmark-chaos\tests\toolchain\solutions\t3-hot-reload.xi`
+and three `tasks/*/t3-hot-reload/template.xi` copies: all `--check` PASS
+now; a statement snippet still wraps and passes.
+
+Lock: `tests/regression/m155_r2d_check_library` + a checker_locks test
+asserting `--check` exits 0 with "Type check PASSED".
+Gates: checker_locks 13/13, CLI suite green (scripting tests 34/34 at
+`--test-threads 4` -- the parallel JIT tests are the known load-flake
+class, isolated runs pass), feature-reg 510/510.
+

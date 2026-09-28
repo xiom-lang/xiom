@@ -193,6 +193,24 @@ pub struct CompileResult {
     pub file_count: usize,
 }
 
+/// R-2d (benchmark relay): does the source contain top-level DECLARATIONS?
+/// `--check` may only apply implicit-main wrapping to SCRIPT-like sources;
+/// wrapping a library file placed every declaration inside a fn body and
+/// produced a bogus P001 at the first `requires:` clause while a full
+/// compile of the same file succeeded. `use` lines do NOT count (scripts
+/// routinely import the catalog).
+fn source_has_top_level_decls(source: &str) -> bool {
+    const KW: [&str; 6] = ["fn ", "type ", "interface ", "enum ", "module ", "impl "];
+    for line in source.lines() {
+        let t = line.trim_start();
+        let t = t.strip_prefix("pub ").unwrap_or(t);
+        if KW.iter().any(|k| t.starts_with(k)) {
+            return true;
+        }
+    }
+    false
+}
+
 /// Phase 7A: Resolve all project sources using the dependency graph.
 ///
 /// If a `xiom.toml` or `package.xi` is found, discovers all `.xi` files
@@ -766,10 +784,13 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
 
         // M12: Scripting mode -- apply implicit main wrapping.
         // In script_mode (xiom run), always wrap.
-        // In --check mode, wrap only if source has no fn main (script-like).
+        // In --check mode, wrap only SCRIPT-LIKE sources (no top-level
+        // declarations). R-2d (benchmark relay): wrapping a library file put
+        // every `fn`/`type` inside a fn body and produced a bogus P001 at the
+        // first `requires:` clause, while a full compile succeeded.
         let source = if config.script_mode {
             crate::implicit_main::wrap_implicit_main(&source)
-        } else if config.check_only && !source.contains("fn main") {
+        } else if config.check_only && !source_has_top_level_decls(&source) {
             crate::implicit_main::wrap_implicit_main(&source)
         } else {
             source

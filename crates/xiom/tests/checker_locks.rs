@@ -267,6 +267,28 @@ fn m154_w004_guarded_stays_silent() {
 }
 
 #[test]
+fn m155_r2d_check_library_file_passes() {
+    // R-2d: `--check` must NOT implicit-main-wrap a library file (top-level
+    // declarations, no `fn main`); wrapping produced a bogus P001 at the
+    // first `requires:` clause while a full compile succeeded.
+    let output = Command::new(xiom_bin())
+        .arg("--check")
+        .arg(fixture("m155_r2d_check_library"))
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn '{}': {e}", xiom_bin()));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "a library-style --check must pass (R-2d); stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("Type check PASSED"),
+        "expected the pass line, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn m150_genuine_extern_still_gated() {
     // R-5 fix guard: only a fn DEFINITION shadows a same-named extern mark,
     // so a plain `extern "C"` call in safe user code still requires `unsafe`.
