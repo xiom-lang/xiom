@@ -9379,6 +9379,14 @@ Follow-up batch queued: CI hygiene (big-stack test threads or
 RUST_MIN_STACK in CI, `#[cfg(windows)]` gating for the path tests, Heavy
 Suites triage). Registry canary remains the external lane's step.
 
+CI-hygiene batch EXECUTED (2026-09-28): `test_moderate_nesting_ok` now runs
+its parse on a 64MB-stack thread (same pattern as the deep-nesting test --
+libtest's default thread stack overflowed on the runners); the two
+Windows-path toolchain tests are `#[cfg(windows)]`-gated (the
+windows-latest leg still exercises them, ubuntu no longer runs them). The
+scheduled `XIOM Heavy Suites` fast-fail (38-45s, 9/21 + 9/28) still needs
+its own look.
+
 ### C8 recurrence fix-forward (same day)
 v0.62.0 shipped a `SHA256SUMS` entry for `xiom-wasm-0.62.0.wasm` with the
 asset missing from the release: the linux leg builds the wasm and writes

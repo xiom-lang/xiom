@@ -2955,11 +2955,19 @@ mod tests {
 
     #[test]
     fn test_moderate_nesting_ok() {
-        // 20 levels should parse fine
+        // 20 levels should parse fine. CI hygiene: run on a big-stack thread
+        // like the driver (and the deep-nesting test above) -- libtest's
+        // default thread stack overflowed on the CI runners even at depth 20.
         let src = format!("fn main() -> Int {{ return {}1{}; }}", "(".repeat(20), ")".repeat(20));
-        let tokens = Lexer::new(&src).tokenize();
-        let result = Parser::new(tokens).parse_program();
-        assert!(result.is_ok(), "moderate nesting should parse: {:?}", result.err());
+        let child = std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(move || {
+                let tokens = Lexer::new(&src).tokenize();
+                let result = Parser::new(tokens).parse_program();
+                assert!(result.is_ok(), "moderate nesting should parse: {:?}", result.err());
+            })
+            .expect("spawn");
+        child.join().expect("moderate-nesting parse must not abort");
     }
 
     // AUDIT #16: reserved vs soft keywords in ident positions.

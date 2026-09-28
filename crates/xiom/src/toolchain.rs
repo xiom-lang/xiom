@@ -344,6 +344,10 @@ mod tests {
         }
     }
 
+    // CI hygiene: these assert WINDOWS path semantics (separators, WinGet
+    // package dirs); on ubuntu-latest they ran and failed. The windows-latest
+    // leg still exercises them.
+    #[cfg(windows)]
     #[test]
     fn candidates_are_path_first_then_known_locations() {
         let env = env_from(&[("ProgramFiles", "C:\\Program Files")]);
@@ -366,6 +370,7 @@ mod tests {
             .any(|c| c.path == PathBuf::from("C:\\Program Files\\LLVM\\bin\\clang.exe")));
     }
 
+    #[cfg(windows)]
     #[test]
     fn windows_llvm_locations_cover_winget_and_local_programs() {
         let env = env_from(&[
