@@ -9597,3 +9597,35 @@ perf 3/3, diff 24 (+1 ignored), checker_locks 8/8.
   `stage/bin/xiom-wasm.wasm`, and checksum + upload the three files (the
   publish-job checksum guard now covers them).
 
+## 2026-09-28 -- Stage 6 W004: unreachable match arm
+
+An arm that can never match because an earlier arm is an unguarded
+catch-all (`_` or a plain binding) or an exact duplicate
+literal/enum-variant pattern:
+`warning[W004]: unreachable match arm (an earlier arm already matches
+these values)`. Complements `--strict-exhaustive`, which covers MISSING
+arms. Warning-only, user-program scope, emitted through `warn_coded_at`
+(the JSON code list gains W004).
+
+Implementation notes:
+- The catch-all rule is UNGUARDED-only: `_ if c` may fail and leaves later
+  arms reachable, and a guarded duplicate pattern still reaches later arms
+  when its guard fails (both directions locked by the negative fixture).
+- Duplicate keys are structural: literals by value, enum variants by
+  (dotted) path + payload ARITY -- `Circle(r)` and `Circle(rad)` collide;
+  payload bindings/wildcards key as "any". Struct/tuple/or patterns are
+  skipped to stay conservative.
+- AST subtlety caught by the probes: a BARE enum variant (`Color.Red`)
+  parses as a DOTTED `Pattern::Ident`, not a binding. `pattern_is_catch_all`
+  now treats only UNdotted idents as bindings, which also hardens the W002
+  match walk and the W003 divergence test (a dotted arm no longer counts as
+  a catch-all).
+
+Locks: `tests/regression/m154_w004_unreachable` (catch-all shadow, duplicate
+literal, duplicate variant) + `m154_w004_guard` (guarded duplicate and
+guarded catch-all stay silent), 2 checker_locks tests.
+Gates: full e2e 2389/2389 (+4 ignored), checker 195/195, stdlib-exec 85/85
+(+2 ignored), stdlib modules 40/40, feature-reg 510/510, freeze 2/2,
+integration 130, robustness 63, fuzz 24, perf 3/3, diff 24 (+1 ignored),
+checker_locks 12/12.
+

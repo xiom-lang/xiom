@@ -5142,9 +5142,101 @@ impl Checker {
 
     fn pattern_is_catch_all(pattern: &Pattern) -> bool {
         match pattern {
-            Pattern::Wildcard(_) | Pattern::Ident(_) => true,
+            Pattern::Wildcard(_) => true,
+            // A BARE enum variant (`Color.Red`) parses as a DOTTED Ident --
+            // it is a specific variant, NOT a binding.
+            Pattern::Ident(id) => !id.name.contains('.'),
             Pattern::Or(alts, _) => alts.iter().any(Self::pattern_is_catch_all),
             _ => false,
+        }
+    }
+
+    /// W004 (Stage 6): warn for arms that can never match because an earlier
+    /// arm is an unguarded catch-all (`_` or a plain binding) or an exact
+    /// duplicate literal / enum-variant pattern. Complements
+    /// `--strict-exhaustive`, which covers MISSING arms. Warning-only and
+    /// user-program scoped (call sites guard on `!checking_catalog`).
+    fn lint_w004_unreachable_arms(&mut self, arms: &[MatchArm]) {
+        let mut shadowed_by_catch_all = false;
+        let mut seen: Vec<String> = Vec::new();
+        for arm in arms {
+            let unguarded = arm.guard.is_none();
+            let mut unreachable = shadowed_by_catch_all;
+            if !unreachable {
+                if let Some(key) = Self::pattern_shadow_key(&arm.pattern) {
+                    if seen.contains(&key) {
+                        unreachable = true;
+                    }
+                }
+            }
+            if unreachable {
+                self.warn_coded_at(
+                    "W004",
+                    "unreachable match arm (an earlier arm already matches these values)",
+                    arm.span,
+                );
+            }
+            // Only an UNGUARDED catch-all shadows everything after it; a
+            // guarded catch-all may fail and leave later arms reachable.
+            if unguarded && Self::pattern_is_catch_all(&arm.pattern) {
+                shadowed_by_catch_all = true;
+            }
+            // Duplicate tracking: only unguarded patterns can shadow by
+            // value (a guarded duplicate still reaches later arms when its
+            // guard fails).
+            if unguarded {
+                if let Some(key) = Self::pattern_shadow_key(&arm.pattern) {
+                    seen.push(key);
+                }
+            }
+        }
+    }
+
+    /// W004: a structural key for patterns whose matched VALUE SET is
+    /// exact-comparable -- literals and enum variants (recursively). `None`
+    /// for patterns we do not compare: wildcards/bindings are handled by the
+    /// catch-all rule, and struct/tuple/or patterns are skipped to stay
+    /// conservative (no false positives).
+    fn pattern_shadow_key(pattern: &Pattern) -> Option<String> {
+        match pattern {
+            Pattern::Lit(lit) => Some(match lit {
+                Literal::Int(v, _) => format!("int:{v}"),
+                Literal::Float(v, _) => format!("float:{}", v.to_bits()),
+                Literal::Str(s, _) => format!("str:{s}"),
+                Literal::Char(c, _) => format!("char:{}", *c as u32),
+                Literal::Bool(b, _) => format!("bool:{b}"),
+            }),
+            // Variant payload entries are BINDINGS in this AST; the matched
+            // value set depends only on the (dotted) variant path and the
+            // payload ARITY (`Circle(r)` and `Circle(rad)` collide).
+            Pattern::Variant(name, fields, _) => {
+                Some(format!("variant:{}:{}", name.name, fields.len()))
+            }
+            // A BARE enum variant (`Color.Red`) parses as a dotted Ident --
+            // same value-set key as the parenthesized form with arity 0.
+            Pattern::Ident(id) if id.name.contains('.') => {
+                Some(format!("variant:{}:0", id.name))
+            }
+            Pattern::None(_) => Some("none".to_string()),
+            Pattern::Some(inner, _) => {
+                Some(format!("some:{}", Self::pattern_payload_key(inner)?))
+            }
+            Pattern::Ok(inner, _) => {
+                Some(format!("ok:{}", Self::pattern_payload_key(inner)?))
+            }
+            Pattern::Err(inner, _) => {
+                Some(format!("err:{}", Self::pattern_payload_key(inner)?))
+            }
+            _ => None,
+        }
+    }
+
+    /// W004: payload position keys -- a binding or wildcard payload matches
+    /// ANY value ("any"), literals/nested constructors keep their exact key.
+    fn pattern_payload_key(pattern: &Pattern) -> Option<String> {
+        match pattern {
+            Pattern::Wildcard(_) | Pattern::Ident(_) => Some("any".to_string()),
+            _ => Self::pattern_shadow_key(pattern),
         }
     }
 
@@ -5811,6 +5903,10 @@ impl Checker {
             }
             Stmt::Match(expr, arms, span) => {
                 let matched_ty = self.check_expr(expr);
+                // Stage 6 W004: unreachable match arms (user program only).
+                if !self.checking_catalog {
+                    self.lint_w004_unreachable_arms(arms);
+                }
                 for arm in arms {
                     self.push_scope();
                     // Add pattern bindings to scope
@@ -8254,6 +8350,10 @@ impl Checker {
             }
             Expr::Match(scrutinee, arms, span) => {
                 let scr_ty = self.check_expr(scrutinee);
+                // Stage 6 W004: unreachable match arms (user program only).
+                if !self.checking_catalog {
+                    self.lint_w004_unreachable_arms(arms);
+                }
                 // The value of a match-expression is the type of its arm bodies.
                 // Return the first arm's body type (or Unit for an empty match).
                 let mut result_ty = CheckedType::Unit;

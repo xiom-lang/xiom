@@ -36,7 +36,7 @@ Check-only success is a **status object**, not a diagnostics list:
 | Field | Type | Required | Meaning |
 |---|---|---|---|
 | `kind` | string | yes | `lex_error`, `parse_error`, `type_error`, `borrow_error`, `borrow_warning`, `codegen_error`, `warning` (advisory: W000-class checker warnings and the Stage 6 lint wave W002/W003) |
-| `code` | string | yes | stable id: `L001`, `P001`, `T001`, `E001`, `C001`, `W000` (legacy checker warning), `W001` (catalog module collision), `W002` (unconditional recursive cycle), `W003` (unreachable statement after a diverger) |
+| `code` | string | yes | stable id: `L001`, `P001`, `T001`, `E001`, `C001`, `W000` (legacy checker warning), `W001` (catalog module collision), `W002` (unconditional recursive cycle), `W003` (unreachable statement after a diverger), `W004` (unreachable match arm) |
 | `message` | string | yes | human-readable, already localized to English |
 | `line` | number | yes | 1-based source line (0 when not position-specific, e.g. codegen failures) |
 | `col` | number | yes | 1-based Unicode-scalar column |

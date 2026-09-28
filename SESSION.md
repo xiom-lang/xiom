@@ -110,13 +110,23 @@ docs/COMPILER_BUGS.md "2026-09-27 -- item 3 landed: exact arity ON" and
   CI. Gates: e2e 2387/2387 (+4 ignored), checker 195, stdlib-exec 85,
   modules 40/40, feature-reg 510, quick suites, locks 8/8. Awaiting
   0.62.1 with the R-5 PR.
-- **v0.62.1 patch RELEASED (local; push pending the owner's go)**: R-5
+- **Stage 6 W004 LANDED**: unreachable match arm (unguarded catch-all
+  shadow; duplicate literal/variant, structurally keyed with payload
+  arity). Probe-caught AST subtlety fixed: bare enum variants parse as
+  DOTTED `Pattern::Ident`; `pattern_is_catch_all` now excludes those
+  (hardens W002/W003 too). Locks `m154_w004_unreachable`/`_guard` +
+  2 checker_locks tests (12/12). Gates: e2e 2389/2389 (+4 ignored),
+  checker 195, stdlib-exec 85, modules 40/40, feature-reg 510, freeze 2/2,
+  quick suites. Next: tier 2 (W005-W007).
+- **v0.62.1 patch RELEASED (pushed; release run green)**: R-5
   (PR #4 merged, all checks green -- first fully green CI), C001, C9/C8b
   (playground), CI hygiene, and the promoted `m150_dl_num_parse` e2e lock.
   Gates: full e2e 2389/2389 (+4 ignored), checker 195, stdlib-exec 85,
   modules 40/40, feature-reg 510, freeze 2/2, integration 130, robustness
   63, fuzz 24, perf 3, diff 24 (+1), CLI/MCP 44/pkg 75, notes 6, workspace
-  `--lib`; notes verify green. Tag `v0.62.1` to be pushed after main.
+  `--lib`; notes verify green. Release tag re-cut once onto the CR-guard
+  fix (`f93f4ee6`); the publish-job glob fix (`*.js`/`*.d.ts`) landed after
+  (`99096abd`); the v0.62.1 wasm glue was fix-forwarded from the CI artifact.
 - **Playground fixes landed**: C9 (`opt -verify` -> `-passes=verify` with
   legacy fallback + silent skip; the LLVM-18 warning no longer prints on
   every run) and C8b (wasm-bindgen glue fix-forward on v0.62.0:

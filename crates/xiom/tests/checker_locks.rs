@@ -237,6 +237,36 @@ fn m151_w003_guarded_stays_silent() {
 }
 
 #[test]
+fn m154_w004_unreachable_arm_warns() {
+    let (stderr, code, exe) = run_on("m154_w004_unreachable");
+    assert_eq!(code, Some(0), "W004 must not block the build. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("warning[W004]"),
+        "expected warning[W004] in stderr, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("unreachable match arm"),
+        "expected the unreachable-arm message, got:\n{stderr}"
+    );
+    let run = Command::new(&exe).output().expect("run m154_w004_unreachable");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(run.status.code(), Some(0), "the W004 fixture must run cleanly");
+}
+
+#[test]
+fn m154_w004_guarded_stays_silent() {
+    let (stderr, code, exe) = run_on("m154_w004_guard");
+    assert_eq!(code, Some(0), "guarded fixture must compile. stderr:\n{stderr}");
+    assert!(
+        !stderr.contains("warning[W004]"),
+        "guarded duplicates/catch-alls must stay silent, got:\n{stderr}"
+    );
+    let run = Command::new(&exe).output().expect("run m154_w004_guard");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(run.status.code(), Some(0), "the guarded fixture must run cleanly");
+}
+
+#[test]
 fn m150_genuine_extern_still_gated() {
     // R-5 fix guard: only a fn DEFINITION shadows a same-named extern mark,
     // so a plain `extern "C"` call in safe user code still requires `unsafe`.
