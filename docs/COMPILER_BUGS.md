@@ -9383,9 +9383,20 @@ CI-hygiene batch EXECUTED (2026-09-28): `test_moderate_nesting_ok` now runs
 its parse on a 64MB-stack thread (same pattern as the deep-nesting test --
 libtest's default thread stack overflowed on the runners); the two
 Windows-path toolchain tests are `#[cfg(windows)]`-gated (the
-windows-latest leg still exercises them, ubuntu no longer runs them). The
-scheduled `XIOM Heavy Suites` fast-fail (38-45s, 9/21 + 9/28) still needs
-its own look.
+windows-latest leg still exercises them, ubuntu no longer runs them).
+
+CI-hygiene batch 2 (same day, exposed once the first fixes let later CI
+steps run): `stdlib_api_freeze_all_modules_compile` hardcoded `xiom.exe`
+under target/{debug,release}, so it was NotFound on ubuntu (CI builds only
+the release profile) -- now platform-correct + release fallback;
+`stdlib_api_freeze_no_removals` flagged the frozen
+`contracts :: get_function_contracts` entry because the stdlib
+canonicalized its mixed bracket closers
+(`Option<Vec[FunctionContracts>>` -> `Option[Vec[FunctionContracts]]`) --
+the snapshot is updated intentionally (same signature semantically). Both
+freeze tests pass locally (2/2) and the workspace `--lib` + CLI gates are
+green. The scheduled `XIOM Heavy Suites` fast-fail (38-45s, 9/21 + 9/28)
+still needs its own look.
 
 ### C8 recurrence fix-forward (same day)
 v0.62.0 shipped a `SHA256SUMS` entry for `xiom-wasm-0.62.0.wasm` with the

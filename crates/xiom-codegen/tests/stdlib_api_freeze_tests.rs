@@ -16,13 +16,15 @@ use std::path::Path;
 use std::fs;
 
 fn xiom_path() -> String {
-    let mut path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent().unwrap().parent().unwrap()
-        .join("target").join("debug").join("xiom.exe");
+    // Platform-correct exe name + release fallback: CI builds only the
+    // RELEASE profile (`cargo build --release -p xiom`), so the hardcoded
+    // `xiom.exe` under target/{debug,release} was NotFound on ubuntu.
+    let exe_name = if cfg!(target_os = "windows") { "xiom.exe" } else { "xiom" };
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent().unwrap().parent().unwrap();
+    let mut path = root.join("target").join("debug").join(exe_name);
     if !path.exists() {
-        path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent().unwrap().parent().unwrap()
-            .join("target").join("release").join("xiom.exe");
+        path = root.join("target").join("release").join(exe_name);
     }
     path.to_str().unwrap().to_string()
 }
@@ -184,7 +186,7 @@ const FROZEN: &[&str] = &[
         "contracts :: pub fn verify_function_contracts(func: Str, args: Map[Str, Str]) -> Vec[ContractCheckResult]",
         "contracts :: pub fn check_invariant[T](value: &T, invariant: Str) -> ContractCheckResult",
         "contracts :: pub fn build_contract_index() -> ContractIndex",
-        "contracts :: pub fn get_function_contracts(name: Str) -> Option<Vec[FunctionContracts>>",
+        "contracts :: pub fn get_function_contracts(name: Str) -> Option[Vec[FunctionContracts]]",
         "contracts :: pub fn get_type_contracts(name: Str) -> Option<Vec<TypeContracts>>",
         "contracts :: pub fn find_functions_using_type(type_name: Str) -> Vec[Str]",
         "contracts :: pub fn find_invariants_using_field(type_name: Str, field_name: Str) -> Vec[ContractClause]",
