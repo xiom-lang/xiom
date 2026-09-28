@@ -361,9 +361,23 @@ jobs:
           magic="$(od -An -tx1 -N4 stage/bin/xiom-wasm.wasm | tr -d ' \n')"
           [ "$magic" = "0061736d" ] || { echo "::error::wasm magic mismatch: $magic"; exit 1; }
           cp stage/bin/xiom-wasm.wasm "xiom-wasm-$ver.wasm"
+          # C8b (playground relay): the raw cdylib is not directly usable from
+          # JS -- publish the wasm-bindgen glue (ES module + types + the
+          # bindgen-processed wasm) with the matching CLI version, or the
+          # playground cannot load the compiler.
+          wb_ver="$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | grep '^version' | head -1 | cut -d'"' -f2)"
+          [ -n "$wb_ver" ] || { echo "::error::cannot read wasm-bindgen version from Cargo.lock"; exit 1; }
+          cargo install wasm-bindgen-cli --version "$wb_ver"
+          # Generate from the STABLE-stem copy so the glue keeps the
+          # standard names the ES module references (`xiom-wasm.js`
+          # fetches `xiom-wasm_bg.wasm` relative to itself).
+          wasm-bindgen --target web --out-dir wasm-glue stage/bin/xiom-wasm.wasm
+          cp wasm-glue/xiom-wasm.js xiom-wasm.js
+          cp wasm-glue/xiom-wasm.d.ts xiom-wasm.d.ts
+          cp wasm-glue/xiom-wasm_bg.wasm xiom-wasm_bg.wasm
           name="xiom-$ver-linux-x64.tar.gz"
           tar -czf "$name" -C stage .
-          sha256sum "$name" "xiom-wasm-$ver.wasm" > SHA256SUMS-linux-x64
+          sha256sum "$name" "xiom-wasm-$ver.wasm" xiom-wasm.js xiom-wasm.d.ts xiom-wasm_bg.wasm > SHA256SUMS-linux-x64
           echo "ARTIFACT_NAME=$name" >> "$GITHUB_ENV"
 
       - name: Upload artifact
@@ -378,6 +392,10 @@ jobs:
             # job has nothing to upload and the release ships a SHA256SUMS
             # entry for a missing file. (Matches nothing on the windows leg.)
             xiom-wasm-*.wasm
+            # C8b: wasm-bindgen glue for the playground.
+            xiom-wasm.js
+            xiom-wasm.d.ts
+            xiom-wasm_bg.wasm
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2

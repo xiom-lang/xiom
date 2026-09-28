@@ -9434,3 +9434,36 @@ stdlib-exec 85/85 (+2 ignored), stdlib modules 40/40, feature-reg 510/510
 (one load-flake rerun clean), integration 130, robustness 63, fuzz 24,
 perf 3/3, diff 24 (+1 ignored), checker_locks 8/8.
 
+## 2026-09-28 -- playground relays: `opt -verify` warning (C9) + wasm-bindgen glue (C8b)
+
+- **C9: `LLVM IR verification failed: The 'opt -passname' syntax for the
+  new pass manager is not supported...` on every run.** The driver ran the
+  legacy `opt -verify <ir>`; LLVM 18 removed that spelling (the new pass
+  manager needs `-passes=`), so every compile on a host with a full LLVM 18
+  toolchain printed a user-visible warning and the verification never ran.
+  Fix (`crates/xiom/src/lib.rs`): try
+  `opt -passes=verify -disable-output <ir>` first, fall back to the legacy
+  `-verify` on older hosts, and skip silently when neither spelling is
+  accepted (the clang step verifies the IR anyway; a verifier that
+  understands neither syntax is not the user's error). This box has clang
+  but no `opt`, so the new path could not be exercised locally -- the
+  playground host (LLVM 18) is the validating environment.
+
+- **C8b: the published wasm lacked its JS glue.** The release ships the raw
+  cdylib as `xiom-wasm-<ver>.wasm`, but the ABI requires the matching
+  wasm-bindgen glue (the v0.58.0 JS could not load it: 1 import/10 exports
+  -> 3 imports/73 exports). Fix-forward on v0.62.0: glue generated locally
+  from the RELEASED raw wasm with wasm-bindgen CLI 0.2.126 (exact
+  Cargo.lock match) and uploaded to the release as `xiom-wasm.js`
+  (ES module exporting `compile_xiom`/`get_version`), `xiom-wasm.d.ts`,
+  and the bindgen-processed `xiom-wasm_bg.wasm`. Hashes:
+  `xiom-wasm.js` 097821e931f944525dc4d3d7a92317ca2245de7e8efa7d4ff92a3783755f17d7;
+  `xiom-wasm.d.ts` c935ab362bc990983832046a8c1948b64cada69d9d0b2f54c34be979e3324508;
+  `xiom-wasm_bg.wasm` 24f8a87b3c58bd725d74005dcb4b145f5514055b274e5d3894ca3328f89d3c53.
+  The ES module fetches `xiom-wasm_bg.wasm` relative to itself, so serve
+  the three files side by side (or pass an explicit module path to
+  `init`). Durable fix (`release.yml` linux leg): `cargo install
+  wasm-bindgen-cli` at the lock's version, generate the glue from
+  `stage/bin/xiom-wasm.wasm`, and checksum + upload the three files (the
+  publish-job checksum guard now covers them).
+

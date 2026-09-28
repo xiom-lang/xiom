@@ -90,6 +90,12 @@ docs/COMPILER_BUGS.md "2026-09-27 -- item 3 landed: exact arity ON" and
   CI. Gates: e2e 2387/2387 (+4 ignored), checker 195, stdlib-exec 85,
   modules 40/40, feature-reg 510, quick suites, locks 8/8. Awaiting
   0.62.1 with the R-5 PR.
+- **Playground fixes landed**: C9 (`opt -verify` -> `-passes=verify` with
+  legacy fallback + silent skip; the LLVM-18 warning no longer prints on
+  every run) and C8b (wasm-bindgen glue fix-forward on v0.62.0:
+  `xiom-wasm.js`/`.d.ts`/`_bg.wasm` uploaded, generated from the released
+  wasm with CLI 0.2.126; release.yml now builds + publishes the glue).
+  Next: R-5 PR merge (CI hygiene), then 0.62.1.
 - **Release v0.62.0 RELEASED (pushes done 2026-09-28)**: `STDLIB_VERSION`
   -> `stdlib-v0.62.0` (tag on the stdlib release cut `80e767b`, pushed),
   workspace version 0.61.3 -> 0.62.0 (`Cargo.toml` + `cargo update -w`

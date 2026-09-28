@@ -1154,15 +1154,41 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         .or_else(crate::toolchain::probe_opt);
 
     if let Some(opt_info) = &opt {
-        let verify_status = Command::new(&opt_info.path)
-            .args(["-verify", &ir_path])
-            .output();
-        match verify_status {
+        // C9 (playground relay): LLVM 18 removed the legacy pass-name syntax,
+        // so `opt -verify` failed on every compile and the driver turned that
+        // into a user-visible "LLVM IR verification failed" warning. Try the
+        // NEW-PM spelling first (`-passes=verify`, LLVM 13+), fall back to
+        // the legacy `-verify` for older hosts, and skip silently when
+        // neither is accepted -- the clang step verifies the IR anyway, and
+        // an unsupported verifier syntax is not the user's error.
+        let run_opt = |args: &[&str]| Command::new(&opt_info.path).args(args).output();
+        let looks_unsupported = |stderr: &str| {
+            stderr.contains("not supported")
+                || stderr.contains("Unknown command line argument")
+                || stderr.contains("passname")
+        };
+        let report_failure = |stderr: &str| {
+            eprintln!("  warning: LLVM IR verification failed: {}", stderr.lines().next().unwrap_or("unknown error"));
+            eprintln!("  note: proceeding with compilation; check the generated IR at {}", ir_path);
+        };
+        match run_opt(&["-passes=verify", "-disable-output", &ir_path]) {
             Ok(out) if out.status.success() => {}
             Ok(out) => {
                 let stderr = String::from_utf8_lossy(&out.stderr);
-                eprintln!("  warning: LLVM IR verification failed: {}", stderr.lines().next().unwrap_or("unknown error"));
-                eprintln!("  note: proceeding with compilation; check the generated IR at {}", ir_path);
+                if looks_unsupported(&stderr) {
+                    // Legacy host: `opt -verify` (also fails silently on a
+                    // host whose opt does not verify at all).
+                    if let Ok(legacy) = run_opt(&["-verify", &ir_path]) {
+                        if !legacy.status.success() {
+                            let lerr = String::from_utf8_lossy(&legacy.stderr);
+                            if !looks_unsupported(&lerr) {
+                                report_failure(&lerr);
+                            }
+                        }
+                    }
+                } else {
+                    report_failure(&stderr);
+                }
             }
             Err(_) => {}
         }
