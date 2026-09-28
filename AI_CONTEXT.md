@@ -115,6 +115,15 @@ xiom pkg lock
   named functions) is unspecified -- do not rely on it.
 - Modules: `module a.b.c`, `use a.b;`, `pub` exports; the stdlib resolves as
   `xiom.<module>` from the bundled `lib/`.
+- Methods & receivers: a method whose body MUTATES a field (assignment, or a
+  container mutator such as `self.v.push(x)` / `self.m.insert(k, v)`) is
+  compiled with the pointer-receiver ABI, so the mutation reaches the caller
+  even with a plain `self` receiver (`b.push_it(7)` then `b.xs.len() == 1`).
+  `&self` is the explicit read-only form; `&mut self` states mutation intent
+  and behaves the same. A method that never mutates cannot alter the caller's
+  value. `Some(v)` / `Ok(v)` match payloads of an owned persistent container
+  alias the boxed payload, so field writes and pushes inside the arm reach the
+  scrutinee.
 - Unsafe/FFI: `unsafe { ... }`, `extern "C"` with confinement gates
   (T002/T003/T005/T006/T007); `xiom --sandbox` scores unsafe blocks.
 - Diagnostics: emitted families are `L` lexer, `P` parse, `T` type (the

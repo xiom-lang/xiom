@@ -872,7 +872,13 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     let (catalog_warns, own_warns): (Vec<_>, Vec<_>) =
         warnings.into_iter().partition(|w| w.message.starts_with("catalog body"));
     for w in &catalog_warns[..catalog_warns.len().min(5)] {
-        eprintln!("warning[W000]: {l}:{c}: {m}", l = w.span.line, c = w.span.col, m = w.message);
+        // R-5: a catalog finding's span is a CATALOG-file position; print the
+        // module tag before it so it never reads as a user-file location.
+        if let Some((module, msg)) = split_catalog_finding(&w.message) {
+            eprintln!("warning[W000]: catalog body [{module}] {l}:{c}: {msg}", l = w.span.line, c = w.span.col);
+        } else {
+            eprintln!("warning[W000]: {l}:{c}: {m}", l = w.span.line, c = w.span.col, m = w.message);
+        }
     }
     if catalog_warns.len() > 5 {
         eprintln!("warning[W000]: ... {} more catalog-body warning(s) suppressed", catalog_warns.len() - 5);
@@ -891,18 +897,33 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 file: effective_sources.first().map(|s| s.as_str()).unwrap_or("<unknown>").to_string(),
                 suggestion: None, help: None, note: None,
             }).collect();
-            diags.extend(errors.iter().map(|err| Diagnostic {
-                kind: "type_error".into(), code: "T001".into(),
-                message: err.message.clone(), line: err.span.line, col: err.span.col,
-                file: "<unknown>".into(),
-                suggestion: Some(suggest_fix(&err.message)),
-                help: None, note: None,
+            diags.extend(errors.iter().map(|err| {
+                // R-5: catalog findings get a real `file` attribution (the
+                // module they come from) instead of a user-file line guess.
+                let file = match split_catalog_finding(&err.message) {
+                    Some((module, _)) => format!("catalog:{module}"),
+                    None => "<unknown>".into(),
+                };
+                Diagnostic {
+                    kind: "type_error".into(), code: "T001".into(),
+                    message: err.message.clone(), line: err.span.line, col: err.span.col,
+                    file,
+                    suggestion: Some(suggest_fix(&err.message)),
+                    help: None, note: None,
+                }
             }));
             println!("{}", diagnostics_json(&diags));
         } else {
             for err in &errors {
                 let (help_msg, note_msg) = diagnostic_for(&err.message);
-                eprintln!("error[T001]: {l}:{c}: {m}", l = err.span.line, c = err.span.col, m = err.message);
+                // R-5: catalog finding spans point into the CATALOG file --
+                // tag the module first so `line:col` cannot be mistaken for a
+                // user-file location.
+                if let Some((module, msg)) = split_catalog_finding(&err.message) {
+                    eprintln!("error[T001]: catalog body [{module}] {l}:{c}: {msg}", l = err.span.line, c = err.span.col);
+                } else {
+                    eprintln!("error[T001]: {l}:{c}: {m}", l = err.span.line, c = err.span.col, m = err.message);
+                }
                 if let Some(note) = note_msg {
                     eprintln!("  = note: {note}");
                 }
@@ -2105,6 +2126,15 @@ pub fn diagnostic_for(msg: &str) -> (Option<String>, Option<String>) {
 
 pub fn suggest_fix(msg: &str) -> String {
     diagnostic_for(msg).0.unwrap_or_else(|| "Review the error and check syntax/types.".to_string())
+}
+
+/// R-5 (benchmark relay, m150): split a checker finding tagged
+/// `catalog body [<module>]: <message>` into its module and message. The span
+/// of a catalog-body finding points into the CATALOG file, not the user file,
+/// so the driver prints the module tag beside the location instead of a bare
+/// `line:col` that reads as a user-file position.
+pub fn split_catalog_finding(message: &str) -> Option<(&str, &str)> {
+    message.strip_prefix("catalog body [")?.split_once("]: ")
 }
 
 pub fn escape_json(s: &str) -> String {

@@ -5448,6 +5448,20 @@ fn e2e_safety_probe() {
     );
 }
 
+// m150 (R-5 benchmark relay): combining `use xiom.num;` with
+// `use xiom.ffi.dl;` must compile and run. The two bogus T002 findings on
+// xiom.math.primitives' own `pub fn abs` (libc `abs` in xiom.ffi.c) came
+// from the global extern-name gate; the fn-definition shadow fix clears
+// them. The relay's full num.parse_int shape is check-locked separately
+// (m150_dl_num_parse + checker_locks) until the io.parse_int C001 batch.
+#[test] fn e2e_m150_dl_num_catalog_abs() {
+    assert_eq!(
+        compile_and_run("tests/regression/m150_dl_num_catalog_abs/main.xi"),
+        Some(0),
+        "xiom.num + xiom.ffi.dl combined imports must compile and the dl module must stay usable"
+    );
+}
+
 // Item 3 (exact arity): the flip must reject real mismatches while both
 // previously-false-positive shapes stay accepted -- receiver-sugar calls to
 // receiver-style generic methods (`fn Box.get[T](b: &Box[T])`, the

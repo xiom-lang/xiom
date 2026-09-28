@@ -1,6 +1,26 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
+# BATCH HANDOFF (2026-09-28, R-5 relay fix -- branch `bench/r5-extern-gate`)
+
+Branch `bench/r5-extern-gate` (worktree `E:\xiom-lang\xiom-bench`, off
+release main `7ca323a4`, rebased over the v0.62.0 pin) carries the
+benchmark-relay R-5 fix: the T002 extern gate no longer fires on
+`xiom.math.primitives`' own `pub fn abs` when `xiom.ffi.c`'s private libc
+`abs` is also in the import closure (`use xiom.num;` + `use xiom.ffi.dl;`);
+catalog-body findings now print the module tag BEFORE the span and carry
+`catalog:<module>` in the JSON diagnostics envelope (merged with the Stage 6
+warning stream). Locks: `tests/regression/m150_dl_num_parse` (check-clean
+positive), `m150_dl_num_catalog_abs` (e2e + CI line), `m150_extern_gate`
+(negative extern gate). Evidence: docs/COMPILER_BUGS.md "2026-09-28 -- R-5
+FIXED". Gates: checker_locks 10/10, xiom-check 195/195, targeted e2e 1/1,
+full e2e 2387/2387 (+4 ignored) on pin `stdlib-v0.62.0` (80e767b). The same
+bugs-log entry files the open `io.parse_int` -> bare `@is_empty` C001 as the
+next batch. Off-tree sibling note: the benchmark side's fairness hardening
+(D1-D7a) landed in the benchmark repo; unrelated to this branch.
+
+---
+
 # CONTINUATION HANDOFF (2026-09-27 (3), compiler lane -- item 3 + W002/W003 landed; release may cut early)
 
 Supersedes the 2026-09-27 (2) header below (kept as history). Evidence:

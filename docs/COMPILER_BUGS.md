@@ -9414,6 +9414,80 @@ Extension note: the VSIX publish steps correctly SKIPPED for v0.62.0
 (toolchain-only release; `editors/vscode/package.json` stays 0.12.0 and
 the marketplace already has it -- bump the version only for real
 extension changes).
+## 2026-09-28 -- R-5 FIXED (benchmark relay): extern-name shadowing in the T002 gate
+
+**Branch**: `bench/r5-extern-gate` (worktree `E:\xiom-lang\xiom-bench`, off
+release main `7ca323a4`, stdlib pin `stdlib-v0.62.0` = 80e767b).
+
+**Repro (relay)**: `use xiom.num;` + `use xiom.ffi.dl;` failed the checker
+with two bogus `error[T001]: catalog body [xiom.math.primitives]: calling
+extern "C" function 'abs' requires an `unsafe` block`, printed at 191:11 /
+223:12 as if they were user-file positions.
+
+**Root cause**: the T002 confinement gate is a global name match against
+`extern_fns`. `xiom.ffi.dl` loads its parent `xiom.ffi`, which imports
+`xiom.ffi.c`; c.xi declares a PRIVATE libc `extern "C" fn abs(n: Int)`.
+`xiom.num` pulls `xiom.math` -> `xiom.math.primitives`, whose body calls its
+own `pub fn abs(x: Float64)` from `copysign`/`nextafter`. Those calls
+resolve locally, but the global set contained "abs" from ffi.c, so the gate
+fired on the catalog body. The driver had no catalog source map, so the span
+printed as a bare user-file `line:col`.
+
+**Fix**:
+- `crates/xiom-check/src/lib.rs` (`register_fn_signature_inner`,
+  `TopDecl::Fn`): a fn DEFINITION (body present, non-method) removes its
+  bare name from `extern_fns` -- a local definition shadows a same-named
+  extern from another module. Bodyless declarations keep the mark (the
+  selfhost's `fn xiom_read_file(path: Str) -> Int;` pattern still gates).
+- `crates/xiom/src/lib.rs`: catalog-body findings render as
+  `catalog body [<module>] <line>:<col>: <msg>` (module tag BEFORE the
+  span); the JSON diagnostics envelope sets `file` = `catalog:<module>` for
+  such findings (merged with the Stage 6 warning-stream envelope).
+
+**R-6 note (relay sibling)**: the plain-`self` receiver mutation in the
+relay's R-6 repro is already m143/m152 behavior (probe `1/1`); no compiler
+change needed, receiver rules documented on the benchmark side.
+
+**Locks**:
+- `tests/regression/m150_dl_num_parse/main.xi` (relay's exact program) +
+  `checker_locks::m150_dl_num_parse_checks_clean` (`--check` clean, no
+  `catalog body [xiom.math.primitives]` finding).
+- `tests/regression/m150_dl_num_catalog_abs/main.xi` (import-closure shape
+  that triggered the T001 + `dl_open` API path) + e2e
+  `e2e_m150_dl_num_catalog_abs` + CI line.
+- `tests/regression/m150_extern_gate/main.xi` +
+  `checker_locks::m150_genuine_extern_still_gated` (negative: a plain
+  extern call in safe user code still requires `unsafe`).
+
+**Gates (release pin)**: checker_locks 10/10; xiom-check 195/195; targeted
+e2e 1/1; full e2e 2387/2387 (+4 ignored, `-- --test-threads 12`, TEMP
+redirected past the Defender script-exe block); ascii_guard clean.
+
+## 2026-09-28 -- OPEN FINDING (next batch): `io.parse_int` emits bare `@is_empty` -> C001
+
+After R-5 fixed the check phase, the relay's full shape
+(`tests/regression/m150_dl_num_parse`) still fails CODEGEN on the release:
+
+    error[C001]: codegen: unresolved function symbol(s) called but never
+    defined or declared: 'is_empty' (returns i64, first call at IR line
+    3186, from @io.parse_int)
+
+Evidence (IR dump with legacy stubs, pre-release stdlib 0c50ac6; same
+shape): `@io.parse_int`'s body emits `call i8* @string.str_trim(...)` then
+`call i64 @is_empty(i8*)` -- the method-sugar call `trimmed.is_empty()`
+loses the module qualification while `s.trim()` keeps it. `xiom/string`
+declares both the free `pub fn is_empty(s: Str)` and the method
+`pub fn Str.is_empty(self)`; the emitter fallback lands on the bare
+`is_empty` key in `types.functions` whose definition is never emitted,
+instead of the qualified `string.is_empty` / `string.Str.is_empty`.
+
+Direction: when the bare leaf key has no emitted symbol and exactly one
+qualified `*.{leaf}` candidate is emittable, prefer the qualified candidate
+(mirroring the R15b preference in the suffix search); and/or record
+method-position resolutions in `catalog_resolved_calls` while checking
+catalog bodies. Pre-existing (reproduced on a pre-R-5 baseline); not caused
+by the R-5 fix. When it lands, promote `m150_dl_num_parse` to an e2e run
+lock (the check lock stays).
 
 ## 2026-09-28 -- C001 FIXED: value receiver resolved as a MODULE -> bare `@is_empty`
 

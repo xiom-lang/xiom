@@ -128,7 +128,32 @@ fn consume(data: Vec[Int]) { ... }
 let copy = original.clone();
 consume(copy);          // move the clone
 read_only(&original);   // original still usable
-```"#;
+```
+
+## Method receivers (self / &self / &mut self)
+A method body that MUTATES a field reaches the CALLER: the compiler detects
+the mutation (a field assignment, or a container mutator such as
+`self.v.push(x)`, `self.m.insert(k, v)`, `self.s.insert(x)`) and compiles that
+method with the pointer-receiver ABI automatically. This is true for a plain
+`self` receiver -- no explicit `&mut self` is required:
+
+```xiom
+type Box = { xs: Vec[Int]; }
+fn Box.push_it(self, v: Int) -> Int { self.xs.push(v); return self.xs.len(); }
+
+var b = Box{ xs: Vec[Int].new() };
+let inner = b.push_it(7);
+// inner == 1 AND b.xs.len() == 1 -- the mutation is caller-visible.
+```
+
+- `&self` is the explicit read-only form (pure accessors).
+- `&mut self` states mutation intent and behaves like a mutating plain-`self`
+  method (same caller-visible result).
+- A method that never mutates a field keeps the by-value ABI; it cannot alter
+  the caller's value.
+- Match bindings follow the same aliasing rule: a `Some(v)`/`Ok(v)` payload of
+  an owned persistent container is bound by reference where it is boxed, so
+  `v.push(x)` and `v.field = ...` inside the arm reach the scrutinee."#;
 
 const CONTRACTS: &str = r#"# XIOM Contracts (Design by Contract)
 

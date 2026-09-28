@@ -43,6 +43,22 @@ fn run_on(name: &str) -> (String, Option<i32>, PathBuf) {
     )
 }
 
+/// m150 (R-5 benchmark relay): `--check`-only helper. The R-5 false positive
+/// was a check-phase finding, and its full relay shape currently stops at
+/// codegen on a separate pre-existing C001, so the positive lock must not
+/// link.
+fn check_on(name: &str) -> (String, Option<i32>) {
+    let output = Command::new(xiom_bin())
+        .arg("--check")
+        .arg(fixture(name))
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn '{}': {e}", xiom_bin()));
+    (
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+        output.status.code(),
+    )
+}
+
 #[test]
 fn m141_mixed_brackets_lax_then_strict() {
     // LAX default (held for v0.62.0: the pin carries 3 stdlib mixed sites;
@@ -163,6 +179,21 @@ fn m151_w002_unconditional_cycle_warns() {
 }
 
 #[test]
+fn m150_dl_num_parse_checks_clean() {
+    // R-5 (benchmark relay): `use xiom.num;` + `use xiom.ffi.dl;` used to trip
+    // the global extern-name gate on xiom.math.primitives' own `pub fn abs`
+    // (the libc `abs` extern lives in xiom.ffi.c, pulled in through the
+    // xiom.ffi parent module). The relay's exact program must pass the
+    // checker with no catalog-body finding.
+    let (stderr, code) = check_on("m150_dl_num_parse");
+    assert_eq!(code, Some(0), "num + ffi.dl must pass --check. stderr:\n{stderr}");
+    assert!(
+        !stderr.contains("catalog body [xiom.math.primitives]"),
+        "the math.primitives catalog body must not produce a finding:\n{stderr}"
+    );
+}
+
+#[test]
 fn m151_w002_guard_stays_silent() {
     let (stderr, code, exe) = run_on("m151_w002_guard");
     assert_eq!(code, Some(0), "guard-first recursion must compile. stderr:\n{stderr}");
@@ -203,4 +234,17 @@ fn m151_w003_guarded_stays_silent() {
     let run = Command::new(&exe).output().expect("run m151_w003_guarded");
     let _ = std::fs::remove_file(&exe);
     assert_eq!(run.status.code(), Some(0), "the guarded fixture must run cleanly");
+}
+
+#[test]
+fn m150_genuine_extern_still_gated() {
+    // R-5 fix guard: only a fn DEFINITION shadows a same-named extern mark,
+    // so a plain `extern "C"` call in safe user code still requires `unsafe`.
+    let (stderr, code, exe) = run_on("m150_extern_gate");
+    let _ = std::fs::remove_file(&exe);
+    assert_ne!(code, Some(0), "extern call without unsafe must fail. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("requires an `unsafe` block"),
+        "expected the extern-confinement diagnostic, got:\n{stderr}"
+    );
 }

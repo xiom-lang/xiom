@@ -2357,6 +2357,19 @@ impl Checker {
                     // fallback with an unrelated module's signature.
                     self.visibility.entry(fd.name.name.clone()).or_insert(fd.is_pub);
                 }
+                // R-5 (benchmark relay, m150): a fn DEFINITION shadows a
+                // same-named extern for bare calls in this context. The T002
+                // confinement gate (extern_fns) is name-based, so a private
+                // extern from an unrelated module (xiom.ffi.c's libc `abs`)
+                // used to gate calls that actually resolve to a local
+                // definition (xiom.math.primitives' `pub fn abs`) whenever
+                // both modules were in the import closure (`use xiom.num;`
+                // + `use xiom.ffi.dl;`). Bodyless declarations keep the
+                // extern mark: the selfhost's sanctioned
+                // `fn xiom_read_file(path: Str) -> Int;` pattern still gates.
+                if !fd.is_method() && fd.body.is_some() {
+                    self.extern_fns.remove(&fd.name.name);
+                }
                 // Track methods separately
                 if let Some(recv) = fd.receiver.as_ref() {
                     let _method_key = format!("{}.{}", recv.name, fd.name.name);
