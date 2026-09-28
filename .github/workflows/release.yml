@@ -577,7 +577,10 @@ jobs:
       - name: Combine checksums
         run: |
           cd artifacts
-          cat SHA256SUMS-* > SHA256SUMS
+          # The Windows leg writes SHA256SUMS-windows-x64 via PowerShell
+          # (CRLF); normalize so downstream consumers (and the guard below)
+          # never see a trailing \r attached to a filename.
+          cat SHA256SUMS-* | tr -d '\r' > SHA256SUMS
           echo "--- SHA256SUMS ---"
           cat SHA256SUMS
 
@@ -589,6 +592,7 @@ jobs:
           cd artifacts
           missing=0
           while read -r _hash file; do
+            file="${file%$'\r'}"
             [ -z "$file" ] && continue
             if [ ! -f "$file" ]; then
               echo "::error::SHA256SUMS references a file that was not uploaded: $file"
