@@ -45,14 +45,17 @@ fn run_on(name: &str) -> (String, Option<i32>, PathBuf) {
 
 #[test]
 fn m141_mixed_brackets_lax_then_strict() {
-    // LAX transition default: the legacy mixed spelling still compiles+run.
+    // LAX default (held for v0.62.0: the pin carries 3 stdlib mixed sites;
+    // the flip lands with the next release after the stdlib wave fixes
+    // `xiom/io/fs.xi` x2 + `xiom/math/algebra_extended`): the legacy mixed
+    // spelling still compiles+run.
     let (stderr, code, exe) = run_on("m141_mixed_bracket_switch");
     assert_eq!(code, Some(0), "lax default must accept the mixed spelling. stderr:\n{stderr}");
-    let run = Command::new(&exe).status().expect("run m141");
+    let run = Command::new(&exe).output().expect("run m141");
     let _ = std::fs::remove_file(&exe);
-    assert_eq!(run.code(), Some(0), "m141 must exit 0");
+    assert_eq!(run.status.code(), Some(0), "m141 must exit 0");
 
-    // STRICT switch: the closer must match the opener -> P001.
+    // STRICT opt-in: the closer must match the opener -> P001.
     let exe = std::env::temp_dir().join(format!(
         "xiom_brackets_strict_{}{}",
         std::process::id(),
@@ -96,15 +99,9 @@ fn m136_well_typed_clauses_still_run() {
 
 #[test]
 fn m137_strict_clause_mode_rejects_non_bool_predicates() {
-    // Default (light) mode: `requires: x` (Int) is accepted.
-    let (stderr, code, exe) = run_on("m137_clause_non_bool");
-    let _ = std::fs::remove_file(&exe);
-    assert_eq!(code, Some(0), "light mode must accept the fixture. stderr:\n{stderr}");
-
-    // Strict mode: the full predicate rule rejects it. The stdlib lane runs
-    // the same switch over the catalog corpus before the default flips.
+    // Legacy LIGHT opt-out: `requires: x` (Int) is accepted.
     let exe = std::env::temp_dir().join(format!(
-        "xiom_check_strict_{}{}",
+        "xiom_clause_light_{}{}",
         std::process::id(),
         if cfg!(windows) { ".exe" } else { "" }
     ));
@@ -112,12 +109,29 @@ fn m137_strict_clause_mode_rejects_non_bool_predicates() {
         .arg(fixture("m137_clause_non_bool"))
         .arg("-o")
         .arg(&exe)
-        .env("XIOM_STRICT_CLAUSES", "1")
+        .env("XIOM_STRICT_CLAUSES", "0")
         .output()
         .unwrap_or_else(|e| panic!("failed to spawn '{}': {e}", xiom_bin()));
     let _ = std::fs::remove_file(&exe);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert_ne!(output.status.code(), Some(0), "strict mode must reject. stderr:\n{stderr}");
+    assert_eq!(output.status.code(), Some(0), "light opt-out must accept the fixture. stderr:\n{stderr}");
+
+    // RELEASE DEFAULT (v0.62.0): the full predicate rule rejects it (the
+    // stdlib lane verified their main + the pinned corpus under strict).
+    let exe = std::env::temp_dir().join(format!(
+        "xiom_clause_strict_{}{}",
+        std::process::id(),
+        if cfg!(windows) { ".exe" } else { "" }
+    ));
+    let output = Command::new(xiom_bin())
+        .arg(fixture("m137_clause_non_bool"))
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn '{}': {e}", xiom_bin()));
+    let _ = std::fs::remove_file(&exe);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_ne!(output.status.code(), Some(0), "the strict default must reject. stderr:\n{stderr}");
     assert!(
         stderr.contains("contract clause must be Bool"),
         "expected the strict predicate diagnostic, got:\n{stderr}"

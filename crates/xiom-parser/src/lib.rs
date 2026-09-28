@@ -33,10 +33,12 @@ pub struct Parser {
     pending_externs: Vec<TopDecl>,
     /// Transition switch (stdlib relay, 2026-09-25): when true, a generic
     /// type's CLOSER must match its opener (`Vec<UInt8]` becomes a P001).
-    /// Default is LAX because the pinned stdlib checkout still carries mixed
-    /// sites; the stdlib lane verifies their main with
-    /// `XIOM_STRICT_BRACKETS=1`, then the default flips at the pin bump
-    /// (COMPILER_BUGS "Stdlib relay").
+    /// Default is LAX: the v0.62.0 pin gate found 3 remaining mixed sites in
+    /// the released stdlib (`xiom/io/fs.xi` x2, `xiom/math/algebra_extended`),
+    /// so the owner HELD the default flip for this release; the stdlib lane
+    /// canonicalizes them in the next wave and the flip lands with the next
+    /// release. `XIOM_STRICT_BRACKETS=1` opts in now (COMPILER_BUGS "Stdlib
+    /// relay").
     strict_brackets: bool,
 }
 

@@ -10,32 +10,34 @@ docs/COMPILER_BUGS.md "2026-09-27 -- item 3 landed: exact arity ON" and
 ## Next-session kickoff prompt (copy/paste)
 
 > Continue the XIOM SWARM compiler lane. Read the top section of SESSION.md
-> and docs/STAGE6_LINT_WAVE.md first. State: v0.61.3 released; stdlib
-> checkout detached at `0c50ac6`; local main carries the campaign UNPUSHED
-> (62 commits after the last docs commit); tree clean; latest full e2e
-> 2385/2385 (+4 ignored). Run long suites with reduced threads on this box
-> (`-- --test-threads 12` for e2e, 8 for stdlib_tests): default-thread runs
-> storm under concurrent lane load and can produce the cross-lane transient
-> `program_exit=-1` silent compile failures (packages row 28; my e2e m35
-> storms) -- never record a silent failure as a pass without a re-run.
-> Item 3 (exact arity) and Stage 6 W002+W003 are DONE -- do not redo.
-> W004 is next in the wave, then tier 2 (W005-W007).
-> The owner may cut the v0.62.0 release BEFORE the stdlib hits 100%
-> (stable-compiler-first plan; the next release continues Stage 6 +
-> findings), so watch for the release relay: on it, follow the 2026-09-25
-> order adapted to the pinned ref (strict-brackets default flip -> release
-> notes -> version bump -> push -> tag -> registry -> website).
-> Backlog order after the wave: (1) `&mut` write-through miscompile
-> (packages battery `mut-int-write-through` REPRODUCED), (2) transient
-> `program_exit=-1` capture batch, (3) `byte_at >= 128` direct compare
-> (REPRODUCED), (4) loop-carried CSE retry with the amqp:1266 fragment,
-> then module-const/table materialization, same-name fn shadowing, Vec
-> 2^24 cap. Method: repro-first under tmp/sprintc/, locks (tests/regression
-> fixture + checker_locks/e2e entry + CI line where e2e-able), full e2e
-> ONCE per batch, python tools/ascii_guard.py check before every commit,
-> commit atomically with SESSION.md + COMPILER_BUGS.md evidence. Identity
-> Lefteris Notas <lefterisnotas@gmail.com>; pushes only when the owner
-> asks; never rebuild target/debug while e2e runs.
+> and docs/STAGE6_LINT_WAVE.md first. State: **v0.62.0 release prepared
+> locally (pin `stdlib-v0.62.0`, version 0.62.0, strict clauses ON,
+> brackets held); pushes pending the owner's go**; stdlib checkout detached
+> at `stdlib-v0.62.0`; local main carries the campaign UNPUSHED (65 commits
+> after the last docs commit); tree clean; latest full e2e 2386/2386
+> (+4 ignored, script cache redirected -- this box's Defender blocks
+> `%TEMP%\xiom_run` exes with os error 225). Run long suites with reduced
+> threads (`-- --test-threads 12` for e2e, 8 for stdlib_tests):
+> default-thread runs storm under concurrent lane load and can produce the
+> cross-lane transient `program_exit=-1` silent compile failures (packages
+> row 28; my e2e m35 storms) -- never record a silent failure as a pass
+> without a re-run.
+> Item 3 (exact arity), Stage 6 W002+W003, and R53 (`&mut` write-through)
+> are DONE -- do not redo. If the release pushes are still pending, follow
+> the pending push sequence in the snapshot. W004 is next in the wave,
+> then tier 2 (W005-W007).
+> Backlog order after the wave: (1) transient `program_exit=-1` capture
+> batch (now also covers the Defender-blocked script-exe class), (2)
+> `byte_at >= 128` direct compare (REPRODUCED), (3) loop-carried CSE retry
+> with the amqp:1266 fragment, then module-const/table materialization,
+> same-name fn shadowing, Vec 2^24 cap, bracket-flip + stdlib canonicalize
+> (3 sites). Method: repro-first under tmp/sprintc/, locks
+> (tests/regression fixture + checker_locks/e2e entry + CI line where
+> e2e-able), full e2e ONCE per batch, python tools/ascii_guard.py check
+> before every commit, commit atomically with SESSION.md +
+> COMPILER_BUGS.md evidence. Identity Lefteris Notas
+> <lefterisnotas@gmail.com>; pushes only when the owner asks; never
+> rebuild target/debug while e2e runs.
 
 ## Status snapshot (2026-09-27 (3))
 
@@ -78,13 +80,26 @@ docs/COMPILER_BUGS.md "2026-09-27 -- item 3 landed: exact arity ON" and
   green. Locks: `m152_mut_write_through` + e2e + CI. Gates: e2e
   2386/2386 (+4 ignored), stdlib-exec 85, feature-reg 510, modules 40/40,
   checker 195, strict 1, quick suites, locks 8/8.
-- **Release UNBLOCKED**: the stdlib cut v0.62.0 (`80e767b`, pushed tip
-  `1770ce6`) and handed over: cut `stdlib-v0.62.0`, pin `STDLIB_VERSION`
-  to the tag, run the full pin gates, then the combined compiler release
-  (owner go-ahead relayed). Execute the 2026-09-25 order next.
-- **Git**: local `main` = origin/main + 64 commits after the last docs
-  commit (all UNPUSHED; pushes only on the owner's ask). stdlib checkout
-  detached at `0c50ac6`; compiler tree clean.
+- **Release v0.62.0 PREPARED (item 4 executed locally; pushes pending the
+  owner's go)**: `STDLIB_VERSION` -> `stdlib-v0.62.0` (tag created locally
+  on the stdlib release cut `80e767b`; NOT pushed yet), workspace version
+  0.61.3 -> 0.62.0 (`Cargo.toml` + `cargo update -w` lock refresh),
+  release notes re-converted with the stdlib fragment (6 highlights,
+  verify green). Strict-CLAUSE default ON (`XIOM_STRICT_CLAUSES=0` opts
+  out) with the literal-0 null-cast exemption; strict-BRACKETS default
+  flip HELD (3 stdlib mixed sites relayed: `io/fs.xi` 36+244,
+  `math/algebra_extended.xi` 311; lands next release). Gates: full e2e
+  2386/2386 (+4 ignored; script cache redirected -- Defender blocks
+  `%TEMP%\xiom_run` exes, os error 225), checker 195, stdlib-exec 85,
+  modules 40/40, feature-reg 510, parser 106, notes 6, integration 130,
+  robustness 63, fuzz 24, perf 3, diff 24, CLI suites, MCP 44, pkg 75.
+  Pending push sequence: (1) push the stdlib tag `stdlib-v0.62.0`,
+  (2) push compiler `main` (FIRST CI since R66; Windows leg is the risk),
+  (3) tag `v0.62.0` on the release commit, (4) registry canary + website
+  notes per the 2026-09-25 order.
+- **Git**: local `main` = origin/main + 65 commits after this docs commit
+  (all UNPUSHED; pushes only on the owner's ask). stdlib checkout
+  detached at `stdlib-v0.62.0`; compiler tree clean.
 
 # CONTINUATION HANDOFF (2026-09-27 (2), compiler lane -- item 3 landed; Stage 6 lint wave next)
 

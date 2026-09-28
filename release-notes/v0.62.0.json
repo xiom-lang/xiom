@@ -22,6 +22,16 @@
       "kind": "tooling",
       "title": "Cleaner installs, all nine tools, update check",
       "text": "Installers ship all nine tools plus the lib/ layout and clean PATH when uninstalled. The help output is grouped by task, --version prints the install root, a trailing semicolon after a module header is accepted, and the new toolchain check command compares your install to the latest release."
+    },
+    {
+      "kind": "stdlib",
+      "title": "Runtime-checked contracts across the standard library",
+      "text": "Functions in the collections, statistics, conversion and math modules now carry machine-checked contracts that verify their results as your program runs, catching wrong results close to where they happen."
+    },
+    {
+      "kind": "stdlib",
+      "title": "A monotonic clock for reliable timing",
+      "text": "xiom.time.monotonic_ms() returns a never-decreasing millisecond reading, so measuring elapsed time no longer breaks when the system clock is adjusted."
     }
   ],
   "breaking": [

@@ -4720,11 +4720,16 @@ impl Checker {
     /// resolution gaps, Float/Int semantics) are untouched.
     fn check_clause_bool_mix(&mut self, fd: &FnDecl) {
         // Transition switch for the stdlib clause cleanup (see
-        // docs/COMPILER_BUGS.md "Relay"): with XIOM_STRICT_CLAUSES=1 every
-        // clause must type as Bool. The light validator below stays active in
-        // both modes; the default remains light until the 8 stdlib clause
-        // sites are fixed and the corpus gate is re-run with strict on.
-        let strict = std::env::var_os("XIOM_STRICT_CLAUSES").is_some();
+        // docs/COMPILER_BUGS.md "Relay"): every clause must type as Bool.
+        // RELEASE DEFAULT (v0.62.0, after the stdlib verified their main and
+        // the pinned corpus under strict clauses): ON; the legacy light
+        // behavior remains available via `XIOM_STRICT_CLAUSES=0`. The light
+        // validator (Bool-vs-concrete comparisons) stays active in both
+        // modes.
+        let strict = match std::env::var_os("XIOM_STRICT_CLAUSES").as_deref().and_then(|v| v.to_str()) {
+            Some("0") | Some("false") | Some("FALSE") => false,
+            _ => true,
+        };
         let has_ensures = fd
             .contracts
             .iter()
@@ -8081,7 +8086,15 @@ impl Checker {
                         && target_resolved == CheckedType::Char => target_ty,
                     // 5c-E: Int <-> Ptr casts (raw pointer FFI, ptr.xi)
                     (CheckedType::Int, CheckedType::Named(s)) if s == "Ptr" || s.starts_with('*') => {
-                        self.gate_unsafe("integer-to-pointer cast", *span);
+                        // v0.62.0: forming the NULL pointer from the literal
+                        // 0 is safe (only DEREFERENCING a pointer is gated) --
+                        // contract preconditions idiomatically write
+                        // `p != (0 as *Int)` and the strict-clause default
+                        // must not reject that. All other int-to-pointer
+                        // casts stay unsafe-gated.
+                        if !matches!(&**inner, Expr::Int(0, _)) {
+                            self.gate_unsafe("integer-to-pointer cast", *span);
+                        }
                         target_ty
                     }
                     (CheckedType::Named(s), CheckedType::Int) if s == "Ptr" || s.starts_with('*') => {
@@ -10874,7 +10887,9 @@ fn read_via_ptr(p: *Int) -> Int {
     }
 
     #[test] fn test_d2_deref_inside_unsafe_accepted() {
-        // Whole-body unsafe fns must declare `requires` (T007).
+        // Whole-body unsafe fns must declare `requires` (T007). The literal-0
+        // null-pointer cast in the clause stays allowed by the v0.62.0
+        // exemption (only deref is unsafe-gated).
         let src = "\
 fn read_via_ptr(p: *Int) -> Int
     requires: p != (0 as *Int)
@@ -10930,6 +10945,7 @@ fn borrow(x: Int) -> Int {
     }
 
     #[test] fn test_d2_nested_unsafe_composes() {
+        // The literal-0 null cast in the clause is exempt (v0.62.0).
         let src = "\
 fn deep(p: *Int) -> Int
     requires: p != (0 as *Int)

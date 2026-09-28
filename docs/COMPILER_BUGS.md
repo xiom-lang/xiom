@@ -9310,3 +9310,51 @@ fuzz 24, perf 3/3, diff 24 (+1 ignored), checker_locks 8/8; packages
 spurious silent compile failures; every examined fixture compiles and runs
 green on direct retry) -- consistent with the cross-lane flake class above.
 
+## 2026-09-27 -- v0.62.0 release prep: pin stdlib-v0.62.0 + strict-clause default
+
+Release batch (item 4). Pin: `STDLIB_VERSION` -> `stdlib-v0.62.0` (tag
+created on the stdlib release cut `80e767b`; the pushed tip `1770ce6` is
+docs-only and was NOT tagged). Version: workspace 0.61.3 -> 0.62.0
+(`Cargo.toml` [workspace.package] + `cargo update -w` for `Cargo.lock`;
+`xiom --version` reads "XIOM Compiler v0.62.0"). Release notes:
+`xiom-release-notes convert --tag v0.62.0 --stdlib stdlib` merged the
+stdlib fragment -> 6 highlights (4 compiler + 2 stdlib); `verify` green.
+
+**Strict-clause default FLIPPED ON** (`XIOM_STRICT_CLAUSES=0` opts out):
+every contract clause must type as Bool; the stdlib lane verified their
+main + the pinned corpus under strict, and the corpus gate is clean under
+the new default. Clause expressions are fully checked, so one
+accommodation was needed:
+
+- **Literal-0 null-pointer casts are exempt from the unsafe gate.**
+  `requires: p != (0 as *Int)` is the idiomatic FFI precondition; forming
+  the NULL pointer from the integer literal 0 is safe (only
+  DEREFERENCING a pointer is gated). All other int->pointer casts stay
+  unsafe-gated (`test_d2_int_to_ptr_cast_outside_unsafe_rejected` still
+  rejects `n as *UInt8`). Restores the two d2 unit tests and 5 old e2e
+  fixtures (m32_c06, m33_u19/u20, m34_y14, m36_c10) that use the idiom.
+
+**Strict-brackets default flip HELD for this release**: the pin gate found
+3 mixed-bracket sites in the released stdlib -- `xiom/io/fs.xi` lines 36
+and 244 (`Result[Vec[UInt8], Str>`) and `xiom/math/algebra_extended.xi`
+line 311 (`Vec[Int]>`). Relayed to the stdlib lane, which canonicalizes
+them in the next wave; the owner chose to ship v0.62.0 with the lax
+default (`XIOM_STRICT_BRACKETS=1` still opts in) and land the flip with
+the next release. The m141 lock keeps asserting both modes.
+
+### Gates (release state)
+full e2e **2386/2386 (+4 ignored)**; checker 195/195 (catalog corpus clean
+under the strict-clause default); stdlib-exec 85/85 (+2 ignored); stdlib
+modules 40/40; feature-reg 510/510; parser 106/106; release-notes 6/6;
+integration 130; robustness 63; fuzz 24; perf 3/3; diff 24 (+1 ignored);
+CLI suites 54+6+2+8+1+15; MCP 44; pkg 75.
+
+Environment note: on this machine Windows Defender blocks the `xiom run`
+script exe written under `%TEMP%\xiom_run` (os error 225, "potentially
+unwanted software"): `e2e_m16_scripting_exit_zero` fails ONLY at the
+execute step there (it passed in the R53 full run hours earlier; and with
+`TEMP` redirected to a repo-local scratch it passes: exit 0, stdout
+"test", 5.1s). The full release e2e was run with the script cache
+redirected to a repo-local `tmp/e2etemp`. This is machine AV state, not a
+compiler defect.
+
