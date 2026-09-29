@@ -7,9 +7,10 @@ Supersedes the (9) handoff below (kept as history).
 
 ## Next-session kickoff prompt (copy/paste)
 
-> Continue the XIOM swarm compiler lane. Read the top section of SESSION.md
-> and docs/SELFHOST_PLAN.md first (docs/STAGE6_LINT_WAVE.md for the lint
-> wave state; tier 3 parked).
+> Continue the XIOM swarm compiler lane. Read the top section of SESSION.md,
+> docs/SELFHOST_PLAN.md and docs/SELFHOST_PROGRESS.md (the bootstrap meter +
+> per-phase gate table; currently 9% = Phase 0 of 11 gates) first
+> (docs/STAGE6_LINT_WAVE.md for the lint wave state; tier 3 parked).
 > State: compiler **v0.62.1 RELEASED**; extension 0.12.1 live on both
 > marketplaces (thread closed); **selfhost Phase 0 LANDED** (2026-09-29):
 > `cargo test -p xiom-codegen --test full_diff_tests` = 2 passed (T1 green
@@ -83,6 +84,10 @@ Supersedes the (9) handoff below (kept as history).
   checkout); `selfhost/_diff_phase1_*` were v10 temp copies, not corpus.
   Gate: `cargo test -p xiom-codegen --test full_diff_tests` -> **2 passed**
   (`diff_corpus` T1 over 84 files in 49.2 s + `runtime_ffi_selfcheck`).
+- **Selfhost progress tracker**: `docs/SELFHOST_PROGRESS.md` -- bootstrap
+  meter (9%: 1/11 gates), per-phase gate table, Phase 0 evidence, open
+  blockers (m162/m163), gate commands. Update the meter line whenever a
+  gate flips.
 - **m163 (OPEN, silent miscompile)**: struct-method field `Vec[Str]` element
   as a `+` operand -> i64 add + inttoptr; direct return / local Vec /
   single Str field / `&Buf` free fn all correct. Repro + IR evidence in
