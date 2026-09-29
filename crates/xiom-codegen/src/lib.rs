@@ -205,6 +205,13 @@ impl IrEmitter {
         self.config.catalog_call_targets = targets;
     }
 
+    /// m166: hand the INJECTED catalog (stdlib) fn keys to codegen so
+    /// `#[unsafe_direct]` on stdlib fns is trusted even when the primary
+    /// source is a user program that merely imports them.
+    pub fn set_catalog_fn_keys(&mut self, keys: std::collections::HashSet<String>) {
+        self.config.catalog_fn_keys = keys;
+    }
+
     /// R22: hand the checker's MODULE bindings (local name -> dotted module
     /// path) to codegen so single-segment module receivers resolve to the
     /// used module even when a same-leaf sibling is also in the graph.
@@ -7246,10 +7253,13 @@ impl IrEmitter {
             self.mono.current_type_map = type_map.clone();
             // D2.1 (Phase 6): honor #[unsafe_no_retry] on generic fns too.
             self.fctx.unsafe_allow_retry = !fd.attributes.iter().any(|a| a.name.name == "unsafe_no_retry");
-            // D2.1 (Phase 7): honor #[unsafe_direct] on generic fns too.
+            // D2.1 (Phase 7): honor #[unsafe_direct] on generic fns too
+            // (m166: trust also covers INJECTED catalog decls, so stdlib
+            // annotations apply when a user program imports them).
             let has_direct = fd.attributes.iter().any(|a| a.name.name == "unsafe_direct");
             let is_stdlib = self.config.source_file.contains("stdlib")
-                || self.config.source_file.contains("selfhost");
+                || self.config.source_file.contains("selfhost")
+                || self.config.catalog_fn_keys.contains(&fd.name.name);
             self.fctx.unsafe_direct = has_direct && (is_stdlib || self.config.enable_unsafe_direct);
 
             // P0-2: Clear deferred cleanup stack at function start

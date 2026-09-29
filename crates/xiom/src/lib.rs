@@ -1050,6 +1050,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     }
 
     // Stage 4.5: Inject external module declarations
+        let mut injected_fn_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
         let external_decls = checker.collect_external_decls(&program);
         if !external_decls.is_empty() {
         fn fn_dedup_key(fd: &xiom_ast::FnDecl) -> String {
@@ -1099,7 +1100,13 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 xiom_ast::TopDecl::Type(td) => td.name.name.clone(),
                 xiom_ast::TopDecl::Enum(ed) => ed.name.name.clone(),
                 xiom_ast::TopDecl::Interface(id) => id.name.name.clone(),
-                xiom_ast::TopDecl::Fn(fd) => fn_dedup_key(fd),
+                xiom_ast::TopDecl::Fn(fd) => {
+                    // m166: record the INJECTED fn key so codegen can trust
+                    // `#[unsafe_direct]` on stdlib fns compiled inside a user
+                    // program (primary source is the user's file then).
+                    injected_fn_keys.insert(fn_dedup_key(fd));
+                    fn_dedup_key(fd)
+                }
                 xiom_ast::TopDecl::Extern(_) => { program.items.push(decl); continue; }
                 xiom_ast::TopDecl::Const(cd) => cd.name.name.clone(),
                 _ => continue,
@@ -1112,6 +1119,8 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
 
     // Stage 5: Codegen
     let mut emitter = IrEmitter::new();
+    // m166: trust `#[unsafe_direct]` on the injected stdlib decls.
+    emitter.set_catalog_fn_keys(injected_fn_keys);
     emitter.set_check_contracts(config.check_contracts || config.runtime_contracts);
     // Security review (2026-08-13): release builds strip assert/dbg!/debugger;
     // `--keep-debug-checks` (or a debug build) retains them.

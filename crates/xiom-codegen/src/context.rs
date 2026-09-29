@@ -141,6 +141,13 @@ pub struct CodegenConfig {
     /// `resolve_catalog_call` maps same-leaf delegations to the module the
     /// checker proved.
     pub catalog_call_targets: HashMap<String, String>,
+    /// m166: fn keys of the decls INJECTED from catalog (stdlib) modules.
+    /// `#[unsafe_direct]` trust is judged by the primary source path OR this
+    /// set -- when a user program imports the stdlib, the primary source is
+    /// the USER file, so an annotated stdlib fn must still count as trusted
+    /// (else the attribute is rejected and its hot unsafe blocks keep the
+    /// per-call trampoline + guard-page cost).
+    pub catalog_fn_keys: std::collections::HashSet<String>,
 }
 
 impl Default for CodegenConfig {
@@ -175,6 +182,7 @@ impl Default for CodegenConfig {
             use_alias_paths: HashMap::new(),
             module_receiver_paths: HashMap::new(),
             catalog_call_targets: HashMap::new(),
+            catalog_fn_keys: std::collections::HashSet::new(),
         }
     }
 }

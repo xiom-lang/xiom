@@ -51,12 +51,16 @@ Supersedes the (9) handoff below (kept as history).
 > 3 stdlib mixed-bracket sites. Parked: loop-CSE retry (needs the porting
 > session's pre-fix decoder). Release: **v0.62.2 gate defined in
 > `docs/RELEASE_GATE_v0.62.2.md`** (version+notes preconditions, suites
-> A-F, dry-run before the tag; stdlib sign-off + pin decision and the
-> owner's tag push are the external steps). Not cut yet; carries tier-2,
-> R-2/R-2c, byte_at, m162-m165, C22; the selfhost binary stays out (100%
-> policy). After it ships the packages lane re-verifies `byte_at`
-> (docs/repro/byte-at-128), the benchmark lane re-verifies R-2/R-2c, and
-> the repo-local stdlib checkout refreshes to the tag.
+> A-F + Gate P, dry-run before the tag; stdlib sign-off + pin decision and
+> the owner's tag push are the external steps). **PERF-1 (t2-queue
+> trampoline) is OWNER-REQUIRED for this release**: the compiler half
+> landed as m166 (parser attribute order + injected-catalog trust); the
+> stdlib atomics annotation, the pin and the benchmark re-run are Gate P.
+> Not cut yet; carries tier-2, R-2/R-2c, byte_at, m162-m166, C22; the
+> selfhost binary stays out (100% policy). After it ships the packages
+> lane re-verifies `byte_at` (docs/repro/byte-at-128), the benchmark lane
+> re-verifies R-2/R-2c, and the repo-local stdlib checkout refreshes to
+> the tag.
 > Next work, selfhost track: **Phase 1 (lexer parity)** -- port
 > `crates/xiom-lexer` to `selfhost/src/lexer.xi`, add `--dump-tokens` to
 > both compilers, gate on byte-equal dumps over the corpus
@@ -81,6 +85,24 @@ Supersedes the (9) handoff below (kept as history).
   dry-run before tagging, and the tag/publish/post-release steps.
   v0.62.2 is plannable now; the remaining inputs are the stdlib lane's
   final sign-off + pin tag and the owner's tag push.
+- **m166 FIXED (PERF-1, owner-required for v0.62.2)**: `#[unsafe_direct]`
+  written above `pub fn` was a P001 that error recovery absorbed -- the
+  attribute was silently dropped -- AND stdlib fns compiled inside a user
+  program were never trusted (the check keyed off the primary source path).
+  Fixed in the parser (`pub` accepted after attributes) and codegen
+  (`catalog_fn_keys` handed by the driver at injection). Local proof with
+  the annotation applied to the two wrappers: 4M atomic pairs
+  8000 ms -> 0 ms; IR shows no trampoline/guard arm in
+  `@sync.atomic_load`/`atomic_store`. Locks: parser unit test
+  `test_attribute_before_pub_fn` +
+  `regress_m166_unsafe_direct_pub_fn_trusted`. Gates: e2e 2393/2393
+  (+4 ignored), feature-reg 514/514, parser 107/107, checker_locks 23/23 +
+  CLI locks, selfhost diff 2. **Relay to stdlib**: annotate every fn in
+  `stdlib/xiom/sync/atomics.xi` whose body contains an `unsafe` block with
+  `#[unsafe_direct]` (load/store verified locally; same single-intrinsic
+  shape); requires compiler >= this commit; tag for v0.62.2 and update
+  `STDLIB_VERSION`. Then the benchmark lane re-runs t2-queue -- the Gate P
+  release acceptance.
 - **Benchmark lane relay (PERF-1, in progress)**: t2-queue is ~1450x Rust
   (50,787 ms vs 35 ms) while XIOM is normal on every other task; isolation
   shows 4M `AtomicInt` load/store pairs at 18.5 s vs 4 ms plain, with every
@@ -212,7 +234,8 @@ Supersedes the (9) handoff below (kept as history).
   lane's suites should not be run concurrently with it on this box.
 - **Git**: local `main` tips = Phase 0 `e813449b` + tracker `532bfa75` +
   m163 `d0189157` + C22 `563aaff2` + m164 `8258c400` + m162 `d8a04678` +
-  the m165 commit (all local, not pushed; push only on the owner's ask).
+  m165 `ad63eda0` + gate/plan docs + the m166 commit (all pushed to
+  `origin/main`; push only on the owner's ask).
 
 # CONTINUATION HANDOFF (2026-09-29 (9), compiler lane -- v0.62.1; all batches pushed; extension 0.12.1 live; selfhost Phase 0 green-lit)
 

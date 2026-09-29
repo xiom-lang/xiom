@@ -531,6 +531,40 @@ fn main() -> Int {
     );
 }
 
+// m166: `#[unsafe_direct] pub fn` must parse WITH its attribute (the old
+// parser raised P001 "expected 'fn'" and error recovery silently dropped it)
+// and codegen must trust an INJECTED catalog key when the primary source is
+// a USER program (the stdlib atomics annotation path). Without trust the
+// block must stay confined.
+#[test]
+fn regress_m166_unsafe_direct_pub_fn_trusted() {
+    let source = r#"
+#[unsafe_direct]
+pub fn direct_read(p: *Int) -> Int {
+  let q: *Int = p;
+  unsafe { return *q; }
+}
+fn main() -> Int { var x = 41; return direct_read(&x) - 41; }
+"#;
+    let tokens = Lexer::new(source).tokenize();
+    let program = Parser::new(tokens).parse_program()
+        .expect("m166: attribute-first pub fn must parse");
+    fn trampoline_calls(ir: &str) -> usize {
+        ir.lines().filter(|l| l.contains("call ") && l.contains("xiom_trampoline_call")).count()
+    }
+    let mut trusted = IrEmitter::new();
+    trusted.set_legacy_stub_unresolved(true);
+    trusted.set_catalog_fn_keys(["direct_read".to_string()].into_iter().collect());
+    let ir_trusted = trusted.compile_program(&program).unwrap();
+    assert_eq!(trampoline_calls(&ir_trusted), 0,
+        "m166: a trusted fn must not emit a trampoline call; got:\n{}", ir_trusted);
+    let mut confined = IrEmitter::new();
+    confined.set_legacy_stub_unresolved(true);
+    let ir_confined = confined.compile_program(&program).unwrap();
+    assert!(trampoline_calls(&ir_confined) > 0,
+        "m166: without trust the unsafe block must stay confined; got:\n{}", ir_confined);
+}
+
 #[test]
 fn regress_5c30_uint_coercion() {
     // Int literal ? UInt8 coercion

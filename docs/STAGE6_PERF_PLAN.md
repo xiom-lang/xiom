@@ -24,7 +24,31 @@ isolation probes, disassembly notes, and repro source paths. Each finding
 becomes a numbered PERF item with: evidence, root-cause hypothesis, candidate
 fixes, a lock proposal, and a re-run confirmation step.
 
-## PERF-1 (priority 1): unsafe-block call trampoline overhead -- t2-queue
+## PERF-1 (priority 1, RELEASE-BLOCKING for v0.62.2): unsafe-block call trampoline overhead -- t2-queue
+
+**Fix route (2026-09-29, resolved):** the root cause chain is now fully
+identified and the SANCTIONED `#[unsafe_direct]` route fixes it with no
+retry-semantics change and no new safety policy:
+
+1. The parser silently dropped `#[unsafe_direct]` written above `pub fn`
+   (`P001` absorbed by error recovery) -- fixed as **m166** with locks
+   (parser unit test + IR trust test).
+2. `#[unsafe_direct]` trust only looked at the PRIMARY source path, so
+   stdlib fns compiled inside a user program were rejected -- fixed as
+   m166 by trusting the injected catalog fn keys (driver hands
+   `catalog_fn_keys` to codegen).
+3. Local verification with the two atomic wrappers annotated: 4M pairs
+   8000 ms -> **0 ms**. IR: no `xiom_trampoline_call` / guard arm-disarm
+   in `@sync.atomic_load` / `@sync.atomic_store`.
+
+Remaining release steps: the stdlib lane annotates
+`stdlib/xiom/sync/atomics.xi` (relay in COMPILER_BUGS m166 + the release
+gate), the pin moves for v0.62.2, and the benchmark lane re-runs t2-queue.
+
+Candidate fixes (1)/(2)/(3) from the list below (block-level arming,
+callee classification, trampoline fast path) remain Stage 6 follow-ups for
+hot unsafe blocks that CANNOT be marked trusted (user code without
+`--enable-unsafe-direct`, third-party packages).
 
 **Provenance (benchmark lane, 2026-09-29):**
 
@@ -114,11 +138,18 @@ templates in `tasks/systems-arena/`.
       (`docs/repro/perf-1-atomic-trampoline/`; plain ~0 ms vs atomic
       8000 ms for 4M pairs, ~1.0 us/call; IR: per-call trampoline +
       guard-page arm/disarm; benchmark container 18.5 s / ~2.4 us)
-- [ ] PERF-1: design decision (block-level arming vs callee classification)
-      with safety-lane sign-off; document any retry-semantics change
-- [ ] PERF-1: implement + perf-budget lock + full e2e ONCE
-- [ ] PERF-1: benchmark-lane re-run confirms t2-queue (and no regression on
-      t1/t3/t4/t5/t8)
+- [x] PERF-1: root-cause chain + fix route (m166 parser attribute-order +
+      injected-catalog trust); landed with parser + IR locks + full e2e
+- [x] PERF-1: design decision -- use the sanctioned `#[unsafe_direct]`
+      route (no retry-semantics change, no new safety policy); block-level
+      arming / callee classification stay as fallbacks for untrusted blocks
+- [ ] PERF-1: stdlib lane annotates `stdlib/xiom/sync/atomics.xi`
+      (`#[unsafe_direct]` per wrapper; relayed via COMPILER_BUGS m166 +
+      RELEASE_GATE_v0.62.2) and tags for the v0.62.2 pin
+- [ ] PERF-1: benchmark lane re-run confirms t2-queue (and no regression
+      on t1/t3/t4/t5/t8)
+- [ ] Stage 6 follow-up: general fast path for hot unsafe blocks that
+      cannot be marked trusted (candidate fixes 1/2/3)
 - [ ] Stage 6: define the confinement perf budget referenced by
       `UNSAFE_CONFINEMENT_PLAN` S7
 - [ ] Stage 6: keep `xiom bench` as the local harness and record each

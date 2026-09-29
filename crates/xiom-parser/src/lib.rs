@@ -786,6 +786,14 @@ impl Parser {
     fn parse_fn_decl(&mut self, is_pub: bool, is_async: Option<bool>) -> Result<TopDecl, ParseError> {
         // Parse attributes: #[safety_audit(justification: "...")]
         let attrs = self.parse_attributes()?;
+        // Attributes may be written BEFORE or AFTER `pub`. The top-level
+        // dispatcher routes `#[...]` with is_pub=false (it saw no `pub`
+        // first) and a leading `pub` routes with is_pub=true, so both orders
+        // reach here -- accept the optional trailing `pub`. Without this,
+        // `#[unsafe_direct] pub fn` was a P001 ("expected 'fn'") that error
+        // recovery absorbed and the attribute was SILENTLY DROPPED (the
+        // stdlib atomics annotation never took effect; m166).
+        let is_pub = is_pub || self.skip(TokenKind::Pub);
         // `async` is a contextual keyword: only triggers async-fn when the
         // identifier "async" is immediately followed by the `fn` keyword.
         let has_async = match self.peek_kind() {
@@ -2712,6 +2720,31 @@ mod tests {
         assert!(!p.errors().is_empty(), "recovered parse errors must be recorded");
         // The valid function must survive recovery.
         assert!(prog.items.iter().any(|i| matches!(i, TopDecl::Fn(f) if f.name.name == "ok")), "recovery must keep the valid fn");
+    }
+    // m166: `#[attr] pub fn` used to be a P001 ("expected 'fn'") that error
+    // recovery absorbed -- the attribute was SILENTLY DROPPED (the stdlib
+    // atomics `#[unsafe_direct]` annotation never took effect). Attributes
+    // must attach in both orders (`#[attr] pub fn` / `pub #[attr] fn`).
+    #[test] fn test_attribute_before_pub_fn() {
+        let tokens = Lexer::new("#[unsafe_direct]\npub fn f() -> Int { return 0; }\n").tokenize();
+        let mut p = Parser::new(tokens);
+        let prog = p.parse_program().unwrap();
+        assert!(p.errors().is_empty(), "attribute-first pub fn must not produce parse errors: {:?}",
+            p.errors().iter().map(|e| e.message.clone()).collect::<Vec<_>>());
+        match &prog.items[0] {
+            TopDecl::Fn(f) => {
+                assert!(f.is_pub, "pub must survive the attribute-first order");
+                assert!(f.attributes.iter().any(|a| a.name.name == "unsafe_direct"),
+                    "attribute must attach to the fn");
+            }
+            _ => panic!("expected function"),
+        }
+        let tokens2 = Lexer::new("pub #[unsafe_direct] fn g() -> Int { return 0; }\n").tokenize();
+        let prog2 = Parser::new(tokens2).parse_program().unwrap();
+        match &prog2.items[0] {
+            TopDecl::Fn(f) => assert!(f.attributes.iter().any(|a| a.name.name == "unsafe_direct")),
+            _ => panic!("expected function"),
+        }
     }
     #[test] fn test_generic_fn() { let prog = parse("fn max[T: Comparable](a: T, b: T) -> T { if a > b { return a; } return b; }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => { assert_eq!(f.generics.len(), 1); } _ => panic!("expected function"), } }
 

@@ -10,6 +10,64 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-09-29 -- m166 FIXED: `#[attr] pub fn` silently dropped the attribute; `#[unsafe_direct]` trust did not cover injected stdlib fns
+
+Found while chasing PERF-1 (benchmark t2-queue, ~1 us/call unsafe-block
+trampoline cost). Two independent defects blocked the sanctioned
+`#[unsafe_direct]` route for stdlib hot primitives:
+
+1. PARSER: `#[unsafe_direct]` directly above `pub fn` raised
+   `P001: expected 'fn'` (the fn parser expected `fn` right after the
+   attribute block and did not accept `pub`), and error recovery then
+   parsed the fn WITHOUT the attribute. Net effect: the annotation was
+   SILENTLY DROPPED -- no diagnostic, no warning, no effect. (`pub #[attr]
+   fn` already worked, which is why the one existing attribute fixture
+   never caught it.)
+2. TRUST: even with the attribute attached, `compile_fn` judged stdlib
+   origin by `config.source_file`, which is the PRIMARY source -- for a
+   user program importing the stdlib that is the USER's path, so the
+   attribute was rejected (confined) for exactly the stdlib fns that need
+   it (the `xiom.sync.atomics` wrappers).
+
+Fix:
+* Parser (`crates/xiom-parser/src/lib.rs` parse_fn_decl): accept an
+  optional `pub` after the attribute block -- attributes attach in both
+  orders now.
+* Codegen trust (`crates/xiom-codegen`): new `CodegenConfig.catalog_fn_keys`
+  (`set_catalog_fn_keys`); `compile_fn` and the generic-mono path trust
+  `#[unsafe_direct]` when the fn's key is in that set, in addition to the
+  source-path check. The driver fills the set from the decls it injects
+  (Stage 4.5) via the existing `fn_dedup_key` -- exactly the keys codegen
+  emits.
+
+Local verification (stdlib atomics annotated LOCALLY, edit reverted after
+measuring; see `docs/repro/perf-1-atomic-trampoline/`):
+
+```
+before: atomic loop 8000 ms (4M store+load pairs, ~1.0 us/call)
+after:  atomic loop    0 ms (below clock resolution)
+```
+
+IR: `@sync.atomic_load` / `@sync.atomic_store` emit no
+`xiom_trampoline_call` and no guard-page arm/disarm; the 22 remaining
+trampoline CALL sites in the closure belong to other (unannotated) stdlib
+unsafe blocks.
+
+Locks: parser unit test `test_attribute_before_pub_fn`;
+`regress_m166_unsafe_direct_pub_fn_trusted` (trusted -> 0 trampoline calls,
+untrusted -> still confined). Gates: full e2e 2393/2393 (+4 ignored),
+feature-reg 514/514, parser 107/107, checker_locks 23/23 + CLI locks,
+selfhost diff 2 passed.
+
+RELAY (stdlib lane): annotate every fn in `stdlib/xiom/sync/atomics.xi`
+whose body contains an `unsafe` block with `#[unsafe_direct]` (load/store
+verified locally; the rest are the same single-intrinsic shape). Requires
+compiler >= this commit for the attribute to take effect; tag for the
+v0.62.2 wave and update `STDLIB_VERSION` (release gate). Then the
+benchmark lane re-runs t2-queue.
+
+---
+
 ## 2026-09-29 -- m162 FIXED: same-leaf user fn poisoned catalog-body resolution
 
 Playground relay: a user module exporting a fn whose LEAF name matched a

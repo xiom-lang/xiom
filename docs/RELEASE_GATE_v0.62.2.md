@@ -10,6 +10,10 @@ owner's tag push (release.yml is tag-gated).
 
 ## What v0.62.2 carries
 
+- **PERF-1 (owner-required): t2-queue trampoline fix.** Compiler half
+  (m166: parser attribute order + injected-catalog `#[unsafe_direct]`
+  trust) + the stdlib atomics annotation + pin. The benchmark lane's
+  public-facing t2-queue must land in the ms range, not seconds.
 - Earlier queued work: tier-2, R-2/R-2c, `byte_at`.
 - Since v0.62.1: m162 (same-leaf catalog poison), m163 (method field
   `Vec[Str]` element concat), m164 (module-const table materialization),
@@ -21,8 +25,9 @@ owner's tag push (release.yml is tag-gated).
 
 **Explicitly OUT of v0.62.2:** the selfhost binary (100% bootstrap policy),
 the `XIOM_STRICT_BRACKETS` default flip (held for the stdlib wave), Stage 6
-lint tier 3 (parked on the noise-budget decision), PERF-1 (queued; only if
-it lands before the tag).
+lint tier 3 (parked on the noise-budget decision), and the general
+confinement fast-path for untrusted blocks (Stage 6 follow-up; not needed
+once the stdlib annotation lands).
 
 ## Version + notes preconditions (must be committed BEFORE the tag)
 
@@ -67,9 +72,29 @@ suite grew.
 - [ ] Stdlib suites green at the pinned tag (their harness: stdlib_tests,
       smoke battery; last known: 85/85 stdlib-exec + all smokes, with the
       concurrent-battery caveat recorded in SESSION).
+- [ ] **PERF-1 stdlib annotation**: every fn in `stdlib/xiom/sync/atomics.xi`
+      whose body contains an `unsafe` block carries `#[unsafe_direct]`
+      (verified locally: atomics loop 8000 ms -> 0 ms; see COMPILER_BUGS
+      m166). Requires compiler >= the m166 commit; tag for this wave.
 - [ ] Stdlib lane confirms the pin tag for `STDLIB_VERSION`.
 - [ ] Release-notes stdlib fragment present in the stdlib checkout (the
       verify step reads it).
+
+## Gate P -- PERF-1 acceptance (owner-required)
+
+- [x] Compiler half (m166) landed: parser accepts `#[attr] pub fn`; codegen
+      trusts injected catalog fn keys. Locks: parser unit test +
+      `regress_m166_unsafe_direct_pub_fn_trusted`. Gates: full e2e
+      2393/2393 (+4 ignored), feature-reg 514/514, parser 107/107,
+      checker_locks 23/23 + CLI locks, selfhost diff 2 passed.
+- [x] Local measurement with the annotation applied LOCALLY: 4M atomic
+      pairs 8000 ms -> 0 ms; IR shows no trampoline/guard in the wrappers
+      (`docs/repro/perf-1-atomic-trampoline/`, edit reverted after).
+- [ ] Stdlib annotation landed + tagged (Gate B) and `STDLIB_VERSION`
+      updated to that tag.
+- [ ] Benchmark lane re-run on v0.62.2: t2-queue in the ms range and no
+      regression on t1/t3/t4/t5/t8. THIS IS THE RELEASE ACCEPTANCE for
+      PERF-1 -- the public benchmark must not ship with XIOM in seconds.
 
 ## Gate C -- packages + consumers rehearsal (external, non-blocking)
 
