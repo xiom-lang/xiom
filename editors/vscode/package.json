@@ -2,7 +2,7 @@
   "name": "xiom",
   "displayName": "XIOM Toolchain",
   "description": "Syntax highlighting, autocomplete, go-to-definition, diagnostics, and debugging for the XIOM programming language.",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "publisher": "xiom-lang",
   "license": "MIT OR Apache-2.0",
   "icon": "icon.png",

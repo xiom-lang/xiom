@@ -1,0 +1,116 @@
+# Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+# SPDX-License-Identifier: MIT OR Apache-2.0
+#
+# Extension-only release path: package the universal VSIX and publish it to
+# the VS Code Marketplace / Open VSX WITHOUT cutting a compiler release tag.
+# release.yml still publishes on `v*` tags; this workflow is the manual
+# counterpart for extension changes under `editors/vscode`, so a listing
+# refresh no longer has to wait for the next toolchain release.
+#
+# Publishing is skipped per-marketplace where that marketplace already has
+# the version (vsce/ovsx refuse duplicate versions), and entirely when the
+# corresponding secret is absent, so forks and dry runs never fail.
+#
+# Run from main: Actions -> "VS Code Extension Publish" -> Run workflow
+# (dry_run=true packages and gates only). Requires VSCE_PAT / OVSX_TOKEN.
+name: VS Code Extension Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: package + version gate only, never publish"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vscode-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: package + publish VSIX
+    runs-on: ubuntu-latest
+    env:
+      # Optional secrets: publishing is skipped when absent so forks and dry
+      # runs never fail.
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_TOKEN: ${{ secrets.OVSX_TOKEN }}
+    steps:
+      - name: Guard (dispatch from main only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "::error::Dispatch this workflow from main (got ${GITHUB_REF}); extension publishes must come from the released tree."
+            exit 1
+          fi
+
+      - name: Checkout xiom
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node
+        uses: actions/setup-node@1e60f620b9541d16bece96c5465dc8ee9832be0b # v4
+        with:
+          node-version: 20
+
+      - name: Package universal VSIX (no bundled platform binaries)
+        shell: bash
+        run: |
+          set -euo pipefail
+          extver="$(node -p "require('./editors/vscode/package.json').version")"
+          cd editors/vscode
+          npx --yes @vscode/vsce@3 package --out "xiom-vscode-$extver.vsix"
+          mv "xiom-vscode-$extver.vsix" "$GITHUB_WORKSPACE/"
+          cd "$GITHUB_WORKSPACE"
+          sha256sum "xiom-vscode-$extver.vsix" > "SHA256SUMS-vscode"
+          echo "packaged xiom-vscode-$extver.vsix"
+
+      - name: Check whether this extension version is already published
+        id: published
+        shell: bash
+        run: |
+          set -euo pipefail
+          extver="$(node -p "require('./editors/vscode/package.json').version")"
+          mkt_code="$(curl -s -o /dev/null -w '%{http_code}' "https://marketplace.visualstudio.com/_apis/public/gallery/publishers/xiom-lang/vsextensions/xiom/${extver}/vspackage" || true)"
+          ovsx_code="$(curl -s -o /dev/null -w '%{http_code}' "https://open-vsx.org/api/xiom-lang/xiom/${extver}" || true)"
+          if [ "$mkt_code" = "200" ]; then echo "mkt_new=false" >> "$GITHUB_OUTPUT"; else echo "mkt_new=true" >> "$GITHUB_OUTPUT"; fi
+          if [ "$ovsx_code" = "200" ]; then echo "ovsx_new=false" >> "$GITHUB_OUTPUT"; else echo "ovsx_new=true" >> "$GITHUB_OUTPUT"; fi
+          echo "extension $extver: marketplace=$mkt_code openvsx=$ovsx_code (publish only where the version is absent)"
+
+      - name: Publish to VS Code Marketplace (new version only, VSCE_PAT)
+        if: github.event.inputs.dry_run != 'true' && env.VSCE_PAT != '' && steps.published.outputs.mkt_new == 'true'
+        shell: bash
+        run: |
+          extver="$(node -p "require('./editors/vscode/package.json').version")"
+          npx --yes @vscode/vsce@3 publish --packagePath "xiom-vscode-$extver.vsix" --pat "$VSCE_PAT"
+
+      - name: Publish to Open VSX (new version only, OVSX_TOKEN)
+        if: github.event.inputs.dry_run != 'true' && env.OVSX_TOKEN != '' && steps.published.outputs.ovsx_new == 'true'
+        shell: bash
+        run: |
+          extver="$(node -p "require('./editors/vscode/package.json').version")"
+          npx --yes ovsx@0.10 publish "xiom-vscode-$extver.vsix" -p "$OVSX_TOKEN"
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: xiom-vscode-${{ github.run_id }}
+          path: |
+            xiom-vscode-*.vsix
+            SHA256SUMS-vscode
+
+      - name: Summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          extver="$(node -p "require('./editors/vscode/package.json').version")"
+          {
+            echo "### VS Code extension $extver"
+            echo "- marketplace publish pending: ${{ steps.published.outputs.mkt_new }} (VSCE_PAT present: ${{ env.VSCE_PAT != '' }})"
+            echo "- openvsx publish pending: ${{ steps.published.outputs.ovsx_new }} (OVSX_TOKEN present: ${{ env.OVSX_TOKEN != '' }})"
+            echo "- dry run: ${{ github.event.inputs.dry_run }}"
+          } >> "$GITHUB_STEP_SUMMARY"

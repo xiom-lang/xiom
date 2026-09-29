@@ -12,11 +12,17 @@ Supersedes the R-5 batch handoff below (kept as history).
 > State: compiler **v0.62.1 RELEASED** (GitHub release all green, including
 > the wasm glue assets); stdlib pin stays `stdlib-v0.62.0` (stdlib v0.62.0
 > and compiler v0.62.1 version INDEPENDENTLY -- the compiler pins the
-> stdlib ref); the VS Code extension stays 0.12.0 (toolchain-agnostic;
-> marketplace publish correctly skipped for toolchain-only releases --
-> bump `editors/vscode/package.json` only for real extension changes).
-> Local `main` = origin/main + 3 commits (Stage 6 tier 2 `75623b4f`,
-> R-2c/R-2 `1814ac36`, byte_at batch) -- origin/main is at `f7baa932`
+> stdlib ref); the VS Code extension is **0.12.1** (toolchain-agnostic,
+> tested through v0.62.1; extension-only refreshes publish via the
+> **VS Code Extension Publish** workflow -- `workflow_dispatch` from
+> main, dry-run supported, per-marketplace version-absent gate -- so a
+> listing refresh no longer needs a compiler tag; `release.yml` still
+> publishes on `v*` tags). The 0.12.0 -> 0.12.1 listing move happens when
+> the owner pushes main and dispatches that workflow (VSCE_PAT/OVSX_TOKEN
+> must be configured).
+> Local `main` = origin/main + 5 commits (Stage 6 tier 2 `75623b4f`,
+> R-2c/R-2 `1814ac36`, byte_at `f4af5f64`, session docs `e064fddf`, the
+> vscode 0.12.1 refresh) -- origin/main is at `f7baa932`
 > (W004 + R-2d + handoff pushed); **PUSH PENDING the owner's go**;
 > tree clean. Run long suites with reduced threads on this
 > box: e2e `-- --test-threads 12`, stdlib_tests 8, `scripting_tests` 4
@@ -66,8 +72,21 @@ Supersedes the R-5 batch handoff below (kept as history).
 > <lefterisnotas@gmail.com>; pushes only when the owner asks; never
 > rebuild target/debug while e2e runs.
 
-## Status snapshot (2026-09-28 (7))
+## Status snapshot (2026-09-28 (8))
 
+- **VS Code extension 0.12.1 refresh LANDED** (publish pending): README
+  updated (tested through v0.62.1; Stage 6 diagnostic codes W002-W008 /
+  T001 surface via `xiom-lsp`; publishing paragraph) + new
+  `.github/workflows/vscode-publish.yml` (`workflow_dispatch` from main:
+  node 20 universal VSIX, per-marketplace version-absent gate, dry-run,
+  VSIX + SHA256SUMS artifact, step summary). The marketplace listings
+  move 0.12.0 -> 0.12.1 when the owner pushes and dispatches the
+  workflow; `release.yml` keeps publishing extension versions on `v*`
+  tags. Root cause of "sites didn't update": no extension changes since
+  2026-09-22 (0.12.0 == repo HEAD; zero `xiom-lsp`/`xiom-dbg` diffs from
+  v0.61.3 to v0.62.1), so the release gate skipped republishing an
+  existing version -- correct, but there was no way to ship an
+  extension-only refresh without a compiler tag until now.
 - **packages `byte_at >= 128` LANDED**: direct comparisons of
   `string.byte_at(s, i)` against >=128 constants were sext'ing the i8
   call result (195 -> -61) while local binds worked. `widen_to_i64` now
@@ -142,8 +161,9 @@ Supersedes the R-5 batch handoff below (kept as history).
   (Range-only `unknown type 'Iterator'` warning; W005 stub behind
   `(2 + 2.5).to_str()`); CI Heavy Suites triage.
 - **Git**: origin/main = `f7baa932` (W004 + R-2d + handoff pushed); local
-  `main` = + tier-2 `75623b4f` + R-2 `1814ac36` + the byte_at batch,
-  UNPUSHED; repo-local nested `stdlib` checkout at `80e767b` (tag
+  `main` = + tier-2 `75623b4f` + R-2 `1814ac36` + byte_at `f4af5f64` +
+  session docs `e064fddf` + the vscode 0.12.1 refresh, UNPUSHED;
+  repo-local nested `stdlib` checkout at `80e767b` (tag
   `stdlib-v0.62.0` now points at `0e63101`; refresh at the next pin
   step); compiler tree clean.
 
