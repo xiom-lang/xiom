@@ -5556,6 +5556,16 @@ fn e2e_safety_probe() {
     );
 }
 
+// m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
+// 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
+#[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {
+    assert_eq!(
+        compile_and_run("tests/regression/m165_vec_byte_buffer_gt_16mb/main.xi"),
+        Some(0),
+        "a >16 MB Vec[UInt8] buffer must grow instead of trapping (m165)"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

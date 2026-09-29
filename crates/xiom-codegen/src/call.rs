@@ -1767,11 +1767,18 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         self.emitln(&format!("\n{grow_block}:"));
                         let new_cap = self.fresh_tmp();
                         self.emitln(&format!("  {new_cap} = mul i64 {cap_val}, 2"));
-                        // Capacity guard: trap if exceeding max (2^20 elements ~= 8MB)
+                        // Capacity guard: trap only when the next doubling
+                        // would exceed 2^32 ELEMENTS. The old ceiling was
+                        // 2^24 (the comment mislabeled it 2^20): a
+                        // Vec[UInt8] byte buffer trapped at just 16 MB, so a
+                        // 20 MB file could not be buffered (packages
+                        // backlog). 2^32 keeps `new_cap * esz` far below an
+                        // i64 overflow for any sane element size, and the
+                        // realloc null-check below remains the real OOM trap.
                         let cap_ok_check = self.fresh_tmp();
                         let cap_ok_cont = self.fresh_block("vec_cap_ok");
                         let cap_trap_block = self.fresh_block("vec_cap_trap");
-                            self.emitln(&format!("  {cap_ok_check} = icmp ule i64 {new_cap}, 16777216"));
+                        self.emitln(&format!("  {cap_ok_check} = icmp ule i64 {new_cap}, 4294967296"));
                         self.emitln(&format!("  br i1 {cap_ok_check}, label %{cap_ok_cont}, label %{cap_trap_block}"));
                         self.emitln(&format!("\n{cap_trap_block}:"));
                         self.emitln("  call void @llvm.trap()");

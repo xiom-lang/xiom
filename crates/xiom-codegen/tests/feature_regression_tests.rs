@@ -508,6 +508,29 @@ fn main() -> Int {
     );
 }
 
+// m165 (packages backlog): the Vec growth guard's element ceiling was
+// raised from 2^24 (a Vec[UInt8] byte buffer trapped at 16 MB) to 2^32.
+#[test]
+fn regress_m165_vec_growth_ceiling() {
+    let ir = compile(r#"
+fn main() -> Int {
+  var v = Vec[UInt8].new();
+  v.push(1u8);
+  return v.len() - 1;
+}
+"#).unwrap();
+    assert!(
+        ir.contains("icmp ule i64") && ir.contains("4294967296"),
+        "m165: the growth guard must use the 2^32 ceiling; got:\n{}",
+        ir
+    );
+    assert!(
+        !ir.contains("16777216"),
+        "m165: the old 2^24 ceiling must be gone; got:\n{}",
+        ir
+    );
+}
+
 #[test]
 fn regress_5c30_uint_coercion() {
     // Int literal ? UInt8 coercion

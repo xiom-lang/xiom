@@ -41,12 +41,13 @@ Supersedes the (9) handoff below (kept as history).
 > `m162_sameleaf_catalog_poison` (e2e + CI line) + checker_locks
 > `m162_sameleaf_fn_does_not_poison_catalog_bodies`. Repro:
 > `tmp/sprintc/m162_sameleaf_catalog_poison/`.
-> Next work, compiler track: **`Vec` ~2^24 cap**, then transient
-> `program_exit=-1` capture batch, playground polish (Range `unknown type
-> 'Iterator'` warning; W005 erased-dispatch stub), CI Heavy Suites triage.
+> Next work, compiler track: **transient `program_exit=-1` capture
+> batch**, then playground polish (Range `unknown type 'Iterator'`
+> warning; W005 erased-dispatch stub), CI Heavy Suites triage.
 > Landed since (10): m164 module-const table materialization, the C22
-> driver fix (`xiom run` sibling modules) and the m162 same-leaf
-> catalog-poison fix (checker + codegen). Held: `XIOM_STRICT_BRACKETS` default flip + the
+> driver fix (`xiom run` sibling modules), the m162 same-leaf
+> catalog-poison fix (checker + codegen) and the m165 Vec growth-ceiling
+> raise (2^24 -> 2^32 elements; >16 MB byte buffers). Held: `XIOM_STRICT_BRACKETS` default flip + the
 > 3 stdlib mixed-bracket sites. Parked: loop-CSE retry (needs the porting
 > session's pre-fix decoder). Release: v0.62.2 not cut yet (carries tier-2,
 > R-2, byte_at + extension metadata); after it ships the packages lane
@@ -66,6 +67,19 @@ Supersedes the (9) handoff below (kept as history).
 > rebuild target/debug while e2e runs. Run long suites with reduced
 > threads on this box: e2e `-- --test-threads 12`, stdlib_tests 8,
 > `scripting_tests` 4.
+
+## Cross-lane notes (2026-09-29)
+
+- **Packages lane relay**: pin moved 0.61.3 -> 0.62.1 mid-batch; every
+  suite re-run clean, no code changes needed for the new compiler. Their
+  sectest caught two PACKAGE-side catalog bugs (obs-fold detection was
+  masked by trimming -- leading SP/TAB is now strictly a folded header
+  line; `max-age=abc` reported as "without max-age" instead of "is not a
+  number"). They used `xiom.string.str_replace_all` to isolate one policy
+  rule by rewriting a hardened baseline, and avoided `==` on Result
+  values (no guaranteed Eq) via small typed helpers. No compiler/stdlib
+  action items from this relay; if Result/Option structural equality is
+  wanted, it is a stdlib design decision (not filed).
 
 ## Status snapshot (2026-09-29 (10))
 
@@ -134,6 +148,17 @@ Supersedes the (9) handoff below (kept as history).
   `regress_m164_const_array_global` (IR: `internal constant [8 x i64]`,
   no N+1-slot alloca). Gates: full e2e 2391/2391 (+4 ignored, 1872 s),
   feature-reg 512/512, checker_locks 22/22, selfhost diff 2 passed.
+- **m165 LANDED (Vec growth ceiling)**: the growth guard trapped when the
+  next doubling exceeded 2^24 ELEMENTS (a `Vec[UInt8]` byte buffer died at
+  16 MB -- a 20 MB file could not be buffered; the old comment mislabeled
+  it 2^20). The ceiling is now 2^32 elements (`call.rs`), keeping
+  `new_cap * esz` far below i64 overflow for sane element sizes; the
+  realloc null-check remains the OOM trap. Locks:
+  `m165_vec_byte_buffer_gt_16mb` (e2e + CI line; pushes 16,777,218 bytes
+  and re-checks the boundary) + `regress_m165_vec_growth_ceiling` (IR: the
+  guard uses 4294967296, the old constant is gone). Gates: full e2e
+  2393/2393 (+4 ignored, 1813 s), feature-reg 513/513, checker_locks
+  23/23, selfhost diff 2 passed.
 - **C22 (playground relay) FIXED**: `xiom run <script>` now hands the
   checker the script's real directory (parent + guarded grandparent,
   mirroring the compile path) through `CompileConfig.extra_source_dirs`;
@@ -156,8 +181,8 @@ Supersedes the (9) handoff below (kept as history).
   result. The battery itself was left untouched afterwards; the compiler
   lane's suites should not be run concurrently with it on this box.
 - **Git**: local `main` tips = Phase 0 `e813449b` + tracker `532bfa75` +
-  m163 `d0189157` + C22 `563aaff2` + m164 `8258c400` + the m162 commit
-  (all local, not pushed; push only on the owner's ask).
+  m163 `d0189157` + C22 `563aaff2` + m164 `8258c400` + m162 `d8a04678` +
+  the m165 commit (all local, not pushed; push only on the owner's ask).
 
 # CONTINUATION HANDOFF (2026-09-29 (9), compiler lane -- v0.62.1; all batches pushed; extension 0.12.1 live; selfhost Phase 0 green-lit)
 
