@@ -85,6 +85,16 @@ silently weaken):**
    calling runtime helpers -- likely a standalone win independent of the
    trampoline design.
 
+**Local repro (landed 2026-09-29):** `docs/repro/perf-1-atomic-trampoline/`
+(probe + README with measurements and IR excerpts). On this box, v0.62.1:
+plain 4M-iteration loop below clock resolution vs **8000 ms** for 4M atomic
+store+load pairs (~1.0 us/call; the benchmark container saw 18.5 s /
+~2.4 us/call -- same order). IR confirms the cost is per CALL: each
+`sync.atomic_load` / `atomic_store` wrapper builds a context and calls
+`xiom_trampoline_call(@__unsafe_block_N, ctx)`; each block body runs
+`xiom_guard_heap_enter` + `xiom_guard_page_arm` ... `_exit` + `_disarm` +
+`xiom_trap_leave` around the single `xiom_atomic_*` intrinsic.
+
 **Plan:** reproduce locally (`atomic_trampoline.xi` + `atomic_overhead.sh`,
 `tcp_stream_read.xi`), decide between (1)+(2) as the design, land with a
 perf-budget lock (dedicated micro-benchmark fixture wired into
@@ -100,8 +110,10 @@ templates in `tasks/systems-arena/`.
 
 ## Checklist
 
-- [ ] PERF-1: reproduce the atomic trampoline overhead locally (evidence:
-      before/after timings + disassembly note)
+- [x] PERF-1: reproduce the atomic trampoline overhead locally
+      (`docs/repro/perf-1-atomic-trampoline/`; plain ~0 ms vs atomic
+      8000 ms for 4M pairs, ~1.0 us/call; IR: per-call trampoline +
+      guard-page arm/disarm; benchmark container 18.5 s / ~2.4 us)
 - [ ] PERF-1: design decision (block-level arming vs callee classification)
       with safety-lane sign-off; document any retry-semantics change
 - [ ] PERF-1: implement + perf-budget lock + full e2e ONCE

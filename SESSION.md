@@ -81,15 +81,20 @@ Supersedes the (9) handoff below (kept as history).
   dry-run before tagging, and the tag/publish/post-release steps.
   v0.62.2 is plannable now; the remaining inputs are the stdlib lane's
   final sign-off + pin tag and the owner's tag push.
-- **Benchmark lane relay (PERF-1, queued)**: t2-queue is ~1450x Rust
+- **Benchmark lane relay (PERF-1, in progress)**: t2-queue is ~1450x Rust
   (50,787 ms vs 35 ms) while XIOM is normal on every other task; isolation
   shows 4M `AtomicInt` load/store pairs at 18.5 s vs 4 ms plain, with every
   unsafe-block call paying `xiom_trampoline_call` + guard-page arm/disarm
   (~2.4 us/call). Full provenance (session `run_1790700620309`, exports,
   evidence dirs), root-cause hypothesis, candidate fixes and checklist are
-  in `docs/STAGE6_PERF_PLAN.md` (PERF-1). Stage 6 answer: YES -- included
-  as the first performance-plan item, pending local repro + safety-lane
-  sign-off on the retry-semantics change.
+  in `docs/STAGE6_PERF_PLAN.md` (PERF-1). **Local repro landed**
+  (`docs/repro/perf-1-atomic-trampoline/`): plain ~0 ms vs atomic 8000 ms
+  for 4M pairs (~1.0 us/call; same order as the container); IR shows the
+  per-CALL shape (`xiom_trampoline_call(@__unsafe_block_N)` plus
+  `guard_heap_enter/exit` + `guard_page_arm/disarm` + `trap_leave` around
+  each `xiom_atomic_*`). Next: design decision (block-level arming vs
+  callee classification) with safety-lane sign-off on retry semantics,
+  then implement + perf-budget lock + benchmark re-run.
 - **Website fetch**: `docs/SELFHOST_PROGRESS.md` is live on `main`
   (push `c0c081df..ad63eda0`; raw URL verified). A plain commit push
   triggers no workflows in this repo (CI is PR-only, `release.yml` is
