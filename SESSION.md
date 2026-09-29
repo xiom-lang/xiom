@@ -49,11 +49,14 @@ Supersedes the (9) handoff below (kept as history).
 > catalog-poison fix (checker + codegen) and the m165 Vec growth-ceiling
 > raise (2^24 -> 2^32 elements; >16 MB byte buffers). Held: `XIOM_STRICT_BRACKETS` default flip + the
 > 3 stdlib mixed-bracket sites. Parked: loop-CSE retry (needs the porting
-> session's pre-fix decoder). Release: v0.62.2 not cut yet (carries tier-2,
-> R-2, byte_at + extension metadata); after it ships the packages lane
-> re-verifies `byte_at` (docs/repro/byte-at-128), the benchmark lane
-> re-verifies R-2/R-2c, and the repo-local stdlib checkout refreshes to the
-> tag (`0e63101`; currently `80e767b`).
+> session's pre-fix decoder). Release: **v0.62.2 gate defined in
+> `docs/RELEASE_GATE_v0.62.2.md`** (version+notes preconditions, suites
+> A-F, dry-run before the tag; stdlib sign-off + pin decision and the
+> owner's tag push are the external steps). Not cut yet; carries tier-2,
+> R-2/R-2c, byte_at, m162-m165, C22; the selfhost binary stays out (100%
+> policy). After it ships the packages lane re-verifies `byte_at`
+> (docs/repro/byte-at-128), the benchmark lane re-verifies R-2/R-2c, and
+> the repo-local stdlib checkout refreshes to the tag.
 > Next work, selfhost track: **Phase 1 (lexer parity)** -- port
 > `crates/xiom-lexer` to `selfhost/src/lexer.xi`, add `--dump-tokens` to
 > both compilers, gate on byte-equal dumps over the corpus
@@ -70,6 +73,14 @@ Supersedes the (9) handoff below (kept as history).
 
 ## Cross-lane notes (2026-09-29)
 
+- **Release gate v0.62.2 (planned)**: `docs/RELEASE_GATE_v0.62.2.md` --
+  version+notes preconditions (workspace 0.62.2, `SELFHOST_VERSION`,
+  `release-notes/v0.62.2.{md,json}` BEFORE the tag, `STDLIB_VERSION`
+  pin), compiler-lane suite gates (all green as of the last runs),
+  stdlib-lane sign-off, packages rehearsal, a `workflow_dispatch`
+  dry-run before tagging, and the tag/publish/post-release steps.
+  v0.62.2 is plannable now; the remaining inputs are the stdlib lane's
+  final sign-off + pin tag and the owner's tag push.
 - **Benchmark lane relay (PERF-1, queued)**: t2-queue is ~1450x Rust
   (50,787 ms vs 35 ms) while XIOM is normal on every other task; isolation
   shows 4M `AtomicInt` load/store pairs at 18.5 s vs 4 ms plain, with every
