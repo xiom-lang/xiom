@@ -389,6 +389,15 @@ fn m160_r2_match_alias_runs() {
 }
 
 #[test]
+fn m161_byte_at_direct_compare_runs() {
+    let (stderr, code, exe) = run_on("m161_byte_at_direct_compare");
+    assert_eq!(code, Some(0), "byte_at fixture must compile. stderr:\n{stderr}");
+    let run = Command::new(&exe).output().expect("run m161_byte_at_direct_compare");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(run.status.code(), Some(0), "direct byte_at compares must be correct");
+}
+
+#[test]
 fn m155_r2d_check_library_file_passes() {
     // R-2d: `--check` must NOT implicit-main-wrap a library file (top-level
     // declarations, no `fn main`); wrapping produced a bogus P001 at the

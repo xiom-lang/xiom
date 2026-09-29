@@ -712,13 +712,35 @@ impl IrEmitter {
     /// to type-based defaults: zext for i1/i8, sext for i16/i32.
     fn widen_to_i64(&mut self, val: &str, ty: &str) -> String {
         let is_signed = self.local.reg_signed.get(val).copied().unwrap_or_else(|| {
-            // Default: sext for i8/i16/i32 (signed types are the common case for
-            // function returns and intermediate values). zext only for i1 (Bool).
-            // The Ident load path and As expression handler provide per-register
-            // overrides via reg_signed for unsigned locals.
-            !matches!(ty, "i1")
+            // Default: zext for i1/i8 (Bool and byte-ish values -- UInt8/Char
+            // back the i8 slot), sext for i16/i32 (signed types are the common
+            // case for returns/intermediates there). This matches the i128
+            // widening branches, which already zext i1/i8. The Ident load path
+            // and As expression handler provide per-register overrides via
+            // reg_signed for unsigned locals.
+            // packages byte_at fix: the old default (`!matches!(ty, "i1")`)
+            // sext'd every i8 call result, so a DIRECT `string.byte_at(s,i)`
+            // compare saw 195 as -61 (typed locals worked via reg_signed).
+            !matches!(ty, "i1" | "i8")
         });
         self.widen_to_i64_signed(val, ty, is_signed)
+    }
+
+    /// Operand widening for binary ops, in priority order: per-register
+    /// signedness, POSITIVE expression-level unsignedness
+    /// (`expr_is_unsigned`), then `widen_to_i64`'s type defaults. An
+    /// unknown/false expression result must NOT force sext -- it defers to
+    /// the type default (i8 is byte-ish: zext), which is what fixes the
+    /// direct `string.byte_at(...)` compares (the call's return type does
+    /// not always resolve for the expression query).
+    fn widen_operand_to_i64(&mut self, val: &str, ty: &str, expr: &Expr) -> String {
+        if let Some(&signed) = self.local.reg_signed.get(val) {
+            return self.widen_to_i64_signed(val, ty, signed);
+        }
+        if let Some(signed) = self.expr_int_signedness(expr) {
+            return self.widen_to_i64_signed(val, ty, signed);
+        }
+        self.widen_to_i64(val, ty)
     }
 
     /// Widen with explicit signedness control. `is_signed=true` uses `sext`;

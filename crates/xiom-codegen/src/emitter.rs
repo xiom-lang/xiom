@@ -549,6 +549,10 @@ impl IrEmitter {
     /// (UInt8/16/32/64/128) -- used to pick `lshr` over `ashr` for right shifts.
     /// Idents resolve through the registered type; casts check the target type
     /// name; shifts inherit the left operand's unsignedness.
+    /// packages `byte_at >= 128` fix: a CALL result resolves through the
+    /// callee's declared return type, so a direct `string.byte_at(s, i)`
+    /// operand widens with `zext` instead of the default `sext` (195 became
+    /// -61 and every direct compare failed while typed locals worked).
     pub(crate) fn expr_is_unsigned(&self, e: &Expr) -> bool {
         fn is_unsigned_name(n: &str) -> bool {
             n.starts_with("UInt") || n == "UInt" || n.starts_with("u8")
@@ -564,7 +568,52 @@ impl IrEmitter {
             Expr::Binary(bl, op2, _, _) => matches!(op2, BinOp::Shl | BinOp::Shr)
                 && self.expr_is_unsigned(bl),
             Expr::Paren(inner, _) => self.expr_is_unsigned(inner),
+            Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
+                self.infer_call_return_xiom(func)
+                    .map(|rt| is_unsigned_name(&rt))
+                    .unwrap_or(false)
+            }
             _ => false,
+        }
+    }
+
+    /// Best-effort SIGNEDNESS of an integer expression used for operand
+    /// widening: `Some(true)` for a known signed narrow type, `Some(false)`
+    /// for a known unsigned one, `None` when unknown (the caller then uses
+    /// `widen_to_i64`'s type default). Unlike `expr_is_unsigned`, a POSITIVE
+    /// signed answer is meaningful too -- signed narrow CALL results must keep
+    /// `sext` while an unresolvable call (e.g. stdlib `string.byte_at`) falls
+    /// back to the i8-ish zext default.
+    pub(crate) fn expr_int_signedness(&self, e: &Expr) -> Option<bool> {
+        fn signed_of_name(n: &str) -> Option<bool> {
+            let base = n.split('[').next().unwrap_or(n).trim();
+            if base.starts_with("UInt") || base == "UInt" {
+                Some(false)
+            } else if base.starts_with("Int") || base == "Int" {
+                Some(true)
+            } else {
+                None
+            }
+        }
+        match e {
+            Expr::Ident(id) => self.local.local_xiom_types.get(&id.name)
+                .and_then(|t| signed_of_name(t)),
+            Expr::As(inner, ty, _) => {
+                let tn = Self::type_from_ast(ty);
+                signed_of_name(&tn).or_else(|| self.expr_int_signedness(inner))
+            }
+            Expr::Paren(inner, _) => self.expr_int_signedness(inner),
+            Expr::Binary(bl, op2, _, _) => {
+                if matches!(op2, BinOp::Shl | BinOp::Shr) {
+                    self.expr_int_signedness(bl)
+                } else {
+                    None
+                }
+            }
+            Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
+                self.infer_call_return_xiom(func).and_then(|rt| signed_of_name(&rt))
+            }
+            _ => None,
         }
     }
 

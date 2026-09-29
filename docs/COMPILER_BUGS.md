@@ -9762,5 +9762,39 @@ feature-reg 510/510; freeze 2/2; quick suites: scripting 34/34
 perf 3/3, diff 24 (+1 ignored), cli 1, doctor 4, borrow 2; checker_locks
 21/21; ascii_guard clean.
 
+## 2026-09-29 -- packages `byte_at >= 128` direct compare (i8 widening default)
+
+Packages-lane finding (`E:\xiom-packages\packages\docs\repro\byte-at-128`;
+probe copied to `tmp/sprintc/probe_byte_at.xi`): every DIRECT comparison
+of `string.byte_at(s, i)` against a >=128 constant failed (`!= 195u8` on
+a U+00E9 string) while typed/untyped local binds were correct. The
+stdlib wrapper returns i8; the compare widened it with `sext`
+(195 -> -61) while the literal widened `zext` (its temp carried a
+`reg_signed` override). `widen_to_i64`'s doc said "zext for i1/i8" but
+the code sext'd i8, and the i128 branches already zext i1/i8.
+
+Fix (three parts):
+- `widen_to_i64` default now matches its documentation and the i128
+  branches: zext for i1/i8, sext for i16/i32; per-register overrides
+  (`reg_signed`) still win (typed Int8/UInt8 locals unchanged).
+- New `widen_operand_to_i64` (used at both binary-op widen sites):
+  reg override > `expr_int_signedness` (Ident/As/Paren/shift/Call via
+  `infer_call_return_xiom`: Int* -> sext, UInt* -> zext) > type default.
+  An UNRESOLVABLE call (stdlib `string.byte_at`) now falls to the i8
+  default (zext) instead of forcing sext.
+- `expr_is_unsigned` resolves Call/GenericCall returns too (Shr picks
+  `lshr` for unsigned call results).
+
+Probe: `bad=3` before, `bad=0` after (the three direct checks pass; the
+untyped/typed/widen controls stay green; a signed Int8 local still
+sexts). Locks: `m161_byte_at_direct_compare` + 1 checker_locks (22/22).
+Gates: full e2e 2389/2389 (+4 ignored, `-- --test-threads 12`, 1223s);
+checker 195/195; stdlib-exec 85/85 (+2 ignored); stdlib modules 40/40;
+feature-reg 510/510; freeze 2/2; quick suites: scripting 34/34
+(`--test-threads 4`, 803s), integration 130, robustness 63, fuzz 24,
+perf 3/3, diff 24 (+1 ignored), cli 1, doctor 4, borrow 2; checker_locks
+22/22; ascii_guard clean.
+
+
 
 

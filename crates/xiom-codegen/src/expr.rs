@@ -1734,8 +1734,11 @@ impl IrEmitter {
                             rt = "i128".to_string();
                         }
                     } else {
-                        l = self.widen_to_i64(&l, &lt);
-                        r = self.widen_to_i64(&r, &rt);
+                        // packages byte_at fix: expression-aware operand
+                        // widening (reg_signed > positive expression
+                        // unsignedness > i8-default zext).
+                        l = self.widen_operand_to_i64(&l, &lt, left);
+                        r = self.widen_operand_to_i64(&r, &rt, right);
                         lt = "i64".to_string();
                         rt = "i64".to_string();
                     }
@@ -1891,8 +1894,14 @@ impl IrEmitter {
                     if rt.starts_with("%struct.") && !rt.ends_with('*') && !lt.starts_with("%struct.") {
                         r = self.extract_scalar_field0(&r, &rt);
                     }
-                    l = self.widen_to_i64(&l, &lt);
-                    r = self.widen_to_i64(&r, &rt);
+                    // packages byte_at fix: pick zext v. sext from the OPERAND
+                    // EXPRESSION when no per-register override exists -- a
+                    // direct unsigned call result (`string.byte_at(...)`)
+                    // previously defaulted to sext (195 -> -61), so every
+                    // direct `!= 195u8` compare failed while typed locals
+                    // (reg_signed override) worked.
+                    l = self.widen_operand_to_i64(&l, &lt, left);
+                    r = self.widen_operand_to_i64(&r, &rt, right);
                 }
                 let div_cont = if !is_float && matches!(op, BinOp::Div | BinOp::Rem) {
                     let zero_check = self.fresh_tmp();
