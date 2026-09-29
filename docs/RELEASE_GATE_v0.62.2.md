@@ -35,10 +35,13 @@ once the stdlib annotation lands).
       fails the tag otherwise; all nine tools self-report this value).
 - [ ] `selfhost/src/codegen.xi` `SELFHOST_VERSION` const -> `0.62.2`
       (mirrors the Rust `--emit-ir` header).
-- [ ] `release-notes/v0.62.2.md` + `v0.62.2.json` committed. The release
-      job runs `cargo run -p xiom-release-notes -- verify --tag v0.62.2
-      --stdlib <stdlib checkout>` and FAILS on schema violations or drift,
-      so run that verify locally first.
+- [x] `release-notes/v0.62.2.md` + `v0.62.2.json` committed (drafted
+      2026-09-29; `convert` + `verify` green: 5 highlights, schema-1).
+- [ ] RE-CONVERT if the pinned stdlib ships `release-notes/v0.62.2.md`:
+      the release job's `verify` regenerates WITH the stdlib fragment and
+      fails on a stale JSON. Re-run
+      `cargo run -p xiom-release-notes -- convert --tag v0.62.2
+      --stdlib <stdlib checkout>` after the pin lands.
 - [ ] `docs/COMPILER_VERSIONS.md` entry for 0.62.2.
 - [ ] `STDLIB_VERSION` pinned to the stdlib lane's final tag (currently
       `stdlib-v0.62.0`; the lane decides the candidate tag -- the release
@@ -78,7 +81,9 @@ suite grew.
       m166). Requires compiler >= the m166 commit; tag for this wave.
 - [ ] Stdlib lane confirms the pin tag for `STDLIB_VERSION`.
 - [ ] Release-notes stdlib fragment present in the stdlib checkout (the
-      verify step reads it).
+      verify step reads it when `release-notes/v0.62.2.md` exists there;
+      our committed JSON must then be re-converted -- see the
+      preconditions).
 
 ## Gate P -- PERF-1 acceptance (owner-required)
 

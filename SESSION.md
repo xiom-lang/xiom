@@ -84,7 +84,10 @@ Supersedes the (9) handoff below (kept as history).
   stdlib-lane sign-off, packages rehearsal, a `workflow_dispatch`
   dry-run before tagging, and the tag/publish/post-release steps.
   v0.62.2 is plannable now; the remaining inputs are the stdlib lane's
-  final sign-off + pin tag and the owner's tag push.
+  final sign-off + pin tag and the owner's tag push. **Release notes
+  drafted**: `release-notes/v0.62.2.{md,json}` (convert + verify green, 5
+  highlights, schema-1); re-convert after any stdlib fragment lands so the
+  committed JSON stays byte-in-sync.
 - **m166 FIXED (PERF-1, owner-required for v0.62.2)**: `#[unsafe_direct]`
   written above `pub fn` was a P001 that error recovery absorbed -- the
   attribute was silently dropped -- AND stdlib fns compiled inside a user
