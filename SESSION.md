@@ -31,20 +31,22 @@ Supersedes the (9) handoff below (kept as history).
 > 2390/2390 (+4 ignored, 1517 s), feature-reg 511/511, checker_locks
 > 22/22, selfhost diff 2 passed. Repro kept in
 > `tmp/sprintc/m163_method_str_accum/` + `tmp/sprintc/m163_single.xi`.
-> (2) **m162 (OPEN)**: a user module exporting a fn whose LEAF matches a
-> stdlib fn (`char_at`) poisons catalog-body checking of UNRELATED stdlib
-> modules (bogus T001s in `[xiom.num]`); the import alone triggers it.
-> `tmp/sprintc/m162_sameleaf_catalog_poison/`. Workaround in the skeleton:
-> all runtime_ffi free fns are `rt_`-prefixed.
-> Next work, compiler track: **m162 / same-name fn shadowing** (no
-> redefinition diagnostic; catalog-body poison repro in
-> `tmp/sprintc/m162_sameleaf_catalog_poison/`), then `Vec` ~2^24 cap,
-> transient `program_exit=-1` capture batch, playground polish (Range
-> `unknown type 'Iterator'` warning; W005 erased-dispatch stub), CI Heavy
-> Suites triage. Landed since (10): m164 module-const table
-> materialization (one `internal constant` per const array -- the
-> 64K-table class) and the C22 driver fix (`xiom run` sibling modules).
-> Held: `XIOM_STRICT_BRACKETS` default flip + the
+> (2) **m162 FIXED 2026-09-29**: a user module exporting a fn whose LEAF
+> matches a stdlib fn (`char_at`) poisoned catalog-body resolution of
+> UNRELATED stdlib modules (bogus T001s in `[xiom.num]`) and codegen's
+> binding (`@user_util.char_at` inside `@num.parse_int_radix` -> runtime
+> "invalid index"). Checker prefers the body's explicit item import
+> (recorded into `catalog_resolved_calls`); codegen's
+> `resolve_catalog_call_bare` binds that target. Locks:
+> `m162_sameleaf_catalog_poison` (e2e + CI line) + checker_locks
+> `m162_sameleaf_fn_does_not_poison_catalog_bodies`. Repro:
+> `tmp/sprintc/m162_sameleaf_catalog_poison/`.
+> Next work, compiler track: **`Vec` ~2^24 cap**, then transient
+> `program_exit=-1` capture batch, playground polish (Range `unknown type
+> 'Iterator'` warning; W005 erased-dispatch stub), CI Heavy Suites triage.
+> Landed since (10): m164 module-const table materialization, the C22
+> driver fix (`xiom run` sibling modules) and the m162 same-leaf
+> catalog-poison fix (checker + codegen). Held: `XIOM_STRICT_BRACKETS` default flip + the
 > 3 stdlib mixed-bracket sites. Parked: loop-CSE retry (needs the porting
 > session's pre-fix decoder). Release: v0.62.2 not cut yet (carries tier-2,
 > R-2, byte_at + extension metadata); after it ships the packages lane
@@ -102,10 +104,22 @@ Supersedes the (9) handoff below (kept as history).
   (+4 ignored), feature-reg 511/511, checker_locks 22/22, selfhost diff
   2 passed. COMPILER_BUGS entry flipped to FIXED; repro in
   `tmp/sprintc/m163_method_str_accum/`.
-- **m162 (OPEN)**: same-leaf user-module export poisons catalog-body
-  checking (xiom.num T001s); repro in
-  `tmp/sprintc/m162_sameleaf_catalog_poison/`. Workaround = `rt_` prefixes
-  in runtime_ffi.
+- **m162 FIXED (same-leaf catalog poison)**: a user module exporting a
+  same-leaf fn (`char_at`) made `xiom.num`'s body resolve the USER's
+  signature (bogus T001s) and codegen bind `@user_util.char_at` inside
+  `@num.parse_int_radix` (runtime "invalid index"). Checker: catalog-body
+  bare calls now prefer the body's EXPLICIT ITEM import (provenance:
+  `local_module_paths[leaf]` ends with the leaf -- module-surface
+  injections excluded, which keeps `xiom.math.rounding`'s `pow` overload)
+  and record the dotted target into `catalog_resolved_calls` (R20 owner
+  key). Codegen: `resolve_catalog_call_bare` binds `catalog_call_targets`
+  before `bare_fn_aliases`. Locks: `m162_sameleaf_catalog_poison` e2e + CI
+  line + checker_locks `m162_sameleaf_fn_does_not_poison_catalog_bodies`.
+  Gates: full e2e 2392/2392 (+4 ignored, 2167 s under the smoke battery),
+  feature-reg 512/512, checker_locks 23/23, selfhost diff 2 passed.
+  `COMPILER_BUGS.md` entry added; repro kept in
+  `tmp/sprintc/m162_sameleaf_catalog_poison/`. The selfhost `rt_` prefixes
+  are no longer required (kept; rename in O1).
 - **m164 LANDED (module-const table materialization)**: immutable
   all-literal integer const arrays now emit ONE `internal constant
   [N x i64]` global per table (`module_const_defs`) and index reads GEP it
@@ -142,8 +156,8 @@ Supersedes the (9) handoff below (kept as history).
   result. The battery itself was left untouched afterwards; the compiler
   lane's suites should not be run concurrently with it on this box.
 - **Git**: local `main` tips = Phase 0 `e813449b` + tracker `532bfa75` +
-  m163 `d0189157` + C22 `563aaff2` + the m164 commit (all local, not
-  pushed; push only on the owner's ask).
+  m163 `d0189157` + C22 `563aaff2` + m164 `8258c400` + the m162 commit
+  (all local, not pushed; push only on the owner's ask).
 
 # CONTINUATION HANDOFF (2026-09-29 (9), compiler lane -- v0.62.1; all batches pushed; extension 0.12.1 live; selfhost Phase 0 green-lit)
 

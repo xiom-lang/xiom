@@ -276,6 +276,25 @@ impl IrEmitter {
         Some(stripped.to_string())
     }
 
+    /// m162: bare-call sibling of `resolve_catalog_call` -- a catalog-body
+    /// BARE call has no receiver to validate against, so bind on the
+    /// owner-qualified target key + leaf-suffix check alone. The checker
+    /// records these when its catalog-body resolution used the body's own
+    /// explicit item import (`use xiom.string.char_at;`), which codegen
+    /// cannot see (isolated contexts). Without it the call bound the global
+    /// first-wins bare slot -- a user module's same-leaf `char_at`.
+    pub(crate) fn resolve_catalog_call_bare(&self, fn_name: &str, span: Span) -> Option<String> {
+        let key = format!("{}:{}", span.line, span.col);
+        let owner = self.fctx.current_fn.as_ref()?;
+        let resolved = self.config.catalog_call_targets.get(&format!("{owner}#{key}"))?;
+        let stripped = resolved.strip_prefix("xiom.").unwrap_or(resolved.as_str());
+        if stripped.ends_with(&format!(".{fn_name}")) {
+            Some(stripped.to_string())
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn compile_call(&mut self, func: &Expr, args: &[Expr]) -> Result<(String, String), String> {
         // R52 (playground L5-43): tolerate a REDUNDANT explicit receiver
         // argument (`s.push(&mut s, "Alice")`). The method call already passes
@@ -3647,6 +3666,11 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             .map(|m| format!("{m}.{fn_key}"))
                             .filter(|k| self.types.functions.contains_key(k) || self.mono.emitted_fns.contains(k));
                         if let Some(qualified) = in_caller_module {
+                            qualified
+                        } else if let Some(qualified) = self.resolve_catalog_call_bare(&fn_key, func.span()) {
+                            // m162: the checker resolved this catalog-body bare
+                            // call through the body's own item import; bind
+                            // that target before the global keep-first alias.
                             qualified
                         } else if let Some(qualified) = self.mono.bare_fn_aliases.get(&fn_key) {
                             // R52 (packages relay): a keep-first alias that

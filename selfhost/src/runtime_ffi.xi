@@ -24,12 +24,12 @@
 // with the body-emitter port (Phase 5), where its exact bytes are gated by
 // T3.
 //
-// NAMING (2026-09-29): every free function here is `rt_`-prefixed. A user
-// module exporting a fn whose leaf matches a stdlib fn (`char_at`, ...)
-// poisons catalog-body checking of UNRELATED stdlib modules (bogus T001s
-// in [xiom.num]); the import alone is enough. Repro:
-// tmp/sprintc/m162_sameleaf_catalog_poison/. The `rt_` prefix keeps this
-// module out of the stdlib leaf namespace.
+// NAMING (2026-09-29): every free function here is `rt_`-prefixed. The
+// original reason -- a user module exporting a same-leaf fn (`char_at`)
+// poisoned catalog-body checking of unrelated stdlib modules -- is FIXED
+// (m162: checker prefers the body's explicit item import; codegen binds the
+// recorded target). The prefix is kept for now (it also documents which
+// helpers mirror the C runtime surface); rename in the O1 pass if desired.
 
 module selfhost_runtime_ffi
 

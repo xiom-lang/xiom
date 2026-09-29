@@ -5545,6 +5545,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// m162 (playground relay): a user module's same-leaf fn (`char_at`) must not
+// poison catalog-body checking OR codegen binding of xiom.num's own
+// `use xiom.string.char_at` resolution.
+#[test] fn e2e_m162_sameleaf_catalog_poison() {
+    assert_eq!(
+        compile_and_run("tests/regression/m162_sameleaf_catalog_poison/main.xi"),
+        Some(0),
+        "user same-leaf fns must not hijack catalog-body imports (m162)"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

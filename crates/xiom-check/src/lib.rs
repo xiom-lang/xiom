@@ -7876,7 +7876,56 @@ impl Checker {
                             .unwrap_or(true);
                     // Try module-prefixed key first, then bare name
                     let fn_sig = if visible {
-                        if let Some(ref module) = self.current_module {
+                        // m162 (playground relay): while checking a CATALOG
+                        // body, a bare call to an EXPLICITLY ITEM-imported fn
+                        // (`use xiom.string.char_at;`) resolves through that
+                        // import before the global first-wins bare slot -- the
+                        // user program registers first, so a user module's
+                        // `char_at` hijacked xiom.num's imported `char_at`
+                        // (bogus T001s in [xiom.num]: num's call returned Int
+                        // instead of Option[Char]). Module-surface imports
+                        // (`use xiom.math;` injecting `pow`) are NOT preferred
+                        //: their injected items collide on leaf names and the
+                        // bare slot already carries the right overload.
+                        // Provenance test: explicit item imports record
+                        // `local_module_paths[leaf] = <full path ending with
+                        // leaf>`; surface injections do not. User-program
+                        // checks keep the existing precedence.
+                        let imported_sig = if self.checking_catalog
+                            && self.local_module_paths.get(&name.name)
+                                .map_or(false, |p| p.rsplit('.').next() == Some(name.name.as_str()))
+                        {
+                            match self.imported_items.get(&name.name) {
+                                Some(ModuleExport::Function { sig, is_pub: true }) => Some(sig),
+                                _ => None,
+                            }
+                        } else {
+                            None
+                        };
+                        if imported_sig.is_some() {
+                            // m162: hand the codegen the checker-resolved
+                            // dotted target for this bare call site. Codegen
+                            // cannot see a catalog body's own item imports
+                            // (isolated contexts), so without this it bound
+                            // the global first-wins bare slot (the user
+                            // module's `char_at`) even though the checker
+                            // resolved the body's `use xiom.string.char_at`.
+                            if self.checking_catalog {
+                                if let Some(full) = self.local_module_paths.get(&name.name).cloned() {
+                                    if let Some(owner) = self.current_fn_qual.clone() {
+                                        self.catalog_resolved_calls.insert(
+                                            format!("{owner}#{}:{}", span.line, span.col),
+                                            full.clone(),
+                                        );
+                                    }
+                                    self.catalog_resolved_calls.insert(
+                                        format!("{}:{}", span.line, span.col),
+                                        full,
+                                    );
+                                }
+                            }
+                            imported_sig
+                        } else if let Some(ref module) = self.current_module {
                             let prefixed = format!("{}.{}", module, name.name);
                             self.functions.get(&prefixed).or_else(|| self.functions.get(&name.name))
                         } else {

@@ -10,6 +10,55 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-09-29 -- m162 FIXED: same-leaf user fn poisoned catalog-body resolution
+
+Playground relay: a user module exporting a fn whose LEAF name matched a
+stdlib fn (`char_at`) poisoned the catalog-body check of UNRELATED stdlib
+modules -- `xiom.num`'s body reported bogus T001s ("cannot access field on
+non-struct type Int", "cannot compare <error> with Char") because its bare
+`char_at(s, i)` resolved to the user's `(Str, Int) -> Int` instead of its
+own `use xiom.string.char_at` (`(Str, Int) -> Option[Char]`). The import
+alone triggered it (probe_b_main); a same-leaf fn in the MAIN unit did not
+(probe_d_main).
+
+Repro: `tmp/sprintc/m162_sameleaf_catalog_poison/` (probe A-E matrix +
+README); permanent lock `tests/regression/m162_sameleaf_catalog_poison/`
+(user_util.xi + main.xi).
+
+Root cause (two ends, both fixed):
+* CHECKER: `flush_catalog_bodies` checks each body with `current_module`
+  taken (None), so the bare-call cascade fell through to the global
+  first-wins `functions` slot. The user program registers before the
+  catalog preload, so the user's `char_at` owned it; the body's own
+  explicit item import sat unused in `imported_items`.
+* CODEGEN: `bare_fn_aliases` (keep-first) had the same ownership; the
+  emitted call inside `@num.parse_int_radix` was `call @user_util.char_at`
+  (runtime "invalid index" -- the wrong sig made `opt.is_some` false on
+  the first character).
+
+Fix:
+* Checker bare-call cascade (`crates/xiom-check/src/lib.rs`): while
+  `checking_catalog`, prefer the body's EXPLICIT ITEM import
+  (`use xiom.string.char_at;`) over the global bare slot -- provenance
+  test `local_module_paths[leaf]` ends with the leaf. Module-surface
+  injections (`use xiom.math;`'s `pow`) do NOT qualify: a broad
+  `imported_items` preference regressed `xiom.math.rounding` 141:10
+  (`pow` overload picked as Int) and was rejected. The chosen dotted
+  target is recorded into `catalog_resolved_calls` under the R20
+  owner-qualified key.
+* Codegen bare-call cascade (`crates/xiom-codegen/src/call.rs`): new
+  `resolve_catalog_call_bare` consults `catalog_call_targets` (owner key +
+  leaf suffix) after the caller-module check and BEFORE
+  `bare_fn_aliases`.
+
+Locks: `m162_sameleaf_catalog_poison` e2e + CI line; checker_locks
+`m162_sameleaf_fn_does_not_poison_catalog_bodies` (compile + run).
+Gates: full e2e 2392/2392 (+4 ignored), feature-reg 512/512,
+checker_locks 23/23, selfhost diff 2 passed. The selfhost `rt_` prefixes
+are no longer required by this bug (kept; rename in O1).
+
+---
+
 ## 2026-09-29 -- m163 FIXED: Str field elements in a struct METHOD miscompiled to int add
 
 Found while building the selfhost Phase 0 skeleton (`IrBuffer` text

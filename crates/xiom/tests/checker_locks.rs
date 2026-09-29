@@ -398,6 +398,29 @@ fn m161_byte_at_direct_compare_runs() {
 }
 
 #[test]
+fn m162_sameleaf_fn_does_not_poison_catalog_bodies() {
+    // Playground relay: a user module's same-leaf fn (`char_at`) used to
+    // poison the catalog-body CHECK of xiom.num (bogus T001s from the wrong
+    // return type) and the CODEGEN binding of num's `use
+    // xiom.string.char_at` (runtime "invalid index"). The checker now
+    // prefers the body's explicit item import and records the resolved
+    // target for codegen.
+    let (stderr, code, exe) = run_on("m162_sameleaf_catalog_poison");
+    assert_eq!(
+        code,
+        Some(0),
+        "a same-leaf user fn must not poison catalog bodies (m162). stderr:\n{stderr}"
+    );
+    let run = Command::new(&exe).output().expect("run m162_sameleaf_catalog_poison");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "catalog-body calls must bind their own imports at runtime (m162)"
+    );
+}
+
+#[test]
 fn m155_r2d_check_library_file_passes() {
     // R-2d: `--check` must NOT implicit-main-wrap a library file (top-level
     // declarations, no `fn main`); wrapping produced a bogus P001 at the

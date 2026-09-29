@@ -58,13 +58,15 @@ manifest are recorded inline (the plan predates the current checkout layout).
         `xiomc_v10.axi` and the C helper path is being retired); the
         selfcheck encodes the C outputs directly.
 
-## Naming constraint (new, 2026-09-29)
-- [x] Every exported runtime_ffi free fn is `rt_`-prefixed. Evidence: a user
-      module exporting a same-leaf fn as a stdlib fn (`char_at`) poisons
-      catalog-body checking of UNRELATED stdlib modules (bogus T001s in
-      `[xiom.num]`; the import alone triggers it). Repro:
-      `tmp/sprintc/m162_sameleaf_catalog_poison/`. Compiler bug filed for
-      the same-name-shadowing batch.
+## Naming constraint (2026-09-29; root cause fixed the same day)
+- [x] runtime_ffi free fns are `rt_`-prefixed. The original trigger -- a
+      user module exporting a same-leaf fn as a stdlib fn (`char_at`)
+      poisoning catalog-body checking of UNRELATED stdlib modules -- is
+      FIXED as m162 (checker prefers the body's explicit item import and
+      records the target; codegen's `resolve_catalog_call_bare` binds it).
+      Repro `tmp/sprintc/m162_sameleaf_catalog_poison/`; locks
+      `m162_sameleaf_catalog_poison` + checker_locks. The prefix is kept
+      for now (rename in O1).
 
 ## Archive
 - [x] `selfhost/xiomc_v050.xi` -> `selfhost/archive/xiomc_v050.xi`.
