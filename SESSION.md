@@ -1,72 +1,76 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
-# CONTINUATION HANDOFF (2026-09-28 (7), compiler lane -- v0.62.1 + W004 + R-2d PUSHED; Stage 6 tier 2 + R-2c/R-2 + byte_at landed)
+# CONTINUATION HANDOFF (2026-09-29 (9), compiler lane -- v0.62.1; all batches pushed; extension 0.12.1 live; selfhost Phase 0 green-lit)
 
 Supersedes the R-5 batch handoff below (kept as history).
 
 ## Next-session kickoff prompt (copy/paste)
 
-> Continue the XIOM SWARM compiler lane. Read the top section of SESSION.md
-> and docs/STAGE6_LINT_WAVE.md first.
-> State: compiler **v0.62.1 RELEASED** (GitHub release all green, including
-> the wasm glue assets); stdlib pin stays `stdlib-v0.62.0` (stdlib v0.62.0
-> and compiler v0.62.1 version INDEPENDENTLY -- the compiler pins the
-> stdlib ref); the VS Code extension is **0.12.1**, PUBLISHED to both
-> marketplaces on 2026-09-29 (workflow run 36578182481; Open VSX
-> 2026-09-29T13:51:48Z, VS Code Marketplace 2026-09-29T13:59:06Z).
-> Extension-only refreshes now publish via the **VS Code Extension
-> Publish** workflow (`workflow_dispatch` from main, dry-run supported,
-> per-marketplace version-absent gate -- no compiler tag needed;
-> `release.yml` still publishes on `v*` tags). The v0.62.1 GitHub release
-> VSIX asset was swapped to `xiom-vscode-0.12.1.vsix` (72,534 B, sha256
+> Continue the XIOM swarm compiler lane. Read the top section of SESSION.md,
+> docs/STAGE6_LINT_WAVE.md and docs/SELFHOST_PLAN.md first.
+> State: compiler **v0.62.1 RELEASED**; all landed batches are pushed
+> (main == origin; prior tips `bc047d9c`, `72e42ac2`, `19c611c0` plus this
+> handoff commit); tree clean. The VS Code extension **0.12.1 is PUBLISHED
+> and VERIFIED**: both marketplaces live (publish run 36578182481; Open VSX
+> 2026-09-29T13:51:48Z, VS Code Marketplace 13:59:06Z), the v0.62.1
+> release VSIX was swapped to `xiom-vscode-0.12.1.vsix` (72,534 B, sha256
 > `ab1de7f967d615bfd45b3fdd39da2e178404cee900dbe99f60c3383137ad3430`;
-> `SHA256SUMS` re-uploaded; download-back verified, 0.12.0 asset
-> deleted). The `dl.xiom-lang.org` mirror still lists the 0.12.0 vsix
-> asset name until its next sync (ops/VPS action; GitHub is canonical).
-> Local `main` = origin/main = `19c611c0` (tier-2 `75623b4f`, R-2
-> `1814ac36`, byte_at `f4af5f64`, session docs `e064fddf`, vscode 0.12.1
-> refresh) -- all pushed; tree clean. Run long suites with reduced
-> threads on this
-> box: e2e `-- --test-threads 12`, stdlib_tests 8, `scripting_tests` 4
-> (parallel JIT tests are the known load-flake class; never record a
-> silent failure as a pass without a re-run; concurrent stdlib smoke
-> batteries roughly double suite wall-times).
-> Landed since the R-5 handoff (do not redo): PR #4 merged (first fully
-> green CI), C001 (`io.parse_int` -> bare `@is_empty`), v0.62.1 (R-5 +
-> C9 `opt` fix + C8b wasm glue + CI hygiene + notes), Stage 6 W004
-> (unreachable match arm), R-2d (`--check` must not implicit-main-wrap
-> library files).
-> Next work: the backlog below in order -- module-level const table
-> materialization (perf/code-size only, packages row 25: merkle's 64
-> SHA-256 K constants are rebuilt into a runtime Vec[Int] on every hash,
-> l10n-currency's 165-row ISO table compiles into comparison chains;
-> today IMMUTABLE consts are substituted at each use site via
-> `local.constants` -- `register_functions` already emits real globals
-> for mutable module `var` (`module_global_defs` + `global_const_init`),
-> so the fix direction is an `internal constant` global for const
-> ARRAYS (and a static-data + header design for const Vecs) plus a
-> GEP-the-global read path; needs a fresh batch with locks), then
+> `SHA256SUMS` re-uploaded; download-back verified), and dl.xiom-lang.org
+> now serves it (ops fixed `dl-deploy.sh` with an asset-list fingerprint;
+> `dl-verify.sh` green) -- extension thread CLOSED, owner confirmed the
+> sites and the VS Code auto-update. stdlib pin stays `stdlib-v0.62.0`
+> (tag force-updated to `0e63101`; repo-local checkout still `80e767b` --
+> refresh at the next release step). Run long suites with reduced threads
+> on this box: e2e `-- --test-threads 12`, stdlib_tests 8,
+> `scripting_tests` 4 (parallel JIT tests are the known load-flake class;
+> never record a silent failure as a pass without a re-run; concurrent
+> stdlib smoke batteries roughly double suite wall-times).
+> Owner decisions (2026-09-29): (1) **selfhost is GREEN-LIT as a parallel
+> track** -- lay the Phase 0 ground now while the compiler lane burns the
+> backlog; Phases 0-2 (harness, lexer, parser) may proceed immediately,
+> Phase 3+ (checker/codegen parity) should follow a behavior freeze;
+> (2) **release policy: selfhost ships only at 100% bootstrap** (self1 ==
+> self2 sha256 + T3 byte-identical IR + full suite) -- until then every
+> release is the Rust-hosted compiler; (3) Stage 6 tier 3 stays parked
+> pending the owner's noise-budget call.
+> Landed since the R-5 handoff (do not redo): PR #4, C001, v0.62.1, Stage 6
+> W004 + tier 2 (`75623b4f`: W008/W006/W007 + `warn_coded_at` dedupe),
+> R-2d, R-2c + R-2 partial (`1814ac36`: `hint_is_vec_or_slice`,
+> `local_opt_payload_xiom` fallback, inline match-payload aliasing +
+> in-place Option/Result local matching), byte_at i8 widening
+> (`f4af5f64`: zext-default i8, `widen_operand_to_i64`,
+> `expr_int_signedness`), vscode 0.12.1 (`19c611c0`).
+> Next work, compiler track (in order): module-level const table
+> materialization (perf/code-size; packages row 25: merkle rebuilds its 64
+> K constants per hash, l10n lowers its ISO table to comparison chains;
+> IMMUTABLE consts substitute at each use site via `local.constants` while
+> mutable module `var` already emits real globals -- emit `internal
+> constant` globals for const ARRAYS / static-data + header for const
+> Vecs + a GEP-the-global read path; needs a fresh batch with locks),
 > same-name fn shadowing (no redefinition diagnostic), `Vec` ~2^24 cap,
-> transient `program_exit=-1` capture batch, playground polish,
-> CI Heavy Suites triage. `loop-CSE retry` is parked: all reductions
-> clean on `f4af5f64`, the full pre-fix decoder is not in packages git
-> history -- the packages lane should recover it from the porting
-> session's edit history. Stage 6 tier 3 is a noise-budget decision
-> (unused locals etc.) -- deferred to the owner.
-> Held release item: `XIOM_STRICT_BRACKETS` default flip + the 3 stdlib
-> mixed-bracket sites (`io/fs.xi` 36+244, `math/algebra_extended.xi` 311)
-> with the next stdlib wave.
-> STDLIB RELEASE (relayed, in progress): `stdlib-v0.62.0` was
-> force-updated to `0e63101` (ruleset bypass; the release never
-> published, so no assets were invalidated); run `36495200067` has
-> validate + ubuntu gates PASS, windows gates in flight; package ->
-> GitHub Release -> pin-PR -> staging canary follow automatically.
-> Registry lane: re-dispatch the publish once the assets land (subject
-> SHA `0e631018100b157539614cc92fc471f22663baff`, ref
-> `refs/tags/stdlib-v0.62.0`). The repo-local nested `stdlib` checkout
-> our tests compile against is still `80e767b` -- refresh at the next
-> pin/release step (this batch's gates ran on it).
+> transient `program_exit=-1` capture batch, playground polish (Range
+> `unknown type 'Iterator'` warning; W005 erased-dispatch stub), CI Heavy
+> Suites triage; held: `XIOM_STRICT_BRACKETS` default flip + the 3 stdlib
+> mixed-bracket sites with the next stdlib wave; parked: loop-CSE retry
+> (all reductions clean on `f4af5f64`; needs the porting session's pre-fix
+> decoder).
+> Next work, selfhost track (Phase 0; checklist
+> docs/checklists/selfhost-phase0.md): upgrade `full_diff_tests.rs` to
+> T1/T2/T3 + a deterministic corpus manifest; create the `selfhost/src/`
+> skeleton (main/lexer/parser/checker/codegen stubs) that compiles with
+> `xiom.exe`; start `runtime_ffi.xi` (`str_len`/`char_at`/`str_slice` via
+> stdlib ops); archive `xiomc_v050.xi`. Gate: T1 green on the corpus; NO
+> release coupling. Keep the port 1:1 with the Rust crates' control flow
+> -- the T2/T3 tiers exist to catch drift early.
+> Release status: **v0.62.2 not cut yet** -- it should carry tier-2, R-2
+> and byte_at plus the extension metadata. After it ships: the packages
+> lane re-verifies `byte_at` (`docs/repro/byte-at-128`, expect `bad=0`),
+> the benchmark lane re-verifies R-2/R-2c and can drop the t5
+> `Vec[BTree]` workaround, and the repo-local stdlib checkout refreshes
+> to the tag (`0e63101`; currently `80e767b`). STDLIB RELEASE COMPLETE:
+> `stdlib-v0.62.0` published (run 36495200067; assets live; the registry
+> lane re-dispatches the publish -- their item).
 > Method: repro-first under tmp/sprintc/, locks
 > (tests/regression fixture + checker_locks/e2e + CI line where
 > e2e-able), full e2e ONCE per batch, python tools/ascii_guard.py check
@@ -75,9 +79,15 @@ Supersedes the R-5 batch handoff below (kept as history).
 > <lefterisnotas@gmail.com>; pushes only when the owner asks; never
 > rebuild target/debug while e2e runs.
 
-## Status snapshot (2026-09-28 (8))
+## Status snapshot (2026-09-29 (9))
 
-- **VS Code extension 0.12.1 refresh LANDED + PUBLISHED** (2026-09-29,
+- **Owner decisions (2026-09-29)**: selfhost GREEN-LIT as a parallel track
+  (Phase 0 ground-laying may start now; Phases 0-2 independent, Phase 3+
+  after a behavior freeze); **release policy: selfhost ships only at 100%
+  bootstrap** (self1 == self2 sha256 + T3 byte-identical IR + full suite)
+  -- until then every release is the Rust-hosted compiler; Stage 6 tier 3
+  parked pending the noise-budget call.
+- **VS Code extension 0.12.1 LANDED + PUBLISHED + VERIFIED** (2026-09-29,
   workflow run 36578182481): README updated (tested through v0.62.1;
   Stage 6 diagnostic codes W002-W008 / T001 surface via `xiom-lsp`;
   publishing paragraph) + new `.github/workflows/vscode-publish.yml`
@@ -90,7 +100,10 @@ Supersedes the R-5 batch handoff below (kept as history).
   (0.12.0 == repo HEAD; zero `xiom-lsp`/`xiom-dbg` diffs from v0.61.3 to
   v0.62.1), so the release gate skipped republishing an existing version
   -- correct, but there was no way to ship an extension-only refresh
-  without a compiler tag until now.
+  without a compiler tag until now. **Owner verified the sites and the
+  VS Code auto-update; the v0.62.1 release VSIX was swapped to 0.12.1
+  (`ab1de7f9...`) and dl.xiom-lang.org now serves it (ops fingerprint fix
+  in `dl-deploy.sh`; `dl-verify.sh` green) -- thread CLOSED.**
 - **packages `byte_at >= 128` LANDED**: direct comparisons of
   `string.byte_at(s, i)` against >=128 constants were sext'ing the i8
   call result (195 -> -61) while local binds worked. `widen_to_i64` now
@@ -164,12 +177,12 @@ Supersedes the R-5 batch handoff below (kept as history).
   transient `program_exit=-1` capture batch; playground polish
   (Range-only `unknown type 'Iterator'` warning; W005 stub behind
   `(2 + 2.5).to_str()`); CI Heavy Suites triage.
-- **Git**: origin/main = local main (tip = the VSIX-swap docs commit;
-  prior tips `72e42ac2`, `19c611c0`); all pushed, tree clean. Landed
-  commits: tier-2 `75623b4f`, R-2 `1814ac36`, byte_at `f4af5f64`,
+- **Git**: origin/main = local main (tip = this handoff commit; prior
+  tips `bc047d9c`, `72e42ac2`, `19c611c0`); all pushed, tree clean.
+  Landed commits: tier-2 `75623b4f`, R-2 `1814ac36`, byte_at `f4af5f64`,
   session docs `e064fddf`, vscode 0.12.1 refresh `19c611c0`, docs
-  `72e42ac2`. Repo-local nested `stdlib` checkout at `80e767b` (tag
-  `stdlib-v0.62.0` now points at `0e63101`; refresh at the next pin
+  `72e42ac2`/`bc047d9c`. Repo-local nested `stdlib` checkout at `80e767b`
+  (tag `stdlib-v0.62.0` now points at `0e63101`; refresh at the next pin
   step).
 
 # BATCH HANDOFF (2026-09-28, R-5 relay fix -- branch `bench/r5-extern-gate`)
