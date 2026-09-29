@@ -1,376 +1,532 @@
-// XIOM -- Comprehensive Differential Tests
-// Compares Rust compiler IR against Selfhost compiler IR for all examples.
+// XIOM -- Selfhost differential gate (Phase 0: T1/T2/T3 tiers + corpus manifest)
 // Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
-#![allow(unused_comparisons)]
-use std::process::Command;
-use std::path::Path;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::fs;
+//
+// The selfhost compiler is built in phases (docs/SELFHOST_PLAN.md). This
+// harness is its parity gate over a deterministic corpus:
+//
+//   T1  feature counts + function names   -- smoke gate during development
+//   T2  normalized IR equality            -- strip %tmpN / @.strN numbers
+//   T3  exact line-by-line IR equality    -- phase completion gate
+//
+// Tier selection: XIOM_SELFHOST_DIFF_TIER=1|2|3 (default 1). Tiers STACK:
+// T2/T3 also run the T1 checks first. T2/T3 are implemented from Phase 0 but
+// stay unreachable until the emitter port advances (the Phase 0 skeleton
+// emits a stub module), so the Phase 0 gate is T1 green.
+//
+// Selfhost side: selfhost/src/main.xi is compiled ONCE per test process with
+// the Rust compiler into target/selfhost/ and invoked as
+// `xiomc-self <source.xi>` with IR on stdout. This replaces the
+// xiomc_v10.xi temp-source-patch runner (no repo-root temp files, no
+// embedded input path).
+//
+// Phase 0 expectations: the skeleton driver emits a well-formed IR module
+// (XIOM header + `define`) for every corpus file; per-entry fn-name-match
+// expectations start at 0.0 and are RAISED per phase as parity lands. The
+// corpus lists are HARDCODED and sorted (no runtime globbing, no
+// filesystem-order flakiness).
+//
+// Gate command: cargo test -p xiom-codegen --test full_diff_tests
 
-static TEST_COUNTER: AtomicU32 = AtomicU32::new(0);
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
+
+// ============================================================================
+// Corpus manifest
+// ============================================================================
+
+#[derive(Clone, Copy)]
+struct CorpusEntry {
+    /// Repo-root-relative path, forward slashes.
+    path: &'static str,
+    /// Minimum `define ` count in the Rust compiler's IR (catches a corpus
+    /// file silently degrading to an empty module).
+    min_rust_fns: usize,
+    /// Minimum `define ` count in the selfhost IR. Phase 0: the skeleton
+    /// emits a stub module with one function.
+    min_self_fns: usize,
+    /// Minimum fraction of Rust fn names that must also appear in the
+    /// selfhost IR. Phase 0: 0.0 (stub); raised per phase as parity lands.
+    min_name_match: f64,
+}
+
+const fn ent(path: &'static str) -> CorpusEntry {
+    CorpusEntry { path, min_rust_fns: 1, min_self_fns: 1, min_name_match: 0.0 }
+}
+
+/// tests/regression/m37_* (49 files, sorted) -- the widest regression sweep.
+const M37_FILES: &[&str] = &[
+    "tests/regression/m37_bug43_result_f64_payload.xi",
+    "tests/regression/m37_bug44_str_deref.xi",
+    "tests/regression/m37_bug45_iface_method_generic.xi",
+    "tests/regression/m37_bug46_generic_struct_ref.xi",
+    "tests/regression/m37_bug47_ref_params_leak.xi",
+    "tests/regression/m37_bug48_associated_generic_vec.xi",
+    "tests/regression/m37_bug49_fn_param_impl_collision.xi",
+    "tests/regression/m37_bug50_ptr_container_name.xi",
+    "tests/regression/m37_bug51_option_struct_payload.xi",
+    "tests/regression/m37_bug52_map_enum_values.xi",
+    "tests/regression/m37_bug53_array_ref_param.xi",
+    "tests/regression/m37_bug53_array_ref_write.xi",
+    "tests/regression/m37_bug55_payload_loop.xi",
+    "tests/regression/m37_bug55_unsafe_ptr_capture.xi",
+    "tests/regression/m37_bug56_ensure_expr_body.xi",
+    "tests/regression/m37_catalog_boundary.xi",
+    "tests/regression/m37_catmod.xi",
+    "tests/regression/m37_const_array.xi",
+    "tests/regression/m37_contract_pass.xi",
+    "tests/regression/m37_debug_intrinsics.xi",
+    "tests/regression/m37_else_if.xi",
+    "tests/regression/m37_f128.xi",
+    "tests/regression/m37_float_precision.xi",
+    "tests/regression/m37_from_bytes_fn.xi",
+    "tests/regression/m37_global_field_write.xi",
+    "tests/regression/m37_global_fn_init.xi",
+    "tests/regression/m37_gzip_roundtrip.xi",
+    "tests/regression/m37_index_arith.xi",
+    "tests/regression/m37_inline_call_concat.xi",
+    "tests/regression/m37_labeled_loops.xi",
+    "tests/regression/m37_loop_capture.xi",
+    "tests/regression/m37_match_float_payload.xi",
+    "tests/regression/m37_nan_ieee.xi",
+    "tests/regression/m37_nested_vec.xi",
+    "tests/regression/m37_numeric_policy.xi",
+    "tests/regression/m37_opt_payload_value.xi",
+    "tests/regression/m37_payload_ref.xi",
+    "tests/regression/m37_ptr_cast.xi",
+    "tests/regression/m37_ref_mut.xi",
+    "tests/regression/m37_round6_path_gzip.xi",
+    "tests/regression/m37_round7_vec_pop_slot.xi",
+    "tests/regression/m37_short_circuit.xi",
+    "tests/regression/m37_shr_builtin.xi",
+    "tests/regression/m37_simd_runtime.xi",
+    "tests/regression/m37_str_int_concat.xi",
+    "tests/regression/m37_structural_eq.xi",
+    "tests/regression/m37_tuple_struct.xi",
+    "tests/regression/m37_u128.xi",
+    "tests/regression/m37_vec_f64.xi",
+];
+
+/// examples/catfix/*.xi (7 files) -- local-module catalog fixtures.
+const CATFIX_FILES: &[&str] = &[
+    "examples/catfix/b9main.xi",
+    "examples/catfix/b9mod.xi",
+    "examples/catfix/circ_a.xi",
+    "examples/catfix/circ_b.xi",
+    "examples/catfix/circ_main.xi",
+    "examples/catfix/main.xi",
+    "examples/catfix/vecmod.xi",
+];
+
+/// examples/phase1_*.xi (16 files) -- the original phase-1 conformance set.
+const PHASE1_FILES: &[&str] = &[
+    "examples/phase1_async.xi",
+    "examples/phase1_async_spawn.xi",
+    "examples/phase1_contracts.xi",
+    "examples/phase1_derive.xi",
+    "examples/phase1_derive_enum.xi",
+    "examples/phase1_enum.xi",
+    "examples/phase1_error.xi",
+    "examples/phase1_full.xi",
+    "examples/phase1_generics.xi",
+    "examples/phase1_hardening.xi",
+    "examples/phase1_impl_trait.xi",
+    "examples/phase1_interface.xi",
+    "examples/phase1_modules.xi",
+    "examples/phase1_ownership.xi",
+    "examples/phase1_selfhost.xi",
+    "examples/phase1_stress.xi",
+];
+
+/// The v10-era stress/benchmark examples, kept for continuity with the old
+/// diff suite (benchmark_selfhost + stress_body_parser were Rust-side-only
+/// checks there; they are full corpus entries here).
+const EXTRA_EXAMPLE_FILES: &[&str] = &[
+    "examples/benchmark_selfhost.xi",
+    "examples/demo_float.xi",
+    "examples/diff_test.xi",
+    "examples/stress_body_parser.xi",
+    "examples/stress_borrow_10level.xi",
+    "examples/stress_derive_50field.xi",
+    "examples/stress_float_matrix.xi",
+    "examples/stress_generic_5chain.xi",
+];
+
+/// Deterministic corpus: hardcoded groups, sorted by path.
+fn corpus() -> Vec<CorpusEntry> {
+    let mut v = Vec::new();
+    for p in ["tests/regression/m33_z14.xi", "tests/regression/m34_d01.xi"] {
+        v.push(ent(p));
+    }
+    for &p in M37_FILES {
+        v.push(ent(p));
+    }
+    for &p in CATFIX_FILES {
+        v.push(ent(p));
+    }
+    for &p in PHASE1_FILES {
+        v.push(ent(p));
+    }
+    for &p in EXTRA_EXAMPLE_FILES {
+        v.push(ent(p));
+    }
+    // The smoke_guard_fault fixture lives in the stdlib checkout (the old
+    // checklist path examples/stdlib_smoke/ never existed).
+    v.push(ent("stdlib/tests/smoke/smoke_guard_fault.xi"));
+    v.sort_by(|a, b| a.path.cmp(b.path));
+    v
+}
+
+// ============================================================================
+// Compiler runners
+// ============================================================================
 
 fn project_root() -> &'static Path {
-    static ROOT: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    static ROOT: OnceLock<PathBuf> = OnceLock::new();
     ROOT.get_or_init(|| {
         Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent().unwrap().parent().unwrap()
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
             .to_path_buf()
-    }).as_path()
+    })
+    .as_path()
 }
 
-fn xiom_path() -> String {
-    let mut path = project_root()
-        .join("target").join("debug").join("xiom.exe");
-    if !path.exists() {
-        path = project_root()
-            .join("target").join("release").join("xiom.exe");
+fn exe_suffix() -> &'static str {
+    if cfg!(target_os = "windows") { ".exe" } else { "" }
+}
+
+fn xiom_path() -> PathBuf {
+    let name = format!("xiom{}", exe_suffix());
+    let debug = project_root().join("target").join("debug").join(&name);
+    if debug.exists() {
+        return debug;
     }
-    path.to_str().unwrap().to_string()
+    project_root().join("target").join("release").join(name)
 }
 
-/// Run Rust xiomc on a source file with --emit-ir, return IR output lines
-fn rust_ir(source: &str) -> Vec<String> {
-    let output = Command::new(xiom_path())
-        .args(["--emit-ir", source])
+fn lines_of(text: &str) -> Vec<String> {
+    text.lines().map(|l| l.to_string()).collect()
+}
+
+fn tail(text: &str, n: usize) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let start = lines.len().saturating_sub(n);
+    lines[start..].join("\n")
+}
+
+/// Lazily compile selfhost/src/main.xi once per test process into
+/// target/selfhost/ and return the binary path.
+fn selfhost_exe() -> &'static Path {
+    static EXE: OnceLock<PathBuf> = OnceLock::new();
+    EXE.get_or_init(|| {
+        let root = project_root();
+        let exe = root
+            .join("target")
+            .join("selfhost")
+            .join(format!("xiomc-self{}", exe_suffix()));
+        fs::create_dir_all(exe.parent().unwrap())
+            .unwrap_or_else(|e| panic!("cannot create target/selfhost: {}", e));
+        let src = root.join("selfhost").join("src").join("main.xi");
+        let out = Command::new(xiom_path())
+            .arg("-o")
+            .arg(&exe)
+            .arg(&src)
+            .current_dir(root)
+            .output()
+            .unwrap_or_else(|e| panic!("failed to spawn xiom for the selfhost skeleton: {}", e));
+        assert!(
+            out.status.success(),
+            "selfhost skeleton failed to compile ({}):\n{}",
+            src.display(),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        exe
+    })
+    .as_path()
+}
+
+/// Rust compiler IR for a corpus file. Err = compile failed.
+fn rust_ir(path: &str) -> Result<Vec<String>, String> {
+    let out = Command::new(xiom_path())
+        .args(["--emit-ir", path])
         .current_dir(project_root())
         .output()
-        .expect("rust xiomc failed");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    stdout.lines().map(|l| l.to_string()).collect()
-}
-
-/// Run selfhost compiler targeting an example, return IR output lines.
-///
-/// Creates a temp copy of selfhost/xiomc_v10.xi with the source path
-/// replaced to point at the desired example, compiles it with xiomc,
-/// then runs the resulting binary which emits IR for the example.
-/// NOTE: does NOT check process exit code -- the selfhost emitter may crash
-/// on complex type patterns, but stdout IR is still captured for comparison.
-fn selfhost_ir(example: &str) -> Vec<String> {
-    let id = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
-    let stem = example.replace(".xi", "");
-    let temp_src = format!("selfhost/_diff_{}_{}.xi", stem, id);
-    let temp_exe = format!("_diff_{}_{}.exe", stem, id);
-    let root = project_root();
-
-    let v10_path = root.join("selfhost/xiomc_v10.xi");
-    let original = fs::read_to_string(&v10_path)
-        .unwrap_or_else(|e| panic!("cannot read {:?}: {}", v10_path, e));
-
-    let modified = original.replace(
-        "selfhost///xiomc_v10.xi",
-        &format!("examples///{}", example),
-    );
-    fs::write(root.join(&temp_src), &modified)
-        .unwrap_or_else(|e| panic!("failed to write {}: {}", temp_src, e));
-
-    let compile = Command::new(xiom_path())
-        .args(["-o", &temp_exe, &temp_src])
-        .current_dir(root)
-        .output()
-        .unwrap_or_else(|e| panic!("selfhost compile failed for {}: {}", example, e));
-
-    if !compile.status.success() {
-        let _ = fs::remove_file(root.join(&temp_src));
-        let stderr = String::from_utf8_lossy(&compile.stderr);
-        panic!("selfhost compile failed for {}:\n{}", example, stderr);
+        .map_err(|e| format!("failed to spawn xiom --emit-ir: {}", e))?;
+    if !out.status.success() {
+        return Err(format!(
+            "xiom --emit-ir exited {:?}:\n{}",
+            out.status.code(),
+            tail(&String::from_utf8_lossy(&out.stderr), 15)
+        ));
     }
+    Ok(lines_of(&String::from_utf8_lossy(&out.stdout)))
+}
 
-    let run = Command::new(root.join(&temp_exe))
-        .current_dir(root)
+/// Selfhost compiler IR for a corpus file. Err = non-zero exit.
+fn selfhost_ir(path: &str) -> Result<Vec<String>, String> {
+    let out = Command::new(selfhost_exe())
+        .arg(path)
+        .current_dir(project_root())
         .output()
-        .unwrap_or_else(|e| panic!("selfhost run failed for {}: {}", example, e));
-
-    let _ = fs::remove_file(root.join(&temp_src));
-    let _ = fs::remove_file(root.join(&temp_exe));
-
-    // Always capture stdout -- don't check exit code, as the selfhost emitter
-    // may crash on complex type handling but still produce valid IR before crash.
-    let stdout = String::from_utf8_lossy(&run.stdout);
-    stdout.lines().map(|l| l.to_string()).collect()
-}
-
-/// Count key IR features: (fns, calls, branches, returns, structs)
-fn count_features(ir: &[String]) -> (usize, usize, usize, usize, usize) {
-    let fns = ir.iter().filter(|l| l.starts_with("define ")).count();
-    let calls = ir.iter().filter(|l| l.contains("call ")).count();
-    let branches = ir.iter().filter(|l| l.contains(" br ")).count();
-    let rets = ir.iter().filter(|l| l.starts_with("  ret ")).count();
-    let structs = ir.iter().filter(|l| l.starts_with("%struct.")).count();
-    (fns, calls, branches, rets, structs)
-}
-
-/// Compare function names from both IR outputs
-fn matching_function_names<'a>(rust: &'a [String], selfhost: &'a [String]) -> Vec<(&'a str, bool)> {
-    let rust_fns: Vec<&str> = rust.iter()
-        .filter(|l| l.starts_with("define "))
-        .filter_map(|l| {
-            l.split('@').nth(1).and_then(|s| s.split('(').next())
-        })
-        .collect();
-
-    let sh_fns: Vec<&str> = selfhost.iter()
-        .filter(|l| l.starts_with("define "))
-        .filter_map(|l| {
-            l.split('@').nth(1).and_then(|s| s.split('(').next())
-        })
-        .collect();
-
-    let mut results: Vec<(&str, bool)> = Vec::new();
-    for name in &rust_fns {
-        let found = sh_fns.contains(name);
-        results.push((name, found));
+        .map_err(|e| format!("failed to spawn the selfhost compiler: {}", e))?;
+    if !out.status.success() {
+        return Err(format!(
+            "selfhost exited {:?}:\nstdout:\n{}\nstderr:\n{}",
+            out.status.code(),
+            tail(&String::from_utf8_lossy(&out.stdout), 10),
+            tail(&String::from_utf8_lossy(&out.stderr), 10)
+        ));
     }
-    results
+    Ok(lines_of(&String::from_utf8_lossy(&out.stdout)))
 }
 
 // ============================================================================
-// Macro: diff_test!
-//
-// Usage:
-//   diff_test!(name, file, min_fns)
-//   diff_test!(name, file, min_fns, fn_lo, name_match)
-//   diff_test!(name, file, min_fns, fn_lo, name_match, fn_hi, ret_hi)
-//
-// Default tolerances:
-//   fn_lo  = 0.5   -- min function ratio (selfhost/rust)
-//   fn_hi  = 1.5   -- max function ratio
-//   name_match = 0.4 -- min fraction of function names matching
-//   ret_lo = 0.5   -- min return count ratio
-//   ret_hi = 2.0   -- max return count ratio
+// IR comparison
 // ============================================================================
 
-macro_rules! diff_test {
-    ($name:ident, $file:expr, $min_fns:expr) => {
-        diff_test!($name, $file, $min_fns, 0.5, 0.4);
-    };
-    ($name:ident, $file:expr, $min_fns:expr, $fn_lo:expr, $name_match:expr) => {
-        diff_test!($name, $file, $min_fns, $fn_lo, $name_match, 1.5, 2.0, 0.5);
-    };
-    ($name:ident, $file:expr, $min_fns:expr, $fn_lo:expr, $name_match:expr,
-     $fn_hi:expr, $ret_hi:expr, $ret_lo:expr) => {
-        #[test]
-        #[ignore = "selfhost phase pending: compares Rust-compiler IR against selfhost/xiomc_v10.xi output; will be re-enabled during the selfhost phase"]
-        fn $name() {
-            let source = format!("examples/{}", $file);
-            let rust = rust_ir(&source);
-            let selfhost = selfhost_ir($file);
+struct Features {
+    fns: usize,
+    calls: usize,
+    branches: usize,
+    rets: usize,
+    structs: usize,
+}
 
-            let (rust_fns, rust_calls, rust_br, rust_ret, rust_structs) = count_features(&rust);
-            let (sh_fns, sh_calls, sh_br, sh_ret, sh_structs) = count_features(&selfhost);
+fn count_features(ir: &[String]) -> Features {
+    Features {
+        fns: ir.iter().filter(|l| l.starts_with("define ")).count(),
+        calls: ir.iter().filter(|l| l.contains("call ")).count(),
+        branches: ir.iter().filter(|l| l.contains(" br ")).count(),
+        rets: ir.iter().filter(|l| l.starts_with("  ret ")).count(),
+        structs: ir.iter().filter(|l| l.starts_with("%struct.")).count(),
+    }
+}
 
-            assert!(
-                rust_fns >= $min_fns,
-                "Rust: expected >= {} fns, got {} for {}",
-                $min_fns, rust_fns, $file
-            );
-            assert!(
-                sh_fns >= $min_fns,
-                "Selfhost: expected >= {} fns, got {} for {}",
-                $min_fns, sh_fns, $file
-            );
+fn fn_names(ir: &[String]) -> Vec<&str> {
+    ir.iter()
+        .filter(|l| l.starts_with("define "))
+        .filter_map(|l| l.split('@').nth(1).and_then(|s| s.split('(').next()))
+        .collect()
+}
 
-            if rust_fns > 0 && sh_fns > 0 {
-                let fn_ratio = sh_fns as f64 / rust_fns as f64;
-                assert!(
-                    fn_ratio >= $fn_lo,
-                    "Function count mismatch for {}: rust={} selfhost={} (ratio={:.2}, lo={})",
-                    $file, rust_fns, sh_fns, fn_ratio, $fn_lo
-                );
-                assert!(
-                    fn_ratio <= $fn_hi,
-                    "Function count too high for {}: rust={} selfhost={} (ratio={:.2}, hi={})",
-                    $file, rust_fns, sh_fns, fn_ratio, $fn_hi
-                );
+/// T2 normalization: strip register/string numbering (`%tmp\d+` -> `%tmp`,
+/// `@.str\d+` -> `@.str`) so both emitters are compared on structure.
+fn normalize_ir(lines: &[String]) -> Vec<String> {
+    lines.iter().map(|l| normalize_line(l)).collect()
+}
+
+fn normalize_line(line: &str) -> String {
+    let b = line.as_bytes();
+    let mut out = String::with_capacity(line.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i..].starts_with(b"%tmp") {
+            out.push_str("%tmp");
+            i += 4;
+            while i < b.len() && b[i].is_ascii_digit() {
+                i += 1;
             }
-
-            if rust_ret > 0 && sh_ret > 0 {
-                let ret_ratio = sh_ret as f64 / rust_ret as f64;
-                assert!(
-                    ret_ratio >= $ret_lo,
-                    "Return count mismatch for {}: rust={} selfhost={} (ratio={:.2}, lo={})",
-                    $file, rust_ret, sh_ret, ret_ratio, $ret_lo
-                );
-                assert!(
-                    ret_ratio <= $ret_hi,
-                    "Return count too high for {}: rust={} selfhost={} (ratio={:.2}, hi={})",
-                    $file, rust_ret, sh_ret, ret_ratio, $ret_hi
-                );
+        } else if b[i..].starts_with(b"@.str") {
+            out.push_str("@.str");
+            i += 5;
+            while i < b.len() && b[i].is_ascii_digit() {
+                i += 1;
             }
-
-            let fn_matches = matching_function_names(&rust, &selfhost);
-            let matched = fn_matches.iter().filter(|(_, m)| *m).count();
-            let total = fn_matches.len();
-            for (name, ok) in &fn_matches {
-                if !ok {
-                    eprintln!(
-                        "  WARN: function '{}' not found in selfhost IR for {}",
-                        name, $file
-                    );
-                }
-            }
-            if total > 0 {
-                assert!(
-                    matched as f64 >= total as f64 * $name_match,
-                    "Only {}/{} function names matched between Rust and selfhost for {}",
-                    matched, total, $file
-                );
-            }
-
-            eprintln!(
-                "  {}: fns={}/{} calls={}/{} br={}/{} ret={}/{} structs={}/{}",
-                $file,
-                rust_fns, sh_fns,
-                rust_calls, sh_calls,
-                rust_br, sh_br,
-                rust_ret, sh_ret,
-                rust_structs, sh_structs
-            );
+        } else {
+            let ch = line[i..].chars().next().unwrap();
+            out.push(ch);
+            i += ch.len_utf8();
         }
-    };
+    }
+    out
+}
+
+fn first_diff(a: &[String], b: &[String]) -> Option<String> {
+    let n = a.len().max(b.len());
+    for i in 0..n {
+        let x = a.get(i);
+        let y = b.get(i);
+        if x != y {
+            let show = |v: Option<&String>| match v {
+                Some(s) => format!("{:?}", s),
+                None => "<missing>".to_string(),
+            };
+            return Some(format!(
+                "first difference at line {}:\n  rust:     {}\n  selfhost: {}",
+                i + 1,
+                show(x),
+                show(y)
+            ));
+        }
+    }
+    None
+}
+
+/// T1 gate: well-formed headers, minimum function counts, fn-name overlap.
+fn gate_t1(entry: &CorpusEntry, rust: &[String], sh: &[String]) -> Result<String, String> {
+    if rust.is_empty() {
+        return Err("rust IR is empty".to_string());
+    }
+    if !rust[0].starts_with("; XIOM") {
+        return Err(format!("rust IR lacks the XIOM header: {:?}", rust[0]));
+    }
+    if sh.is_empty() {
+        return Err("selfhost IR is empty".to_string());
+    }
+    if !sh[0].starts_with("; XIOM") {
+        return Err(format!("selfhost IR lacks the XIOM header: {:?}", sh[0]));
+    }
+    let rf = count_features(rust);
+    let sf = count_features(sh);
+    if rf.fns < entry.min_rust_fns {
+        return Err(format!("rust fns {} < {}", rf.fns, entry.min_rust_fns));
+    }
+    if sf.fns < entry.min_self_fns {
+        return Err(format!("selfhost fns {} < {}", sf.fns, entry.min_self_fns));
+    }
+    let rust_names = fn_names(rust);
+    let sh_names = fn_names(sh);
+    let missing: Vec<&str> = rust_names
+        .iter()
+        .copied()
+        .filter(|n| !sh_names.contains(n))
+        .collect();
+    let total = rust_names.len();
+    let matched = total - missing.len();
+    let ratio = if total == 0 { 1.0 } else { matched as f64 / total as f64 };
+    if ratio < entry.min_name_match {
+        return Err(format!(
+            "fn-name match {}/{} ({:.2}) < {}; missing: {}",
+            matched,
+            total,
+            ratio,
+            entry.min_name_match,
+            missing.join(", ")
+        ));
+    }
+    Ok(format!(
+        "fns={}/{} calls={}/{} br={}/{} ret={}/{} structs={}/{} names={}/{}",
+        rf.fns, sf.fns, rf.calls, sf.calls, rf.branches, sf.branches, rf.rets, sf.rets,
+        rf.structs, sf.structs, matched, total
+    ))
+}
+
+fn tier() -> u32 {
+    std::env::var("XIOM_SELFHOST_DIFF_TIER")
+        .ok()
+        .and_then(|s| s.trim().parse::<u32>().ok())
+        .unwrap_or(1)
+        .clamp(1, 3)
 }
 
 // ============================================================================
-// All 21 Examples
-//
-// Tolerances are relaxed per-example where the selfhost v10 compiler
-// (using xiomc_v10.xi + C runtime emit_body_ir) differs from the full
-// Rust compiler:
-//
-// - fn_lo: lower bound for selfhost/rust function ratio
-//   Derived functions inside modules are skipped by C runtime's top-level IR,
-//   so ratio can be as low as 0.4-0.5 for files with types inside modules.
-//
-// - name_match: minimum fraction of function names matching
-//   The Rust compiler monomorphizes generics (wrap_Int) while selfhost
-//   emits un-mangled names (wrap), so generic-heavy files have low match.
-//
-// - Generics stress: Rust monomorphizes to 6 unique names, selfhost emits
-//   only 1 matching name (main) = ratio 0.17.
+// Tests
 // ============================================================================
 
-// Simple examples with no generics or complex types
-diff_test!(diff_demo_float, "demo_float.xi", 3);
-diff_test!(diff_diff_test, "diff_test.xi", 1);
-diff_test!(diff_ownership, "phase1_ownership.xi", 3);
-diff_test!(diff_async, "phase1_async.xi", 2);
-diff_test!(diff_async_spawn, "phase1_async_spawn.xi", 2);
-diff_test!(diff_modules, "phase1_modules.xi", 1);
-diff_test!(diff_interface, "phase1_interface.xi", 1);
-diff_test!(diff_selfhost, "phase1_selfhost.xi", 1);
-diff_test!(diff_stress_borrow, "stress_borrow_10level.xi", 10);
-diff_test!(diff_stress_float, "stress_float_matrix.xi", 1);
-
-// Derive/enum -- Rust generates derived fns; selfhost also generates some via C runtime
-diff_test!(diff_derive, "phase1_derive.xi", 3, 0.5, 0.4);
-diff_test!(diff_generics, "phase1_generics.xi", 1, 0.5, 0.4);
-diff_test!(diff_enum, "phase1_enum.xi", 2, 0.5, 0.4);
-diff_test!(diff_derive_enum, "phase1_derive_enum.xi", 1, 0.5, 0.4, 1.5, 2.0, 0.4);
-diff_test!(diff_full, "phase1_full.xi", 3, 0.5, 0.4);
-
-// Contracts -- Rust handles contract codegen; selfhost also emits invariant_check etc.
-diff_test!(diff_contracts, "phase1_contracts.xi", 2, 0.5, 0.4);
-
-// Error -- uses Result[T,E] type; selfhost crashes on body emission before any
-// IR is flushed to stdout. Test verifies Rust IR is valid and selfhost
-// at least attempted compilation (exit code non-zero allowed).
-diff_test!(diff_error, "phase1_error.xi", 0, 0.0, 0.0, 3.0, 3.0, 0.0);
-
-// Hardening -- large file with many modules, types, generics, contracts.
-// Selfhost's emit_body_ir may crash on complex patterns, but captures extensive IR before crash.
-// fn_lo=0.3 to tolerate truncated output. ret_lo=0.3 because return count is ~30 vs 68.
-// name_match=0.2 because module-relative function names and monomorphized generics
-// don't match between Rust (fully qualified) and selfhost (simple names).
-diff_test!(diff_hardening, "phase1_hardening.xi", 5, 0.3, 0.2, 3.0, 3.0, 0.3);
-
-// Stress -- types inside modules; selfhost skips derive emission for module-scoped types.
-// Rust finds 8 (4 user + 4 derived), selfhost finds 4 = ratio 0.5.
-diff_test!(diff_stress, "phase1_stress.xi", 4, 0.4, 0.4);
-
-// Derive stress -- all 50 fields types, selfhost derives eq/clone/hash for the single type
-// but Rust generates more elaborate per-field comparisons
-diff_test!(diff_stress_derive, "stress_derive_50field.xi", 1, 0.5, 0.4);
-
-// Generic chain -- Rust monomorphizes to id_Int/wrap_Int/double_Int/triple_Int/quad_Int;
-// selfhost emits generic names without type suffix. Only 'main' matches.
-// name_match = 0.16 = 1/6 ~= 0.1667, so 0.16 rounds safely below.
-diff_test!(diff_stress_generic, "stress_generic_5chain.xi", 1, 0.5, 0.16, 1.5, 2.0, 0.5);
-
-// ============================================================================
-// Selfhost Compiler Benchmark -- comprehensive 500+ line stress test
-// ============================================================================
-
+/// Phase 0 gate: T1 green over the whole corpus (see the file header).
 #[test]
-#[ignore = "selfhost phase pending: compares against selfhost/xiomc_v10.xi output"]
-fn diff_benchmark() {
-    let source = "examples/benchmark_selfhost.xi";
-    let rust = rust_ir(source);
-    assert!(rust.len() > 0, "Rust IR should be non-empty");
-    assert!(
-        rust.iter().any(|l| l.contains("define i64 @run_math")),
-        "Expected run_math function in IR"
-    );
-    assert!(
-        rust.iter().any(|l| l.contains("define i64 @run_predicates")),
-        "Expected run_predicates function in IR"
-    );
-    assert!(
-        rust.iter().any(|l| l.contains("define i64 @run_control")),
-        "Expected run_control function in IR"
-    );
-    assert!(
-        rust.iter().any(|l| l.contains("define i64 @run_structures")),
-        "Expected run_structures function in IR"
-    );
-    assert!(
-        rust.iter().any(|l| l.contains("define i64 @run_generics")),
-        "Expected run_generics function in IR"
-    );
-    assert!(
-        rust.iter().any(|l| l.contains("define i64 @run_errors")),
-        "Expected run_errors function in IR"
-    );
-    assert!(
-        rust.iter().any(|l| l.contains("define i64 @run_contracts")),
-        "Expected run_contracts function in IR"
-    );
-    assert!(
-        rust.iter().any(|l| l.contains("define i64 @main")),
-        "Expected main function in IR"
+fn diff_corpus() {
+    let tier = tier();
+    let entries = corpus();
+    for e in &entries {
+        let p = project_root().join(e.path);
+        assert!(p.exists(), "corpus entry missing from the checkout: {}", e.path);
+    }
+    eprintln!(
+        "selfhost diff corpus: {} files, tier T{} (XIOM_SELFHOST_DIFF_TIER)",
+        entries.len(),
+        tier
     );
 
-    let (fns, calls, branches, rets, structs) = count_features(&rust);
-    eprintln!(
-        "  benchmark_selfhost: fns={} calls={} br={} ret={} structs={}",
-        fns, calls, branches, rets, structs
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get().clamp(2, 4))
+        .unwrap_or(2);
+    let next = AtomicUsize::new(0);
+    let results: Mutex<Vec<(usize, Result<String, String>)>> = Mutex::new(Vec::new());
+
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::SeqCst);
+                if i >= entries.len() {
+                    break;
+                }
+                let entry = &entries[i];
+                let outcome = (|| -> Result<String, String> {
+                    let rust = rust_ir(entry.path)?;
+                    let sh = selfhost_ir(entry.path)?;
+                    let summary = gate_t1(entry, &rust, &sh)?;
+                    if tier >= 2 {
+                        let a = normalize_ir(&rust);
+                        let b = normalize_ir(&sh);
+                        if let Some(d) = first_diff(&a, &b) {
+                            return Err(format!("T2 normalized IR mismatch: {}", d));
+                        }
+                    }
+                    if tier >= 3 {
+                        if let Some(d) = first_diff(&rust, &sh) {
+                            return Err(format!("T3 exact IR mismatch: {}", d));
+                        }
+                    }
+                    Ok(summary)
+                })();
+                results.lock().unwrap().push((i, outcome));
+            });
+        }
+    });
+
+    let mut results = results.into_inner().unwrap();
+    results.sort_by_key(|(i, _)| *i);
+    assert_eq!(results.len(), entries.len(), "worker pool dropped corpus entries");
+
+    let mut failures: Vec<String> = Vec::new();
+    for (i, outcome) in &results {
+        match outcome {
+            Ok(summary) => eprintln!("  {}: {}", entries[*i].path, summary),
+            Err(err) => {
+                eprintln!("  FAIL {}: {}", entries[*i].path, err);
+                failures.push(format!("{}: {}", entries[*i].path, err));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "selfhost diff corpus (T{}): {} failure(s) of {} files:\n{}",
+        tier,
+        failures.len(),
+        entries.len(),
+        failures.join("\n")
     );
-    assert!(fns >= 30, "Expected at least 30 functions in benchmark IR");
 }
 
-// ============================================================================
-// Body Parser Stress Test -- edge case coverage for C runtime emit_body_ir
-// ============================================================================
-
+/// Phase 0 helper selfcheck: the pure-XIOM runtime_ffi ports are asserted
+/// against the C helpers' known outputs (stdlib/runtime/xiom_runtime.c).
 #[test]
-#[ignore = "selfhost phase pending: full-diff suite compares against selfhost output"]
-fn diff_stress_body_parser() {
-    let rust = rust_ir("examples/stress_body_parser.xi");
-    assert!(rust.len() > 0);
-    assert!(rust.iter().any(|l| l.contains("define i64 @test_negative")));
-    assert!(rust.iter().any(|l| l.contains("define i64 @test_paren_expr")));
-    assert!(rust.iter().any(|l| l.contains("define i64 @test_multi_param_call")));
-    assert!(rust.iter().any(|l| l.contains("define i64 @test_string_literal")));
-    assert!(rust.iter().any(|l| l.contains("define i64 @test_empty_stmts")));
-    assert!(rust.iter().any(|l| l.contains("define i64 @test_comment_skip")));
-    assert!(rust.iter().any(|l| l.contains("define i64 @test_multi_line")));
-    assert!(rust.iter().any(|l| l.contains("define i64 @test_nested_if")));
-    assert!(rust.iter().any(|l| l.contains("define i64 @test_nested_while")));
-    assert!(rust.iter().any(|l| l.contains("define i64 @main")));
-
-    let (fns, calls, branches, rets, structs) = count_features(&rust);
-    eprintln!(
-        "  stress_body_parser: fns={} calls={} br={} ret={} structs={}",
-        fns, calls, branches, rets, structs
+fn runtime_ffi_selfcheck() {
+    let out = Command::new(selfhost_exe())
+        .arg("--selfcheck")
+        .current_dir(project_root())
+        .output()
+        .expect("failed to spawn the selfhost selfcheck");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "selfhost --selfcheck exited {:?}\nstdout:\n{}\nstderr:\n{}",
+        out.status.code(),
+        stdout,
+        stderr
+    );
+    assert!(
+        stdout.contains("SELFCHECK OK"),
+        "selfhost --selfcheck did not report success:\nstdout:\n{}\nstderr:\n{}",
+        stdout,
+        stderr
     );
 }

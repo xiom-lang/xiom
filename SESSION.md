@@ -1,6 +1,100 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
+# CONTINUATION HANDOFF (2026-09-29 (10), selfhost Phase 0 landed -- T1 harness green; m162/m163 filed)
+
+Supersedes the (9) handoff below (kept as history).
+
+## Next-session kickoff prompt (copy/paste)
+
+> Continue the XIOM swarm compiler lane. Read the top section of SESSION.md
+> and docs/SELFHOST_PLAN.md first (docs/STAGE6_LINT_WAVE.md for the lint
+> wave state; tier 3 parked).
+> State: compiler **v0.62.1 RELEASED**; extension 0.12.1 live on both
+> marketplaces (thread closed); **selfhost Phase 0 LANDED** (2026-09-29):
+> `cargo test -p xiom-codegen --test full_diff_tests` = 2 passed (T1 green
+> over the 84-file corpus, 49.2 s; `runtime_ffi_selfcheck` ok);
+> `selfhost/src/` skeleton (main/lexer/parser/checker/codegen/selfcheck/
+> runtime_ffi) compiles with `xiom.exe` into `target/selfhost/xiomc-self.exe`
+> and runs; v050 archived; 13 stale `_diff_*` temp files deleted. All in the
+> handoff commit at the top of this section (previous pushed tips bc047d9c /
+> c0c081df; local tip not pushed -- push only on the owner's ask).
+> **NEW compiler findings (both filed with repros):**
+> (1) **m163 -- SILENT MISCOMPILE**: inside a struct METHOD, a `Vec[Str]`
+> field element used as a `+` operand lowers to i64 add + inttoptr
+> (pointer-decimal garbage); direct element return, local Vecs, single Str
+> fields, and `&Buf` free fns are correct.
+> `tmp/sprintc/m163_method_str_accum/`; docs/COMPILER_BUGS.md
+> "2026-09-29 -- OPEN (m163)". Suggested FIRST compiler batch ahead of
+> module-const materialization (silent wrong code, small repro; fix +
+> locks + full e2e).
+> (2) **m162**: a user module exporting a fn whose LEAF matches a stdlib fn
+> (`char_at`) poisons catalog-body checking of UNRELATED stdlib modules
+> (bogus T001s in `[xiom.num]`); the import alone triggers it.
+> `tmp/sprintc/m162_sameleaf_catalog_poison/`. Workaround in the skeleton:
+> all runtime_ffi free fns are `rt_`-prefixed.
+> Next work, compiler track: m163 fix (above), then **module-level const
+> table materialization** (packages row 25; details in the (9) section),
+> then m162 / same-name fn shadowing (no redefinition diagnostic), `Vec`
+> ~2^24 cap, transient `program_exit=-1` capture batch, playground polish
+> (Range `unknown type 'Iterator'` warning; W005 erased-dispatch stub),
+> CI Heavy Suites triage. Held: `XIOM_STRICT_BRACKETS` default flip + the
+> 3 stdlib mixed-bracket sites. Parked: loop-CSE retry (needs the porting
+> session's pre-fix decoder). Release: v0.62.2 not cut yet (carries tier-2,
+> R-2, byte_at + extension metadata); after it ships the packages lane
+> re-verifies `byte_at` (docs/repro/byte-at-128), the benchmark lane
+> re-verifies R-2/R-2c, and the repo-local stdlib checkout refreshes to the
+> tag (`0e63101`; currently `80e767b`).
+> Next work, selfhost track: **Phase 1 (lexer parity)** -- port
+> `crates/xiom-lexer` to `selfhost/src/lexer.xi`, add `--dump-tokens` to
+> both compilers, gate on byte-equal dumps over the corpus
+> (docs/SELFHOST_PLAN.md section 5). Float `{:.17e}` formatting stays
+> deferred to the emitter phase (documented in runtime_ffi.xi).
+> Method: repro-first under tmp/sprintc/, locks (tests/regression fixture +
+> checker_locks/e2e + CI line where e2e-able), full e2e ONCE per compiler
+> batch, python tools/ascii_guard.py check before every commit, commit
+> atomically with SESSION.md + COMPILER_BUGS.md evidence. Identity Lefteris
+> Notas <lefterisnotas@gmail.com>; pushes only when the owner asks; never
+> rebuild target/debug while e2e runs. Run long suites with reduced
+> threads on this box: e2e `-- --test-threads 12`, stdlib_tests 8,
+> `scripting_tests` 4.
+
+## Status snapshot (2026-09-29 (10))
+
+- **Selfhost Phase 0 LANDED** (handoff commit): harness rewritten in
+  `crates/xiom-codegen/tests/full_diff_tests.rs` -- deterministic 84-file
+  corpus manifest (tests/regression m33_z14 + m34_d01 + m37_* x49;
+  examples/phase1_* x16, catfix x7, diff_test, demo_float, stress_* x5,
+  benchmark_selfhost, stress_body_parser; stdlib/tests/smoke/
+  smoke_guard_fault.xi), T1/T2/T3 tiers selected by
+  `XIOM_SELFHOST_DIFF_TIER=1|2|3` (default 1, tiers stack), runner
+  compiles `selfhost/src/main.xi` once per test process into
+  `target/selfhost/xiomc-self.exe` and passes the source path as argv[1]
+  (replaces the v10 temp-source-patch runner; no repo-root temp files).
+  Skeleton: `main.xi` driver (args -> read -> lexer -> parser -> checker ->
+  codegen, `--selfcheck` mode), lexer/parser/checker stubs, codegen stub
+  emitting a well-formed header + `@main` module. `runtime_ffi.xi` ports
+  `rt_str_len`/`rt_char_at`/`rt_str_slice` (exact C semantics incl. UTF-8
+  decode and clamps), `SymbolTable` (1-based intern/lookup), `FnTable`,
+  `IrBuffer`; `--selfcheck` asserts the C outputs and prints SELFCHECK OK.
+  v050 -> `selfhost/archive/xiomc_v050.xi`; 13 stale
+  `selfhost/_diff_*_N.xi` temp files deleted. Checklist corrections:
+  `examples/stdlib_smoke/` never existed (fixture is in the stdlib
+  checkout); `selfhost/_diff_phase1_*` were v10 temp copies, not corpus.
+  Gate: `cargo test -p xiom-codegen --test full_diff_tests` -> **2 passed**
+  (`diff_corpus` T1 over 84 files in 49.2 s + `runtime_ffi_selfcheck`).
+- **m163 (OPEN, silent miscompile)**: struct-method field `Vec[Str]` element
+  as a `+` operand -> i64 add + inttoptr; direct return / local Vec /
+  single Str field / `&Buf` free fn all correct. Repro + IR evidence in
+  `tmp/sprintc/m163_method_str_accum/` and COMPILER_BUGS.md. Workaround in
+  `IrBuffer` (single Str field). Suggested next compiler batch.
+- **m162 (OPEN)**: same-leaf user-module export poisons catalog-body
+  checking (xiom.num T001s); repro in
+  `tmp/sprintc/m162_sameleaf_catalog_poison/`. Workaround = `rt_` prefixes
+  in runtime_ffi.
+- **Git**: local `main` tip = this handoff commit (parents c0c081df etc.);
+  all previous batches pushed; this batch NOT pushed (owner's ask only).
+
 # CONTINUATION HANDOFF (2026-09-29 (9), compiler lane -- v0.62.1; all batches pushed; extension 0.12.1 live; selfhost Phase 0 green-lit)
 
 Supersedes the R-5 batch handoff below (kept as history).

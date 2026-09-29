@@ -10,6 +10,53 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-09-29 -- OPEN (m163): Str field elements in a struct METHOD miscompile to int add
+
+Found while building the selfhost Phase 0 skeleton (`IrBuffer` text
+builder): inside a struct method, an INDEXED ELEMENT of a `Vec[Str]`
+STRUCT FIELD used as a `+` operand (or in an accumulator) compiles to
+**integer add + inttoptr** instead of `@xiom_str_concat` -- silently wrong
+strings (pointer decimals), no diagnostic.
+
+Repro: `tmp/sprintc/m163_method_str_accum/` (`m163_lib.xi` +
+`m163_main.xi`); compile + run `m163_main.xi`.
+
+IR evidence (`--emit-ir`, `@Buf.pair` = `return lines[0] + lines[1];`):
+
+```
+%tmp22 = phi i64 ...            ; element 0 (Str handle) as i64
+%tmp39 = phi i64 ...            ; element 1 (Str handle) as i64
+%tmp40 = add i64 %tmp22, %tmp39 ; INTEGER ADD of two pointers
+%tmp41 = inttoptr i64 %tmp40 to i8*
+ret i8* %tmp41
+```
+
+Characterization (all inside the same module):
+
+| Shape | Result |
+|---|---|
+| method `return lines[0];` (direct element return) | OK |
+| method accumulator `out = out + lines[i] + "\n"` over the FIELD | BROKEN (pointer decimals) |
+| method `lines[0] + lines[1]` | BROKEN (empty / garbage) |
+| method accumulator over a LOCAL `Vec[Str]` | OK |
+| method accumulator growing a single Str FIELD | OK |
+| free fn `join_of(b: &Buf)`: `out + b.lines[i]` | OK |
+| caller-side `out + buf.lines[i]` (outside the module) | OK |
+
+So the defect is METHOD-context specific: the implicit/explicit `self`
+field-element expression does not propagate the element's `Str` type into
+`+` resolution, and the LLVM i64 element load is treated as an integer.
+
+Direction: the field-element XIOM type (from the receiver struct's
+`Vec[Str]` field) must reach the concat operand classifier (the
+`expr_is_integer` / `concat_operand_is_int` family, cf. R14/R17 above) for
+method-receiver field shapes, exactly as it does for local Vecs and for
+`&Buf` free-fn params.
+
+Status: OPEN; landed a Phase 0 workaround (selfhost `IrBuffer` grows a
+single Str field). Compiler fix + locks + full e2e queued as the batch
+after module-const materialization.
+
 ## 2026-09-12 -- R17 FIXED (round-57): nested-index Str elements in concat
 
 R14's concat fallback (compiled LLVM scalar type) overrode the semantic
