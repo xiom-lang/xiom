@@ -85,9 +85,13 @@ manifest are recorded inline (the plan predates the current checkout layout).
 ## Findings filed during Phase 0 (compiler backlog)
 - **m162**: same-leaf user-module fn poisons catalog-body checking
   (repro + characterization in `tmp/sprintc/m162_sameleaf_catalog_poison/`).
-- **m163**: `Vec[Str]` field element as a `+` operand inside a struct
-  METHOD lowers to i64 add + inttoptr (silent wrong strings); repro + IR
-  evidence in `tmp/sprintc/m163_method_str_accum/`, write-up in
-  `docs/COMPILER_BUGS.md` ("2026-09-29 -- OPEN (m163)").
-  Workaround in `IrBuffer` (single Str field). Fix queued after
-  module-const materialization.
+- **m163 FIXED (2026-09-29)**: `Vec[Str]` field element as a `+` operand
+  inside a struct METHOD lowered to i64 add + inttoptr (silent wrong
+  strings / AV). Fix: `record_receiver_field_vec_elems` registers field Vec
+  element types in the method prologue (both branches); locks
+  `m163_method_field_vec_concat` (e2e + CI line) + `regress_m163_field_vec_elem_concat`
+  (IR). Repro + characterization kept in
+  `tmp/sprintc/m163_method_str_accum/` and `tmp/sprintc/m163_single.xi`;
+  write-up in `docs/COMPILER_BUGS.md` ("2026-09-29 -- m163 FIXED").
+  `IrBuffer` keeps the single Str field for Phase 0 simplicity (restore the
+  Vec-of-lines builder in O1).

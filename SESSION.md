@@ -1,7 +1,7 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
-# CONTINUATION HANDOFF (2026-09-29 (10), selfhost Phase 0 landed -- T1 harness green; m162/m163 filed)
+# CONTINUATION HANDOFF (2026-09-29 (10), selfhost Phase 0 landed + m163 fixed -- T1 harness green; m162 filed)
 
 Supersedes the (9) handoff below (kept as history).
 
@@ -20,22 +20,24 @@ Supersedes the (9) handoff below (kept as history).
 > and runs; v050 archived; 13 stale `_diff_*` temp files deleted. All in the
 > handoff commit at the top of this section (previous pushed tips bc047d9c /
 > c0c081df; local tip not pushed -- push only on the owner's ask).
-> **NEW compiler findings (both filed with repros):**
-> (1) **m163 -- SILENT MISCOMPILE**: inside a struct METHOD, a `Vec[Str]`
-> field element used as a `+` operand lowers to i64 add + inttoptr
-> (pointer-decimal garbage); direct element return, local Vecs, single Str
-> fields, and `&Buf` free fns are correct.
-> `tmp/sprintc/m163_method_str_accum/`; docs/COMPILER_BUGS.md
-> "2026-09-29 -- OPEN (m163)". Suggested FIRST compiler batch ahead of
-> module-const materialization (silent wrong code, small repro; fix +
-> locks + full e2e).
-> (2) **m162**: a user module exporting a fn whose LEAF matches a stdlib fn
-> (`char_at`) poisons catalog-body checking of UNRELATED stdlib modules
-> (bogus T001s in `[xiom.num]`); the import alone triggers it.
+> **NEW compiler finding (filed) + fix (landed):**
+> (1) **m163 -- SILENT MISCOMPILE, FIXED 2026-09-29**: inside a struct
+> METHOD, a `Vec[Str]` field element used as a `+` operand lowered to i64
+> add + inttoptr (pointer-decimal garbage / AV). Root cause: the method
+> prologue bound receiver fields as locals but never registered their Vec
+> ELEMENT types; fix `record_receiver_field_vec_elems` registers them in
+> both prologue branches. Locks: `m163_method_field_vec_concat` (e2e + CI
+> line) + `regress_m163_field_vec_elem_concat` (IR). Gates: full e2e
+> 2390/2390 (+4 ignored, 1517 s), feature-reg 511/511, checker_locks
+> 22/22, selfhost diff 2 passed. Repro kept in
+> `tmp/sprintc/m163_method_str_accum/` + `tmp/sprintc/m163_single.xi`.
+> (2) **m162 (OPEN)**: a user module exporting a fn whose LEAF matches a
+> stdlib fn (`char_at`) poisons catalog-body checking of UNRELATED stdlib
+> modules (bogus T001s in `[xiom.num]`); the import alone triggers it.
 > `tmp/sprintc/m162_sameleaf_catalog_poison/`. Workaround in the skeleton:
 > all runtime_ffi free fns are `rt_`-prefixed.
-> Next work, compiler track: m163 fix (above), then **module-level const
-> table materialization** (packages row 25; details in the (9) section),
+> Next work, compiler track: **module-level const table materialization**
+> (packages row 25; details in the (9) section) -- the standing order --
 > then m162 / same-name fn shadowing (no redefinition diagnostic), `Vec`
 > ~2^24 cap, transient `program_exit=-1` capture batch, playground polish
 > (Range `unknown type 'Iterator'` warning; W005 erased-dispatch stub),
@@ -86,19 +88,24 @@ Supersedes the (9) handoff below (kept as history).
   (`diff_corpus` T1 over 84 files in 49.2 s + `runtime_ffi_selfcheck`).
 - **Selfhost progress tracker**: `docs/SELFHOST_PROGRESS.md` -- bootstrap
   meter (9%: 1/11 gates), per-phase gate table, Phase 0 evidence, open
-  blockers (m162/m163), gate commands. Update the meter line whenever a
+  blockers (m162), gate commands. Update the meter line whenever a
   gate flips.
-- **m163 (OPEN, silent miscompile)**: struct-method field `Vec[Str]` element
-  as a `+` operand -> i64 add + inttoptr; direct return / local Vec /
-  single Str field / `&Buf` free fn all correct. Repro + IR evidence in
-  `tmp/sprintc/m163_method_str_accum/` and COMPILER_BUGS.md. Workaround in
-  `IrBuffer` (single Str field). Suggested next compiler batch.
+- **m163 FIXED (silent miscompile)**: struct-method field `Vec[Str]` element
+  as a `+` operand became i64 add + inttoptr; fix registers field Vec
+  element types in the method prologue (`record_receiver_field_vec_elems`,
+  both branches). Locks: `tests/regression/m163_method_field_vec_concat/
+  main.xi` + `e2e_m163_method_field_vec_concat` (CI line) +
+  `regress_m163_field_vec_elem_concat` (IR). Gates: full e2e 2390/2390
+  (+4 ignored), feature-reg 511/511, checker_locks 22/22, selfhost diff
+  2 passed. COMPILER_BUGS entry flipped to FIXED; repro in
+  `tmp/sprintc/m163_method_str_accum/`.
 - **m162 (OPEN)**: same-leaf user-module export poisons catalog-body
   checking (xiom.num T001s); repro in
   `tmp/sprintc/m162_sameleaf_catalog_poison/`. Workaround = `rt_` prefixes
   in runtime_ffi.
-- **Git**: local `main` tip = this handoff commit (parents c0c081df etc.);
-  all previous batches pushed; this batch NOT pushed (owner's ask only).
+- **Git**: local `main` tips = Phase 0 commit `e813449b` + tracker
+  `532bfa75` + the m163 fix commit (all local, not pushed; push only on
+  the owner's ask).
 
 # CONTINUATION HANDOFF (2026-09-29 (9), compiler lane -- v0.62.1; all batches pushed; extension 0.12.1 live; selfhost Phase 0 green-lit)
 

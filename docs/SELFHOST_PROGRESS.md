@@ -67,10 +67,14 @@ row flips.
 
 | Item | Impact on 100% | State |
 |------|----------------|-------|
-| **m163** (struct-method `Vec[Str]` field element + `+` -> int add + inttoptr) | silent wrong strings; the O1 "idiomatic selfhost source" target needs it fixed | OPEN, repro `tmp/sprintc/m163_method_str_accum/`; workaround in `IrBuffer`; suggested next compiler batch |
 | **m162** (same-leaf user-module export poisons catalog-body checking) | every selfhost module must avoid stdlib leaf names (`rt_` prefix rule) | OPEN, repro `tmp/sprintc/m162_sameleaf_catalog_poison/` |
 | Float `{:.17e}` exactness | T3 on float-literal emission | deferred to Phase 4/5 (documented) |
 | Recursion-depth trap (500) vs deep selfhost recursion | bootstrap crash risk | mitigation queued in O1/O2 per plan |
+
+**Recently cleared:** m163 (method field `Vec[Str]` element miscompile) --
+fixed 2026-09-29 with locks + full e2e 2390/2390; the compiler no longer
+limits selfhost string-building code (the `IrBuffer` single-field shape is
+kept for Phase 0 simplicity only).
 
 ## Running the gates
 

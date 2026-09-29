@@ -149,12 +149,13 @@ pub fn FnTable.count() -> Int {
 // it with the Rust emitter's exact line sequence; `emit` flushes it to
 // stdout.
 //
-// NOTE (m163 workaround, 2026-09-29): the buffer grows a single Str field
-// instead of a Vec[Str] of lines. The Vec-of-lines shape is currently
-// miscompiled inside struct methods (a field element as a `+` operand lowers
-// to int add + inttoptr; docs/COMPILER_BUGS.md m163), so the builder
-// accumulates text directly. Revisit in the O1 selfhost code-quality pass
-// once m163 is fixed.
+// NOTE (m163, 2026-09-29): the buffer grows a single Str field instead of a
+// Vec[Str] of lines. The Vec-of-lines shape was miscompiled while m163 was
+// live (a method field element as a `+` operand lowered to int add +
+// inttoptr); m163 is now FIXED (docs/COMPILER_BUGS.md) and the single-field
+// shape is kept for Phase 0 simplicity. Restore the Vec-of-lines builder in
+// the O1 selfhost code-quality pass (the current shape is O(n^2) in total
+// concatenated bytes, fine at Phase 0 scale).
 
 pub type IrBuffer = {
   buf: Str;

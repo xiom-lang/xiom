@@ -8259,6 +8259,30 @@ impl IrEmitter {
         meta.fields.get(field_idx).map(|(_, t)| t.clone())
     }
 
+    /// m163 fix (2026-09-29): the method prologue binds receiver FIELDS as
+    /// bare-name locals, but (unlike params and body locals) it never
+    /// registered their Vec ELEMENT types. A field element (`lines[i]` on a
+    /// `Vec[Str]` field) therefore fell to the generic scalar i64 element
+    /// load, and `lines[0] + lines[1]` classified as int add + inttoptr
+    /// instead of @xiom_str_concat (silent pointer-decimal garbage). See
+    /// docs/COMPILER_BUGS.md m163; repro tmp/sprintc/m163_method_str_accum/.
+    ///
+    /// Registering the field element here makes field Vecs behave exactly
+    /// like local Vecs for every downstream consumer (Str-handle loads,
+    /// concat classification, float element handling, struct-element
+    /// memcpy). Params and body locals register AFTER the prologue with
+    /// unconditional `insert` (decl.rs param loop, stmt.rs let/var), so a
+    /// same-named param/local still correctly shadows the field.
+    fn record_receiver_field_vec_elems(&mut self, recv_name: &str, fields: &[String]) {
+        for (idx, field_name) in fields.iter().enumerate() {
+            if let Some(fty) = self.field_xiom_type(recv_name, idx) {
+                if let Some(inner) = fty.strip_prefix("Vec[").and_then(|r| r.strip_suffix(']')) {
+                    self.local.local_vec_elem.insert(field_name.clone(), inner.to_string());
+                }
+            }
+        }
+    }
+
 
     /// Extract the element type from an LLVM array type like `[64 x i64]` -> `i64`.
     fn extract_array_elem_ty(array_ty: &str) -> String {

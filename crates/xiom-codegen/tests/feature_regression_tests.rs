@@ -454,6 +454,32 @@ fn regress_5c29_string_concat() {
     assert!(ir.contains("xiom_str_concat"), "Str + Str must call xiom_str_concat");
 }
 
+// m163 (selfhost Phase 0 finding): a Vec[Str] struct-FIELD element inside a
+// struct METHOD must use the Str-handle load + @xiom_str_concat; before the
+// fix it lowered to i64 add + inttoptr (silent pointer-decimal garbage /
+// AV). The method prologue now registers field Vec element types exactly
+// like local Vecs.
+#[test]
+fn regress_m163_field_vec_elem_concat() {
+    let ir = compile(r#"
+type Buf = { lines: Vec[Str]; }
+fn Buf.add(text: Str) { lines.push(text); }
+fn Buf.pair() -> Str { return lines[0] + lines[1]; }
+fn main() -> Int {
+  var b = Buf{ lines: Vec[Str].new() };
+  b.add("AAA");
+  b.add("BBB");
+  if b.pair() != "AAABBB" { return 1; }
+  return 0;
+}
+"#).unwrap();
+    assert!(
+        ir.contains("xiom_str_concat"),
+        "m163: method field Vec[Str] element concat must call xiom_str_concat; got:\n{}",
+        ir
+    );
+}
+
 #[test]
 fn regress_5c30_uint_coercion() {
     // Int literal ? UInt8 coercion

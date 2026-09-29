@@ -5523,6 +5523,18 @@ fn e2e_safety_probe() {
     );
 }
 
+// m163 (selfhost Phase 0 finding): a Vec[Str] struct-field element inside a
+// struct METHOD lowered to i64 add + inttoptr instead of @xiom_str_concat
+// (silent pointer-decimal garbage / AV). The prologue now registers field
+// Vec element types exactly like local Vecs.
+#[test] fn e2e_m163_method_field_vec_concat() {
+    assert_eq!(
+        compile_and_run("tests/regression/m163_method_field_vec_concat/main.xi"),
+        Some(0),
+        "method-context field Vec[Str] element concat/accumulation must use xiom_str_concat (m163)"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

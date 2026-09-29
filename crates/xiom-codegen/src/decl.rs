@@ -1493,6 +1493,9 @@ impl IrEmitter {
                         self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {loaded_ptr}, i32 0, i32 {idx}"));
                         self.add_local(field_name, gep, &field_llvm_ty);
                     }
+                    // m163: register field Vec element types (Str-handle loads,
+                    // concat classification) exactly like local Vecs.
+                    self.record_receiver_field_vec_elems(&recv.name, &fields);
                 }
             } else {
                 self.add_local("self", self_alloca.clone(), st);
@@ -1517,6 +1520,9 @@ impl IrEmitter {
                         self.emitln(&format!("  {gep} = getelementptr {st}, {st}* {alloca_ref}, i32 0, i32 {idx}"));
                         self.add_local(field_name, gep, &field_llvm_ty);
                     }
+                    // m163: register field Vec element types (Str-handle loads,
+                    // concat classification) exactly like local Vecs.
+                    self.record_receiver_field_vec_elems(&recv.name, &fields);
                 }
             }
         }

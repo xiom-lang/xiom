@@ -10,18 +10,19 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
-## 2026-09-29 -- OPEN (m163): Str field elements in a struct METHOD miscompile to int add
+## 2026-09-29 -- m163 FIXED: Str field elements in a struct METHOD miscompiled to int add
 
 Found while building the selfhost Phase 0 skeleton (`IrBuffer` text
 builder): inside a struct method, an INDEXED ELEMENT of a `Vec[Str]`
-STRUCT FIELD used as a `+` operand (or in an accumulator) compiles to
+STRUCT FIELD used as a `+` operand (or in an accumulator) compiled to
 **integer add + inttoptr** instead of `@xiom_str_concat` -- silently wrong
 strings (pointer decimals), no diagnostic.
 
 Repro: `tmp/sprintc/m163_method_str_accum/` (`m163_lib.xi` +
-`m163_main.xi`); compile + run `m163_main.xi`.
+`m163_main.xi`); single-file variant `tmp/sprintc/m163_single.xi`.
 
-IR evidence (`--emit-ir`, `@Buf.pair` = `return lines[0] + lines[1];`):
+IR evidence (`--emit-ir`, `@Buf.pair` = `return lines[0] + lines[1];`,
+BEFORE):
 
 ```
 %tmp22 = phi i64 ...            ; element 0 (Str handle) as i64
@@ -43,19 +44,32 @@ Characterization (all inside the same module):
 | free fn `join_of(b: &Buf)`: `out + b.lines[i]` | OK |
 | caller-side `out + buf.lines[i]` (outside the module) | OK |
 
-So the defect is METHOD-context specific: the implicit/explicit `self`
-field-element expression does not propagate the element's `Str` type into
-`+` resolution, and the LLVM i64 element load is treated as an integer.
+Root cause: the method prologue (`decl.rs` compile_fn) binds receiver
+FIELDS as bare-name locals (GEP + `add_local`) but -- unlike params and
+body locals -- never registered their Vec ELEMENT types in
+`local_vec_elem`. A field element (`lines[i]` on a `Vec[Str]` field)
+therefore fell to the generic scalar i64 element load
+(`emit_elem_load`), so both `+` operands were i64 and the Str-concat
+intercept was unreachable. Caller-side `Expr::Field` containers resolve
+through `vec_elem_is_str`'s Field arm (`declared_field_type`) and free-fn
+`&Buf` params resolve through the Field arm too, which is why only the
+method-context bare-Ident shape broke.
 
-Direction: the field-element XIOM type (from the receiver struct's
-`Vec[Str]` field) must reach the concat operand classifier (the
-`expr_is_integer` / `concat_operand_is_int` family, cf. R14/R17 above) for
-method-receiver field shapes, exactly as it does for local Vecs and for
-`&Buf` free-fn params.
+Fix: `record_receiver_field_vec_elems` (lib.rs, next to
+`field_xiom_type`) registers each field's `Vec[X]` element into
+`local_vec_elem` at prologue field-binding time; called from BOTH
+prologue branches in `decl.rs`. Field Vecs now behave exactly like local
+Vecs for every downstream consumer (Str-handle loads, concat
+classification, float element handling, struct-element memcpy). Params
+and body locals register AFTER the prologue with unconditional `insert`,
+so a same-named param/local still shadows the field (the existing
+`Reader.process(self, buf: Str)` shadow lock stays green).
 
-Status: OPEN; landed a Phase 0 workaround (selfhost `IrBuffer` grows a
-single Str field). Compiler fix + locks + full e2e queued as the batch
-after module-const materialization.
+Locks: `tests/regression/m163_method_field_vec_concat/main.xi` +
+`e2e_m163_method_field_vec_concat` (CI line) +
+`regress_m163_field_vec_elem_concat` (in-process IR: asserts
+`xiom_str_concat`). The selfhost `IrBuffer` m163 workaround (single Str
+field) is no longer required; revisit in the O1 pass.
 
 ## 2026-09-12 -- R17 FIXED (round-57): nested-index Str elements in concat
 
