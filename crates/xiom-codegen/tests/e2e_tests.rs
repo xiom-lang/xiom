@@ -5535,6 +5535,16 @@ fn e2e_safety_probe() {
     );
 }
 
+// m164: module-level const ARRAYS materialize as one `internal constant`
+// global and index reads GEP it (no per-use alloca + N stores).
+#[test] fn e2e_m164_const_table_global() {
+    assert_eq!(
+        compile_and_run("tests/regression/m164_const_table_global/main.xi"),
+        Some(0),
+        "const tables must read through their internal constant global with i64-slot parity (m164)"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

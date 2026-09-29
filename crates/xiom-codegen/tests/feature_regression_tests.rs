@@ -480,6 +480,34 @@ fn main() -> Int {
     );
 }
 
+// m164: a module-level const ARRAY must materialize as ONE
+// `internal constant [N x i64]` global; index reads GEP it. Before the fix
+// every use site re-materialized the table (alloca + N+1 stores), which is
+// the packages 64K-table blowup.
+#[test]
+fn regress_m164_const_array_global() {
+    let ir = compile(r#"
+const TABLE: [8]Int = [1, 2, 3, 4, 5, 6, 7, 8];
+fn pick(i: Int) -> Int { return TABLE[i]; }
+fn main() -> Int {
+  var sum = 0;
+  var i = 0;
+  while i < 8 { sum = sum + TABLE[i]; i = i + 1; }
+  return sum - 36;
+}
+"#).unwrap();
+    assert!(
+        ir.contains("internal constant [8 x i64]"),
+        "m164: const table must be an internal constant global; got:\n{}",
+        ir
+    );
+    assert!(
+        !ir.contains("alloca i64, i64 9"),
+        "m164: the const table must not be re-materialized per use (old N+1-slot buffer); got:\n{}",
+        ir
+    );
+}
+
 #[test]
 fn regress_5c30_uint_coercion() {
     // Int literal ? UInt8 coercion

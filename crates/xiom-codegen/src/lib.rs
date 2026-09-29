@@ -4685,6 +4685,15 @@ impl IrEmitter {
             self.emitln("");
         }
 
+        // m164: immutable const-array globals (one per module table; never
+        // written, so `constant` lets LLVM fold/merge them).
+        if !self.local.module_const_defs.is_empty() {
+            for (symbol, llvm_ty, init) in &self.local.module_const_defs.clone() {
+                self.emitln(&format!("@{symbol} = internal constant {llvm_ty} {init}"));
+            }
+            self.emitln("");
+        }
+
         // BUG 3 fix: globals whose initializer is a runtime expression get a
         // @llvm.global_ctors entry (startup initializer). The ctor function
         // bodies are emitted at module end, after all functions are compiled.
@@ -5030,6 +5039,7 @@ impl IrEmitter {
         let cfg = Arc::new(self.config.clone());
         let ctfe_snapshot = Arc::new(self.ctfe.borrow().clone());
         let local_constants = Arc::new(self.local.constants.clone());
+        let local_const_arrays = Arc::new(self.local.const_array_globals.clone());
         let outputs: Vec<_> = functions
             .par_iter()
             .zip(assignments)
@@ -5060,6 +5070,7 @@ impl IrEmitter {
                 emitter.mono.prepass_call_types = self.mono.prepass_call_types.clone();
                 *emitter.ctfe.borrow_mut() = (*ctfe_snapshot).clone();
                 emitter.local.constants = (*local_constants).clone();
+                emitter.local.const_array_globals = (*local_const_arrays).clone();
                 emitter.local.current_module = if prefix.is_empty() { None } else { Some(prefix.clone()) };
                 // I2 fix: Prevent global string name collisions across parallel
                 // emitters by offsetting each emitter's str_counter into a unique

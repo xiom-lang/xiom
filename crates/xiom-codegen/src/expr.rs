@@ -2873,6 +2873,36 @@ impl IrEmitter {
             }
             Expr::Call(func, args, _) => self.compile_call(func, args),
                         Expr::Index(container, index, _) => {
+                // m164: a module-level const ARRAY reads through its
+                // `internal constant` global (registered in
+                // register_functions). MUST run before the container is
+                // compiled -- compiling the container substitutes the array
+                // expression and would re-materialize the whole table at
+                // this use site (the exact N+1-stores-per-use blowup this
+                // fix removes).
+                if let Expr::Ident(ident) = container.as_ref() {
+                    if let Some((symbol, arr_ty, elem_ty, elem_xiom)) =
+                        self.local.const_array_globals.get(&ident.name).cloned()
+                    {
+                        let (idx_raw, idx_ty) = self.compile_expr(index)?;
+                        let idx = self.val_to_i64(&idx_raw, &idx_ty);
+                        let elem_ptr = self.fresh_tmp();
+                        self.emitln(&format!(
+                            "  {elem_ptr} = getelementptr {arr_ty}, {arr_ty}* @{symbol}, i64 0, i64 {idx}"
+                        ));
+                        let elem = self.fresh_tmp();
+                        self.emitln(&format!("  {elem} = load {elem_ty}, {elem_ty}* {elem_ptr}"));
+                        // v1 always emits i64 slots; the widening arm keeps the
+                        // path correct if a future pass specializes widths.
+                        if elem_ty != "i64" {
+                            let ext = if Self::is_signed_xiom_type(&elem_xiom) { "sext" } else { "zext" };
+                            let wide = self.fresh_tmp();
+                            self.emitln(&format!("  {wide} = {ext} {elem_ty} {elem} to i64"));
+                            return Ok((wide, LLVM_I64.to_string()));
+                        }
+                        return Ok((elem, elem_ty));
+                    }
+                }
                 // Index into a Vec (builtin {i8*, i64, i64}) or a Str (i8*).
                 // Fixed-size arrays [N x T] (from Expr::Array literals or stack
                 // arrays) are handled by the `[N x T]` GEP path below.

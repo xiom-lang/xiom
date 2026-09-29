@@ -433,6 +433,16 @@ pub struct LocalContext {
     pub global_xiom_types: HashMap<String, String>,
     /// Ordered list of module-global definitions to emit
     pub module_global_defs: Vec<(String, String, String)>,
+    /// m164 (2026-09-29): immutable module-level const ARRAYS materialized as
+    /// LLVM `internal constant` globals. Keyed by bare AND module-qualified
+    /// name; value = (symbol, array LLVM type, element LLVM type, element
+    /// XIOM type). v1 covers all-literal INTEGER-like arrays, emitted with
+    /// i64 slots so index reads keep the old per-use buffer semantics
+    /// bit-for-bit; the substitution path stays for everything else.
+    pub const_array_globals: HashMap<String, (String, String, String, String)>,
+    /// Ordered module-const definitions to emit (with the `constant` keyword,
+    /// as opposed to `module_global_defs`' mutable `global`s).
+    pub module_const_defs: Vec<(String, String, String)>,
     /// Module-level `var` globals whose initializer is a RUNTIME expression
     /// (fn call, etc.) -- cannot be a compile-time constant. The global is
     /// emitted zero-initialized and a @llvm.global_ctors entry runs the

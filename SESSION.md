@@ -36,12 +36,15 @@ Supersedes the (9) handoff below (kept as history).
 > modules (bogus T001s in `[xiom.num]`); the import alone triggers it.
 > `tmp/sprintc/m162_sameleaf_catalog_poison/`. Workaround in the skeleton:
 > all runtime_ffi free fns are `rt_`-prefixed.
-> Next work, compiler track: **module-level const table materialization**
-> (packages row 25; details in the (9) section) -- the standing order --
-> then m162 / same-name fn shadowing (no redefinition diagnostic), `Vec`
-> ~2^24 cap, transient `program_exit=-1` capture batch, playground polish
-> (Range `unknown type 'Iterator'` warning; W005 erased-dispatch stub),
-> CI Heavy Suites triage. Held: `XIOM_STRICT_BRACKETS` default flip + the
+> Next work, compiler track: **m162 / same-name fn shadowing** (no
+> redefinition diagnostic; catalog-body poison repro in
+> `tmp/sprintc/m162_sameleaf_catalog_poison/`), then `Vec` ~2^24 cap,
+> transient `program_exit=-1` capture batch, playground polish (Range
+> `unknown type 'Iterator'` warning; W005 erased-dispatch stub), CI Heavy
+> Suites triage. Landed since (10): m164 module-const table
+> materialization (one `internal constant` per const array -- the
+> 64K-table class) and the C22 driver fix (`xiom run` sibling modules).
+> Held: `XIOM_STRICT_BRACKETS` default flip + the
 > 3 stdlib mixed-bracket sites. Parked: loop-CSE retry (needs the porting
 > session's pre-fix decoder). Release: v0.62.2 not cut yet (carries tier-2,
 > R-2, byte_at + extension metadata); after it ships the packages lane
@@ -103,6 +106,20 @@ Supersedes the (9) handoff below (kept as history).
   checking (xiom.num T001s); repro in
   `tmp/sprintc/m162_sameleaf_catalog_poison/`. Workaround = `rt_` prefixes
   in runtime_ffi.
+- **m164 LANDED (module-const table materialization)**: immutable
+  all-literal integer const arrays now emit ONE `internal constant
+  [N x i64]` global per table (`module_const_defs`) and index reads GEP it
+  (`const_array_globals` interception in the Index arm, BEFORE container
+  compilation), replacing the per-use alloca + N+1 stores that rebuilt the
+  whole table at every reference (packages row 25). i64 slots preserve the
+  old buffer read semantics bit-for-bit (UInt8 high-bit zext, Int8
+  negatives). Scope: integer-like elements only; float/Str/struct and
+  zero-length arrays keep the substitution path, and const-array `.len()`
+  is a pre-existing limitation that did not change. Locks:
+  `m164_const_table_global` (e2e + CI line) +
+  `regress_m164_const_array_global` (IR: `internal constant [8 x i64]`,
+  no N+1-slot alloca). Gates: full e2e 2391/2391 (+4 ignored, 1872 s),
+  feature-reg 512/512, checker_locks 22/22, selfhost diff 2 passed.
 - **C22 (playground relay) FIXED**: `xiom run <script>` now hands the
   checker the script's real directory (parent + guarded grandparent,
   mirroring the compile path) through `CompileConfig.extra_source_dirs`;
@@ -124,9 +141,9 @@ Supersedes the (9) handoff below (kept as history).
   smoke_stress_compress_gzip_levels, re-run those before trusting the
   result. The battery itself was left untouched afterwards; the compiler
   lane's suites should not be run concurrently with it on this box.
-- **Git**: local `main` tips = Phase 0 commit `e813449b` + tracker
-  `532bfa75` + the m163 fix commit (all local, not pushed; push only on
-  the owner's ask).
+- **Git**: local `main` tips = Phase 0 `e813449b` + tracker `532bfa75` +
+  m163 `d0189157` + C22 `563aaff2` + the m164 commit (all local, not
+  pushed; push only on the owner's ask).
 
 # CONTINUATION HANDOFF (2026-09-29 (9), compiler lane -- v0.62.1; all batches pushed; extension 0.12.1 live; selfhost Phase 0 green-lit)
 

@@ -463,6 +463,51 @@ impl IrEmitter {
         )
     }
 
+    /// m164 (2026-09-29): module-level const table materialization.
+    ///
+    /// An immutable `const NAME: [N]T = [...]` used to substitute its array
+    /// expression at every read site, re-materializing the whole table on the
+    /// stack per use (packages row 25: a 64K-entry table rebuilt per hash;
+    /// l10n lowered its ISO table to comparison chains). All-literal
+    /// INTEGER-like arrays now become ONE `internal constant [N x i64]`
+    /// global; index reads GEP the global (compile_expr's Index arm), so the
+    /// N+1 stores per use collapse to one load. i64 slots preserve the old
+    /// per-use buffer read semantics bit-for-bit (narrow element types were
+    /// stored widened in that buffer too).
+    ///
+    /// Only all-literal integer-like elements are materialized -- a
+    /// non-literal item would render as a silent default constant. Float /
+    /// Str / struct elements and zero-length arrays keep the substitution
+    /// path unchanged.
+    fn try_register_const_array_global(&mut self, cd: &ConstDecl, evaluated: &Expr) {
+        let Expr::Array(items, _) = evaluated else { return };
+        if items.is_empty() { return; }
+        if !items.iter().all(|e| matches!(e, Expr::Int(..) | Expr::Bool(..) | Expr::Char(..))) {
+            return;
+        }
+        let Type::Array(_, elem_ty) = &cd.ty else { return };
+        let elem_xiom = Self::type_from_ast(elem_ty);
+        let Ok(elem_llvm) = self.llvm_type_for(&elem_xiom) else { return };
+        let is_int_llvm = elem_llvm.len() >= 2
+            && elem_llvm.as_bytes()[0] == b'i'
+            && elem_llvm[1..].bytes().all(|b| b.is_ascii_digit());
+        if !is_int_llvm { return; }
+        let n = items.len();
+        let llvm_ty = format!("[{n} x i64]");
+        let init = Self::global_const_init(evaluated, &llvm_ty);
+        let symbol = if let Some(ref m) = self.local.current_module {
+            format!("{}.{}", m, cd.name.name)
+        } else {
+            cd.name.name.clone()
+        };
+        if !self.local.module_const_defs.iter().any(|(s, _, _)| s == &symbol) {
+            self.local.module_const_defs.push((symbol.clone(), llvm_ty.clone(), init));
+        }
+        let entry = (symbol.clone(), llvm_ty, "i64".to_string(), elem_xiom);
+        self.local.const_array_globals.insert(cd.name.name.clone(), entry.clone());
+        self.local.const_array_globals.insert(symbol, entry);
+    }
+
     pub(crate) fn register_functions(&mut self, item: &TopDecl) {
         if let TopDecl::Const(cd) = item {
             if cd.is_mut {
@@ -535,6 +580,10 @@ impl IrEmitter {
                 // M33/CTFE: evaluate the init expression at compile time and store
                 // the literal result instead of the raw expression tree.
                 let evaluated = self.evaluate_const_init(&cd.value);
+                // m164: materialize all-literal integer const arrays as a real
+                // `internal constant` global (one per module) instead of
+                // re-materializing the table at every read site.
+                self.try_register_const_array_global(cd, &evaluated);
                 self.local.constants.insert(cd.name.name.clone(), evaluated);
             }
         }
