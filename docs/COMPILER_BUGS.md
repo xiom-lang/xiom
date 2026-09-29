@@ -9658,3 +9658,66 @@ Gates: checker_locks 13/13, CLI suite green (scripting tests 34/34 at
 `--test-threads 4` -- the parallel JIT tests are the known load-flake
 class, isolated runs pass), feature-reg 510/510.
 
+## 2026-09-29 -- Stage 6 tier 2: W006 shift range, W007 self-comparison, W008 literal div/rem by zero
+
+Tier 2 of the control-flow lint wave (docs/STAGE6_LINT_WAVE.md): three
+more warning-only lints, user-program scope, one code per diagnostic.
+**Numbering note:** `W005` is already owned by the m142 codegen known-gap
+advisory (`warning[W005]: unresolved call ...`, stderr-only, not a
+checker lint), so the div/rem lint ships as `W008`; `W006`/`W007` keep
+their planned codes. `docs/JSON_DIAGNOSTICS_V1.md` records the split.
+
+- **W008 literal integer division/remainder by zero**: `10 / 0`, `x % 0`
+  (parens and `-0` unwrapped). Integer/integer only -- `f / 0.0` is IEEE
+  inf and an int zero literal beside a float operand adopts the float
+  type, so both stay silent. Before: compiles silently then traps at
+  runtime (`tmp/sprintc/lint_div0.xi`, exit `0xC000001D`).
+- **W006 shift amount out of range**: a LITERAL amount outside the left
+  operand's width (`1 << 64` on Int; `n << 8` on Int8 -> valid 0..=7;
+  Int/UInt are 64-bit, Int128/UInt128 128-bit). Variable amounts stay
+  silent. Before: compiles and yields a garbage value
+  (`tmp/sprintc/lint_shift.xi`: `1 << 64` returned 504615968, no trap).
+- **W007 self-comparison always true/false**: the same place expression
+  on both sides (`x == x`, `x != x`; parens unwrapped) for non-float
+  reflexive types (Int*/UInt*/Bool/Char/Str). Floats are excluded (NaN
+  makes `f == f` a real question), as are calls, indices and
+  structs/containers (a float field would be NaN-sensitive).
+- Emission goes through `warn_coded_at`; identical coded warnings at the
+  same span are emitted once (expression position is reachable twice via
+  the `for`-loop array-element re-check).
+
+Locks: `tests/regression/m156_w008_div_zero` (compile-only: the shapes
+trap) + `m156_w008_guard` (float / float-adopting / non-literal divisors
+silent), `m157_w006_shift` (compile-only: out-of-range shifts are
+poison) + `m157_w006_guard` (in-range Int/Int8/UInt8 and variable shifts
+silent), `m158_w007_selfcmp` (Int/Str/Bool, runs) + `m158_w007_guard`
+(float/distinct/call/struct silent); 6 checker_locks tests.
+Gates: full e2e 2389/2389 (+4 ignored, `-- --test-threads 12`, 2134s);
+checker 195/195; stdlib-exec 85/85 (+2 ignored); stdlib modules 40/40;
+feature-reg 510/510; freeze 2/2; quick suites: scripting 34/34
+(`--test-threads 4`, 1202s under concurrent stdlib smoke load),
+integration 130, robustness 63, fuzz 24, perf 3/3, diff 24 (+1 ignored),
+cli 1, doctor 4, borrow 2; checker_locks 19/19; ascii_guard clean.
+
+Cross-lane:
+- **stdlib release (relayed)**: `stdlib-v0.62.0` was force-updated to
+  `0e63101` (ruleset bypass; the release never published, so no assets
+  were invalidated); run `36495200067` validate + ubuntu gates PASS,
+  windows gates in flight, package -> GitHub Release -> pin-PR -> canary
+  follow automatically. Registry lane re-dispatches the publish once the
+  assets land (subject SHA
+  `0e631018100b157539614cc92fc471f22663baff`, ref
+  `refs/tags/stdlib-v0.62.0`). The repo-local nested `stdlib` checkout
+  our tests compile against is still `80e767b` -- refresh at the next
+  pin/release step; this batch's gates ran on it.
+- **packages relay**: `Vec.pop()` -> `Option[T]` is by design (matched
+  exhaustively); Int constants + saturating helpers compile wrap-free;
+  the E001 `&`/`&mut` interleave advisories in the pool/backoff suites
+  are the documented default-borrow warnings (program_exit=0, benign).
+- **benchmark lane**: next batch is R-2 partial + R-2c; probes captured
+  in `tmp/sprintc/` (`r2_match_mutation` prints 6/6 not 6/7;
+  `r2c_unwrap_chain` fails clang on `xiom_str_len(%struct.Vec)`; the
+  unannotated chain compiles but misreads len = 6 not 0; match-binding
+  and explicit typed-bind paths are already correct).
+
+

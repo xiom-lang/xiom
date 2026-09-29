@@ -266,6 +266,100 @@ fn m154_w004_guarded_stays_silent() {
     assert_eq!(run.status.code(), Some(0), "the guarded fixture must run cleanly");
 }
 
+// ---------------------------------------------------------------------------
+// Stage 6 lint wave, tier 2: W006 (shift amount out of range), W007
+// (self-comparison always true/false), W008 (literal integer div/rem by
+// zero). Same contract: warning-only, compile exit 0, negatives silent.
+// The W008/W006 POSITIVES are compile-only -- their runtime shapes trap /
+// produce garbage by design (see the fixture headers).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn m156_w008_div_by_zero_warns() {
+    let (stderr, code, exe) = run_on("m156_w008_div_zero");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(code, Some(0), "W008 must not block the build. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("warning[W008]"),
+        "expected warning[W008] in stderr, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("zero literal always traps"),
+        "expected the div/rem-by-zero message, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn m156_w008_guard_stays_silent() {
+    let (stderr, code, exe) = run_on("m156_w008_guard");
+    assert_eq!(code, Some(0), "float/non-literal divisors must compile. stderr:\n{stderr}");
+    assert!(
+        !stderr.contains("warning[W008]"),
+        "float and non-literal divisors must stay silent, got:\n{stderr}"
+    );
+    let run = Command::new(&exe).output().expect("run m156_w008_guard");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(run.status.code(), Some(0), "the W008 guard fixture must run cleanly");
+}
+
+#[test]
+fn m157_w006_shift_out_of_range_warns() {
+    let (stderr, code, exe) = run_on("m157_w006_shift");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(code, Some(0), "W006 must not block the build. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("warning[W006]"),
+        "expected warning[W006] in stderr, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("out of range"),
+        "expected the shift-range message, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn m157_w006_guard_stays_silent() {
+    let (stderr, code, exe) = run_on("m157_w006_guard");
+    assert_eq!(code, Some(0), "in-range shifts must compile. stderr:\n{stderr}");
+    assert!(
+        !stderr.contains("warning[W006]"),
+        "in-range and variable shifts must stay silent, got:\n{stderr}"
+    );
+    let run = Command::new(&exe).output().expect("run m157_w006_guard");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(run.status.code(), Some(0), "the W006 guard fixture must run cleanly");
+}
+
+#[test]
+fn m158_w007_self_comparison_warns() {
+    let (stderr, code, exe) = run_on("m158_w007_selfcmp");
+    assert_eq!(code, Some(0), "W007 must not block the build. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("warning[W007]"),
+        "expected warning[W007] in stderr, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("self-comparison is always"),
+        "expected the self-comparison message, got:\n{stderr}"
+    );
+    let run = Command::new(&exe).output().expect("run m158_w007_selfcmp");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(run.status.code(), Some(0), "the W007 fixture must run cleanly");
+}
+
+#[test]
+fn m158_w007_guard_stays_silent() {
+    let (stderr, code, exe) = run_on("m158_w007_guard");
+    assert_eq!(code, Some(0), "float/distinct/call comparisons must compile. stderr:\n{stderr}");
+    assert!(
+        !stderr.contains("warning[W007]"),
+        "float, distinct and call comparisons must stay silent, got:\n{stderr}"
+    );
+    let run = Command::new(&exe).output().expect("run m158_w007_guard");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(run.status.code(), Some(0), "the W007 guard fixture must run cleanly");
+}
+
 #[test]
 fn m155_r2d_check_library_file_passes() {
     // R-2d: `--check` must NOT implicit-main-wrap a library file (top-level

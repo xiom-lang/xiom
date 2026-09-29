@@ -1417,6 +1417,14 @@ impl Checker {
         } else {
             msg
         };
+        // Stage 6 tier 2: expression-position lints can be reached twice in
+        // one pass (e.g. the `for`-loop array-element re-check), so identical
+        // coded warnings at the same span are emitted once.
+        if self.warnings.iter().any(|w| {
+            w.code.as_deref() == Some(code) && w.span == span && w.message == message
+        }) {
+            return;
+        }
         if self.checking_catalog && self.strict_catalog_findings {
             self.errors.push(CheckError {
                 message,
@@ -6102,6 +6110,87 @@ impl Checker {
         }
     }
 
+    /// Stage 6 W008: is this expression a literal integer ZERO? Unwraps
+    /// parens and `-0`; used for the always-traps `x / 0` / `x % 0` lint.
+    fn is_zero_int_literal(e: &Expr) -> bool {
+        match e {
+            Expr::Int(0, _) | Expr::BigInt(0, _) => true,
+            Expr::Paren(inner, _) => Self::is_zero_int_literal(inner),
+            Expr::Unary(UnaryOp::Neg, inner, _) => {
+                matches!(&**inner, Expr::Int(0, _) | Expr::BigInt(0, _))
+            }
+            _ => false,
+        }
+    }
+
+    /// Stage 6 W006: literal value of an integer expression (unwraps parens
+    /// and unary minus); `None` for anything non-literal. Values past i128
+    /// clamp to `i128::MAX` -- out of range for every integer type this lint
+    /// knows about.
+    fn int_literal_value(e: &Expr) -> Option<i128> {
+        match e {
+            Expr::Int(v, _) => Some(*v as i128),
+            Expr::BigInt(v, _) => Some(i128::try_from(*v).unwrap_or(i128::MAX)),
+            Expr::Paren(inner, _) => Self::int_literal_value(inner),
+            Expr::Unary(UnaryOp::Neg, inner, _) => {
+                Self::int_literal_value(inner).map(|v| -v)
+            }
+            _ => None,
+        }
+    }
+
+    /// Stage 6 W006: bit width of a fixed-width integer type. `Int`/`UInt`
+    /// are 64-bit in XIOM.
+    fn int_type_bit_width(ty: &CheckedType) -> Option<u32> {
+        match ty {
+            CheckedType::Int | CheckedType::UInt | CheckedType::Int64 | CheckedType::UInt64 => Some(64),
+            CheckedType::Int8 | CheckedType::UInt8 => Some(8),
+            CheckedType::Int16 | CheckedType::UInt16 => Some(16),
+            CheckedType::Int32 | CheckedType::UInt32 => Some(32),
+            CheckedType::Int128 | CheckedType::UInt128 => Some(128),
+            CheckedType::Named(id) => match id.name() {
+                "Int" | "UInt" | "Int64" | "UInt64" => Some(64),
+                "Int8" | "UInt8" => Some(8),
+                "Int16" | "UInt16" => Some(16),
+                "Int32" | "UInt32" => Some(32),
+                "Int128" | "UInt128" => Some(128),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Stage 6 W007: syntactically the SAME place expression on both sides
+    /// (`x == x`, `self.n == self.n`), unwrapping parens. Calls, literals and
+    /// indices are deliberately excluded -- a call may have side effects and
+    /// an index may be rewritten between reads.
+    fn same_place_expr(a: &Expr, b: &Expr) -> bool {
+        match (a, b) {
+            (Expr::Paren(x, _), _) => Self::same_place_expr(x, b),
+            (_, Expr::Paren(y, _)) => Self::same_place_expr(a, y),
+            (Expr::Ident(x), Expr::Ident(y)) => x.name == y.name && x.name != "_",
+            (Expr::Field(x, f, _), Expr::Field(y, g, _)) => {
+                f.name == g.name && Self::same_place_expr(x, y)
+            }
+            _ => false,
+        }
+    }
+
+    /// Stage 6 W007: self-comparison is only meaningful for floats (NaN makes
+    /// `f == f` a real question). For these non-float types `x == x` is
+    /// always true and `x != x` always false. Structs/enums/containers are
+    /// excluded -- a float field would make the comparison NaN-sensitive.
+    fn self_cmp_reflexive_nonfloat(ty: &CheckedType) -> bool {
+        matches!(
+            ty,
+            CheckedType::Int | CheckedType::Int8 | CheckedType::Int16
+                | CheckedType::Int32 | CheckedType::Int64 | CheckedType::Int128
+                | CheckedType::UInt | CheckedType::UInt8 | CheckedType::UInt16
+                | CheckedType::UInt32 | CheckedType::UInt64 | CheckedType::UInt128
+                | CheckedType::Bool | CheckedType::Char | CheckedType::Str
+        )
+    }
+
     /// BUG 26: render the type argument of a `Vec[...].new()` value into
     /// "Vec[<elem>]" (nested args keep their brackets). Lets the checker
     /// type Vec-ctor bindings precisely so element reads resolve.
@@ -6545,6 +6634,23 @@ impl Checker {
                         *span,
                     );
                 }
+                // Stage 6 W008: a literal integer division/remainder by zero
+                // always traps at runtime. Float `/ 0.0` is IEEE inf (allowed)
+                // and an int zero literal beside a float operand adopts the
+                // float type (handled above), so only integer/integer warns.
+                // Warning-only, user-program scope.
+                if !self.checking_catalog
+                    && matches!(op, BinOp::Div | BinOp::Rem)
+                    && l_int && r_int
+                    && Self::is_zero_int_literal(right)
+                {
+                    let what = if matches!(op, BinOp::Div) { "division" } else { "remainder" };
+                    self.warn_coded_at(
+                        "W008",
+                        format!("integer {what} by a zero literal always traps at runtime"),
+                        *span,
+                    );
+                }
                 match op {
                     BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
                         let is_generic_param = |ty: &CheckedType| -> bool {
@@ -6636,6 +6742,22 @@ impl Checker {
                                 *span,
                             );
                         }
+                        // Stage 6 W007: self-comparison on a non-float type is
+                        // always true (`==`) / always false (`!=`). Float
+                        // operands are excluded -- NaN makes `x == x` real.
+                        if !self.checking_catalog
+                            && Self::same_place_expr(left, right)
+                            && Self::self_cmp_reflexive_nonfloat(&left_ty)
+                        {
+                            let verdict = if matches!(op, BinOp::Eq) { "true" } else { "false" };
+                            self.warn_coded_at(
+                                "W007",
+                                format!(
+                                    "self-comparison is always {verdict} (the same expression is compared with itself)"
+                                ),
+                                *span,
+                            );
+                        }
                         CheckedType::Bool
                     }
                     BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => {
@@ -6672,7 +6794,31 @@ impl Checker {
                         CheckedType::Bool
                     }
                     BinOp::Assign => right_ty,
-                    BinOp::Shl | BinOp::Shr => left_ty,
+                    BinOp::Shl | BinOp::Shr => {
+                        // Stage 6 W006: a shift by a literal amount outside
+                        // the left operand's bit width is out of range (LLVM
+                        // lowers it to a garbage value, not a trap). Type
+                        // aware; variable amounts stay silent.
+                        if !self.checking_catalog {
+                            if let (Some(width), Some(amount)) = (
+                                Self::int_type_bit_width(&left_ty),
+                                Self::int_literal_value(right),
+                            ) {
+                                if amount < 0 || amount >= width as i128 {
+                                    self.warn_coded_at(
+                                        "W006",
+                                        format!(
+                                            "shift amount {amount} is out of range for {} (valid: 0..={})",
+                                            left_ty.name(),
+                                            width - 1
+                                        ),
+                                        *span,
+                                    );
+                                }
+                            }
+                        }
+                        left_ty
+                    }
                     BinOp::BitXor => left_ty, // bitwise xor preserves integer type
                     BinOp::BitAnd => left_ty, // bitwise and preserves integer type
                     BinOp::BitOr => left_ty, // bitwise or preserves integer type

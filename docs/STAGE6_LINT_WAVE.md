@@ -3,7 +3,8 @@
 Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 SPDX-License-Identifier: MIT OR Apache-2.0
 
-**Status:** QUEUED for Stage 6 (starts after the combined v0.62.0 release).
+**Status:** LANDED -- tier 1 (W002/W003/W004) and tier 2 (W006/W007/W008);
+tier 3 is parked pending the noise-budget decision.
 **Owner probe that queued it:** 2026-09-25, playground -- two mutually
 recursive functions that call each other before printing are reported by the
 runner as "Program ran with no output". Diagnosis: not a compiler bug; the
@@ -83,7 +84,13 @@ values)`. Complements `--strict-exhaustive`, which covers MISSING arms.
 
 ## Tier 2 -- sound with literal/type facts
 
-- **W005 literal division/remainder by zero** (`1 / 0`, `x % 0`) for integer
+**Numbering note (2026-09-29):** `W005` is already taken by the m142
+codegen known-gap advisory (`warning[W005]: unresolved call ...`;
+stderr-only, not a checker lint -- see `docs/JSON_DIAGNOSTICS_V1.md`),
+so the div/rem lint ships as `W008`. `W006`/`W007` keep their planned
+codes.
+
+- **W008 literal division/remainder by zero** (`1 / 0`, `x % 0`) for integer
   types. Float `/ 0.0` is inf and allowed. Runtime today: the trap fires
   (`lint_div0` probe -> exit `0xC000001D`).
 - **W006 shift amount out of range** for integer literals (`1 << 64` on i64;
@@ -99,7 +106,7 @@ values)`. Complements `--strict-exhaustive`, which covers MISSING arms.
 - Constant conditions (`if true`, `while false`), self-assignment (`x = x`),
   vacuous arithmetic (`x + 0`). Mostly typos; can ride the same plumbing
   once tier 1 proves the noise level.
-- `while true` with no exit (W005-family): intentional server loops are
+- `while true` with no exit (W003-family): intentional server loops are
   common, so this needs a phrasing/opt-in decision before it ships.
 
 ## Plumbing checklist (per lint)
@@ -203,5 +210,5 @@ updated, and the website/playground relay (SESSION cross-lane). Options
 ## Suggested order
 
 W002 + W003 first (the probe class and the most common dead-code class), then
-W004, then tier 2 (W005-W007), then decide tier 3. Each landing is a normal
-batch: implementation + locks + full e2e, no release coupling.
+W004, then tier 2 (W006/W007/W008), then decide tier 3. Each landing is a
+normal batch: implementation + locks + full e2e, no release coupling.

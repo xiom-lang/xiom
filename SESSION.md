@@ -1,7 +1,7 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
-# CONTINUATION HANDOFF (2026-09-28 (4), compiler lane -- v0.62.1 + W004 + R-2d landed; 2 commits unpushed)
+# CONTINUATION HANDOFF (2026-09-28 (5), compiler lane -- v0.62.1 + W004 + R-2d PUSHED; Stage 6 tier 2 landed)
 
 Supersedes the R-5 batch handoff below (kept as history).
 
@@ -15,31 +15,43 @@ Supersedes the R-5 batch handoff below (kept as history).
 > stdlib ref); the VS Code extension stays 0.12.0 (toolchain-agnostic;
 > marketplace publish correctly skipped for toolchain-only releases --
 > bump `editors/vscode/package.json` only for real extension changes).
-> Local `main` = origin/main + 2 commits (`43623bc4` W004, `830a68d0`
-> R-2d) -- **PUSH PENDING the owner's go**; tree clean. Run long suites
-> with reduced threads on this box: e2e `-- --test-threads 12`,
-> stdlib_tests 8, `scripting_tests` 4 (parallel JIT tests are the known
-> load-flake class; never record a silent failure as a pass without a
-> re-run).
+> Local `main` = origin/main + 1 commit (Stage 6 tier 2) -- origin/main
+> is at `f7baa932` (W004 + R-2d + handoff pushed); **PUSH PENDING the
+> owner's go**; tree clean. Run long suites with reduced threads on this
+> box: e2e `-- --test-threads 12`, stdlib_tests 8, `scripting_tests` 4
+> (parallel JIT tests are the known load-flake class; never record a
+> silent failure as a pass without a re-run; concurrent stdlib smoke
+> batteries roughly double suite wall-times).
 > Landed since the R-5 handoff (do not redo): PR #4 merged (first fully
 > green CI), C001 (`io.parse_int` -> bare `@is_empty`), v0.62.1 (R-5 +
 > C9 `opt` fix + C8b wasm glue + CI hygiene + notes), Stage 6 W004
 > (unreachable match arm), R-2d (`--check` must not implicit-main-wrap
 > library files).
-> Next work: Stage 6 tier 2 -- W005 (literal integer div/rem by zero;
-> floats excluded), W006 (shift amount out of range), W007
-> (non-float self-comparison) per docs/STAGE6_LINT_WAVE.md. Then the
-> backlog below in order.
+> Next work: the backlog below in order -- benchmark R-2 partial
+> (method call on an aliased match binding copies the receiver:
+> `tmp/sprintc/r2_match_mutation.xi` prints 6/6 not 6/7) + R-2c
+> (`opt.unwrap().len()` on an annotated Option[Vec[Int]] fails clang via
+> `xiom_str_len(%struct.Vec)`; the UNANNOTATED chain compiles but
+> misreads len = 6 not 0; match-binding and explicit typed-bind paths
+> are correct). Then packages `byte_at >= 128` direct compare (repro
+> battery `E:\xiom-packages\packages\docs\repro\byte-at-128`), loop-CSE
+> with the amqp:1266 fragment, module-const/table materialization,
+> same-name fn shadowing, Vec 2^24 cap, transient program_exit capture,
+> playground polish, Heavy Suites triage. Stage 6 tier 3 is a
+> noise-budget decision (unused locals etc.) -- deferred to the owner.
 > Held release item: `XIOM_STRICT_BRACKETS` default flip + the 3 stdlib
 > mixed-bracket sites (`io/fs.xi` 36+244, `math/algebra_extended.xi` 311)
 > with the next stdlib wave.
-> BLOCKER outside this lane (relay to the stdlib lane): the stdlib repo's
-> `release.yml`/`ci.yml`/`heavy.yml` fail at 14:56 on main `960b506`
-> ("workflow-file issue", 0s -- likely the shared
-> `./.github/actions/build-compiler`); the `stdlib-v0.62.0` tag has NO
-> GitHub Release/assets, so the registry publish run `36438204239` is
-> stuck at "Wait for the release asset". The stdlib lane must fix the
-> workflow, re-run the tag release, then re-dispatch the publish.
+> STDLIB RELEASE (relayed, in progress): `stdlib-v0.62.0` was
+> force-updated to `0e63101` (ruleset bypass; the release never
+> published, so no assets were invalidated); run `36495200067` has
+> validate + ubuntu gates PASS, windows gates in flight; package ->
+> GitHub Release -> pin-PR -> staging canary follow automatically.
+> Registry lane: re-dispatch the publish once the assets land (subject
+> SHA `0e631018100b157539614cc92fc471f22663baff`, ref
+> `refs/tags/stdlib-v0.62.0`). The repo-local nested `stdlib` checkout
+> our tests compile against is still `80e767b` -- refresh at the next
+> pin/release step (this batch's gates ran on it).
 > Method: repro-first under tmp/sprintc/, locks
 > (tests/regression fixture + checker_locks/e2e + CI line where
 > e2e-able), full e2e ONCE per batch, python tools/ascii_guard.py check
@@ -48,8 +60,21 @@ Supersedes the R-5 batch handoff below (kept as history).
 > <lefterisnotas@gmail.com>; pushes only when the owner asks; never
 > rebuild target/debug while e2e runs.
 
-## Status snapshot (2026-09-28 (4))
+## Status snapshot (2026-09-28 (5))
 
+- **Stage 6 tier 2 LANDED**: W008 literal integer div/rem by zero
+  (parens/`-0` unwrapped; floats and float-adopting int literals stay
+  silent), W006 shift amount out of range (type-aware; `Int`=64-bit;
+  literal amounts only), W007 self-comparison always true/false
+  (non-float reflexive types; floats/calls/structs excluded). `W005` is
+  the m142 codegen known-gap advisory (stderr-only, not a checker lint),
+  so div/rem ships as `W008`. Locks `m156_w008_*`, `m157_w006_*`,
+  `m158_w007_*` + 6 checker_locks (19/19). Gates: e2e 2389/2389
+  (+4 ignored, `--test-threads 12`), checker 195, stdlib-exec 85 (+2),
+  modules 40/40, feature-reg 510, freeze 2/2, scripting 34/34 (1202s
+  under concurrent stdlib smoke load), integration 130, robustness 63,
+  fuzz 24, perf 3, diff 24 (+1), ascii_guard clean. Next: backlog
+  (R-2 partial + R-2c first).
 - **Compiler v0.62.1 released** (tag re-cut once for the CR-guard fix,
   `f93f4ee6`; publish glob fix `99096abd`): R-5 (PR #4), C001, C9/C8b,
   CI hygiene, `m150_dl_num_parse` e2e lock. Gates: e2e 2389/2389
@@ -59,12 +84,15 @@ Supersedes the R-5 batch handoff below (kept as history).
   `m154_w004_unreachable`/`_guard` + 2 checker_locks (12/12). Probe-caught
   AST fix: bare enum variants parse as DOTTED `Pattern::Ident`;
   `pattern_is_catch_all` now excludes them (hardens W002/W003 too).
-- **R-2d landed** (`830a68d0`): `--check` no longer implicit-main-wraps
+- **R-2d landed** (`830a68d0`), **pushed** with W004 + the handoff
+  (origin/main = `f7baa932`): `--check` no longer implicit-main-wraps
   library files; verified on the benchmark's t3 solution + 3 templates;
   lock `m155_r2d_check_library` (checker_locks 13/13). The e2e suite never
   uses `--check`, so the changed branch is structurally outside it.
 - **Versioning FAQ**: stdlib v0.62.0 = the stdlib repo's release
-  (`80e767b`, tag `stdlib-v0.62.0`); compiler v0.62.1 = our patch release
+  (`80e767b`, tag `stdlib-v0.62.0`; the tag was force-updated to `0e63101`
+  on 2026-09-29 for the registry re-cut); compiler v0.62.1 = our patch
+  release
   PINNED to that stdlib; extension 0.12.0 = independent VS Code extension
   version (last real change 9/22; no update is delivered until a version
   bump). The three are expected to differ.
@@ -78,8 +106,10 @@ Supersedes the R-5 batch handoff below (kept as history).
   redefinition diagnostic); `Vec` ~2^24 cap; transient `program_exit=-1`
   capture batch; playground polish (Range-only `unknown type 'Iterator'`
   warning; W005 stub behind `(2 + 2.5).to_str()`); CI Heavy Suites triage.
-- **Git**: local `main` = origin/main + 2 commits (W004, R-2d), UNPUSHED;
-  stdlib checkout at `stdlib-v0.62.0`; compiler tree clean.
+- **Git**: origin/main = `f7baa932` (W004 + R-2d + handoff pushed); local
+  `main` = + the tier-2 commit, UNPUSHED; repo-local nested `stdlib`
+  checkout at `80e767b` (tag `stdlib-v0.62.0` now points at `0e63101`;
+  refresh at the next pin step); compiler tree clean.
 
 # BATCH HANDOFF (2026-09-28, R-5 relay fix -- branch `bench/r5-extern-gate`)
 
