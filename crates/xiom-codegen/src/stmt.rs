@@ -1651,6 +1651,30 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     } else {
                         format!("%struct.{type_name}")
                     };
+                    // R-2 partial (benchmark relay): when the scrutinee is a
+                    // LOCAL Option/Result whose slot already holds the struct,
+                    // match it IN PLACE instead of snapshotting a copy. An
+                    // inline aggregate payload binding then aliases the local's
+                    // payload -- the m148 semantic for the boxed layout; the
+                    // snapshot made `Some(c) => c.inc()` mutate a dead copy
+                    // (r2_match_mutation printed 6/6, wanted 6/7).
+                    // Temporaries, fields, calls and pointer-deref scrutinees
+                    // keep the snapshot.
+                    let mut reused_local: Option<String> = None;
+                    if type_name == "Option" || type_name.starts_with("Option__")
+                        || type_name == "Result" || type_name.starts_with("Result__")
+                    {
+                        if let Expr::Ident(id) = expr_match {
+                            if let Some((reg, reg_ty)) = self.lookup_local(&id.name) {
+                                if reg_ty.as_str() == struct_ty.as_str() {
+                                    reused_local = Some(reg.clone());
+                                }
+                            }
+                        }
+                    }
+                    if let Some(reg) = reused_local {
+                        scrutinee_alloca_info = Some((reg, type_name.clone(), struct_ty));
+                    } else {
                     let alloca = self.fresh_tmp();
                     // If the scrutinee is a pointer to the struct (e.g. JsonValue*)
                     // rather than the struct value itself, load the struct through
@@ -1665,6 +1689,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     self.emitln(&format!("  {alloca} = alloca {struct_ty}"));
                     self.emitln(&format!("  store {struct_ty} {store_val}, {struct_ty}* {alloca}"));
                     scrutinee_alloca_info = Some((alloca, type_name.clone(), struct_ty));
+                    }
                 }
 
                 // Build check block labels and arm labels.
@@ -2685,6 +2710,21 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                             } else {
                                                 (loaded.clone(), field_ty.clone())
                                             }
+                                        } else if field_ty.starts_with("%struct.") && !field_ty.ends_with('*') {
+                                            // R-2 partial (benchmark relay): an INLINE
+                                            // aggregate payload (concrete
+                                            // Option__Counter/Result__... layout, the
+                                            // field stored BY VALUE) must alias the
+                                            // payload FIELD ADDRESS like m148 does for
+                                            // the boxed/i64 layout -- otherwise the arm
+                                            // binds a stack COPY and method calls /
+                                            // field writes through it are discarded
+                                            // (`r2_match_mutation`: 6/6 instead of
+                                            // 6/7). Register (reg = field address,
+                                            // ty = struct) -- the standard
+                                            // pointer-backed struct-local convention.
+                                            alias_payload = true;
+                                            (val_gep.clone(), field_ty.clone())
                                         } else {
                                             (loaded.clone(), field_ty.clone())
                                         }

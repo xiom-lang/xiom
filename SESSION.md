@@ -1,7 +1,7 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
-# CONTINUATION HANDOFF (2026-09-28 (5), compiler lane -- v0.62.1 + W004 + R-2d PUSHED; Stage 6 tier 2 landed)
+# CONTINUATION HANDOFF (2026-09-28 (6), compiler lane -- v0.62.1 + W004 + R-2d PUSHED; Stage 6 tier 2 + R-2c/R-2 landed)
 
 Supersedes the R-5 batch handoff below (kept as history).
 
@@ -15,9 +15,9 @@ Supersedes the R-5 batch handoff below (kept as history).
 > stdlib ref); the VS Code extension stays 0.12.0 (toolchain-agnostic;
 > marketplace publish correctly skipped for toolchain-only releases --
 > bump `editors/vscode/package.json` only for real extension changes).
-> Local `main` = origin/main + 1 commit (Stage 6 tier 2) -- origin/main
-> is at `f7baa932` (W004 + R-2d + handoff pushed); **PUSH PENDING the
-> owner's go**; tree clean. Run long suites with reduced threads on this
+> Local `main` = origin/main + 2 commits (Stage 6 tier 2 `75623b4f`,
+> R-2c/R-2 batch) -- origin/main is at `f7baa932` (W004 + R-2d + handoff
+> pushed); **PUSH PENDING the owner's go**; tree clean. Run long suites with reduced threads on this
 > box: e2e `-- --test-threads 12`, stdlib_tests 8, `scripting_tests` 4
 > (parallel JIT tests are the known load-flake class; never record a
 > silent failure as a pass without a re-run; concurrent stdlib smoke
@@ -27,14 +27,13 @@ Supersedes the R-5 batch handoff below (kept as history).
 > C9 `opt` fix + C8b wasm glue + CI hygiene + notes), Stage 6 W004
 > (unreachable match arm), R-2d (`--check` must not implicit-main-wrap
 > library files).
-> Next work: the backlog below in order -- benchmark R-2 partial
-> (method call on an aliased match binding copies the receiver:
-> `tmp/sprintc/r2_match_mutation.xi` prints 6/6 not 6/7) + R-2c
-> (`opt.unwrap().len()` on an annotated Option[Vec[Int]] fails clang via
-> `xiom_str_len(%struct.Vec)`; the UNANNOTATED chain compiles but
-> misreads len = 6 not 0; match-binding and explicit typed-bind paths
-> are correct). Then packages `byte_at >= 128` direct compare (repro
-> battery `E:\xiom-packages\packages\docs\repro\byte-at-128`), loop-CSE
+> Next work: the backlog below in order -- packages `byte_at >= 128`
+> direct compare (repro battery
+> `E:\xiom-packages\packages\docs\repro\byte-at-128`; the direct
+> comparison of a UInt8-returning call is compared in the wrong domain:
+> `byte_at(s,1) != 195u8` fails while a typed local works -- suspect the
+> `widen_to_i64` default-sext for the call temp; check
+> `widen_to_i64`/`reg_signed` in the comparison path), then loop-CSE
 > with the amqp:1266 fragment, module-const/table materialization,
 > same-name fn shadowing, Vec 2^24 cap, transient program_exit capture,
 > playground polish, Heavy Suites triage. Stage 6 tier 3 is a
@@ -60,9 +59,23 @@ Supersedes the R-5 batch handoff below (kept as history).
 > <lefterisnotas@gmail.com>; pushes only when the owner asks; never
 > rebuild target/debug while e2e runs.
 
-## Status snapshot (2026-09-28 (5))
+## Status snapshot (2026-09-28 (6))
 
-- **Stage 6 tier 2 LANDED**: W008 literal integer div/rem by zero
+- **R-2c + R-2 partial LANDED**: unwrap-chain `Option[Vec[Int]].unwrap()
+  .len()` receiver resolves both the annotated shape (was a clang error:
+  `xiom_str_len` fed `%struct.Vec`) and the unannotated shape (was
+  `strlen` of the boxed handle -> 6); `hint_is_vec_or_slice` accepts
+  bare/qualified/bracketed Vec/Slice payload hints and
+  `local_opt_payload_xiom` container payloads are consulted. Inline
+  aggregate match payloads bind by address and Option/Result LOCAL
+  scrutinees match in place, so `Some(c) => c.inc()` persists (was 6/6,
+  now 6/7); temporaries keep the snapshot. Locks
+  `m159_r2c_unwrap_vec_len`, `m160_r2_match_alias` + 2 checker_locks
+  (21/21). Gates: e2e 2389/2389 (+4 ignored, 1224s), checker 195,
+  stdlib-exec 85 (+2), modules 40/40, feature-reg 510, freeze 2/2,
+  scripting 34/34 (1097s), integration 130, robustness 63, fuzz 24,
+  perf 3, diff 24 (+1), ascii_guard clean.
+- **Stage 6 tier 2 LANDED** (`75623b4f`): W008 literal integer div/rem by zero
   (parens/`-0` unwrapped; floats and float-adopting int literals stay
   silent), W006 shift amount out of range (type-aware; `Int`=64-bit;
   literal amounts only), W007 self-comparison always true/false
@@ -96,20 +109,17 @@ Supersedes the R-5 batch handoff below (kept as history).
   PINNED to that stdlib; extension 0.12.0 = independent VS Code extension
   version (last real change 9/22; no update is delivered until a version
   bump). The three are expected to differ.
-- **Backlog (in order)**: benchmark R-2 partial (inline-struct Option
-  payloads bind a copy while Vec payloads alias) and R-2c
-  (`opt.unwrap().len()` on `Option[Vec[Int]]` emits `xiom_str_len(i8*)`
-  against `%struct.Vec` -> clang type error; explicit binding works);
-  packages `byte_at >= 128` direct compare (REPRODUCED, battery
-  `docs/repro/byte-at-128`); loop-CSE retry with the amqp:1266 fragment;
+- **Backlog (in order)**: ~~benchmark R-2 partial + R-2c~~ (landed
+  2026-09-29); packages `byte_at >= 128` direct compare (REPRODUCED,
+  battery `E:\xiom-packages\packages\docs\repro\byte-at-128`); loop-CSE retry with the amqp:1266 fragment;
   module-level const/table materialization; same-name fn shadowing (no
   redefinition diagnostic); `Vec` ~2^24 cap; transient `program_exit=-1`
   capture batch; playground polish (Range-only `unknown type 'Iterator'`
   warning; W005 stub behind `(2 + 2.5).to_str()`); CI Heavy Suites triage.
 - **Git**: origin/main = `f7baa932` (W004 + R-2d + handoff pushed); local
-  `main` = + the tier-2 commit, UNPUSHED; repo-local nested `stdlib`
-  checkout at `80e767b` (tag `stdlib-v0.62.0` now points at `0e63101`;
-  refresh at the next pin step); compiler tree clean.
+  `main` = + tier-2 `75623b4f` + the R-2 batch, UNPUSHED; repo-local
+  nested `stdlib` checkout at `80e767b` (tag `stdlib-v0.62.0` now points
+  at `0e63101`; refresh at the next pin step); compiler tree clean.
 
 # BATCH HANDOFF (2026-09-28, R-5 relay fix -- branch `bench/r5-extern-gate`)
 

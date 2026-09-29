@@ -360,6 +360,34 @@ fn m158_w007_guard_stays_silent() {
     assert_eq!(run.status.code(), Some(0), "the W007 guard fixture must run cleanly");
 }
 
+// ---------------------------------------------------------------------------
+// R-2c / R-2 partial (benchmark relay): unwrap-chain Vec.len receiver
+// resolution and inline aggregate match-payload aliasing.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn m159_r2c_unwrap_vec_len_runs() {
+    let (stderr, code, exe) = run_on("m159_r2c_unwrap_vec_len");
+    assert_eq!(code, Some(0), "R-2c fixture must compile. stderr:\n{stderr}");
+    let run = Command::new(&exe).output().expect("run m159_r2c_unwrap_vec_len");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(run.status.code(), Some(0), "R-2c fixture must run cleanly");
+    assert!(
+        String::from_utf8_lossy(&run.stdout).contains('1'),
+        "expected the pushed payload len (1) on stdout, got:\n{}",
+        String::from_utf8_lossy(&run.stdout)
+    );
+}
+
+#[test]
+fn m160_r2_match_alias_runs() {
+    let (stderr, code, exe) = run_on("m160_r2_match_alias");
+    assert_eq!(code, Some(0), "R-2 fixture must compile. stderr:\n{stderr}");
+    let run = Command::new(&exe).output().expect("run m160_r2_match_alias");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(run.status.code(), Some(0), "R-2 fixture must run cleanly");
+}
+
 #[test]
 fn m155_r2d_check_library_file_passes() {
     // R-2d: `--check` must NOT implicit-main-wrap a library file (top-level

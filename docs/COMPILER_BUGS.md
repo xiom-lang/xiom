@@ -9720,4 +9720,47 @@ Cross-lane:
   unannotated chain compiles but misreads len = 6 not 0; match-binding
   and explicit typed-bind paths are already correct).
 
+## 2026-09-29 -- R-2c unwrap-chain Vec.len receiver + R-2 partial inline match-payload aliasing
+
+Benchmark-relayed codegen gaps (benchmark repo `data/probes/`
+`r2c_unwrap_chain.xi`, `r2_match_mutation.xi`; copies under
+`tmp/sprintc/`). Repro-first: both reproduced on the tier-2 build before
+the fix (r2c: clang error / len 6; r2: 6/6).
+
+- **R-2c** (`opt.unwrap().len()` on `Option[Vec[Int]]`): the Vec.len
+  receiver probe resolved the payload as the BARE "Vec" -- annotation
+  payloads go through `type_from_ast`, which drops generic args -- and
+  `receiver_is_unwrap_of_vec` only accepted "Vec["-prefixed hints, so the
+  call fell through to `Str.len`: annotated locals failed clang
+  (`xiom_str_len(i8*)` fed `%struct.Vec`), unannotated locals compiled and
+  `strlen`'d the boxed handle (printed 6, not 0). Fix: shared
+  `hint_is_vec_or_slice` accepts bare/qualified/bracketed Vec/Slice
+  hints, and `infer_receiver_payload_xiom` also consults
+  `local_opt_payload_xiom` for container payloads (the map
+  `ctor_payload_xiom` fills for `Some(Vec[Int].new())`).
+- **R-2 partial** (`match opt { Some(c) => c.inc() }` discarded): m148
+  aliased the payload only for the boxed `i64` layout; the concrete
+  `Option__Counter` layout stores the payload INLINE, and the match
+  statement snapshotted the scrutinee into a fresh alloca, so the arm
+  mutated a dead copy (printed 6/6, expected 6/7). Fix: (a) the payload
+  fallthrough binds an inline aggregate payload by FIELD ADDRESS
+  (`(reg = field address, ty = %struct.X)` -- the m148 pointer-backed
+  convention), and (b) a match on a plain Option/Result LOCAL whose slot
+  already holds the struct matches IN PLACE instead of snapshotting;
+  temporaries, fields, calls and pointer-deref scrutinees keep the
+  snapshot.
+
+Locks: `tests/regression/m159_r2c_unwrap_vec_len` (annotated + unannotated
+unwrap-chain len, pushed payload len 1, Str control 2) and
+`tests/regression/m160_r2_match_alias` (field + method mutation persist
+across two matches; call-result scrutinee still works); 2 checker_locks
+(21/21).
+Gates: full e2e 2389/2389 (+4 ignored, `-- --test-threads 12`, 1224s);
+checker 195/195; stdlib-exec 85/85 (+2 ignored); stdlib modules 40/40;
+feature-reg 510/510; freeze 2/2; quick suites: scripting 34/34
+(`--test-threads 4`, 1097s), integration 130, robustness 63, fuzz 24,
+perf 3/3, diff 24 (+1 ignored), cli 1, doctor 4, borrow 2; checker_locks
+21/21; ascii_guard clean.
+
+
 

@@ -218,6 +218,17 @@ impl IrEmitter {
                     return Some(t.clone());
                 }
             }
+            // R-2c (unannotated): `let opt = Some(Vec[Int].new())` records the
+            // payload in the scalar-XIOM map (`ctor_payload_xiom`) -- a Vec
+            // payload is still a boxed container handle, so accept container
+            // hints from there too (unwrap_err keeps the success-side map out).
+            if !unwrap_err {
+                if let Some(t) = self.local.local_opt_payload_xiom.get(&id.name) {
+                    if Self::hint_is_vec_or_slice(t) {
+                        return Some(t.clone());
+                    }
+                }
+            }
             // R52 (playground L3-02): an UNANNOTATED Option/Result local
             // (`let p = Some("DragonSlayer")`) has no payload map entry -- fall
             // back to its tracked declared type ("Option[Str]" -> "Str") so
@@ -936,6 +947,18 @@ impl IrEmitter {
         false
     }
 
+    /// R-2c: a Vec/Slice container HINT may arrive with or without its
+    /// bracketed args -- annotation-derived payloads keep only the bare
+    /// name (`Option[Vec[Int]]` -> "Vec"; `type_from_ast` drops args),
+    /// while field/index-derived hints keep them ("Vec[UInt8]").
+    /// Module-qualified forms end in ".Vec"/".Slice". Callers that only
+    /// need "is this container a Vec/Slice" must accept both spellings.
+    pub(crate) fn hint_is_vec_or_slice(hint: &str) -> bool {
+        let base = hint.split('[').next().unwrap_or(hint).trim();
+        base == "Vec" || base == "Slice"
+            || base.ends_with(".Vec") || base.ends_with(".Slice")
+    }
+
     /// M33: Check if a method-call receiver is the result of `.unwrap()`
     /// on a Result/Option containing a Vec-type payload.
     /// R49: resolves the payload from the receiver EXPRESSION (so computed
@@ -947,11 +970,11 @@ impl IrEmitter {
                     // R49: inspect the OPTION-PRODUCING base (the unwrap call
                     // itself returns the payload, not an Option).
                     if let Some(p) = self.infer_receiver_payload_xiom(base, false) {
-                        return p.starts_with("Vec[") || p.starts_with("Slice[") || p.contains(".Vec");
+                        return Self::hint_is_vec_or_slice(&p);
                     }
                     if let Expr::Ident(id) = base.as_ref() {
                         if let Some(t) = self.local.local_opt_payload.get(&id.name) {
-                            return t.starts_with("Vec[") || t.contains(".Vec");
+                            return Self::hint_is_vec_or_slice(t);
                         }
                     }
                 }
