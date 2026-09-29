@@ -70,6 +70,20 @@ Supersedes the (9) handoff below (kept as history).
 
 ## Cross-lane notes (2026-09-29)
 
+- **Benchmark lane relay (PERF-1, queued)**: t2-queue is ~1450x Rust
+  (50,787 ms vs 35 ms) while XIOM is normal on every other task; isolation
+  shows 4M `AtomicInt` load/store pairs at 18.5 s vs 4 ms plain, with every
+  unsafe-block call paying `xiom_trampoline_call` + guard-page arm/disarm
+  (~2.4 us/call). Full provenance (session `run_1790700620309`, exports,
+  evidence dirs), root-cause hypothesis, candidate fixes and checklist are
+  in `docs/STAGE6_PERF_PLAN.md` (PERF-1). Stage 6 answer: YES -- included
+  as the first performance-plan item, pending local repro + safety-lane
+  sign-off on the retry-semantics change.
+- **Website fetch**: `docs/SELFHOST_PROGRESS.md` is live on `main`
+  (push `c0c081df..ad63eda0`; raw URL verified). A plain commit push
+  triggers no workflows in this repo (CI is PR-only, `release.yml` is
+  tag-only, `vscode-publish`/`heavy` are `workflow_dispatch`), so the
+  tracker is fetchable without cutting any release.
 - **Packages lane relay**: pin moved 0.61.3 -> 0.62.1 mid-batch; every
   suite re-run clean, no code changes needed for the new compiler. Their
   sectest caught two PACKAGE-side catalog bugs (obs-fold detection was
