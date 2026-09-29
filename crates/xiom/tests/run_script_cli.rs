@@ -1,12 +1,14 @@
 // C22 (playground relay): `xiom run <script>` must resolve sibling modules
-// relative to the SCRIPT'S directory exactly like `xiom --check`.
+// AND packages/ layouts relative to the SCRIPT'S directory exactly like
+// `xiom --check`.
 // Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //
 // `xiom run` compiles a %TEMP%/xiom_run copy, so without the source-dir hint
 // the checker's catalog never saw the script's directory: sibling modules
-// failed with undefined-variable errors while `--check` passed. Lock:
-// tests/regression/c22_run_sibling_module/{main,c22_sibling_lib}.xi.
+// and package modules failed with undefined-variable errors while `--check`
+// passed. Lock: tests/regression/c22_run_sibling_module/ (main.xi imports
+// c22_sibling_lib.xi and packages/c22-pkg/src/hello.xi -> c22pkg.hello).
 
 use std::path::PathBuf;
 use std::process::Command;

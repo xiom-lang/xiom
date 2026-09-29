@@ -225,6 +225,16 @@ Supersedes the (9) handoff below (kept as history).
   Local note: this box's Defender blocks freshly built `%TEMP%/xiom_run`
   exes (os error 225); the lock asserts resolution+codegen (`compiled:`)
   and tolerates the execution block locally (CI Linux takes the full path).
+  **Extended verification (packages shape, 2026-09-29 pm)**: the
+  playground's exact repro -- `<dir>/main.xi` importing
+  `<dir>/packages/xiom-hello/src/hello.xi` (module `xiom.hello`) -- now
+  compiles AND runs on the fixed build (`compiled:` + exit code 0; manual
+  probe `tmp/sprintc/c22_packages/`), while v0.62.1 still fails as
+  reported. The permanent lock now covers a package layout too
+  (`packages/c22-pkg/src/hello.xi` -> `c22pkg.hello`). Loaded runs can
+  take minutes (catalog churn over stale temp stdlib copies, W001 noise);
+  that is slowness, not a deadlock (completed <180 s with `--no-cache`
+  under the smoke battery).
 - **Coordination note (2026-09-29 evening)**: the compiler lane's
   `cargo test -p xiom` overlapped with the stdlib smoke battery
   (`%TEMP%\xiom-smokes-20260929-191201`, 8 `xiom_v0613` workers, started
