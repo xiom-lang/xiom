@@ -28,11 +28,22 @@ Supersedes the R-5 batch handoff below (kept as history).
 > C9 `opt` fix + C8b wasm glue + CI hygiene + notes), Stage 6 W004
 > (unreachable match arm), R-2d (`--check` must not implicit-main-wrap
 > library files).
-> Next work: the backlog below in order -- loop-CSE retry with the
-> amqp:1266 fragment, then module-const/table materialization,
+> Next work: the backlog below in order -- module-level const table
+> materialization (perf/code-size only, packages row 25: merkle's 64
+> SHA-256 K constants are rebuilt into a runtime Vec[Int] on every hash,
+> l10n-currency's 165-row ISO table compiles into comparison chains;
+> today IMMUTABLE consts are substituted at each use site via
+> `local.constants` -- `register_functions` already emits real globals
+> for mutable module `var` (`module_global_defs` + `global_const_init`),
+> so the fix direction is an `internal constant` global for const
+> ARRAYS (and a static-data + header design for const Vecs) plus a
+> GEP-the-global read path; needs a fresh batch with locks), then
 > same-name fn shadowing (no redefinition diagnostic), `Vec` ~2^24 cap,
 > transient `program_exit=-1` capture batch, playground polish,
-> CI Heavy Suites triage. Stage 6 tier 3 is a noise-budget decision
+> CI Heavy Suites triage. `loop-CSE retry` is parked: all reductions
+> clean on `f4af5f64`, the full pre-fix decoder is not in packages git
+> history -- the packages lane should recover it from the porting
+> session's edit history. Stage 6 tier 3 is a noise-budget decision
 > (unused locals etc.) -- deferred to the owner.
 > Held release item: `XIOM_STRICT_BRACKETS` default flip + the 3 stdlib
 > mixed-bracket sites (`io/fs.xi` 36+244, `math/algebra_extended.xi` 311)
@@ -120,11 +131,16 @@ Supersedes the R-5 batch handoff below (kept as history).
   bump). The three are expected to differ.
 - **Backlog (in order)**: ~~benchmark R-2 partial + R-2c~~ (landed
   2026-09-29); ~~packages `byte_at >= 128` direct compare~~ (landed
-  2026-09-29); loop-CSE retry with the amqp:1266 fragment;
-  module-level const/table materialization; same-name fn shadowing (no
-  redefinition diagnostic); `Vec` ~2^24 cap; transient `program_exit=-1`
-  capture batch; playground polish (Range-only `unknown type 'Iterator'`
-  warning; W005 stub behind `(2 + 2.5).to_str()`); CI Heavy Suites triage.
+  2026-09-29); loop-CSE retry -- **retry run clean on `f4af5f64`**
+  (`docs/repro/loop-carry-cse/probe_loop_cse.xi` -> `bad=0`, V1/V2/V3
+  all correct, same as v0.62.1); the pre-fix amqp decoder is NOT in the
+  packages git history (only the fragment in the repro README), so a
+  faithful probe needs the porting session's pre-fix file -- relayed to
+  the packages lane; module-level const/table materialization;
+  same-name fn shadowing (no redefinition diagnostic); `Vec` ~2^24 cap;
+  transient `program_exit=-1` capture batch; playground polish
+  (Range-only `unknown type 'Iterator'` warning; W005 stub behind
+  `(2 + 2.5).to_str()`); CI Heavy Suites triage.
 - **Git**: origin/main = `f7baa932` (W004 + R-2d + handoff pushed); local
   `main` = + tier-2 `75623b4f` + R-2 `1814ac36` + the byte_at batch,
   UNPUSHED; repo-local nested `stdlib` checkout at `80e767b` (tag
