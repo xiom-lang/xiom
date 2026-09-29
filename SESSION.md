@@ -103,6 +103,27 @@ Supersedes the (9) handoff below (kept as history).
   checking (xiom.num T001s); repro in
   `tmp/sprintc/m162_sameleaf_catalog_poison/`. Workaround = `rt_` prefixes
   in runtime_ffi.
+- **C22 (playground relay) FIXED**: `xiom run <script>` now hands the
+  checker the script's real directory (parent + guarded grandparent,
+  mirroring the compile path) through `CompileConfig.extra_source_dirs`;
+  the `%TEMP%/xiom_run` temp copy previously meant sibling modules never
+  reached the catalog (`--check` worked, `run` failed with undefined
+  variable). Wired for both pipelines + the `--watch` path. Lock:
+  `tests/regression/c22_run_sibling_module/` + `run_script_cli` CLI suite
+  (CI line). **Playground lane: the `stageForRun` bridge can be deleted.**
+  Local note: this box's Defender blocks freshly built `%TEMP%/xiom_run`
+  exes (os error 225); the lock asserts resolution+codegen (`compiled:`)
+  and tolerates the execution block locally (CI Linux takes the full path).
+- **Coordination note (2026-09-29 evening)**: the compiler lane's
+  `cargo test -p xiom` overlapped with the stdlib smoke battery
+  (`%TEMP%\xiom-smokes-20260929-191201`, 8 `xiom_v0613` workers, started
+  19:12). Three workers were stopped by mistake before the overlap was
+  identified -- if that battery shows failures for smoke_net_http2 /
+  smoke_test3 / smoke_stress_string_upper_lower / smoke_stress_io_rename /
+  smoke_hash2 / smoke_cross_io_convert_fmt / smoke_cmp_reverse /
+  smoke_stress_compress_gzip_levels, re-run those before trusting the
+  result. The battery itself was left untouched afterwards; the compiler
+  lane's suites should not be run concurrently with it on this box.
 - **Git**: local `main` tips = Phase 0 commit `e813449b` + tracker
   `532bfa75` + the m163 fix commit (all local, not pushed; push only on
   the owner's ask).

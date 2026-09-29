@@ -37,6 +37,35 @@ fn compile_or_exit(config: &CompileConfig, sources: &[String]) {
 }
 
 /// M10: Watch mode for `xiom run --watch <file>`.
+/// C22 (playground relay): source dirs for `xiom run` / `--watch`. The run
+/// path compiles a %TEMP%/xiom_run copy, so the checker's catalog would
+/// otherwise never see the script's own directory (sibling modules/packages
+/// failed with undefined-variable errors while `xiom --check` worked).
+/// Mirrors compile()'s parent + grandparent-with-.xi-guard walk.
+fn run_script_source_dirs(script: &str) -> Vec<String> {
+    let mut dirs = Vec::new();
+    let path = std::path::Path::new(script);
+    let Some(parent) = path.parent() else { return dirs; };
+    let parent = if parent.as_os_str().is_empty() {
+        std::path::Path::new(".")
+    } else {
+        parent
+    };
+    dirs.push(parent.to_string_lossy().to_string());
+    if let Some(grandparent) = parent.parent() {
+        if !grandparent.as_os_str().is_empty()
+            && std::fs::read_dir(grandparent).map_or(false, |entries| {
+                entries.flatten().any(|e| {
+                    e.path().extension().map_or(false, |ext| ext == "xi")
+                })
+            })
+        {
+            dirs.push(grandparent.to_string_lossy().to_string());
+        }
+    }
+    dirs
+}
+
 /// Polls the source file every 500ms and re-runs on changes.
 fn run_script_watch(path: &str) {
     let get_mtime = || std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
@@ -69,6 +98,8 @@ fn run_script_watch(path: &str) {
                 let config = CompileConfig {
                     output_file: Some(tmp_out.to_string_lossy().to_string()),
                     do_run: true,
+                    // C22: same source-dir hint as the non-watch run path.
+                    extra_source_dirs: run_script_source_dirs(path),
                     ..CompileConfig::default()
                 };
                 if let Err(errors) = compile(&config, &[tmp_src.to_string_lossy().to_string()]) {
@@ -332,6 +363,7 @@ fn real_main() {
             .collect();
         if effective.is_empty() { process::exit(1); }
 
+        let mut script_path: Option<String> = None;
         let source = if effective[0] == "-e" {
             // xiom run -e "expr"
             if effective.len() < 2 {
@@ -355,6 +387,7 @@ fn real_main() {
                 run_script_watch(path);
                 return;
             }
+            script_path = Some(path.to_string());
             match std::fs::read_to_string(path) {
                 Ok(s) => s,
                 Err(e) => { eprintln!("error: cannot read '{path}': {e}"); process::exit(1); }
@@ -441,6 +474,13 @@ fn real_main() {
             link_paths,
             link_libs,
             c_sources,
+            // C22: the temp copy lives in %TEMP%/xiom_run; hand the checker
+            // the script's real directory so sibling modules resolve exactly
+            // like `xiom --check`.
+            extra_source_dirs: script_path
+                .as_deref()
+                .map(run_script_source_dirs)
+                .unwrap_or_default(),
             ..CompileConfig::default()
         };
 
@@ -835,6 +875,7 @@ fn real_main() {
         lto: use_lto,
         parallel_codegen,
         enable_unsafe_direct,
+        extra_source_dirs: Vec::new(),
     };
 
     // AUDIT #18 FIX (second half): the xiom.toml `[compiler]` table was
@@ -1128,6 +1169,7 @@ fn real_main() {
                     parallel_codegen: false,
                     enable_unsafe_direct: enable_unsafe_direct,
                     opt_level: config.opt_level,
+                    extra_source_dirs: config.extra_source_dirs.clone(),
                 };
                 let result = xiom::compile_with_diagnostics(&check_config, &[path.clone()]);
                 let source = std::fs::read_to_string(path).unwrap_or_default();
@@ -1182,6 +1224,7 @@ fn real_main() {
                     parallel_codegen: false,
                     enable_unsafe_direct: enable_unsafe_direct,
                     opt_level: config.opt_level,
+                    extra_source_dirs: config.extra_source_dirs.clone(),
                 };
                 let result = xiom::compile_with_diagnostics(&check_config, &[path.clone()]);
                 let source = std::fs::read_to_string(path).unwrap_or_default();

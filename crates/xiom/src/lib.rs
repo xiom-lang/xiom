@@ -95,6 +95,13 @@ pub struct CompileConfig {
     /// D2.1 (Phase 7): `--enable-unsafe-direct` -- allow `#[unsafe_direct]`
     /// (trusted escape hatch) in user code (stdlib/selfhost always allowed).
     pub enable_unsafe_direct: bool,
+    /// C22 (playground relay): extra source directories for the checker's
+    /// module catalog. `xiom run <script>` compiles a %TEMP%/xiom_run copy,
+    /// so the source file's own dir is the TEMP dir and sibling modules
+    /// never resolved (`xiom --check <script>` worked). The run path fills
+    /// this with the script's parent (+ guarded grandparent); compile()
+    /// adds them exactly like the source file's own directory.
+    pub extra_source_dirs: Vec<String>,
 }
 
 impl Default for CompileConfig {
@@ -137,6 +144,7 @@ impl Default for CompileConfig {
             lto: false,
             parallel_codegen: false,
             enable_unsafe_direct: false,
+            extra_source_dirs: Vec::new(),
         }
     }
 }
@@ -580,6 +588,11 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
             }
         }
     }
+    // C22: caller-supplied source dirs (script run path) -- added exactly
+    // like the source file's own parent above.
+    for dir in &config.extra_source_dirs {
+        checker.add_source_dir(dir.clone());
+    }
     // Phase 7A: Add source root directories from the dependency graph
     for dir in &graph_source_dirs {
         checker.add_source_dir(dir.clone());
@@ -861,6 +874,11 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 checker.add_source_dir(src_dir.to_string_lossy().to_string());
             }
         }
+    }
+    // C22: caller-supplied source dirs (script run path) -- added exactly
+    // like the source file's own parent above.
+    for dir in &config.extra_source_dirs {
+        checker.add_source_dir(dir.clone());
     }
     // Phase 7A: Add source root directories from the dependency graph
     for dir in &graph_source_dirs {

@@ -143,7 +143,7 @@ jobs:
       # (clause Bool-mix rejection, private same-leaf triage). Unit tests ride
       # the workspace --lib step above; these run the built binary.
       - name: Front-end CLI + borrow + checker locks
-        run: cargo test -p xiom --test doctor_cli --test borrow_e001 --test checker_locks
+        run: cargo test -p xiom --test doctor_cli --test borrow_e001 --test checker_locks --test run_script_cli
 
       - name: Tooling unit tests (bin-only crates)
         run: cargo test -p xiom-pkg -p xiom-dbg -p xiom-lsp -p xiom-mcp
