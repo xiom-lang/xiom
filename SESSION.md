@@ -19,8 +19,11 @@ Supersedes the R-5 batch handoff below (kept as history).
 > Publish** workflow (`workflow_dispatch` from main, dry-run supported,
 > per-marketplace version-absent gate -- no compiler tag needed;
 > `release.yml` still publishes on `v*` tags). The v0.62.1 GitHub release
-> asset still carries the older `xiom-vscode-0.12.0.vsix`; the next
-> release attaches 0.12.1.
+> VSIX asset was swapped to `xiom-vscode-0.12.1.vsix` (72,534 B, sha256
+> `ab1de7f967d615bfd45b3fdd39da2e178404cee900dbe99f60c3383137ad3430`;
+> `SHA256SUMS` re-uploaded; download-back verified, 0.12.0 asset
+> deleted). The `dl.xiom-lang.org` mirror still lists the 0.12.0 vsix
+> asset name until its next sync (ops/VPS action; GitHub is canonical).
 > Local `main` = origin/main = `19c611c0` (tier-2 `75623b4f`, R-2
 > `1814ac36`, byte_at `f4af5f64`, session docs `e064fddf`, vscode 0.12.1
 > refresh) -- all pushed; tree clean. Run long suites with reduced
@@ -161,11 +164,13 @@ Supersedes the R-5 batch handoff below (kept as history).
   transient `program_exit=-1` capture batch; playground polish
   (Range-only `unknown type 'Iterator'` warning; W005 stub behind
   `(2 + 2.5).to_str()`); CI Heavy Suites triage.
-- **Git**: origin/main = local main = `19c611c0` (tier-2 `75623b4f`,
-  R-2 `1814ac36`, byte_at `f4af5f64`, session docs `e064fddf`, vscode
-  0.12.1 refresh `19c611c0`; all pushed, tree clean); repo-local nested
-  `stdlib` checkout at `80e767b` (tag `stdlib-v0.62.0` now points at
-  `0e63101`; refresh at the next pin step).
+- **Git**: origin/main = local main (tip = the VSIX-swap docs commit;
+  prior tips `72e42ac2`, `19c611c0`); all pushed, tree clean. Landed
+  commits: tier-2 `75623b4f`, R-2 `1814ac36`, byte_at `f4af5f64`,
+  session docs `e064fddf`, vscode 0.12.1 refresh `19c611c0`, docs
+  `72e42ac2`. Repo-local nested `stdlib` checkout at `80e767b` (tag
+  `stdlib-v0.62.0` now points at `0e63101`; refresh at the next pin
+  step).
 
 # BATCH HANDOFF (2026-09-28, R-5 relay fix -- branch `bench/r5-extern-gate`)
 
