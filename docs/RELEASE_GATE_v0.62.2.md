@@ -106,6 +106,14 @@ suite grew.
 - [ ] Benchmark lane re-run on v0.62.2: t2-queue in the ms range and no
       regression on t1/t3/t4/t5/t8. THIS IS THE RELEASE ACCEPTANCE for
       PERF-1 -- the public benchmark must not ship with XIOM in seconds.
+      **STATUS 2026-09-30: NOT ACCEPTED for v0.62.2.** t2 stayed ~34 s /
+      ~12 s because legacy consumers bind `xiom.sync`'s own (unannotated)
+      AtomicInt methods/helpers, and m166's trust lookup missed method
+      decls -- both halves now diagnosed; the compiler half is FIXED
+      (receiver-qualified trust key; full e2e green). The stdlib half
+      (`sync.xi` annotation + tag `stdlib-perf2`) and the re-run move the
+      acceptance to the FOLLOW-UP release (v0.62.3). Everything else in
+      the arena passed with no regressions.
 
 ## Gate C -- packages + consumers rehearsal (external, non-blocking)
 

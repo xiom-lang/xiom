@@ -45,6 +45,18 @@ Remaining release steps: the stdlib lane annotates
 `stdlib/xiom/sync/atomics.xi` (relay in COMPILER_BUGS m166 + the release
 gate), the pin moves for v0.62.2, and the benchmark lane re-runs t2-queue.
 
+**v0.62.2 outcome (2026-09-30): t2 NOT cleared.** The atomics.xi
+annotation shipped, but t2 stayed ~34 s (full arena) / ~12 s (probe):
+consumers of the LEGACY `xiom.sync` API bind `sync.xi`'s own AtomicInt
+methods/helpers (unannotated), and the m166 provenance lookup missed
+METHOD decls (short `fd.name.name` vs the receiver-qualified injected key).
+The compiler gap is FIXED (receiver-qualified trust key in `compile_fn` +
+the mono path; locks + full e2e 2393/2393; local proof 7000 ms -> 0 ms
+with the legacy methods annotated). Remaining: stdlib annotates
+`sync.xi`'s unsafe-block fns (relay in COMPILER_BUGS 2026-09-30), tags
+`stdlib-perf2`, pin moves, benchmark re-runs -- Gate P then accepted for
+the FOLLOW-UP release (v0.62.3), not v0.62.2.
+
 Candidate fixes (1)/(2)/(3) from the list below (block-level arming,
 callee classification, trampoline fast path) remain Stage 6 follow-ups for
 hot unsafe blocks that CANNOT be marked trusted (user code without

@@ -565,6 +565,46 @@ fn main() -> Int { var x = 41; return direct_read(&x) - 41; }
         "m166: without trust the unsafe block must stay confined; got:\n{}", ir_confined);
 }
 
+// m166 follow-up (benchmark t2): METHOD decls keep a SHORT name with the
+// receiver; the trust lookup must use the receiver-qualified key
+// ("Recv.method"), which is what the driver's fn_dedup_key registers and
+// what the emitted symbol uses. The legacy xiom.sync.AtomicInt methods were
+// never trusted without this and kept their per-call trampoline.
+#[test]
+fn regress_m166_method_receiver_trust_key() {
+    let source = r#"
+type Cell = { value: Int; }
+#[unsafe_direct]
+pub fn Cell.poke(self, p: *Int) -> Int {
+  unsafe { return *p; }
+}
+fn main() -> Int {
+  var c = Cell{ value: 41 };
+  var x = 41;
+  return c.poke(&x) - 41;
+}
+"#;
+    let tokens = Lexer::new(source).tokenize();
+    let program = Parser::new(tokens).parse_program()
+        .expect("m166: attribute-first pub method must parse");
+    fn trampoline_calls(ir: &str) -> usize {
+        ir.lines().filter(|l| l.contains("call ") && l.contains("xiom_trampoline_call")).count()
+    }
+    // Trusted via the receiver-qualified injected key.
+    let mut trusted = IrEmitter::new();
+    trusted.set_legacy_stub_unresolved(true);
+    trusted.set_catalog_fn_keys(["Cell.poke".to_string()].into_iter().collect());
+    let ir_trusted = trusted.compile_program(&program).unwrap();
+    assert_eq!(trampoline_calls(&ir_trusted), 0,
+        "m166: a trusted METHOD must not emit a trampoline call; got:\n{}", ir_trusted);
+    // Without trust the method stays confined.
+    let mut confined = IrEmitter::new();
+    confined.set_legacy_stub_unresolved(true);
+    let ir_confined = confined.compile_program(&program).unwrap();
+    assert!(trampoline_calls(&ir_confined) > 0,
+        "m166: without trust the method's unsafe block must stay confined; got:\n{}", ir_confined);
+}
+
 #[test]
 fn regress_5c30_uint_coercion() {
     // Int literal ? UInt8 coercion

@@ -10,6 +10,48 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-09-30 -- m166 follow-up FIXED: method trust key + legacy xiom.sync atomics (t2 residual)
+
+Benchmark relay: t2-queue still ~34 s (full arena) / ~12 s (probe) on
+v0.62.2 even though the xiom.sync.atomics annotation shipped. Local
+inspection of the released state confirmed `@sync.AtomicInt.load`-style
+methods still emitted the full per-call trampoline + guard sequence.
+
+Two gaps:
+
+1. TRUST KEY: the m166 provenance lookup compared `catalog_fn_keys`
+   against `fd.name.name`, but METHOD decls keep a SHORT name (`load`) with
+   the receiver in `fd.receiver`; the injected keys use the
+   receiver-qualified form (`AtomicInt.load`, matching the driver's
+   `fn_dedup_key` and the emitted symbol). Methods were therefore never
+   trusted even when annotated. Fixed in `compile_fn` and the generic-mono
+   path: build `trust_key = "{receiver}.{name}"` for methods.
+2. SOURCE COPY: consumers of the legacy `xiom.sync` standalone API bind
+   `sync.xi`'s OWN `AtomicInt` methods/helpers (lines ~511-571, 691-755),
+   not the annotated `xiom.sync.atomics` module. Those legacy fns carry
+   their own unsafe blocks and need `#[unsafe_direct]` too (stdlib lane).
+
+Local proof (legacy sync.xi `.load`/`.store` annotated LOCALLY, edit
+reverted): 4M pairs **7000 ms -> 0 ms**; the emitted IR for
+`@AtomicInt.load`/`@AtomicInt.store` drops every `xiom_trampoline_call` +
+guard arm/disarm. Repros: `tmp/sprintc/perf_atomic_legacy.xi` (legacy API)
+and `docs/repro/perf-1-atomic-trampoline/perf_atomic_trampoline.xi`
+(atomics API).
+
+Locks: `regress_m166_method_receiver_trust_key` (trusted method -> 0
+trampolines; untrusted -> confined) + the existing free-fn lock. Gates:
+full e2e 2393/2393 (+4 ignored), feature-reg 515/515, parser 107/107,
+CLI locks, selfhost diff 2.
+
+RELAY (stdlib lane): annotate every fn in `stdlib/xiom/sync/sync.xi` whose
+body contains an `unsafe` block -- at minimum the `AtomicInt` methods
+(new/load/store/fetch_add/fetch_sub/swap/compare_exchange) and the
+standalone `atomic_*` helpers; consider the spin/yield helpers
+(`cdl_wait_spin`). Tag for the next pin (e.g. stdlib-perf2); the t2 Gate P
+re-run waits on it. NOTE: the fix requires compiler >= this commit.
+
+---
+
 ## 2026-09-29 -- m166 FIXED: `#[attr] pub fn` silently dropped the attribute; `#[unsafe_direct]` trust did not cover injected stdlib fns
 
 Found while chasing PERF-1 (benchmark t2-queue, ~1 us/call unsafe-block

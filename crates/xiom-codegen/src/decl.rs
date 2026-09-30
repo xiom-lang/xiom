@@ -1227,6 +1227,21 @@ impl IrEmitter {
         // trusted (no trampoline/arena/guard page). Restricted to stdlib/trusted
         // or user code with --enable-unsafe-direct.
         let has_direct = fd.attributes.iter().any(|a| a.name.name == "unsafe_direct");
+        // m166 follow-up: METHOD decls keep a SHORT fd.name.name ("load")
+        // with the receiver in fd.receiver; the injected catalog keys use
+        // the receiver-qualified form ("AtomicInt.load", same as the
+        // driver's fn_dedup_key and the emitted symbol). Without this the
+        // legacy xiom.sync.AtomicInt methods were never trusted and kept
+        // their per-call trampoline (benchmark t2).
+        let trust_key = if fd.is_method() {
+            format!(
+                "{}.{}",
+                fd.receiver.as_ref().map(|r| r.name.as_str()).unwrap_or(""),
+                fd.name.name
+            )
+        } else {
+            fd.name.name.clone()
+        };
         // m166: stdlib/selfhost origin is judged by the PRIMARY source path OR
         // by the fn's INJECTED catalog key -- when a user program imports the
         // stdlib, the primary source is the user's file, so an annotated
@@ -1235,7 +1250,7 @@ impl IrEmitter {
         // block keeps the per-call trampoline + guard-page cost.
         let is_stdlib = self.config.source_file.contains("stdlib")
             || self.config.source_file.contains("selfhost")
-            || self.config.catalog_fn_keys.contains(&fd.name.name);
+            || self.config.catalog_fn_keys.contains(&trust_key);
         let direct_allowed = has_direct && (is_stdlib || self.config.enable_unsafe_direct);
         self.fctx.unsafe_direct = direct_allowed;
         if has_direct && !direct_allowed {

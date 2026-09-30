@@ -79,6 +79,36 @@ Supersedes the (9) handoff below (kept as history).
 
 ## Cross-lane notes (2026-09-29)
 
+- **Benchmark lane relay (2026-09-30, Gate P NOT accepted on t2)**:
+  v0.62.2 t2 = 33,693 ms (full arena 42/42) / 11,968 ms (probe) vs
+  rust 14/3 ms; their root cause: call sites still pay the trampoline
+  around trusted stdlib fns and legacy `xiom.sync.AtomicInt` is
+  unannotated. Compiler lane: confirmed and FIXED the method trust-key
+  gap (receiver-qualified key; local proof: legacy path 7000 ms -> 0 ms
+  with the two legacy methods annotated; locks + full e2e 2393/2393).
+  RELAY to stdlib: annotate `stdlib/xiom/sync/sync.xi` unsafe-block fns
+  (AtomicInt methods + standalone `atomic_*` helpers; consider
+  `cdl_wait_spin`), tag `stdlib-perf2`; then the benchmark re-runs --
+  acceptance moves to the follow-up release (v0.62.3).
+- **Packages lane relay (2026-09-30, v0.62.2 re-pin)**: byte_at battery
+  `bad=0` (workaround retired), 435 records re-pinned. Fleet sweep found 2
+  REAL regressions among ready/published packages: `xiom.expat` and
+  `xiom.nbt` exit `-1` with NO stdout; adding `io.flush_stdout()` after
+  every println makes expat pass 25/25 and nbt 25/26 (one genuine nbt
+  check failure remains: u16 length-prefix/UTF-8 names). Both were green
+  on v0.62.1 and reproduce running the compiled a.exe directly -- a
+  v0.62.2 codegen/exit regression, not the byte_at workaround (their
+  `%TEMP%\kilo\sweep-v0622*` logs + COMPILER-FINDINGS.md 2026-09-30).
+  QUEUED as the next bug batch: bisect the silent-exit/stdout-flush
+  regression (candidates: m163/m164/m165 codegen; check exit + flush
+  paths).
+- **Playground relay (C23, 2026-09-30)**: v0.62.1 (presumably also
+  0.62.2) miscompiles at -O2 (the default level) -- three lesson programs
+  give silently wrong answers at -O2, correct at -O0, host-LLVM-dependent
+  (lessons L6-15, L7-39, L8-09; reductions do not reproduce; the GitHub
+  runner's -O2 output differed from a WSL host's). They run -O0 meanwhile.
+  QUEUED as a correctness batch after the packages regression: repro at
+  the pin with -O2 vs -O0, then bisect.
 - **Registry lane relay (post-v0.62.2, QUEUED)**: registry 2.7.0 is live;
   two xiom-pkg-only changes queued AFTER the release ships (registry is
   not touching this repo meanwhile). (C5) Pin + verify the registry index
