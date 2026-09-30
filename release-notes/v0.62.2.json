@@ -27,6 +27,11 @@
       "kind": "fix",
       "title": "Sibling imports work under the run command",
       "text": "Running a script now resolves modules next to the script exactly like checking it does; previously the temporary working copy hid the script's directory from the module catalog."
+    },
+    {
+      "kind": "stdlib",
+      "title": "Standard-library atomics run at native speed",
+      "text": "Atomic integer, boolean, and pointer operations in the standard library's sync module now compile directly, removing the per-call safety trampoline from tight thread-safe loops built on them."
     }
   ],
   "breaking": [],

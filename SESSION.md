@@ -77,17 +77,48 @@ Supersedes the (9) handoff below (kept as history).
 
 ## Cross-lane notes (2026-09-29)
 
+- **Registry lane relay (post-v0.62.2, QUEUED)**: registry 2.7.0 is live;
+  two xiom-pkg-only changes queued AFTER the release ships (registry is
+  not touching this repo meanwhile). (C5) Pin + verify the registry index
+  digest: TrustStore gains `index_keys: BTreeMap<String,String>`
+  (serde-default so legacy trust files load; normalize like `keys`),
+  `get_index_key`/`pin_index` (hex validation like `pin`); `trust
+  --registry <URL> --index-key <hex>` (mutually exclusive with `--key`);
+  `trusted` lists index keys; pure
+  `verify_index_digest(index_bytes, digest_json, pinned_key)` with the
+  four checks (sha256, byte length, public-key equality, ed25519 over
+  "xiom-index-digest:v1\n" + lowercase sha256 hex) called in
+  `fetch_registry_index` right after the fetch and BEFORE caching; fail
+  closed when a key is pinned, skip the digest fetch entirely when not
+  (staging is unsigned). Do NOT reuse the artifact `keys` map (official
+  artifacts use per-run OIDC keys). Production pin: key
+  `f76f5ff51538ce757454864494b74eae5424ce9ae6eb33689aa31ffe6d059673`,
+  fingerprint `f7:6f:5f:f5:15:38:ce:75`. Tests: legacy trust file loads;
+  accepts a KeyPair-signed payload; rejects wrong key / tampered bytes /
+  missing signature. (B3) `publish --dry-run` posts the same multipart to
+  POST `{registry}/validate` (no writes) and prints the JSON incl.
+  warnings; documented in `PUBLISHING.md` (registry commit 33c3d56).
+  Background: registry SESSION.md section 24.
+- **Playground ack**: C22 closed; they delete `stageForRun` at the
+  v0.62.2 pin bump and re-run the package tests; their production package
+  runs are 5-7.5 s vs a 30 s timeout, so the temp-dir churn note does not
+  apply in their container.
 - **Release gate v0.62.2 (planned)**: `docs/RELEASE_GATE_v0.62.2.md` --
   version+notes preconditions (workspace 0.62.2, `SELFHOST_VERSION`,
   `release-notes/v0.62.2.{md,json}` BEFORE the tag, `STDLIB_VERSION`
   pin), compiler-lane suite gates (all green as of the last runs),
   stdlib-lane sign-off, packages rehearsal, a `workflow_dispatch`
   dry-run before tagging, and the tag/publish/post-release steps.
-  v0.62.2 is plannable now; the remaining inputs are the stdlib lane's
-  final sign-off + pin tag and the owner's tag push. **Release notes
-  drafted**: `release-notes/v0.62.2.{md,json}` (convert + verify green, 5
-  highlights, schema-1); re-convert after any stdlib fragment lands so the
-  committed JSON stays byte-in-sync.
+  v0.62.2 is READY: stdlib delivered `stdlib-perf1` (`06d0ee7`, all 16
+  atomics wrappers annotated), `STDLIB_VERSION` updated, repo-local
+  checkout refreshed to the pin, release notes re-converted WITH the
+  stdlib fragment (6 highlights, verify green), versions bumped to
+  `0.62.2` (workspace + `SELFHOST_VERSION`). All local gates green at the
+  release state (e2e 2393/2393 +4 ignored at 8 threads, stdlib_tests
+  40/40, stdlib_execution 85 +2 ignored, api-freeze 2/2, feature-reg
+  514/514, parser 107/107, CLI locks, selfhost diff 2). Remaining:
+  `release.yml` dry-run, the owner's tag push (`v0.62.2`), and the
+  benchmark-lane re-run (Gate P acceptance).
 - **m166 FIXED (PERF-1, owner-required for v0.62.2)**: `#[unsafe_direct]`
   written above `pub fn` was a P001 that error recovery absorbed -- the
   attribute was silently dropped -- AND stdlib fns compiled inside a user

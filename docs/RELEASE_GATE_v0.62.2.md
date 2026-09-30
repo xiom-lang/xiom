@@ -36,13 +36,15 @@ once the stdlib annotation lands).
 - [ ] `selfhost/src/codegen.xi` `SELFHOST_VERSION` const -> `0.62.2`
       (mirrors the Rust `--emit-ir` header).
 - [x] `release-notes/v0.62.2.md` + `v0.62.2.json` committed (drafted
-      2026-09-29; `convert` + `verify` green: 5 highlights, schema-1).
-- [ ] RE-CONVERT if the pinned stdlib ships `release-notes/v0.62.2.md`:
-      the release job's `verify` regenerates WITH the stdlib fragment and
-      fails on a stale JSON. Re-run
-      `cargo run -p xiom-release-notes -- convert --tag v0.62.2
-      --stdlib <stdlib checkout>` after the pin lands.
-- [ ] `docs/COMPILER_VERSIONS.md` entry for 0.62.2.
+      2026-09-29; RE-CONVERTED with the stdlib fragment: 6 highlights,
+      `convert` + `verify --stdlib stdlib` green).
+- [x] `STDLIB_VERSION` = `stdlib-perf1` (tag on stdlib commit `06d0ee7`,
+      PERF-1 annotations; repo-local checkout refreshed to the pin).
+- [x] Version bumps on the release commit: workspace `Cargo.toml` ->
+      `0.62.2`, `selfhost/src/codegen.xi` `SELFHOST_VERSION` -> `0.62.2`.
+- [x] Version history: `docs/COMPILER_VERSIONS.md` is a stale roadmap doc
+      (v0.33 era, not maintained per release); the record is
+      `release-notes/` + the GitHub release. No entry needed there.
 - [ ] `STDLIB_VERSION` pinned to the stdlib lane's final tag (currently
       `stdlib-v0.62.0`; the lane decides the candidate tag -- the release
       checks the stdlib out at this exact ref).
@@ -53,37 +55,41 @@ Commands run from the repo root on this box. Expected counts as of the last
 green runs (2026-09-29); re-run at the release commit and update if the
 suite grew.
 
-- [ ] `cargo test -p xiom-codegen --test e2e_tests -- --test-threads 12`
-      -> 2393 passed / 0 failed / 4 ignored (last: 1813 s).
-- [ ] `cargo test -p xiom-codegen --test feature_regression_tests`
-      -> 513 passed.
-- [ ] `cargo test -p xiom-codegen --test full_diff_tests`
-      -> 2 passed (selfhost T1 gate stays green; T2/T3 untouched).
-- [ ] `cargo test -p xiom --test checker_locks --test borrow_e001
-      --test doctor_cli --test run_script_cli` -> 23 + rest green
-      (run_script_cli tolerates the local Defender os-error-225 execution
-      block; CI Linux takes the full path).
-- [ ] `cargo test -p xiom-codegen` unit/lib targets green.
+- [x] e2e at the release state: 2393 passed / 0 failed / **4 ignored**
+      (1589 s, `--test-threads 8`; box unstable at higher parallelism --
+      suites re-run in smaller chunks).
+- [x] feature-reg 514/514; parser 107/107; full_diff 2/2 (selfhost T1
+      gate green; T2/T3 untouched).
+- [x] CLI locks: checker_locks 23/23, borrow_e001 2/2, doctor_cli 2/2,
+      run_script_cli 4/4 (run test tolerates the local Defender block;
+      compile+resolution asserted).
+- [x] Stdlib suites against the pin (`stdlib-perf1`): stdlib_tests
+      40/40 (2 threads), stdlib_execution_tests 85 passed + 2 ignored,
+      stdlib_api_freeze_tests 2/2.
 - [ ] `cargo check --workspace --all-targets` clean (2 known pre-existing
-      `xiom-codegen` dead_code warnings only).
-- [ ] CI PR job green on the release PR/commit (ci.yml: fuzz, robustness,
-      perf budgets, stdlib API freeze, selected e2e).
-- [ ] `python tools/ascii_guard.py check` clean; tree clean.
+      `xiom-codegen` dead_code warnings only) -- not re-run this wave;
+      `cargo build -p xiom` clean at 0.62.2.
+- [ ] CI PR job: N/A for this flow -- pushes to main bypass PRs (owner
+      policy); the tag-driven release job is the CI gate. ci.yml did not
+      run on the release commits.
+- [x] `python tools/ascii_guard.py check` clean; tree clean at commit.
 
 ## Gate B -- stdlib lane sign-off (external)
 
-- [ ] Stdlib suites green at the pinned tag (their harness: stdlib_tests,
-      smoke battery; last known: 85/85 stdlib-exec + all smokes, with the
-      concurrent-battery caveat recorded in SESSION).
-- [ ] **PERF-1 stdlib annotation**: every fn in `stdlib/xiom/sync/atomics.xi`
-      whose body contains an `unsafe` block carries `#[unsafe_direct]`
-      (verified locally: atomics loop 8000 ms -> 0 ms; see COMPILER_BUGS
-      m166). Requires compiler >= the m166 commit; tag for this wave.
-- [ ] Stdlib lane confirms the pin tag for `STDLIB_VERSION`.
-- [ ] Release-notes stdlib fragment present in the stdlib checkout (the
-      verify step reads it when `release-notes/v0.62.2.md` exists there;
-      our committed JSON must then be re-converted -- see the
-      preconditions).
+- [x] Stdlib suites green at the pinned tag (their harness: check_modules
+      509/509, corpus 951/951 0 fail, probes 203/203, barename 0/509,
+      coverage floors + doc/module-smoke ratchets OK; committed `86c5a48`,
+      battery on the wave commit, tag `stdlib-perf1` -> `06d0ee7`).
+- [x] **PERF-1 stdlib annotation**: all 16 pub fns in
+      `stdlib/xiom/sync/atomics.xi` carry `#[unsafe_direct]` (verified in
+      the refreshed checkout: 16 occurrences); pre-m166 compilers drop the
+      attribute silently (reverified by the stdlib lane -- no break).
+- [x] Stdlib lane confirmed the pin tag: **`stdlib-perf1`** (commit
+      `06d0ee7`); `STDLIB_VERSION` updated; repo-local checkout refreshed
+      to the pin.
+- [x] Release-notes stdlib fragment present (`release-notes/v0.62.2.md`
+      in the pin: "Standard-library atomics run at native speed"); our
+      committed JSON re-converted -- 6 highlights, verify green.
 
 ## Gate P -- PERF-1 acceptance (owner-required)
 
@@ -95,8 +101,8 @@ suite grew.
 - [x] Local measurement with the annotation applied LOCALLY: 4M atomic
       pairs 8000 ms -> 0 ms; IR shows no trampoline/guard in the wrappers
       (`docs/repro/perf-1-atomic-trampoline/`, edit reverted after).
-- [ ] Stdlib annotation landed + tagged (Gate B) and `STDLIB_VERSION`
-      updated to that tag.
+- [x] Stdlib annotation landed + tagged (Gate B) and `STDLIB_VERSION`
+      updated to `stdlib-perf1`.
 - [ ] Benchmark lane re-run on v0.62.2: t2-queue in the ms range and no
       regression on t1/t3/t4/t5/t8. THIS IS THE RELEASE ACCEPTANCE for
       PERF-1 -- the public benchmark must not ship with XIOM in seconds.
