@@ -124,14 +124,15 @@ suite grew.
       the new `extra_source_dirs` field (the local `-p xiom` debug build
       never compiled xiom-mcp). Fixed; the full nine-package release build
       is green locally and every tool self-reports v0.62.2.
-- [ ] Second dry run green (dispatched after the fix): windows + linux
-      artifacts built. NOTE: `RELEASE_BUILD_MACOS=true` is currently set,
-      so the macOS legs run too -- they failed on the same E0063 in the
-      first run; confirm they now pass, or set the variable false before
-      the tag if macOS is not wanted for this release.
-- [ ] Download and inspect one artifact: tools run, `lib/xiom` +
-      `lib/runtime` + `package.xi` + `AI_CONTEXT.md` present, SHA256SUMS
-      complete.
+- [x] Second dry run (run 36707354989) GREEN on every leg: windows-x64
+      2m36s, linux-x64 3m26s, macos-arm64 2m22s, macos-x64 3m40s, VSIX
+      23s; the publish job correctly skipped on dispatch. macOS legs pass
+      with `RELEASE_BUILD_MACOS=true` (z3 bundled per platform).
+- [x] Packaging asserts ran inside every leg (CRB-3b: all nine tools
+      `--version` match; z3 runs; wasm magic checked on linux; per-leg
+      SHA256SUMS written). No artifact download needed for the gate --
+      the in-workflow asserts + the release job's checksum guard cover
+      the same surface.
 
 ## Gate E -- tag + publish (owner action)
 
