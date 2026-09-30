@@ -350,6 +350,17 @@ pub(crate) fn fetch_registry_index(registry: &str) -> Result<RegistryIndex, Stri
 
     let url = format!("{registry}/index.json");
     let body = http_get(&url)?;
+    // C5 (registry relay): when an index key is pinned for this registry,
+    // verify the signed digest BEFORE parsing or caching -- fail closed on a
+    // missing/mismatched/unsigned digest. With no pin (staging is
+    // deliberately unsigned) the digest fetch is skipped entirely and the
+    // behavior is unchanged for existing users and tests.
+    if let Some(pinned) = crate::signing::TrustStore::load().get_index_key(registry).cloned() {
+        let digest_url = format!("{registry}/index-digest.json");
+        let digest = http_get(&digest_url)
+            .map_err(|e| format!("index digest fetch failed ({digest_url}): {e}"))?;
+        crate::signing::verify_index_digest(body.as_bytes(), &digest, &pinned)?;
+    }
     let index: RegistryIndex = serde_json::from_str(&body)
         .map_err(|e| format!("Invalid registry index: {e}"))?;
 

@@ -582,30 +582,63 @@ fn keygen_command(args: &[String]) {
     println!("Consumers pin the REGISTRY key instead: xiom pkg trust --registry <URL> --key <registry-key>");
 }
 
-/// `xiom pkg trust --registry URL --key HEX` -- pin a registry's signing key.
+/// `xiom pkg trust --registry URL --key HEX`          -- pin a registry's artifact signing key.
+/// `xiom pkg trust --registry URL --index-key HEX`    -- pin the signed-index key (C5).
 fn trust_command(args: &[String]) {
     let get = |flag: &str| args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1));
-    let (registry, key) = match (get("--registry"), get("--key")) {
-        (Some(r), Some(k)) => (r.clone(), k.clone()),
-        _ => {
+    let registry = match get("--registry") {
+        Some(r) => r.clone(),
+        None => {
             eprintln!("Usage: xiom pkg trust --registry <URL> --key <ed25519-public-hex>");
+            eprintln!("       xiom pkg trust --registry <URL> --index-key <ed25519-public-hex>");
             process::exit(1);
         }
     };
     let mut store = signing::TrustStore::load();
-    if let Err(e) = store.pin(&registry, &key) {
-        eprintln!("xiom pkg: {e}");
-        process::exit(1);
+    match (get("--key"), get("--index-key")) {
+        (Some(_), Some(_)) => {
+            eprintln!(
+                "xiom pkg: --key and --index-key are mutually exclusive \
+                 (artifact publisher key vs registry INDEX key)"
+            );
+            process::exit(1);
+        }
+        (Some(key), None) => {
+            if let Err(e) = store.pin(&registry, key) {
+                eprintln!("xiom pkg: {e}");
+                process::exit(1);
+            }
+            println!("Trusted {} ({})", registry, signing::fingerprint(key));
+        }
+        (None, Some(key)) => {
+            if let Err(e) = store.pin_index(&registry, key) {
+                eprintln!("xiom pkg: {e}");
+                process::exit(1);
+            }
+            println!(
+                "Pinned index key for {} ({}) -- the signed index digest is now verified on every fetch",
+                registry,
+                signing::fingerprint(key)
+            );
+        }
+        (None, None) => {
+            eprintln!("Usage: xiom pkg trust --registry <URL> --key <ed25519-public-hex>");
+            eprintln!("       xiom pkg trust --registry <URL> --index-key <ed25519-public-hex>");
+            process::exit(1);
+        }
     }
-    println!("Trusted {} ({})", registry, signing::fingerprint(&key));
 }
 
-/// `xiom pkg trusted` -- list pinned registry keys.
+/// `xiom pkg trusted` -- list pinned registry keys (artifact + index).
 fn trusted_command() {
     let store = signing::TrustStore::load();
     let mut count = 0;
     for (registry, key) in store.entries() {
         println!("{}  {}  fp={}", registry, key, signing::fingerprint(key));
+        count += 1;
+    }
+    for (registry, key) in store.index_entries() {
+        println!("{}  {}  fp={}  (index key)", registry, key, signing::fingerprint(key));
         count += 1;
     }
     if count == 0 {
@@ -790,19 +823,39 @@ fn publish_package(args: &[String]) {
     }
 
     // Upload tarball to registry via multipart form (ureq-only).
+    // B3 (registry relay): `--dry-run` posts the SAME multipart to /validate
+    // (the exact /publish checks with no writes) and prints the JSON
+    // response, warnings included, instead of creating anything.
+    let dry_run = args.iter().any(|a| a == "--dry-run");
     let registry = registry_url();
-    println!("Publishing to {}...", registry);
+    println!("{} to {}...", if dry_run { "Validating" } else { "Publishing" }, registry);
 
-    match registry::http_post_multipart(&format!("{}/publish", registry), &tarball_path, "package", &fields) {
+    match registry::http_post_multipart(
+        &format!("{}/{}", registry, publish_endpoint(dry_run)),
+        &tarball_path,
+        "package",
+        &fields,
+    ) {
         Ok(resp) => {
-            println!("Published {} v{} -- {}", pkg.name, pkg.version, resp.trim());
-            // R53 (registry relay): a 201 body may carry non-fatal warnings
-            // (e.g. "unknown category 'foo' ignored") -- surface them.
-            if let Ok(body) = serde_json::from_str::<serde_json::Value>(resp.trim()) {
-                if let Some(warnings) = body.get("warnings").and_then(|w| w.as_array()) {
-                    for w in warnings {
-                        if let Some(text) = w.as_str() {
-                            eprintln!("  warning: {text}");
+            if dry_run {
+                match serde_json::from_str::<serde_json::Value>(resp.trim()) {
+                    Ok(body) => println!(
+                        "{}",
+                        serde_json::to_string_pretty(&body).unwrap_or_else(|_| resp.trim().to_string())
+                    ),
+                    Err(_) => println!("{}", resp.trim()),
+                }
+                println!("Validation only -- nothing was written.");
+            } else {
+                println!("Published {} v{} -- {}", pkg.name, pkg.version, resp.trim());
+                // R53 (registry relay): a 201 body may carry non-fatal warnings
+                // (e.g. "unknown category 'foo' ignored") -- surface them.
+                if let Ok(body) = serde_json::from_str::<serde_json::Value>(resp.trim()) {
+                    if let Some(warnings) = body.get("warnings").and_then(|w| w.as_array()) {
+                        for w in warnings {
+                            if let Some(text) = w.as_str() {
+                                eprintln!("  warning: {text}");
+                            }
                         }
                     }
                 }
@@ -814,13 +867,21 @@ fn publish_package(args: &[String]) {
             }
         }
         Err(e) => {
-            eprintln!("xiom pkg: publish failed: {e}");
+            eprintln!(
+                "xiom pkg: {} failed: {e}",
+                if dry_run { "validate" } else { "publish" }
+            );
             if tmp_tarball {
                 let _ = fs::remove_file(&tarball_path);
             }
             process::exit(1);
         }
     }
+}
+
+/// B3: the multipart endpoint for a publish (or its `--dry-run` validation).
+fn publish_endpoint(dry_run: bool) -> &'static str {
+    if dry_run { "validate" } else { "publish" }
 }
 
 /// The default signing keypair, when present.
@@ -1156,9 +1217,9 @@ fn print_command_usage(cmd: &str) {
         "install" => eprintln!("Usage: xiom pkg install <package>[@version]"),
         "search" => eprintln!("Usage: xiom pkg search [query] [--category <c>] [--json]"),
         "info" => eprintln!("Usage: xiom pkg info <package>[@version] [--json]"),
-        "publish" => eprintln!("Usage: xiom pkg publish [--token <TOKEN>] [--tarball <PATH>] [--compiler <tag>]"),
+        "publish" => eprintln!("Usage: xiom pkg publish [--token <TOKEN>] [--tarball <PATH>] [--compiler <tag>] [--dry-run]"),
         "keygen" => eprintln!("Usage: xiom pkg keygen [--out <PATH>]"),
-        "trust" => eprintln!("Usage: xiom pkg trust --registry <URL> --key <ed25519-public-hex>"),
+        "trust" => eprintln!("Usage: xiom pkg trust --registry <URL> (--key <hex> | --index-key <hex>)"),
         "trusted" => eprintln!("Usage: xiom pkg trusted"),
         "sign" => eprintln!("Usage: xiom pkg sign <file> [--key PATH]"),
         "verify" => eprintln!("Usage: xiom pkg verify <file> <signature-file> [--key HEX]"),
@@ -1207,6 +1268,13 @@ fn print_usage() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // B3 (registry relay): `--dry-run` must target /validate, never /publish.
+    #[test]
+    fn publish_endpoint_selects_validate_for_dry_run() {
+        assert_eq!(publish_endpoint(false), "publish");
+        assert_eq!(publish_endpoint(true), "validate");
+    }
 
     #[test]
     fn test_parse_package_manifest() {

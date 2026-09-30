@@ -90,14 +90,84 @@ pub fn fingerprint(public_hex: &str) -> String {
     bytes.iter().take(8).map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(":")
 }
 
+/// C5 (registry relay): verify `GET /index-digest.json` against the pinned
+/// index key BEFORE the fetched index is parsed or cached.
+///
+/// The digest carries the sha256 + byte length of the served index bytes and,
+/// when the registry has a signing key configured, ed25519 metadata whose
+/// signature covers the DOMAIN-SEPARATED payload
+/// `"xiom-index-digest:v1\n" + <sha256 lowercase hex>` -- NOT the raw index
+/// bytes. With a key pinned every check is hard: a missing/malformed digest,
+/// a hash or length mismatch, a different public key, or a bad signature
+/// refuses the index (fail closed). Staging is deliberately unsigned; callers
+/// skip this entirely when no index key is pinned.
+pub fn verify_index_digest(index_bytes: &[u8], digest_json: &str, pinned_key: &str) -> Result<(), String> {
+    use sha2::{Digest, Sha256};
+    let digest: serde_json::Value = serde_json::from_str(digest_json)
+        .map_err(|e| format!("index digest is not valid JSON: {e}"))?;
+    let sha = digest
+        .get("sha256")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "index digest is missing `sha256`".to_string())?;
+    let bytes_len = digest
+        .get("bytes")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| "index digest is missing `bytes`".to_string())?;
+    let actual = hex_encode(&Sha256::digest(index_bytes));
+    if !actual.eq_ignore_ascii_case(sha.trim()) {
+        return Err(format!(
+            "INDEX DIGEST MISMATCH: served index hashes to {actual}, digest says {}",
+            sha.trim()
+        ));
+    }
+    if index_bytes.len() as u64 != bytes_len {
+        return Err(format!(
+            "INDEX DIGEST MISMATCH: {} bytes served, digest says {bytes_len}",
+            index_bytes.len()
+        ));
+    }
+    let algorithm = digest
+        .get("signatureAlgorithm")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "index digest is UNSIGNED while an index key is pinned".to_string())?;
+    if !algorithm.eq_ignore_ascii_case("ed25519") {
+        return Err(format!("unsupported index digest signature algorithm '{algorithm}'"));
+    }
+    let public = digest
+        .get("publicKey")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "index digest has no `publicKey`".to_string())?;
+    if !public.trim().eq_ignore_ascii_case(pinned_key.trim()) {
+        return Err(format!(
+            "INDEX DIGEST MISMATCH: signed by {} but {} is pinned",
+            public.trim(),
+            pinned_key.trim()
+        ));
+    }
+    let signature = digest
+        .get("signature")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "index digest is UNSIGNED while an index key is pinned".to_string())?;
+    let payload = format!("xiom-index-digest:v1\n{actual}");
+    verify(pinned_key, payload.as_bytes(), signature)
+        .map_err(|e| format!("INDEX DIGEST SIGNATURE INVALID: {e}"))
+}
+
 // ============================================================================
 // Trust store -- `<XIOM_HOME>/trusted_keys.json`  { "<registry>": "<pubhex>" }
 // ============================================================================
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct TrustStore {
-    /// registry base URL -> ed25519 public key (hex).
+    /// registry base URL -> ed25519 public key (hex). ARTIFACT publisher key:
+    /// official registry artifacts are signed with per-run OIDC keys, so a
+    /// registry's index key must NOT live here.
     keys: BTreeMap<String, String>,
+    /// C5 (registry relay): registry base URL -> ed25519 public key (hex) for
+    /// the signed `/index-digest.json`. Serde-defaulted so trust files from
+    /// older toolchains keep loading; never reuse the artifact `keys` map.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    index_keys: BTreeMap<String, String>,
     #[serde(skip)]
     path: PathBuf,
 }
@@ -110,7 +180,7 @@ impl TrustStore {
     }
 
     pub fn load_from(path: PathBuf) -> TrustStore {
-        let mut store = TrustStore { keys: BTreeMap::new(), path };
+        let mut store = TrustStore { keys: BTreeMap::new(), index_keys: BTreeMap::new(), path };
         if let Ok(text) = std::fs::read_to_string(&store.path) {
             match serde_json::from_str::<TrustStore>(&text) {
                 Ok(parsed) => {
@@ -120,6 +190,9 @@ impl TrustStore {
                     // silently skip the fail-closed signature check (R33).
                     for (registry, key) in parsed.keys {
                         store.keys.insert(normalize_registry(&registry), key);
+                    }
+                    for (registry, key) in parsed.index_keys {
+                        store.index_keys.insert(normalize_registry(&registry), key);
                     }
                 }
                 Err(e) => {
@@ -140,6 +213,27 @@ impl TrustStore {
 
     pub fn entries(&self) -> impl Iterator<Item = (&String, &String)> {
         self.keys.iter()
+    }
+
+    /// C5: the pinned INDEX key for a registry (artifact keys live in `get`).
+    pub fn get_index_key(&self, registry: &str) -> Option<&String> {
+        self.index_keys.get(&normalize_registry(registry))
+    }
+
+    pub fn index_entries(&self) -> impl Iterator<Item = (&String, &String)> {
+        self.index_keys.iter()
+    }
+
+    /// C5: pin (or replace) the registry's signed-index key and persist.
+    pub fn pin_index(&mut self, registry: &str, public_hex: &str) -> Result<(), String> {
+        // Same validation as `pin`: a typo'd key must not silently disable
+        // the fail-closed digest check.
+        verify(public_hex, b"pin-check", &"00".repeat(64))
+            .err()
+            .filter(|e| !e.contains("SIGNATURE MISMATCH"))
+            .map_or(Ok(()), |e| Err(format!("refusing to pin invalid index key: {e}")))?;
+        self.index_keys.insert(normalize_registry(registry), public_hex.trim().to_lowercase());
+        self.save()
     }
 
     /// Pin (or replace) the key for a registry and persist.
@@ -287,6 +381,79 @@ mod tests {
         }
         // A genuinely different registry must NOT match.
         assert_eq!(store.get("http://localhost:9999"), None);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn index_digest_accepts_and_rejects() {
+        use sha2::{Digest, Sha256};
+        let kp = KeyPair::generate().expect("keygen");
+        let index = br#"{"packages":{}}"#;
+        let sha = hex_encode(Sha256::digest(index).as_slice());
+        let payload = format!("xiom-index-digest:v1\n{sha}");
+        let sig = kp.sign(payload.as_bytes());
+        let digest = format!(
+            r#"{{"sha256":"{sha}","bytes":{},"signatureAlgorithm":"ed25519","publicKey":"{}","publicKeyFingerprint":"{}","signature":"{sig}"}}"#,
+            index.len(),
+            kp.public_hex(),
+            fingerprint(&kp.public_hex())
+        );
+        // Correct signature over the context payload is accepted.
+        verify_index_digest(index, &digest, &kp.public_hex()).expect("valid digest");
+        // Wrong pinned key.
+        let other = KeyPair::generate().expect("keygen");
+        assert!(verify_index_digest(index, &digest, &other.public_hex()).is_err());
+        // Tampered index bytes fail the hash/length checks.
+        let tampered = br#"{"packages":{"evil":{}}}"#;
+        let err = verify_index_digest(tampered, &digest, &kp.public_hex()).unwrap_err();
+        assert!(err.contains("MISMATCH"), "{err}");
+        // Missing signature (unsigned digest) while a key is pinned.
+        let unsigned = format!(r#"{{"sha256":"{sha}","bytes":{}}}"#, index.len());
+        let err = verify_index_digest(index, &unsigned, &kp.public_hex()).unwrap_err();
+        assert!(err.contains("UNSIGNED"), "{err}");
+        // Signature from a different key.
+        let bad_sig = KeyPair::generate().expect("keygen").sign(payload.as_bytes());
+        let digest_badsig = digest.replace(&sig, &bad_sig);
+        let err = verify_index_digest(index, &digest_badsig, &kp.public_hex()).unwrap_err();
+        assert!(err.contains("SIGNATURE INVALID"), "{err}");
+    }
+
+    #[test]
+    fn trust_store_index_keys_persist_and_legacy_files_load() {
+        let base = std::env::temp_dir().join(format!(
+            "xiom_trust_index_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&base).expect("mkdir");
+        let path = base.join("trusted_keys.json");
+        let mut store = TrustStore::load_from(path.clone());
+        let artifact = KeyPair::generate().expect("keygen");
+        let index_kp = KeyPair::generate().expect("keygen");
+        store.pin("https://registry.xiom.test", &artifact.public_hex()).expect("pin artifact");
+        store.pin_index("https://registry.xiom.test/", &index_kp.public_hex()).expect("pin index");
+        let reloaded = TrustStore::load_from(path);
+        assert_eq!(
+            reloaded.get("https://REGISTRY.xiom.test").map(|s| s.as_str()),
+            Some(artifact.public_hex().as_str())
+        );
+        assert_eq!(
+            reloaded.get_index_key("https://registry.xiom.test").map(|s| s.as_str()),
+            Some(index_kp.public_hex().as_str())
+        );
+        // A legacy trust file without the index_keys field still loads, and
+        // its artifact keys stay intact.
+        let legacy = base.join("legacy.json");
+        std::fs::write(
+            &legacy,
+            format!(r#"{{"keys":{{"http://localhost:9":"{}"}}}}"#, artifact.public_hex()),
+        ).expect("write legacy");
+        let old = TrustStore::load_from(legacy);
+        assert_eq!(old.get("http://localhost:9").map(|s| s.as_str()), Some(artifact.public_hex().as_str()));
+        assert_eq!(old.get_index_key("http://localhost:9"), None);
+        // Invalid index keys are refused before persisting.
+        let mut store2 = TrustStore::load_from(base.join("other.json"));
+        assert!(store2.pin_index("https://x", "not-hex").is_err());
         let _ = std::fs::remove_dir_all(&base);
     }
 
