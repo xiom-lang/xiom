@@ -56,10 +56,12 @@ Supersedes the (9) handoff below (kept as history).
 > trampoline) is OWNER-REQUIRED for this release**: the compiler half
 > landed as m166 (parser attribute order + injected-catalog trust); the
 > stdlib atomics annotation, the pin and the benchmark re-run are Gate P.
-> Not cut yet; carries tier-2, R-2/R-2c, byte_at, m162-m166, C22; the
-> selfhost binary stays out (100% policy). After it ships the packages
-> lane re-verifies `byte_at` (docs/repro/byte-at-128), the benchmark lane
-> re-verifies R-2/R-2c, and the repo-local stdlib checkout refreshes to
+> **RELEASED 2026-09-30** (tag `v0.62.2` on `801d888f`, run 36745108730
+> green, docs dispatched); carries tier-2, R-2/R-2c, byte_at, m162-m166,
+> C22; the selfhost binary stays out (100% policy). Post-release the
+> packages lane re-verifies `byte_at` (docs/repro/byte-at-128), the
+> benchmark lane re-verifies R-2/R-2c, and the repo-local stdlib checkout
+> refreshes to
 > the tag.
 > Next work, selfhost track: **Phase 1 (lexer parity)** -- port
 > `crates/xiom-lexer` to `selfhost/src/lexer.xi`, add `--dump-tokens` to
@@ -109,21 +111,23 @@ Supersedes the (9) handoff below (kept as history).
   pin), compiler-lane suite gates (all green as of the last runs),
   stdlib-lane sign-off, packages rehearsal, a `workflow_dispatch`
   dry-run before tagging, and the tag/publish/post-release steps.
-  v0.62.2 is READY: stdlib delivered `stdlib-perf1` (`06d0ee7`, all 16
-  atomics wrappers annotated), `STDLIB_VERSION` updated, repo-local
-  checkout refreshed to the pin, release notes re-converted WITH the
-  stdlib fragment (6 highlights, verify green), versions bumped to
-  `0.62.2` (workspace + `SELFHOST_VERSION`). All local gates green at the
-  release state (e2e 2393/2393 +4 ignored at 8 threads, stdlib_tests
-  40/40, stdlib_execution 85 +2 ignored, api-freeze 2/2, feature-reg
-  514/514, parser 107/107, CLI locks, selfhost diff 2). Remaining:
-  `release.yml` dry-run, the owner's tag push (`v0.62.2`), and the
-  benchmark-lane re-run (Gate P acceptance). **First dry-run
-  (36705942509)** caught a release-only blocker -- `xiom-mcp` built a
-  `CompileConfig` literal without `extra_source_dirs` (the debug
-  `-p xiom` build never compiled that crate); fixed, the full nine-package
-  release build is green locally and all tools report v0.62.2. Note:
-  `RELEASE_BUILD_MACOS=true` is set, so macOS legs run on release.
+  **v0.62.2 RELEASED 2026-09-30.** stdlib delivered `stdlib-perf1`
+  (`06d0ee7`, all 16 atomics wrappers annotated); `STDLIB_VERSION`
+  updated; repo-local checkout refreshed to the pin; release notes
+  re-converted WITH the stdlib fragment (6 highlights, verify green);
+  versions bumped; all local gates green at the release state (e2e
+  2393/2393 +4 ignored at 8 threads, stdlib_tests 40/40, stdlib_execution
+  85 +2 ignored, api-freeze 2/2, feature-reg 514/514, parser 107/107, CLI
+  locks, selfhost diff 2). Dry run 36707354989 green on all legs (the
+  first, 36705942509, caught the `xiom-mcp` E0063 -- fixed `837f8e6f`).
+  **Tag `v0.62.2` on `801d888f`; release run 36745108730 GREEN**; release
+  page https://github.com/xiom-lang/xiom/releases/tag/v0.62.2 carries
+  SHA256SUMS + lin/win/macos archives + VSIX 0.12.1 (marketplace skip
+  expected) + wasm + glue; docs dispatch delivered to `xiom-lang/website`
+  (tag=v0.62.2, stdlib_ref=stdlib-perf1). Tag is lightweight (prior tags
+  annotated) -- do not retag. Post-release: benchmark re-run (Gate P:
+  t2-queue ms range), packages re-pin, ops mirror refresh; registry lane
+  C5/B3 unblocked (queued below).
 - **m166 FIXED (PERF-1, owner-required for v0.62.2)**: `#[unsafe_direct]`
   written above `pub fn` was a P001 that error recovery absorbed -- the
   attribute was silently dropped -- AND stdlib fns compiled inside a user
@@ -281,10 +285,12 @@ Supersedes the (9) handoff below (kept as history).
   smoke_stress_compress_gzip_levels, re-run those before trusting the
   result. The battery itself was left untouched afterwards; the compiler
   lane's suites should not be run concurrently with it on this box.
-- **Git**: local `main` tips = Phase 0 `e813449b` + tracker `532bfa75` +
-  m163 `d0189157` + C22 `563aaff2` + m164 `8258c400` + m162 `d8a04678` +
-  m165 `ad63eda0` + gate/plan docs + the m166 commit (all pushed to
-  `origin/main`; push only on the owner's ask).
+- **Git**: local `main` tips include Phase 0 `e813449b`, tracker
+  `532bfa75`, m162-m166 (`d8a04678`, `d0189157`, `8258c400`, `ad63eda0`,
+  `c2b15112`), C22 `563aaff2` + packages lock `d51b4ba6`, release notes
+  `0db99183`, release commit `eec38f34`, mcp fix `837f8e6f`, gate doc
+  `801d888f` -- all pushed to `origin/main`; tag `v0.62.2` pushed and
+  released. Push only on the owner's ask.
 
 # CONTINUATION HANDOFF (2026-09-29 (9), compiler lane -- v0.62.1; all batches pushed; extension 0.12.1 live; selfhost Phase 0 green-lit)
 

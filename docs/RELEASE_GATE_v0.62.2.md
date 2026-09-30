@@ -136,22 +136,30 @@ suite grew.
 
 ## Gate E -- tag + publish (owner action)
 
-- [ ] `git tag v0.62.2` on the release commit (ancestor of `main`; guard
-      checks both) and push the tag.
-- [ ] Watch the release job: guard -> build (win/linux; macos only when
-      `RELEASE_BUILD_MACOS=true`) -> vscode -> release -> docs dispatch.
-- [ ] Verify the GitHub Release page: 7+ assets, SHA256SUMS covers every
-      shipped file (C8 recurrence guard), attests present.
+- [x] `v0.62.2` tagged on `801d888f` and pushed (release run **36745108730
+      GREEN**: guard 9 s; windows 3m18s; linux 3m22s; macos-arm64 1m20s;
+      macos-x64 3m7s; VSIX 28s; publish 31s). Tag is LIGHTWEIGHT (prior
+      tags are annotated); the guard and `gh release create --verify-tag`
+      accept it. Do not retag -- the release is already attached.
+- [x] Release page verified:
+      https://github.com/xiom-lang/xiom/releases/tag/v0.62.2 with
+      SHA256SUMS, `xiom-0.62.2-{linux-x64.tar.gz,macos-arm64.tar.gz,
+      macos-x64.tar.gz,windows-x64.zip}`, `xiom-vscode-0.12.1.vsix`,
+      `xiom-wasm-0.62.2.wasm` + glue (`xiom-wasm.js`, `.d.ts`,
+      `_bg.wasm`).
 
 ## Gate F -- post-release
 
-- [ ] Packages lane re-pins to v0.62.2 and re-runs (stdlib user relay).
-- [ ] Stdlib lane tags/bumps per their policy; the repo-local stdlib
-      checkout refreshes to the tag (was 80e767b -> final tag).
+- [x] Docs dispatch: `compiler-release` delivered to
+      `xiom-lang/website` (tag=v0.62.2, stdlib_ref=stdlib-perf1,
+      compiler_ref=v0.62.2) -- the website publishes release notes/docs
+      from there.
+- [ ] Packages lane re-pins to v0.62.2 and re-runs (their relay).
+- [ ] Benchmark lane re-run = Gate P acceptance (t2-queue ms range; no
+      regression on t1/t3/t4/t5/t8).
 - [ ] Website downloads page / mirror refresh (ops lane; dl-verify).
-- [ ] Benchmark lane may re-run against v0.62.2 (PERF-1 is NOT expected to
-      change: the trampoline overhead fix is not in this release).
-- [ ] SELFHOST_PROGRESS meter unchanged (9%); release stays Rust-hosted.
+- [x] Repo-local stdlib checkout already at the pin (`stdlib-perf1`,
+      `06d0ee7`).
 
 ## Notes / risks
 
