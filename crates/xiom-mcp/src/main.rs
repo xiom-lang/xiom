@@ -743,6 +743,7 @@ fn tool_compile_and_fix(params: &Value) -> Result<String, String> {
         parallel_codegen: false,
         enable_unsafe_direct: false,
         opt_level: None,
+        extra_source_dirs: Vec::new(),
     };
     let result = xiom::compile_with_diagnostics(&check_cfg, &[tmp.to_str().expect("temp file path must be valid UTF-8").to_string()]);
     let _ = std::fs::remove_file(&tmp);

@@ -119,12 +119,16 @@ suite grew.
 
 ## Gate D -- release dry run (before the tag)
 
-- [ ] `gh workflow run release.yml --repo xiom-lang/xiom` (workflow_dispatch
-      builds artifacts only, no release). Confirm:
-      both platform artifacts built; every staged tool `--version` matches;
-      z3 bundled + runs; wasm magic checked; VSIX packaged and NOT
-      published (extension 0.12.1 already exists market-side --
-      `vscode-publish.yml` is manual and untouched).
+- [x] First dry run (run 36705942509) caught a release-only blocker:
+      `crates/xiom-mcp/src/main.rs` built a `CompileConfig` literal without
+      the new `extra_source_dirs` field (the local `-p xiom` debug build
+      never compiled xiom-mcp). Fixed; the full nine-package release build
+      is green locally and every tool self-reports v0.62.2.
+- [ ] Second dry run green (dispatched after the fix): windows + linux
+      artifacts built. NOTE: `RELEASE_BUILD_MACOS=true` is currently set,
+      so the macOS legs run too -- they failed on the same E0063 in the
+      first run; confirm they now pass, or set the variable false before
+      the tag if macOS is not wanted for this release.
 - [ ] Download and inspect one artifact: tools run, `lib/xiom` +
       `lib/runtime` + `package.xi` + `AI_CONTEXT.md` present, SHA256SUMS
       complete.

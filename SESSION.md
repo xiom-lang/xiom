@@ -118,7 +118,12 @@ Supersedes the (9) handoff below (kept as history).
   40/40, stdlib_execution 85 +2 ignored, api-freeze 2/2, feature-reg
   514/514, parser 107/107, CLI locks, selfhost diff 2). Remaining:
   `release.yml` dry-run, the owner's tag push (`v0.62.2`), and the
-  benchmark-lane re-run (Gate P acceptance).
+  benchmark-lane re-run (Gate P acceptance). **First dry-run
+  (36705942509)** caught a release-only blocker -- `xiom-mcp` built a
+  `CompileConfig` literal without `extra_source_dirs` (the debug
+  `-p xiom` build never compiled that crate); fixed, the full nine-package
+  release build is green locally and all tools report v0.62.2. Note:
+  `RELEASE_BUILD_MACOS=true` is set, so macOS legs run on release.
 - **m166 FIXED (PERF-1, owner-required for v0.62.2)**: `#[unsafe_direct]`
   written above `pub fn` was a P001 that error recovery absorbed -- the
   attribute was silently dropped -- AND stdlib fns compiled inside a user
