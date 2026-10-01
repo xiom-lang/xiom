@@ -10,6 +10,52 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-01 -- OPEN (m167): global Vec[Str] mis-lowers push + index (invalid IR, clang rejects)
+
+Packages relay (their commit `2d91399`, `docs/repro/v0622-regressions/`):
+the `Vec[Str].push` mis-lowering trigger is a MODULE-LEVEL `var v: Vec[Str]`
+global. A local Vec with the same pushes is fine; the global case fails
+clang with `'%tmpN' defined with type 'ptr' but expected 'i8'`.
+
+Reproduced locally on Windows (release-state toolchain, v0.62.2) with
+`tmp/sprintc/probe_global_vecstr.xi`:
+
+```
+; --emit-ir, the push store (inside the guard-wrapped unsafe block):
+%tmp1029 = load i8*, i8** %tmp1003        ; data
+%tmp1030 = load i64, i64* %tmp1005        ; len
+%tmp1032 = getelementptr i8, i8* %tmp1029, i64 %tmp1030   ; MISSING *esz!
+%tmp1034 = load i8*, i8** %tmp1033        ; dest (i8*)
+%tmp1035 = load i8*, i8** %tmp1007        ; the Str handle
+store i8 %tmp1035, i8* %tmp1034           ; BAD value type (should be i8*)
+```
+
+and the read side classifies the element as scalar:
+`%tmp85 = alloca i8; %tmp86 = trunc i64 ... to i8; store i8 %tmp86, i8* %tmp85;
+call void @io.println(i8* %tmp85)` -- i.e. `v[0]` took the i64 element-load
+path and `println` got a char buffer, not a Str.
+
+Root cause class: the element type of a MODULE-GLOBAL `Vec[X]` is not
+registered where the Index/push lowering classifies elements, so the
+scalar fallback (i64 load / i8 store) is taken -- the same gap m163 fixed
+for receiver FIELDS. `global_xiom_types` already records the global's full
+XIOM type (`decl.rs` module-var pass) and is consulted for generic
+inference (`call.rs` ~3950); the Index/push element classifiers need the
+same fallback (register `Vec[X]` globals like m163's field elements, or
+extend `vec_elem_is_str`/`resolve_vec_elem_type`/`resolve_vec_elem_xiom`
+with a `global_xiom_types` arm).
+
+Also visible in the same IR: the push index is `data + len` without the
+element-size multiply (stride bug) -- verify whether the correct esz
+multiply lives elsewhere or is part of the same fallback.
+
+Locks to add with the fix: regression fixture with a module-global
+`Vec[Str]` (push + index + println) + the IR in-process test; run the full
+e2e once (codegen change). Files: `tmp/sprintc/probe_global_vecstr.xi`;
+packages `vec_str_push_global.xi` / `vec_str_push_param.xi`.
+
+---
+
 ## 2026-10-01 -- OPEN (C23): -O2 silently miscompiles (reproduced in WSL; bracket O1/O2)
 
 Playground relay + repro pack: `E:\xiom-lang\playground\tools\compiler-repros\c23\`

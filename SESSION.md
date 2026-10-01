@@ -115,13 +115,26 @@ Supersedes the (9) handoff below (kept as history).
   correct so far. Full details + next steps in `COMPILER_BUGS.md`
   "2026-10-01 -- OPEN (C23)"; pass-level bisection is the next dedicated
   batch.
-- **Packages lane relay update (2026-10-01)**: a third v0.62.2 issue --
-  `Vec[Str].push(s)` mis-lowers (stride 8, i8 store -> clang rejects the
-  IR; `--emit-ir` clean). A minimal local probe (push two literals, read
-  back, print) compiles and runs CORRECTLY on the Windows release
-  toolchain, so the exact trigger shape is needed: request the snippet or
-  the package source from the packages lane alongside the expat/nbt
-  fixtures. Silent-exit regression (expat/nbt) still queued first.
+- **Packages lane relay (2026-10-01, repros delivered)**: both v0.62.2
+  regressions have ready repros at their commit `2d91399`,
+  `docs/repro/v0622-regressions/`:
+  (a) `Vec[Str].push` trigger = a MODULE-LEVEL `var v: Vec[Str]` global
+  (a local Vec with the same pushes is fine); REPRODUCED locally -- filed
+  as m167 in COMPILER_BUGS (bad `store i8 <handle>, i8* dest` + scalar
+  `v[0]` read -> clang rejects the IR; same class as m163's field gap,
+  now for globals).
+  (b) expat/nbt: the registry artifacts include full sources/tests
+  (`.../packages/xiom.expat/0.1.1/download`, `.../xiom.nbt/...`; local
+  `packages/xiom-expat/tests/test_conformance.xi`); run
+  `scripts/port.ps1 -Package xiom.expat` -> silent exit -1, zero stdout;
+  `io.flush_stdout()` after each println makes expat 25/25 and nbt 25/26
+  (t5 UTF-8 strings is a genuine failure) -- suspected exit/flush path.
+  (c) FOURTH v0.62.2 issue filed: `&mut Int` write-drop (from xiom.svm),
+  silent wrong results; repro details requested.
+  Wave 46 published (eco-v0.1.27); wave-47 candidates in their SESSION.
+- **Registry lane relay (optional polish, post-release)**: B1 packaging
+  guard, B2 `xiom pkg yank`, install trust wording, `--resolve` outside a
+  workspace. Queued after the release blockers.
 - **Registry lane relay (post-v0.62.2, QUEUED)**: registry 2.7.0 is live;
   two xiom-pkg-only changes queued AFTER the release ships (registry is
   not touching this repo meanwhile). (C5) Pin + verify the registry index
