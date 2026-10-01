@@ -3,8 +3,9 @@
 
 # XIOM Selfhost -- bootstrap progress tracker
 
-**Last updated:** 2026-09-29 | **Plan:** `docs/SELFHOST_PLAN.md` |
+**Last updated:** 2026-10-02 | **Plan:** `docs/SELFHOST_PLAN.md` |
 **Phase 0 checklist:** `docs/checklists/selfhost-phase0.md` |
+**Phase 1 checklist:** `docs/checklists/selfhost-phase1.md` |
 **Owner policy:** selfhost ships only at 100% bootstrap; every release stays
 Rust-hosted until then.
 
@@ -23,7 +24,7 @@ All six must hold (SELFHOST_PLAN section 7):
 
 ## Bootstrap meter
 
-**9% -- 1 of 11 tracked gates complete.**
+**18% -- 2 of 11 tracked gates complete.**
 
 Weights are one gate each (equal weighting; phases differ in effort but a
 gate is only "done" when its evidence is green). Update this line whenever a
@@ -32,7 +33,7 @@ row flips.
 | # | Gate | Status | Evidence |
 |---|------|--------|----------|
 | 0 | T1 harness green on the corpus (foundations) | **DONE 2026-09-29** | `cargo test -p xiom-codegen --test full_diff_tests`: 2 passed; T1 over 84 files in 49.2 s; `runtime_ffi_selfcheck` ok; commit `e813449b` |
-| 1 | Lexer: token-dump equality on the corpus (`--dump-tokens`) | NOT STARTED | Phase 1; port `crates/xiom-lexer` to `selfhost/src/lexer.xi` |
+| 1 | Lexer: token-dump equality on the corpus (`--dump-tokens`) | **DONE 2026-10-02** | Phase 1; `selfhost/src/lexer.xi` ports `crates/xiom-lexer`; harness gate `full_diff_tests::diff_tokens` green over the 83-file corpus (3/3 tests, 72.7 s); torture parity (BOM/CRLF/NUL/bigints/suffix quirk) clean; checklist `docs/checklists/selfhost-phase1.md` |
 | 2 | Parser: AST-dump equality on the corpus (`--dump-ast`) | NOT STARTED | Phase 2; largest single phase (statements/exprs -> types -> patterns -> modules -> contracts -> generics) |
 | 3 | Checker: diagnostics + type-annotation equality | NOT STARTED | Phase 3; same accepted/rejected set + same message order/text |
 | 4 | Codegen: fn-header T3 IR equality | NOT STARTED | Phase 4; signatures, tuple names, inline policy (`approx_block_cost`) |
@@ -63,6 +64,27 @@ row flips.
 - Deferred (documented, not stubbed): float `{:.17e}` formatting -- lands
   with the emitter port (Phase 4/5), T3-gated.
 
+## Phase 1 evidence (landed 2026-10-02)
+
+- `selfhost/src/lexer.xi`: full port of `crates/xiom-lexer/src/lib.rs`
+  (TokenKind/Token, char-indexed scan with an independent byte accumulator,
+  BOM stripping, Unicode whitespace, comments/shebang, exact error text,
+  big-int u128 classification, `\xNN`/`\u{...}` rules, the numeric-suffix
+  span quirk).
+- `crates/xiom/src/main.rs::dump_tokens` defines the canonical dump
+  (`{line}:{col}:{byte_start}:{byte_end} {TAG}[ {PAYLOAD}]`); the selfhost
+  side mirrors it. Float payloads dump the token LEXEME (value parity is
+  deferred; see the Phase 1 checklist).
+- Gate: `cargo test -p xiom-codegen --test full_diff_tests` -> 3 passed
+  (`diff_tokens` line-exact over 83 corpus files + `diff_corpus` T1 +
+  `runtime_ffi_selfcheck`).
+- Findings filed in `docs/COMPILER_BUGS.md` (2026-10-02): nested self-method
+  receiver mutation does not propagate (lexer uses free `&mut Lexer`
+  helpers); enum payloads of 128-bit integer types lower as i64 (BigInt
+  stored as hi/lo UInt); `1e999` codegen emits `double inf`; `Str + UInt`
+  formats u64::MAX as -1 and UInt128 `/`/`%` are signed for high-bit values
+  (the dump sidesteps all three by rendering hex via shifts/ands).
+
 ## Open blockers and risks
 
 | Item | Impact on 100% | State |
@@ -81,7 +103,7 @@ O1).
 ## Running the gates
 
 ```
-# Phase 0 gate (T1 green; T2/T3 behind the tier flag)
+# Phase 0 gate (T1 green); Phase 1 gate (diff_tokens) runs in the same suite
 cargo test -p xiom-codegen --test full_diff_tests
 $env:XIOM_SELFHOST_DIFF_TIER=2; cargo test -p xiom-codegen --test full_diff_tests   # T2
 $env:XIOM_SELFHOST_DIFF_TIER=3; cargo test -p xiom-codegen --test full_diff_tests   # T3 (phase completion)
@@ -90,6 +112,10 @@ $env:XIOM_SELFHOST_DIFF_TIER=3; cargo test -p xiom-codegen --test full_diff_test
 target/debug/xiom.exe -o target/selfhost/xiomc-self.exe selfhost/src/main.xi
 target/selfhost/xiomc-self.exe --selfcheck
 target/selfhost/xiomc-self.exe examples/diff_test.xi
+
+# Phase 1 parity spot-check (canonical token dumps; CRLF on Windows pipes)
+target/debug/xiom.exe --dump-tokens examples/diff_test.xi
+target/selfhost/xiomc-self.exe --dump-tokens examples/diff_test.xi
 ```
 
 Long suites on this box: e2e `-- --test-threads 12`, stdlib_tests 8,

@@ -73,6 +73,7 @@ const FLAG_FLAGS: &[&str] = &[
     "doc",
     "doctor",
     "dump-contracts",
+    "dump-tokens",
     "emit-ir",
     "emit-tokens",
     "enable-unsafe-direct",
@@ -263,6 +264,7 @@ mod tests {
         let cases: &[&[&str]] = &[
             &["file.xi"],
             &["--emit-ir", "file.xi"],
+            &["--dump-tokens", "file.xi"],
             &["--check", "file.xi"],
             &["-o", "out.exe", "file.xi"],
             &["--sanitize=address", "-o", "out.exe", "file.xi"],

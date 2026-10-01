@@ -90,9 +90,91 @@ element-size multiply (stride bug) -- verify whether the correct esz
 multiply lives elsewhere or is part of the same fallback.
 
 Locks to add with the fix: regression fixture with a module-global
-`Vec[Str]` (push + index + println) + the IR in-process test; run the full
-e2e once (codegen change). Files: `tmp/sprintc/probe_global_vecstr.xi`;
-packages `vec_str_push_global.xi` / `vec_str_push_param.xi`.
+  `Vec[Str]` (push + index + println) + the IR in-process test; run the full
+  e2e once (codegen change). Files: `tmp/sprintc/probe_global_vecstr.xi`;
+  packages `vec_str_push_global.xi` / `vec_str_push_param.xi`.
+
+---
+
+## 2026-10-02 -- OPEN (selfhost Phase 1 port findings): nested method receiver mutation, 128-bit enum payloads, inf float literal, unsigned formatting/div
+
+All four surfaced while porting `crates/xiom-lexer` to `selfhost/src/lexer.xi`
+(Phase 1). Repros live in `tmp/sprintc/phase1_lexer/` (probe1, probe5-probe9,
+torture.xi); none of them affect the Phase 1 gate (all are avoided or inert in
+the port), but three can silently change program behavior.
+
+### (a) Nested `self` method call does NOT propagate receiver-field mutation
+
+```xiom
+pub type Lx = { xs: Vec[Int]; pos: Int; }
+
+fn Lx.peek() -> Int { if pos >= xs.len() { return -1; } return xs[pos]; }
+fn Lx.advance() { if pos >= xs.len() { return; } pos = pos + 1; }   // mutates pos
+
+fn Lx.scan() -> Int {
+  var go = true;
+  while go {
+    let c = peek();          // outer method call on self
+    if c >= 0 { advance(); } else { go = false; }  // INNER method call on self
+  }
+  return pos;                // <- never advances: infinite loop
+}
+```
+
+`scan()` loops forever: the `advance()` call made from inside another method
+mutates a COPY of the receiver (the caller's `pos` never changes), while the
+same call from `main` (`lx.advance()`) does persist. Calling a *free*
+function with an explicit `&mut` receiver works:
+
+```xiom
+fn advance(lx: &mut Lx) { if lx.pos >= lx.xs.len() { return; } lx.pos = lx.pos + 1; }
+fn scan(lx: &mut Lx) -> Int { ... advance(lx); ... }   // propagates
+```
+
+Repro: `tmp/sprintc/phase1_lexer/probe8.xi` (hangs) vs `probe9.xi` (works);
+`probe7.xi` shows inline field mutation inside one method is fine.
+Re-confirmed 2026-10-02 AFTER rebasing onto the m168 `&mut Int` fix:
+probe8 still loops -- m168 fixes assignment THROUGH a `&mut T` parameter, not
+mutation of a receiver field by a nested `self` method call.
+Impact: method-to-method calls are the documented receiver style; any
+in-place allocator/parser written that way silently loops. The selfhost
+lexer uses free `&mut Lexer` helpers (lx_* prefix) as the workaround.
+Fix direction: the inner call's receiver must be passed by address when the
+callee mutates fields (the same self is already address-taken for inline
+field writes).
+
+### (b) Enum payload of a 128-bit integer type is lowered as i64
+
+```xiom
+pub type K = enum { Big(v: UInt128), }
+fn f(k: K) -> Int { match k { Big(v) => { return g(v); } } return 0; }
+fn g(v: UInt128) -> Int { return 0; }
+```
+clang: `'%tmpNN' defined with type 'i64' but expected 'i128'` -- the match
+payload binding is typed i64. `UInt128`/`Int128` work fine as normal
+locals/params (smoke_d1_native128 passes). The selfhost lexer stores BigInt
+as two UInt halves (`TkBigInt(hi, lo)`) as the workaround.
+Repro: `tmp/sprintc/phase1_lexer/probe1.xi` (first version).
+
+### (c) Float literal that overflows to infinity emits invalid LLVM text
+
+`let x = 1e999;` -- the lexer correctly produces `Float(inf)`, but codegen
+prints the literal as `double inf` (clang: expected value token). Any
+overflowing decimal float literal fails to compile. (The selfhost dump
+avoids float values entirely for now.)
+
+### (d) Unsigned formatting and division are sign-blind
+
+- `"" + (18446744073709551615 as UInt)` prints `-1` (u64::MAX formatted as
+  a signed i64) -- `probe1.xi` `u64max = -1`.
+- `UInt128 / % 10` on values with bit 127 set uses signed division
+  (`u128max` decimal print returned empty because the remainder was
+  negative) -- `probe1.xi` `u128max =`.
+- Bit ops are correct (`>>`/`&` are logical: hex nibble extraction for
+  u64/u128 works -- `probe2.xi`), which is why the selfhost dump uses hex.
+
+The selfhost lexer avoids all three by rendering payloads in hex through
+shifts/ands only.
 
 FIXED 2026-10-02. Root cause: the push intercept (call.rs ~1590) only
 recognized receivers whose `infer_llvm_type` was Vec-typed or

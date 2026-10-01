@@ -14,6 +14,7 @@
 //!   xiom --run <source.xi>                   compile and run, print exit code
 //!   xiom --diagnostics=json <source.xi>      JSON-structured compiler output
 //!   xiom --dump-contracts <source.xi>        emit contract index as JSON
+//!   xiom --dump-tokens <source.xi>           canonical token dump (selfhost parity gate)
 //!   xiom --sandbox <source.xi>                safety audit report (text)
 //!   xiom --sandbox=strict <source.xi>         block compilation on HIGH findings
 //!   xiom --sandbox-report=json <source.xi>    safety audit as JSON
@@ -112,9 +113,182 @@ fn run_script_watch(path: &str) {
     }
 }
 
-use xiom_lexer::Lexer;
+use xiom_lexer::{Lexer, Token, TokenKind};
 use xiom_parser::Parser;
 use xiom_codegen::sandbox::SafetyAuditor;
+
+// ============================================================================
+// --dump-tokens: canonical token dump for the selfhost Phase 1 parity gate
+// ============================================================================
+//
+// Line format (byte-stable; mirrored by selfhost/src/lexer.xi dump_tokens):
+//
+//   {line}:{col}:{byte_start}:{byte_end} {TAG}[ {PAYLOAD}]
+//
+// TAG is the TokenKind variant name. PAYLOAD is lowercase hex, exact:
+//   Ident:  hex of the identifier text bytes
+//   Int:    16 hex digits (u64 value, zero-padded)
+//   BigInt: 32 hex digits (u128 value: high u64 then low u64)
+//   Float:  hex of the token lexeme bytes (float VALUE parity is deferred:
+//           the selfhost side has no correctly-rounded decimal->f64 parser
+//           or i64<->f64 bitcast intrinsic yet; documented in the Phase 1
+//           checklist)
+//   Str:    hex of the DECODED string bytes
+//   Char:   hex codepoint, no padding
+//   Error:  hex of the message bytes
+//   keywords/operators/Eof: no payload.
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0x0F) as usize] as char);
+    }
+    out
+}
+
+/// Variant name for payload-less token kinds (exhaustive over the enum).
+fn bare_token_kind(kind: &TokenKind) -> &'static str {
+    match kind {
+        TokenKind::Let => "Let",
+        TokenKind::Var => "Var",
+        TokenKind::Const => "Const",
+        TokenKind::Fn => "Fn",
+        TokenKind::Return => "Return",
+        TokenKind::Break => "Break",
+        TokenKind::Continue => "Continue",
+        TokenKind::If => "If",
+        TokenKind::Elif => "Elif",
+        TokenKind::Else => "Else",
+        TokenKind::Match => "Match",
+        TokenKind::While => "While",
+        TokenKind::For => "For",
+        TokenKind::In => "In",
+        TokenKind::Spawn => "Spawn",
+        TokenKind::Await => "Await",
+        TokenKind::Comptime => "Comptime",
+        TokenKind::Asm => "Asm",
+        TokenKind::Defer => "Defer",
+        TokenKind::Move => "Move",
+        TokenKind::Module => "Module",
+        TokenKind::Use => "Use",
+        TokenKind::Pub => "Pub",
+        TokenKind::As => "As",
+        TokenKind::Type => "Type",
+        TokenKind::Enum => "Enum",
+        TokenKind::Interface => "Interface",
+        TokenKind::Derive => "Derive",
+        TokenKind::Impl => "Impl",
+        TokenKind::True => "True",
+        TokenKind::False => "False",
+        TokenKind::Self_ => "Self_",
+        TokenKind::Some => "Some",
+        TokenKind::None => "None",
+        TokenKind::Ok_ => "Ok_",
+        TokenKind::Err_ => "Err_",
+        TokenKind::Unsafe => "Unsafe",
+        TokenKind::Extern => "Extern",
+        TokenKind::Is => "Is",
+        TokenKind::Dot => "Dot",
+        TokenKind::Comma => "Comma",
+        TokenKind::Semicolon => "Semicolon",
+        TokenKind::Colon => "Colon",
+        TokenKind::ColonColon => "ColonColon",
+        TokenKind::LParen => "LParen",
+        TokenKind::RParen => "RParen",
+        TokenKind::LBrace => "LBrace",
+        TokenKind::RBrace => "RBrace",
+        TokenKind::LBracket => "LBracket",
+        TokenKind::RBracket => "RBracket",
+        TokenKind::At => "At",
+        TokenKind::Arrow => "Arrow",
+        TokenKind::FatArrow => "FatArrow",
+        TokenKind::Question => "Question",
+        TokenKind::Plus => "Plus",
+        TokenKind::Minus => "Minus",
+        TokenKind::Star => "Star",
+        TokenKind::Slash => "Slash",
+        TokenKind::Percent => "Percent",
+        TokenKind::Caret => "Caret",
+        TokenKind::Tilde => "Tilde",
+        TokenKind::Bang => "Bang",
+        TokenKind::Amp => "Amp",
+        TokenKind::Pipe => "Pipe",
+        TokenKind::Ampersand => "Ampersand",
+        TokenKind::Eq => "Eq",
+        TokenKind::EqEq => "EqEq",
+        TokenKind::Neq => "Neq",
+        TokenKind::Lt => "Lt",
+        TokenKind::Gt => "Gt",
+        TokenKind::Le => "Le",
+        TokenKind::Ge => "Ge",
+        TokenKind::AndAnd => "AndAnd",
+        TokenKind::OrOr => "OrOr",
+        TokenKind::PlusEq => "PlusEq",
+        TokenKind::MinusEq => "MinusEq",
+        TokenKind::StarEq => "StarEq",
+        TokenKind::SlashEq => "SlashEq",
+        TokenKind::PercentEq => "PercentEq",
+        TokenKind::DotDot => "DotDot",
+        TokenKind::DotDotEq => "DotDotEq",
+        TokenKind::Underscore => "Underscore",
+        TokenKind::Hash => "Hash",
+        TokenKind::Eof => "Eof",
+        // Payload variants are formatted by dump_token; unreachable here.
+        TokenKind::Ident(_)
+        | TokenKind::Int(_)
+        | TokenKind::BigInt(_)
+        | TokenKind::Float(_)
+        | TokenKind::Str(_)
+        | TokenKind::Char(_)
+        | TokenKind::Error(_) => "?",
+    }
+}
+
+fn dump_token(tok: &Token) -> String {
+    let s = &tok.span;
+    let mut out = format!("{}:{}:{}:{} ", s.line, s.col, s.byte_start, s.byte_end);
+    match &tok.kind {
+        TokenKind::Ident(v) => {
+            out.push_str("Ident ");
+            out.push_str(&hex_bytes(v.as_bytes()));
+        }
+        TokenKind::Int(v) => out.push_str(&format!("Int {:016x}", v)),
+        TokenKind::BigInt(v) => out.push_str(&format!(
+            "BigInt {:016x}{:016x}",
+            (v >> 64) as u64,
+            *v as u64
+        )),
+        TokenKind::Float(_) => {
+            out.push_str("Float ");
+            out.push_str(&hex_bytes(tok.lexeme.as_bytes()));
+        }
+        TokenKind::Str(v) => {
+            out.push_str("Str ");
+            out.push_str(&hex_bytes(v.as_bytes()));
+        }
+        TokenKind::Char(c) => out.push_str(&format!("Char {:x}", *c as u32)),
+        TokenKind::Error(m) => {
+            out.push_str("Error ");
+            out.push_str(&hex_bytes(m.as_bytes()));
+        }
+        other => out.push_str(bare_token_kind(other)),
+    }
+    out
+}
+
+/// Canonical dump of the whole token stream (including the final Eof line).
+fn dump_tokens(source: &str) -> String {
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize();
+    let mut out = String::new();
+    for tok in &tokens {
+        out.push_str(&dump_token(tok));
+        out.push('\n');
+    }
+    out
+}
 
 /// M10.4: Interactive REPL -- compile and execute each line as a script.
 /// State (let/var declarations) persists across lines.
@@ -498,6 +672,7 @@ fn real_main() {
     // exact-form-sensitive checks and command words use the raw view.
     let emit_ir = args.flag("emit-ir");
     let emit_tokens = args.flag("emit-tokens");
+    let dump_tokens_flag = args.flag("dump-tokens");
     let do_run = args.flag("run");
     let check_only = args.flag("check");
     let release = args.flag("release");
@@ -960,6 +1135,18 @@ fn real_main() {
         return;
     }
 
+    // --dump-tokens: canonical token dump and exit (selfhost Phase 1 gate)
+    if dump_tokens_flag && !source_paths.is_empty() {
+        for path_str in &source_paths {
+            let source = match std::fs::read_to_string(path_str) {
+                Ok(s) => s,
+                Err(e) => { eprintln!("error: {}: {}", path_str, e); continue; }
+            };
+            print!("{}", dump_tokens(&source));
+        }
+        return;
+    }
+
     // 7F.1: Build daemon mode
     if build_mode && !watch_mode {
         if !source_paths.is_empty() {
@@ -1312,6 +1499,7 @@ fn print_usage() {
     eprintln!("  --target <target>   Target: native (default), wasm, wasi, arm, riscv");
     eprintln!("  --emit-ir           Print LLVM IR to stdout (no compilation)");
     eprintln!("  --emit-tokens       Print the token stream and exit");
+    eprintln!("  --dump-tokens       Print the canonical token dump (selfhost parity gate)");
     eprintln!("  --diagnostics=json  Output diagnostics as JSON");
     eprintln!("  --dump-contracts    Print the contract index as JSON");
     eprintln!("  --shared            Compile as a shared library (DLL)");

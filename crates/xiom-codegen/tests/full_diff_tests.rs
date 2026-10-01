@@ -27,6 +27,12 @@
 // filesystem-order flakiness).
 //
 // Gate command: cargo test -p xiom-codegen --test full_diff_tests
+//
+// Phase 1 (lexer parity) adds `diff_tokens`: the Rust and selfhost
+// `--dump-tokens` outputs must match line-for-line over the corpus.
+// `crates/xiom/src/main.rs::dump_tokens` owns the format definition;
+// `selfhost/src/lexer.xi::dump_tokens` mirrors it (including the Tk-prefixed
+// TokenKind variant names mapped back to the Rust tags).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -286,6 +292,42 @@ fn selfhost_ir(path: &str) -> Result<Vec<String>, String> {
     Ok(lines_of(&String::from_utf8_lossy(&out.stdout)))
 }
 
+/// Rust compiler canonical token dump (`--dump-tokens`).
+fn rust_token_dump(path: &str) -> Result<Vec<String>, String> {
+    let out = Command::new(xiom_path())
+        .args(["--dump-tokens", path])
+        .current_dir(project_root())
+        .output()
+        .map_err(|e| format!("failed to spawn xiom --dump-tokens: {}", e))?;
+    if !out.status.success() {
+        return Err(format!(
+            "xiom --dump-tokens exited {:?}:\n{}",
+            out.status.code(),
+            tail(&String::from_utf8_lossy(&out.stderr), 10)
+        ));
+    }
+    Ok(lines_of(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// Selfhost compiler canonical token dump (`--dump-tokens`). `lines_of`
+/// strips the CRLF the XIOM CRT printf emits on Windows pipes.
+fn selfhost_token_dump(path: &str) -> Result<Vec<String>, String> {
+    let out = Command::new(selfhost_exe())
+        .args(["--dump-tokens", path])
+        .current_dir(project_root())
+        .output()
+        .map_err(|e| format!("failed to spawn selfhost --dump-tokens: {}", e))?;
+    if !out.status.success() {
+        return Err(format!(
+            "selfhost --dump-tokens exited {:?}:\nstdout:\n{}\nstderr:\n{}",
+            out.status.code(),
+            tail(&String::from_utf8_lossy(&out.stdout), 10),
+            tail(&String::from_utf8_lossy(&out.stderr), 10)
+        ));
+    }
+    Ok(lines_of(&String::from_utf8_lossy(&out.stdout)))
+}
+
 // ============================================================================
 // IR comparison
 // ============================================================================
@@ -528,5 +570,55 @@ fn runtime_ffi_selfcheck() {
         "selfhost --selfcheck did not report success:\nstdout:\n{}\nstderr:\n{}",
         stdout,
         stderr
+    );
+}
+
+/// Phase 1 gate: the selfhost lexer's canonical token dump is line-for-line
+/// identical to the Rust lexer's `--dump-tokens` over the whole corpus.
+///
+/// Format ownership: `crates/xiom/src/main.rs::dump_tokens` and
+/// `selfhost/src/lexer.xi::dump_tokens` define the same byte-stable format
+/// (see the lexer header). Float payloads are dumped as the token LEXEME
+/// (float VALUE parity is deferred until the selfhost has a correctly
+/// rounded decimal->f64 parser / bitcast intrinsic); every other payload is
+/// value-exact.
+#[test]
+fn diff_tokens() {
+    let entries = corpus();
+    eprintln!("selfhost token-dump corpus: {} files", entries.len());
+
+    let mut failures: Vec<String> = Vec::new();
+    let mut total_tokens = 0usize;
+    for e in &entries {
+        let outcome = (|| -> Result<usize, String> {
+            let rust = rust_token_dump(e.path)?;
+            let sh = selfhost_token_dump(e.path)?;
+            if let Some(d) = first_diff(&rust, &sh) {
+                return Err(format!("token dump mismatch: {}", d));
+            }
+            Ok(rust.len())
+        })();
+        match outcome {
+            Ok(n) => {
+                total_tokens += n;
+                eprintln!("  {}: {} tokens", e.path, n);
+            }
+            Err(err) => {
+                eprintln!("  FAIL {}: {}", e.path, err);
+                failures.push(format!("{}: {}", e.path, err));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "selfhost token-dump parity (Phase 1): {} failure(s) of {} files:\n{}",
+        failures.len(),
+        entries.len(),
+        failures.join("\n")
+    );
+    eprintln!(
+        "selfhost token dump parity: {} files, {} tokens",
+        entries.len(),
+        total_tokens
     );
 }
