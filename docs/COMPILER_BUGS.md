@@ -10,6 +10,39 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-01 -- OPEN (C23): -O2 silently miscompiles (reproduced in WSL; bracket O1/O2)
+
+Playground relay + repro pack: `E:\xiom-lang\playground\tools\compiler-repros\c23\`
+(byte-exact lesson solutions `l6-15.xi` / `l7-39.xi` / `l8-09.xi` + README
++ `run.sh`; acceptance = `run.sh` prints `C23 present: no`).
+
+Reproduced EXACTLY on the reporter host: WSL Ubuntu (clang 18.1.3
+(1ubuntu1), kernel 6.6.87.2-microsoft-standard-WSL2) with the v0.62.2 linux
+toolchain (release tar.gz extracted to `~/xiom-c23`): l6-15 `2/3`,
+l7-39 `2/3`, l8-09 `2/0` (O0/O2), `C23 present: yes`.
+
+- NOT reproducible on the Windows host (all `2/2`) -- host-LLVM dependent,
+  as the playground noted.
+- Level bracket (l7-39): `-O0 2`, `-O1 2`, `-O2 3`, `-O3 3` -- the trigger
+  passes live in the O1->O2 delta (the driver's `opt -O2` rewrite and/or
+  clang's -O2 backend).
+- Instrumentation hides it: adding prints/dump to l7-39 makes both levels
+  correct (matches the playground's reduction notes -- the exact program
+  shape is required).
+- IR reviewed so far is structurally correct: `Vec[TodoItem]` esz = 24
+  (`store i64 24`), `.get` boxes 24 bytes, `.set` memcpys 24 bytes to
+  `data + idx*esz`; the new item stores `done` = i64 1 at field 2.
+  `TodoItem = { i64, i8*, i64 }`, `Vec = { i8*, i64, i64, i64 }`.
+- Next (dedicated batch): pass-level bisection in WSL (`opt -O1` vs `-O2`
+  on the captured pre-opt IR; clang-wrapper log to replay the exact
+  command), then minimize at the IR level; cross-check the packages'
+  `Vec[Str].push` "stride 8, i8 store" finding for the same root class.
+
+Repro artifacts: `tmp/sprintc/c23_capture_ir.sh`, `c23_levels.sh`,
+`c23_debug_l7.xi`; pre-opt IR at `tmp/sprintc/c23_l7_pre.ll`.
+
+---
+
 ## 2026-09-30 -- m166 follow-up FIXED: method trust key + legacy xiom.sync atomics (t2 residual)
 
 Benchmark relay: t2-queue still ~34 s (full arena) / ~12 s (probe) on

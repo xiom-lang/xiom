@@ -102,13 +102,26 @@ Supersedes the (9) handoff below (kept as history).
   QUEUED as the next bug batch: bisect the silent-exit/stdout-flush
   regression (candidates: m163/m164/m165 codegen; check exit + flush
   paths).
-- **Playground relay (C23, 2026-09-30)**: v0.62.1 (presumably also
-  0.62.2) miscompiles at -O2 (the default level) -- three lesson programs
-  give silently wrong answers at -O2, correct at -O0, host-LLVM-dependent
-  (lessons L6-15, L7-39, L8-09; reductions do not reproduce; the GitHub
-  runner's -O2 output differed from a WSL host's). They run -O0 meanwhile.
-  QUEUED as a correctness batch after the packages regression: repro at
-  the pin with -O2 vs -O0, then bisect.
+- **Playground relay (C23, OPEN -- partly reproduced)**: v0.62.1/0.62.2
+  miscompile at -O2 (the default level) -- three lesson solutions give
+  silently wrong answers at -O2, correct at -O0, host-LLVM-dependent.
+  Repro pack landed: `E:\xiom-lang\playground\tools\compiler-repros\c23\`
+  (byte-exact solutions + README + `run.sh` acceptance = "C23 present:
+  no"). REPRODUCED EXACTLY in WSL Ubuntu (clang 18.1.3 (1ubuntu1), the
+  reporter host) with the v0.62.2 linux toolchain extracted at
+  `~/xiom-c23`: l6-15 2/3, l7-39 2/3, l8-09 2/0. Level bracket (l7-39):
+  O0 2 / O1 2 / O2 3 / O3 3; instrumentation hides it; the reviewed IR
+  (esz=24 Vec[TodoItem], 24-byte .get box + .set memcpy) is structurally
+  correct so far. Full details + next steps in `COMPILER_BUGS.md`
+  "2026-10-01 -- OPEN (C23)"; pass-level bisection is the next dedicated
+  batch.
+- **Packages lane relay update (2026-10-01)**: a third v0.62.2 issue --
+  `Vec[Str].push(s)` mis-lowers (stride 8, i8 store -> clang rejects the
+  IR; `--emit-ir` clean). A minimal local probe (push two literals, read
+  back, print) compiles and runs CORRECTLY on the Windows release
+  toolchain, so the exact trigger shape is needed: request the snippet or
+  the package source from the packages lane alongside the expat/nbt
+  fixtures. Silent-exit regression (expat/nbt) still queued first.
 - **Registry lane relay (post-v0.62.2, QUEUED)**: registry 2.7.0 is live;
   two xiom-pkg-only changes queued AFTER the release ships (registry is
   not touching this repo meanwhile). (C5) Pin + verify the registry index
