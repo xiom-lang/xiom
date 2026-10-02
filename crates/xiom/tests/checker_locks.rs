@@ -454,3 +454,37 @@ fn m150_genuine_extern_still_gated() {
         "expected the extern-confinement diagnostic, got:\n{stderr}"
     );
 }
+
+#[test]
+fn m171_qualified_variant_patterns_are_exhaustive() {
+    // Selfhost Phase 2 finding (f): "Tree.Leaf"/"Tree.Node" must count as
+    // covered; both arms used to be flagged W000 non-exhaustive.
+    let (stderr, code) = check_on("m171_qualified_variant_pattern");
+    assert_eq!(code, Some(0), "qualified patterns must check clean. stderr:\n{stderr}");
+    assert!(
+        !stderr.contains("non-exhaustive"),
+        "qualified variants must count as covered, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn m172_enum_aggregate_equality_rejected() {
+    // Selfhost Phase 2 finding (g): aggregate payloads cannot lower to a
+    // derived equality -- must be a diagnostic, not `icmp %struct.Vec`.
+    let (stderr, code) = check_on("m172_enum_eq_aggregate_rejected");
+    assert_ne!(code, Some(0), "aggregate-payload enum equality must be rejected. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("non-comparable aggregates"),
+        "expected the aggregate-payload diagnostic, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn m173_scalar_payload_enum_equality_still_green() {
+    // Guard for (g): scalar/Str payloads keep compiling and comparing.
+    let (stderr, code, exe) = run_on("m173_enum_eq_scalar_payload");
+    assert_eq!(code, Some(0), "scalar/Str payload equality must keep compiling. stderr:\n{stderr}");
+    let run = Command::new(&exe).output().expect("run m173");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(run.status.code(), Some(0), "m173 runtime checks failed");
+}

@@ -31,6 +31,30 @@ fn resolve_bare_struct(
 }
 
 impl IrEmitter {
+    /// m174 (stdlib relay, p_struct_literal_field_order): declared field order
+    /// for a struct type name, with the module-leaf fallback codegen uses.
+    fn declared_field_order(&self, type_name: &str) -> Option<Vec<String>> {
+        let leaf = type_name.rsplit('.').next().unwrap_or(type_name);
+        let full = type_name.to_string();
+        let leaf_key = leaf.to_string();
+        self.types.types.get(&full)
+            .or_else(|| self.types.types.get(&leaf_key))
+            .or_else(|| {
+                let sfx = format!(".{leaf}");
+                self.types.types.keys().into_iter()
+                    .find(|k| k.ends_with(&sfx))
+                    .and_then(|k| self.types.types.get(&k))
+            })
+    }
+
+    /// m174: the DECLARED slot for a supplied field name. Falls back to the
+    /// supplied position when the name is unknown (legacy behavior).
+    fn declared_field_index(&self, order: &Option<Vec<String>>, name: &str, supplied: usize) -> usize {
+        order.as_ref()
+            .and_then(|decl| decl.iter().position(|f| f == name))
+            .unwrap_or(supplied)
+    }
+
     /// Compile a struct literal with a KNOWN type name. Used when the type
     /// was resolved from context (e.g. `Ok({ x: 1 })` where `Ok` expects `T`).
     pub(crate) fn compile_struct_literal(&mut self, type_name: &str, fields: &[(Ident, Expr)], _is_enum_variant: bool) -> Result<(String, String), String> {
@@ -39,7 +63,12 @@ impl IrEmitter {
         // D1: align 16 for structs with i128/fp128 fields (e.g. I128DivRem);
         // plain structs (Vec etc.) stay at default alignment.
         self.emitln(&format!("  {alloca} = alloca {struct_ty}{}", self.alloca_align(&struct_ty)));
-        for (i, (_, val)) in fields.iter().enumerate() {
+        // m174: store each supplied field into its DECLARED slot by NAME; the
+        // old positional loop scrambled out-of-order literals silently
+        // (`Quaternion{ w; x; y; z; }` against `{x;y;z;w}`).
+        let order = self.declared_field_order(type_name);
+        for (supplied_i, (fname, val)) in fields.iter().enumerate() {
+            let i = self.declared_field_index(&order, &fname.name, supplied_i);
             let field_llvm_ty = self.field_llvm_type(type_name, i);
             // 5c.39: Empty array `[]` in a Vec-typed struct field -- compile as
             // a proper empty Vec (heap-allocated buffer) instead of a raw i8*
@@ -4171,7 +4200,10 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     // 5c.39: Use resolved struct type name for field lookups,
                     // not the bare `_` name from the struct literal.
                     let resolved_name = struct_ty.trim_start_matches("%struct.");
-                    for (i, (_, val)) in fields.iter().enumerate() {
+                    // m174: name -> declared slot (out-of-order literals).
+                    let decl_order = self.declared_field_order(resolved_name);
+                    for (supplied_i, (fname, val)) in fields.iter().enumerate() {
+                        let i = self.declared_field_index(&decl_order, &fname.name, supplied_i);
                         // C24-2b (stdlib relay, p_curve_thunk_zero
                         // Option-of-Vec): the ERASED builtin bases are
                         // {i64, i64[, i64]}; a stale type_meta payload type

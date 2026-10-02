@@ -10,6 +10,52 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-02 -- m171/m172/m174 FIXED: qualified variant exhaustiveness (f), aggregate-payload enum equality (g), struct-literal field order
+
+Three checker/codegen fixes from the Phase 2 findings and the stdlib relay.
+
+### m171 -- qualified enum-variant patterns satisfy exhaustiveness (finding (f))
+`pattern_covers_variant` compared the pattern's stored DOTTED name
+("Tree.Leaf") against the bare variant ("Leaf"), so every qualified arm was
+flagged W000 `non-exhaustive match` (T001 when other errors exist). Fix
+(`crates/xiom-check/src/lib.rs`): compare the last dot-segment. Verified:
+`tmp/sprintc/bug_f_qualified_pattern.xi` compiles with zero W000 and runs;
+lock `tests/regression/m171_qualified_variant_pattern/` via
+`checker_locks::m171_qualified_variant_patterns_are_exhaustive`
+(check-only: recursive constructor temporaries still hit (e)).
+
+### m172 -- enum equality with aggregate payloads is rejected, not invalid IR (finding (g))
+`==`/`!=` on an enum whose variants carry `Vec`/struct/tuple payloads was
+lowered as a whole-struct compare (`icmp eq %struct.Vec`; clang: "icmp
+requires integer operands"), even for uncalled functions (codegen emits every
+module function). Fix (`xiom-check`): when both operands are the same enum
+and any variant payload is not scalar/Str/Char/Bool/pointer, emit
+`cannot compare ... variant payloads include non-comparable aggregates;
+compare the fields or a tag instead` instead of compiling. Verified:
+`bug_g_enum_eq.xi` now reports the T001 (was a clang failure); scalar/Str
+payload equality still compiles and runs (guard fixture
+`m173_enum_eq_scalar_payload` + e2e + CI). Locks:
+`checker_locks::m172_enum_aggregate_equality_rejected`,
+`checker_locks::m173_scalar_payload_enum_equality_still_green`,
+`e2e_m173_enum_eq_scalar_payload`.
+
+### m174 -- struct literals map fields by NAME, not supplied position (stdlib relay p_struct_literal_field_order)
+`Quaternion{ w; x; y; z; }` against a declaration of `{x;y;z;w}` stored each
+value at slot i, silently scrambling every Euler-derived rotation (the
+stdlib reordered wave 54; this locks the compiler). Fix
+(`crates/xiom-codegen/src/expr.rs`): both literal paths
+(`compile_struct_literal` and the generic struct-literal arm) resolve each
+supplied field name to its DECLARED index via a new
+`declared_field_order`/`declared_field_index` helper (module-leaf fallback
+like the rest of codegen; unknown names keep the legacy positional
+fallback). Verified: stdlib probe `p_struct_literal_field_order.xi` rc 1 on
+v0.62.2 -> rc 0 on HEAD; lock
+`tests/regression/m174_struct_literal_field_order/` +
+`e2e_m174_struct_literal_field_order` + CI line; feature-reg 517/517,
+stdlib-exec 85/85 (+2 ign), api-freeze 2/2 after the change.
+
+---
+
 ## 2026-10-02 -- C23 FIXED: driver optimized every module twice (opt then clang); LLVM 18 miscompiles the lesson trio
 
 Playground relay (AUDIT 33.4, pack `playground/tools/compiler-repros/c23`):
@@ -67,7 +113,7 @@ for nested-module types (`models.Note`). OPEN, post-batch intake.
 
 ---
 
-## 2026-10-02 -- OPEN (selfhost Phase 2 port findings): recursive enum payloads mis-lower; qualified variant patterns false-non-exhaustive
+## 2026-10-02 -- SELFHOST PHASE 2 FINDINGS: (f)/(g) FIXED (m171/m172); (e)/(h) OPEN
 
 Two findings surfaced while starting the parser port
 (`crates/xiom-parser` -> `selfhost/src/`). Repros live in
@@ -75,6 +121,10 @@ Two findings surfaced while starting the parser port
 unqualified variant patterns), but (e) silently crashes/mis-compiles
 recursive value trees, which the language advertises as supported (the
 checker accepts them and emits `%struct.*` with payload pointers).
+
+Status: (f) qualified variant exhaustiveness and (g) aggregate-payload enum
+equality are FIXED (m171/m172, see the entries above); (e) recursive payload
+boxing and (h) large-function variant-payload mapping remain OPEN.
 
 ### (e) Recursive enum payloads are pointer-boxed unsafely (crash / wrong values)
 

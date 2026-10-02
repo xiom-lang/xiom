@@ -5713,6 +5713,26 @@ fn e2e_safety_probe() {
     );
 }
 
+// m173 guard for the (g) fix: scalar/Str payload enum equality must keep
+// compiling and comparing (only aggregate payloads are rejected).
+#[test] fn e2e_m173_enum_eq_scalar_payload() {
+    assert_eq!(
+        compile_and_run("tests/regression/m173_enum_eq_scalar_payload/main.xi"),
+        Some(0),
+        "scalar/Str payload enum equality must keep working"
+    );
+}
+
+// m174 (stdlib relay, p_struct_literal_field_order): out-of-order struct
+// literal fields must map to their declared slots by NAME.
+#[test] fn e2e_m174_struct_literal_field_order() {
+    assert_eq!(
+        compile_and_run("tests/regression/m174_struct_literal_field_order/main.xi"),
+        Some(0),
+        "out-of-order struct literal fields must land in their declared slots"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

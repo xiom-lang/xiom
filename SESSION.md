@@ -14,10 +14,12 @@ Supersedes the (11) handoff below (kept as history).
 > (e)-(h) + the struct-literal field-order relay). State: **v0.62.2**
 > released; Phases 0-2 selfhost on main; Phase 3 (checker parity) runs in its
 > own Agent Manager worktree on branch `selfhost-phase-3-checker`.
-> Immediate compiler queue: (f) qualified variant patterns false W000;
-> (g) enum `==` with aggregate payloads emits invalid IR; struct-literal
-> out-of-order fields store positionally; then (e)/(h) and the intake items
-> (type laxness, module-header nested-module compare).
+> Compiler batch landed (m171/m172/m174): (f) qualified variant patterns
+> now count as exhaustive, (g) aggregate-payload enum equality is a clean
+> T001 instead of invalid IR, and out-of-order struct literals map fields by
+> name (stdlib relay). Remaining bugs: (e) recursive enum payload boxing,
+> (h) large-function variant payload mapping, type-laxness intake,
+> module-header nested-module compare.
 > Phase 2 deliverables (all committed):
 > 1. Canonical `--dump-ast` on the Rust driver
 >    (`crates/xiom/src/main.rs::dump_ast` + `AstDump`, clap flag, usage) and

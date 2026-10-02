@@ -6742,6 +6742,47 @@ impl Checker {
                                 *span,
                             );
                         }
+                        // (g) enum equality is derived member-wise over the whole
+                        // variant struct; aggregate payloads (Vec/struct/tuple/...)
+                        // would emit `icmp %struct.*` (invalid IR). Scalar and Str
+                        // payloads lower fine. Reject with a diagnostic instead of
+                        // failing in clang.
+                        if compatible {
+                            let scalar_payload = |t: &CheckedType| -> bool {
+                                t.is_numeric()
+                                    || matches!(t, CheckedType::Bool | CheckedType::Char | CheckedType::Str)
+                                    || matches!(t, CheckedType::Named(n) if n == "Ptr" || n == "_")
+                            };
+                            let enum_agg_eq = match (&left_ty, &right_ty) {
+                                (CheckedType::Named(a), CheckedType::Named(b)) => {
+                                    let base_a = a.split('[').next().unwrap_or(a);
+                                    let base_b = b.split('[').next().unwrap_or(b);
+                                    base_a == base_b && self.variant_fields.iter().any(|(key, fields)| {
+                                        let parent = match key.rfind('.') {
+                                            Some(pos) => &key[..pos],
+                                            None => self
+                                                .enum_variants
+                                                .get(key)
+                                                .map(|s| s.as_str())
+                                                .unwrap_or(""),
+                                        };
+                                        let parent_base = parent.split('[').next().unwrap_or(parent);
+                                        parent_base == base_a
+                                            && fields.iter().any(|(_, t)| !scalar_payload(t))
+                                    })
+                                }
+                                _ => false,
+                            };
+                            if enum_agg_eq {
+                                self.error(
+                                    format!(
+                                        "cannot compare {} values -- variant payloads include non-comparable aggregates; compare the fields or a tag instead",
+                                        left_ty.name()
+                                    ),
+                                    *span,
+                                );
+                            }
+                        }
                         // Stage 6 W007: self-comparison on a non-float type is
                         // always true (`==`) / always false (`!=`). Float
                         // operands are excluded -- NaN makes `x == x` real.
@@ -9644,7 +9685,12 @@ fn pattern_covers_variant(pattern: &xiom_ast::Pattern, variant: &str) -> bool {
         xiom_ast::Pattern::None(_) => variant == "None",
         xiom_ast::Pattern::Ok(_, _) => variant == "Ok",
         xiom_ast::Pattern::Err(_, _) => variant == "Err",
-        xiom_ast::Pattern::Variant(name, _, _) => name.name == variant,
+        // (f) qualified variant patterns store the DOTTED name ("Tree.Leaf")
+        // while exhaustiveness passes the bare variant; compare the last
+        // segment so `Tree.Leaf` covers `Leaf`.
+        xiom_ast::Pattern::Variant(name, _, _) => {
+            name.name.rsplit('.').next().unwrap_or(&name.name) == variant
+        }
         xiom_ast::Pattern::Lit(lit) => match lit {
             xiom_ast::Literal::Bool(b, _) => (*b && variant == "true") || (!*b && variant == "false"),
             _ => false,
