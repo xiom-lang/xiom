@@ -5586,6 +5586,40 @@ fn e2e_safety_probe() {
     );
 }
 
+// m169 (stdlib C24-1 relay, p_geom_vector_result_bits): caller-side element
+// reads of module-qualified results whose LEAF is shared with a
+// different-return-type function (vector.lerp/clamp/hadamard over math.*,
+// curves.b_spline over geometry_extended.*) must keep the callee's declared
+// Vec element type. Before the fix the binding lost it and indexed reads took
+// the scalar i64 path (the double's bits surfaced via sitofp).
+#[test] fn e2e_m169_sameleaf_qualified_result_elem() {
+    assert_eq!(
+        compile_and_run("tests/regression/m169_sameleaf_qualified_result_elem/main.xi"),
+        Some(0),
+        "same-leaf qualified Vec results must read their stored elements (m169)"
+    );
+}
+
+// m169 IR lock: the float element read must bitcast the loaded double bits
+// (bitcast i64 -> double), never sitofp them as an integer.
+#[test] fn e2e_m169_sameleaf_result_elem_read_ir() {
+    let ir = compile_ir("tests/regression/m169_sameleaf_qualified_result_elem/main.xi")
+        .expect("m169 fixture must compile to IR");
+    let lines: Vec<&str> = ir.lines().collect();
+    let idx = lines.iter().position(|l| {
+        l.contains("fcmp une double") && l.contains("1.50000000000000000e0")
+    }).expect("m169: the 1.5 float comparison must be in the IR");
+    let prev = lines[idx.saturating_sub(1)];
+    assert!(
+        prev.contains("bitcast i64"),
+        "m169: the element read must bitcast the loaded double bits; preceding line: {prev}"
+    );
+    assert!(
+        !prev.contains("sitofp i64"),
+        "m169: the element read must not treat the double bits as an integer; preceding line: {prev}"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

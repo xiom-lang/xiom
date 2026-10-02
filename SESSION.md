@@ -26,12 +26,13 @@ Supersedes the (10) kickoff prompt below (kept as history).
 >    (`selfhost-phase-1-lexer`, rebased to `0831ee6f` on main): token-dump
 >    gate green, CLI locks green. The branch's SESSION.md edits were
 >    dropped in the rebase (main's handoff kept).
-> 2. C24-1 `p_geom_vector_result_bits` (stdlib relay): caller-side element
->    reads of `vector.lerp/clamp/hadamard` and `curves.b_spline` RESULTS are
->    bit-reinterpreted (1.5 reads as 4.609e18); callee-side correct; other
->    ops fine. Probes live in the STDLIB repo's newer main (not the pin):
->    fetch read-only (`git -C stdlib fetch origin`, `git show
->    origin/main:<path>`), run against the compiler.
+> 2. [DONE 2026-10-02] C24-1 FIXED (m169): same-leaf qualified results
+>    (`vector.lerp/clamp/hadamard`, `curves.b_spline`) lost the Vec element
+>    type at module-qualified call sites; caller reads took the scalar i64
+>    path (stored double bits surfaced via sitofp). Fix in codegen
+>    `callee_return_xiom` (resolve the callee key exactly as call emission
+>    does, then read the declared return type). Locks: m169 fixture + e2e +
+>    IR + CI line. Full e2e runs once at the end of this compiler batch.
 > 3. C24-2 `p_curve_thunk_zero` (stdlib relay): a `Vec[Float64]`-returning
 >    fn-typed parameter arrives EMPTY inside catalog bodies (curve_length
 >    returns 0; direct call correct). Re-confirmed there: Option-of-Vec
@@ -61,9 +62,14 @@ Supersedes the (10) kickoff prompt below (kept as history).
 > 8. stdlib `Vec.push[T]` stride fix (relay in COMPILER_BUGS m167): the
 >    generic body hardcodes 8-byte stride + unscaled `data + len`; the
 >    compiler now avoids it for direct receivers, but fix it at the source.
-> WAITING ON: stdlib lane for the `xiom/sync/sync.xi` `#[unsafe_direct]`
-> annotation + `stdlib-perf2` tag (then Gate P: benchmark t2 re-run; the
-> compiler half is in `185342f4`). Nothing else external blocks the queue.
+> 9. Packages type-laxness intake (COMPILER_BUGS 2026-10-02 relay):
+>    `let gb: Vec[UInt8] = got.value;` with a Str field compiles clean and
+>    yields wrong bytes. Reproduce, then scope (post-batch, non-release).
+> WAITING ON: none blocking. Stdlib `stdlib-perf2` (f011efe) is now on
+> stdlib origin main -- it carries the `xiom/sync/sync.xi` `#[unsafe_direct]`
+> annotation + `stdlib-perf2` tag, so Gate P is READY: bump
+> `STDLIB_VERSION` to `stdlib-perf2`, regenerate the api-freeze snapshot,
+> then benchmark t2 (the compiler half is in `185342f4`).
 > Next release (v0.62.3) scope: C23 + C24-1/C24-2 + expat/nbt + m168
 > residual + t2/sync.xi; gate = local suites at the release commit +
 > playground run.sh "C23 present: no" + Gate P + stdlib-perf2 pin + dry-run.

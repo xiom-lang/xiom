@@ -10,6 +10,76 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-02 -- m169 FIXED: same-leaf qualified RESULTS lost their Vec element type (C24-1 caller-side bit reads)
+
+Stdlib relay (C24-1): caller-side element reads of `vector.lerp`,
+`vector.clamp`, `vector.hadamard` and `curves.b_spline` RESULTS were
+bit-reinterpreted (stored 1.5 read as 4.609e18), while callee-side and
+unique-leaf siblings (`cross`, `normalize`, `bezier_quad`) were correct.
+Probes: the stdlib session's `tools/known_failures/p_geom_vector_result_bits.xi`
+(copied to `tmp/sprintc/c24_1/`; extended by
+`tmp/sprintc/c24_1/probe_c24_ext.xi` to cover hadamard/b_spline +
+`matrix.hadamard`).
+
+Root cause (codegen `callee_return_xiom`, Field arm): for a
+module-qualified callee the exact `${receiver}.${leaf}` key misses because
+the catalog stores the resolved `geom.vector.lerp` form. The fallback
+`callee_return_xiom_suffix(leaf)` returns None when the leaf is shared with
+different return types (`math.lerp` -> Float64, `math.tower.lerp` -> T;
+`math.clamp`/`cmp.clamp` -> Float64; `matrix.hadamard` -> Vec[Vec[Float64]];
+`geometry_extended.b_spline` -> Vec2). The binding then recorded no XIOM
+type, so `lp[0]` took the scalar i64 element-load path and the comparison
+`sitofp`'d the double's bits as an integer.
+
+Instrumented evidence (`XIOM_TRACE_RETXIOM=1`, temporary `[retxiom-q]`
+trace): `has_q=false` for `vector.lerp`/`vector.clamp` with hits
+`[("math.primitives.lerp","Float64"), ("math.tower.lerp","T"),
+("math.lerp","Float64"), ("geom.vector.lerp","Vec[Float64]")]`; `cross`
+resolved only because its suffix match is unique.
+
+Fix: in `callee_return_xiom`'s Field arm (crates/xiom-codegen/src/lib.rs),
+when the syntactic receiver is not an instance, resolve the callee exactly
+as call emission does
+(`resolve_catalog_call(recv, leaf, func.span()).unwrap_or_else(||
+resolve_module_call(recv, leaf))`) and read the declared return type off
+that resolved key before the ambiguous suffix fallback.
+
+Verified: `probe_c24_ext.xi` pre-fix rc=3 (lerp read), post-fix rc=0;
+`p_geom_vector_result_bits.xi` pre-fix rc=2, post-fix rc=0. IR before/after
+at the caller read: `%tN = sitofp i64 %bits to double` vs
+`%tN = bitcast i64 %bits to double` feeding `fcmp une double ..., 1.5`.
+
+Locks: `tests/regression/m169_sameleaf_qualified_result_elem/` +
+`e2e_m169_sameleaf_qualified_result_elem`, the IR lock
+`e2e_m169_sameleaf_result_elem_read_ir` (preceding line must be
+`bitcast i64`, never `sitofp i64`) + CI line. Suites at the fix:
+feature-reg 517/517, checker_locks 23/23; full e2e runs once at the end of
+this compiler batch.
+
+---
+
+## 2026-10-02 -- RELAY (packages -> compiler): type laxness yields wrong bytes; trap-14 recurrences; positives
+
+From the packages lane (`docs/COMPILER-FINDINGS.md` there). OPEN, no m-number
+until reproduced compiler-side:
+
+- NEW: TYPE LAXNESS beyond brackets -- `let gb: Vec[UInt8] = got.value;`
+  where `got.value` has a Str field compiles clean and yields wrong bytes
+  (pptx). Intake needed: reproduce with a minimal probe; decide
+  checker-reject vs codegen conversion.
+- Stdlib defect (stdlib lane, not compiler): `xiom.crypto.hash._u64_lshr(x,
+  63)` returns 3 instead of 1 for bit-63 operands (web3 Keccak); the
+  in-package `n == 63` fix is the stdlib lane's.
+- Trap-14 silent recurrences: docx 8 parameter-position sites, image 2,
+  pptx 1 -- caught only by the post-green grep.
+- Positive probe: the v0.61.3 const-array mis-materialization did NOT
+  reproduce on v0.62.2 for simple `[8]Int`/`[64]Int` loop-indexed shapes
+  (bad=0); row 25 annotated, complex initializers still untested.
+- Positives: concrete fn-pointer callbacks, multi-module package resolution,
+  `&mut Struct` field pushes, UInt32 -> Int zero-extension.
+
+---
+
 ## 2026-10-01 -- m168 FIXED (primary): `&mut Int` assignment dropped the write
 
 Packages relay (commit `bad44b2`,

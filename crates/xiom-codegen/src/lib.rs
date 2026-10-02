@@ -2488,6 +2488,29 @@ impl IrEmitter {
                     return Some(rt.clone());
                 }
             }
+            // C24-1 (stdlib relay, p_geom_vector_result_bits): the syntactic
+            // receiver may be a module LEAF/ALIAS ("vector") while
+            // `fn_return_xiom` stores the resolved full key
+            // ("geom.vector.lerp"). The exact `{receiver}.{leaf}` probe above
+            // misses, and the leaf-suffix fallback returns None when the leaf
+            // is shared with different return types (lerp/clamp over math.*,
+            // hadamard over matrix.*, b_spline over geometry_extended.*) --
+            // the binding then lost its Vec element type and indexed reads
+            // took the scalar i64 load path (stored IEEE bits surfaced as
+            // Int). Resolve the call the same way the call site does, then
+            // read the return type off that key.
+            if !self.receiver_is_instance(recv) {
+                let resolved = self.resolve_catalog_call(recv, &leaf, func.span())
+                    .unwrap_or_else(|| self.resolve_module_call(recv, &leaf));
+                // Only a genuinely qualified key may back-fill the return
+                // type; a bare-leaf fallback ("new") must keep the old
+                // suffix behavior.
+                if resolved != leaf && resolved.ends_with(&format!(".{leaf}")) {
+                    if let Some(rt) = self.types.fn_return_xiom.get(&resolved) {
+                        return Some(rt.clone());
+                    }
+                }
+            }
             return self.callee_return_xiom_suffix(&leaf);
         }
         let leaf = match func {
