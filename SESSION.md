@@ -1,19 +1,23 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
-# CONTINUATION HANDOFF (2026-10-02 (12), selfhost Phase 2 parser parity -- LANDED; gate 2 GREEN)
+# CONTINUATION HANDOFF (2026-10-02 (12), selfhost Phase 2 parser parity -- MERGED TO MAIN (`60731523`); gate 2 GREEN)
 
 Supersedes the (11) handoff below (kept as history).
 
 ## Next-session kickoff prompt (copy/paste)
 
-> Continue the XIOM swarm compiler lane on branch `selfhost-phase-2-parser`
-> (worktree `.kilo/worktrees/selfhost-phase-2-parser`). Read this top
+> Continue the XIOM swarm compiler lane on `main` (Phase 2 rebased and
+> fast-forward merged at `60731523`; meter **27% -- 3 of 11**). Read this top
 > section, then `docs/checklists/selfhost-phase2.md`,
-> `docs/SELFHOST_PROGRESS.md` and `docs/COMPILER_BUGS.md` (2026-10-02 Phase 2
-> findings (e)-(h)). Bootstrap meter is **27% -- 3 of 11 gates** (Phase 2
-> parser parity landed; gate 2 DONE). State: **v0.62.2** released; Phases 0-2
-> selfhost landed on this branch (DO NOT PUSH without the owner's ask).
+> `docs/SELFHOST_PROGRESS.md` and `docs/COMPILER_BUGS.md` (Phase 2 findings
+> (e)-(h) + the struct-literal field-order relay). State: **v0.62.2**
+> released; Phases 0-2 selfhost on main; Phase 3 (checker parity) runs in its
+> own Agent Manager worktree on branch `selfhost-phase-3-checker`.
+> Immediate compiler queue: (f) qualified variant patterns false W000;
+> (g) enum `==` with aggregate payloads emits invalid IR; struct-literal
+> out-of-order fields store positionally; then (e)/(h) and the intake items
+> (type laxness, module-header nested-module compare).
 > Phase 2 deliverables (all committed):
 > 1. Canonical `--dump-ast` on the Rust driver
 >    (`crates/xiom/src/main.rs::dump_ast` + `AstDump`, clap flag, usage) and
@@ -36,12 +40,12 @@ Supersedes the (11) handoff below (kept as history).
 > with aggregate payloads emits invalid IR; (h) `NkExprGenericCall`
 > destructure field mis-mapping in a large dispatch function; (e) recursive
 > enum payload boxing; (f) qualified variant patterns false W000.
-> Next work: Phase 3 checker parity (owner: after a behavior freeze), or
-> the compiler-lane queue from the (11) handoff below.
+> Next work: Phase 3 checker parity (launched in its own worktree) plus the
+> compiler queue above.
 > Method: repro-first under tmp/sprintc; cargo commands sequentially on this
 > box; never rebuild target/debug while an e2e runs; `python
 > tools/ascii_guard.py check` before every commit; commit atomically with
-> SESSION.md + COMPILER_BUGS.md evidence; DO NOT push.
+> SESSION.md + COMPILER_BUGS.md evidence; push only on the owner's ask.
 
 
 
