@@ -493,6 +493,13 @@ impl IrEmitter {
                     if Self::is_fn_marker(&name) {
                         return LLVM_I64.to_string();
                     }
+                    // Packages relay (gcp): a module-qualified annotation
+                    // ("qlib.LabelParts") must lower to its registered struct,
+                    // not the i64 unknown-name fallback (which zeroed every
+                    // field read on the annotated binding).
+                    if let Some(ty) = self.registered_struct_key_for(&name) {
+                        return ty;
+                    }
                     self.llvm_type_for(&name).unwrap_or_else(|_| LLVM_I64.to_string())
                 });
                 // M17: Track XIOM type and signedness for narrow-int widening.
@@ -820,6 +827,13 @@ impl IrEmitter {
                     // `inttoptr ptr -> ptr` (invalid IR, clang rejects).
                     if Self::is_fn_marker(&name) {
                         return LLVM_I64.to_string();
+                    }
+                    // Packages relay (gcp): a module-qualified annotation
+                    // ("qlib.LabelParts") must lower to its registered struct,
+                    // not the i64 unknown-name fallback (which zeroed every
+                    // field read on the annotated binding).
+                    if let Some(ty) = self.registered_struct_key_for(&name) {
+                        return ty;
                     }
                     self.llvm_type_for(&name).unwrap_or_else(|_| LLVM_I64.to_string())
                 });

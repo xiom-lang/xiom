@@ -5800,6 +5800,16 @@ fn e2e_safety_probe() {
     );
 }
 
+// m176 (packages relay, gcp): module-qualified struct literals, annotations
+// and by-value params must resolve to the registered struct.
+#[test] fn e2e_m176_qualified_struct_literal() {
+    assert_eq!(
+        compile_and_run("tests/regression/m176_qualified_struct_literal/main.xi"),
+        Some(0),
+        "module-qualified struct types must resolve in literals/annotations/params"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

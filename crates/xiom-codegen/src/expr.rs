@@ -58,7 +58,16 @@ impl IrEmitter {
     /// Compile a struct literal with a KNOWN type name. Used when the type
     /// was resolved from context (e.g. `Ok({ x: 1 })` where `Ok` expects `T`).
     pub(crate) fn compile_struct_literal(&mut self, type_name: &str, fields: &[(Ident, Expr)], _is_enum_variant: bool) -> Result<(String, String), String> {
-        let struct_ty = self.llvm_type_for(type_name)?;
+        // Packages relay (gcp): resolve the registered struct key FIRST --
+        // llvm_type_for maps unknown (e.g. module-qualified) names to
+        // Ok("i64"), which built a scalar literal and zeroed every field.
+        let struct_ty = self.resolve_literal_struct_ty(type_name);
+        if !struct_ty.starts_with('%') {
+            return Err(format!(
+                "struct literal for '{type_name}' did not resolve to a registered struct"
+            ));
+        }
+        let resolved = struct_ty.trim_start_matches("%struct.").to_string();
         let alloca = self.fresh_tmp();
         // D1: align 16 for structs with i128/fp128 fields (e.g. I128DivRem);
         // plain structs (Vec etc.) stay at default alignment.
@@ -66,16 +75,16 @@ impl IrEmitter {
         // m174: store each supplied field into its DECLARED slot by NAME; the
         // old positional loop scrambled out-of-order literals silently
         // (`Quaternion{ w; x; y; z; }` against `{x;y;z;w}`).
-        let order = self.declared_field_order(type_name);
+        let order = self.declared_field_order(&resolved);
         for (supplied_i, (fname, val)) in fields.iter().enumerate() {
             let i = self.declared_field_index(&order, &fname.name, supplied_i);
-            let field_llvm_ty = self.field_llvm_type(type_name, i);
+            let field_llvm_ty = self.field_llvm_type(&resolved, i);
             // 5c.39: Empty array `[]` in a Vec-typed struct field -- compile as
             // a proper empty Vec (heap-allocated buffer) instead of a raw i8*
             // array buffer that would be inttoptr'd to a 32-byte Vec struct.
             let (field_val, field_val_ty) = if let Expr::Array(elems, _) = val {
                 if elems.is_empty() && (field_llvm_ty == "%struct.Vec" || field_llvm_ty.ends_with(".Vec")) {
-                    self.compile_empty_vec_for_field(type_name, i)?
+                    self.compile_empty_vec_for_field(&resolved, i)?
                 } else {
                     self.compile_expr(val)?
                 }
@@ -2622,7 +2631,17 @@ impl IrEmitter {
                                     // regular fields load with their static type.
                                     let is_result = type_name.ends_with("Result") || type_name.contains(".Result") || type_name.starts_with("Result__");
                                     let is_option = type_name.ends_with("Option") || type_name.contains(".Option") || type_name.starts_with("Option__");
-                                    let mut field_llvm_ty = self.field_llvm_type(type_name, field_idx);
+        let mut field_llvm_ty = {
+            // Packages relay (gcp): normalize a module-qualified struct name
+            // ("qlib.LabelParts") to its registered key before the field TYPE
+            // lookup; the raw name missed type_meta and fell back to i64, so
+            // reads of a qualified-typed local loaded Str fields as integers.
+            let resolved = self
+                .registered_struct_key_for(type_name)
+                .map(|t| t.trim_start_matches("%struct.").to_string())
+                .unwrap_or_else(|| type_name.to_string());
+            self.field_llvm_type(&resolved, field_idx)
+        };
                                     // R52 (playground L5-20): a GENERIC struct
                                     // field read through a CONCRETE base local
                                     // (`let greeting: Pair[Str,Str];
@@ -5808,7 +5827,16 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
         let is_option = type_name.ends_with("Option")
             || type_name.contains(".Option")
             || type_name.starts_with("Option__");
-        let mut field_llvm_ty = self.field_llvm_type(type_name, field_idx);
+        let mut field_llvm_ty = {
+            // Packages relay (gcp): normalize a module-qualified struct name
+            // to its registered key before the field TYPE lookup; the raw
+            // name missed type_meta and fell back to i64.
+            let resolved = self
+                .registered_struct_key_for(type_name)
+                .map(|t| t.trim_start_matches("%struct.").to_string())
+                .unwrap_or_else(|| type_name.to_string());
+            self.field_llvm_type(&resolved, field_idx)
+        };
         let mut payload_reinterpret = false;
         let mut payload_boxed = false;
         let is_payload_field =
@@ -6019,7 +6047,35 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 return t;
             }
         }
+        // Packages relay (gcp): the IrEmitter's llvm_type_for maps unknown
+        // names to Ok("i64"), so the fallback's leaf retry never runs for a
+        // QUALIFIED literal whose type is registered under a bare key
+        // ("qlib.LabelParts" vs "LabelParts") -- resolve the registered key
+        // first (exact, leaf, module suffix) before the i64 fallback.
+        if let Some(ty) = self.registered_struct_key_for(name) {
+            return ty;
+        }
         self.llvm_type_for_fallback(name)
+    }
+
+    /// Registered struct/enum key for a possibly module-qualified name.
+    pub(crate) fn registered_struct_key_for(&self, name: &str) -> Option<String> {
+        let known = |k: &str| -> bool {
+            self.types.types.contains_key(&k.to_string())
+                || self.types.type_meta.contains_key(&k.to_string())
+                || self.types.enum_variants.contains_key(&k.to_string())
+        };
+        if known(name) {
+            return Some(format!("%struct.{name}"));
+        }
+        let leaf = name.rsplit('.').next().unwrap_or(name);
+        if leaf != name && known(leaf) {
+            return Some(format!("%struct.{leaf}"));
+        }
+        let sfx = format!(".{leaf}");
+        let key = self.types.types.keys().into_iter().find(|k| k.ends_with(&sfx))
+            .or_else(|| self.types.type_meta.keys().into_iter().find(|k| k.ends_with(&sfx)));
+        key.map(|k| format!("%struct.{k}"))
     }
 
 }

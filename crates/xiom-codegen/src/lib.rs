@@ -2264,7 +2264,16 @@ impl IrEmitter {
                 // must be pointers too.
                 format!("{inner_llvm}*")
             }
-            _ => self.llvm_type_for(&Self::type_from_ast(ty)).unwrap_or_else(|_| "i64".to_string()),
+            _ => {
+                let name = Self::type_from_ast(ty);
+                // Packages relay (gcp): a module-qualified annotation
+                // ("qlib.LabelParts") must lower to its registered struct,
+                // not the unknown-name i64 fallback (params read garbage).
+                if let Some(t) = self.registered_struct_key_for(&name) {
+                    return t;
+                }
+                self.llvm_type_for(&name).unwrap_or_else(|_| "i64".to_string())
+            }
         }
     }
 
@@ -3997,6 +4006,29 @@ impl IrEmitter {
                 for key in self.types.types.keys() {
                     if key.ends_with(&search) {
                         return format!("%struct.{key}");
+                    }
+                }
+                // Packages relay (gcp): a QUALIFIED literal name
+                // ("qlib.LabelParts") whose registration is BARE
+                // ("LabelParts") -- retry with the leaf segment before
+                // minting an empty struct (which produced silent zeros).
+                let leaf = type_name.rsplit('.').next().unwrap_or(type_name);
+                if leaf != type_name {
+                    if self.types.type_meta.contains_key(&leaf.to_string()) {
+                        return format!("%struct.{leaf}");
+                    }
+                    if self.types.types.contains_key(&leaf.to_string()) {
+                        return format!("%struct.{leaf}");
+                    }
+                    for key in self.types.type_meta.keys() {
+                        if key.ends_with(&format!(".{leaf}")) {
+                            return format!("%struct.{key}");
+                        }
+                    }
+                    for key in self.types.types.keys() {
+                        if key.ends_with(&format!(".{leaf}")) {
+                            return format!("%struct.{key}");
+                        }
                     }
                 }
                 // Also check generic_type_names -- generic types may not

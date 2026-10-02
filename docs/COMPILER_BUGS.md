@@ -10,6 +10,37 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-02 -- m176/m177 FIXED: module-qualified type annotations/literals/params (gcp); Result payload laxness (consul)
+
+### m176 -- qualified type names (`qlib.LabelParts`) in literals, annotations, params
+Repro: a cross-file sibling module's type used as `qlib.LabelParts{...}`, as
+`var c: qlib.LabelParts`, and as a by-value `x: qlib.LabelParts` param.
+Pre-fix: the literal was minted as an empty struct / the annotated slot and
+param lowered to i64 (the IrEmitter `llvm_type_for` maps unknown names to
+`Ok("i64")`), so fields silently read as zeros (and the packages lane saw a
+T001 variant). Fix: resolve the registered key first (exact -> leaf ->
+module suffix) in every place a qualified annotation can reach the i64
+fallback: `resolve_literal_struct_ty` + `compile_struct_literal`
+(`crates/xiom-codegen/src/expr.rs`), `emit_struct_field_read`, the
+var/let annotation slot lowering and `param_llvm_type`
+(`crates/xiom-codegen/src/stmt.rs`, `lib.rs`). Verified: qmain/qmain2/
+qmain3/qmain4 all green (unannotated literal, annotated binding, by-value
+param + method call). Locks: `m176_qualified_struct_literal` fixture
+(sibling file) + `e2e_m176_qualified_struct_literal` + CI line.
+
+### m177 -- generic-arg laxness: Bool must not satisfy numeric payload args
+Repro (consul): `fn make() -> Result[Int, Str] { var r: Result[Bool, Str] =
+Ok(true); return r; }` compiled silently and `.unwrap()` read the Bool
+payload as an Int (garbage). Root: `type_arg_compatible` treated Bool as
+interchangeable with any numeric. Fix: numeric-to-numeric promotion stays
+(Int vs UInt8); Bool only matches Bool. Verified: the repro now reports
+`return type mismatch: expected Result[Int, Str], found Result[Bool, Str]`;
+feature-reg 517/517, checker 195/195, checker_locks 27/27, stdlib-exec 85/85
+(+2 ign), api-freeze 2/2 after the change. Locks: `m177_result_payload_mismatch`
+fixture + `checker_locks::m177_result_payload_mismatch_rejected`.
+
+---
+
 ## 2026-10-02 -- m175 FIXED: Int FFI handles to pointer params must inttoptr (playground C24, io.read_line)
 
 Playground relay: `printf 'Ada\n' | xiom run --no-cache -O0 read_line.xi`

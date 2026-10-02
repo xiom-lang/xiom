@@ -488,3 +488,16 @@ fn m173_scalar_payload_enum_equality_still_green() {
     let _ = std::fs::remove_file(&exe);
     assert_eq!(run.status.code(), Some(0), "m173 runtime checks failed");
 }
+
+#[test]
+fn m177_result_payload_mismatch_rejected() {
+    // Packages relay (consul): Result[Bool, Str] used to satisfy a declared
+    // Result[Int, Str] (Bool counted as numeric in generic args) and
+    // .unwrap() read garbage. Must now be a return-type mismatch.
+    let (stderr, code) = check_on("m177_result_payload_mismatch");
+    assert_ne!(code, Some(0), "Result payload mismatch must be rejected. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("expected Result[Int, Str], found Result[Bool, Str]"),
+        "expected the return-type mismatch diagnostic, got:\n{stderr}"
+    );
+}

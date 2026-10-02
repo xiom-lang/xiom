@@ -24,13 +24,17 @@ Supersedes the (11) handoff below (kept as history).
 > handle into `fgets` (was truncated to a byte and address-passed); pack
 > acceptance `C24 fixed: yes` in run+compile modes on Windows and Linux;
 > piped-stdin e2e + IR lock; full e2e 2408/2408 (+4 ignored, 8 threads).
+> m176/m177 landed (packages): module-qualified type annotations/literals/
+> params resolve to the registered struct (was silent zeros / T001), and
+> `Result[Bool, Str]` no longer satisfies `Result[Int, Str]` (was a silent
+> garbage read). Locks m176 fixture + e2e + CI, m177 checker lock.
 > Remaining bugs: (e) recursive enum payload
 > boxing, (h) large-function variant payload mapping, type-laxness intake
-> (now incl. `Result[Bool,Str]` where `Result[Int,Str]` is expected reading
-> garbage -- consul), qualified struct-literal T001 (gcp), module-header
+> (the remaining `let gb: Vec[UInt8] = got.value;` row), module-header
 > nested-module compare, plus the packages rows (loop-return typing, arity
-> symmetry, cross-module qualified type names, reserved `fn` identifier,
-> spurious `!bool == 1` diagnostic; the crypto symbol is stdlib-side).
+> symmetry, cross-module qualified call resolution, reserved `fn`
+> identifier, spurious `!bool == 1` diagnostic; the crypto symbol is
+> stdlib-side).
 > Phase 2 deliverables (all committed):
 > 1. Canonical `--dump-ast` on the Rust driver
 >    (`crates/xiom/src/main.rs::dump_ast` + `AstDump`, clap flag, usage) and

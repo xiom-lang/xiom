@@ -8716,9 +8716,12 @@ impl Checker {
         if x.is_pointer_like() && y.is_pointer_like() { return true; }
         let cx = CheckedType::from_str(&x.scalar_name());
         let cy = CheckedType::from_str(&y.scalar_name());
-        cx == cy
-            || ((cx.is_numeric() || cx == CheckedType::Bool)
-                && (cy.is_numeric() || cy == CheckedType::Bool))
+        // Packages relay (consul): Bool must NOT pass as a numeric generic
+        // arg -- `Result[Bool, Str]` where `Result[Int, Str]` is expected
+        // compiled and `.unwrap()` read garbage. Numeric-to-numeric (Int vs
+        // UInt8, the literal-promotion case) stays legal; Bool only matches
+        // Bool.
+        cx == cy || (cx.is_numeric() && cy.is_numeric())
     }
 
     /// Element-wise structural agreement for two parsed argument lists.

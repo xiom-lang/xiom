@@ -830,6 +830,29 @@ impl crate::IrEmitter {
                         return format!("%struct.{key}");
                     }
                 }
+                // Packages relay (gcp): a QUALIFIED literal name
+                // ("qlib.LabelParts") whose registration is BARE
+                // ("LabelParts") -- retry with the leaf segment before
+                // minting an empty struct (which produced silent zeros).
+                let leaf = type_name.rsplit('.').next().unwrap_or(type_name);
+                if leaf != type_name {
+                    if self.types.type_meta.contains_key(&leaf.to_string()) {
+                        return format!("%struct.{leaf}");
+                    }
+                    if self.types.types.contains_key(&leaf.to_string()) {
+                        return format!("%struct.{leaf}");
+                    }
+                    for key in self.types.type_meta.keys() {
+                        if key.ends_with(&format!(".{leaf}")) {
+                            return format!("%struct.{key}");
+                        }
+                    }
+                    for key in self.types.types.keys() {
+                        if key.ends_with(&format!(".{leaf}")) {
+                            return format!("%struct.{key}");
+                        }
+                    }
+                }
                 // Also check generic_type_names -- generic types may not
                 // be in type_meta/types with bare names but ARE registered
                 // as structs (e.g. Cell[T], Map[K,V]).
