@@ -1,0 +1,1 @@
+type_error T001 3:1 contract clause must be Bool, found Int (strict mode)

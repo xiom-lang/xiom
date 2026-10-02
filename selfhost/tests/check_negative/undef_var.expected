@@ -1,0 +1,1 @@
+type_error T001 4:11 undefined variable 'missing_name'

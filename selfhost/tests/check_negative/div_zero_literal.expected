@@ -1,0 +1,1 @@
+warning W008 5:10 integer division by a zero literal always traps at runtime

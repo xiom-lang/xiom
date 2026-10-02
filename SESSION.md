@@ -315,6 +315,26 @@ Supersedes the (11) handoff below (kept as history).
   `tests/regression/m37_short_circuit.xi` 1x `warning W008 10:11`. The
   positive corpus is NOT vacuous; the selfhost port must reproduce both
   lints plus keep the other 81 clean.
+- Stage B (2026-10-02): selfhost checker stage-1 port + `diff_check` gate.
+  Files: `selfhost/src/check_types.xi`, `check_state.xi`, `check_core.xi`,
+  `check_expr.xi`, rewritten `checker.xi` (canonical dump + `check_count`
+  shim that fails only on hard errors); `selfhost/tests/check_negative/`
+  manifest (16 cases, `.expected` is the source of truth for BOTH drivers);
+  `crates/xiom-codegen/tests/full_diff_tests.rs::diff_check`.
+  Gate: `cargo test -p xiom-codegen --test full_diff_tests diff_check` ->
+  `83 files (5 diagnostic lines, non-vacuous) + 16 manifest cases`, 1 passed
+  (279.1 s). Post-port regressions: `diff_tokens` ok (101.1 s), `diff_ast`
+  ok (108.1 s), T1 `diff_corpus` ok (148.2 s). T2 remains unreachable
+  (Phase 0 stub emitter; failed at IR line 3 on every file, pre-existing).
+  Finding filed: `docs/COMPILER_BUGS.md` 2026-10-02 Phase 3 --
+  `NkAssign(l, r)` destructure read `r` as pointer bits (crash 0xC0000005);
+  one-arm accessor helpers work, so the port uses side-helper field access +
+  Int-tag statement dispatch (same class as Phase 2 (h)).
+  Checklist: `docs/checklists/selfhost-phase3.md`. Deferred sub-stages
+  (catalog/imports, container method sets, unknown-method/struct-field
+  validation, W000/W004/W006/W007 lints, borrow pass) keep permissive `_`
+  fallbacks; the bootstrap meter stays 3 of 11 until full checker parity.
+
 
 # CONTINUATION HANDOFF (2026-10-02 (11), v0.62.2 shipped; m167/m168 fixed; phased queue)
 

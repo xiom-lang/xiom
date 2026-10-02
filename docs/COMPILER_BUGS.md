@@ -866,6 +866,37 @@ stdlib-exec 85/85 (+2 ign), api-freeze 2/2 after the change.
 
 ---
 
+## 2026-10-02 -- OPEN (selfhost Phase 3 port finding): `NkAssign` destructure reads the second payload field as pointer bits
+
+Same failure class as Phase 2 (h), but in a SMALL function: while porting
+the checker, `selfhost/src/check_expr.xi::ce_stmt_assign` matched
+`c.p.nodes[idx].kind` against `NkAssign(place, value)` (variant
+`NkAssign(l: Int, r: Int)` of `selfhost_ast.NodeKind`, 95+ variants). The
+compiled binary read `place` correctly and `value` as pointer bits
+(`140698859853289` = 0x7FF7...): the assignment then crashed with
+`0xC0000005` (access violation) when the garbage index was used to read
+`c.p.nodes[value]`. Repro:
+`tmp/sprintc/phase3_checker/p_assign.xi` (`x = 2;` inside `main`) against a
+`xiomc-self --dump-check` build of that change; the trace showed
+`assign enter place=8 value=140698859853289` and no further output
+(exit `-1073741819`).
+
+Discriminating evidence: moving the SAME match into two one-arm helpers
+(`ce_assign_lhs`, `ce_assign_rhs`) returns the correct fields (`lhs=8`,
+`rhs=9`) for the same node, and the Phase 2 AST dumper's `NkAssign(l, r)`
+arm has always worked -- so the construction is sound and the corruption
+depends on the surrounding function shape/arm set, exactly like (h).
+
+Workaround (landed): field access goes through the one-arm accessor helpers
+and statement dispatch uses an Int-tag selector (`ce_stmt_tag`) with
+per-kind helper functions, the same shape Phase 2 used for
+`NkExprGenericCall`. Fix direction: payload-field loads for variant
+patterns must match the construction layout independent of surrounding
+function size/arm count (see also the fix direction of (e)/(g)/(h): the
+generated IR for aggregate-payload enum matches needs a verifier check).
+
+---
+
 ## 2026-10-02 -- C23 FIXED: driver optimized every module twice (opt then clang); LLVM 18 miscompiles the lesson trio
 
 Playground relay (AUDIT 33.4, pack `playground/tools/compiler-repros/c23`):
