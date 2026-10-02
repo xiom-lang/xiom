@@ -334,6 +334,14 @@ Supersedes the (11) handoff below (kept as history).
   (catalog/imports, container method sets, unknown-method/struct-field
   validation, W000/W004/W006/W007 lints, borrow pass) keep permissive `_`
   fallbacks; the bootstrap meter stays 3 of 11 until full checker parity.
+- Stage B verification (2026-10-02): branch rebased onto `5837cec7` (main
+  landed m171/m172/m174 = Phase 2 findings (f) and (g); (e)/(h) still open;
+  rebase conflict only in COMPILER_BUGS.md, resolved keeping main's newest
+  sections above the Phase 3 finding). Post-rebase re-runs on this box:
+  `diff_check` ok (83 files + 16 cases, 201.8 s), `diff_tokens` ok (99.3 s),
+  `diff_ast` ok (88.8 s), T1 `diff_corpus` ok (128.7 s), `cargo test -p xiom
+  --bin xiom` 6/6, `cargo test -p xiom --lib dump_check` 1/1 (142.3 s).
+  T2 remains unreachable (pre-existing stub emitter).
 
 
 # CONTINUATION HANDOFF (2026-10-02 (11), v0.62.2 shipped; m167/m168 fixed; phased queue)
