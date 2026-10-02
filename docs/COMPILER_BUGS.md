@@ -132,6 +132,50 @@ exhaustiveness matcher compares against the bare variant name
 (`crates/xiom-check/src/lib.rs:9647`). Impact: the selfhost port uses
 unqualified variant patterns throughout (like the Phase 1 `Tk` convention).
 
+### (g) `==` on an enum with aggregate payloads emits invalid IR
+
+```xiom
+enum E { A, B(v: Vec[UInt8]), }
+fn eq(a: E, b: E) -> Bool { return a == b; }
+```
+
+clang: `error: icmp requires integer operands` on
+`%tmpNN = icmp eq %struct.Vec %tmpA, %tmpB` -- the derived equality compares
+the whole variant struct, including `Vec` fields. Scalar/Str payloads are
+fine (`probe_enumeq.xi`: A==A, B(1)==B(1), C("x")==C("x") all correct), only
+aggregate payloads break. Repros:
+`tmp/sprintc/phase2_parser/expr_agent/enum_eq_repro.xi` (minimal) and
+`tmp/sprintc/phase2_parser/core_agent/repro_enum_eq/probe_pskip.xi` (fails
+while importing `parser_state.xi`). Impact: no executable build that
+imports a module using `==` on such an enum compiles, even when the helper
+is never called (codegen emits every module function). Workaround: kind
+identity via Int tag codes (`parser_state.xi::tk_tag`), payloads are never
+part of an identity test. Fix direction: lower enum equality per-variant
+(tag compare + member-wise compare only for the matched variant), or reject
+non-comparable payloads with a diagnostic instead of emitting invalid IR.
+
+### (h) `NkExprGenericCall` destructure mis-maps payload fields in a large dispatch function
+
+In `selfhost/src/parser_expr.xi::pe_parse_postfix_expr`, the pattern
+`match node.kind { NkExprGenericCall(base, types, _args) => ... }` (variant
+`NkExprGenericCall(callee: Int, types: Vec[Int], args: Vec[Int])` of the
+~95-variant `selfhost_ast.NodeKind`) compiled with a payload mapping that
+disagrees with the construction site: the IR reads `base` from field 58 and
+`args` from field 41 as an i64, while the construction stores `callee` at
+field 56, `types` at 57 and boxes the `args` Vec as a pointer at 41 (IR:
+`tmp/sprintc/phase2_parser/pp.ll`, `match_arm109`/`match_arm165` vs the
+stores after them). Result: AST dumps showed the callee as arena index 0
+(the module-name ident), and `m37_bug47_ref_params_leak.xi` crashed with
+0xC0000005 in `--dump-ast`. The isolated shape is CORRECT:
+`tmp/sprintc/phase2_parser/probe_nk_gc.xi` constructs and destructures the
+same variant and prints 77/88/99/55 correctly, and 79 of 83 corpus files
+dumped byte-identically before the fix, so the corruption depends on the
+surrounding function (a huge match/dispatch body), not the variant itself.
+Workaround (landed): one-step `NkExprGenericCall` construction and a
+node-identity merge check with base/types carried in locals. Fix direction:
+payload-field assignment for variant patterns must match construction
+independent of function size / arm count.
+
 ---
 
 ## 2026-10-02 -- m170 FIXED: fn-typed param Vec returns lost their element type; erased Option/Result literal payloads widened the slot (C24-2)

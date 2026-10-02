@@ -37,9 +37,8 @@
 // Phase 2 (parser parity) adds `diff_ast`: the Rust and selfhost `--dump-ast`
 // outputs must match line-for-line over the corpus.
 // `crates/xiom/src/main.rs::dump_ast` (AstDump) owns the format definition;
-// `selfhost/src/ast_dump.xi` mirrors it. The gate stays `#[ignore]`d until
-// the selfhost parser port covers the whole corpus (docs/checklists/
-// selfhost-phase2.md); the ignore reason is updated per staged sub-milestone.
+// `selfhost/src/parser.xi` + `ast_dump.xi` mirror it. Green over the 83-file
+// corpus (Phase 2 gate, docs/checklists/selfhost-phase2.md).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -669,18 +668,17 @@ fn diff_tokens() {
 /// identical to the Rust parser's `--dump-ast` over the whole corpus.
 ///
 /// Format ownership: `crates/xiom/src/main.rs::dump_ast` (AstDump) and
-/// `selfhost/src/ast_dump.xi` define the same byte-stable format (see the
-/// format notes above `dump_ast`). Float literal payloads dump the source
-/// LEXEME (float VALUE parity is deferred until the selfhost has a correctly
-/// rounded decimal->f64 parser / bitcast intrinsic); every other payload is
-/// value-exact.
+/// `selfhost/src/parser.xi` + `ast_dump.xi` define the same byte-stable
+/// format (see the format notes above `dump_ast`). Float literal payloads
+/// dump the source LEXEME (float VALUE parity is deferred until the selfhost
+/// has a correctly rounded decimal->f64 parser / bitcast intrinsic); every
+/// other payload is value-exact.
 ///
-/// This test stays `#[ignore]`d until the port covers the whole corpus: the
-/// gate is honest only at full-corpus parity (docs/checklists/
-/// selfhost-phase2.md). Run it explicitly with
-/// `cargo test -p xiom-codegen --test full_diff_tests -- --ignored diff_ast`.
+/// Green over the whole 83-file corpus: the Phase 2 completion gate. The
+/// selfhost AST is an arena (`Vec[Node]` + Int indices) because recursive
+/// value enums mis-lower (COMPILER_BUGS 2026-10-02 (e)); the dump resolves
+/// the arena back into the Rust tree shape.
 #[test]
-#[ignore = "Phase 2 parser parity: NOT STARTED -- selfhost parser port not at corpus parity"]
 fn diff_ast() {
     let entries = corpus();
     eprintln!("selfhost ast-dump corpus: {} files", entries.len());

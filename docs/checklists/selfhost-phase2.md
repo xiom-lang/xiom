@@ -6,12 +6,10 @@
 **Gate:** AST-dump equality for the corpus. `xiom --dump-ast` and
 `xiomc-self --dump-ast` must produce the identical canonical dump
 line-for-line over the Phase 0 corpus
-(`cargo test -p xiom-codegen --test full_diff_tests -- --ignored diff_ast`).
+(`cargo test -p xiom-codegen --test full_diff_tests`, `diff_ast`).
 
-**Status: IN PROGRESS (staged). The gate is NOT STARTED until the whole
-corpus is green.** Staged sub-milestones land with the gate still honestly
-NOT STARTED; docs/SELFHOST_PROGRESS.md gate 2 flips only at full-corpus
-parity.
+**Status: LANDED 2026-10-02.** Evidence below (gate green over the 83-file
+corpus; bootstrap meter gate 2 flipped).
 
 ## Deliverables
 - [x] Canonical `--dump-ast` on the Rust driver
@@ -21,65 +19,68 @@ parity.
       parity deferred -- see below); `PARSE-ERROR` on a failed parse.
       `--dump-ast` added to the clap surface (`crates/xiom/src/cli.rs`).
 - [x] Harness gate `full_diff_tests::diff_ast` (line-exact over the corpus
-      manifest, same runner pattern as `diff_tokens`), `#[ignore]`d with the
-      honest NOT STARTED reason until full parity; run explicitly with
-      `-- --ignored diff_ast`.
-- [x] `--dump-ast` on the selfhost driver (`selfhost/src/main.xi`), currently
-      routed to the `selfhost_parser.dump_ast` stub (`PARSE-ERROR`).
-- [ ] Port the AST model (`crates/xiom-ast`) to `selfhost/src/ast.xi`
-      (recursive enums port directly: XIOM lowers recursive payloads as
-      pointers -- probe `tmp/sprintc/phase2_parser/probe_rec.xi`).
-- [ ] Port `crates/xiom-parser/src/lib.rs` to `selfhost/src/parser.xi` in
-      stages, each keeping T1 (`diff_corpus`) and T2 green:
-      1. statements/exprs (lexer bridge, Parser state, error/expected
-         machinery, blocks, if/match/while/for, calls, literals)
-      2. types
-      3. patterns
-      4. modules/imports/top-level declarations
-      5. contracts
-      6. generics
-- [ ] Mirror the dump walker in `selfhost/src/ast_dump.xi` byte-for-byte
+      manifest, same runner pattern as `diff_tokens`), green and
+      un-ignored.
+- [x] `--dump-ast` on the selfhost driver (`selfhost/src/main.xi`) routed to
+      `selfhost_parser.dump_ast`.
+- [x] AST model `selfhost/src/ast.xi`: flat `Vec[Node]` arena + Int child
+      indices (`-1` = absent). Direct recursive VALUE enums are not usable
+      (COMPILER_BUGS 2026-10-02 (e)); the arena resolution is invisible in
+      the dump.
+- [x] Port `crates/xiom-parser`:
+      - `parser_state.xi` -- Parser state, token bridge, error latch,
+        recovery, `tk_tag` kind identity (never `==`: COMPILER_BUGS (g)).
+      - `parser_expr.xi` -- types, params, generics, derive lists, blocks,
+        statements, patterns, all expression parsing (precedence ladder,
+        postfix/generic calls, struct/array/tuple literals, closures, asm).
+      - `parser_core.xi` -- program + file-module wrapping, top-level
+        declarations, attributes, fn decls (receiver generics, where
+        clauses, contracts), consts/module vars, externs.
+      - `parser.xi` -- facade (lexer -> parser -> dump).
+- [x] Mirror the dump walker in `selfhost/src/ast_dump.xi` byte-for-byte
       (same field order as `AstDump`).
-- [ ] Un-ignore `diff_ast` only when the whole corpus is line-exact; update
-      docs/SELFHOST_PROGRESS.md gate 2 row + a Phase 2 evidence section.
+- [x] Un-ignore `diff_ast`; update docs/SELFHOST_PROGRESS.md gate 2 row +
+      Phase 2 evidence section.
 
 ## Port fidelity notes
-- [ ] Spans: POST-BOM `line:col:byte_start:byte_end`, identical to
-      `--dump-tokens`. Node spans must replicate the Rust parser's choices
-      exactly (e.g. `Expr::Binary` takes the LEFT operand's span, type decls
-      use the declaration keyword's span, `Ident` synthetic names reuse the
-      declaration span).
-- [ ] Float literals: the AST dump slices the SOURCE LEXEME at the node's
-      byte range, because the selfhost has no correctly-rounded
-      decimal->f64 parser (Phase 1 deferral). The selfhost parser does not
-      need f64 value parity for this gate; it must carry the lexeme span
-      exactly.
-- [ ] Str literals: the dump emits the DECODED bytes. The selfhost AST keeps
-      string-literal payloads as `Vec[UInt8]` (XIOM `Str` is NUL-terminated;
-      `"\0"` would truncate; Phase 1 lexer parity has the same design).
-- [ ] Variant pattern names are DOTTED as parsed (`Tree.Leaf`), matching the
-      Rust `Pattern::Variant` name; the dump emits the dotted hex.
-- [ ] `expected` bitset / error text machinery is NOT part of the dump gate
-      (`PARSE-ERROR` has no payload); parsing error-message parity is a
-      Phase 3 checker/diagnostics concern. The port still mirrors the
-      control flow so valid-corpus parses stay identical.
-- [ ] `XIOM_STRICT_BRACKETS`: the Rust default is LAX (`Vec<UInt8]`
-      tolerated); the selfhost port mirrors the same default and reads the
-      same env var if available.
+- [x] Spans: POST-BOM `line:col:byte_start:byte_end`, identical to
+      `--dump-tokens`; node spans mirror the Rust parser's choices
+      (`Expr::Binary` takes the LEFT operand's span, array-size Int uses the
+      post-advance peek span, `Ident::new` synthetic names reuse the
+      declaration span, `Type::Named` node span = the name ident span).
+- [x] Float literals: the AST dump emits the token lexeme (selfhost stores
+      it in `NkLitFloat`), which equals the Rust dump's source slice at the
+      node byte range for every float token the lexer produces.
+- [x] Str literals: decoded bytes; the selfhost AST keeps literal payloads as
+      `Vec[UInt8]` (XIOM `Str` is NUL-terminated).
+- [x] Variant pattern names stay DOTTED as parsed (`Tree.Leaf`), matching the
+      Rust `Pattern::Variant` name.
+- [x] `expected` bitset / error text: diagnostic TEXT is not part of the
+      dump gate; the port emits the single-token message and latches errors
+      (Phase 3 owns diagnostic parity).
+- [x] `XIOM_STRICT_BRACKETS`: LAX default mirrored (env opt-in not ported;
+      not exercised by the corpus).
 
 ## Deferred (documented, not stubbed)
 - [ ] Float VALUE parity in the AST (lexeme dump today; value parity lands
       with a correctly-rounded decimal->f64 parser / bitcast intrinsic).
 - [ ] Trivia/comment attachment (the Rust parser has none; fmt/docgen only).
+- [ ] Error-message/expected-set parity (Phase 3).
 
-## Verification
-- [x] Rust `--dump-ast` smoke over corpus files (examples/phase1_full,
-      stress_body_parser, diff_test, contracts, generics,
-      m37_bug56_ensure_expr_body): rc 0, no panics.
-- [x] `cargo test -p xiom-codegen --test full_diff_tests`: 3 passed
-      (T1 `diff_corpus`, `diff_tokens`, `runtime_ffi_selfcheck`) + `diff_ast`
-      ignored (honest NOT STARTED).
-- [x] `cargo test -p xiom --bin xiom`: 6 passed (clap surface incl. the new
-      `--dump-ast` flag).
-- [ ] `python tools/ascii_guard.py check` before every commit.
-- [ ] Findings filed in `docs/COMPILER_BUGS.md` as they are reproduced.
+## Verification (2026-10-02)
+- [x] Gate: `cargo test -p xiom-codegen --test full_diff_tests` ->
+      `diff_ast` GREEN over the 83-file corpus (100.7 s), with T1
+      `diff_corpus`, `diff_tokens` and `runtime_ffi_selfcheck` green in the
+      same suite.
+- [x] `cargo test -p xiom --bin xiom` -> 6 passed (clap surface incl.
+      `--dump-ast`).
+- [x] Rust-side smoke: `--dump-ast` rc 0 on the heavy corpus entries
+      (benchmark_selfhost, phase1_hardening, m37_simd_runtime, ...).
+- [x] `python tools/ascii_guard.py check` before every commit.
+- [x] Findings filed in `docs/COMPILER_BUGS.md` 2026-10-02: (e) recursive
+      enum payload boxing mis-lowers (crashes / pointer-as-value);
+      (f) qualified variant patterns false W000; (g) `==` on enums with
+      aggregate payloads emits `icmp %struct.Vec`; (h) `NkExprGenericCall`
+      destructure field mis-mapping in a large dispatch function.
+      Repros: `tmp/sprintc/phase2_parser/` (`probe_rec_*.xi`,
+      `probe_nk_gc.xi`, `gc.xi`, agent repro dirs).

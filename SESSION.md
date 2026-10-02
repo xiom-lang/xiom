@@ -1,7 +1,7 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
-# CONTINUATION HANDOFF (2026-10-02 (12), selfhost Phase 2 parser parity -- IN PROGRESS; gate NOT STARTED)
+# CONTINUATION HANDOFF (2026-10-02 (12), selfhost Phase 2 parser parity -- LANDED; gate 2 GREEN)
 
 Supersedes the (11) handoff below (kept as history).
 
@@ -11,33 +11,33 @@ Supersedes the (11) handoff below (kept as history).
 > (worktree `.kilo/worktrees/selfhost-phase-2-parser`). Read this top
 > section, then `docs/checklists/selfhost-phase2.md`,
 > `docs/SELFHOST_PROGRESS.md` and `docs/COMPILER_BUGS.md` (2026-10-02 Phase 2
-> findings (e)/(f)). Bootstrap meter stays **18%**: gate 2 (AST-dump parity)
-> is **NOT STARTED** and must stay so in
-> `docs/SELFHOST_PROGRESS.md` until `diff_ast` is line-exact over the whole
-> 83-file corpus (un-ignore it only then).
-> State: **v0.62.2** released; Phase 1 lexer parity merged; m169/m170/m168b
-> landed. Phase 2 work landed on the branch so far (all pushed? NO -- do not
-> push; owner's ask only):
+> findings (e)-(h)). Bootstrap meter is **27% -- 3 of 11 gates** (Phase 2
+> parser parity landed; gate 2 DONE). State: **v0.62.2** released; Phases 0-2
+> selfhost landed on this branch (DO NOT PUSH without the owner's ask).
+> Phase 2 deliverables (all committed):
 > 1. Canonical `--dump-ast` on the Rust driver
 >    (`crates/xiom/src/main.rs::dump_ast` + `AstDump`, clap flag, usage) and
->    the `selfhost/src/main.xi` route to `selfhost_parser.dump_ast`.
-> 2. Harness gate `full_diff_tests::diff_ast` (line-exact, same runner as
->    `diff_tokens`) -- `#[ignore]`d with the honest NOT STARTED reason; run
->    with `cargo test -p xiom-codegen --test full_diff_tests -- --ignored
->    diff_ast`.
-> 3. `docs/checklists/selfhost-phase2.md`; `docs/COMPILER_BUGS.md` Phase 2
->    findings (e) recursive enum payloads mis-lower (0xC000001D crashes /
->    pointer-as-value) and (f) qualified variant patterns false W000.
-> 4. Arena AST model `selfhost/src/ast.xi` (recursive VALUE enums are broken;
->    flat `Vec[Node]` + Int child indices, `Nk`-prefixed variants) and
->    `selfhost/src/parser_state.xi` (Parser + `p_*` free helpers, latch-based
->    error convention), `selfhost/src/ast_dump.xi` (canonical walker mirror).
-> 5. Parser port in progress: expressions/types/patterns/statements
->    (`parser_expr.xi`), top-level decls (`parser_core.xi`), facade
->    (`parser.xi`) -- staged; T1 (`diff_corpus`) + T2 + `diff_tokens` must
->    stay green after each stage.
-> QUEUE after Phase 2: keep the Phase 2 gate green while extending the
-> corpus; then Phase 3 checker parity (owner: after behavior freeze).
+>    `selfhost/src/main.xi` -> `selfhost_parser.dump_ast`.
+> 2. Harness gate `full_diff_tests::diff_ast` un-ignored and GREEN: the
+>    `--dump-ast` outputs are line-exact over the 83-file corpus
+>    (`cargo test -p xiom-codegen --test full_diff_tests`, ~100 s for
+>    diff_ast; T1/T2/diff_tokens also green in the same suite).
+> 3. Parser port: `selfhost/src/ast.xi` (arena AST; recursive value enums
+>    mis-lower -- finding (e)), `parser_state.xi` (error latch + `tk_tag`
+>    kind identity -- finding (g)), `parser_expr.xi` (types/patterns/stmts/
+>    exprs), `parser_core.xi` (program + top decls), `ast_dump.xi`
+>    (canonical walker), facade `parser.xi`.
+> 4. `docs/checklists/selfhost-phase2.md` (LANDED evidence);
+>    docs/SELFHOST_PROGRESS.md gate 2 row + Phase 2 evidence; the meter
+>    line updated to 27%.
+> 5. Findings (e)-(h) in `docs/COMPILER_BUGS.md`; repros under
+>    `tmp/sprintc/phase2_parser/`.
+> Known follow-ups for the compiler lane (not blockers): (g) enum `==`
+> with aggregate payloads emits invalid IR; (h) `NkExprGenericCall`
+> destructure field mis-mapping in a large dispatch function; (e) recursive
+> enum payload boxing; (f) qualified variant patterns false W000.
+> Next work: Phase 3 checker parity (owner: after a behavior freeze), or
+> the compiler-lane queue from the (11) handoff below.
 > Method: repro-first under tmp/sprintc; cargo commands sequentially on this
 > box; never rebuild target/debug while an e2e runs; `python
 > tools/ascii_guard.py check` before every commit; commit atomically with

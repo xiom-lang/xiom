@@ -6,6 +6,7 @@
 **Last updated:** 2026-10-02 | **Plan:** `docs/SELFHOST_PLAN.md` |
 **Phase 0 checklist:** `docs/checklists/selfhost-phase0.md` |
 **Phase 1 checklist:** `docs/checklists/selfhost-phase1.md` |
+**Phase 2 checklist:** `docs/checklists/selfhost-phase2.md` |
 **Owner policy:** selfhost ships only at 100% bootstrap; every release stays
 Rust-hosted until then.
 
@@ -24,7 +25,7 @@ All six must hold (SELFHOST_PLAN section 7):
 
 ## Bootstrap meter
 
-**18% -- 2 of 11 tracked gates complete.**
+**27% -- 3 of 11 tracked gates complete.**
 
 **Gates: e2e 2404/2404 (+4 ignored), checker 195/195, feature 517/517, robustness 63/63, fuzz 24/24, perf 3/3, formatter 86/86, lsp 45/45.**
 
@@ -41,7 +42,7 @@ row flips.
 |---|------|--------|----------|
 | 0 | T1 harness green on the corpus (foundations) | **DONE 2026-09-29** | `cargo test -p xiom-codegen --test full_diff_tests`: 2 passed; T1 over 84 files in 49.2 s; `runtime_ffi_selfcheck` ok; commit `e813449b` |
 | 1 | Lexer: token-dump equality on the corpus (`--dump-tokens`) | **DONE 2026-10-02** | Phase 1; `selfhost/src/lexer.xi` ports `crates/xiom-lexer`; harness gate `full_diff_tests::diff_tokens` green over the 83-file corpus (3/3 tests, 72.7 s); torture parity (BOM/CRLF/NUL/bigints/suffix quirk) clean; checklist `docs/checklists/selfhost-phase1.md` |
-| 2 | Parser: AST-dump equality on the corpus (`--dump-ast`) | NOT STARTED | Phase 2; largest single phase (statements/exprs -> types -> patterns -> modules -> contracts -> generics) |
+| 2 | Parser: AST-dump equality on the corpus (`--dump-ast`) | **DONE 2026-10-02** | Phase 2; `selfhost/src/ast.xi`+`parser_state.xi`+`parser_expr.xi`+`parser_core.xi`+`ast_dump.xi` port `crates/xiom-parser`/`xiom-ast`; harness gate `full_diff_tests::diff_ast` green over the 83-file corpus (1 passed, 100.7 s); checklist `docs/checklists/selfhost-phase2.md` |
 | 3 | Checker: diagnostics + type-annotation equality | NOT STARTED | Phase 3; same accepted/rejected set + same message order/text |
 | 4 | Codegen: fn-header T3 IR equality | NOT STARTED | Phase 4; signatures, tuple names, inline policy (`approx_block_cost`) |
 | O1 | Selfhost code quality: `--strict`, zero warnings, contracts on | NOT STARTED | after Phase 4; removes v10 borrow workarounds |
@@ -92,6 +93,37 @@ row flips.
   formats u64::MAX as -1 and UInt128 `/`/`%` are signed for high-bit values
   (the dump sidesteps all three by rendering hex via shifts/ands).
 
+## Phase 2 evidence (landed 2026-10-02)
+
+- Canonical `--dump-ast` on BOTH compilers, one byte-stable format:
+  `crates/xiom/src/main.rs::dump_ast` (`AstDump`) owns the definition
+  (`{indent}{Kind}[ key=value]... [span=l:c:bs:be]`, lowercase-hex payloads,
+  `PARSE-ERROR` on a failed parse); `xiomc-self --dump-ast` mirrors it via
+  `selfhost/src/parser.xi` + `selfhost/src/ast_dump.xi`. `--dump-ast` added
+  to the clap surface (`crates/xiom/src/cli.rs`).
+- Parser port (1:1 control flow, arena representation):
+  `selfhost/src/ast.xi` (flat `Vec[Node]` + Int child indices, `-1` =
+  absent; REQUIRED because recursive value enums mis-lower -- COMPILER_BUGS
+  (e)), `parser_state.xi` (Parser + `p_*` helpers; `TokenKind` identity via
+  Int tags, never `==`, because aggregate-payload enum equality emits
+  invalid IR -- COMPILER_BUGS (g)), `parser_expr.xi` (types, params,
+  generics, blocks, statements, patterns, all expression parsing),
+  `parser_core.xi` (program/file-module wrapping, top-level decls,
+  attributes, fn/where/contracts, consts, externs), `ast_dump.xi` (canonical
+  walker).
+- Float literal payloads dump the token LEXEME (value parity stays deferred;
+  the lexeme is Phase 1-gated and equals the Rust byte-slice for every float
+  token). Str literals dump decoded bytes (selfhost stores `Vec[UInt8]`).
+- Gate: `cargo test -p xiom-codegen --test full_diff_tests` includes the
+  un-ignored `diff_ast`; the Phase 2 run over the 83-file corpus passed
+  line-exact (1 passed, 100.7 s; T1/T2 also green).
+- Findings filed in `docs/COMPILER_BUGS.md` (2026-10-02): (e) recursive enum
+  payloads pointer-boxed unsafely (crashes/mis-values); (f) qualified
+  enum-variant patterns false-non-exhaustive; (g) `==` on enums with
+  `Vec` payloads lowers to `icmp %struct.Vec`; (h) `NkExprGenericCall`
+  destructure mis-maps payload fields in large functions (fixed by
+  one-step construction + base/types side locals).
+
 ## Open blockers and risks
 
 | Item | Impact on 100% | State |
@@ -110,7 +142,8 @@ O1).
 ## Running the gates
 
 ```
-# Phase 0 gate (T1 green); Phase 1 gate (diff_tokens) runs in the same suite
+# Phase 0 gate (T1 green); Phase 1 (diff_tokens) + Phase 2 (diff_ast) run in
+# the same suite
 cargo test -p xiom-codegen --test full_diff_tests
 $env:XIOM_SELFHOST_DIFF_TIER=2; cargo test -p xiom-codegen --test full_diff_tests   # T2
 $env:XIOM_SELFHOST_DIFF_TIER=3; cargo test -p xiom-codegen --test full_diff_tests   # T3 (phase completion)
@@ -123,6 +156,10 @@ target/selfhost/xiomc-self.exe examples/diff_test.xi
 # Phase 1 parity spot-check (canonical token dumps; CRLF on Windows pipes)
 target/debug/xiom.exe --dump-tokens examples/diff_test.xi
 target/selfhost/xiomc-self.exe --dump-tokens examples/diff_test.xi
+
+# Phase 2 parity spot-check (canonical AST dumps)
+target/debug/xiom.exe --dump-ast examples/diff_test.xi
+target/selfhost/xiomc-self.exe --dump-ast examples/diff_test.xi
 ```
 
 Long suites on this box: e2e `-- --test-threads 12`, stdlib_tests 8,
