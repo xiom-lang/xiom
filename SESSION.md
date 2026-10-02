@@ -80,9 +80,13 @@ Supersedes the (10) kickoff prompt below (kept as history).
 > 517/517, parser 107/107, checker_locks 23/23, fuzz 24/24, perf 3/3,
 > robustness 63/63, stdlib-exec 85/85 (+2 ign), api-freeze 2/2 (now
 > PID-unique temp), selfhost diff_tests 24/24 (+1 ign), doctor_cli 4/4,
-> run_script_cli 2/2, borrow_e001 2/2. Website gates line updated to the
-> same snapshot. Next in queue: C23 pass bisection (WSL), then registry
-> polish / intake items; Gate P is ready when `STDLIB_VERSION` bumps to
+> run_script_cli 2/2, borrow_e001 2/2.
+> C23 BATCH (2026-10-02, `8abedb72`): full e2e 2404/2404 (+4 ignored, 8
+> threads), feature-reg 517/517, checker 195/195, checker_locks 23/23,
+> fuzz 24/24, perf 3/3, robustness 63/63, formatter 86/86, lsp 45/45;
+> Linux acceptance `C23 present: no`; website gates line updated to the
+> same snapshot. Next in queue: the registry polish / intake items (C23
+> and m168b are done); Gate P is ready when `STDLIB_VERSION` bumps to
 > `stdlib-perf2`.
 > WAITING ON: none blocking. Stdlib `stdlib-perf2` (f011efe) is now on
 > stdlib origin main -- it carries the `xiom/sync/sync.xi` `#[unsafe_direct]`
