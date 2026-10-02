@@ -32,6 +32,14 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
   of silently loading a stale slot. Lock: the stdlib probe + a minimal
   ill-typed-match fixture + e2e/checker lock (pre-fix: clang dominance
   error; post-fix: clean T001).
+  IMPLEMENTED 2026-10-02 (m178): checker validation + `m178` fixture +
+  `checker_locks::m178_result_patterns_on_non_result_rejected`; the minimal
+  repro and the stdlib probe now report clean T001s. The new diagnostic
+  also exposed REAL ill-typed matches in the local stdlib
+  `xiom/net/ip.xi` (catalog body lines 617-618: `Ok/Err` matched on
+  `ipv6_to_string`'s Str) -- STDLIB LANE FIX REQUIRED; api-freeze and the
+  net-importing smokes stay red by design until those two sites are fixed
+  (catalog findings are hard errors).
 - crypto link packet (`undefined symbol: xiom_sha256_hash`): does NOT
   reproduce on stdlib main (`crypto.sha256_hex` NIST "abc" and
   `encoding.base64_encode` "YWJj" link+run green on both pins with and
