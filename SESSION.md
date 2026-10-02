@@ -55,13 +55,13 @@ Supersedes the (10) kickoff prompt below (kept as history).
 >    Hoisted the check for non-pointer params and accept `&mut `/`&`/`*`
 >    prefixes. Probes rc 2 -> 0; locks m168_mut_ref_byval_arg fixture + e2e
 >    + IR + CI line.
-> 6. C23 `-O2` miscompile (playground): reproduced in WSL (clang 18.1.3,
->    v0.62.2 linux toolchain at `~/xiom-c23`, pack
->    `E:\xiom-lang\playground\tools\compiler-repros\c23\`): l6-15 2/3,
->    l7-39 2/3, l8-09 2/0; bracket O0 2 / O1 2 / O2 3 / O3 3. Next: pass
->    bisection (`opt -O1` vs `-O2` on tmp/sprintc/c23_l7_pre.ll; clang
->    wrapper log to replay the exact command). Acceptance: run.sh prints
->    "C23 present: no".
+> 6. [DONE 2026-10-02] C23 FIXED: the driver optimized twice (`opt -O<level>`
+>    then `clang -O<level>`); on LLVM 18 hosts the second stage miscompiled
+>    the l6-15/l7-39/l8-09 lesson shapes. Kept `opt -passes=verify`, dropped
+>    the redundant pre-optimization (clang is the only optimizer now).
+>    Verified: pack acceptance `C23 present: no` with a HEAD Linux driver;
+>    three fixtures (l6/l8 discriminate pre-fix on the compile path; l7 is
+>    shape coverage) + e2e + CI line. Windows has no `opt` -> unaffected.
 > 7. Registry polish (optional, post-release): B1 packaging guard, B2
 >    `xiom pkg yank`, install trust wording, `--resolve` outside a
 >    workspace (registry relay).
@@ -71,6 +71,10 @@ Supersedes the (10) kickoff prompt below (kept as history).
 > 9. Packages type-laxness intake (COMPILER_BUGS 2026-10-02 relay):
 >    `let gb: Vec[UInt8] = got.value;` with a Str field compiles clean and
 >    yields wrong bytes. Reproduce, then scope (post-batch, non-release).
+> 10. Top-level `module` header breaks nested-module cross-type field
+>    compares (COMPILER_BUGS 2026-10-02 relay): l6-15 + `module <name>` ->
+>    one T001 at `note.category == cat`; without the header it compiles.
+>    Post-batch intake.
 > BATCH GATES (2026-10-02, m169+m170+m168b; commits 3aad01cd -> 4e084e0e
 > -> 565b9924): full e2e 2401/2401 (+4 ignored, 8 threads), feature-reg
 > 517/517, parser 107/107, checker_locks 23/23, fuzz 24/24, perf 3/3,

@@ -5684,6 +5684,35 @@ fn e2e_safety_probe() {
     );
 }
 
+// C23 (playground relay, tools/compiler-repros/c23): the driver used to
+// optimize each module twice (`opt -O<level>` then `clang -O<level>`). On
+// hosts with LLVM 18 that double pipeline miscompiles the three lesson
+// shapes; these fixtures return 11/12/13 when a count is wrong. Windows has
+// no `opt`, so the lock bites on the ubuntu CI leg -- where the bug lived.
+#[test] fn e2e_c23_l6_category() {
+    assert_eq!(
+        compile_and_run("tests/regression/c23_l6_category/main.xi"),
+        Some(0),
+        "C23 l6-15 shape must keep its category count"
+    );
+}
+
+#[test] fn e2e_c23_l7_pending() {
+    assert_eq!(
+        compile_and_run("tests/regression/c23_l7_pending/main.xi"),
+        Some(0),
+        "C23 l7-39 shape must keep its pending count"
+    );
+}
+
+#[test] fn e2e_c23_l8_quick() {
+    assert_eq!(
+        compile_and_run("tests/regression/c23_l8_quick/main.xi"),
+        Some(0),
+        "C23 l8-09 shape must keep its quick-meal count"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

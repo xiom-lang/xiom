@@ -1275,17 +1275,13 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         match lvl { 0 => "-O0", 1 => "-O1", 2 => "-O2", _ => "-O3" }.to_string()
     } else if config.release { "-O3".to_string() } else { "-O2".to_string() };
 
-    if let Some(opt_info) = &opt {
-        let opt_status = Command::new(&opt_info.path)
-            .args([&opt_level, "-S", "-o", &ir_path, &ir_path])
-            .status();
-        if let Ok(s) = opt_status {
-            if !s.success() {
-                eprintln!("  warning: opt {opt_level} failed, proceeding with unoptimized IR");
-                let _ = fs::write(&ir_path, &llvm_ir);
-            }
-        }
-    }
+    // C23 (playground relay): the driver used to optimize the module TWICE --
+    // `opt -O<level>` here and `clang -O<level>` below. On LLVM 18 that
+    // double pipeline miscompiles the C23 lesson trio (verified: opt -O1+
+    // then clang -O2 flips l6-15 2->3, l7-39 2->3, l8-09 2->0, while a
+    // single-stage clang pipeline and `opt -O2` + `clang -O0` are both
+    // correct on all three). Keep the verification above; let clang be the
+    // only optimizer so hosts with and without `opt` produce the same code.
 
     #[allow(unused_mut)]
     let mut asm_objects: Vec<String> = Vec::new();

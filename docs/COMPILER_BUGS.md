@@ -10,6 +10,63 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-02 -- C23 FIXED: driver optimized every module twice (opt then clang); LLVM 18 miscompiles the lesson trio
+
+Playground relay (AUDIT 33.4, pack `playground/tools/compiler-repros/c23`):
+the same deterministic programs printed different values at `-O2` on WSL
+(l6-15 3 instead of 2, l7-39 3 instead of 2, l8-09 0 instead of 2) and were
+correct at `-O0`. Windows (clang 22, **no `opt` binary**) was always correct
+-- the first host split clue.
+
+Evidence chain:
+- `--emit-ir` output is IDENTICAL at -O0/-O2, and stock `opt default<O2>` +
+  clang is correct -- so the fault is the driver pipeline, not the emitted IR.
+- An `LD_PRELOAD` exec interposer + a clean `HOME` (the JIT cache at
+  `~/.xiom/jit` is NOT cleared by `--no-cache`) captured the exact commands:
+  `opt -passes=verify`, `opt -O<level> -S -o <ir> <ir>` (in place), then
+  `clang ... -O<level> <ir> <runtime.c>` -- i.e. the module is optimized
+  TWICE.
+- Exact-replay matrix on l7-39: opt=O0 -> correct at clang O0..O3; opt=O1 +
+  clang=O1 -> 2 (correct) but opt=O1 + clang=O2 -> 3; opt=O2 + clang=O1 -> 3;
+  opt=O2 + clang=O0 -> 2. Single-stage clang O2/O3 is correct on all three
+  files. On LLVM 18 the second stage's O1 middle-end IR is miscompiled by
+  the O1+ backend (backend-only O1 on the pre-clang IR is clean).
+
+Fix (`crates/xiom/src/lib.rs`): keep the `opt -passes=verify` check, drop the
+redundant `opt -O<level>` pre-optimization; clang is the single optimizer, so
+hosts with and without `opt` now produce the same code (and the no-opt path
+was always correct).
+
+Verified: pack acceptance `bash run.sh <toolchain>` with a HEAD-built Linux
+driver prints `C23 present: no` (all three 2/2). Fixtures
+`c23_l6_category`/`c23_l8_quick` return 12/13 with the pinned pre-fix driver
+and 0 with the fixed driver on the Linux compile path; `c23_l7_pending` is
+shape coverage (its miscompile only fired on the JIT path). Windows green
+(the removed block never ran there). Locks: 3 fixtures + 3 e2e tests + CI
+line; full e2e at the end of this compiler batch.
+
+---
+
+## 2026-10-02 -- RELAY OPEN: a top-level `module` header breaks nested-module cross-type field compares
+
+Found while porting the C23 fixtures: the l6-15 program compiles as-is, but
+adding only `module <name>` at the top makes the checker reject the nested
+module's field compare:
+
+```
+module storage {
+  ...
+  let note = notebook.notes[i];
+  if note.category == cat { ... }   // T001: cannot compare <error> with Str
+```
+
+Repro: original `playground/tools/compiler-repros/c23/l6-15.xi` + a top-level
+`module c23_l6_mod` line -> one T001 at the compare. Without the header it
+compiles. Likely the top-level module wrap changes the type-resolution scope
+for nested-module types (`models.Note`). OPEN, post-batch intake.
+
+---
+
 ## 2026-10-02 -- m170 FIXED: fn-typed param Vec returns lost their element type; erased Option/Result literal payloads widened the slot (C24-2)
 
 Stdlib relay (C24-2, `p_curve_thunk_zero`): `curves.curve_length(line, 0, 1, 2)`
