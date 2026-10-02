@@ -82,6 +82,17 @@ impl IrEmitter {
                 }
             }
         }
+        // m168 residual: a `&mut T` PARAM passed to a BY-VALUE T param in a
+        // direct call (`byval(s)`) must load the pointee; the helper below was
+        // only consulted inside the pointer-param branch, so `param_ty` = i64
+        // ptrtoint'd the address (bump -> byval(s) passed the pointer).
+        // Only fires when the pointee's LLVM type equals the param type, so
+        // pointer/reference params keep their address passthrough.
+        if !param_ty.ends_with('*') {
+            if let Some(pointee_arg) = self.coerce_ref_arg_to_pointee(arg_expr, &param_ty) {
+                return pointee_arg;
+            }
+        }
         if param_ty.ends_with('*') {
             // LET-array P3: a FIXED-array arg passed to a pointer-to-Vec param
             // (`&Vec[T]` -> `%struct.Vec*`) must receive a REAL header (the
@@ -377,8 +388,15 @@ impl IrEmitter {
             // args were ptrtoint'd to i64 -- `byval(s)` passed the ADDRESS
             // (xiom.svm's shuffle seed never advanced).
             Expr::Ident(id) if self.local.mut_ref_params.contains(&id.name) => {
-                let pointee_xiom = self.local.local_xiom_types.get(&id.name)?
-                    .strip_prefix('*')?.to_string();
+                // m168 residual: `local_xiom_types` records the ref-preserving
+                // name ("&mut Int", "&mut Vec[Int]"), not the "*T" ABI form --
+                // stripping only '*' made this arm dead and `byval(s)` passed
+                // the ADDRESS (ptrtoint) to a by-value param.
+                let local_ty = self.local.local_xiom_types.get(&id.name)?.clone();
+                let pointee_xiom = local_ty.strip_prefix("&mut ")
+                    .or_else(|| local_ty.strip_prefix('&'))
+                    .or_else(|| local_ty.strip_prefix('*'))?
+                    .to_string();
                 let pointee = self.llvm_type_for(&pointee_xiom).ok()?;
                 if pointee != param_ty { return None; }
                 let (ptr, ptr_ty) = self.compile_expr(arg_expr).ok()?;

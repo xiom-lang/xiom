@@ -5652,6 +5652,38 @@ fn e2e_safety_probe() {
     );
 }
 
+// m168 residual (stdlib/packages narrowing): a `&mut T` PARAM passed to a
+// BY-VALUE T param in a direct call must load the pointee (`byval(s)`), not
+// ptrtoint the address; the container-pointee sibling (`veclen(s)`) is
+// locked too.
+#[test] fn e2e_m168_mut_ref_byval_arg() {
+    assert_eq!(
+        compile_and_run("tests/regression/m168_mut_ref_byval_arg/main.xi"),
+        Some(0),
+        "&mut T args to by-value params must load the pointee (m168 residual)"
+    );
+}
+
+// IR lock: @bump's body must load the pointee for the by-value call; before
+// the fix the address was ptrtoint'd.
+#[test] fn e2e_m168_mut_ref_byval_arg_ir() {
+    let ir = compile_ir("tests/regression/m168_mut_ref_byval_arg/main.xi")
+        .expect("m168 residual fixture must compile to IR");
+    let start = ir.find("define void @bump(")
+        .expect("m168 residual: @bump must be defined");
+    let rest = &ir[start..];
+    let end = rest[1..].find("\ndefine ").map(|i| i + 1).unwrap_or(rest.len());
+    let body = &rest[..end];
+    assert!(
+        body.contains("load i64, i64*"),
+        "m168 residual: the &mut arg must be loaded before the by-value call"
+    );
+    assert!(
+        !body.contains("ptrtoint"),
+        "m168 residual: the &mut arg must not be ptrtoint'd"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

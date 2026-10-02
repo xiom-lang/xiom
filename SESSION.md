@@ -40,17 +40,19 @@ Supersedes the (10) kickoff prompt below (kept as history).
 >    slot was widened by a stale type_meta type (Option-of-Vec `.unwrap()`
 >    read garbage). Locks: m170 fixture + e2e + IR + CI line; feature-reg,
 >    stdlib-exec and api-freeze green. Full e2e at batch end.
-> 4. expat/nbt silent exit -1 + zero stdout (packages relay): registry
->    artifacts carry full sources/tests
->    (`https://registry.xiom-lang.org/packages/xiom.expat/0.1.1/download`,
->    `.../xiom.nbt/...`); `scripts/port.ps1 -Package xiom.expat` -> silent
->    exit -1; `io.flush_stdout()` after each println makes expat 25/25,
->    nbt 25/26 (t5 UTF-8 genuine fail). Suspect exit/flush path; both were
->    green on v0.62.1.
-> 5. m168 RESIDUAL (COMPILER_BUGS): `&mut T` param passed to a by-VALUE
->    param in a DIRECT call still ptrtoints (sibling `bump`/`byval`).
->    Packages narrowed it: scalar-parameter-only; `&mut Struct` field
->    writes propagate correctly (tensor/autoscale probes).
+> 4. [NOT REPRODUCED 2026-10-02] expat/nbt silent exit: expat 0.1.1 and nbt
+>    0.1.0 (registry-bundle artifacts) compile + run green on HEAD and on the
+>    exact v0.62.2 tag driver (rebuilt release, `tmp/sprintc/v0622_src`):
+>    expat 25/25 rc 0 (27 lines), both direct and `--run`. `scripts/port.ps1`
+>    is not present in any local repo -- if the harness failure recurs, send
+>    the exact invocation/env; suspect harness stdout capture, not the
+>    compiler.
+> 5. [DONE 2026-10-02] m168 RESIDUAL FIXED (m168b): the deref helper was
+>    only consulted inside the pointer-param branch and stripped only the
+>    `*T` form, while `local_xiom_types` records `&mut T` (ref-preserving).
+>    Hoisted the check for non-pointer params and accept `&mut `/`&`/`*`
+>    prefixes. Probes rc 2 -> 0; locks m168_mut_ref_byval_arg fixture + e2e
+>    + IR + CI line.
 > 6. C23 `-O2` miscompile (playground): reproduced in WSL (clang 18.1.3,
 >    v0.62.2 linux toolchain at `~/xiom-c23`, pack
 >    `E:\xiom-lang\playground\tools\compiler-repros\c23\`): l6-15 2/3,

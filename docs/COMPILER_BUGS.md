@@ -147,13 +147,19 @@ the slot-address path for mut-ref args and auto-derefs `&mut T` -> T in
 `coerce_ref_arg_to_pointee`'s pointer-param branch. Verified:
 `tmp/sprintc/probe_mut_ref_writes.xi` (Int, Vec[Int] whole-assign, Str).
 
-RESIDUAL (OPEN): passing a `&mut T` param to a by-VALUE param of another
-user fn in a DIRECT call (`fn bump(s: &mut Int) { let v = byval(s); s = v; }`)
-still ptrtoints the pointer instead of loading the pointee -- the direct-call
-arg pipeline (`call.rs` `compile_call_with_types`) does not consult
-`mut_ref_params` (`coerce_arg_for_param` is method-path only). Fix path: add
-the same deref arm to the concrete direct-call arg loop; lock the sibling
-shape.
+RESIDUAL FIXED (2026-10-02, m168b): passing a `&mut T` param to a by-VALUE
+param in a DIRECT call (`bump` -> `byval(s)`) ptrtoint'd the pointer. Two
+reasons: `coerce_ref_arg_to_pointee` was consulted only inside the
+`param_ty.ends_with('*')` branch (`coerce.rs`), so by-value param types
+(i64 / %struct.Vec) never reached it; and its Ident arm stripped only the
+`*T` ABI form while `local_xiom_types` records `ref_preserving_name`
+("&mut Int", "&mut Vec[Int]"). Fix: hoist the helper call for non-pointer
+param types and accept `&mut `/`&`/`*` prefixes. Verified:
+`probe_mut_ref_writes.xi` pre-fix FAIL bump rc 2, post-fix ALL-OK rc 0;
+container sibling (`veclen(s)` from `&mut Vec[Int]`) green. IR: `%t =
+load i64, i64*` feeding `@byval`, no `ptrtoint` in `@bump`. Locks:
+`tests/regression/m168_mut_ref_byval_arg/` + `e2e_m168_mut_ref_byval_arg` +
+`e2e_m168_mut_ref_byval_arg_ir` + CI line.
 
 Locks: `tests/regression/m168_mut_ref_write_through/` + e2e + CI line +
 `regress_m168_mut_ref_write_through` (IR: `store i64 99, i64*`, no

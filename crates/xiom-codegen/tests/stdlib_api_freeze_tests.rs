@@ -1175,7 +1175,10 @@ fn stdlib_api_freeze_all_modules_compile() {
     for m in &modules { program.push_str(&format!("use xiom.{m};\n")); }
     program.push_str("fn main() -> Int { return 0; }\n");
 
-    let tmp = std::env::temp_dir().join("xiom_api_freeze_full.xi");
+    // PID-unique temp name: a fixed path collides when two suite runs
+    // overlap (or a stale file is locked), which surfaced as a flaky
+    // "compilation failed" on repeated local gate runs.
+    let tmp = std::env::temp_dir().join(format!("xiom_api_freeze_full_{}.xi", std::process::id()));
     fs::write(&tmp, &program).expect("write temp program");
 
     let output = Command::new(xiom_path())
