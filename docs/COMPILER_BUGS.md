@@ -16,7 +16,22 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
   context-dependent INVALID LLVM IR (alloca dominance violation) when
   Result-style matches mix with Str-returning calls; non-monotonic under
   bisection. Invalid IR = clang failure, so this can block net/http waves.
-  Pre-tag candidate.
+  Pre-tag candidate. ROOT CAUSE CONFIRMED (2026-10-02): the probe ends with
+  `match ip.ipv6_to_string(&parts8) { Ok(s) => {...}, Err(_) => {...} }` but
+  `ipv6_to_string` returns **Str** -- the checker accepts Result patterns on
+  a non-Result scrutinee, and codegen then emits the arm body's `s` read as
+  `load i8*, i8** %tmp504` where `%tmp504` is an alloca created in an EARLIER
+  match arm (`match_arm126`, ip4 section) -- no new binding store, so the
+  load sits in a block that does not dominate it ("Instruction does not
+  dominate all uses!"). FIX DESIGN: checker validation of each match arm's
+  pattern against the scrutinee's type -- `Some/None` require Option,
+  `Ok/Err` require Result, custom `Variant(name)`/variant idents require an
+  enum with that variant; unknown/erased scrutinee types stay permissive.
+  Diagnostic wording like `match pattern 'Ok' cannot match 'Str'`. Optional
+  codegen hardening: an unbound ident read inside an arm must error instead
+  of silently loading a stale slot. Lock: the stdlib probe + a minimal
+  ill-typed-match fixture + e2e/checker lock (pre-fix: clang dominance
+  error; post-fix: clean T001).
 - crypto link packet (`undefined symbol: xiom_sha256_hash`): does NOT
   reproduce on stdlib main (`crypto.sha256_hex` NIST "abc" and
   `encoding.base64_encode` "YWJj" link+run green on both pins with and
