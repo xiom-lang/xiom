@@ -1007,7 +1007,10 @@ impl IrEmitter {
     fn vec_value_xiom_type(&self, e: &Expr) -> Option<String> {
         match e {
             Expr::Ident(id) => self.local.local_vec_elem.get(&id.name)
-                .map(|el| format!("Vec[{el}]")),
+                .map(|el| format!("Vec[{el}]"))
+                // m167: module-global Vecs record their full type.
+                .or_else(|| self.local.global_xiom_types.get(&id.name).cloned()
+                    .filter(|t| t.starts_with("Vec[") )),
             Expr::Index(inner, _, _) => {
                 let inner_vt = self.vec_value_xiom_type(inner)?;
                 Self::element_of_container_type(&inner_vt)

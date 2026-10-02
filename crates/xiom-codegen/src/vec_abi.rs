@@ -35,6 +35,18 @@ impl IrEmitter {
     /// Prefer `resolve_vec_push_ptr` for push/in-place mutating operations
     /// that may execute inside loops.
     pub(crate) fn resolve_vec_receiver_ptr(&mut self, receiver: &Expr) -> Result<(String, bool), String> {
+        // m167: a module-global Vec (`var v: Vec[T] = ...` at module scope)
+        // works directly on its emitted global -- without this the operation
+        // fell back to the generic stdlib body, whose hardcoded 8-byte
+        // stride + unscaled `data + len` produced invalid IR (clang rejects
+        // `store i8 <handle>, i8*`).
+        if let Expr::Ident(id) = receiver {
+            if let Some((symbol, llvm_ty)) = self.local.module_globals.get(&id.name).cloned() {
+                if Self::is_llvm_struct_named(&llvm_ty, "Vec") {
+                    return Ok((format!("@{symbol}"), false));
+                }
+            }
+        }
         let (recv_val, recv_ty) = self.compile_expr(receiver)?;
         if recv_ty == "i64" && self.is_container_vec_field(receiver) {
             let boxp = self.fresh_tmp();
@@ -103,6 +115,17 @@ impl IrEmitter {
     /// the caller is already working on the authoritative storage and no
     /// store_back_to_receiver call is needed.
     pub(crate) fn resolve_vec_push_ptr(&mut self, receiver: &Expr) -> Result<(String, bool), String> {
+        // m167: module-global Vec receivers work directly on the emitted
+        // global (see resolve_vec_receiver_ptr); the generic stdlib
+        // `Vec.push[T]` fallback hardcodes an 8-byte stride and does not
+        // scale `data + len`, which clang rejects for Str elements.
+        if let Expr::Ident(id) = receiver {
+            if let Some((symbol, llvm_ty)) = self.local.module_globals.get(&id.name).cloned() {
+                if Self::is_llvm_struct_named(&llvm_ty, "Vec") {
+                    return Ok((format!("@{symbol}"), false));
+                }
+            }
+        }
         // For simple local variables, use the receiver's original alloca directly.
         // This is the critical fix: avoids creating a new 32-byte alloca every
         // push iteration, which accumulates unbounded stack usage in loops.
@@ -361,7 +384,9 @@ impl IrEmitter {
         match container {
             Expr::Ident(cid) => self.local.local_vec_elem.get(&cid.name).cloned()
                 .or_else(|| self.local.local_xiom_types.get(&cid.name).cloned()
-                    .and_then(|t| t.strip_prefix("Vec[").and_then(|r| r.strip_suffix(']')).map(|s| s.to_string()))),
+                    .and_then(|t| t.strip_prefix("Vec[").and_then(|r| r.strip_suffix(']')).map(|s| s.to_string())))
+                // m167: module-global Vecs record their type in global_xiom_types.
+                .or_else(|| self.global_vec_elem(&cid.name)),
             Expr::Field(base, fname, _) => {
                 // R7 (2026-09-10): generic instantiations FIRST -- the
                 // registered type_meta for a generic type keeps its RAW
@@ -859,7 +884,9 @@ impl IrEmitter {
                 }
                 None
             }
-            Expr::Ident(id) => self.local.local_vec_elem.get(&id.name).cloned(),
+            Expr::Ident(id) => self.local.local_vec_elem.get(&id.name).cloned()
+                // m167: module-global Vecs.
+                .or_else(|| self.global_vec_elem(&id.name)),
             _ => None,
         }
     }

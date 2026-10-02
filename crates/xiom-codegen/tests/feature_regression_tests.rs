@@ -565,6 +565,33 @@ fn main() -> Int { var x = 41; return direct_read(&x) - 41; }
         "m166: without trust the unsafe block must stay confined; got:\n{}", ir_confined);
 }
 
+// m167 (packages 2d91399): a module-global Vec[Str] push used to fall to
+// the generic stdlib body (`store i8 <handle>, i8*` -- clang rejects), and
+// global float elements read back as IEEE bit patterns.
+#[test]
+fn regress_m167_global_vec_push() {
+    let ir = compile(r#"
+var g: Vec[Str] = Vec[Str].new();
+fn main() -> Int {
+  g.push("a");
+  if g.len() != 1 { return 1; }
+  if g[0] != "a" { return 2; }
+  return 0;
+}
+"#).unwrap();
+    assert!(
+        ir.contains("internal global %struct.Vec"),
+        "m167: the global must be a %struct.Vec; got:\n{}",
+        ir
+    );
+    assert!(
+        !ir.contains("__unsafe_block"),
+        "m167: the generic stdlib Vec.push body (unsafe block) must not be inlined for a global; got:\n{}",
+        ir
+    );
+}
+
+
 // m168 (packages bad44b2): assignment to a `&mut T` parameter must store
 // THROUGH the pointer; the old path rebinding the local slot with
 // `inttoptr 99 to i64*` silently dropped every write.

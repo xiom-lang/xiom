@@ -5576,6 +5576,16 @@ fn e2e_safety_probe() {
     );
 }
 
+// m167 (packages 2d91399): module-global Vecs must take the inline push and
+// read fast paths (the generic stdlib body emitted invalid IR).
+#[test] fn e2e_m167_global_vec_push() {
+    assert_eq!(
+        compile_and_run("tests/regression/m167_global_vec_push/main.xi"),
+        Some(0),
+        "module-global Vec push/read must compile and be correct (m167)"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

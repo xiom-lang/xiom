@@ -2948,6 +2948,8 @@ impl IrEmitter {
         if let Expr::Ident(id) = container {
             if let Some(elem) = self.local.local_vec_elem.get(&id.name)
                 .or_else(|| self.local.local_vec_handle.get(&id.name))
+                .cloned()
+                .or_else(|| self.global_vec_elem(&id.name))
             {
                 return match elem.as_str() {
                     "Float32" => Some("float"),
@@ -3072,10 +3074,23 @@ impl IrEmitter {
     /// NOT box them, and the scalar path must inttoptr the loaded handle
     /// back to i8* so downstream Str consumers (println, Str params) do not
     /// mis-coerce it (smoke_serialize yaml_emit_sequence printed garbage).
+    /// m167: element type of a MODULE-GLOBAL `Vec[X]`. `global_xiom_types`
+    /// records the global's declared XIOM type (decl.rs module-var pass); the
+    /// element classifiers previously only knew locals/fields, so global Vec
+    /// elements fell to the scalar i64 path (invalid `store i8` on push +
+    /// `trunc i8` println on read; clang rejected the IR).
+    fn global_vec_elem(&self, name: &str) -> Option<String> {
+        let ty = self.local.global_xiom_types.get(name)?;
+        let inner = ty.strip_prefix("Vec[")?.strip_suffix(']')?.trim();
+        if inner.is_empty() { None } else { Some(inner.to_string()) }
+    }
+
     fn vec_elem_is_str(&self, container: &Expr) -> bool {
         if let Expr::Ident(id) = container {
             if let Some(elem) = self.local.local_vec_elem.get(&id.name)
                 .or_else(|| self.local.local_vec_handle.get(&id.name))
+                .cloned()
+                .or_else(|| self.global_vec_elem(&id.name))
             {
                 return elem == "Str";
             }
@@ -3525,7 +3540,9 @@ impl IrEmitter {
         // are returned (primitives use the scalar elem_load path).
         if let Expr::Ident(id) = container {
             let elem = self.local.local_vec_elem.get(&id.name)
-                .or_else(|| self.local.local_vec_handle.get(&id.name))?;
+                .or_else(|| self.local.local_vec_handle.get(&id.name))
+                .cloned()
+                .or_else(|| self.global_vec_elem(&id.name))?;
             if matches!(elem.as_str(), "Int" | "Bool" | "Str" | "Float64" | "Float32" | "UInt8" | "Int8" | "Int16" | "Int32" | "UInt16" | "UInt32" | "Char" | "Float") {
                 return None;
             }
@@ -3553,7 +3570,7 @@ impl IrEmitter {
             // the registered "Tuple__Int__Int" key -- without this, the
             // Vec[(Int, Int)] elem lookup failed and get() loaded the first
             // 8 bytes of the 16-byte slot as the Option payload.
-            let elem_norm = Self::tuple_xiom_to_struct_name(elem);
+            let elem_norm = Self::tuple_xiom_to_struct_name(&elem);
             return self.types.types.keys().into_iter()
     .find(|k| k.ends_with(&format!(".{}", elem_norm)) || k.as_str() == elem_norm)
                 .or_else(|| {

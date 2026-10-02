@@ -1601,9 +1601,19 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             let ct = self.infer_llvm_type(container);
                             Self::is_llvm_struct_named(&ct, "Vec")
                         });
+                        // m167: a MODULE-GLOBAL `Vec[T]` receiver (erased to
+                        // i64 by infer_llvm_type) must take this inline push
+                        // path too; otherwise it fell to the generic stdlib
+                        // `Vec.push[T]` body, whose hardcoded 8-byte stride +
+                        // unscaled `data + len` emitted `store i8 <handle>`,
+                        // which clang rejects.
+                        let is_global_vec = matches!(receiver.as_ref(), Expr::Ident(id)
+                            if self.local.module_globals.get(&id.name)
+                                .map_or(false, |(_, ty)| Self::is_llvm_struct_named(ty, "Vec")));
                         let is_vec = Self::is_llvm_struct_named(&recv_ty, "Vec")
                             || self.is_container_vec_field(receiver) || is_indexed_vec_elem
-                            || self.receiver_is_unwrap_of_vec(receiver);
+                            || self.receiver_is_unwrap_of_vec(receiver)
+                            || is_global_vec;
                         if !is_vec {
                             // Not a Vec receiver --  fall through to general method dispatch
                         } else {

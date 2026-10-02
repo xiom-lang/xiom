@@ -1,6 +1,73 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
+# CONTINUATION HANDOFF (2026-10-02 (11), v0.62.2 shipped; m167/m168 fixed; phased queue)
+
+Supersedes the (10) kickoff prompt below (kept as history).
+
+## Next-session kickoff prompt (copy/paste)
+
+> Continue the XIOM swarm compiler lane. Read this top section, then
+> `docs/COMPILER_BUGS.md` (newest entries first), `docs/SELFHOST_PROGRESS.md`,
+> and `docs/RELEASE_GATE_v0.62.2.md`. Bootstrap meter on main is 9% until the
+> selfhost Phase 1 branch merges (it is at 18% in the worktree).
+> State: **v0.62.2 RELEASED** (tag on `801d888f`, run 36745108730, docs
+> dispatched). Compiler lane fixes landed after it: m166 method trust key
+> (`185342f4`), m168 `&mut T` write-through (`7b38fa87`), m167 global Vec
+> fast path (+ locks; committed with this handoff). All gates green at the
+> handoff commit unless noted.
+> QUEUE, in order:
+> 1. Merge the selfhost Phase 1 branch (`selfhost-phase-1-lexer`, worktree
+>    `.kilo/worktrees/selfhost-phase-1-lexer`, session
+>    `ses_f064fad71ffeYlwH06tqi4NL42`): rebase on main, re-run its
+>    token-dump gate, merge -> meter 18% on main (website reads main).
+> 2. C24-1 `p_geom_vector_result_bits` (stdlib relay): caller-side element
+>    reads of `vector.lerp/clamp/hadamard` and `curves.b_spline` RESULTS are
+>    bit-reinterpreted (1.5 reads as 4.609e18); callee-side correct; other
+>    ops fine. Probes live in the STDLIB repo's newer main (not the pin):
+>    fetch read-only (`git -C stdlib fetch origin`, `git show
+>    origin/main:<path>`), run against the compiler.
+> 3. C24-2 `p_curve_thunk_zero` (stdlib relay): a `Vec[Float64]`-returning
+>    fn-typed parameter arrives EMPTY inside catalog bodies (curve_length
+>    returns 0; direct call correct). Re-confirmed there: Option-of-Vec
+>    payload extraction AVs even with `.unwrap()`; collision by-value
+>    struct reuse is fine.
+> 4. expat/nbt silent exit -1 + zero stdout (packages relay): registry
+>    artifacts carry full sources/tests
+>    (`https://registry.xiom-lang.org/packages/xiom.expat/0.1.1/download`,
+>    `.../xiom.nbt/...`); `scripts/port.ps1 -Package xiom.expat` -> silent
+>    exit -1; `io.flush_stdout()` after each println makes expat 25/25,
+>    nbt 25/26 (t5 UTF-8 genuine fail). Suspect exit/flush path; both were
+>    green on v0.62.1.
+> 5. m168 RESIDUAL (COMPILER_BUGS): `&mut T` param passed to a by-VALUE
+>    param in a DIRECT call still ptrtoints (sibling `bump`/`byval`).
+>    Packages narrowed it: scalar-parameter-only; `&mut Struct` field
+>    writes propagate correctly (tensor/autoscale probes).
+> 6. C23 `-O2` miscompile (playground): reproduced in WSL (clang 18.1.3,
+>    v0.62.2 linux toolchain at `~/xiom-c23`, pack
+>    `E:\xiom-lang\playground\tools\compiler-repros\c23\`): l6-15 2/3,
+>    l7-39 2/3, l8-09 2/0; bracket O0 2 / O1 2 / O2 3 / O3 3. Next: pass
+>    bisection (`opt -O1` vs `-O2` on tmp/sprintc/c23_l7_pre.ll; clang
+>    wrapper log to replay the exact command). Acceptance: run.sh prints
+>    "C23 present: no".
+> 7. Registry polish (optional, post-release): B1 packaging guard, B2
+>    `xiom pkg yank`, install trust wording, `--resolve` outside a
+>    workspace (registry relay).
+> 8. stdlib `Vec.push[T]` stride fix (relay in COMPILER_BUGS m167): the
+>    generic body hardcodes 8-byte stride + unscaled `data + len`; the
+>    compiler now avoids it for direct receivers, but fix it at the source.
+> WAITING ON: stdlib lane for the `xiom/sync/sync.xi` `#[unsafe_direct]`
+> annotation + `stdlib-perf2` tag (then Gate P: benchmark t2 re-run; the
+> compiler half is in `185342f4`). Nothing else external blocks the queue.
+> Next release (v0.62.3) scope: C23 + C24-1/C24-2 + expat/nbt + m168
+> residual + t2/sync.xi; gate = local suites at the release commit +
+> playground run.sh "C23 present: no" + Gate P + stdlib-perf2 pin + dry-run.
+> Method: repro-first (tmp/sprintc), locks (fixture + e2e + CI line), full
+> e2e ONCE per compiler batch at 8 threads on this box, ascii_guard before
+> commits, commit atomically with SESSION/COMPILER_BUGS, push only on the
+> owner's ask. Shared machine: run cargo commands sequentially; never
+> rebuild target/debug while e2e runs.
+
 # CONTINUATION HANDOFF (2026-09-29 (10), selfhost Phase 0 landed + m163 fixed -- T1 harness green; m162 filed)
 
 Supersedes the (9) handoff below (kept as history).

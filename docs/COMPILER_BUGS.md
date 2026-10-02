@@ -50,7 +50,7 @@ Locks: `tests/regression/m168_mut_ref_write_through/` + e2e + CI line +
 
 ---
 
-## 2026-10-01 -- OPEN (m167): global Vec[Str] mis-lowers push + index (invalid IR, clang rejects)
+## 2026-10-01 -- m167 FIXED: global Vec push/index routed to the inline fast path (was: generic stdlib body, invalid IR)
 
 Packages relay (their commit `2d91399`, `docs/repro/v0622-regressions/`):
 the `Vec[Str].push` mis-lowering trigger is a MODULE-LEVEL `var v: Vec[Str]`
@@ -93,6 +93,38 @@ Locks to add with the fix: regression fixture with a module-global
 `Vec[Str]` (push + index + println) + the IR in-process test; run the full
 e2e once (codegen change). Files: `tmp/sprintc/probe_global_vecstr.xi`;
 packages `vec_str_push_global.xi` / `vec_str_push_param.xi`.
+
+FIXED 2026-10-02. Root cause: the push intercept (call.rs ~1590) only
+recognized receivers whose `infer_llvm_type` was Vec-typed or
+container-field/indexed/unwrap shaped; a module-global Ident erased to i64
+missed every arm and fell through to the GENERIC stdlib body
+`Vec.push[T]` (collections.xi:32), whose unsafe block hardcodes an 8-byte
+stride (`new_cap * 8`) and does not scale `data + len` -- for Str elements
+that emitted `store i8 <handle>, i8*`, which clang rejects. Fix:
+* push intercept: `is_global_vec` arm (module_globals entry whose llvm_ty
+  is %struct.Vec);
+* `resolve_vec_push_ptr` / `resolve_vec_receiver_ptr`: module-global Vecs
+  return `@symbol` directly (no scratch, no store-back), so pushes work on
+  the emitted global in place;
+* element classifiers got a `global_vec_elem` fallback (`vec_elem_is_str`,
+  `resolve_vec_elem_type`, `vec_elem_float_type`, `resolve_vec_elem_xiom`,
+  `resolve_vec_container_elem_xiom`, `vec_value_xiom_type`) -- without the
+  float one, global `Vec[Float64]` reads came back as IEEE bit patterns
+  (same class as the stdlib `p_geom_vector_result_bits` finding).
+
+Verified: `tmp/sprintc/probe_global_vec_multi.xi` (global Vec[Str] loop
+pushes + index + `.get().unwrap()`, Vec[Int], Vec[Float64]) -> all pass.
+Locks: `tests/regression/m167_global_vec_push/` + e2e + CI line +
+`regress_m167_global_vec_push` (IR: `internal global %struct.Vec`, no
+`__unsafe_block` inlining of the stdlib body). Gates: full e2e
+2395/2395 (+4 ignored), feature-reg 517/517, parser 107/107,
+checker_locks 23/23 + CLI locks, selfhost diff 2.
+
+RELAY (stdlib lane): `Vec.push[T]` in `collections.xi` still hardcodes
+`new_cap * 8` and does unscaled `data + len`; the compiler now avoids that
+body for direct Vec receivers, but any other route into it breaks for
+T != 8 bytes. Make it stride-correct (`sizeof[T]`/element-scaled
+arithmetic, e.g. via a runtime elem-size field or generic-safe scaling).
 
 ---
 
