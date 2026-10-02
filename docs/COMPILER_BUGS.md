@@ -10,6 +10,47 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-02 -- m170 FIXED: fn-typed param Vec returns lost their element type; erased Option/Result literal payloads widened the slot (C24-2)
+
+Stdlib relay (C24-2, `p_curve_thunk_zero`): `curves.curve_length(line, 0, 1, 2)`
+returned the wrong arc length while the direct call `line(0.5)` was correct --
+the `Vec[Float64]` returned through a fn-typed parameter was unreadable inside
+the callee. Two coordinated roots:
+
+1. **Callee-side binding inference (m170a).** `var v = samples(t)` bound to a
+   call through an fn-typed PARAM never recorded the parameter's declared
+   return type: `callee_return_xiom` did not consult `fn_local_returns` (only
+   `call.rs` used it for the emitted signature), and the non-mono param
+   registration in `decl.rs` stored the type with `type_from_ast`, which DROPS
+   generic args (`Vec[Float64]` -> `Vec`). Fix: (a) `callee_return_xiom` now
+   returns `fn_local_returns[leaf]` for Ident callees; (b) the `decl.rs`
+   registration uses `type_string_full` (mirrors the mono path's round-14c
+   fix). User-space replica: `apply_read` (`v[0]`) failed pre-fix (rc 4),
+   green post-fix; the catalog probe went rc 2 -> 0.
+
+2. **Erased Option/Result literal payload slots (m170b, the relay's
+   "Option-of-Vec .unwrap() AV").** `Option[Vec[Float64]]{ is_some: ...,
+   value: out }` in a catalog body stored the 32-byte `%struct.Vec` inline
+   through the erased `%struct.Option = {i64, i64}` field (type_meta's stale
+   payload type "Vec" widened the store), overrunning the 16-byte Option and
+   corrupting the return; `.unwrap()` dereferences the payload as the boxed
+   handle the `Some(v)` ctor builds. Fix (`expr.rs`, Struct-literal arm): for
+   the ERASED `Option`/`Result` bases the payload slots are forced to i64 and
+   converted with `val_to_i64` (bitcast doubles, heap-box structs, ptrtoint
+   handles) -- exactly the Some/Ok ctor convention. Probe: `vector.refract`
+   result read back len 2 / values correct (pre-fix: len garbage, rc 5).
+
+Locks: `tests/regression/m170_fn_typed_vec_return/` (fn-typed read/len/loop
+replicas + user Some(v) and catalog refract Option-of-Vec extraction) +
+`e2e_m170_fn_typed_vec_return` + IR lock `e2e_m170_fn_typed_vec_return_ir`
+(the callee-side read's preceding line must be `bitcast i64`, never
+`sitofp i64`) + CI line. Suites at the fix: feature-reg 517/517,
+stdlib-exec 85/85 (+2 ignored), stdlib api-freeze 2/2 (first run raced the
+freshly rebuilt driver and went red; isolated + rerun green). Full e2e runs
+once at the end of this compiler batch.
+
+---
+
 ## 2026-10-02 -- m169 FIXED: same-leaf qualified RESULTS lost their Vec element type (C24-1 caller-side bit reads)
 
 Stdlib relay (C24-1): caller-side element reads of `vector.lerp`,

@@ -1679,7 +1679,11 @@ impl IrEmitter {
             // NOT inttoptr the env pointer as a code pointer (0xC0000005).
             if let Type::Fn(_, ret) = &param.ty {
                 self.local.closure_locals.insert(param.name.name.clone());
-                self.local.fn_local_returns.insert(param.name.name.clone(), Self::type_from_ast(ret));
+                // C24-2: type_string_full PRESERVES generic args
+                // ("Vec[Float64]"); type_from_ast dropped them to "Vec", so a
+                // binding from `var v = samples(t)` recorded "Vec" and the
+                // indexed element read took the scalar i64 path.
+                self.local.fn_local_returns.insert(param.name.name.clone(), Self::type_string_full(ret));
             }
             if Self::is_signed_xiom_type(&xiom_ty_name) {
                 self.local.signed_locals.insert(param.name.name.clone());

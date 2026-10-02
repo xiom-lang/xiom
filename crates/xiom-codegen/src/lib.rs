@@ -2565,6 +2565,16 @@ impl IrEmitter {
             }
             _ => return None,
         };
+        // C24-2 (stdlib relay, p_curve_thunk_zero): a call through an
+        // fn-typed LOCAL/PARAM callee returns the declared return type of
+        // that parameter (call.rs already uses fn_local_returns for the
+        // emitted signature). Without recording it on the binding,
+        // `var v = samples(t)` kept no element type inside the callee and
+        // `v[0]` took the scalar i64 load path (curve_length's sampled Vec
+        // reads collapsed).
+        if let Some(rt) = self.local.fn_local_returns.get(&leaf) {
+            return Some(rt.clone());
+        }
         if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() {
             let hits: Vec<(String, String)> = self.types.fn_return_xiom.entries().into_iter()
                 .filter(|(k, _)| k.contains(&leaf)).collect();

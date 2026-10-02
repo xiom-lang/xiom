@@ -33,11 +33,13 @@ Supersedes the (10) kickoff prompt below (kept as history).
 >    `callee_return_xiom` (resolve the callee key exactly as call emission
 >    does, then read the declared return type). Locks: m169 fixture + e2e +
 >    IR + CI line. Full e2e runs once at the end of this compiler batch.
-> 3. C24-2 `p_curve_thunk_zero` (stdlib relay): a `Vec[Float64]`-returning
->    fn-typed parameter arrives EMPTY inside catalog bodies (curve_length
->    returns 0; direct call correct). Re-confirmed there: Option-of-Vec
->    payload extraction AVs even with `.unwrap()`; collision by-value
->    struct reuse is fine.
+> 3. [DONE 2026-10-02] C24-2 FIXED (m170 + m170b): calls through fn-typed
+>    params kept no return type on the binding (curve_length's sampled reads
+>    took the scalar i64 path; `type_from_ast` also dropped the Vec args in
+>    the non-mono registration), and the erased Option/Result literal payload
+>    slot was widened by a stale type_meta type (Option-of-Vec `.unwrap()`
+>    read garbage). Locks: m170 fixture + e2e + IR + CI line; feature-reg,
+>    stdlib-exec and api-freeze green. Full e2e at batch end.
 > 4. expat/nbt silent exit -1 + zero stdout (packages relay): registry
 >    artifacts carry full sources/tests
 >    (`https://registry.xiom-lang.org/packages/xiom.expat/0.1.1/download`,

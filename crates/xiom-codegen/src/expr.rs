@@ -4172,6 +4172,16 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     // not the bare `_` name from the struct literal.
                     let resolved_name = struct_ty.trim_start_matches("%struct.");
                     for (i, (_, val)) in fields.iter().enumerate() {
+                        // C24-2b (stdlib relay, p_curve_thunk_zero
+                        // Option-of-Vec): the ERASED builtin bases are
+                        // {i64, i64[, i64]}; a stale type_meta payload type
+                        // (e.g. "Vec" recorded by a generic instantiation)
+                        // must not widen the store -- box the container
+                        // payload instead, matching the Some/Ok ctors and
+                        // every consumer's i64-handle/bit-slot convention.
+                        let erased_base = resolved_name == "Option" || resolved_name == "Result";
+                        let payload_slot = (resolved_name == "Option" && i == 1)
+                            || (resolved_name == "Result" && (i == 1 || i == 2));
                         // 5c.39: Empty array `[]` in Vec-typed field -> compile as
                         // proper empty Vec, not raw i8* array buffer.
                         let (mut field_val, mut field_val_ty) = if let Expr::Array(elems, _) = val {
@@ -4184,7 +4194,11 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         } else {
                             self.compile_expr(val)?
                         };
-                        let mut field_llvm_ty = self.field_llvm_type(resolved_name, i);
+                        let mut field_llvm_ty = if erased_base && payload_slot {
+                            LLVM_I64.to_string()
+                        } else {
+                            self.field_llvm_type(resolved_name, i)
+                        };
                         // R23: a FN-MARKER field holds closure ENV bits on the
                         // uniform env-first convention. Storing a bare fn
                         // REFERENCE stored the raw code address; the field-call
@@ -4226,7 +4240,14 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         let is_generic_container_field = self
                             .field_xiom_type(resolved_name, i)
                             .map_or(false, |t| t.contains('['));
-                        if field_llvm_ty == "i64"
+                        if field_llvm_ty == "i64" && erased_base && payload_slot {
+                            // Canonical i64 payload slot: bitcast doubles,
+                            // box structs on the heap, ptrtoint Str/pointer
+                            // handles -- exactly the Some/Ok ctors' val_to_i64
+                            // convention (consumers reinterpret the slot).
+                            field_val = self.val_to_i64(&field_val, &field_val_ty);
+                            field_val_ty = LLVM_I64.to_string();
+                        } else if field_llvm_ty == "i64"
                             && is_generic_container_field
                             && field_val_ty.starts_with("%struct.")
                             && !field_val_ty.ends_with('*')

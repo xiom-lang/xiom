@@ -5620,6 +5620,38 @@ fn e2e_safety_probe() {
     );
 }
 
+// m170 (stdlib C24-2 relay, p_curve_thunk_zero): a call through an fn-typed
+// PARAM must keep the parameter's declared return type on the binding
+// (`var v = samples(t)`), or element reads inside the callee take the scalar
+// i64 path (curve_length's sampled Vec reads collapsed).
+#[test] fn e2e_m170_fn_typed_vec_return() {
+    assert_eq!(
+        compile_and_run("tests/regression/m170_fn_typed_vec_return/main.xi"),
+        Some(0),
+        "fn-typed params returning Vec[Float64] must be readable in the callee (m170)"
+    );
+}
+
+// m170 IR lock: the callee-side element read must bitcast the loaded double
+// bits, never sitofp them as an integer.
+#[test] fn e2e_m170_fn_typed_vec_return_ir() {
+    let ir = compile_ir("tests/regression/m170_fn_typed_vec_return/main.xi")
+        .expect("m170 fixture must compile to IR");
+    let start = ir.find("define double @fn_typed_vec_read")
+        .expect("m170: the fn-typed read helper must be defined");
+    let rest = &ir[start..];
+    let end = rest[1..].find("\ndefine ").map(|i| i + 1).unwrap_or(rest.len());
+    let body = &rest[..end];
+    assert!(
+        body.contains("bitcast i64"),
+        "m170: the fn-typed param's Vec element read must bitcast the loaded bits"
+    );
+    assert!(
+        !body.contains("sitofp i64"),
+        "m170: the fn-typed param's Vec element read must not treat the bits as an integer"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)
