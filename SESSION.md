@@ -27,7 +27,27 @@ Supersedes the (11) handoff below (kept as history).
 > m176/m177 landed (packages): module-qualified type annotations/literals/
 > params resolve to the registered struct (was silent zeros / T001), and
 > `Result[Bool, Str]` no longer satisfies `Result[Int, Str]` (was a silent
-> garbage read). Locks m176 fixture + e2e + CI, m177 checker lock.
+> garbage read). Follow-up fixed module scoping vs the leaf fallback
+> (m19/m37 regressions); full e2e 2409/2409 (+4 ignored, 8 threads) at
+> `f4734c07`. Locks m176 fixture + e2e + CI, m177 checker lock.
+> Registry relay: staging index digest is signed (public key
+> 0f07f71a052e16f10c20c5f6198adf168e3a9f092f6bc11b6255e64e11746efb, fp
+> 0f:07:f7:1a:05:2e:16:f1); staging pin is OPTIONAL for fail-closed tests;
+> production pin unchanged. No action required.
+> New packages findings queued (COMPILER_BUGS 2026-10-02 relay):
+> match-bound `&mut` enum payload mutations dropped, `derive[Clone]`
+> aggregate payloads corrupt, `invariant:` placement, xiom-verify encoding
+> gaps (tooling); json legacy bugs are stdlib-side.
+> v0.62.3 SCOPE STATUS (2026-10-02): C23 fixed (`8abedb72`, pack
+> acceptance "C23 present: no"); C24 read_line fixed (`592c64d4`, "C24
+> fixed: yes"); C24-1/C24-2 stdlib relays fixed (m169/m170); m168 residual
+> fixed (565b9924); expat/nbt NOT reproducible with the exact harness on
+> the released v0.62.2 + stdlib main/perf1 (nbt 26/26) -- awaiting the
+> packages lane if it recurs. GATE P: stdlib-perf2 tag exists on stdlib
+> main; at the cut bump STDLIB_VERSION to stdlib-perf2, regen the
+> api-freeze snapshot, run benchmark t2 (compiler half `185342f4`). Extra
+> hardening landed: m171/m172/m174, m176/m177 + scoping fixup. Open
+> (not release-blocking): the Remaining list below.
 > Remaining bugs: (e) recursive enum payload
 > boxing, (h) large-function variant payload mapping, type-laxness intake
 > (the remaining `let gb: Vec[UInt8] = got.value;` row), module-header

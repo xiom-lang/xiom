@@ -10,6 +10,32 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-02 -- RELAY (packages -> compiler/stdlib): match-bound &mut payload mutations, derive[Clone] aggregate payloads, invariant placement, xiom-verify encodings
+
+From the packages lane (25cf8c62). Compiler-side unless noted; no m-numbers
+until reproduced:
+
+- MATCH-BOUND PAYLOAD MUTATIONS ON `&mut` ENUMS ARE SILENTLY DROPPED (all six
+  json mutators broken). Same write-through class as m168: mutating a value
+  bound by a match arm on a `&mut` enum param must write back through the
+  payload. High priority.
+- `derive[Clone]` on an enum/struct with an AGGREGATE payload returns a
+  corrupt handle; the next push crashes 0xC000001D. Derived Clone must box /
+  copy aggregate payloads like `val_to_i64` does.
+- `invariant:` PLACEMENT AMBIGUITY: json `P001` in every documented form
+  while the control generates `invariant_check` -- needs a placement rule
+  (contracts matrix) and a diagnostic.
+- `xiom-verify` ENCODING GAPS (tooling/verify-side): 0/101 clauses proven
+  across the three packages -- record-field selectors, opaque `&T`,
+  if-merge, X7004 path-insensitivity, duplicate `:named`, unresolved
+  cross-module `use`; scalar-only probes prove 2/2 and 4/4. Route to the
+  verify tooling lane.
+- STDLIB/PACKAGE-SIDE (route to the stdlib lane): legacy json bugs caught by
+  the gate -- `0.05` parsed as `0.5`, `stringify_frac` recursion, exponent
+  hang, partial writes, non-atomic merge.
+
+---
+
 ## 2026-10-02 -- m176/m177 FIXED: module-qualified type annotations/literals/params (gcp); Result payload laxness (consul)
 
 ### m176 -- qualified type names (`qlib.LabelParts`) in literals, annotations, params
