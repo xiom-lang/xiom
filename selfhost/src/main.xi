@@ -8,6 +8,7 @@
 // Usage:
 //   xiomc-self <source.xi>    compile-to-IR (Phase 0: stub module)
 //   xiomc-self --dump-tokens <source.xi>   canonical token dump (Phase 1 gate)
+//   xiomc-self --dump-ast <source.xi>      canonical AST dump (Phase 2 gate)
 //   xiomc-self --selfcheck    run the runtime_ffi behavior checks
 //
 // Build (the harness does this): xiom -o target/selfhost/xiomc-self.exe
@@ -46,6 +47,21 @@ fn main() -> Int {
       }
     }
     return selfhost_lexer.dump_tokens(tok_src);
+  }
+  if first == "--dump-ast" {
+    if args.len() < 3 {
+      io.println("usage: xiomc-self --dump-ast <source.xi>");
+      return 2;
+    }
+    var ast_src = "";
+    match io.read_file(args[2]) {
+      Ok(text) => { ast_src = text; }
+      Err(e) => {
+        io.println("xiomc-self: cannot read " + args[2] + ": " + e.message);
+        return 3;
+      }
+    }
+    return selfhost_parser.dump_ast(ast_src);
   }
 
   var source = "";

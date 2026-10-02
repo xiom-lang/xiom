@@ -67,6 +67,73 @@ for nested-module types (`models.Note`). OPEN, post-batch intake.
 
 ---
 
+## 2026-10-02 -- OPEN (selfhost Phase 2 port findings): recursive enum payloads mis-lower; qualified variant patterns false-non-exhaustive
+
+Two findings surfaced while starting the parser port
+(`crates/xiom-parser` -> `selfhost/src/`). Repros live in
+`tmp/sprintc/phase2_parser/`; the Phase 2 design avoids both (arena AST,
+unqualified variant patterns), but (e) silently crashes/mis-compiles
+recursive value trees, which the language advertises as supported (the
+checker accepts them and emits `%struct.*` with payload pointers).
+
+### (e) Recursive enum payloads are pointer-boxed unsafely (crash / wrong values)
+
+```xiom
+enum Tree { Leaf(v: Int), Node(l: Tree, r: Tree) }
+
+fn depth(t: Tree) -> Int {
+  match t {
+    Leaf(v) => { return 1; }
+    Node(l, r) => { return 1 + depth(l) + depth(r); }
+  }
+}
+```
+
+* `Node(a, b)` with `a`/`b` REACHABLE-LEAF locals happens to work
+  (`probe_rec_run3.xi` -> `depth=3`, rc 0).
+* `Tree.Node(Tree.Leaf(1), Tree.Leaf(2))` (temporaries) compiles but
+  crashes at run time (`rc = -1073741795`, 0xC000001D):
+  `probe_rec_nested.xi`.
+* `Node(c, b)` where `c` is itself a `Node` local (2-level tree) crashes the
+  same way: `probe_rec_locals.xi`.
+* `enum MyExpr { EInt(v: Int), ESome(inner: MyExpr), ENone }`; building
+  `ESome(a)` from a local `a` then recursing `show(inner)` binds the boxed
+  POINTER as the payload (`show` printed `some(int1638584114768)` instead of
+  `some(int7)`): `probe_variants2.xi` (vs `probe_rec_run3.xi` which is
+  correct).
+
+Root: a recursive payload is stored as a pointer to the source value
+(`%struct.probe_rec.Tree = { i64, i64, Tree*, Tree* }`); successive boxing
+either stores the address of a dead temporary or passes the pointer where a
+value struct is expected (ABI mismatch). Impact: recursive value-tree ASTs
+(parser/checker/codegen) cannot be trusted. `selfhost/src/ast.xi` uses an
+arena (`Vec[Node]` + `Int` child indices, `-1` = absent) as the workaround.
+Fix direction: boxed payloads must own a stable copy (heap/arena) and every
+read/pass must load the pointee (the BTree stdlib avoids this with an arena
+too).
+
+### (f) Qualified enum-variant patterns are not recognized by exhaustiveness
+
+```xiom
+match t {
+  Tree.Leaf(v) => { return 1; }
+  Tree.Node(l, r) => { return 1 + depth(l) + depth(r); }
+}
+```
+
+emits `warning[W000]: non-exhaustive match: variant 'Leaf' ... not covered`
+(and the same for 'Node') even though both variants are covered and codegen
+dispatches them correctly; with unrelated errors in the file the same
+false positives surface as T001s. Unqualified patterns (`Leaf(v)`,
+`Node(l, r)`) are clean: `probe_rec_run2.xi` (no warnings, rc 0, depth 3)
+vs `probe_rec_run3.xi`. The parser stores qualified variant names DOTTED
+(`Pattern::Variant` name = "Tree.Leaf"; see the Phase 2 AST dump), while the
+exhaustiveness matcher compares against the bare variant name
+(`crates/xiom-check/src/lib.rs:9647`). Impact: the selfhost port uses
+unqualified variant patterns throughout (like the Phase 1 `Tk` convention).
+
+---
+
 ## 2026-10-02 -- m170 FIXED: fn-typed param Vec returns lost their element type; erased Option/Result literal payloads widened the slot (C24-2)
 
 Stdlib relay (C24-2, `p_curve_thunk_zero`): `curves.curve_length(line, 0, 1, 2)`

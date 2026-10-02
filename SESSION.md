@@ -1,6 +1,50 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
+# CONTINUATION HANDOFF (2026-10-02 (12), selfhost Phase 2 parser parity -- IN PROGRESS; gate NOT STARTED)
+
+Supersedes the (11) handoff below (kept as history).
+
+## Next-session kickoff prompt (copy/paste)
+
+> Continue the XIOM swarm compiler lane on branch `selfhost-phase-2-parser`
+> (worktree `.kilo/worktrees/selfhost-phase-2-parser`). Read this top
+> section, then `docs/checklists/selfhost-phase2.md`,
+> `docs/SELFHOST_PROGRESS.md` and `docs/COMPILER_BUGS.md` (2026-10-02 Phase 2
+> findings (e)/(f)). Bootstrap meter stays **18%**: gate 2 (AST-dump parity)
+> is **NOT STARTED** and must stay so in
+> `docs/SELFHOST_PROGRESS.md` until `diff_ast` is line-exact over the whole
+> 83-file corpus (un-ignore it only then).
+> State: **v0.62.2** released; Phase 1 lexer parity merged; m169/m170/m168b
+> landed. Phase 2 work landed on the branch so far (all pushed? NO -- do not
+> push; owner's ask only):
+> 1. Canonical `--dump-ast` on the Rust driver
+>    (`crates/xiom/src/main.rs::dump_ast` + `AstDump`, clap flag, usage) and
+>    the `selfhost/src/main.xi` route to `selfhost_parser.dump_ast`.
+> 2. Harness gate `full_diff_tests::diff_ast` (line-exact, same runner as
+>    `diff_tokens`) -- `#[ignore]`d with the honest NOT STARTED reason; run
+>    with `cargo test -p xiom-codegen --test full_diff_tests -- --ignored
+>    diff_ast`.
+> 3. `docs/checklists/selfhost-phase2.md`; `docs/COMPILER_BUGS.md` Phase 2
+>    findings (e) recursive enum payloads mis-lower (0xC000001D crashes /
+>    pointer-as-value) and (f) qualified variant patterns false W000.
+> 4. Arena AST model `selfhost/src/ast.xi` (recursive VALUE enums are broken;
+>    flat `Vec[Node]` + Int child indices, `Nk`-prefixed variants) and
+>    `selfhost/src/parser_state.xi` (Parser + `p_*` free helpers, latch-based
+>    error convention), `selfhost/src/ast_dump.xi` (canonical walker mirror).
+> 5. Parser port in progress: expressions/types/patterns/statements
+>    (`parser_expr.xi`), top-level decls (`parser_core.xi`), facade
+>    (`parser.xi`) -- staged; T1 (`diff_corpus`) + T2 + `diff_tokens` must
+>    stay green after each stage.
+> QUEUE after Phase 2: keep the Phase 2 gate green while extending the
+> corpus; then Phase 3 checker parity (owner: after behavior freeze).
+> Method: repro-first under tmp/sprintc; cargo commands sequentially on this
+> box; never rebuild target/debug while an e2e runs; `python
+> tools/ascii_guard.py check` before every commit; commit atomically with
+> SESSION.md + COMPILER_BUGS.md evidence; DO NOT push.
+
+
+
 # CONTINUATION HANDOFF (2026-10-02 (11), v0.62.2 shipped; m167/m168 fixed; phased queue)
 
 Supersedes the (10) kickoff prompt below (kept as history).

@@ -15,6 +15,7 @@
 //!   xiom --diagnostics=json <source.xi>      JSON-structured compiler output
 //!   xiom --dump-contracts <source.xi>        emit contract index as JSON
 //!   xiom --dump-tokens <source.xi>           canonical token dump (selfhost parity gate)
+//!   xiom --dump-ast <source.xi>              canonical AST dump (selfhost parity gate)
 //!   xiom --sandbox <source.xi>                safety audit report (text)
 //!   xiom --sandbox=strict <source.xi>         block compilation on HIGH findings
 //!   xiom --sandbox-report=json <source.xi>    safety audit as JSON
@@ -288,6 +289,1004 @@ fn dump_tokens(source: &str) -> String {
         out.push('\n');
     }
     out
+}
+
+// ============================================================================
+// --dump-ast: canonical AST dump for the selfhost Phase 2 parity gate
+// ============================================================================
+//
+// Line format (byte-stable; mirrored by selfhost/src/ast_dump.xi):
+//
+//   {indent}{Kind}[ key=value]... [span=l:c:bs:be]
+//
+// `indent` is two spaces per depth level; child nodes follow their parent and
+// are indented one level. Every text payload is lowercase hex. Integer
+// payloads are zero-padded hex (u64: 16 digits, u128: 32 digits). Float
+// literal payloads dump the SOURCE LEXEME bytes at the node's byte span
+// (float VALUE parity is deferred: the selfhost has no correctly rounded
+// decimal->f64 parser; the lexeme is Phase 1-gated). Spans are POST-BOM
+// `line:col:byte_start:byte_end`, exactly as in --dump-tokens. A file that
+// fails to parse yields a single `PARSE-ERROR` line.
+//
+// Field order per node is defined by this walker; the selfhost mirror must
+// emit the identical order.
+
+use xiom_ast::{
+    AsmBlock, Attribute, Block, ConstDecl, ContractClause, EnumDecl, EnumVariant, Expr, ExternBlock,
+    FieldDecl, FnDecl, GenericParam, Ident, ImplDecl, ImplItem, InterfaceDecl, InterfaceMember,
+    Literal, MatchArm, MatchBody, Param, Pattern, Program, Span, Stmt, StmtOrExpr,
+    TopDecl, Type, TypeDecl, UseDecl,
+};
+
+fn ast_span(s: &Span) -> String {
+    format!("{}:{}:{}:{}", s.line, s.col, s.byte_start, s.byte_end)
+}
+
+/// BOM-stripped source + output buffer for the canonical AST dump.
+struct AstDump<'a> {
+    out: String,
+    src: &'a str,
+}
+
+impl<'a> AstDump<'a> {
+    fn new(src: &'a str) -> Self {
+        Self { out: String::new(), src }
+    }
+
+    fn line(&mut self, depth: usize, text: &str) {
+        for _ in 0..depth {
+            self.out.push_str("  ");
+        }
+        self.out.push_str(text);
+        self.out.push('\n');
+    }
+
+    fn hx(&self, s: &str) -> String {
+        hex_bytes(s.as_bytes())
+    }
+
+    fn id_hex(&self, id: &Ident) -> String {
+        hex_bytes(id.name.as_bytes())
+    }
+
+    fn id_name(&mut self, id: &Ident, depth: usize) {
+        self.line(depth, &format!("Name name={} span={}", self.id_hex(id), ast_span(&id.span)));
+    }
+
+    /// Source lexeme bytes at a span (used for Float literals only).
+    fn lexeme(&self, s: &Span) -> String {
+        let b = self.src.as_bytes();
+        let (a, z) = (s.byte_start as usize, s.byte_end as usize);
+        if a < z && z <= b.len() {
+            hex_bytes(&b[a..z])
+        } else {
+            "-".to_string()
+        }
+    }
+
+    fn opt_label(&self, label: &Option<Ident>) -> String {
+        match label {
+            Some(id) => self.id_hex(id),
+            None => "-".to_string(),
+        }
+    }
+
+    fn program(&mut self, p: &Program) {
+        self.line(0, &format!("Program items={} span={}", p.items.len(), ast_span(&p.span)));
+        for item in &p.items {
+            self.top_decl(item, 1);
+        }
+    }
+
+    fn top_decl(&mut self, d: &TopDecl, depth: usize) {
+        match d {
+            TopDecl::Module(m) => {
+                let path = if m.path.is_empty() {
+                    "-".to_string()
+                } else {
+                    m.path.iter().map(|i| self.id_hex(i)).collect::<Vec<_>>().join(".")
+                };
+                let source = match &m.source_file {
+                    Some(s) => self.hx(s),
+                    None => "-".to_string(),
+                };
+                self.line(
+                    depth,
+                    &format!(
+                        "Module name={} path={} filelevel={} source={} span={}",
+                        self.id_hex(&m.name),
+                        path,
+                        m.is_file_level as u8,
+                        source,
+                        ast_span(&m.span)
+                    ),
+                );
+                for item in &m.items {
+                    self.top_decl(item, depth + 1);
+                }
+            }
+            TopDecl::Use(u) => self.use_decl(u, depth),
+            TopDecl::Type(t) => self.type_decl(t, depth),
+            TopDecl::Enum(e) => self.enum_decl(e, depth),
+            TopDecl::Interface(i) => self.interface_decl(i, depth),
+            TopDecl::Fn(f) => self.fn_decl(f, depth),
+            TopDecl::Const(c) => self.const_decl(c, depth),
+            TopDecl::Extern(e) => self.extern_block(e, depth),
+            TopDecl::Impl(i) => self.impl_decl(i, depth),
+            TopDecl::Spawn(b, s, mv) => {
+                self.line(depth, &format!("Spawn move={} span={}", *mv as u8, ast_span(s)));
+                self.block(b, depth + 1);
+            }
+        }
+    }
+
+    fn use_decl(&mut self, u: &UseDecl, depth: usize) {
+        let path = u.path.iter().map(|i| self.id_hex(i)).collect::<Vec<_>>().join(".");
+        let alias = match &u.alias {
+            Some(a) => self.id_hex(a),
+            None => "-".to_string(),
+        };
+        self.line(
+            depth,
+            &format!("Use path={} glob={} alias={} span={}", path, u.glob as u8, alias, ast_span(&u.span)),
+        );
+    }
+
+    fn type_decl(&mut self, t: &TypeDecl, depth: usize) {
+        self.line(
+            depth,
+            &format!(
+                "Type pub={} name={} generic={} fields={} derived={} invariants={} derives={} alias={} span={}",
+                t.is_pub as u8,
+                self.id_hex(&t.name),
+                t.generics.len(),
+                t.fields.len(),
+                t.derived_fields.len(),
+                t.invariants.len(),
+                t.derives.len(),
+                t.alias.is_some() as u8,
+                ast_span(&t.span)
+            ),
+        );
+        for g in &t.generics {
+            self.generic_param(g, depth + 1);
+        }
+        for f in &t.fields {
+            self.field_decl(f, depth + 1);
+        }
+        for (name, ty, expr) in &t.derived_fields {
+            self.line(depth + 1, &format!("Derived name={} span={}", self.id_hex(name), ast_span(&name.span)));
+            self.ty(ty, depth + 2);
+            self.expr(expr, depth + 2);
+        }
+        for inv in &t.invariants {
+            self.expr(inv, depth + 1);
+        }
+        for dr in &t.derives {
+            self.line(depth + 1, &format!("Derive {}", derive_name(dr)));
+        }
+        if let Some(a) = &t.alias {
+            self.ty(a, depth + 1);
+        }
+    }
+
+    fn enum_decl(&mut self, e: &EnumDecl, depth: usize) {
+        self.line(
+            depth,
+            &format!(
+                "Enum pub={} name={} generic={} variants={} derives={} span={}",
+                e.is_pub as u8,
+                self.id_hex(&e.name),
+                e.generics.len(),
+                e.variants.len(),
+                e.derives.len(),
+                ast_span(&e.span)
+            ),
+        );
+        for g in &e.generics {
+            self.generic_param(g, depth + 1);
+        }
+        for v in &e.variants {
+            self.enum_variant(v, depth + 1);
+        }
+        for dr in &e.derives {
+            self.line(depth + 1, &format!("Derive {}", derive_name(dr)));
+        }
+    }
+
+    fn enum_variant(&mut self, v: &EnumVariant, depth: usize) {
+        self.line(
+            depth,
+            &format!("Variant name={} fields={} span={}", self.id_hex(&v.name), v.fields.len(), ast_span(&v.span)),
+        );
+        for f in &v.fields {
+            self.field_decl(f, depth + 1);
+        }
+    }
+
+    fn interface_decl(&mut self, i: &InterfaceDecl, depth: usize) {
+        let parent = match &i.parent {
+            Some(p) => self.id_hex(p),
+            None => "-".to_string(),
+        };
+        self.line(
+            depth,
+            &format!(
+                "Interface pub={} name={} generic={} parent={} members={} span={}",
+                i.is_pub as u8,
+                self.id_hex(&i.name),
+                i.generics.len(),
+                parent,
+                i.members.len(),
+                ast_span(&i.span)
+            ),
+        );
+        for g in &i.generics {
+            self.generic_param(g, depth + 1);
+        }
+        for m in &i.members {
+            match m {
+                InterfaceMember::Field(f) => self.field_decl(f, depth + 1),
+                InterfaceMember::FnSignature(f) => self.fn_decl(f, depth + 1),
+            }
+        }
+    }
+
+    fn impl_decl(&mut self, i: &ImplDecl, depth: usize) {
+        self.line(
+            depth,
+            &format!(
+                "Impl trait={} traitargs={} type={} span={}",
+                self.id_hex(&i.trait_name),
+                i.trait_args.len(),
+                self.id_hex(&i.type_name),
+                ast_span(&i.span)
+            ),
+        );
+        for t in &i.trait_args {
+            self.ty(t, depth + 1);
+        }
+        for m in &i.members {
+            match m {
+                ImplItem::Fn(f) => self.fn_decl(f, depth + 1),
+                ImplItem::Const(c) => self.const_decl(c, depth + 1),
+            }
+        }
+    }
+
+    fn fn_decl(&mut self, f: &FnDecl, depth: usize) {
+        let recv = match &f.receiver {
+            Some(r) => self.id_hex(r),
+            None => "-".to_string(),
+        };
+        self.line(
+            depth,
+            &format!(
+                "Fn pub={} async={} recv={} name={} generics={} params={} ret={} contracts={} body={} attrs={} span={}",
+                f.is_pub as u8,
+                f.is_async as u8,
+                recv,
+                self.id_hex(&f.name),
+                f.generics.len(),
+                f.params.len(),
+                f.return_type.is_some() as u8,
+                f.contracts.len(),
+                f.body.is_some() as u8,
+                f.attributes.len(),
+                ast_span(&f.span)
+            ),
+        );
+        for a in &f.attributes {
+            self.attribute(a, depth + 1);
+        }
+        for g in &f.generics {
+            self.generic_param(g, depth + 1);
+        }
+        for p in &f.params {
+            self.param(p, depth + 1);
+        }
+        if let Some(r) = &f.return_type {
+            self.ty(r, depth + 1);
+        }
+        for c in &f.contracts {
+            self.contract(c, depth + 1);
+        }
+        if let Some(b) = &f.body {
+            self.block(b, depth + 1);
+        }
+    }
+
+    fn const_decl(&mut self, c: &ConstDecl, depth: usize) {
+        self.line(
+            depth,
+            &format!(
+                "Const pub={} mut={} name={} span={}",
+                c.is_pub as u8,
+                c.is_mut as u8,
+                self.id_hex(&c.name),
+                ast_span(&c.span)
+            ),
+        );
+        self.ty(&c.ty, depth + 1);
+        self.expr(&c.value, depth + 1);
+    }
+
+    fn extern_block(&mut self, e: &ExternBlock, depth: usize) {
+        self.line(
+            depth,
+            &format!("Extern linkage={} fns={} span={}", self.hx(&e.linkage), e.functions.len(), ast_span(&e.span)),
+        );
+        for f in &e.functions {
+            self.fn_decl(f, depth + 1);
+        }
+    }
+
+    fn attribute(&mut self, a: &Attribute, depth: usize) {
+        self.line(
+            depth,
+            &format!("Attr name={} args={} span={}", self.id_hex(&a.name), a.args.len(), ast_span(&a.span)),
+        );
+        for (k, v) in &a.args {
+            self.line(depth + 1, &format!("Arg key={} value={}", self.hx(k), self.hx(v)));
+        }
+    }
+
+    fn generic_param(&mut self, g: &GenericParam, depth: usize) {
+        self.line(
+            depth,
+            &format!(
+                "Generic name={} bounds={} const={} constty={}",
+                self.id_hex(&g.name),
+                g.bounds.len(),
+                g.is_const as u8,
+                g.const_ty.is_some() as u8
+            ),
+        );
+        for b in &g.bounds {
+            self.line(depth + 1, &format!("Bound name={} span={}", self.id_hex(b), ast_span(&b.span)));
+        }
+        if let Some(t) = &g.const_ty {
+            self.ty(t, depth + 1);
+        }
+    }
+
+    fn field_decl(&mut self, f: &FieldDecl, depth: usize) {
+        self.line(depth, &format!("Field name={} span={}", self.id_hex(&f.name), ast_span(&f.span)));
+        self.ty(&f.ty, depth + 1);
+    }
+
+    fn param(&mut self, p: &Param, depth: usize) {
+        self.line(
+            depth,
+            &format!(
+                "Param name={} mutself={} refself={} span={}",
+                self.id_hex(&p.name),
+                p.is_mut_self as u8,
+                p.is_ref_self as u8,
+                ast_span(&p.span)
+            ),
+        );
+        self.ty(&p.ty, depth + 1);
+    }
+
+    fn contract(&mut self, c: &ContractClause, depth: usize) {
+        match c {
+            ContractClause::Requires(e, s) => {
+                self.line(depth, &format!("Requires span={}", ast_span(s)));
+                self.expr(e, depth + 1);
+            }
+            ContractClause::Ensures(e, s) => {
+                self.line(depth, &format!("Ensures span={}", ast_span(s)));
+                self.expr(e, depth + 1);
+            }
+        }
+    }
+
+    fn block(&mut self, b: &Block, depth: usize) {
+        self.line(depth, &format!("Block stmts={} span={}", b.stmts.len(), ast_span(&b.span)));
+        for s in &b.stmts {
+            match s {
+                StmtOrExpr::Stmt(st) => {
+                    self.line(depth + 1, "Stmt");
+                    self.stmt(st, depth + 2);
+                }
+                StmtOrExpr::Expr(e) => {
+                    self.line(depth + 1, "Tail");
+                    self.expr(e, depth + 2);
+                }
+            }
+        }
+    }
+
+    fn stmt(&mut self, s: &Stmt, depth: usize) {
+        match s {
+            Stmt::Let(id, ty, e, sp) => {
+                self.line(
+                    depth,
+                    &format!("Let name={} ty={} span={}", self.id_hex(id), ty.is_some() as u8, ast_span(sp)),
+                );
+                if let Some(t) = ty {
+                    self.ty(t, depth + 1);
+                }
+                self.expr(e, depth + 1);
+            }
+            Stmt::Var(id, ty, e, sp) => {
+                self.line(
+                    depth,
+                    &format!("Var name={} ty={} span={}", self.id_hex(id), ty.is_some() as u8, ast_span(sp)),
+                );
+                if let Some(t) = ty {
+                    self.ty(t, depth + 1);
+                }
+                self.expr(e, depth + 1);
+            }
+            Stmt::Assign(l, r, sp) => {
+                self.line(depth, &format!("Assign span={}", ast_span(sp)));
+                self.expr(l, depth + 1);
+                self.expr(r, depth + 1);
+            }
+            Stmt::Return(e, sp) => {
+                self.line(depth, &format!("Return has={} span={}", e.is_some() as u8, ast_span(sp)));
+                if let Some(e) = e {
+                    self.expr(e, depth + 1);
+                }
+            }
+            Stmt::Expr(e, sp) => {
+                self.line(depth, &format!("ExprStmt span={}", ast_span(sp)));
+                self.expr(e, depth + 1);
+            }
+            Stmt::If(c, t, elifs, els, sp) => {
+                self.line(
+                    depth,
+                    &format!("StmtIf elifs={} else={} span={}", elifs.len(), els.is_some() as u8, ast_span(sp)),
+                );
+                self.expr(c, depth + 1);
+                self.block(t, depth + 1);
+                for (ec, eb) in elifs {
+                    self.line(depth + 1, "Elif");
+                    self.expr(ec, depth + 2);
+                    self.block(eb, depth + 2);
+                }
+                if let Some(b) = els {
+                    self.line(depth + 1, "Else");
+                    self.block(b, depth + 2);
+                }
+            }
+            Stmt::Match(scrut, arms, sp) => {
+                self.line(depth, &format!("StmtMatch arms={} span={}", arms.len(), ast_span(sp)));
+                self.expr(scrut, depth + 1);
+                for a in arms {
+                    self.match_arm(a, depth + 1);
+                }
+            }
+            Stmt::While(c, b, inv, sp, label) => {
+                self.line(
+                    depth,
+                    &format!(
+                        "While inv={} label={} span={}",
+                        inv.is_some() as u8,
+                        self.opt_label(label),
+                        ast_span(sp)
+                    ),
+                );
+                self.expr(c, depth + 1);
+                self.block(b, depth + 1);
+                if let Some(e) = inv {
+                    self.expr(e, depth + 1);
+                }
+            }
+            Stmt::For(id, it, b, sp, label) => {
+                self.line(
+                    depth,
+                    &format!("For name={} label={} span={}", self.id_hex(id), self.opt_label(label), ast_span(sp)),
+                );
+                self.expr(it, depth + 1);
+                self.block(b, depth + 1);
+            }
+            Stmt::Spawn(b, sp, mv) => {
+                self.line(depth, &format!("StmtSpawn move={} span={}", *mv as u8, ast_span(sp)));
+                self.block(b, depth + 1);
+            }
+            Stmt::Destructure(names, e, sp) => {
+                self.line(depth, &format!("Destructure names={} span={}", names.len(), ast_span(sp)));
+                for n in names {
+                    self.id_name(n, depth + 1);
+                }
+                self.expr(e, depth + 1);
+            }
+            Stmt::Break(label, sp) => {
+                self.line(depth, &format!("Break label={} span={}", self.opt_label(label), ast_span(sp)));
+            }
+            Stmt::Continue(label, sp) => {
+                self.line(depth, &format!("Continue label={} span={}", self.opt_label(label), ast_span(sp)));
+            }
+            Stmt::Asm(a) => self.asm_block(a, depth),
+            Stmt::Defer(b, sp) => {
+                self.line(depth, &format!("Defer span={}", ast_span(sp)));
+                self.block(b, depth + 1);
+            }
+            Stmt::Assert(c, msg, sp) => {
+                self.line(depth, &format!("Assert msg={} span={}", msg.is_some() as u8, ast_span(sp)));
+                self.expr(c, depth + 1);
+                if let Some(m) = msg {
+                    self.expr(m, depth + 1);
+                }
+            }
+            Stmt::Debugger(sp) => {
+                self.line(depth, &format!("Debugger span={}", ast_span(sp)));
+            }
+        }
+    }
+
+    fn asm_block(&mut self, a: &AsmBlock, depth: usize) {
+        self.line(
+            depth,
+            &format!(
+                "Asm template={} outputs={} inputs={} clobbers={} span={}",
+                self.hx(&a.template),
+                a.outputs.len(),
+                a.inputs.len(),
+                a.clobbers.len(),
+                ast_span(&a.span)
+            ),
+        );
+        for (constraint, id) in &a.outputs {
+            self.line(depth + 1, &format!("Out constraint={} name={} span={}", self.hx(constraint), self.id_hex(id), ast_span(&id.span)));
+        }
+        for (constraint, e) in &a.inputs {
+            self.line(depth + 1, &format!("In constraint={}", self.hx(constraint)));
+            self.expr(e, depth + 2);
+        }
+        for c in &a.clobbers {
+            self.line(depth + 1, &format!("Clobber name={}", self.hx(c)));
+        }
+    }
+
+    fn match_arm(&mut self, a: &MatchArm, depth: usize) {
+        let body = match &a.body {
+            MatchBody::Block(_) => "block",
+            MatchBody::Expr(_) => "expr",
+        };
+        self.line(
+            depth,
+            &format!("Arm guard={} body={} span={}", a.guard.is_some() as u8, body, ast_span(&a.span)),
+        );
+        self.pattern(&a.pattern, depth + 1);
+        if let Some(g) = &a.guard {
+            self.expr(g, depth + 1);
+        }
+        match &a.body {
+            MatchBody::Block(b) => self.block(b, depth + 1),
+            MatchBody::Expr(e) => self.expr(e, depth + 1),
+        }
+    }
+
+    fn pattern(&mut self, p: &Pattern, depth: usize) {
+        match p {
+            Pattern::Wildcard(s) => self.line(depth, &format!("Wildcard span={}", ast_span(s))),
+            Pattern::Ident(i) => {
+                self.line(depth, &format!("PatIdent name={} span={}", self.id_hex(i), ast_span(&i.span)));
+            }
+            Pattern::Variant(name, fields, s) => {
+                self.line(
+                    depth,
+                    &format!("PatVariant name={} fields={} span={}", self.id_hex(name), fields.len(), ast_span(s)),
+                );
+                for f in fields {
+                    self.id_name(f, depth + 1);
+                }
+            }
+            Pattern::Struct(name, fields, s) => {
+                self.line(
+                    depth,
+                    &format!("PatStruct name={} fields={} span={}", self.id_hex(name), fields.len(), ast_span(s)),
+                );
+                for (fname, fpat) in fields {
+                    self.line(depth + 1, &format!("PatField name={} span={}", self.id_hex(fname), ast_span(&fname.span)));
+                    self.pattern(fpat, depth + 2);
+                }
+            }
+            Pattern::Tuple(pats, s) => {
+                self.line(depth, &format!("PatTuple n={} span={}", pats.len(), ast_span(s)));
+                for p in pats {
+                    self.pattern(p, depth + 1);
+                }
+            }
+            Pattern::Lit(l) => self.literal(l, depth),
+            Pattern::Some(inner, s) => {
+                self.line(depth, &format!("PatSome span={}", ast_span(s)));
+                self.pattern(inner, depth + 1);
+            }
+            Pattern::None(s) => self.line(depth, &format!("PatNone span={}", ast_span(s))),
+            Pattern::Ok(inner, s) => {
+                self.line(depth, &format!("PatOk span={}", ast_span(s)));
+                self.pattern(inner, depth + 1);
+            }
+            Pattern::Err(inner, s) => {
+                self.line(depth, &format!("PatErr span={}", ast_span(s)));
+                self.pattern(inner, depth + 1);
+            }
+            Pattern::Or(pats, s) => {
+                self.line(depth, &format!("PatOr n={} span={}", pats.len(), ast_span(s)));
+                for p in pats {
+                    self.pattern(p, depth + 1);
+                }
+            }
+        }
+    }
+
+    fn literal(&mut self, l: &Literal, depth: usize) {
+        match l {
+            Literal::Int(v, s) => self.line(depth, &format!("LitInt value={:016x} span={}", v, ast_span(s))),
+            Literal::Float(_, s) => {
+                self.line(depth, &format!("LitFloat lex={} span={}", self.lexeme(s), ast_span(s)));
+            }
+            Literal::Str(v, s) => {
+                self.line(depth, &format!("LitStr data={} span={}", hex_bytes(v.as_bytes()), ast_span(s)));
+            }
+            Literal::Char(c, s) => self.line(depth, &format!("LitChar cp={:x} span={}", *c as u32, ast_span(s))),
+            Literal::Bool(b, s) => self.line(depth, &format!("LitBool value={} span={}", *b as u8, ast_span(s))),
+        }
+    }
+
+    fn ty(&mut self, t: &Type, depth: usize) {
+        match t {
+            Type::Named(id, args) => {
+                self.line(
+                    depth,
+                    &format!("Named name={} span={} args={}", self.id_hex(id), ast_span(&id.span), args.len()),
+                );
+                for a in args {
+                    self.ty(a, depth + 1);
+                }
+            }
+            Type::Ref(inner) => {
+                self.line(depth, "Ref");
+                self.ty(inner, depth + 1);
+            }
+            Type::MutRef(inner) => {
+                self.line(depth, "MutRef");
+                self.ty(inner, depth + 1);
+            }
+            Type::Option(inner) => {
+                self.line(depth, "Opt");
+                self.ty(inner, depth + 1);
+            }
+            Type::Result(a, b) => {
+                self.line(depth, "Res");
+                self.ty(a, depth + 1);
+                self.ty(b, depth + 1);
+            }
+            Type::Vec(inner) => {
+                self.line(depth, "Vec");
+                self.ty(inner, depth + 1);
+            }
+            Type::Slice(inner) => {
+                self.line(depth, "SliceTy");
+                self.ty(inner, depth + 1);
+            }
+            Type::Map(a, b) => {
+                self.line(depth, "MapTy");
+                self.ty(a, depth + 1);
+                self.ty(b, depth + 1);
+            }
+            Type::Set(inner) => {
+                self.line(depth, "SetTy");
+                self.ty(inner, depth + 1);
+            }
+            Type::Tuple(items) => {
+                self.line(depth, &format!("TupleTy n={}", items.len()));
+                for i in items {
+                    self.ty(i, depth + 1);
+                }
+            }
+            Type::Ptr(inner) => {
+                self.line(depth, "Ptr");
+                self.ty(inner, depth + 1);
+            }
+            Type::Array(n, inner) => {
+                self.line(depth, "ArrayTy");
+                self.expr(n, depth + 1);
+                self.ty(inner, depth + 1);
+            }
+            Type::Fn(params, ret) => {
+                self.line(depth, &format!("FnTy params={}", params.len()));
+                for p in params {
+                    self.ty(p, depth + 1);
+                }
+                self.ty(ret, depth + 1);
+            }
+            Type::ImplTrait(ids) => {
+                self.line(depth, &format!("ImplTrait n={}", ids.len()));
+                for b in ids {
+                    self.line(depth + 1, &format!("Bound name={} span={}", self.id_hex(b), ast_span(&b.span)));
+                }
+            }
+            Type::AnonStruct(fields) => {
+                self.line(depth, &format!("AnonStruct fields={}", fields.len()));
+                for f in fields {
+                    self.field_decl(f, depth + 1);
+                }
+            }
+            Type::Never => self.line(depth, "Never"),
+        }
+    }
+
+    fn expr(&mut self, e: &Expr, depth: usize) {
+        match e {
+            Expr::Ident(i) => {
+                self.line(depth, &format!("ExprIdent name={} span={}", self.id_hex(i), ast_span(&i.span)));
+            }
+            Expr::Int(v, s) => self.line(depth, &format!("LitInt value={:016x} span={}", v, ast_span(s))),
+            Expr::BigInt(v, s) => self.line(depth, &format!("LitBigInt value={:032x} span={}", v, ast_span(s))),
+            Expr::Float(_, s) => {
+                self.line(depth, &format!("LitFloat lex={} span={}", self.lexeme(s), ast_span(s)));
+            }
+            Expr::Str(v, s) => {
+                self.line(depth, &format!("LitStr data={} span={}", hex_bytes(v.as_bytes()), ast_span(s)));
+            }
+            Expr::Char(c, s) => self.line(depth, &format!("LitChar cp={:x} span={}", *c as u32, ast_span(s))),
+            Expr::Bool(b, s) => self.line(depth, &format!("LitBool value={} span={}", *b as u8, ast_span(s))),
+            Expr::Paren(inner, s) => {
+                self.line(depth, &format!("Paren span={}", ast_span(s)));
+                self.expr(inner, depth + 1);
+            }
+            Expr::Unary(op, inner, s) => {
+                self.line(depth, &format!("Unary op={} span={}", unary_name(op), ast_span(s)));
+                self.expr(inner, depth + 1);
+            }
+            Expr::Binary(l, op, r, s) => {
+                self.line(depth, &format!("Binary op={} span={}", binop_name(op), ast_span(s)));
+                self.expr(l, depth + 1);
+                self.expr(r, depth + 1);
+            }
+            Expr::Try(inner, s) => {
+                self.line(depth, &format!("Try span={}", ast_span(s)));
+                self.expr(inner, depth + 1);
+            }
+            Expr::Imply(l, r, s) => {
+                self.line(depth, &format!("Imply span={}", ast_span(s)));
+                self.expr(l, depth + 1);
+                self.expr(r, depth + 1);
+            }
+            Expr::Is(inner, pat, s) => {
+                self.line(depth, &format!("Is span={}", ast_span(s)));
+                self.expr(inner, depth + 1);
+                self.pattern(pat, depth + 1);
+            }
+            Expr::Field(inner, field, s) => {
+                self.line(depth, &format!("Field name={} span={}", self.id_hex(field), ast_span(s)));
+                self.expr(inner, depth + 1);
+            }
+            Expr::Call(callee, args, s) => {
+                self.line(depth, &format!("Call args={} span={}", args.len(), ast_span(s)));
+                self.expr(callee, depth + 1);
+                for a in args {
+                    self.expr(a, depth + 1);
+                }
+            }
+            Expr::GenericCall(callee, types, args, s) => {
+                self.line(
+                    depth,
+                    &format!("GenericCall types={} args={} span={}", types.len(), args.len(), ast_span(s)),
+                );
+                self.expr(callee, depth + 1);
+                for t in types {
+                    self.ty(t, depth + 1);
+                }
+                for a in args {
+                    self.expr(a, depth + 1);
+                }
+            }
+            Expr::Index(base, idx, s) => {
+                self.line(depth, &format!("Index span={}", ast_span(s)));
+                self.expr(base, depth + 1);
+                self.expr(idx, depth + 1);
+            }
+            Expr::AtPre(inner, s) => {
+                self.line(depth, &format!("AtPre span={}", ast_span(s)));
+                self.expr(inner, depth + 1);
+            }
+            Expr::Ref(inner, s) => {
+                self.line(depth, &format!("ExprRef span={}", ast_span(s)));
+                self.expr(inner, depth + 1);
+            }
+            Expr::MutRef(inner, s) => {
+                self.line(depth, &format!("ExprMutRef span={}", ast_span(s)));
+                self.expr(inner, depth + 1);
+            }
+            Expr::Some(inner, s) => {
+                self.line(depth, &format!("ExprSome span={}", ast_span(s)));
+                self.expr(inner, depth + 1);
+            }
+            Expr::None(s) => self.line(depth, &format!("ExprNone span={}", ast_span(s))),
+            Expr::Ok(inner, s) => {
+                self.line(depth, &format!("ExprOk span={}", ast_span(s)));
+                self.expr(inner, depth + 1);
+            }
+            Expr::Err(inner, s) => {
+                self.line(depth, &format!("ExprErr span={}", ast_span(s)));
+                self.expr(inner, depth + 1);
+            }
+            Expr::Struct(name, fields, base, s) => {
+                self.line(
+                    depth,
+                    &format!(
+                        "StructLit name={} fields={} base={} span={}",
+                        self.id_hex(name),
+                        fields.len(),
+                        base.is_some() as u8,
+                        ast_span(s)
+                    ),
+                );
+                for (fname, fval) in fields {
+                    self.line(
+                        depth + 1,
+                        &format!("Init name={} span={}", self.id_hex(fname), ast_span(&fname.span)),
+                    );
+                    self.expr(fval, depth + 2);
+                }
+                if let Some(b) = base {
+                    self.line(depth + 1, "Base");
+                    self.expr(b, depth + 2);
+                }
+            }
+            Expr::Array(items, s) => {
+                self.line(depth, &format!("ArrayLit n={} span={}", items.len(), ast_span(s)));
+                for i in items {
+                    self.expr(i, depth + 1);
+                }
+            }
+            Expr::BlockExpr(b, s) => {
+                self.line(depth, &format!("BlockExpr span={}", ast_span(s)));
+                self.block(b, depth + 1);
+            }
+            Expr::ConstBlock(inner, s) => {
+                self.line(depth, &format!("ConstBlock span={}", ast_span(s)));
+                self.expr(inner, depth + 1);
+            }
+            Expr::Closure(params, ret, body, s) => {
+                self.line(
+                    depth,
+                    &format!(
+                        "Closure params={} ret={} span={}",
+                        params.len(),
+                        ret.is_some() as u8,
+                        ast_span(s)
+                    ),
+                );
+                for p in params {
+                    self.param(p, depth + 1);
+                }
+                if let Some(r) = ret {
+                    self.ty(r, depth + 1);
+                }
+                self.block(body, depth + 1);
+            }
+            Expr::PipeClosure(names, body, s) => {
+                self.line(depth, &format!("PipeClosure names={} span={}", names.len(), ast_span(s)));
+                for n in names {
+                    self.id_name(n, depth + 1);
+                }
+                self.expr(body, depth + 1);
+            }
+            Expr::Await(inner, s) => {
+                self.line(depth, &format!("Await span={}", ast_span(s)));
+                self.expr(inner, depth + 1);
+            }
+            Expr::Comptime(inner, s) => {
+                self.line(depth, &format!("Comptime span={}", ast_span(s)));
+                self.expr(inner, depth + 1);
+            }
+            Expr::As(inner, ty, s) => {
+                self.line(depth, &format!("As span={}", ast_span(s)));
+                self.expr(inner, depth + 1);
+                self.ty(ty, depth + 1);
+            }
+            Expr::Tuple(items, s) => {
+                self.line(depth, &format!("TupleLit n={} span={}", items.len(), ast_span(s)));
+                for i in items {
+                    self.expr(i, depth + 1);
+                }
+            }
+            Expr::If(cond, then, elifs, els, s) => {
+                self.line(
+                    depth,
+                    &format!("ExprIf elifs={} else={} span={}", elifs.len(), els.is_some() as u8, ast_span(s)),
+                );
+                self.expr(cond, depth + 1);
+                self.block(then, depth + 1);
+                for (ec, eb) in elifs {
+                    self.line(depth + 1, "Elif");
+                    self.expr(ec, depth + 2);
+                    self.block(eb, depth + 2);
+                }
+                if let Some(b) = els {
+                    self.line(depth + 1, "Else");
+                    self.block(b, depth + 2);
+                }
+            }
+            Expr::Match(scrut, arms, s) => {
+                self.line(depth, &format!("ExprMatch arms={} span={}", arms.len(), ast_span(s)));
+                self.expr(scrut, depth + 1);
+                for a in arms {
+                    self.match_arm(a, depth + 1);
+                }
+            }
+            Expr::Unsafe(b, s) => {
+                self.line(depth, &format!("Unsafe span={}", ast_span(s)));
+                self.block(b, depth + 1);
+            }
+            Expr::Error(_, s) => {
+                self.line(depth, &format!("ExprError span={}", ast_span(s)));
+            }
+        }
+    }
+}
+
+fn derive_name(d: &xiom_ast::DeriveTrait) -> &'static str {
+    use xiom_ast::DeriveTrait::*;
+    match d {
+        Eq => "Eq",
+        Clone => "Clone",
+        Display => "Display",
+        Hash => "Hash",
+        Ord => "Ord",
+        Debug => "Debug",
+    }
+}
+
+fn unary_name(op: &xiom_ast::UnaryOp) -> &'static str {
+    use xiom_ast::UnaryOp::*;
+    match op {
+        Neg => "Neg",
+        Not => "Not",
+        Ref => "Ref",
+        MutRef => "MutRef",
+        BitNot => "BitNot",
+        Deref => "Deref",
+    }
+}
+
+fn binop_name(op: &xiom_ast::BinOp) -> &'static str {
+    use xiom_ast::BinOp::*;
+    match op {
+        Add => "Add",
+        Sub => "Sub",
+        Mul => "Mul",
+        Div => "Div",
+        Rem => "Rem",
+        Eq => "Eq",
+        Neq => "Neq",
+        Lt => "Lt",
+        Gt => "Gt",
+        Le => "Le",
+        Ge => "Ge",
+        Shl => "Shl",
+        Shr => "Shr",
+        And => "And",
+        Or => "Or",
+        Assign => "Assign",
+        BitXor => "BitXor",
+        BitAnd => "BitAnd",
+        BitOr => "BitOr",
+    }
+}
+
+/// Canonical AST dump of a source file (see the format notes above).
+fn dump_ast(source: &str) -> String {
+    let src = source.strip_prefix('\u{feff}').unwrap_or(source);
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize();
+    let mut parser = Parser::new(tokens);
+    match parser.parse_program() {
+        Ok(program) => {
+            let mut d = AstDump::new(src);
+            d.program(&program);
+            d.out
+        }
+        Err(_) => "PARSE-ERROR\n".to_string(),
+    }
 }
 
 /// M10.4: Interactive REPL -- compile and execute each line as a script.
@@ -673,6 +1672,7 @@ fn real_main() {
     let emit_ir = args.flag("emit-ir");
     let emit_tokens = args.flag("emit-tokens");
     let dump_tokens_flag = args.flag("dump-tokens");
+    let dump_ast_flag = args.flag("dump-ast");
     let do_run = args.flag("run");
     let check_only = args.flag("check");
     let release = args.flag("release");
@@ -1147,6 +2147,18 @@ fn real_main() {
         return;
     }
 
+    // --dump-ast: canonical AST dump and exit (selfhost Phase 2 gate)
+    if dump_ast_flag && !source_paths.is_empty() {
+        for path_str in &source_paths {
+            let source = match std::fs::read_to_string(path_str) {
+                Ok(s) => s,
+                Err(e) => { eprintln!("error: {}: {}", path_str, e); continue; }
+            };
+            print!("{}", dump_ast(&source));
+        }
+        return;
+    }
+
     // 7F.1: Build daemon mode
     if build_mode && !watch_mode {
         if !source_paths.is_empty() {
@@ -1500,6 +2512,7 @@ fn print_usage() {
     eprintln!("  --emit-ir           Print LLVM IR to stdout (no compilation)");
     eprintln!("  --emit-tokens       Print the token stream and exit");
     eprintln!("  --dump-tokens       Print the canonical token dump (selfhost parity gate)");
+    eprintln!("  --dump-ast          Print the canonical AST dump (selfhost parity gate)");
     eprintln!("  --diagnostics=json  Output diagnostics as JSON");
     eprintln!("  --dump-contracts    Print the contract index as JSON");
     eprintln!("  --shared            Compile as a shared library (DLL)");

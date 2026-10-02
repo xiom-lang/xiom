@@ -33,6 +33,13 @@
 // `crates/xiom/src/main.rs::dump_tokens` owns the format definition;
 // `selfhost/src/lexer.xi::dump_tokens` mirrors it (including the Tk-prefixed
 // TokenKind variant names mapped back to the Rust tags).
+//
+// Phase 2 (parser parity) adds `diff_ast`: the Rust and selfhost `--dump-ast`
+// outputs must match line-for-line over the corpus.
+// `crates/xiom/src/main.rs::dump_ast` (AstDump) owns the format definition;
+// `selfhost/src/ast_dump.xi` mirrors it. The gate stays `#[ignore]`d until
+// the selfhost parser port covers the whole corpus (docs/checklists/
+// selfhost-phase2.md); the ignore reason is updated per staged sub-milestone.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -320,6 +327,41 @@ fn selfhost_token_dump(path: &str) -> Result<Vec<String>, String> {
     if !out.status.success() {
         return Err(format!(
             "selfhost --dump-tokens exited {:?}:\nstdout:\n{}\nstderr:\n{}",
+            out.status.code(),
+            tail(&String::from_utf8_lossy(&out.stdout), 10),
+            tail(&String::from_utf8_lossy(&out.stderr), 10)
+        ));
+    }
+    Ok(lines_of(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// Rust compiler canonical AST dump (`--dump-ast`).
+fn rust_ast_dump(path: &str) -> Result<Vec<String>, String> {
+    let out = Command::new(xiom_path())
+        .args(["--dump-ast", path])
+        .current_dir(project_root())
+        .output()
+        .map_err(|e| format!("failed to spawn xiom --dump-ast: {}", e))?;
+    if !out.status.success() {
+        return Err(format!(
+            "xiom --dump-ast exited {:?}:\n{}",
+            out.status.code(),
+            tail(&String::from_utf8_lossy(&out.stderr), 10)
+        ));
+    }
+    Ok(lines_of(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// Selfhost compiler canonical AST dump (`--dump-ast`).
+fn selfhost_ast_dump(path: &str) -> Result<Vec<String>, String> {
+    let out = Command::new(selfhost_exe())
+        .args(["--dump-ast", path])
+        .current_dir(project_root())
+        .output()
+        .map_err(|e| format!("failed to spawn selfhost --dump-ast: {}", e))?;
+    if !out.status.success() {
+        return Err(format!(
+            "selfhost --dump-ast exited {:?}:\nstdout:\n{}\nstderr:\n{}",
             out.status.code(),
             tail(&String::from_utf8_lossy(&out.stdout), 10),
             tail(&String::from_utf8_lossy(&out.stderr), 10)
@@ -620,5 +662,61 @@ fn diff_tokens() {
         "selfhost token dump parity: {} files, {} tokens",
         entries.len(),
         total_tokens
+    );
+}
+
+/// Phase 2 gate: the selfhost parser's canonical AST dump is line-for-line
+/// identical to the Rust parser's `--dump-ast` over the whole corpus.
+///
+/// Format ownership: `crates/xiom/src/main.rs::dump_ast` (AstDump) and
+/// `selfhost/src/ast_dump.xi` define the same byte-stable format (see the
+/// format notes above `dump_ast`). Float literal payloads dump the source
+/// LEXEME (float VALUE parity is deferred until the selfhost has a correctly
+/// rounded decimal->f64 parser / bitcast intrinsic); every other payload is
+/// value-exact.
+///
+/// This test stays `#[ignore]`d until the port covers the whole corpus: the
+/// gate is honest only at full-corpus parity (docs/checklists/
+/// selfhost-phase2.md). Run it explicitly with
+/// `cargo test -p xiom-codegen --test full_diff_tests -- --ignored diff_ast`.
+#[test]
+#[ignore = "Phase 2 parser parity: NOT STARTED -- selfhost parser port not at corpus parity"]
+fn diff_ast() {
+    let entries = corpus();
+    eprintln!("selfhost ast-dump corpus: {} files", entries.len());
+
+    let mut failures: Vec<String> = Vec::new();
+    let mut total_nodes = 0usize;
+    for e in &entries {
+        let outcome = (|| -> Result<usize, String> {
+            let rust = rust_ast_dump(e.path)?;
+            let sh = selfhost_ast_dump(e.path)?;
+            if let Some(d) = first_diff(&rust, &sh) {
+                return Err(format!("ast dump mismatch: {}", d));
+            }
+            Ok(rust.len())
+        })();
+        match outcome {
+            Ok(n) => {
+                total_nodes += n;
+                eprintln!("  {}: {} nodes", e.path, n);
+            }
+            Err(err) => {
+                eprintln!("  FAIL {}: {}", e.path, err);
+                failures.push(format!("{}: {}", e.path, err));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "selfhost ast-dump parity (Phase 2): {} failure(s) of {} files:\n{}",
+        failures.len(),
+        entries.len(),
+        failures.join("\n")
+    );
+    eprintln!(
+        "selfhost ast dump parity: {} files, {} nodes",
+        entries.len(),
+        total_nodes
     );
 }

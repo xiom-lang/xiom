@@ -8,8 +8,17 @@
 
 module selfhost_parser
 
+use xiom.io;
+
 /// Phase 0 stub: number of AST nodes parsed from `src`. Returns 0 until
 /// Phase 2.
 pub fn parse_count(src: Str) -> Int {
+  return 0;
+}
+
+/// Phase 2 stub: canonical AST dump. The port replaces this with the real
+/// walker over the selfhost AST (mirroring crates/xiom/src/main.rs::dump_ast).
+pub fn dump_ast(src: Str) -> Int {
+  io.println("PARSE-ERROR");
   return 0;
 }
