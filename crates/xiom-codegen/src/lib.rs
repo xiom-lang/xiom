@@ -2266,13 +2266,9 @@ impl IrEmitter {
             }
             _ => {
                 let name = Self::type_from_ast(ty);
-                // Packages relay (gcp): a module-qualified annotation
-                // ("qlib.LabelParts") must lower to its registered struct,
-                // not the unknown-name i64 fallback (params read garbage).
-                if let Some(t) = self.registered_struct_key_for(&name) {
-                    return t;
-                }
-                self.llvm_type_for(&name).unwrap_or_else(|_| "i64".to_string())
+                // Packages relay (m176/m19): module-scoping first, then the
+                // registered-key probe for qualified names.
+                self.resolve_named_type(&name)
             }
         }
     }

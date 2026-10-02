@@ -6050,12 +6050,28 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
         // Packages relay (gcp): the IrEmitter's llvm_type_for maps unknown
         // names to Ok("i64"), so the fallback's leaf retry never runs for a
         // QUALIFIED literal whose type is registered under a bare key
-        // ("qlib.LabelParts" vs "LabelParts") -- resolve the registered key
-        // first (exact, leaf, module suffix) before the i64 fallback.
-        if let Some(ty) = self.registered_struct_key_for(name) {
-            return ty;
+        // ("qlib.LabelParts" vs "LabelParts") -- resolve_named_type keeps
+        // module scoping first and only then probes registered keys.
+        return self.resolve_named_type(name);
+    }
+
+    /// Packages relay (m176/m19): resolve an annotation-like type name.
+    /// Prefer the regular resolver (it honours current-module scoping, so a
+    /// module-local `Vec` wins over the builtin); only when it falls back to
+    /// the ambiguous i64 do we probe the registered key (leaf/suffix) for a
+    /// module-qualified name like `qlib.LabelParts`.
+    pub(crate) fn resolve_named_type(&self, name: &str) -> String {
+        if let Ok(t) = self.llvm_type_for(name) {
+            if t != "i64" {
+                return t;
+            }
+            if let Some(rt) = self.registered_struct_key_for(name) {
+                return rt;
+            }
+            return t;
         }
-        self.llvm_type_for_fallback(name)
+        self.registered_struct_key_for(name)
+            .unwrap_or_else(|| "i64".to_string())
     }
 
     /// Registered struct/enum key for a possibly module-qualified name.
