@@ -43,6 +43,19 @@ until reproduced:
   `tmp/sprintc/bug_match_payload_mut.xi`. Note: json's KAT suite (44/44)
   passes on the pinned 0.62.2, so their "all six mutators" observation was
   from their own gate/probes; this shape is the confirmed compiler side.
+  ROOT CAUSE (2026-10-02): stmt.rs `Stmt::Match` has an in-place reuse path
+  ("R-2 partial", ~L1673-1711) that matches a LOCAL Option/Result in place so
+  payload bindings alias; it is gated to Option/Result names, and a `&mut E`
+  param's slot holds a POINTER (%struct.E*) while the path expects a struct
+  slot. Custom enums therefore snapshot into a fresh alloca, and the
+  variant-field binding sites (~L2331 guard path, ~L2426 arm-body path,
+  ~L1826 or-pattern path) load each payload into another fresh alloca
+  (`add_local`), so writes are dropped. FIX DIRECTION: extend the in-place
+  alias to custom enums and teach the three binding sites a pointer-slot
+  base (GEP through the original pointer; register the bound name in
+  `mut_ref_params` with a "&mut P" local_xiom_types record so field
+  assignment stores through, the m168 path). Lock: fixture + e2e + IR (the
+  store must go through the scrutinee pointer, no fresh payload alloca).
 - `derive[Clone]` on an enum/struct with an AGGREGATE payload returns a
   corrupt handle; the next push crashes 0xC000001D. Derived Clone must box /
   copy aggregate payloads like `val_to_i64` does.
