@@ -56,6 +56,20 @@ until reproduced:
   `mut_ref_params` with a "&mut P" local_xiom_types record so field
   assignment stores through, the m168 path). Lock: fixture + e2e + IR (the
   store must go through the scrutinee pointer, no fresh payload alloca).
+  ALIASING EXPERIMENT (2026-10-02, attempted, REVERTED): binding struct
+  payloads of a `&mut` scrutinee through a pointer alias
+  (`alloca %struct.P*` + "&mut P" record + `mut_ref_params`) makes the
+  scalar-field repro pass AND keeps `*obj = ...` write-backs working, but it
+  BREAKS element reads for aggregate payloads: with `Obj(entries: Vec[Entry])`
+  aliased, `entries[i].key` (Str field of an element) reads back EMPTY while
+  `entries[i].value` is fine (json-shaped probe: find("a") returned -1 and a
+  copied entry lost its key). So the alias must also fix element-field
+  resolution for ref-bound container locals (element type inference under an
+  aliased "&mut Vec[T]" binding) before it can ship. Alternative release-safe
+  route: a checker DIAGNOSTIC when an arm body mutates a by-value-bound
+  payload of a `&mut` scrutinee (`x.f = ...`, `x[i] = ...`, mutating method
+  calls on x) -- json's rebuilt source does not trip it (it constructs a
+  replacement + `*obj = ...`), and it turns silent data loss into an error.
 - `derive[Clone]` on an enum/struct with an AGGREGATE payload returns a
   corrupt handle; the next push crashes 0xC000001D. Derived Clone must box /
   copy aggregate payloads like `val_to_i64` does.
