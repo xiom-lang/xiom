@@ -191,6 +191,7 @@ impl IrEmitter {
                         || self.local.array_locals.contains(&id.name)
                         || self.local.ref_locals.contains(&id.name)
                         || self.local.ref_params.contains(&id.name)
+                        || self.local.mut_ref_params.contains(&id.name)
                         || self.local.closure_locals.contains(&id.name)
                         || self.local.fn_local_returns.contains_key(&id.name)
                         || self.local.ptr_locals.contains(&id.name)
@@ -369,6 +370,23 @@ impl IrEmitter {
     /// (i8* for Str) -- `&T` params (i64 / i8**) keep receiving the address.
     fn coerce_ref_arg_to_pointee(&mut self, arg_expr: &Expr, param_ty: &str) -> Option<String> {
         match arg_expr {
+            // m168: a `&mut T` PARAM holds a real pointer to the pointee
+            // (`local_xiom_types` records "*T"). When the callee expects the
+            // VALUE T, load through the pointer. The generic Ident arm below
+            // bails on '*'-typed locals (BUG 55 raw-pointer rule), so these
+            // args were ptrtoint'd to i64 -- `byval(s)` passed the ADDRESS
+            // (xiom.svm's shuffle seed never advanced).
+            Expr::Ident(id) if self.local.mut_ref_params.contains(&id.name) => {
+                let pointee_xiom = self.local.local_xiom_types.get(&id.name)?
+                    .strip_prefix('*')?.to_string();
+                let pointee = self.llvm_type_for(&pointee_xiom).ok()?;
+                if pointee != param_ty { return None; }
+                let (ptr, ptr_ty) = self.compile_expr(arg_expr).ok()?;
+                if !ptr_ty.ends_with('*') { return None; }
+                let loaded = self.fresh_tmp();
+                self.emitln(&format!("  {loaded} = load {pointee}, {ptr_ty} {ptr}"));
+                Some(loaded)
+            }
             // `&s` / `&mut s`: compile the INNER lvalue -- its value IS the
             // pointee. (`f(&x)` to a `&T` param never reaches here: `&T`
             // params are i64/i8** and the inner value type won't match.)

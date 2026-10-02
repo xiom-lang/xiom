@@ -1066,7 +1066,22 @@ impl IrEmitter {
                 }
                 let (val, val_ty) = self.compile_expr(value)?;
                 if let Expr::Ident(ident) = place {
-                    if let Some((ptr, llvm_ty)) = self.lookup_local(&ident.name).cloned() {
+                    // m168: assigning to a `&mut T` PARAM writes THROUGH the
+                    // address it carries. The local slot holds the pointer
+                    // (i64*/i8**/%struct.X*); the old path stored the coerced
+                    // value into the SLOT (`store i64* inttoptr(99), i64**`),
+                    // silently dropping the write (xiom.svm shuffle seed).
+                    if self.local.mut_ref_params.contains(&ident.name) {
+                        if let Some((slot, slot_ty)) = self.lookup_local(&ident.name).cloned() {
+                            if let Some(pointee) = slot_ty.strip_suffix('*') {
+                                let pointee = pointee.to_string();
+                                let ptr = self.fresh_tmp();
+                                self.emitln(&format!("  {ptr} = load {slot_ty}, {slot_ty}* {slot}"));
+                                let store_val = self.coerce_value(&val, &val_ty, &pointee);
+                                self.emitln(&format!("  store {pointee} {store_val}, {slot_ty} {ptr}"));
+                            }
+                        }
+                    } else if let Some((ptr, llvm_ty)) = self.lookup_local(&ident.name).cloned() {
                         // Coerce the value to the slot's declared type using the
                         // value's REAL type from compile_expr (e.g. an i8 char
                         // value assigned into an i64 slot).

@@ -7246,6 +7246,10 @@ impl IrEmitter {
                 if matches!(&param.ty, Type::Ref(_)) {
                     self.local.ref_params.insert(param.name.name.clone());
                 }
+                // m168: mirror the `&mut T` param tracking for generic bodies.
+                if matches!(&param.ty, Type::MutRef(_)) {
+                    self.local.mut_ref_params.insert(param.name.name.clone());
+                }
             }
 
             // Set type substitution map for method dispatch in body

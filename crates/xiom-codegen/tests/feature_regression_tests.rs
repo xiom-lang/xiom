@@ -565,6 +565,28 @@ fn main() -> Int { var x = 41; return direct_read(&x) - 41; }
         "m166: without trust the unsafe block must stay confined; got:\n{}", ir_confined);
 }
 
+// m168 (packages bad44b2): assignment to a `&mut T` parameter must store
+// THROUGH the pointer; the old path rebinding the local slot with
+// `inttoptr 99 to i64*` silently dropped every write.
+#[test]
+fn regress_m168_mut_ref_write_through() {
+    let ir = compile(r#"
+fn set99(s: &mut Int) { s = 99; }
+fn main() -> Int { var st: Int = 10; set99(&mut st); return st - 99; }
+"#).unwrap();
+    assert!(
+        ir.contains("store i64 99, i64*"),
+        "m168: the write must go through the &mut pointer; got:\n{}",
+        ir
+    );
+    assert!(
+        !ir.contains("inttoptr i64 99 to i64*"),
+        "m168: must not rebind the param slot with inttoptr(99); got:\n{}",
+        ir
+    );
+}
+
+
 // m166 follow-up (benchmark t2): METHOD decls keep a SHORT name with the
 // receiver; the trust lookup must use the receiver-qualified key
 // ("Recv.method"), which is what the driver's fn_dedup_key registers and

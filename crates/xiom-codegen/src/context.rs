@@ -498,6 +498,11 @@ pub struct LocalContext {
     /// Params declared with a plain `&T` reference type (address carried as i64).
     /// `&mut T` / `*T` params are real pointers (i64*) and are NOT listed here.
     pub ref_params: HashSet<String>,
+    /// m168: params declared `&mut T`. The local slot holds the ADDRESS of the
+    /// pointee (`i64*`/`i8**`/`%struct.X*`); assigning to the param name
+    /// (`s = 99`) must STORE THROUGH that address, not rebind the slot.
+    /// (`*T` params are NOT listed: assigning a raw pointer rebinds it.)
+    pub mut_ref_params: HashSet<String>,
     /// BUG 44: LOCALS bound from `&expr` or annotated `&T` (`var p = &s;`,
     /// `var p: &Str = ...`). They hold an ADDRESS (as i64 or a real pointer
     /// for Str pointees) -- deref (`*p`) must load through, and auto-coercion

@@ -10,6 +10,46 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-01 -- m168 FIXED (primary): `&mut Int` assignment dropped the write
+
+Packages relay (commit `bad44b2`,
+`docs/repro/v0622-regressions/mut_int_write_drop.xi`):
+`fn set99(s: &mut Int) { s = 99; }` printed `st=10` (expected 99), exit 0,
+zero diagnostics; origin `xiom.svm`'s shuffle seed (`_svm_shuffle(order:
+&mut Vec[Int], state: &mut Int)` never advanced). The sibling shape
+(`let v = byval(s); s = v;`) also dropped it.
+
+Reproduced: `tmp/sprintc/probe_mut_int.xi`. IR before:
+
+```
+%tmp3 = alloca i64*; store i64* %param0, i64** %tmp3
+%tmp4 = inttoptr i64 99 to i64*; store i64* %tmp4, i64** %tmp3
+```
+
+i.e. the assignment REBOUND the param slot with inttoptr(99) instead of
+storing through the pointer.
+
+Fix: `LocalState.mut_ref_params` (inserted for `Type::MutRef` in `decl.rs`
+and the mono path; cleared per fn); the `Stmt::Assign` Ident path loads the
+carried pointer and stores the coerced pointee through it; `coerce.rs` skips
+the slot-address path for mut-ref args and auto-derefs `&mut T` -> T in
+`coerce_ref_arg_to_pointee`'s pointer-param branch. Verified:
+`tmp/sprintc/probe_mut_ref_writes.xi` (Int, Vec[Int] whole-assign, Str).
+
+RESIDUAL (OPEN): passing a `&mut T` param to a by-VALUE param of another
+user fn in a DIRECT call (`fn bump(s: &mut Int) { let v = byval(s); s = v; }`)
+still ptrtoints the pointer instead of loading the pointee -- the direct-call
+arg pipeline (`call.rs` `compile_call_with_types`) does not consult
+`mut_ref_params` (`coerce_arg_for_param` is method-path only). Fix path: add
+the same deref arm to the concrete direct-call arg loop; lock the sibling
+shape.
+
+Locks: `tests/regression/m168_mut_ref_write_through/` + e2e + CI line +
+`regress_m168_mut_ref_write_through` (IR: `store i64 99, i64*`, no
+`inttoptr i64 99 to i64*`).
+
+---
+
 ## 2026-10-01 -- OPEN (m167): global Vec[Str] mis-lowers push + index (invalid IR, clang rejects)
 
 Packages relay (their commit `2d91399`, `docs/repro/v0622-regressions/`):

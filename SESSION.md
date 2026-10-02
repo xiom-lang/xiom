@@ -131,6 +131,13 @@ Supersedes the (9) handoff below (kept as history).
   (t5 UTF-8 strings is a genuine failure) -- suspected exit/flush path.
   (c) FOURTH v0.62.2 issue filed: `&mut Int` write-drop (from xiom.svm),
   silent wrong results; repro details requested.
+  **m168 primary FIXED** (mut_ref_params + through-store in stmt.rs +
+  coerce.rs arms): `set99`/`&mut Vec[Int]` whole-assign/`&mut Str` all
+  correct; locks + IR lock + CI line; gates e2e 2394/2394 (+4 ignored),
+  feature-reg 516, parser 107, CLI locks, selfhost diff 2. RESIDUAL:
+  `&mut T` -> by-value param in a DIRECT call still ptrtoints (sibling
+  `bump`/`byval` shape) -- direct-call arg pipeline fix queued
+  (COMPILER_BUGS m168 RESIDUAL).
   Wave 46 published (eco-v0.1.27); wave-47 candidates in their SESSION.
 - **Registry lane relay (optional polish, post-release)**: B1 packaging
   guard, B2 `xiom pkg yank`, install trust wording, `--resolve` outside a

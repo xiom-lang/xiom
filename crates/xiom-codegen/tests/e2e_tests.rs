@@ -5566,6 +5566,16 @@ fn e2e_safety_probe() {
     );
 }
 
+// m168 (packages bad44b2): assignment to a `&mut T` parameter must write
+// THROUGH the address; the old path rebound the local slot and dropped it.
+#[test] fn e2e_m168_mut_ref_write_through() {
+    assert_eq!(
+        compile_and_run("tests/regression/m168_mut_ref_write_through/main.xi"),
+        Some(0),
+        "&mut Int/Vec/Str assignment must write through the parameter (m168)"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

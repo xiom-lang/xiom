@@ -1295,6 +1295,7 @@ impl IrEmitter {
         // logic and the eq/compare fast-path both consult these sets).
         self.local.param_locals.clear();
         self.local.ref_params.clear();
+        self.local.mut_ref_params.clear();
         // P0-2: Clear deferred cleanup stack at function start
         self.clear_deferred_cleanups();
 
@@ -1630,6 +1631,11 @@ impl IrEmitter {
                 if !inner_llvm.starts_with("%struct.") {
                     self.local.ref_params.insert(param.name.name.clone());
                 }
+            }
+            // m168: `&mut T` params hold the pointee ADDRESS in their slot;
+            // assignment must store through it (see stmt.rs Assign).
+            if matches!(&param.ty, Type::MutRef(_)) {
+                self.local.mut_ref_params.insert(param.name.name.clone());
             }
             // 5c.39: Track Vec element type for function parameters so
             // downstream local bindings (var x = param) can inherit it.
