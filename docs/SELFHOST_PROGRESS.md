@@ -27,11 +27,11 @@ All six must hold (SELFHOST_PLAN section 7):
 
 **27% -- 3 of 11 tracked gates complete.**
 
-**Gates: e2e 2404/2404 (+4 ignored), checker 195/195, feature 517/517, robustness 63/63, fuzz 24/24, perf 3/3, formatter 86/86, lsp 45/45.**
+**Gates: e2e 2406/2406 (+4 ignored), checker 195/195, feature 517/517, robustness 63/63, fuzz 24/24, perf 3/3, formatter 86/86, lsp 45/45.**
 
-All eight suites re-measured green on `8abedb72` (2026-10-02, Windows box):
+All eight suites re-measured green on `d1ab8ec4` (2026-10-02, Windows box):
 e2e at 8 threads with the debug driver rebuilt from HEAD; the rest via their
-cargo suites. (Previous snapshots: 2401 at `565b9924`, 2395 at `aca6aaee` --
+cargo suites. (Older snapshots: 2404 at `8abedb72`, 2401 at `565b9924` --
 each grew with its regression locks.)
 
 Weights are one gate each (equal weighting; phases differ in effort but a
