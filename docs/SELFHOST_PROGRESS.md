@@ -7,6 +7,7 @@
 **Phase 0 checklist:** `docs/checklists/selfhost-phase0.md` |
 **Phase 1 checklist:** `docs/checklists/selfhost-phase1.md` |
 **Phase 2 checklist:** `docs/checklists/selfhost-phase2.md` |
+**Phase 3 checklist:** `docs/checklists/selfhost-phase3.md` |
 **Owner policy:** selfhost ships only at 100% bootstrap; every release stays
 Rust-hosted until then.
 
@@ -56,7 +57,7 @@ row flips.
 | 0 | T1 harness green on the corpus (foundations) | **DONE 2026-09-29** | `cargo test -p xiom-codegen --test full_diff_tests`: 2 passed; T1 over 84 files in 49.2 s; `runtime_ffi_selfcheck` ok; commit `e813449b` |
 | 1 | Lexer: token-dump equality on the corpus (`--dump-tokens`) | **DONE 2026-10-02** | Phase 1; `selfhost/src/lexer.xi` ports `crates/xiom-lexer`; harness gate `full_diff_tests::diff_tokens` green over the 83-file corpus (3/3 tests, 72.7 s); torture parity (BOM/CRLF/NUL/bigints/suffix quirk) clean; checklist `docs/checklists/selfhost-phase1.md` |
 | 2 | Parser: AST-dump equality on the corpus (`--dump-ast`) | **DONE 2026-10-02** | Phase 2; `selfhost/src/ast.xi`+`parser_state.xi`+`parser_expr.xi`+`parser_core.xi`+`ast_dump.xi` port `crates/xiom-parser`/`xiom-ast`; harness gate `full_diff_tests::diff_ast` green over the 83-file corpus (1 passed, 100.7 s); checklist `docs/checklists/selfhost-phase2.md` |
-| 3 | Checker: diagnostics + type-annotation equality | NOT STARTED | Phase 3; same accepted/rejected set + same message order/text |
+| 3 | Checker: diagnostics + type-annotation equality | **STAGED 2026-10-02** (not complete) | Phase 3 stage-1 subset; `full_diff_tests::diff_check` green over the 83-file corpus + 16-case manifest (5 corpus diagnostic lines, non-vacuous). Deferred sub-stages (catalog/imports, container method sets, unknown-method/struct field validation, W000/W004/W006/W007 lints, borrow pass) keep permissive fallbacks; the meter stays at 3 of 11 until full checker parity lands. Checklist `docs/checklists/selfhost-phase3.md` |
 | 4 | Codegen: fn-header T3 IR equality | NOT STARTED | Phase 4; signatures, tuple names, inline policy (`approx_block_cost`) |
 | O1 | Selfhost code quality: `--strict`, zero warnings, contracts on | NOT STARTED | after Phase 4; removes v10 borrow workarounds |
 | 5 | Codegen: scalar bodies + control flow T3 (scalar corpus) | NOT STARTED | Phase 5 |
@@ -136,6 +137,37 @@ row flips.
   `Vec` payloads lowers to `icmp %struct.Vec`; (h) `NkExprGenericCall`
   destructure mis-maps payload fields in large functions (fixed by
   one-step construction + base/types side locals).
+
+## Phase 3 evidence (staged 2026-10-02, branch `selfhost-phase-3-checker`)
+
+Stage-1 checker port is GREEN as a gate; the phase itself is NOT complete
+(the meter stays unchanged until full parity).
+
+- Canonical `--dump-check` on BOTH compilers:
+  `CompileConfig::dump_check` (Rust) stops `compile_with_diagnostics` right
+  after the checker; `crates/xiom/src/main.rs::dump_check` owns
+  `{kind} {code} {line}:{col} {escaped-message}` / `CHECK-OK` /
+  `PARSE-ERROR`; `selfhost/src/checker.xi::dump_check` mirrors it.
+- Checker port: `selfhost/src/check_types.xi` (canonical type names,
+  `types_compatible` port), `check_state.xi` (scopes/symbol tables/
+  diagnostics), `check_core.xi` (signature collection + program/fn walk +
+  contracts), `check_expr.xi` (statements/expressions, W003 divergence,
+  W008, calls/methods/generics). Permissive `_` fallbacks cover the
+  catalog/container/borrow sub-stages listed in the checklist.
+- Gate: `cargo test -p xiom-codegen --test full_diff_tests diff_check` --
+  83 corpus files line-exact (81 `CHECK-OK`, 4x W003 on
+  `stdlib/tests/smoke/smoke_guard_fault.xi`, 1x W008 on
+  `tests/regression/m37_short_circuit.xi`) + 16 manifest cases
+  (`selfhost/tests/check_negative/`, `.expected` is the source of truth for
+  both drivers).
+- Regression: `diff_tokens` green, `diff_ast` green, T1 `diff_corpus`
+  green. T2/T3 stay unreachable (Phase 0 stub emitter; documented
+  pre-existing).
+- Finding: `docs/COMPILER_BUGS.md` 2026-10-02 (selfhost Phase 3) --
+  `NkAssign(l, r)` destructure in one function reads `r` as pointer bits
+  (crash `0xC0000005`) while one-arm accessor helpers read both fields
+  correctly; workaround is side-helper field accessors (same class as
+  Phase 2 (h)).
 
 ## Open blockers and risks
 
