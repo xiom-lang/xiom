@@ -23,11 +23,14 @@ Supersedes the (11) handoff below (kept as history).
 > m175 landed (playground C24): `io.read_line()` now inttoptr's the Int FFI
 > handle into `fgets` (was truncated to a byte and address-passed); pack
 > acceptance `C24 fixed: yes` in run+compile modes on Windows and Linux;
-> piped-stdin e2e + IR lock. Remaining bugs: (e) recursive enum payload
-> boxing, (h) large-function variant payload mapping, type-laxness intake,
-> module-header nested-module compare, and the packages rows (loop-return
-> typing, arity symmetry, cross-module qualified type names; the crypto
-> symbol is stdlib-side).
+> piped-stdin e2e + IR lock; full e2e 2408/2408 (+4 ignored, 8 threads).
+> Remaining bugs: (e) recursive enum payload
+> boxing, (h) large-function variant payload mapping, type-laxness intake
+> (now incl. `Result[Bool,Str]` where `Result[Int,Str]` is expected reading
+> garbage -- consul), qualified struct-literal T001 (gcp), module-header
+> nested-module compare, plus the packages rows (loop-return typing, arity
+> symmetry, cross-module qualified type names, reserved `fn` identifier,
+> spurious `!bool == 1` diagnostic; the crypto symbol is stdlib-side).
 > Phase 2 deliverables (all committed):
 > 1. Canonical `--dump-ast` on the Rust driver
 >    (`crates/xiom/src/main.rs::dump_ast` + `AstDump`, clap flag, usage) and
