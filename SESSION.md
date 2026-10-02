@@ -11,9 +11,11 @@ Supersedes the (10) kickoff prompt below (kept as history).
 > `docs/COMPILER_BUGS.md` (newest entries first), `docs/SELFHOST_PROGRESS.md`,
 > and `docs/RELEASE_GATE_v0.62.2.md`. Bootstrap meter on main is **18%**
 > (Phase 1 lexer parity merged at `0831ee6f`; `diff_tokens` byte-equality
-> gate green over the 83-file corpus). NOTE: the merged driver changes
-> (`crates/xiom/src/main.rs` --dump-tokens path) have NOT had a full e2e on
-> the merged state; the NEXT compiler batch's e2e covers them.
+> gate green over the 83-file corpus). The merged driver changes
+> (`crates/xiom/src/main.rs` --dump-tokens path) have now had a full e2e on
+> the merged state (`aca6aaee`, 2026-10-02: e2e 2395/2395 +4 ignored at 8
+> threads with the debug driver rebuilt from HEAD); the next compiler batch
+> carries only its own changes.
 > State: **v0.62.2 RELEASED** (tag on `801d888f`, run 36745108730, docs
 > dispatched). Compiler lane fixes landed after it: m166 method trust key
 > (`185342f4`), m168 `&mut T` write-through (`7b38fa87`), m167 global Vec
