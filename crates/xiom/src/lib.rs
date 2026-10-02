@@ -39,6 +39,10 @@ pub struct CompileConfig {
     pub emit_ir: bool,
     pub do_run: bool,
     pub check_only: bool,
+    /// Selfhost Phase 3 parity: stop right after the checker and return its
+    /// diagnostics in `CompileResult` (`--dump-check`). Never runs the borrow
+    /// checker or codegen; the driver owns the canonical dump format.
+    pub dump_check: bool,
     pub release: bool,
     /// 2026-09-10: explicit optimization level (--opt-level 0..=3). None =
     /// the historical default (-O2 debug / -O3 release). The old -O2 floor
@@ -111,6 +115,7 @@ impl Default for CompileConfig {
             emit_ir: false,
             do_run: false,
             check_only: false,
+            dump_check: false,
             release: false,
             opt_level: None,
             check_contracts: true,
@@ -649,6 +654,13 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
                 warnings.push(err.message.clone());
             }
         }
+        return result;
+    }
+
+    // Selfhost Phase 3 parity (`--dump-check`): the checker is the last stage;
+    // return its diagnostics without running the borrow checker or codegen.
+    if config.dump_check {
+        result.success = true;
         return result;
     }
 
@@ -2696,6 +2708,23 @@ mod tests {
         config.check_only = true;
         let result = compile_with_diagnostics(&config, &[path.to_string_lossy().to_string()]);
         assert!(result.success);
+    }
+
+    #[test]
+    fn test_compile_dump_check_stops_after_checker() {
+        let ok = write_temp_file("dump_check_ok.xi", "fn main() -> Int { return 42; }");
+        let mut config = default_config();
+        config.dump_check = true;
+        let result = compile_with_diagnostics(&config, &[ok.to_string_lossy().to_string()]);
+        assert!(result.success);
+        assert!(result.diagnostics.is_empty());
+        assert!(result.ir.is_none(), "dump_check must not run codegen");
+
+        let bad = write_temp_file("dump_check_bad.xi", "fn main() -> Int { return \"oops\"; }");
+        let result = compile_with_diagnostics(&config, &[bad.to_string_lossy().to_string()]);
+        assert!(!result.success);
+        assert!(!result.diagnostics.is_empty());
+        assert!(result.ir.is_none(), "dump_check must not run codegen");
     }
 
     #[test]

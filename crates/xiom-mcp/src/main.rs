@@ -720,6 +720,7 @@ fn tool_compile_and_fix(params: &Value) -> Result<String, String> {
     // Run check-only compile
     let check_cfg = xiom::CompileConfig {
         check_only: true, emit_ir: true, diagnostics_json: true,
+        dump_check: false,
         target: xiom::Target::Native, release: false, do_run: false,
         check_contracts: true, strict_mode: false, debug_symbols: false,
         shared_lib: false, static_lib: false, max_recursion_depth: 500,

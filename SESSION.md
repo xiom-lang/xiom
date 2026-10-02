@@ -300,7 +300,21 @@ Supersedes the (11) handoff below (kept as history).
 > tools/ascii_guard.py check` before every commit; commit atomically with
 > SESSION.md + COMPILER_BUGS.md evidence; push only on the owner's ask.
 
+# PHASE 3 WORK LOG (branch `selfhost-phase-3-checker`, off `60731523`)
 
+- Stage A (2026-10-02): canonical `--dump-check` on the RUST driver.
+  `CompileConfig::dump_check` stops `compile_with_diagnostics` right after the
+  checker (no borrow pass, no codegen); `crates/xiom/src/main.rs::dump_check`
+  owns the format: `{kind} {code} {line}:{col} {message}` per diagnostic,
+  `CHECK-OK` when clean, `PARSE-ERROR` on input/lex/parse failure; message
+  escapes `\\ \n \r \t` only. Clap flag + usage + `cli.rs` surface test.
+  Ground truth over the 83-file corpus (repro:
+  `tmp/sprintc/phase3_checker/dump_check_recon.txt`): 81x `CHECK-OK`,
+  `stdlib/tests/smoke/smoke_guard_fault.xi` 4x
+  `warning W003 23:3/33:3/43:3/53:3`,
+  `tests/regression/m37_short_circuit.xi` 1x `warning W008 10:11`. The
+  positive corpus is NOT vacuous; the selfhost port must reproduce both
+  lints plus keep the other 81 clean.
 
 # CONTINUATION HANDOFF (2026-10-02 (11), v0.62.2 shipped; m167/m168 fixed; phased queue)
 
