@@ -19,10 +19,15 @@ Supersedes the (11) handoff below (kept as history).
 > clean T001 instead of invalid IR, and out-of-order struct literals map
 > fields by name (stdlib relay). Full e2e 2406/2406 (+4 ignored, 8 threads)
 > plus feature 517, checker 195, checker_locks 26, stdlib-exec 85 (+2 ign),
-> api-freeze 2/2. Remaining bugs: (e) recursive enum payload boxing,
-> (h) large-function variant payload mapping, C24 `io.read_line()` pointer
-> cast (playground, URGENT), type-laxness intake, module-header
-> nested-module compare, packages-loop/arity/module-type findings.
+> api-freeze 2/2.
+> m175 landed (playground C24): `io.read_line()` now inttoptr's the Int FFI
+> handle into `fgets` (was truncated to a byte and address-passed); pack
+> acceptance `C24 fixed: yes` in run+compile modes on Windows and Linux;
+> piped-stdin e2e + IR lock. Remaining bugs: (e) recursive enum payload
+> boxing, (h) large-function variant payload mapping, type-laxness intake,
+> module-header nested-module compare, and the packages rows (loop-return
+> typing, arity symmetry, cross-module qualified type names; the crypto
+> symbol is stdlib-side).
 > Phase 2 deliverables (all committed):
 > 1. Canonical `--dump-ast` on the Rust driver
 >    (`crates/xiom/src/main.rs::dump_ast` + `AstDump`, clap flag, usage) and

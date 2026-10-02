@@ -5733,6 +5733,73 @@ fn e2e_safety_probe() {
     );
 }
 
+// m175 (playground C24): a Call returning i64 fed to a pointer extern param
+// carries FFI handle bits (`xiom_stdin() -> Int` into `fgets(..., *UInt8)`);
+// it must inttoptr, never materialize a pointee temporary. This runtime lock
+// pipes stdin and asserts the read_line echo.
+#[test] fn e2e_m175_read_line_piped_stdin() {
+    use std::io::Write;
+    let src = "tests/regression/m175_stdin_handle_int_pointer/main.xi";
+    let exe_name = format!(
+        "e2e_m175_{}{}",
+        std::process::id(),
+        if cfg!(windows) { ".exe" } else { "" }
+    );
+    let exe_path = project_root().join(&exe_name);
+    let _ = std::fs::remove_file(&exe_path);
+    let compile = Command::new(xiom_path())
+        .args(["-o", exe_name.as_str(), src])
+        .current_dir(project_root())
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn '{}': {e}", xiom_path()));
+    assert!(
+        compile.status.success(),
+        "m175 compile failed: {}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let mut child = Command::new(&exe_path)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn m175 binary");
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(b"Ada\n")
+        .expect("write stdin");
+    let out = child.wait_with_output().expect("wait m175 binary");
+    let _ = std::fs::remove_file(&exe_path);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success() && stdout.contains("got: [Ada]"),
+        "read_line must echo piped stdin; stdout={stdout:?} stderr={:?}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+// m175 IR lock: the fgets stream arg must come from an inttoptr of the i64
+// handle, never from a materialized pointee temporary.
+#[test] fn e2e_m175_stdin_handle_inttoptr_ir() {
+    let ir = compile_ir("tests/regression/m175_stdin_handle_int_pointer/main.xi")
+        .expect("m175 fixture must compile to IR");
+    let lines: Vec<&str> = ir.lines().collect();
+    let idx = lines
+        .iter()
+        .position(|l| l.contains("call i8* @fgets("))
+        .expect("m175: the fgets call must be in the IR");
+    let near: Vec<&&str> = lines[..idx].iter().rev().take(3).collect();
+    assert!(
+        near.iter().any(|l| l.contains("inttoptr i64")),
+        "m175: the fgets stream arg must inttoptr the i64 handle; near call: {near:?}"
+    );
+    assert!(
+        !near.iter().any(|l| l.contains("alloca i8")),
+        "m175: no pointee temporary may be materialized for the handle; near call: {near:?}"
+    );
+}
+
 // R52 (packages relay): `use xiom.test; assert(1 == 1, "...")` -- an
 // unqualified call must bind the IMPORTED module's exported TestResult assert
 // (`test.assert`), not a transitively-imported private helper (`core.assert`)

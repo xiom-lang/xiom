@@ -94,6 +94,17 @@ impl IrEmitter {
             }
         }
         if param_ty.ends_with('*') {
+            // C24 (playground, read_line): a CALL returning i64 fed to a
+            // pointer param carries FFI pointer BITS (`xiom_stdin() -> Int`
+            // into `fgets(..., stream: *UInt8)`). The temp-materialization
+            // path below stored the value into a pointee-width slot and
+            // passed the slot ADDRESS (the FILE* truncated to a byte), so
+            // fgets got a bogus stream -- read_line returned "" and glibc
+            // aborted on the compile-mode binary. inttoptr is the right
+            // lowering. Lvalues keep the R53 implicit-`&x` address path.
+            if pre_ty == "i64" && matches!(arg_expr, Expr::Call(..)) {
+                return self.coerce_value(pre_val, pre_ty, param_ty);
+            }
             // LET-array P3: a FIXED-array arg passed to a pointer-to-Vec param
             // (`&Vec[T]` -> `%struct.Vec*`) must receive a REAL header (the
             // callee reads len/cap/elem_size). Synthesize the Slice view into

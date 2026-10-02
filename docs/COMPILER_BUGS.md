@@ -10,6 +10,50 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-02 -- m175 FIXED: Int FFI handles to pointer params must inttoptr (playground C24, io.read_line)
+
+Playground relay: `printf 'Ada\n' | xiom run --no-cache -O0 read_line.xi`
+printed `got: []`, and the compiled binary aborted with glibc "invalid stdio
+handle" (the disassembly showed the FILE* truncated to a byte and its stack
+address passed). Root: `io.read_line` feeds `xiom_stdin() -> Int` (the C
+`FILE*` bits) to `fgets(..., stream: *UInt8)`; `coerce_arg_for_param`'s
+pointer-param branch materialized a pointee-width temporary (`trunc i64 ->
+i8`, `alloca i8`, `store`, pass the slot ADDRESS) instead of inttoptr'ing
+the handle. Fix (`crates/xiom-codegen/src/coerce.rs`): when the arg is a
+Call returning i64 and the param is a pointer, route through `coerce_value`
+(existing inttoptr arm); lvalues keep the R53 implicit-`&x` address path.
+Verified: IR now `%p = inttoptr i64 %handle to i8*` -> `call i8* @fgets`;
+Windows and Linux both print `got: [Ada]` in run and compile modes; pack
+acceptance `C24 fixed: yes`. Locks: `m175_stdin_handle_int_pointer` fixture +
+`e2e_m175_read_line_piped_stdin` (real piped stdin) +
+`e2e_m175_stdin_handle_inttoptr_ir` + CI line.
+Stdlib answer: no stdlib change needed -- `xiom_stdin() -> Int` is a valid
+FFI spelling once the coercion inttoptrs the bits.
+
+---
+
+## 2026-10-02 -- RELAY (packages -> compiler): loop-return typing, arity symmetry, cross-module qualified type names, crypto symbol
+
+From the packages lane (Open rows + wave-50 changelog). No m-numbers until
+reproduced compiler-side:
+
+- Bare `loop { ... }` whose every path returns is still typed as falling
+  through to `()` -- T001 at the loop's closing brace (terraform). Reproduce,
+  then treat a `loop` with no break/fallthrough as divergent.
+- ARITY ASYMMETRY: extra call arguments are rejected, but MISSING arguments
+  are accepted silently. Add a checker arity check in both directions with a
+  diagnostic.
+- Module-qualified TYPE names across modules are unreliable:
+  `selector.LabelParts` does not resolve like the bare imported `LabelParts`
+  (k8s extends the saml row). Reproduce with a minimal two-module probe.
+- Stdlib-side: `xiom.crypto/hash` SHA-256/HMAC exist in source but a package
+  link fails with `undefined symbol: xiom_sha256_hash` (aws hand-rolled
+  KAT-pinned copies). Route to the stdlib lane; the compiler half matters
+  only if an emitted constructor is dropped.
+- Informational: no bracket recurrences in wave 50; tooling notes only.
+
+---
+
 ## 2026-10-02 -- m171/m172/m174 FIXED: qualified variant exhaustiveness (f), aggregate-payload enum equality (g), struct-literal field order
 
 Three checker/codegen fixes from the Phase 2 findings and the stdlib relay.
