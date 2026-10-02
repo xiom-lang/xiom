@@ -10,6 +10,24 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-02 -- RELAY (stdlib wave 57): context-dependent invalid IR (alloca dominance); crypto link packet not reproducible
+
+- NEW COMPILER BUG (stdlib `tools/known_failures/p_wave57_probe_ir.xi`):
+  context-dependent INVALID LLVM IR (alloca dominance violation) when
+  Result-style matches mix with Str-returning calls; non-monotonic under
+  bisection. Invalid IR = clang failure, so this can block net/http waves.
+  Pre-tag candidate.
+- crypto link packet (`undefined symbol: xiom_sha256_hash`): does NOT
+  reproduce on stdlib main (`crypto.sha256_hex` NIST "abc" and
+  `encoding.base64_encode` "YWJj" link+run green on both pins with and
+  without XIOM_STDLIB; the symbol is in every tag's runtime + the driver's
+  build-runtime list). Suspected STALE INSTALLED RUNTIME -- route to the
+  install/deploy lane, not compiler or stdlib.
+- stdlib relay check: m169/m170 verified FIXED on the v0.62.2 dev binary;
+  other findings remain open.
+
+---
+
 ## 2026-10-02 -- RELAY (packages -> compiler/stdlib): match-bound &mut payload mutations, derive[Clone] aggregate payloads, invariant placement, xiom-verify encodings
 
 From the packages lane (25cf8c62). Compiler-side unless noted; no m-numbers

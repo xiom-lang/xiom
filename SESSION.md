@@ -48,6 +48,17 @@ Supersedes the (11) handoff below (kept as history).
 > api-freeze snapshot, run benchmark t2 (compiler half `185342f4`). Extra
 > hardening landed: m171/m172/m174, m176/m177 + scoping fixup. Open
 > (not release-blocking): the Remaining list below.
+> RELEASE DECISION (2026-10-02, recommendation): tag v0.62.3 after ONE more
+> short compiler batch -- (1) match-bound payload mutations on `&mut` enums
+> (json mutators, silent data loss), (2) the wave-57 alloca-dominance
+> invalid IR (compile blocker for Result-match + Str-call shapes).
+> Everything already in scope is GREEN. `derive[Clone]` aggregates,
+> invariant placement, verify encodings, arity/loop/reserved-fn and (e)/(h)
+> become v0.62.4 fast-follows. Stdlib continues wave 58 (HTTP family) in
+> parallel; v0.62.3 pins the existing `stdlib-perf2` tag (no new pin
+> needed), waves push/tag at the next release boundary or on request.
+> Gate P executes at the cut: STDLIB_VERSION -> stdlib-perf2, freeze
+> snapshot regen, benchmark t2.
 > Remaining bugs: (e) recursive enum payload
 > boxing, (h) large-function variant payload mapping, type-laxness intake
 > (the remaining `let gb: Vec[UInt8] = got.value;` row), module-header
