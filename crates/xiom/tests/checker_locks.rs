@@ -490,6 +490,18 @@ fn m173_scalar_payload_enum_equality_still_green() {
 }
 
 #[test]
+fn m178_result_patterns_on_non_result_rejected() {
+    // Wave-57 (stdlib relay): `match str_call() { Ok(v) => ..., Err(_) => ... }`
+    // used to pass and produce invalid IR (stale local slot / dominance).
+    let (stderr, code) = check_on("m178_illtyped_match_rejected");
+    assert_ne!(code, Some(0), "ill-typed match must be rejected. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("cannot match 'Str'"),
+        "expected the pattern/type mismatch diagnostic, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn m177_result_payload_mismatch_rejected() {
     // Packages relay (consul): Result[Bool, Str] used to satisfy a declared
     // Result[Int, Str] (Bool counted as numeric in generic args) and

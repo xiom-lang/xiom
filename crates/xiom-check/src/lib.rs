@@ -1056,7 +1056,90 @@ impl Checker {
         self.types.contains_key(&key)
     }
 
+    /// Wave-57 (stdlib relay): a Result/Option/variant pattern must match the
+    /// scrutinee's type. The checker used to accept `Ok(s)` on a Str, bind `s`
+    /// as `_`, and codegen then read a stale local slot -- invalid IR
+    /// ("Instruction does not dominate all uses"). Unknown/erased scrutinees
+    /// stay permissive.
+    fn validate_pattern_for_type(&mut self, pattern: &Pattern, scrutinee: &CheckedType) {
+        let base = |n: &str| -> String { n.split('[').next().unwrap_or(n).to_string() };
+        let leaf = |n: &str| -> String { n.rsplit('.').next().unwrap_or(n).to_string() };
+        let known_concrete = match scrutinee {
+            CheckedType::Str | CheckedType::Bool | CheckedType::Char => true,
+            CheckedType::Named(n) => {
+                let b = base(n);
+                self.types.contains_key(&self.intern_type_name(&b)) || self.enum_variants.contains_key(&b)
+                    || self.types.contains_key(&self.intern_type_name(&n.to_string()))
+            }
+            _ => scrutinee.is_numeric(),
+        };
+        match pattern {
+            Pattern::Some(_, sp) | Pattern::None(sp) => {
+                let ok = match scrutinee {
+                    CheckedType::Named(n) => {
+                        let b = base(n);
+                        let head = b.split("__").next().unwrap_or(&b);
+                        head == "Option" || b == "_"
+                    }
+                    _ => false,
+                };
+                if !ok && known_concrete {
+                    self.error(
+                        format!("match pattern 'Some/None' cannot match '{}'", scrutinee.name()),
+                        *sp,
+                    );
+                }
+            }
+            Pattern::Ok(_, sp) | Pattern::Err(_, sp) => {
+                let ok = match scrutinee {
+                    CheckedType::Named(n) => {
+                        let b = base(n);
+                        let head = b.split("__").next().unwrap_or(&b);
+                        head == "Result" || b == "_"
+                    }
+                    _ => false,
+                };
+                if !ok && known_concrete {
+                    self.error(
+                        format!("match pattern 'Ok/Err' cannot match '{}'", scrutinee.name()),
+                        *sp,
+                    );
+                }
+            }
+            Pattern::Variant(name, _, sp) => {
+                if let CheckedType::Named(n) = scrutinee {
+                    let b = base(n);
+                    let hb = leaf(&b).split("__").next().unwrap_or("").to_string();
+                    if let Some(parent) = self.resolve_enum_variant(&name.name) {
+                        let hp = leaf(&parent).split("__").next().unwrap_or("").to_string();
+                        if hp != hb && known_concrete {
+                            self.error(
+                                format!(
+                                    "match pattern '{}' belongs to '{}', not '{}'",
+                                    name.name, parent, b
+                                ),
+                                *sp,
+                            );
+                        }
+                    } else if known_concrete && !self.enum_variants.contains_key(&hb) {
+                        self.error(
+                            format!("match pattern '{}' cannot match '{}'", name.name, b),
+                            *sp,
+                        );
+                    }
+                } else if known_concrete {
+                    self.error(
+                        format!("match pattern '{}' cannot match '{}'", name.name, scrutinee.name()),
+                        *sp,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn add_pattern_bindings(&mut self, pattern: &Pattern, scrutinee_type: &CheckedType) {
+        self.validate_pattern_for_type(pattern, scrutinee_type);
         if let Pattern::Variant(_name, _, _) = pattern {
         }
         match pattern {
