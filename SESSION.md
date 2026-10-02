@@ -40,13 +40,15 @@ Supersedes the (10) kickoff prompt below (kept as history).
 >    slot was widened by a stale type_meta type (Option-of-Vec `.unwrap()`
 >    read garbage). Locks: m170 fixture + e2e + IR + CI line; feature-reg,
 >    stdlib-exec and api-freeze green. Full e2e at batch end.
-> 4. [NOT REPRODUCED 2026-10-02] expat/nbt silent exit: expat 0.1.1 and nbt
->    0.1.0 (registry-bundle artifacts) compile + run green on HEAD and on the
->    exact v0.62.2 tag driver (rebuilt release, `tmp/sprintc/v0622_src`):
->    expat 25/25 rc 0 (27 lines), both direct and `--run`. `scripts/port.ps1`
->    is not present in any local repo -- if the harness failure recurs, send
->    the exact invocation/env; suspect harness stdout capture, not the
->    compiler.
+> 4. [NOT REPRODUCED 2026-10-02] expat/nbt silent exit: port.ps1's `-1` is
+>    its own watchdog timeout sentinel (not a program exit code); the empty
+>    stdout is the file-redirected child's unflushed buffer after the kill.
+>    Exact harness re-run on this box with the deployed v0.62.2 (same 9/30
+>    binary) against stdlib main AND stdlib-perf1 (clean worktree 06d0ee7):
+>    expat 25/25 PASS exit 0 in 18.2 s; nbt 26/26 PASS (t5 included) exit 0;
+>    2.8 KB file-redirect probe writes fully. If the packages lane still
+>    reproduces: preserve %TEMP%\xiom-run-*.out/.err and report their
+>    packages commit + duration (their repro likely predates wave-49).
 > 5. [DONE 2026-10-02] m168 RESIDUAL FIXED (m168b): the deref helper was
 >    only consulted inside the pointer-param branch and stripped only the
 >    `*T` form, while `local_xiom_types` records `&mut T` (ref-preserving).

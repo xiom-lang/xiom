@@ -104,6 +104,23 @@ this compiler batch.
 From the packages lane (`docs/COMPILER-FINDINGS.md` there). OPEN, no m-number
 until reproduced compiler-side:
 
+- expat/nbt "silent exit -1 + zero stdout" (2026-09-30 fleet sweep,
+  docs/repro/v0622-regressions/HARNESS-NOTES.md at packages 45ea541a):
+  **NOT REPRODUCED on current trees (2026-10-02).** Clue: port.ps1's
+  `exit code: -1` is its OWN watchdog sentinel (`$exitCode = if ($timedOut)
+  { -1 } else { $proc.ExitCode }`), i.e. the 120 s timeout fired; the empty
+  output is the file-redirected child's unflushed buffer after the tree
+  kill. Re-ran the exact harness on this box with the deployed
+  `%LOCALAPPDATA%\xiom.new\bin` v0.62.2 (same 9/30 binary) against
+  `E:\xiom-lang\stdlib` and a clean `stdlib-perf1` (06d0ee7) worktree:
+  `scripts/port.ps1 -Package xiom.expat -TimeoutSec 60/120` -> PASS 25/25,
+  exit 0, 18.2 s; `-Package xiom.nbt` -> PASS 26/26 (t5 included), exit 0.
+  Minimal 2.8 KB `io.println` probe with
+  `Start-Process -RedirectStandardOutput <file>` -> 2804 bytes, FINAL-MARKER
+  present. If it still reproduces in the packages session: preserve
+  `%TEMP%\xiom-run-*.out/.err` before port.ps1 deletes them, note the
+  packages commit and run duration, and check whether `a.exe` is spinning
+  (PID CPU) during the timeout.
 - NEW: TYPE LAXNESS beyond brackets -- `let gb: Vec[UInt8] = got.value;`
   where `got.value` has a Str field compiles clean and yields wrong bytes
   (pptx). Intake needed: reproduce with a minimal probe; decide
