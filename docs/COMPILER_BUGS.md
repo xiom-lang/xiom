@@ -36,7 +36,13 @@ until reproduced:
 - MATCH-BOUND PAYLOAD MUTATIONS ON `&mut` ENUMS ARE SILENTLY DROPPED (all six
   json mutators broken). Same write-through class as m168: mutating a value
   bound by a match arm on a `&mut` enum param must write back through the
-  payload. High priority.
+  payload. High priority. MINIMAL REPRO (2026-10-02, rc=11 on HEAD): `type P
+  = { n: Int } enum E { A(p: P), B }` + `fn bump(e: &mut E) { match e {
+  E.A(p) => { p.n = p.n + 1; } B => {} } }` -- the bound `p` is a by-value
+  copy, so the arm's field write lands in a dropped temporary. Repro at
+  `tmp/sprintc/bug_match_payload_mut.xi`. Note: json's KAT suite (44/44)
+  passes on the pinned 0.62.2, so their "all six mutators" observation was
+  from their own gate/probes; this shape is the confirmed compiler side.
 - `derive[Clone]` on an enum/struct with an AGGREGATE payload returns a
   corrupt handle; the next push crashes 0xC000001D. Derived Clone must box /
   copy aggregate payloads like `val_to_i64` does.
