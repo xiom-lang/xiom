@@ -9,18 +9,21 @@ Supersedes the (10) kickoff prompt below (kept as history).
 
 > Continue the XIOM swarm compiler lane. Read this top section, then
 > `docs/COMPILER_BUGS.md` (newest entries first), `docs/SELFHOST_PROGRESS.md`,
-> and `docs/RELEASE_GATE_v0.62.2.md`. Bootstrap meter on main is 9% until the
-> selfhost Phase 1 branch merges (it is at 18% in the worktree).
+> and `docs/RELEASE_GATE_v0.62.2.md`. Bootstrap meter on main is **18%**
+> (Phase 1 lexer parity merged at `0831ee6f`; `diff_tokens` byte-equality
+> gate green over the 83-file corpus). NOTE: the merged driver changes
+> (`crates/xiom/src/main.rs` --dump-tokens path) have NOT had a full e2e on
+> the merged state; the NEXT compiler batch's e2e covers them.
 > State: **v0.62.2 RELEASED** (tag on `801d888f`, run 36745108730, docs
 > dispatched). Compiler lane fixes landed after it: m166 method trust key
 > (`185342f4`), m168 `&mut T` write-through (`7b38fa87`), m167 global Vec
 > fast path (+ locks; committed with this handoff). All gates green at the
 > handoff commit unless noted.
 > QUEUE, in order:
-> 1. Merge the selfhost Phase 1 branch (`selfhost-phase-1-lexer`, worktree
->    `.kilo/worktrees/selfhost-phase-1-lexer`, session
->    `ses_f064fad71ffeYlwH06tqi4NL42`): rebase on main, re-run its
->    token-dump gate, merge -> meter 18% on main (website reads main).
+> 1. [DONE 2026-10-02] Merged the selfhost Phase 1 branch
+>    (`selfhost-phase-1-lexer`, rebased to `0831ee6f` on main): token-dump
+>    gate green, CLI locks green. The branch's SESSION.md edits were
+>    dropped in the rebase (main's handoff kept).
 > 2. C24-1 `p_geom_vector_result_bits` (stdlib relay): caller-side element
 >    reads of `vector.lerp/clamp/hadamard` and `curves.b_spline` RESULTS are
 >    bit-reinterpreted (1.5 reads as 4.609e18); callee-side correct; other
