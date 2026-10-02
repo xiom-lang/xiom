@@ -69,6 +69,15 @@ Supersedes the (10) kickoff prompt below (kept as history).
 > 9. Packages type-laxness intake (COMPILER_BUGS 2026-10-02 relay):
 >    `let gb: Vec[UInt8] = got.value;` with a Str field compiles clean and
 >    yields wrong bytes. Reproduce, then scope (post-batch, non-release).
+> BATCH GATES (2026-10-02, m169+m170+m168b; commits 3aad01cd -> 4e084e0e
+> -> 565b9924): full e2e 2401/2401 (+4 ignored, 8 threads), feature-reg
+> 517/517, parser 107/107, checker_locks 23/23, fuzz 24/24, perf 3/3,
+> robustness 63/63, stdlib-exec 85/85 (+2 ign), api-freeze 2/2 (now
+> PID-unique temp), selfhost diff_tests 24/24 (+1 ign), doctor_cli 4/4,
+> run_script_cli 2/2, borrow_e001 2/2. Website gates line updated to the
+> same snapshot. Next in queue: C23 pass bisection (WSL), then registry
+> polish / intake items; Gate P is ready when `STDLIB_VERSION` bumps to
+> `stdlib-perf2`.
 > WAITING ON: none blocking. Stdlib `stdlib-perf2` (f011efe) is now on
 > stdlib origin main -- it carries the `xiom/sync/sync.xi` `#[unsafe_direct]`
 > annotation + `stdlib-perf2` tag, so Gate P is READY: bump

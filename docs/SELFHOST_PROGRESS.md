@@ -26,11 +26,12 @@ All six must hold (SELFHOST_PLAN section 7):
 
 **18% -- 2 of 11 tracked gates complete.**
 
-**Gates: e2e 2395/2395 (+4 ignored), checker 195/195, feature 517/517, robustness 63/63, fuzz 24/24, perf 3/3, formatter 86/86, lsp 45/45.**
+**Gates: e2e 2401/2401 (+4 ignored), checker 195/195, feature 517/517, robustness 63/63, fuzz 24/24, perf 3/3, formatter 86/86, lsp 45/45.**
 
-All eight suites re-measured green on `aca6aaee` (2026-10-02, Windows box):
+All eight suites re-measured green on `565b9924` (2026-10-02, Windows box):
 e2e at 8 threads with the debug driver rebuilt from HEAD; the rest via their
-cargo suites.
+cargo suites. (The earlier 2395 e2e snapshot was `aca6aaee`, before the
+m169/m170/m168b locks.)
 
 Weights are one gate each (equal weighting; phases differ in effort but a
 gate is only "done" when its evidence is green). Update this line whenever a
