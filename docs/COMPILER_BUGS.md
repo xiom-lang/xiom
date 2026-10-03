@@ -144,6 +144,22 @@ three confirmed locally against the official v0.62.3 windows-x64 archive
    emits the copy (likely `compile_expr` Vec-value re-entry) and fix the
    offsets.
 
+   NARROWED (same session): the check block is CORRECT (`%tmp26.unpack8.i`
+   loads Vec+8 = len; `icmp eq ..., 0`). All shared optimized functions
+   are semantically identical between P3 and P4 modulo attribute-group
+   renumbering; divergence is confined to `main`.
+   Suffix reduction: P4a (drop big) rc=5; P4b (block roundtrip only) rc=5;
+   P4c (prefix + ONE bare `var dblk = lz4.lz4_decompress_block(blk);` +
+   match) rc=5. So a single extra CALL SITE after the check flips the
+   earlier `blk.len()==0` result -- optimizer-sensitive UB whose trigger
+   is repeated call sites (same shape as the iter C001 "third call flips
+   the classification": BOTH bugs are big-TU/repeated-callsite dependent).
+   NEXT: (i) P5 -- call `lz4_compress_block(small)` twice instead of
+   decompress_block, to confirm "second call site of the same alwaysinline
+   fn" is the trigger; (ii) SSA-normalized diff of clang -O2 `main`
+   between P3 and P4c to locate the transformed region; (iii) audit the
+   emitter for repeated-callsite/symbol-instance bookkeeping.
+
 ---
 
 ## 2026-10-03 -- FIXED (m182): complex module-level const tables mis-read (Str/struct payloads)

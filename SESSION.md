@@ -20,6 +20,28 @@
 > `tcp_stream_read`, contracts-arena verifier (SMT `self` + X7007),
 > const-tables complex payloads, float bitcast. See
 > `docs/RELEASE_GATE_v0.62.3.md`.
+>
+> NEXT RELEASE PLAN (owner request, 2026-10-03): candidate `v0.62.4`
+> (patch, correctness/tooling). Contents in order:
+> 1. lz4 context-dependent miscompile (P4c minimal repro; repeated-
+>    callsite optimizer-sensitive UB) -- fix + smoke/IR lock + pinned-
+>    archive verification.
+> 2. iter.range `contains` C001 (amplifier: method-form intercept must
+>    require a collection receiver; the state change still to pin) --
+>    fix + pinned-archive green so the registry promotes its smoke lock.
+> 3. Registry polish if ready, S each: B1 publish packaging guard,
+>    B2 `xiom pkg yank`, install trust wording, `--resolve` outside a
+>    workspace (all contracts received).
+> 4. Then the v0.62.x release mechanics: pin the then-current stdlib tag,
+>    version bumps, notes, README/extension texts, Gate A + Gate P.
+>
+> DEFERRED to `v0.63.0` (minor): Stage 6 compile-time work (per-module
+> cache + separate compilation + parallel codegen; KPI compile_ms < 2 s),
+> R-8 `tcp_stream_read`, contracts-arena verifier, i64<->f64 bitcast,
+> `-e` fast path; safety hardening after selfhost. Selfhost Phase 3
+> continues off-main and flips only at full parity. Re-scope on owner
+> priority: the two registry regressions are fixed gates; the rest is
+> candidate.
 
 > KICKOFF (paste-ready): Continue the XIOM swarm compiler lane on `main`.
 > Read this top section, then `docs/COMPILER_BUGS.md` (2026-10-03 entries)
