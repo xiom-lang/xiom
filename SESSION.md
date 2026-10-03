@@ -447,6 +447,22 @@ Supersedes the (11) handoff below (kept as history).
   443.9 s; `diff_check` = 83 corpus files (11 diagnostic lines,
   non-vacuous) + 75 manifest cases. `docs/SELFHOST_PROGRESS.md` meter and
   gate 3 row updated; bounded exceptions listed in the checklist.
+- Stage B9 (2026-10-04): post-ee7ab150 rebase + Phase 4 seed. Rebased onto
+  `ee7ab150` (v0.62.3 + m179-m184) with one docs conflict resolved (kept
+  main's PHASE 3 STATUS paragraph, updated to "COMPLETE and merged").
+  m179-m184 changed LOCAL module identity: a sibling file without a
+  `module` header now resolves qualified calls under its FILE-STEM name, so
+  the selfhost now binds the `use` alias on any successful local load and
+  `catalog/local_known_member.xi` is an accept case again; all expected
+  files regenerated on the new base. Five gates re-ran green on `ee7ab150`
+  (5 passed, 296.0 s; diff_check = 83 files, 11 diagnostic lines, +75
+  cases). Rebased again onto `02d2ee3f` (docs-only) to be merge-ready.
+  MERGE INTO MAIN BLOCKED: main's worktree is dirty (compiler lane has an
+  uncommitted 2-line change in `crates/xiom/src/lib.rs`, a file this branch
+  also modifies), so the sanctioned meter flip is held until that lane
+  commits/stashes. Phase 4 seeded: `docs/checklists/selfhost-phase4.md`
+  (stages H0-H5, header-region gate `diff_ir_headers`). Port work deferred
+  to a fresh session (context budget).
 
 
 # CONTINUATION HANDOFF (2026-10-02 (11), v0.62.2 shipped; m167/m168 fixed; phased queue)
