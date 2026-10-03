@@ -12,10 +12,14 @@
 > checker 195, checker_locks 28, borrow 2, doctor 4, run_script 2,
 > full_diff 4, stdlib_tests 40, stdlib-exec 85 (+2 ign), api-freeze 2);
 > Gate P ACCEPTED (t2-queue 24 ms vs 11,968 ms, no regressions); Gate D
-> published. Benchmark lane still to verify the official archive and
-> refresh the version table. Post-release queue: R-8 `tcp_stream_read`,
-> contracts-arena verifier (SMT `self` + X7007), const-tables complex
-> payloads, float bitcast. See `docs/RELEASE_GATE_v0.62.3.md`.
+> published. Batch e2e after C25+m182: 2410 passed / 2 failed (both
+> compiler-process OOM under 8-thread load, `e2e_m21_result_option_012/013`
+> -- green isolated; move `tmp/sprintc` out of the repo first for local
+> full runs) / 4 ignored. Benchmark lane still to verify the official
+> archive and refresh the version table. Post-release queue: R-8
+> `tcp_stream_read`, contracts-arena verifier (SMT `self` + X7007),
+> const-tables complex payloads, float bitcast. See
+> `docs/RELEASE_GATE_v0.62.3.md`.
 
 > KICKOFF (paste-ready): Continue the XIOM swarm compiler lane on `main`.
 > Read this top section, then `docs/COMPILER_BUGS.md` (2026-10-03 entries)
