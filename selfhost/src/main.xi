@@ -77,7 +77,7 @@ fn main() -> Int {
         return 3;
       }
     }
-    return selfhost_checker.dump_check(chk_src);
+    return selfhost_checker.dump_check(chk_src, args[2]);
   }
 
   var source = "";
@@ -91,7 +91,7 @@ fn main() -> Int {
 
   let token_count = selfhost_lexer.lex_count(&source);
   let node_count = selfhost_parser.parse_count(&source);
-  let error_count = selfhost_checker.check_count(&source);
+  let error_count = selfhost_checker.check_count(&source, first);
   if error_count > 0 { return 4; }
   if token_count < 0 || node_count < 0 { return 5; }
   return selfhost_codegen.emit_program(&source);

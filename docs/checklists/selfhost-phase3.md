@@ -55,28 +55,36 @@ PARSE-ERROR                                    input/lex/parse failed
 | 4 | Contracts (requires/ensures strict clause check, `result` binding) | DONE |
 | 5 | Diagnostics ordering (warnings before errors, push order) | DONE |
 | B | Selfhost driver `--dump-check` + `diff_check` gate + manifest | DONE 2026-10-02 |
+| C | Catalog/imports resolution (module map, aliases, qualified calls) | DONE 2026-10-03 (stage-1 scope) |
 
 Deferred to later Phase 3 sub-stages (NOT ported yet; permissive `_`
 fallbacks keep them from producing false positives):
 
-* catalog/stdlib module resolution (`use`, module-qualified calls, local
-  file modules) -- a file with any `use` latches permissive mode for
-  unresolved names; without it, bare unknown names error like Rust.
-* method-set parity for container/catalog types (Vec/Map/Option/...):
-  unknown container methods defer to `_`.
-* unknown-method and struct-literal field validation on user types.
-* match exhaustiveness (W000) and W004/W006/W007 lints; the empirically
-  reachable W003/W008 ARE ported and corpus-gated.
-* borrow-checker diagnostics (explicitly out of `compile_with_diagnostics`);
-  a later stage owns them.
+* container/catalog method sets for builtin receivers (Vec/Map/Option/...):
+  unknown container methods defer to `_` (sub-stage 2).
+* unknown-method validation on user types (sub-stage 3).
+* struct-literal field validation on user types (sub-stage 3).
+* match exhaustiveness (W000) and W004/W006/W007 lints (sub-stage 4); the
+  empirically reachable W003/W008 ARE ported and corpus-gated.
+* borrow-checker diagnostics (sub-stage 5; explicitly out of
+  `compile_with_diagnostics`).
+* module BODIES are not checked (the corpus has no catalog-body diagnostics);
+  transitive `pub use` closure is unnecessary (0 re-exports in stdlib).
+* uppercase bare names in `use` files stay permissive (module types the
+  stage-1 closure cannot enumerate).
+* dynamic stdlib header index blocked on `io.list_dir` returning pointer
+  bits (COMPILER_BUGS 2026-10-03): a static 19-entry relocation table
+  (`cm_static_module_path`) covers the relocated modules instead.
 
 ## Evidence
 
 * Corpus ground truth (`tmp/sprintc/phase3_checker/dump_check_recon.txt`):
   81x `CHECK-OK`, `smoke_guard_fault.xi` 4x W003, `m37_short_circuit.xi`
   1x W008.
-* `diff_check`: 83 corpus files + 16 manifest cases green
-  (`83 files (5 diagnostic lines, non-vacuous) + 16 manifest cases`).
+* `diff_check`: 83 corpus files + 34 manifest cases green
+  (`83 files (5 diagnostic lines, non-vacuous) + 34 manifest cases`;
+  18 of the cases are the catalog/imports sub-stage under
+  `selfhost/tests/check_negative/catalog/`).
 * Regression gates after the port: `diff_tokens` green (83 files),
   `diff_ast` green (83 files), `diff_corpus` T1 green. T2/T3 remain
   unreachable (Phase 0 stub emitter; pre-existing).

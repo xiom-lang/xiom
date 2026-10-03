@@ -69,6 +69,7 @@ pub type Variant = {
 
 pub type Checker = {
   p: Parser;
+  src_dir: Str;
   locals: Vec[Local];
   nlocals: Int;
   scopes: Vec[Int];
@@ -79,6 +80,11 @@ pub type Checker = {
   aliases: Vec[Local];
   globals: Vec[Local];
   interfaces: Vec[Str];
+  use_aliases: Vec[Local];
+  loaded_modules: Vec[Str];
+  module_names: Vec[Str];
+  stdlib_indexed: Int;
+  stdlib_index: Vec[Local];
   warnings: Vec[Diag];
   errors: Vec[Diag];
   cur_ret: Str;
@@ -88,9 +94,10 @@ pub type Checker = {
   unsafe_depth: Int;
 }
 
-pub fn ck_new(p: Parser) -> Checker {
+pub fn ck_new(p: Parser, src_dir: Str) -> Checker {
   return Checker{
     p: p,
+    src_dir: src_dir,
     locals: Vec[Local].new(),
     nlocals: 0,
     scopes: Vec[Int].new(),
@@ -101,6 +108,11 @@ pub fn ck_new(p: Parser) -> Checker {
     aliases: Vec[Local].new(),
     globals: Vec[Local].new(),
     interfaces: Vec[Str].new(),
+    use_aliases: Vec[Local].new(),
+    loaded_modules: Vec[Str].new(),
+    module_names: Vec[Str].new(),
+    stdlib_indexed: 0,
+    stdlib_index: Vec[Local].new(),
     warnings: Vec[Diag].new(),
     errors: Vec[Diag].new(),
     cur_ret: "",
@@ -271,6 +283,110 @@ pub fn ck_resolve_alias(c: &Checker, ty: Str) -> Str {
 }
 
 // ============================================================================
+// Import aliases / loaded modules (Phase 3 catalog sub-stage)
+// ============================================================================
+
+/// First binding wins (Rust module-alias semantics).
+pub fn ck_add_alias(c: &mut Checker, name: Str, module_key: Str) {
+  var i = 0;
+  while i < c.use_aliases.len() {
+    if c.use_aliases[i].name == name { return; }
+    i = i + 1;
+  }
+  c.use_aliases.push(Local{ name: name, ty: module_key });
+}
+
+pub fn ck_alias_key(c: &Checker, name: Str) -> Str {
+  var i = c.use_aliases.len() - 1;
+  while i >= 0 {
+    if c.use_aliases[i].name == name { return c.use_aliases[i].ty; }
+    i = i - 1;
+  }
+  return "";
+}
+
+pub fn ck_is_loaded(c: &Checker, key: Str) -> Bool {
+  var i = c.loaded_modules.len() - 1;
+  while i >= 0 {
+    if c.loaded_modules[i] == key { return true; }
+    i = i - 1;
+  }
+  return false;
+}
+
+pub fn ck_mark_loaded(c: &mut Checker, key: Str) {
+  if ck_is_loaded(c, key) { return; }
+  c.loaded_modules.push(key);
+}
+
+/// Bare-name resolution through loaded module exports (Rust registers a bare
+/// fallback for every catalog/imported item): "fn" for functions, the type
+/// name for types, the declared type for consts, "" when absent.
+pub fn ck_loaded_bare(c: &Checker, name: Str) -> Str {
+  var i = 0;
+  while i < c.loaded_modules.len() {
+    let key = c.loaded_modules[i] + "." + name;
+    if ck_find_fn(c, key) >= 0 { return "fn"; }
+    if ck_find_type(c, key) >= 0 { return name; }
+    let g = ck_lookup_global(c, key);
+    if g.len() > 0 { return g; }
+    i = i + 1;
+  }
+  return "";
+}
+
+/// First loaded module exporting `name` as a function; -1 when none.
+pub fn ck_loaded_fn(c: &Checker, name: Str) -> Int {
+  var i = 0;
+  while i < c.loaded_modules.len() {
+    let fi = ck_find_fn(c, c.loaded_modules[i] + "." + name);
+    if fi >= 0 { return fi; }
+    i = i + 1;
+  }
+  return -1;
+}
+
+/// In-program module names (`module pipeline { ... }`) resolve as qualified
+/// receivers like catalog modules.
+pub fn ck_add_module_name(c: &mut Checker, name: Str) {
+  if name.len() == 0 { return; }
+  var i = 0;
+  while i < c.module_names.len() {
+    if c.module_names[i] == name { return; }
+    i = i + 1;
+  }
+  c.module_names.push(name);
+}
+
+pub fn ck_is_module_name(c: &Checker, name: Str) -> Bool {
+  var i = c.module_names.len() - 1;
+  while i >= 0 {
+    if c.module_names[i] == name { return true; }
+    i = i - 1;
+  }
+  return false;
+}
+
+pub fn ck_index_lookup(c: &Checker, dotted: Str) -> Str {
+  var i = c.stdlib_index.len() - 1;
+  while i >= 0 {
+    if c.stdlib_index[i].name == dotted { return c.stdlib_index[i].ty; }
+    i = i - 1;
+  }
+  return "";
+}
+
+pub fn ck_index_add(c: &mut Checker, dotted: Str, path: Str) {
+  if dotted.len() == 0 || path.len() == 0 { return; }
+  var i = 0;
+  while i < c.stdlib_index.len() {
+    if c.stdlib_index[i].name == dotted { return; }
+    i = i + 1;
+  }
+  c.stdlib_index.push(Local{ name: dotted, ty: path });
+}
+
+// ============================================================================
 // AST helpers
 // ============================================================================
 
@@ -280,8 +396,12 @@ pub fn ck_span_of(c: &Checker, idx: Int) -> Span {
 }
 
 pub fn ck_ident(c: &Checker, idx: Int) -> Str {
+  return ck_ident_in(&c.p, idx);
+}
+
+pub fn ck_ident_in(p: &Parser, idx: Int) -> Str {
   if idx < 0 { return ""; }
-  let node = c.p.nodes[idx];
+  let node = p.nodes[idx];
   match node.kind {
     NkIdent(name) => { return name; }
     _ => { return ""; }
@@ -290,61 +410,65 @@ pub fn ck_ident(c: &Checker, idx: Int) -> Str {
 
 /// Rust `Type::from_ast_type` for the arena Type nodes.
 pub fn ck_type_from_ast(c: &Checker, idx: Int) -> Str {
+  return ck_type_from_ast_in(&c.p, idx);
+}
+
+pub fn ck_type_from_ast_in(p: &Parser, idx: Int) -> Str {
   if idx < 0 { return "()"; }
-  let node = c.p.nodes[idx];
+  let node = p.nodes[idx];
   match node.kind {
-    NkTyNamed(name, args) => { return selfhost_check_types.ct_from_str(ck_ident(c, name)); }
-    NkTyRef(inner) => { return ck_type_from_ast(c, inner); }
-    NkTyMutRef(inner) => { return ck_type_from_ast(c, inner); }
+    NkTyNamed(name, args) => { return selfhost_check_types.ct_from_str(ck_ident_in(p, name)); }
+    NkTyRef(inner) => { return ck_type_from_ast_in(p, inner); }
+    NkTyMutRef(inner) => { return ck_type_from_ast_in(p, inner); }
     NkTyOption(inner) => {
-      return "Option[" + ck_type_from_ast(c, inner) + "]";
+      return "Option[" + ck_type_from_ast_in(p, inner) + "]";
     }
     NkTyResult(ok, err) => {
-      return "Result[" + ck_type_from_ast(c, ok) + ", " + ck_type_from_ast(c, err) + "]";
+      return "Result[" + ck_type_from_ast_in(p, ok) + ", " + ck_type_from_ast_in(p, err) + "]";
     }
     NkTyVec(inner) => {
-      return "Vec[" + ck_type_from_ast(c, inner) + "]";
+      return "Vec[" + ck_type_from_ast_in(p, inner) + "]";
     }
     NkTySlice(inner) => {
-      return "Slice[" + ck_type_from_ast(c, inner) + "]";
+      return "Slice[" + ck_type_from_ast_in(p, inner) + "]";
     }
     NkTyMap(k, v) => {
-      return "Map[" + ck_type_from_ast(c, k) + ", " + ck_type_from_ast(c, v) + "]";
+      return "Map[" + ck_type_from_ast_in(p, k) + ", " + ck_type_from_ast_in(p, v) + "]";
     }
     NkTySet(inner) => {
-      return "Set[" + ck_type_from_ast(c, inner) + "]";
+      return "Set[" + ck_type_from_ast_in(p, inner) + "]";
     }
     NkTyTuple(items) => {
       var parts = Vec[Str].new();
       var i = 0;
       while i < items.len() {
-        parts.push(ck_type_from_ast(c, items[i]));
+        parts.push(ck_type_from_ast_in(p, items[i]));
         i = i + 1;
       }
       return "Tuple__" + selfhost_check_types.ct_join(parts, "__");
     }
     NkTyPtr(inner) => {
-      return "*" + ck_type_from_ast(c, inner);
+      return "*" + ck_type_from_ast_in(p, inner);
     }
     NkTyArray(size_expr, inner) => {
-      return "Array[" + ck_type_from_ast(c, inner) + "]";
+      return "Array[" + ck_type_from_ast_in(p, inner) + "]";
     }
     NkTyFn(params, ret) => {
       var parts = Vec[Str].new();
       var i = 0;
       while i < params.len() {
-        parts.push(ck_type_from_ast(c, params[i]));
+        parts.push(ck_type_from_ast_in(p, params[i]));
         i = i + 1;
       }
       var r = "()";
-      if ret >= 0 { r = ck_type_from_ast(c, ret); }
+      if ret >= 0 { r = ck_type_from_ast_in(p, ret); }
       return "fn(" + selfhost_check_types.ct_join(parts, ", ") + ") -> " + r;
     }
     NkTyImplTrait(bounds) => {
       var parts = Vec[Str].new();
       var i = 0;
       while i < bounds.len() {
-        parts.push(ck_ident(c, bounds[i]));
+        parts.push(ck_ident_in(p, bounds[i]));
         i = i + 1;
       }
       return "impl " + selfhost_check_types.ct_join(parts, " + ");
@@ -353,10 +477,10 @@ pub fn ck_type_from_ast(c: &Checker, idx: Int) -> Str {
       var parts = Vec[Str].new();
       var i = 0;
       while i < fields.len() {
-        let fnode = c.p.nodes[fields[i]];
+        let fnode = p.nodes[fields[i]];
         match fnode.kind {
           NkField(name, ty) => {
-            parts.push(ck_ident(c, name) + "_" + ck_type_from_ast(c, ty));
+            parts.push(ck_ident_in(p, name) + "_" + ck_type_from_ast_in(p, ty));
           }
           _ => {}
         }

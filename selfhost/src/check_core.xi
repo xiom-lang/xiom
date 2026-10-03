@@ -23,6 +23,7 @@ module selfhost_check_core
 use xiom.string;
 use selfhost_ast.NodeKind;
 use selfhost_check_expr;
+use selfhost_check_modules;
 use selfhost_check_state;
 use selfhost_check_state.Checker;
 use selfhost_check_state.FnParam;
@@ -55,15 +56,7 @@ fn cc_dotted(prefix: Str, name: Str) -> Str {
 
 fn cc_push_fn(c: &mut Checker, key: Str, name: Str, params: Vec[FnParam],
               ret: Str, has_ret: Int, generics: Vec[Str], has_recv: Int) {
-  var i = 0;
-  while i < c.functions.len() {
-    if c.functions[i].key == key { return; }
-    i = i + 1;
-  }
-  c.functions.push(FnSig{
-    key: key, name: name, params: params, ret: ret, has_ret: has_ret,
-    generics: generics, has_recv: has_recv,
-  });
+  selfhost_check_modules.cm_push_fn(c, key, name, params, ret, has_ret, generics, has_recv);
 }
 
 /// Register `key` plus the bare fallback (Rust `entry().or_insert`).
@@ -86,35 +79,11 @@ fn cc_push_local_vec(v: &mut Vec[Local], name: Str, ty: Str) {
 }
 
 fn cc_read_params(c: &Checker, params: Vec[Int]) -> Vec[FnParam] {
-  var out = Vec[FnParam].new();
-  var i = 0;
-  while i < params.len() {
-    let pnode = c.p.nodes[params[i]];
-    match pnode.kind {
-      NkParam(name, ty, mutself, refself) => {
-        out.push(FnParam{ name: ck_ident(c, name), ty: ck_type_from_ast(c, ty) });
-      }
-      _ => {}
-    }
-    i = i + 1;
-  }
-  return out;
+  return selfhost_check_modules.cm_read_params(&c.p, params);
 }
 
 fn cc_read_generics(c: &Checker, generics: Vec[Int]) -> Vec[Str] {
-  var out = Vec[Str].new();
-  var i = 0;
-  while i < generics.len() {
-    let gnode = c.p.nodes[generics[i]];
-    match gnode.kind {
-      NkGeneric(name, bounds, is_const, const_ty) => {
-        out.push(ck_ident(c, name));
-      }
-      _ => {}
-    }
-    i = i + 1;
-  }
-  return out;
+  return selfhost_check_modules.cm_read_generics(&c.p, generics);
 }
 
 /// Elided/anonymous annotations resolve structurally (Rust
@@ -205,6 +174,7 @@ fn cc_scan(c: &mut Checker, idx: Int, modpath: Str) {
     NkModule(name, path, items, file_level, has_source, source) => {
       let nm = ck_ident(c, name);
       let newp = cc_dotted(modpath, nm);
+      selfhost_check_state.ck_add_module_name(c, newp);
       var i = 0;
       while i < items.len() {
         cc_scan(c, items[i], newp);
@@ -213,6 +183,14 @@ fn cc_scan(c: &mut Checker, idx: Int, modpath: Str) {
     }
     NkUse(path, glob, alias) => {
       c.has_uses = 1;
+      var dotted = "";
+      var ui = 0;
+      while ui < path.len() {
+        if ui > 0 { dotted = dotted + "."; }
+        dotted = dotted + ck_ident(c, path[ui]);
+        ui = ui + 1;
+      }
+      selfhost_check_modules.cm_load_use(c, dotted);
     }
     NkTypeDecl(is_pub, name, generics, fields, derived, invariants, derives, alias) => {
       cc_register_type(c, name, fields, alias, modpath);

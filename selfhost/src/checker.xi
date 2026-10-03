@@ -25,6 +25,7 @@ use xiom.io;
 use xiom.string;
 use selfhost_check_core;
 use selfhost_check_expr;
+use selfhost_check_modules;
 use selfhost_check_state;
 use selfhost_lexer;
 use selfhost_parser_core;
@@ -33,13 +34,13 @@ use selfhost_parser_state;
 /// Phase 0 compatibility shim used by the default compile path: only HARD
 /// errors stop codegen (the Rust driver exits 0 on warnings, e.g. W003/W008
 /// in the corpus). The checker gate uses `dump_check` directly.
-pub fn check_count(src: Str) -> Int {
+pub fn check_count(src: Str, src_path: Str) -> Int {
   var lx = selfhost_lexer.Lexer.new(src);
   let toks = selfhost_lexer.lx_tokenize(&mut lx);
   var p = selfhost_parser_state.p_new(toks);
   let root = selfhost_parser_core.pc_parse_program(&mut p);
   if root < 0 || selfhost_parser_state.p_failed(&p) { return 1; }
-  var c = selfhost_check_state.ck_new(p);
+  var c = selfhost_check_state.ck_new(p, selfhost_check_modules.cm_src_dir(src_path));
   selfhost_check_core.cc_collect(&mut c, root);
   selfhost_check_core.cc_check_program(&mut c, root);
   return c.errors.len();
@@ -112,8 +113,10 @@ fn ck_push_diag(out: &mut Vec[UInt8], kind: Str, code: Str, line: Int, col: Int,
   out.push(10);
 }
 
-/// Canonical checker dump (Phase 3 parity gate entry point).
-pub fn dump_check(src: Str) -> Int {
+/// Canonical checker dump (Phase 3 parity gate entry point). `src_path` is
+/// the path AS GIVEN on the command line: it anchors local `use` module
+/// resolution (`use vecmod;` -> sibling `vecmod.xi`).
+pub fn dump_check(src: Str, src_path: Str) -> Int {
   var lx = selfhost_lexer.Lexer.new(src);
   let toks = selfhost_lexer.lx_tokenize(&mut lx);
   var p = selfhost_parser_state.p_new(toks);
@@ -122,7 +125,7 @@ pub fn dump_check(src: Str) -> Int {
     io.println("PARSE-ERROR");
     return 0;
   }
-  var c = selfhost_check_state.ck_new(p);
+  var c = selfhost_check_state.ck_new(p, selfhost_check_modules.cm_src_dir(src_path));
   selfhost_check_core.cc_collect(&mut c, root);
   selfhost_check_core.cc_check_program(&mut c, root);
   var out = Vec[UInt8].new();

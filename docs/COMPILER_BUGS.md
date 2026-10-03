@@ -866,6 +866,33 @@ stdlib-exec 85/85 (+2 ign), api-freeze 2/2 after the change.
 
 ---
 
+## 2026-10-03 -- OPEN (selfhost Phase 3 port finding): `io.list_dir` returns pointer bits instead of directory names
+
+Found while porting the checker's catalog module index. `io.list_dir(path)`
+reports a plausible count but every `Vec[Str]` entry holds heap/pointer bits:
+on `stdlib/xiom` (45 entries) each element compares unequal to its real name
+and dumps raw bytes `196,202,13,184,66,2,0,0,0,0` (0x0000_0242_B80D_CAC4,
+little-endian) -- the same 10 bytes for every entry. `e == "io"` and
+`e == "string"` are both false and `str_len(e)` returns 6 for all of them, so
+the elements are not valid Str values at all.
+
+Repro:
+`tmp/sprintc/phase3_checker/listdir_probe3.xi` compiled with the Rust driver
+(`xiom -o listdir_probe3.exe listdir_probe3.xi`), prints the byte dump above;
+`listdir_probe.xi` shows the same values rendered as decimal. Same class as
+m163 (method field `Vec[Str]` element miscompile) but on a stdlib entry point.
+
+Impact: a declared-header stdlib module index cannot be built from the
+selfhost, so the Phase 3 catalog port falls back to a static relocation table
+for the 19 modules whose declared dotted name does not match any path shape
+(`selfhost/src/check_modules.xi::cm_static_module_path`, computed by
+`tmp/sprintc/phase3_checker/module_overrides.ps1`). Fix direction: the
+`Vec[Str]` construction inside `stdlib/xiom/io/io.xi::list_dir` (or the
+underlying `opendir`/`readdir` binding) must load the pointee rather than
+passing the pointer bits as the element.
+
+---
+
 ## 2026-10-02 -- OPEN (selfhost Phase 3 port finding): `NkAssign` destructure reads the second payload field as pointer bits
 
 Same failure class as Phase 2 (h), but in a SMALL function: while porting

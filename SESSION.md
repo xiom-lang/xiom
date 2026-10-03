@@ -342,6 +342,28 @@ Supersedes the (11) handoff below (kept as history).
   `diff_ast` ok (88.8 s), T1 `diff_corpus` ok (128.7 s), `cargo test -p xiom
   --bin xiom` 6/6, `cargo test -p xiom --lib dump_check` 1/1 (142.3 s).
   T2 remains unreachable (pre-existing stub emitter).
+- Stage B2 (2026-10-03): catalog/imports resolution (Phase 3 sub-stage 1).
+  New `selfhost/src/check_modules.xi` loads imported module sources (stdlib
+  shapes + local files + the 19-entry static relocation table for modules
+  whose declared dotted name does not match their path, e.g.
+  `xiom.path` -> `stdlib/xiom/os/path.xi`), registers pub fns/types/consts
+  and extern fns under their dotted keys, binds `use` aliases only when the
+  file's declared `module` matches (R49-1), and tracks in-program module
+  names so `pipeline.fn(...)` resolves like Rust. `check_expr.xi` resolves
+  module/member paths for calls, fields, receivers and the `xiom.` namespace
+  root; bare lowercase unknowns in `use` files error like Rust (uppercase
+  type-ish names stay permissive). 18 new manifest cases under
+  `selfhost/tests/check_negative/catalog/` (fixtures dmod.xi/dmod2.xi).
+  Gate: `diff_check` -> 83 corpus files (5 diagnostic lines, non-vacuous) +
+  34 manifest cases, 1 passed (255.4 s). `diff_tokens`/`diff_ast`/T1 +
+  `runtime_ffi_selfcheck` re-run green in the same session.
+  Finding filed: `io.list_dir` returns pointer bits instead of names
+  (COMPILER_BUGS 2026-10-03), blocking a dynamic stdlib header index; the
+  static relocation table is the staged workaround. Also observed once:
+  whole-program `-o` builds of the selfhost intermittently exit `-1` with no
+  diagnostics while a stdlib smoke lane runs on the shared box (not
+  reproducible in isolation afterwards; no COMPILER_BUGS entry without a
+  clean repro).
 
 
 # CONTINUATION HANDOFF (2026-10-02 (11), v0.62.2 shipped; m167/m168 fixed; phased queue)

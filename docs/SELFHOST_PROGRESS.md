@@ -168,6 +168,17 @@ Stage-1 checker port is GREEN as a gate; the phase itself is NOT complete
   (crash `0xC0000005`) while one-arm accessor helpers read both fields
   correctly; workaround is side-helper field accessors (same class as
   Phase 2 (h)).
+- Sub-stage 1 (2026-10-03): catalog/imports resolution.
+  `selfhost/src/check_modules.xi` loads imported module sources (stdlib
+  shapes, local files, static relocation table for the 19 modules whose
+  declared name does not match their path), registers pub fns/types/consts
+  and externs under dotted keys, binds `use` aliases on declared-module
+  match and tracks in-program module names; qualified calls/fields and the
+  `xiom.` namespace path resolve like Rust, and bare lowercase unknowns in
+  `use` files error. `diff_check` remains green at 83 corpus files + 34
+  manifest cases (18 new catalog cases). Finding filed: `io.list_dir`
+  returns pointer bits instead of names (COMPILER_BUGS 2026-10-03). Meter
+  unchanged (3 of 11).
 
 ## Open blockers and risks
 

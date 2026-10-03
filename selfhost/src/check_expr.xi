@@ -25,6 +25,7 @@ module selfhost_check_expr
 use xiom.string;
 use selfhost_ast.Span;
 use selfhost_ast.NodeKind;
+use selfhost_check_modules;
 use selfhost_check_state;
 use selfhost_check_state.Checker;
 use selfhost_check_state.FnParam;
@@ -614,14 +615,28 @@ fn ce_bind_pattern(c: &mut Checker, pat: Int, scrut_ty: Str) {
     NkPatVariant(name, fields) => {
       var i = 0;
       while i < fields.len() {
-        ce_bind_pattern(c, fields[i], "_");
+        // Enum-variant payload names are stored as raw Idents (Rust `Name`
+        // dump label), unlike Option/Result wrappers which hold patterns.
+        let f = c.p.nodes[fields[i]];
+        match f.kind {
+          NkIdent(pname) => {
+            if pname.len() > 0 && pname != "_" { ck_add_local(c, pname, "_"); }
+          }
+          _ => { ce_bind_pattern(c, fields[i], "_"); }
+        }
         i = i + 1;
       }
     }
     NkPatStruct(name, fields) => {
       var i = 0;
       while i < fields.len() {
-        ce_bind_pattern(c, fields[i], "_");
+        let f = c.p.nodes[fields[i]];
+        match f.kind {
+          NkIdent(pname) => {
+            if pname.len() > 0 && pname != "_" { ck_add_local(c, pname, "_"); }
+          }
+          _ => { ce_bind_pattern(c, fields[i], "_"); }
+        }
         i = i + 1;
       }
     }
@@ -1233,9 +1248,30 @@ fn ce_check_ident(c: &mut Checker, idx: Int, name_idx: Int) -> Str {
   if ck_find_type(c, name) >= 0 { return name; }
   let vi = ck_find_variant(c, name);
   if vi >= 0 { return c.variants[vi].enum_name; }
-  if c.has_uses == 1 { return "_"; }
+  // Imported module exports reach bare scope (`use m;` / `use m.fn;`).
+  let loaded = selfhost_check_state.ck_loaded_bare(c, name);
+  if loaded.len() > 0 { return loaded; }
+  if c.has_uses == 1 {
+    // Deferred: type-ish (uppercase) names from modules stay permissive;
+    // Rust resolves them through the import closure and unknown types pass
+    // anyway. Lowercase unknowns error like Rust, except namespace/alias
+    // roots used as values (`xiom`, `path`).
+    if name == "xiom" { return "_"; }
+    if selfhost_check_state.ck_is_module_name(c, name) { return "_"; }
+    if ck_alias_key(c, name).len() > 0 { return "_"; }
+    if ce_starts_upper(name) { return "_"; }
+    let sp = ck_span_of(c, idx);
+    return ck_error_at(c, "undefined variable '" + name + "'", sp.line, sp.col);
+  }
   let sp = ck_span_of(c, idx);
   return ck_error_at(c, "undefined variable '" + name + "'", sp.line, sp.col);
+}
+
+fn ce_starts_upper(name: Str) -> Bool {
+  if name.len() == 0 { return false; }
+  let b = string.byte_at(name, 0) as Int;
+  if b >= 65 && b <= 90 { return true; }
+  return false;
 }
 
 fn ce_check_unary(c: &mut Checker, idx: Int, op: Int, inner: Int) -> Str {
@@ -1421,6 +1457,16 @@ fn ce_is_ptr_like_expr_ty(ty: Str) -> Bool {
 
 fn ce_check_field(c: &mut Checker, idx: Int, obj: Int, name_idx: Int) -> Str {
   let field = ck_ident(c, name_idx);
+  // Module/type path receiver (`io.constant`, `xiom.math.shr`, `rc.Rc`).
+  let obj_key = selfhost_check_modules.cm_module_chain_key(c, obj);
+  if obj_key.len() > 0 {
+    let cand = obj_key + "." + field;
+    if ck_find_type(c, cand) >= 0 { return cand; }
+    if ck_find_fn(c, cand) >= 0 { return "fn"; }
+    let g = selfhost_check_state.ck_lookup_global(c, cand);
+    if g.len() > 0 { return g; }
+    return "_";
+  }
   let obj_ty = ce_check_expr(c, obj);
   let sp = ck_span_of(c, idx);
   if obj_ty == "_" || obj_ty == "<error>" { return "_"; }
@@ -1522,6 +1568,12 @@ fn ce_check_bare_call(c: &mut Checker, idx: Int, name_idx: Int, args: Vec[Int]) 
   if fi >= 0 {
     return ce_check_call_sig(c, c.functions[fi], name, args, sp);
   }
+  // Imported module exports: `use m;` / `use m.fn;` make `m`'s pub fns
+  // reachable by bare name (Rust registers the bare fallback per module).
+  let lfi = selfhost_check_state.ck_loaded_fn(c, name);
+  if lfi >= 0 {
+    return ce_check_call_sig(c, c.functions[lfi], name, args, sp);
+  }
   // Builtin literal constructors / tuple-struct ctors: `Type(args)`.
   if ck_find_type(c, name) >= 0 {
     var i = 0;
@@ -1549,6 +1601,20 @@ fn ce_check_bare_call(c: &mut Checker, idx: Int, name_idx: Int, args: Vec[Int]) 
     return "_";
   }
   if c.has_uses == 1 {
+    // Lowercase unknown calls error like Rust (the unresolved call types as
+    // Unit, so the caller's return check reports the observed cascade);
+    // uppercase names may be module types/fns the stage-1 import closure
+    // cannot enumerate, so they stay permissive.
+    if !ce_starts_upper(name) {
+      let isp = ck_span_of(c, name_idx);
+      let _ = ck_error_at(c, "undefined variable '" + name + "'", isp.line, isp.col);
+      var i = 0;
+      while i < args.len() {
+        let _ = ce_check_expr(c, args[i]);
+        i = i + 1;
+      }
+      return "()";
+    }
     var i = 0;
     while i < args.len() {
       let _ = ce_check_expr(c, args[i]);
@@ -1626,6 +1692,39 @@ fn ce_check_method_call(c: &mut Checker, idx: Int, obj: Int, method_idx: Int, ar
     }
     return "_";
   }
+  // Module/type path receiver (`io.println(...)`, `xiom.math.shr(...)`,
+  // `pipeline.run(...)`) when the receiver is not a value.
+  let obj_name = ce_ident_text(c, obj);
+  var is_value_name = false;
+  if obj_name.len() > 0 {
+    if ck_lookup_local(c, obj_name) != "" || ck_lookup_global(c, obj_name) != "" {
+      is_value_name = true;
+    }
+  }
+  if !is_value_name {
+    let chain_key = selfhost_check_modules.cm_module_chain_key(c, obj);
+    if chain_key.len() > 0 {
+      let shown = selfhost_check_modules.cm_chain_text(c, obj);
+      return ce_check_module_member_call(c, idx, shown, chain_key, method, args);
+    }
+    // Unknown lowercase receiver in method position: Rust resolves the
+    // `recv.member` path and reports the call target, not the receiver.
+    if obj_name.len() > 0
+      && ck_find_type(c, obj_name) < 0
+      && ck_find_variant(c, obj_name) < 0
+      && selfhost_check_state.ck_loaded_bare(c, obj_name) == ""
+      && !ce_starts_upper(obj_name)
+      && obj_name != "this"
+      && obj_name != "self"
+    {
+      var ui = 0;
+      while ui < args.len() {
+        let _ = ce_check_expr(c, args[ui]);
+        ui = ui + 1;
+      }
+      return ck_error_at(c, "cannot call '" + method + "' on this expression", sp.line, sp.col);
+    }
+  }
   let obj_ty = ce_check_expr(c, obj);
   if obj_ty == "<error>" { return "<error>"; }
   // Module-qualified call: the receiver is not a known value/type.
@@ -1668,6 +1767,74 @@ fn ce_check_method_call(c: &mut Checker, idx: Int, obj: Int, method_idx: Int, ar
     i = i + 1;
   }
   return "_";
+}
+
+/// Module-qualified call through a `use` alias. Message shapes mirror Rust
+/// `check_module_call`: `{path} expects N argument(s), found M`, `argument i
+/// type mismatch: ...`, and the unknown-member fallback
+/// `cannot call '{member}' on this expression`; all at the call span.
+fn ce_check_module_member_call(c: &mut Checker, idx: Int, alias: Str, key: Str,
+                               member: Str, args: Vec<Int>) -> Str {
+  let sp = ck_span_of(c, idx);
+  let shown = alias + "." + member;
+  let fi = ck_find_fn(c, key + "." + member);
+  if fi >= 0 {
+    let sig = c.functions[fi];
+    if args.len() != sig.params.len() {
+      let _ = ck_error_at(c, shown + " expects " + ce_int_str(sig.params.len())
+        + " argument(s), found " + ce_int_str(args.len()), sp.line, sp.col);
+    }
+    var i = 0;
+    while i < args.len() {
+      let arg_ty = ce_check_expr(c, args[i]);
+      if i < sig.params.len() {
+        let e = sig.params[i].ty;
+        if !ck_types_compatible(c, arg_ty, e) && arg_ty != "<error>" {
+          let _ = ck_error_at(c, "argument " + ce_int_str(i + 1)
+            + " type mismatch: expected " + e + ", found " + arg_ty, sp.line, sp.col);
+        }
+      }
+      i = i + 1;
+    }
+    var ret = "()";
+    if sig.has_ret == 1 { ret = sig.ret; }
+    return ret;
+  }
+  let ti = ck_find_type(c, key + "." + member);
+  if ti >= 0 {
+    var i = 0;
+    while i < args.len() {
+      let _ = ce_check_expr(c, args[i]);
+      i = i + 1;
+    }
+    return member;
+  }
+  let g = selfhost_check_state.ck_lookup_global(c, key + "." + member);
+  if g.len() > 0 {
+    var i = 0;
+    while i < args.len() {
+      let _ = ce_check_expr(c, args[i]);
+      i = i + 1;
+    }
+    return g;
+  }
+  // A member that names another module file (`io.console.readline`) is a
+  // submodule path: defer instead of erroring.
+  let sub = key + "." + member;
+  if selfhost_check_modules.cm_resolve_module_file(c, sub).len() > 0 {
+    var i = 0;
+    while i < args.len() {
+      let _ = ce_check_expr(c, args[i]);
+      i = i + 1;
+    }
+    return "_";
+  }
+  var i = 0;
+  while i < args.len() {
+    let _ = ce_check_expr(c, args[i]);
+    i = i + 1;
+  }
+  return ck_error_at(c, "cannot call '" + member + "' on this expression", sp.line, sp.col);
 }
 
 fn ce_check_static_method(c: &mut Checker, sig: FnSig, shown: Str, tn: Str, args: Vec[Int], sp: Span) -> Str {
