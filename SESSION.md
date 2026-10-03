@@ -10,17 +10,18 @@
 > `any_contracts()` AV is fixed, (3) suites are green, (4) Gate P runs on a
 > FRESH stdlib tag. Method rules at the bottom of this block.
 >
-> 1. ARC DEFECT (compiler, pre-tag blocker). m166 direct unsafe path:
->    `Arc.new_Int` allocates 8 bytes for a 16-byte ArcInner (IR evidence:
->    malloc(8) + 16-byte struct store). Trigger requires the perf2
->    `#[unsafe_direct]` sync annotations; stripping them makes HEAD green
->    (experiment done, worktree restored annotated). FIX LOCATION:
->    `crates/xiom-codegen/src/call.rs` size intrinsics ~L3160-3260 -- the
->    `ta.is_none()` monomorphised special case lists only RcInner/Rc.*;
->    extend to ArcInner/Arc.new_/Arc.drop_ (audit Mutex/RwLock/Barrier) or
->    resolve the substitution generally before the intrinsic. LOCK: m179 Arc
->    fixture + IR check (`malloc(16)` for ArcInner[Int]) + e2e + era matrix
->    (HEAD + stdlib_pf2 must reach rc 0). Era worktrees (rebuild if aged):
+> 1. ARC DEFECT -- FIXED (m179, this session). Root cause (exact): the
+>    parser lowers `size_of[ArcInner[T]]()` to a GenericCall whose explicit
+>    type list is the reduced base `["ArcInner"]` (nested `[T]` dropped);
+>    the size intrinsics never read that list, so `Arc.new_Int` took the
+>    8-byte scalar fallback (malloc(8) for the 16-byte ArcInner store).
+>    Fix: call.rs size intrinsics resolve the name from the generic-call
+>    list first (mono-substituted), then the family fallback (Arc added to
+>    the Rc/Weak list). Locks: `regress_m179_size_of_nested_generic_mono`
+>    (IR, verified red-before), `e2e_m179_arc_strong_count` + fixture,
+>    ci.yml line; era matrix HEAD + stdlib_pf2 rc 0 (was rc 1); IR
+>    `malloc(16)`. Full e2e + stdlib-exec in the batch run with the
+>    contracts fix. Era worktrees (rebuild if aged):
 >    `tmp/sprintc/stdlib_v0620`, `stdlib_pf1`, `stdlib_pf2`.
 > 2. CONTRACTS AV (0xC0000005; repro
 >    `E:\xiom-lang\stdlib\tools\known_failures\p_contracts_any_av.xi`).

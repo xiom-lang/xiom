@@ -3173,27 +3173,18 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 _ => None,
                             }
                         });
-                    // 5e.3: parser drops nested generic type args like
-                    // RcInner[T] in size_of[RcInner[T]](). When ta is None,
-                    // check if we're inside a monomorphised Rc/RcInner context
-                    // and compute the size of the base struct directly.
-                    if ta.is_none() {
-                        if let Some(ref current_fn) = self.fctx.current_fn {
-                            if current_fn.contains("RcInner") || current_fn.contains("Rc.new_") || current_fn.contains("Rc.drop_") || current_fn.contains("Weak.drop_") {
-                                let sz = if fn_name == "sizeof" {
-                                    self.sizeof_struct("RcInner") as i64
-                                } else {
-                                    self.struct_byte_size("RcInner")
-                                };
-                                if sz > 0 {
-                                    if fn_name == "align_of" { return Ok(("8".to_string(), LLVM_I64.to_string())); }
-                                    return Ok((sz.to_string(), LLVM_I64.to_string()));
-                                }
-                            }
-                        }
-                    }
+                    // m179: the generic-call parser reduces a nested type arg to
+                    // its BASE name (`size_of[ArcInner[T]]()` -> GenericCall with
+                    // explicit types ["ArcInner"]; the `[T]` is dropped). That
+                    // source is not in `ta`, so the size fell to the 8-byte
+                    // scalar fallback and the annotated Arc.new_Int allocated 8
+                    // bytes for a 16-byte ArcInner (heap overflow). Resolve the
+                    // name from (in order): the AST index/arg source, the
+                    // generic-call type list (mono-substituted), then the
+                    // monomorphised family fallback for shapes with no type AST.
+                    let mut xiom_ty = String::new();
                     if let Some(ta) = ta {
-                        let xiom_ty = match ta {
+                        xiom_ty = match ta {
                             Expr::Ident(id) => id.name.clone(),
                             Expr::Field(_, f, _) => f.name.clone(),
                             // 5e.3: parameterized types like RcInner[T] parse as
@@ -3206,29 +3197,73 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             },
                             _ => String::new(),
                         };
-                        if !xiom_ty.is_empty() {
-                            let llvm_ty = self.llvm_type_for(&xiom_ty)
-                                .unwrap_or_else(|_| {
-                                    Self::xiom_to_llvm_type(&xiom_ty).to_string()
-                                });
-                            let size = if llvm_ty.starts_with("%struct.") {
-                                let type_name = llvm_ty[8..].to_string();
-                                if fn_name == "sizeof" {
-                                    // 5e.1 G-18: precise LLVM byte widths for C FFI.
-                                    // i8=1, i16=2, i32=4, i64=8 -- matches C ABI sizes.
-                                    self.sizeof_struct(&type_name) as i64
-                                } else {
-                                    self.struct_byte_size(&type_name)
-                                }
+                    }
+                    if xiom_ty.is_empty() && ta.is_none() {
+                        if let Some(explicit_ty) =
+                            explicit_generic_types.first().filter(|t| !t.is_empty())
+                        {
+                            let mut map = self.mono.current_type_map.clone();
+                            for (k, v) in &self.mono.param_concrete_types {
+                                map.entry(k.clone()).or_insert_with(|| v.clone());
+                            }
+                            xiom_ty = Self::subst_type_tokens(explicit_ty, &map);
+                        }
+                    }
+                    // 5e.3: no AST type source at all -- fall back to the
+                    // monomorphised call context's refcount/inner family
+                    // (`...Rc.new_x` / `...Arc.drop_x` / `...ArcInner...`) and
+                    // size the base Inner struct directly. Arc joins the Rc
+                    // list: m179, the unsafe_direct sync annotations put this
+                    // path in play for Arc for the first time.
+                    let mut from_family_fallback = false;
+                    if xiom_ty.is_empty() && ta.is_none() {
+                        if let Some(ref current_fn) = self.fctx.current_fn {
+                            let family: Option<&str> = if current_fn.contains("RcInner")
+                                || current_fn.contains("Rc.new_")
+                                || current_fn.contains("Rc.drop_")
+                                || current_fn.contains("Weak.drop_")
+                            {
+                                Some("RcInner")
+                            } else if current_fn.contains("ArcInner")
+                                || current_fn.contains("Arc.new_")
+                                || current_fn.contains("Arc.drop_")
+                            {
+                                Some("ArcInner")
                             } else {
-                                match llvm_ty.as_str() {
-                                    "i1" | "i8" => 1,
-                                    "i16" => 2,
-                                    "i32" | "float" => 4,
-                                    "i64" | "double" | "i8*" | "ptr" => 8,
-                                    _ => 8,
-                                }
+                                None
                             };
+                            if let Some(inner) = family {
+                                xiom_ty = inner.to_string();
+                                from_family_fallback = true;
+                            }
+                        }
+                    }
+                    if !xiom_ty.is_empty() {
+                        let llvm_ty = self.llvm_type_for(&xiom_ty)
+                            .unwrap_or_else(|_| {
+                                Self::xiom_to_llvm_type(&xiom_ty).to_string()
+                            });
+                        let size = if llvm_ty.starts_with("%struct.") {
+                            let type_name = llvm_ty[8..].to_string();
+                            if fn_name == "sizeof" {
+                                // 5e.1 G-18: precise LLVM byte widths for C FFI.
+                                // i8=1, i16=2, i32=4, i64=8 -- matches C ABI sizes.
+                                self.sizeof_struct(&type_name) as i64
+                            } else {
+                                self.struct_byte_size(&type_name)
+                            }
+                        } else {
+                            match llvm_ty.as_str() {
+                                "i1" | "i8" => 1,
+                                "i16" => 2,
+                                "i32" | "float" => 4,
+                                "i64" | "double" | "i8*" | "ptr" => 8,
+                                _ => 8,
+                            }
+                        };
+                        // Old family-fallback guard: an unresolvable sizeof must
+                        // still answer the scalar fallback, not 0.
+                        if !(from_family_fallback && fn_name == "sizeof" && size == 0) {
                             if fn_name == "align_of" {
                                 let align = if llvm_ty.starts_with("%struct.") { 8 } else { size };
                                 return Ok((align.to_string(), LLVM_I64.to_string()));

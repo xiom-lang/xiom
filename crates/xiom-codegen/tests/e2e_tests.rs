@@ -4890,6 +4890,30 @@ fn e2e_safety_probe() {
     );
 }
 
+// m179 (release hold, stdlib-perf2): the `#[unsafe_direct]` sync annotation
+// put Arc.new_Int on the direct path; `size_of[ArcInner[T]]()` hit the
+// 8-byte scalar fallback and the 16-byte ArcInner store overflowed the
+// malloc(8) buffer, so `strong_count()` read garbage (!= 1). The probe
+// asserts strong_count == 1 and get() == 42 right after construction.
+// Needs a stdlib checkout; the annotation-bearing pin makes this the true
+// regression lock (pre-perf2 pins pass vacuously).
+#[test] fn e2e_m179_arc_strong_count() {
+    let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
+    if !stdlib_root.join("xiom").join("sync").join("sync.xi").exists() {
+        let msg = "SKIP: stdlib checkout has no xiom/sync/sync.xi";
+        if xiom_graph::paths::require_stdlib() {
+            panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
+        }
+        eprintln!("{msg}");
+        return;
+    }
+    assert_eq!(
+        compile_and_run("tests/regression/m179_arc_strong_count/main.xi"),
+        Some(0),
+        "m179 Arc strong_count probe must compile and run"
+    );
+}
+
 // R48 (playground C17 classes): interface dispatch through a `&T` generic
 // argument (was mono'd as Int -> C001) and pointer/double match-result
 // zero-init (was `store i8* 0` / `store double 0` -> clang reject). Needs

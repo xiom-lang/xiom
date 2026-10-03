@@ -6746,5 +6746,40 @@ fn main() -> Int {
     let ir = compile_checked(src).unwrap();
     assert!(ir.contains("define"), "OPT-R7: Vec index must compile");
     // Must use extractvalue, not alloca per access
-    assert!(ir.contains("extractvalue %struct.Vec"), "OPT-R7: must use extractvalue, not per-access alloca");
+    assert!(ir.contains("extractvalue %struct.Vec"), "OPT-R7: must use extractvalue, not per-access alloc");
+}
+
+// m179 (release hold, stdlib-perf2): `size_of[Inner[T]]()` inside a
+// monomorphised generic fn used to fall to the 8-byte scalar fallback. The
+// generic-call parser reduces the nested type arg to its base name
+// (explicit types ["Inner"]); the size intrinsic only consulted the AST
+// index/arg sources, so `#[unsafe_direct]` Arc.new_Int allocated malloc(8)
+// for the 16-byte ArcInner and stored a 16-byte struct into it (heap
+// overflow; strong_count then read garbage). The intrinsic must resolve
+// the base struct through the mono-substituted generic-call type list.
+#[test]
+fn regress_m179_size_of_nested_generic_mono() {
+    let source = r#"
+pub type Inner[T] = { count: *Int; value: T; }
+#[unsafe_direct]
+pub fn inner_size[T](value: T) -> Int {
+  let isize = size_of[Inner[T]]();
+  return isize;
+}
+fn main() -> Int { return inner_size(42) - 16; }
+"#;
+    let ir = compile(source).expect("m179: nested-generic size_of must compile");
+    let start = ir.find("define i64 @inner_size_Int")
+        .unwrap_or_else(|| panic!("m179: the monomorphised fn must be emitted; got:\n{ir}"));
+    let rest = &ir[start..];
+    let end = rest.find("\ndefine ").map(|i| i + 1).unwrap_or(rest.len());
+    let body = &rest[..end];
+    assert!(
+        body.contains("store i64 16, i64*"),
+        "m179: size_of[Inner[T]] must resolve to the 16-byte struct size; got:\n{body}"
+    );
+    assert!(
+        !body.contains("store i64 8, i64*"),
+        "m179: the 8-byte scalar fallback must be gone; got:\n{body}"
+    );
 }

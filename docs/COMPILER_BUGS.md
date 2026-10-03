@@ -10,6 +10,50 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-03 -- FIXED (m179): nested-generic `size_of` resolved 8 bytes -- Arc strong_count on the unsafe_direct sync path
+
+ROOT CAUSE (exact): the parser lowers `size_of[ArcInner[T]]()` to a
+GenericCall whose explicit type list is the reduced BASE name
+(`["ArcInner"]`; the nested `[T]` is dropped). The size intrinsics in
+`crates/xiom-codegen/src/call.rs` only consulted `type_arg` / `args[0]` /
+an Index-form `func`, so for that shape `ta` was None AND the
+GenericCall list was never read. The monomorphised `Arc.new_Int` body then
+took the 8-byte scalar fallback: IR `store i64 8` -> `malloc(i64 8)` for
+the control block, immediately followed by a 16-byte `%struct.ArcInner`
+store (heap overflow). `strong_count()` read corrupted memory (!= 1).
+This is why only `#[unsafe_direct]` builds were red: the direct path
+inlines the generic body into the monomorphised fn (m166 trust), while
+the confined build's lifted blocks materialize substitutions differently.
+The Rc/Weak family was masked by a hardcoded special case that listed only
+RcInner/Rc.new_/Rc.drop_/Weak.drop_ -- Arc was not in it.
+
+FIX (call.rs size intrinsics): resolve the type name from three sources in
+order -- (1) the existing AST index/arg source; (2) the GenericCall
+`explicit_generic_types` list, mono-substituted through
+`current_type_map` + `param_concrete_types` (general: fixes any
+`size_of[Base[T]]()` shape, not just refcount); (3) the monomorphised
+family fallback, now extended with ArcInner/Arc.new_/Arc.drop_ (Rc/Weak
+behavior unchanged, including the `sizeof` zero-guard). The shared
+struct/scalar size resolution below is unchanged.
+
+EVIDENCE:
+- IR before/after (forced fresh, XIOM_STDLIB=tmp/sprintc/stdlib_pf2):
+  `Arc.new_Int` `store i64 8` -> `malloc(i64 8)` vs `store i64 16` ->
+  `malloc(i64 16)`; 16-byte ArcInner store fits after.
+- Runtime: pre-fix `head_pf2_arc.exe` rc=1; fixed rc=0
+  (`p_sync_arc_count.xi`, era matrix HEAD + stdlib_pf2).
+- Locks: `regress_m179_size_of_nested_generic_mono` (codegen IR; verified
+  red on the pre-fix tree, green after),
+  `e2e_m179_arc_strong_count` + `tests/regression/m179_arc_strong_count/`
+  (stdlib-guarded; true lock once the pin carries the perf2 annotations),
+  CI line in ci.yml. Feature regression 518/518 (pre-commit). Full e2e +
+  stdlib-exec in the batch run with the contracts fix.
+
+RELAY UNCHANGED: stdlib keeps the perf2 `#[unsafe_direct]` annotations;
+Gate P (t2) still depends on them.
+
+---
+
 ## 2026-10-03 -- LOCALIZED: Arc strong_count defect is m166 x stdlib-perf2 (unsafe_direct sync annotation)
 
 FIX LOCATION (2026-10-03): `crates/xiom-codegen/src/call.rs` size intrinsics
