@@ -263,27 +263,52 @@ fn checks_for(input: &DoctorInput) -> Vec<Check> {
                 remediation: Vec::new(),
             });
             if let Some(version) = version {
-                if version != input.compiler_version {
-                    checks.push(Check {
-                        name: "stdlib-version",
-                        status: Status::Warn,
-                        detail: format!(
-                            "stdlib version {version} does not match compiler {} -- re-run the installer so bin/ and lib/ ship together",
-                            input.compiler_version
-                        ),
-                        remediation: Vec::new(),
-                    });
-                }
-                if let Some(pin) = input.stdlib_pin.as_deref() {
-                    if version != pin {
+                // m187: the stdlib carries its OWN release line (the last
+                // `stdlib-v*` tag), decoupled from the compiler's: a correct
+                // install legitimately pairs compiler 0.62.3 with stdlib
+                // 0.62.0. Warn only when the MAJOR.MINOR lines differ (a
+                // genuinely mixed install); patch drift is normal. Tag pins
+                // (`stdlib-perf3`) carry no version and are skipped.
+                let minor_line = |v: &str| -> Option<String> {
+                    let v = v.trim().trim_start_matches("stdlib-v").trim_start_matches('v');
+                    let mut it = v.split('.');
+                    let a = it.next()?;
+                    let b = it.next()?;
+                    if a.is_empty() || b.is_empty() {
+                        None
+                    } else {
+                        Some(format!("{a}.{b}"))
+                    }
+                };
+                let std_line = minor_line(version);
+                if let (Some(std_line), Some(comp_line)) = (
+                    std_line.as_deref(),
+                    minor_line(&input.compiler_version).as_deref(),
+                ) {
+                    if std_line != comp_line {
                         checks.push(Check {
-                            name: "stdlib-pin",
+                            name: "stdlib-version",
                             status: Status::Warn,
                             detail: format!(
-                                "stdlib version {version} does not match the compiler's pinned stdlib {pin} -- this install mixes versions"
+                                "stdlib version {version} does not match compiler {} -- re-run the installer so bin/ and lib/ ship together",
+                                input.compiler_version
                             ),
                             remediation: Vec::new(),
                         });
+                    }
+                }
+                if let Some(pin) = input.stdlib_pin.as_deref() {
+                    if let Some(pin_line) = minor_line(pin) {
+                        if std_line.as_deref() != Some(pin_line.as_str()) {
+                            checks.push(Check {
+                                name: "stdlib-pin",
+                                status: Status::Warn,
+                                detail: format!(
+                                    "stdlib version {version} does not match the compiler's pinned stdlib {pin} -- this install mixes versions"
+                                ),
+                                remediation: Vec::new(),
+                            });
+                        }
                     }
                 }
             }

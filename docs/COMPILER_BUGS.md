@@ -64,6 +64,32 @@ after. Playground acceptance `tools/compiler-repros/c25/run.sh` prints
 
 ---
 
+## 2026-10-03 -- FIXED (m187): doctor's stdlib version checks compared unrelated version namespaces
+
+REPORT: `xiom doctor` on a correct v0.62.3 install (installer-fetched
+archive) warned "stdlib version 0.62.0 does not match compiler 0.62.3" and
+"does not match the compiler's pinned stdlib stdlib-perf3". The stdlib
+carries its OWN release line (`package.xi` = 0.62.0, last `stdlib-v*`
+tag); `stdlib-perf3` is a PIN TAG with no semver. A valid install pairs
+compiler 0.62.3 with stdlib 0.62.0 by design.
+
+FIX (doctor.rs): compare MAJOR.MINOR lines only (patch drift is normal) and
+skip pin checks for tag-shaped pins. Cross-minor pairs still warn; the
+`doctor_cli` fixture (fake 0.0.1) still exercises the warning. Local run:
+`[OK] stdlib v0.62.0` with no stdlib warnings.
+
+RELATED (website lane, relayed): the served `install.ps1` aborts on a
+stale `<InstallDir>.new` staging dir (`New-Item: item ... xiom.new already
+exists`) and can leave `xiom` off PATH after a locked-dir install; the
+website SESSION documents the side-by-side `.new` fallback. Unblock:
+close VS Code/XIOM processes, delete `%LOCALAPPDATA%\xiom.new`, re-run.
+
+REGISTRY (stdlib lane): `xiom-std 0.62.0` is the published artifact of the
+0.62.0 line; republishing needs a `package.xi` bump + a `stdlib-v*` tag
+(the publish workflow does the rest over OIDC).
+
+---
+
 ## 2026-10-03 -- FIXED (m186): inline module-qualified UInt32 call compares misread high-bit values
 
 Source: stdlib relay `tools/known_failures/p_uint32_high_bit_compare.xi`
