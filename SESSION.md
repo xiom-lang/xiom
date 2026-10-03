@@ -1,6 +1,85 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
+# CONTINUATION HANDOFF (2026-10-03 (13), v0.62.3 IN RELEASE HOLD -- two pre-existing defects; parallel lanes live)
+
+> KICKOFF (paste-ready): Continue the XIOM swarm compiler lane on `main`.
+> Read this top section, then `docs/COMPILER_BUGS.md` (2026-10-03 entries)
+> and `docs/SELFHOST_PROGRESS.md`. v0.62.3 is IN RELEASE HOLD: cut only
+> after (1) the Arc `#[unsafe_direct]` size miscompile is fixed, (2) the
+> `any_contracts()` AV is fixed, (3) suites are green, (4) Gate P runs on a
+> FRESH stdlib tag. Method rules at the bottom of this block.
+>
+> 1. ARC DEFECT (compiler, pre-tag blocker). m166 direct unsafe path:
+>    `Arc.new_Int` allocates 8 bytes for a 16-byte ArcInner (IR evidence:
+>    malloc(8) + 16-byte struct store). Trigger requires the perf2
+>    `#[unsafe_direct]` sync annotations; stripping them makes HEAD green
+>    (experiment done, worktree restored annotated). FIX LOCATION:
+>    `crates/xiom-codegen/src/call.rs` size intrinsics ~L3160-3260 -- the
+>    `ta.is_none()` monomorphised special case lists only RcInner/Rc.*;
+>    extend to ArcInner/Arc.new_/Arc.drop_ (audit Mutex/RwLock/Barrier) or
+>    resolve the substitution generally before the intrinsic. LOCK: m179 Arc
+>    fixture + IR check (`malloc(16)` for ArcInner[Int]) + e2e + era matrix
+>    (HEAD + stdlib_pf2 must reach rc 0). Era worktrees (rebuild if aged):
+>    `tmp/sprintc/stdlib_v0620`, `stdlib_pf1`, `stdlib_pf2`.
+> 2. CONTRACTS AV (0xC0000005; repro
+>    `E:\xiom-lang\stdlib\tools\known_failures\p_contracts_any_av.xi`).
+>    Red on v0.62.0/v0.62.1 with the current tree -> era-pin bisect first
+>    (v0620/pf1/pf2) to separate a pure compiler regression from another
+>    compiler x stdlib interaction. Suspect the zero-arg contract registry
+>    walk. Then fix + lock.
+> 3. SUITES (after 1-2): full e2e 8 threads, feature 517, checker 195,
+>    checker_locks 28, stdlib-exec 85 (+2 ign), api-freeze 2/2. NOTE:
+>    stdlib-exec/freeze flake under machine load (selfhost build) with EMPTY
+>    driver output and nonzero exit -- rerun isolated/idle before treating a
+>    red as real (today's reds included the real xiom.net T001s, since
+>    fixed by stdlib e997201/8b23b79).
+> 4. GATE P: ask the stdlib lane for a FRESH tag at their then-current main
+>    (>= `8b23b79`; candidate `stdlib-perf3`), bump `STDLIB_VERSION`, regen
+>    the api-freeze snapshot, run benchmark t2 (compiler half `185342f4`),
+>    then tag v0.62.3. The pin policy: release ships the latest TAGGED
+>    stdlib including waves 54-58; anything landing after the tag waits.
+>
+> RELAYS ALREADY PASSED: stdlib must KEEP the perf2 `#[unsafe_direct]` sync
+> annotations (Arc failure is compiler-side; Gate P depends on them).
+> Registry: staging index-key pin recorded (`xiom pkg trust --registry <url>
+> --index-key 0f07f71a052e16f10c20c5f6198adf168e3a9f092f6bc11b6255e64e11746efb`,
+> fp 0f:07:f7:1a:05:2e:16:f1); production pin unchanged.
+>
+> PARALLEL: selfhost Phase 3 (Agent Manager session
+> `ses_f01f1e04affeAYkPxrlvgZQzMc`, branch `selfhost-phase-3-checker`) is
+> resumed for the W000/W004/W006/W007 lints + borrow pass; diff_check is
+> staged-green over the 83-file corpus + manifest; the meter (27%, 3/11)
+> flips only at full parity. Phase 2 merged at `60731523`. Stdlib continues
+> independent waves.
+>
+> QUEUE AFTER THE TWO BLOCKERS: mutation diagnostic (match-bound payload
+> writes on `&mut` enums silently dropped; the aliasing experiment is
+> documented and reverted -- recommended route is the checker diagnostic),
+> `derive[Clone]` aggregates, `invariant:` placement, xiom-verify encodings,
+> loop-return typing, arity symmetry, reserved `fn`, `!bool == 1`,
+> type-laxness (`Vec[UInt8] = got.value` with a Str field), module-header
+> nested-module compare, stdlib `Vec.push[T]` stride fix.
+>
+> DONE THIS CYCLE (all with fixture + e2e/checker + CI locks): m169 (C24-1
+> same-leaf results), m170 (C24-2 thunk + Option-of-Vec), m168b (`&mut` arg
+> to by-value param), C23 (driver double-opt fix; pack acceptance `C23
+> present: no`), m175 (`io.read_line` Int handle inttoptr; `C24 fixed:
+> yes`), m171/m172/m174 (selfhost findings (f)/(g) + literal field order),
+> m176/m177 (qualified types + Result payload laxness) + scoping fixup, m178
+> (ill-typed match T001 -- surfaced and fixed the stdlib `xiom.net`
+> `str_slice`; stdlib retired its probe). Full e2e 2409/2409 (+4 ignored) at
+> `f4734c07`. expat/nbt: NOT reproducible (port.ps1 `-1` is its watchdog
+> sentinel; released v0.62.2 + both pins green, nbt 26/26).
+>
+> METHOD (non-negotiable): repro-first under `tmp/sprintc`; every fix gets a
+> fixture + e2e and/or checker test + CI line; cargo commands sequentially;
+> never rebuild `target/debug` while a suite/e2e runs (harness race produces
+> empty-output failures); `python tools/ascii_guard.py check` before every
+> commit (`repair --apply` on failure); commit atomically with
+> SESSION/COMPILER_BUGS evidence; full e2e once per compiler batch; push
+> only on the owner's ask.
+
 # CONTINUATION HANDOFF (2026-10-02 (12), selfhost Phase 2 parser parity -- MERGED TO MAIN (`60731523`); gate 2 GREEN)
 
 Supersedes the (11) handoff below (kept as history).
