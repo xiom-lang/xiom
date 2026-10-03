@@ -1531,6 +1531,12 @@ fn real_main() {
             run_args.push(a);
             ri += 1;
         }
+        // C25: read the cache/JIT flags from the RAW arg list -- the
+        // `effective` filter below strips them, so checking `effective`
+        // made both `--no-cache` and `--jit` dead (a warm cache could
+        // never be bypassed).
+        let no_cache = run_args.iter().any(|a| *a == "--no-cache");
+        let use_jit = run_args.iter().any(|a| *a == "--jit");
         let effective: Vec<&str> = run_args.into_iter()
             .filter(|a| *a != "--watch" && *a != "--cache" && *a != "--no-cache" && *a != "--jit")
             .collect();
@@ -1571,12 +1577,17 @@ fn real_main() {
         let source = xiom::implicit_main::wrap_implicit_main(&source);
 
         // M10: Check script cache for instant re-run
-        let use_jit = effective.contains(&"--jit");
-        let no_cache = effective.contains(&"--no-cache");
         let script_cache_level = xiom::jit::effective_opt_level(script_opt_level, false);
-        if !no_cache {
+        // C25: `--jit` must not execute a cached binary just to discard it.
+        if !no_cache && !use_jit {
             if let Some(cached) = xiom::jit::script_cache_get(&source, script_cache_level) {
-                let output = std::process::Command::new(&cached).output();
+                // C25: Command::output() defaults the child's stdin to NULL,
+                // so a warm cache served `[]` where the cold run read the
+                // piped line. Inherit stdin (stdout/stderr stay captured for
+                // the success gate and replay below).
+                let output = std::process::Command::new(&cached)
+                    .stdin(std::process::Stdio::inherit())
+                    .output();
                 if let Ok(out) = output {
                     if out.status.success() && !use_jit {
                         let stdout = String::from_utf8_lossy(&out.stdout);

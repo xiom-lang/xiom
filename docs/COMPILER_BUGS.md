@@ -10,6 +10,32 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-03 -- FIXED (C25): `xiom run` warm script-cache hits closed stdin; `--no-cache` never bypassed the cache
+
+Playground relay: cold runs read piped stdin, every cached rerun printed
+`got: []`; `--no-cache` did not bypass a warm cache on v0.62.3.
+
+ROOT CAUSES (`crates/xiom/src/main.rs`):
+1. The cached-binary branch executed `Command::output()`, which defaults
+   the child's stdin to NULL -- the program immediately read EOF. Fixed
+   with `.stdin(Stdio::inherit())`; stdout/stderr stay captured for the
+   existing success gate and replay.
+2. `--no-cache` and `--jit` were filtered OUT of `effective` before they
+   were read (`effective.contains(...)` was always false), so `--no-cache`
+   could never bypass a warm cache and `--jit` could never take the JIT
+   branch. Both flags are now captured from the raw arg list; the cache
+   lookup is skipped when `--jit` is set so a cached binary is not executed
+   only to be discarded.
+
+LOCK: `c25_warm_cache_inherits_stdin_and_no_cache_bypasses` +
+`tests/regression/c25_run_cached_stdin/main.xi` -- cold, warm, and
+`--no-cache` runs must all print `got: [Ada]` (Defender-block tolerant,
+full path in CI). Verified red-before (warm printed `got: []`) and green
+after. Playground acceptance `tools/compiler-repros/c25/run.sh` prints
+"C25 fixed: yes" on a toolchain containing this commit.
+
+---
+
 ## 2026-10-03 -- LOCALIZED (open, queued): complex module-level const tables mis-read (Str/struct payloads)
 
 REPRO (committed): `docs/repro/const-tables/const_tables.xi` -- rc 6 on
