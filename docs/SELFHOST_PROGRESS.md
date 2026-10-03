@@ -3,7 +3,7 @@
 
 # XIOM Selfhost -- bootstrap progress tracker
 
-**Last updated:** 2026-10-02 | **Plan:** `docs/SELFHOST_PLAN.md` |
+**Last updated:** 2026-10-03 | **Plan:** `docs/SELFHOST_PLAN.md` |
 **Phase 0 checklist:** `docs/checklists/selfhost-phase0.md` |
 **Phase 1 checklist:** `docs/checklists/selfhost-phase1.md` |
 **Phase 2 checklist:** `docs/checklists/selfhost-phase2.md` |
@@ -27,12 +27,20 @@ All six must hold (SELFHOST_PLAN section 7):
 
 **27% -- 3 of 11 tracked gates complete.**
 
-**Gates: e2e 2409/2409 (+4 ignored), checker 195/195, feature 517/517, robustness 63/63, fuzz 24/24, perf 3/3, formatter 86/86, lsp 45/45.**
+**Gates: e2e 2411/2411 (+4 ignored), checker 195/195, feature 518/518, robustness 63/63, fuzz 24/24, perf 3/3, formatter 86/86, lsp 45/45.**
 
-All eight suites re-measured green on `f4734c07` (2026-10-02, Windows box):
-e2e at 8 threads with the debug driver rebuilt from HEAD; the rest via their
-cargo suites. (Older snapshots: 2408 at `592c64d4`, 2406 at `d1ab8ec4`,
+e2e / checker / feature re-measured green at the v0.62.3 release state
+(`3122cf9d`, pin `stdlib-perf3`, 2026-10-03); robustness / fuzz / perf /
+formatter / lsp carry the 2026-10-02 snapshot on `f4734c07`. (Older e2e
+snapshots: 2409 at `f4734c07`, 2408 at `592c64d4`, 2406 at `d1ab8ec4`,
 2404 at `8abedb72` -- each grew with its regression locks.)
+
+Release context: v0.62.3 shipped 2026-10-03 with `SELFHOST_VERSION` bumped
+to 0.62.3; the selfhost source is otherwise unchanged by this release and
+the Rust compiler remains the shipped bootstrap. Phase 3 (checker parity)
+is in progress in its own worktree/session; the meter flips only at full
+parity, so the Phase 3 row stays NOT STARTED on main until that branch
+lands.
 
 Weights are one gate each (equal weighting; phases differ in effort but a
 gate is only "done" when its evidence is green). Update this line whenever a
