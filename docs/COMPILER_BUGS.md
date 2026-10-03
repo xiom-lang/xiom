@@ -64,6 +64,30 @@ after. Playground acceptance `tools/compiler-repros/c25/run.sh` prints
 
 ---
 
+## 2026-10-03 -- TRIAGE (open): packages lane's two v0.62.3 findings (nested test-module import, uninit local struct in match arm)
+
+Source: packages lane relay (docs/COMPILER-FINDINGS.md A/B +
+docs/repro/uninit-local/; websocket 163 T001s; xiom.graphql validator).
+
+1. **Nested test-module import**: `module xiom.pkg.tests` + `use
+   xiom.pkg;` sees ZERO root exports (163 T001s in websocket); the same
+   file renamed to a non-nested module compiles and passes. Suspect
+   module-index/import resolution for a dotted module path that is a
+   prefix-extended CHILD of the imported module (`.tests` suffix).
+   Minimal standalone repro to build; workaround in the porter brief.
+2. **Uninitialized local struct assigned inside a match arm**: Str fields
+   become garbage pointers (concat hangs) and `Vec.len()` reads
+   4294967295 (runaway loops); pre-initializing the local at declaration
+   avoids it. Found in xiom.graphql's validator. Standalone minimal repro
+   pending. Suspect definite-assignment/codegen for a local declared
+   without an initializer whose first store happens in one conditional
+   arm (alloca value/alias mishandled).
+
+Both are v0.62.4 candidates; workarounds already in the packages porter
+brief ("always initialize locals at declaration").
+
+---
+
 ## 2026-10-03 -- TRIAGE (open): registry lane's three v0.62.3-only regressions (iter C001, cell, lz4)
 
 Source: `xiom-lang/stdlib tools/known_failures/README.md` @ cfb624b; all
@@ -159,6 +183,18 @@ three confirmed locally against the official v0.62.3 windows-x64 archive
    fn" is the trigger; (ii) SSA-normalized diff of clang -O2 `main`
    between P3 and P4c to locate the transformed region; (iii) audit the
    emitter for repeated-callsite/symbol-instance bookkeeping.
+
+   P5 DONE: calling `lz4_compress_block(small)` a SECOND time (P5) returns
+   rc=0 -- the trigger is SPECIFIC to introducing a call to
+   `lz4_decompress_block` after the check, not generic repeated call
+   sites. Module-wide call/define ARG-COUNT audit on P4c IR: 0 mismatches
+   (type-level audit still pending). `lz4_decompress_block` is
+   `inlinehint` (not alwaysinline), 859-line body, calls `_lz4_read_ext`,
+   malloc/realloc, llvm.trap. NEXT: (a) P6 -- replace decompress_block
+   with another Result-returning fn to see if the trigger is the Result
+   return ABI or that specific function; (b) type-level call/define audit
+   (count-only passed); (c) inspect its emitted body for mistyped
+   stores/GEPs.
 
 ---
 
