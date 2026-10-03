@@ -29,6 +29,9 @@
 > 2. iter.range `contains` C001 (amplifier: method-form intercept must
 >    require a collection receiver; the state change still to pin) --
 >    fix + pinned-archive green so the registry promotes its smoke lock.
+> 2b. packages findings: nested test-module import FIXED (m184, merge +
+>    file-fallback lock); uninitialized-local-in-match-arm and enum-payload
+>    Str corruption still to minimize/repro (both are v0.62.4 targets).
 > 3. Registry polish if ready, S each: B1 publish packaging guard,
 >    B2 `xiom pkg yank`, install trust wording, `--resolve` outside a
 >    workspace (all contracts received).

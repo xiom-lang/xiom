@@ -69,12 +69,21 @@ after. Playground acceptance `tools/compiler-repros/c25/run.sh` prints
 Source: packages lane relay (docs/COMPILER-FINDINGS.md A/B +
 docs/repro/uninit-local/; websocket 163 T001s; xiom.graphql validator).
 
-1. **Nested test-module import**: `module xiom.pkg.tests` + `use
-   xiom.pkg;` sees ZERO root exports (163 T001s in websocket); the same
-   file renamed to a non-nested module compiles and passes. Suspect
-   module-index/import resolution for a dotted module path that is a
-   prefix-extended CHILD of the imported module (`.tests` suffix).
-   Minimal standalone repro to build; workaround in the porter brief.
+1. **Nested test-module import -- FIXED (m184).** Minimal repro built:
+   `pkg.xi` (`module pkg`, `pub fn val`) + `tests.xi` (`module pkg.tests`,
+   `use pkg;`) -> T001 "cannot call 'val' on this expression"; flat
+   `module tests` control compiles/runs. ROOT CAUSE: the parser nests
+   `module pkg.tests` as `Module(pkg){Module(tests){...}}`, so
+   `resolve_imports` registered a leaf-less `pkg` chain entry; `use pkg;`
+   then found `modules["pkg"]` and never loaded the file-backed pkg.xi,
+   hiding every root export. FIX (xiom-check): `resolve_imports` now MERGES
+   program module chains into existing entries (`merge_module_exports`,
+   recursive SubModule merge) instead of replacing them, and `process_use`
+   falls back to loading the real module file for a single-segment use
+   whose entry is a pure SubModule chain (merge on load). LOCK:
+   `e2e_m184_nested_module_import` + `tests/regression/m184_nested_module_import/`
+   (pkg.xi + main.xi), ci.yml line; checker 195/195; flat control green.
+   Workaround in the porter brief can be dropped once this ships.
 2. **Uninitialized local struct assigned inside a match arm**: Str fields
    become garbage pointers (concat hangs) and `Vec.len()` reads
    4294967295 (runaway loops); pre-initializing the local at declaration

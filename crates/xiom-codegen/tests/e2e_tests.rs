@@ -4960,6 +4960,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// m184 (packages relay): nested test-module import -- `module pkg.tests` +
+// `use pkg;` must see the peer pkg.xi root exports. Pre-fix the program's
+// own leaf-less chain shadowed the module (163 T001s in websocket).
+#[test] fn e2e_m184_nested_module_import() {
+    assert_eq!(
+        compile_and_run("tests/regression/m184_nested_module_import/main.xi"),
+        Some(0),
+        "m184 nested test-module import must resolve the peer module"
+    );
+}
+
 // R48 (playground C17 classes): interface dispatch through a `&T` generic
 // argument (was mono'd as Int -> C001) and pointer/double match-result
 // zero-init (was `store i8* 0` / `store double 0` -> clang reject). Needs

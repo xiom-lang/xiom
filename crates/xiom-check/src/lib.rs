@@ -2660,12 +2660,43 @@ impl Checker {
     // Module system
     // ========================================================================
 
+    /// m184 (packages relay): merge `new` into `dst` instead of replacing.
+    /// `module pkg.tests` parses as Module(pkg){ Module(tests){...} }, so
+    /// registering the program's own chain under the first segment must NOT
+    /// shadow a peer module already loaded under the same name (pkg.xi) --
+    /// otherwise `use pkg;` sees only the `tests` submodule and every root
+    /// export is missing (163 T001s in the packages' websocket). SubModule
+    /// collisions recurse; leaf collisions prefer the new entry (the
+    /// program's own declaration).
+    fn merge_module_exports(
+        dst: &mut HashMap<String, ModuleExport>,
+        new: HashMap<String, ModuleExport>,
+    ) {
+        for (k, v) in new {
+            match (dst.remove(&k), v) {
+                (Some(ModuleExport::SubModule(mut a)), ModuleExport::SubModule(b)) => {
+                    Self::merge_module_exports(&mut a, b);
+                    dst.insert(k, ModuleExport::SubModule(a));
+                }
+                (_, v) => {
+                    dst.insert(k, v);
+                }
+            }
+        }
+    }
+
     fn resolve_imports(&mut self, program: &Program) {
         // Build module hierarchy from all in-program module declarations
         for item in &program.items {
             if let TopDecl::Module(md) = item {
                 let exports = self.build_module_map_inner(&md.items, &md.name.name);
-                self.modules.insert(md.name.name.clone(), exports);
+                let key = md.name.name.clone();
+                match self.modules.get_mut(&key) {
+                    Some(existing) => Self::merge_module_exports(existing, exports),
+                    None => {
+                        self.modules.insert(key, exports);
+                    }
+                }
             }
         }
 
@@ -4008,6 +4039,33 @@ impl Checker {
                 }
             }
         };
+
+        // m184 (packages relay, nested test-module import): a program's own
+        // nested declaration (`module pkg.tests` parses as pkg{tests})
+        // registers a first-segment entry that is a PURE SubModule chain --
+        // and `modules.get` then SUCCEEDS, so the file-backed module pkg.xi
+        // is never loaded and every root export is missing (163 T001s in
+        // the packages' websocket). For a single-segment use whose entry has
+        // no leaf exports, load the real module file and merge it in.
+        if !self.checking_catalog && effective_path.len() == 1 {
+            let key = effective_path[0].name.clone();
+            let leaf_less_chain = self
+                .modules
+                .get(&key)
+                .map(|m| !m.values().any(|v| !matches!(v, ModuleExport::SubModule(_))))
+                .unwrap_or(false);
+            if leaf_less_chain {
+                if let Some(cached) = self.catalog.find_owned(&vec![key.clone()]) {
+                    for item in &cached.program.items {
+                        self.register_fn_signature(item);
+                    }
+                    let loaded = self.module_exports_with_submodules(&cached);
+                    if let Some(existing) = self.modules.get_mut(&key) {
+                        Self::merge_module_exports(existing, loaded);
+                    }
+                }
+            }
+        }
 
         // Walk through intermediate path segments (submodules)
         let mut current = exports;
