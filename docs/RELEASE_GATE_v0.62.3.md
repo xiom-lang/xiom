@@ -46,6 +46,15 @@ index access violation, and the match-pattern checker refinements
 
 ## Gate D -- tag + publish
 
-- [ ] Owner: dispatch/push, then `v0.62.3` on the release commit (tag push
-      triggers `release.yml`: guard, nine-tool archives, VSIX 0.12.2,
-      publish). Push only on the owner's ask.
+- [x] `v0.62.3` pushed on the release commit `3122cf9d`; release run
+      **37142496836 GREEN** (guard 5 s; windows-x64 3m58s; linux-x64
+      2m38s; macos-x64 7m37s; macos-arm64 1m58s; VSIX 38s; publish 26s;
+      docs repository_dispatch sent).
+- [x] Release page:
+      https://github.com/xiom-lang/xiom/releases/tag/v0.62.3 with
+      `SHA256SUMS`, `xiom-0.62.3-{linux-x64.tar.gz,macos-arm64.tar.gz,
+      macos-x64.tar.gz,windows-x64.zip}`, `xiom-vscode-0.12.2.vsix`, and
+      the wasm assets.
+- [ ] Benchmark lane: pin `XIOM_VERSION=0.62.3` to the official
+      SHA256-verified archive, re-run the t2 check, bump the contract and
+      refresh the version table (0.62.2 and 0.62.3 kept separate).

@@ -3,23 +3,19 @@
 
 # CONTINUATION HANDOFF (2026-10-03 (13), v0.62.3 IN RELEASE HOLD -- two pre-existing defects; parallel lanes live)
 
-> RELEASE STATE (2026-10-03, this session): release hold LIFTED. v0.62.3 is
-> prepared at the pin `stdlib-perf3` (stdlib `2429ac3`): both blockers fixed
-> (m179 Arc, m180 contracts AV) plus the m181 checker refinements. Gate A
-> ALL GREEN on the fresh pin -- full e2e 2411/2411 (+4 ign, 1834 s), feature
-> 518, parser 107, checker 195, checker_locks 28, borrow 2, doctor 4,
-> run_script 2, full_diff 4, stdlib_tests 40, stdlib-exec 85 (+2 ign),
-> api-freeze 2, `cargo check --workspace --all-targets` clean. Release notes
-> v0.62.3 converted+verified; README texts/links refreshed; VS Code
-> extension 0.12.2 (README marked tested against v0.62.3). Remaining:
-> owner push + `v0.62.3` tag push on the release commit (push only on the
-> owner's ask). Gate P ACCEPTED by the benchmark lane on the candidate
-> (t2-queue 24 ms vs 11,968 ms on v0.62.2, ~500x; no t1/t3/t4/t5
-> regression; t8 identical) -- GO to publish; the lane re-verifies the
-> official archive after the tag. Post-release queue: R-8
-> `tcp_stream_read`, contracts-arena verifier (SMT `self` + X7007),
-> const-tables complex payloads, float bitcast. See
-> `docs/RELEASE_GATE_v0.62.3.md`.
+> RELEASE STATE (2026-10-03, this session): **v0.62.3 PUBLISHED** --
+> https://github.com/xiom-lang/xiom/releases/tag/v0.62.3 (release run
+> 37142496836 green; nine-tool archives + SHA256SUMS + VSIX 0.12.2 + wasm;
+> docs notified). Pin `stdlib-perf3` (2429ac3); both blockers fixed (m179
+> Arc, m180 contracts AV) plus the m181 checker refinements. Gate A all
+> green on the pin (full e2e 2411/2411 +4 ign, feature 518, parser 107,
+> checker 195, checker_locks 28, borrow 2, doctor 4, run_script 2,
+> full_diff 4, stdlib_tests 40, stdlib-exec 85 (+2 ign), api-freeze 2);
+> Gate P ACCEPTED (t2-queue 24 ms vs 11,968 ms, no regressions); Gate D
+> published. Benchmark lane still to verify the official archive and
+> refresh the version table. Post-release queue: R-8 `tcp_stream_read`,
+> contracts-arena verifier (SMT `self` + X7007), const-tables complex
+> payloads, float bitcast. See `docs/RELEASE_GATE_v0.62.3.md`.
 
 > KICKOFF (paste-ready): Continue the XIOM swarm compiler lane on `main`.
 > Read this top section, then `docs/COMPILER_BUGS.md` (2026-10-03 entries)
