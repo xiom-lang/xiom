@@ -12,6 +12,18 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ## 2026-10-03 -- LOCALIZED: Arc strong_count defect is m166 x stdlib-perf2 (unsafe_direct sync annotation)
 
+FIX LOCATION (2026-10-03): `crates/xiom-codegen/src/call.rs` size intrinsics
+(~L3160-3260). `size_of`/`sizeof`/`align_of` handle `ta.is_none()` (parser
+drops nested generic args) with a MONOMORPHISED-CONTEXT special case that
+lists only `RcInner` / `Rc.new_` / `Rc.drop_` / `Weak.drop_` (L3180-3194).
+`Arc.new_Int` is not in that list, so the fallback resolves the size to 8
+(the generic field / count slot) instead of ArcInner[Int]'s 16. Fix: extend
+the monomorphised special case to `ArcInner` / `Arc.new_` / `Arc.drop_`
+(and audit Mutex/RwLock/Barrier allocations for the same gap -- they may be
+accidentally safe at 64-byte arenas), or resolve the substitution generally
+before the intrinsic. Lock: `m179` Arc fixture + IR check (`malloc(16)` for
+ArcInner[Int]) + e2e; then rerun the Era matrix (HEAD+perf2 must go rc 0).
+
 IR EVIDENCE (2026-10-03, forced fresh emits with --no-cache): in the
 annotated build, `Arc.new_Int` inlines the unsafe block and allocates
 **malloc(8)** for what is then stored as a 16-byte `%struct.ArcInner`
