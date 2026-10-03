@@ -1075,11 +1075,20 @@ impl Checker {
         };
         match pattern {
             Pattern::Some(_, sp) | Pattern::None(sp) => {
+                let variant = if matches!(pattern, Pattern::Some(..)) { "Some" } else { "None" };
                 let ok = match scrutinee {
                     CheckedType::Named(n) => {
                         let b = base(n);
                         let head = b.split("__").next().unwrap_or(&b);
                         head == "Option" || b == "_"
+                            // m181: `type MyOpt = Option[Int]` aliases must
+                            // unwrap -- the alias spelling failed the head
+                            // check (m21_type_edge_011).
+                            || self.alias_base_head(&b).as_deref() == Some("Option")
+                            // m181: an enum may declare its OWN `None`/`Some`
+                            // variants (`enum Opt { None, Some }`); those
+                            // patterns belong to the enum, not Option.
+                            || self.enum_declares_variant(&b, variant)
                     }
                     _ => false,
                 };
@@ -1096,6 +1105,8 @@ impl Checker {
                         let b = base(n);
                         let head = b.split("__").next().unwrap_or(&b);
                         head == "Result" || b == "_"
+                            // m181: `type MyResult = Result[Int, Str]` alias.
+                            || self.alias_base_head(&b).as_deref() == Some("Result")
                     }
                     _ => false,
                 };
@@ -1339,6 +1350,54 @@ impl Checker {
             }
         }
         self.enum_variants.get(name)
+    }
+
+    /// m181: resolve a `type X = ...` alias (bounded depth, bare then
+    /// module-qualified keys) and return the BASE HEAD of the underlying
+    /// type name ("Option", "Result", ...). Returns None when the chain does
+    /// not resolve -- callers keep their existing permissive paths.
+    fn alias_base_head(&self, name: &str) -> Option<String> {
+        let lookup = |cur: &str| {
+            self.aliases.get(cur).cloned().or_else(|| {
+                self.current_module
+                    .as_ref()
+                    .and_then(|m| self.aliases.get(&format!("{}.{}", m, cur)).cloned())
+            })
+        };
+        let mut cur = name.split('[').next().unwrap_or(name).to_string();
+        for _ in 0..8 {
+            match lookup(&cur) {
+                Some(CheckedType::Named(n)) => {
+                    let raw = n.to_string();
+                    let next = raw.split('[').next().unwrap_or(&raw).to_string();
+                    if next == cur {
+                        return None;
+                    }
+                    cur = next;
+                }
+                // Alias to a primitive ("type Id = Int") -- not a container.
+                Some(_) => return None,
+                // Not an alias: `cur` is already the underlying head.
+                None => return Some(cur),
+            }
+        }
+        None
+    }
+
+    /// m181: does type `ty` declare an enum variant with this leaf name?
+    /// Enums may declare their own `None`/`Some` variants (m32_e15); those
+    /// patterns belong to the enum and must not be rejected as Option
+    /// patterns. Scans `enum_variants` (variant key -> parent) for a leaf
+    /// match owned by `ty`.
+    fn enum_declares_variant(&self, ty: &str, variant: &str) -> bool {
+        let base = ty.split('[').next().unwrap_or(ty);
+        let leaf = base.rsplit('.').next().unwrap_or(base);
+        self.enum_variants.iter().any(|(k, parent)| {
+            let k_leaf = k.rsplit('.').next().unwrap_or(k);
+            let k_leaf = k_leaf.split("__").next().unwrap_or(k_leaf);
+            let p_leaf = parent.rsplit('.').next().unwrap_or(parent);
+            k_leaf == variant && (p_leaf == leaf || parent == base)
+        })
     }
 
     /// Emit an error and return an error-poisoned type carrying an
@@ -6311,8 +6370,23 @@ impl Checker {
                 }
                 Expr::Index(b, i, _) => {
                     if let Expr::Ident(bid) = b.as_ref() {
-                        if bid.name == "Vec" {
-                            format!("Vec[{}]", render(i))
+                        // m181: nested generic element args keep their
+                        // brackets for ANY type-like base, not just Vec --
+                        // `Vec[Option[Int]]` used to render "Vec[Int]", so
+                        // `g[0]` typed as Int and the m178 pattern check
+                        // rejected `Some/None` on a genuinely Option
+                        // element. Tuple args render comma-joined
+                        // ("Map[Int, Str]") to match canonical spelling.
+                        let type_like = bid.name == "Vec"
+                            || bid.name.chars().next().map_or(false, |c| c.is_ascii_uppercase());
+                        if type_like {
+                            let inner = match i.as_ref() {
+                                Expr::Tuple(items, _) => {
+                                    items.iter().map(render).collect::<Vec<_>>().join(", ")
+                                }
+                                other => render(other),
+                            };
+                            format!("{}[{}]", bid.name, inner)
                         } else {
                             "Int".to_string()
                         }

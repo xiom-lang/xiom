@@ -36,13 +36,32 @@
 >    fixture, ci.yml. Pre/post: rc 0xC0000005 -> 0. Era matrix: red on
 >    v0.62.0 release and all stdlib era trees (v0620/pf1/pf2) -> compiler-side,
 >    entered <= v0.62.0.
-> 3. SUITES (after 1-2): full e2e 8 threads, feature 518, checker 195,
+> 3. m178 FALSE POSITIVES -- FIXED (m181, this session). The m178
+>    match-pattern rule landed without a full e2e pass; the batch rerun
+>    surfaced 9 fixture reds, all false positives: (a) `type X = Option/
+>    Result[...]` aliases not unwrapped (m21_type_edge_010/011, m36_c09);
+>    (b) `Vec[Option[Int]].new()` rendered "Vec[Int]" so `g[0]` typed Int
+>    (m65_vec_option_elem); (c) enums declaring their own None/Some
+>    variants rejected (m32_e13/e15, m33_y14, m34_y13, m36_e04). Fixed in
+>    xiom-check (`alias_base_head`, `enum_declares_variant`, recursive
+>    ctor render); those fixtures are the locks, ci.yml extended. The
+>    10th red, e2e_m17_zero_warnings, is a LOCAL artifact: era worktrees
+>    inside the repo tree make the catalog index duplicate stdlib roots
+>    (W001). Era trees moved to
+>    `C:\Users\lefte\AppData\Local\Temp\kilo\sprintc` during suite runs;
+>    move back (or keep out of the repo) before local full e2e. CI/clean
+>    checkout unaffected.
+> 4. SUITES (after 1-3): full e2e 8 threads, feature 518, checker 195,
 >    checker_locks 28, stdlib-exec 85 (+2 ign), api-freeze 2/2. NOTE:
 >    stdlib-exec/freeze flake under machine load (selfhost build) with EMPTY
 >    driver output and nonzero exit -- rerun isolated/idle before treating a
->    red as real (today's reds included the real xiom.net T001s, since
->    fixed by stdlib e997201/8b23b79).
-> 4. GATE P: ask the stdlib lane for a FRESH tag at their then-current main
+>    red as real. Known stale-pin reds until the Gate P bump: checker
+>    `catalog_corpus_is_clean` + api-freeze + 4 stdlib-exec smokes all hit
+>    the real xiom.net T001s at 617/618/5 (pin `stdlib-perf1` predates the
+>    stdlib fix e997201/8b23b79; stdlib-exec is 85/85 against the waves
+>    tree). `catalog_corpus_is_clean` hardcodes the repo pin and ignores
+>    XIOM_STDLIB.
+> 5. GATE P: ask the stdlib lane for a FRESH tag at their then-current main
 >    (>= `8b23b79`; candidate `stdlib-perf3`), bump `STDLIB_VERSION`, regen
 >    the api-freeze snapshot, run benchmark t2 (compiler half `185342f4`),
 >    then tag v0.62.3. The pin policy: release ships the latest TAGGED

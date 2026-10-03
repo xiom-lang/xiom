@@ -10,6 +10,41 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-03 -- FIXED (m181): m178 pattern check false positives -- aliases, nested generic elements, enum None/Some
+
+CONTEXT: the m178 ill-typed-match rule (T001) landed without a full e2e
+pass; the batch rerun surfaced 9 fixture reds, all false positives of
+`validate_pattern_for_type`. Fixed at HEAD, pre-pin-bump (the 10th red,
+e2e_m17_zero_warnings, was a LOCAL artifact: the era worktrees under
+tmp/sprintc live inside the repo tree and the catalog indexes source
+dirs recursively -> W001 duplicate modules; moving them out of the repo
+restores green. CI/clean checkout unaffected).
+
+ROOT CAUSES + FIXES (crates/xiom-check/src/lib.rs):
+1. `type MyResult = Result[Int, Str]` / `type MyOpt = Option[Int]`
+   aliases: the scrutinee Named("MyResult") failed the literal head
+   check. New `alias_base_head` unwraps bounded alias chains (bare +
+   module-qualified) and the Some/None + Ok/Err checks accept the alias
+   target head. (m21_type_edge_010/011, m36_c09.)
+2. `Vec[Option[Int]].new()` typed the local "Vec[Int]": the
+   `vec_ctor_type_name` render helper only kept brackets for nested
+   Vec, everything else fell to "Int", so `g[0]` typed as Int and the
+   pattern check rejected a genuine Option element. `render` now keeps
+   brackets for ANY type-like base and comma-joins Tuple args
+   ("Map[Int, Str]"). (m65_vec_option_elem.)
+3. Enums declaring their own `None`/`Some` variants (`enum Opt { None,
+   Some }`, `Inner`, `DiscountKind`, `BinOp`, `VoidE`): the pattern was
+   read as Option's. New `enum_declares_variant` accepts a Some/None
+   pattern when the SCRUTINEE enum declares that variant leaf.
+   (m32_e13/e15, m33_y14, m34_y13, m36_e04.)
+
+EVIDENCE: the 10 fixtures are the locks (red at a76ea897, green after;
+ci.yml line extended). Feature 518/518, checker_locks 28/28, checker
+194/195 (the 1 = stale-pin xiom.net T001s at 617:5, closed by the Gate P
+pin bump), stdout: the wave-57 protection still rejects Ok/Err on Str.
+
+---
+
 ## 2026-10-03 -- FIXED (m180): computed-receiver method key degraded to bare leaf -- contracts any_contracts() AV
 
 ROOT CAUSE (exact): `xiom.contracts.any_contracts()` runs
