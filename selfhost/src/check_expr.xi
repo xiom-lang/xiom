@@ -824,7 +824,8 @@ fn ce_stmt_match(c: &mut Checker, idx: Int) {
   match node.kind {
     NkStmtMatch(scrut, arms) => {
       let matched_ty = ce_check_expr(c, scrut);
-      ce_check_arms(c, arms, matched_ty);
+      let sp = ck_span_of(c, idx);
+      ce_check_arms(c, arms, matched_ty, sp.line, sp.col);
     }
     _ => {}
   }
@@ -1031,7 +1032,197 @@ fn ce_inferred_binding_type(c: &Checker, value: Int, val_ty: Str) -> Str {
   }
 }
 
-fn ce_check_arms(c: &mut Checker, arms: Vec[Int], matched_ty: Str) {
+// ============================================================================
+// Stage-4 lints: W004 unreachable arms, W000 non-exhaustive user enums
+// ============================================================================
+
+fn ce_has_dot_name(s: Str) -> Bool {
+  var i = 0;
+  while i < s.len() {
+    if (string.byte_at(s, i) as Int) == 46 { return true; }
+    i = i + 1;
+  }
+  return false;
+}
+
+fn ce_leaf_of(s: Str) -> Str {
+  var i = s.len() - 1;
+  while i >= 0 {
+    if (string.byte_at(s, i) as Int) == 46 {
+      return string.str_slice(s, i + 1, s.len());
+    }
+    i = i - 1;
+  }
+  return s;
+}
+
+/// W004: exact value-set key; "" when the pattern is not comparable.
+fn ce_pattern_shadow_key(c: &Checker, pat: Int) -> Str {
+  if pat < 0 { return ""; }
+  let node = c.p.nodes[pat];
+  match node.kind {
+    NkLitInt(v) => { return "int:" + ce_int_str(v); }
+    NkLitBigInt(hi, lo) => { return "int:big"; }
+    NkLitFloat(lex) => { return "float:" + lex; }
+    NkLitStr(data) => { return "str:" + Str::from_utf8(data); }
+    NkLitChar(cp) => { return "char:" + ce_int_str(cp); }
+    NkLitBool(v) => {
+      if v == 1 { return "bool:true"; }
+      return "bool:false";
+    }
+    NkPatIdent(name_idx) => {
+      let nm = ck_ident(c, name_idx);
+      if ce_has_dot_name(nm) { return "variant:" + nm + ":0"; }
+      return "";
+    }
+    NkPatVariant(name_idx, fields) => {
+      // Rust keys the FULL (possibly dotted) variant name + payload arity.
+      return "variant:" + ck_ident(c, name_idx) + ":" + ce_int_str(fields.len());
+    }
+    NkPatNone => { return "none"; }
+    NkPatSome(inner) => {
+      let pk = ce_payload_key(c, inner);
+      if pk.len() == 0 { return ""; }
+      return "some:" + pk;
+    }
+    NkPatOk(inner) => {
+      let pk = ce_payload_key(c, inner);
+      if pk.len() == 0 { return ""; }
+      return "ok:" + pk;
+    }
+    NkPatErr(inner) => {
+      let pk = ce_payload_key(c, inner);
+      if pk.len() == 0 { return ""; }
+      return "err:" + pk;
+    }
+    _ => { return ""; }
+  }
+}
+
+/// Payload positions: a binding/wildcard matches anything ("any"); raw
+/// variant payload names are stored as Idents in this AST.
+fn ce_payload_key(c: &Checker, pat: Int) -> Str {
+  if pat < 0 { return ""; }
+  let node = c.p.nodes[pat];
+  match node.kind {
+    NkPatWildcard => { return "any"; }
+    NkPatIdent(name) => { return "any"; }
+    NkIdent(name) => { return "any"; }
+    _ => { return ce_pattern_shadow_key(c, pat); }
+  }
+}
+
+fn ce_lint_w004(c: &mut Checker, arms: Vec[Int]) {
+  var shadowed = false;
+  var seen = Vec[Str].new();
+  var i = 0;
+  while i < arms.len() {
+    let anode = c.p.nodes[arms[i]];
+    match anode.kind {
+      NkMatchArm(pattern, guard, body, body_is_block) => {
+        let unguarded = guard < 0;
+        let key = ce_pattern_shadow_key(c, pattern);
+        var unreachable = shadowed;
+        if !unreachable && key.len() > 0 && ce_vec_contains(seen, key) {
+          unreachable = true;
+        }
+        if unreachable {
+          let sp = ck_span_of(c, arms[i]);
+          ck_warn_coded_at(c, "W004", "unreachable match arm (an earlier arm already matches these values)", sp.line, sp.col);
+        }
+        if unguarded && ce_pattern_is_catch_all(c, pattern) { shadowed = true; }
+        if unguarded && key.len() > 0 { seen.push(key); }
+      }
+      _ => {}
+    }
+    i = i + 1;
+  }
+}
+
+/// Rust `pattern_covers_variant`: ANY Ident pattern (dotted `Color.Red`
+/// included) is a catch-all; payload variants compare their base name.
+fn ce_pattern_covers_variant(c: &Checker, pat: Int, variant: Str) -> Bool {
+  if pat < 0 { return false; }
+  let node = c.p.nodes[pat];
+  match node.kind {
+    NkPatWildcard => { return true; }
+    NkPatIdent(name_idx) => { return true; }
+    NkIdent(name_idx) => { return true; }
+    NkPatSome(inner) => { return variant == "Some"; }
+    NkPatNone => { return variant == "None"; }
+    NkPatOk(inner) => { return variant == "Ok"; }
+    NkPatErr(inner) => { return variant == "Err"; }
+    NkPatVariant(name_idx, fields) => {
+      return ce_leaf_of(ck_ident(c, name_idx)) == variant;
+    }
+    NkLitBool(v) => {
+      if v == 1 { return variant == "true"; }
+      return variant == "false";
+    }
+    NkPatOr(items) => {
+      var i = 0;
+      while i < items.len() {
+        if ce_pattern_covers_variant(c, items[i], variant) { return true; }
+        i = i + 1;
+      }
+      return false;
+    }
+    _ => { return false; }
+  }
+}
+
+/// W000 non-exhaustive (default warning). Rust only reaches this for NAMED
+/// user enums: Option[..]/Result[..] carry args, Bool is a scalar variant,
+/// and bare variant arms parse as catch-all Idents. NOTE: Rust's
+/// multi-missing order is HashMap-random per process (COMPILER_BUGS
+/// 2026-10-03); the port uses registration order, so only single-missing
+/// cases are gateable.
+fn ce_match_exhaustiveness(c: &mut Checker, arms: Vec[Int], scr_ty: Str, line: Int, col: Int) {
+  let type_name = ck_resolve_alias(c, scr_ty);
+  if type_name.len() == 0 || type_name == "_" { return; }
+  var variants = Vec[Str].new();
+  if type_name == "Option" {
+    variants.push("Some");
+    variants.push("None");
+  } elif type_name == "Result" {
+    variants.push("Ok");
+    variants.push("Err");
+  } else {
+    var i = 0;
+    while i < c.variants.len() {
+      let v = c.variants[i];
+      if v.enum_name == type_name || string.str_ends_with(v.enum_name, "." + type_name) {
+        let base = ce_leaf_of(v.key);
+        if !ce_vec_contains(variants, base) { variants.push(base); }
+      }
+      i = i + 1;
+    }
+  }
+  if variants.len() == 0 { return; }
+  var j = 0;
+  while j < variants.len() {
+    let variant = variants[j];
+    var covered = false;
+    var a = 0;
+    while a < arms.len() {
+      let anode = c.p.nodes[arms[a]];
+      match anode.kind {
+        NkMatchArm(pattern, guard, body, body_is_block) => {
+          if ce_pattern_covers_variant(c, pattern, variant) { covered = true; }
+        }
+        _ => {}
+      }
+      a = a + 1;
+    }
+    if !covered {
+      ck_warn_at(c, "non-exhaustive match: variant '" + variant + "' of '" + type_name + "' not covered", line, col);
+    }
+    j = j + 1;
+  }
+}
+
+fn ce_check_arms(c: &mut Checker, arms: Vec<Int>, matched_ty: Str, line: Int, col: Int) {
+  ce_lint_w004(c, arms);
   var i = 0;
   while i < arms.len() {
     let anode = c.p.nodes[arms[i]];
@@ -1051,6 +1242,7 @@ fn ce_check_arms(c: &mut Checker, arms: Vec[Int], matched_ty: Str) {
     }
     i = i + 1;
   }
+  ce_match_exhaustiveness(c, arms, matched_ty, line, col);
 }
 
 /// `CheckedType::for_loop_element_type` (Vec/Slice/Set/Array -> elem, else Int).
@@ -1189,7 +1381,8 @@ pub fn ce_check_expr(c: &mut Checker, idx: Int) -> Str {
     NkExprIf(cond, then_b, elifs, els) => { return ce_check_if_expr(c, cond, then_b, elifs, els); }
     NkExprMatch(scrut, arms) => {
       let matched_ty = ce_check_expr(c, scrut);
-      ce_check_arms(c, arms, matched_ty);
+      let msp = ck_span_of(c, idx);
+      ce_check_arms(c, arms, matched_ty, msp.line, msp.col);
       var result = "()";
       if arms.len() > 0 {
         let anode = c.p.nodes[arms[0]];
@@ -1331,6 +1524,97 @@ fn ce_is_result_or_option(name: Str) -> Bool {
   return false;
 }
 
+// ============================================================================
+// Stage-4 lints: W006 out-of-range shift, W007 self-comparison
+// ============================================================================
+
+fn ce_int_width(ty: Str) -> Int {
+  let base = ce_leaf_of(ty);
+  if base == "Int" || base == "UInt" || base == "Int64" || base == "UInt64" { return 64; }
+  if base == "Int8" || base == "UInt8" { return 8; }
+  if base == "Int16" || base == "UInt16" { return 16; }
+  if base == "Int32" || base == "UInt32" { return 32; }
+  if base == "Int128" || base == "UInt128" { return 128; }
+  return -1;
+}
+
+/// Literal integer value (parens + unary minus unwrapped). BigInt clamps to
+/// the Int max (the Rust side clamps to i128::MAX).
+fn ce_int_literal_value(c: &Checker, idx: Int) -> Int {
+  if idx < 0 { return 0; }
+  let node = c.p.nodes[idx];
+  match node.kind {
+    NkLitInt(v) => { return v; }
+    NkLitBigInt(hi, lo) => { return 9223372036854775807; }
+    NkExprParen(inner) => { return ce_int_literal_value(c, inner); }
+    NkExprUnary(op, inner) => {
+      if op == 0 { return 0 - ce_int_literal_value(c, inner); }
+      return 0;
+    }
+    _ => { return 0; }
+  }
+}
+
+fn ce_is_int_literal_like(c: &Checker, idx: Int) -> Bool {
+  if idx < 0 { return false; }
+  let node = c.p.nodes[idx];
+  match node.kind {
+    NkLitInt(v) => { return true; }
+    NkLitBigInt(hi, lo) => { return true; }
+    NkExprParen(inner) => { return ce_is_int_literal_like(c, inner); }
+    NkExprUnary(op, inner) => {
+      if op == 0 { return ce_is_int_literal_like(c, inner); }
+      return false;
+    }
+    _ => { return false; }
+  }
+}
+
+fn ce_same_place_nodes(c: &Checker, a: Int, b: Int) -> Bool {
+  if a < 0 || b < 0 { return false; }
+  match c.p.nodes[a].kind {
+    NkExprParen(ia) => { return ce_same_place_nodes(c, ia, b); }
+    _ => {}
+  }
+  match c.p.nodes[b].kind {
+    NkExprParen(ib) => { return ce_same_place_nodes(c, a, ib); }
+    _ => {}
+  }
+  match c.p.nodes[a].kind {
+    NkExprIdent(x) => {
+      match c.p.nodes[b].kind {
+        NkExprIdent(y) => {
+          let xn = ck_ident(c, x);
+          let yn = ck_ident(c, y);
+          if xn == yn && xn != "_" { return true; }
+          return false;
+        }
+        _ => { return false; }
+      }
+    }
+    NkExprField(x, f) => {
+      match c.p.nodes[b].kind {
+        NkExprField(y, g) => {
+          if ck_ident(c, f) == ck_ident(c, g) { return ce_same_place_nodes(c, x, y); }
+          return false;
+        }
+        _ => { return false; }
+      }
+    }
+    _ => { return false; }
+  }
+}
+
+/// Rust `self_cmp_reflexive_nonfloat`: ints/Bool/Char/Str (NOT floats, not
+/// user aggregates -- a float field makes `x == x` NaN-sensitive).
+fn ce_self_cmp_nonfloat(ty: Str) -> Bool {
+  let base = ce_leaf_of(ty);
+  if selfhost_check_types.ct_is_float_family(base) { return false; }
+  if selfhost_check_types.ct_is_numeric(base) { return true; }
+  if base == "Bool" || base == "Char" || base == "Str" { return true; }
+  return false;
+}
+
 fn ce_check_binary(c: &mut Checker, idx: Int, left: Int, op: Int, right: Int) -> Str {
   let left_ty = ce_check_expr(c, left);
   let right_ty = ce_check_expr(c, right);
@@ -1364,7 +1648,14 @@ fn ce_check_binary(c: &mut Checker, idx: Int, left: Int, op: Int, right: Int) ->
     return left_ty;
   }
   if op == 5 || op == 6 {
-    return ce_check_eq(c, left, right, left_ty, right_ty, op, sp);
+    let cmp_ty = ce_check_eq(c, left, right, left_ty, right_ty, op, sp);
+    // W007: self-comparison on a non-float type is always true/false.
+    if ce_same_place_nodes(c, left, right) && ce_self_cmp_nonfloat(ck_resolve_alias(c, left_ty)) {
+      var verdict = "false";
+      if op == 5 { verdict = "true"; }
+      ck_warn_coded_at(c, "W007", "self-comparison is always " + verdict + " (the same expression is compared with itself)", sp.line, sp.col);
+    }
+    return cmp_ty;
   }
   if op == 7 || op == 8 || op == 9 || op == 10 {
     if (l_int && r_flt && !ce_is_int_literal(c, left))
@@ -1385,6 +1676,16 @@ fn ce_check_binary(c: &mut Checker, idx: Int, left: Int, op: Int, right: Int) ->
   }
   if op == 15 { return right_ty; }
   if op == 11 || op == 12 {
+    // W006: a literal shift amount outside the left operand's bit width is
+    // out of range (LLVM lowers it to a garbage value, not a trap).
+    let width = ce_int_width(left_ty);
+    if width > 0 && ce_is_int_literal_like(c, right) {
+      let amount = ce_int_literal_value(c, right);
+      if amount < 0 || amount >= width {
+        ck_warn_coded_at(c, "W006", "shift amount " + ce_int_str(amount) + " is out of range for "
+          + left_ty + " (valid: 0..=" + ce_int_str(width - 1) + ")", sp.line, sp.col);
+      }
+    }
     return left_ty;
   }
   if op == 16 || op == 17 || op == 18 {

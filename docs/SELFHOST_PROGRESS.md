@@ -193,6 +193,14 @@ Stage-1 checker port is GREEN as a gate; the phase itself is NOT complete
   struct literals validate field existence/types. `diff_check` green at 83
   corpus files + 50 manifest cases. Meter unchanged (3 of 11). Remaining:
   sub-stage 4 (W000/W004/W006/W007 lints) and sub-stage 5 (borrow pass).
+- Sub-stage 4 (2026-10-03): lint parity. W000 (non-exhaustive named user
+  enums), W004 (unreachable match arms), W006 (out-of-range shift) and W007
+  (self-comparison) are ported with Rust's spans/messages; 8 new manifest
+  cases under `selfhost/tests/check_negative/lints/`. `diff_check` green at
+  83 corpus files + 58 manifest cases; the other four gates re-run green.
+  Finding filed: W000 multi-missing order is HashMap-random in Rust
+  (COMPILER_BUGS 2026-10-03). Meter unchanged (3 of 11). Remaining:
+  sub-stage 5 (borrow pass).
 
 ## Open blockers and risks
 

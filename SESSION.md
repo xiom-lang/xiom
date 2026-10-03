@@ -393,6 +393,20 @@ Supersedes the (11) handoff below (kept as history).
   `cur_generics` (user single-letter types like `P` error like Rust). 11 new
   manifest cases under `selfhost/tests/check_negative/methods/`. Gate:
   `diff_check` -> 83 corpus files + 50 manifest cases, 1 passed (219.4 s).
+- Stage B5 (2026-10-03): lint parity (Phase 3 sub-stage 4). W004
+  (unreachable match arms: shadow keys for literals/None/Some/Ok/Err/
+  variants, catch-all shadowing), W000 (non-exhaustive NAMED user enums;
+  Option[..]/Result[..] carry args and Bool is a scalar, so neither warns;
+  bare variant arms parse as catch-all Idents), W006 (literal shift amount
+  outside the left type's bit width), W007 (self-comparison on non-float
+  types) are ported with Rust's spans and messages. Rust's multi-missing
+  W000 order is HashMap-random (filed COMPILER_BUGS 2026-10-03); the port
+  uses registration order and gates single-missing cases. 8 new manifest
+  cases under `selfhost/tests/check_negative/lints/`. Rebase onto main
+  `95c7de1c` (m178 + wave-58 relay) was clean first. All five gates green:
+  diff_corpus T1 ok, diff_tokens ok (19,245 tokens), diff_ast ok (12,877
+  nodes), diff_check ok (83 files, 5 diagnostic lines, +58 manifest cases,
+  279.3 s), runtime_ffi_selfcheck ok.
 
 
 # CONTINUATION HANDOFF (2026-10-02 (11), v0.62.2 shipped; m167/m168 fixed; phased queue)

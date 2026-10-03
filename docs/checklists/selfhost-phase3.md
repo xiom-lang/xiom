@@ -58,12 +58,11 @@ PARSE-ERROR                                    input/lex/parse failed
 | C | Catalog/imports resolution (module map, aliases, qualified calls) | DONE 2026-10-03 (stage-1 scope) |
 | D | Container method sets (builtin table, ctor typing, extension/R8 scan) | DONE 2026-10-03 |
 | E | Unknown-method + struct-literal field validation | DONE 2026-10-03 |
+| F | Lints W000 (non-exhaustive enums), W004 (unreachable arms), W006 (out-of-range shift), W007 (self-comparison) | DONE 2026-10-03 |
 
 Deferred to later Phase 3 sub-stages (NOT ported yet; permissive `_`
 fallbacks keep them from producing false positives):
 
-* match exhaustiveness (W000) and W004/W006/W007 lints (sub-stage 4); the
-  empirically reachable W003/W008 ARE ported and corpus-gated.
 * borrow-checker diagnostics (sub-stage 5; explicitly out of
   `compile_with_diagnostics`).
 * module BODIES are not checked (the corpus has no catalog-body diagnostics);
@@ -79,16 +78,20 @@ fallbacks keep them from producing false positives):
 * Corpus ground truth (`tmp/sprintc/phase3_checker/dump_check_recon.txt`):
   81x `CHECK-OK`, `smoke_guard_fault.xi` 4x W003, `m37_short_circuit.xi`
   1x W008.
-* `diff_check`: 83 corpus files + 34 manifest cases green
-  (`83 files (5 diagnostic lines, non-vacuous) + 34 manifest cases`;
-  18 of the cases are the catalog/imports sub-stage under
-  `selfhost/tests/check_negative/catalog/`).
+* `diff_check`: 83 corpus files + 58 manifest cases green
+  (`83 files (5 diagnostic lines, non-vacuous) + 58 manifest cases`;
+  sub-stage case sets live under `selfhost/tests/check_negative/`
+  `catalog/` (18), `containers/` (5), `lints/` (8), `methods/` (11) plus
+  the original 16).
 * Regression gates after the port: `diff_tokens` green (83 files),
   `diff_ast` green (83 files), `diff_corpus` T1 green. T2/T3 remain
   unreachable (Phase 0 stub emitter; pre-existing).
 * Findings: `docs/COMPILER_BUGS.md` 2026-10-02 Phase 3 section -- the
   `NkAssign` second-payload-field mis-read (same class as Phase 2 (h));
   workaround is side-helper field accessors + Int-tag statement dispatch.
+  Also 2026-10-03: `io.list_dir` returns pointer bits (static relocation
+  table workaround) and W000 multi-missing warning order is HashMap-random
+  (port uses registration order; only single-missing cases gated).
 
 ## Manifest policy
 

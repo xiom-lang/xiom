@@ -866,6 +866,28 @@ stdlib-exec 85/85 (+2 ign), api-freeze 2/2 after the change.
 
 ---
 
+## 2026-10-03 -- OPEN (selfhost Phase 3 port finding): W000 non-exhaustive match warning order is HashMap-random
+
+`Checker::check_match_exhaustiveness` iterates `self.enum_variants` (a
+`HashMap`) to build the uncovered-variant list, so a user enum match missing
+TWO OR MORE payload variants emits the W000 warnings in a per-process random
+order. Repro:
+`tmp/sprintc/phase3_checker/stage1/l_w000_payload_missing2.xi`
+(`enum Op { A(x: Int), B(y: Int), C(z: Int) }` with only `Op.A` matched):
+four consecutive `xiom --dump-check` runs on the same file alternated
+`'B' ... 'C'` / `'C' ... 'B'`. Single-missing cases are stable (one line),
+and `Option`/`Result`/`Bool` use fixed vectors.
+
+Impact: any canonical dump (the Phase 3 `--dump-check` gate, CI diffing,
+golden diagnostics) is unstable for multi-missing user enums; the selfhost
+gate uses registration order and only gates single-missing cases
+(`selfhost/tests/check_negative/lints/w000_nonexhaustive_payload.xi`).
+Fix direction: sort the collected variant names before coverage checking
+(or iterate `BTreeMap`/the declaration order) so the diagnostic order is
+deterministic.
+
+---
+
 ## 2026-10-03 -- OPEN (selfhost Phase 3 port finding): `io.list_dir` returns pointer bits instead of directory names
 
 Found while porting the checker's catalog module index. `io.list_dir(path)`
