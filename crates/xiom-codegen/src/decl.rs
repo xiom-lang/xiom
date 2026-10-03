@@ -482,19 +482,17 @@ impl IrEmitter {
     fn try_register_const_array_global(&mut self, cd: &ConstDecl, evaluated: &Expr) {
         let Expr::Array(items, _) = evaluated else { return };
         if items.is_empty() { return; }
-        if !items.iter().all(|e| matches!(e, Expr::Int(..) | Expr::Bool(..) | Expr::Char(..))) {
-            return;
-        }
+        // m182: any FULLY-literal element type (Int/Bool/Char/Float/Str/
+        // struct/nested array) is materializable as a real constant global;
+        // shapes with runtime parts keep the substitution path unchanged.
+        if !items.iter().all(Self::is_global_const_literal) { return; }
         let Type::Array(_, elem_ty) = &cd.ty else { return };
         let elem_xiom = Self::type_from_ast(elem_ty);
-        let Ok(elem_llvm) = self.llvm_type_for(&elem_xiom) else { return };
-        let is_int_llvm = elem_llvm.len() >= 2
-            && elem_llvm.as_bytes()[0] == b'i'
-            && elem_llvm[1..].bytes().all(|b| b.is_ascii_digit());
-        if !is_int_llvm { return; }
+        let elem_llvm = self.llvm_type_for(&elem_xiom)
+            .unwrap_or_else(|_| Self::xiom_to_llvm_type(&elem_xiom).to_string());
         let n = items.len();
-        let llvm_ty = format!("[{n} x i64]");
-        let init = Self::global_const_init(evaluated, &llvm_ty);
+        let llvm_ty = format!("[{n} x {elem_llvm}]");
+        let init = self.global_const_init_ext(evaluated, &llvm_ty);
         let symbol = if let Some(ref m) = self.local.current_module {
             format!("{}.{}", m, cd.name.name)
         } else {
@@ -503,9 +501,25 @@ impl IrEmitter {
         if !self.local.module_const_defs.iter().any(|(s, _, _)| s == &symbol) {
             self.local.module_const_defs.push((symbol.clone(), llvm_ty.clone(), init));
         }
-        let entry = (symbol.clone(), llvm_ty, "i64".to_string(), elem_xiom);
+        let entry = (symbol.clone(), llvm_ty, elem_llvm, elem_xiom);
         self.local.const_array_globals.insert(cd.name.name.clone(), entry.clone());
         self.local.const_array_globals.insert(symbol, entry);
+    }
+
+    /// m182: fully-literal const-table element check -- the shapes
+    /// `global_const_init_ext` can render as LLVM constants. Anything with a
+    /// runtime part (fn call, ident, field access, cast) returns false and
+    /// keeps the substitution path.
+    fn is_global_const_literal(e: &Expr) -> bool {
+        match e {
+            Expr::Int(..) | Expr::Bool(..) | Expr::Char(..) | Expr::Float(..) | Expr::Str(..) => true,
+            Expr::Unary(UnaryOp::Neg, inner, _) => Self::is_global_const_literal(inner),
+            Expr::Array(items, _) => items.iter().all(Self::is_global_const_literal),
+            Expr::Struct(_, fields, _, _) => {
+                fields.iter().all(|(_, v)| Self::is_global_const_literal(v))
+            }
+            _ => false,
+        }
     }
 
     pub(crate) fn register_functions(&mut self, item: &TopDecl) {

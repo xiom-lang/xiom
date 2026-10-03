@@ -6783,3 +6783,36 @@ fn main() -> Int { return inner_size(42) - 16; }
         "m179: the 8-byte scalar fallback must be gone; got:\n{body}"
     );
 }
+
+// m182 (stdlib row 25): module-level const tables whose elements are Str or
+// structs must become REAL constant globals. Before the fix they kept the
+// per-use substitution path, where a struct element's field read folded to a
+// placeholder 0 (`ROWS[0].a` compared the constant 0 in IR) and Str length
+// reads returned garbage; the committed probe docs/repro/const-tables
+// returned rc 6 (struct) and the isolated NAMES str_len loop rc 9.
+#[test]
+fn regress_m182_const_table_aggregate_globals() {
+    let source = r#"
+pub type Row = { a: Int; b: Int; }
+const K: [2]Int = [ 11, 22 ];
+const NAMES: [2]Str = [ "alpha", "beta" ];
+const ROWS: [2]Row = [ Row{ a: 1; b: 2 }, Row{ a: 3; b: 4 } ];
+fn main() -> Int {
+  if K[1] != 22 { return 1; }
+  if NAMES[0] != "alpha" { return 2; }
+  if ROWS[1].b != 4 { return 3; }
+  return 0;
+}
+"#;
+    let ir = compile(source).expect("m182: const tables must compile");
+    assert!(
+        ir.contains("internal constant [2 x i8*]")
+            && ir.contains("getelementptr inbounds ([6 x i8]"),
+        "m182: const [2]Str must materialize as a global i8* table with interned \
+         string constants; got:\n{ir}"
+    );
+    assert!(
+        ir.contains("internal constant [2 x %struct") && ir.contains("{ i64 1, i64 2 }"),
+        "m182: const struct table must materialize as a global aggregate; got:\n{ir}"
+    );
+}

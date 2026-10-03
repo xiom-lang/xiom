@@ -64,7 +64,7 @@ after. Playground acceptance `tools/compiler-repros/c25/run.sh` prints
 
 ---
 
-## 2026-10-03 -- LOCALIZED (open, queued): complex module-level const tables mis-read (Str/struct payloads)
+## 2026-10-03 -- FIXED (m182): complex module-level const tables mis-read (Str/struct payloads)
 
 REPRO (committed): `docs/repro/const-tables/const_tables.xi` -- rc 6 on
 HEAD and v0.62.2 (expected 0). Isolated NAMES probe (str_len loop) rc 9;
@@ -84,33 +84,36 @@ materializes all-literal INTEGER-like arrays; Str/struct elements keep the
 per-use SUBSTITUTION path, which re-materializes the whole table on the
 stack per read and loses aggregate element values in the fold.
 
-IMPACT: stdlib findings row 25 (complex tables) not retirable; packages
-keep raw-octet encodings. Not one of the four v0.62.3 release-hold gates;
-queued.
+IMPACT: stdlib findings row 25 (complex tables) not retirable until fixed;
+packages keep raw-octet encodings. Fixed post-v0.62.3 (m182) -- row 25 can
+now retire the complex shapes.
 
-IMPLEMENTATION PLAN (next compiler batch, m182; exact touchpoints):
-1. `try_register_const_array_global` (decl.rs ~L482): drop the
-   integer-literal-only gates; accept any FULLY-literal element array
-   (Int/Bool/Char/Float/Str/Struct/nested Array) via a recursive
-   `is_global_const_literal` check. Compute `elem_llvm` for the element
-   type and keep `arr_ty = [{n} x {elem_llvm}]`.
-2. `global_const_init` (lib.rs ~L417): make it a `&mut self` method so
-   Str elements can intern their `.strN` globals; add `Expr::Str` ->
-   `{ i8* getelementptr inbounds ([L x i8], [L x i8]* @.strN, i64 0,
-   i64 0), i64 len }` (match the live Str representation) and
-   `Expr::Struct` -> aggregate of recursively rendered fields (field
-   order from the struct type). Nested arrays/negatives already recurse.
-3. Index fast path (expr.rs ~L2931): for aggregate element types return
-   the ELEMENT ADDRESS (`elem_ptr`, `{elem_ty}*`) instead of a loaded
-   value, so the normal Field access GEPs/loads correctly; scalar
-   elements keep the load+extend path. This is the piece that makes
-   `ROWS[i].field` read real data instead of the constant-0 fallback.
-4. Locks: extend the committed `docs/repro/const-tables/const_tables.xi`
-   (rc 6 -> 0; NAMES str_len loop 14) into a codegen IR test asserting a
-   `@...ROWS` constant global + field load, and an e2e/stdlib-guarded
-   run. Era check against the pinned stdlib (row 25 shapes) after.
-5. If step 1 rejects a shape (non-literal element), keep the existing
-   substitution path unchanged -- no silent defaults.
+FIX (m182, 2026-10-03):
+- `try_register_const_array_global` (decl.rs) accepts any FULLY-literal
+  element array via the new `is_global_const_literal` (Int/Bool/Char/
+  Float/Str/struct/nested), computes the real element LLVM type, and
+  registers the global with that element type (no forced i64 slots).
+- New `global_const_init_ext` + `struct_const_init` (lib.rs) render Str
+  handles as interned constant expressions (Str is a bare `i8*`:
+  `i8* getelementptr inbounds ([L x i8], [L x i8]* @.strN, i64 0, i64 0)`)
+  and struct literals as constant aggregates in DECLARATION field order.
+  The static `global_const_init` is untouched, so module-`var`
+  initializers keep their behavior.
+- Index fast path (expr.rs): the widening arm now widens only INTEGER
+  element types; Str/float/aggregate elements return their typed value
+  (structs match the existing Vec[struct] convention), so `ROWS[i].field`
+  loads real data.
+
+EVIDENCE:
+- Probe `docs/repro/const-tables/const_tables.xi`: rc 6 -> 0 (the NAMES
+  str_len loop included, total 14).
+- IR: `@...NAMES = internal constant [3 x i8*] [i8* getelementptr ...]`,
+  `@...ROWS = internal constant [3 x %struct...Row]
+  [%struct...Row { i64 1, i64 2 }, ...]`.
+- Locks: `regress_m182_const_table_aggregate_globals` (codegen IR),
+  `e2e_m182_const_tables` + `tests/regression/m182_const_tables/`
+  (stdlib-guarded), ci.yml line. Feature 519/519; probe green on the
+  pinned stdlib.
 
 ---
 

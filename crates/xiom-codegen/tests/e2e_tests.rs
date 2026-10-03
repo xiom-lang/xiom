@@ -4938,6 +4938,28 @@ fn e2e_safety_probe() {
     );
 }
 
+// m182 (stdlib row 25): module-level const tables with Str/struct payloads
+// kept the per-use substitution path and mis-read (struct fields folded to
+// constant 0 -> rc 6; the NAMES str_len loop -> rc 9). Must become real
+// constant globals and run to exit 0. Needs the stdlib checkout
+// (xiom/string/string.xi).
+#[test] fn e2e_m182_const_tables() {
+    let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
+    if !stdlib_root.join("xiom").join("string").join("string.xi").exists() {
+        let msg = "SKIP: stdlib checkout has no xiom/string/string.xi";
+        if xiom_graph::paths::require_stdlib() {
+            panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
+        }
+        eprintln!("{msg}");
+        return;
+    }
+    assert_eq!(
+        compile_and_run("tests/regression/m182_const_tables/main.xi"),
+        Some(0),
+        "m182 const tables probe must compile and run"
+    );
+}
+
 // R48 (playground C17 classes): interface dispatch through a `&T` generic
 // argument (was mono'd as Int -> C001) and pointer/double match-result
 // zero-init (was `store i8* 0` / `store double 0` -> clang reject). Needs

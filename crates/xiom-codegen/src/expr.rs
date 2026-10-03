@@ -2940,9 +2940,14 @@ impl IrEmitter {
                         ));
                         let elem = self.fresh_tmp();
                         self.emitln(&format!("  {elem} = load {elem_ty}, {elem_ty}* {elem_ptr}"));
-                        // v1 always emits i64 slots; the widening arm keeps the
-                        // path correct if a future pass specializes widths.
-                        if elem_ty != "i64" {
+                        // m182: only INTEGER slots widen to i64; Str handles
+                        // (i8*), floats and aggregate elements return their
+                        // typed value (structs match the Vec[struct] value
+                        // convention, so field access works).
+                        let is_int = elem_ty.len() >= 2
+                            && elem_ty.as_bytes()[0] == b'i'
+                            && elem_ty[1..].bytes().all(|b| b.is_ascii_digit());
+                        if is_int && elem_ty != "i64" {
                             let ext = if Self::is_signed_xiom_type(&elem_xiom) { "sext" } else { "zext" };
                             let wide = self.fresh_tmp();
                             self.emitln(&format!("  {wide} = {ext} {elem_ty} {elem} to i64"));

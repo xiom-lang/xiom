@@ -107,11 +107,11 @@
 > type-laxness (`Vec[UInt8] = got.value` with a Str field), module-header
 > nested-module compare, stdlib `Vec.push[T]` stride fix.
 > PLUS (2026-10-03 relay): complex module-level const tables (Str/struct
-> payloads) mis-read -- `docs/repro/const-tables/const_tables.xi` rc 6
-> (ROWS fields compare against constant 0 in IR; dead load emitted) and
-> the isolated NAMES str_len loop rc 9; localized in the m164
-> substitution path, not started; stdlib row 25 not retirable until then.
-> i64<->f64 bitcast intrinsic for `xiom.num.float.float_bits/bits_to_float`
+> payloads) mis-read -- FIXED (m182): real constant globals for fully
+> literal elements (`docs/repro/const-tables/const_tables.xi` rc 6 -> 0,
+> NAMES str_len loop 14); IR test + e2e + ci line; feature 519/519.
+> stdlib row 25 can retire complex shapes. i64<->f64 bitcast intrinsic for
+> `xiom.num.float.float_bits/bits_to_float`
 > (stdlib stubs documented with TODO(compiler); no stdlib change wanted).
 > Arity contradiction retired (stale row); Vec[StructType] trap 10 not
 > reproducible (retirement candidate).

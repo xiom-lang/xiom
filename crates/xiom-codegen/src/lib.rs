@@ -513,6 +513,105 @@ impl IrEmitter {
         }
     }
 
+    /// m182: const-TABLE variant of `global_const_init` -- additionally
+    /// renders Str handles (interned constant expressions) and struct
+    /// literals as LLVM constant aggregates, so `const TBL: [N]Str` and
+    /// `const TBL: [N]Struct` become real globals instead of re-materializing
+    /// on the stack at every read site. Delegates to the static renderer for
+    /// every other shape, so module-`var` initializers (decl.rs) keep their
+    /// existing behavior.
+    fn global_const_init_ext(&mut self, value: &Expr, llvm_ty: &str) -> String {
+        match value {
+            Expr::Str(s, _) if llvm_ty == "i8*" => self.intern_cstring_const(s),
+            Expr::Struct(name, fields, _, _) => self.struct_const_init(name, fields, llvm_ty),
+            Expr::Array(items, _) => {
+                if llvm_ty.starts_with('[') && llvm_ty.contains(" x ") {
+                    let rest = &llvm_ty[1..];
+                    if let Some(xpos) = rest.find(" x ") {
+                        let inner = rest[xpos + 3..].trim_end_matches(']').to_string();
+                        let n_decl = rest[..xpos].trim().parse::<usize>().ok();
+                        let mut rendered: Vec<String> = items
+                            .iter()
+                            .map(|e| {
+                                let v = self.global_const_init_ext(e, &inner);
+                                if inner.starts_with('[') {
+                                    v
+                                } else {
+                                    format!("{inner} {v}")
+                                }
+                            })
+                            .collect();
+                        if let Some(n) = n_decl {
+                            while rendered.len() < n {
+                                let pad = Self::default_const_for(&inner);
+                                rendered.push(if inner.starts_with('[') {
+                                    pad
+                                } else {
+                                    format!("{inner} {pad}")
+                                });
+                            }
+                            rendered.truncate(n);
+                        }
+                        return format!("[{}]", rendered.join(", "));
+                    }
+                }
+                Self::global_const_init(value, llvm_ty)
+            }
+            _ => Self::global_const_init(value, llvm_ty),
+        }
+    }
+
+    /// m182: render a struct literal as an LLVM constant aggregate in
+    /// DECLARATION field order (the literal may list fields in any order),
+    /// using the registered struct metadata. Returns the zero default when
+    /// the struct or a field cannot be resolved.
+    fn struct_const_init(
+        &mut self,
+        name: &Ident,
+        fields: &[(Ident, Expr)],
+        llvm_ty: &str,
+    ) -> String {
+        let meta_fields: Option<Vec<(String, String)>> = self
+            .types
+            .type_meta
+            .get(&name.name)
+            .or_else(|| {
+                self.local
+                    .current_module
+                    .as_ref()
+                    .and_then(|m| self.types.type_meta.get(&format!("{}.{}", m, name.name)))
+            })
+            .or_else(|| {
+                let suffix = format!(".{}", name.name);
+                self.types
+                    .type_meta
+                    .entries()
+                    .into_iter()
+                    .find(|(k, _)| k.ends_with(&suffix))
+                    .map(|(_, v)| v)
+            })
+            .map(|m| m.fields.clone());
+        let Some(meta_fields) = meta_fields else {
+            return Self::default_const_for(llvm_ty);
+        };
+        let mut parts: Vec<String> = Vec::new();
+        for (fname, fxiom) in &meta_fields {
+            let Some(v) = fields
+                .iter()
+                .find(|(n, _)| &n.name == fname)
+                .map(|(_, v)| v)
+            else {
+                return Self::default_const_for(llvm_ty);
+            };
+            let f_llvm = self
+                .llvm_type_for(fxiom)
+                .unwrap_or_else(|_| Self::xiom_to_llvm_type(fxiom).to_string());
+            let rendered = self.global_const_init_ext(v, &f_llvm);
+            parts.push(format!("{f_llvm} {rendered}"));
+        }
+        format!("{{ {} }}", parts.join(", "))
+    }
+
     // ========================================================================
     // 5e.7f: Const Evaluation -- walk & fold const expressions at compile time
     // ========================================================================
@@ -8343,7 +8442,9 @@ impl IrEmitter {
 
     /// Emit a private constant C string and return an `i8*` register pointing at it.
     /// Uses byte length (not char count) so multi-byte UTF-8 is sized correctly.
-    fn intern_cstring(&mut self, s: &str) -> String {
+    /// Register a string constant global; returns (label, byte_len).
+    /// Shared by the runtime-handle and constant-expression forms (m182).
+    fn push_string_global(&mut self, s: &str) -> (String, usize) {
         let str_id = self.str_counter;
         self.str_counter += 1;
         let label = format!("@.str{str_id}");
@@ -8353,9 +8454,22 @@ impl IrEmitter {
         self.fctx.strings.push(format!(
             "{label} = private unnamed_addr constant [{n} x i8] c\"{escaped}\\00\""
         ));
+        (label, n)
+    }
+
+    fn intern_cstring(&mut self, s: &str) -> String {
+        let (label, n) = self.push_string_global(s);
         let tmp = self.fresh_tmp();
         self.emitln(&format!("  {tmp} = getelementptr [{n} x i8], [{n} x i8]* {label}, i64 0, i64 0"));
         tmp
+    }
+
+    /// m182: the CONSTANT-EXPRESSION form of the same interned string handle,
+    /// usable inside a global initializer (`Expr::Str` elements of const
+    /// tables). Emits no runtime instruction.
+    fn intern_cstring_const(&mut self, s: &str) -> String {
+        let (label, n) = self.push_string_global(s);
+        format!("getelementptr inbounds ([{n} x i8], [{n} x i8]* {label}, i64 0, i64 0)")
     }
 
     fn field_xiom_type(&self, struct_name: &str, field_idx: usize) -> Option<String> {
