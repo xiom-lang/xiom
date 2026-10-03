@@ -214,7 +214,11 @@ ladder. Gate P acceptance lives in `docs/RELEASE_GATE_v0.62.3.md`.
      archive, generated on install from the pinned source.
    - Parallel module codegen by default (`e2e_i2_parallel_codegen` already
      covers the emitter; wire the driver to it for stdlib-graph builds).
-   KPI: arena compile_ms under 2 s for the six system tasks (from 6-14 s).
+   - `xiom run` / `xiom run -e`: thin path over the precompiled stdlib;
+     stop indexing unrelated `.xi` trees under the temp root (see
+     COMPILER_BUGS 2026-10-03 `-e` entry).
+   KPI: arena compile_ms under 2 s for the six system tasks (from 6-14 s);
+   `xiom run -e` under 1 s warm / under 3 s cold.
 2. t1-allocator runtime (71 ms vs c 29): profile the allocator
    implementation plus codegen hot loops (bounds checks, branch layout,
    inline policy); consider checker-proven unchecked iteration in release.

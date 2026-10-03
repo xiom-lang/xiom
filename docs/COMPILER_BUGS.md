@@ -10,6 +10,34 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-03 -- LOCALIZED (open, queued): `xiom run -e` latency is the cold stdlib-graph compile (no `-e` fast path)
+
+User observation: `xiom run -e "<code>"` takes 7-9 s from Enter to
+execution on the installed v0.62.3 toolchain.
+
+MEASURED: matches the arena compile_ms gap (6.4-13.6 s per program on the
+release toolchain). `-e` runs the FULL script pipeline (temp file ->
+catalog index -> check -> codegen -> clang -> run); there is no
+precompiled stdlib and no reuse across snippets. The script cache is keyed
+on the exact source, so only a byte-identical re-run can hit, and `-e`
+usage implies varied snippets. Local boxes with duplicate stdlib copies
+under `%TEMP%` measure far worse (94 s with the official release binary
+here, with W001 duplicate-module warnings for every module: benchmark/lane
+leftovers under `%TEMP%\kilo` get indexed) -- a local artifact, not
+shipped behavior.
+
+RELATED CLI GAP: `-e` rejects `use` declarations (P001: expected
+declaration, found the statement after `use`) and an unqualified
+`io.println(...)` does not resolve, so module-using one-liners need an
+undocumented form. Confirm the intended `-e` grammar before optimizing it.
+
+FIX: roadmap `STAGE6_PERF_PLAN` item 1 (per-module compile cache +
+precompiled stdlib + parallel module codegen), then a thin `-e` path that
+loads the precompiled stdlib and compiles only the snippet. Also restrict
+run-mode source-dir discovery so unrelated `.xi` trees are never indexed.
+
+---
+
 ## 2026-10-03 -- FIXED (C25): `xiom run` warm script-cache hits closed stdin; `--no-cache` never bypassed the cache
 
 Playground relay: cold runs read piped stdin, every cached rerun printed
