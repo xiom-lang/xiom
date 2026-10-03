@@ -715,6 +715,7 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
 }
 
 pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Vec<String>> {
+    timing_mark("start");
     // v0.54: Binary cache -- check for cached binary before compilation.
     // When --run --cache is used, skip the full compile pipeline if the
     // source hasn't changed since the last compilation.
@@ -850,6 +851,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
 
     // Merge all parsed programs into one
     let mut program = merge_programs(all_programs);
+    timing_mark("parse");
     // D1: register `impl Trait[Args]` blocks before expansion erases them.
     let mut checker = Checker::new();
     checker.register_impls_from_program(&program);
@@ -1118,6 +1120,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     }
 
     // Stage 5: Codegen
+    timing_mark("check+borrow");
     let mut emitter = IrEmitter::new();
     // m166: trust `#[unsafe_direct]` on the injected stdlib decls.
     emitter.set_catalog_fn_keys(injected_fn_keys);
@@ -1169,6 +1172,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             return Err(vec!["compilation failed".to_string()]);
         }
     };
+    timing_mark("codegen");
 
     if config.diagnostics_json {
         println!(r#"{{"schema_version":1,"status":"ok"}}"#);
@@ -2114,6 +2118,19 @@ pub fn explain_error(code: &str) -> bool {
             // maps false to its own exit code.
             false
         }
+    }
+}
+
+/// XIOM_TIMINGS=1: print cumulative phase times to stderr (benchmark
+/// compile-time work, STAGE6_PERF_PLAN item 1 "measure first"). Call at
+/// phase boundaries; the final phase (clang+link) is the wall total minus
+/// the last mark.
+pub fn timing_mark(phase: &str) {
+    use std::sync::OnceLock;
+    static T0: OnceLock<std::time::Instant> = OnceLock::new();
+    let t0 = T0.get_or_init(std::time::Instant::now);
+    if std::env::var_os("XIOM_TIMINGS").is_some() {
+        eprintln!("[timings] {phase} {:.3}s", t0.elapsed().as_secs_f64());
     }
 }
 

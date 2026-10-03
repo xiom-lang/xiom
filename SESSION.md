@@ -35,6 +35,14 @@
 > 4. Then the v0.62.x release mechanics: pin the then-current stdlib tag,
 >    version bumps, notes, README/extension texts, Gate A + Gate P.
 >
+> BENCHMARK OPTIMIZATION for the candidate (owner request): phase timing
+> shipped behind `XIOM_TIMINGS=1` (cumulative marks: start/parse/check+
+> borrow/codegen). First measurement on the lz4 smoke: parse 0.002s,
+> **check+borrow 11.94s (~72%)**, codegen 0.20s, clang+link ~4.4s (~27%).
+> The checker phase is the target; a checked-stdlib-module cache is the
+> scoped candidate for v0.62.4 if it lands safely, otherwise Stage 6 in
+> v0.63.0.
+>
 > DEFERRED to `v0.63.0` (minor): Stage 6 compile-time work (per-module
 > cache + separate compilation + parallel codegen; KPI compile_ms < 2 s),
 > R-8 `tcp_stream_read`, contracts-arena verifier, i64<->f64 bitcast,

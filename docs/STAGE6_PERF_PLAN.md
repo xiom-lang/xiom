@@ -204,11 +204,14 @@ ladder. Gate P acceptance lives in `docs/RELEASE_GATE_v0.62.3.md`.
 ### Backlog (compiler lane, ordered)
 
 1. COMPILE-TIME / stdlib module graph (top priority):
-   - Measure first: phase breakdown (parse / check / codegen / clang link)
-     for one arena program to confirm where the seconds go.
-   - Persistent per-module compile cache keyed by source hash + compiler
-     identity + opt level (same identity scheme as `xiom::jit` script
-     cache), storing per-module IR/objects reusable across programs.
+   - MEASURED (2026-10-03, debug driver, lz4 smoke via new
+     `XIOM_TIMINGS=1`): parse 0.002s; **check+borrow 11.94s (~72%)**;
+     codegen 0.20s; clang+link ~4.4s (~27%). The checker phase is the
+     target, not parse/codegen.
+   - Persistent CHECK cache for stdlib modules keyed by source hash +
+     compiler identity + config (same identity scheme as `xiom::jit`
+     script cache): skip re-checking the injected catalog graph; pair
+     with a per-module IR/object cache for the codegen side.
    - Separate compilation: link precompiled stdlib objects instead of
      re-emitting the graph; ship a precompiled stdlib in the release
      archive, generated on install from the pinned source.

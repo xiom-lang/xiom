@@ -196,6 +196,16 @@ three confirmed locally against the official v0.62.3 windows-x64 archive
    (count-only passed); (c) inspect its emitted body for mistyped
    stores/GEPs.
 
+   P6 DONE: a SECOND call to `lz4.lz4_decompress(lz)` (the Result-returning
+   fn already used in the prefix) returns rc=0 -- so the trigger is
+   SPECIFIC to `lz4_decompress_block`, not Result returns or repeated
+   calls. Store-type audit of the 859-line `lz4_decompress_block` body:
+   0 mismatches; bitcasts are byte-buffer reads. NEXT: inspect the
+   OPTIMIZED P4c main around the block check in `p4c_opt.ll` (find where
+   the return-5 value is computed) -- the pre-opt IR is correct, so clang
+   transforms the whole main due to UB reachable only through the
+   decompress_block call path.
+
 ---
 
 ## 2026-10-03 -- FIXED (m182): complex module-level const tables mis-read (Str/struct payloads)
