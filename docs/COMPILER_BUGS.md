@@ -126,6 +126,24 @@ three confirmed locally against the official v0.62.3 windows-x64 archive
    lesson: mismatched call signatures are accepted silently and only bite
    under optimization).
 
+   OPTIMIZED-IR LEAD (done same session): `clang -O2` on the raw
+   p3r.ll/p4r.ll (cmd-redirected UTF-8) both optimize. At the inlined
+   block-compress return:
+   - P3: `%tmp26.unpack8.i = load i64, ptr %tmp22.repack1.i` (repack1 =
+     Vec+8, the LEN) -> `icmp eq i64 %tmp26.unpack8.i, 0` -> select 5/0.
+   - P4: reloads `ptr` (data) and `%tmp26.unpack12.i = load i64, ptr
+     %tmp22.repack5.i` (repack5 = Vec+24, the ESZ slot), then
+     reconstructs a copy at `%tmp201` (stores `<2 x i64>` from repack1 to
+     +8 and `unpack12` to +24) before the length check.
+   The length/field path diverges once the suffix makes clang materialize
+   the Vec copy instead of reading the call-result alloca directly --
+   suspect a field-offset/stride confusion in the Vec copy or len read
+   that only manifests under optimization (UInt8 esz = 1 vs i64 = 8).
+   Next: dump the P4 check block after the `%tmp201` reconstruction and
+   confirm which field feeds `blk.len()`; then find the emitter path that
+   emits the copy (likely `compile_expr` Vec-value re-entry) and fix the
+   offsets.
+
 ---
 
 ## 2026-10-03 -- FIXED (m182): complex module-level const tables mis-read (Str/struct payloads)
