@@ -35,8 +35,8 @@ bundled, so the same VSIX works on Windows, Linux and macOS:
 
 ```bash
 cd editors/vscode
-npx --yes @vscode/vsce@3 package --out xiom-vscode-0.12.1.vsix
-code --install-extension xiom-vscode-0.12.1.vsix
+npx --yes @vscode/vsce@3 package --out xiom-vscode-0.12.2.vsix
+code --install-extension xiom-vscode-0.12.2.vsix
 ```
 
 Release publishing is automated: on a `v*` tag, `release.yml` attaches the
@@ -54,7 +54,7 @@ any is missing it shows a notification with an install button
 (<https://xiom-lang.org/install>) and registers `XIOM: Recheck toolchain`.
 It never installs anything silently -- the official installer is the single
 install path. **Minimum toolchain: v0.61.0** (the LSP/DAP protocol this
-extension speaks); **0.12.1** is tested against the v0.62.1 toolchain, and
+extension speaks); **0.12.2** is tested against the v0.62.3 toolchain, and
 its Stage 6 diagnostic codes (W002-W008 warnings, T001 errors) surface in
 the Problems panel automatically through `xiom-lsp`.
 

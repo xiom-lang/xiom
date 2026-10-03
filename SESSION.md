@@ -3,6 +3,21 @@
 
 # CONTINUATION HANDOFF (2026-10-03 (13), v0.62.3 IN RELEASE HOLD -- two pre-existing defects; parallel lanes live)
 
+> RELEASE STATE (2026-10-03, this session): release hold LIFTED. v0.62.3 is
+> prepared at the pin `stdlib-perf3` (stdlib `2429ac3`): both blockers fixed
+> (m179 Arc, m180 contracts AV) plus the m181 checker refinements. Gate A
+> ALL GREEN on the fresh pin -- full e2e 2411/2411 (+4 ign, 1834 s), feature
+> 518, parser 107, checker 195, checker_locks 28, borrow 2, doctor 4,
+> run_script 2, full_diff 4, stdlib_tests 40, stdlib-exec 85 (+2 ign),
+> api-freeze 2, `cargo check --workspace --all-targets` clean. Release notes
+> v0.62.3 converted+verified; README texts/links refreshed; VS Code
+> extension 0.12.2 (README marked tested against v0.62.3). Remaining:
+> benchmark-lane t2-queue acceptance (Gate P) and the owner's push +
+> `v0.62.3` tag on the release commit (push only on the owner's ask). See
+> `docs/RELEASE_GATE_v0.62.3.md`. The KICKOFF below records the held-release
+> work (items 1-4 done); const-tables and the float bitcast stay queued
+> post-release.
+
 > KICKOFF (paste-ready): Continue the XIOM swarm compiler lane on `main`.
 > Read this top section, then `docs/COMPILER_BUGS.md` (2026-10-03 entries)
 > and `docs/SELFHOST_PROGRESS.md`. v0.62.3 is IN RELEASE HOLD: cut only

@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "tag": "v0.62.3",
+  "summary": "A correctness release: shared ownership counts and the contracts index are fixed, and match patterns are checked against their subject type before code generation.",
+  "highlights": [
+    {
+      "kind": "fix",
+      "title": "Shared references count correctly",
+      "text": "Building a shared reference and reading its strong count could return garbage because the control block was allocated too small on the trusted synchronization path. The allocation now matches the block, so reference counting is reliable."
+    },
+    {
+      "kind": "fix",
+      "title": "The contracts index no longer crashes",
+      "text": "A program calling the contracts runtime index (for example any_contracts()) crashed with an access violation: a method call on a computed value was bound to the wrong function. Calls on computed receivers now bind to the correct method."
+    },
+    {
+      "kind": "compiler",
+      "title": "Match patterns are checked against their subject",
+      "text": "Patterns such as Ok/Err and Some/None are now verified against the scrutinee type, which prevents invalid output when a pattern cannot apply. Type aliases and enums that declare their own None or Some variants are recognized correctly."
+    },
+    {
+      "kind": "fix",
+      "title": "Scripting and type resolution fixes",
+      "text": "Integer handles passed to pointer parameters now convert correctly (interactive line input), qualified struct types resolve in all module positions, and result payloads no longer accept mismatched types."
+    }
+  ],
+  "breaking": [],
+  "known_issues": [
+    "Module-level constant arrays whose elements are strings or structs are not yet materialized correctly (integer tables are unaffected); use a function or fill a vector at startup for those tables until a future release addresses it."
+  ],
+  "docs": [],
+  "full_changelog": "https://github.com/xiom-lang/xiom/releases/tag/v0.62.3"
+}
