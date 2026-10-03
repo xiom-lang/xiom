@@ -29,6 +29,18 @@ Recommendation: bisect each v0.61.3 -> v0.62.2 (tags are local), fix with
 fixture + checker/e2e locks, then Gate P + tag v0.62.3. The stdlib lane has
 already retired the m178 probe and their corpus is T001-clean (509/509,
 smoke_net 10/10) after the 2-site `str_slice` fix (stdlib e997201/8b23b79).
+BISECT PROGRESS (2026-10-03):
+- contracts AV: red already on v0.62.0 and v0.62.1 -> entered somewhere in
+  v0.61.3..v0.62.0 (not the 0.62.1..0.62.2 range).
+- Arc count: green on v0.62.0, v0.62.1 and at `1814ac36` (R-2 partial
+  aliasing); red on v0.62.2/HEAD -> entered in the later half of
+  v0.62.1..v0.62.2. `d8a04678` (m162) cannot be probed with the CURRENT
+  stdlib tree (compile fails: the tree needs post-m162 fixes such as m166
+  annotation support / m176 qualified types), so the remaining probes need
+  an ERA-PINNED stdlib checkout (the pin at that commit's STDLIB_VERSION)
+  or a self-contained repro that does not import the moving stdlib tree.
+  Worktrees at `tmp/sprintc/bisect_1814` and `tmp/sprintc/bisect_m162` age
+  out — rebuild candidates as needed.
 
 ---
 
