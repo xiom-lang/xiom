@@ -209,6 +209,13 @@ Stage-1 checker port is GREEN as a gate; the phase itself is NOT complete
   58 manifest cases. All five gates green (5 passed, 326.8s). Meter still
   3 of 11: full parity additionally needs catalog-BODY checking and
   uppercase bare-name resolution (documented in the checklist).
+- Fallback (b) (2026-10-03): uppercase bare-name resolution. Module
+  types/enums/consts register Rust's bare fallback keys; unresolved names in
+  `use` files error for all cases (calls keep the Unit cascade);
+  interface-name receivers stay permissive (associated-form dispatch
+  deferred). 3 new cases; `diff_check` green at 83 corpus files + 61
+  manifest cases; all five gates re-run green. Meter unchanged (3 of 11);
+  only catalog-BODY checking remains before the flip.
 
 ## Open blockers and risks
 

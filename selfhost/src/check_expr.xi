@@ -1445,14 +1445,16 @@ fn ce_check_ident(c: &mut Checker, idx: Int, name_idx: Int) -> Str {
   let loaded = selfhost_check_state.ck_loaded_bare(c, name);
   if loaded.len() > 0 { return loaded; }
   if c.has_uses == 1 {
-    // Deferred: type-ish (uppercase) names from modules stay permissive;
-    // Rust resolves them through the import closure and unknown types pass
-    // anyway. Lowercase unknowns error like Rust, except namespace/alias
-    // roots used as values (`xiom`, `path`).
+    // Namespace/alias roots used as values stay permissive (`xiom`, `path`);
+    // everything else unresolved errors like Rust -- including uppercase
+    // module types, which resolve through the bare fallback registration.
     if name == "xiom" { return "_"; }
     if selfhost_check_state.ck_is_module_name(c, name) { return "_"; }
     if ck_alias_key(c, name).len() > 0 { return "_"; }
-    if ce_starts_upper(name) { return "_"; }
+    // Interface names as receivers (`Eq[T].eq(...)`) stay permissive:
+    // associated-form dispatch is deferred.
+    if selfhost_check_state.ck_is_iface(c, name) { return "_"; }
+    if selfhost_check_state.ck_is_interface(c, name) { return "_"; }
     let sp = ck_span_of(c, idx);
     return ck_error_at(c, "undefined variable '" + name + "'", sp.line, sp.col);
   }
@@ -1902,26 +1904,16 @@ fn ce_check_bare_call(c: &mut Checker, idx: Int, name_idx: Int, args: Vec[Int]) 
     return "_";
   }
   if c.has_uses == 1 {
-    // Lowercase unknown calls error like Rust (the unresolved call types as
-    // Unit, so the caller's return check reports the observed cascade);
-    // uppercase names may be module types/fns the stage-1 import closure
-    // cannot enumerate, so they stay permissive.
-    if !ce_starts_upper(name) {
-      let isp = ck_span_of(c, name_idx);
-      let _ = ck_error_at(c, "undefined variable '" + name + "'", isp.line, isp.col);
-      var i = 0;
-      while i < args.len() {
-        let _ = ce_check_expr(c, args[i]);
-        i = i + 1;
-      }
-      return "()";
-    }
+    // Unresolved calls error like Rust (the unresolved call types as Unit,
+    // so the caller's return check reports the observed cascade).
+    let isp = ck_span_of(c, name_idx);
+    let _ = ck_error_at(c, "undefined variable '" + name + "'", isp.line, isp.col);
     var i = 0;
     while i < args.len() {
       let _ = ce_check_expr(c, args[i]);
       i = i + 1;
     }
-    return "_";
+    return "()";
   }
   let ident_span = ck_span_of(c, name_idx);
   let _ = ck_error_at(c, "undefined variable '" + name + "'", ident_span.line, ident_span.col);

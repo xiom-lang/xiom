@@ -686,7 +686,11 @@ fn cm_try_type(c: &mut Checker, key: Str, p: &Parser, idx: Int) {
     NkTypeDecl(is_pub, name, generics, fields, derived, invariants, derives, alias) => {
       if is_pub != 1 { return; }
       let nm = selfhost_check_state.ck_ident_in(p, name);
-      cm_push_type(c, key + "." + nm, cm_read_fields(p, fields), 0);
+      let fs = cm_read_fields(p, fields);
+      cm_push_type(c, key + "." + nm, fs, 0);
+      // Rust register_type_decl_inner also keeps a BARE fallback (first
+      // registration wins), so `use m;` makes `m`'s types resolvable bare.
+      cm_push_type(c, nm, fs, 0);
     }
     _ => {}
   }
@@ -698,6 +702,7 @@ fn cm_try_enum(c: &mut Checker, key: Str, p: &Parser, idx: Int) {
       if is_pub != 1 { return; }
       let nm = selfhost_check_state.ck_ident_in(p, name);
       cm_push_type(c, key + "." + nm, Vec[Field].new(), 1);
+      cm_push_type(c, nm, Vec[Field].new(), 1);
     }
     _ => {}
   }
@@ -711,6 +716,7 @@ fn cm_try_const(c: &mut Checker, key: Str, p: &Parser, idx: Int) {
       var declared = "_";
       if ty >= 0 { declared = selfhost_check_state.ck_type_from_ast_in(p, ty); }
       cm_push_global(c, key + "." + nm, declared);
+      cm_push_global(c, nm, declared);
     }
     _ => {}
   }

@@ -1,0 +1,2 @@
+type_error T001 6:10 undefined variable 'NoSuchThing'
+type_error T001 6:3 return type mismatch: expected Int, found ()

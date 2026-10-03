@@ -422,6 +422,16 @@ Supersedes the (11) handoff below (kept as history).
   lines + 58 manifest cases, runtime_ffi_selfcheck). Meter stays 3 of 11:
   full parity still needs catalog-BODY checking and uppercase bare-name
   resolution (both documented in the checklist).
+- Stage B7 (2026-10-03): uppercase bare-name resolution (fallback b).
+  Module types/enums/consts now register Rust's BARE fallback keys
+  (`use xiom.collections;` makes `Map` resolvable bare), and unresolved
+  names in `use` files error for every case instead of only lowercase
+  (value: one error at the ident span; call: undefined + Unit-cascade).
+  Interface-name receivers (`Eq[T].eq`) stay permissive for now
+  (associated-form dispatch deferred, m37_bug48). 3 new manifest cases
+  (`catalog/uppercase_*`); `diff_check` -> 83 files (11 diagnostic lines) +
+  61 manifest cases, 417.3 s; all five gates re-run green. Remaining before
+  the meter flip: catalog-BODY checking only.
 
 
 # CONTINUATION HANDOFF (2026-10-02 (11), v0.62.2 shipped; m167/m168 fixed; phased queue)
