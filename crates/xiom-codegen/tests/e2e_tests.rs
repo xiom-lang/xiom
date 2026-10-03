@@ -4982,6 +4982,26 @@ fn e2e_safety_probe() {
     );
 }
 
+// m186 (stdlib relay): inline module-qualified UInt32 call compares misread
+// high-bit values (sext vs the constant's zext). Needs the stdlib checkout
+// (xiom/hash/adler.xi).
+#[test] fn e2e_m186_uint32_high_bit_compare() {
+    let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
+    if !stdlib_root.join("xiom").join("hash").join("adler.xi").exists() {
+        let msg = "SKIP: stdlib checkout has no xiom/hash/adler.xi";
+        if xiom_graph::paths::require_stdlib() {
+            panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
+        }
+        eprintln!("{msg}");
+        return;
+    }
+    assert_eq!(
+        compile_and_run("tests/regression/m186_uint32_high_bit_compare/main.xi"),
+        Some(0),
+        "m186 inline UInt32 high-bit compare must be correct"
+    );
+}
+
 // R48 (playground C17 classes): interface dispatch through a `&T` generic
 // argument (was mono'd as Int -> C001) and pointer/double match-result
 // zero-init (was `store i8* 0` / `store double 0` -> clang reject). Needs

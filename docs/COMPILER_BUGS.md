@@ -64,6 +64,28 @@ after. Playground acceptance `tools/compiler-repros/c25/run.sh` prints
 
 ---
 
+## 2026-10-03 -- FIXED (m186): inline module-qualified UInt32 call compares misread high-bit values
+
+Source: stdlib relay `tools/known_failures/p_uint32_high_bit_compare.xi`
+(`adler32_combine(1,2,-1)` returns 0xFFFFFFFF; compared INLINE it reports
+unequal on v0.62.3 while the bound-local control passes; UInt16/UInt8
+family).
+
+ROOT CAUSE (IR): the inline call result widened with `sext i32 to i64`
+(signedness unknown) while the `as UInt32` constant widened with `zext` --
+`-1 != 4294967295`. `expr_int_signedness`/`expr_is_unsigned` resolve
+signedness via `infer_call_return_xiom(func)`, which misses
+MODULE-QUALIFIED callees (`adler.adler32_combine`); the bound-local path
+had the type through deep inference.
+
+FIX (emitter.rs): both helpers fall back to
+`infer_expr_xiom_type_deep(whole call)` when the callee-only resolver
+misses, so UInt* returns widen unsigned. LOCK:
+`e2e_m186_uint32_high_bit_compare` + `tests/regression/m186_uint32_high_bit_compare/`
+(stdlib-guarded), ci.yml line; feature 519/519; probe rc 1 -> 0.
+
+---
+
 ## 2026-10-03 -- TRIAGE (open): packages lane's three v0.62.3 findings (nested test-module import, uninit local struct, enum-payload Str corruption)
 
 Source: packages lane relay (docs/COMPILER-FINDINGS.md A/B +

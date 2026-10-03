@@ -36,6 +36,10 @@
 >    literal-zero struct coercion no longer NULL-derefs; e2e lock); the
 >    enum-payload Str corruption still needs a minimal repro (v0.62.4
 >    target).
+> 2c. stdlib finding: inline module-qualified UInt32 compare FIXED (m186,
+>    deep-inference signedness fallback; e2e lock). Candidate contents so
+>    far: C25, m182, m184, m185, m186, the timing instrumentation, and the
+>    lz4/iter work once their audits land.
 > 3. Registry polish if ready, S each: B1 publish packaging guard,
 >    B2 `xiom pkg yank`, install trust wording, `--resolve` outside a
 >    workspace (all contracts received).

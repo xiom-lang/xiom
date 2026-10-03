@@ -569,9 +569,15 @@ impl IrEmitter {
                 && self.expr_is_unsigned(bl),
             Expr::Paren(inner, _) => self.expr_is_unsigned(inner),
             Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
+                // m186: see expr_int_signedness -- deep inference fallback
+                // for module-qualified callees.
                 self.infer_call_return_xiom(func)
                     .map(|rt| is_unsigned_name(&rt))
                     .unwrap_or(false)
+                    || self
+                        .infer_expr_xiom_type_deep(e)
+                        .map(|rt| is_unsigned_name(&rt))
+                        .unwrap_or(false)
             }
             _ => false,
         }
@@ -611,7 +617,19 @@ impl IrEmitter {
                 }
             }
             Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
-                self.infer_call_return_xiom(func).and_then(|rt| signed_of_name(&rt))
+                self.infer_call_return_xiom(func)
+                    .and_then(|rt| signed_of_name(&rt))
+                    .or_else(|| {
+                        // m186 (stdlib relay): module-qualified callees
+                        // (`adler.adler32_combine`) miss the callee-only
+                        // resolver, so an inline UInt32 call result widened
+                        // with sext while the `as UInt32` constant zext'd
+                        // (0xFFFFFFFF reported unequal). Fall back to deep
+                        // inference of the WHOLE call expression, which is
+                        // what the bound-local path already used.
+                        self.infer_expr_xiom_type_deep(e)
+                            .and_then(|rt| signed_of_name(&rt))
+                    })
             }
             _ => None,
         }
