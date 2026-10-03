@@ -400,10 +400,10 @@ pub fn cm_load_use(c: &mut Checker, dotted: Str) {
   if dotted.len() == 0 { return; }
   let full = cm_resolve_module_file(c, dotted);
   if full.len() > 0 {
-    // R49-1: only a file whose DECLARED module matches the requested path
-    // claims the alias (`dmod.xi` without `module dmod` stays qualified-
-    // invisible like Rust, but its exports still join bare resolution).
-    if cm_load_file(c, dotted, full) == 2 {
+    // ee7ab150 batch: local module files claim the alias under the
+    // FILE-STEM path even without a matching `module` header (Rust now
+    // resolves both the stem and the declared identity).
+    if cm_load_file(c, dotted, full) != 0 {
       selfhost_check_state.ck_add_alias(c, cm_leaf(dotted), dotted);
     }
     return;

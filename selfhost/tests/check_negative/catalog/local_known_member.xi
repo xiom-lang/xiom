@@ -1,5 +1,6 @@
-// Phase 3 catalog gate: a file without a `module` header does not resolve as
-// a qualified module (R49-1: declared identity), even though bare exports do.
+// Phase 3 catalog gate: a sibling file without a `module` header still
+// resolves qualified calls under the FILE-STEM identity (ee7ab150 batch;
+// both stem and declared names resolve, so `dmod.real()` is accepted).
 use dmod;
 
 fn main() -> Int {
