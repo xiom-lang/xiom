@@ -102,8 +102,21 @@ three confirmed locally against the official v0.62.3 windows-x64 archive
    empty Vec while a standalone minimal block-compress passes.
    `lz4_compress_block` -> `_lz4_block_core(data, 4096, &result)`: the
    `&mut Vec[UInt8]` out-param pushes do not land in the caller's Vec in
-   this TU context. Next: emit-IR diff smoke vs standalone (likely the
-   m142-era receiver binding or Vec-value re-entry, to be pinned).
+   this TU context.
+   BISECT (official archive, 2026-10-03): the EXACT smoke prefix in
+   isolation passes -- module + three imports + bytes_equal + small build
+   + frame compress/decompress roundtrip + bound + block compress (P1/P2/
+   P3 rc 0). All emitted lz4 function bodies are byte-identical between
+   the standalone and the failing smoke IR (`_lz4_block_core`,
+   `_lz4_write_seq`, `lz4_compress_block` -- 1 diff count on Compare-
+   Object across 383/1376/55-line bodies, and `small`'s alloca has no
+   clobbering store before the block call). Failure therefore appears only
+   with the FULL main (block roundtrip + HC + big + snappy suffix):
+   optimizer-visible UB or a latent IR invalidity that clang resolves
+   differently in the larger function. NEXT: extend the suffix bisect
+   (block roundtrip -> HC -> big -> snappy) with correctly generated
+   probes, then audit the block-call-site IR for validity (the m180 lesson:
+   mismatched signatures are accepted silently).
 
 ---
 
