@@ -904,6 +904,27 @@ fn diff_check() {
         Err(err) => failures.push(format!("{}: {}", short_path, err)),
     }
 
+    // Borrow-pass non-vacuity: the corpus carries E001 borrow warnings (the
+    // canonical dump now includes the non-strict borrow pass), re-asserted
+    // exactly on BOTH drivers by the equality above.
+    let f128_path = "tests/regression/m37_f128.xi";
+    match rust_check_dump(f128_path) {
+        Ok(lines) => {
+            let expected = vec![
+                "borrow_warning E001 16:5 use of moved value 'acc'".to_string(),
+                "borrow_warning E001 19:11 use of moved value 'acc'".to_string(),
+            ];
+            if lines != expected {
+                failures.push(format!(
+                    "{}: corpus borrow diagnostics drifted:\n{}",
+                    f128_path,
+                    lines.join("\n")
+                ));
+            }
+        }
+        Err(err) => failures.push(format!("{}: {}", f128_path, err)),
+    }
+
     // Negative/accept manifest: `.expected` files are the source of truth for
     // BOTH drivers (a Rust-side message change must update the manifest).
     for case in NEGATIVE_CASES {

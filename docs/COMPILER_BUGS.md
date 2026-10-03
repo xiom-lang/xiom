@@ -939,10 +939,14 @@ depends on the surrounding function shape/arm set, exactly like (h).
 Workaround (landed): field access goes through the one-arm accessor helpers
 and statement dispatch uses an Int-tag selector (`ce_stmt_tag`) with
 per-kind helper functions, the same shape Phase 2 used for
-`NkExprGenericCall`. Fix direction: payload-field loads for variant
-patterns must match the construction layout independent of surrounding
-function size/arm count (see also the fix direction of (e)/(g)/(h): the
-generated IR for aggregate-payload enum matches needs a verifier check).
+`NkExprGenericCall`. Recurrence while porting the borrow walk (2026-10-03):
+`bc_stmt_assign` crashed with 0xC0000005 on `p.y = 3;`
+(`tmp/sprintc/phase3_checker/stage1/bf5.xi`) until the same
+`bc_assign_lhs`/`bc_assign_rhs` accessor split was applied. Fix direction:
+payload-field loads for variant patterns must match the construction layout
+independent of surrounding function size/arm count (see also the fix
+direction of (e)/(g)/(h): the generated IR for aggregate-payload enum
+matches needs a verifier check).
 
 ---
 

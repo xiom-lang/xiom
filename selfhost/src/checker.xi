@@ -14,19 +14,20 @@
 // `CompileResult.diagnostics` carries. `message` escapes `\`, LF, CR and TAB
 // as `\\`, `\n`, `\r`, `\t`; every other byte is emitted verbatim.
 //
-// Stage boundaries (docs/checklists/selfhost-phase3.md): this phase ports the
-// signature/body checker subset; the catalog/stdlib module resolution and
-// the borrow checker are later stages and keep the fallback permissive so
-// they cannot introduce false positives.
+// Stage boundaries (docs/checklists/selfhost-phase3.md): the signature/body
+// checker subset plus the non-strict borrow pass are ported; catalog module
+// bodies and the remaining permissive fallbacks are documented there.
 
 module selfhost_checker
 
 use xiom.io;
 use xiom.string;
+use selfhost_check_borrow;
 use selfhost_check_core;
 use selfhost_check_expr;
 use selfhost_check_modules;
 use selfhost_check_state;
+use selfhost_check_state.Diag;
 use selfhost_lexer;
 use selfhost_parser_core;
 use selfhost_parser_state;
@@ -128,8 +129,15 @@ pub fn dump_check(src: Str, src_path: Str) -> Int {
   var c = selfhost_check_state.ck_new(p, selfhost_check_modules.cm_src_dir(src_path));
   selfhost_check_core.cc_collect(&mut c, root);
   selfhost_check_core.cc_check_program(&mut c, root);
+  // Phase 3 sub-stage 5: on the type-check success path run the borrow pass
+  // (non-strict E001 warnings), mirroring `compile()` and the canonical
+  // Rust `--dump-check`.
+  var bw = Vec[Diag].new();
+  if c.errors.len() == 0 {
+    bw = selfhost_check_borrow.bc_run(&c.p, root);
+  }
   var out = Vec[UInt8].new();
-  if c.warnings.len() == 0 && c.errors.len() == 0 {
+  if c.warnings.len() == 0 && c.errors.len() == 0 && bw.len() == 0 {
     io.println("CHECK-OK");
     return 0;
   }
@@ -142,6 +150,12 @@ pub fn dump_check(src: Str, src_path: Str) -> Int {
   i = 0;
   while i < c.errors.len() {
     let d = c.errors[i];
+    ck_push_diag(&mut out, d.kind, d.code, d.line, d.col, d.message);
+    i = i + 1;
+  }
+  i = 0;
+  while i < bw.len() {
+    let d = bw[i];
     ck_push_diag(&mut out, d.kind, d.code, d.line, d.col, d.message);
     i = i + 1;
   }

@@ -39,9 +39,10 @@ pub struct CompileConfig {
     pub emit_ir: bool,
     pub do_run: bool,
     pub check_only: bool,
-    /// Selfhost Phase 3 parity: stop right after the checker and return its
-    /// diagnostics in `CompileResult` (`--dump-check`). Never runs the borrow
-    /// checker or codegen; the driver owns the canonical dump format.
+    /// Selfhost Phase 3 parity: stop after the checker and the non-strict
+    /// borrow pass and return their diagnostics in `CompileResult`
+    /// (`--dump-check`). Never runs codegen; the driver owns the canonical
+    /// dump format.
     pub dump_check: bool,
     pub release: bool,
     /// 2026-09-10: explicit optimization level (--opt-level 0..=3). None =
@@ -657,9 +658,24 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
         return result;
     }
 
-    // Selfhost Phase 3 parity (`--dump-check`): the checker is the last stage;
-    // return its diagnostics without running the borrow checker or codegen.
+    // Selfhost Phase 3 parity (`--dump-check`): stop after the checker (plus
+    // the non-strict borrow pass, mirroring `compile()`'s E001 warnings);
+    // never runs codegen.
     if config.dump_check {
+        if result.diagnostics.is_empty() {
+            let mut borrow_checker = BorrowChecker::new();
+            if let Err(errors) = borrow_checker.check_program(&program) {
+                for err in &errors {
+                    result.diagnostics.push(Diagnostic {
+                        kind: "borrow_warning".into(), code: "E001".into(),
+                        message: err.message.clone(),
+                        line: err.span.line, col: err.span.col,
+                        file: "<unknown>".into(),
+                        suggestion: None, help: None, note: None,
+                    });
+                }
+            }
+        }
         result.success = true;
         return result;
     }

@@ -1307,9 +1307,9 @@ fn dump_ast(source: &str) -> String {
 // emitted verbatim (UTF-8). `kind`/`code` are the structured diagnostic
 // fields, so the gate compares severity and code as well as text.
 //
-// The command stops after the checker (`CompileConfig::dump_check` never runs
-// the borrow checker or codegen), so a clean program is just `CHECK-OK`.
-// Borrow-checker parity is a later Phase 3 stage.
+// The command stops after the checker plus the non-strict borrow pass
+// (`CompileConfig::dump_check` mirrors `compile()`'s E001 warnings and never
+// runs codegen), so a clean program is just `CHECK-OK`.
 fn dump_check_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {

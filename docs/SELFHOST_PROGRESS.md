@@ -201,6 +201,14 @@ Stage-1 checker port is GREEN as a gate; the phase itself is NOT complete
   Finding filed: W000 multi-missing order is HashMap-random in Rust
   (COMPILER_BUGS 2026-10-03). Meter unchanged (3 of 11). Remaining:
   sub-stage 5 (borrow pass).
+- Sub-stage 5 (2026-10-03): borrow-pass parity. Canonical `--dump-check`
+  (Rust + selfhost) now runs the non-strict borrow pass after a clean type
+  check; `selfhost/src/check_borrow.xi` ports the ownership walk, place
+  model and loan set. Corpus diagnostics: 11 lines total (4x W003,
+  1x W008, 6x E001 on m37_bug45/46/f128), line-exact on both drivers, plus
+  58 manifest cases. All five gates green (5 passed, 326.8s). Meter still
+  3 of 11: full parity additionally needs catalog-BODY checking and
+  uppercase bare-name resolution (documented in the checklist).
 
 ## Open blockers and risks
 

@@ -407,6 +407,21 @@ Supersedes the (11) handoff below (kept as history).
   diff_corpus T1 ok, diff_tokens ok (19,245 tokens), diff_ast ok (12,877
   nodes), diff_check ok (83 files, 5 diagnostic lines, +58 manifest cases,
   279.3 s), runtime_ffi_selfcheck ok.
+- Stage B6 (2026-10-03): borrow-pass parity (Phase 3 sub-stage 5). The Rust
+  canonical `--dump-check` now runs `BorrowChecker` on the type-check success
+  path (non-strict E001 warnings, exactly like `compile()`); the selfhost
+  ports the lexical ownership walk + place model + loan set
+  (`selfhost/src/check_borrow.xi`, flat-scope storage, places kept in
+  `place_display` spelling). Corpus diagnostics grew from 5 to 11 lines
+  (E001 on m37_bug45/46/f128) and both drivers agree line-exact with all 58
+  manifest cases. `NkAssign` destructure accessor workaround reapplied in
+  `bc_stmt_assign` (crash repro bf5.xi `p.y = 3;`, COMPILER_BUGS extended).
+  All five gates green together: `cargo test -p xiom-codegen --test
+  full_diff_tests -- --nocapture` -> 5 passed, 326.8s (diff_corpus T1,
+  diff_tokens 19,245, diff_ast 12,877, diff_check 83 files 11 diagnostic
+  lines + 58 manifest cases, runtime_ffi_selfcheck). Meter stays 3 of 11:
+  full parity still needs catalog-BODY checking and uppercase bare-name
+  resolution (both documented in the checklist).
 
 
 # CONTINUATION HANDOFF (2026-10-02 (11), v0.62.2 shipped; m167/m168 fixed; phased queue)
