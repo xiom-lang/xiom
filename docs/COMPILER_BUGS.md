@@ -10,6 +10,24 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-03 -- LOCALIZED: Arc strong_count defect is m166 x stdlib-perf2 (unsafe_direct sync annotation)
+
+Matrix on `p_sync_arc_count.xi`: v0.62.0/v0.62.1 + era tree -> green;
+v0.62.2 + stdlib-v0.62.0 -> green; v0.62.2 + stdlib-perf1 -> green; HEAD +
+stdlib-perf1 -> green; HEAD + stdlib-perf2 -> RED (rc=1); v0.62.2/HEAD +
+current waves tree -> RED. The perf1 -> perf2 delta is the
+`xiom/sync/sync.xi` `#[unsafe_direct]` annotation (PERF-2), which m166
+trusts for injected stdlib fns. Next: inspect the m166 trust path vs the
+annotated Arc/refcount bodies (the annotation likely bypasses a wrapper
+that normalizes the atomics/refcount read), then fix + lock. Era worktrees:
+`tmp/sprintc/stdlib_v0620`, `stdlib_pf1`, `stdlib_pf2`.
+
+The contracts `any_contracts()` AV remains to be bisected; it is red on
+v0.62.0/v0.62.1 with the current tree, so test it against the era pins
+before assuming a pure compiler regression.
+
+---
+
 ## 2026-10-03 -- RELAY (stdlib wave 58): two PRE-EXISTING v0.62.x defects (green on v0.61.3) -- pre-tag candidates
 
 Both confirmed on the m178 build AND on the released v0.62.2 (installed
