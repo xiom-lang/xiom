@@ -12,6 +12,17 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ## 2026-10-03 -- LOCALIZED: Arc strong_count defect is m166 x stdlib-perf2 (unsafe_direct sync annotation)
 
+CONFIRMED CAUSE (2026-10-03): the perf1 -> perf2 diff for sync.xi is
+ANNOTATION-ONLY, and stripping the `#[unsafe_direct]` lines from a perf2
+checkout makes HEAD GREEN on `p_sync_arc_count.xi` (rc 1 -> 0). So the
+`#[unsafe_direct]` DIRECT path (expr.rs ~L5176-5219: plain inline lowering
+instead of the confined lifted-function path with by-pointer captures)
+miscompiles the annotated Arc/sync bodies. Blast radius is likely every
+annotated sync fn, not just Arc -- pre-tag blocker; Gate P (t2) depends on
+these annotations. Next: emit IR for HEAD+perf2 (annotated) vs HEAD+perf2
+stripped on Arc.new/strong_count and diff; look for a missing
+capture/deref/arena interaction in the direct branch.
+
 Matrix on `p_sync_arc_count.xi`: v0.62.0/v0.62.1 + era tree -> green;
 v0.62.2 + stdlib-v0.62.0 -> green; v0.62.2 + stdlib-perf1 -> green; HEAD +
 stdlib-perf1 -> green; HEAD + stdlib-perf2 -> RED (rc=1); v0.62.2/HEAD +
