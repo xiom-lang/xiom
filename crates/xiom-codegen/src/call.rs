@@ -3657,6 +3657,22 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         }
                     } else if let Some(recv_type) = self.infer_struct_type_name(receiver) {
                         format!("{}.{}", recv_type, fn_name)
+                    } else if let Some(leaf) = Self::receiver_dispatch_leaf(
+                        self.infer_expr_xiom_type_deep(receiver).as_deref(),
+                    ) {
+                        // m179: COMPUTED receivers (`_get_index().none()`) --
+                        // infer_struct_type_name only walks idents/fields/static
+                        // paths, so the receiver type looked unknown and the key
+                        // degraded to the BARE leaf. The bare-call alias map then
+                        // bound the keep-first same-leaf catalog fn (`core.none`,
+                        // 2 params) to a 0-arg method call: the monomorphised
+                        // symbol got the free fn's signature while the call site
+                        // passed only the receiver -> ABI mismatch ->
+                        // 0xC0000005 (contracts any_contracts). Use the DEEP
+                        // inference (return-type registry) so the key is
+                        // receiver-qualified and the qualified-suffix resolution
+                        // below binds the real method.
+                        format!("{}.{}", leaf, fn_name)
                     } else if self.receiver_is_instance(receiver) {
                         let obj_var_name = match &**receiver {
                             Expr::Ident(id) => id.name.clone(),
@@ -5953,6 +5969,31 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
         let leaf = leaf.rsplit('.').next().unwrap_or(leaf);
         let leaf = leaf.split('[').next().unwrap_or(leaf).trim();
         if leaf.is_empty() || leaf == "Ptr" || leaf == "_" {
+            return None;
+        }
+        Some(leaf.to_string())
+    }
+
+    /// m179: derive the method-dispatch receiver leaf from a DEEP-inferred
+    /// XIOM type name ("ContractIndex" -> ContractIndex, "Vec[Int]" -> Vec,
+    /// "*Point" -> Point). Returns None for spellings that cannot be a
+    /// concrete value receiver (module names, raw generic params, empty) so
+    /// the caller keeps its existing fallbacks. A single-character leaf is
+    /// treated as a generic param, not a type.
+    fn receiver_dispatch_leaf(deep: Option<&str>) -> Option<String> {
+        let raw = deep?.trim();
+        let raw = raw.trim_start_matches(|c| c == '*' || c == '&').trim();
+        let raw = raw
+            .strip_prefix("mut ")
+            .or_else(|| raw.strip_prefix("const "))
+            .unwrap_or(raw)
+            .trim();
+        let base = raw.split('[').next().unwrap_or(raw);
+        let leaf = base.rsplit('.').next().unwrap_or(base).trim();
+        if leaf.len() < 2 {
+            return None;
+        }
+        if !leaf.chars().next().map_or(false, |c| c.is_ascii_uppercase()) {
             return None;
         }
         Some(leaf.to_string())

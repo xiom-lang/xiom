@@ -4914,6 +4914,30 @@ fn e2e_safety_probe() {
     );
 }
 
+// m180 (release hold, v0.62.x): `xiom.contracts.any_contracts()` called a
+// method on a COMPUTED receiver (`_get_index().none()`). Codegen could not
+// infer the receiver type of a call expression, so the key degraded to the
+// bare leaf "none" and the keep-first catalog alias bound the unrelated
+// generic free fn `core.none` (2 params) to the 0-arg method call -> ABI
+// mismatch -> 0xC0000005. The probe must run to exit 0.
+// Needs the stdlib checkout (xiom/core/contracts.xi).
+#[test] fn e2e_m180_contracts_any_av() {
+    let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
+    if !stdlib_root.join("xiom").join("core").join("contracts.xi").exists() {
+        let msg = "SKIP: stdlib checkout has no xiom/core/contracts.xi";
+        if xiom_graph::paths::require_stdlib() {
+            panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
+        }
+        eprintln!("{msg}");
+        return;
+    }
+    assert_eq!(
+        compile_and_run("tests/regression/m180_contracts_any_av/main.xi"),
+        Some(0),
+        "m180 any_contracts computed-receiver probe must compile and run"
+    );
+}
+
 // R48 (playground C17 classes): interface dispatch through a `&T` generic
 // argument (was mono'd as Int -> C001) and pointer/double match-result
 // zero-init (was `store i8* 0` / `store double 0` -> clang reject). Needs

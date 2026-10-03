@@ -10,6 +10,46 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-03 -- FIXED (m180): computed-receiver method key degraded to bare leaf -- contracts any_contracts() AV
+
+ROOT CAUSE (exact): `xiom.contracts.any_contracts()` runs
+`!_get_index().none()`. The receiver of `.none()` is a CALL expression, and
+codegen's `infer_struct_type_name` only walks idents/fields/static paths, so
+it returned None; `receiver_is_instance` is true for calls (they evaluate to
+values), so the fn_key fell to `resolve_module_call` -> the BARE leaf
+"none". The bare-call fallback then bound the keep-first catalog alias
+`core.none[T](items: &Slice[T], predicate: fn(T) -> Bool)` to a 0-arg
+method call. The monomorphised symbol `core.none_ContractIndex` was emitted
+with the free fn's 2-param signature while the call site passed ONLY the
+receiver. IR evidence: call `@core.none_ContractIndex(%struct.ContractIndex
+%tmp3)` against `define i64 @core.none_ContractIndex(%struct.Vec %param0,
+i64 %param1)` -- the callee treats the ContractIndex bytes as a Vec
+(data/len from the package/version Str pointers) -> garbage length -> read
+-> 0xC0000005. The checker's exact-arity UFCS filter (params == args + 1)
+does not cover this path; the wrong key was chosen in codegen.
+
+FIX (call.rs receiver-key construction): when the receiver is a non-ident
+whose `infer_struct_type_name` is None, derive the dispatch leaf from the
+DEEP XIOM type inference (`infer_expr_xiom_type_deep`, which resolves a
+call's return type from the return-type registry) before the
+instance/module fallbacks. New helper `receiver_dispatch_leaf` accepts only
+concrete type spellings ("ContractIndex", "Vec[Int]" -> Vec, "*Point" ->
+Point; single-char/generic/module names return None and keep the old
+fallbacks). The receiver-qualified key then resolves through the existing
+`.{Recv}.{method}` suffix path to `contracts.ContractIndex.none`.
+
+EVIDENCE:
+- Pre-fix: `p_contracts_any_av.xi` run rc 0xC0000005 (also on v0.62.0,
+  v0.62.1, v0.62.2; all era stdlib trees v0620/pf1/pf2 red -> pure
+  compiler-side, red already at the v0.62.0 tag).
+- Post-fix: rc 0; IR call and definition now agree
+  (`@ContractIndex.none(%struct.ContractIndex)`).
+- Locks: `e2e_m180_contracts_any_av` +
+  `tests/regression/m180_contracts_any_av/` (stdlib-guarded), ci.yml line.
+  Feature regression 518/518. Full e2e + stdlib-exec in the batch run.
+
+---
+
 ## 2026-10-03 -- FIXED (m179): nested-generic `size_of` resolved 8 bytes -- Arc strong_count on the unsafe_direct sync path
 
 ROOT CAUSE (exact): the parser lowers `size_of[ArcInner[T]]()` to a

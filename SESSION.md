@@ -23,13 +23,20 @@
 >    `malloc(16)`. Full e2e + stdlib-exec in the batch run with the
 >    contracts fix. Era worktrees (rebuild if aged):
 >    `tmp/sprintc/stdlib_v0620`, `stdlib_pf1`, `stdlib_pf2`.
-> 2. CONTRACTS AV (0xC0000005; repro
->    `E:\xiom-lang\stdlib\tools\known_failures\p_contracts_any_av.xi`).
->    Red on v0.62.0/v0.62.1 with the current tree -> era-pin bisect first
->    (v0620/pf1/pf2) to separate a pure compiler regression from another
->    compiler x stdlib interaction. Suspect the zero-arg contract registry
->    walk. Then fix + lock.
-> 3. SUITES (after 1-2): full e2e 8 threads, feature 517, checker 195,
+> 2. CONTRACTS AV -- FIXED (m180, this session). Root cause (exact):
+>    `any_contracts()` -> `!_get_index().none()`; the `.none()` receiver is a
+>    CALL, `infer_struct_type_name` cannot type it, so the key degraded to
+>    the bare leaf "none" and the keep-first alias bound the unrelated
+>    generic `core.none[T](items, predicate)` (2 params) to the 0-arg method
+>    call -> `core.none_ContractIndex` emitted with the free fn signature but
+>    receiver-only args -> ABI mismatch -> 0xC0000005. Fix: call.rs derives
+>    the receiver leaf via deep type inference when the shallow one fails
+>    (`receiver_dispatch_leaf`), so the key resolves to
+>    `contracts.ContractIndex.none`. Locks: `e2e_m180_contracts_any_av` +
+>    fixture, ci.yml. Pre/post: rc 0xC0000005 -> 0. Era matrix: red on
+>    v0.62.0 release and all stdlib era trees (v0620/pf1/pf2) -> compiler-side,
+>    entered <= v0.62.0.
+> 3. SUITES (after 1-2): full e2e 8 threads, feature 518, checker 195,
 >    checker_locks 28, stdlib-exec 85 (+2 ign), api-freeze 2/2. NOTE:
 >    stdlib-exec/freeze flake under machine load (selfhost build) with EMPTY
 >    driver output and nonzero exit -- rerun isolated/idle before treating a
