@@ -38,8 +38,17 @@ Supersedes the (11) handoff below (kept as history).
 > match-bound `&mut` enum payload mutations dropped, `derive[Clone]`
 > aggregate payloads corrupt, `invariant:` placement, xiom-verify encoding
 > gaps (tooling); json legacy bugs are stdlib-side.
-> v0.62.3 SCOPE STATUS (2026-10-02): C23 fixed (`8abedb72`, pack
-> acceptance "C23 present: no"); C24 read_line fixed (`592c64d4`, "C24
+> RELEASE HOLD (2026-10-03): v0.62.3 is postponed until the two pre-existing
+> v0.62.x defects are fixed -- contracts `any_contracts()` AV and
+> `Arc.new(42).strong_count() != 1`; both confirmed on v0.62.2, green on
+> v0.61.3, repros recorded in COMPILER_BUGS (2026-10-03 relay). Registry
+> polish: the staging index digest is signed; for fail-closed tests pin the
+> staging INDEX key with `xiom pkg trust --registry <url> --index-key
+> 0f07f71a052e16f10c20c5f6198adf168e3a9f092f6bc11b6255e64e11746efb`
+> (fp 0f:07:f7:1a:05:2e:16:f1); production pin unchanged, nothing else
+> required. Stdlib continues independent waves; selfhost Phase 3 resumed
+> (W-lints + borrow pass remaining).
+> v0.62.3 SCOPE STATUS (2026-10-02): C23 fixed (`8abedb72`, pack> acceptance "C23 present: no"); C24 read_line fixed (`592c64d4`, "C24
 > fixed: yes"); C24-1/C24-2 stdlib relays fixed (m169/m170); m168 residual
 > fixed (565b9924); expat/nbt NOT reproducible with the exact harness on
 > the released v0.62.2 + stdlib main/perf1 (nbt 26/26) -- awaiting the
