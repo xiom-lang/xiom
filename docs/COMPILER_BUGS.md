@@ -12,6 +12,23 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ## 2026-10-03 -- LOCALIZED: Arc strong_count defect is m166 x stdlib-perf2 (unsafe_direct sync annotation)
 
+IR EVIDENCE (2026-10-03, forced fresh emits with --no-cache): in the
+annotated build, `Arc.new_Int` inlines the unsafe block and allocates
+**malloc(8)** for what is then stored as a 16-byte `%struct.ArcInner`
+(`store %struct.ArcInner %tmp21, %struct.ArcInner* %tmp20` at an 8-byte
+buffer) -- heap overflow/corruption; the same allocation in the confined
+(stripped) build goes through `__unsafe_block_13`. Suspect the DIRECT path
+evaluates the element/size expression (`size_of[ArcInner]` / alloc size)
+against the UNSUBSTITUTED generic type inside an inlined unsafe block,
+while the confined lift materializes substitutions first. Blast radius:
+every `#[unsafe_direct]` generic sync fn (Mutex/RwLock/Arc/Barrier).
+Next: fix the direct branch (expr.rs ~L5176-5219) to resolve the
+monomorphized type before compiling the block, or route size-dependent
+intrinsics through the substitution map; lock with an Arc/Mutex fixture +
+IR check (`malloc(16)` for ArcInner[Int]) + e2e. RELAY TO STDLIB: keep the
+perf2 annotations -- this is compiler-side; do not strip them (Gate P needs
+them). Sync probes may show other annotated-fn failures until fixed.
+
 CONFIRMED CAUSE (2026-10-03): the perf1 -> perf2 diff for sync.xi is
 ANNOTATION-ONLY, and stripping the `#[unsafe_direct]` lines from a perf2
 checkout makes HEAD GREEN on `p_sync_arc_count.xi` (rc 1 -> 0). So the
