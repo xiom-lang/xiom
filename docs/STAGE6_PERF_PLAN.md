@@ -155,14 +155,85 @@ templates in `tasks/systems-arena/`.
 - [x] PERF-1: design decision -- use the sanctioned `#[unsafe_direct]`
       route (no retry-semantics change, no new safety policy); block-level
       arming / callee classification stay as fallbacks for untrusted blocks
-- [ ] PERF-1: stdlib lane annotates `stdlib/xiom/sync/atomics.xi`
-      (`#[unsafe_direct]` per wrapper; relayed via COMPILER_BUGS m166 +
-      RELEASE_GATE_v0.62.2) and tags for the v0.62.2 pin
-- [ ] PERF-1: benchmark lane re-run confirms t2-queue (and no regression
-      on t1/t3/t4/t5/t8)
+- [x] PERF-1: stdlib lane annotated `stdlib/xiom/sync/sync.xi`
+      (`#[unsafe_direct]`; shipped in the v0.62.3 pin `stdlib-perf3`,
+      stdlib `2429ac3`)
+- [x] PERF-1: benchmark lane re-run confirms t2-queue and no regression --
+      **ACCEPTED 2026-10-03 on v0.62.3**: t2-queue 24 ms vs 11,968 ms on
+      v0.62.2 (~500x), in family with c/cpp/zig/go; t1/t3/t4/t5 unchanged;
+      t8 safety indices identical; 42 pairs, zero errors
 - [ ] Stage 6 follow-up: general fast path for hot unsafe blocks that
       cannot be marked trusted (candidate fixes 1/2/3)
 - [ ] Stage 6: define the confinement perf budget referenced by
       `UNSAFE_CONFINEMENT_PLAN` S7
 - [ ] Stage 6: keep `xiom bench` as the local harness and record each
       benchmark relay in this doc
+
+## Benchmark-driven hardening/optimization backlog (2026-10-03, v0.62.3 arena runs)
+
+Source: benchmark lane artifacts from the official v0.62.3 toolchain --
+systems metrics `system-session-run_1791052819493` (42 trials, per-trial
+compile/runtime/memory), scripting `scripting-session-run_1791053692625`,
+contracts `contracts-session-run_1791053925431`, and the safety-probe
+ladder. Gate P acceptance lives in `docs/RELEASE_GATE_v0.62.3.md`.
+
+### What the data says
+
+- RUNTIME: XIOM is at or near the front. t2-queue 24 ms (c 35, cpp 35),
+  t4-packet 26 ms (c 83), t5-btree 13 ms (c 31), t8 safety probe 141 ms
+  (c 712, rust 129). Exceptions: t1-allocator 71 ms (c 29, rust 14) and
+  t3-hot-reload 256 ms (c 33) -- t3 task semantics need confirmation (if it
+  times per-reload work, it is a compile-latency issue, not steady state).
+- COMPILE -- the dominant measured gap: XIOM 6.4-13.6 s per task vs c
+  0.3-0.6 s and rust 0.3-0.5 s (zig 7.0-12.5 s is the only peer). The
+  arena compiles each program from scratch and XIOM re-parses, re-checks,
+  and re-emits the whole reachable stdlib module graph on every
+  invocation. This is the single largest compiler optimization
+  opportunity measured so far.
+- SCRIPTING: already fastest -- xiom-run 26-45 ms end-to-end vs python 43,
+  lua 64, node 73 (t6) and 15-19 ms vs lua 19, python 88 (t7); cache / jit
+  / aot variants are within noise at these sizes. Keep the cache path
+  correct (C25 fixed 2026-10-03) and extend the win to larger scripts.
+- MEMORY: t1-allocator 30 MB peak vs c 9 / rust 3; other tasks 2-9 MB.
+- SAFETY (owner direction: harden after selfhost): 12 probes, compile
+  prevention 0%, runtime detection 41.7%, process survival 50%, silent
+  corruption 3 (use-after-free, double-free, type confusion -- canary
+  damaged with no surfaced error), uninitialized read SILENT_UB, integer
+  overflow DIV/0/null/stack correctly panic.
+
+### Backlog (compiler lane, ordered)
+
+1. COMPILE-TIME / stdlib module graph (top priority):
+   - Measure first: phase breakdown (parse / check / codegen / clang link)
+     for one arena program to confirm where the seconds go.
+   - Persistent per-module compile cache keyed by source hash + compiler
+     identity + opt level (same identity scheme as `xiom::jit` script
+     cache), storing per-module IR/objects reusable across programs.
+   - Separate compilation: link precompiled stdlib objects instead of
+     re-emitting the graph; ship a precompiled stdlib in the release
+     archive, generated on install from the pinned source.
+   - Parallel module codegen by default (`e2e_i2_parallel_codegen` already
+     covers the emitter; wire the driver to it for stdlib-graph builds).
+   KPI: arena compile_ms under 2 s for the six system tasks (from 6-14 s).
+2. t1-allocator runtime (71 ms vs c 29): profile the allocator
+   implementation plus codegen hot loops (bounds checks, branch layout,
+   inline policy); consider checker-proven unchecked iteration in release.
+   KPI: within 1.5x of c.
+3. t3-hot-reload (256 ms): confirm task semantics; if per-reload latency,
+   covered by item 1.
+4. SAFETY HARDENING (post-selfhost, per owner):
+   - compile prevention (0% now): expand move/free diagnostics (existing
+     mutation/borrow queue items); SAFE_SUBSET probes should be
+     compile-rejected wherever the API makes the bug impossible.
+   - silent corruption: allocator poison + guard words with double-free /
+     UAF traps in debug; runtime tag checks for generic enum/container
+     payloads (type confusion).
+   - uninitialized reads: definite-assignment diagnostic (checker).
+   - detector disclosure: canary all probes in the arena; add `--sanitize`
+     builds as a detection row in the matrix.
+   KPI: silent_corruption 0; SAFE_SUBSET detection >= 80%.
+5. CONTRACTS ARENA (queued, tooling batch): the verifier now emits
+   `(check-sat)` and proves 3 contracts, but invalid SMT
+   (`unknown constant self`) plus X7007 loop/body limits keep it at
+   3 proven / 9 unknown / 3 errors; the contracts run records the t1 trial
+   as UNKNOWN.
