@@ -1675,9 +1675,13 @@ fn ce_check_method_call(c: &mut Checker, idx: Int, obj: Int, method_idx: Int, ar
     if fi >= 0 {
       return ce_check_static_method(c, c.functions[fi], method, tn, args, sp);
     }
-    // Builtin container constructors (Vec.new/Map.new/Set.new/...) and the
-    // catalog's method set: permissive.
+    // Builtin container constructors (Vec.new/Map.new/Set.new/...): resolve
+    // through the builtin table; unknown container statics stay permissive.
     if ce_is_container_base_leaf(tn) {
+      let bfi = ck_find_fn(c, tn + "." + method);
+      if bfi >= 0 {
+        return ce_check_static_method(c, c.functions[bfi], method, tn, args, sp);
+      }
       var i = 0;
       while i < args.len() {
         let _ = ce_check_expr(c, args[i]);
@@ -1747,6 +1751,21 @@ fn ce_check_method_call(c: &mut Checker, idx: Int, obj: Int, method_idx: Int, ar
   let leaf = ce_leaf_name(obj_ty);
   let base = selfhost_check_types.ct_base(obj_ty);
   if ce_is_container_base_leaf(leaf) || ce_is_container_base_leaf(base) {
+    // Builtin method table first (`Vec.push` etc.), then catalog extension
+    // methods (`xiom.collections.Vec.contains`) and the free-fn UFCS scan.
+    var bfi = ck_find_fn(c, leaf + "." + method);
+    if bfi < 0 { bfi = ck_find_fn(c, base + "." + method); }
+    if bfi < 0 { bfi = ce_find_method_scan(c, leaf, method, args.len()); }
+    if bfi >= 0 {
+      let r = ce_check_instance_method(c, c.functions[bfi], method, obj_ty, args, sp);
+      // Constructors keep the parameterized receiver type
+      // (`Vec[Str].new()` -> "Vec[Str]", not the bare builtin return).
+      if (r == leaf || r == base) && selfhost_check_types.ct_is_container(obj_ty) {
+        return obj_ty;
+      }
+      return r;
+    }
+    // Unknown container method: permissive until sub-stage 3.
     var i = 0;
     while i < args.len() {
       let _ = ce_check_expr(c, args[i]);
@@ -1754,9 +1773,11 @@ fn ce_check_method_call(c: &mut Checker, idx: Int, obj: Int, method_idx: Int, ar
     }
     return "_";
   }
-  // Exact receiver key, then module-leaf fallback (`module.Type.method`).
+  // Exact receiver key, then module-leaf fallback (`module.Type.method`),
+  // then catalog/R8 scan.
   var fi = ck_find_fn(c, obj_ty + "." + method);
   if fi < 0 { fi = ck_find_fn(c, base + "." + method); }
+  if fi < 0 { fi = ce_find_method_scan(c, base, method, args.len()); }
   if fi >= 0 {
     return ce_check_instance_method(c, c.functions[fi], method, obj_ty, args, sp);
   }
@@ -1837,6 +1858,28 @@ fn ce_check_module_member_call(c: &mut Checker, idx: Int, alias: Str, key: Str,
   return ck_error_at(c, "cannot call '" + member + "' on this expression", sp.line, sp.col);
 }
 
+/// Catalog extension methods + Rust's R8 free-fn UFCS fallback: any
+/// registered fn whose leaf is `method` with the receiver as its first
+/// parameter (or a `Type.method`/`module.Type.method` key).
+fn ce_find_method_scan(c: &Checker, recv_leaf: Str, method: Str, nargs: Int) -> Int {
+  let suffix = "." + recv_leaf + "." + method;
+  var i = c.functions.len() - 1;
+  while i >= 0 {
+    let f = c.functions[i];
+    if string.str_ends_with(f.key, suffix) { return i; }
+    let leaf = ce_leaf_name(f.key);
+    if leaf == method && f.params.len() == nargs + 1 && f.params.len() > 0 {
+      let first_base = selfhost_check_types.ct_base(ce_strip_ref_marks(f.params[0].ty));
+      let first_leaf = ce_leaf_name(first_base);
+      if first_leaf == recv_leaf || first_base == "_" || ce_vec_contains(f.generics, first_leaf) {
+        return i;
+      }
+    }
+    i = i - 1;
+  }
+  return -1;
+}
+
 fn ce_check_static_method(c: &mut Checker, sig: FnSig, shown: Str, tn: Str, args: Vec[Int], sp: Span) -> Str {
   let expected = sig.params.len();
   if args.len() != expected {
@@ -1861,9 +1904,11 @@ fn ce_check_static_method(c: &mut Checker, sig: FnSig, shown: Str, tn: Str, args
 }
 
 fn ce_check_instance_method(c: &mut Checker, sig: FnSig, shown: Str, recv_ty: Str, args: Vec[Int], sp: Span) -> Str {
-  // Param-offset table (Rust 7240-7275): explicit self skips param 0 on an
-  // instance call; a first param that matches the receiver at non-direct
-  // arity is receiver-style; otherwise args map directly.
+  // Param-offset table (Rust 7240-7316): explicit self skips param 0 on an
+  // instance call UNLESS the call-site arity already equals the param count
+  // (receiver passed explicitly, e.g. `v.push(&mut v, x)`); a first param
+  // that matches the receiver at non-direct arity is receiver-style;
+  // otherwise args map directly.
   var first_is_self = false;
   var first_matches = false;
   if sig.params.len() > 0 {
@@ -1875,9 +1920,10 @@ fn ce_check_instance_method(c: &mut Checker, sig: FnSig, shown: Str, recv_ty: St
     if leaf_p == leaf_r && leaf_p.len() > 0 { first_matches = true; }
   }
   let arity_direct = args.len() == sig.params.len();
-  let explicit = first_is_self || (first_matches && !arity_direct);
+  let has_explicit_self = first_is_self || (first_matches && !arity_direct);
+  let receiver_passed = arity_direct && (first_is_self || first_matches);
   var offset = 0;
-  if explicit { offset = 1; }
+  if has_explicit_self && !receiver_passed { offset = 1; }
   let expected_args = sig.params.len() - offset;
   if args.len() != expected_args {
     let _ = ck_error_at(c, "'" + shown + "' expects " + ce_int_str(expected_args) + " argument(s), found " + ce_int_str(args.len()), sp.line, sp.col);
@@ -1898,6 +1944,14 @@ fn ce_check_instance_method(c: &mut Checker, sig: FnSig, shown: Str, recv_ty: St
   var ret = "()";
   if sig.has_ret == 1 { ret = sig.ret; }
   if ret == "Self" { ret = recv_ty; }
+  // round-14: substitute method generics with the receiver's container args
+  // when the counts line up (`Vec[Int].remove` -> Option[Int]).
+  if sig.generics.len() > 0 {
+    let rargs = selfhost_check_types.ct_args(recv_ty);
+    if rargs.len() == sig.generics.len() {
+      ret = ce_substitute_generics(c, ret, sig.generics, rargs);
+    }
+  }
   return ret;
 }
 
@@ -2136,13 +2190,51 @@ fn ce_check_index(c: &mut Checker, idx: Int, base: Int, index: Int) -> Str {
   let b = selfhost_check_types.ct_base(base0);
   if b == "Vec" || b == "Slice" || b == "Array" || b == "Set" {
     if args.len() == 1 { return args[0]; }
-    return "_";
+    // Bare container base as an INDEX base is a constructor path
+    // (`Vec[Int].new()` parses as Index(Ident(Vec), Int)); carry the type
+    // argument through so element indexing keeps working.
+    let at = ce_type_arg_text(c, index);
+    if at.len() > 0 { return b + "[" + at + "]"; }
+    return b;
   }
   if b == "Map" {
     if args.len() == 2 { return args[1]; }
-    return "_";
+    let at = ce_type_arg_text(c, index);
+    if at.len() > 0 { return b + "[" + at + "]"; }
+    return b;
   }
   if b == "Str" { return "Char"; }
+  if b == "Stack" { return b; }
   if selfhost_check_types.ct_is_generic_param(base0) { return "_"; }
   return "_";
+}
+
+/// Type-name text of an index expression in a container-constructor path
+/// (`Int`, `(Int, Str)` for Map).
+fn ce_type_arg_text(c: &Checker, idx: Int) -> Str {
+  if idx < 0 { return ""; }
+  let node = c.p.nodes[idx];
+  match node.kind {
+    NkExprIdent(name_idx) => {
+      return ck_ident(c, name_idx);
+    }
+    NkExprTuple(items) => {
+      var parts = Vec[Str].new();
+      var i = 0;
+      while i < items.len() {
+        let t = ce_type_arg_text(c, items[i]);
+        if t.len() > 0 { parts.push(t); }
+        i = i + 1;
+      }
+      return selfhost_check_types.ct_join(parts, ", ");
+    }
+    NkExprIndex(inner_base, inner_idx) => {
+      let b = ce_type_arg_text(c, inner_base);
+      let a = ce_type_arg_text(c, inner_idx);
+      if b.len() == 0 { return ""; }
+      if a.len() == 0 { return b; }
+      return b + "[" + a + "]";
+    }
+    _ => { return ""; }
+  }
 }

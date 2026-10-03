@@ -179,6 +179,13 @@ Stage-1 checker port is GREEN as a gate; the phase itself is NOT complete
   manifest cases (18 new catalog cases). Finding filed: `io.list_dir`
   returns pointer bits instead of names (COMPILER_BUGS 2026-10-03). Meter
   unchanged (3 of 11).
+- Sub-stage 2 (2026-10-03): container method sets. Rust's `register_builtins`
+  table is ported (Vec/Slice/Map/Set constructors + Vec methods + free
+  intrinsics); instance dispatch resolves builtin keys, catalog extension
+  keys and the R8 UFCS scan with Rust's exact param-offset table; container
+  constructor results keep their type arguments so nested indexing stays
+  typed. `diff_check` green at 83 corpus files + 39 manifest cases.
+  Meter unchanged (3 of 11).
 
 ## Open blockers and risks
 

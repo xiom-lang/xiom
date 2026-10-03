@@ -364,6 +364,21 @@ Supersedes the (11) handoff below (kept as history).
   diagnostics while a stdlib smoke lane runs on the shared box (not
   reproducible in isolation afterwards; no COMPILER_BUGS entry without a
   clean repro).
+- Stage B3 (2026-10-03): container method sets (Phase 3 sub-stage 2).
+  `cm_register_builtin_fns` ports Rust's `register_builtins` table
+  (Vec.new/with_capacity/push/len/as_ptr/as_mut_ptr/pop/sort/insert/remove/
+  clear/is_empty, Slice pointers, Map.new/Set.new, sizeof/align_of/type_id/
+  field_offset/is_signed/to_float/to_int/to_int_from_char/to_char/
+  unreachable/panic). Instance dispatch now resolves builtin keys, catalog
+  extension keys (`module.Type.method` suffix) and the R8 free-fn UFCS scan;
+  the param-offset table matches Rust exactly (arity-direct
+  receiver-passed-explicitly offset 0 -> `v.push(1,2)` yields Rust's
+  `argument 1 type mismatch: expected Vec, found Int`). Container ctor
+  results keep their type arguments (`Vec[Vec[Int]]`) and `ce_check_index`
+  synthesizes them from the parsed type expression so nested indexing stays
+  typed. 5 new manifest cases under
+  `selfhost/tests/check_negative/containers/`. Gate: `diff_check` -> 83
+  corpus files (5 diagnostic lines) + 39 manifest cases, 1 passed (219.4 s).
 
 
 # CONTINUATION HANDOFF (2026-10-02 (11), v0.62.2 shipped; m167/m168 fixed; phased queue)

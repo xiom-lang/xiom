@@ -112,6 +112,7 @@ fn cc_infer_init(c: &Checker, value: Int) -> Str {
 
 pub fn cc_collect(c: &mut Checker, root: Int) {
   cc_register_builtin_types(c);
+  selfhost_check_modules.cm_register_builtin_fns(c);
   cc_scan(c, root, "");
 }
 

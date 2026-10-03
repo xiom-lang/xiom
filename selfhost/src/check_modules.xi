@@ -285,6 +285,87 @@ pub fn cm_push_global(c: &mut Checker, name: Str, ty: Str) {
 }
 
 // ============================================================================
+// Builtin method table (port of Checker::register_builtins)
+// ============================================================================
+
+fn cm_p1(n: Str, t: Str) -> FnParam {
+  return FnParam{ name: n, ty: t };
+}
+
+fn cm_push_sig(c: &mut Checker, key: Str, params: Vec[FnParam], ret: Str, generics: Vec[Str]) {
+  cm_push_fn(c, key, cm_leaf(key), params, ret, 1, generics, 0);
+}
+
+/// The Rust checker's builtin `functions` entries. Instance dispatch reaches
+/// these through `Vec.push` style keys; bare intrinsics (sizeof/panic/...)
+/// use their plain name. Rust also mirrors a subset into `methods`; the port
+/// resolves instance calls by key scan, so only `functions` is needed.
+pub fn cm_register_builtin_fns(c: &mut Checker) {
+  // Vec constructors/accessors.
+  cm_push_sig(c, "Vec.new", Vec[FnParam].new(), "Vec", Vec[Str].new());
+  var cap = Vec[FnParam].new();
+  cap.push(cm_p1("capacity", "Int"));
+  cm_push_sig(c, "Vec.with_capacity", cap, "Vec", Vec[Str].new());
+  var vec_t = Vec[Str].new();
+  vec_t.push("T");
+  var push_p = Vec[FnParam].new();
+  push_p.push(cm_p1("self", "Vec"));
+  push_p.push(cm_p1("val", "T"));
+  cm_push_sig(c, "Vec.push", push_p, "()", vec_t);
+  var self_v = Vec[FnParam].new();
+  self_v.push(cm_p1("self", "Vec"));
+  cm_push_sig(c, "Vec.len", self_v, "Int", Vec[Str].new());
+  cm_push_sig(c, "Vec.as_ptr", self_v, "_", Vec[Str].new());
+  cm_push_sig(c, "Vec.as_mut_ptr", self_v, "_", Vec[Str].new());
+  cm_push_sig(c, "Vec.pop", self_v, "Option", Vec[Str].new());
+  cm_push_sig(c, "Vec.sort", self_v, "void", Vec[Str].new());
+  var ins_p = Vec[FnParam].new();
+  ins_p.push(cm_p1("self", "Vec"));
+  ins_p.push(cm_p1("idx", "Int"));
+  ins_p.push(cm_p1("val", "T"));
+  cm_push_sig(c, "Vec.insert", ins_p, "()", vec_t);
+  var rem_p = Vec[FnParam].new();
+  rem_p.push(cm_p1("self", "Vec"));
+  rem_p.push(cm_p1("idx", "Int"));
+  cm_push_sig(c, "Vec.remove", rem_p, "Option", vec_t);
+  cm_push_sig(c, "Vec.clear", self_v, "()", vec_t);
+  cm_push_sig(c, "Vec.is_empty", self_v, "Bool", vec_t);
+  var self_s = Vec[FnParam].new();
+  self_s.push(cm_p1("self", "Slice"));
+  cm_push_sig(c, "Slice.as_ptr", self_s, "_", Vec[Str].new());
+  cm_push_sig(c, "Slice.as_mut_ptr", self_s, "_", Vec[Str].new());
+  // Map/Set constructors (Map itself is not a builtin TYPE in Rust).
+  cm_push_sig(c, "Map.new", Vec[FnParam].new(), "Map", Vec[Str].new());
+  cm_push_sig(c, "Set.new", Vec[FnParam].new(), "Set", Vec[Str].new());
+  // Free intrinsics.
+  var gen_t = Vec[Str].new();
+  gen_t.push("T");
+  cm_push_sig(c, "sizeof", Vec[FnParam].new(), "Int", gen_t);
+  cm_push_sig(c, "align_of", Vec[FnParam].new(), "Int", gen_t);
+  cm_push_sig(c, "type_id", Vec[FnParam].new(), "Int", gen_t);
+  var fo_p = Vec[FnParam].new();
+  fo_p.push(cm_p1("field_name", "Str"));
+  cm_push_sig(c, "field_offset", fo_p, "Int", gen_t);
+  cm_push_sig(c, "is_signed", Vec[FnParam].new(), "Bool", gen_t);
+  var tf_p = Vec[FnParam].new();
+  tf_p.push(cm_p1("n", "Int"));
+  cm_push_sig(c, "to_float", tf_p, "Float64", Vec[Str].new());
+  var ti_p = Vec[FnParam].new();
+  ti_p.push(cm_p1("f", "Float64"));
+  cm_push_sig(c, "to_int", ti_p, "Int", Vec[Str].new());
+  var tic_p = Vec[FnParam].new();
+  tic_p.push(cm_p1("c", "Char"));
+  cm_push_sig(c, "to_int_from_char", tic_p, "Int", Vec[Str].new());
+  var tc_p = Vec[FnParam].new();
+  tc_p.push(cm_p1("n", "Int"));
+  cm_push_sig(c, "to_char", tc_p, "Char", Vec[Str].new());
+  cm_push_sig(c, "unreachable", Vec[FnParam].new(), "!", Vec[Str].new());
+  var panic_p = Vec[FnParam].new();
+  panic_p.push(cm_p1("msg", "Str"));
+  cm_push_sig(c, "panic", panic_p, "!", Vec[Str].new());
+}
+
+// ============================================================================
 // Loading
 // ============================================================================
 
