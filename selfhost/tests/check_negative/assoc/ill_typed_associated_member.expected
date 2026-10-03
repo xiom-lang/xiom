@@ -1,0 +1,3 @@
+type_error T001 14:10 undefined variable 'Eq'
+type_error T001 14:10 undefined variable 'Eq'
+type_error T001 14:15 cannot call 'nope' on this expression

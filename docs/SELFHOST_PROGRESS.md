@@ -26,7 +26,7 @@ All six must hold (SELFHOST_PLAN section 7):
 
 ## Bootstrap meter
 
-**27% -- 3 of 11 tracked gates complete.**
+**36% -- 4 of 11 tracked gates complete.**
 
 **Gates: e2e 2411/2411 (+4 ignored), checker 195/195, feature 518/518, robustness 63/63, fuzz 24/24, perf 3/3, formatter 86/86, lsp 45/45.**
 
@@ -40,13 +40,13 @@ Release context: v0.62.3 shipped 2026-10-03 with `SELFHOST_VERSION` bumped
 to 0.62.3; the selfhost source is otherwise unchanged by this release and
 the Rust compiler remains the shipped bootstrap.
 
-PHASE 3 STATUS (2026-10-03): **COMPLETE on branch
-`selfhost-phase-3-checker`** -- full parity gate green (`diff_check`
-line-exact on 83 corpus files + 75 manifest cases, 5/5 full_diff tests,
-443.9 s), branch meter 36% (4/11), 15 commits ahead. Remaining: rebase
-onto current main and merge (the merge flips this row and the meter;
-until then main stays 27%). Next phase: **Phase 4 -- codegen fn-header T3
-IR equality** (signatures, tuple names, inline policy `approx_block_cost`).
+PHASE 3 STATUS (2026-10-03): **COMPLETE and merged** -- branch
+`selfhost-phase-3-checker` was rebased onto `ee7ab150` and the full parity
+gate re-ran green on that base (`cargo test -p xiom-codegen --test
+full_diff_tests` -> 5/5; `diff_check` line-exact on 83 corpus files + 75
+manifest cases, 443.9 s). This merge flips gate 3 to DONE and the meter to
+36% (4/11). Next phase: **Phase 4 -- codegen fn-header T3 IR equality**
+(signatures, tuple names, inline policy `approx_block_cost`).
 
 Weights are one gate each (equal weighting; phases differ in effort but a
 gate is only "done" when its evidence is green). Update this line whenever a
@@ -57,7 +57,7 @@ row flips.
 | 0 | T1 harness green on the corpus (foundations) | **DONE 2026-09-29** | `cargo test -p xiom-codegen --test full_diff_tests`: 2 passed; T1 over 84 files in 49.2 s; `runtime_ffi_selfcheck` ok; commit `e813449b` |
 | 1 | Lexer: token-dump equality on the corpus (`--dump-tokens`) | **DONE 2026-10-02** | Phase 1; `selfhost/src/lexer.xi` ports `crates/xiom-lexer`; harness gate `full_diff_tests::diff_tokens` green over the 83-file corpus (3/3 tests, 72.7 s); torture parity (BOM/CRLF/NUL/bigints/suffix quirk) clean; checklist `docs/checklists/selfhost-phase1.md` |
 | 2 | Parser: AST-dump equality on the corpus (`--dump-ast`) | **DONE 2026-10-02** | Phase 2; `selfhost/src/ast.xi`+`parser_state.xi`+`parser_expr.xi`+`parser_core.xi`+`ast_dump.xi` port `crates/xiom-parser`/`xiom-ast`; harness gate `full_diff_tests::diff_ast` green over the 83-file corpus (1 passed, 100.7 s); checklist `docs/checklists/selfhost-phase2.md` |
-| 3 | Checker: diagnostics + type-annotation equality | **STAGED 2026-10-02** (not complete) | Phase 3 stage-1 subset; `full_diff_tests::diff_check` green over the 83-file corpus + 16-case manifest (5 corpus diagnostic lines, non-vacuous). Deferred sub-stages (catalog/imports, container method sets, unknown-method/struct field validation, W000/W004/W006/W007 lints, borrow pass) keep permissive fallbacks; the meter stays at 3 of 11 until full checker parity lands. Checklist `docs/checklists/selfhost-phase3.md` |
+| 3 | Checker: diagnostics + type-annotation equality | **DONE 2026-10-03** | Full parity gate green: `cargo test -p xiom-codegen --test full_diff_tests` -> 5 passed (diff_corpus T1, diff_tokens, diff_ast, diff_check, runtime_ffi_selfcheck), 443.9 s on main `018daf05`. `diff_check` = 83 corpus files, 11 diagnostic lines (4x W003, 1x W008, 6x E001), line-exact on both drivers + 75 manifest cases (catalog/imports, containers, lints, methods, patterns incl. m178/m181, assoc, catalog bodies). Ported: canonical type names, statements/exprs, calls/generics, contracts, diagnostics ordering, catalog/imports + module member calls, container method sets + R8 UFCS + `methods` map, unknown-method/struct-field validation, W000/W004/W006/W007 lints, non-strict borrow pass, uppercase bare-name resolution, associated-form interface dispatch, local catalog-body checking. Bounded exceptions (documented in the checklist, exact for this tree): stdlib bodies are not re-checked (the stdlib ships clean) and relocated stdlib modules use a static path table (io.list_dir defect). Checklist `docs/checklists/selfhost-phase3.md` |
 | 4 | Codegen: fn-header T3 IR equality | NOT STARTED | Phase 4; signatures, tuple names, inline policy (`approx_block_cost`) |
 | O1 | Selfhost code quality: `--strict`, zero warnings, contracts on | NOT STARTED | after Phase 4; removes v10 borrow workarounds |
 | 5 | Codegen: scalar bodies + control flow T3 (scalar corpus) | NOT STARTED | Phase 5 |
@@ -216,6 +216,19 @@ Stage-1 checker port is GREEN as a gate; the phase itself is NOT complete
   deferred). 3 new cases; `diff_check` green at 83 corpus files + 61
   manifest cases; all five gates re-run green. Meter unchanged (3 of 11);
   only catalog-BODY checking remains before the flip.
+- FULL PARITY (2026-10-03, post-rebase `018daf05`): rebased over m178/m181
+  (ill-typed-match T001 + refinements) and ported the remaining gaps --
+  m178/m181 pattern validation (9 cases under `patterns/`: Some/None and
+  Ok/Err family checks, cross-enum/unknown-variant/variant-on-struct,
+  m181 alias unwrapping and enum-declared Some/None), associated-form
+  interface dispatch (`assoc/`, including Rust's no-arity generic-bound
+  behavior and the three-line unknown-member cascade), and LOCAL
+  catalog-body checking (`catbody/`: nested catalog-mode pass, findings
+  flushed BEFORE program diagnostics with the `catalog body [<module>]: `
+  tag). All five gates green together: `cargo test -p xiom-codegen --test
+  full_diff_tests` -> 5 passed, 443.9s; `diff_check` = 83 corpus files
+  (11 diagnostic lines, non-vacuous) + 75 manifest cases. Gate 3 row and
+  the meter flip to DONE / 4 of 11 on this branch.
 
 ## Open blockers and risks
 

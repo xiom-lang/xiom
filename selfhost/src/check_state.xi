@@ -83,6 +83,14 @@ pub type IfaceMember = {
   ret: Str;
 }
 
+/// A loaded catalog module whose body still has to be type-checked (Rust
+/// `pending_catalog_bodies`): the module's own parser arena + root.
+pub type CatBody = {
+  key: Str;
+  root: Int;
+  parser: Parser;
+}
+
 pub type Checker = {
   p: Parser;
   src_dir: Str;
@@ -103,6 +111,8 @@ pub type Checker = {
   stdlib_index: Vec[Local];
   methods: Vec[MethodEntry];
   iface_members: Vec[IfaceMember];
+  catalog_mode: Int;
+  pending_bodies: Vec[CatBody];
   warnings: Vec[Diag];
   errors: Vec[Diag];
   cur_ret: Str;
@@ -134,6 +144,8 @@ pub fn ck_new(p: Parser, src_dir: Str) -> Checker {
     stdlib_index: Vec[Local].new(),
     methods: Vec[MethodEntry].new(),
     iface_members: Vec[IfaceMember].new(),
+    catalog_mode: 0,
+    pending_bodies: Vec[CatBody].new(),
     warnings: Vec[Diag].new(),
     errors: Vec[Diag].new(),
     cur_ret: "",

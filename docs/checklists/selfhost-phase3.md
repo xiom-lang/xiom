@@ -63,20 +63,25 @@ PARSE-ERROR                                    input/lex/parse failed
 | E | Unknown-method + struct-literal field validation | DONE 2026-10-03 |
 | F | Lints W000 (non-exhaustive enums), W004 (unreachable arms), W006 (out-of-range shift), W007 (self-comparison) | DONE 2026-10-03 |
 | G | Borrow pass (lexical ownership + place model + loans, non-strict E001) | DONE 2026-10-03 |
+| H | m178/m181 ill-typed-match T001 (Some/Ok family, enum variants, alias unwrap) | DONE 2026-10-03 |
+| I | Associated-form interface dispatch (`Eq[T].eq`, no-arity bound path, cascade) | DONE 2026-10-03 |
+| J | Local catalog-body checking (`catalog body [module]: ` tag, flush order) | DONE 2026-10-03 |
+| K | Uppercase bare-name resolution in `use` files (bare fallback + errors) | DONE 2026-10-03 |
 
-Remaining permissive fallbacks for FULL parity (the gate stays green, the
-meter is NOT flipped until these land):
+Bounded exceptions (documented; exact for the current tree, no permissive
+divergence on the corpus/manifest):
 
-* module BODIES are not checked: a type error inside an imported local/stdlib
-  module produces `catalog body [module]: ...` diagnostics in Rust that the
-  port does not reproduce (no corpus file exercises this).
-* associated-form interface dispatch (`Eq[T].eq(...)`) keeps interface-name
-  receivers permissive (m37_bug48 relies on it being accepted).
-* dynamic stdlib header index blocked on `io.list_dir` returning pointer
-  bits (COMPILER_BUGS 2026-10-03): the static 19-entry relocation table
-  (`cm_static_module_path`) covers the relocated modules instead. This is an
-  exact mapping for the current tree, not a permissive fallback.
-* transitive `pub use` closure is unnecessary (0 re-exports in stdlib).
+* STDLIB module bodies are not re-checked: the stdlib ships clean, and
+  checking them needs receiver-context/associated forms the nested pass
+  does not model (a broken stdlib body would diverge; none exists).
+  LOCAL module bodies ARE checked (`catalog body [module]: `).
+* Relocated stdlib modules use the static 19-entry table
+  (`cm_static_module_path`) because `io.list_dir` returns pointer bits
+  (COMPILER_BUGS 2026-10-03); per-module resolution is exact for this tree.
+* Rust's multi-missing W000 warning order is HashMap-random
+  (COMPILER_BUGS 2026-10-03): the port uses registration order; only
+  single-missing cases are gated.
+* Transitive `pub use` closure is unnecessary (0 re-exports in stdlib).
 
 ## Evidence
 
@@ -87,12 +92,13 @@ meter is NOT flipped until these land):
   E001 (`cannot store borrow in struct` 42:23);
   `m37_bug46_generic_struct_ref.xi` 3x E001 (24:24, 24:23, 27:23);
   `m37_f128.xi` 2x E001 (16:5, 19:11).
-* `diff_check`: 83 corpus files + 61 manifest cases green with the borrow
-  pass included (`83 files (11 diagnostic lines, non-vacuous) + 61 manifest
+* `diff_check`: 83 corpus files + 75 manifest cases green with the borrow
+  pass included (`83 files (11 diagnostic lines, non-vacuous) + 75 manifest
   cases`; corpus diagnostics: 4x W003 smoke, W008 short_circuit, E001
-  borrow warnings on m37_bug45/46/f128 re-asserted in the harness; sub-stage
-  case sets under `selfhost/tests/check_negative/` `catalog/` (21),
-  `containers/` (5), `lints/` (8), `methods/` (11) plus the original 16).
+  borrow warnings on m37_bug45/46/f128 re-asserted in the harness; case
+  sets under `selfhost/tests/check_negative/`: `assoc/` (3), `catbody/` (2),
+  `catalog/` (21), `containers/` (5), `lints/` (8), `methods/` (11),
+  `patterns/` (9) plus the original 16).
 * Regression gates after the port: `diff_tokens` green (83 files),
   `diff_ast` green (83 files), `diff_corpus` T1 green. T2/T3 remain
   unreachable (Phase 0 stub emitter; pre-existing).

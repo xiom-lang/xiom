@@ -25,7 +25,9 @@ use selfhost_ast.NodeKind;
 use selfhost_check_expr;
 use selfhost_check_modules;
 use selfhost_check_state;
+use selfhost_check_state.CatBody;
 use selfhost_check_state.Checker;
+use selfhost_check_state.Diag;
 use selfhost_check_state.FnParam;
 use selfhost_check_state.FnSig;
 use selfhost_check_state.Local;
@@ -447,7 +449,47 @@ fn cc_register_fn_node(c: &mut Checker, recv: Int, name: Int, generics: Vec[Int]
 // Body pass
 // ============================================================================
 
+/// Nested catalog-body pass: each queued module is checked in catalog mode
+/// (unresolved names/members stay permissive; lints off) with its own
+/// declarations registered, and its findings are prefixed
+/// `catalog body [<key>]: ` like the Rust checker.
+fn cc_check_pending_bodies(c: &mut Checker) {
+  var i = 0;
+  while i < c.pending_bodies.len() {
+    let pb = c.pending_bodies[i];
+    i = i + 1;
+    var sub = selfhost_check_state.ck_new(pb.parser, c.src_dir);
+    sub.catalog_mode = 1;
+    cc_collect(&mut sub, pb.root);
+    cc_check_program(&mut sub, pb.root);
+    var j = 0;
+    while j < sub.warnings.len() {
+      let d = sub.warnings[j];
+      c.warnings.push(Diag{
+        kind: d.kind, code: d.code,
+        message: "catalog body [" + pb.key + "]: " + d.message,
+        line: d.line, col: d.col,
+      });
+      j = j + 1;
+    }
+    j = 0;
+    while j < sub.errors.len() {
+      let d = sub.errors[j];
+      c.errors.push(Diag{
+        kind: d.kind, code: d.code,
+        message: "catalog body [" + pb.key + "]: " + d.message,
+        line: d.line, col: d.col,
+      });
+      j = j + 1;
+    }
+  }
+  c.pending_bodies = Vec[CatBody].new();
+}
+
 pub fn cc_check_program(c: &mut Checker, root: Int) {
+  // Rust `flush_catalog_bodies`: queued catalog module bodies are checked
+  // BEFORE the user program, with their findings tagged by module.
+  cc_check_pending_bodies(c);
   cc_check_item(c, root, "");
 }
 
@@ -597,3 +639,4 @@ fn cc_check_clause(c: &mut Checker, clause_idx: Int, expr: Int) {
   }
   ck_pop_scope(c);
 }
+

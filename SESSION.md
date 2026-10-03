@@ -432,6 +432,21 @@ Supersedes the (11) handoff below (kept as history).
   (`catalog/uppercase_*`); `diff_check` -> 83 files (11 diagnostic lines) +
   61 manifest cases, 417.3 s; all five gates re-run green. Remaining before
   the meter flip: catalog-BODY checking only.
+- Stage B8 (2026-10-03): FULL PARITY (gate 3 DONE, meter 3 -> 4 of 11).
+  Rebased onto `018daf05` (v0.62.3, m178/m181 included) with no conflicts.
+  Ported the remaining gaps: m178/m181 ill-typed-match T001 validation
+  (`patterns/`, 9 cases: Some/None + Ok/Err family checks, cross-enum,
+  unknown-variant, variant-on-struct, m181 alias unwrapping, enum-declared
+  None/Some), associated-form interface dispatch (`assoc/`, 3 cases:
+  member accept without arity enforcement, unknown-member three-line
+  cascade with the dot span), and LOCAL catalog-body checking (`catbody/`,
+  2 cases: nested catalog-mode pass, findings tagged
+  `catalog body [<module>]: ` and flushed BEFORE program diagnostics; stdlib
+  bodies intentionally not re-checked -- they ship clean). Final five-gate
+  run: `cargo test -p xiom-codegen --test full_diff_tests` -> 5 passed,
+  443.9 s; `diff_check` = 83 corpus files (11 diagnostic lines,
+  non-vacuous) + 75 manifest cases. `docs/SELFHOST_PROGRESS.md` meter and
+  gate 3 row updated; bounded exceptions listed in the checklist.
 
 
 # CONTINUATION HANDOFF (2026-10-02 (11), v0.62.2 shipped; m167/m168 fixed; phased queue)

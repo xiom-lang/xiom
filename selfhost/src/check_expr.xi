@@ -587,8 +587,132 @@ pub fn ce_item_always_diverges(c: &Checker, item: Int) -> Bool {
 // Pattern bindings (permissive: payload names bind "_")
 // ============================================================================
 
+// ============================================================================
+// m178/m181: ill-typed match pattern validation (T001)
+// ============================================================================
+
+fn ce_head_of(base: Str) -> Str {
+  var i = 0;
+  while i + 1 < base.len() {
+    if (string.byte_at(base, i) as Int) == 95 && (string.byte_at(base, i + 1) as Int) == 95 {
+      return string.str_slice(base, 0, i);
+    }
+    i = i + 1;
+  }
+  return base;
+}
+
+fn ce_is_scalar_ty(ty: Str) -> Bool {
+  if ty == "_" || ty == "()" || ty == "!" { return true; }
+  if selfhost_check_types.ct_is_numeric(ty) { return true; }
+  if ty == "Bool" || ty == "Char" || ty == "Str" { return true; }
+  return false;
+}
+
+/// Rust `known_concrete`: scalars are always known; named types only when
+/// registered (aliases count, m181).
+fn ce_known_concrete(c: &Checker, ty: Str) -> Bool {
+  if ty == "_" || ty == "()" || ty == "!" { return false; }
+  if ce_is_scalar_ty(ty) { return true; }
+  let base = selfhost_check_types.ct_base(ty);
+  if ck_find_type(c, base) >= 0 || ck_find_type(c, ty) >= 0 { return true; }
+  if ck_find_alias(c, base) >= 0 { return true; }
+  if ce_variant_key_exists(c, base) { return true; }
+  return false;
+}
+
+/// Rust `enum_variants.contains_key`: exact VARIANT-key lookup (not an enum
+/// name and not a leaf scan).
+fn ce_variant_key_exists(c: &Checker, key: Str) -> Bool {
+  var i = c.variants.len() - 1;
+  while i >= 0 {
+    if c.variants[i].key == key { return true; }
+    i = i - 1;
+  }
+  return false;
+}
+
+/// Rust `enum_declares_variant`: the named type declares this variant.
+fn ce_enum_declares_variant(c: &Checker, enum_name: Str, variant: Str) -> Bool {
+  let base = selfhost_check_types.ct_base(enum_name);
+  let leaf = ce_leaf_of(base);
+  var i = c.variants.len() - 1;
+  while i >= 0 {
+    let v = c.variants[i];
+    let k_leaf = ce_head_of(ce_leaf_of(v.key));
+    let p_leaf = ce_leaf_of(selfhost_check_types.ct_base(v.enum_name));
+    if k_leaf == variant && (p_leaf == leaf || v.enum_name == base) { return true; }
+    i = i - 1;
+  }
+  return false;
+}
+
+/// m181 alias unwrapping: "MyOpt" -> "Option[Int]" -> "Option" ("" when the
+/// name is not an alias).
+fn ce_alias_head(c: &Checker, base: Str) -> Str {
+  let r = ck_resolve_alias(c, base);
+  if r == base { return ""; }
+  return ce_head_of(selfhost_check_types.ct_base(r));
+}
+
+fn ce_validate_pattern(c: &mut Checker, pat: Int, scrut_ty: Str) {
+  if pat < 0 || scrut_ty.len() == 0 { return; }
+  let concrete = ce_known_concrete(c, scrut_ty);
+  let sp = ck_span_of(c, pat);
+  let node = c.p.nodes[pat];
+  match node.kind {
+    NkPatSome(inner) => { ce_validate_variant_pat(c, pat, scrut_ty, concrete, "Some/None", "Some"); }
+    NkPatNone => { ce_validate_variant_pat(c, pat, scrut_ty, concrete, "Some/None", "None"); }
+    NkPatOk(inner) => { ce_validate_variant_pat(c, pat, scrut_ty, concrete, "Ok/Err", "Ok"); }
+    NkPatErr(inner) => { ce_validate_variant_pat(c, pat, scrut_ty, concrete, "Ok/Err", "Err"); }
+    NkPatVariant(name_idx, fields) => {
+      let nm = ck_ident(c, name_idx);
+      if ce_is_scalar_ty(scrut_ty) {
+        if concrete {
+          let _ = ck_error_at(c, "match pattern '" + nm + "' cannot match '" + scrut_ty + "'", sp.line, sp.col);
+        }
+        return;
+      }
+      let b = selfhost_check_types.ct_base(scrut_ty);
+      let hb = ce_head_of(ce_leaf_of(b));
+      let vi = ck_find_variant(c, nm);
+      if vi >= 0 {
+        let parent = c.variants[vi].enum_name;
+        let hp = ce_head_of(ce_leaf_of(selfhost_check_types.ct_base(parent)));
+        if hp != hb && concrete {
+          let _ = ck_error_at(c, "match pattern '" + nm + "' belongs to '" + parent + "', not '" + b + "'", sp.line, sp.col);
+        }
+      } else {
+        if concrete && !ce_variant_key_exists(c, hb) {
+          let _ = ck_error_at(c, "match pattern '" + nm + "' cannot match '" + b + "'", sp.line, sp.col);
+        }
+      }
+    }
+    _ => {}
+  }
+}
+
+fn ce_validate_variant_pat(c: &mut Checker, pat: Int, scrut_ty: Str, concrete: Bool,
+                           family: Str, variant: Str) {
+  let b = selfhost_check_types.ct_base(scrut_ty);
+  let head = ce_head_of(b);
+  var ok = false;
+  if b == "_" { ok = true; }
+  if family == "Some/None" {
+    if head == "Option" || ce_alias_head(c, b) == "Option"
+      || ce_enum_declares_variant(c, b, variant) { ok = true; }
+  } else {
+    if head == "Result" || ce_alias_head(c, b) == "Result" { ok = true; }
+  }
+  if !ok && concrete {
+    let sp = ck_span_of(c, pat);
+    let _ = ck_error_at(c, "match pattern '" + family + "' cannot match '" + scrut_ty + "'", sp.line, sp.col);
+  }
+}
+
 fn ce_bind_pattern(c: &mut Checker, pat: Int, scrut_ty: Str) {
   if pat < 0 { return; }
+  ce_validate_pattern(c, pat, scrut_ty);
   let node = c.p.nodes[pat];
   match node.kind {
     NkPatIdent(name) => {
@@ -608,7 +732,7 @@ fn ce_bind_pattern(c: &mut Checker, pat: Int, scrut_ty: Str) {
     NkPatOr(items) => {
       var i = 0;
       while i < items.len() {
-        ce_bind_pattern(c, items[i], "_");
+        ce_bind_pattern(c, items[i], scrut_ty);
         i = i + 1;
       }
     }
@@ -666,7 +790,7 @@ pub fn ck_check_block(c: &mut Checker, block_idx: Int, expected: Str, has_expect
       var i = 0;
       while i < stmts.len() {
         let item = stmts[i];
-        if w003_diverged && !w003_warned {
+        if w003_diverged && !w003_warned && c.catalog_mode == 0 {
           let sp = ce_stmt_or_expr_span(c, item);
           ck_warn_coded_at(c, "W003", "unreachable statement (the previous statement always exits)", sp.line, sp.col);
           w003_warned = true;
@@ -1113,6 +1237,7 @@ fn ce_payload_key(c: &Checker, pat: Int) -> Str {
 }
 
 fn ce_lint_w004(c: &mut Checker, arms: Vec[Int]) {
+  if c.catalog_mode == 1 { return; }
   var shadowed = false;
   var seen = Vec[Str].new();
   var i = 0;
@@ -1178,6 +1303,7 @@ fn ce_pattern_covers_variant(c: &Checker, pat: Int, variant: Str) -> Bool {
 /// 2026-10-03); the port uses registration order, so only single-missing
 /// cases are gateable.
 fn ce_match_exhaustiveness(c: &mut Checker, arms: Vec[Int], scr_ty: Str, line: Int, col: Int) {
+  if c.catalog_mode == 1 { return; }
   let type_name = ck_resolve_alias(c, scr_ty);
   if type_name.len() == 0 || type_name == "_" { return; }
   var variants = Vec[Str].new();
@@ -1455,6 +1581,9 @@ fn ce_check_ident(c: &mut Checker, idx: Int, name_idx: Int) -> Str {
     // associated-form dispatch is deferred.
     if selfhost_check_state.ck_is_iface(c, name) { return "_"; }
     if selfhost_check_state.ck_is_interface(c, name) { return "_"; }
+    // Catalog bodies resolve through the full import graph in Rust; the
+    // nested pass keeps unresolved names permissive instead of false-flagging.
+    if c.catalog_mode == 1 { return "_"; }
     let sp = ck_span_of(c, idx);
     return ck_error_at(c, "undefined variable '" + name + "'", sp.line, sp.col);
   }
@@ -1652,7 +1781,7 @@ fn ce_check_binary(c: &mut Checker, idx: Int, left: Int, op: Int, right: Int) ->
   if op == 5 || op == 6 {
     let cmp_ty = ce_check_eq(c, left, right, left_ty, right_ty, op, sp);
     // W007: self-comparison on a non-float type is always true/false.
-    if ce_same_place_nodes(c, left, right) && ce_self_cmp_nonfloat(ck_resolve_alias(c, left_ty)) {
+    if c.catalog_mode == 0 && ce_same_place_nodes(c, left, right) && ce_self_cmp_nonfloat(ck_resolve_alias(c, left_ty)) {
       var verdict = "false";
       if op == 5 { verdict = "true"; }
       ck_warn_coded_at(c, "W007", "self-comparison is always " + verdict + " (the same expression is compared with itself)", sp.line, sp.col);
@@ -1681,7 +1810,7 @@ fn ce_check_binary(c: &mut Checker, idx: Int, left: Int, op: Int, right: Int) ->
     // W006: a literal shift amount outside the left operand's bit width is
     // out of range (LLVM lowers it to a garbage value, not a trap).
     let width = ce_int_width(left_ty);
-    if width > 0 && ce_is_int_literal_like(c, right) {
+    if c.catalog_mode == 0 && width > 0 && ce_is_int_literal_like(c, right) {
       let amount = ce_int_literal_value(c, right);
       if amount < 0 || amount >= width {
         ck_warn_coded_at(c, "W006", "shift amount " + ce_int_str(amount) + " is out of range for "
@@ -1905,7 +2034,16 @@ fn ce_check_bare_call(c: &mut Checker, idx: Int, name_idx: Int, args: Vec[Int]) 
   }
   if c.has_uses == 1 {
     // Unresolved calls error like Rust (the unresolved call types as Unit,
-    // so the caller's return check reports the observed cascade).
+    // so the caller's return check reports the observed cascade). Catalog
+    // bodies stay permissive (their graph is not ported).
+    if c.catalog_mode == 1 {
+      var ci = 0;
+      while ci < args.len() {
+        let _ = ce_check_expr(c, args[ci]);
+        ci = ci + 1;
+      }
+      return "_";
+    }
     let isp = ck_span_of(c, name_idx);
     let _ = ck_error_at(c, "undefined variable '" + name + "'", isp.line, isp.col);
     var i = 0;
@@ -1914,6 +2052,14 @@ fn ce_check_bare_call(c: &mut Checker, idx: Int, name_idx: Int, args: Vec[Int]) 
       i = i + 1;
     }
     return "()";
+  }
+  if c.catalog_mode == 1 {
+    var cj = 0;
+    while cj < args.len() {
+      let _ = ce_check_expr(c, args[cj]);
+      cj = cj + 1;
+    }
+    return "_";
   }
   let ident_span = ck_span_of(c, name_idx);
   let _ = ck_error_at(c, "undefined variable '" + name + "'", ident_span.line, ident_span.col);
@@ -2085,10 +2231,54 @@ fn ce_check_method_call(c: &mut Checker, idx: Int, obj: Int, method_idx: Int, ar
     if sri >= 0 {
       return ce_check_instance_method(c, c.functions[sri], method, tn, args, sp);
     }
+    if c.catalog_mode == 1 {
+      ce_quiet_args(c, args);
+      return "_";
+    }
     return ck_error_at(c, "cannot call '" + method + "' on this expression", sp.line, sp.col);
   }
   // Module/type path receiver (`io.println(...)`, `xiom.math.shr(...)`,
   // `pipeline.run(...)`) when the receiver is not a value.
+  // Associated-form interface dispatch: `Eq[T].eq(...)`. A declared member
+  // of the named interface is accepted permissively (Rust's generic-bound
+  // path does not enforce arity); an unknown member falls through to the
+  // observed cascade -- `undefined variable '<iface>'` twice at the
+  // interface ident span, then `cannot call` at the DOT before the method.
+  match c.p.nodes[obj].kind {
+    NkExprIndex(ib, ia) => {
+      match c.p.nodes[ib].kind {
+        NkExprIdent(name_idx2) => {
+          let iface = ck_ident(c, name_idx2);
+          if ck_is_interface(c, iface) || selfhost_check_state.ck_is_iface(c, iface) {
+            let mi = ce_iface_member_index(c, iface, method);
+            if mi >= 0 {
+              var ai = 0;
+              while ai < args.len() {
+                let _ = ce_check_expr(c, args[ai]);
+                ai = ai + 1;
+              }
+              var ret = c.iface_members[mi].ret;
+              if ret.len() == 0 || ret == "Self" { ret = "_"; }
+              return ret;
+            }
+            let isp = ck_span_of(c, ib);
+            if c.catalog_mode == 1 {
+              ce_quiet_args(c, args);
+              return "_";
+            }
+            let _ = ck_error_at(c, "undefined variable '" + iface + "'", isp.line, isp.col);
+            let _ = ck_error_at(c, "undefined variable '" + iface + "'", isp.line, isp.col);
+            let msp = ck_span_of(c, method_idx);
+            var dot_col = msp.col;
+            if dot_col > 1 { dot_col = dot_col - 1; }
+            return ck_error_at(c, "cannot call '" + method + "' on this expression", msp.line, dot_col);
+          }
+        }
+        _ => {}
+      }
+    }
+    _ => {}
+  }
   let obj_name = ce_ident_text(c, obj);
   var is_value_name = false;
   if obj_name.len() > 0 {
@@ -2117,7 +2307,11 @@ fn ce_check_method_call(c: &mut Checker, idx: Int, obj: Int, method_idx: Int, ar
         let _ = ce_check_expr(c, args[ui]);
         ui = ui + 1;
       }
-      return ck_error_at(c, "cannot call '" + method + "' on this expression", sp.line, sp.col);
+      if c.catalog_mode == 1 {
+      ce_quiet_args(c, args);
+      return "_";
+    }
+    return ck_error_at(c, "cannot call '" + method + "' on this expression", sp.line, sp.col);
     }
   }
   let obj_ty = ce_check_expr(c, obj);
@@ -2174,6 +2368,10 @@ fn ce_check_method_call(c: &mut Checker, idx: Int, obj: Int, method_idx: Int, ar
     let cri = ce_r8_ufcs(c, obj_ty, method, args.len());
     if cri >= 0 {
       return ce_check_instance_method(c, c.functions[cri], method, obj_ty, args, sp);
+    }
+    if c.catalog_mode == 1 {
+      ce_quiet_args(c, args);
+      return "_";
     }
     return ck_error_at(c, "cannot call '" + method + "' on this expression", sp.line, sp.col);
   }
@@ -2271,6 +2469,10 @@ fn ce_check_module_member_call(c: &mut Checker, idx: Int, alias: Str, key: Str,
   while i < args.len() {
     let _ = ce_check_expr(c, args[i]);
     i = i + 1;
+  }
+  if c.catalog_mode == 1 {
+    ce_quiet_args(c, args);
+    return "_";
   }
   return ck_error_at(c, "cannot call '" + member + "' on this expression", sp.line, sp.col);
 }
@@ -2608,6 +2810,14 @@ fn ce_vec_contains(v: Vec[Str], needle: Str) -> Bool {
 
 fn ce_int_str(v: Int) -> Str {
   return v + "";
+}
+
+fn ce_quiet_args(c: &mut Checker, args: Vec[Int]) {
+  var i = 0;
+  while i < args.len() {
+    let _ = ce_check_expr(c, args[i]);
+    i = i + 1;
+  }
 }
 
 // ============================================================================

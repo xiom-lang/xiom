@@ -28,6 +28,7 @@ use xiom.io;
 use xiom.string;
 use selfhost_ast.NodeKind;
 use selfhost_check_state;
+use selfhost_check_state.CatBody;
 use selfhost_check_state.Checker;
 use selfhost_check_state.Field;
 use selfhost_check_state.FnParam;
@@ -435,6 +436,14 @@ pub fn cm_load_file(c: &mut Checker, key: Str, file: Str) -> Int {
   selfhost_check_state.ck_mark_loaded(c, key);
   cm_collect_decls(c, key, &p, root);
   let declared = cm_declared_module(&p, root, "");
+  // Catalog-body checking (matching Rust's pending_catalog_bodies): queue the
+  // module for a nested check pass unless we ARE a nested catalog check.
+  // Only LOCAL modules are body-checked: stdlib bodies resolve through
+  // receiver-context and associated-dispatch forms the port does not model,
+  // and the stdlib ships clean (documented in the Phase 3 checklist).
+  if c.catalog_mode == 0 && !string.str_starts_with(key, "xiom.") {
+    c.pending_bodies.push(CatBody{ key: key, root: root, parser: p });
+  }
   if declared == key { return 2; }
   return 1;
 }
