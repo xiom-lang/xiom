@@ -86,10 +86,31 @@ stack per read and loses aggregate element values in the fold.
 
 IMPACT: stdlib findings row 25 (complex tables) not retirable; packages
 keep raw-octet encodings. Not one of the four v0.62.3 release-hold gates;
-queued. Fix direction (owner call): extend m164 to real const-aggregate
-globals for Str (GEP pointer constants) and struct (constant aggregate)
-elements -- durable, collapses per-use re-materialization -- or repair the
-substitution read path to use the materialized load for aggregate fields.
+queued.
+
+IMPLEMENTATION PLAN (next compiler batch, m182; exact touchpoints):
+1. `try_register_const_array_global` (decl.rs ~L482): drop the
+   integer-literal-only gates; accept any FULLY-literal element array
+   (Int/Bool/Char/Float/Str/Struct/nested Array) via a recursive
+   `is_global_const_literal` check. Compute `elem_llvm` for the element
+   type and keep `arr_ty = [{n} x {elem_llvm}]`.
+2. `global_const_init` (lib.rs ~L417): make it a `&mut self` method so
+   Str elements can intern their `.strN` globals; add `Expr::Str` ->
+   `{ i8* getelementptr inbounds ([L x i8], [L x i8]* @.strN, i64 0,
+   i64 0), i64 len }` (match the live Str representation) and
+   `Expr::Struct` -> aggregate of recursively rendered fields (field
+   order from the struct type). Nested arrays/negatives already recurse.
+3. Index fast path (expr.rs ~L2931): for aggregate element types return
+   the ELEMENT ADDRESS (`elem_ptr`, `{elem_ty}*`) instead of a loaded
+   value, so the normal Field access GEPs/loads correctly; scalar
+   elements keep the load+extend path. This is the piece that makes
+   `ROWS[i].field` read real data instead of the constant-0 fallback.
+4. Locks: extend the committed `docs/repro/const-tables/const_tables.xi`
+   (rc 6 -> 0; NAMES str_len loop 14) into a codegen IR test asserting a
+   `@...ROWS` constant global + field load, and an e2e/stdlib-guarded
+   run. Era check against the pinned stdlib (row 25 shapes) after.
+5. If step 1 rejects a shape (non-literal element), keep the existing
+   substitution path unchanged -- no silent defaults.
 
 ---
 
