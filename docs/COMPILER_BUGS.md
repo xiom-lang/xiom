@@ -240,6 +240,21 @@ three confirmed locally against the official v0.62.3 windows-x64 archive
    transforms the whole main due to UB reachable only through the
    decompress_block call path.
 
+   REGRESSION RANGE (2026-10-03): P4c compiled with the v0.62.0 release
+   binary PASSES (rc 0); the v0.62.2 era build (tmp/sprintc/v0622_src
+   release) FAILS (rc 5); the v0.62.3 archive FAILS. The regression
+   entered v0.62.0..v0.62.2 (the v0.62.x method-binding/aggregate era).
+   IR DIFF (HEAD vs v0.62.0, same source, normalized function diff: 14
+   differing of 173 common): the lz4 callees that differ are only bounds
+   constants (`_lz4_write_seq`: `icmp ule ..., 16777216` vs `4294967296`;
+   `lz4_compress_block` itself is IDENTICAL). `main` differs by 208 lines
+   for identical source: HEAD emits extra `alloca %struct.X` + `store` +
+   field-GEP ROUND-TRIPS for aggregate values where v0.62.0 used direct
+   GEPs into the source aggregate (seen at the frame-roundtrip match).
+   NEXT: continue the same diff at the block-compress call site; audit the
+   new alloca-copy emission path (result/aggregate re-entry in main) for
+   aliasing/UB -- that is where the v0.62.x regression and the UB entered.
+
 ---
 
 ## 2026-10-03 -- FIXED (m182): complex module-level const tables mis-read (Str/struct payloads)
