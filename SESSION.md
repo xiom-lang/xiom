@@ -115,6 +115,14 @@
 > (stdlib stubs documented with TODO(compiler); no stdlib change wanted).
 > Arity contradiction retired (stale row); Vec[StructType] trap 10 not
 > reproducible (retirement candidate).
+> REGISTRY RELAY (2026-10-03): registry lane's priority = three v0.62.3-only
+> regressions first (the reports were NOT in our relay copy -- requested in
+> standard format), then optional polish: B1 `xiom pkg publish` packaging
+> guard (refuse artifact dirs; .xiomignore + --force), B2
+> `xiom pkg yank <pkg>@<ver>` (needs registry API contract), install trust
+> wording (copy + placement), `--resolve` outside a workspace (proposal:
+> explicit spec form). Queue order after the three regressions: B1, B2,
+> wording/resolve.
 >
 > DONE THIS CYCLE (all with fixture + e2e/checker + CI locks): m169 (C24-1
 > same-leaf results), m170 (C24-2 thunk + Option-of-Vec), m168b (`&mut` arg
