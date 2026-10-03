@@ -37,10 +37,15 @@ snapshots: 2409 at `f4734c07`, 2408 at `592c64d4`, 2406 at `d1ab8ec4`,
 
 Release context: v0.62.3 shipped 2026-10-03 with `SELFHOST_VERSION` bumped
 to 0.62.3; the selfhost source is otherwise unchanged by this release and
-the Rust compiler remains the shipped bootstrap. Phase 3 (checker parity)
-is in progress in its own worktree/session; the meter flips only at full
-parity, so the Phase 3 row stays NOT STARTED on main until that branch
-lands.
+the Rust compiler remains the shipped bootstrap.
+
+PHASE 3 STATUS (2026-10-03): **COMPLETE on branch
+`selfhost-phase-3-checker`** -- full parity gate green (`diff_check`
+line-exact on 83 corpus files + 75 manifest cases, 5/5 full_diff tests,
+443.9 s), branch meter 36% (4/11), 15 commits ahead. Remaining: rebase
+onto current main and merge (the merge flips this row and the meter;
+until then main stays 27%). Next phase: **Phase 4 -- codegen fn-header T3
+IR equality** (signatures, tuple names, inline policy `approx_block_cost`).
 
 Weights are one gate each (equal weighting; phases differ in effort but a
 gate is only "done" when its evidence is green). Update this line whenever a

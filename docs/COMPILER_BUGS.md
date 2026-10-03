@@ -64,7 +64,7 @@ after. Playground acceptance `tools/compiler-repros/c25/run.sh` prints
 
 ---
 
-## 2026-10-03 -- TRIAGE (open): packages lane's two v0.62.3 findings (nested test-module import, uninit local struct in match arm)
+## 2026-10-03 -- TRIAGE (open): packages lane's three v0.62.3 findings (nested test-module import, uninit local struct, enum-payload Str corruption)
 
 Source: packages lane relay (docs/COMPILER-FINDINGS.md A/B +
 docs/repro/uninit-local/; websocket 163 T001s; xiom.graphql validator).
@@ -84,16 +84,22 @@ docs/repro/uninit-local/; websocket 163 T001s; xiom.graphql validator).
    `e2e_m184_nested_module_import` + `tests/regression/m184_nested_module_import/`
    (pkg.xi + main.xi), ci.yml line; checker 195/195; flat control green.
    Workaround in the porter brief can be dropped once this ships.
-2. **Uninitialized local struct assigned inside a match arm**: Str fields
-   become garbage pointers (concat hangs) and `Vec.len()` reads
-   4294967295 (runaway loops); pre-initializing the local at declaration
-   avoids it. Found in xiom.graphql's validator. Standalone minimal repro
-   pending. Suspect definite-assignment/codegen for a local declared
-   without an initializer whose first store happens in one conditional
-   arm (alloca value/alias mishandled).
+2. **Uninitialized local struct assigned inside a match arm -- REPRO
+   (minimal, standalone)**: `var r: Row;` (no initializer) + assignments in
+   match arms + `return r` reproduces on the official v0.62.3 archive as a
+   **crash (0xC000001D, illegal instruction / trap)** -- stronger than the
+   reported garbage fields. Probe `C:\...\Temp\kilo\m183\uninit_local.xi`.
+   Root-cause pass next: inspect the IR for the uninitialized alloca and
+   the match-arm assignment path. Fix is a v0.62.4 target.
+3. **Enum-payload Str corruption** (packages relay, in-situ; standalone
+   controls pass, minimal repro pending): enum payloads carrying Str
+   fields read corrupted in the graphql validator context. Candidate
+   v0.62.4 target; minimal repro to build (likely shares the
+   uninitialized/aggregate-value codegen family with item 2).
 
-Both are v0.62.4 candidates; workarounds already in the packages porter
-brief ("always initialize locals at declaration").
+All three are v0.62.4 candidates; workarounds already in the packages
+porter brief ("always initialize locals at declaration"; nested-module
+workaround can drop after m184 ships).
 
 ---
 
