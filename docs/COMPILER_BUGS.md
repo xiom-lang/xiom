@@ -10,6 +10,35 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-03 -- LOCALIZED (open, queued): complex module-level const tables mis-read (Str/struct payloads)
+
+REPRO (committed): `docs/repro/const-tables/const_tables.xi` -- rc 6 on
+HEAD and v0.62.2 (expected 0). Isolated NAMES probe (str_len loop) rc 9;
+direct Str equality happened to pass, the length reads do not.
+
+SHAPES:
+- `const K: [4]Int` correct (m164 emits a real `internal constant [4 x i64]`).
+- `const NAMES: [3]Str` -- per-use re-materialization; `str_len` loop sum
+  is garbage (relay probe 30 vs 14; local isolated probe rc 9).
+- `const ROWS: [3]Row` -- all fields read 0. IR: the element field load is
+  emitted (`%tmp117 = load i64, ...`) but the comparison uses a CONSTANT 0
+  (`icmp ne i64 0, 1`), i.e. the substitution path const-folds the field
+  access to a placeholder while emitting a dead load.
+
+ROOT-CAUSE AREA: m164 `try_register_const_array_global` (decl.rs) only
+materializes all-literal INTEGER-like arrays; Str/struct elements keep the
+per-use SUBSTITUTION path, which re-materializes the whole table on the
+stack per read and loses aggregate element values in the fold.
+
+IMPACT: stdlib findings row 25 (complex tables) not retirable; packages
+keep raw-octet encodings. Not one of the four v0.62.3 release-hold gates;
+queued. Fix direction (owner call): extend m164 to real const-aggregate
+globals for Str (GEP pointer constants) and struct (constant aggregate)
+elements -- durable, collapses per-use re-materialization -- or repair the
+substitution read path to use the materialized load for aggregate fields.
+
+---
+
 ## 2026-10-03 -- FIXED (m181): m178 pattern check false positives -- aliases, nested generic elements, enum None/Some
 
 CONTEXT: the m178 ill-typed-match rule (T001) landed without a full e2e

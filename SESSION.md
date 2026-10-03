@@ -51,16 +51,21 @@
 >    `C:\Users\lefte\AppData\Local\Temp\kilo\sprintc` during suite runs;
 >    move back (or keep out of the repo) before local full e2e. CI/clean
 >    checkout unaffected.
-> 4. SUITES (after 1-3): full e2e 8 threads, feature 518, checker 195,
->    checker_locks 28, stdlib-exec 85 (+2 ign), api-freeze 2/2. NOTE:
->    stdlib-exec/freeze flake under machine load (selfhost build) with EMPTY
->    driver output and nonzero exit -- rerun isolated/idle before treating a
->    red as real. Known stale-pin reds until the Gate P bump: checker
->    `catalog_corpus_is_clean` + api-freeze + 4 stdlib-exec smokes all hit
->    the real xiom.net T001s at 617/618/5 (pin `stdlib-perf1` predates the
->    stdlib fix e997201/8b23b79; stdlib-exec is 85/85 against the waves
->    tree). `catalog_corpus_is_clean` hardcodes the repo pin and ignores
->    XIOM_STDLIB.
+> 4. SUITES -- run on the 3-fix batch (m179+m180+m181), pinned stdlib
+>    unless noted: full e2e 2410/2411 (+4 ign), single red
+>    `e2e_m90_stdlib_same_leaf_http` = the stale-pin xiom.net T001s (PASSES
+>    with XIOM_STDLIB=waves); feature 518/518; checker 194/195 (1 =
+>    `catalog_corpus_is_clean`, same net T001s, hardcodes the repo pin and
+>    ignores XIOM_STDLIB); checker_locks 28/28; stdlib-exec 85/85 (+2 ign)
+>    on the waves tree (81/85 on the pin: 4 net smokes); api-freeze 1/2 on
+>    the pin (same net compile). ALL remaining reds close with the Gate P
+>    STDLIB_VERSION bump. Local artifact: era worktrees under tmp/sprintc
+>    make the catalog index duplicate stdlib roots (W001) ->
+>    `e2e_m17_zero_warnings` red in local full runs; move tmp/sprintc OUT
+>    of the repo (e.g. %TEMP%\kilo\sprintc) for those runs, restore after.
+>    CI/clean checkout unaffected. Era matrix (this batch): HEAD +
+>    stdlib_pf2 Arc rc 0 / contracts rc 0; both red on the v0.62.0 release
+>    and all era trees pre-fix.
 > 5. GATE P: ask the stdlib lane for a FRESH tag at their then-current main
 >    (>= `8b23b79`; candidate `stdlib-perf3`), bump `STDLIB_VERSION`, regen
 >    the api-freeze snapshot, run benchmark t2 (compiler half `185342f4`),
@@ -87,6 +92,15 @@
 > loop-return typing, arity symmetry, reserved `fn`, `!bool == 1`,
 > type-laxness (`Vec[UInt8] = got.value` with a Str field), module-header
 > nested-module compare, stdlib `Vec.push[T]` stride fix.
+> PLUS (2026-10-03 relay): complex module-level const tables (Str/struct
+> payloads) mis-read -- `docs/repro/const-tables/const_tables.xi` rc 6
+> (ROWS fields compare against constant 0 in IR; dead load emitted) and
+> the isolated NAMES str_len loop rc 9; localized in the m164
+> substitution path, not started; stdlib row 25 not retirable until then.
+> i64<->f64 bitcast intrinsic for `xiom.num.float.float_bits/bits_to_float`
+> (stdlib stubs documented with TODO(compiler); no stdlib change wanted).
+> Arity contradiction retired (stale row); Vec[StructType] trap 10 not
+> reproducible (retirement candidate).
 >
 > DONE THIS CYCLE (all with fixture + e2e/checker + CI locks): m169 (C24-1
 > same-leaf results), m170 (C24-2 thunk + Option-of-Vec), m168b (`&mut` arg
