@@ -26,9 +26,11 @@
 > 1. lz4 context-dependent miscompile (P4c minimal repro; repeated-
 >    callsite optimizer-sensitive UB) -- fix + smoke/IR lock + pinned-
 >    archive verification.
-> 2. iter.range `contains` C001 (amplifier: method-form intercept must
->    require a collection receiver; the state change still to pin) --
->    fix + pinned-archive green so the registry promotes its smoke lock.
+> 2. iter.range `contains` C001 -- RESOLVED on the current tree: the real
+>    smoke compiles/runs rc 0 (post m182/m184/m185; v0.62.3 archive still
+>    red; m184 the likely fix). Registry promotes the smoke lock after the
+>    candidate ships; the synthetic V8 variant's direct-form C001 stays a
+>    separate latent case.
 > 2b. packages findings: nested test-module import FIXED (m184, merge +
 >    file-fallback lock); uninitialized-local-in-match-arm FIXED (m185,
 >    literal-zero struct coercion no longer NULL-derefs; e2e lock); the

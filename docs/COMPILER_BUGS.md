@@ -131,6 +131,19 @@ three confirmed locally against the official v0.62.3 windows-x64 archive
    `is_contract_collection_receiver` and the state map it reads). Green on
    the stdlib tip (584ffd1) per their battery; red on the v0.62.3 pin.
 
+   RESOLVED ON THE CURRENT TREE (2026-10-03): the real smoke
+   `smoke_iter_range.xi` compiles and runs rc 0 with the current dev build
+   (+m182/m184/m185/C25; the official v0.62.3 archive is still red). The
+   fix rides the current batch -- m184's module-resolution merge is the
+   most likely cause. The stdlib lane should promote the smoke lock after
+   the next candidate ships. The synthetic V8 minimization (three
+   range-sums + contains) still errors C001 through the DIRECT-form
+   contract scan (`call.rs:995`, untraced): the method-form intercept
+   trace showed identical classifier values in the passing and failing
+   variants (`is_coll=false`, `has_user=true`, `intercept=false`), so V8
+   is a separate latent case for a later pass; the real smoke is the
+   registry lock.
+
 2) **cell/RefCell smoke abort -- NOT a compiler regression.** 
    `smoke_cell_refcell_basic.xi` / `smoke_cell_ref_get.xi` never call
    `release()`. The 6D.1 pointer-based Ref/RefMut semantics (stdlib
