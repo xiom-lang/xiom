@@ -186,6 +186,13 @@ Stage-1 checker port is GREEN as a gate; the phase itself is NOT complete
   constructor results keep their type arguments so nested indexing stays
   typed. `diff_check` green at 83 corpus files + 39 manifest cases.
   Meter unchanged (3 of 11).
+- Sub-stage 3 (2026-10-03): unknown-method + struct-literal field
+  validation. The `methods` map, unique-candidate wildcard capture,
+  interface members (`want_of` arity/returns), R8 UFCS and Rust's builtin
+  method tables are ported; unknown methods report `cannot call '...'` and
+  struct literals validate field existence/types. `diff_check` green at 83
+  corpus files + 50 manifest cases. Meter unchanged (3 of 11). Remaining:
+  sub-stage 4 (W000/W004/W006/W007 lints) and sub-stage 5 (borrow pass).
 
 ## Open blockers and risks
 

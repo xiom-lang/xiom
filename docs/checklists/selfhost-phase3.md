@@ -57,12 +57,11 @@ PARSE-ERROR                                    input/lex/parse failed
 | B | Selfhost driver `--dump-check` + `diff_check` gate + manifest | DONE 2026-10-02 |
 | C | Catalog/imports resolution (module map, aliases, qualified calls) | DONE 2026-10-03 (stage-1 scope) |
 | D | Container method sets (builtin table, ctor typing, extension/R8 scan) | DONE 2026-10-03 |
+| E | Unknown-method + struct-literal field validation | DONE 2026-10-03 |
 
 Deferred to later Phase 3 sub-stages (NOT ported yet; permissive `_`
 fallbacks keep them from producing false positives):
 
-* unknown-method validation on user types and containers (sub-stage 3).
-* struct-literal field validation on user types (sub-stage 3).
 * match exhaustiveness (W000) and W004/W006/W007 lints (sub-stage 4); the
   empirically reachable W003/W008 ARE ported and corpus-gated.
 * borrow-checker diagnostics (sub-stage 5; explicitly out of

@@ -1656,6 +1656,103 @@ fn ce_check_call_sig(c: &mut Checker, sig: FnSig, shown_name: Str, args: Vec[Int
   return ce_substitute_generics(c, ret, sig.generics, Vec[Str].new());
 }
 
+/// Rust's builtin method tables (lib.rs 7370-7564): primitive receivers and
+/// the erased container/wrapper table. Returns "" when the method is not a
+/// known builtin; "<error>" is never returned (callers fall through).
+fn ce_builtin_method_ty(c: &mut Checker, obj_ty: Str, method: Str, args: Vec[Int]) -> Str {
+  let base = ce_leaf_name(obj_ty);
+  let is_prim = selfhost_check_types.ct_is_numeric(base) || base == "Bool"
+    || base == "Char" || base == "Str";
+  if is_prim {
+    var i = 0;
+    while i < args.len() {
+      let _ = ce_check_expr(c, args[i]);
+      i = i + 1;
+    }
+    if method == "compare" || method == "hash" { return "Int"; }
+    if method == "eq" || method == "ne" || method == "lt" || method == "gt"
+      || method == "le" || method == "ge" { return "Bool"; }
+    if method == "clone" { return base; }
+    if base == "Str" && method == "len" { return "Int"; }
+    if base == "Str" && method == "is_empty" { return "Bool"; }
+    if base == "Str" && (method == "trim" || method == "trim_start" || method == "trim_end"
+      || method == "to_lower" || method == "to_upper" || method == "substr") { return "Str"; }
+    if base == "Str" && method == "byte_at" { return "Int"; }
+    if base == "Str" && method == "char_at" { return "Char"; }
+    if base == "Str" && method == "to_owned" { return "Str"; }
+    if base == "Str" && method == "c_str" { return "Ptr"; }
+    if base == "Str" && method == "byte_len" { return "Int"; }
+    if method == "to_str" || method == "to_string" { return "Str"; }
+    if base == "Str" && (method == "from_cstring" || method == "from_c_str"
+      || method == "from_utf8" || method == "from_bytes") { return "Str"; }
+    if base == "Str" && method == "slice" { return "Str"; }
+    if base == "Str" && method == "starts_with" { return "Bool"; }
+    if base == "Str" && method == "ends_with" { return "Bool"; }
+    if base == "Str" && method == "concat" { return "Str"; }
+    return "";
+  }
+  // Named receiver table (module prefix + generic args already stripped).
+  var i = 0;
+  while i < args.len() {
+    let _ = ce_check_expr(c, args[i]);
+    i = i + 1;
+  }
+  if obj_ty == "_" || base == "_" { return "_"; }
+  if (base == "Vec" || base == "Slice" || base == "Array" || base == "Str"
+    || base == "Map" || base == "Set") && method == "len" { return "Int"; }
+  if (base == "Vec" || base == "Slice" || base == "Array" || base == "Str")
+    && method == "is_empty" { return "Bool"; }
+  if (base == "Vec" || base == "Slice" || base == "Array")
+    && (method == "is_sorted" || method == "all" || method == "none" || method == "contains") {
+    return "Bool";
+  }
+  if (base == "Vec" || base == "Slice" || base == "Array" || base == "Str" || base == "Box")
+    && (method == "as_ptr" || method == "as_mut_ptr") { return "*UInt8"; }
+  if base == "Str" && (method == "byte_at" || method == "char_at") { return "Int"; }
+  if base == "Str" && (method == "trim" || method == "trim_start" || method == "trim_end"
+    || method == "to_lower" || method == "to_upper" || method == "substr"
+    || method == "from_c_str" || method == "to_c_str") { return "Str"; }
+  if method == "to_string" || method == "to_str" { return "Str"; }
+  if method == "now" || method == "elapsed" || method == "as_millis"
+    || method == "as_micros" || method == "as_nanos" || method == "as_secs"
+    || method == "offset" || method == "seek" || method == "tell"
+    || method == "position" || method == "read" || method == "write"
+    || method == "flush" || method == "close" { return "Int"; }
+  if (base == "Map" || base == "Set")
+    && (method == "keys" || method == "values" || method == "entries" || method == "iter") {
+    return "_";
+  }
+  if (base == "Vec" || base == "Slice" || base == "Map" || base == "Set")
+    && method == "clone" { return obj_ty; }
+  if (base == "Option" || base == "Result")
+    && (method == "unwrap" || method == "unwrap_or" || method == "unwrap_err"
+      || method == "expect" || method == "value") { return "_"; }
+  if (base == "Option" || base == "Result")
+    && (method == "is_some" || method == "is_none" || method == "is_ok" || method == "is_err") {
+    return "Bool";
+  }
+  if (base == "Cell" || base == "Rc" || base == "Arc" || base == "Mutex"
+    || base == "Box" || base == "Reverse" || base == "RefCell")
+    && (method == "get" || method == "clone" || method == "lock"
+      || method == "borrow" || method == "borrow_mut") { return "_"; }
+  if method == "clone" { return obj_ty; }
+  if method == "new" { return obj_ty; }
+  if method == "default" { return obj_ty; }
+  if method == "serialize_json" || method == "deserialize_json" { return "Result"; }
+  if method == "compare" { return "Int"; }
+  return "";
+}
+
+/// Interface-typed (or wildcard/generic-param) receivers keep permissive
+/// dispatch until interface members are ported.
+fn ce_receiver_interface(c: &Checker, obj_ty: Str) -> Bool {
+  if obj_ty == "_" || obj_ty == "type" { return true; }
+  let base = ce_leaf_name(obj_ty);
+  if ck_is_interface(c, obj_ty) || ck_is_interface(c, base) { return true; }
+  if selfhost_check_types.ct_is_generic_param(base) { return true; }
+  return false;
+}
+
 fn ce_check_method_call(c: &mut Checker, idx: Int, obj: Int, method_idx: Int, args: Vec[Int]) -> Str {
   let method = ck_ident(c, method_idx);
   let sp = ck_span_of(c, idx);
@@ -1675,26 +1772,27 @@ fn ce_check_method_call(c: &mut Checker, idx: Int, obj: Int, method_idx: Int, ar
     if fi >= 0 {
       return ce_check_static_method(c, c.functions[fi], method, tn, args, sp);
     }
-    // Builtin container constructors (Vec.new/Map.new/Set.new/...): resolve
-    // through the builtin table; unknown container statics stay permissive.
-    if ce_is_container_base_leaf(tn) {
-      let bfi = ck_find_fn(c, tn + "." + method);
-      if bfi >= 0 {
-        return ce_check_static_method(c, c.functions[bfi], method, tn, args, sp);
-      }
-      var i = 0;
-      while i < args.len() {
-        let _ = ce_check_expr(c, args[i]);
-        i = i + 1;
+    // Builtin static table (clone/new/default/...), then interfaces, then
+    // R8 UFCS, then the Rust `cannot call` fallback.
+    let sty = ce_builtin_method_ty(c, tn, method, args);
+    if sty.len() > 0 { return sty; }
+    let simi = ce_iface_member_index(c, tn, method);
+    if simi >= 0 {
+      return ce_iface_call(c, tn, c.iface_members[simi], args, sp);
+    }
+    if ce_iface_receiver(c, tn) && (tn == "_" || tn == "type") {
+      var sgi = 0;
+      while sgi < args.len() {
+        let _ = ce_check_expr(c, args[sgi]);
+        sgi = sgi + 1;
       }
       return "_";
     }
-    var i = 0;
-    while i < args.len() {
-      let _ = ce_check_expr(c, args[i]);
-      i = i + 1;
+    let sri = ce_r8_ufcs(c, tn, method, args.len());
+    if sri >= 0 {
+      return ce_check_instance_method(c, c.functions[sri], method, tn, args, sp);
     }
-    return "_";
+    return ck_error_at(c, "cannot call '" + method + "' on this expression", sp.line, sp.col);
   }
   // Module/type path receiver (`io.println(...)`, `xiom.math.shr(...)`,
   // `pipeline.run(...)`) when the receiver is not a value.
@@ -1740,11 +1838,11 @@ fn ce_check_method_call(c: &mut Checker, idx: Int, obj: Int, method_idx: Int, ar
     }
     return "_";
   }
-  if selfhost_check_types.ct_is_generic_param(obj_ty) {
-    var i = 0;
-    while i < args.len() {
-      let _ = ce_check_expr(c, args[i]);
-      i = i + 1;
+  if obj_ty == "type" {
+    var ti0 = 0;
+    while ti0 < args.len() {
+      let _ = ce_check_expr(c, args[ti0]);
+      ti0 = ti0 + 1;
     }
     return "_";
   }
@@ -1755,7 +1853,7 @@ fn ce_check_method_call(c: &mut Checker, idx: Int, obj: Int, method_idx: Int, ar
     // methods (`xiom.collections.Vec.contains`) and the free-fn UFCS scan.
     var bfi = ck_find_fn(c, leaf + "." + method);
     if bfi < 0 { bfi = ck_find_fn(c, base + "." + method); }
-    if bfi < 0 { bfi = ce_find_method_scan(c, leaf, method, args.len()); }
+    if bfi < 0 { bfi = ce_methods_wildcard(c, leaf, method); }
     if bfi >= 0 {
       let r = ce_check_instance_method(c, c.functions[bfi], method, obj_ty, args, sp);
       // Constructors keep the parameterized receiver type
@@ -1765,29 +1863,55 @@ fn ce_check_method_call(c: &mut Checker, idx: Int, obj: Int, method_idx: Int, ar
       }
       return r;
     }
-    // Unknown container method: permissive until sub-stage 3.
-    var i = 0;
-    while i < args.len() {
-      let _ = ce_check_expr(c, args[i]);
-      i = i + 1;
+    // Builtin erased-container table (len/is_empty/contains/unwrap/...).
+    let cty = ce_builtin_method_ty(c, obj_ty, method, args);
+    if cty.len() > 0 { return cty; }
+    let cimi = ce_iface_member_index(c, obj_ty, method);
+    if cimi >= 0 {
+      return ce_iface_call(c, obj_ty, c.iface_members[cimi], args, sp);
     }
-    return "_";
+    if ce_iface_receiver(c, obj_ty) && (base == "_" || obj_ty == "type" || selfhost_check_state.ck_is_cur_generic(c, base)) {
+      var gi = 0;
+      while gi < args.len() {
+        let _ = ce_check_expr(c, args[gi]);
+        gi = gi + 1;
+      }
+      return "_";
+    }
+    let cri = ce_r8_ufcs(c, obj_ty, method, args.len());
+    if cri >= 0 {
+      return ce_check_instance_method(c, c.functions[cri], method, obj_ty, args, sp);
+    }
+    return ck_error_at(c, "cannot call '" + method + "' on this expression", sp.line, sp.col);
   }
   // Exact receiver key, then module-leaf fallback (`module.Type.method`),
   // then catalog/R8 scan.
   var fi = ck_find_fn(c, obj_ty + "." + method);
   if fi < 0 { fi = ck_find_fn(c, base + "." + method); }
-  if fi < 0 { fi = ce_find_method_scan(c, base, method, args.len()); }
+  if fi < 0 { fi = ce_methods_wildcard(c, base, method); }
   if fi >= 0 {
     return ce_check_instance_method(c, c.functions[fi], method, obj_ty, args, sp);
   }
-  // Unknown method on a user type: permissive (stage-1 catalog gap).
-  var i = 0;
-  while i < args.len() {
-    let _ = ce_check_expr(c, args[i]);
-    i = i + 1;
+  // Builtin table, then interfaces, then R8 UFCS, then Rust's fallback.
+  let uty = ce_builtin_method_ty(c, obj_ty, method, args);
+  if uty.len() > 0 { return uty; }
+  let imi = ce_iface_member_index(c, obj_ty, method);
+  if imi >= 0 {
+    return ce_iface_call(c, obj_ty, c.iface_members[imi], args, sp);
   }
-  return "_";
+  if ce_iface_receiver(c, obj_ty) && (base == "_" || obj_ty == "type" || selfhost_check_types.ct_is_generic_param(base)) {
+    var gi = 0;
+    while gi < args.len() {
+      let _ = ce_check_expr(c, args[gi]);
+      gi = gi + 1;
+    }
+    return "_";
+  }
+  let ri = ce_r8_ufcs(c, obj_ty, method, args.len());
+  if ri >= 0 {
+    return ce_check_instance_method(c, c.functions[ri], method, obj_ty, args, sp);
+  }
+  return ck_error_at(c, "cannot call '" + method + "' on this expression", sp.line, sp.col);
 }
 
 /// Module-qualified call through a `use` alias. Message shapes mirror Rust
@@ -1858,26 +1982,132 @@ fn ce_check_module_member_call(c: &mut Checker, idx: Int, alias: Str, key: Str,
   return ck_error_at(c, "cannot call '" + member + "' on this expression", sp.line, sp.col);
 }
 
-/// Catalog extension methods + Rust's R8 free-fn UFCS fallback: any
-/// registered fn whose leaf is `method` with the receiver as its first
-/// parameter (or a `Type.method`/`module.Type.method` key).
-fn ce_find_method_scan(c: &Checker, recv_leaf: Str, method: Str, nargs: Int) -> Int {
-  let suffix = "." + recv_leaf + "." + method;
-  var i = c.functions.len() - 1;
-  while i >= 0 {
-    let f = c.functions[i];
-    if string.str_ends_with(f.key, suffix) { return i; }
-    let leaf = ce_leaf_name(f.key);
-    if leaf == method && f.params.len() == nargs + 1 && f.params.len() > 0 {
-      let first_base = selfhost_check_types.ct_base(ce_strip_ref_marks(f.params[0].ty));
-      let first_leaf = ce_leaf_name(first_base);
-      if first_leaf == recv_leaf || first_base == "_" || ce_vec_contains(f.generics, first_leaf) {
-        return i;
-      }
+/// Rust `methods`-map wildcard: unique candidate resolves (struct receivers
+/// capture: AUDIT #6), containers require the receiver itself; multiple
+/// candidates resolve only on an exact receiver match.
+fn ce_methods_wildcard(c: &Checker, recv_leaf: Str, method: Str) -> Int {
+  var count = 0;
+  var cand = -1;
+  var cand_recv = "";
+  var i = 0;
+  while i < c.methods.len() {
+    let me = c.methods[i];
+    if me.name == method {
+      count = count + 1;
+      cand = me.sig;
+      cand_recv = me.recv;
     }
-    i = i - 1;
+    i = i + 1;
+  }
+  if count == 0 { return -1; }
+  if count == 1 {
+    let container_receiver = ce_is_container_base_leaf(recv_leaf);
+    let generic_receiver = recv_leaf == "_";
+    let related = generic_receiver || !container_receiver
+      || cand_recv == recv_leaf || ce_leaf_name(cand_recv) == recv_leaf;
+    if related { return cand; }
+    return -1;
+  }
+  i = 0;
+  while i < c.methods.len() {
+    let me = c.methods[i];
+    if me.name == method && (me.recv == recv_leaf || ce_leaf_name(me.recv) == recv_leaf) {
+      return me.sig;
+    }
+    i = i + 1;
   }
   return -1;
+}
+
+/// R8 free-fn UFCS: a registered fn whose leaf is `method`, first parameter
+/// is the receiver (base match, `_`, or ref-ish generic) and whose remaining
+/// arity fits. All matching candidates must agree on the return type.
+fn ce_r8_ufcs(c: &Checker, obj_ty: Str, method: Str, nargs: Int) -> Int {
+  let recv_base = ce_leaf_name(obj_ty);
+  if recv_base.len() == 0 { return -1; }
+  let recv_refish = obj_ty.len() > 0
+    && ((string.byte_at(obj_ty, 0) as Int) == 38 || (string.byte_at(obj_ty, 0) as Int) == 42);
+  var found = -1;
+  var found_ret = "";
+  var ambiguous = false;
+  var i = 0;
+  while i < c.functions.len() {
+    let f = c.functions[i];
+    if ce_leaf_name(f.key) == method && f.params.len() == nargs + 1 {
+      let raw_first = f.params[0].ty;
+      let first_refish = raw_first.len() > 0
+        && ((string.byte_at(raw_first, 0) as Int) == 38 || (string.byte_at(raw_first, 0) as Int) == 42);
+      let first_base = selfhost_check_types.ct_base(ce_strip_ref_marks(raw_first));
+      let first_leaf = ce_leaf_name(first_base);
+      let first_generic = ce_vec_contains(f.generics, first_leaf);
+      let ufcs_refish = first_refish && (recv_refish || first_leaf == recv_base)
+        && (first_generic || first_leaf == recv_base);
+      if first_base == recv_base || first_base == "_" || ufcs_refish {
+        var r = "_";
+        if f.has_ret == 1 { r = f.ret; }
+        if found < 0 {
+          found = i;
+          found_ret = r;
+        } elif r != found_ret {
+          ambiguous = true;
+        }
+      }
+    }
+    i = i + 1;
+  }
+  if found >= 0 && !ambiguous { return found; }
+  return -1;
+}
+
+/// Interface-typed receiver with a declared member of this name.
+fn ce_iface_member_index(c: &Checker, obj_ty: Str, method: Str) -> Int {
+  let base = ce_leaf_name(obj_ty);
+  var mi = selfhost_check_state.ck_find_iface_member(c, obj_ty, method);
+  if mi < 0 { mi = selfhost_check_state.ck_find_iface_member(c, base, method); }
+  return mi;
+}
+
+fn ce_iface_receiver(c: &Checker, obj_ty: Str) -> Bool {
+  if obj_ty == "_" || obj_ty == "type" { return true; }
+  let base = ce_leaf_name(obj_ty);
+  return selfhost_check_state.ck_is_iface(c, obj_ty)
+    || selfhost_check_state.ck_is_iface(c, base);
+}
+
+/// Interface member call: Rust `want_of` arity (strip a receiver-ish first
+/// param unless ref-marked) + declared return (Self -> receiver type).
+fn ce_iface_call(c: &mut Checker, obj_ty: Str, member: IfaceMember, args: Vec[Int], sp: Span) -> Str {
+  let base = ce_leaf_name(obj_ty);
+  var want = member.params.len();
+  if member.params.len() > 0 {
+    let p0 = selfhost_check_types.ct_trim(member.params[0]);
+    var refish = false;
+    if p0.len() > 0 {
+      let b0 = string.byte_at(p0, 0) as Int;
+      if b0 == 38 || b0 == 42 { refish = true; }
+    }
+    if !refish && (p0 == "self" || p0 == "Self" || p0 == base) {
+      want = member.params.len() - 1;
+    }
+  }
+  if args.len() != want {
+    let _ = ck_error_at(c, "'" + member.name + "' expects " + ce_int_str(want)
+      + " argument(s), found " + ce_int_str(args.len()), sp.line, sp.col);
+    var ei = 0;
+    while ei < args.len() {
+      let _ = ce_check_expr(c, args[ei]);
+      ei = ei + 1;
+    }
+    return "<error>";
+  }
+  var i = 0;
+  while i < args.len() {
+    let _ = ce_check_expr(c, args[i]);
+    i = i + 1;
+  }
+  if member.ret == "Self" { return obj_ty; }
+  if member.ret.len() == 0 { return "()"; }
+  return member.ret;
 }
 
 fn ce_check_static_method(c: &mut Checker, sig: FnSig, shown: Str, tn: Str, args: Vec[Int], sp: Span) -> Str {
@@ -2093,13 +2323,26 @@ fn ce_int_str(v: Int) -> Str {
 
 fn ce_check_struct_lit(c: &mut Checker, idx: Int, name_idx: Int, fields: Vec[Int], base: Int) -> Str {
   let tn = ck_ident(c, name_idx);
+  let sp = ck_span_of(c, idx);
+  let ti = ck_find_type(c, tn);
+  let typed = ti >= 0 && c.types[ti].fields.len() > 0;
   // Enum variant constructor or struct literal: check init values.
   var i = 0;
   while i < fields.len() {
     let fnode = c.p.nodes[fields[i]];
     match fnode.kind {
       NkFieldInit(fname, value) => {
-        let _ = ce_check_expr(c, value);
+        let fnm = ck_ident(c, fname);
+        var val_ty = "()";
+        if value >= 0 { val_ty = ce_check_expr(c, value); }
+        if typed {
+          let fty = ck_field_ty(c, tn, fnm);
+          if fty.len() == 0 {
+            let _ = ck_error_at(c, "type '" + tn + "' has no field '" + fnm + "'", sp.line, sp.col);
+          } elif value >= 0 && !ck_types_compatible(c, val_ty, fty) && val_ty != "<error>" && val_ty != "_" {
+            let _ = ck_error_at(c, "field '" + fnm + "' type mismatch: expected " + fty + ", found " + val_ty, sp.line, sp.col);
+          }
+        }
       }
       _ => {}
     }

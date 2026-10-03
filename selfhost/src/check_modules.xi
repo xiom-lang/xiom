@@ -255,15 +255,23 @@ pub fn cm_read_generics(p: &Parser, generics: Vec[Int]) -> Vec[Str] {
 /// First registration wins (Rust `entry().or_insert` shape).
 pub fn cm_push_fn(c: &mut Checker, key: Str, name: Str, params: Vec[FnParam],
                   ret: Str, has_ret: Int, generics: Vec[Str], has_recv: Int) {
+  let _ = cm_push_fn_idx(c, key, name, params, ret, has_ret, generics, has_recv);
+}
+
+/// Same as `cm_push_fn` but returns the registered index (-1 when a sig with
+/// this key already exists).
+pub fn cm_push_fn_idx(c: &mut Checker, key: Str, name: Str, params: Vec[FnParam],
+                      ret: Str, has_ret: Int, generics: Vec[Str], has_recv: Int) -> Int {
   var i = 0;
   while i < c.functions.len() {
-    if c.functions[i].key == key { return; }
+    if c.functions[i].key == key { return -1; }
     i = i + 1;
   }
   c.functions.push(FnSig{
     key: key, name: name, params: params, ret: ret, has_ret: has_ret,
     generics: generics, has_recv: has_recv,
   });
+  return c.functions.len() - 1;
 }
 
 pub fn cm_push_type(c: &mut Checker, name: Str, fields: Vec[Field], is_enum: Int) {
@@ -293,7 +301,25 @@ fn cm_p1(n: Str, t: Str) -> FnParam {
 }
 
 fn cm_push_sig(c: &mut Checker, key: Str, params: Vec[FnParam], ret: Str, generics: Vec[Str]) {
-  cm_push_fn(c, key, cm_leaf(key), params, ret, 1, generics, 0);
+  let idx = cm_push_fn_idx(c, key, cm_leaf(key), params, ret, 1, generics, 0);
+  if idx >= 0 {
+    let recv = cm_recv_of_key(key);
+    if recv.len() > 0 {
+      selfhost_check_state.ck_add_method(c, recv, cm_leaf(key), idx);
+    }
+  }
+}
+
+/// Receiver part of a `Type.method` builtin key, "" for free functions.
+fn cm_recv_of_key(key: Str) -> Str {
+  var i = key.len() - 1;
+  while i >= 0 {
+    if (string.byte_at(key, i) as Int) == 46 {
+      return string.str_slice(key, 0, i);
+    }
+    i = i - 1;
+  }
+  return "";
 }
 
 /// The Rust checker's builtin `functions` entries. Instance dispatch reaches
@@ -477,6 +503,8 @@ const CM_TYPE: Int = 2;
 const CM_ENUM: Int = 3;
 const CM_CONST: Int = 4;
 const CM_EXTERN: Int = 5;
+const CM_IMPL: Int = 6;
+const CM_IFACE: Int = 7;
 const CM_OTHER: Int = 0;
 
 fn cm_decl_tag(p: &Parser, idx: Int) -> Int {
@@ -488,6 +516,8 @@ fn cm_decl_tag(p: &Parser, idx: Int) -> Int {
     NkEnumDecl(is_pub, name, generics, variants, derives) => { return CM_ENUM; }
     NkConst(is_pub, is_mut, name, ty, value) => { return CM_CONST; }
     NkExtern(linkage, fns) => { return CM_EXTERN; }
+    NkImpl(trait_name, trait_args, type_name, members) => { return CM_IMPL; }
+    NkInterface(is_pub, name, generics, parent, members) => { return CM_IFACE; }
     _ => { return CM_OTHER; }
   }
 }
@@ -505,6 +535,8 @@ fn cm_collect_items(c: &mut Checker, key: Str, p: &Parser, items: Vec[Int]) {
     if tag == CM_ENUM { cm_try_enum(c, key, p, idx); }
     if tag == CM_CONST { cm_try_const(c, key, p, idx); }
     if tag == CM_EXTERN { cm_try_extern(c, key, p, idx); }
+    if tag == CM_IMPL { cm_try_impl(c, key, p, idx); }
+    if tag == CM_IFACE { cm_try_iface(c, key, p, idx); }
     i = i + 1;
   }
 }
@@ -543,7 +575,10 @@ fn cm_try_extern(c: &mut Checker, key: Str, p: &Parser, idx: Int) {
 fn cm_try_fn(c: &mut Checker, key: Str, p: &Parser, idx: Int) {
   match p.nodes[idx].kind {
     NkFn(is_pub, is_async, recv, name, generics, params, ret, contracts, body, attrs) => {
-      if is_pub != 1 { return; }
+      // Receiver-style fns register even when module-private (Rust's method
+      // table is populated regardless of visibility: collections.xi's
+      // `fn Map.insert` is reachable as a method from other modules).
+      if is_pub != 1 && recv < 0 { return; }
       let nm = selfhost_check_state.ck_ident_in(p, name);
       let ps = cm_read_params(p, params);
       let gs = cm_read_generics(p, generics);
@@ -556,13 +591,94 @@ fn cm_try_fn(c: &mut Checker, key: Str, p: &Parser, idx: Int) {
       var recv_name = "";
       if recv >= 0 { recv_name = selfhost_check_state.ck_ident_in(p, recv); }
       if recv_name.len() > 0 {
-        cm_push_fn(c, key + "." + recv_name + "." + cm_leaf(nm), cm_leaf(nm), ps, rt, has_ret, gs, 1);
+        let fidx = cm_push_fn_idx(c, key + "." + recv_name + "." + cm_leaf(nm), cm_leaf(nm), ps, rt, has_ret, gs, 1);
+        if fidx >= 0 { selfhost_check_state.ck_add_method(c, recv_name, cm_leaf(nm), fidx); }
       } else {
         cm_push_fn(c, key + "." + nm, nm, ps, rt, has_ret, gs, 0);
       }
     }
     _ => {}
   }
+}
+
+/// `impl Type { fn ... }` members become methods of the impl type (Rust
+/// `register_impl_decl` -> `methods[impl_ty]`), even module-private.
+fn cm_try_impl(c: &mut Checker, key: Str, p: &Parser, idx: Int) {
+  match p.nodes[idx].kind {
+    NkImpl(trait_name, trait_args, type_name, members) => {
+      let tn = selfhost_check_state.ck_ident_in(p, type_name);
+      if tn.len() == 0 { return; }
+      var i = 0;
+      while i < members.len() {
+        let mnode = p.nodes[members[i]];
+        match mnode.kind {
+          NkFn(is_pub, is_async, recv, name, generics, params, ret, contracts, body, attrs) => {
+            let nm = cm_leaf(selfhost_check_state.ck_ident_in(p, name));
+            let ps = cm_read_params(p, params);
+            let gs = cm_read_generics(p, generics);
+            var rt = "()";
+            var has_ret = 0;
+            if ret >= 0 {
+              rt = selfhost_check_state.ck_type_from_ast_in(p, ret);
+              has_ret = 1;
+            }
+            let fidx = cm_push_fn_idx(c, key + "." + tn + "." + nm, nm, ps, rt, has_ret, gs, 1);
+            if fidx >= 0 { selfhost_check_state.ck_add_method(c, tn, nm, fidx); }
+          }
+          _ => {}
+        }
+        i = i + 1;
+      }
+    }
+    _ => {}
+  }
+}
+
+/// `interface Name { fn m(params) -> ret; }` members (Rust `interfaces`).
+fn cm_try_iface(c: &mut Checker, key: Str, p: &Parser, idx: Int) {
+  match p.nodes[idx].kind {
+    NkInterface(is_pub, name, generics, parent, members) => {
+      let nm = selfhost_check_state.ck_ident_in(p, name);
+      cm_add_iface_name(c, key + "." + nm);
+      cm_add_iface_name(c, nm);
+      var i = 0;
+      while i < members.len() {
+        let mnode = p.nodes[members[i]];
+        match mnode.kind {
+          NkFn(is_pub2, is_async, recv, mname, generics2, params, ret, contracts, body, attrs) => {
+            let mn = cm_leaf(selfhost_check_state.ck_ident_in(p, mname));
+            let ps = cm_read_params(p, params);
+            var types = Vec[Str].new();
+            var j = 0;
+            while j < ps.len() {
+              types.push(ps[j].ty);
+              j = j + 1;
+            }
+            var rt = "()";
+            if ret >= 0 { rt = selfhost_check_state.ck_type_from_ast_in(p, ret); }
+            selfhost_check_state.ck_add_iface_member(c, key + "." + nm, mn, types, rt);
+            selfhost_check_state.ck_add_iface_member(c, nm, mn, types, rt);
+          }
+          _ => {}
+        }
+        i = i + 1;
+      }
+    }
+    _ => {}
+  }
+}
+
+fn cm_add_iface_name(c: &mut Checker, name: Str) {
+  cm_push_interface_impl(c, name);
+}
+
+fn cm_push_interface_impl(c: &mut Checker, name: Str) {
+  var i = 0;
+  while i < c.interfaces.len() {
+    if c.interfaces[i] == name { return; }
+    i = i + 1;
+  }
+  c.interfaces.push(name);
 }
 
 fn cm_try_type(c: &mut Checker, key: Str, p: &Parser, idx: Int) {

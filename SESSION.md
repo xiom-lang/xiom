@@ -379,6 +379,20 @@ Supersedes the (11) handoff below (kept as history).
   typed. 5 new manifest cases under
   `selfhost/tests/check_negative/containers/`. Gate: `diff_check` -> 83
   corpus files (5 diagnostic lines) + 39 manifest cases, 1 passed (219.4 s).
+- Stage B4 (2026-10-03): unknown-method + struct-literal field validation
+  (Phase 3 sub-stage 3). The Rust method-resolution machinery is now ported:
+  the `methods` map (receiver-style fns register module-private too; impl
+  members register from catalog files), unique-candidate wildcard capture
+  (AUDIT #6: `PathBuf.join` -> `Path.join`), interface members
+  (`interfaces` map with `want_of` arity + declared returns), the R8 free-fn
+  UFCS scan, and Rust's primitive/erased-container method tables. Unknown
+  methods now report `cannot call 'X' on this expression` for user types,
+  containers, primitives, Option/Result and statics; struct literals report
+  `type 'T' has no field 'f'` and `field 'f' type mismatch: expected E,
+  found F`. Generic-param receivers stay permissive via per-function
+  `cur_generics` (user single-letter types like `P` error like Rust). 11 new
+  manifest cases under `selfhost/tests/check_negative/methods/`. Gate:
+  `diff_check` -> 83 corpus files + 50 manifest cases, 1 passed (219.4 s).
 
 
 # CONTINUATION HANDOFF (2026-10-02 (11), v0.62.2 shipped; m167/m168 fixed; phased queue)

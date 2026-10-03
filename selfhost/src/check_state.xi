@@ -67,6 +67,22 @@ pub type Variant = {
   fields: Vec[Field];
 }
 
+/// Receiver-style registration (Rust `Checker::methods`): receiver leaf +
+/// method leaf -> functions index.
+pub type MethodEntry = {
+  recv: Str;
+  name: Str;
+  sig: Int;
+}
+
+/// Rust `Checker::interfaces` member: method name, parameter TYPE names, ret.
+pub type IfaceMember = {
+  iface: Str;
+  name: Str;
+  params: Vec[Str];
+  ret: Str;
+}
+
 pub type Checker = {
   p: Parser;
   src_dir: Str;
@@ -85,11 +101,14 @@ pub type Checker = {
   module_names: Vec[Str];
   stdlib_indexed: Int;
   stdlib_index: Vec[Local];
+  methods: Vec[MethodEntry];
+  iface_members: Vec[IfaceMember];
   warnings: Vec[Diag];
   errors: Vec[Diag];
   cur_ret: Str;
   cur_ret_set: Int;
   cur_recv: Str;
+  cur_generics: Vec[Str];
   has_uses: Int;
   unsafe_depth: Int;
 }
@@ -113,11 +132,14 @@ pub fn ck_new(p: Parser, src_dir: Str) -> Checker {
     module_names: Vec[Str].new(),
     stdlib_indexed: 0,
     stdlib_index: Vec[Local].new(),
+    methods: Vec[MethodEntry].new(),
+    iface_members: Vec[IfaceMember].new(),
     warnings: Vec[Diag].new(),
     errors: Vec[Diag].new(),
     cur_ret: "",
     cur_ret_set: 0,
     cur_recv: "",
+    cur_generics: Vec[Str].new(),
     has_uses: 0,
     unsafe_depth: 0,
   };
@@ -367,6 +389,16 @@ pub fn ck_is_module_name(c: &Checker, name: Str) -> Bool {
   return false;
 }
 
+/// Current function's generic parameter names (interface-bound dispatch).
+pub fn ck_is_cur_generic(c: &Checker, name: Str) -> Bool {
+  var i = c.cur_generics.len() - 1;
+  while i >= 0 {
+    if c.cur_generics[i] == name { return true; }
+    i = i - 1;
+  }
+  return false;
+}
+
 pub fn ck_index_lookup(c: &Checker, dotted: Str) -> Str {
   var i = c.stdlib_index.len() - 1;
   while i >= 0 {
@@ -384,6 +416,57 @@ pub fn ck_index_add(c: &mut Checker, dotted: Str, path: Str) {
     i = i + 1;
   }
   c.stdlib_index.push(Local{ name: dotted, ty: path });
+}
+
+// ============================================================================
+// Method table / interface members (Rust `methods` + `interfaces`)
+// ============================================================================
+
+pub fn ck_add_method(c: &mut Checker, recv: Str, name: Str, sig: Int) {
+  if recv.len() == 0 || name.len() == 0 { return; }
+  c.methods.push(MethodEntry{ recv: recv, name: name, sig: sig });
+}
+
+pub fn ck_add_iface_member(c: &mut Checker, iface: Str, name: Str, params: Vec[Str], ret: Str) {
+  if iface.len() == 0 || name.len() == 0 { return; }
+  c.iface_members.push(IfaceMember{ iface: iface, name: name, params: params, ret: ret });
+}
+
+/// Interface name match accepts the bare alias and the qualified key
+/// (Rust checks `interfaces.contains_key(name)` and leaf equality).
+pub fn ck_find_iface_member(c: &Checker, iface: Str, name: Str) -> Int {
+  let leaf = ce_leaf_of_static(iface);
+  var i = c.iface_members.len() - 1;
+  while i >= 0 {
+    let m = c.iface_members[i];
+    if m.name == name && (m.iface == iface || ce_leaf_of_static(m.iface) == leaf) {
+      return i;
+    }
+    i = i - 1;
+  }
+  return -1;
+}
+
+pub fn ck_is_iface(c: &Checker, name: Str) -> Bool {
+  let leaf = ce_leaf_of_static(name);
+  var i = c.iface_members.len() - 1;
+  while i >= 0 {
+    let m = c.iface_members[i];
+    if m.iface == name || ce_leaf_of_static(m.iface) == leaf { return true; }
+    i = i - 1;
+  }
+  return ck_is_interface(c, name);
+}
+
+fn ce_leaf_of_static(s: Str) -> Str {
+  var i = s.len() - 1;
+  while i >= 0 {
+    if (string.byte_at(s, i) as Int) == 46 {
+      return string.str_slice(s, i + 1, s.len());
+    }
+    i = i - 1;
+  }
+  return s;
 }
 
 // ============================================================================

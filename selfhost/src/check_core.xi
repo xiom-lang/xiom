@@ -234,6 +234,30 @@ fn cc_scan(c: &mut Checker, idx: Int, modpath: Str) {
       let key = cc_dotted(modpath, nm);
       cc_push_interface(c, key);
       if key != nm { cc_push_interface(c, nm); }
+      var mi = 0;
+      while mi < members.len() {
+        let mnode = c.p.nodes[members[mi]];
+        match mnode.kind {
+          NkFn(is_pub2, is_async, recv, mname, generics2, params, ret, contracts, body, attrs) => {
+            let mn = cc_leaf(ck_ident(c, mname));
+            let ps = selfhost_check_modules.cm_read_params(&c.p, params);
+            var types = Vec[Str].new();
+            var j = 0;
+            while j < ps.len() {
+              types.push(ps[j].ty);
+              j = j + 1;
+            }
+            var rt = "()";
+            if ret >= 0 { rt = ck_type_from_ast(c, ret); }
+            selfhost_check_state.ck_add_iface_member(c, key, mn, types, rt);
+            if key != nm {
+              selfhost_check_state.ck_add_iface_member(c, nm, mn, types, rt);
+            }
+          }
+          _ => {}
+        }
+        mi = mi + 1;
+      }
     }
     _ => {}
   }
@@ -405,7 +429,13 @@ fn cc_register_fn_node(c: &mut Checker, recv: Int, name: Int, generics: Vec[Int]
     let leaf = cc_leaf(nm);
     let bare_key = recv_name + "." + leaf;
     let key = cc_dotted(modpath, bare_key);
-    cc_push_fn_pair(c, key, bare_key, leaf, ps, rt, has_ret, gs, 1);
+    let idx = selfhost_check_modules.cm_push_fn_idx(c, key, leaf, ps, rt, has_ret, gs, 1);
+    if idx >= 0 {
+      selfhost_check_state.ck_add_method(c, recv_name, leaf, idx);
+    }
+    if key != bare_key {
+      selfhost_check_modules.cm_push_fn(c, bare_key, leaf, c.functions[idx].params, rt, has_ret, gs, 1);
+    }
   } else {
     let bare_key = cc_leaf(nm);
     let key = cc_dotted(modpath, nm);
@@ -477,6 +507,7 @@ fn cc_check_fn_node(c: &mut Checker, recv: Int, name: Int, params: Vec[Int],
     i = i + 1;
   }
   // Const-generic params are locals; type params resolve to their own name.
+  c.cur_generics = selfhost_check_modules.cm_read_generics(&c.p, generics);
   i = 0;
   while i < generics.len() {
     let gnode = c.p.nodes[generics[i]];
@@ -552,6 +583,7 @@ fn cc_check_fn_node(c: &mut Checker, recv: Int, name: Int, params: Vec[Int],
   c.cur_ret = "";
   c.cur_ret_set = 0;
   c.cur_recv = "";
+  c.cur_generics = Vec[Str].new();
   ck_pop_scope(c);
 }
 
