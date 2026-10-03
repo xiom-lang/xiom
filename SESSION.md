@@ -30,8 +30,10 @@
 >    require a collection receiver; the state change still to pin) --
 >    fix + pinned-archive green so the registry promotes its smoke lock.
 > 2b. packages findings: nested test-module import FIXED (m184, merge +
->    file-fallback lock); uninitialized-local-in-match-arm and enum-payload
->    Str corruption still to minimize/repro (both are v0.62.4 targets).
+>    file-fallback lock); uninitialized-local-in-match-arm FIXED (m185,
+>    literal-zero struct coercion no longer NULL-derefs; e2e lock); the
+>    enum-payload Str corruption still needs a minimal repro (v0.62.4
+>    target).
 > 3. Registry polish if ready, S each: B1 publish packaging guard,
 >    B2 `xiom pkg yank`, install trust wording, `--resolve` outside a
 >    workspace (all contracts received).

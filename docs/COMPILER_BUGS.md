@@ -84,13 +84,19 @@ docs/repro/uninit-local/; websocket 163 T001s; xiom.graphql validator).
    `e2e_m184_nested_module_import` + `tests/regression/m184_nested_module_import/`
    (pkg.xi + main.xi), ci.yml line; checker 195/195; flat control green.
    Workaround in the porter brief can be dropped once this ships.
-2. **Uninitialized local struct assigned inside a match arm -- REPRO
-   (minimal, standalone)**: `var r: Row;` (no initializer) + assignments in
-   match arms + `return r` reproduces on the official v0.62.3 archive as a
-   **crash (0xC000001D, illegal instruction / trap)** -- stronger than the
-   reported garbage fields. Probe `C:\...\Temp\kilo\m183\uninit_local.xi`.
-   Root-cause pass next: inspect the IR for the uninitialized alloca and
-   the match-arm assignment path. Fix is a v0.62.4 target.
+2. **Uninitialized local struct assigned inside a match arm -- FIXED
+   (m185).** Minimal standalone repro: `var r: Row;` (no initializer) +
+   assignments in match arms + `return r` crashed on the official v0.62.3
+   archive (0xC000001D illegal instruction). ROOT CAUSE (IR): the
+   uninitialized/zero placeholder is the literal `0`, and
+   `coerce_value`'s i64-to-struct path emitted `inttoptr i64 0 to
+   %struct.Row*` + `load` -- a NULL dereference (UB that also let clang
+   transform surrounding code; matches the reported garbage fields on
+   other shapes). FIX (coerce.rs): a literal-zero source materializes the
+   struct zero value safely (`alloca` + `store zeroinitializer` + `load`)
+   instead of dereferencing NULL. LOCK: `e2e_m185_uninit_local_struct` +
+   `tests/regression/m185_uninit_local_struct/` (all three match arms),
+   ci.yml line; feature 519/519; probe pre-fix crash -> post-fix rc 0.
 3. **Enum-payload Str corruption** (packages relay, in-situ; standalone
    controls pass, minimal repro pending): enum payloads carrying Str
    fields read corrupted in the graphql validator context. Candidate

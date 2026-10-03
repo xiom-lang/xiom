@@ -520,6 +520,19 @@ impl IrEmitter {
         // i64 (heap pointer from val_to_i64) -> struct: inttoptr + load.
         // Handles Option/Result unwrap round-trip for struct payloads.
         if from == "i64" && to.starts_with('%') {
+            // m185 (packages relay): an UNINITIALIZED local / zero default
+            // arrives as the literal 0 -- inttoptr 0 + load dereferenced
+            // NULL (crash 0xC000001D on the official archive: `var r: Row;`
+            // + match-arm assignment). A literal zero means the zero value:
+            // materialize it safely instead.
+            if val == "0" {
+                let slot = self.fresh_tmp();
+                self.emitln(&format!("  {slot} = alloca {to}"));
+                self.emitln(&format!("  store {to} zeroinitializer, {to}* {slot}"));
+                let loaded = self.fresh_tmp();
+                self.emitln(&format!("  {loaded} = load {to}, {to}* {slot}"));
+                return loaded;
+            }
             let ptr = self.fresh_tmp();
             self.emitln(&format!("  {ptr} = inttoptr i64 {val} to {to}*"));
             let loaded = self.fresh_tmp();

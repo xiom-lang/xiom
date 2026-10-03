@@ -4971,6 +4971,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// m185 (packages relay): `var r: Row;` + match-arm assignments + return r
+// crashed on v0.62.3 -- the zero placeholder coerced to a struct via
+// inttoptr 0 + load (NULL dereference). Must run to exit 0.
+#[test] fn e2e_m185_uninit_local_struct() {
+    assert_eq!(
+        compile_and_run("tests/regression/m185_uninit_local_struct/main.xi"),
+        Some(0),
+        "m185 uninitialized-local struct must read assigned values"
+    );
+}
+
 // R48 (playground C17 classes): interface dispatch through a `&T` generic
 // argument (was mono'd as Int -> C001) and pointer/double match-result
 // zero-init (was `store i8* 0` / `store double 0` -> clang reject). Needs
