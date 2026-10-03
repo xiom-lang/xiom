@@ -116,13 +116,21 @@
 > Arity contradiction retired (stale row); Vec[StructType] trap 10 not
 > reproducible (retirement candidate).
 > REGISTRY RELAY (2026-10-03): registry lane's priority = three v0.62.3-only
-> regressions first (the reports were NOT in our relay copy -- requested in
-> standard format), then optional polish: B1 `xiom pkg publish` packaging
-> guard (refuse artifact dirs; .xiomignore + --force), B2
-> `xiom pkg yank <pkg>@<ver>` (needs registry API contract), install trust
-> wording (copy + placement), `--resolve` outside a workspace (proposal:
-> explicit spec form). Queue order after the three regressions: B1, B2,
-> wording/resolve.
+> regressions first. Reports received (README @ cfb624b) and all three
+> reproduced on the official archive. TRIAGE: (1) iter C001 -- minimized
+> (3 range-sums switch the receiver classification; amplifier =
+> `intercept = !has_user_fn` in call.rs; state change still to pin),
+> green on the stdlib tip; (2) cell/RefCell -- NOT compiler: the smokes
+> never call release() and 6D.1 (592243a) made Ref pointer-based with
+> explicit release documented; stdlib-side smoke fix; (3) lz4
+> block-compress empty -- OPEN compiler-suspect (&mut Vec out-param pushes
+> lost in context; emit-IR diff next). Then optional polish: B1 `xiom pkg
+> publish` packaging guard (refuse artifact dirs; .xiomignore + --force),
+> B2 `xiom pkg yank <pkg>@<ver>` (contract received: POST
+> /packages/{name}/{version}/yank, publish-scope Bearer, optional reason,
+> staging-first), install trust wording (exact copy received), `--resolve`
+> outside a workspace (shape confirmed: `xiom pkg resolve <name>@<spec>`).
+> Queue order: lz4 + iter amplifier, then B1, B2, wording/--resolve.
 >
 > DONE THIS CYCLE (all with fixture + e2e/checker + CI locks): m169 (C24-1
 > same-leaf results), m170 (C24-2 thunk + Option-of-Vec), m168b (`&mut` arg

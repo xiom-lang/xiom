@@ -64,6 +64,49 @@ after. Playground acceptance `tools/compiler-repros/c25/run.sh` prints
 
 ---
 
+## 2026-10-03 -- TRIAGE (open): registry lane's three v0.62.3-only regressions (iter C001, cell, lz4)
+
+Source: `xiom-lang/stdlib tools/known_failures/README.md` @ cfb624b; all
+three confirmed locally against the official v0.62.3 windows-x64 archive
+(sha256 `011af7dd...06c2`).
+
+1) **iter.range(...).contains(...) -- compile-stage C001.** 
+   `xiom --force -o out.exe tests/smoke/smoke_iter_range.xi` fails with
+   "unsupported: 'contains' receiver does not expose a concrete
+   Vec/Slice/Array element type". Standalone passes. MINIMIZED: three
+   distinct `iter.range(a, b).sum()` calls before the `contains` call flip
+   the classification (two sums + contains = ok; add
+   `iter.range(0, 10).sum()` = C001). AMPLIFIER IDENTIFIED: call.rs
+   `intercept = !has_user_fn` for a method-form receiver that is NOT a
+   collection -- the contract builtins must require
+   `is_contract_collection_receiver(receiver)` instead of falling back to
+   the Vec-scan lowering just because no user fn named `contains` is
+   registered. The state that changes after the third sum is still to be
+   pinned (next: gated trace of `infer_llvm_type` /
+   `is_contract_collection_receiver` and the state map it reads). Green on
+   the stdlib tip (584ffd1) per their battery; red on the v0.62.3 pin.
+
+2) **cell/RefCell smoke abort -- NOT a compiler regression.** 
+   `smoke_cell_refcell_basic.xi` / `smoke_cell_ref_get.xi` never call
+   `release()`. The 6D.1 pointer-based Ref/RefMut semantics (stdlib
+   `592243a`, 2026-09-12) document "Without Drop trait support, the user
+   is responsible for calling this"; the earlier copy-by-value RefCell
+   tolerated the missing release (its own comment: "never restoring
+   borrow counts"), so the smoke depended on the old accidental semantics.
+   IR confirms `borrow_Int` increments and no release call exists before
+   `borrow_mut_Int`. Fix is stdlib-side (add `r.release()` /
+   `rm.release()` to those smokes, or design auto-release).
+
+3) **lz4 block compress empty -- OPEN, compiler-suspect.** 
+   `smoke_compress_lz4_snappy.xi` rc=5: `lz4_compress_block` returns an
+   empty Vec while a standalone minimal block-compress passes.
+   `lz4_compress_block` -> `_lz4_block_core(data, 4096, &result)`: the
+   `&mut Vec[UInt8]` out-param pushes do not land in the caller's Vec in
+   this TU context. Next: emit-IR diff smoke vs standalone (likely the
+   m142-era receiver binding or Vec-value re-entry, to be pinned).
+
+---
+
 ## 2026-10-03 -- FIXED (m182): complex module-level const tables mis-read (Str/struct payloads)
 
 REPRO (committed): `docs/repro/const-tables/const_tables.xi` -- rc 6 on
