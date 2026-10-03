@@ -899,6 +899,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     checker.build_catalog_index();
     let is_multi_file = effective_sources.len() > 1 || checker.source_dirs.len() > 0;
     let check_outcome = checker.check_program(&program);
+    timing_mark("check");
     // R21d follow-up: ambiguous module declarations are reported, never
     // silently resolved by filesystem scan order. Printed AFTER check_program
     // because catalog modules load lazily during resolution.
@@ -1120,7 +1121,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     }
 
     // Stage 5: Codegen
-    timing_mark("check+borrow");
+    timing_mark("borrow");
     let mut emitter = IrEmitter::new();
     // m166: trust `#[unsafe_direct]` on the injected stdlib decls.
     emitter.set_catalog_fn_keys(injected_fn_keys);

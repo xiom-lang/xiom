@@ -204,10 +204,11 @@ ladder. Gate P acceptance lives in `docs/RELEASE_GATE_v0.62.3.md`.
 ### Backlog (compiler lane, ordered)
 
 1. COMPILE-TIME / stdlib module graph (top priority):
-   - MEASURED (2026-10-03, debug driver, lz4 smoke via new
-     `XIOM_TIMINGS=1`): parse 0.002s; **check+borrow 11.94s (~72%)**;
-     codegen 0.20s; clang+link ~4.4s (~27%). The checker phase is the
-     target, not parse/codegen.
+   - MEASURED (2026-10-03, debug driver, lz4 smoke via `XIOM_TIMINGS=1`):
+     parse 0.003s; **check+borrow 10.61s** (check 10.16s = catalog +
+     program, borrow 0.45s); codegen 0.18s; clang+link ~6.6s of 17.4s
+     wall. The CHECKER -- overwhelmingly the injected catalog/stdlib
+     bodies -- is the target, not parse/codegen.
    - Persistent CHECK cache for stdlib modules keyed by source hash +
      compiler identity + config (same identity scheme as `xiom::jit`
      script cache): skip re-checking the injected catalog graph; pair
