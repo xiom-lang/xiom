@@ -40,7 +40,7 @@ BISECT PROGRESS (2026-10-03):
   an ERA-PINNED stdlib checkout (the pin at that commit's STDLIB_VERSION)
   or a self-contained repro that does not import the moving stdlib tree.
   Worktrees at `tmp/sprintc/bisect_1814` and `tmp/sprintc/bisect_m162` age
-  out — rebuild candidates as needed.
+  out -- rebuild candidates as needed.
 
 ---
 
