@@ -30,10 +30,19 @@ index access violation, and the match-pattern checker refinements
 
 ## Gate P -- benchmark acceptance (benchmark lane)
 
-- [ ] Benchmark lane re-runs t2-queue on this candidate (compiler half
-      `185342f4` + `stdlib-perf3` annotations): t2 in the ms range and no
-      regression on t1/t3/t4/t5/t8. This is the PERF-1 release acceptance;
-      it is run by the benchmark lane, not locally.
+- [x] **ACCEPTED (benchmark lane, candidate 3122cf9d + stdlib-perf3
+      2429ac3, local overlay build packaged like release.yml, archive
+      sha256 518f123f...): GO to publish.** t2-queue 24 ms vs 11,968 ms on
+      v0.62.2 (~500x), in family with c/cpp/zig/go (35/35/18/25); no
+      regression on t1/t3/t4/t5; t8 safety indices identical; fast probe
+      atomic 4M pairs 22 ms (was ~15.4 s). Full probe data
+      `gatep_results_v0.62.3.json` (42 pairs, zero errors); 7/7 PASS
+      (t2-only), toolchain snapshot v0.62.3. The benchmark lane re-runs the
+      t2 check against the OFFICIAL archive after the tag push.
+- Non-blocking, not regressions (per benchmark lane): R-8
+  `tcp_stream_read` fails on JIT and AOT; contracts-arena verifier at
+  3 proven / 9 unknown / 3 errors (invalid SMT `unknown constant self`,
+  X7007) -> follow-up after this release.
 
 ## Gate D -- tag + publish
 

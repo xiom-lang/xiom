@@ -12,11 +12,14 @@
 > api-freeze 2, `cargo check --workspace --all-targets` clean. Release notes
 > v0.62.3 converted+verified; README texts/links refreshed; VS Code
 > extension 0.12.2 (README marked tested against v0.62.3). Remaining:
-> benchmark-lane t2-queue acceptance (Gate P) and the owner's push +
-> `v0.62.3` tag on the release commit (push only on the owner's ask). See
-> `docs/RELEASE_GATE_v0.62.3.md`. The KICKOFF below records the held-release
-> work (items 1-4 done); const-tables and the float bitcast stay queued
-> post-release.
+> owner push + `v0.62.3` tag push on the release commit (push only on the
+> owner's ask). Gate P ACCEPTED by the benchmark lane on the candidate
+> (t2-queue 24 ms vs 11,968 ms on v0.62.2, ~500x; no t1/t3/t4/t5
+> regression; t8 identical) -- GO to publish; the lane re-verifies the
+> official archive after the tag. Post-release queue: R-8
+> `tcp_stream_read`, contracts-arena verifier (SMT `self` + X7007),
+> const-tables complex payloads, float bitcast. See
+> `docs/RELEASE_GATE_v0.62.3.md`.
 
 > KICKOFF (paste-ready): Continue the XIOM swarm compiler lane on `main`.
 > Read this top section, then `docs/COMPILER_BUGS.md` (2026-10-03 entries)
