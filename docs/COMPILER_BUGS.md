@@ -10,6 +10,28 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-03 -- RELAY (stdlib wave 58): two PRE-EXISTING v0.62.x defects (green on v0.61.3) -- pre-tag candidates
+
+Both confirmed on the m178 build AND on the released v0.62.2 (installed
+toolchain), so they are NOT regressions from the 2026-10-02/03 batches --
+they entered the v0.62.x line somewhere between v0.61.3 and v0.62.2.
+
+- `xiom.contracts.any_contracts()` -> 0xC0000005 AV at run time
+  (`tools/known_failures/p_contracts_any_av.xi`; rc=-1073741819 on both
+  v0.62.2 and HEAD, rc=0 on v0.61.3). Found bisecting
+  `p_never_called_zeroarg.xi` (call 3 of 71). Suspect the zero-arg registry
+  walk / fn-pointer table.
+- `xiom.sync.Arc.new(42).strong_count() != 1` (`p_sync_arc_count.xi`;
+  rc=1 on both). From `p_sync_sizeof.xi`. Suspect the Arc box/refcount
+  field read or the Arc literal layout.
+
+Recommendation: bisect each v0.61.3 -> v0.62.2 (tags are local), fix with
+fixture + checker/e2e locks, then Gate P + tag v0.62.3. The stdlib lane has
+already retired the m178 probe and their corpus is T001-clean (509/509,
+smoke_net 10/10) after the 2-site `str_slice` fix (stdlib e997201/8b23b79).
+
+---
+
 ## 2026-10-02 -- RELAY (stdlib wave 57): context-dependent invalid IR (alloca dominance); crypto link packet not reproducible
 
 - NEW COMPILER BUG (stdlib `tools/known_failures/p_wave57_probe_ir.xi`):
