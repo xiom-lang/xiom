@@ -83,6 +83,22 @@ string pointer. Both are in the variant-construction path for STRUCT
 payloads (scalar/Str payloads avoid it). This is the strongest candidate
 for the in-situ enum-payload corruption; fix next (m189).
 
+ROOT CAUSE (localized, bare-construction probe `enum_ctor_probe.xi`):
+`%struct.Selection = { i64, %struct.Field }` (2 fields) but the TYPE
+REGISTRY's field list for the enum is FLATTENED -- it contains the payload
+STRUCT's own fields (`name`, `value`) instead of the single declared
+payload field (`sel`). Consequences in `compile_enum_constructor`
+(enum_ctors.rs): the payload argument is SPREAD into two args (`"x"`, `1`
+-- the struct literal's field values), `parent_fields.position()` yields
+indices 1 and 2 against a 2-field LLVM struct (GEP index 2 -> invalid IR),
+and the first spread value (a Str) is fed through `val_to_i64`/struct
+coercion producing `load %struct.Field, i8*` (bogus load type). FIX
+DIRECTION: register a struct-typed payload as ONE field (declared name,
+struct type) in the enum's field list / `enum_variants`, and stop spreading
+payload struct fields at the ctor call; then arg_count=1, field_idx=1 and
+the struct value stores correctly. LOCK: extend the invalid-IR probe into
+an e2e fixture once fixed.
+
 ---
 
 ## 2026-10-03 -- FIXED (m188): const values as match arms never matched
