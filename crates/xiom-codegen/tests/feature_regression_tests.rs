@@ -509,7 +509,12 @@ fn main() -> Int {
 }
 
 // m165 (packages backlog): the Vec growth guard's element ceiling was
-// raised from 2^24 (a Vec[UInt8] byte buffer trapped at 16 MB) to 2^32.
+// raised from 2^24 (a Vec[UInt8] byte buffer trapped at 16 MB). The bound
+// is 2^32-1, not 2^32: the 2^32 spelling lowered via `movabsq
+// $0x100000001` and the X86 peephole-opt pass then miscompiled
+// `_lz4_write_seq`'s push path (lz4 empty block, rc 5; root cause in
+// docs/COMPILER_BUGS.md 2026-10-04). 2^32-1 lowers without the movabs and
+// keeps the effective ceiling one doubling below 2^32.
 #[test]
 fn regress_m165_vec_growth_ceiling() {
     let ir = compile(r#"
@@ -520,8 +525,8 @@ fn main() -> Int {
 }
 "#).unwrap();
     assert!(
-        ir.contains("icmp ule i64") && ir.contains("4294967296"),
-        "m165: the growth guard must use the 2^32 ceiling; got:\n{}",
+        ir.contains("icmp ule i64") && ir.contains("4294967295"),
+        "m165: the growth guard must use the 2^32-1 ceiling; got:\n{}",
         ir
     );
     assert!(

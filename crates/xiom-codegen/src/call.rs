@@ -1777,18 +1777,25 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         self.emitln(&format!("\n{grow_block}:"));
                         let new_cap = self.fresh_tmp();
                         self.emitln(&format!("  {new_cap} = mul i64 {cap_val}, 2"));
-                        // Capacity guard: trap only when the next doubling
-                        // would exceed 2^32 ELEMENTS. The old ceiling was
-                        // 2^24 (the comment mislabeled it 2^20): a
-                        // Vec[UInt8] byte buffer trapped at just 16 MB, so a
-                        // 20 MB file could not be buffered (packages
-                        // backlog). 2^32 keeps `new_cap * esz` far below an
-                        // i64 overflow for any sane element size, and the
+                        // Capacity guard: trap when the next doubling would
+                        // exceed 2^32-1 ELEMENTS (effective max capacity is
+                        // one doubling below the ceiling: 2^31 elements,
+                        // >= 2 GiB for a Vec[UInt8] byte buffer).
+                        //
+                        // m165 raised this from 2^24 (a byte buffer trapped
+                        // at 16 MB, blocking >16 MB files). The 2^32 spelling
+                        // of the bound was a miscompile trigger: it lowered
+                        // through `movabsq $0x100000001` and the X86
+                        // `peephole-opt` pass then miscompiled
+                        // `_lz4_write_seq`'s push path (lz4 block compress
+                        // returned an empty Vec, rc 5; root cause in
+                        // docs/COMPILER_BUGS.md 2026-10-04). 2^32-1 lowers
+                        // without the movabs and is empirically clean; the
                         // realloc null-check below remains the real OOM trap.
                         let cap_ok_check = self.fresh_tmp();
                         let cap_ok_cont = self.fresh_block("vec_cap_ok");
                         let cap_trap_block = self.fresh_block("vec_cap_trap");
-                        self.emitln(&format!("  {cap_ok_check} = icmp ule i64 {new_cap}, 4294967296"));
+                        self.emitln(&format!("  {cap_ok_check} = icmp ule i64 {new_cap}, 4294967295"));
                         self.emitln(&format!("  br i1 {cap_ok_check}, label %{cap_ok_cont}, label %{cap_trap_block}"));
                         self.emitln(&format!("\n{cap_trap_block}:"));
                         self.emitln("  call void @llvm.trap()");

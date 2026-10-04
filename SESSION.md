@@ -26,16 +26,17 @@
 > OOM/load flakes from real failures; push only on the owner's ask, except
 > session/handoff docs):
 >
-> 1. lz4 context-dependent empty block-compress (headline). Regression range
->    v0.62.0..v0.62.2 (v0.62.0 passes; v0.62.2 and later fail); emitted
->    pre-opt IR is identical through the block-call region, so the suffix
->    changes clang's optimization of an identical prefix (aggregate
->    alloca-copy shape). Reproducer P4c: prefix + one bare
->    `lz4.lz4_decompress_block(blk)` call after the check flips rc 5
->    (details in docs/COMPILER_BUGS.md 2026-10-03 entries). Next: continue
->    the HEAD-vs-v0.62.0 `main` diff at the block-compress call site; audit
->    the aggregate alloca+store+field-GEP round-trip emission the v0.62.x
->    window added (suspect aliasing/UB); lock with an e2e fixture.
+> 1. lz4 context-dependent empty block-compress (headline). ROOT CAUSE
+>    FOUND (2026-10-04): m165 (`ad63eda0`) raised the emitted Vec growth
+>    ceiling 2^24 -> 2^32 elements; the 2^32 constant lowers via movabs and
+>    an LLVM X86 `peephole-opt` instance on `_lz4_write_seq` then
+>    miscompiles the push path -> the block result reads len 0 -> rc 5.
+>    IR-level proofs (plain clang -O2): v0.62.0 IR rc 0; v0.62.0+cap-only
+>    rc 5; HEAD IR rc 5; HEAD+2^24 rc 0; HEAD+2^32-1 rc 0; HEAD+2^31 rc 5.
+>    Bisect flip: pass #16343 peephole-opt on `_lz4_write_seq`. FIXED (m190:
+>    ceiling 2^32-1 + IR lock; repro committed docs/repro/lz4/p4c_lz4.xi).
+>    Verified: P4c rc 0, stdlib smoke_compress_lz4_snappy OK, m165 feature
+>    lock green. Full evidence in docs/COMPILER_BUGS.md 2026-10-04 entry.
 > 2. Stage 6 compile time: XIOM_TIMINGS=1 measured parse 0.003 s,
 >    check 10.16 s (catalog+program), borrow 0.45 s, codegen 0.18 s,
 >    clang+link ~6.6 s of 17.4 s wall (debug driver, lz4 smoke). Build the
@@ -54,8 +55,12 @@
 >    iter `Range.collect()` clang forward-ref + `Range.count`/`Range.find`
 >    undefined `__closure_N` (wave-65 blocker; standalone repro in stdlib
 >    known_failures), `reflect.all_types()` 0xC0000374 (catalog-return
->    path), C001 contains-classifier load-sensitive state pinning + the V8
->    direct-form latent case, R-8 `tcp_stream_read`, i64<->f64 bitcast
+>    path), **C001 contains-classifier REOPENED -- registry stress on the
+>    official v0.62.4 archive: smoke_iter_range 8/20 green,
+>    smoke_iter_find_all_any 12/20 (v0.62.3: 8/20, 10/20); m184 did NOT
+>    fix it, ~50% flaky (HashMap-order classifier state); blocks stdlib
+>    release.yml -- v0.63.0 fix target** + the V8 direct-form latent case,
+>    R-8 `tcp_stream_read`, i64<->f64 bitcast
 >    intrinsic, registry polish B1/B2/`--resolve` + trust wording.
 > 5. Selfhost Phase 4 in parallel: fn-header T3 IR equality; keep the meter
 >    rule (flips only at full parity). If the phase-3 session's context is

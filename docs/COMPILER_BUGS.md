@@ -10,6 +10,46 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-04 -- FIXED (m190): lz4 empty block = m165 2^32 Vec-cap constant triggered X86 `peephole-opt` miscompile
+
+Fully reproducible from the emitted IR with plain `clang -O2` (LLVM 22.1.8,
+x86_64-pc-windows-msvc); no xiom toolchain in the loop.
+
+CHAIN:
+1. m165 (`ad63eda0`, ancestor of v0.62.2 but not v0.62.0) raised the
+   emitted Vec growth ceiling 2^24 -> 2^32 elements in
+   `crates/xiom-codegen/src/call.rs` (vec_grow guard). 2^32 no longer fits
+   an i32 immediate, so every guard lowers through
+   `movabsq $0x100000001`.
+2. SUFFICIENCY: taking the PASSING v0.62.0 IR and changing ONLY the 54 cap
+   constants to 4294967296 flips rc 0 -> 5. NECESSITY: HEAD IR with the 54
+   constants back at 16777216 is rc 0.
+3. BISECT (`-mllvm -opt-bisect-limit`): the outcome flips at pass instance
+   #16343 -- `peephole-opt` on `compress.lz4._lz4_write_seq`. Skipping just
+   that instance -> rc 0; running it -> rc 5. The pass rewrites the
+   esz-dispatch compare/register sequences (ws42.s vs ws43.s,
+   ws_peephole.diff); the direct `lz4_compress_block` call then reads back
+   `blk.len() == 0` -> return 5. The frame roundtrip path is unaffected
+   (its internal block call still produces data).
+4. Fix-value probes at IR level: 2147483648 (2^31) rc 5; 4294967295
+   (2^32-1) rc 0 (lowered without the 0x100000001 movabs). The
+   overflow-check guard (mul + `icmp uge new_cap, cap`, no immediate) is
+   the untested structural alternative.
+5. Evidence artifacts: `%TEMP%\kilo\m183\p4c*.ll`, `p4c_restore_all.ll`
+   (copy-restore control: does NOT fix -> the earlier alloca-copy theory is
+   dead), `ws42.s`/`ws43.s`, `ws_peephole.diff`.
+
+FIX (m190, owner-approved): emitter constant -> 4294967295 (2^32-1) in
+`call.rs` (vec_grow guard) + comment; IR lock
+`regress_m165_vec_growth_ceiling` updated to assert 4294967295.
+REPRO COMMITTED: `docs/repro/lz4/p4c_lz4.xi` (P4c).
+VERIFIED: P4c compile+run rc 0 with the fixed compiler;
+`smoke_compress_lz4_snappy.xi` prints "smoke_compress_lz4_snappy: OK"
+(rc 0); feature lock green; `e2e_m165_vec_byte_buffer_gt_16mb` green
+(m165 >16MB byte-buffer feature preserved).
+
+---
+
 ## 2026-10-03 -- LOCALIZED (open, queued): `xiom run -e` latency is the cold stdlib-graph compile (no `-e` fast path)
 
 User observation: `xiom run -e "<code>"` takes 7-9 s from Enter to
@@ -61,6 +101,28 @@ LOCK: `c25_warm_cache_inherits_stdin_and_no_cache_bypasses` +
 full path in CI). Verified red-before (warm printed `got: []`) and green
 after. Playground acceptance `tools/compiler-repros/c25/run.sh` prints
 "C25 fixed: yes" on a toolchain containing this commit.
+
+---
+
+## 2026-10-04 -- CORRECTION (REOPEN): iter.range `.contains` C001 is NOT fixed -- m184 claim withdrawn
+
+Registry stress on the OFFICIAL archives (harness: CWD=stdlib, XIOM_STDLIB
+set, relative path; 20 compiles per file):
+
+| toolchain | smoke_iter_range | smoke_iter_find_all_any |
+|-----------|------------------|-------------------------|
+| v0.62.4   | 8/20 green       | 12/20 green             |
+| v0.62.3   | 8/20 green       | 10/20 green             |
+
+Error text: `error[C001]: 'contains' receiver does not expose a concrete
+Vec/Slice/Array element type`. Run-to-run flaky at roughly 50% -- a single
+green run is luck, not a fix. This supersedes the v0.62.3 handoff's
+"RESOLVED on the current tree (m184 the likely fix)" and the 2026-10-03
+triage entry's "green on the stdlib tip". The documented HashMap-order
+classifier state (call.rs `intercept = !has_user_fn`; the third-range-sum
+state change) is the likely mechanism. Queue: v0.63.0 beside lz4.
+IMPACT: blocks stdlib releases -- `run_smokes` has no exclusions and
+`release.yml` runs the full corpus.
 
 ---
 
