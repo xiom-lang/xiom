@@ -170,6 +170,8 @@ templates in `tasks/systems-arena/`.
       benchmark relay in this doc
 - [x] Stage 6 item 1 slice: runtime-object cache + index/check sub-phase
       timings (hello 8.7s -> 0.97s warm; lz4 program 13.3s -> 4.0s warm)
+- [x] Stage 6 item 1 slice 2: persistent catalog index-header cache
+      (warm index 0.70s -> 0.32s; hits=2397/2397)
 
 ## Benchmark-driven hardening/optimization backlog (2026-10-03, v0.62.3 arena runs)
 
@@ -228,8 +230,14 @@ ladder. Gate P acceptance lives in `docs/RELEASE_GATE_v0.62.3.md`.
      single-invocation C compile. New sub-phase marks: driver `index`;
      xiom-check `check-start/collect-sigs/catalog-load/catalog-flush/
      check-bodies` (XIOM_TIMINGS).
-   - NEXT: catalog-flush 1.6-2.8s -> per-module checked cache; index
-     0.5-0.8s -> persistent header cache; `-e` fast path.
+   - LANDED 2026-10-04 (second slice): persistent catalog index-header
+     cache (`xiom-check/src/catalog.rs`; `$HOME/.xiom/catidx.txt`,
+     identity-guarded by compiler version/OS/arch). Warm index phase
+     0.70s -> **0.32s** (hits=2397 misses=0); cold fills the cache
+     (hits=517 misses=1880). Edits invalidate via mtime/size. Driver
+     opt-in; unit test + xiom-check 196/196 + catalog e2e 6/6 green.
+   - NEXT: catalog-flush 1.6-2.8s -> per-module checked cache; `-e`
+     fast path; remaining index walk/stat cost (~0.3s).
    - Persistent CHECK cache for stdlib modules keyed by source hash +
      compiler identity + config (same identity scheme as `xiom::jit`
      script cache): skip re-checking the injected catalog graph; pair

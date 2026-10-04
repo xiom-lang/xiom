@@ -126,6 +126,24 @@ pub struct ModuleCatalog {
     /// lexicographically smallest canonical path.
     pub module_collisions: Vec<String>,
     surfaced_collisions: std::collections::HashSet<String>,
+    /// Stage 6 (STAGE6_PERF_PLAN item 1): persistent header index cache. The
+    /// driver opts in via [`Self::enable_index_cache`]; tests stay cache-free.
+    index_cache_path: Option<std::path::PathBuf>,
+    index_cache: HashMap<String, IndexEntry>,
+    index_cache_touched: std::collections::HashSet<String>,
+    index_cache_dirty: bool,
+    /// Hits/misses of the last `build_index` (locks + XIOM_TIMINGS).
+    pub index_cache_hits: usize,
+    pub index_cache_misses: usize,
+}
+
+/// Stage 6: persistent cache entry for one indexed `.xi` path.
+#[derive(Debug, Clone)]
+struct IndexEntry {
+    mtime_ns: u128,
+    size: u64,
+    header: Option<String>,
+    canonical: String,
 }
 
 impl ModuleCatalog {
@@ -138,6 +156,12 @@ impl ModuleCatalog {
             candidates: HashMap::new(),
             module_collisions: Vec::new(),
             surfaced_collisions: std::collections::HashSet::new(),
+            index_cache_path: None,
+            index_cache: HashMap::new(),
+            index_cache_touched: std::collections::HashSet::new(),
+            index_cache_dirty: false,
+            index_cache_hits: 0,
+            index_cache_misses: 0,
         }
     }
 
@@ -147,6 +171,13 @@ impl ModuleCatalog {
         }
     }
 
+    /// Stage 6: opt into the persistent module-header index cache (Stage 6
+    /// STAGE6_PERF_PLAN item 1). The file is read at the next `build_index`
+    /// and rewritten only when entries changed.
+    pub fn enable_index_cache(&mut self, path: std::path::PathBuf) {
+        self.index_cache_path = Some(path);
+    }
+
     /// Pre-build a module_path -> file_path index so all lookups are O(1).
     pub fn build_index(&mut self) {
         self.module_index.clear();
@@ -154,9 +185,15 @@ impl ModuleCatalog {
         self.candidates.clear();
         self.module_collisions.clear();
         self.surfaced_collisions.clear();
+        self.index_cache_hits = 0;
+        self.index_cache_misses = 0;
+        self.index_cache_dirty = false;
+        self.index_cache_touched.clear();
+        self.load_index_cache();
         for (dir_index, dir) in self.source_dirs.clone().iter().enumerate() {
             self.index_dir(Path::new(&dir), dir_index);
         }
+        self.save_index_cache();
     }
 
     /// Directories that are never XIOM source roots: build artifacts, VCS
@@ -188,11 +225,8 @@ impl ModuleCatalog {
                     }
                     self.index_dir(&path, dir_index);
                 } else if path.extension().map_or(false, |e| e == "xi") {
-                    if let Some(dotted) = self.read_module_header(&path) {
+                    if let Some((Some(dotted), canonical)) = self.cached_header_and_canonical(&path) {
                         let display = path.to_string_lossy().to_string();
-                        let canonical = std::fs::canonicalize(&path)
-                            .map(|p| p.to_string_lossy().to_string())
-                            .unwrap_or_else(|_| display.clone());
                         // Structural match: how many trailing MODULE segments
                         // line up with trailing PATH segments.
                         let mod_segs: Vec<&str> = dotted.split('.').collect();
@@ -233,6 +267,131 @@ impl ModuleCatalog {
                 }
             }
         }
+    }
+
+    /// Stage 6: header + canonical path for one indexed file, reusing the
+    /// persistent cache when mtime/size match. The cache only loads when
+    /// `index_cache_path` was set (driver opt-in), so tests never touch it.
+    fn cached_header_and_canonical(&mut self, path: &Path) -> Option<(Option<String>, String)> {
+        let display = path.to_string_lossy().to_string();
+        let meta = std::fs::metadata(path).ok()?;
+        let mtime_ns = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let size = meta.len();
+        if let Some(entry) = self.index_cache.get(&display) {
+            if entry.mtime_ns == mtime_ns && entry.size == size {
+                self.index_cache_hits += 1;
+                if self.index_cache_path.is_some() {
+                    self.index_cache_touched.insert(display);
+                }
+                return Some((entry.header.clone(), entry.canonical.clone()));
+            }
+        }
+        self.index_cache_misses += 1;
+        let header = self.read_module_header(path);
+        let canonical = std::fs::canonicalize(path)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| display.clone());
+        if self.index_cache_path.is_some() {
+            self.index_cache.insert(
+                display.clone(),
+                IndexEntry {
+                    mtime_ns,
+                    size,
+                    header: header.clone(),
+                    canonical: canonical.clone(),
+                },
+            );
+            self.index_cache_touched.insert(display);
+            self.index_cache_dirty = true;
+        }
+        Some((header, canonical))
+    }
+
+    /// Stage 6: identity line guarding the cache file against compiler
+    /// upgrades / platform changes (same idea as the jit script cache).
+    fn index_cache_identity() -> String {
+        format!(
+            "xiom-catalog-index v1|{}|{}-{}|{}",
+            env!("CARGO_PKG_VERSION"),
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            usize::BITS
+        )
+    }
+
+    fn load_index_cache(&mut self) {
+        let path = match &self.index_cache_path {
+            Some(p) => p.clone(),
+            None => return,
+        };
+        self.index_cache.clear();
+        let data = match std::fs::read_to_string(&path) {
+            Ok(d) => d,
+            Err(_) => return,
+        };
+        let mut lines = data.lines();
+        if lines.next() != Some(Self::index_cache_identity().as_str()) {
+            return; // stale identity: rebuild from scratch
+        }
+        for line in lines {
+            let mut parts = line.splitn(5, '\t');
+            let (Some(mtime), Some(size), Some(header), Some(canonical), Some(file)) =
+                (parts.next(), parts.next(), parts.next(), parts.next(), parts.next())
+            else {
+                continue;
+            };
+            let Ok(mtime_ns) = mtime.parse::<u128>() else { continue };
+            let Ok(size) = size.parse::<u64>() else { continue };
+            let header = if header == "-" { None } else { Some(header.to_string()) };
+            self.index_cache.insert(
+                file.to_string(),
+                IndexEntry {
+                    mtime_ns,
+                    size,
+                    header,
+                    canonical: canonical.to_string(),
+                },
+            );
+        }
+    }
+
+    fn save_index_cache(&mut self) {
+        let path = match &self.index_cache_path {
+            Some(p) => p.clone(),
+            None => return,
+        };
+        if !self.index_cache_dirty {
+            return;
+        }
+        // Bound growth from transient trees: when the cache is large, keep
+        // only entries touched by this run.
+        let mut out = String::new();
+        out.push_str(&Self::index_cache_identity());
+        out.push('\n');
+        let prune = self.index_cache.len() > 60_000;
+        for (file, e) in &self.index_cache {
+            if prune && !self.index_cache_touched.contains(file) {
+                continue;
+            }
+            out.push_str(&format!(
+                "{}\t{}\t{}\t{}\t{}\n",
+                e.mtime_ns,
+                e.size,
+                e.header.as_deref().unwrap_or("-"),
+                e.canonical,
+                file
+            ));
+        }
+        let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+        if std::fs::write(&tmp, out.as_bytes()).is_ok() {
+            let _ = std::fs::rename(&tmp, &path);
+        }
+        self.index_cache_dirty = false;
     }
 
     fn index_lookup(&self, path_segments: &[String]) -> Option<CachedModule> {
@@ -696,5 +855,79 @@ impl ModuleCatalog {
                 _ => {}
             }
         }
+    }
+}
+
+/// Stage 6: default persistent index-cache path (`$HOME/.xiom/catidx.txt`,
+/// temp fallback), mirroring the jit script cache's home handling.
+pub fn default_index_cache_path() -> std::path::PathBuf {
+    for key in ["HOME", "USERPROFILE"] {
+        if let Ok(dir) = std::env::var(key) {
+            let dir = dir.trim();
+            if !dir.is_empty() {
+                let candidate = std::path::PathBuf::from(dir).join(".xiom");
+                if std::fs::create_dir_all(&candidate).is_ok() {
+                    return candidate.join("catidx.txt");
+                }
+            }
+        }
+    }
+    std::env::temp_dir().join("xiom-catidx.txt")
+}
+
+#[cfg(test)]
+mod index_cache_tests {
+    use super::*;
+
+    #[test]
+    fn persistent_index_cache_hits_and_invalidates() {
+        let root = std::env::temp_dir().join(format!(
+            "xiom-catidx-test-{}-{:x}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let src = root.join("src");
+        std::fs::create_dir_all(&src).expect("create test dir");
+        std::fs::write(
+            src.join("one.xi"),
+            "module cachetest.one\npub fn one() -> Int { return 1; }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            src.join("two.xi"),
+            "module cachetest.two\npub fn two() -> Int { return 2; }\n",
+        )
+        .unwrap();
+        let cache = root.join("catidx.txt");
+
+        let mut first = ModuleCatalog::new(vec![src.to_string_lossy().to_string()]);
+        first.enable_index_cache(cache.clone());
+        first.build_index();
+        assert!(first.index_cache_misses >= 2, "cold run must scan");
+        assert_eq!(first.index_cache_hits, 0);
+        assert!(first.module_index.contains_key("cachetest.one"));
+
+        let mut second = ModuleCatalog::new(vec![src.to_string_lossy().to_string()]);
+        second.enable_index_cache(cache.clone());
+        second.build_index();
+        assert!(second.index_cache_hits >= 2, "warm run must reuse headers");
+        assert!(second.module_index.contains_key("cachetest.two"));
+
+        // Content change (different size) invalidates that entry.
+        std::fs::write(
+            src.join("one.xi"),
+            "module cachetest.one\npub fn one() -> Int { return 11; }\n",
+        )
+        .unwrap();
+        let mut third = ModuleCatalog::new(vec![src.to_string_lossy().to_string()]);
+        third.enable_index_cache(cache);
+        third.build_index();
+        assert!(third.index_cache_misses >= 1, "changed file must rescan");
+        assert!(third.module_index.contains_key("cachetest.one"));
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

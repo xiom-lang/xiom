@@ -422,6 +422,18 @@ impl Checker {
         self.catalog.build_index();
     }
 
+    /// Stage 6 (STAGE6_PERF_PLAN item 1): opt into the persistent
+    /// module-header index cache. The driver wires
+    /// [`crate::catalog::default_index_cache_path`]; tests stay cache-free.
+    pub fn enable_catalog_index_cache(&mut self, path: std::path::PathBuf) {
+        self.catalog.enable_index_cache(path);
+    }
+
+    /// Stage 6: (hits, misses) of the last [`Self::build_catalog_index`].
+    pub fn catalog_index_cache_stats(&self) -> (usize, usize) {
+        (self.catalog.index_cache_hits, self.catalog.index_cache_misses)
+    }
+
     /// R21d follow-up: ambiguous module-name declarations found while indexing
     /// (two files declare the same dotted module path). The index keeps a
     /// deterministic winner (lexicographically smallest path); these notes let

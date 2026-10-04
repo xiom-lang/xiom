@@ -925,8 +925,15 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     for stdlib_dir in find_stdlib_dirs() {
         checker.add_source_dir(stdlib_dir);
     }
+    // Stage 6 (STAGE6_PERF_PLAN item 1): persistent module-header index
+    // cache -- warm runs skip re-reading ~4k stdlib/test `.xi` headers.
+    checker.enable_catalog_index_cache(xiom_check::catalog::default_index_cache_path());
     checker.build_catalog_index();
     timing_mark("index");
+    if std::env::var_os("XIOM_TIMINGS").is_some() {
+        let (hits, misses) = checker.catalog_index_cache_stats();
+        eprintln!("[timings] index-cache hits={hits} misses={misses}");
+    }
     let is_multi_file = effective_sources.len() > 1 || checker.source_dirs.len() > 0;
     let check_outcome = checker.check_program(&program);
     timing_mark("check");

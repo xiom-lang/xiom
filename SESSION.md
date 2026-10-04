@@ -44,10 +44,10 @@
 >    the runtime C RECOMPILE (5.5-6.3 s every build); the old "check
 >    10.16 s" was inflated by leftover %TEMP% stdlib copies in the index.
 >    LANDED: rtcache (runtime objects once per clang+flags+contents) ->
->    hello 0.97 s warm, lz4 program 4.0 s warm, smoke OK. NEXT:
->    catalog-flush cache (1.6-2.8 s), index header cache (0.5-0.8 s), `-e`
->    fast path. KPI unchanged: arena compile_ms < 2 s; `xiom run -e` < 1 s
->    warm / < 3 s cold.
+>    hello 0.97 s warm, lz4 program 4.0 s warm, smoke OK; index header
+>    cache -> warm index 0.70 s -> 0.32 s (2397/2397 hits). NEXT:
+>    catalog-flush cache (1.6-2.8 s), `-e` fast path. KPI unchanged:
+>    arena compile_ms < 2 s; `xiom run -e` < 1 s warm / < 3 s cold.
 > 3. Contracts-arena verifier: emit valid SMT-LIB (declare self/null/
 >    initialized, dedupe named expressions, one check-sat per obligation).
 >    X7007 stays unknown-by-design (loops without invariants, complex call
