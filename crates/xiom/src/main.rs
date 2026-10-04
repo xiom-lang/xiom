@@ -54,9 +54,12 @@ fn run_script_source_dirs(script: &str) -> Vec<String> {
     } else {
         parent
     };
-    dirs.push(parent.to_string_lossy().to_string());
+    if !xiom::temp_root_covers(parent) {
+        dirs.push(parent.to_string_lossy().to_string());
+    }
     if let Some(grandparent) = parent.parent() {
         if !grandparent.as_os_str().is_empty()
+            && !xiom::temp_root_covers(grandparent)
             && std::fs::read_dir(grandparent).map_or(false, |entries| {
                 entries.flatten().any(|e| {
                     e.path().extension().map_or(false, |ext| ext == "xi")

@@ -10,6 +10,30 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-04 -- FIXED: scripting `xiom run` temp-root indexing (W001 flood, minutes cold)
+
+Benchmark relay: v0.62.4 `xiom run` samples 7-9.6s (previous round
+26-45ms). Root cause (verified with the installed v0.62.3/v0.62.4
+binaries): `xiom run` compiles a `%TEMP%/xiom_run/_script_<hash>.xi` copy
+and `compile()` adds the source's parent + grandparent as recursive
+catalog source dirs; `%TEMP%` holds stray `.xi` files, so the WHOLE temp
+root was indexed -- every extracted archive/stdlib workspace under
+`%TEMP%\kilo` (9 competing copies of each module, 85 W001 collisions) and
+~140s cold runs that repeat on every jit-cache miss.
+FIX (v0.63.0): `temp_root_covers()` guard -- a dir at-or-above the system
+temp root is never registered as a source dir (`compile()` ancestors +
+`run_script_source_dirs`); deeper dirs under temp stay eligible for
+fixtures/temp-rooted projects. Verified cold: 140s-class -> **3.95s**,
+index visits 2565 (stdlib only), W001 0, script exit 0; unit lock added.
+NOTES: (1) the published v0.62.3/v0.62.4 ARCHIVES are clean; the local
+`%LOCALAPPDATA%\xiom.new\lib\lib` duplicate is an install-side artifact
+(remove/reinstall cleanly). (2) Locally Windows Defender blocks execution
+of fresh `%TEMP%\xiom_run\*.exe` (os error 225, ERROR_VIRUS_INFECTED), so
+run2 recompiles then fails -- environment issue, not compiler. Contracts
+SMT emission remains queue item 3 (unchanged).
+
+---
+
 ## 2026-10-04 -- FIXED (m190): lz4 empty block = m165 2^32 Vec-cap constant triggered X86 `peephole-opt` miscompile
 
 Fully reproducible from the emitted IR with plain `clang -O2` (LLVM 22.1.8,

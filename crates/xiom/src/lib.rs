@@ -891,12 +891,25 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     checker.set_strict_exhaustive(config.strict_exhaustive);
     if let Some(primary) = effective_sources.first() {
         let file_path = Path::new(primary);
+        // Stage 6: never let a directory at-or-above the system temp root
+        // become a recursive catalog source dir. `xiom run` compiles a
+        // %TEMP%/xiom_run copy; with any stray .xi file directly in %TEMP%
+        // the old grandparent guard added the whole temp root and indexed
+        // every unrelated tree under it (W001 collision flood + minutes of
+        // cold index; COMPILER_BUGS 2026-10-04). Real script dirs arrive via
+        // `extra_source_dirs` (`run_script_source_dirs`).
         if let Some(parent) = file_path.parent() {
-            checker.add_source_dir(parent.to_string_lossy().to_string());
+            if !temp_root_covers(parent) {
+                checker.add_source_dir(parent.to_string_lossy().to_string());
+            }
             if let Some(grandparent) = parent.parent() {
-                if std::fs::read_dir(grandparent).map_or(false, |entries| {
-                    entries.flatten().any(|e| e.path().extension().map_or(false, |ext| ext == "xi"))
-                }) { checker.add_source_dir(grandparent.to_string_lossy().to_string()); }
+                if !temp_root_covers(grandparent)
+                    && std::fs::read_dir(grandparent).map_or(false, |entries| {
+                        entries.flatten().any(|e| e.path().extension().map_or(false, |ext| ext == "xi"))
+                    })
+                {
+                    checker.add_source_dir(grandparent.to_string_lossy().to_string());
+                }
             }
         }
         if let Some(root) = find_project_root(file_path) {
@@ -1962,6 +1975,15 @@ pub fn find_stdlib_dirs() -> Vec<String> {
     xiom_graph::paths::stdlib_source_dirs()
 }
 
+/// Stage 6: true when `dir` is the system temp root or one of its ancestors.
+/// Such directories must never be registered as recursive catalog source
+/// dirs (a `xiom run` temp copy's ancestors would otherwise index the whole
+/// temp tree). Deeper directories UNDER temp stay eligible -- checker test
+/// fixtures and temp-rooted projects rely on that.
+pub fn temp_root_covers(dir: &Path) -> bool {
+    std::env::temp_dir().starts_with(dir)
+}
+
 /// 5e.3 G-30/G-31: walk up from a source file's parent directory looking for
 /// project root markers (xiom.toml, package.xi, xiom.lock, .git, src/). When found, the
 /// project root and its src/ subdirectory are added as source_dirs so the
@@ -2733,6 +2755,19 @@ pub fn incremental_save(source_path: &str, ir: &str) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn temp_root_ancestors_are_not_catalog_dirs() {
+        let t = std::env::temp_dir();
+        assert!(temp_root_covers(&t), "temp root itself");
+        if let Some(parent) = t.parent() {
+            assert!(temp_root_covers(parent), "ancestors of temp");
+        }
+        assert!(
+            !temp_root_covers(&t.join("xiom_run")),
+            "children of temp stay eligible"
+        );
+    }
+
     use super::*;
     use std::io::Write;
 

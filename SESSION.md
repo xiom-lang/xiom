@@ -49,6 +49,10 @@
 >    catalog-flush (31 modules, 1.9-2.3 s; math 0.68 s; state-effect audit
 >    required), `-e` fast path. KPI unchanged:
 >    arena compile_ms < 2 s; `xiom run -e` < 1 s warm / < 3 s cold.
+>    FIXED (2026-10-04): `xiom run` no longer registers temp-root ancestors
+>    as source dirs (a stray .xi in %TEMP% made cold runs index every tree
+>    under temp: 9-way W001 flood, ~140 s). Cold run 140 s -> 3.95 s;
+>    W001 0; unit lock added.
 > 3. Contracts-arena verifier: emit valid SMT-LIB (declare self/null/
 >    initialized, dedupe named expressions, one check-sat per obligation).
 >    X7007 stays unknown-by-design (loops without invariants, complex call

@@ -242,10 +242,17 @@ ladder. Gate P acceptance lives in `docs/RELEASE_GATE_v0.62.3.md`.
      module trees 0.07-0.16s each; the rest ~50ms avg. The module-level
      slow-item timing shows the whole `module xiom` tree as one item, so a
      function-level profile is the next step if we attack math directly.
+   - LANDED 2026-10-04 (run-path fix): `xiom run` / script compiles no
+     longer register temp-root ancestors as source dirs. A stray `.xi` in
+     `%TEMP%` used to make the grandparent guard add the whole temp root:
+     9 competing stdlib copies across `%TEMP%\kilo` trees, 85 W001
+     collisions, ~140s cold index on every cache miss (benchmark scripting
+     samples 7-9.6s). Cold `xiom run` now 3.95s, index 2565 visits, W001 0.
+     See COMPILER_BUGS 2026-10-04.
    - NEXT: per-module CHECKED cache (diagnostics keyed by source hash +
-     checker identity) requires a generic-instantiation state-effects
-     audit before skipping bodies; alternatively investigate `xiom.math`
-     body check directly (671 lines / 61 fns for 0.68s). `-e` fast path;
+     checker identity) needs the generic-instantiation state-effects audit
+     before skipping bodies; alternatively investigate `xiom.math` body
+     check directly (671 lines / 61 fns for 0.68s). `-e` fast path;
      remaining index walk/stat cost (~0.3-0.5s).
    - Persistent CHECK cache for stdlib modules keyed by source hash +
      compiler identity + config (same identity scheme as `xiom::jit`
