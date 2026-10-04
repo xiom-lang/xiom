@@ -531,6 +531,11 @@ impl Checker {
         let pending = std::mem::take(&mut self.pending_catalog_bodies);
         let prev_module = self.current_module.take();
         self.checking_catalog = true;
+        let flush_started = std::time::Instant::now();
+        let timings = std::env::var_os("XIOM_TIMINGS").is_some();
+        let mut checked_bodies = 0usize;
+        let mut capture_secs = 0.0f64;
+        let mut slowest: (f64, String) = (0.0, String::new());
         for cached in &pending {
             let key = if cached.dotted_name.is_empty() {
                 format!("#{:016x}", cached.source_hash)
@@ -540,7 +545,9 @@ impl Checker {
             if !self.checked_catalog_bodies.insert(key.clone()) {
                 continue; // checked in an earlier flush
             }
+            let capture_started = std::time::Instant::now();
             let ctx = self.capture_catalog_import_context();
+            capture_secs += capture_started.elapsed().as_secs_f64();
             // Per-body isolation (mirrors corpus_loading): a catalog module's
             // body must resolve through ITS OWN `use` bindings only. Without
             // this, USER-program aliases leak in (`use xiom.collect.hash`
@@ -566,9 +573,27 @@ impl Checker {
             for item in &cached.program.items {
                 self.register_fn_signature(item);
             }
+            let body_started = std::time::Instant::now();
             for item in &cached.program.items {
+                let item_started = std::time::Instant::now();
                 self.check_top_decl(item);
+                if timings {
+                    let secs = item_started.elapsed().as_secs_f64();
+                    if secs > 0.05 {
+                        let name = match item {
+                            TopDecl::Fn(fd) => fd.name.name.clone(),
+                            TopDecl::Module(md) => format!("module {}", md.name.name),
+                            _ => "<item>".to_string(),
+                        };
+                        eprintln!("[timings]   slow item {key}::{name} {secs:.3}s");
+                    }
+                }
             }
+            let body_secs = body_started.elapsed().as_secs_f64();
+            if body_secs > slowest.0 {
+                slowest = (body_secs, key.clone());
+            }
+            checked_bodies += 1;
             // Tag this module's findings with provenance -- the spans carry
             // only line/col, and the stdlib lane needs file-level triage.
             // With the strict flip findings are ERRORS, so tag both streams.
@@ -585,6 +610,15 @@ impl Checker {
                 }
             }
             self.restore_catalog_import_context(ctx);
+        }
+        if timings {
+            eprintln!(
+                "[timings] catalog-bodies checked={checked_bodies} elapsed={:.3}s capture={:.3}s slowest={:.3}s ({})",
+                flush_started.elapsed().as_secs_f64(),
+                capture_secs,
+                slowest.0,
+                slowest.1
+            );
         }
         self.checking_catalog = false;
         self.current_module = prev_module;

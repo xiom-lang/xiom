@@ -236,8 +236,17 @@ ladder. Gate P acceptance lives in `docs/RELEASE_GATE_v0.62.3.md`.
      0.70s -> **0.32s** (hits=2397 misses=0); cold fills the cache
      (hits=517 misses=1880). Edits invalidate via mtime/size. Driver
      opt-in; unit test + xiom-check 196/196 + catalog e2e 6/6 green.
-   - NEXT: catalog-flush 1.6-2.8s -> per-module checked cache; `-e`
-     fast path; remaining index walk/stat cost (~0.3s).
+   - PROFILE 2026-10-04 (lz4 warm): catalog-flush 1.9-2.3s over **31
+     modules**; capture/restore of the per-module import context 0.26-0.32s;
+     heavy-tailed -- `xiom.math` 0.68s alone, then io/string/num/collections
+     module trees 0.07-0.16s each; the rest ~50ms avg. The module-level
+     slow-item timing shows the whole `module xiom` tree as one item, so a
+     function-level profile is the next step if we attack math directly.
+   - NEXT: per-module CHECKED cache (diagnostics keyed by source hash +
+     checker identity) requires a generic-instantiation state-effects
+     audit before skipping bodies; alternatively investigate `xiom.math`
+     body check directly (671 lines / 61 fns for 0.68s). `-e` fast path;
+     remaining index walk/stat cost (~0.3-0.5s).
    - Persistent CHECK cache for stdlib modules keyed by source hash +
      compiler identity + config (same identity scheme as `xiom::jit`
      script cache): skip re-checking the injected catalog graph; pair

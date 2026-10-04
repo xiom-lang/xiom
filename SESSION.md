@@ -46,7 +46,8 @@
 >    LANDED: rtcache (runtime objects once per clang+flags+contents) ->
 >    hello 0.97 s warm, lz4 program 4.0 s warm, smoke OK; index header
 >    cache -> warm index 0.70 s -> 0.32 s (2397/2397 hits). NEXT:
->    catalog-flush cache (1.6-2.8 s), `-e` fast path. KPI unchanged:
+>    catalog-flush (31 modules, 1.9-2.3 s; math 0.68 s; state-effect audit
+>    required), `-e` fast path. KPI unchanged:
 >    arena compile_ms < 2 s; `xiom run -e` < 1 s warm / < 3 s cold.
 > 3. Contracts-arena verifier: emit valid SMT-LIB (declare self/null/
 >    initialized, dedupe named expressions, one check-sat per obligation).
