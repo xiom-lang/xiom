@@ -40,27 +40,28 @@
 >    deep-inference signedness fallback; e2e lock). Candidate contents so
 >    far: C25, m182, m184, m185, m186, the timing instrumentation, and the
 >    lz4/iter work once their audits land.
-> 3. Registry polish if ready, S each: B1 publish packaging guard,
->    B2 `xiom pkg yank`, install trust wording, `--resolve` outside a
->    workspace (all contracts received).
+> 3. Registry polish: MOVED to v0.63.0 (registry lane, 2026-10-04): B1
+>    publish packaging guard, B2 `xiom pkg yank`, `--resolve` outside a
+>    workspace are minor-material; trust wording (wording-only) may ride
+>    either, registry preference is all four together in v0.63.0.
 > 4. Then the v0.62.x release mechanics: pin the then-current stdlib tag,
 >    version bumps, notes, README/extension texts, Gate A + Gate P.
 >
 > BENCHMARK OPTIMIZATION for the candidate (owner request): phase timing
 > shipped behind `XIOM_TIMINGS=1` (cumulative marks: start/parse/check+
-> borrow/codegen). First measurement on the lz4 smoke: parse 0.002s,
-> **check+borrow 11.94s (~72%)**, codegen 0.20s, clang+link ~4.4s (~27%).
-> The checker phase is the target; a checked-stdlib-module cache is the
-> scoped candidate for v0.62.4 if it lands safely, otherwise Stage 6 in
-> v0.63.0.
+> borrow/codegen). First measurement on the lz4 smoke: parse 0.003s,
+> **check 10.16s (catalog+program), borrow 0.45s**, codegen 0.18s,
+> clang+link ~6.6s. The checker phase is the target; a checked-stdlib-
+> module cache is the scoped candidate for v0.63.0 (Stage 6).
 >
 > DEFERRED to `v0.63.0` (minor): Stage 6 compile-time work (per-module
 > cache + separate compilation + parallel codegen; KPI compile_ms < 2 s),
 > R-8 `tcp_stream_read`, contracts-arena verifier, i64<->f64 bitcast,
-> `-e` fast path; safety hardening after selfhost. Selfhost Phase 3
-> continues off-main and flips only at full parity. Re-scope on owner
-> priority: the two registry regressions are fixed gates; the rest is
-> candidate.
+> `-e` fast path, **lz4** (owner-approved 2026-10-04: audit not closed;
+> optimizer-sensitive v0.62.0..v0.62.2 regression), and the registry
+> polish B1/B2/`--resolve`. Safety hardening after selfhost. Selfhost
+> Phase 3 continues off-main and flips only at full parity. v0.62.4 stays
+> the FIX patch: C25, m182, m184-m189 (+ timing instrumentation).
 
 > KICKOFF (paste-ready): Continue the XIOM swarm compiler lane on `main`.
 > Read this top section, then `docs/COMPILER_BUGS.md` (2026-10-03 entries)
