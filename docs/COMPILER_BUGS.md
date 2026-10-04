@@ -10,6 +10,21 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-04 -- OPEN (queued): direct extern of xiom_guard_alloc hangs codegen / "invalid redefinition"
+
+Reported by the stdlib lane while landing the allocator bound-check lock:
+a direct XIOM extern of the runtime function `xiom_guard_alloc` hangs
+codegen (~300s) and/or fails with "invalid redefinition" on v0.62.4. They
+worked around it with a test-only `xiom_guard_alloc_probe` helper, so the
+lock shipped. Repro: a minimal `extern` declaration of `xiom_guard_alloc`
+plus a call; suspect the runtime-decl merging path (duplicate prototype)
+or the extern prototype shape (Int vs i64 / pointer kind). A direct
+runtime-symbol extern is a legitimate pattern (wrapping runtime
+internals), so the hang is a compiler bug; queue with the other open
+findings.
+
+---
+
 ## 2026-10-04 -- FIXED: verifier SMT emission (contracts arena t1/t8: named-expression / initialized / self errors)
 
 Benchmark relay (safe probe): `xiom-verify --check` on the contracts tasks
@@ -74,9 +89,12 @@ collections and the unsafe-block guard slab arena. Findings:
    unsafe block). Not observed as silent corruption, but it is an
    unguarded arithmetic surface any unsafe/FFI caller can hit with a
    near-max size (e.g. an attacker-controlled length after wrapping
-   arithmetic). FIX (1 line, stdlib lane): `if (size > LLONG_MAX - 16)
-   return NULL;` in `xiom_guard_alloc`; lock = fault-injection call with
-   the wrapping size expecting NULL/trap and no memset. `xiom_alloc`
+   arithmetic). FIX LANDED (stdlib cd61062, 2026-10-04): `if (size >
+   LLONG_MAX - 16) return NULL;` in `xiom_guard_alloc` plus a
+   fault-injection lock (`smoke_guard_alloc_wrap.xi` via a test-only
+   `xiom_guard_alloc_probe`; rc 0 with the guard, rc 1 with it disabled).
+   Compiler-side `STDLIB_VERSION` now pins cd61062 -- it rides the next
+   compiler archive (v0.63.0 was cut before the fix landed). `xiom_alloc`
    (L161) is already zero/negative-guarded + malloc-bounded -- no wrap.
 2. FLAT-ARENA HANDLES (`xiom/collect/*`): handles are raw integer indices
    into Vec-backed node pools (`fheap` docs: "handle wraps the node's
