@@ -61,7 +61,13 @@ fn main() {
     // Type check
     let mut checker = Checker::new();
     if let Some(parent) = std::path::Path::new(file_path).parent() {
-        checker.add_source_dir(parent.to_string_lossy().to_string());
+        // 2026-10-04: never register a directory at-or-above the system temp
+        // root as a recursive catalog source dir -- a fixture placed in
+        // %TEMP% otherwise indexes every unrelated tree under it (the same
+        // bug class as the compiler driver's `xiom run` temp-root walk).
+        if !std::env::temp_dir().starts_with(parent) {
+            checker.add_source_dir(parent.to_string_lossy().to_string());
+        }
     }
     // R64 fix: register the bundled stdlib like the compiler driver does,
     // otherwise `use xiom.math;` fails with "undefined variable 'math'"
@@ -69,6 +75,9 @@ fn main() {
     for stdlib_dir in xiom_graph::paths::stdlib_source_dirs() {
         checker.add_source_dir(stdlib_dir);
     }
+    // Stage 6 (STAGE6_PERF_PLAN item 1): reuse the persistent module-header
+    // index cache; without it every verification re-reads the whole stdlib.
+    checker.enable_catalog_index_cache(xiom_check::catalog::default_index_cache_path());
     checker.build_catalog_index();
     if let Err(errors) = checker.check_program(&program) {
         for e in &errors {
@@ -178,8 +187,21 @@ fn main() {
         }
 
         if errors > 0 {
-            eprintln!("\nz3 invocation failed. Install z3 and ensure it is on PATH.");
-            eprintln!("Download: https://github.com/Z3Prover/z3/releases");
+            // Distinguish "z3 missing / could not run" from "z3 ran and
+            // rejected our SMT". The old text always claimed a missing
+            // install, so benchmark harnesses read emitter bugs as an
+            // environment problem.
+            let rejected_smt = results.iter().any(|r| matches!(
+                r,
+                VerifyResult::Error { message } if message.contains("(error")
+            ));
+            if rejected_smt {
+                eprintln!("\nz3 rejected the generated SMT (emitter bug) -- see the ERROR lines above.");
+                eprintln!("This is not a proof failure of the code under test.");
+            } else {
+                eprintln!("\nz3 invocation failed. Install z3 and ensure it is on PATH.");
+                eprintln!("Download: https://github.com/Z3Prover/z3/releases");
+            }
             if output_file.is_none() {
                 let smt_path = "xiom_verify_output.smt2";
                 fs::write(smt_path, &smt_output).unwrap_or_else(|e| {

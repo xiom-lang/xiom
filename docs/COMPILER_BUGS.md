@@ -10,6 +10,56 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-04 -- FIXED: verifier SMT emission (contracts arena t1/t8: named-expression / initialized / self errors)
+
+Benchmark relay (safe probe): `xiom-verify --check` on the contracts tasks
+returned hard z3 parse errors -- "named expression already defined" (L277),
+"unknown constant initialized" (L450), "unknown constant self" (L508) --
+and printed "z3 invocation failed. Install z3..." even with z3 present.
+Root causes + fixes (all in `xiom-verify`):
+1. `:named` labels were source-derived (fn+line+clause index) -> duplicate
+   obligations on one line made z3 reject the script. FIX: monotonic
+   `unique_label()` suffix on every obligation (req/ens/side-condition/
+   invariant).
+2. `ident_term()` emitted ANY unknown identifier as a bare symbol
+   (`initialized`, `null`, undeclared `self`). FIX: only known bindings
+   (SSA latest, then declared params/consts/result/self) are emitted;
+   unknown identifiers make the obligation X7007 instead of poisoning the
+   script.
+3. Datatype selectors were DECLARED unqualified (`(x Int)`) but USED as
+   `Type-field` -> every selector application was an "unknown constant".
+   FIX: qualified names on both sides; the existing selector test had
+   encoded the mismatch and was updated to lock agreement.
+4. Methods: the implicit `self` param is typed `Self`; contracts/axioms
+   bound `self` at `|xiom_Self|` while the new receiver decl added a second
+   `self` -> "ambiguous constant reference". FIX: normalize the `self`
+   param to the owner type at collection and declare the receiver once.
+5. Sort-mismatch poisoning: operators were emitted regardless of operand
+   sorts (`(<= xiom_T x)`, `(+ (Array Gauge Int))`) -> whole-script
+   rejection. FIX: arithmetic/compare require known numeric operands,
+   logical require Bool, equality requires equal known sorts, implication
+   requires Bool; unsupported shapes become X7007 (never invalid SMT,
+   never fake proofs).
+6. Undeclared sorts: lazy `(declare-sort ...)` inside a function `(push)`
+   scope was lost at `(pop)`. FIX: top-level pre-pass declares every
+   dynamic sort (signatures + struct fields + consts + annotated locals +
+   the `|xiom_unknown|` inference fallback).
+7. Invariants on non-mappable (generic/opaque) types are skipped as X7006
+   instead of emitting bare field symbols.
+8. CLI text: "z3 rejected the generated SMT (emitter bug)" vs the old
+   blanket "Install z3" -- accurate for harness classification.
+
+VERIFIED: `bench_contracts.xi` 2 proven / 0 violated / 31 unknown /
+**0 errors** (rc 0); `bench_contracts_hard.xi` 3 / 0 / 40 / **0** (rc 0);
+new unit tests (z3-parse gate, unique labels, honest skips) + updated
+selector lock; verifier suite 34/34 integration + 3/3 lib.
+BONUS: the verifier CLI had the same temp-root source-dir recursion as the
+compiler driver (a fixture under %TEMP% indexed every tree under it) --
+guarded and wired to the Stage 6 index cache: its integration suite went
+647s+ (timeout) -> **7.5s**; single test 102s -> 0.44s.
+
+---
+
 ## 2026-10-04 -- AUDIT (queued, safety hardening): arena/handle overflow surfaces
 
 Owner question: can the arena/handle memory model be overflowed? There is

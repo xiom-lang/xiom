@@ -173,6 +173,13 @@ pub struct SMTGenerator {
     /// `MAX_ORDER` in a contract became an "unknown constant" and z3 rejected
     /// the whole script.
     consts: Vec<(String, Type, Expr)>,
+    /// Monotonic counter for `:named` labels. Source-derived labels
+    /// (fn+line+clause-index) collided when several obligations shared a
+    /// line; z3 rejects duplicate named expressions ("named expression
+    /// already defined") and the whole script fails.
+    obligation_counter: u64,
+    /// Dynamic (`|xiom_...|`) sorts already declared via ensure_sort_declared.
+    declared_sorts: HashSet<String>,
     report: GenReport,
 }
 
@@ -198,7 +205,29 @@ impl SMTGenerator {
             body_unsupported: None,
             contract_axioms: Vec::new(),
             consts: Vec::new(),
+            obligation_counter: 0,
+            declared_sorts: HashSet::new(),
             report: GenReport::default(),
+        }
+    }
+
+    /// Unique `:named` label (see obligation_counter).
+    fn unique_label(&mut self, base: &str) -> String {
+        self.obligation_counter += 1;
+        format!("{}_{}", base, self.obligation_counter)
+    }
+
+    /// Emit `(declare-sort S 0)` once for a dynamic (`|...|`) sort the first
+    /// time it is used. Primitives (Int/Bool/Real/String) and datatype names
+    /// are not touched. Without this, a let/const whose type fell back to
+    /// `|xiom_unknown|` produced `(declare-const x |xiom_unknown|)` with no
+    /// sort declaration -- z3 rejected the whole script.
+    fn ensure_sort_declared(&mut self, sort: &str) {
+        if !sort.starts_with('|') {
+            return;
+        }
+        if self.declared_sorts.insert(sort.to_string()) {
+            self.emit(&format!("(declare-sort {} 0)", sort));
         }
     }
 
@@ -225,14 +254,13 @@ impl SMTGenerator {
         self.collect_fns(program);
         self.collect_consts(&program.items);
 
+        // 2026-10-04: declare every dynamic sort at TOP LEVEL first. Lazy
+        // in-scope declarations (inside a function `(push)`) were lost at
+        // `(pop)` and later uses failed with "unknown sort".
+        self.collect_dynamic_sorts(program);
+
         // Emit struct datatypes BEFORE any function section references them.
         self.emit_datatypes();
-
-        // R64 fix: sorts for non-mappable types (refs, Vec[T], unknown
-        // structs) must be DECLARED before declare-fun uses them. Registering
-        // the stdlib made z3 parse every stdlib signature, and every
-        // aggregate-typed parameter produced "unknown sort" until this pass.
-        self.emit_opaque_sorts();
 
         // R64 fix: declare module constants + their defining values so
         // contracts and bodies can refer to them (MAX_ORDER, MIN_BLOCK, ...).
@@ -311,6 +339,7 @@ impl SMTGenerator {
         // Declare all first so constants may reference each other.
         for (name, ty, _) in self.consts.clone() {
             let sort = self.sort_for(&ty);
+            self.ensure_sort_declared(&sort);
             self.emit(&format!("(declare-const {} {})", smt_escape(&name), sort));
             self.var_sort_map.insert(name.clone(), sort);
         }
@@ -391,35 +420,101 @@ impl SMTGenerator {
             if !self.datatype_sorts.contains(&name) {
                 continue;
             }
+            // Selector names MUST match the translator's `{Type}-{field}`
+            // form (Expr::Field). The old unqualified `field` names made
+            // every datatype selector application an "unknown constant".
             let parts: Vec<String> = fields.iter().map(|(fname, fty)| {
-                format!("({} {})", fname, self.sort_for(fty))
+                format!("({}-{} {})", name, fname, self.sort_for(fty))
             }).collect();
             self.emit(&format!("(declare-datatype {} ((mk-{} {})))", name, name, parts.join(" ")));
         }
         self.emit("");
     }
 
-    /// R64: declare every non-datatype sort used by function signatures as an
-    /// opaque (uninterpreted) sort. Without this, any function taking a
-    /// reference/Vec/unknown-struct emitted `(declare-fun ... |xiom_&T| ...)`
-    /// with no matching declaration -- z3 rejects the whole script.
-    fn emit_opaque_sorts(&mut self) {
-        let mut sorts: Vec<String> = Vec::new();
+    /// Declare every dynamic (`|...|`) sort the program can use -- function
+    /// signatures, struct fields, constants, annotated locals, and the
+    /// `|xiom_unknown|` inference fallback -- at TOP LEVEL. Lazy emission
+    /// inside a function `(push)` scope was lost at `(pop)`, so later uses
+    /// failed with "Invalid constant declaration: unknown sort".
+    fn collect_dynamic_sorts(&mut self, program: &Program) {
+        let mut ann_types: Vec<Type> = Vec::new();
+        for (_, fields) in &self.structs {
+            for (_, ty) in fields {
+                ann_types.push(ty.clone());
+            }
+        }
+        for (_, ty, _) in &self.consts {
+            ann_types.push(ty.clone());
+        }
+        Self::walk_annotated_types(&program.items, &mut ann_types);
+        let mut sorts: Vec<String> = vec!["|xiom_unknown|".to_string()];
+        for ty in ann_types {
+            let s = self.sort_for(&ty);
+            if s.starts_with('|') {
+                sorts.push(s);
+            }
+        }
         for (_, (psorts, rsort)) in &self.fn_sigs {
             for s in psorts.iter().chain(rsort.iter()) {
-                if s.starts_with("|xiom_") && !self.datatype_sorts.contains(s) && !sorts.contains(s) {
+                if s.starts_with('|') {
                     sorts.push(s.clone());
                 }
             }
         }
-        if sorts.is_empty() {
-            return;
-        }
-        self.emit("; --- opaque sorts (non-mappable types) ---");
+        sorts.sort();
+        sorts.dedup();
+        self.emit("; --- opaque sorts (non-mappable types + inference fallback) ---");
         for s in sorts {
-            self.emit(&format!("(declare-sort {} 0)", s));
+            if self.declared_sorts.insert(s.clone()) {
+                self.emit(&format!("(declare-sort {} 0)", s));
+            }
         }
         self.emit("");
+    }
+
+    fn walk_annotated_types(items: &[TopDecl], out: &mut Vec<Type>) {
+        for item in items {
+            match item {
+                TopDecl::Fn(f) => {
+                    for p in &f.params {
+                        out.push(p.ty.clone());
+                    }
+                    if let Some(r) = &f.return_type {
+                        out.push(r.clone());
+                    }
+                    if let Some(b) = &f.body {
+                        Self::walk_block_types(b, out);
+                    }
+                }
+                TopDecl::Const(c) => out.push(c.ty.clone()),
+                TopDecl::Module(m) => Self::walk_annotated_types(&m.items, out),
+                _ => {}
+            }
+        }
+    }
+
+    fn walk_block_types(b: &Block, out: &mut Vec<Type>) {
+        for item in &b.stmts {
+            let stmt = match item {
+                StmtOrExpr::Stmt(s) => s,
+                StmtOrExpr::Expr(..) => continue,
+            };
+            match stmt {
+                Stmt::Let(_, Some(t), ..) | Stmt::Var(_, Some(t), ..) => out.push((**t).clone()),
+                Stmt::If(_, then_b, elifs, else_b, _) => {
+                    Self::walk_block_types(then_b, out);
+                    for (_, b) in elifs {
+                        Self::walk_block_types(b, out);
+                    }
+                    if let Some(b) = else_b {
+                        Self::walk_block_types(b, out);
+                    }
+                }
+                Stmt::While(_, body, _, _, _) => Self::walk_block_types(body, out),
+                Stmt::For(_, _, body, _, _) => Self::walk_block_types(body, out),
+                _ => {}
+            }
+        }
     }
 
     fn emit_fn_decl(&mut self, name: &str, params: &[(String, Type)], ret: Option<&Type>) {
@@ -429,6 +524,9 @@ impl SMTGenerator {
         // pair formatting emitted `(declare-fun |f| ((x Int)) Int)`, which z3
         // rejects with "unknown sort 'x'" -- every contract proof failed.
         // Binder NAMES stay in the contract axiom's `forall`, not here.
+        for s in psorts.iter().chain(std::iter::once(&rsort)) {
+            self.ensure_sort_declared(s);
+        }
         self.emit(&format!("(declare-fun |{}| ({}) {})", smt_escape(name), psorts.join(" "), rsort));
     }
 
@@ -445,7 +543,17 @@ impl SMTGenerator {
             match item {
                 TopDecl::Fn(f) if !f.contracts.is_empty() => {
                     let params: Vec<(String, Type)> =
-                        f.params.iter().map(|p| (p.name.name.clone(), p.ty.clone())).collect();
+                        f.params.iter().map(|p| {
+                            // Method receiver: the implicit `self` param is
+                            // typed `Self`; bind it at the OWNER type so
+                            // field selectors and axioms are well-sorted and
+                            // `self` is not redeclared with a different sort.
+                            let ty = match (p.name.name.as_str(), &f.receiver) {
+                                ("self", Some(recv)) => Type::Named(recv.clone(), Vec::new()),
+                                _ => p.ty.clone(),
+                            };
+                            (p.name.name.clone(), ty)
+                        }).collect();
                     let reqs = f.contracts.iter()
                         .filter_map(|c| match c { ContractClause::Requires(e, _) => Some(e.clone()), _ => None })
                         .collect();
@@ -585,15 +693,35 @@ impl SMTGenerator {
 
         // Register param sorts.
         for param in &f.params {
-            let sort = self.sort_for(&param.ty);
+            // Method receiver `self` (typed `Self`) resolves to the owner
+            // type here too (see collect_from_items).
+            let sort = match (param.name.name.as_str(), &f.receiver) {
+                ("self", Some(recv)) => self.sort_for_named(&recv.name),
+                _ => self.sort_for(&param.ty),
+            };
+            self.ensure_sort_declared(&sort);
             self.emit(&format!("(declare-const {} {})", smt_escape(&param.name.name), sort));
             self.var_sort_map.insert(param.name.name.clone(), sort.clone());
             self.latest.insert(param.name.name.clone(), smt_escape(&param.name.name));
         }
         if let Some(ret) = &f.return_type {
             let sort = self.sort_for(ret);
+            self.ensure_sort_declared(&sort);
             self.emit(&format!("(declare-const |result| {})", sort));
             self.var_sort_map.insert("result".to_string(), sort);
+        }
+        // Method receiver: contracts reference `self` (field selectors on the
+        // receiver). Only type invariants used to declare |self|, so every
+        // method `ensures self.f` became an undeclared symbol
+        // ("unknown constant self").
+        if let Some(recv) = &f.receiver {
+            if !self.var_sort_map.contains_key("self") {
+                let owner_sort = self.sort_for_named(&recv.name);
+                self.ensure_sort_declared(&owner_sort);
+                self.emit(&format!("(declare-const |self| {})", owner_sort));
+                self.var_sort_map.insert("self".to_string(), owner_sort.clone());
+                self.latest.insert("self".to_string(), "|self|".to_string());
+            }
         }
         self.emit("");
 
@@ -603,7 +731,7 @@ impl SMTGenerator {
         for contract in &f.contracts {
             if let ContractClause::Requires(e, span) = contract {
                 has_requires = true;
-                let label = format!("req_{}_{}", smt_escape(&fname), span.line);
+                let label = self.unique_label(&format!("req_{}_{}", smt_escape(&fname), span.line));
                 self.emit(&format!("; requires (line {}): {}", span.line, expr_display(e)));
                 let saved = self.unsupported.take();
                 let term = self.translate_expr_to_val(e);
@@ -638,7 +766,7 @@ impl SMTGenerator {
         // Ensures checks: per-clause push/(assert (not E))/check-sat/pop.
         for (i, contract) in f.contracts.iter().enumerate() {
             if let ContractClause::Ensures(e, span) = contract {
-                let label = format!("ens_{}_{}_{}", smt_escape(&fname), span.line, i);
+                let label = self.unique_label(&format!("ens_{}_{}_{}", smt_escape(&fname), span.line, i));
                 let display = expr_display(e);
                 self.emit(&format!("; ensures (line {}): {}", span.line, display));
                 if let Some(reason) = &body_gap {
@@ -685,7 +813,8 @@ impl SMTGenerator {
                 }
                 self.emit(&format!("; {}: {}", sc.code, sc.message));
                 self.emit("(push)");
-                self.emit(&format!("(assert (! (not {}) :named |obl_{}|))", sc.smt, sc.code));
+                let label = self.unique_label(&format!("obl_{}", sc.code));
+                self.emit(&format!("(assert (! (not {}) :named |{}|))", sc.smt, label));
                 self.emit("(check-sat)");
                 self.emit("(get-model)");
                 self.emit("(pop)");
@@ -748,6 +877,7 @@ impl SMTGenerator {
                         .unwrap_or_else(|| "|xiom_unknown|".to_string()),
                 };
                 let ssa = self.fresh_ssa(&name.name);
+                self.ensure_sort_declared(&sort);
                 self.emit(&format!("(declare-const {} {})", ssa, sort));
                 self.var_sort_map.insert(ssa.clone(), sort);
                 let saved = self.unsupported.take();
@@ -904,6 +1034,7 @@ impl SMTGenerator {
                     .or_else(|| self.infer_sort(expr))
                     .unwrap_or_else(|| "|xiom_unknown|".to_string());
                 let ssa = self.fresh_ssa(&base);
+                self.ensure_sort_declared(&sort);
                 self.emit(&format!("(declare-const {} {})", ssa, sort));
                 self.var_sort_map.insert(ssa.clone(), sort);
                 let saved = self.unsupported.take();
@@ -982,6 +1113,7 @@ impl SMTGenerator {
                 let (_, ret) = self.fn_sigs.get(&name)?;
                 ret.clone()
             }
+            Expr::Imply(..) => Some("Bool".to_string()),
             Expr::Field(obj, field, _) => {
                 let obj_sort = self.infer_sort(obj)?;
                 self.selector_sort(&obj_sort, &field.name)
@@ -1017,12 +1149,31 @@ impl SMTGenerator {
         // Invariant checks are not body checks -- all callable contracts hold.
         self.emit_assumed_axioms(None);
         let sort = self.sort_for_named(&tname);
+        self.ensure_sort_declared(&sort);
         self.emit(&format!("(declare-const |self| {})", sort));
         self.var_sort_map.insert("self".to_string(), sort.clone());
         self.latest.clear();
+        self.latest.insert("self".to_string(), "|self|".to_string());
+
+        // Bare field names in invariants (`invariant: lo <= hi`) refer to
+        // fields of `self`. Bind them to `(<Type>-<field> |self|)` for
+        // datatypes. For non-mappable types (generic structs like
+        // Range[T], opaque fields) the fields have no modeled sort -- skip
+        // the invariant as UNKNOWN instead of emitting undeclared symbols
+        // (2026-10-04: z3 rejected the whole script with "unknown constant").
+        if !self.datatype_sorts.contains(&tname) {
+            for (i, _) in td.invariants.iter().enumerate() {
+                self.emit(&format!("; invariant {} skipped: non-mappable type (generic/opaque)", i));
+                self.report.skip(X7006_INVARIANT, &tname,
+                    format!("invariant {} on non-mappable type '{}'", i, tname));
+            }
+            self.emit("(pop)");
+            self.emit("");
+            return;
+        }
 
         for (i, inv) in td.invariants.iter().enumerate() {
-            let label = format!("inv_{}_{}", smt_escape(&tname), i);
+            let label = self.unique_label(&format!("inv_{}_{}", smt_escape(&tname), i));
             self.emit(&format!("; invariant {}: {}", i, expr_display(inv)));
             let saved = self.unsupported.take();
             let term = self.translate_expr_to_val(inv);
@@ -1080,7 +1231,9 @@ impl SMTGenerator {
         }
     }
 
-    /// Latest binding term for an identifier (SSA-aware).
+    /// Latest binding term for an identifier (SSA-aware). Used by callers
+    /// that have already validated the identifier is known.
+    #[allow(dead_code)]
     fn ident_term(&self, name: &str) -> String {
         self.latest.get(name).cloned()
             .unwrap_or_else(|| smt_escape(name))
@@ -1105,8 +1258,20 @@ impl SMTGenerator {
                 self.buf.push_str(&format!("{}", *c as i64));
             }
             Expr::Ident(id) => {
-                let term = self.ident_term(&id.name);
-                self.buf.push_str(&term);
+                // SOUNDNESS FIX (2026-10-04): never emit an undeclared bare
+                // symbol. The old fallback produced `initialized`/`self`/`null`
+                // names with no declaration and z3 rejected the whole script.
+                // Known bindings: SSA `latest`, then declared
+                // params/consts/`result`/`self` in `var_sort_map`; anything
+                // else makes the obligation UNKNOWN instead.
+                if let Some(term) = self.latest.get(&id.name).cloned() {
+                    self.buf.push_str(&term);
+                } else if self.var_sort_map.contains_key(&id.name) {
+                    self.buf.push_str(&smt_escape(&id.name));
+                } else {
+                    self.mark_unsupported(format!("unknown identifier '{}'", id.name));
+                    self.buf.push('0');
+                }
             }
             Expr::Str(s, _) => {
                 self.buf.push_str(&format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\"")));
@@ -1122,6 +1287,14 @@ impl SMTGenerator {
                 }
             }
             Expr::Imply(left, right, _) => {
+                let ls = self.infer_sort(left);
+                let rs = self.infer_sort(right);
+                if ls.as_deref().map_or(false, |s| s != "Bool")
+                    || rs.as_deref().map_or(false, |s| s != "Bool")
+                {
+                    self.mark_unsupported("implication with non-Bool operands".to_string());
+                    return;
+                }
                 self.buf.push_str("(=> ");
                 self.translate_expr(left);
                 self.buf.push(' ');
@@ -1135,6 +1308,45 @@ impl SMTGenerator {
                     (Some(a), Some(b)) if a == b && (a == "Int" || a == "Real") => Some(a.clone()),
                     _ => None,
                 };
+
+                // SOUNDNESS FIX (2026-10-04): only form an operator when the
+                // operand sorts are known to be well-sorted. The old emitter
+                // happily built `(<= xiom_T x)` / `(+ (Array ...) ...)` and
+                // z3 rejected the WHOLE script ("Sort mismatch") -- which the
+                // harness then reported as a bogus toolchain error. These
+                // shapes now skip the obligation as X7007 and never poison
+                // the script.
+                let arithmetic_or_compare = matches!(
+                    op,
+                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem
+                        | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge
+                );
+                if arithmetic_or_compare && numeric.is_none() {
+                    self.mark_unsupported(format!(
+                        "operator {:?} on non-numeric operands (sorts {:?}/{:?})", op, ls, rs));
+                    return;
+                }
+                if matches!(op, BinOp::And | BinOp::Or)
+                    && (ls.as_deref().map_or(false, |s| s != "Bool")
+                        || rs.as_deref().map_or(false, |s| s != "Bool"))
+                {
+                    self.mark_unsupported(format!("logical {:?} on non-Bool operands", op));
+                    return;
+                }
+                if matches!(op, BinOp::Eq | BinOp::Neq) {
+                    match (&ls, &rs) {
+                        (Some(a), Some(b)) if a != b => {
+                            self.mark_unsupported(format!("equality across sorts {a} vs {b}"));
+                            return;
+                        }
+                        (None, _) | (_, None) => {
+                            self.mark_unsupported(
+                                "equality with unresolved operand sort".to_string());
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
 
                 // Div/rem-by-zero side conditions (well-sorted under the
                 // unified policy; Real uses the 0.0 literal).
@@ -1719,5 +1931,131 @@ mod tests {
         assert_eq!(candidates[0], dir.join(expected));
         assert_eq!(candidates[1].file_name().unwrap().to_string_lossy(), expected);
         assert!(candidates[1].to_string_lossy().contains("bin"));
+    }
+
+    fn parse_program(src: &str) -> Program {
+        let mut parser = xiom_parser::Parser::new(xiom_lexer::Lexer::new(src).tokenize());
+        parser
+            .parse_program()
+            .unwrap_or_else(|e| panic!("test fixture parse: {e:?}"))
+    }
+
+    fn generate(src: &str) -> (String, GenReport) {
+        let program = parse_program(src);
+        let mut generator = SMTGenerator::new();
+        generator.generate_with_report(&program)
+    }
+
+    /// Parse the generated SMT with z3 when available. `None` = z3 missing
+    /// (test skips); `Some(false)` = z3 rejected the script.
+    fn z3_parses(smt: &str) -> Option<bool> {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let path = std::env::temp_dir().join(format!(
+            "xiom_verify_emit_test_{}_{}.smt2",
+            std::process::id(),
+            nanos
+        ));
+        std::fs::write(&path, smt).ok()?;
+        let out = std::process::Command::new("z3")
+            .arg("-smt2")
+            .arg(&path)
+            .output()
+            .ok()?;
+        let _ = std::fs::remove_file(&path);
+        let combined = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        Some(!combined.to_lowercase().contains("error"))
+    }
+
+    #[test]
+    fn method_self_selectors_and_labels_are_valid_smt() {
+        // Method `self`, datatype selectors, and repeated clauses must all
+        // produce a script z3 accepts (2026-10-04 emission fixes).
+        let (smt, report) = generate(
+            r#"
+module verify_emission
+
+pub type Positive = {
+  current: Int;
+  invariant: current >= 0;
+}
+
+pub fn Positive.bump(self, by: Int) -> Positive
+requires: by >= 0
+ensures: result.current >= 0
+ensures: result.current >= self.current
+{
+  return Positive { current: self.current + by };
+}
+"#,
+        );
+        assert!(smt.contains("(declare-const self"), "receiver declared:\n{smt}");
+        assert!(smt.contains("(Positive-current"), "qualified selector:\n{smt}");
+        // Every `:named` label must be unique.
+        let mut seen = std::collections::HashSet::new();
+        for token in smt.split(":named |").skip(1) {
+            let label = token.split('|').next().unwrap_or_default().to_string();
+            assert!(seen.insert(label.clone()), "duplicate :named label {label}");
+        }
+        // Bare invariant fields are not modeled yet -- they must surface as
+        // X7006 UNKNOWN, never as emitted undeclared symbols.
+        assert!(
+            report.skipped.iter().all(|s| s.code == X7006_INVARIANT || s.code == X7007_UNKNOWN),
+            "unexpected skips: {:?}",
+            report.skipped
+        );
+        if let Some(ok) = z3_parses(&smt) {
+            assert!(ok, "z3 rejected the generated SMT:\n{smt}");
+        }
+    }
+
+    #[test]
+    fn unknown_identifiers_and_generic_comparisons_skip_not_poison() {
+        // A generic comparison (`T` has no modeled order) and a bare unknown
+        // identifier must become X7007/X7006 skips -- never undeclared
+        // symbols that make z3 reject the whole script.
+        let (smt, report) = generate(
+            r#"
+module verify_emission_generic
+
+pub type Pair[T] = {
+  lo: T;
+  hi: T;
+  invariant: lo <= hi;
+}
+
+pub fn maybe(value: Int) -> Int
+requires: value >= 0
+ensures: result == phantom_value
+{
+  return value;
+}
+"#,
+        );
+        assert!(
+            !smt.contains("(<= lo hi)"),
+            "unmodeled generic field must not be emitted:\n{smt}"
+        );
+        let emitted_phantom = smt.lines().any(|l| {
+            !l.trim_start().starts_with(';') && l.contains("phantom_value")
+        });
+        assert!(
+            !emitted_phantom,
+            "unknown identifier must not be emitted as a term:\n{smt}"
+        );
+        assert!(
+            report.skipped.iter().any(|s| s.code == X7006_INVARIANT),
+            "generic invariant must be reported UNKNOWN: {:?}",
+            report.skipped
+        );
+        if let Some(ok) = z3_parses(&smt) {
+            assert!(ok, "z3 rejected the generated SMT:\n{smt}");
+        }
     }
 }

@@ -201,8 +201,8 @@ fn lift(p: Point) -> Int
     std::fs::write(&tmp, src).expect("write test file");
     let smt = smt_for(tmp.to_str().unwrap());
     let _ = std::fs::remove_file(&tmp);
-    assert!(smt.contains("(declare-datatype Point ((mk-Point (x Int) (y Int))))"),
-        "struct must become an SMT datatype:\n{smt}");
+    assert!(smt.contains("(declare-datatype Point ((mk-Point (Point-x Int) (Point-y Int))))"),
+        "struct must become an SMT datatype with QUALIFIED selectors (they must match the `(Point-x obj)` uses -- unqualified declarations were the 2026-10-04 z3-error bug):\n{smt}");
     assert!(smt.contains("(Point-x ") && smt.contains("(Point-y "),
         "field access must use the datatype selectors:\n{smt}");
     assert!(!smt.contains("(|x| ") && !smt.contains("(|y| "), "no undeclared field functions may be emitted");

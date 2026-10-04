@@ -53,9 +53,18 @@
 >    as source dirs (a stray .xi in %TEMP% made cold runs index every tree
 >    under temp: 9-way W001 flood, ~140 s). Cold run 140 s -> 3.95 s;
 >    W001 0; unit lock added.
-> 3. Contracts-arena verifier: emit valid SMT-LIB (declare self/null/
->    initialized, dedupe named expressions, one check-sat per obligation).
->    X7007 stays unknown-by-design (loops without invariants, complex call
+> 3. Contracts-arena verifier: **FIXED (2026-10-04)** -- unique :named
+>    labels, no undeclared bare symbols (unknown ident -> X7007), qualified
+>    datatype selectors both sides, receiver `self` normalized (no
+>    ambiguous self), sort-guarded operators (arith numeric / logical Bool /
+>    equality equal sorts), all dynamic sorts declared in a top-level
+>    pre-pass, generic-type invariants -> X7006; CLI distinguishes "z3
+>    rejected our SMT (emitter bug)" from a missing z3; verifier CLI also
+>    got the temp-root source-dir guard + Stage 6 index cache (its suite
+>    647 s -> 7.5 s). VERIFIED: bench_contracts.xi 2 proven / 0 violated /
+>    31 unknown / 0 errors rc 0; bench_contracts_hard.xi 3/0/40/0 rc 0;
+>    verifier suite 34/34 + 3/3; new z3-parse unit tests. X7007 stays
+>    unknown-by-design (loops without invariants, complex call
 >    targets, contract array indexing) until modeled. Benchmark policy is
 >    not-proven = not-passed; lines render amber toolchain.
 > 4. Other open findings (docs/COMPILER_BUGS.md 2026-10-04): enum-payload
