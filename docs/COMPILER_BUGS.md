@@ -64,6 +64,20 @@ after. Playground acceptance `tools/compiler-repros/c25/run.sh` prints
 
 ---
 
+## 2026-10-04 -- NEW (open, queued): reflect.all_types() heap corruption (0xC0000374), catalog-return-path specific
+
+Source: stdlib wave-64 relay, probe `p_reflect_all_types_crash.xi`.
+Reproduces on v0.62.3, v0.61.3 and the m187 dev build (heap corruption
+0xC0000374). The IDENTICAL build loop replicates green in a USER module,
+and `type_info_by_name`'s single-TypeInfo return works -- so the trigger is
+the CATALOG return path for the `Vec[TypeInfo]` built inside reflect,
+likely a catalog-returned aggregate whose element/drop handling mismatches
+(the m189 same-name/type-resolution family is the first thing to compare).
+Queue: v0.63.0 triage behind lz4; needs the stdlib probe bundle to
+minimize. v0.62.4 ships without it (by owner scope).
+
+---
+
 ## 2026-10-03 -- FIXED (m189): enum struct-payload construction emitted INVALID IR (type/variant name collision)
 
 Source: packages re-run -- the enum-payload Str in-situ failure survives
