@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "tag": "v0.62.4",
+  "summary": "A correctness patch: the script cache, constant tables, nested modules, match-arm code generation, and unsigned comparisons are fixed.",
+  "highlights": [
+    {
+      "kind": "fix",
+      "title": "Script cache runs keep stdin",
+      "text": "A warm script-cache hit ran the cached program with closed input, so a second run of a program that reads from the terminal saw nothing; the --no-cache and --jit flags were also ignored on that path. Cached runs now inherit stdin and the flags are honored."
+    },
+    {
+      "kind": "fix",
+      "title": "Constant tables with strings and structs",
+      "text": "Module-level constant arrays of strings or structs were not materialized correctly: struct fields read as zero and string lengths returned garbage. They are now real constant globals, and integer tables are unchanged."
+    },
+    {
+      "kind": "fix",
+      "title": "Nested modules and same-name payload types",
+      "text": "A module nested under another module (for example a package tests module importing its package) saw none of the parent module's exports. A struct type sharing a name with an enum variant was also built as the enum and produced broken code; the type now wins inside its module."
+    },
+    {
+      "kind": "fix",
+      "title": "Match arms and unsigned comparisons",
+      "text": "An uninitialized local assigned inside match arms could crash or read garbage. An inline comparison of a module-qualified unsigned call result misread values with the top bit set. Constant-valued match arms never matched and always fell through to the default arm. All three are fixed."
+    },
+    {
+      "kind": "tooling",
+      "title": "Doctor version checks",
+      "text": "The doctor no longer warns when the standard library's own release line differs from the compiler's patch version, and tag-shaped standard-library pins are not compared as versions."
+    },
+    {
+      "kind": "tooling",
+      "title": "Compile-phase timings",
+      "text": "Setting XIOM_TIMINGS=1 prints per-phase compile times to stderr (parse, check, borrow, codegen), for profiling builds and benchmarks."
+    }
+  ],
+  "breaking": [],
+  "known_issues": [
+    "LZ4 block compression can read an empty result in some larger programs; the cause is isolated and scheduled for the next minor release.",
+    "The contract verifier emits malformed SMT for some obligations (undeclared symbols, duplicate named expressions), so those checks report unknown instead of proving; scheduled for the next minor release."
+  ],
+  "docs": [],
+  "full_changelog": "https://github.com/xiom-lang/xiom/releases/tag/v0.62.4"
+}
