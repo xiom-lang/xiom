@@ -1045,7 +1045,10 @@ impl crate::IrEmitter {
             | Pattern::Lit(Literal::Str(..)) | Pattern::Lit(Literal::Char(..)) => true,
             Pattern::Variant(..) | Pattern::Struct(..) | Pattern::Tuple(..) => true,
             Pattern::Some(..) | Pattern::None(..) | Pattern::Ok(..) | Pattern::Err(..) => true,
-            Pattern::Ident(ident) => self.ident_is_enum_variant(scrutinee_type, &ident.name),
+            Pattern::Ident(ident) => {
+                self.ident_is_enum_variant(scrutinee_type, &ident.name)
+                    || self.match_ident_is_const(&ident.name)
+            }
             Pattern::Or(alternatives, _) => alternatives.iter().any(|a| self.pattern_needs_check(a, scrutinee_type)),
             _ => false,
         }

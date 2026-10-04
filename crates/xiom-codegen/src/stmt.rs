@@ -1892,7 +1892,35 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                         self.emitln(&format!("  br i1 {eq}, label %{arm_label}, label %{fail_block}"));
                                     }
                                     Pattern::Ident(id) => {
-                                        self.emit_variant_discriminant_check(&id.name, &scrutinee_alloca_info, &val, &arm_label, &fail_block);
+                                        // m188: const-valued arm -- compare the
+                                        // scrutinee to the const's literal value
+                                        // (consts parse as bare Idents and were
+                                        // previously treated as bindings, so they
+                                        // never matched and the wildcard won).
+                                        let const_lit: Option<String> = self
+                                            .local
+                                            .constants
+                                            .get(&id.name)
+                                            .and_then(|cv| match cv {
+                                                Expr::Int(n, _) => Some(n.to_string()),
+                                                Expr::Bool(b, _) => {
+                                                    Some(if *b { "1" } else { "0" }.to_string())
+                                                }
+                                                Expr::Char(c, _) => Some((*c as i64).to_string()),
+                                                _ => None,
+                                            });
+                                        match const_lit {
+                                            Some(lit) => {
+                                                let c = self.fresh_tmp();
+                                                self.emitln(&format!("  {c} = icmp eq i64 {val}, {lit}"));
+                                                self.emitln(&format!(
+                                                    "  br i1 {c}, label %{arm_label}, label %{fail_block}"
+                                                ));
+                                            }
+                                            None => {
+                                                self.emit_variant_discriminant_check(&id.name, &scrutinee_alloca_info, &val, &arm_label, &fail_block);
+                                            }
+                                        }
                                     }
                                     Pattern::Variant(vn, fields, _) => {
                                         // For or-patterns with guards, bind the payload BEFORE
@@ -2058,15 +2086,38 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             );
                         }
                         Pattern::Ident(ident) => {
-                            // Only reachable when this ident names an enum
-                            // variant (see `pattern_needs_check`).
-                            self.emit_variant_discriminant_check(
-                                &ident.name,
-                                &scrutinee_alloca_info,
-                                &val,
-                                &arm_label,
-                                &next,
-                            );
+                            // m188: const-valued arm -- compare the scrutinee
+                            // to the const's literal value. Otherwise this
+                            // ident names an enum variant (see
+                            // `pattern_needs_check`).
+                            let const_lit: Option<String> = self
+                                .local
+                                .constants
+                                .get(&ident.name)
+                                .and_then(|cv| match cv {
+                                    Expr::Int(n, _) => Some(n.to_string()),
+                                    Expr::Bool(b, _) => {
+                                        Some(if *b { "1" } else { "0" }.to_string())
+                                    }
+                                    Expr::Char(c, _) => Some((*c as i64).to_string()),
+                                    _ => None,
+                                });
+                            match const_lit {
+                                Some(lit) => {
+                                    let c = self.fresh_tmp();
+                                    self.emitln(&format!("  {c} = icmp eq i64 {val}, {lit}"));
+                                    self.emitln(&format!("  br i1 {c}, label %{arm_label}, label %{next}"));
+                                }
+                                None => {
+                                    self.emit_variant_discriminant_check(
+                                        &ident.name,
+                                        &scrutinee_alloca_info,
+                                        &val,
+                                        &arm_label,
+                                        &next,
+                                    );
+                                }
+                            }
                         }
                         Pattern::Some(..) | Pattern::None(..) | Pattern::Ok(..) | Pattern::Err(..) => {
                             // Builtin Option/Result variant dispatch: check the

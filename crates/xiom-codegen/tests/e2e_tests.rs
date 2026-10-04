@@ -5002,6 +5002,16 @@ fn e2e_safety_probe() {
     );
 }
 
+// m188 (packages relay): const values as match arms never matched (bare
+// idents parsed as catch-all bindings; every input hit the wildcard).
+#[test] fn e2e_m188_const_match_arms() {
+    assert_eq!(
+        compile_and_run("tests/regression/m188_const_match_arms/main.xi"),
+        Some(0),
+        "m188 const-valued match arms must compare by value"
+    );
+}
+
 // R48 (playground C17 classes): interface dispatch through a `&T` generic
 // argument (was mono'd as Int -> C001) and pointer/double match-result
 // zero-init (was `store i8* 0` / `store double 0` -> clang reject). Needs

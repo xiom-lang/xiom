@@ -64,6 +64,36 @@ after. Playground acceptance `tools/compiler-repros/c25/run.sh` prints
 
 ---
 
+## 2026-10-03 -- FIXED (m188): const values as match arms never matched
+
+Source: packages relay (minimized `docs/repro/const-match/`; all 17 const
+arms in grpc.xi had been rewritten to literals as a workaround).
+
+ROOT CAUSE: a bare `CODE_A` arm parses as `Pattern::Ident` and was treated
+as a catch-all BINDING: `pattern_needs_check` returned false, the arm fell
+into the wildcard classification, and the LAST unguarded ident/`_` arm
+became the branch target -- every input reached the wildcard
+(`status_to_str` returned "UNKNOWN" for every code). IR evidence: the
+dispatch branched straight to `match_arm6` with no comparisons.
+
+FIX (codegen): `pattern_needs_check` (both copies: lib.rs + types.rs) now
+checks `match_ident_is_const`, and the emit paths (plain + or-alternative
+arms) compare the scrutinee against the const's literal value
+(`icmp eq i64`) instead of treating it as a variant/binding. Non-literal
+consts (Str/aggregate) keep the previous variant-check fallback.
+
+LOCK: `e2e_m188_const_match_arms` + `tests/regression/m188_const_match_arms/`,
+ci.yml line; feature 519/519; probe rc 1 -> 0. The grpc.xi literal
+workaround can be reverted after this ships.
+
+OPEN (packages, second item): their suite binary crashes 0xC0000005
+PRE-output when a later test group is included; bisection hit the
+3-attempt circuit breaker and is logged in their docs/failed_attempts.md.
+Need the smallest failing group to triage; grpc stays tests=unknown,
+unpublished until then.
+
+---
+
 ## 2026-10-03 -- FIXED (m187): doctor's stdlib version checks compared unrelated version namespaces
 
 REPORT: `xiom doctor` on a correct v0.62.3 install (installer-fetched

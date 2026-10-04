@@ -4565,13 +4565,34 @@ impl IrEmitter {
     /// which arms consume a `check_labels` slot. A previous inconsistency
     /// between those loops desynchronized `check_idx` from `check_labels.len()`
     /// and caused an out-of-bounds panic.
+    /// m188 (packages relay): does this bare pattern name resolve to a
+    /// compile-time CONST? Const-valued arms parse as `Pattern::Ident` and
+    /// were treated as catch-all bindings -- `match code { CODE_A => ... }`
+    /// fell straight to the wildcard arm for every input. They must be
+    /// checked (value comparison) instead.
+    fn match_ident_is_const(&self, name: &str) -> bool {
+        if self.local.constants.contains_key(name) {
+            return true;
+        }
+        let leaf = name.rsplit('.').next().unwrap_or(name);
+        self.local.constants.contains_key(leaf)
+            || self
+                .local
+                .constants
+                .keys()
+                .any(|k| k == name || k.ends_with(&format!(".{name}")))
+    }
+
     fn pattern_needs_check(&self, pattern: &Pattern, scrutinee_type: &Option<String>) -> bool {
         match pattern {
             Pattern::Lit(Literal::Int(..)) | Pattern::Lit(Literal::Float(..)) | Pattern::Lit(Literal::Bool(..))
             | Pattern::Lit(Literal::Str(..)) | Pattern::Lit(Literal::Char(..)) => true,
             Pattern::Variant(..) => true,
             Pattern::Some(..) | Pattern::None(..) | Pattern::Ok(..) | Pattern::Err(..) => true,
-            Pattern::Ident(ident) => self.ident_is_enum_variant(scrutinee_type, &ident.name),
+            Pattern::Ident(ident) => {
+                self.ident_is_enum_variant(scrutinee_type, &ident.name)
+                    || self.match_ident_is_const(&ident.name)
+            }
             Pattern::Or(alternatives, _) => alternatives.iter().any(|a| self.pattern_needs_check(a, scrutinee_type)),
             Pattern::Struct(..) => true,
             Pattern::Tuple(..) => true,
