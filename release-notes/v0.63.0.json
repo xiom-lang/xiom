@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "tag": "v0.63.0",
+  "summary": "A correctness and speed release: LZ4 block compression is fixed, the contract verifier emits valid SMT-LIB, scripting no longer indexes the system temp tree, and compile-time caches cut warm builds sharply.",
+  "highlights": [
+    {
+      "kind": "fix",
+      "title": "LZ4 block compression fixed",
+      "text": "LZ4 block compression could read back an empty result and abort with a wrong return code in programs compiled on v0.62.2-v0.62.4. The root cause was the 2^32-element Vec growth ceiling added in v0.62.2: that constant lowered through a movabs and a later x86 peephole pass miscompiled the compressor's push path. The ceiling is now 2^32-1 elements, which lowers cleanly and keeps byte buffers above 16 MB working (the m165 feature)."
+    },
+    {
+      "kind": "fix",
+      "title": "Contract verifier emits valid SMT-LIB",
+      "text": "Verification with z3 failed to parse the generated SMT for many obligations (duplicate named expressions, undeclared initialized/self symbols, sort mismatches), and the CLI blamed a missing z3 install. The emitter now produces unique labels, never emits undeclared symbols, uses matching datatype selectors, guards operators by operand sorts, declares every sort at top level, and reports unmodeled obligations honestly as UNKNOWN instead of emitting malformed proofs."
+    },
+    {
+      "kind": "fix",
+      "title": "xiom run no longer indexes the temp tree",
+      "text": "Scripting compiled a copy under the system temp directory, and the compiler registered the temp root as a source directory whenever a stray .xi file sat there -- indexing every unrelated tree under temp (minutes of cold time and duplicate-module warnings). Temp-root ancestors are never registered now; a cold script run dropped from minutes to seconds."
+    },
+    {
+      "kind": "performance",
+      "title": "Compile-time caches",
+      "text": "The C runtime is compiled to objects once per (clang, flags, contents) tuple and reused, and the catalog's module-header index is cached persistently. Measured on the dev driver: hello-world 8.7s -> 0.97s warm, the LZ4 program 13.3s -> 4.0s warm. Caches live under ~/.xiom and are content-checked; any failure falls back to the previous behavior."
+    },
+    {
+      "kind": "tooling",
+      "title": "Verifier CLI speed and safety",
+      "text": "The standalone verifier no longer treats the temp root as a source directory, and it reuses the catalog index cache: its integration suite went from over 10 minutes (timing out) to under 8 seconds. Verification runs on temp fixtures are safe and fast."
+    },
+    {
+      "kind": "tooling",
+      "title": "Doctor and timing tooling",
+      "text": "xiom doctor compares major.minor version lines only (patch differences and tag-shaped pins no longer produce warnings), and XIOM_TIMINGS=1 now reports the catalog-index phase and per-module catalog check stats."
+    }
+  ],
+  "breaking": [],
+  "known_issues": [
+    "iter.range.contains (C001) can fail run-to-run nondeterministically on some programs (classifier state); the standard library releases carry a documented exclusion until it is fixed.",
+    "reflect.all_types() can corrupt the heap (catalog-return path); fix scheduled.",
+    "Range.collect() closure forward-reference remains open on the clause side; fix scheduled."
+  ],
+  "docs": [],
+  "full_changelog": "https://github.com/xiom-lang/xiom/releases/tag/v0.63.0"
+}
