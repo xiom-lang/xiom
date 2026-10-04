@@ -10,6 +10,41 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-04 -- AUDIT (queued, safety hardening): arena/handle overflow surfaces
+
+Owner question: can the arena/handle memory model be overflowed? There is
+no general arena allocator; the relevant surfaces are the FLAT-ARENA
+collections and the unsafe-block guard slab arena. Findings:
+
+1. GUARD ARENA (`xiom_guard_alloc`, stdlib/runtime/xiom_runtime.c:291):
+   `aligned = (long long)(size + 15) & ~15` has no upper-bound check. A
+   size within 15 of LLONG_MAX wraps to a negative `aligned`; the
+   following `memset(p, 0, (size_t)aligned)` / offset math is UB and
+   typically faults (caught by the confinement trampoline when inside an
+   unsafe block). Not observed as silent corruption, but it is an
+   unguarded arithmetic surface any unsafe/FFI caller can hit with a
+   near-max size (e.g. an attacker-controlled length after wrapping
+   arithmetic). FIX (1 line, stdlib lane): `if (size > LLONG_MAX - 16)
+   return NULL;` in `xiom_guard_alloc`; lock = fault-injection call with
+   the wrapping size expecting NULL/trap and no memset. `xiom_alloc`
+   (L161) is already zero/negative-guarded + malloc-bounded -- no wrap.
+2. FLAT-ARENA HANDLES (`xiom/collect/*`): handles are raw integer indices
+   into Vec-backed node pools (`fheap` docs: "handle wraps the node's
+   arena index"; `heap.xi`: `id = keys.len()/3`). Out-of-range handles
+   are bounds-checked by Vec indexing (trap) and `fheap_decrease_key`
+   explicitly ignores out-of-range handles, so a bad index cannot become
+   memory corruption. Residual risk is ABA/staleness: a removed node's
+   slot can be reused, so a stale handle targets the wrong node (data
+   confusion / DoS, not corruption). Generation-tagged handles (or debug
+   slot tags) are the standard hardening; queue under STAGE6_PERF_PLAN
+   item 4 (post-selfhost).
+3. No other wrap path found in the allocator boundary; emitted Int size
+   arithmetic is checked (overflow traps) unless user code opts into
+   unsigned/wrapping ops -- which is exactly what the guard_alloc bound
+   check must backstop.
+
+---
+
 ## 2026-10-04 -- FIXED: scripting `xiom run` temp-root indexing (W001 flood, minutes cold)
 
 Benchmark relay: v0.62.4 `xiom run` samples 7-9.6s (previous round

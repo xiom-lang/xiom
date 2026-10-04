@@ -282,8 +282,11 @@ ladder. Gate P acceptance lives in `docs/RELEASE_GATE_v0.62.3.md`.
      UAF traps in debug; runtime tag checks for generic enum/container
      payloads (type confusion).
    - uninitialized reads: definite-assignment diagnostic (checker).
-   - detector disclosure: canary all probes in the arena; add `--sanitize`
-     builds as a detection row in the matrix.
+    - arena/handle overflow audit (COMPILER_BUGS 2026-10-04): guard_alloc
+      alignment-wrap bound check (stdlib lane, 1 line) + generation tags
+      for flat-arena handles (ABA hardening).
+    - detector disclosure: canary all probes in the arena; add `--sanitize`
+      builds as a detection row in the matrix.
    KPI: silent_corruption 0; SAFE_SUBSET detection >= 80%.
 5. CONTRACTS ARENA (queued, tooling batch): the verifier now emits
    `(check-sat)` and proves 3 contracts, but invalid SMT

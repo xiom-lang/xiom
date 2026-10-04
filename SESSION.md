@@ -70,7 +70,9 @@
 >    fix it, ~50% flaky (HashMap-order classifier state); blocks stdlib
 >    release.yml -- v0.63.0 fix target** + the V8 direct-form latent case,
 >    R-8 `tcp_stream_read`, i64<->f64 bitcast
->    intrinsic, registry polish B1/B2/`--resolve` + trust wording.
+>    intrinsic, registry polish B1/B2/`--resolve` + trust wording,
+>    arena/handle overflow audit (guard_alloc alignment wrap -- stdlib
+>    lane 1-line fix + lock; flat-arena handle ABA generation tags).
 > 5. Selfhost Phase 4 in parallel: fn-header T3 IR equality; keep the meter
 >    rule (flips only at full parity). If the phase-3 session's context is
 >    full, open a fresh worktree session per sub-stage and land through main.
