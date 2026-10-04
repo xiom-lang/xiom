@@ -64,6 +64,28 @@ after. Playground acceptance `tools/compiler-repros/c25/run.sh` prints
 
 ---
 
+## 2026-10-04 -- OPEN: enum-payload Str in-situ persists on m189; iter Range.collect forward-ref + closure lowering
+
+1. **enum-payload Str in-situ -- reopened, NOT the m185/m189 shape.**
+   Stdlib re-test on m189 (HEAD 32ea20f0): control
+   `probe_enum_payload_str.xi` green, but `xiom.graphql`
+   validate-valid-operation still rc 1 (9/10), identical to v0.62.3.
+   Next: get the graphql validator slice (or the probe bundle) and compare
+   the enum payload read path in that catalog context; the same-name
+   collision fixed by m189 is ruled out.
+2. **iter Range.collect forward-ref + Range.count/find undefined
+   `__closure_N`.** Stdlib wave-65 (fully reverted, nothing landed): any
+   clause on `Range.count`/`Range.find` makes `smoke_iter` fail with "use
+   of undefined value in a generated `__closure_N`"; `Range.collect()` ->
+   clang "instruction forward referenced with type 'ptr'". Standalone repro
+   `tools/known_failures/p_iter_range_collect_forwardref.xi` fails on
+   v0.62.3, v0.61.3 and m189. Also `smoke_iter_range` intermittently hits
+   the C001 contains-classifier error under 8 workers (passes direct and
+   single-worker 5/5) -- the C001 stays load-sensitive. Queue: v0.63.0
+   (closure lowering + the C001 state pinning).
+
+---
+
 ## 2026-10-04 -- NEW (open, queued): reflect.all_types() heap corruption (0xC0000374), catalog-return-path specific
 
 Source: stdlib wave-64 relay, probe `p_reflect_all_types_crash.xi`.
