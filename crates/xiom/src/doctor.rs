@@ -938,15 +938,29 @@ mod tests {
 
     #[test]
     fn stdlib_pin_mismatch_is_a_warning() {
+        // m187 compares MAJOR.MINOR only, so exercise a minor-line mismatch
+        // (compiler + stdlib agree; the pin differs one minor line).
         let mut input = base_input();
+        input.compiler_version = "0.61.2".to_string();
         input.stdlib_version = Some("0.61.2".to_string());
-        input.stdlib_pin = Some("0.61.3".to_string());
+        input.stdlib_pin = Some("0.60.9".to_string());
         let report = evaluate(input);
         assert_eq!(exit_code(&report), 1);
         assert!(report
             .warnings
             .iter()
-            .any(|w| w.contains("does not match the compiler's pinned stdlib 0.61.3")));
+            .any(|w| w.contains("does not match the compiler's pinned stdlib 0.60.9")));
+    }
+
+    #[test]
+    fn stdlib_patch_difference_is_not_a_warning() {
+        // m187 lock: a patch-level stdlib/pin difference must NOT warn (the
+        // old fixture above assumed it did and went stale).
+        let mut input = base_input();
+        input.stdlib_version = Some("0.61.2".to_string());
+        input.stdlib_pin = Some("0.61.3".to_string());
+        let report = evaluate(input);
+        assert_eq!(exit_code(&report), 0, "{:?}", report.warnings);
     }
 
     #[test]
