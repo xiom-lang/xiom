@@ -5012,6 +5012,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// m189 (packages relay): a struct type and an enum variant sharing a name
+// resolved the literal to the variant inside a module scope (invalid IR /
+// in-situ corruption). Must build the struct and read the payload.
+#[test] fn e2e_m189_enum_struct_payload() {
+    assert_eq!(
+        compile_and_run("tests/regression/m189_enum_struct_payload/main.xi"),
+        Some(0),
+        "m189 same-name struct type vs enum variant must stay a struct"
+    );
+}
+
 // R48 (playground C17 classes): interface dispatch through a `&T` generic
 // argument (was mono'd as Int -> C001) and pointer/double match-result
 // zero-init (was `store i8* 0` / `store double 0` -> clang reject). Needs

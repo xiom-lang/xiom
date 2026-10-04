@@ -64,7 +64,7 @@ after. Playground acceptance `tools/compiler-repros/c25/run.sh` prints
 
 ---
 
-## 2026-10-03 -- LOCALIZED (open): enum struct-payload construction emits INVALID IR (packages in-situ corruption family)
+## 2026-10-03 -- FIXED (m189): enum struct-payload construction emitted INVALID IR (type/variant name collision)
 
 Source: packages re-run -- the enum-payload Str in-situ failure survives
 m184/m185 (validate valid operation corrupt, `Field(sel).name` reads
@@ -93,20 +93,20 @@ the struct literal `Field{ name; value }` resolves to the enum VARIANT
 `compile_enum_constructor` then sees `val_ty=%struct.Selection` for a
 `%struct.Field` slot -- producing the out-of-range GEP (`i32 0, i32 2` on
 a 2-field struct) and the bogus `load %struct.Field, i8*`.
-FIX DIRECTION: struct-literal resolution must prefer a DECLARED TYPE named
-X over an enum-variant parent named X (only treat `X{...}` as variant
-construction when X is not a declared type, or when explicitly dotted
-`Enum.Variant`). Then arg_count=1, field_idx=1 and the struct stores
-correctly. LOCK: extend the invalid-IR probe into an e2e fixture once
-fixed.
+FIX (expr.rs struct-literal disambiguation): the bare-name checks were not
+SUFFIX-aware, so inside a `module m` the struct registered as "m.Field" was
+missed and the bare variant lookup won. Type existence and the
+literal-shape match now check bare + module-suffixed keys before falling
+back to variant resolution. LOCK: `e2e_m189_enum_struct_payload` +
+`tests/regression/m189_enum_struct_payload/` (same-name type+variant, all
+variants), ci.yml line; feature 519/519; both probes rc 0.
 
 RELATED (packages relay, same suspected root): grpc `probe_suite_min.xi`
 (`grpc_metadata_set(&mut req, ...)` with `req.metadata: Vec[(Str, Str)]`)
 crashes 0xC0000005 with zero output, call-dependent, and a hang variant
-when comparing `req.metadata[0].0 == "grpc-timeout"`. Compiles cleanly, so
-a wrong-but-valid GEP/type shape is tolerated into a broken binary; the
-(Str,Str) tuple payload / GrpcRequest wrapper is the first thing to check
-against this same type-resolution collision.
+when comparing `req.metadata[0].0 == "grpc-timeout"`. Verify against the
+m189 build next; if the same collision shape appears there (tuple/struct
+payload), it is the same fix.
 
 ---
 

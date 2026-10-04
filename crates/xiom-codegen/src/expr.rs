@@ -4089,20 +4089,50 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     // Only override the struct path when the literal does NOT
                     // fit the same-leaf struct (both matching -> keep the
                     // historical struct preference).
-                    let struct_matches_literal = self
+                    // m189: the checks must be SUFFIX-aware -- inside a
+                    // `module m`, the struct is registered as "m.Field", so a
+                    // bare `types.types.contains_key("Field")` missed it and
+                    // a same-named enum variant won the bare-name fallback
+                    // (`Field{name,value}` built the enum `Selection` and
+                    // produced invalid IR). A/B: renaming the type to a
+                    // non-variant name made it compile.
+                    let suffix = format!(".{}", name.name);
+                    let struct_fields_match = self
                         .types
                         .types
                         .get(&name.name.to_string())
+                        .or_else(|| {
+                            self.types
+                                .types
+                                .entries()
+                                .into_iter()
+                                .find(|(k, _)| k.ends_with(&suffix))
+                                .map(|(_, v)| v)
+                        })
                         .map_or(false, |sf| {
                             sf.len() == literal_names.len()
                                 && sf.iter().all(|f| literal_names.iter().any(|n| n == f))
                         });
-                    if variant_by_shape.is_some() && !struct_matches_literal {
+                    let type_exists = self.types.types.contains_key(&name.name)
+                        || self
+                            .types
+                            .types
+                            .keys()
+                            .iter()
+                            .any(|k| k == &name.name || k.ends_with(&suffix))
+                        || self.types.type_meta.contains_key(&name.name)
+                        || self
+                            .types
+                            .type_meta
+                            .keys()
+                            .iter()
+                            .any(|k| k.ends_with(&suffix))
+                        || self.types.generic_type_names.iter().any(|k| {
+                            k == &name.name || k.ends_with(&format!(".{}", name.name))
+                        });
+                    if variant_by_shape.is_some() && !struct_fields_match {
                         variant_by_shape
-                    } else if !self.types.types.contains_key(&name.name)
-                        && !self.types.type_meta.contains_key(&name.name)
-                        && !self.types.generic_type_names.iter().any(|k| k == &name.name || k.ends_with(&format!(".{}", name.name)))
-                    {
+                    } else if !type_exists {
                         // Round 76: deterministic (several enums can share a
                         // variant leaf -- `Empty`); scope-first ordering.
                         self.resolve_variant_parent_enum(&leaf_variant)
