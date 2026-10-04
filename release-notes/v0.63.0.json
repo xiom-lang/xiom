@@ -6,32 +6,32 @@
     {
       "kind": "fix",
       "title": "LZ4 block compression fixed",
-      "text": "LZ4 block compression could read back an empty result and abort with a wrong return code in programs compiled on v0.62.2-v0.62.4. The root cause was the 2^32-element Vec growth ceiling added in v0.62.2: that constant lowered through a movabs and a later x86 peephole pass miscompiled the compressor's push path. The ceiling is now 2^32-1 elements, which lowers cleanly and keeps byte buffers above 16 MB working (the m165 feature)."
+      "text": "LZ4 block compression could read back an empty result in programs compiled on v0.62.2-v0.62.4. The 2^32-element Vec growth ceiling added in v0.62.2 lowered through a movabs and an x86 peephole pass then miscompiled the compressor; the ceiling is now 2^32-1 elements and byte buffers above 16 MB keep working."
     },
     {
       "kind": "fix",
       "title": "Contract verifier emits valid SMT-LIB",
-      "text": "Verification with z3 failed to parse the generated SMT for many obligations (duplicate named expressions, undeclared initialized/self symbols, sort mismatches), and the CLI blamed a missing z3 install. The emitter now produces unique labels, never emits undeclared symbols, uses matching datatype selectors, guards operators by operand sorts, declares every sort at top level, and reports unmodeled obligations honestly as UNKNOWN instead of emitting malformed proofs."
+      "text": "z3 verification failed to parse the generated SMT for many obligations (duplicate named expressions, undeclared initialized/self symbols, sort mismatches). It now produces unique labels, never emits undeclared symbols, matches selectors, guards operators by sort, and reports unmodeled obligations as UNKNOWN."
     },
     {
       "kind": "fix",
       "title": "xiom run no longer indexes the temp tree",
-      "text": "Scripting compiled a copy under the system temp directory, and the compiler registered the temp root as a source directory whenever a stray .xi file sat there -- indexing every unrelated tree under temp (minutes of cold time and duplicate-module warnings). Temp-root ancestors are never registered now; a cold script run dropped from minutes to seconds."
+      "text": "Scripting compiled a copy under the system temp directory, and the compiler registered the temp root as a source directory whenever a stray .xi file sat there, indexing every unrelated tree under temp. Temp-root ancestors are never registered now; cold script runs dropped from minutes to seconds."
     },
     {
-      "kind": "performance",
+      "kind": "compiler",
       "title": "Compile-time caches",
-      "text": "The C runtime is compiled to objects once per (clang, flags, contents) tuple and reused, and the catalog's module-header index is cached persistently. Measured on the dev driver: hello-world 8.7s -> 0.97s warm, the LZ4 program 13.3s -> 4.0s warm. Caches live under ~/.xiom and are content-checked; any failure falls back to the previous behavior."
+      "text": "The C runtime is compiled to objects once per (clang, flags, contents) tuple and reused, and the catalog's module-header index is cached persistently. Measured on the dev driver: hello-world 8.7s to 0.97s warm, the LZ4 program 13.3s to 4.0s warm."
     },
     {
       "kind": "tooling",
       "title": "Verifier CLI speed and safety",
-      "text": "The standalone verifier no longer treats the temp root as a source directory, and it reuses the catalog index cache: its integration suite went from over 10 minutes (timing out) to under 8 seconds. Verification runs on temp fixtures are safe and fast."
+      "text": "The standalone verifier no longer treats the temp root as a source directory and reuses the catalog index cache: its integration suite went from over 10 minutes (timing out) to under 8 seconds."
     },
     {
       "kind": "tooling",
       "title": "Doctor and timing tooling",
-      "text": "xiom doctor compares major.minor version lines only (patch differences and tag-shaped pins no longer produce warnings), and XIOM_TIMINGS=1 now reports the catalog-index phase and per-module catalog check stats."
+      "text": "xiom doctor compares major.minor version lines only (patch differences and tag-shaped pins no longer warn), and XIOM_TIMINGS=1 reports the catalog-index phase and per-module catalog check stats."
     }
   ],
   "breaking": [],
