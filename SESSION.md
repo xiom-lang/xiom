@@ -37,13 +37,17 @@
 >    ceiling 2^32-1 + IR lock; repro committed docs/repro/lz4/p4c_lz4.xi).
 >    Verified: P4c rc 0, stdlib smoke_compress_lz4_snappy OK, m165 feature
 >    lock green. Full evidence in docs/COMPILER_BUGS.md 2026-10-04 entry.
-> 2. Stage 6 compile time: XIOM_TIMINGS=1 measured parse 0.003 s,
->    check 10.16 s (catalog+program), borrow 0.45 s, codegen 0.18 s,
->    clang+link ~6.6 s of 17.4 s wall (debug driver, lz4 smoke). Build the
->    checked-stdlib/catalog cache (ccache-style, keyed by source hash +
->    compiler identity + config) and/or separate compilation; KPI arena
->    compile_ms < 2 s, `xiom run -e` < 1 s warm / < 3 s cold. Measure
->    before/after with XIOM_TIMINGS.
+> 2. Stage 6 compile time: 2026-10-04 remeasure (isolated root, debug
+>    driver): hello 8.7 s = index 0.75 + check ~0 + clang+link ~7.9; lz4
+>    program 13.3 s = index 0.84 + catalog-load 0.27 + catalog-flush 2.56
+>    + borrow 0.76 + codegen 0.31 + clang+link ~7.7. The clang stage is
+>    the runtime C RECOMPILE (5.5-6.3 s every build); the old "check
+>    10.16 s" was inflated by leftover %TEMP% stdlib copies in the index.
+>    LANDED: rtcache (runtime objects once per clang+flags+contents) ->
+>    hello 0.97 s warm, lz4 program 4.0 s warm, smoke OK. NEXT:
+>    catalog-flush cache (1.6-2.8 s), index header cache (0.5-0.8 s), `-e`
+>    fast path. KPI unchanged: arena compile_ms < 2 s; `xiom run -e` < 1 s
+>    warm / < 3 s cold.
 > 3. Contracts-arena verifier: emit valid SMT-LIB (declare self/null/
 >    initialized, dedupe named expressions, one check-sat per obligation).
 >    X7007 stays unknown-by-design (loops without invariants, complex call

@@ -9,6 +9,7 @@ pub mod doctor;
 pub mod graph_viz;
 pub mod implicit_main;
 pub mod jit;
+pub mod rtcache;
 pub mod toolchain;
 pub mod toolchain_cmd;
 use std::collections::HashMap;
@@ -925,6 +926,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         checker.add_source_dir(stdlib_dir);
     }
     checker.build_catalog_index();
+    timing_mark("index");
     let is_multi_file = effective_sources.len() > 1 || checker.source_dirs.len() > 0;
     let check_outcome = checker.check_program(&program);
     timing_mark("check");
@@ -1360,6 +1362,10 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     match clang {
         Some(clang_info) => {
             let mut cmd = Command::new(&clang_info.path);
+            // Stage 6 (STAGE6_PERF_PLAN item 1): flags that affect the C
+            // runtime COMPILATION (not just linking). The runtime object
+            // cache keys on these; link-only flags stay out.
+            let mut rt_compile_args: Vec<String> = Vec::new();
             // v0.58: full ISA enablement for the NATIVE x86_64 runtime. SSE/SSE2
             // are x86-64 baseline; AES-NI + AVX + AVX2 + AVX-512 (F/BW/DQ/VL) are
             // enabled unconditionally so stdlib runtime C can use the whole SIMD/
@@ -1372,8 +1378,11 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             // only dispatch-gated code paths may rely on AVX-512 presence.
             if config.target == Target::Native && cfg!(target_arch = "x86_64") {
                 cmd.arg("-maes");
+                rt_compile_args.push("-maes".to_string());
                 cmd.arg("-mavx");
+                rt_compile_args.push("-mavx".to_string());
                 cmd.arg("-mavx2");
+                rt_compile_args.push("-mavx2".to_string());
                 // BUG 20 fix (2026-08-12): AVX-512 flags are HOST-CPUID-gated.
                 // The -O2 vectorizer emits AVX-512 (zmm) in ORDINARY float loops,
                 // which traps 0xC000001D on CPUs without AVX-512 (Zen 2 CI
@@ -1386,29 +1395,43 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 {
                     if std::arch::is_x86_feature_detected!("avx512f") {
                         cmd.arg("-mavx512f");
+                        rt_compile_args.push("-mavx512f".to_string());
                         cmd.arg("-mavx512bw");
+                        rt_compile_args.push("-mavx512bw".to_string());
                         cmd.arg("-mavx512dq");
+                        rt_compile_args.push("-mavx512dq".to_string());
                         cmd.arg("-mavx512vl");
+                        rt_compile_args.push("-mavx512vl".to_string());
                     }
                 }
             }
-            if asm_objects.is_empty() { cmd.arg("-DXIOM_NO_ASM"); }
-            if config.debug_symbols { cmd.arg("-g"); }
+            if asm_objects.is_empty() {
+                cmd.arg("-DXIOM_NO_ASM");
+                rt_compile_args.push("-DXIOM_NO_ASM".to_string());
+            }
+            if config.debug_symbols {
+                cmd.arg("-g");
+                rt_compile_args.push("-g".to_string());
+            }
             // v0.56: Apply optimization level to clang (same as opt passes).
             // 2026-09-10: honors --opt-level; the old -O2-only floor is gone
             // (re-verified at -O0/-O1 after the CRT-layout fixes).
             cmd.arg(&opt_level);
+            rt_compile_args.push(opt_level.clone());
             // v0.56: ThinLTO for 20-40% smaller/faster binaries
             if config.lto {
                 cmd.arg("-flto=thin");
+                rt_compile_args.push("-flto=thin".to_string());
                 cmd.arg("-fuse-ld=lld");
             }
             // Suppress MSVC deprecation warnings (fopen, etc.) in the runtime C code.
             cmd.arg("-D_CRT_SECURE_NO_WARNINGS");
+            rt_compile_args.push("-D_CRT_SECURE_NO_WARNINGS".to_string());
             // Suppress deprecated-declaration warnings (e.g. GetVersionExA) on
             // Windows, matching the JIT runtime build (xiom-jit/src/lib.rs).
             if cfg!(windows) {
                 cmd.arg("-Wno-deprecated-declarations");
+                rt_compile_args.push("-Wno-deprecated-declarations".to_string());
             }
             // POSIX (Linux/WSL) native links need the math library for the
             // stdlib's extern math fns (exp/ln/sqrt/etc. -- math.xi FFI).
@@ -1417,13 +1440,21 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             }
             // 7E.1: Sanitizer flags
             if let Some(ref sanitizer) = config.sanitize {
-                cmd.arg(&format!("-fsanitize={}", sanitizer));
+                let sanitize_flag = format!("-fsanitize={}", sanitizer);
+                cmd.arg(&sanitize_flag);
+                rt_compile_args.push(sanitize_flag);
                 // Address sanitizer needs -g for line numbers
-                if sanitizer == "address" { cmd.arg("-g"); cmd.arg("-fno-omit-frame-pointer"); }
+                if sanitizer == "address" {
+                    cmd.arg("-g");
+                    cmd.arg("-fno-omit-frame-pointer");
+                    rt_compile_args.push("-g".to_string());
+                    rt_compile_args.push("-fno-omit-frame-pointer".to_string());
+                }
             }
             // 7E.2: Stack protector (stack canaries)
             if config.stack_protector {
                 cmd.arg("-fstack-protector");
+                rt_compile_args.push("-fstack-protector".to_string());
             }
             if config.shared_lib {
                 cmd.arg("-shared");
@@ -1434,6 +1465,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 // (R_X86_64_TPOFF32 ... recompile with -fPIC).
                 if !cfg!(windows) {
                     cmd.arg("-fPIC");
+                    rt_compile_args.push("-fPIC".to_string());
                 }
             }
             if config.static_lib { cmd.arg("-c"); }
@@ -1461,30 +1493,64 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 // M21: Deduplicate C sources by canonical path to prevent duplicate
                 // symbols when --c-source overlaps with auto-discovered runtime files.
                 let mut seen_c_sources: std::collections::HashSet<String> = std::collections::HashSet::new();
-                let mut add_c_source = |cmd: &mut Command, path: &str| {
+                let canonical_key = |path: &str| -> String {
                     let canonical = std::path::Path::new(path).canonicalize()
                         .unwrap_or_else(|_| std::path::PathBuf::from(path));
-                    let key = canonical.to_string_lossy().to_lowercase();
-                    if seen_c_sources.insert(key) {
-                        cmd.arg(path);
-                    }
+                    canonical.to_string_lossy().to_lowercase()
                 };
+                let rt_cwd = std::env::current_dir().unwrap_or_default();
+
+                // Resolve the runtime sources exactly as before (M21 dedupe).
+                let mut rt_sources: Vec<String> = Vec::new();
                 if runtime_c_files.is_empty() {
                     if let Some(rt) = find_runtime_c() {
-                        add_c_source(&mut cmd, &rt);
+                        rt_sources.push(rt);
                     }
                 } else {
                     for rt in &runtime_c_files {
                         let abs_rt = if std::path::Path::new(rt).is_absolute() {
                             rt.clone()
                         } else {
-                            std::env::current_dir().unwrap_or_default().join(rt).to_string_lossy().to_string()
+                            rt_cwd.join(rt).to_string_lossy().to_string()
                         };
-                        add_c_source(&mut cmd, &abs_rt);
+                        rt_sources.push(abs_rt);
+                    }
+                }
+                let mut rt_dedup: Vec<String> = Vec::new();
+                for rt in rt_sources {
+                    if seen_c_sources.insert(canonical_key(&rt)) {
+                        rt_dedup.push(rt);
+                    }
+                }
+
+                // Stage 6 (STAGE6_PERF_PLAN item 1): compile the runtime C
+                // sources ONCE per (clang identity, flags, contents) and link
+                // the cached objects -- removes the 5.5-6.3s runtime
+                // recompile from every build. Native non-static only; any
+                // cache error falls back to the single-invocation C compile.
+                let mut runtime_cached = false;
+                if config.target == Target::Native && !config.static_lib && !rt_dedup.is_empty() {
+                    if let Ok(objects) = crate::rtcache::runtime_objects(
+                        &crate::rtcache::default_cache_root(),
+                        std::path::Path::new(&clang_info.path),
+                        &rt_dedup,
+                        &rt_compile_args,
+                    ) {
+                        for obj in &objects {
+                            cmd.arg(obj);
+                        }
+                        runtime_cached = true;
+                    }
+                }
+                if !runtime_cached {
+                    for rt in &rt_dedup {
+                        cmd.arg(rt);
                     }
                 }
                 for cs in &config.c_sources {
-                    add_c_source(&mut cmd, cs);
+                    if seen_c_sources.insert(canonical_key(cs)) {
+                        cmd.arg(cs);
+                    }
                 }
             }
             let cwd0 = std::env::current_dir().unwrap_or_default();

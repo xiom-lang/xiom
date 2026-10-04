@@ -1751,6 +1751,7 @@ impl Checker {
         }
         // Build variant field maps from all enum declarations
         self.register_all_variant_fields(program);
+        Self::perf_mark("collect-sigs");
         // Resolve module system (imports and module hierarchy)
         self.resolve_imports(program);
     }
@@ -1778,9 +1779,22 @@ impl Checker {
     /// signatures must be known before bodies are checked), then
     /// [`check_all_bodies`]. Returns `Ok(())` if no type errors were found,
     /// or `Err(errors)` with all collected errors.
+    /// STAGE6_PERF_PLAN instrumentation: cumulative phase times when
+    /// XIOM_TIMINGS is set (check-crate local zero; mirrors xiom::timing_mark).
+    fn perf_mark(phase: &str) {
+        use std::sync::OnceLock;
+        static T0: OnceLock<std::time::Instant> = OnceLock::new();
+        let t0 = T0.get_or_init(std::time::Instant::now);
+        if std::env::var_os("XIOM_TIMINGS").is_some() {
+            eprintln!("[timings] {phase} {:.3}s", t0.elapsed().as_secs_f64());
+        }
+    }
+
     pub fn check_program(&mut self, program: &Program) -> Result<(), Vec<CheckError>> {
+        Self::perf_mark("check-start");
         self.collect_signatures(program);
         self.check_all_bodies(program);
+        Self::perf_mark("check-bodies");
 
         // Stage 6 W002: unconditional recursive cycles. User-program scope
         // only; warning-only (never error).
@@ -2785,6 +2799,7 @@ impl Checker {
                 collect_uses(&cached.program.items, &mut worklist);
             }
         }
+        Self::perf_mark("catalog-load");
         // Build parent-module entries for dotted names so that process_use
         // can walk `self.modules.get("xiom") -> async -> ...`.
         // Example: registered "xiom.async" -> ensure "xiom" contains "async".
@@ -2903,6 +2918,7 @@ impl Checker {
         // Stage 3 Item A: the import graph and the program's own aliases are
         // complete -- run the deferred catalog-body checks (collect-then-check).
         self.flush_catalog_bodies();
+        Self::perf_mark("catalog-flush");
     }
 
     fn flatten_submodules(&mut self, items: &[TopDecl]) {

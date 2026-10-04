@@ -168,6 +168,8 @@ templates in `tasks/systems-arena/`.
       `UNSAFE_CONFINEMENT_PLAN` S7
 - [ ] Stage 6: keep `xiom bench` as the local harness and record each
       benchmark relay in this doc
+- [x] Stage 6 item 1 slice: runtime-object cache + index/check sub-phase
+      timings (hello 8.7s -> 0.97s warm; lz4 program 13.3s -> 4.0s warm)
 
 ## Benchmark-driven hardening/optimization backlog (2026-10-03, v0.62.3 arena runs)
 
@@ -209,6 +211,25 @@ ladder. Gate P acceptance lives in `docs/RELEASE_GATE_v0.62.3.md`.
      program, borrow 0.45s); codegen 0.18s; clang+link ~6.6s of 17.4s
      wall. The CHECKER -- overwhelmingly the injected catalog/stdlib
      bodies -- is the target, not parse/codegen.
+   - MEASURED (2026-10-04, m190 tree, debug driver, ISOLATED project root;
+     the 2026-10-03 "check 10.16s" was inflated by leftover `%TEMP%`
+     stdlib copies being indexed -- W001 duplicates): hello wall 8.7s =
+     index 0.75 + check ~0 + codegen ~0 + clang+link ~7.9; lz4 program
+     wall 13.3s = index 0.84 + catalog-load 0.27 + **catalog-flush 2.56**
+     + program bodies ~0 + borrow 0.76 + codegen 0.31 + clang+link ~7.7.
+     The clang stage is dominated by the RUNTIME C RECOMPILE, not the
+     program IR: 6 files / 364 KB take 5.5-6.3s at -O2 on EVERY build.
+   - LANDED 2026-10-04 (`crates/xiom/src/rtcache.rs`): persistent runtime
+     OBJECT cache -- runtime C compiled once per (clang path+version,
+     compile flags, source content hashes) into `$HOME/.xiom/rtobj/<key>/`;
+     later builds link the cached objects. hello 8.7s -> **0.97s** warm;
+     lz4 program 13.3s -> **4.0s** warm; smoke_compress_lz4_snappy OK.
+     Native non-static only; any cache failure falls back to the
+     single-invocation C compile. New sub-phase marks: driver `index`;
+     xiom-check `check-start/collect-sigs/catalog-load/catalog-flush/
+     check-bodies` (XIOM_TIMINGS).
+   - NEXT: catalog-flush 1.6-2.8s -> per-module checked cache; index
+     0.5-0.8s -> persistent header cache; `-e` fast path.
    - Persistent CHECK cache for stdlib modules keyed by source hash +
      compiler identity + config (same identity scheme as `xiom::jit`
      script cache): skip re-checking the injected catalog graph; pair
