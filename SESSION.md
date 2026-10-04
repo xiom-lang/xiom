@@ -1,6 +1,82 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
+# CONTINUATION HANDOFF (2026-10-04, v0.62.4 SHIPPED -- next stop v0.63.0)
+
+> STATE: v0.62.4 is PUBLISHED
+> (https://github.com/xiom-lang/xiom/releases/tag/v0.62.4; release run
+> 37204663164 green; SHA256SUMS + 4 platform archives + VSIX 0.12.2 + wasm).
+> Full e2e at the release commit: 2417 passed / 0 failed / 4 ignored
+> (2154.78 s). Tag `v0.62.4` -> 9480c2b5; main pushed. Shipped fixes: C25
+> (script-cache stdin, --no-cache/--jit), m182 (Str/struct const tables),
+> m184 (nested module imports), m185 (uninit-local NULL-deref), m186 (inline
+> unsigned compares), m187 (doctor version checks), m188 (const match arms),
+> m189 (same-name struct/variant invalid IR), plus XIOM_TIMINGS=1. Release
+> notes list lz4 + contracts SMT as known issues. Selfhost: Phase 3 DONE on
+> main (meter 36% / 4-of-11); Phase 4 = codegen fn-header T3 IR equality
+> (signatures, tuple names, inline policy approx_block_cost).
+
+> KICKOFF PROMPT (paste verbatim to the next compiler-lane session):
+>
+> Resume the XIOM compiler lane after v0.62.4 (tag 9480c2b5, main pushed).
+> Work the v0.63.0 queue in order, repro-first with locks and atomic commits
+> (ascii_guard before every commit; never rebuild target/debug during a
+> suite; full e2e once per batch with tmp/sprintc moved OUT of the repo --
+> W001 m17 -- and rerun any 0-failure-listed tests isolated to separate
+> OOM/load flakes from real failures; push only on the owner's ask, except
+> session/handoff docs):
+>
+> 1. lz4 context-dependent empty block-compress (headline). Regression range
+>    v0.62.0..v0.62.2 (v0.62.0 passes; v0.62.2 and later fail); emitted
+>    pre-opt IR is identical through the block-call region, so the suffix
+>    changes clang's optimization of an identical prefix (aggregate
+>    alloca-copy shape). Reproducer P4c: prefix + one bare
+>    `lz4.lz4_decompress_block(blk)` call after the check flips rc 5
+>    (details in docs/COMPILER_BUGS.md 2026-10-03 entries). Next: continue
+>    the HEAD-vs-v0.62.0 `main` diff at the block-compress call site; audit
+>    the aggregate alloca+store+field-GEP round-trip emission the v0.62.x
+>    window added (suspect aliasing/UB); lock with an e2e fixture.
+> 2. Stage 6 compile time: XIOM_TIMINGS=1 measured parse 0.003 s,
+>    check 10.16 s (catalog+program), borrow 0.45 s, codegen 0.18 s,
+>    clang+link ~6.6 s of 17.4 s wall (debug driver, lz4 smoke). Build the
+>    checked-stdlib/catalog cache (ccache-style, keyed by source hash +
+>    compiler identity + config) and/or separate compilation; KPI arena
+>    compile_ms < 2 s, `xiom run -e` < 1 s warm / < 3 s cold. Measure
+>    before/after with XIOM_TIMINGS.
+> 3. Contracts-arena verifier: emit valid SMT-LIB (declare self/null/
+>    initialized, dedupe named expressions, one check-sat per obligation).
+>    X7007 stays unknown-by-design (loops without invariants, complex call
+>    targets, contract array indexing) until modeled. Benchmark policy is
+>    not-proven = not-passed; lines render amber toolchain.
+> 4. Other open findings (docs/COMPILER_BUGS.md 2026-10-04): enum-payload
+>    Str in-situ persists on m189 (NOT the m185/m189 shape; need the
+>    graphql validator slice or stdlib docs/repro/enum-payload-str bundle),
+>    iter `Range.collect()` clang forward-ref + `Range.count`/`Range.find`
+>    undefined `__closure_N` (wave-65 blocker; standalone repro in stdlib
+>    known_failures), `reflect.all_types()` 0xC0000374 (catalog-return
+>    path), C001 contains-classifier load-sensitive state pinning + the V8
+>    direct-form latent case, R-8 `tcp_stream_read`, i64<->f64 bitcast
+>    intrinsic, registry polish B1/B2/`--resolve` + trust wording.
+> 5. Selfhost Phase 4 in parallel: fn-header T3 IR equality; keep the meter
+>    rule (flips only at full parity). If the phase-3 session's context is
+>    full, open a fresh worktree session per sub-stage and land through main.
+>
+> Method: repro-first; every fix ships with an IR/unit lock + e2e fixture +
+> ci.yml line; COMPILER_BUGS + SESSION updates in the same commit; release
+> mechanics follow the v0.62.4 procedure (bump Cargo.toml +
+> SELFHOST_VERSION, `cargo run -p xiom-release-notes -- convert|verify
+> --tag vX.Y.Z --stdlib stdlib`, README texts, full batch, tag + push,
+> watch the gh release run, notify registry/benchmark/stdlib).
+
+> TOOLING NOTES: full e2e `cargo test -p xiom-codegen --test e2e_tests --
+> --test-threads=8` (~36 min); feature 519; checker 195; checker_locks 28;
+> doctor 4; stdlib_execution_tests 85 (+2 ign) against the waves checkout.
+> Lane leftovers under %TEMP% inflate `xiom run` (five-tree W001) -- clean
+> when convenient. Era worktrees live in tmp/sprintc (move out for local
+> full e2e, restore after).
+
+---
+
 # CONTINUATION HANDOFF (2026-10-03 (13), v0.62.3 IN RELEASE HOLD -- two pre-existing defects; parallel lanes live)
 
 > RELEASE STATE (2026-10-03, this session): **v0.62.3 PUBLISHED** --
