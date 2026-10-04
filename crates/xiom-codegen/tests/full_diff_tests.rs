@@ -39,6 +39,15 @@
 // `crates/xiom/src/main.rs::dump_ast` (AstDump) owns the format definition;
 // `selfhost/src/parser.xi` + `ast_dump.xi` mirror it. Green over the 83-file
 // corpus (Phase 2 gate, docs/checklists/selfhost-phase2.md).
+//
+// Phase 3 (checker parity) adds `diff_check`: the Rust and selfhost
+// `--dump-check` outputs (canonical checker diagnostics) must match
+// line-for-line over the corpus, AND both must match the committed
+// `selfhost/tests/check_negative/*.expected` manifests. Accept cases
+// (`CHECK-OK` expected) pin the legacy/permissive behaviors; negative cases
+// pin diagnostic text, order and spans. Format ownership:
+// `crates/xiom/src/main.rs::dump_check`; the selfhost mirror is
+// `selfhost/src/checker.xi::dump_check`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -191,6 +200,87 @@ fn corpus() -> Vec<CorpusEntry> {
     v.sort_by(|a, b| a.path.cmp(b.path));
     v
 }
+
+/// Phase 3 checker manifest: committed `.expected` files are the source of
+/// truth, asserted against BOTH drivers. Accept cases (`CHECK-OK`) pin
+/// legacy/permissive behavior; negative cases pin message text and order.
+const NEGATIVE_CASES: &[&str] = &[
+    "selfhost/tests/check_negative/arg_count_mismatch.xi",
+    "selfhost/tests/check_negative/arg_type_mismatch.xi",
+    "selfhost/tests/check_negative/assoc/accept_associated_form.xi",
+    "selfhost/tests/check_negative/assoc/accept_associated_form_arity.xi",
+    "selfhost/tests/check_negative/assoc/ill_typed_associated_member.xi",
+    "selfhost/tests/check_negative/assign_to_let_ok.xi",
+    "selfhost/tests/check_negative/bad_if_condition.xi",
+    "selfhost/tests/check_negative/catalog/inprogram_module_member.xi",
+    "selfhost/tests/check_negative/catalog/io_bare_unknown.xi",
+    "selfhost/tests/check_negative/catalog/io_call_return_type.xi",
+    "selfhost/tests/check_negative/catalog/io_println_arity.xi",
+    "selfhost/tests/check_negative/catalog/io_println_extra.xi",
+    "selfhost/tests/check_negative/catalog/io_println_type.xi",
+    "selfhost/tests/check_negative/catalog/io_unknown_member.xi",
+    "selfhost/tests/check_negative/catalog/local_arity.xi",
+    "selfhost/tests/check_negative/catalog/local_bare.xi",
+    "selfhost/tests/check_negative/catalog/local_bare2.xi",
+    "selfhost/tests/check_negative/catalog/local_known_member.xi",
+    "selfhost/tests/check_negative/catalog/local_known_member2.xi",
+    "selfhost/tests/check_negative/catalog/local_unknown_member.xi",
+    "selfhost/tests/check_negative/catalog/local_unknown_member2.xi",
+    "selfhost/tests/check_negative/catalog/path_module_relocated.xi",
+    "selfhost/tests/check_negative/catalog/uppercase_call_unknown.xi",
+    "selfhost/tests/check_negative/catalog/uppercase_module_type_ok.xi",
+    "selfhost/tests/check_negative/catalog/uppercase_value_unknown.xi",
+    "selfhost/tests/check_negative/catalog/use_item.xi",
+    "selfhost/tests/check_negative/catalog/use_missing_mod.xi",
+    "selfhost/tests/check_negative/catalog/xiom_namespace_path.xi",
+    "selfhost/tests/check_negative/catbody/module_body_error.xi",
+    "selfhost/tests/check_negative/catbody/module_body_error_order.xi",
+    "selfhost/tests/check_negative/containers/container_len_ok.xi",
+    "selfhost/tests/check_negative/containers/container_nested_index_ok.xi",
+    "selfhost/tests/check_negative/containers/container_pop_ok.xi",
+    "selfhost/tests/check_negative/containers/container_push_arity.xi",
+    "selfhost/tests/check_negative/containers/container_push_ok.xi",
+    "selfhost/tests/check_negative/contract_clause_non_bool.xi",
+    "selfhost/tests/check_negative/div_zero_literal.xi",
+    "selfhost/tests/check_negative/let_type_mismatch.xi",
+    "selfhost/tests/check_negative/lints/accept_lints_silent.xi",
+    "selfhost/tests/check_negative/lints/w000_nonexhaustive_payload.xi",
+    "selfhost/tests/check_negative/lints/w004_after_catchall.xi",
+    "selfhost/tests/check_negative/lints/w004_duplicate_literal.xi",
+    "selfhost/tests/check_negative/lints/w004_duplicate_variant.xi",
+    "selfhost/tests/check_negative/lints/w006_shift_out_of_range.xi",
+    "selfhost/tests/check_negative/lints/w007_self_eq_int.xi",
+    "selfhost/tests/check_negative/lints/w007_self_ne_str.xi",
+    "selfhost/tests/check_negative/match_qualified_variant_catchall_ok.xi",
+    "selfhost/tests/check_negative/match_then_second_fn_scope_ok.xi",
+    "selfhost/tests/check_negative/methods/accept_interface_method.xi",
+    "selfhost/tests/check_negative/methods/accept_map_methods.xi",
+    "selfhost/tests/check_negative/methods/accept_path_join.xi",
+    "selfhost/tests/check_negative/methods/accept_str_methods.xi",
+    "selfhost/tests/check_negative/methods/struct_field_type_mismatch.xi",
+    "selfhost/tests/check_negative/methods/unknown_method_container.xi",
+    "selfhost/tests/check_negative/methods/unknown_method_option.xi",
+    "selfhost/tests/check_negative/methods/unknown_method_primitive_str.xi",
+    "selfhost/tests/check_negative/methods/unknown_method_static.xi",
+    "selfhost/tests/check_negative/methods/unknown_method_user_type.xi",
+    "selfhost/tests/check_negative/methods/unknown_struct_field_lit.xi",
+    "selfhost/tests/check_negative/patterns/accept_alias_option.xi",
+    "selfhost/tests/check_negative/patterns/accept_enum_none_some.xi",
+    "selfhost/tests/check_negative/patterns/ill_typed_alias.xi",
+    "selfhost/tests/check_negative/patterns/ill_typed_cross_enum.xi",
+    "selfhost/tests/check_negative/patterns/ill_typed_ok_on_option.xi",
+    "selfhost/tests/check_negative/patterns/ill_typed_some_on_int.xi",
+    "selfhost/tests/check_negative/patterns/ill_typed_some_on_result.xi",
+    "selfhost/tests/check_negative/patterns/ill_typed_unknown_variant.xi",
+    "selfhost/tests/check_negative/patterns/ill_typed_variant_on_struct.xi",
+    "selfhost/tests/check_negative/return_type_mismatch.xi",
+    "selfhost/tests/check_negative/undefined_fn_call.xi",
+    "selfhost/tests/check_negative/undef_var.xi",
+    "selfhost/tests/check_negative/unknown_field.xi",
+    "selfhost/tests/check_negative/unknown_type_annotation_ok.xi",
+    "selfhost/tests/check_negative/unreachable_stmt.xi",
+    "selfhost/tests/check_negative/var_type_mismatch.xi",
+];
 
 // ============================================================================
 // Compiler runners
@@ -361,6 +451,41 @@ fn selfhost_ast_dump(path: &str) -> Result<Vec<String>, String> {
     if !out.status.success() {
         return Err(format!(
             "selfhost --dump-ast exited {:?}:\nstdout:\n{}\nstderr:\n{}",
+            out.status.code(),
+            tail(&String::from_utf8_lossy(&out.stdout), 10),
+            tail(&String::from_utf8_lossy(&out.stderr), 10)
+        ));
+    }
+    Ok(lines_of(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// Rust compiler canonical checker dump (`--dump-check`).
+fn rust_check_dump(path: &str) -> Result<Vec<String>, String> {
+    let out = Command::new(xiom_path())
+        .args(["--dump-check", path])
+        .current_dir(project_root())
+        .output()
+        .map_err(|e| format!("failed to spawn xiom --dump-check: {}", e))?;
+    if !out.status.success() {
+        return Err(format!(
+            "xiom --dump-check exited {:?}:\n{}",
+            out.status.code(),
+            tail(&String::from_utf8_lossy(&out.stderr), 10)
+        ));
+    }
+    Ok(lines_of(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// Selfhost compiler canonical checker dump (`--dump-check`).
+fn selfhost_check_dump(path: &str) -> Result<Vec<String>, String> {
+    let out = Command::new(selfhost_exe())
+        .args(["--dump-check", path])
+        .current_dir(project_root())
+        .output()
+        .map_err(|e| format!("failed to spawn selfhost --dump-check: {}", e))?;
+    if !out.status.success() {
+        return Err(format!(
+            "selfhost --dump-check exited {:?}:\nstdout:\n{}\nstderr:\n{}",
             out.status.code(),
             tail(&String::from_utf8_lossy(&out.stdout), 10),
             tail(&String::from_utf8_lossy(&out.stderr), 10)
@@ -716,5 +841,151 @@ fn diff_ast() {
         "selfhost ast dump parity: {} files, {} nodes",
         entries.len(),
         total_nodes
+    );
+}
+
+/// Phase 3 gate: the selfhost checker's canonical `--dump-check` output is
+/// line-for-line identical to the Rust checker's over the whole corpus, and
+/// both drivers match the committed negative/accept manifests.
+///
+/// Non-vacuity is enforced structurally: the corpus carries real diagnostics
+/// (4x W003 on the stdlib smoke fixture, 1x W008 on m37_short_circuit) whose
+/// exact lines are re-asserted here, so a pair of scripts that agree on a
+/// constant `CHECK-OK` cannot pass the gate.
+#[test]
+fn diff_check() {
+    let entries = corpus();
+    eprintln!("selfhost check-dump corpus: {} files", entries.len());
+
+    let mut failures: Vec<String> = Vec::new();
+    let mut total_diags = 0usize;
+    for e in &entries {
+        let outcome = (|| -> Result<usize, String> {
+            let rust = rust_check_dump(e.path)?;
+            let sh = selfhost_check_dump(e.path)?;
+            if let Some(d) = first_diff(&rust, &sh) {
+                return Err(format!("check dump mismatch: {}", d));
+            }
+            let n = rust.iter().filter(|l| *l != "CHECK-OK").count();
+            Ok(n)
+        })();
+        match outcome {
+            Ok(n) => {
+                total_diags += n;
+                if n > 0 {
+                    eprintln!("  {}: {} diagnostic line(s)", e.path, n);
+                }
+            }
+            Err(err) => {
+                eprintln!("  FAIL {}: {}", e.path, err);
+                failures.push(format!("{}: {}", e.path, err));
+            }
+        }
+    }
+
+    // Non-vacuity: the two corpus entries that carry diagnostics must still
+    // carry exactly those diagnostics on BOTH drivers (the Rust-vs-selfhost
+    // equality above already ties them together).
+    let smoke_path = "stdlib/tests/smoke/smoke_guard_fault.xi";
+    match rust_check_dump(smoke_path) {
+        Ok(lines) => {
+            let expected: Vec<String> = ["23:3", "33:3", "43:3", "53:3"]
+                .iter()
+                .map(|loc| format!("warning W003 {} unreachable statement (the previous statement always exits)", loc))
+                .collect();
+            if lines != expected {
+                failures.push(format!(
+                    "{}: corpus W003 diagnostics drifted:\n{}",
+                    smoke_path,
+                    lines.join("\n")
+                ));
+            }
+        }
+        Err(err) => failures.push(format!("{}: {}", smoke_path, err)),
+    }
+    let short_path = "tests/regression/m37_short_circuit.xi";
+    match selfhost_check_dump(short_path) {
+        Ok(lines) => {
+            let expected = vec![
+                "warning W008 10:11 integer division by a zero literal always traps at runtime"
+                    .to_string(),
+            ];
+            if lines != expected {
+                failures.push(format!(
+                    "{}: corpus W008 diagnostics drifted:\n{}",
+                    short_path,
+                    lines.join("\n")
+                ));
+            }
+        }
+        Err(err) => failures.push(format!("{}: {}", short_path, err)),
+    }
+
+    // Borrow-pass non-vacuity: the corpus carries E001 borrow warnings (the
+    // canonical dump now includes the non-strict borrow pass), re-asserted
+    // exactly on BOTH drivers by the equality above.
+    let f128_path = "tests/regression/m37_f128.xi";
+    match rust_check_dump(f128_path) {
+        Ok(lines) => {
+            let expected = vec![
+                "borrow_warning E001 16:5 use of moved value 'acc'".to_string(),
+                "borrow_warning E001 19:11 use of moved value 'acc'".to_string(),
+            ];
+            if lines != expected {
+                failures.push(format!(
+                    "{}: corpus borrow diagnostics drifted:\n{}",
+                    f128_path,
+                    lines.join("\n")
+                ));
+            }
+        }
+        Err(err) => failures.push(format!("{}: {}", f128_path, err)),
+    }
+
+    // Negative/accept manifest: `.expected` files are the source of truth for
+    // BOTH drivers (a Rust-side message change must update the manifest).
+    for case in NEGATIVE_CASES {
+        assert!(
+            project_root().join(case).exists(),
+            "check_negative case missing: {}",
+            case
+        );
+        let expected_path = project_root().join(case).with_extension("expected");
+        let expected_text = match fs::read_to_string(&expected_path) {
+            Ok(t) => t,
+            Err(e) => {
+                failures.push(format!("{}: cannot read .expected: {}", case, e));
+                continue;
+            }
+        };
+        let expected = lines_of(&expected_text);
+        for (driver, dump) in [
+            ("rust", rust_check_dump(case)),
+            ("selfhost", selfhost_check_dump(case)),
+        ] {
+            match dump {
+                Ok(lines) => {
+                    if let Some(d) = first_diff(&expected, &lines) {
+                        failures.push(format!("{} ({} driver): {}", case, driver, d));
+                    }
+                }
+                Err(err) => failures.push(format!("{} ({} driver): {}", case, driver, err)),
+            }
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "selfhost checker parity (Phase 3): {} failure(s) over {} corpus files + {} manifest cases:\n{}",
+        failures.len(),
+        entries.len(),
+        NEGATIVE_CASES.len(),
+        failures.join("\n")
+    );
+    eprintln!(
+        "selfhost check parity: {} files ({} diagnostic lines, non-vacuous) + {} manifest cases",
+        entries.len(),
+        total_diags,
+        NEGATIVE_CASES.len()
     );
 }

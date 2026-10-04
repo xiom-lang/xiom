@@ -1,0 +1,1 @@
+warning W006 3:10 shift amount 64 is out of range for Int (valid: 0..=63)

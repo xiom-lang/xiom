@@ -300,6 +300,169 @@ Supersedes the (11) handoff below (kept as history).
 > tools/ascii_guard.py check` before every commit; commit atomically with
 > SESSION.md + COMPILER_BUGS.md evidence; push only on the owner's ask.
 
+# PHASE 3 WORK LOG (branch `selfhost-phase-3-checker`, off `60731523`)
+
+- Stage A (2026-10-02): canonical `--dump-check` on the RUST driver.
+  `CompileConfig::dump_check` stops `compile_with_diagnostics` right after the
+  checker (no borrow pass, no codegen); `crates/xiom/src/main.rs::dump_check`
+  owns the format: `{kind} {code} {line}:{col} {message}` per diagnostic,
+  `CHECK-OK` when clean, `PARSE-ERROR` on input/lex/parse failure; message
+  escapes `\\ \n \r \t` only. Clap flag + usage + `cli.rs` surface test.
+  Ground truth over the 83-file corpus (repro:
+  `tmp/sprintc/phase3_checker/dump_check_recon.txt`): 81x `CHECK-OK`,
+  `stdlib/tests/smoke/smoke_guard_fault.xi` 4x
+  `warning W003 23:3/33:3/43:3/53:3`,
+  `tests/regression/m37_short_circuit.xi` 1x `warning W008 10:11`. The
+  positive corpus is NOT vacuous; the selfhost port must reproduce both
+  lints plus keep the other 81 clean.
+- Stage B (2026-10-02): selfhost checker stage-1 port + `diff_check` gate.
+  Files: `selfhost/src/check_types.xi`, `check_state.xi`, `check_core.xi`,
+  `check_expr.xi`, rewritten `checker.xi` (canonical dump + `check_count`
+  shim that fails only on hard errors); `selfhost/tests/check_negative/`
+  manifest (16 cases, `.expected` is the source of truth for BOTH drivers);
+  `crates/xiom-codegen/tests/full_diff_tests.rs::diff_check`.
+  Gate: `cargo test -p xiom-codegen --test full_diff_tests diff_check` ->
+  `83 files (5 diagnostic lines, non-vacuous) + 16 manifest cases`, 1 passed
+  (279.1 s). Post-port regressions: `diff_tokens` ok (101.1 s), `diff_ast`
+  ok (108.1 s), T1 `diff_corpus` ok (148.2 s). T2 remains unreachable
+  (Phase 0 stub emitter; failed at IR line 3 on every file, pre-existing).
+  Finding filed: `docs/COMPILER_BUGS.md` 2026-10-02 Phase 3 --
+  `NkAssign(l, r)` destructure read `r` as pointer bits (crash 0xC0000005);
+  one-arm accessor helpers work, so the port uses side-helper field access +
+  Int-tag statement dispatch (same class as Phase 2 (h)).
+  Checklist: `docs/checklists/selfhost-phase3.md`. Deferred sub-stages
+  (catalog/imports, container method sets, unknown-method/struct-field
+  validation, W000/W004/W006/W007 lints, borrow pass) keep permissive `_`
+  fallbacks; the bootstrap meter stays 3 of 11 until full checker parity.
+- Stage B verification (2026-10-02): branch rebased onto `5837cec7` (main
+  landed m171/m172/m174 = Phase 2 findings (f) and (g); (e)/(h) still open;
+  rebase conflict only in COMPILER_BUGS.md, resolved keeping main's newest
+  sections above the Phase 3 finding). Post-rebase re-runs on this box:
+  `diff_check` ok (83 files + 16 cases, 201.8 s), `diff_tokens` ok (99.3 s),
+  `diff_ast` ok (88.8 s), T1 `diff_corpus` ok (128.7 s), `cargo test -p xiom
+  --bin xiom` 6/6, `cargo test -p xiom --lib dump_check` 1/1 (142.3 s).
+  T2 remains unreachable (pre-existing stub emitter).
+- Stage B2 (2026-10-03): catalog/imports resolution (Phase 3 sub-stage 1).
+  New `selfhost/src/check_modules.xi` loads imported module sources (stdlib
+  shapes + local files + the 19-entry static relocation table for modules
+  whose declared dotted name does not match their path, e.g.
+  `xiom.path` -> `stdlib/xiom/os/path.xi`), registers pub fns/types/consts
+  and extern fns under their dotted keys, binds `use` aliases only when the
+  file's declared `module` matches (R49-1), and tracks in-program module
+  names so `pipeline.fn(...)` resolves like Rust. `check_expr.xi` resolves
+  module/member paths for calls, fields, receivers and the `xiom.` namespace
+  root; bare lowercase unknowns in `use` files error like Rust (uppercase
+  type-ish names stay permissive). 18 new manifest cases under
+  `selfhost/tests/check_negative/catalog/` (fixtures dmod.xi/dmod2.xi).
+  Gate: `diff_check` -> 83 corpus files (5 diagnostic lines, non-vacuous) +
+  34 manifest cases, 1 passed (255.4 s). `diff_tokens`/`diff_ast`/T1 +
+  `runtime_ffi_selfcheck` re-run green in the same session.
+  Finding filed: `io.list_dir` returns pointer bits instead of names
+  (COMPILER_BUGS 2026-10-03), blocking a dynamic stdlib header index; the
+  static relocation table is the staged workaround. Also observed once:
+  whole-program `-o` builds of the selfhost intermittently exit `-1` with no
+  diagnostics while a stdlib smoke lane runs on the shared box (not
+  reproducible in isolation afterwards; no COMPILER_BUGS entry without a
+  clean repro).
+- Stage B3 (2026-10-03): container method sets (Phase 3 sub-stage 2).
+  `cm_register_builtin_fns` ports Rust's `register_builtins` table
+  (Vec.new/with_capacity/push/len/as_ptr/as_mut_ptr/pop/sort/insert/remove/
+  clear/is_empty, Slice pointers, Map.new/Set.new, sizeof/align_of/type_id/
+  field_offset/is_signed/to_float/to_int/to_int_from_char/to_char/
+  unreachable/panic). Instance dispatch now resolves builtin keys, catalog
+  extension keys (`module.Type.method` suffix) and the R8 free-fn UFCS scan;
+  the param-offset table matches Rust exactly (arity-direct
+  receiver-passed-explicitly offset 0 -> `v.push(1,2)` yields Rust's
+  `argument 1 type mismatch: expected Vec, found Int`). Container ctor
+  results keep their type arguments (`Vec[Vec[Int]]`) and `ce_check_index`
+  synthesizes them from the parsed type expression so nested indexing stays
+  typed. 5 new manifest cases under
+  `selfhost/tests/check_negative/containers/`. Gate: `diff_check` -> 83
+  corpus files (5 diagnostic lines) + 39 manifest cases, 1 passed (219.4 s).
+- Stage B4 (2026-10-03): unknown-method + struct-literal field validation
+  (Phase 3 sub-stage 3). The Rust method-resolution machinery is now ported:
+  the `methods` map (receiver-style fns register module-private too; impl
+  members register from catalog files), unique-candidate wildcard capture
+  (AUDIT #6: `PathBuf.join` -> `Path.join`), interface members
+  (`interfaces` map with `want_of` arity + declared returns), the R8 free-fn
+  UFCS scan, and Rust's primitive/erased-container method tables. Unknown
+  methods now report `cannot call 'X' on this expression` for user types,
+  containers, primitives, Option/Result and statics; struct literals report
+  `type 'T' has no field 'f'` and `field 'f' type mismatch: expected E,
+  found F`. Generic-param receivers stay permissive via per-function
+  `cur_generics` (user single-letter types like `P` error like Rust). 11 new
+  manifest cases under `selfhost/tests/check_negative/methods/`. Gate:
+  `diff_check` -> 83 corpus files + 50 manifest cases, 1 passed (219.4 s).
+- Stage B5 (2026-10-03): lint parity (Phase 3 sub-stage 4). W004
+  (unreachable match arms: shadow keys for literals/None/Some/Ok/Err/
+  variants, catch-all shadowing), W000 (non-exhaustive NAMED user enums;
+  Option[..]/Result[..] carry args and Bool is a scalar, so neither warns;
+  bare variant arms parse as catch-all Idents), W006 (literal shift amount
+  outside the left type's bit width), W007 (self-comparison on non-float
+  types) are ported with Rust's spans and messages. Rust's multi-missing
+  W000 order is HashMap-random (filed COMPILER_BUGS 2026-10-03); the port
+  uses registration order and gates single-missing cases. 8 new manifest
+  cases under `selfhost/tests/check_negative/lints/`. Rebase onto main
+  `95c7de1c` (m178 + wave-58 relay) was clean first. All five gates green:
+  diff_corpus T1 ok, diff_tokens ok (19,245 tokens), diff_ast ok (12,877
+  nodes), diff_check ok (83 files, 5 diagnostic lines, +58 manifest cases,
+  279.3 s), runtime_ffi_selfcheck ok.
+- Stage B6 (2026-10-03): borrow-pass parity (Phase 3 sub-stage 5). The Rust
+  canonical `--dump-check` now runs `BorrowChecker` on the type-check success
+  path (non-strict E001 warnings, exactly like `compile()`); the selfhost
+  ports the lexical ownership walk + place model + loan set
+  (`selfhost/src/check_borrow.xi`, flat-scope storage, places kept in
+  `place_display` spelling). Corpus diagnostics grew from 5 to 11 lines
+  (E001 on m37_bug45/46/f128) and both drivers agree line-exact with all 58
+  manifest cases. `NkAssign` destructure accessor workaround reapplied in
+  `bc_stmt_assign` (crash repro bf5.xi `p.y = 3;`, COMPILER_BUGS extended).
+  All five gates green together: `cargo test -p xiom-codegen --test
+  full_diff_tests -- --nocapture` -> 5 passed, 326.8s (diff_corpus T1,
+  diff_tokens 19,245, diff_ast 12,877, diff_check 83 files 11 diagnostic
+  lines + 58 manifest cases, runtime_ffi_selfcheck). Meter stays 3 of 11:
+  full parity still needs catalog-BODY checking and uppercase bare-name
+  resolution (both documented in the checklist).
+- Stage B7 (2026-10-03): uppercase bare-name resolution (fallback b).
+  Module types/enums/consts now register Rust's BARE fallback keys
+  (`use xiom.collections;` makes `Map` resolvable bare), and unresolved
+  names in `use` files error for every case instead of only lowercase
+  (value: one error at the ident span; call: undefined + Unit-cascade).
+  Interface-name receivers (`Eq[T].eq`) stay permissive for now
+  (associated-form dispatch deferred, m37_bug48). 3 new manifest cases
+  (`catalog/uppercase_*`); `diff_check` -> 83 files (11 diagnostic lines) +
+  61 manifest cases, 417.3 s; all five gates re-run green. Remaining before
+  the meter flip: catalog-BODY checking only.
+- Stage B8 (2026-10-03): FULL PARITY (gate 3 DONE, meter 3 -> 4 of 11).
+  Rebased onto `018daf05` (v0.62.3, m178/m181 included) with no conflicts.
+  Ported the remaining gaps: m178/m181 ill-typed-match T001 validation
+  (`patterns/`, 9 cases: Some/None + Ok/Err family checks, cross-enum,
+  unknown-variant, variant-on-struct, m181 alias unwrapping, enum-declared
+  None/Some), associated-form interface dispatch (`assoc/`, 3 cases:
+  member accept without arity enforcement, unknown-member three-line
+  cascade with the dot span), and LOCAL catalog-body checking (`catbody/`,
+  2 cases: nested catalog-mode pass, findings tagged
+  `catalog body [<module>]: ` and flushed BEFORE program diagnostics; stdlib
+  bodies intentionally not re-checked -- they ship clean). Final five-gate
+  run: `cargo test -p xiom-codegen --test full_diff_tests` -> 5 passed,
+  443.9 s; `diff_check` = 83 corpus files (11 diagnostic lines,
+  non-vacuous) + 75 manifest cases. `docs/SELFHOST_PROGRESS.md` meter and
+  gate 3 row updated; bounded exceptions listed in the checklist.
+- Stage B9 (2026-10-04): post-ee7ab150 rebase + Phase 4 seed. Rebased onto
+  `ee7ab150` (v0.62.3 + m179-m184) with one docs conflict resolved (kept
+  main's PHASE 3 STATUS paragraph, updated to "COMPLETE and merged").
+  m179-m184 changed LOCAL module identity: a sibling file without a
+  `module` header now resolves qualified calls under its FILE-STEM name, so
+  the selfhost now binds the `use` alias on any successful local load and
+  `catalog/local_known_member.xi` is an accept case again; all expected
+  files regenerated on the new base. Five gates re-ran green on `ee7ab150`
+  (5 passed, 296.0 s; diff_check = 83 files, 11 diagnostic lines, +75
+  cases). Rebased again onto `02d2ee3f` (docs-only) to be merge-ready.
+  MERGE INTO MAIN BLOCKED: main's worktree is dirty (compiler lane has an
+  uncommitted 2-line change in `crates/xiom/src/lib.rs`, a file this branch
+  also modifies), so the sanctioned meter flip is held until that lane
+  commits/stashes. Phase 4 seeded: `docs/checklists/selfhost-phase4.md`
+  (stages H0-H5, header-region gate `diff_ir_headers`). Port work deferred
+  to a fresh session (context budget).
 
 
 # CONTINUATION HANDOFF (2026-10-02 (11), v0.62.2 shipped; m167/m168 fixed; phased queue)

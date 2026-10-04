@@ -1,0 +1,2 @@
+type_error T001 5:10 undefined variable 'no_such_fn'
+type_error T001 5:3 return type mismatch: expected Int, found ()

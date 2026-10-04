@@ -9,6 +9,7 @@
 //   xiomc-self <source.xi>    compile-to-IR (Phase 0: stub module)
 //   xiomc-self --dump-tokens <source.xi>   canonical token dump (Phase 1 gate)
 //   xiomc-self --dump-ast <source.xi>      canonical AST dump (Phase 2 gate)
+//   xiomc-self --dump-check <source.xi>    canonical checker dump (Phase 3 gate)
 //   xiomc-self --selfcheck    run the runtime_ffi behavior checks
 //
 // Build (the harness does this): xiom -o target/selfhost/xiomc-self.exe
@@ -63,6 +64,21 @@ fn main() -> Int {
     }
     return selfhost_parser.dump_ast(ast_src);
   }
+  if first == "--dump-check" {
+    if args.len() < 3 {
+      io.println("usage: xiomc-self --dump-check <source.xi>");
+      return 2;
+    }
+    var chk_src = "";
+    match io.read_file(args[2]) {
+      Ok(text) => { chk_src = text; }
+      Err(e) => {
+        io.println("xiomc-self: cannot read " + args[2] + ": " + e.message);
+        return 3;
+      }
+    }
+    return selfhost_checker.dump_check(chk_src, args[2]);
+  }
 
   var source = "";
   match io.read_file(first) {
@@ -75,7 +91,7 @@ fn main() -> Int {
 
   let token_count = selfhost_lexer.lex_count(&source);
   let node_count = selfhost_parser.parse_count(&source);
-  let error_count = selfhost_checker.check_count(&source);
+  let error_count = selfhost_checker.check_count(&source, first);
   if error_count > 0 { return 4; }
   if token_count < 0 || node_count < 0 { return 5; }
   return selfhost_codegen.emit_program(&source);

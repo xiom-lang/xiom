@@ -1,0 +1,1 @@
+warning W007 3:6 self-comparison is always true (the same expression is compared with itself)

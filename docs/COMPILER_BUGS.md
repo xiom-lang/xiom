@@ -866,6 +866,90 @@ stdlib-exec 85/85 (+2 ign), api-freeze 2/2 after the change.
 
 ---
 
+## 2026-10-03 -- OPEN (selfhost Phase 3 port finding): W000 non-exhaustive match warning order is HashMap-random
+
+`Checker::check_match_exhaustiveness` iterates `self.enum_variants` (a
+`HashMap`) to build the uncovered-variant list, so a user enum match missing
+TWO OR MORE payload variants emits the W000 warnings in a per-process random
+order. Repro:
+`tmp/sprintc/phase3_checker/stage1/l_w000_payload_missing2.xi`
+(`enum Op { A(x: Int), B(y: Int), C(z: Int) }` with only `Op.A` matched):
+four consecutive `xiom --dump-check` runs on the same file alternated
+`'B' ... 'C'` / `'C' ... 'B'`. Single-missing cases are stable (one line),
+and `Option`/`Result`/`Bool` use fixed vectors.
+
+Impact: any canonical dump (the Phase 3 `--dump-check` gate, CI diffing,
+golden diagnostics) is unstable for multi-missing user enums; the selfhost
+gate uses registration order and only gates single-missing cases
+(`selfhost/tests/check_negative/lints/w000_nonexhaustive_payload.xi`).
+Fix direction: sort the collected variant names before coverage checking
+(or iterate `BTreeMap`/the declaration order) so the diagnostic order is
+deterministic.
+
+---
+
+## 2026-10-03 -- OPEN (selfhost Phase 3 port finding): `io.list_dir` returns pointer bits instead of directory names
+
+Found while porting the checker's catalog module index. `io.list_dir(path)`
+reports a plausible count but every `Vec[Str]` entry holds heap/pointer bits:
+on `stdlib/xiom` (45 entries) each element compares unequal to its real name
+and dumps raw bytes `196,202,13,184,66,2,0,0,0,0` (0x0000_0242_B80D_CAC4,
+little-endian) -- the same 10 bytes for every entry. `e == "io"` and
+`e == "string"` are both false and `str_len(e)` returns 6 for all of them, so
+the elements are not valid Str values at all.
+
+Repro:
+`tmp/sprintc/phase3_checker/listdir_probe3.xi` compiled with the Rust driver
+(`xiom -o listdir_probe3.exe listdir_probe3.xi`), prints the byte dump above;
+`listdir_probe.xi` shows the same values rendered as decimal. Same class as
+m163 (method field `Vec[Str]` element miscompile) but on a stdlib entry point.
+
+Impact: a declared-header stdlib module index cannot be built from the
+selfhost, so the Phase 3 catalog port falls back to a static relocation table
+for the 19 modules whose declared dotted name does not match any path shape
+(`selfhost/src/check_modules.xi::cm_static_module_path`, computed by
+`tmp/sprintc/phase3_checker/module_overrides.ps1`). Fix direction: the
+`Vec[Str]` construction inside `stdlib/xiom/io/io.xi::list_dir` (or the
+underlying `opendir`/`readdir` binding) must load the pointee rather than
+passing the pointer bits as the element.
+
+---
+
+## 2026-10-02 -- OPEN (selfhost Phase 3 port finding): `NkAssign` destructure reads the second payload field as pointer bits
+
+Same failure class as Phase 2 (h), but in a SMALL function: while porting
+the checker, `selfhost/src/check_expr.xi::ce_stmt_assign` matched
+`c.p.nodes[idx].kind` against `NkAssign(place, value)` (variant
+`NkAssign(l: Int, r: Int)` of `selfhost_ast.NodeKind`, 95+ variants). The
+compiled binary read `place` correctly and `value` as pointer bits
+(`140698859853289` = 0x7FF7...): the assignment then crashed with
+`0xC0000005` (access violation) when the garbage index was used to read
+`c.p.nodes[value]`. Repro:
+`tmp/sprintc/phase3_checker/p_assign.xi` (`x = 2;` inside `main`) against a
+`xiomc-self --dump-check` build of that change; the trace showed
+`assign enter place=8 value=140698859853289` and no further output
+(exit `-1073741819`).
+
+Discriminating evidence: moving the SAME match into two one-arm helpers
+(`ce_assign_lhs`, `ce_assign_rhs`) returns the correct fields (`lhs=8`,
+`rhs=9`) for the same node, and the Phase 2 AST dumper's `NkAssign(l, r)`
+arm has always worked -- so the construction is sound and the corruption
+depends on the surrounding function shape/arm set, exactly like (h).
+
+Workaround (landed): field access goes through the one-arm accessor helpers
+and statement dispatch uses an Int-tag selector (`ce_stmt_tag`) with
+per-kind helper functions, the same shape Phase 2 used for
+`NkExprGenericCall`. Recurrence while porting the borrow walk (2026-10-03):
+`bc_stmt_assign` crashed with 0xC0000005 on `p.y = 3;`
+(`tmp/sprintc/phase3_checker/stage1/bf5.xi`) until the same
+`bc_assign_lhs`/`bc_assign_rhs` accessor split was applied. Fix direction:
+payload-field loads for variant patterns must match the construction layout
+independent of surrounding function size/arm count (see also the fix
+direction of (e)/(g)/(h): the generated IR for aggregate-payload enum
+matches needs a verifier check).
+
+---
+
 ## 2026-10-02 -- C23 FIXED: driver optimized every module twice (opt then clang); LLVM 18 miscompiles the lesson trio
 
 Playground relay (AUDIT 33.4, pack `playground/tools/compiler-repros/c23`):

@@ -16,6 +16,7 @@
 //!   xiom --dump-contracts <source.xi>        emit contract index as JSON
 //!   xiom --dump-tokens <source.xi>           canonical token dump (selfhost parity gate)
 //!   xiom --dump-ast <source.xi>              canonical AST dump (selfhost parity gate)
+//!   xiom --dump-check <source.xi>            canonical checker dump (selfhost parity gate)
 //!   xiom --sandbox <source.xi>                safety audit report (text)
 //!   xiom --sandbox=strict <source.xi>         block compilation on HIGH findings
 //!   xiom --sandbox-report=json <source.xi>    safety audit as JSON
@@ -1289,6 +1290,70 @@ fn dump_ast(source: &str) -> String {
     }
 }
 
+// ============================================================================
+// --dump-check: canonical checker diagnostics for the selfhost Phase 3 gate
+// ============================================================================
+//
+// Line format (byte-stable; mirrored by selfhost/src/checker_dump.xi):
+//
+//   {kind} {code} {line}:{col} {escaped-message}    one line per diagnostic
+//   CHECK-OK                                        no diagnostics
+//   PARSE-ERROR                                     input/lex/parse failed
+//
+// Diagnostics are emitted in exactly the order `CompileResult.diagnostics`
+// carries them: catalog module collisions (W001), then checker warnings
+// (`take_warnings` order), then type errors (checker push order). The message
+// escapes `\`, LF, CR and TAB as `\\`, `\n`, `\r`, `\t`; every other byte is
+// emitted verbatim (UTF-8). `kind`/`code` are the structured diagnostic
+// fields, so the gate compares severity and code as well as text.
+//
+// The command stops after the checker plus the non-strict borrow pass
+// (`CompileConfig::dump_check` mirrors `compile()`'s E001 warnings and never
+// runs codegen), so a clean program is just `CHECK-OK`.
+fn dump_check_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+fn dump_check(source_path: &str) -> String {
+    let config = CompileConfig { dump_check: true, ..CompileConfig::default() };
+    let result = xiom::compile_with_diagnostics(&config, &[source_path.to_string()]);
+    if result
+        .diagnostics
+        .iter()
+        .any(|d| d.kind == "lex_error" || d.kind == "parse_error" || d.kind == "io_error")
+    {
+        return "PARSE-ERROR\n".to_string();
+    }
+    if result.diagnostics.is_empty() {
+        return "CHECK-OK\n".to_string();
+    }
+    let mut out = String::new();
+    for d in &result.diagnostics {
+        out.push_str(&d.kind);
+        out.push(' ');
+        out.push_str(&d.code);
+        out.push(' ');
+        out.push_str(&d.line.to_string());
+        out.push(':');
+        out.push_str(&d.col.to_string());
+        out.push(' ');
+        out.push_str(&dump_check_escape(&d.message));
+        out.push('\n');
+    }
+    out
+}
+
+
 /// M10.4: Interactive REPL -- compile and execute each line as a script.
 /// State (let/var declarations) persists across lines.
 fn run_repl() {
@@ -1684,6 +1749,7 @@ fn real_main() {
     let emit_tokens = args.flag("emit-tokens");
     let dump_tokens_flag = args.flag("dump-tokens");
     let dump_ast_flag = args.flag("dump-ast");
+    let dump_check_flag = args.flag("dump-check");
     let do_run = args.flag("run");
     let check_only = args.flag("check");
     let release = args.flag("release");
@@ -2028,6 +2094,7 @@ fn real_main() {
             emit_ir,
             do_run,
             check_only,
+            dump_check: false,
             release,
             opt_level,
             check_contracts,
@@ -2166,6 +2233,14 @@ fn real_main() {
                 Err(e) => { eprintln!("error: {}: {}", path_str, e); continue; }
             };
             print!("{}", dump_ast(&source));
+        }
+        return;
+    }
+
+    // --dump-check: canonical checker diagnostics and exit (Phase 3 gate)
+    if dump_check_flag && !source_paths.is_empty() {
+        for path_str in &source_paths {
+            print!("{}", dump_check(path_str));
         }
         return;
     }
@@ -2351,6 +2426,7 @@ fn real_main() {
             for path in &source_paths {
                 let check_config = CompileConfig {
                     check_only: true, emit_ir: true, diagnostics_json: true,
+                    dump_check: false,
                     target: config.target, release: config.release,
                     do_run: false, check_contracts: config.check_contracts,
                     strict_mode: config.strict_mode, debug_symbols: config.debug_symbols,
@@ -2406,6 +2482,7 @@ fn real_main() {
             for path in &source_paths {
                 let check_config = CompileConfig {
                     check_only: true, emit_ir: true, diagnostics_json: true,
+                    dump_check: false,
                     target: config.target, release: config.release,
                     do_run: false, check_contracts: config.check_contracts,
                     strict_mode: config.strict_mode, debug_symbols: config.debug_symbols,
@@ -2524,6 +2601,7 @@ fn print_usage() {
     eprintln!("  --emit-tokens       Print the token stream and exit");
     eprintln!("  --dump-tokens       Print the canonical token dump (selfhost parity gate)");
     eprintln!("  --dump-ast          Print the canonical AST dump (selfhost parity gate)");
+    eprintln!("  --dump-check        Print the canonical checker dump (selfhost parity gate)");
     eprintln!("  --diagnostics=json  Output diagnostics as JSON");
     eprintln!("  --dump-contracts    Print the contract index as JSON");
     eprintln!("  --shared            Compile as a shared library (DLL)");
