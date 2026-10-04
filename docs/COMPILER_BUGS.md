@@ -231,7 +231,7 @@ after. Playground acceptance `tools/compiler-repros/c25/run.sh` prints
 
 ---
 
-## 2026-10-04 -- CORRECTION (REOPEN): iter.range `.contains` C001 is NOT fixed -- m184 claim withdrawn
+## 2026-10-04 -- FIXED: iter.range `.contains` C001 -- classifier nondeterminism root-caused (module-qualified call typing)
 
 Registry stress on the OFFICIAL archives (harness: CWD=stdlib, XIOM_STDLIB
 set, relative path; 20 compiles per file):
@@ -250,6 +250,29 @@ classifier state (call.rs `intercept = !has_user_fn`; the third-range-sum
 state change) is the likely mechanism. Queue: v0.63.0 beside lz4.
 IMPACT: blocks stdlib releases -- `run_smokes` has no exclusions and
 `release.yml` runs the full corpus.
+
+FIXED (2026-10-04, same day): root cause = `infer_llvm_type`'s bare-leaf
+fallback for module-qualified calls. `iter.range(1,5)` resolved the callee
+to the bare leaf `range`; the suffix scan over `types.functions` found BOTH
+`iter.range` (`%struct.Range`) and `iter.range.range` (`%struct.Vec`) and
+returned whichever the registration-ordered map listed first. On ~half the
+runs it picked `%struct.Vec`, so `is_contract_collection_receiver` said
+"collection" and `contains` was hijacked into the contract Vec scan -> C001
+(env-gated trace: failing runs ty=%struct.Vec, passing runs ty=%struct.Range
+for the identical program). FIX (call.rs, `infer_llvm_type` Call arm): when
+the callee is `module.fn(...)` (Field over an Ident that is not a value
+receiver), resolve the module's OWN key `{module}.{fn}` first -- `iter.range`
+now binds directly and the ambiguous suffix scan is never reached. The
+legacy first-match scan is unchanged for genuinely bare calls (an earlier
+unanimous-only variant regressed the R49 `e2e_m94_nested_vec_struct_elem`
+method chain, so it was restored exactly). EVIDENCE: reducer
+`p_iter_range_contains_c001.xi` 9/20 fails before -> **20/20 green** after;
+`smoke_iter_range` + `smoke_iter_find_all_any` compile 5/5 and run rc 0;
+new lock `e2e_c001_iter_range_contains_sums` + ci.yml line; full e2e
+**2418/0/4**; feature 519/519.
+STDLIB/REGISTRY: the published v0.63.0 archive predates this fix -- keep
+the C001 gate exclusions for the v0.63.0 pin; drop them once an archive
+containing this commit ships.
 
 ---
 

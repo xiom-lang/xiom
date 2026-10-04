@@ -1466,6 +1466,33 @@ fn e2e_m17_zero_warnings() {
     assert!(output.status.success());
 }
 
+/// C001 fix (2026-10-04): the return type of a module-qualified call must not
+/// depend on function-registration order. With `iter.range` and
+/// `iter.range.range` both registered, the bare-leaf suffix scan used to pick
+/// whichever entry the map listed first; a `%struct.Vec` pick classified
+/// `iter.range(..).contains(..)` as a contract collection scan and failed
+/// C001. This exact three-sum + contains shape flipped ~50% run-to-run before
+/// the fix; it must now compile and run deterministically.
+#[test]
+fn e2e_c001_iter_range_contains_sums() {
+    let source = r#"
+use xiom.iter;
+fn main() -> Int {
+  if iter.range(0, 0).sum() != 0 { return 1; }
+  if iter.range(1, 5).sum() != 10 { return 2; }
+  if iter.range(0, 10).sum() != 45 { return 3; }
+  if !iter.range(1, 5).contains(3) { return 4; }
+  if iter.range(1, 5).contains(5) { return 5; }
+  if iter.range(1, 5).len() != 4 { return 6; }
+  return 0;
+}"#;
+    let tmp = project_root().join("_e2e_c001_iter_range.xi");
+    std::fs::write(&tmp, source).expect("write");
+    let result = compile_and_run(&tmp.to_string_lossy());
+    let _ = std::fs::remove_file(&tmp);
+    assert_eq!(result, Some(0), "C001: iter.range contains must resolve deterministically");
+}
+
 /// M19-E2E: io.read_file() must return correct file content.
 /// Regression test for the M19 bug where read_file returned empty string
 /// despite is_ok=true (caused by offset() auto-stub + unwrap type corruption).

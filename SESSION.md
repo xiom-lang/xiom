@@ -73,11 +73,11 @@
 >    iter `Range.collect()` clang forward-ref + `Range.count`/`Range.find`
 >    undefined `__closure_N` (wave-65 blocker; standalone repro in stdlib
 >    known_failures), `reflect.all_types()` 0xC0000374 (catalog-return
->    path), **C001 contains-classifier REOPENED -- registry stress on the
->    official v0.62.4 archive: smoke_iter_range 8/20 green,
->    smoke_iter_find_all_any 12/20 (v0.62.3: 8/20, 10/20); m184 did NOT
->    fix it, ~50% flaky (HashMap-order classifier state); blocks stdlib
->    release.yml -- v0.63.0 fix target** + the V8 direct-form latent case,
+>    path), **C001 contains-classifier FIXED (2026-10-04): module-qualified
+>    call typing (`infer_llvm_type` picked `iter.range.range` Vec vs
+>    `iter.range` Range by map order); stress 20/20, smokes green, lock
+>    e2e_c001_iter_range_contains_sums; rides the next archive -- v0.63.0
+>    predates it, keep its gate exclusions** + the V8 direct-form latent case,
 >    R-8 `tcp_stream_read`, i64<->f64 bitcast
 >    intrinsic, registry polish B1/B2/`--resolve` + trust wording,
 >    arena/handle overflow audit (guard_alloc alignment wrap -- stdlib

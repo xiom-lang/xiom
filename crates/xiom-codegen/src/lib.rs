@@ -8673,6 +8673,23 @@ impl IrEmitter {
                             } else {
                                 Some(bare)
                             }
+                        } else if let Expr::Ident(module_ident) = obj.as_ref() {
+                            // C001 fix (2026-10-04): module-qualified call
+                            // (`iter.range(..)`) must bind the module's OWN key
+                            // deterministically. The bare-leaf fallback lands
+                            // in the suffix scan below, which returned the
+                            // first `.range`-suffixed entry -- with two
+                            // candidates (`iter.range` -> Range,
+                            // `iter.range.range` -> Vec) the registration
+                            // order decided the inferred type run-to-run, and
+                            // a Vec-typed receiver turned `contains` into the
+                            // contract collection scan (C001).
+                            let qualified = format!("{}.{}", module_ident.name, field.name);
+                            if self.types.functions.contains_key(&qualified) {
+                                Some(qualified)
+                            } else {
+                                Some(bare)
+                            }
                         } else {
                             Some(bare)
                         }
