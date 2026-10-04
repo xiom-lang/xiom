@@ -64,6 +64,27 @@ after. Playground acceptance `tools/compiler-repros/c25/run.sh` prints
 
 ---
 
+## 2026-10-03 -- LOCALIZED (open): enum struct-payload construction emits INVALID IR (packages in-situ corruption family)
+
+Source: packages re-run -- the enum-payload Str in-situ failure survives
+m184/m185 (validate valid operation corrupt, `Field(sel).name` reads
+|0|/empty, 9/10). Minimal shape found here:
+
+```xiom
+type Field = { name: Str; value: Int; }
+enum Selection { Field(sel: Field), Other }
+fn pick(s: Selection) -> Str { match s { Field(sel) => { return sel.name; } Other => { return "?"; } } }
+```
+Construction `Selection.Field(f)` compiles to INVALID IR (clang: "invalid
+getelementptr indices"): `%tmp8 = getelementptr %struct.Selection, ...,
+i32 0, i32 2` on a 2-field enum (payload index one past the end), and
+`%tmp6 = load %struct.Field, i8* %tmp5` -- a struct load through an i8*
+string pointer. Both are in the variant-construction path for STRUCT
+payloads (scalar/Str payloads avoid it). This is the strongest candidate
+for the in-situ enum-payload corruption; fix next (m189).
+
+---
+
 ## 2026-10-03 -- FIXED (m188): const values as match arms never matched
 
 Source: packages relay (minimized `docs/repro/const-match/`; all 17 const
