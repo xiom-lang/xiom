@@ -3,7 +3,7 @@
 
 # XIOM Selfhost -- bootstrap progress tracker
 
-**Last updated:** 2026-10-03 | **Plan:** `docs/SELFHOST_PLAN.md` |
+**Last updated:** 2026-10-05 | **Plan:** `docs/SELFHOST_PLAN.md` |
 **Phase 0 checklist:** `docs/checklists/selfhost-phase0.md` |
 **Phase 1 checklist:** `docs/checklists/selfhost-phase1.md` |
 **Phase 2 checklist:** `docs/checklists/selfhost-phase2.md` |
@@ -26,7 +26,7 @@ All six must hold (SELFHOST_PLAN section 7):
 
 ## Bootstrap meter
 
-**36% -- 4 of 11 tracked gates complete.**
+**45% -- 5 of 11 tracked gates complete.**
 
 **Gates: e2e 2411/2411 (+4 ignored), checker 195/195, feature 518/518, robustness 63/63, fuzz 24/24, perf 3/3, formatter 86/86, lsp 45/45.**
 
@@ -39,6 +39,20 @@ snapshots: 2409 at `f4734c07`, 2408 at `592c64d4`, 2406 at `d1ab8ec4`,
 Release context: v0.62.3 shipped 2026-10-03 with `SELFHOST_VERSION` bumped
 to 0.62.3; the selfhost source is otherwise unchanged by this release and
 the Rust compiler remains the shipped bootstrap.
+
+PHASE 4 STATUS (2026-10-05): **COMPLETE** -- branch
+`selfhost-phase-4-codegen` rebased onto `8405d2e6` (v0.63.0). Full gate:
+`cargo test -p xiom-codegen --test full_diff_tests diff_ir_headers` green
+over the 83-file corpus: 8337 header lines byte-exact on both drivers (258
+primary define symbols, 4 tuple definitions, 7909 declare lines); T1
+`diff_corpus` re-ran green on the same tree (1 passed, 177.5 s). Stages
+H0-H4: harness `ir_header_lines`/`diff_ir_headers` extractor (banner ->
+define signatures -> tuple defs -> inline attrs -> declares), primary-unit
+fn signatures (ptr/byval shapes, `Option__`/`Result__`/`Tuple__` BUG-1
+naming), tuple struct definitions, `approx_block_cost` inline policy,
+builtin declare table + user-extern order (deferred thread_spawn). Gate 4
+flips to DONE and the meter to 45% (5/11). Next: **O1 selfhost code quality**
+(`--strict`, zero warnings) then Phase 5 (scalar bodies + control flow T3).
 
 PHASE 3 STATUS (2026-10-03): **COMPLETE and merged** -- branch
 `selfhost-phase-3-checker` was rebased onto `ee7ab150` and the full parity
@@ -58,7 +72,7 @@ row flips.
 | 1 | Lexer: token-dump equality on the corpus (`--dump-tokens`) | **DONE 2026-10-02** | Phase 1; `selfhost/src/lexer.xi` ports `crates/xiom-lexer`; harness gate `full_diff_tests::diff_tokens` green over the 83-file corpus (3/3 tests, 72.7 s); torture parity (BOM/CRLF/NUL/bigints/suffix quirk) clean; checklist `docs/checklists/selfhost-phase1.md` |
 | 2 | Parser: AST-dump equality on the corpus (`--dump-ast`) | **DONE 2026-10-02** | Phase 2; `selfhost/src/ast.xi`+`parser_state.xi`+`parser_expr.xi`+`parser_core.xi`+`ast_dump.xi` port `crates/xiom-parser`/`xiom-ast`; harness gate `full_diff_tests::diff_ast` green over the 83-file corpus (1 passed, 100.7 s); checklist `docs/checklists/selfhost-phase2.md` |
 | 3 | Checker: diagnostics + type-annotation equality | **DONE 2026-10-03** | Full parity gate green: `cargo test -p xiom-codegen --test full_diff_tests` -> 5 passed (diff_corpus T1, diff_tokens, diff_ast, diff_check, runtime_ffi_selfcheck), 443.9 s on main `018daf05`. `diff_check` = 83 corpus files, 11 diagnostic lines (4x W003, 1x W008, 6x E001), line-exact on both drivers + 75 manifest cases (catalog/imports, containers, lints, methods, patterns incl. m178/m181, assoc, catalog bodies). Ported: canonical type names, statements/exprs, calls/generics, contracts, diagnostics ordering, catalog/imports + module member calls, container method sets + R8 UFCS + `methods` map, unknown-method/struct-field validation, W000/W004/W006/W007 lints, non-strict borrow pass, uppercase bare-name resolution, associated-form interface dispatch, local catalog-body checking. Bounded exceptions (documented in the checklist, exact for this tree): stdlib bodies are not re-checked (the stdlib ships clean) and relocated stdlib modules use a static path table (io.list_dir defect). Checklist `docs/checklists/selfhost-phase3.md` |
-| 4 | Codegen: fn-header T3 IR equality | NOT STARTED | Phase 4; signatures, tuple names, inline policy (`approx_block_cost`) |
+| 4 | Codegen: fn-header T3 IR equality | **DONE 2026-10-05** | Phase 4; `selfhost/src/codegen.xi` + `codegen_cost.xi` + `codegen_declares.xi` port signatures (ptr/byval, `Option__`/`Result__`/`Tuple__` BUG-1 naming), tuple struct defs, `approx_block_cost` inline policy and the builtin/extern declare order; harness `full_diff_tests::diff_ir_headers` green over the 83-file corpus (8337 header lines byte-exact: 258 primary define symbols, 4 tuple defs, 7909 declares); T1 green on the same tree; checklist `docs/checklists/selfhost-phase4.md` |
 | O1 | Selfhost code quality: `--strict`, zero warnings, contracts on | NOT STARTED | after Phase 4; removes v10 borrow workarounds |
 | 5 | Codegen: scalar bodies + control flow T3 (scalar corpus) | NOT STARTED | Phase 5 |
 | 6 | Codegen: structs/tuples/generics/unsafe T3 (whole corpus) | NOT STARTED | Phase 6 |
