@@ -286,6 +286,14 @@ ladder. Gate P acceptance lives in `docs/RELEASE_GATE_v0.62.3.md`.
      Still open: in-container release re-measure; if the <1.5s scripting
      wall misses, dedupe per-module signature registration and memoize
      per-module export maps.
+     IN-CONTAINER (2026-10-05, acceptance container, same release stdlib
+     mounted for both binaries, fresh HOME per cold run): warm-index
+     `run --no-cache` wall v0.63.0 1237ms -> candidate 996ms; catalog-bodies
+     elapsed 0.240s -> 0.194s (xiom.math's 0.099s slow item gone,
+     uses-skipped=53), check 0.335s -> 0.302s. The fresh-HOME cold wall
+     (~4.8s both) is dominated by the one-time runtime/codegen cache build,
+     not the catalog; the benchmark lane measures the release-archive cold
+     wall. No regression; the <1.5s warm-index target holds for both.
    - NEXT: per-module CHECKED cache (diagnostics keyed by source hash +
      checker identity) needs the generic-instantiation state-effects audit
      before skipping bodies; alternatively investigate `xiom.math` body

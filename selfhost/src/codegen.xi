@@ -12,7 +12,7 @@ use selfhost_runtime_ffi;
 
 /// Mirrors the Rust compiler's version in the `--emit-ir` header. Keep in
 /// step at release time (the Rust side reads CARGO_PKG_VERSION).
-const SELFHOST_VERSION: Str = "0.63.0";
+const SELFHOST_VERSION: Str = "0.63.1";
 
 /// Phase 0 stub: emit a well-formed IR module (header + `define`).
 pub fn emit_program(src: Str) -> Int {

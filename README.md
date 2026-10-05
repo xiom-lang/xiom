@@ -5,8 +5,8 @@
 
 **Safe - Verified - Precise** -- A systems programming language with first-class contracts.
 
-[![Tests](https://img.shields.io/badge/tests-2417%20passed-brightgreen)]()
-[![Version](https://img.shields.io/badge/version-0.63.0-blue)]()
+[![Tests](https://img.shields.io/badge/tests-2419%20passed-brightgreen)]()
+[![Version](https://img.shields.io/badge/version-0.63.1-blue)]()
 
 XIOM is a compiled, statically typed, memory-safe systems programming language. It compiles to native code via LLVM and supports x86_64, ARM, RISC-V, and WebAssembly. The compiler is self-hosted -- it compiles itself.
 
@@ -23,7 +23,7 @@ cd xiom
 
 # After restarting terminal:
 xiom --version
-# -> XIOM Compiler v0.63.0
+# -> XIOM Compiler v0.63.1
 ```
 
 ### One-Command Install (macOS / Linux)
@@ -41,7 +41,7 @@ xiom --version
 
 ### Pre-built Release (Windows)
 
-Download the latest `xiom-v0.63.0-windows-x64.zip` from [Releases](https://github.com/xiom-lang/xiom/releases), extract, and double-click `install.bat`. It will:
+Download the latest `xiom-v0.63.1-windows-x64.zip` from [Releases](https://github.com/xiom-lang/xiom/releases), extract, and double-click `install.bat`. It will:
 
 1. Ask where to install (default: `%LOCALAPPDATA%\xiom`)
 2. Copy binaries + stdlib + runtime
@@ -70,13 +70,13 @@ Download the latest `xiom-v0.63.0-windows-x64.zip` from [Releases](https://githu
 # (version defaults to Cargo.toml [workspace.package] version)
 .\package.ps1
 # Produces:
-#   release\xiom-v0.63.0\                 <- portable folder
-#   release\xiom-v0.63.0-windows-x64.zip   <- distributable ZIP
+#   release\xiom-v0.63.1\                 <- portable folder
+#   release\xiom-v0.63.1-windows-x64.zip   <- distributable ZIP
 ```
 
 Release folder structure:
 ```
-xiom-v0.63.0\
+xiom-v0.63.1\
 |-- bin\              xiom.exe, xiom-pkg.exe, xiom-fmt.exe, xiom-doc.exe,
 |                     xiom-lsp.exe, xiom-dbg.exe, xiom-mcp.exe,
 |                     xiom-verify.exe, xiom-ffigen.exe, z3.exe
@@ -90,7 +90,7 @@ xiom-v0.63.0\
 Install from a release:
 ```powershell
 # From local release folder
-.\install.ps1 -BinaryPath .\release\xiom-v0.63.0
+.\install.ps1 -BinaryPath .\release\xiom-v0.63.1
 
 # Or just double-click install.bat in the release folder
 ```
@@ -266,6 +266,7 @@ See the [Releases page](https://github.com/xiom-lang/xiom/releases) for the full
 
 | Version | Date | Tests | Milestone |
 |---------|------|-------|-----------|
+| v0.63.1 | 2026-10-05 | 2423 | Fixes: runtime contract evaluator, verifier SMT self/sort emission, LZ4 duplicate leaf, catalog flush |
 | v0.63.0 | 2026-10-04 | 2421 | LZ4 block compression, verifier SMT validity, scripting temp-tree fix, compile caches |
 | v0.62.4 | 2026-10-04 | 2421 | Correctness: script cache, constant tables, nested modules, match arms, unsigned compares |
 | v0.62.3 | 2026-10-03 | 2411 | Correctness: shared references, contracts index, match-pattern checks |
