@@ -5743,6 +5743,18 @@ fn e2e_safety_probe() {
     );
 }
 
+// m193 (stdlib relay): a user extern of a builtin runtime symbol
+// (xiom_guard_alloc) emitted a duplicate declare and clang rejected the
+// module ("invalid redefinition of function"). The extern must compile, link
+// and run against the runtime symbol.
+#[test] fn e2e_m193_guard_alloc_extern() {
+    assert_eq!(
+        compile_and_run("tests/regression/m193_guard_alloc_extern/main.xi"),
+        Some(0),
+        "a direct extern of a builtin runtime symbol must link once, not duplicate (m193)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

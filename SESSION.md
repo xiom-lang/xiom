@@ -88,6 +88,16 @@
 > inference, scrypt/shuffle/choice, BUG 18) -- all await lane probe bundles;
 > iter/reflect local repros are not in this stdlib pin (2429ac3).
 
+> COMPILER LANE (2026-10-05f): m193 FIXED -- a user extern of a builtin
+> runtime symbol (xiom_guard_alloc family) emitted a duplicate declare and
+> clang rejected the native link ("invalid redefinition of function"); the
+> pre-seeded dedupe list had drifted behind emit_builtin_declares, so
+> emit_extern_declares now seeds already_declared from the module's actual
+> `declare` lines (conditionals stay correct). Locks: regress_m193 (declare
+> count == 1) + e2e_m193 (link+run, pre-fix red); feature 521/521, m21 FFI
+> 10/10; CI line. Next in the queue: i64<->f64 bitcast intrinsic, UX hint,
+> then lane probes as they arrive.
+
 > NEXT QUEUE (post-v0.63.1):
 > 1. Benchmarks: hand v0.63.1 to the benchmark lane (carries the t1 SMT,
 >    lz4, and catalog-flush fixes); re-run acceptance on the new

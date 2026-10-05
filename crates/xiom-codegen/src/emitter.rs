@@ -1510,6 +1510,28 @@ impl IrEmitter {
     /// already present in `self.mono.already_declared`. Skips functions whose names
     /// are already in the hardcoded set or already declared by another extern block.
     pub(crate) fn emit_extern_declares(&mut self, items: &[TopDecl]) {
+        // m193 (stdlib relay): a direct extern of a symbol the compiler already
+        // declared emitted a duplicate `declare` and clang rejected the module
+        // ("invalid redefinition of function 'xiom_guard_alloc'") -- LLVM
+        // rejects even byte-identical redeclarations. The pre-seeded
+        // hardcoded_declare_names() list had drifted behind
+        // emit_builtin_declares() (the D2.1 guard/trampoline family, sprintf,
+        // xiom_str_from_vec) and the header's channel/threadpool/set_args
+        // block. Seed the dedupe from what is ACTUALLY in the module instead:
+        // conditionals stay correct (a symbol not emitted because hot_reload
+        // is off is not seeded, so the user's extern still declares it).
+        for line in self.output.lines() {
+            let t = line.trim_start();
+            let Some(rest) = t.strip_prefix("declare ") else { continue };
+            let Some(at) = rest.find('@') else { continue };
+            let name = rest[at + 1..]
+                .split(|c: char| c == '(' || c.is_whitespace())
+                .next()
+                .unwrap_or("");
+            if !name.is_empty() {
+                self.mono.already_declared.insert(name.to_string());
+            }
+        }
         for item in items {
             match item {
                 TopDecl::Extern(eb) => {

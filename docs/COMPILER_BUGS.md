@@ -89,6 +89,41 @@ queued as coverage work, but it is NOT the blocker for any verdict above.
 
 ---
 
+## 2026-10-05 -- FIXED: user extern of a builtin runtime symbol duplicated the declare (m193)
+
+Stdlib relay (2026-10-04, still open on v0.62.4): a direct XIOM extern of the
+runtime function `xiom_guard_alloc` (plus a call) hung codegen (~300s) and/or
+failed with clang "invalid redefinition". Re-verified on this tree: no hang,
+but the native link fails deterministically.
+
+REPRO: `tmp/contracts/guard_alloc_extern.xi` --
+`extern "C" { fn xiom_guard_alloc(size: Int) -> *UInt8; }` + call.
+- `--emit-ir` prints TWO identical `declare i8* @xiom_guard_alloc(i64)`
+  lines (builtin preamble + user extern); LLVM rejects even byte-identical
+  redeclarations, so `--release --target native` fails:
+  `xiominput.ll:143:13: error: invalid redefinition of function
+  'xiom_guard_alloc'`.
+
+ROOT CAUSE: `emit_extern_declares` deduped via `mono.already_declared`,
+seeded only by `hardcoded_declare_names()` -- a hand-maintained list that had
+drifted behind `emit_builtin_declares()` (the whole D2.1 guard/trampoline
+family, sprintf, llvm.memmove, xiom_str_from_vec, xiom_double_to_string) and
+the module-header block (channel/threadpool/set_args). Any user extern of a
+drifted symbol duplicated.
+
+FIX (emitter.rs): before processing extern items, scan the module text for
+`declare ... @name` and union the names into `already_declared`. This covers
+everything actually emitted (including conditionals: a symbol skipped when
+hot_reload is off is NOT seeded, so the user extern still declares it).
+
+VERIFIED: IR lock `regress_m193_extern_builtin_no_duplicate_declare` (declare
+count == 1), e2e `e2e_m193_guard_alloc_extern`
+(`tests/regression/m193_guard_alloc_extern/`, calls the runtime symbol;
+pre-fix link error, post run exit 0 "m193 ok"), m21 FFI cluster 10/10. CI
+filter extended.
+
+---
+
 ## 2026-10-05 -- FIXED: confined-unsafe ctx alloca leaked 32 bytes of stack per loop entry (m192)
 
 Perf queue item 1 surfaced a CORRECTNESS bug underneath the t3-hot-reload

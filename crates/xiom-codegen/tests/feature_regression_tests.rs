@@ -6858,3 +6858,27 @@ fn main() -> Int {
     }
     assert!(found, "m192: expected a __unsafe_ctx_ alloca (non-vacuous); got:\n{ir}");
 }
+
+// m193 (stdlib relay): a user extern of a symbol the compiler already
+// declares must NOT emit a second `declare` -- clang rejects even
+// byte-identical redeclarations ("invalid redefinition of function"), which
+// broke direct externs of runtime symbols such as xiom_guard_alloc.
+#[test]
+fn regress_m193_extern_builtin_no_duplicate_declare() {
+    let source = r#"
+extern "C" {
+  fn xiom_guard_alloc(size: Int) -> *UInt8;
+}
+fn main() -> Int {
+  var addr: Int = 0;
+  unsafe { addr = xiom_guard_alloc(16) as Int; }
+  return addr;
+}
+"#;
+    let ir = compile(source).expect("m193: extern of a builtin symbol must compile");
+    let count = ir.matches("declare i8* @xiom_guard_alloc(i64)").count();
+    assert_eq!(
+        count, 1,
+        "m193: a builtin symbol must be declared exactly once; got {count}:\n{ir}"
+    );
+}
