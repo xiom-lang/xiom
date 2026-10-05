@@ -276,9 +276,22 @@
 > corruption). `autoderef_ref_value` loads the pointee for `&`-locals in
 > both binary-op paths and scalar `return`s; raw `*T` arithmetic untouched.
 > Probe exit 5 -> 0 (`bare_add a=11 r=11`, `bare_read c=10 r=10`); locks IR
-> + e2e; feature 524/524; CI line. Next: C-PULSE-05 (W005 module-const
-> receiver stub), then the multipart match-binding fix. Selfhost lane:
-> rebased onto v0.64.0 (`2ff1f224`, suite 6/6), Phase 5 started.
+> + e2e; feature 524/524; CI line. FOLLOW-UP: the return autoderef is gated
+> on the AST return type (`current_return_is_ref_like`) after the full e2e
+> caught m21_borrow_010 (`-> &Int` erases to the i64 address ABI; AV
+> 0xC0000005). Borrow cluster 20/20, feature 524/524, full e2e 2427/0/4.
+> Next: C-PULSE-05 (W005 module-const receiver stub; now ABORTS on v0.64.0),
+> C-PULSE-06 (missing struct field must be an error), then the multipart
+> match-binding fix. Selfhost lane: rebased onto v0.64.0 (`2ff1f224`, suite
+> 6/6), Phase 5 started.
+> FEATURE REQUEST (Pulse gap, owner question): exe icon embedding for
+> compiled programs. Today the link step passes only /SUBSYSTEM,
+> /STACK:8388608, /Brepro (lib.rs:1517); no `--icon` flag exists. Sketch:
+> `xiom --icon app.ico file.xi` -> write `IDI_ICON1 ICON "app.ico"` .rc ->
+> `llvm-rc /fo app.res` (LLVM already a dependency; cache by ico hash) ->
+> include app.res in the lld-link args. Windows-only; workaround today is
+> `rcedit app.exe --set-icon app.ico` or a shortcut. Queue for v0.64.1+;
+> ships with AI_CONTEXT/--help/website docs per the docs-coupling rule.
 
 > RELEASE MECHANICS (v0.63.1 procedure, for v0.63.2/v0.64.0):
 > bump Cargo.toml [workspace.package] version + selfhost/src/codegen.xi

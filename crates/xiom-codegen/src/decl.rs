@@ -1328,6 +1328,17 @@ impl IrEmitter {
             ret_llvm
         };
         self.fctx.current_return_type = ret_llvm.clone();
+        // m197 follow-up: declared reference/pointer returns use the address
+        // ABI (references erase to i64 at fn boundaries), so the return-path
+        // autoderef must not fire for them (m21_borrow_010: `fn get_ref(x:
+        // &Int) -> &Int { return x; }` loaded the pointee and callers then
+        // dereferenced the VALUE -> 0xC0000005).
+        self.fctx.current_return_is_ref_like = fd.return_type.as_ref().map_or(false, |t| {
+            matches!(
+                t,
+                xiom_ast::Type::Ref(_) | xiom_ast::Type::MutRef(_) | xiom_ast::Type::Ptr(_)
+            )
+        });
         // P2-4: Reset Never-return flag (may persist from previous function).
         // Set early so that Return statements inside the body emit unreachable.
         self.fctx.is_never_return = fd.return_type.as_ref().map_or(false, |t| {

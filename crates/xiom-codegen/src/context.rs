@@ -269,6 +269,10 @@ pub struct FunctionContext {
     pub current_fn: Option<String>,
     /// Return type of current function (empty = void)
     pub current_return_type: String,
+    /// m197 follow-up: the DECLARED return type is a reference or raw
+    /// pointer (`&T`/`&mut T`/`*T`) -- the address ABI is intentional even
+    /// when references erase to i64, so return-path autoderef stays off.
+    pub current_return_is_ref_like: bool,
     /// BUG 55 (2026-08-18): inside a confined-unsafe BLOCK fn,
     /// current_return_type is the block's i64 ABI -- this holds the
     /// ENCLOSING fn's declared return type so Some/None/Ok/Err ctors

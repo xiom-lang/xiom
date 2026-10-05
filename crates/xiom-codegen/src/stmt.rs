@@ -1372,7 +1372,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         "i1" | "i8" | "i16" | "i32" | "i64" | "i128" | "float" | "double" | "fp128"
                     );
                     let (mut val, mut val_ty) = self.compile_expr(e)?;
-                    if ret_is_scalar {
+                    if ret_is_scalar && !self.fctx.current_return_is_ref_like {
                         let (v2, t2) = self.autoderef_ref_value(e, val, val_ty);
                         val = v2;
                         val_ty = t2;

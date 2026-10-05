@@ -127,6 +127,14 @@ REPRO/EVIDENCE: Pulse probe (`docs/repro/mut-int-bare-read/probe.xi`) exit
 `regress_m197_mut_ref_bare_read_loads` (no GEP; pointee loaded) +
 `e2e_m197_mut_ref_bare_read`; CI line; feature 524/524.
 
+FOLLOW-UP (same batch): the return-path autoderef must NOT fire for declared
+reference/pointer returns -- `fn get_ref(x: &Int) -> &Int { return x; }`
+erases the return to the i64 address ABI, so the first version loaded the
+pointee and callers then dereferenced the VALUE (m21_borrow_010 AV
+0xC0000005; caught by the full e2e). `FunctionContext::
+current_return_is_ref_like` (set from the AST return type in decl.rs) gates
+it. Borrow cluster 20/20, feature 524/524, full e2e 2427/0/4.
+
 ---
 
 ## 2026-10-05 -- OPEN: W005 erased-interface stub fires for module-const receivers (Pulse C-PULSE-05)
