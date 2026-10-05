@@ -294,6 +294,17 @@
 > R-8 CONFIRMED FIXED on v0.64.0 (JIT n=3136, AOT n=3135/3421, both exit 0)
 > -- leaves the language-correctness wave. Next: C-PULSE-05 (W005
 > const-receiver stub, now aborts), then the multipart match-binding fix.
+
+> CONTRACTS EMITTER (found while answering the benchmark loop-invariant
+> question): syntax is `while cond invariant: expr { ... }` (checker
+> accepts it). Two verifier gaps recorded in COMPILER_BUGS for a dedicated
+> v0.64.1 pass: (1) locals infer sort None (infer_sort looks up
+> var_sort_map by bare name while Let/Var stores it under the SSA name --
+> bare->SSA lives in `latest`); (2) the while-invariant encoding is a
+> documented one-step approximation with no post-loop havoc summary, so
+> fixing (1) alone turns honest UNKNOWNs into FALSE VIOLATEDs -- the sort
+> experiment was reverted and v0.64.0 behavior (honest skips) kept. Design:
+> locals fix + havoc loop summary + unknown-not-violated policy + locks.
 > FEATURE REQUEST (Pulse gap, owner question): exe icon embedding for
 > compiled programs. Today the link step passes only /SUBSYSTEM,
 > /STACK:8388608, /Brepro (lib.rs:1517); no `--icon` flag exists. Sketch:

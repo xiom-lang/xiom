@@ -54,15 +54,15 @@ builtin declare table + user-extern order (deferred thread_spawn). Gate 4
 flips to DONE and the meter to 45% (5/11). Next: **O1 selfhost code quality**
 (`--strict`, zero warnings) then Phase 5 (scalar bodies + control flow T3).
 
-PHASE 4 + O1 STATUS (2026-10-05, v0.64.0 cut): branch
-`selfhost-phase-4-codegen` is rebased onto `e4857847` (v0.63.1) with the
-full Phase 4 gate re-verified at identical counts (`0093c748`), and the
-**H5/O1 cleanup is DONE** (`e59b6f7e`): selfhost sources compile clean under
+PHASE 4 + O1 STATUS (2026-10-05, post-v0.64.0): branch
+`selfhost-phase-4-codegen` is rebased onto the **v0.64.0 release commit**
+(`2ff1f224`: full parity suite 6/6, header counts identical) with the
+**H5/O1 cleanup DONE** (`0adafa73`): selfhost sources compile clean under
 `--strict` with zero warnings and 13 API contracts restored, retiring the
-v10 borrow workarounds. Branch is 8 commits ahead of its rebase base
-(+2315 lines). Next: rebase onto the v0.64.0 release commit, then
-**Phase 5 -- scalar bodies + control flow T3** (scalar corpus). Meter stays
-45% (O1 is a quality pass, not a gate row); row O1 below flips to DONE.
+v10 borrow workarounds. Branch is 8 commits ahead, 0 behind. **Phase 5 is
+starting now** (scalar bodies + control flow T3; checklist
+`docs/checklists/selfhost-phase5.md`). Meter stays 45% (O1 is a quality
+pass, not a gate row); row O1 below is DONE.
 
 PHASE 3 STATUS (2026-10-03): **COMPLETE and merged** -- branch
 `selfhost-phase-3-checker` was rebased onto `ee7ab150` and the full parity
