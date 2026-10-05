@@ -1,6 +1,57 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
+# CONTINUATION HANDOFF (2026-10-05 (2), v0.63.1 SHIPPED -- next stop v0.63.2 / v0.64.0)
+
+> STATE (2026-10-05, later): **v0.63.1 PUBLISHED** --
+> https://github.com/xiom-lang/xiom/releases/tag/v0.63.1 (release run
+> 37301211581 green, 7/7 jobs; linux/macos x2/windows + VSIX + wasm +
+> SHA256SUMS; published 11:18:29Z). Tag v0.63.1 -> 1b972478; main @
+> 1b972478, pushed.
+> Release gates at 1b972478: e2e 2419/0/4 (final clean run 631s), feature
+> 519/0, verifier 34+5, driver 58/0, checker 197/0, strict corpus gate
+> green, release-notes convert/verify green, ascii_guard clean.
+> Shipped: runtime contract evaluator binding-state leak (f5a096ca,
+> packages relay), catalog-flush unreferenced-use skip (828acdb7), lz4
+> duplicate-leaf bare-call parity + nested lib/lib install-copy guard
+> (a1b7c4da), verifier t1 SMT receiver/sort/coercion fixes (16ef2541),
+> README + release-notes v0.63.1. STDLIB_VERSION stays cd61062.
+> Queue 1-4 all DONE: (1) 828acdb7 -- in-container warm-index scripting
+> wall 1237ms -> 996ms, catalog-bodies 0.240s -> 0.194s
+> (uses-skipped=53); (2) a1b7c4da + m191 lock; probes frame bytes
+> 2740398262480 -> 26, smoke mismatches=0; (3) t3 attribution 1918fff6 --
+> per-iteration confined-unsafe trampoline (213-223ms vs 25-29ms with the
+> unsafe block hoisted out of the loop, same checksum); Instant.now()
+> wraps libc time(0) (second resolution), hence the op time_ms 0/1000;
+> (4) 16ef2541 -- t1: 1 proven / 0 violated / 11 unknown / 0 errors;
+> t1..t5 arena sweep 0 errors.
+> Parallel: selfhost Phase 4 H0-H4 complete on selfhost-phase-4-codegen
+> (62e1ccb5), meter 45% (5/11), diff_ir_headers 8337 header lines
+> byte-exact over the 83-file corpus; docs/SELFHOST_PROGRESS.md fetched
+> to main (a9403d67). v0.7.0 remains the first selfhost release target.
+> Ops/playground: sandbox --keep-stdin landed + pushed (playground
+> ca5d98c, DCO-signed) for the live-Terminal acceptance.
+
+> NEXT QUEUE (post-v0.63.1):
+> 1. Benchmarks: hand v0.63.1 to the benchmark lane (carries the t1 SMT,
+>    lz4, and catalog-flush fixes); re-run acceptance on the new
+>    archives.
+> 2. Packages: restore the two omitted clauses (result.value.1;
+>    result.value.len() <= data.len()) and drop the unasserted notes;
+>    the lz4_compress_checked rename is optional now.
+> 3. Perf follow-ups: elide the per-execution confined-unsafe trampoline
+>    when re-entered from a loop / nested in another confined region;
+>    stdlib Instant -> clock_gettime(CLOCK_MONOTONIC) on the next
+>    STDLIB_VERSION pin.
+> 4. Open findings inventory (COMPILER_BUGS 2026-10-05 + 2026-10-04):
+>    enum-payload Str in-situ (graphql slice), iter Range.collect clause
+>    side + __closure_N, reflect.all_types 0xC0000374, R-8
+>    tcp_stream_read, i64<->f64 bitcast, extern xiom_guard_alloc hang,
+>    arena handle ABA generation tags, registry polish B1/B2/--resolve.
+> 5. Selfhost continues in its worktree (out of this lane): Phase 5+.
+
+---
+
 # CONTINUATION HANDOFF (2026-10-05, v0.63.0 SHIPPED -- next stop v0.63.1 / v0.64.0)
 
 > STATE (2026-10-05): **v0.63.0 PUBLISHED** --
