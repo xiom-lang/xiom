@@ -108,7 +108,8 @@
 > 2423 passed / 0 failed / 4 ignored (669s) -- batch gate GREEN. UX hint
 > implemented: bare `xiom file.xi` now prints `hint: IR only -- 'xiom run
 > <file>' executes it...` to stderr; stdout stays byte-identical to
-> --emit-ir (locked by ux_bare_compile_hints_run_on_stderr).
+> --emit-ir (locked by ux_bare_compile_hints_run_on_stderr). Remaining
+> gates: verifier 39/39, checker 197/197, selfhost parity 5/5 (377s).
 
 > NEXT QUEUE (post-v0.63.1):
 > 1. Benchmarks: hand v0.63.1 to the benchmark lane (carries the t1 SMT,
@@ -133,6 +134,16 @@
 >    before coding).
 > Note: t1's remaining 11 UNKNOWN obligations are loops without
 > invariants / unsupported constructs -- honest skips, not errors.
+
+> 7. SYSTEMS TRACK (queued 2026-10-05, owner + stdlib relay): plan at
+>    docs/SYSTEMS_TRACK_PLAN.md -- S1 `--target freestanding` (no
+>    CRT/libc; allocator/abort/clock hooks; runtime split), S2 repr(C)/
+>    repr(packed) + by-value ABI, S3 volatile/fences/ordered atomics + CAS,
+>    S4 `--no-contracts` IR lock (the flag already exists), S5 SPIR-V later.
+>    Order follows the stdlib asks; slot after the v0.64.0 bug batch and
+>    keep freestanding changes behind the profile so selfhost parity stays
+>    byte-stable. Note: freestanding has no OS-backed guard page/trampoline,
+>    so confined `unsafe` cannot trap hardware faults there (documented).
 
 > ECOSYSTEM RELAYS (v0.63.1 is live -- send these):
 > - benchmark: re-run acceptance on the v0.63.1 archives (carries t1
