@@ -6930,3 +6930,29 @@ fn main() -> Int {
         "m196: the real read method must be called from main; got:\n{ir}"
     );
 }
+
+// m197 (Pulse C-PULSE-04): a reference used BARE in value position must LOAD
+// the pointee; pre-fix it lowered to GEP/ptrtoint on the address (silent
+// wrong values in cursor parsers like xiom.http).
+#[test]
+fn regress_m197_mut_ref_bare_read_loads() {
+    let source = r#"
+fn bare_add(p: &mut Int) -> Int {
+  p = p + 1;
+  return p;
+}
+fn main() -> Int {
+  var a: Int = 10;
+  return bare_add(&mut a);
+}
+"#;
+    let ir = compile(source).expect("m197: bare &mut Int must compile");
+    assert!(
+        !ir.contains("getelementptr i64, i64*"),
+        "m197: a reference in value position must not lower to pointer arithmetic; got:\n{ir}"
+    );
+    assert!(
+        ir.contains("load i64, i64*"),
+        "m197: the pointee must be loaded; got:\n{ir}"
+    );
+}

@@ -153,6 +153,11 @@ impl IrEmitter {
     /// hardening). Takes pre-compiled operands and produces the folded result.
     /// Handles arithmetic (Add/Sub/Mul), bitwise (And/Or/Xor), and float coercions.
     fn compile_binop_fold(&mut self, l: &str, lt: &str, r: &str, rt: &str, op: &BinOp, l_expr: &Expr, r_expr: &Expr) -> Result<(String, String), String> {
+        // C-PULSE-04: bare reference operands read the pointee before any
+        // arithmetic dispatch (the write side already stores through them).
+        let (l, lt) = self.autoderef_ref_value(l_expr, l.to_string(), lt.to_string());
+        let (r, rt) = self.autoderef_ref_value(r_expr, r.to_string(), rt.to_string());
+        let (l, lt, r, rt) = (l.as_str(), lt.as_str(), r.as_str(), rt.as_str());
         // String concatenation: Add with i8* operands must call xiom_str_concat,
         // not emit `add i64` on pointer values. The normal BinOp path checks this
         // first; replicate the check here for the iterative fold path. Integer
@@ -1457,6 +1462,10 @@ impl IrEmitter {
                 // Fires when EITHER operand is a Str pointer (the other side is
                 // coerced to i8*), which also keeps IR valid where a Str-returning
                 // callee was resolved to a fallback i64 signature.
+                // C-PULSE-04: bare reference operands read the pointee before
+                // any arithmetic dispatch (the write side stores through them).
+                let (mut l, mut lt) = self.autoderef_ref_value(left, l, lt);
+                let (mut r, mut rt) = self.autoderef_ref_value(right, r, rt);
                 // round-7 (ve2): a *UInt8 byte buffer is ALSO i8* at the ABI but
                 // must stay POINTER arithmetic -- expr_is_pointer gates it out
                 // (only when the other operand is an integer; Str+Str and

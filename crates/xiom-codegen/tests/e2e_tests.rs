@@ -5814,6 +5814,16 @@ fn e2e_safety_probe() {
     );
 }
 
+// m197 (Pulse C-PULSE-04): bare `&mut Int` reads in value position must load
+// the pointee, not yield the address.
+#[test] fn e2e_m197_mut_ref_bare_read() {
+    assert_eq!(
+        compile_and_run("tests/regression/m197_mut_ref_bare_read/main.xi"),
+        Some(0),
+        "bare reference reads must load the pointee (m197)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

@@ -1221,6 +1221,44 @@ impl IrEmitter {
         }
     }
 
+    /// C-PULSE-04: a REFERENCE local (`&T`/`&mut T`, recorded in
+    /// `local_xiom_types` with an '&' prefix) used BARE in a value position
+    /// must read the pointee -- the assignment/write side already stores
+    /// THROUGH references (v0.62.2 write-side fix), so the read side must
+    /// load. Raw `*T` operands keep pointer arithmetic. Only scalar pointees
+    /// are loaded here; aggregates (struct refs) pass through untouched.
+    pub(crate) fn autoderef_ref_value(&mut self, e: &Expr, val: String, ty: String) -> (String, String) {
+        let is_ref = {
+            let inner = match e {
+                Expr::Paren(inner, _) => inner.as_ref(),
+                other => other,
+            };
+            match inner {
+                Expr::Ident(id) => self
+                    .local
+                    .local_xiom_types
+                    .get(&id.name)
+                    .map(|t| t.starts_with('&'))
+                    .unwrap_or(false),
+                _ => false,
+            }
+        };
+        if !is_ref || !ty.ends_with('*') {
+            return (val, ty);
+        }
+        let pointee = ty.strip_suffix('*').unwrap_or(&ty).to_string();
+        let scalar = matches!(
+            pointee.as_str(),
+            "i1" | "i8" | "i16" | "i32" | "i64" | "i128" | "float" | "double" | "fp128"
+        );
+        if !scalar {
+            return (val, ty);
+        }
+        let loaded = self.fresh_tmp();
+        self.emitln(&format!("  {loaded} = load {pointee}, {ty} {val}"));
+        (loaded, pointee)
+    }
+
     /// round-7 (ve2 follow-up): XIOM-level verdict -- is this expression a
     /// POINTER (raw `*T`, `&T`, `&mut T`), not a Str? The Str-concat intercept
     /// fires on ANY i8* operand at the LLVM level, but a `*UInt8` byte buffer

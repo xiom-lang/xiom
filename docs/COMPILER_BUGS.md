@@ -104,6 +104,31 @@ archive; R-8 stays in the language-correctness wave.
 
 ---
 
+## 2026-10-05 -- FIXED: bare reference in value position yielded the address (m197, Pulse C-PULSE-04)
+
+Pulse C-PULSE-04: `p = p + 1` / `return p` with `p: &mut Int` compiled to
+pointer arithmetic + ptrtoint, so cursors kept stack addresses (an xiom.http
+consumer saw `pos=372324169712`). Root cause: the checker erases `&T`/
+`&mut T` to `T` (types.rs `from_ast_type`), so both shapes type-check as
+plain Int, while codegen lowered the bare Ident as the pointer; the write
+side had already been fixed to store THROUGH the reference (v0.62.2), making
+read/write asymmetric.
+
+FIX (codegen): `autoderef_ref_value` -- when an expression is a local whose
+XIOM type starts with '&' (`local_xiom_types`) and its LLVM type is a
+pointer to a scalar, emit a load and use the pointee. Applied in both
+binary-op paths (fold + normal) before arithmetic dispatch, and in
+`Stmt::Return` when the fn's return type is scalar. Raw `*T` operands keep
+pointer arithmetic; aggregate pointees and reference returns pass through
+untouched.
+
+REPRO/EVIDENCE: Pulse probe (`docs/repro/mut-int-bare-read/probe.xi`) exit
+5 -> 0: `bare_add a=11 r=11`, `bare_read c=10 r=10`. Locks:
+`regress_m197_mut_ref_bare_read_loads` (no GEP; pointee loaded) +
+`e2e_m197_mut_ref_bare_read`; CI line; feature 524/524.
+
+---
+
 ## 2026-10-05 -- OPEN: W005 erased-interface stub fires for module-const receivers (Pulse C-PULSE-05)
 
 Pulse relay: `SCHEMA_VERSION.to_str()` -- where SCHEMA_VERSION is a module

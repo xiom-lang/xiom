@@ -1362,8 +1362,21 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     self.emitln("  unreachable");
                 } else if let Some(e) = expr {
                     // Value sink: use the value's real LLVM type from compile_expr.
-                    let (mut val, val_ty) = self.compile_expr(e)?;
                     let ret_ty = self.fctx.current_return_type.clone();
+                    // C-PULSE-04: `return p` with p: &T / &mut T and a scalar
+                    // return type reads the pointee (the write side already
+                    // stores through references). Pointer/struct returns keep
+                    // the reference value untouched.
+                    let ret_is_scalar = matches!(
+                        ret_ty.as_str(),
+                        "i1" | "i8" | "i16" | "i32" | "i64" | "i128" | "float" | "double" | "fp128"
+                    );
+                    let (mut val, mut val_ty) = self.compile_expr(e)?;
+                    if ret_is_scalar {
+                        let (v2, t2) = self.autoderef_ref_value(e, val, val_ty);
+                        val = v2;
+                        val_ty = t2;
+                    }
                     // D2.1 (Unsafe Confinement Phase 3, requirement i -- Copy-Out):
                     // a `return` INSIDE an unsafe block returns a value whose heap
                     // payload lives on the guard arena. It must be COPIED to the

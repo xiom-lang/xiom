@@ -271,6 +271,15 @@
 > fast path. Relays after the release: registry, stdlib, pulse, packages,
 > website, benchmark.
 
+> COMPILER LANE (2026-10-05l, v0.64.1 batch): m197 FIXED -- Pulse C-PULSE-04
+> (bare `&mut Int` in value position yielded the address; xiom.http cursor
+> corruption). `autoderef_ref_value` loads the pointee for `&`-locals in
+> both binary-op paths and scalar `return`s; raw `*T` arithmetic untouched.
+> Probe exit 5 -> 0 (`bare_add a=11 r=11`, `bare_read c=10 r=10`); locks IR
+> + e2e; feature 524/524; CI line. Next: C-PULSE-05 (W005 module-const
+> receiver stub), then the multipart match-binding fix. Selfhost lane:
+> rebased onto v0.64.0 (`2ff1f224`, suite 6/6), Phase 5 started.
+
 > RELEASE MECHANICS (v0.63.1 procedure, for v0.63.2/v0.64.0):
 > bump Cargo.toml [workspace.package] version + selfhost/src/codegen.xi
 > SELFHOST_VERSION (+ STDLIB_VERSION only when the pin moves -- immutable
