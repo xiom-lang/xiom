@@ -10,6 +10,41 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-05 -- OPEN (attributed): t3-hot-reload 216ms sample = per-iteration confined-unsafe trampoline
+
+Queue item: the systems/contracts arena t3-hot-reload sample is ~216-245ms
+while the operation's own JSON reports `time_ms: 0` and peer languages
+(C/Rust) measure 5-16ms for the identical workload.
+
+ARTIFACTS: solution `reference/systems-arena/t3-hot-reload.xi` (1000 cycles
+x [2x dlopen(libc.so.6) + dlsym(abs) + 100 indirect calls + 2x dlclose]);
+sample command = run the compiled arena binary (`--release --target
+native`, 7 samples + 1 warm-up; arena.js `runTimedSamples`).
+
+EVIDENCE (acceptance container, v0.63.0):
+- hello-world binary, same flags: 3ms/run; t3 binary: 213-223ms/run stable.
+  So the sample is the PROGRAM's own work, not process/driver overhead.
+- Attribution variant (tmp/contracts/t3_hoisted.xi): identical workload,
+  same checksum 25000000, but the `unsafe { value = fn_ptr(arg); }` block
+  encloses the 100-call inner loop once per cycle instead of being
+  re-entered per call -> 25-29ms/run (~9x faster, peer range).
+  => the cost is the confined-unsafe TRAMPOLINE per entry:
+  `xiom_trampoline_call` + `xiom_guard_heap_enter/exit` +
+  `xiom_guard_page_arm/disarm` + `xiom_trap_enter/leave` ~= 2us x 100,000
+  iterations ~= 200ms.
+- The in-program `time_ms` is also wrong: `xiom.time.Instant.now()` wraps
+  libc `time(0)` (stdlib/xiom/time/time.xi:230), i.e. WHOLE SECONDS, so
+  `as_millis()` oscillates 0/1000 across identical 216ms runs -- the "op
+  time 0" in the log is a second-resolution artifact, not a fast op.
+
+FIX DIRECTIONS (after v0.63.1, perf items): (a) elide the per-execution
+trampoline when a confined `unsafe` block is re-entered from a loop or
+nests inside another confined region (or a cheap guard fast-path when the
+heap guard is already armed); (b) stdlib `Instant` -> `clock_gettime(
+CLOCK_MONOTONIC)` (rides the next STDLIB_VERSION pin).
+
+---
+
 ## 2026-10-05 -- FIXED: xiom-verify t1 SMT "unknown constant self" (z3-scoped decls + receiver modeling)
 
 Benchmark relay: the contracts arena t1-allocator reference

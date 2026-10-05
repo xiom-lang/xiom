@@ -21,9 +21,12 @@
 > session idle at handoff; next = rebase onto main + H2.
 > Benchmark v0.63.0 acceptance: t2 7/7 ACCEPTED; C001 recorded as
 > documented run-to-run flakiness; scripting lane root-caused + fixed
-> (queue 1 context); contracts t8 query-less fixed, t1 has one genuine
-> `self` rejection (SMT L495); lz4 fails = duplicate `lz4_compress` leaf
-> (queue 2); t3-hot-reload 216ms sample unattributed (queue 3).
+> (queue 1 context, catalog-flush landed 828acdb7); contracts t8
+> query-less fixed; t1 `self` rejection FIXED (16ef2541: per-section
+> receiver decls + owner-sort predeclare + &T receiver coercion; t1..t5
+> sweep 0 errors); lz4 duplicate-leaf FIXED (a1b7c4da, m191 lock);
+> t3-hot-reload 216ms ATTRIBUTED (per-iteration confined-unsafe
+> trampoline; Instant wraps libc time(0) at second resolution).
 
 > KICKOFF PROMPT (paste verbatim to the next compiler-lane session):
 >
@@ -67,9 +70,19 @@
 >    bare slot; catalog-body records keep the old ordering (sqrt guard).
 >    Probes: 2740398262480 -> 26 frame bytes; smoke mismatches=0. Lock:
 >    tests/regression/m191_lz4_bare_duplicate_leaf + e2e_m191.
-> 3. t3-hot-reload 216ms system-arena sample (op time_ms 0, peers
+> 3. [DONE -- ATTRIBUTED] t3-hot-reload 216ms system-arena sample (op time_ms 0, peers
 >    5-16ms): get the t3 solution + the exact per-sample command from
 >    the benchmark lane before touching anything.
+>    RESULT: artifacts = reference/systems-arena/t3-hot-reload.xi + the
+>    compiled arena binary sample (arena.js runTimedSamples, 7+1).
+>    In-container: t3 213-223ms vs hello 3ms (same flags) so it is the
+>    program's work, and a same-workload variant with the unsafe block
+>    hoisted out of the inner loop runs 25-29ms (same checksum) ->
+>    per-iteration confined-unsafe trampoline (~2us x 100k). The op's
+>    time_ms 0/1000 comes from Instant.now() wrapping libc time(0)
+>    (second resolution, stdlib time.xi:230). Fix directions filed in
+>    COMPILER_BUGS (post-v0.63.1 perf: trampoline elision; stdlib
+>    Instant -> clock_gettime on the next pin).
 > 4. [DONE 16ef2541] Contracts t1 `unknown constant self` (SMT L495): need the t1
 >    solution or the SMT around L495 plus its obligation label; t8
 >    query-less output is FIXED (6f34e1f0).
