@@ -32,6 +32,27 @@
 > Ops/playground: sandbox --keep-stdin landed + pushed (playground
 > ca5d98c, DCO-signed) for the live-Terminal acceptance.
 
+> COMPILER LANE (2026-10-05c, v0.64.0 work started): perf queue item 1 split
+> into (a) FIXED m192 -- a confined `unsafe` block re-entered from a loop
+> emitted its ctx alloca inline and leaked 32 bytes of stack PER EXECUTION;
+> the 8MB reserve is exhausted after 262,144 entries (0xC0000005, fault in
+> KERNELBASE; measured pass at 262,000 / crash at 264,000). Fix hoists the
+> ctx alloca via the BUG 22 #6 mechanism (one slot per fn activation).
+> Locks: regress_m192 (IR placement) + e2e_m192 (500k entries + capture
+> write-back); feature suite 520/520; targeted unsafe e2e (m20/m21/m37/m192)
+> + M33-U (20) green; CI filter line extended. (b) perf residual RELAYED to
+> stdlib: the per-entry cost is runtime syscalls -- Windows ablation
+> (VirtualProtect disabled in xiom_guard_page_disarm) 1.67 -> 0.35 us/entry;
+> POSIX pays 3x sigaction per xiom_trampoline_call + mprotect per disarm.
+> Fast-path design in the COMPILER_BUGS entry; container t3 target = peer
+> 25-29 ms once the pin moves.
+> Packages feedback: C001 fix 4bf8cf1e IS in v0.63.1 (ancestor of tag
+> 1b972478) -- the packages note "not part of this fixes-only release" is
+> incorrect; graphql numeric match arms still need a distinct root cause.
+> grpc probe_suite_min 0xC0000005 = candidate m192 class -- re-test on the
+> next archive. packages recorded a runtime-link finding bundle (packages
+> commit 5b7547b0) -- details pending relay.
+
 > NEXT QUEUE (post-v0.63.1):
 > 1. Benchmarks: hand v0.63.1 to the benchmark lane (carries the t1 SMT,
 >    lz4, and catalog-flush fixes); re-run acceptance on the new

@@ -5414,7 +5414,20 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     "null".to_string()
                 } else {
                     let ctx_slot = self.fresh_tmp();
-                    self.emitln(&format!("  {ctx_slot} = alloca %struct.{ctx_name}"));
+                    // m192: the ctx alloca MUST live in the fn entry. Emitted
+                    // inline at the block site, an unsafe block re-entered from
+                    // a loop leaked one 32-byte frame PER EXECUTION: the 8MB
+                    // stack reserve is exhausted after 262,144 confined entries
+                    // (0xC0000005; threshold measured between 262,000 and
+                    // 264,000 = 8,388,608/32). Hoisting reuses one slot per fn
+                    // invocation; recursion still gets a frame per activation.
+                    if self.local.loop_depth > 0 {
+                        self.local
+                            .hoisted_allocas
+                            .push((ctx_slot.clone(), format!("%struct.{ctx_name}")));
+                    } else {
+                        self.emitln(&format!("  {ctx_slot} = alloca %struct.{ctx_name}"));
+                    }
                     for (i, (cap_name, _cap_ty)) in captures.iter().enumerate() {
                         let gep = self.fresh_tmp();
                         self.emitln(&format!("  {gep} = getelementptr %struct.{ctx_name}, %struct.{ctx_name}* {ctx_slot}, i32 0, i32 {i}"));

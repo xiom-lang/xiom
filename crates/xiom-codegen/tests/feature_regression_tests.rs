@@ -6821,3 +6821,40 @@ fn main() -> Int {
         "m182: const struct table must materialize as a global aggregate; got:\n{ir}"
     );
 }
+
+// m192 (perf queue item 1): a confined `unsafe` block re-entered from a loop
+// must reuse ONE ctx alloca hoisted to the fn entry. Emitted inline at the
+// block site it leaked 32 bytes of stack per execution -- the 8 MB reserve is
+// exhausted after 262,144 entries (0xC0000005). Assert every ctx alloca lands
+// before the loop-body label of the function that owns the block site.
+#[test]
+fn regress_m192_unsafe_ctx_hoisted_from_loop() {
+    let source = r#"
+fn main() -> Int {
+  var sum: Int = 0;
+  var i: Int = 0;
+  while i < 10 {
+    let step: Int = i;
+    unsafe { sum = sum + step + i; }
+    i = i + 1;
+  }
+  return sum;
+}
+"#;
+    let ir = compile(source).expect("m192: loop-confined unsafe must compile");
+    let loop_body = ir.find("while_body").expect("m192: expected a while_body label");
+    let needle = "alloca %struct.__unsafe_ctx_";
+    let mut found = false;
+    let mut pos = 0;
+    while let Some(idx) = ir[pos..].find(needle) {
+        let abs = pos + idx;
+        found = true;
+        assert!(
+            abs < loop_body,
+            "m192: the unsafe ctx alloca must be hoisted to the fn entry \
+             (byte {abs} vs loop body at {loop_body}); got:\n{ir}"
+        );
+        pos = abs + needle.len();
+    }
+    assert!(found, "m192: expected a __unsafe_ctx_ alloca (non-vacuous); got:\n{ir}");
+}

@@ -5731,6 +5731,18 @@ fn e2e_safety_probe() {
     );
 }
 
+// m192 (perf queue item 1): a confined `unsafe` block re-entered from a loop
+// leaked its 32-byte ctx alloca per execution -- 262,144 entries exhaust the
+// 8 MB stack reserve (0xC0000005; packages grpc probe_suite_min crash class).
+// 500k entries must complete with capture write-back intact.
+#[test] fn e2e_m192_unsafe_ctx_loop_stack() {
+    assert_eq!(
+        compile_and_run("tests/regression/m192_unsafe_ctx_loop_stack/main.xi"),
+        Some(0),
+        "a loop-re-entered confined unsafe block must not leak stack per entry (m192)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

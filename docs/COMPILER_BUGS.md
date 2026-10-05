@@ -10,6 +10,56 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-05 -- FIXED: confined-unsafe ctx alloca leaked 32 bytes of stack per loop entry (m192)
+
+Perf queue item 1 surfaced a CORRECTNESS bug underneath the t3-hot-reload
+sample: a confined `unsafe` block re-entered from a loop emitted its
+`%struct.__unsafe_ctx_N` capture alloca inline at the block site, so every
+execution consumed a fresh 32-byte stack frame released only at function
+return. clang does not hoist escaped allocas out of loops, so a hot loop
+exhausts the 8 MB stack reserve.
+
+REPRO (Windows local; same shape as the container artifact):
+- `tmp/contracts/t3_loop_probe.xi` (per-call confined unsafe, LOOPS env var).
+  Pre-fix: LOOPS=200,000 exit 0 (41 ms); LOOPS=262,000 exit 0 (92 ms);
+  LOOPS=264,000 exit -1073741819 (0xC0000005, fault in KERNELBASE);
+  LOOPS=1,000,000 exit 0xC0000005 after ~4 s (WER tail).
+  Threshold = 262,144 = 8,388,608 / 32 bytes exactly.
+- The 100k-entry container variant (1000 cycles x 100 calls) sits UNDER the
+  threshold, which is why it measured 213-223 ms instead of crashing: the
+  loop touched ~3.2 MB of fresh stack (a growth page fault every 128 entries)
+  on top of the per-entry runtime cost.
+- This is the same `0xC0000005` class the packages lane reports for grpc
+  `probe_suite_min` -- re-test on the next archive (partially explains it;
+  the crash count/hang still needs the packages repro if it persists).
+
+ROOT CAUSE: `crates/xiom-codegen/src/expr.rs` (Expr::Unsafe, ctx build):
+`let ctx_slot = self.fresh_tmp(); self.emitln("  {ctx_slot} = alloca
+%struct.{ctx_name}")`. FIX: when `self.local.loop_depth > 0`, push the pair
+onto `local.hoisted_allocas` -- the BUG 22 #6 mechanism that splices
+loop-body allocas into the fn entry block. One slot is reused per fn
+invocation; recursion still gets one frame per activation (the trampoline
+call is synchronous and the ctx never outlives the call).
+
+LOCKS: `regress_m192_unsafe_ctx_hoisted_from_loop` (IR: every
+`alloca %struct.__unsafe_ctx_` lands before the loop-body label; red-before
+= the loop-body placement) + `e2e_m192_unsafe_ctx_loop_stack` (500,000
+entries + capture write-back checksum; pre-fix 0xC0000005 at this size).
+Feature suite 520/520; targeted unsafe e2e (m20/m21 x10/m37 x2/m192) and
+M33-U (20) green; CI filter line extended.
+
+PERF RESIDUAL (relayed to stdlib): with the leak fixed the per-entry cost is
+still runtime syscalls. Windows ablation (per-entry `VirtualProtect` in
+`xiom_guard_page_disarm` disabled, runtime otherwise identical): 262,000
+entries 438.5 ms -> 92.5 ms (~1.67 -> ~0.35 us/entry). POSIX pays 3
+`sigaction` syscalls per `xiom_trampoline_call` plus `mprotect` per disarm.
+Fast-path directions for the stdlib lane: install the signal handlers once
+(lazily); make arm/disarm flag-only and re-arm the PAGE_GUARD/PROT_NONE page
+only after a guard-page fault was actually mapped. Expected: the t3 sample
+lands in the peer 25-29 ms range once the runtime fast path rides a pin.
+
+---
+
 ## 2026-10-05 -- OPEN (attributed): t3-hot-reload 216ms sample = per-iteration confined-unsafe trampoline
 
 Queue item: the systems/contracts arena t3-hot-reload sample is ~216-245ms
