@@ -143,8 +143,18 @@
 > fixed JIT identical exit 0; Pulse matrix 5 -> 0. Locks: IR + e2e; CI
 > line. Stale blockers closed per stdlib a97d099: scrypt, shuffle/choice,
 > BUG 18 all NOT reproducible (probes green on v0.63.1); Box rides the
-> stdlib rename (section C). Candidate for packages staged at
-> %TEMP%\kilo\candidate-<rev>\ (archive + SHA256SUMS + revision).
+> stdlib rename (section C). CANDIDATE STAGED for packages:
+> %TEMP%\kilo\candidate-e279c544\
+>   xiom-cand-e279c544-windows-x64.zip
+>   sha256 3b0172f8f771c8891d8b8f549ad57200a5d2737ddf9586f3eaebf1da68d86768
+>   compiler_rev e279c544, stdlib_rev 6e60e95 (committed tree), SHA256SUMS +
+>   REV.txt included; self-contained smoke green (manifest fallback
+>   disabled, no XIOM_STDLIB/XIOM_RUNTIME_DIR: monotonic probe compiles and
+>   runs). For the R65 discriminator packages must ALSO unset XIOM_STDLIB,
+>   else the runtime resolves through that root instead of the install
+>   lib/runtime. Remaining release gates after m196: full e2e at the
+>   release commit, driver 61, verifier 39, selfhost parity 5/5 (all green
+>   at m195 on this tree except the post-m196 full e2e).
 
 > NEXT QUEUE (post-v0.63.1):
 > 1. Benchmarks: hand v0.63.1 to the benchmark lane (carries the t1 SMT,
