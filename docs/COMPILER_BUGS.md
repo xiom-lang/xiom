@@ -134,7 +134,7 @@ DESIGN for the dedicated v0.64.1 verifier pass (needs its own batch):
    one guarded iteration (invariant preservation), collect the variables
    assigned in the body, create fresh SSAs with their sorts, bind them in
    `latest`, assert `inv` and the negated condition under the current guard,
-   then continue -- so post-loop obligations see `inv ∧ !cond`.
+   then continue -- so post-loop obligations see `inv ^ !cond`.
 3. Classification policy: obligations that fail ONLY because a loop summary
    is an over-approximation must surface as UNKNOWN, never VIOLATED (the
    benchmark workspace must not see false violations).
