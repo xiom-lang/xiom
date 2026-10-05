@@ -17,7 +17,7 @@
 // decls are flattened and injected. Non-colliding types are untouched, so
 // the blast radius is exactly the collision set.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use xiom_ast::*;
 
 /// Injectable type/enum leaves declared in `items` (recursing module
@@ -688,6 +688,428 @@ fn walk_top_ro<F: FnMut(&mut Ident)>(item: &TopDecl, visit: &mut F) {
     // mutates, so a shallow clone of the item is sufficient for traversal.
     let mut owned = item.clone();
     walk_top(&mut owned, visit);
+}
+
+// ============================================================================
+// Stage 6 catalog-flush (STAGE6_PERF_PLAN item 4): read-only reference scan.
+// `flush_catalog_bodies` can skip a catalog body's own `use` when nothing in
+// the body references the name it binds -- the parse/registration/export-map
+// work only exists to resolve references. Manifest modules (`xiom.math` and
+// friends carry ~50 unreferenced submodule uses) paid a full load per use.
+// This collector is the read-only twin of the type walker above: same
+// traversal, but it records identifier NAMES and, unlike `walk_top_ro`, does
+// not clone the AST per item. Declaration names are collected too -- the
+// over-approximation only costs one process_use, while a missed reference
+// would silently drop a binding.
+// ============================================================================
+
+/// Every generic parameter name declared by `items` (fns, types, enums,
+/// impls, interfaces), INCLUDING nested modules. Used by the Stage 6
+/// catalog-flush skip guard: a type reference to a generic parameter is
+/// body-local and must not be mistaken for an import-provided type.
+pub(crate) fn declared_generic_params(items: &[TopDecl]) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for item in items {
+        match item {
+            TopDecl::Fn(fd) => {
+                for g in &fd.generics {
+                    out.insert(g.name.name.clone());
+                }
+            }
+            TopDecl::Type(td) => {
+                for g in &td.generics {
+                    out.insert(g.name.name.clone());
+                }
+            }
+            TopDecl::Enum(ed) => {
+                for g in &ed.generics {
+                    out.insert(g.name.name.clone());
+                }
+            }
+            TopDecl::Interface(id) => {
+                for g in &id.generics {
+                    out.insert(g.name.name.clone());
+                }
+                for m in &id.members {
+                    if let InterfaceMember::FnSignature(fd) = m {
+                        for g in &fd.generics {
+                            out.insert(g.name.name.clone());
+                        }
+                    }
+                }
+            }
+            TopDecl::Impl(id) => {
+                for m in &id.members {
+                    if let ImplItem::Fn(fd) = m {
+                        for g in &fd.generics {
+                            out.insert(g.name.name.clone());
+                        }
+                    }
+                }
+            }
+            TopDecl::Module(md) => {
+                out.extend(declared_generic_params(&md.items));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Every identifier name a module body can reference, PLUS the root segment
+/// of every `use` path: a use whose bound name is another use's root must
+/// still run (e.g. `use c; use c.d;` -- `c` is a use root, so the first use
+/// is processed even when `c` never appears in a value position).
+pub(crate) fn catalog_reference_names(items: &[TopDecl]) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for item in items {
+        cscan_top(item, &mut out);
+    }
+    out
+}
+
+fn cscan_ident(id: &Ident, out: &mut HashSet<String>) {
+    // Dotted references (`number_theory.isqrt`, `math.Number`) are single
+    // Idents: record the full spelling, the root (module binding) and the
+    // leaf so any binding form matches.
+    out.insert(id.name.clone());
+    if let Some(root) = id.name.split('.').next() {
+        out.insert(root.to_string());
+    }
+    if let Some(leaf) = id.name.rsplit('.').next() {
+        out.insert(leaf.to_string());
+    }
+}
+
+fn cscan_type(ty: &Type, out: &mut HashSet<String>) {
+    match ty {
+        Type::Named(id, args) => {
+            cscan_ident(id, out);
+            for a in args {
+                cscan_type(a, out);
+            }
+        }
+        Type::Ref(i) | Type::MutRef(i) | Type::Ptr(i) | Type::Option(i) | Type::Vec(i)
+        | Type::Slice(i) | Type::Set(i) => cscan_type(i, out),
+        Type::Result(a, b) | Type::Map(a, b) => {
+            cscan_type(a, out);
+            cscan_type(b, out);
+        }
+        Type::Tuple(elems) => {
+            for e in elems {
+                cscan_type(e, out);
+            }
+        }
+        Type::Fn(params, ret) => {
+            for p in params {
+                cscan_type(p, out);
+            }
+            cscan_type(ret, out);
+        }
+        Type::Array(size, elem) => {
+            cscan_expr(size, out);
+            cscan_type(elem, out);
+        }
+        Type::AnonStruct(fields) => {
+            for f in fields {
+                cscan_type(&f.ty, out);
+            }
+        }
+        Type::ImplTrait(_) | Type::Never => {}
+    }
+}
+
+fn cscan_pattern(p: &Pattern, out: &mut HashSet<String>) {
+    match p {
+        Pattern::Struct(id, fields, _) => {
+            cscan_ident(id, out);
+            for (_, fp) in fields {
+                cscan_pattern(fp, out);
+            }
+        }
+        Pattern::Ident(id) => cscan_ident(id, out),
+        Pattern::Variant(_, _, _) | Pattern::Wildcard(_) | Pattern::Lit(_) | Pattern::None(_) => {}
+        Pattern::Tuple(elems, _) | Pattern::Or(elems, _) => {
+            for e in elems {
+                cscan_pattern(e, out);
+            }
+        }
+        Pattern::Some(inner, _) | Pattern::Ok(inner, _) | Pattern::Err(inner, _) => {
+            cscan_pattern(inner, out);
+        }
+    }
+}
+
+fn cscan_block(block: &Block, out: &mut HashSet<String>) {
+    for se in &block.stmts {
+        match se {
+            StmtOrExpr::Stmt(s) => cscan_stmt(s, out),
+            StmtOrExpr::Expr(e) => cscan_expr(e, out),
+        }
+    }
+}
+
+fn cscan_stmt(stmt: &Stmt, out: &mut HashSet<String>) {
+    match stmt {
+        Stmt::Let(_, ty, e, _) | Stmt::Var(_, ty, e, _) => {
+            if let Some(t) = ty {
+                cscan_type(t, out);
+            }
+            cscan_expr(e, out);
+        }
+        Stmt::Assign(a, b, _) => {
+            cscan_expr(a, out);
+            cscan_expr(b, out);
+        }
+        Stmt::Return(e, _) => {
+            if let Some(e) = e {
+                cscan_expr(e, out);
+            }
+        }
+        Stmt::Expr(e, _) => cscan_expr(e, out),
+        Stmt::If(c, t, elifs, els, _) => {
+            cscan_expr(c, out);
+            cscan_block(t, out);
+            for (ec, eb) in elifs {
+                cscan_expr(ec, out);
+                cscan_block(eb, out);
+            }
+            if let Some(eb) = els {
+                cscan_block(eb, out);
+            }
+        }
+        Stmt::Match(e, arms, _) => {
+            cscan_expr(e, out);
+            for arm in arms {
+                cscan_pattern(&arm.pattern, out);
+                if let Some(g) = &arm.guard {
+                    cscan_expr(g, out);
+                }
+                match &arm.body {
+                    MatchBody::Block(b) => cscan_block(b, out),
+                    MatchBody::Expr(e) => cscan_expr(e, out),
+                }
+            }
+        }
+        Stmt::While(c, b, inv, _, _) => {
+            cscan_expr(c, out);
+            cscan_block(b, out);
+            if let Some(inv) = inv {
+                cscan_expr(inv, out);
+            }
+        }
+        Stmt::For(_, e, b, _, _) => {
+            cscan_expr(e, out);
+            cscan_block(b, out);
+        }
+        Stmt::Spawn(b, _, _) | Stmt::Defer(b, _) => cscan_block(b, out),
+        Stmt::Destructure(_, e, _) => cscan_expr(e, out),
+        Stmt::Asm(asm) => {
+            for (_, e) in &asm.inputs {
+                cscan_expr(e, out);
+            }
+        }
+        Stmt::Assert(c, msg, _) => {
+            cscan_expr(c, out);
+            if let Some(msg) = msg {
+                cscan_expr(msg, out);
+            }
+        }
+        Stmt::Break(..) | Stmt::Continue(..) | Stmt::Debugger(_) => {}
+    }
+}
+
+fn cscan_expr(expr: &Expr, out: &mut HashSet<String>) {
+    match expr {
+        Expr::Ident(id) => cscan_ident(id, out),
+        Expr::Struct(id, fields, base, _) => {
+            cscan_ident(id, out);
+            for (_, v) in fields {
+                cscan_expr(v, out);
+            }
+            if let Some(b) = base {
+                cscan_expr(b, out);
+            }
+        }
+        Expr::Call(callee, args, _) => {
+            cscan_expr(callee, out);
+            for a in args {
+                cscan_expr(a, out);
+            }
+        }
+        Expr::GenericCall(callee, types, args, _) => {
+            cscan_expr(callee, out);
+            for t in types {
+                cscan_type(t, out);
+            }
+            for a in args {
+                cscan_expr(a, out);
+            }
+        }
+        Expr::Field(base, _, _) => {
+            if let Expr::Ident(id) = base.as_ref() {
+                cscan_ident(id, out);
+            }
+            cscan_expr(base, out);
+        }
+        Expr::Index(a, b, _) => {
+            cscan_expr(a, out);
+            cscan_expr(b, out);
+        }
+        Expr::Paren(e, _) | Expr::Unary(_, e, _) | Expr::Try(e, _) | Expr::AtPre(e, _)
+        | Expr::Ref(e, _) | Expr::MutRef(e, _) | Expr::Some(e, _) | Expr::Ok(e, _)
+        | Expr::Err(e, _) | Expr::Await(e, _) | Expr::Comptime(e, _) | Expr::ConstBlock(e, _)
+        | Expr::PipeClosure(_, e, _) => cscan_expr(e, out),
+        Expr::Binary(a, _, b, _) | Expr::Imply(a, b, _) => {
+            cscan_expr(a, out);
+            cscan_expr(b, out);
+        }
+        Expr::Is(e, pat, _) => {
+            cscan_expr(e, out);
+            cscan_pattern(pat, out);
+        }
+        Expr::As(e, ty, _) => {
+            cscan_expr(e, out);
+            cscan_type(ty, out);
+        }
+        Expr::Array(elems, _) | Expr::Tuple(elems, _) => {
+            for e in elems {
+                cscan_expr(e, out);
+            }
+        }
+        Expr::BlockExpr(b, _) | Expr::Unsafe(b, _) => cscan_block(b, out),
+        Expr::Closure(params, ret, body, _) => {
+            for p in params {
+                cscan_type(&p.ty, out);
+            }
+            if let Some(ret) = ret {
+                cscan_type(ret, out);
+            }
+            cscan_block(body, out);
+        }
+        Expr::If(c, t, elifs, els, _) => {
+            cscan_expr(c, out);
+            cscan_block(t, out);
+            for (ec, eb) in elifs {
+                cscan_expr(ec, out);
+                cscan_block(eb, out);
+            }
+            if let Some(eb) = els {
+                cscan_block(eb, out);
+            }
+        }
+        Expr::Match(e, arms, _) => {
+            cscan_expr(e, out);
+            for arm in arms {
+                cscan_pattern(&arm.pattern, out);
+                if let Some(g) = &arm.guard {
+                    cscan_expr(g, out);
+                }
+                match &arm.body {
+                    MatchBody::Block(b) => cscan_block(b, out),
+                    MatchBody::Expr(e) => cscan_expr(e, out),
+                }
+            }
+        }
+        Expr::Int(..) | Expr::BigInt(..) | Expr::Float(..) | Expr::Str(..) | Expr::Char(..)
+        | Expr::Bool(..) | Expr::None(_) | Expr::Error(..) => {}
+    }
+}
+
+fn cscan_fn(fd: &FnDecl, out: &mut HashSet<String>) {
+    if let Some(recv) = &fd.receiver {
+        cscan_ident(recv, out);
+    }
+    for p in &fd.params {
+        cscan_type(&p.ty, out);
+    }
+    if let Some(rt) = &fd.return_type {
+        cscan_type(rt, out);
+    }
+    for clause in &fd.contracts {
+        match clause {
+            ContractClause::Requires(e, _) | ContractClause::Ensures(e, _) => cscan_expr(e, out),
+        }
+    }
+    if let Some(body) = &fd.body {
+        cscan_block(body, out);
+    }
+}
+
+fn cscan_top(item: &TopDecl, out: &mut HashSet<String>) {
+    match item {
+        TopDecl::Type(td) => {
+            cscan_ident(&td.name, out);
+            for f in &td.fields {
+                cscan_type(&f.ty, out);
+            }
+            for (_, ty, e) in &td.derived_fields {
+                cscan_type(ty, out);
+                cscan_expr(e, out);
+            }
+            for inv in &td.invariants {
+                cscan_expr(inv, out);
+            }
+            if let Some(alias) = &td.alias {
+                cscan_type(alias, out);
+            }
+        }
+        TopDecl::Enum(ed) => {
+            cscan_ident(&ed.name, out);
+            for v in &ed.variants {
+                for f in &v.fields {
+                    cscan_type(&f.ty, out);
+                }
+            }
+        }
+        TopDecl::Interface(id) => {
+            for m in &id.members {
+                match m {
+                    InterfaceMember::Field(f) => cscan_type(&f.ty, out),
+                    InterfaceMember::FnSignature(fd) => cscan_fn(fd, out),
+                }
+            }
+        }
+        TopDecl::Fn(fd) => cscan_fn(fd, out),
+        TopDecl::Const(cd) => {
+            cscan_type(&cd.ty, out);
+            cscan_expr(&cd.value, out);
+        }
+        TopDecl::Extern(eb) => {
+            for fd in &eb.functions {
+                cscan_fn(fd, out);
+            }
+        }
+        TopDecl::Impl(id) => {
+            cscan_ident(&id.type_name, out);
+            for a in &id.trait_args {
+                cscan_type(a, out);
+            }
+            for m in &id.members {
+                match m {
+                    ImplItem::Fn(fd) => cscan_fn(fd, out),
+                    ImplItem::Const(cd) => {
+                        cscan_type(&cd.ty, out);
+                        cscan_expr(&cd.value, out);
+                    }
+                }
+            }
+        }
+        TopDecl::Module(md) => {
+            for sub in &md.items {
+                cscan_top(sub, out);
+            }
+        }
+        TopDecl::Spawn(b, _, _) => cscan_block(b, out),
+        // Only the ROOT segment: a use whose bound name is another use's path
+        // root must still run, but its own leaf must NOT count as a reference
+        // (that would keep every use alive through its own path).
+        TopDecl::Use(ud) => {
+            if let Some(root) = ud.path.first() {
+                cscan_ident(root, out);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

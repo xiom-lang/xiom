@@ -181,6 +181,24 @@ pub struct Checker {
     /// Dotted names (or source-hash keys) of catalog bodies already checked --
     /// idempotent across repeated `check_program` calls / LSP snapshots.
     checked_catalog_bodies: HashSet<String>,
+    /// Stage 6 catalog-flush: identifier names referenced anywhere in the
+    /// catalog body currently being checked, PLUS every use path root (see
+    /// `catalog_reference_names`). `check_top_decl` skips a catalog-body `use`
+    /// whose bound name is absent -- the load/register/export-map work only
+    /// exists to resolve references (manifest modules carry dozens of dead
+    /// submodule uses). Reset per body in `flush_catalog_bodies`.
+    catalog_body_refs: HashSet<String>,
+    /// Stage 6 catalog-flush: true when EVERY bare type reference in the body
+    /// is declared by the body itself (or is a scalar/generic parameter), so
+    /// no import can be the sole provider of a bare TYPE name. Bare FN names
+    /// leak through the global `functions` registry, but types do not (the
+    /// corpus gate caught `Map` resolving to a same-leaf foreign declaration
+    /// when `use xiom.collections;` was skipped in serialize/json). When
+    /// false, the body's uses are all processed.
+    catalog_body_skip_allowed: bool,
+    /// Stage 6 catalog-flush: per-body counter of `use` declarations skipped
+    /// as unreferenced (XIOM_TIMINGS diagnostics only).
+    catalog_uses_skipped: usize,
     /// 5c-R: Counter for emitted errors -- enables `has_errors()` gate for
     /// "stop on first error" discipline (rustc lesson: ErrorGuaranteed).
     error_count: usize,
@@ -352,6 +370,9 @@ impl Checker {
             module_import_paths: HashMap::new(),
             pending_catalog_bodies: Vec::new(),
             checked_catalog_bodies: HashSet::new(),
+            catalog_body_refs: HashSet::new(),
+            catalog_body_skip_allowed: false,
+            catalog_uses_skipped: 0,
             current_receiver: None,
             current_generic_bounds: HashMap::new(),
             error_count: 0,
@@ -535,6 +556,7 @@ impl Checker {
         let timings = std::env::var_os("XIOM_TIMINGS").is_some();
         let mut checked_bodies = 0usize;
         let mut capture_secs = 0.0f64;
+        let mut skipped_total = 0usize;
         let mut slowest: (f64, String) = (0.0, String::new());
         for cached in &pending {
             let key = if cached.dotted_name.is_empty() {
@@ -573,6 +595,25 @@ impl Checker {
             for item in &cached.program.items {
                 self.register_fn_signature(item);
             }
+            // Stage 6 catalog-flush: compute the body's reference set ONCE --
+            // check_top_decl skips unused `use` declarations instead of
+            // parsing/registering the modules they name. Skipping is only
+            // safe when the body's BARE TYPE surface is self-contained:
+            // bare fn names resolve through the global `functions` registry,
+            // but a bare type name that is neither declared in the body nor a
+            // scalar/generic must come from an import (xor is this exact
+            // hazard -- serialize/json's `Map` fell back to a same-leaf
+            // foreign declaration once `use xiom.collections;` was skipped).
+            self.catalog_body_refs =
+                crate::type_qualify::catalog_reference_names(&cached.program.items);
+            let type_refs = crate::type_qualify::referenced_type_names(&cached.program.items);
+            let mut declared_types = std::collections::BTreeSet::new();
+            crate::type_qualify::declared_type_leaves(&cached.program.items, &mut declared_types);
+            let generics = crate::type_qualify::declared_generic_params(&cached.program.items);
+            self.catalog_body_skip_allowed = type_refs.iter().all(|n| {
+                declared_types.contains(n) || generics.contains(n) || Self::is_scalar_type_name(n)
+            });
+            self.catalog_uses_skipped = 0;
             let body_started = std::time::Instant::now();
             for item in &cached.program.items {
                 let item_started = std::time::Instant::now();
@@ -590,10 +631,14 @@ impl Checker {
                 }
             }
             let body_secs = body_started.elapsed().as_secs_f64();
+            if timings && body_secs > 0.05 {
+                eprintln!("[timings]   slow body {key} {body_secs:.3}s");
+            }
             if body_secs > slowest.0 {
                 slowest = (body_secs, key.clone());
             }
             checked_bodies += 1;
+            skipped_total += self.catalog_uses_skipped;
             // Tag this module's findings with provenance -- the spans carry
             // only line/col, and the stdlib lane needs file-level triage.
             // With the strict flip findings are ERRORS, so tag both streams.
@@ -613,7 +658,7 @@ impl Checker {
         }
         if timings {
             eprintln!(
-                "[timings] catalog-bodies checked={checked_bodies} elapsed={:.3}s capture={:.3}s slowest={:.3}s ({})",
+                "[timings] catalog-bodies checked={checked_bodies} elapsed={:.3}s capture={:.3}s slowest={:.3}s ({}) uses-skipped={skipped_total}",
                 flush_started.elapsed().as_secs_f64(),
                 capture_secs,
                 slowest.0,
@@ -2692,21 +2737,32 @@ impl Checker {
                 // catalog-mode uses are processed here under the per-module
                 // isolated context set up by flush_catalog_bodies.
                 if self.checking_catalog {
-                    let trace = std::env::var_os("XIOM_TIMINGS").is_some();
-                    if trace {
-                        let started = std::time::Instant::now();
-                        self.process_use(ud);
-                        let secs = started.elapsed().as_secs_f64();
-                        if secs > 0.01 {
-                            let path: Vec<String> =
-                                ud.path.iter().map(|i| i.name.clone()).collect();
-                            eprintln!(
-                                "[timings]   slow use {} {secs:.3}s",
-                                path.join(".")
-                            );
-                        }
+                    // Stage 6 catalog-flush: skip uses the body never
+                    // references. The load/registration/export-map work only
+                    // exists so references resolve -- manifest modules like
+                    // xiom.math carry dozens of submodule uses their own body
+                    // never mentions, at a full parse+register each.
+                    // (Reference set + use-path roots computed per body in
+                    // flush_catalog_bodies; globs always run.)
+                    if !self.catalog_use_referenced(ud) {
+                        self.catalog_uses_skipped += 1;
                     } else {
-                        self.process_use(ud);
+                        let trace = std::env::var_os("XIOM_TIMINGS").is_some();
+                        if trace {
+                            let started = std::time::Instant::now();
+                            self.process_use(ud);
+                            let secs = started.elapsed().as_secs_f64();
+                            if secs > 0.01 {
+                                let path: Vec<String> =
+                                    ud.path.iter().map(|i| i.name.clone()).collect();
+                                eprintln!(
+                                    "[timings]   slow use {} {secs:.3}s",
+                                    path.join(".")
+                                );
+                            }
+                        } else {
+                            self.process_use(ud);
+                        }
                     }
                 }
             }
@@ -4042,6 +4098,34 @@ impl Checker {
         }
         let key = self.current_module.clone().unwrap_or_default();
         self.module_import_paths.entry(key).or_default().insert(dotted.to_string());
+    }
+
+    /// Stage 6 catalog-flush: should this catalog-body `use` be processed?
+    /// False only when the name it binds is absent from the body's reference
+    /// set (`catalog_reference_names`, which also contains every use path
+    /// root, so a use another use depends on as a prefix stays). Globs always
+    /// run -- their imported surface is not name-bounded. Bodies whose bare
+    /// type surface is not self-contained never skip (see the field docs).
+    fn catalog_use_referenced(&self, ud: &UseDecl) -> bool {
+        if !self.catalog_body_skip_allowed || ud.glob || ud.path.is_empty() {
+            return true;
+        }
+        let bound = ud.alias.as_ref()
+            .map(|a| a.name.as_str())
+            .unwrap_or_else(|| ud.path.last().unwrap().name.as_str());
+        self.catalog_body_refs.contains(bound)
+    }
+
+    /// Scalar/builtin type names always available inside a catalog body.
+    fn is_scalar_type_name(name: &str) -> bool {
+        matches!(
+            name,
+            "Int" | "Int8" | "Int16" | "Int32" | "Int64"
+                | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
+                | "USize" | "ISize" | "Float32" | "Float64"
+                | "Bool" | "Str" | "Char" | "Byte" | "Void" | "Never" | "Unit"
+                | "Self" | "self" | "this" | "_"
+        )
     }
 
     fn process_use(&mut self, ud: &UseDecl) {

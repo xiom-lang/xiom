@@ -265,6 +265,27 @@ ladder. Gate P acceptance lives in `docs/RELEASE_GATE_v0.62.3.md`.
      references, dedupe registrations, and/or memoize per-module export
      maps. t3-hot-reload's 216ms system-arena sample needs the arena's
      exact sample command/solution (relay) before attributing it.
+   - LANDED 2026-10-05 (catalog-flush): unreferenced catalog-body `use`
+     declarations are SKIPPED. Each body computes a reference set once
+     (`crates/xiom-check/src/type_qualify.rs::catalog_reference_names` --
+     every identifier plus every use-path root, so a use another use needs
+     as a prefix stays); a `use` runs only when the name it binds (alias or
+     leaf) is in that set. Globs always run. Guard: when the body's bare
+     TYPE surface is not self-contained -- a bare type that is neither
+     declared in the body, a scalar, nor a declared generic parameter
+     (`referenced_type_names` minus `declared_type_leaves` minus
+     `declared_generic_params`) -- NO use in that body is skipped. Bare fn
+     names leak through the global `functions` registry; types do not:
+     the strict corpus gate caught serialize/json's `Map` falling back to a
+     same-leaf foreign declaration once `use xiom.collections;` was skipped.
+     Local (debug driver, t6 template, `run --no-cache`, XIOM_TIMINGS):
+     catalog-bodies 1.114s -> 0.682s (uses-skipped=53; xiom.math's body
+     leaves the slow list), catalog-flush 1.345s -> 0.931s, check 2.214s ->
+     1.560s. Gates: strict `catalog_corpus_is_clean` green, e2e 2418/0/4,
+     feature 519, verifier 34+4, driver 58, checker 196.
+     Still open: in-container release re-measure; if the <1.5s scripting
+     wall misses, dedupe per-module signature registration and memoize
+     per-module export maps.
    - NEXT: per-module CHECKED cache (diagnostics keyed by source hash +
      checker identity) needs the generic-instantiation state-effects audit
      before skipping bodies; alternatively investigate `xiom.math` body
