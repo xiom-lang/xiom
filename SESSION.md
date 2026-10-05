@@ -1,6 +1,112 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
+# CONTINUATION HANDOFF (2026-10-05, v0.63.0 SHIPPED -- next stop v0.63.1 / v0.64.0)
+
+> STATE (2026-10-05): **v0.63.0 PUBLISHED** --
+> https://github.com/xiom-lang/xiom/releases/tag/v0.63.0 (release run
+> 37216840905 green, 6/6 jobs; linux/macos x2/windows + VSIX + SHA256SUMS).
+> Tag v0.63.0 -> b3dfaab4; **main @ 8405d2e6, pushed, tree clean**.
+> Shipped in v0.63.0: m190 lz4 cap fix (2^32-1), verifier valid SMT
+> emission, `xiom run` temp-root guard, runtime-object cache (rtcache),
+> catalog index cache, verifier CLI speed, doctor m187 fixture.
+> Post-release main commits: 4bf8cf1e C001 fix, 6f34e1f0 verifier
+> query-less output, 8405d2e6 scripting `--jit --cache` reuse.
+> STDLIB_VERSION pins cd61062 (guard_alloc bound check + fault lock) --
+> rides the next compiler archive; v0.63.0 predates it.
+> Gates on the release tree: e2e 2418/0/4 (2417 + the C001 lock), feature
+> 519/519, verifier 34/34 + 4/4, driver lib 58/58, checker 196/196.
+> Selfhost Phase 4: H0 (harness) + H1 (primary fn headers) committed on
+> selfhost-phase-4-codegen (7ae3046c), gate diff_ir_headers green 83/83;
+> session idle at handoff; next = rebase onto main + H2.
+> Benchmark v0.63.0 acceptance: t2 7/7 ACCEPTED; C001 recorded as
+> documented run-to-run flakiness; scripting lane root-caused + fixed
+> (queue 1 context); contracts t8 query-less fixed, t1 has one genuine
+> `self` rejection (SMT L495); lz4 fails = duplicate `lz4_compress` leaf
+> (queue 2); t3-hot-reload 216ms sample unattributed (queue 3).
+
+> KICKOFF PROMPT (paste verbatim to the next compiler-lane session):
+>
+> Resume the XIOM compiler lane after v0.63.0 (main @ 8405d2e6, all
+> pushed). Work the queue in order, repro-first with locks and atomic
+> commits (ascii_guard before every commit; docs coupling in the same
+> commit; push on the owner's ask, session/handoff docs may push; never
+> rebuild target/debug during a suite):
+>
+> 1. Stage 6 catalog-flush (~1.06s of the 2.22s release scripting wall,
+>    in-container t6 profile). `xiom.math` 0.49s = its ~25 submodule
+>    `use`s at 10-40ms each during catalog-body checking (per-use
+>    register_fn_signature + export-map build; NOT fn bodies -- no fn
+>    over 30ms). Candidates in order: skip catalog-body uses the body
+>    never references; dedupe per-module signature registration;
+>    memoize per-module export maps. XIOM_TIMINGS prints `index`,
+>    `slow use`, `slow fn`, `catalog-bodies` marks. Target: scripting
+>    cold wall under ~1.5s; KPI arena compile_ms < 2s. The scripting
+>    baseline lane itself is FIXED (8405d2e6: `--jit --cache` serves
+>    the script cache; warm replay ~0.1s) -- retest on the next archive.
+> 2. lz4 duplicate-leaf compiler parity fix. `xiom.compress.lz4.
+>    lz4_compress` (Vec) vs the umbrella `xiom.compress.lz4_compress`
+>    (Result); a BARE program call binds Result in codegen while the
+>    checker binds Vec -> unresolved `Result.len` or pointer-garbage
+>    lengths. Deterministic repro: `use xiom.compress.lz4; var c =
+>    lz4_compress(d); c.len()` (3/3 fail in the v0.63.0 container;
+>    benchmark probes tests/toolchain/probes/lz4_compress_only.xi and
+>    lz4_smoke.xi). Stdlib rename (`lz4_compress_checked`) is the
+>    immediate unblock (stdlib lane relayed); compiler fix: bind bare
+>    PROGRAM calls via the checker's resolution (catalog_resolved_calls
+>    records only while checking_catalog; R15/R20 precedent, call.rs
+>    resolve_catalog_call + the m162 bare sibling).
+> 3. t3-hot-reload 216ms system-arena sample (op time_ms 0, peers
+>    5-16ms): get the t3 solution + the exact per-sample command from
+>    the benchmark lane before touching anything.
+> 4. Contracts t1 `unknown constant self` (SMT L495): need the t1
+>    solution or the SMT around L495 plus its obligation label; t8
+>    query-less output is FIXED (6f34e1f0).
+> 5. Other open findings (COMPILER_BUGS 2026-10-05 + 2026-10-04):
+>    enum-payload Str in-situ (needs the graphql validator slice),
+>    iter Range.collect clause side + `__closure_N` (wave-65),
+>    reflect.all_types 0xC0000374, R-8 tcp_stream_read, i64<->f64
+>    bitcast, extern xiom_guard_alloc hang / invalid redefinition,
+>    arena handle ABA generation tags (guard_alloc bound check landed
+>    at stdlib cd61062), registry polish B1/B2/`--resolve`.
+> 6. Selfhost Phase 4 in parallel: rebase the worktree branch onto
+>    main, continue H2 (tuple names + param attrs) -> H3 (inline
+>    policy approx_block_cost) -> H4 (declare order); the Bootstrap
+>    meter flips only at full Phase 4 parity.
+>
+> METHOD + TOOLING (verified 2026-10-05):
+> - Benchmark image is LOCAL: `xiom-benchmark-chaos-benchmark:latest`
+>   (digest 6879d3e0) with /app = the bench repo (tasks/, contracts/,
+>   src/); acceptance container `xiom-benchmark-chaos-benchmark-1` is
+>   usually up for probing. PowerShell mangles `$(...)` in docker exec
+>   strings: docker cp a .sh then `docker exec ... bash /tmp/x.sh`;
+>   mount host artifacts with `-v E:\xiom-perf\lz4:/probe`. Scripting
+>   lanes (src/benchmark/execution-modes.js): xiom-run = `run --jit
+>   --cache` (scored), -jit = `--jit --no-cache`, -aot = `--no-cache`,
+>   -cache = `--cache` (reference-only). config.yaml xiom flags are
+>   `--release --target native`.
+> - Caches: ~/.xiom/jit (script binaries), ~/.xiom/rtobj (runtime
+>   objects), ~/.xiom/catidx.txt (catalog index). `--force` does NOT
+>   bypass the script cache; use `--no-cache`.
+> - Repro artifacts: %TEMP%\kilo\m183 (lz4 IR + peephole asm),
+>   %TEMP%\kilo\c001 (C001 traces), E:\xiom-perf\ (bench copies, lane
+>   scripts, probe matrix, v0.63.0 archive extracts).
+> - Local hygiene: era scratch moved to E:\xiom-lang\era-archives;
+>   stale worktrees pruned; Windows Defender intermittently blocks
+>   fresh %TEMP%\xiom_run\*.exe (os error 225) -- environment, not
+>   compiler.
+> - Release mechanics (v0.63.0 procedure): bump Cargo.toml +
+>   SELFHOST_VERSION + STDLIB_VERSION (pin an immutable SHA/tag, never
+>   a moving branch), write release-notes/vX.Y.Z.{md,json}, validate
+>   with `cargo run -p xiom-release-notes -- verify --tag vX.Y.Z
+>   --stdlib ../stdlib` (320-char highlight cap, plain text only,
+>   allowed kinds fix/compiler/tooling/security), README badge + table,
+>   full batch, commit, push main, tag + push, watch the gh release run
+>   (the publish step is NOT clobber-safe; moving a tag needs the
+>   release deleted first).
+
+---
+
 # CONTINUATION HANDOFF (2026-10-04, v0.62.4 SHIPPED -- next stop v0.63.0)
 
 > STATE: v0.62.4 is PUBLISHED
