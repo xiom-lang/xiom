@@ -10,6 +10,46 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-05 -- FIXED: xiom-verify t1 SMT "unknown constant self" (z3-scoped decls + receiver modeling)
+
+Benchmark relay: the contracts arena t1-allocator reference
+(`reference/systems-contracts-arena/t1-allocator.xi`) made z3 reject the
+whole SMT: `(error "line 495 column 90: unknown constant self")` --
+Results 1 proven, 11 unknown, 1 errors; the harness classified it as a
+toolchain emission error, not a proof failure.
+
+Repro: `xiom-verify <t1-allocator.xi> --check -o t1.smt2`.
+
+ROOT CAUSES (three, all in the SMT emitter):
+1. The receiver declaration was guarded by
+   `var_sort_map.contains_key("self")`, and `var_sort_map` survives across
+   functions (only `latest` is per-function). The first method that
+   declared `|self|` left a stale entry, so every later implicit-receiver
+   method SKIPPED its per-section declaration while body identifiers fell
+   through to the bare `smt_escape("self")` spelling. Guard on `latest`.
+2. z3 SCOPES sort declarations under `(push)`/`(pop)`. The owner sort
+   `|xiom_BuddyAllocator|` was first needed lazily inside split_block's
+   push scope (no field/param referenced the owner type itself, so the
+   annotated-type pre-pass missed it), and every later section failed with
+   `unknown sort 'xiom_BuddyAllocator'`. Fix: predeclare the OWN sort of
+   every declared type/enum at top level (`collect_declared_type_names`).
+3. Receivers are modeled as VALUES (so datatype selectors `(T-f self)`
+   work) while `&T` parameters are pointer sorts; passing `self` to a
+   `&T` parameter produced an ill-sorted application (`unknown constant
+   header_read_order (xiom_BuddyAllocator Int)`). Fix: top-level opaque
+   `|xiom_ref_T| : (T) -> &T` coercions (`emit_ref_coercions`, emitted
+   after `emit_datatypes`), guarded to realisable value sorts -- the
+   structural key "_" of `&Vec[Int]` is skipped (t4-packet).
+
+EVIDENCE: t1 `--check`: 1 proven, 0 violated, 11 unknown, **0 errors**
+(was 1 errors, exit 1). Full arena sweep on the fixed toolchain: t1..t5
+all 0 errors. LOCK:
+`implicit_receiver_to_ref_param_is_declared_and_coerced` (declaration per
+section + coercion + no bare self application + z3 parse when available).
+GATES: verifier 34 + 5.
+
+---
+
 ## 2026-10-05 -- FIXED: nested `lib/lib` install copy indexed (W001 flood + doubled index)
 
 User relay (hello-world on the installed v0.63.0): ~100 `warning[W001]:

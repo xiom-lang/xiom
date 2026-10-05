@@ -180,6 +180,11 @@ pub struct SMTGenerator {
     obligation_counter: u64,
     /// Dynamic (`|xiom_...|`) sorts already declared via ensure_sort_declared.
     declared_sorts: HashSet<String>,
+    /// Receiver value-sort -> &T coercion, keyed by the POINTER sort:
+    /// (coercion function name, expected value sort). Declared at top level
+    /// by `collect_dynamic_sorts`; the call translator wraps a value-sorted
+    /// `self` argument in the coercion when the callee parameter is `&T`.
+    ref_coercions: HashMap<String, (String, String)>,
     report: GenReport,
 }
 
@@ -207,6 +212,7 @@ impl SMTGenerator {
             consts: Vec::new(),
             obligation_counter: 0,
             declared_sorts: HashSet::new(),
+            ref_coercions: HashMap::new(),
             report: GenReport::default(),
         }
     }
@@ -261,6 +267,9 @@ impl SMTGenerator {
 
         // Emit struct datatypes BEFORE any function section references them.
         self.emit_datatypes();
+        // Receiver coercions AFTER datatypes: their domain sort may be a
+        // datatype name.
+        self.emit_ref_coercions();
 
         // R64 fix: declare module constants + their defining values so
         // contracts and bodies can refer to them (MAX_ORDER, MIN_BLOCK, ...).
@@ -436,6 +445,25 @@ impl SMTGenerator {
     /// `|xiom_unknown|` inference fallback -- at TOP LEVEL. Lazy emission
     /// inside a function `(push)` scope was lost at `(pop)`, so later uses
     /// failed with "Invalid constant declaration: unknown sort".
+    /// Names of every declared type/enum (recursively through modules).
+    /// 2026-10-05 (t1 relay): the OWN sort of a declared type must be
+    /// predeclared too -- method receivers (`self: Owner`) use it, and the
+    /// annotated-types walk missed it whenever no field/param referenced the
+    /// owner type itself (t1's BuddyAllocator has no field of its own type,
+    /// so |xiom_BuddyAllocator| was first declared lazily INSIDE
+    /// split_block's `(push)` scope; z3 scopes sort declarations, so every
+    /// later section failed with "unknown sort 'xiom_BuddyAllocator'").
+    fn collect_declared_type_names(items: &[TopDecl], out: &mut Vec<String>) {
+        for item in items {
+            match item {
+                TopDecl::Type(td) => out.push(td.name.name.clone()),
+                TopDecl::Enum(ed) => out.push(ed.name.name.clone()),
+                TopDecl::Module(md) => Self::collect_declared_type_names(&md.items, out),
+                _ => {}
+            }
+        }
+    }
+
     fn collect_dynamic_sorts(&mut self, program: &Program) {
         let mut ann_types: Vec<Type> = Vec::new();
         for (_, fields) in &self.structs {
@@ -448,6 +476,14 @@ impl SMTGenerator {
         }
         Self::walk_annotated_types(&program.items, &mut ann_types);
         let mut sorts: Vec<String> = vec!["|xiom_unknown|".to_string()];
+        let mut declared_names: Vec<String> = Vec::new();
+        Self::collect_declared_type_names(&program.items, &mut declared_names);
+        for name in declared_names {
+            let s = self.sort_for_named(&name);
+            if s.starts_with('|') {
+                sorts.push(s);
+            }
+        }
         for ty in ann_types {
             let s = self.sort_for(&ty);
             if s.starts_with('|') {
@@ -468,6 +504,51 @@ impl SMTGenerator {
             if self.declared_sorts.insert(s.clone()) {
                 self.emit(&format!("(declare-sort {} 0)", s));
             }
+        }
+        self.emit("");
+    }
+
+    /// 2026-10-05 (t1 relay): method receivers are modeled as VALUES (so
+    /// datatype field selectors `(T-f self)` work), while `&T` parameters are
+    /// modeled as pointer sorts. Passing `self` to a `&T` parameter needs an
+    /// explicit opaque coercion or z3 rejects the call with "unknown constant
+    /// f (T Int)". Declared at TOP LEVEL, and AFTER `emit_datatypes`: a
+    /// datatype's value sort (`Counter`) must exist before the coercion's
+    /// domain references it.
+    fn emit_ref_coercions(&mut self) {
+        let mut coercions: Vec<(String, String, String)> = Vec::new();
+        for psorts in self.fn_sigs.values().map(|(p, _)| p) {
+            for s in psorts {
+                if let Some(target) = s.strip_prefix("|xiom_ptr_").and_then(|x| x.strip_suffix('|')) {
+                    // Only when the VALUE sort is real: `&Vec[Int]` yields the
+                    // structural key "_" whose value sort (|xiom__|) is never
+                    // declared -- emitting a coercion for it made z3 reject
+                    // the whole script ("unknown sort 'xiom__'", t4-packet).
+                    if target.is_empty() || target == "_" || target.starts_with("ptr_") {
+                        continue;
+                    }
+                    // `sort_for_named`, NOT `|xiom_{target}|`: datatype sorts
+                    // are their bare name (`Counter`), only opaque sorts get
+                    // the |xiom_| wrapper.
+                    let value_sort = self.sort_for_named(target);
+                    if !self.datatype_sorts.contains(target)
+                        && !self.declared_sorts.contains(&value_sort)
+                    {
+                        continue;
+                    }
+                    coercions.push((s.clone(), format!("|xiom_ref_{}|", target), value_sort));
+                }
+            }
+        }
+        coercions.sort();
+        coercions.dedup();
+        if coercions.is_empty() {
+            return;
+        }
+        self.emit("; --- receiver value -> &T coercions ---");
+        for (ptr_sort, name, value_sort) in coercions {
+            self.emit(&format!("(declare-fun {} ({}) {})", name, value_sort, ptr_sort));
+            self.ref_coercions.insert(ptr_sort, (name, value_sort));
         }
         self.emit("");
     }
@@ -714,8 +795,18 @@ impl SMTGenerator {
         // receiver). Only type invariants used to declare |self|, so every
         // method `ensures self.f` became an undeclared symbol
         // ("unknown constant self").
+        // 2026-10-05 (benchmark relay t1-allocator): guard on `latest`, NOT
+        // `var_sort_map`. `var_sort_map` survives across functions (only
+        // `latest` is cleared per function), so the first method that
+        // declared |self| left a stale entry behind and every later
+        // implicit-receiver method SKIPPED its per-section declaration while
+        // body/contract idents fell through to the bare `smt_escape("self")`
+        // spelling -- z3 rejected the whole script with
+        // "line 495 ... unknown constant self". `latest` is per-function, so
+        // an explicit `self` param (already bound at the params loop) still
+        // suppresses the duplicate declaration.
         if let Some(recv) = &f.receiver {
-            if !self.var_sort_map.contains_key("self") {
+            if !self.latest.contains_key("self") {
                 let owner_sort = self.sort_for_named(&recv.name);
                 self.ensure_sort_declared(&owner_sort);
                 self.emit(&format!("(declare-const |self| {})", owner_sort));
@@ -1461,10 +1552,33 @@ impl SMTGenerator {
                     });
                     return;
                 }
-                self.buf.push_str(&format!("(|{}|", smt_escape(callee.as_deref().unwrap_or("?"))));
-                for arg in args {
+                let cname = callee.clone().unwrap_or_else(|| "?".to_string());
+                let psorts = self.fn_sigs.get(&cname).map(|(p, _)| p.clone());
+                self.buf.push_str(&format!("(|{}|", smt_escape(&cname)));
+                for (i, arg) in args.iter().enumerate() {
                     self.buf.push(' ');
-                    self.translate_expr(arg);
+                    // 2026-10-05 (t1 relay): a value-sorted `self` passed to a
+                    // `&T` parameter needs the top-level `|xiom_ref_T|`
+                    // coercion or z3 rejects the whole script ("unknown
+                    // constant f (T Int)").
+                    let expected = psorts.as_ref().and_then(|p| p.get(i));
+                    let actual = self.infer_sort(arg);
+                    let coerced = expected.and_then(|exp| {
+                        let (fname, value_sort) = self.ref_coercions.get(exp)?;
+                        if actual.as_deref() == Some(value_sort.as_str()) {
+                            Some(fname.clone())
+                        } else {
+                            None
+                        }
+                    });
+                    match coerced {
+                        Some(fname) => {
+                            self.buf.push_str(&format!("({} ", fname));
+                            self.translate_expr(arg);
+                            self.buf.push(')');
+                        }
+                        None => self.translate_expr(arg),
+                    }
                 }
                 self.buf.push(')');
             }
@@ -2020,6 +2134,59 @@ ensures: result.current >= self.current
             report.skipped.iter().all(|s| s.code == X7006_INVARIANT || s.code == X7007_UNKNOWN),
             "unexpected skips: {:?}",
             report.skipped
+        );
+        if let Some(ok) = z3_parses(&smt) {
+            assert!(ok, "z3 rejected the generated SMT:\n{smt}");
+        }
+    }
+
+    #[test]
+    fn implicit_receiver_to_ref_param_is_declared_and_coerced() {
+        // 2026-10-05 (t1-allocator benchmark relay): an implicit-receiver
+        // method (`fn T.m(x: Int)` whose body uses `self`) must declare
+        // |self| in EVERY section (z3 scopes sort/const declarations under
+        // push/pop), predeclare the owner's sort at top level, and coerce the
+        // value-sorted `self` when passed to a `&T` parameter. Previously z3
+        // rejected the script with "unknown constant self", "unknown sort
+        // 'xiom_T'", or "unknown constant helper (T Int)".
+        let (smt, _report) = generate(
+            r#"
+module verify_emission_implicit_self
+
+pub type Counter = {
+  value: Int;
+  invariant: value >= 0;
+}
+
+pub fn helper(a: &Counter, x: Int) -> Int
+requires: x >= 0
+{
+  return x;
+}
+
+pub fn Counter.bump(by: Int) -> Int
+requires: by >= 0
+ensures: result >= 0
+{
+  return helper(self, by);
+}
+"#,
+        );
+        assert!(
+            smt.contains("(declare-fun |xiom_ref_Counter| (Counter) |xiom_ptr_Counter|)"),
+            "receiver coercion declared:\n{smt}"
+        );
+        assert!(
+            smt.contains("(|helper| (|xiom_ref_Counter| |self|) by)"),
+            "self passed through the coercion:\n{smt}"
+        );
+        assert!(
+            smt.matches("(declare-const |self| Counter)").count() >= 2,
+            "|self| declared in the invariant and method sections:\n{smt}"
+        );
+        assert!(
+            !smt.contains("(|helper| |self| by)"),
+            "no bare self application:\n{smt}"
         );
         if let Some(ok) = z3_parses(&smt) {
             assert!(ok, "z3 rejected the generated SMT:\n{smt}");
