@@ -33,7 +33,7 @@
 > commit; push on the owner's ask, session/handoff docs may push; never
 > rebuild target/debug during a suite):
 >
-> 1. Stage 6 catalog-flush (~1.06s of the 2.22s release scripting wall,
+> 1. [DONE 828acdb7] Stage 6 catalog-flush (~1.06s of the 2.22s release scripting wall,
 >    in-container t6 profile). `xiom.math` 0.49s = its ~25 submodule
 >    `use`s at 10-40ms each during catalog-body checking (per-use
 >    register_fn_signature + export-map build; NOT fn bodies -- no fn
@@ -44,7 +44,13 @@
 >    cold wall under ~1.5s; KPI arena compile_ms < 2s. The scripting
 >    baseline lane itself is FIXED (8405d2e6: `--jit --cache` serves
 >    the script cache; warm replay ~0.1s) -- retest on the next archive.
-> 2. lz4 duplicate-leaf compiler parity fix. `xiom.compress.lz4.
+>    RESULT: unreferenced catalog-body uses are skipped (guard: the
+>    body's bare TYPE surface must be self-contained; bare fn names leak
+>    through the global registry, types do not -- corpus gate caught
+>    serialize/json's Map). Local debug t6: catalog-bodies 1.114s ->
+>    0.682s, catalog-flush 1.345s -> 0.931s, check 2.214s -> 1.560s;
+>    in-container re-measure on the v0.63.1 candidate.
+> 2. [DONE a1b7c4da] lz4 duplicate-leaf compiler parity fix. `xiom.compress.lz4.
 >    lz4_compress` (Vec) vs the umbrella `xiom.compress.lz4_compress`
 >    (Result); a BARE program call binds Result in codegen while the
 >    checker binds Vec -> unresolved `Result.len` or pointer-garbage
@@ -56,12 +62,23 @@
 >    PROGRAM calls via the checker's resolution (catalog_resolved_calls
 >    records only while checking_catalog; R15/R20 precedent, call.rs
 >    resolve_catalog_call + the m162 bare sibling).
+>    RESULT: program-scope ambiguous bare calls are recorded separately
+>    (type-level FnSig equality) and bound ahead of the registration-order
+>    bare slot; catalog-body records keep the old ordering (sqrt guard).
+>    Probes: 2740398262480 -> 26 frame bytes; smoke mismatches=0. Lock:
+>    tests/regression/m191_lz4_bare_duplicate_leaf + e2e_m191.
 > 3. t3-hot-reload 216ms system-arena sample (op time_ms 0, peers
 >    5-16ms): get the t3 solution + the exact per-sample command from
 >    the benchmark lane before touching anything.
-> 4. Contracts t1 `unknown constant self` (SMT L495): need the t1
+> 4. [DONE 16ef2541] Contracts t1 `unknown constant self` (SMT L495): need the t1
 >    solution or the SMT around L495 plus its obligation label; t8
 >    query-less output is FIXED (6f34e1f0).
+>    RESULT: reconstructed from reference/systems-contracts-arena/
+>    t1-allocator.xi. Three emitter fixes: per-section |self| declaration
+>    (guard on latest, not the cross-function var_sort_map), owner-sort
+>    predeclaration (z3 scopes push/pop declarations), and value->&T
+>    receiver coercions. t1: 1 proven/0 violated/11 unknown/0 errors;
+>    t1..t5 sweep all 0 errors; verifier 34+5.
 > 5. Other open findings (COMPILER_BUGS 2026-10-05 + 2026-10-04):
 >    enum-payload Str in-situ (needs the graphql validator slice),
 >    iter Range.collect clause side + `__closure_N` (wave-65),
