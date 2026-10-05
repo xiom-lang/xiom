@@ -1605,6 +1605,13 @@ fn real_main() {
         // never be bypassed).
         let no_cache = run_args.iter().any(|a| *a == "--no-cache");
         let use_jit = run_args.iter().any(|a| *a == "--jit");
+        // 2026-10-05 (benchmark scripting relay): `--jit --cache` is the
+        // scored baseline lane ("XIOM-JIT-CACHE"). Plain `--jit` stays the
+        // cold-JIT measurement (C25: never serve it a cached AOT binary),
+        // but an EXPLICIT `--cache` asks for reuse -- serve the cached build
+        // on hit and AOT-compile+cache on miss so the next run hits.
+        let cache_explicit = args.flag("cache");
+        let jit_reuse = use_jit && cache_explicit;
         let effective: Vec<&str> = run_args.into_iter()
             .filter(|a| *a != "--watch" && *a != "--cache" && *a != "--no-cache" && *a != "--jit")
             .collect();
@@ -1647,7 +1654,9 @@ fn real_main() {
         // M10: Check script cache for instant re-run
         let script_cache_level = xiom::jit::effective_opt_level(script_opt_level, false);
         // C25: `--jit` must not execute a cached binary just to discard it.
-        if !no_cache && !use_jit {
+        // 2026-10-05: EXCEPT when `--cache` is explicit (`--jit --cache`) --
+        // that lane wants reuse, not a cold JIT per sample.
+        if !no_cache && (!use_jit || jit_reuse) {
             if let Some(cached) = xiom::jit::script_cache_get(&source, script_cache_level) {
                 // C25: Command::output() defaults the child's stdin to NULL,
                 // so a warm cache served `[]` where the cold run read the
@@ -1657,7 +1666,7 @@ fn real_main() {
                     .stdin(std::process::Stdio::inherit())
                     .output();
                 if let Ok(out) = output {
-                    if out.status.success() && !use_jit {
+                    if out.status.success() && (!use_jit || jit_reuse) {
                         let stdout = String::from_utf8_lossy(&out.stdout);
                         if !stdout.is_empty() { print!("{stdout}"); }
                         return;
@@ -1666,8 +1675,10 @@ fn real_main() {
             }
         }
 
-        // M10.1d: True JIT execution if --jit flag is set
-        if use_jit {
+        // M10.1d: True JIT execution for `--jit` WITHOUT explicit cache reuse.
+        // (`--jit --cache` is owned by the cache path above: hit -> run the
+        // cached build; miss -> fall through and AOT-compile+cache below.)
+        if use_jit && !jit_reuse {
             match xiom::jit::jit_execute(&source) {
                 Ok(code) => { eprintln!("  JIT exit code: {code}"); return; }
                 Err(e) => { eprintln!("  JIT error: {e}"); process::exit(1); }

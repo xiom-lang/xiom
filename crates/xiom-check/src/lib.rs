@@ -2647,7 +2647,23 @@ impl Checker {
         match item {
             TopDecl::Fn(fd) => {
                 if fd.body.is_some() {
-                    self.check_fn_decl(fd);
+                    // STAGE6_PERF_PLAN: flag-gated per-function flush timing.
+                    let trace = self.checking_catalog
+                        && std::env::var_os("XIOM_TIMINGS").is_some();
+                    if trace {
+                        let started = std::time::Instant::now();
+                        self.check_fn_decl(fd);
+                        let secs = started.elapsed().as_secs_f64();
+                        if secs > 0.03 {
+                            eprintln!(
+                                "[timings]   slow fn {}.{} {secs:.3}s",
+                                self.current_module.as_deref().unwrap_or("<mod>"),
+                                fd.name.name
+                            );
+                        }
+                    } else {
+                        self.check_fn_decl(fd);
+                    }
                 }
             }
             TopDecl::Module(md) => {
@@ -2676,7 +2692,22 @@ impl Checker {
                 // catalog-mode uses are processed here under the per-module
                 // isolated context set up by flush_catalog_bodies.
                 if self.checking_catalog {
-                    self.process_use(ud);
+                    let trace = std::env::var_os("XIOM_TIMINGS").is_some();
+                    if trace {
+                        let started = std::time::Instant::now();
+                        self.process_use(ud);
+                        let secs = started.elapsed().as_secs_f64();
+                        if secs > 0.01 {
+                            let path: Vec<String> =
+                                ud.path.iter().map(|i| i.name.clone()).collect();
+                            eprintln!(
+                                "[timings]   slow use {} {secs:.3}s",
+                                path.join(".")
+                            );
+                        }
+                    } else {
+                        self.process_use(ud);
+                    }
                 }
             }
             TopDecl::Const(cd) => {

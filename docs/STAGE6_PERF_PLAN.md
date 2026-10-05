@@ -249,6 +249,22 @@ ladder. Gate P acceptance lives in `docs/RELEASE_GATE_v0.62.3.md`.
      collisions, ~140s cold index on every cache miss (benchmark scripting
      samples 7-9.6s). Cold `xiom run` now 3.95s, index 2565 visits, W001 0.
      See COMPILER_BUGS 2026-10-04.
+   - LANDED 2026-10-05 (scripting baseline): `xiom run --jit --cache`
+     (the benchmark's scored `xiom-run` lane) now serves the script cache
+     on hit and AOT-compiles+caches on miss; plain `--jit` stays the
+     cold-JIT measurement per C25. Local: warm replay **0.11s** vs 3.2s
+     cold JIT; the lane should drop from 2.2-9.9s per sample to the
+     `xiom-run-cache` band (10-20ms warm).
+   - PROFILE 2026-10-05 (in-container release build, t6 script): wall
+     2.22s = parse 0.03 + index 0.12 + catalog-load 0.14 + borrow 0.06 +
+     codegen 0.02 + clang/link 0.81 + **catalog-flush 1.06** (22 modules).
+     `xiom.math` alone 0.49s and it is NOT fn bodies (no fn >30ms): it is
+     its ~25 submodule `use`s at 10-40ms each during catalog-body
+     checking (per-use `register_fn_signature` over every item +
+     export-map build). Next: skip catalog-body uses the body never
+     references, dedupe registrations, and/or memoize per-module export
+     maps. t3-hot-reload's 216ms system-arena sample needs the arena's
+     exact sample command/solution (relay) before attributing it.
    - NEXT: per-module CHECKED cache (diagnostics keyed by source hash +
      checker identity) needs the generic-instantiation state-effects audit
      before skipping bodies; alternatively investigate `xiom.math` body
