@@ -70,6 +70,24 @@
 > sort), catalog-flush --check 0.62s, t2 44ms 4th/7, guards green; scripting
 > profile + R-8 disclosed as not re-run.
 
+> COMPILER LANE (2026-10-05e): contracts-track AUDIT -- the t2/t3/t4/t5/t8
+> contracts FAILs are REFERENCE-CONTENT failures, not emitter coverage.
+> Extracted the exact sources from the local benchmark container: t2/t3/
+> t4/t5 have ZERO clauses; t8 has 3 `requires` (axioms) and NO `ensures`,
+> so its SMT has zero (check-sat) -- fixing the two X7007 sort gaps cannot
+> produce a proof. t1 passes because it carries ensures. Harness agrees
+> (contracts.js:321: a contracts-arena reference must contain clauses).
+> Recommendation relayed: annotate the references with provable ensures
+> (or exempt no-obligation trials). Evidence at tmp/contracts/ref/ (sources
+> + t8.smt2); full entry in COMPILER_BUGS.
+> UI hint finding: bare `xiom file.xi` prints IR (3752 lines) with no
+> `xiom run` hint -- queued for implementation (stdout byte-identical,
+> stderr hint).
+> Stdlib blocked list relayed (8 items: iter closure lowering, reflect
+> all_types corruption, multipart_parse, polyhedra hull, geom Box, matrix
+> inference, scrypt/shuffle/choice, BUG 18) -- all await lane probe bundles;
+> iter/reflect local repros are not in this stdlib pin (2429ac3).
+
 > NEXT QUEUE (post-v0.63.1):
 > 1. Benchmarks: hand v0.63.1 to the benchmark lane (carries the t1 SMT,
 >    lz4, and catalog-flush fixes); re-run acceptance on the new

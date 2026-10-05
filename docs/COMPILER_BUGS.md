@@ -53,6 +53,42 @@ should re-test the crypto probe on the next archive.
 
 ---
 
+## 2026-10-05 -- AUDIT: contracts-track FAILs (t2/t3/t4/t5/t8) are reference-content failures, not emitter coverage
+
+Benchmark relay (contracts run 1791207193731): t1 PASS (1 proven); t2/t3/
+t4/t5/t8 FAIL with verdict unproven ("no queries emitted"). The working
+theory was X7007 emitter coverage; extracting the exact sources from the
+local benchmark container (`docker cp` from
+`/app/data/evidence/run_1791207193731/trials/...`, kept at
+`tmp/contracts/ref/`) shows otherwise.
+
+EVIDENCE (reproduced locally on this tree):
+- t2-queue, t3-hot-reload, t4-packet, t5-btree `source.xi` contain ZERO
+  contract clauses (requires/ensures/invariant = 0). The verifier emits the
+  "no queries emitted" placeholder -> 0/0/1/0; the harness policy
+  (`src/tasks/contracts.js`, `proven == 0 && unknown > 0 -> unproven`) fails
+  it, and even zero obligations fail as `no-obligations`. The harness says it
+  itself: "No contract obligations found -- a contracts-arena reference must
+  contain requires/ensures clauses" (contracts.js:321).
+- t8-safety-probe has 3 clauses, ALL `requires` (axioms), NO `ensures`.
+  `xiom-verify --check -o t8.smt2` -> ZERO `(check-sat)`, 3 skipped axioms
+  (comments), 4 unknown (3 axiom skips + the no-queries placeholder; skipped
+  axioms are counted as unknowns -- honest but inflated), 0 errors. The two
+  X7007 modeling gaps (`Str.len()` sort: `infer_sort` has no MethodCall arm;
+  `*mut UInt8 != null`: opaque pointer sorts) cannot create an obligation --
+  none exists -- so `proven` stays 0 and the track stays FAIL.
+- t1 passes because it carries `ensures` clauses (17 clauses; 1 proven).
+
+RECOMMENDATION (benchmark lane, reference content): annotate t2/t3/t4/t5
+references with at least one provable `ensures` (the contracts arena
+requires clauses), and give t8 an `ensures` if the track is meant to
+demonstrate safety-probe obligations. Alternative scoring: exempt
+`no-obligations` trials from the FAIL aggregation instead of treating them
+as unproven. Compiler-side emitter coverage for the two t8 axiom shapes is
+queued as coverage work, but it is NOT the blocker for any verdict above.
+
+---
+
 ## 2026-10-05 -- FIXED: confined-unsafe ctx alloca leaked 32 bytes of stack per loop entry (m192)
 
 Perf queue item 1 surfaced a CORRECTNESS bug underneath the t3-hot-reload
