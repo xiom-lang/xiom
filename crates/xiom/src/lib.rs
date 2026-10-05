@@ -2109,106 +2109,144 @@ fn fix_inttoptr_store_mismatch(ir: &str) -> String {
 }
 
 pub fn find_runtime_c_files() -> Vec<String> {
-    // XIOM_RUNTIME_DIR override -- production deployments set this explicitly
-    if let Ok(rt_dir) = std::env::var("XIOM_RUNTIME_DIR") {
-        let dir = std::path::Path::new(&rt_dir);
+    let stdlib_roots = xiom_graph::paths::current_stdlib_candidates();
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|p| p.to_path_buf()));
+    let override_dir = std::env::var("XIOM_RUNTIME_DIR").ok();
+    find_runtime_c_files_in(&stdlib_roots, exe_dir.as_deref(), override_dir.as_deref())
+}
+
+/// R65 (packages runtime-link): resolve every C runtime source for an AOT
+/// link. `stdlib_roots` is the shared `current_stdlib_candidates()` scan,
+/// which already knows the installed layout -- `<install>/lib`, `share/xiom`,
+/// XIOM_HOME, XIOM_STDLIB. The old candidate list only scanned CWD/exe
+/// relatives that MISS `<install>/lib/runtime`, so an installed compiler
+/// linked just the `find_runtime_c()` fallback (`xiom_runtime.c`) and any
+/// program pulling async/simd/sha256/hot-reload symbols failed at lld-link
+/// (`undefined symbol: xiom_async_now_ms` on v0.63.1; packages 5b7547b0).
+fn find_runtime_c_files_in(
+    stdlib_roots: &[std::path::PathBuf],
+    exe_dir: Option<&std::path::Path>,
+    runtime_dir_override: Option<&str>,
+) -> Vec<String> {
+    // XIOM_RUNTIME_DIR override -- production deployments set this explicitly.
+    if let Some(rt_dir) = runtime_dir_override {
+        let dir = std::path::Path::new(rt_dir);
         if dir.is_dir() {
-            let mut c_files: Vec<String> = Vec::new();
-            if let Ok(entries) = std::fs::read_dir(dir) {
-                for entry in entries.flatten() {
-                    let p = entry.path();
-                    if p.is_file() && p.extension().and_then(|e| e.to_str()) == Some("c") {
-                        c_files.push(p.to_string_lossy().to_string());
-                    }
-                }
+            let c_files = scan_runtime_c_dir(dir);
+            if !c_files.is_empty() {
+                return c_files;
             }
-            if !c_files.is_empty() { c_files.sort(); return c_files; }
         }
     }
 
-    let mut dir_candidates: Vec<String> = vec![
-        "stdlib\\runtime".to_string(),
-        "stdlib/runtime".to_string(),
-        "runtime".to_string(),
-    ];
+    // Shared resolver roots first (repo `stdlib/runtime`, installed
+    // `lib/runtime`, XIOM_HOME, XIOM_STDLIB, manifest) -- exactly the order
+    // `find_runtime_c()` and the JIT use.
+    let mut dir_candidates: Vec<String> = Vec::new();
+    for root in stdlib_roots {
+        let rt = root.join("runtime");
+        if rt.is_dir() {
+            dir_candidates.push(rt.to_string_lossy().to_string());
+        }
+    }
 
     // Walk UP from the xiom binary (up to 8 levels) -- reliable for dev
     // (target/debug/xiom.exe -> <repo>/stdlib/runtime) and for servers whose
-    // cwd is not the repo root (playground).
-    if let Ok(exe) = std::env::current_exe() {
-        let mut search = exe.parent();
+    // cwd is not the repo root (playground). `lib/runtime` is the installed
+    // layout (<install>/bin/xiom.exe -> <install>/lib/runtime).
+    if let Some(exe_dir) = exe_dir {
+        let mut search = Some(exe_dir);
         for _ in 0..8 {
             if let Some(dir) = search {
-                let cand = dir.join("stdlib").join("runtime");
-                if cand.is_dir() {
-                    dir_candidates.push(cand.to_string_lossy().to_string());
-                }
-                let cand2 = dir.join("runtime");
-                if cand2.is_dir() {
-                    dir_candidates.push(cand2.to_string_lossy().to_string());
+                let cands = [
+                    dir.join("stdlib").join("runtime"),
+                    dir.join("lib").join("runtime"),
+                    dir.join("runtime"),
+                ];
+                for cand in cands {
+                    if cand.is_dir() {
+                        dir_candidates.push(cand.to_string_lossy().to_string());
+                    }
                 }
                 search = dir.parent();
-            } else { break; }
+            } else {
+                break;
+            }
+        }
+
+        // Search relative to the xiom binary location (production installs).
+        // bin/xiom.exe -> ../runtime/ (standard release layout)
+        dir_candidates.push(format!("{}/../runtime", exe_dir.display()));
+        dir_candidates.push(format!("{}\\..\\runtime", exe_dir.display()));
+        // bin/xiom.exe -> ../stdlib/runtime/ (stdlib layout)
+        dir_candidates.push(format!("{}/../stdlib/runtime", exe_dir.display()));
+        dir_candidates.push(format!("{}\\..\\stdlib\\runtime", exe_dir.display()));
+        // bin/xiom.exe -> ../lib/runtime (installed xiom.new layout)
+        dir_candidates.push(format!("{}/../lib/runtime", exe_dir.display()));
+        dir_candidates.push(format!("{}\\..\\lib\\runtime", exe_dir.display()));
+        // Same directory as binary
+        dir_candidates.push(format!("{}/runtime", exe_dir.display()));
+        dir_candidates.push(format!("{}\\runtime", exe_dir.display()));
+        // Grandparent-based (for `target/debug/xiom.exe` -> `../../runtime/`)
+        if let Some(grandparent) = exe_dir.parent() {
+            dir_candidates.push(format!("{}/runtime", grandparent.display()));
+            dir_candidates.push(format!("{}\\runtime", grandparent.display()));
+            dir_candidates.push(format!("{}/stdlib/runtime", grandparent.display()));
+            dir_candidates.push(format!("{}\\stdlib\\runtime", grandparent.display()));
+            dir_candidates.push(format!("{}/lib/runtime", grandparent.display()));
+            dir_candidates.push(format!("{}\\lib\\runtime", grandparent.display()));
         }
     }
 
-    // Search relative to the xiom binary location (production installs)
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(exe_dir) = exe.parent() {
-            // bin/xiom.exe -> ../runtime/ (standard release layout)
-            dir_candidates.push(format!("{}/../runtime", exe_dir.display()));
-            dir_candidates.push(format!("{}\\..\\runtime", exe_dir.display()));
-            // bin/xiom.exe -> ../stdlib/runtime/ (stdlib layout)
-            dir_candidates.push(format!("{}/../stdlib/runtime", exe_dir.display()));
-            dir_candidates.push(format!("{}\\..\\stdlib\\runtime", exe_dir.display()));
-            // Same directory as binary
-            dir_candidates.push(format!("{}/runtime", exe_dir.display()));
-            dir_candidates.push(format!("{}\\runtime", exe_dir.display()));
-            // Grandparent-based (for `target/debug/xiom.exe` -> `../../runtime/`)
-            if let Some(grandparent) = exe_dir.parent() {
-                dir_candidates.push(format!("{}/runtime", grandparent.display()));
-                dir_candidates.push(format!("{}\\runtime", grandparent.display()));
-                dir_candidates.push(format!("{}/stdlib/runtime", grandparent.display()));
-                dir_candidates.push(format!("{}\\stdlib\\runtime", grandparent.display()));
-            }
-        }
-    }
+    // CWD-relative historical candidates (after the exe-relative scan, to
+    // match `find_runtime_c()`: the compiler's own runtime wins over a stray
+    // CWD `stdlib/runtime`).
+    dir_candidates.push("stdlib\\runtime".to_string());
+    dir_candidates.push("stdlib/runtime".to_string());
+    dir_candidates.push("runtime".to_string());
 
     // CARGO_MANIFEST_DIR-based paths (dev/test environments)
     if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
         let base = std::path::Path::new(&manifest);
         for depth in 2..5 {
             let mut p = base.to_path_buf();
-            for _ in 0..depth { p = p.join(".."); }
+            for _ in 0..depth {
+                p = p.join("..");
+            }
             dir_candidates.push(format!("{}/stdlib/runtime", p.display()));
             dir_candidates.push(format!("{}/runtime", p.display()));
             dir_candidates.push(format!("{}\\stdlib\\runtime", p.display()));
             dir_candidates.push(format!("{}\\runtime", p.display()));
         }
     }
-
     for dir in &dir_candidates {
         let dir_path = std::path::Path::new(dir);
         if !dir_path.is_dir() {
             continue;
         }
-        let mut c_files: Vec<String> = Vec::new();
-        if let Ok(entries) = std::fs::read_dir(dir_path) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file()
-                    && path.extension().and_then(|e| e.to_str()) == Some("c")
-                {
-                    c_files.push(path.to_string_lossy().to_string());
-                }
-            }
-        }
+        let c_files = scan_runtime_c_dir(dir_path);
         if !c_files.is_empty() {
-            c_files.sort();
             return c_files;
         }
     }
     Vec::new()
+}
+
+/// Sorted `.c` files in a runtime directory (empty when the dir has none).
+fn scan_runtime_c_dir(dir: &std::path::Path) -> Vec<String> {
+    let mut c_files: Vec<String> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("c") {
+                c_files.push(path.to_string_lossy().to_string());
+            }
+        }
+    }
+    c_files.sort();
+    c_files
 }
 
 // FE-1/FE-3: host tool resolution lives in `crate::toolchain` (shared with
@@ -3006,6 +3044,73 @@ mod tests {
             roots.is_empty(),
             "empty lib/ and a stale baked path must not validate: {roots:?}"
         );
+    }
+
+    // R65 (packages runtime-link): the AOT runtime-source scan must find the
+    // installed layout (<install>/lib/runtime); v0.63.1 linked only the
+    // single-file fallback and failed with `undefined symbol:
+    // xiom_async_now_ms` for any program using the monotonic clock.
+    fn r65_write_c(dir: &std::path::Path, name: &str) {
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(dir.join(name), "/* r65 */\n").unwrap();
+    }
+
+    #[test]
+    fn r65_install_lib_runtime_is_scanned() {
+        let tmp = std::env::temp_dir().join(format!("xiom_r65_install_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let bin = tmp.join("install").join("bin");
+        let rt = tmp.join("install").join("lib").join("runtime");
+        std::fs::create_dir_all(&bin).unwrap();
+        r65_write_c(&rt, "xiom_runtime.c");
+        r65_write_c(&rt, "async_runtime.c");
+        r65_write_c(&rt, "sha256_sw.c");
+
+        let files = find_runtime_c_files_in(&[], Some(bin.as_path()), None);
+        assert_eq!(
+            files.len(),
+            3,
+            "install lib/runtime must yield every .c source: {files:?}"
+        );
+        assert!(
+            files.iter().any(|f| f.ends_with("async_runtime.c")),
+            "the async runtime (xiom_async_now_ms) must be linked: {files:?}"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn r65_resolver_root_runtime_is_scanned() {
+        let tmp = std::env::temp_dir().join(format!("xiom_r65_root_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let rt = tmp.join("lib").join("runtime");
+        r65_write_c(&rt, "xiom_runtime.c");
+        r65_write_c(&rt, "async_runtime.c");
+
+        let files = find_runtime_c_files_in(&[tmp.join("lib")], None, None);
+        assert_eq!(
+            files.len(),
+            2,
+            "shared-resolver root runtime must be scanned: {files:?}"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn r65_xiom_runtime_dir_override_wins() {
+        let tmp = std::env::temp_dir().join(format!("xiom_r65_override_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let rt = tmp.join("custom_runtime");
+        r65_write_c(&rt, "only_override.c");
+
+        let files = find_runtime_c_files_in(&[], None, Some(rt.to_str().unwrap()));
+        assert_eq!(
+            files.len(),
+            1,
+            "XIOM_RUNTIME_DIR must be authoritative: {files:?}"
+        );
+        assert!(files[0].ends_with("only_override.c"));
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

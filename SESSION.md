@@ -53,6 +53,23 @@
 > next archive. packages recorded a runtime-link finding bundle (packages
 > commit 5b7547b0) -- details pending relay.
 
+> COMPILER LANE (2026-10-05d): R65 runtime-link FIXED. Installed v0.63.1 AOT
+> links missed <install>/lib/runtime (find_runtime_c_files scanned only
+> CWD/exe relatives), so async_runtime.c/sha256_sw.c/etc were dropped and any
+> Instant.now/monotonic_ms program failed `undefined symbol:
+> xiom_async_now_ms` (packages 5b7547b0). The scan now resolves the shared
+> current_stdlib_candidates() roots first (like find_runtime_c and the JIT)
+> plus lib/runtime ancestors/relatives; factored into
+> find_runtime_c_files_in/scan_runtime_c_dir. Out-of-repo install simulation:
+> control v0.63.1 red -> fixed driver green; 3 unit locks; driver lib 61/61.
+> Also restores xiom_sha256_hash (sha256_sw.c; needs its shipped .h) --
+> packages re-test the crypto probe on the next archive.
+> Benchmark lane verdict on v0.63.1: ACCEPTED -- lz4 5/5 mismatches=0, t1
+> PROVEN (1/0/11/0), t8 0 errors but no proven obligation (remaining ask =
+> X7007 emitter coverage: Gt on non-numeric operands, unresolved operand
+> sort), catalog-flush --check 0.62s, t2 44ms 4th/7, guards green; scripting
+> profile + R-8 disclosed as not re-run.
+
 > NEXT QUEUE (post-v0.63.1):
 > 1. Benchmarks: hand v0.63.1 to the benchmark lane (carries the t1 SMT,
 >    lz4, and catalog-flush fixes); re-run acceptance on the new

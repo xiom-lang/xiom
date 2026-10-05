@@ -10,6 +10,49 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-05 -- FIXED: installed layout missed lib/runtime -> AOT link failed (xiom_async_now_ms)
+
+Packages relay (packages commit 5b7547b0): installed v0.63.1 AOT links fail
+`lld-link: error: undefined symbol: xiom_async_now_ms` for any program whose
+closure uses the monotonic clock (`xiom.time.monotonic_ms` / `Instant.now`);
+the same class was suspected for the open crypto-link (`xiom_sha256_hash`).
+
+ROOT CAUSE: `find_runtime_c_files()` (crates/xiom/src/lib.rs) scanned only
+CWD (`stdlib/runtime`), exe walk-up (`<ancestor>/stdlib/runtime`,
+`<ancestor>/runtime`) and exe relatives (`../runtime`, `../stdlib/runtime`,
+`./runtime`, grandparent forms). The production layout
+`%LOCALAPPDATA%\xiom.new\lib\runtime` is none of those -> empty list -> the
+`find_runtime_c()` fallback linked ONLY `xiom_runtime.c`, dropping
+async_runtime.c / simd_runtime.c / sha256_sw.c / xiom_hot_reload.c. The JIT
+already resolved all five via `xiom_graph::paths::current_stdlib_candidates()`
+(`xiom-jit/src/lib.rs::runtime_dirs`); the AOT path never used it.
+
+REPRO (installed v0.63.1, neutral CWD, 5-line `xiom.time.monotonic_ms()`
+probe): `lld-link: error: undefined symbol: xiom_async_now_ms` referenced by
+`__unsafe_block_0`, exit 1. `XIOM_RUNTIME_DIR=...\stdlib\runtime` is the
+supported workaround (packages: aws 27/27).
+
+FIX: `find_runtime_c_files()` resolves the shared candidate roots first
+(repo `stdlib/runtime`, installed `<install>/lib/runtime`, `share/xiom`,
+XIOM_HOME, XIOM_STDLIB, manifest) exactly like `find_runtime_c()` and the
+JIT, then walks the exe ancestors (now including `lib/runtime`) and exe
+relatives (`../lib/runtime`), then CWD, then CARGO_MANIFEST_DIR. The
+candidate logic is factored into `find_runtime_c_files_in(stdlib_roots,
+exe_dir, runtime_dir_override)` (testable discovery) and the directory scan
+into `scan_runtime_c_dir`.
+
+VERIFICATION: out-of-repo install simulation (bin + lib/{xiom,runtime},
+neutral CWD, runtime `CARGO_MANIFEST_DIR` pointed away from the repo):
+- control v0.63.1 in the same layout -> `undefined symbol: xiom_async_now_ms`.
+- fixed driver -> compiled + ran, exit 0.
+Unit locks: `r65_install_lib_runtime_is_scanned`,
+`r65_resolver_root_runtime_is_scanned`, `r65_xiom_runtime_dir_override_wins`.
+This also restores `xiom_sha256_hash` (sha256_sw.c now compiled; note it
+requires its sibling `sha256_sw.h`, which the install ships) -- packages
+should re-test the crypto probe on the next archive.
+
+---
+
 ## 2026-10-05 -- FIXED: confined-unsafe ctx alloca leaked 32 bytes of stack per loop entry (m192)
 
 Perf queue item 1 surfaced a CORRECTNESS bug underneath the t3-hot-reload
