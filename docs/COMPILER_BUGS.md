@@ -73,6 +73,37 @@ should re-test the crypto probe on the next archive.
 
 ---
 
+## 2026-10-05 -- FIXED: one-arg `read` method hijacked by the raw-pointer builtin (m196, Pulse C-PULSE-01 / R-8)
+
+Pulse relay C-PULSE-01 + benchmark R-8: a method named `read` with exactly
+one argument was swallowed by the codegen builtin at call.rs ("Builtin
+read(ptr): load value through raw pointer"). The guard checked only the name
+and arg count, and a real `sock.read(&mut buf)` argument lowers to
+`%struct.Vec*` (ends in `*`), so the builtin emitted a deref-load and the
+real method body never ran -- silent: `Result.is_ok` folded to false, no
+bytes appended, no diagnostic. This is the exact R-8 `TcpStream.read`
+elision.
+
+FIX: the builtin now requires `receiver_expr.is_none()` (the receiver-less
+desugared form it was written for); a method call named `read` always emits
+the real method. `write` is unaffected (its builtin requires two args).
+
+VERIFIED against the LIVE benchmark server (127.0.0.1:8080, host-side,
+XIOM_STDLIB = stdlib head):
+- control installed v0.63.1 AOT: `connected / wrote 64 / before read 0..4 /
+  done loops total=0` (the documented elision).
+- fixed AOT: `before read 0 / after read 0 n=3137 total=3137 / before read 1
+  / after read 1 n=0 total=3137 / eof`.
+- fixed JIT (`xiom run --no-cache`): identical, exit 0.
+- Pulse matrix probe (`read-method-builtin-shadow/probe.xi`) exit 5 -> 0.
+
+LOCKS: `regress_m196_read_method_not_hijacked` (IR: main calls `@Sock.read`),
+`e2e_m196_read_method_not_hijacked` (method body runs; buffer gains the
+byte). CI filter extended. Benchmark: re-probe both paths on the next
+archive; R-8 stays in the language-correctness wave.
+
+---
+
 ## 2026-10-05 -- OPEN (root cause isolated): multipart_parse Part fields corrupt (erased Vec element type on match binding)
 
 Stdlib probe `tools/known_failures/p_multipart_parse_name.xi` (rc 1) is

@@ -3174,7 +3174,13 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 }
                 // Builtin read(ptr): load value through raw pointer.
                 // ptr.read is generic with the same *T inference issue as write.
-                if fn_name == "read" && args.len() >= 1 {
+                // m196 (Pulse C-PULSE-01 / R-8 TcpStream.read): a REAL method
+                // named `read` with one argument (`sock.read(&mut buf)`) also
+                // presents a pointer-ish args[0] (`Vec*`), so this builtin
+                // swallowed the call and the real method was never emitted
+                // (silent: is_ok folded false, no bytes appended). Only the
+                // receiver-less form is the builtin.
+                if fn_name == "read" && args.len() >= 1 && receiver_expr.is_none() {
                     let (ptr_val, ptr_ty) = self.compile_expr(&args[0])?;
                     if ptr_ty.ends_with('*') {
                         // R19: exactly ONE star (deref-load class, BUG 44).

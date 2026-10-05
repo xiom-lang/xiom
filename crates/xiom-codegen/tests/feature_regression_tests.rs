@@ -6907,3 +6907,26 @@ fn main() -> Int {
         "m195: the 8-byte-fallback allocation must not appear; got:\n{ir}"
     );
 }
+
+// m196 (Pulse C-PULSE-01 / R-8 TcpStream.read): a real one-arg method named
+// `read` must be CALLED; the raw-pointer read builtin must not swallow it.
+#[test]
+fn regress_m196_read_method_not_hijacked() {
+    let source = r#"
+type Sock = { n: Int; }
+fn Sock.read(self, buf: &mut Vec[UInt8]) -> Int {
+  buf.push(65u8);
+  return 7;
+}
+fn main() -> Int {
+  let s = Sock{ n: 1 };
+  var v: Vec[UInt8] = Vec[UInt8].new();
+  return s.read(&mut v);
+}
+"#;
+    let ir = compile(source).expect("m196: one-arg read method must compile");
+    assert!(
+        ir.contains("call i64 @Sock.read("),
+        "m196: the real read method must be called from main; got:\n{ir}"
+    );
+}

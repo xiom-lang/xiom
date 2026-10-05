@@ -5804,6 +5804,16 @@ fn e2e_safety_probe() {
     );
 }
 
+// m196 (Pulse C-PULSE-01 / R-8): a real one-arg method named `read` must run
+// its body, not be swallowed by the raw-pointer read builtin.
+#[test] fn e2e_m196_read_method_not_hijacked() {
+    assert_eq!(
+        compile_and_run("tests/regression/m196_read_method_not_hijacked/main.xi"),
+        Some(0),
+        "a one-arg read method must call the real method, not the builtin (m196)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

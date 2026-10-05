@@ -135,6 +135,17 @@
 > tmp/contracts/known/r8_tcp_stream_read.xi. iter collect/contains and
 > reflect are GREEN on this tree.
 
+> COMPILER LANE (2026-10-05j): m196 FIXED -- Pulse C-PULSE-01 = R-8 root
+> cause: the raw-pointer `read` builtin (call.rs) hijacked any one-arg
+> method named read (`sock.read(&mut buf)` -> Vec* arg). Guard now requires
+> receiver-less; VERIFIED against the live benchmark server: installed
+> v0.63.1 AOT elided (total=0) -> fixed AOT `after read 0 n=3137 / eof`,
+> fixed JIT identical exit 0; Pulse matrix 5 -> 0. Locks: IR + e2e; CI
+> line. Stale blockers closed per stdlib a97d099: scrypt, shuffle/choice,
+> BUG 18 all NOT reproducible (probes green on v0.63.1); Box rides the
+> stdlib rename (section C). Candidate for packages staged at
+> %TEMP%\kilo\candidate-<rev>\ (archive + SHA256SUMS + revision).
+
 > NEXT QUEUE (post-v0.63.1):
 > 1. Benchmarks: hand v0.63.1 to the benchmark lane (carries the t1 SMT,
 >    lz4, and catalog-flush fixes); re-run acceptance on the new
