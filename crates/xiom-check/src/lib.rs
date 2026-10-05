@@ -78,6 +78,15 @@ pub struct Checker {
     /// hands this to codegen so same-leaf delegations bind the module the
     /// checker resolved (codegen cannot see catalog-body `use` aliases).
     pub catalog_resolved_calls: HashMap<String, String>,
+    /// 2026-10-05 (lz4 duplicate-leaf): PROGRAM-scope bare call sites whose
+    /// leaf is exported by two modules with DIFFERENT signatures ->
+    /// the dotted key the checker resolved ("owner#line:col" and "line:col").
+    /// Separate from `catalog_resolved_calls` so codegen prefers it only on
+    /// the program surface: inside catalog bodies the bare-slotted definition
+    /// must keep winning when it exists (`sqrt`), while on the program
+    /// surface an explicitly imported module's function must beat the
+    /// registration-order bare slot (`lz4_compress`).
+    pub program_bare_targets: HashMap<String, String>,
     /// Module keys that existed BEFORE the program's own `use` processing.
     /// `flush_catalog_bodies` retains exactly these per body so a USER alias
     /// (`use xiom.collect.hash` binding `hash`) cannot hijack a catalog
@@ -345,6 +354,7 @@ impl Checker {
             strict_catalog_findings: true,
             corpus_loading: false,
             catalog_resolved_calls: HashMap::new(),
+            program_bare_targets: HashMap::new(),
             pre_use_module_keys: HashSet::new(),
             imports: Vec::new(),
             modules: HashMap::new(),
@@ -6717,6 +6727,49 @@ impl Checker {
         None
     }
 
+    /// 2026-10-05 (lz4 duplicate-leaf): the unique DOTTED registration in
+    /// `functions` whose signature matches the resolved bare `sig`, but ONLY
+    /// when the same leaf is also registered under a dotted key with a
+    /// DIFFERENT signature. That is exactly the checker/codegen divergence
+    /// window: codegen's bare slot is registration-order dependent, so the
+    /// checker hands it the target it resolved. None for ordinary
+    /// (unambiguous) bare calls, which must keep resolving through the bare
+    /// slot / caller-module preference.
+    fn ambiguous_bare_fn_target(&self, leaf: &str, sig: &FnSig) -> Option<String> {
+        let suffix = format!(".{leaf}");
+        let mut matching: Option<&String> = None;
+        let mut matches = 0usize;
+        let mut has_other_sig = false;
+        for (key, other) in self.functions.iter() {
+            if key.len() <= suffix.len() || !key.ends_with(&suffix) {
+                continue;
+            }
+            if Self::fn_sig_types_equal(other, sig) {
+                matching = Some(key);
+                matches += 1;
+            } else {
+                has_other_sig = true;
+            }
+        }
+        if !has_other_sig || matches != 1 {
+            return None;
+        }
+        matching.cloned()
+    }
+
+    /// Type-level FnSig equality (names/spans may differ between the full
+    /// and leaf-qualified registrations of the same function).
+    fn fn_sig_types_equal(a: &FnSig, b: &FnSig) -> bool {
+        a.return_type == b.return_type
+            && a.generics == b.generics
+            && a.uses_implicit_this == b.uses_implicit_this
+            && a.params.len() == b.params.len()
+            && a.params
+                .iter()
+                .zip(b.params.iter())
+                .all(|((_, at), (_, bt))| at == bt)
+    }
+
     /// G-10: resolve a bare call `name(args)` inside a method body as
     /// `self.name(args)` when the current receiver declares that method.
     /// Returns None when the receiver has no such instance method.
@@ -8383,6 +8436,29 @@ impl Checker {
                         if !self.sig_accepts_args(&sig, &arg_types) {
                             if let Some(alt) = self.resolve_alternative_bare_fn(&name.name, &arg_types) {
                                 sig = alt;
+                            }
+                        }
+                        // 2026-10-05 (lz4 duplicate-leaf, benchmark relay): a
+                        // BARE program call whose leaf is exported by MORE THAN
+                        // ONE injected module must bind the CHECKER's
+                        // resolution, not codegen's registration-order bare
+                        // slot. `lz4_compress` resolved here to the Vec fn
+                        // (xiom.compress.lz4) while codegen bound the Result
+                        // wrapper (xiom.compress) -> garbage `.len()`. Record
+                        // the resolved dotted target for AMBIGUOUS leaves only;
+                        // unambiguous bare calls keep the fast path.
+                        if !self.checking_catalog {
+                            if let Some(target) = self.ambiguous_bare_fn_target(&name.name, &sig) {
+                                if let Some(owner) = self.current_fn_qual.clone() {
+                                    self.program_bare_targets.insert(
+                                        format!("{owner}#{}:{}", span.line, span.col),
+                                        target.clone(),
+                                    );
+                                }
+                                self.program_bare_targets.insert(
+                                    format!("{}:{}", span.line, span.col),
+                                    target,
+                                );
                             }
                         }
                         // Item 3 (2026-09-27): exact-arity enforcement on the

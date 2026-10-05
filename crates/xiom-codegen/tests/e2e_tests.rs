@@ -5719,6 +5719,18 @@ fn e2e_safety_probe() {
     );
 }
 
+// m191 (benchmark relay): a BARE program call whose leaf is exported by two
+// modules (`lz4_compress` in xiom.compress.lz4 -> Vec and xiom.compress ->
+// Result) must bind the checker's resolution; pre-fix `.len()` read
+// registration-order aggregate garbage.
+#[test] fn e2e_m191_lz4_bare_duplicate_leaf() {
+    assert_eq!(
+        compile_and_run("tests/regression/m191_lz4_bare_duplicate_leaf/main.xi"),
+        Some(0),
+        "a bare call to a duplicated stdlib leaf must bind the checker's target (m191)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

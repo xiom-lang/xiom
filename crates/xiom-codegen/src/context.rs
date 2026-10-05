@@ -141,6 +141,13 @@ pub struct CodegenConfig {
     /// `resolve_catalog_call` maps same-leaf delegations to the module the
     /// checker proved.
     pub catalog_call_targets: HashMap<String, String>,
+    /// 2026-10-05 (lz4 duplicate-leaf): PROGRAM-scope bare calls whose leaf
+    /// has two different-signature owners -> the dotted key the checker
+    /// resolved. Consulted BEFORE the registration-order bare slot on the
+    /// program surface only; catalog-body records stay in
+    /// `catalog_call_targets` where the bare-slotted definition wins when
+    /// present.
+    pub program_bare_targets: HashMap<String, String>,
     /// m166: fn keys of the decls INJECTED from catalog (stdlib) modules.
     /// `#[unsafe_direct]` trust is judged by the primary source path OR this
     /// set -- when a user program imports the stdlib, the primary source is
@@ -182,6 +189,7 @@ impl Default for CodegenConfig {
             use_alias_paths: HashMap::new(),
             module_receiver_paths: HashMap::new(),
             catalog_call_targets: HashMap::new(),
+            program_bare_targets: HashMap::new(),
             catalog_fn_keys: std::collections::HashSet::new(),
         }
     }

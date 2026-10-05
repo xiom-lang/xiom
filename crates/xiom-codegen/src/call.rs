@@ -295,6 +295,26 @@ impl IrEmitter {
         }
     }
 
+    /// 2026-10-05 (lz4 duplicate-leaf): the checker recorded its PROGRAM-scope
+    /// resolution for a bare call whose leaf is exported by TWO modules with
+    /// DIFFERENT signatures (it sees the program's `use` bindings; codegen's
+    /// bare slot is registration-order dependent). Bind the recorded target
+    /// ahead of the bare slot. No record => None, so ordinary bare calls keep
+    /// the bare definition (the `sqrt` regression guard: catalog-body records
+    /// stay separate and never override a bare-slotted definition).
+    pub(crate) fn resolve_program_bare_target(&self, fn_name: &str, span: Span) -> Option<String> {
+        let key = format!("{}:{}", span.line, span.col);
+        let resolved = self.fctx.current_fn.as_ref()
+            .and_then(|owner| self.config.program_bare_targets.get(&format!("{owner}#{key}")))
+            .or_else(|| self.config.program_bare_targets.get(&key))?;
+        let stripped = resolved.strip_prefix("xiom.").unwrap_or(resolved.as_str());
+        if stripped.ends_with(&format!(".{fn_name}")) {
+            Some(stripped.to_string())
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn compile_call(&mut self, func: &Expr, args: &[Expr]) -> Result<(String, String), String> {
         // R52 (playground L5-43): tolerate a REDUNDANT explicit receiver
         // argument (`s.push(&mut s, "Alice")`). The method call already passes
@@ -3719,6 +3739,16 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 // both modules were linked -> wrong function -> garbage index ->
                 // stack-buffer-overrun fast-fail 0xC0000409 at exit).
                 let fn_key = if !fn_key.contains('.') {
+                    // 2026-10-05 (lz4 duplicate-leaf, benchmark relay): a BARE
+                    // call whose leaf is exported by MORE THAN ONE injected
+                    // module -- the checker recorded its resolution
+                    // ("owner#line:col" / "line:col" -> dotted key) and codegen
+                    // must bind THAT, before the registration-order bare slot.
+                    // The lz4 probe bound the Result wrapper while the checker
+                    // accepted the Vec fn, so `.len()` read aggregate garbage.
+                    if let Some(qualified) = self.resolve_program_bare_target(&fn_key, func.span()) {
+                        qualified
+                    } else if self.types.functions.contains_key(&fn_key) || self.mono.emitted_fns.contains(&fn_key) {
                     // BUG 16/18 fix (2026-08-11): a bare call must prefer the
                     // CALLER's own module when no bare definition exists --
                     // `_slot(...)` inside skiplist.xi resolves to `skiplist._slot`,
@@ -3730,7 +3760,6 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     // the bare key -- the leaf-qualified key only exists as a
                     // resolution alias and would hit emit_undefined_symbol_stubs
                     // (zero-param stub -> ABI mismatch -> crash).
-                    if self.types.functions.contains_key(&fn_key) || self.mono.emitted_fns.contains(&fn_key) {
                         fn_key
                     } else {
                         let caller_module = self.fctx.current_fn.as_ref()

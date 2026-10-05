@@ -223,6 +223,17 @@ impl ModuleCatalog {
                     if Self::should_skip_dir(name) {
                         continue;
                     }
+                    // R27 follow-up (2026-10-05): a merged side-by-side
+                    // install can leave a NESTED stdlib copy
+                    // (`<install>/lib/lib/xiom/...` beside the canonical
+                    // `<install>/lib/xiom/...`). Indexing it doubled the
+                    // index and flooded W001 with two declarations per
+                    // module (user relay: ~100 warnings before running a
+                    // hello-world). Skip a `lib` child whose parent already
+                    // holds `xiom/`.
+                    if name == "lib" && dir.join("xiom").is_dir() {
+                        continue;
+                    }
                     self.index_dir(&path, dir_index);
                 } else if path.extension().map_or(false, |e| e == "xi") {
                     if let Some((Some(dotted), canonical)) = self.cached_header_and_canonical(&path) {
@@ -927,6 +938,46 @@ mod index_cache_tests {
         third.build_index();
         assert!(third.index_cache_misses >= 1, "changed file must rescan");
         assert!(third.module_index.contains_key("cachetest.one"));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn nested_lib_stdlib_copy_is_not_indexed() {
+        // A merged side-by-side install (`lib/lib/xiom` beside `lib/xiom`)
+        // must not produce a duplicate declaration per module: the nested
+        // copy is skipped during the index walk.
+        let root = std::env::temp_dir().join(format!(
+            "xiom-catidx-nested-{}-{:x}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let outer = root.join("lib").join("xiom");
+        let nested = root.join("lib").join("lib").join("xiom");
+        std::fs::create_dir_all(&outer).expect("create outer dir");
+        std::fs::create_dir_all(&nested).expect("create nested dir");
+        let src = "module nestedcopy.io\npub fn hi() -> Int { return 1; }\n";
+        std::fs::write(outer.join("io.xi"), src).unwrap();
+        std::fs::write(nested.join("io.xi"), src).unwrap();
+
+        let mut cat = ModuleCatalog::new(vec![root.join("lib").to_string_lossy().to_string()]);
+        cat.build_index();
+
+        assert_eq!(
+            cat.candidates.get("nestedcopy.io").map(|c| c.len()),
+            Some(1),
+            "the nested lib/lib copy must be skipped (candidates: {:?})",
+            cat.candidates.get("nestedcopy.io")
+        );
+        assert!(
+            cat.module_collisions.is_empty(),
+            "no W001 for a nested install copy: {:?}",
+            cat.module_collisions
+        );
+        assert!(cat.module_index.contains_key("nestedcopy.io"));
 
         let _ = std::fs::remove_dir_all(&root);
     }

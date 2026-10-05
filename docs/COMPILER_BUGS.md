@@ -10,6 +10,34 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-05 -- FIXED: nested `lib/lib` install copy indexed (W001 flood + doubled index)
+
+User relay (hello-world on the installed v0.63.0): ~100 `warning[W001]:
+module '...' declared by 2 files [<install>\lib\lib\xiom\..., <install>\
+lib\xiom\...]` lines before any output, plus ~3-4s startup for a tiny
+script (the compiler resolved `xiom.*` to the stale nested copy).
+
+ROOT CAUSE (install-side, not the archive): the local install had
+`<install>\lib\lib\{xiom,runtime,...}` beside the canonical
+`<install>\lib\...` -- a leftover from an older side-by-side staging run
+(v0.62.0 files at 13:10) that a later install merged into instead of
+wiping. The published archive is clean: the v0.63.0 Windows zip has 0
+`lib/lib/*` entries and 518 `lib/xiom/*` entries; a clean reinstall has
+no duplicate. The installer's current code removes/relocates stale
+staging trees (website e8eeede), so new installs are clean.
+
+FIX (defensive, compiler side): the catalog index walk now skips a `lib`
+child whose parent already holds `xiom/` (`ModuleCatalog::index_dir`),
+i.e. the exact nested-install shape. The outer tree stays canonical, so
+the stale copy can neither win module resolution nor emit W001 nor double
+the index. LOCK: `catalog.rs::nested_lib_stdlib_copy_is_not_indexed`
+(duplicate module file under `lib/lib/xiom` -> one candidate, zero
+collisions). Verified on the relay install: nested tree removed, then
+`xiom run --no-cache` on the user's program prints no W001 and executes
+(exit 0).
+
+---
+
 ## 2026-10-05 -- FIXED: runtime contract evaluator false violations (contract-check binding-state leak; packages-lane relay)
 
 The packages lane reported two clause shapes that aborted with a spurious
@@ -83,7 +111,7 @@ findings.
 
 ---
 
-## 2026-10-05 -- OPEN (root-caused, queued): duplicate `lz4_compress` leaf -- checker/codegen resolution divergence
+## 2026-10-05 -- FIXED: duplicate `lz4_compress` leaf -- checker/codegen resolution divergence
 
 Benchmark v0.63.0 acceptance: the lz4 smoke/probes fail on Linux
 (`lz4_compress` returns a Vec whose len reads as pointer garbage;
@@ -116,6 +144,29 @@ FIX OPTIONS:
        `catalog_resolved_calls` only records while `checking_catalog`, so
        program-scope bare calls fall back to codegen's order-dependent
        maps.
+
+FIXED 2026-10-05 via (b) (the stdlib rename is now optional):
+1. Checker (`xiom-check`): at a PROGRAM-scope bare call, when the leaf is
+   registered under dotted keys with TWO DIFFERENT signatures and the
+   resolved signature uniquely identifies one of them, record that dotted
+   key in `catalog_resolved_calls` (owner-qualified + span-only). Helper
+   `ambiguous_bare_fn_target` / `fn_sig_types_equal`; type-level FnSig
+   equality because names/spans differ between registrations. Unambiguous
+   bare calls record nothing -- the fast path is untouched.
+2. Codegen (`call.rs`): the bare-call `fn_key` now consults
+   `resolve_catalog_call_bare` BEFORE the registration-order bare slot
+   (previously it was only a fallback when the bare key was absent --
+   `lz4_compress` WAS present as the Result wrapper, so the record was
+   never seen). `resolve_catalog_call_bare` tries the owner-qualified key
+   (R20, catalog bodies) then the span-only key (program scope: the
+   checker's owner is the declared module path while codegen's current_fn
+   is the bare name), still guarded by the `.{fn_name}` suffix check.
+
+EVIDENCE: `tests/toolchain/probes/lz4_compress_only.xi` frame bytes
+2740398262480 -> 26; `lz4_smoke.xi` payload=864 bytes mismatches=0.
+LOCK: tests/regression/m191_lz4_bare_duplicate_leaf/main.xi (bare
+`lz4_compress` len sanity + round-trip) + `e2e_m191_lz4_bare_duplicate_leaf`.
+GATES: m191 + m162 e2e green, strict `catalog_corpus_is_clean` green.
 
 ---
 

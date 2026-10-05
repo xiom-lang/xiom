@@ -205,6 +205,12 @@ impl IrEmitter {
         self.config.catalog_call_targets = targets;
     }
 
+    /// 2026-10-05 (lz4 duplicate-leaf): hand the checker's PROGRAM-scope
+    /// ambiguous bare-call resolutions to codegen.
+    pub fn set_program_bare_targets(&mut self, targets: std::collections::HashMap<String, String>) {
+        self.config.program_bare_targets = targets;
+    }
+
     /// m166: hand the INJECTED catalog (stdlib) fn keys to codegen so
     /// `#[unsafe_direct]` on stdlib fns is trusted even when the primary
     /// source is a user program that merely imports them.
