@@ -49,6 +49,94 @@
 >    tcp_stream_read, i64<->f64 bitcast, extern xiom_guard_alloc hang,
 >    arena handle ABA generation tags, registry polish B1/B2/--resolve.
 > 5. Selfhost continues in its worktree (out of this lane): Phase 5+.
+> 6. UX candidate (user-flagged): bare `xiom file.xi` compiles and
+>    prints IR with no hint that `xiom run file.xi` executes it;
+>    optionally print a one-line hint on the IR path (file the finding
+>    before coding).
+> Note: t1's remaining 11 UNKNOWN obligations are loops without
+> invariants / unsupported constructs -- honest skips, not errors.
+
+> ECOSYSTEM RELAYS (v0.63.1 is live -- send these):
+> - benchmark: re-run acceptance on the v0.63.1 archives (carries t1
+>   SMT, lz4, and catalog-flush fixes); verify the scripting <1.5s
+>   cold-wall KPI and recount XIOM toolchain errors (t1..t5 locally 0
+>   errors).
+> - packages: restore the two omitted clauses (result.value.1;
+>   result.value.len() <= data.len()); drop the unasserted notes; the
+>   lz4_compress_checked rename is optional now.
+> - stdlib: next pin -> Instant uses clock_gettime(CLOCK_MONOTONIC)
+>   instead of libc time(0); lz4 rename optional. STDLIB_VERSION stayed
+>   cd61062 for v0.63.1.
+> - registry: pin/verify the v0.63.1 archives + SHA256SUMS (VSIX 0.12.2
+>   rebuilt too).
+> - ops/playground: sandbox --keep-stdin already pushed (playground
+>   ca5d98c) -- run ops acceptance, then flip capabilities.live.
+
+> KICKOFF PROMPT (paste verbatim to the next compiler-lane session):
+>
+> Resume the XIOM compiler lane after v0.63.1 (main @ 5666d092 + this
+> handoff commit, all pushed, tree clean). Work the queue in order,
+> repro-first with locks and atomic commits (ascii_guard before every
+> commit; docs coupling in the same commit; push on the owner's ask,
+> session/handoff docs may push; never rebuild target/debug during a
+> suite):
+> 1. Perf: elide the per-execution confined-unsafe trampoline when the
+>    unsafe block is re-entered from a loop or nested inside another
+>    confined region. Repro: reference/systems-arena/t3-hot-reload.xi
+>    (container) or tmp/contracts/t3_hoisted.xi; the hoisted variant
+>    is 25-29ms vs 213-223ms for the per-iteration form, same checksum
+>    25000000. Verify with the systems-arena sample command (compiled
+>    arena binary, 7+1 samples via arena.js runTimedSamples) and keep
+>    semantics (guard enter/exit, canary, trap/retry). If elision needs
+>    deeper analysis, record the finding instead.
+> 2. Open findings inventory (COMPILER_BUGS 2026-10-05 + 2026-10-04),
+>    order by impact: enum-payload Str in-situ (needs the graphql
+>    validator slice), iter Range.collect clause side + __closure_N,
+>    reflect.all_types 0xC0000374, R-8 tcp_stream_read, i64<->f64
+>    bitcast, extern xiom_guard_alloc hang, arena handle ABA generation
+>    tags, registry polish B1/B2/--resolve.
+> 3. UX: bare `xiom file.xi` -> one-line hint to `xiom run file.xi`
+>    (file first; keep the IR stdout byte-identical).
+> 4. Send the ecosystem relays; then decide v0.63.2 (fixes) vs v0.64.0
+>    (features) from what the lanes surface.
+> 5. Selfhost is a separate worktree (Phase 4 done, meter 45%;
+>    Phase 5+ continuing) -- do not touch it here; v0.7.0 is the first
+>    selfhost target.
+>
+> TOOLING/METHOD:
+> - XIOM_TIMINGS=1 prints phase marks (`index`, `catalog-load`,
+>   `catalog-bodies`, `slow use`, `slow fn`); catalog-bodies shows
+>   `uses-skipped=` since the catalog-flush fix.
+> - Benchmark lanes: `xiom run --jit --cache` = scored warm; `--jit
+>   --no-cache` = cold JIT; `--force` is NOT `--no-cache` (cache trap).
+> - Containers: local benchmark image
+>   xiom-benchmark-chaos-benchmark:latest; acceptance container
+>   xiom-benchmark-chaos-benchmark-1 (docker cp probes in; write
+>   probe scripts as files to dodge PowerShell quoting).
+> - Repro artifacts: E:\xiom-perf\ (lane scripts, archive extracts,
+>   verifier SMTs), tmp/contracts/, tmp/perf/ (ir_*.ll, feature logs).
+> - Windows Defender can block fresh %TEMP%\xiom_run\*.exe with
+>   os error 225 -- environment, not the compiler; keep probes in the
+>   repo tree (tmp/), not %TEMP%\kilo.
+
+> RELEASE MECHANICS (v0.63.1 procedure, for v0.63.2/v0.64.0):
+> bump Cargo.toml [workspace.package] version + selfhost/src/codegen.xi
+> SELFHOST_VERSION (+ STDLIB_VERSION only when the pin moves -- immutable
+> SHA/tag); write release-notes/vX.Y.Z.{md,json}; validate with
+> `cargo run -p xiom-release-notes -- convert|verify --tag vX.Y.Z
+> --stdlib stdlib` (summary <=240 chars; highlight <=320 chars, plain
+> text only -- no backticks, '&', '<', '>'; kinds fix/compiler/tooling/
+> security; 1-6 highlights); README badge + version-history row; full
+> batch at the release commit; commit, push main, tag + push, watch the
+> gh release run (the publish step is NOT clobber-safe; moving a tag
+> needs the release deleted first).
+
+> GATES (commands): e2e `cargo test -p xiom-codegen --test e2e_tests`
+> (2419/0/4 at 1b972478; ~10-14 min); feature
+> `cargo test -p xiom-codegen --test feature_regression_tests` (519);
+> verifier `cargo test -p xiom-verify` (34+5); driver
+> `cargo test -p xiom --lib` (58); checker `cargo test -p xiom-check`
+> (197, includes the strict catalog corpus gate).
 
 ---
 
