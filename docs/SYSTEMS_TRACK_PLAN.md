@@ -96,6 +96,23 @@ plus a thread-stress e2e (CAS counter under N threads, no lost updates).
   S2/S3. Requires its own design doc (execution model, barriers, host/device
   ABI) before scheduling. Not before selfhost Stage 6.
 
+## Documentation requirement (owner directive, 2026-10-05)
+
+Every user-facing surface added by this track (`--target freestanding`,
+`--linker-script`, `#[repr(C)]`/`#[repr(packed)]`, volatile/atomic
+intrinsics, `--target spirv`) MUST ship its documentation in the SAME
+commit, so the docs site can regenerate without a follow-up pass:
+- compiler `AI_CONTEXT.md`: flags table + usage + semantics (mirror the
+  existing `--no-contracts` / `--target` entries);
+- website `docs/AI_CONTEXT.md` -- the source staged by
+  `website/docs/build_mkdocs.py` into the MkDocs tree served at
+  docs.xiom-lang.org -- plus the matching language-guide page under
+  `website/docs/language/` for language-level features;
+- `--help` text in the driver, and a `COMPILER_VERSIONS.md` note for the
+  release that first carries the flag.
+Acceptance for S1..S5 therefore adds: source docs updated + `xiom --help`
+line + a website link/preview check when a new page is added.
+
 ## Sequencing and interactions
 
 - S4's lock is trivial and can ride any batch.

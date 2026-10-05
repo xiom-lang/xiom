@@ -144,6 +144,10 @@
 >    keep freestanding changes behind the profile so selfhost parity stays
 >    byte-stable. Note: freestanding has no OS-backed guard page/trampoline,
 >    so confined `unsafe` cannot trap hardware faults there (documented).
+>    DOCS COUPLING (owner directive): every new flag/attribute ships its
+>    docs in the SAME commit -- compiler AI_CONTEXT.md + website
+>    docs/AI_CONTEXT.md (staged by website/docs/build_mkdocs.py for
+>    docs.xiom-lang.org) + --help text + COMPILER_VERSIONS note.
 
 > ECOSYSTEM RELAYS (v0.63.1 is live -- send these):
 > - benchmark: re-run acceptance on the v0.63.1 archives (carries t1
