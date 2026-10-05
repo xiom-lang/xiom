@@ -5784,6 +5784,26 @@ fn e2e_safety_probe() {
     );
 }
 
+// m195: angle-bracket generic receivers keep their type args; Vec<Big>.new()
+// must size 32-byte slots and round-trip 10 pushed structs.
+#[test] fn e2e_m195_angle_vec_new_struct() {
+    assert_eq!(
+        compile_and_run("tests/regression/m195_angle_vec_new_struct/main.xi"),
+        Some(0),
+        "Vec<T>.new() with angle brackets must size element slots correctly (m195)"
+    );
+}
+
+// m195 real-world: reflect.all_types() (Vec<TypeInfo> with angle args) must
+// not heap-corrupt (pre-fix 0xC0000374).
+#[test] fn e2e_m195_reflect_all_types() {
+    assert_eq!(
+        compile_and_run("tests/regression/m195_reflect_all_types/main.xi"),
+        Some(0),
+        "reflect.all_types() must not heap-corrupt (m195)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

@@ -111,6 +111,19 @@
 > --emit-ir (locked by ux_bare_compile_hints_run_on_stderr). Remaining
 > gates: verifier 39/39, checker 197/197, selfhost parity 5/5 (377s).
 
+> COMPILER LANE (2026-10-05h): m195 FIXED -- angle-bracket generic receivers
+> (`Vec<T>.new()`) no longer discard T; the parser builds the same
+> Expr::Index as the square-bracket path (speculative commit + error
+> rollback so `a < B > c` still compares). Root cause of the stdlib
+> reflect.all_types 0xC0000374 heap corruption (128-byte TypeInfo pushes into
+> 16x8-byte buffers). Probe now exit 0 @23ms; locks: parser + IR + 2 e2e.
+> Gates: parser 108/108, feature 522/522, checker 197/197, full e2e
+> 2425/0/4. Open-set re-run (XIOM_STDLIB=stdlib head): iter collect 0,
+> iter contains 0, reflect 0; STILL OPEN: multipart_parse_name (1),
+> polyhedra_nested_hull (1), geom_box_unnameable (T001), geom_matrix (4),
+> R8 tcp_stream_read (needs live server), scrypt/shuffle/choice + BUG 18
+> (no probe located yet).
+
 > NEXT QUEUE (post-v0.63.1):
 > 1. Benchmarks: hand v0.63.1 to the benchmark lane (carries the t1 SMT,
 >    lz4, and catalog-flush fixes); re-run acceptance on the new

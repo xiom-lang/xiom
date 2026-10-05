@@ -2260,26 +2260,51 @@ impl Parser {
                     break;
                 }
                 TokenKind::Lt if matches!(&expr, Expr::Ident(n) if n.name.chars().next().map_or(false, |c| c.is_uppercase())) => {
-                    // Speculative generic type args in expression position, e.g.
-                    // `Vec<FieldInfo>.new()`. Commit only if the matching `>` is
-                    // immediately followed by `.` or `(`; otherwise restore the
-                    // position and let `<` be handled as a comparison operator.
+                    // m195: generic type args in expression position, e.g.
+                    // `Vec<FieldInfo>.new()`. Both bracket families are
+                    // supported (packages relay #2); this arm MUST build the
+                    // same `Expr::Index` receiver the square-bracket path
+                    // builds, or codegen's type_arg capture falls back to an
+                    // 8-byte element (Vec<T>.new() then allocates 16x8-byte
+                    // slots and heap-corrupts for any T larger than 8 bytes --
+                    // xiom.reflect.all_types() crashed 0xC0000374).
+                    // Speculative: commit only when the parsed `>` is
+                    // immediately followed by `.` or `(`; otherwise restore
+                    // the position AND drop any speculative parse errors so
+                    // `a < B > c` still parses as comparisons.
                     let saved = self.pos;
+                    let err_snapshot = self.errors.len();
                     self.advance(); // consume `<`
-                    let mut depth = 1;
-                    let mut aborted = false;
-                    while depth > 0 {
-                        match self.peek_kind() {
-                            TokenKind::Lt => { depth += 1; self.advance(); }
-                            TokenKind::Gt => { depth -= 1; self.advance(); }
-                            TokenKind::Ident(_) | TokenKind::Comma | TokenKind::Star
-                            | TokenKind::Ampersand | TokenKind::LBracket | TokenKind::RBracket => { self.advance(); }
-                            _ => { aborted = true; break; }
+                    let mut type_args: Option<Vec<Type>> = None;
+                    if let Ok(first) = self.parse_type() {
+                        let mut parsed = vec![first];
+                        let mut ok = true;
+                        while self.skip(TokenKind::Comma) {
+                            match self.parse_type() {
+                                Ok(t) => parsed.push(t),
+                                Err(_) => { ok = false; break; }
+                            }
+                        }
+                        if ok && self.skip(TokenKind::Gt) {
+                            type_args = Some(parsed);
                         }
                     }
-                    if !aborted && matches!(self.peek_kind(), TokenKind::Dot | TokenKind::LParen) {
-                        continue; // generic type args discarded; postfix continues
+                    if let Some(type_args) = type_args {
+                        if matches!(self.peek_kind(), TokenKind::Dot | TokenKind::LParen) {
+                            let type_exprs: Vec<Expr> = type_args.iter().map(|t| {
+                                self.type_to_expr_ident(t)
+                            }).collect();
+                            let args_expr = if type_exprs.len() == 1 {
+                                type_exprs.into_iter().next().expect("len==1 guaranteed")
+                            } else {
+                                Expr::Tuple(type_exprs, self.peek().span)
+                            };
+                            let span = expr.span();
+                            expr = Expr::Index(Box::new(expr), Box::new(args_expr), span);
+                            continue;
+                        }
                     }
+                    self.errors.truncate(err_snapshot);
                     self.pos = saved;
                     break;
                 }
@@ -2835,6 +2860,43 @@ mod tests {
             p.errors().len()
         };
         assert_eq!(strict_valid, 0, "strict mode keeps matched angles");
+    }
+
+    // m195: `Vec<T>.method()` in expression position must KEEP T on the
+    // receiver (Expr::Index). The old speculative scanner discarded the
+    // angle args, so codegen sized the Vec with the 8-byte fallback and
+    // heap-corrupted for elements larger than 8 bytes (reflect.all_types
+    // 0xC0000374). Comparisons (`a < B > c`) must still parse as compares.
+    #[test] fn test_angle_generic_receiver_keeps_type_args() {
+        let src = "fn f() -> Int { var v = Vec<Big>.new(); return 0; }";
+        let prog = parse(src).unwrap();
+        match &prog.items[0] {
+            TopDecl::Fn(f) => {
+                let stmt = f.body.as_ref().unwrap().stmts.first().unwrap();
+                match stmt {
+                    StmtOrExpr::Stmt(Stmt::Var(_, _, init, _)) => match init {
+                        Expr::Call(callee, _, _) => match callee.as_ref() {
+                            Expr::Field(obj, name, _) => {
+                                assert_eq!(name.name, "new");
+                                match obj.as_ref() {
+                                    Expr::Index(_, idx, _) => match idx.as_ref() {
+                                        Expr::Ident(t) => assert_eq!(t.name, "Big"),
+                                        other => panic!("m195: expected Ident index, got {other:?}"),
+                                    },
+                                    other => panic!("m195: angle args must stay on the receiver, got {other:?}"),
+                                }
+                            }
+                            other => panic!("m195: expected Field callee, got {other:?}"),
+                        },
+                        other => panic!("m195: expected Call init, got {other:?}"),
+                    },
+                    other => panic!("m195: unexpected stmt {other:?}"),
+                }
+            }
+            _ => panic!("expected function"),
+        }
+        let (_, errs) = parse_with_errors("fn f(a: Int, B: Int, c: Int) -> Bool { return a < B > c; }");
+        assert!(errs.is_empty(), "comparison parse must not error: {errs:?}");
     }
     #[test] fn test_method_decl() { let prog = parse("pub fn Vec3.dot(other: &Vec3) -> Float32 { return x * other.x + y * other.y; }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => { assert!(f.is_method()); assert_eq!(f.name.name, "dot"); } _ => panic!("expected method"), } }
     #[test] fn test_module() { let prog = parse("module math { pub fn add(a: Int, b: Int) -> Int { return a + b; } }").unwrap(); match &prog.items[0] { TopDecl::Module(m) => { assert_eq!(m.name.name, "math"); } _ => panic!("expected module"), } }

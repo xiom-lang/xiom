@@ -73,6 +73,46 @@ should re-test the crypto probe on the next archive.
 
 ---
 
+## 2026-10-05 -- FIXED: angle-bracket generic receivers discarded their type args (m195, reflect.all_types heap corruption)
+
+Stdlib known-failure probe `tools/known_failures/p_reflect_all_types_crash.xi`
+reproduced locally: `reflect.all_types()` dies with 0xC0000374
+(STATUS_HEAP_CORRUPTION) after ~8s. The probe comment isolated it to the
+catalog return path; the actual delta is the SPELLING of the generic
+receiver.
+
+ROOT CAUSE: `xiom.reflect.reflect.xi` writes `Vec<TypeInfo>.new()` /
+`Vec<FieldInfo>.new()` with ANGLE brackets. The parser's speculative
+generic-args arm (parser lib.rs, TokenKind::Lt on an uppercase Ident) parsed
+`<T>` only to DISCARD it ("generic type args discarded; postfix continues"),
+so codegen's Vec.new receiver saw a bare `Ident("Vec")` and fell back to the
+8-byte element size: both Vecs allocated 16 x 8 = 128 bytes while pushes
+wrote 24-byte (FieldInfo) and 128-byte (TypeInfo) elements -- heap
+corruption on the sixth FieldInfo push / second TypeInfo push. The
+square-bracket spelling `Vec[T].new()` always worked because that path builds
+`Expr::Index(base, T)` (user probe: malloc 512, elem 32; angle probe pre-fix:
+malloc 128, elem 8).
+
+FIX (parser): the angle arm now parses `<T[, U]>` as a type list, builds the
+same `Expr::Index(base, T)` (Tuple for multiple args) as the square-bracket
+path, and commits only when the closing `>` is immediately followed by `.`
+or `(` -- otherwise it restores the position AND truncates speculative parse
+errors so comparisons (`a < B > c`) still parse. This also fixes
+`Map<K, V>.new()` and `with_capacity` element sizing for angle spellings.
+
+REPRO/EVIDENCE: `tmp/contracts/known/reflect_min.xi` pre-fix 0xC0000374 at
+~8.2s, post-fix exit 0 at 114ms. `tmp/contracts/known/vec_angle.xi` pre-fix
+malloc 128 / elem 8, post-fix malloc 512 / elem 32.
+
+LOCKS: parser `test_angle_generic_receiver_keeps_type_args` (Index receiver +
+comparison fallback), IR `regress_m195_angle_vec_new_elem_size` (malloc 512,
+no 128 fallback), e2e `e2e_m195_angle_vec_new_struct` (ten 32-byte structs
+round-trip) and `e2e_m195_reflect_all_types` (the stdlib probe shape). Gates:
+parser 108/108, feature 522/522, checker 197/197, full e2e 2425/0/4. CI
+filter extended.
+
+---
+
 ## 2026-10-05 -- AUDIT: contracts-track FAILs (t2/t3/t4/t5/t8) are reference-content failures, not emitter coverage
 
 Benchmark relay (contracts run 1791207193731): t1 PASS (1 proven); t2/t3/

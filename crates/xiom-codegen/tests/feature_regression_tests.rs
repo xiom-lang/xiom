@@ -6882,3 +6882,28 @@ fn main() -> Int {
         "m193: a builtin symbol must be declared exactly once; got {count}:\n{ir}"
     );
 }
+
+// m195: angle-bracket generic receivers must keep their type args so
+// Vec<T>.new() sizes slots with the real element size. Pre-fix the parser
+// discarded <T> and every Vec<T>.new() allocated 16 x 8 bytes, overflowing
+// on pushes of larger elements (reflect.all_types 0xC0000374).
+#[test]
+fn regress_m195_angle_vec_new_elem_size() {
+    let source = r#"
+type Big = { a: Int; b: Int; c: Int; d: Int; }
+fn main() -> Int {
+  var v = Vec<Big>.new();
+  v.push(Big{a: 1, b: 2, c: 3, d: 4});
+  return v.len();
+}
+"#;
+    let ir = compile(source).expect("m195: angle-bracket Vec.new must compile");
+    assert!(
+        ir.contains("malloc(i64 512)"),
+        "m195: Vec<Big>.new() must allocate 16 x 32 bytes; got:\n{ir}"
+    );
+    assert!(
+        !ir.contains("malloc(i64 128)"),
+        "m195: the 8-byte-fallback allocation must not appear; got:\n{ir}"
+    );
+}
