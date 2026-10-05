@@ -1233,6 +1233,14 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     }
 
     if config.emit_ir || (config.output_file.is_none() && !config.do_run && config.target == Target::Native) {
+        // UX (user-flagged): the bare `xiom file.xi` form lands here and
+        // printed IR with no hint that `xiom run file.xi` executes it. The
+        // hint goes to STDERR only -- the IR stdout stays byte-identical
+        // (the selfhost T3 gates compare stdout bytes). Explicit --emit-ir
+        // is a deliberate request, so it stays quiet.
+        if !config.emit_ir {
+            eprintln!("hint: IR only -- 'xiom run <file>' executes it, or pass -o <out> to build a binary");
+        }
         println!("{llvm_ir}");
         return Ok(());
     }

@@ -150,3 +150,57 @@ fn c25_warm_cache_inherits_stdin_and_no_cache_bypasses() {
     );
     let _ = std::fs::remove_dir_all(&home);
 }
+
+// UX (user-flagged): bare `xiom file.xi` prints IR with no hint that
+// `xiom run file.xi` executes it. The hint is stderr-only so the IR stdout
+// stays byte-identical to `--emit-ir` (the selfhost T3 gates compare stdout
+// bytes); the explicit flag stays quiet.
+fn ux_bare_fixture() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("tests")
+        .join("regression")
+        .join("ux_bare_ir_hint")
+        .join("main.xi")
+}
+
+#[test]
+fn ux_bare_compile_hints_run_on_stderr() {
+    let bare = Command::new(xiom_bin())
+        .arg(ux_bare_fixture())
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn '{}': {e}", xiom_bin()));
+    assert!(
+        bare.status.success(),
+        "bare compile must succeed; exit={:?}\nstderr:\n{}",
+        bare.status.code(),
+        String::from_utf8_lossy(&bare.stderr)
+    );
+    let bare_err = String::from_utf8_lossy(&bare.stderr);
+    assert!(
+        bare.stdout.starts_with(b"; XIOM v"),
+        "the IR must stay on stdout; stdout head:\n{}",
+        String::from_utf8_lossy(&bare.stdout[..bare.stdout.len().min(120)])
+    );
+    assert!(
+        bare_err.contains("xiom run"),
+        "the implicit IR path must hint at `xiom run` on stderr; stderr:\n{bare_err}"
+    );
+
+    let explicit = Command::new(xiom_bin())
+        .arg("--emit-ir")
+        .arg(ux_bare_fixture())
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn '{}': {e}", xiom_bin()));
+    assert!(explicit.status.success(), "--emit-ir must succeed");
+    assert_eq!(
+        bare.stdout, explicit.stdout,
+        "the hint must not change the IR stdout bytes (byte-identical requirement)"
+    );
+    let explicit_err = String::from_utf8_lossy(&explicit.stderr);
+    assert!(
+        !explicit_err.contains("xiom run"),
+        "--emit-ir is explicit; no hint expected; stderr:\n{explicit_err}"
+    );
+}

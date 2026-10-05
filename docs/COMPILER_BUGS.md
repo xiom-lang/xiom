@@ -10,6 +10,26 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-05 -- FIXED (UX): bare `xiom file.xi` printed IR with no `xiom run` hint
+
+User-flagged: `xiom file.xi` (no -o, no `run`) prints the LLVM IR to stdout
+(3752 lines for the monotonic-clock probe) with nothing pointing at
+`xiom run file.xi`, which executes it. Explicit `--emit-ir` had the same
+output.
+
+FIX (lib.rs IR branch): when the implicit condition
+(`!emit_ir && output_file.is_none() && !do_run && target == Native`) is
+taken, print ONE hint line to stderr:
+`hint: IR only -- 'xiom run <file>' executes it, or pass -o <out> to build a binary`.
+stdout is byte-identical (the selfhost T3 gates compare stdout bytes);
+`--emit-ir` stays quiet because it is a deliberate request.
+
+LOCK: `ux_bare_compile_hints_run_on_stderr` (run_script_cli, already on the
+CI path): bare stdout starts with the IR banner AND equals the `--emit-ir`
+stdout byte-for-byte; stderr carries the hint; `--emit-ir` stderr does not.
+
+---
+
 ## 2026-10-05 -- FIXED: installed layout missed lib/runtime -> AOT link failed (xiom_async_now_ms)
 
 Packages relay (packages commit 5b7547b0): installed v0.63.1 AOT links fail

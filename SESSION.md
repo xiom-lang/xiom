@@ -104,8 +104,11 @@
 > change). Probe exact: bits=4609434218613702656 (0x3FF8000000000000) for
 > 1.5 + roundtrips. Locks: e2e_m194_float_bitcast + e2e_m194_float_bitcast_ir
 > (call sites are bitcasts, no fallback calls); feature 521/521; CI line.
-> v0.64.0 batch so far: m192, R65, m193, m194 (all unpushed). Full e2e is
-> running as the batch gate.
+> v0.64.0 batch so far: m192, R65, m193, m194 (all unpushed). Full e2e
+> 2423 passed / 0 failed / 4 ignored (669s) -- batch gate GREEN. UX hint
+> implemented: bare `xiom file.xi` now prints `hint: IR only -- 'xiom run
+> <file>' executes it...` to stderr; stdout stays byte-identical to
+> --emit-ir (locked by ux_bare_compile_hints_run_on_stderr).
 
 > NEXT QUEUE (post-v0.63.1):
 > 1. Benchmarks: hand v0.63.1 to the benchmark lane (carries the t1 SMT,
