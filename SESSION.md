@@ -124,6 +124,17 @@
 > R8 tcp_stream_read (needs live server), scrypt/shuffle/choice + BUG 18
 > (no probe located yet).
 
+> COMPILER LANE (2026-10-05i): multipart_parse root cause ISOLATED (docs/
+> COMPILER_BUGS): the `Ok(out)` match binding loses the concrete element
+> type, so `out[0]` lowers through the runtime elem-size switch (scalar i64
+> default) instead of the struct memcpy used for a concrete `Vec[Part]`
+> local; direct reads are correct, `out.len()` is correct. Principled fix
+> next: keep the checker's `Vec[Part]` on the match payload binding (likely
+> also covers geom_matrix_result_infer and polyhedra). Probe assets now
+> local: sibling stdlib at 6e60e95 tools/known_failures/* + R8 at
+> tmp/contracts/known/r8_tcp_stream_read.xi. iter collect/contains and
+> reflect are GREEN on this tree.
+
 > NEXT QUEUE (post-v0.63.1):
 > 1. Benchmarks: hand v0.63.1 to the benchmark lane (carries the t1 SMT,
 >    lz4, and catalog-flush fixes); re-run acceptance on the new

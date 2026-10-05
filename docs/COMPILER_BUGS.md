@@ -73,6 +73,39 @@ should re-test the crypto probe on the next archive.
 
 ---
 
+## 2026-10-05 -- OPEN (root cause isolated): multipart_parse Part fields corrupt (erased Vec element type on match binding)
+
+Stdlib probe `tools/known_failures/p_multipart_parse_name.xi` (rc 1) is
+REPRODUCED locally with the sibling stdlib head. `out[0].name` prints `0`
+with `.len() == -1`; `out[0].filename/content_type/data` all read -1; a
+directly constructed `parts[0]` reads `"f"` correctly; `out.len() == 1` is
+correct.
+
+ROOT CAUSE (IR evidence, `tmp/contracts/known/multipart_dbg.ll`):
+- `multipart_parse` returns `Result[Vec[Part], Str]`; the callee boxes the Ok
+  Vec (`malloc(sizeof(Vec))`, pointer in payload field 1) -- caller and
+  callee agree on that ABI.
+- The caller's DIRECT read of `parts[0]` (concrete `Vec[Part]` local) uses
+  the compile-time elem size 56 + `memcpy` of a `%struct.Part` -- CORRECT.
+- The read of the match-bound `out[0]` instead emits a RUNTIME elem-size
+  switch (`extractvalue %struct.Vec, 3` then `switch i64 56` -> default
+  `elem_load` = `load i64`). The switch only has cases 1/2/4 and defaults to
+  an i64 scalar load, so a struct element (56 B) is read as an integer; the
+  `.name` field access then compiles to `inttoptr i64 0` / `xiom_int_to_string(0)`.
+  i.e. the `Ok(out)` match binding kept only the erased `Vec` type, losing
+  the concrete element type (`Vec[Part]`) the checker had.
+
+NEXT STEP: preserve the concrete element type when lowering/registering
+match-arm payload bindings (the checker's `out: Vec[Part]` must reach the
+codegen local-type map used by indexing), OR make the runtime elem-size
+switch's fallback yield the element ADDRESS for sizes outside 1/2/4/8 -- the
+former is the principled fix and likely also covers the matrix
+result-inference and polyhedra probes (same erased-generic-value class).
+Locks to add with the fix: e2e `p_multipart_parse_name` shape +
+`out[0].data.len()` and a `Result[Vec[Struct], Str]` IR fixture.
+
+---
+
 ## 2026-10-05 -- FIXED: angle-bracket generic receivers discarded their type args (m195, reflect.all_types heap corruption)
 
 Stdlib known-failure probe `tools/known_failures/p_reflect_all_types_crash.xi`
