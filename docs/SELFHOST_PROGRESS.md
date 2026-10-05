@@ -54,6 +54,16 @@ builtin declare table + user-extern order (deferred thread_spawn). Gate 4
 flips to DONE and the meter to 45% (5/11). Next: **O1 selfhost code quality**
 (`--strict`, zero warnings) then Phase 5 (scalar bodies + control flow T3).
 
+PHASE 4 + O1 STATUS (2026-10-05, v0.64.0 cut): branch
+`selfhost-phase-4-codegen` is rebased onto `e4857847` (v0.63.1) with the
+full Phase 4 gate re-verified at identical counts (`0093c748`), and the
+**H5/O1 cleanup is DONE** (`e59b6f7e`): selfhost sources compile clean under
+`--strict` with zero warnings and 13 API contracts restored, retiring the
+v10 borrow workarounds. Branch is 8 commits ahead of its rebase base
+(+2315 lines). Next: rebase onto the v0.64.0 release commit, then
+**Phase 5 -- scalar bodies + control flow T3** (scalar corpus). Meter stays
+45% (O1 is a quality pass, not a gate row); row O1 below flips to DONE.
+
 PHASE 3 STATUS (2026-10-03): **COMPLETE and merged** -- branch
 `selfhost-phase-3-checker` was rebased onto `ee7ab150` and the full parity
 gate re-ran green on that base (`cargo test -p xiom-codegen --test
@@ -73,7 +83,7 @@ row flips.
 | 2 | Parser: AST-dump equality on the corpus (`--dump-ast`) | **DONE 2026-10-02** | Phase 2; `selfhost/src/ast.xi`+`parser_state.xi`+`parser_expr.xi`+`parser_core.xi`+`ast_dump.xi` port `crates/xiom-parser`/`xiom-ast`; harness gate `full_diff_tests::diff_ast` green over the 83-file corpus (1 passed, 100.7 s); checklist `docs/checklists/selfhost-phase2.md` |
 | 3 | Checker: diagnostics + type-annotation equality | **DONE 2026-10-03** | Full parity gate green: `cargo test -p xiom-codegen --test full_diff_tests` -> 5 passed (diff_corpus T1, diff_tokens, diff_ast, diff_check, runtime_ffi_selfcheck), 443.9 s on main `018daf05`. `diff_check` = 83 corpus files, 11 diagnostic lines (4x W003, 1x W008, 6x E001), line-exact on both drivers + 75 manifest cases (catalog/imports, containers, lints, methods, patterns incl. m178/m181, assoc, catalog bodies). Ported: canonical type names, statements/exprs, calls/generics, contracts, diagnostics ordering, catalog/imports + module member calls, container method sets + R8 UFCS + `methods` map, unknown-method/struct-field validation, W000/W004/W006/W007 lints, non-strict borrow pass, uppercase bare-name resolution, associated-form interface dispatch, local catalog-body checking. Bounded exceptions (documented in the checklist, exact for this tree): stdlib bodies are not re-checked (the stdlib ships clean) and relocated stdlib modules use a static path table (io.list_dir defect). Checklist `docs/checklists/selfhost-phase3.md` |
 | 4 | Codegen: fn-header T3 IR equality | **DONE 2026-10-05** | Phase 4; `selfhost/src/codegen.xi` + `codegen_cost.xi` + `codegen_declares.xi` port signatures (ptr/byval, `Option__`/`Result__`/`Tuple__` BUG-1 naming), tuple struct defs, `approx_block_cost` inline policy and the builtin/extern declare order; harness `full_diff_tests::diff_ir_headers` green over the 83-file corpus (8337 header lines byte-exact: 258 primary define symbols, 4 tuple defs, 7909 declares); T1 green on the same tree; checklist `docs/checklists/selfhost-phase4.md` |
-| O1 | Selfhost code quality: `--strict`, zero warnings, contracts on | NOT STARTED | after Phase 4; removes v10 borrow workarounds |
+| O1 | Selfhost code quality: `--strict`, zero warnings, contracts on | **DONE 2026-10-05** | `e59b6f7e`; selfhost sources strict-clean with zero warnings, 13 API contracts restored; full parity gate re-ran green on the rebased tree (`0093c748`) |
 | 5 | Codegen: scalar bodies + control flow T3 (scalar corpus) | NOT STARTED | Phase 5 |
 | 6 | Codegen: structs/tuples/generics/unsafe T3 (whole corpus) | NOT STARTED | Phase 6 |
 | 7 | Self-compile chain: self1 == self2 sha256 + T3 on self1-vs-self2 IR | NOT STARTED | Phase 7 |

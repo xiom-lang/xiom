@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "tag": "v0.64.0",
+  "summary": "A major correctness release: generic vectors and reflect no longer corrupt the heap, the silent TcpStream.read elision is gone, confined unsafe loops no longer exhaust the stack, and installed toolchains resolve all runtime sources.",
+  "highlights": [
+    {
+      "kind": "fix",
+      "title": "Angle-bracket generic receivers keep their type arguments",
+      "text": "Vec receivers written with angle brackets silently lost their type argument, so Vec of TypeInfo new allocated 8-byte slots while pushing 128-byte elements and reflect.all_types() corrupted the heap with 0xC0000374. The parser now keeps the type arguments, and Map pair spellings are covered too."
+    },
+    {
+      "kind": "fix",
+      "title": "A one-argument method named read is no longer swallowed",
+      "text": "A raw-pointer codegen builtin hijacked any one-argument read method, so a socket read into a mutable buffer never ran its body and Result.is_ok folded to false. Verified against a live server on AOT and JIT builds; this closes the R-8 TcpStream.read elision."
+    },
+    {
+      "kind": "fix",
+      "title": "Confined unsafe loops no longer exhaust the stack",
+      "text": "A confined unsafe block re-entered from a loop allocated its capture context per execution, consuming 32 bytes of stack each time; about 262,144 entries crashed with 0xC0000005. The context is now hoisted to the function entry and reused."
+    },
+    {
+      "kind": "tooling",
+      "title": "Installed toolchains find every runtime source",
+      "text": "The AOT link step only scanned working-directory paths, so installed layouts missed their lib/runtime and any program using the monotonic clock failed with an undefined xiom_async_now_ms symbol. The shared stdlib resolver now supplies the candidate roots."
+    },
+    {
+      "kind": "fix",
+      "title": "Exact Float64 bits and duplicate-free externs",
+      "text": "num.float.float_bits and bits_to_float now lower to an LLVM bitcast, returning the exact IEEE-754 patterns, and a user extern of a builtin runtime symbol (for example xiom_guard_alloc) no longer emits a duplicate declaration that clang rejects."
+    }
+  ],
+  "breaking": [],
+  "known_issues": [
+    "multipart_parse still returns corrupt Part field reads (name/filename/content_type/data); the root cause is isolated in codegen and the fix is queued for the next patch.",
+    "The geometry Box type cannot be named from consumer modules until the stdlib rename lands; a compiler-side resolution is possible as a fallback."
+  ],
+  "docs": [
+    {
+      "title": "Language guide",
+      "url": "https://docs.xiom-lang.org/latest/"
+    }
+  ],
+  "full_changelog": "https://github.com/xiom-lang/xiom/releases/tag/v0.64.0"
+}

@@ -257,6 +257,20 @@
 >   os error 225 -- environment, not the compiler; keep probes in the
 >   repo tree (tmp/), not %TEMP%\kilo.
 
+> RELEASE v0.64.0 (2026-10-05): scope m192, R65, m193, m194, UX hint, m195,
+> m196. Notes `release-notes/v0.64.0.{md,json}` (5 highlights; convert +
+> verify green). `STDLIB_VERSION` -> 6e60e958387691ab19527b3b07844e85444c4954
+> (rev the packages candidate was built with). `Cargo.toml` +
+> `SELFHOST_VERSION` -> 0.64.0; README badge/history -> 2426 tests. Gates at
+> the cut: e2e 2426/0/4 (700.9s), feature 523/523, driver 61/61, checker
+> 197/197, verifier 39/39, full_diff_tests 5/5 (413.4s). Selfhost: H5/O1
+> DONE (`e59b6f7e`, strict-clean + 13 contracts, phase-4 gate re-verified on
+> the rebase `0093c748`); next rebase onto the release commit then Phase 5.
+> v0.64.1 queue: multipart binding fix (root cause isolated), geom_matrix,
+> polyhedra, Pulse C-PULSE-04/02/05, t8 emitter coverage, runtime syscall
+> fast path. Relays after the release: registry, stdlib, pulse, packages,
+> website, benchmark.
+
 > RELEASE MECHANICS (v0.63.1 procedure, for v0.63.2/v0.64.0):
 > bump Cargo.toml [workspace.package] version + selfhost/src/codegen.xi
 > SELFHOST_VERSION (+ STDLIB_VERSION only when the pin moves -- immutable

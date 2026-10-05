@@ -104,6 +104,19 @@ archive; R-8 stays in the language-correctness wave.
 
 ---
 
+## 2026-10-05 -- OPEN: W005 erased-interface stub fires for module-const receivers (Pulse C-PULSE-05)
+
+Pulse relay: `SCHEMA_VERSION.to_str()` -- where SCHEMA_VERSION is a module
+constant -- hits the W005 erased-interface auto-stub and silently renders an
+empty string, producing invalid JSON on disk; call-result receivers in the
+same module compile correctly. Workaround: `convert.int_to_string(...)`.
+Next: keep the receiver's concrete primitive type in the erased-interface /
+W005 stub path for module-const receivers; lock an e2e (`const N: Int = 5;
+N.to_str()`) plus an IR assertion that the stub does not replace the
+builtin. Scheduled for v0.64.1 (relayed from Pulse; not part of v0.64.0).
+
+---
+
 ## 2026-10-05 -- OPEN (root cause isolated): multipart_parse Part fields corrupt (erased Vec element type on match binding)
 
 Stdlib probe `tools/known_failures/p_multipart_parse_name.xi` (rc 1) is
