@@ -5824,6 +5824,30 @@ fn e2e_safety_probe() {
     );
 }
 
+// m198 (Pulse C-PULSE-06): an incomplete struct literal must be REJECTED
+// with a T001 diagnostic naming the missing field (pre-fix it compiled and
+// the omitted field read uninitialized memory).
+#[test] fn e2e_m198_missing_struct_field_rejected() {
+    let output = std::process::Command::new(xiom_path())
+        .args(["--emit-ir", "tests/regression//m198_missing_struct_field/main.xi"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed to run xiom");
+    assert!(
+        !output.status.success(),
+        "an incomplete struct literal must not compile"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("missing field 'b'"),
+        "the diagnostic must name the missing field; got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("T001"),
+        "the diagnostic must be T001; got:\n{stderr}"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

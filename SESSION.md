@@ -284,6 +284,16 @@
 > C-PULSE-06 (missing struct field must be an error), then the multipart
 > match-binding fix. Selfhost lane: rebased onto v0.64.0 (`2ff1f224`, suite
 > 6/6), Phase 5 started.
+
+> COMPILER LANE (2026-10-05m): m198 FIXED -- Pulse C-PULSE-06: incomplete
+> struct literals now fail with T001 (`struct literal for 'Pair' is missing
+> field 'b'`); builtin layouts (Vec/Set/Stack/Slice/Option/Result) and enum
+> variant ctors stay exempt (benchmark/m89 Node, Rectangle collisions).
+> Lock: negative e2e (asserts failure + T001 + field name) + CI line;
+> checker 197/197, feature 524/524, full e2e 2428/0/4. Benchmark relay:
+> R-8 CONFIRMED FIXED on v0.64.0 (JIT n=3136, AOT n=3135/3421, both exit 0)
+> -- leaves the language-correctness wave. Next: C-PULSE-05 (W005
+> const-receiver stub, now aborts), then the multipart match-binding fix.
 > FEATURE REQUEST (Pulse gap, owner question): exe icon embedding for
 > compiled programs. Today the link step passes only /SUBSYSTEM,
 > /STACK:8388608, /Brepro (lib.rs:1517); no `--icon` flag exists. Sketch:

@@ -104,6 +104,31 @@ archive; R-8 stays in the language-correctness wave.
 
 ---
 
+## 2026-10-05 -- FIXED: incomplete struct literal compiled silently (m198, Pulse C-PULSE-06)
+
+Pulse C-PULSE-06: `Pair{ a: 1; }` (missing `b: Vec[UInt8]`) compiled with no
+diagnostic; `p.b.len()` read garbage (2800072769408 here) and PULSE's server
+AV'd on real requests (0xC0000005). Reproduced on v0.64.0.
+
+FIX (checker, struct-literal validation): after validating the provided
+fields, a USER struct literal must initialize every declared field;
+otherwise emit T001 `struct literal for 'Pair' is missing field 'b'`
+(sorted list for deterministic order -- selfhost diff_check compares
+line-exact). Builtin layouts (Vec/Set/Stack/Slice/Option/Result) and enum
+variant constructors are exempt: the compiler/stdlib build those partially,
+and variant ctors share leaf names with same-named structs
+(benchmark/m89 `Node`, `Rectangle`) -- `resolve_enum_variant` wins,
+mirroring the unknown-field guard.
+
+EVIDENCE: Pulse probe now `error[T001] ... missing field 'b'`, exit 1, no
+artifact. Regression fallout found and fixed within the batch: bench_math +
+benchmark main (variant collisions) compile again. LOCKS:
+`e2e_m198_missing_struct_field_rejected` (asserts failure + T001 + field
+name) + fixture; CI line. Checker 197/197; feature 524/524; full e2e
+2428/0/4.
+
+---
+
 ## 2026-10-05 -- FIXED: bare reference in value position yielded the address (m197, Pulse C-PULSE-04)
 
 Pulse C-PULSE-04: `p = p + 1` / `return p` with `p: &mut Int` compiled to

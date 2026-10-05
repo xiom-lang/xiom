@@ -8799,6 +8799,56 @@ impl Checker {
                                 );
                             }
                         }
+                        // m198 (Pulse C-PULSE-06): a STRUCT literal must
+                        // initialize EVERY declared field. An omitted field
+                        // stayed uninitialized and read garbage at runtime
+                        // (Pair{ a: 1; } -> p.b.len() = 2200 GB; PULSE's
+                        // server AV'd on real requests). Enum variant
+                        // constructors keep the old tolerance -- partial
+                        // variant payloads are built internally (Option__/
+                        // Result__ ctors). Missing names are sorted so the
+                        // diagnostic order is deterministic (selfhost
+                        // diff_check compares line-exact).
+                        if is_struct_type {
+                            // Builtin layouts (Vec/Set/Stack/Slice/Option/
+                            // Result) are built partially by the compiler and
+                            // the stdlib internals; only user structs must be
+                            // fully initialized. Enum variant constructors
+                            // (`Tree.Node(value: .., left: .., right: ..)`)
+                            // share the leaf name with same-named structs
+                            // (m89/benchmark Node/Rectangle) -- resolve_enum_
+                            // variant wins, exactly like the unknown-field
+                            // guard above.
+                            let base_name = name.name.split('[').next().unwrap_or(&name.name);
+                            let is_builtin_layout = matches!(
+                                base_name,
+                                "Vec" | "Set" | "Stack" | "Slice" | "Option" | "Result"
+                            );
+                            let is_variant_ctor = self.enum_variants.contains_key(&name.name)
+                                || self.resolve_enum_variant(&name.name).is_some();
+                            let mut missing: Vec<&String> = expected
+                                .keys()
+                                .filter(|k| {
+                                    !fields.iter().any(|(f, _)| &f.name == *k)
+                                })
+                                .collect();
+                            missing.sort();
+                            if !missing.is_empty() && !is_builtin_layout && !is_variant_ctor {
+                                let list = missing
+                                    .iter()
+                                    .map(|s| format!("'{s}'"))
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                let noun = if missing.len() == 1 { "field" } else { "fields" };
+                                self.error(
+                                    format!(
+                                        "struct literal for '{}' is missing {noun} {list}",
+                                        name.name
+                                    ),
+                                    *span,
+                                );
+                            }
+                        }
                     }
                 } else if !self.enum_variants.contains_key(&name.name)
                     && self.resolve_enum_variant(&name.name).is_none()
