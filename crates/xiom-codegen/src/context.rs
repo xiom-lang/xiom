@@ -290,6 +290,12 @@ pub struct FunctionContext {
     pub result_ptr: Option<String>,
     /// LLVM type of the result alloca (for per-check `result` scope rebinding)
     pub result_llvm_ty: Option<String>,
+    /// Declared RETURN XIOM type of the current function. `local_xiom_types`
+    /// is a FLAT map: a USER local named `result` or a previous contract
+    /// clause's payload rebind (`bind_is_payload_xiom`) can overwrite the
+    /// `result` entry. `compile_ensures_checks` restores THIS type before
+    /// every clause so payload clauses lower against the real return type.
+    pub result_xiom_ty: Option<String>,
     /// Alloca for match result in expression position
     pub match_result_ptr: Option<String>,
     /// LLVM type used when storing an arm body into match_result_ptr

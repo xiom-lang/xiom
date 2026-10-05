@@ -1808,6 +1808,7 @@ impl IrEmitter {
         // Create result alloca for ensures if function returns a value
         self.fctx.result_ptr = None;
         self.fctx.result_llvm_ty = None;
+        self.fctx.result_xiom_ty = None;
         if !self.fctx.current_ensures.is_empty() && fd.return_type.is_some() {
             let result_alloca = self.fresh_tmp();
             self.emitln(&format!("  {result_alloca} = alloca {ret_llvm}"));
@@ -1821,8 +1822,14 @@ impl IrEmitter {
             // `Result[Vec[UInt8], Str]` became "Result" and the payload rebind
             // recorded NO type -> `result.len()` went down the Str path and
             // xiom_str_len'd a boxed Vec handle (AV, smoke_utf8).
+            // 2026-10-05: keep the same declared type on the fctx too --
+            // the flat `local_xiom_types` entry can be clobbered later (user
+            // `result` local / prior clause payload rebind), and the ensures
+            // check must restore it per clause.
             if let Some(rt) = &fd.return_type {
-                self.local.local_xiom_types.insert("result".to_string(), Self::type_string_full(rt));
+                let rt_full = Self::type_string_full(rt);
+                self.local.local_xiom_types.insert("result".to_string(), rt_full.clone());
+                self.fctx.result_xiom_ty = Some(rt_full);
             }
             self.fctx.result_ptr = Some(result_alloca);
         }

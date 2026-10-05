@@ -4645,6 +4645,9 @@ fn e2e_safety_probe() {
 // value equality, scalar payload bounds, Err-side `result.error.len()`).
 // Pre-fix the bare `is Some/Err` rebind made `.value`/`.error` fall to the
 // literal-0 fallback and the clause aborted spuriously.
+// 2026-10-05: extended with the packages-lane leak shapes -- a tuple payload
+// clause under a USER local named `result` (varint) and an Ok payload clause
+// preceded by an Err clause (cobs).
 #[test] fn e2e_m76_contract_payload_param_len() {
     assert_eq!(compile_and_run("tests/regression//m76_contract_payload_param_len.xi"), Some(0));
 }

@@ -69,13 +69,34 @@ impl super::IrEmitter {
             // return sites, and the ensure `result is Ok => result.len()`
             // reads the user's Vec header as the Result struct (AV).
             self.push_scope();
+            // 2026-10-05 (packages-lane relay): `local_xiom_types` and
+            // `is_payload_rebind` are FLAT maps -- `push_scope`/`pop_scope`
+            // only scope LLVM slots -- so contract-expression compilation
+            // leaked binding state across clauses (and back into the body):
+            //   * a body local named `result` (varint_decode_u: `var result:
+            //     Int = 0;`) overwrote the declared return type recorded at
+            //     function setup;
+            //   * a previous clause's bare `is Err/Ok` payload rebind
+            //     (`bind_is_payload_xiom`) overwrote it (cobs_decode has the
+            //     Err clause before the Ok payload bound).
+            // The poisoned type then lowered `result.value.1` to literal 0
+            // and `result.value.len()` to `xiom_str_len` on a boxed Vec
+            // payload handle -- spurious `contract violated: ensures` at
+            // runtime for structurally true clauses. Snapshot the binding
+            // state around each clause, start it from the DECLARED return
+            // type, and restore afterwards.
+            let saved_xiom_types = self.local.local_xiom_types.clone();
+            let saved_payload_rebinds = self.local.is_payload_rebind.clone();
             if let (Some(ptr), Some(ty)) = (self.fctx.result_ptr.clone(), self.fctx.result_llvm_ty.clone()) {
                 self.add_local("result", ptr, &ty);
-                if let Some(t) = self.local.local_xiom_types.get("result").cloned() {
-                    self.local.local_xiom_types.insert("result".to_string(), t);
+                if let Some(rt) = self.fctx.result_xiom_ty.clone() {
+                    self.local.local_xiom_types.insert("result".to_string(), rt);
+                    self.local.is_payload_rebind.remove("result");
                 }
             }
             self.compile_contract_check(expr, "ensures");
+            self.local.local_xiom_types = saved_xiom_types;
+            self.local.is_payload_rebind = saved_payload_rebinds;
             self.pop_scope();
         }
     }

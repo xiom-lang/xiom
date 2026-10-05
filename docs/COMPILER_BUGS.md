@@ -10,6 +10,64 @@ workarounds" -- the compiler must be fixed, then the stdlib lands.
 
 ---
 
+## 2026-10-05 -- FIXED: runtime contract evaluator false violations (contract-check binding-state leak; packages-lane relay)
+
+The packages lane reported two clause shapes that aborted with a spurious
+`contract violated: ensures` on v0.63.0 while being structurally true
+(`xiom-verify` reported the same clauses UNKNOWN, never violated):
+
+- (a) tuple-component access on a `Result[(Int, Int), Str]` payload:
+  `ensures: result is Ok => result.value.1 > off` (varint_decode_u);
+- (b) `Result[Vec[UInt8], Str]` payload length vs a parameter length:
+  `ensures: result is Ok => result.value.len() <= data.len()` (cobs_decode).
+
+Evidence (packages lane): brute force with `--no-contracts` over all 65,792
+frames of length <= 2 printed bad=0; uuid's `result.value.len() == 16`
+(payload vs CONSTANT) worked, localizing the defect to dynamic-length /
+tuple payload expressions. uuid's function has a single, first clause; the
+failing ones have a body local named `result` (varint) or an Err clause
+before the payload clause (cobs).
+
+ROOT CAUSE (single, codegen): contract-check compilation mutated FLAT
+binding maps without scoping them.
+1. `local_xiom_types` and `is_payload_rebind` are flat maps; `push_scope` /
+   `pop_scope` only save/restore LLVM local slots.
+2. `bind_is_payload_xiom` (contract implication's bare `is Ok/Err` rebind)
+   overwrote `local_xiom_types["result"]` with the PAYLOAD type and left it
+   there after `pop_scope`.
+3. `compile_ensures_checks` re-bound `result` per clause but re-inserted
+   whatever was already in the map -- a no-op -- so two poisons survived
+   into the next clause: a body local named `result` (`var result: Int = 0;`
+   in varint_decode_u) and a preceding clause's Err rebind (cobs_decode's
+   Err clause).
+
+IR evidence (probes on main @ c4721d91 + this fix):
+- tuple shape with a `result` local: `result.value.1` lowered to
+  `icmp sgt i64 0, <off>` (literal 0), so `0 > off` aborted at off == 0;
+- cobs shape: the second clause lowered `result.value.len()` to
+  `inttoptr i64 <Vec handle> to i8*; call @xiom_str_len` -- the boxed Vec
+  payload read as a Str, so the compared length was garbage.
+Controls (single clause, no `result` local; Ok clause first) were green,
+isolating the defect to leaked binding state rather than tuple/Vec lowering.
+
+FIX (crates/xiom-codegen):
+- `FunctionContext.result_xiom_ty` records the declared return type at
+  function setup (the same `type_string_full` value the synthetic `result`
+  entry uses).
+- `compile_ensures_checks` snapshots `local_xiom_types` + `is_payload_rebind`
+  around EACH clause, forces `result` to the declared return type (and
+  clears its payload-rebind mark) before compiling the clause, then restores
+  the snapshot -- no clause-to-clause leakage and no leakage back into the
+  body.
+
+LOCK: `tests/regression/m76_contract_payload_param_len.xi` extended with the
+two shapes (`wf`: tuple payload + `result` local; `wg`: Err clause then Ok
+payload bound) + `e2e_m76_contract_payload_param_len`.
+GATES: feature 519/519, e2e 2418/0/4, verifier 34/34 + 4/4, driver 58/58,
+checker 196/196, ascii_guard clean.
+
+---
+
 ## 2026-10-04 -- OPEN (queued): direct extern of xiom_guard_alloc hangs codegen / "invalid redefinition"
 
 Reported by the stdlib lane while landing the allocator bound-check lock:
