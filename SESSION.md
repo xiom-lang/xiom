@@ -98,6 +98,15 @@
 > 10/10; CI line. Next in the queue: i64<->f64 bitcast intrinsic, UX hint,
 > then lane probes as they arrive.
 
+> COMPILER LANE (2026-10-05g): m194 FIXED -- `num.float.float_bits` /
+> `bits_to_float` now intercept to an LLVM bitcast at the call site
+> (module-qualified keys; stdlib fallback bodies untouched, no stdlib
+> change). Probe exact: bits=4609434218613702656 (0x3FF8000000000000) for
+> 1.5 + roundtrips. Locks: e2e_m194_float_bitcast + e2e_m194_float_bitcast_ir
+> (call sites are bitcasts, no fallback calls); feature 521/521; CI line.
+> v0.64.0 batch so far: m192, R65, m193, m194 (all unpushed). Full e2e is
+> running as the batch gate.
+
 > NEXT QUEUE (post-v0.63.1):
 > 1. Benchmarks: hand v0.63.1 to the benchmark lane (carries the t1 SMT,
 >    lz4, and catalog-flush fixes); re-run acceptance on the new

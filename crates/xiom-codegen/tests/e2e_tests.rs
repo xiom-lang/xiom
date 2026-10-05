@@ -5755,6 +5755,35 @@ fn e2e_safety_probe() {
     );
 }
 
+// m194 (stdlib relay): `num.float.float_bits`/`bits_to_float` must lower to
+// an LLVM bitcast at the call site (exact IEEE-754 reinterpretation), not to
+// the stdlib's documented zero fallbacks.
+#[test] fn e2e_m194_float_bitcast() {
+    assert_eq!(
+        compile_and_run("tests/regression/m194_float_bitcast/main.xi"),
+        Some(0),
+        "float_bits/bits_to_float must reinterpret exactly (m194)"
+    );
+}
+
+#[test] fn e2e_m194_float_bitcast_ir() {
+    let ir = compile_ir("tests/regression/m194_float_bitcast/main.xi")
+        .expect("m194 fixture must compile to IR");
+    let start = ir.find("define i64 @main(").expect("m194: main must be defined");
+    let rest = &ir[start..];
+    let end = rest[1..].find("\ndefine ").map(|i| i + 1).unwrap_or(rest.len());
+    let body = &rest[..end];
+    assert!(
+        body.contains("bitcast double") && body.contains("bitcast i64"),
+        "m194: both directions must lower to bitcast in main; got:\n{body}"
+    );
+    assert!(
+        !body.contains("call i64 @num.float.float_bits")
+            && !body.contains("call double @num.float.bits_to_float"),
+        "m194: the call sites must be intercepted, not dispatched to the fallbacks; got:\n{body}"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

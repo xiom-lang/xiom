@@ -124,6 +124,31 @@ filter extended.
 
 ---
 
+## 2026-10-05 -- FIXED: Float64<->Int64 bitcast intercept for num.float (m194)
+
+Stdlib relay (queued since the num.float audit): `xiom.num.float.float_bits`
+and `bits_to_float` were DOCUMENTED FALLBACKS returning 0 / 0.0 because XIOM
+has no source-level bitcast. The stdlib wanted the exact behavior with no
+stdlib change.
+
+REPRO: `tmp/contracts/bitcast_probe.xi` -> pre-fix `bits=0 f=0` (rc 1);
+expected `bits=4609434218613702656 f=1.5` (0x3FF8000000000000).
+
+FIX (call.rs): the qualified stdlib keys `num.float.float_bits` /
+`num.float.bits_to_float` (and the `xiom.`-prefixed forms) are intercepted
+at the call site and lower to `bitcast double <v> to i64` /
+`bitcast i64 <v> to double`. The intercept is module-qualified, so user
+functions with the same leaf keep their bodies; unmatched arg types (not
+double / not i64) fall through to the normal call. No stdlib change needed;
+the fallback bodies remain in the module for non-intercepted dispatch.
+
+VERIFIED: probe rc 0 with exact bits + round-trip (negative value keeps its
+sign bit; +0.0 all-zero). Locks: `e2e_m194_float_bitcast` (exact bits +
+roundtrips) and `e2e_m194_float_bitcast_ir` (main's call sites are bitcasts,
+no calls to the fallbacks); CI filter extended.
+
+---
+
 ## 2026-10-05 -- FIXED: confined-unsafe ctx alloca leaked 32 bytes of stack per loop entry (m192)
 
 Perf queue item 1 surfaced a CORRECTNESS bug underneath the t3-hot-reload

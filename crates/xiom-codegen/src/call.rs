@@ -5652,6 +5652,31 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         }
                         return Ok((result, LLVM_I64.to_string()));
                     }
+                    // m194 (stdlib relay): exact Float64<->Int64 reinterpretation.
+                    // XIOM has no source-level bitcast; the stdlib num.float
+                    // wrappers (`float_bits`/`bits_to_float`) carry documented
+                    // zero fallbacks (TODO(compiler)). Intercept the qualified
+                    // stdlib keys and emit the LLVM bitcast directly -- no
+                    // stdlib change needed, and user functions with the same
+                    // leaf in other modules keep their bodies (module-qualified
+                    // keys only).
+                    let is_float_bits_fn = resolved_fn_key == "num.float.float_bits"
+                        || resolved_fn_key == "xiom.num.float.float_bits";
+                    let is_bits_to_float_fn = resolved_fn_key == "num.float.bits_to_float"
+                        || resolved_fn_key == "xiom.num.float.bits_to_float";
+                    if (is_float_bits_fn || is_bits_to_float_fn) && compiled_args.len() == 1 {
+                        let val = &compiled_args[0].0;
+                        if is_float_bits_fn && compiled_args[0].1.as_str() == LLVM_DOUBLE {
+                            let result = self.fresh_tmp();
+                            self.emitln(&format!("  {result} = bitcast double {val} to i64"));
+                            return Ok((result, LLVM_I64.to_string()));
+                        }
+                        if is_bits_to_float_fn && compiled_args[0].1.as_str() == LLVM_I64 {
+                            let result = self.fresh_tmp();
+                            self.emitln(&format!("  {result} = bitcast i64 {val} to double"));
+                            return Ok((result, LLVM_DOUBLE.to_string()));
+                        }
+                    }
                     // BUG 49 (2026-08-18): a FN-TYPED PARAM local must win over a
                     // registered function with the same name. The impl-method
                     // registration aliases the bare method name ("Int.compare"
