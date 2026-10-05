@@ -529,10 +529,16 @@ fn parse_z3_empty_output() {
     let output = "";
     let runner = xiom_verify::Z3Runner::new();
     let results = runner.parse_z3_output(output);
-    // Empty output -> Error result
+    // 2026-10-05 benchmark relay: empty output means z3 had no `(check-sat)`
+    // to answer (all obligations skipped as X7007). That is UNKNOWN, not an
+    // emitter error -- and it must not trigger the stale "install z3" text.
     assert!(!results.is_empty(), "empty output must produce at least one result");
-    assert!(matches!(&results[0], xiom_verify::VerifyResult::Error { .. }),
-        "empty output should produce Error");
+    assert!(matches!(&results[0], xiom_verify::VerifyResult::Inconclusive { .. }),
+        "empty (query-less) output should produce Inconclusive/UNKNOWN, got: {:?}", results);
+    // A non-empty unparseable blob keeps the Error classification.
+    let garbage = runner.parse_z3_output("this is not z3 output");
+    assert!(matches!(&garbage[0], xiom_verify::VerifyResult::Error { .. }),
+        "unparseable non-empty output should stay an Error");
 }
 
 #[test]

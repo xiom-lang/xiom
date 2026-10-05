@@ -25,6 +25,42 @@ findings.
 
 ---
 
+## 2026-10-05 -- OPEN (root-caused, queued): duplicate `lz4_compress` leaf -- checker/codegen resolution divergence
+
+Benchmark v0.63.0 acceptance: the lz4 smoke/probes fail on Linux
+(`lz4_compress` returns a Vec whose len reads as pointer garbage;
+`.len()` on the result otherwise fails as unresolved `Result.len`), while
+qualified and user-space frame probes are correct. Root cause found and
+reproduced deterministically in the benchmark container:
+
+1. The stdlib exports TWO functions with leaf `lz4_compress`:
+   `xiom.compress.lz4.lz4_compress` -> Vec[UInt8] (lz4.xi:31) and
+   `xiom.compress.lz4_compress` -> Result[Vec[UInt8], Str] (compress.xi:274,
+   the umbrella wrapper). Loading `xiom.compress.lz4` pulls the parent
+   prefix module `xiom.compress`, registering both.
+2. A BARE call `lz4_compress(data)` (after `use xiom.compress.lz4;`):
+   the CHECKER resolves it to the imported module's Vec-returning fn (it
+   accepts `.len()` on the result), while CODEGEN's bare-leaf resolution
+   binds the Result wrapper. Result: `.len()` emits `@Result.len`
+   (unresolved -> m142 loud error), or in shapes where the call compiles,
+   the len read off a Result aggregate is pointer garbage -- exactly the
+   benchmark's nondeterministic lengths (111111528768288, ...) and the
+   smoke child exit -1.
+   MINIMAL REPRO (`use xiom.compress.lz4; var c = lz4_compress(data); c.len()`):
+   deterministic 3/3 fail in the official v0.63.0 container; qualified
+   `lz4.lz4_compress` is deterministic 10/10 green (len 24).
+FIX OPTIONS:
+   (a) stdlib lane (immediate): rename the umbrella wrapper leaf
+       (`lz4_compress` -> e.g. `lz4_compress_checked`) so the leaf is
+       unique; checker and codegen then agree everywhere.
+   (b) compiler lane (defensive, queued): bind bare PROGRAM calls through
+       the checker's resolution the way R15/R20 do for catalog bodies --
+       `catalog_resolved_calls` only records while `checking_catalog`, so
+       program-scope bare calls fall back to codegen's order-dependent
+       maps.
+
+---
+
 ## 2026-10-04 -- FIXED: verifier SMT emission (contracts arena t1/t8: named-expression / initialized / self errors)
 
 Benchmark relay (safe probe): `xiom-verify --check` on the contracts tasks
@@ -68,6 +104,13 @@ VERIFIED: `bench_contracts.xi` 2 proven / 0 violated / 31 unknown /
 **0 errors** (rc 0); `bench_contracts_hard.xi` 3 / 0 / 40 / **0** (rc 0);
 new unit tests (z3-parse gate, unique labels, honest skips) + updated
 selector lock; verifier suite 34/34 integration + 3/3 lib.
+UPDATE 2026-10-05 (benchmark relay): a script with NO `(check-sat)` at all
+(every obligation skipped as X7007) made z3 print nothing; the parser
+fabricated "Could not parse z3 output" and the stale "install z3" text
+printed even though z3 ran fine. Empty z3 output is now classified
+UNKNOWN -- "no queries emitted (all obligations skipped as UNKNOWN)" --
+while non-empty unparseable output stays an Error; unit test added
+(`queryless_z3_output_is_unknown_not_error`).
 BONUS: the verifier CLI had the same temp-root source-dir recursion as the
 compiler driver (a fixture under %TEMP% indexed every tree under it) --
 guarded and wired to the Stage 6 index cache: its integration suite went

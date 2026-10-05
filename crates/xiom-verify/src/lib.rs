@@ -1812,9 +1812,20 @@ impl Z3Runner {
         }
 
         if results.is_empty() {
-            results.push(VerifyResult::Error {
-                message: format!("Could not parse z3 output:\n{}", output),
-            });
+            if output.trim().is_empty() {
+                // No `(check-sat)` was emitted (every obligation was skipped
+                // as X7007), so z3 had nothing to answer. That is an UNKNOWN
+                // result, not an emitter error (2026-10-05 benchmark relay:
+                // the fabricated error also triggered the stale "install z3"
+                // text even though z3 ran fine).
+                results.push(VerifyResult::Inconclusive {
+                    reason: "no queries emitted (all obligations skipped as UNKNOWN)".to_string(),
+                });
+            } else {
+                results.push(VerifyResult::Error {
+                    message: format!("Could not parse z3 output:\n{}", output),
+                });
+            }
         }
 
         results
@@ -2057,5 +2068,20 @@ ensures: result == phantom_value
         if let Some(ok) = z3_parses(&smt) {
             assert!(ok, "z3 rejected the generated SMT:\n{smt}");
         }
+    }
+
+    #[test]
+    fn queryless_z3_output_is_unknown_not_error() {
+        let runner = Z3Runner::new();
+        let empty = runner.parse_z3_output("");
+        assert!(
+            matches!(empty.as_slice(), [VerifyResult::Inconclusive { .. }]),
+            "empty z3 output (no check-sat) must be UNKNOWN, got: {empty:?}"
+        );
+        let garbage = runner.parse_z3_output("this is not z3 output");
+        assert!(
+            matches!(garbage.as_slice(), [VerifyResult::Error { .. }]),
+            "unparseable non-empty output must stay an Error, got: {garbage:?}"
+        );
     }
 }

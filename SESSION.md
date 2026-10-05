@@ -82,6 +82,9 @@
 >    intrinsic, registry polish B1/B2/`--resolve` + trust wording,
 >    arena/handle overflow audit (guard_alloc alignment wrap -- stdlib
 >    lane fix landed at cd61062; flat-arena handle ABA generation tags),
+>    duplicate `lz4_compress` leaf (Vec vs Result) + checker/codegen
+>    bare-call divergence -- stdlib rename unblocks, compiler parity fix
+>    queued (COMPILER_BUGS 2026-10-05),
 >    direct extern of xiom_guard_alloc hangs codegen / "invalid
 >    redefinition" (stdlib lane repro; probe workaround).
 > 5. Selfhost Phase 4 in parallel: fn-header T3 IR equality; keep the meter
