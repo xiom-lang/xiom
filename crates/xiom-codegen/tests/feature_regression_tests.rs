@@ -7050,3 +7050,29 @@ fn main() -> Int {
         "m201: no runtime elem-size dispatch may remain for a known struct element; got:\n{ir}"
     );
 }
+
+// m202 (packages grpc tuple-vec relay): tuple-element inference for
+// `("k".clone(), "v".clone())` must return the RECEIVER's type (Gap A inline
+// clone returns i8*), not the first declared `.clone` suffix (the derived
+// MaybeUninit.clone). Pre-fix the tuple was named
+// Tuple__MaybeUninit__MaybeUninit and the Vec[(Str, Str)] push corrupted.
+#[test]
+fn regress_m202_str_clone_tuple_elem_name() {
+    let source = r#"
+fn main() -> Int {
+  var meta: Vec[(Str, Str)] = Vec[(Str, Str)].new();
+  meta.push(("k".clone(), "v".clone()));
+  if meta[0].0 == "k" { return 0; }
+  return 1;
+}
+"#;
+    let ir = compile(source).expect("m202: clone tuple Vec must compile");
+    assert!(
+        ir.contains("Tuple__Str__Str"),
+        "m202: the clone tuple elements must be named Str/Str; got:\n{ir}"
+    );
+    assert!(
+        !ir.contains("MaybeUninit"),
+        "m202: no MaybeUninit element type may leak from the clone suffix lookup; got:\n{ir}"
+    );
+}

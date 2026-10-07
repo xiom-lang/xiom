@@ -8683,6 +8683,31 @@ impl IrEmitter {
                         }
                     }
                 }
+                // Gap A parity (grpc tuple-vec relay): `x.clone()` /
+                // `x.to_owned()` on a scalar/Str/pointer VALUE returns the
+                // receiver's own type (call.rs inline builtin-interface path).
+                // Without this the declared-fn lookup below binds an arbitrary
+                // `.clone` suffix (the derived MaybeUninit.clone), so
+                // `("k".clone(), "v".clone())` built
+                // Tuple__MaybeUninit__MaybeUninit against the 8-byte
+                // Vec[(Str, Str)] ctor sizing and corrupted the push.
+                let call_args_empty = match expr {
+                    Expr::Call(_, a, _) => a.is_empty(),
+                    Expr::GenericCall(_, _, a, _) => a.is_empty(),
+                    _ => false,
+                };
+                if call_args_empty {
+                    if let Expr::Field(obj, field, _) = func.as_ref() {
+                        if matches!(field.name.as_str(), "clone" | "to_owned")
+                            && self.receiver_is_instance(obj)
+                        {
+                            let rt = self.infer_llvm_type(obj);
+                            if !rt.starts_with("%struct.") && rt != "void" {
+                                return rt;
+                            }
+                        }
+                    }
+                }
                 let fn_name = match func.as_ref() {
                     Expr::Ident(name) => Some(name.name.clone()),
                     Expr::Field(obj, field, _) => {

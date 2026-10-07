@@ -5880,6 +5880,18 @@ fn e2e_safety_probe() {
     );
 }
 
+// m202 (packages grpc tuple-vec relay): `("k".clone(), "v".clone())` elements
+// must keep their Str/Str tuple type; pre-fix the tuple was built as
+// Tuple__MaybeUninit__MaybeUninit and reading metadata[0].0 after a push
+// crashed 0xC0000005 (grpc probe_suite_min/probe_direct).
+#[test] fn e2e_m202_clone_tuple_vec() {
+    assert_eq!(
+        compile_and_run("tests/regression/m202_clone_tuple_vec/main.xi"),
+        Some(0),
+        "clone-tuple Vec elements must keep their concrete tuple type (m202)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

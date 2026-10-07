@@ -331,7 +331,15 @@
 > multipart rc 1 -> 0, and the same class clears
 > p_geom_matrix_result_infer + p_polyhedra_nested_hull (both rc 0).
 > Locks: regress_m201 (IR) + e2e_m201 + fixture; CI line; feature 527/527.
-> Next: grpc Vec[(Str, Str)] read-after-mutation (packages probes).
+> m202 FIXED -- packages grpc Vec[(Str, Str)]: the lead was wrong (fault is
+> the PUSH, not the read; local-only shape reproduces). Tuple elements
+> `("k".clone(), "v".clone())` were named via the first declared `.clone`
+> suffix (MaybeUninit.clone) -> 32-byte tuple elements stored on the
+> 8-byte-stride Vec buffer -> 0xC0000005. infer_llvm_type now mirrors the
+> Gap A inline clone path (return the receiver type for empty-arg
+> clone/to_owned on non-struct values). Both package probes exit 0
+> (suite_min rc=0; direct match=ok); locks regress_m202 + e2e_m202; CI
+> line; feature 528/528. Next: iter Range.count ensures clause (%tmp8).
 
 > KICKOFF PROMPT (v0.64.1 session, 2026-10-07) -- paste from the marker:
 >
@@ -364,10 +372,13 @@
 >    element type now preserved on match payload bindings (local_vec_elem);
 >    multipart rc 1 -> 0; also clears geom_matrix_result_infer +
 >    polyhedra_nested_hull (both rc 0). Locks regress_m201 + e2e_m201.
-> 4. grpc Vec[(Str, Str)] read-after-mutation crash (packages; both probes
+> 4. [DONE m202] grpc Vec[(Str, Str)] crash (packages; both probes
 >    0xC0000005 on v0.64.0; sources at
->    E:\xiom-packages\packages\packages\xiom-grpc\tests\). m189/m192 do not
->    cover it.
+>    E:\xiom-packages\packages\packages\xiom-grpc\tests\). NOT
+>    read-after-mutation: `.clone()` tuple elements bound MaybeUninit.clone
+>    -> 32-byte elements on an 8-byte-stride buffer; fixed in
+>    infer_llvm_type (Gap A parity); package probes both exit 0. Locks
+>    regress_m202 + e2e_m202.
 > 5. iter Range.count ensures clause -> clang "use of undefined value
 >    (%tmp8)" (re-verified on v0.64.0; smoke_iter + `ensures: result >= 0`).
 > 6. C-PULSE-07 -- module-scope var + cross-package ctor emits a call with

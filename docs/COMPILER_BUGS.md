@@ -108,12 +108,15 @@ archive; R-8 stays in the language-correctness wave.
 
 New reports since v0.64.0 (repro paths local unless noted):
 
-1. GRPC `Vec[(Str, Str)]` read-after-mutation (packages, still RED on
-   v0.64.0; m192 did NOT clear it): `probe_suite_min.xi` and
-   `probe_direct.xi` both exit `0xC0000005` (reproduced locally from
-   `E:\xiom-packages\packages\packages\xiom-grpc\tests\`). Reading
-   `req.metadata[0].0` after `grpc_metadata_set` crashes; m189/m192 do not
-   cover it. grpc stays unpublished.
+1. [FIXED m202, 2026-10-07] GRPC `Vec[(Str, Str)]` read-after-mutation
+   (packages, still RED on v0.64.0; m192 did NOT clear it):
+   `probe_suite_min.xi` and `probe_direct.xi` both exited `0xC0000005`
+   (reproduced locally from
+   `E:\xiom-packages\packages\packages\xiom-grpc\tests\`). Root cause was
+   NOT the read-after-mutation lead: `("k".clone(), "v".clone())` tuple
+   elements were named via the first declared `.clone` suffix
+   (MaybeUninit.clone). Details + fix in the m202 section below; packages
+   can re-test probe_suite_min/probe_direct (both exit 0 here).
 2. GraphQL enum-payload `Str` 9/10 (packages): `GraphQLSelection.Field(...)
    .name` reads `|0|`; standalone shapes pass; distinct root cause from
    C001/m185/m189. Minimal repro still pending.
@@ -140,6 +143,45 @@ New reports since v0.64.0 (repro paths local unless noted):
    the main --help first. Queued fix: route doc through `run_tool_dispatch`
    (sibling first, XIOM_HOME fallback), accept `-doc`, and pass --help
    through.
+
+---
+
+## 2026-10-07 -- FIXED: grpc Vec[(Str, Str)] clone-tuple element naming (m202, packages relay)
+
+Packages probes `xiom-grpc/tests/probe_suite_min.xi` (crashed 0xC0000005,
+no output) and `probe_direct.xi` (crashed/hung) reproduced locally with the
+debug driver. The packages lead ("read-after-mutation") was NOT the root
+cause: a pure-local shape without any grpc code reproduces
+(`tmp/pulse05/grpc_min_a.xi` / `grpc_min_b.xi`), and the fault is the PUSH,
+not the read.
+
+ROOT CAUSE (IR evidence, tmp/pulse05/mut_c.ll): for the tuple literal
+`("k".clone(), "v".clone())` the tuple-element namer falls through to
+`infer_llvm_type` on the element CALL, whose declared-fn lookup resolves the
+bare `clone` leaf through the suffix scan and binds the derived
+`MaybeUninit.clone` -- so the tuple was built as
+`%struct.Tuple__MaybeUninit__MaybeUninit` (two struct fields, 32-byte
+element store) while the `Vec[(Str, Str)].new()` buffer was sized from
+`Tuple__Str__Str` (8-byte fallback because the real tuple type was never
+registered). A 32-byte element store into the 8-byte-stride buffer
+corrupted the heap: the struct-field shape (`req.metadata.push` through the
+library) crashed 0xC0000005, the local shape read garbage (match=no).
+
+FIX (m202): `infer_llvm_type_impl` now mirrors the call.rs Gap A inline
+builtin-interface path: for an empty-argument `x.clone()` / `x.to_owned()`
+on a VALUE receiver whose LLVM type is not a by-value struct, return the
+receiver's own LLVM type. Tuple elements are then named Str/Str, the tuple
+type registers normally, and Vec.new/push agree on 16-byte elements.
+
+EVIDENCE: package probes now `start` / `rc=0` (suite_min) and
+`start` / `len=1` / `match=ok` (direct), both exit 0. Minimal mutants
+(local Vec+read, struct-field push+read, wrapper function, inline) all
+exit 0.
+
+LOCKS: `regress_m202_str_clone_tuple_elem_name` (IR: Tuple__Str__Str, no
+MaybeUninit), e2e `e2e_m202_clone_tuple_vec` +
+`tests/regression/m202_clone_tuple_vec/main.xi` (local + &mut helper
+shape), CI line.
 
 ---
 
