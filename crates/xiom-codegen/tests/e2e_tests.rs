@@ -5914,6 +5914,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// m209 (packages relay): `let (k, v) = &vec[i]` must bind component refs and
+// `k == &key` must content-compare (pre-fix: same element address for both
+// names; lookup silently missed).
+#[test] fn e2e_m209_tuple_ref_destructure() {
+    assert_eq!(
+        compile_and_run("tests/regression/m209_tuple_ref_destructure/main.xi"),
+        Some(0),
+        "tuple-ref destructure + ref content compare must match (m209)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

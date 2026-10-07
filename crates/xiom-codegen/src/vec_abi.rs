@@ -725,6 +725,34 @@ impl IrEmitter {
                 }
                 _ => (String::new(), false),
             },
+            // m209 (packages relay #7): `&ident` in a VALUE position. The
+            // reference value holds the referent's SLOT ADDRESS; deref it
+            // once like the `&T`-annotated ident path above so
+            // `k == &key` content-compares instead of reading the address
+            // bytes as the string (the RHS used to inttoptr the slot
+            // address straight to i8* -> strcmp against the pointer bytes).
+            Expr::Ref(ref_inner, _) | Expr::MutRef(ref_inner, _) => {
+                let id = match ref_inner.as_ref() {
+                    Expr::Ident(id) => Some(id),
+                    Expr::Paren(p, _) => match p.as_ref() {
+                        Expr::Ident(id) => Some(id),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                match id.and_then(|id| self.xiom_type_of_local(&id.name)) {
+                    Some(t) => {
+                        let pointee = t
+                            .strip_prefix('&')
+                            .unwrap_or(&t)
+                            .trim_start()
+                            .trim_start_matches("mut ")
+                            .to_string();
+                        (pointee, true)
+                    }
+                    None => (String::new(), false),
+                }
+            }
             _ => (String::new(), false),
         };
         if !is_ref {

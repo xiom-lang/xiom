@@ -7200,3 +7200,44 @@ fn main() -> Int {
         "m206: the boxed enum payload must be bound via inttoptr to %struct.FieldSel*; got:\n{ir}"
     );
 }
+
+// m209 (packages relay): `let (k, v) = &vec[i]` binds component references
+// (GEP per component, i64 slot = component ADDRESS) and `k == &key`
+// content-compares with BOTH operands deref'd through their slots
+// (`inttoptr ... to i8**` + load + strcmp). Pre-fix both names got the same
+// element address and the comparison was an i64 address check (no derefs).
+#[test]
+fn regress_m209_tuple_ref_destructure() {
+    let source = r#"
+fn find(v: &Vec[(Str, Str)], key: Str) -> Bool {
+  var i = 0;
+  while i < v.len() {
+    let (k, val) = &v[i];
+    if k == &key { return true; }
+    i = i + 1;
+  };
+  return false;
+}
+fn main() -> Int {
+  var v: Vec[(Str, Str)] = Vec[(Str, Str)].new();
+  v.push(("grpc-timeout", "5s"));
+  if !find(&v, "grpc-timeout") { return 1; }
+  if find(&v, "missing") { return 2; }
+  return 0;
+}
+"#;
+    let ir = compile(source).expect("m209: tuple-ref destructure must compile");
+    assert!(
+        ir.contains("%struct.Tuple__Str__Str*"),
+        "m209: the reference must be deref'd to the tuple struct; got:\n{ir}"
+    );
+    assert!(
+        ir.contains("@strcmp"),
+        "m209: the ref-vs-ref compare must content-compare via strcmp; got:\n{ir}"
+    );
+    let derefs = ir.matches("to i8**").count();
+    assert!(
+        derefs >= 2,
+        "m209: BOTH ref operands must deref their slots (inttoptr to i8**); got {derefs} in:\n{ir}"
+    );
+}

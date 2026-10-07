@@ -152,42 +152,41 @@ New reports since v0.64.0 (repro paths local unless noted):
    doc/-doc/--doc spellings all dispatch, and --help now reaches xiom-doc
    (the dispatch table runs before the main short-circuit). Lock:
    `m205_doc_subcommand_dispatches_to_tool` (crates/xiom/tests/cli_args.rs).
-7. [NEW OPEN, 2026-10-07 packages relay] DESTRUCTURING A REFERENCE TO A
-   TUPLE ELEMENT YIELDS POINTER-LIKE VALUES: `let (k, v) = &vec[i];` over
-   `Vec[(Str, Str)]` binds `k`/`v` that stringify as decimal addresses
-   (`2175265691024`) and never compare equal to the expected `Str`
-   (`k == &key` false; `compare.str_compare(k, key) == 0` false), so key
-   lookups silently miss. Direct component reads (`vec[i].0 == key`) are
-   correct, and `vec[i] = (..)` writes are fine. Re-confirmed on compiler
-   main m199..m207 (v0.64.1 candidate); evidence: packages
-   `docs/COMPILER-FINDINGS.md` 2026-10-07 row (in-package diagnostic probe:
-   `refeq=0`, `cmp=0`, `resp.len=1`; `grpc_metadata_get` returned None for a
-   present key and `set` appended duplicates). Workaround in packages: read
-   tuple components directly; only the 2 grpc sites used the shape (both
-   rewritten; suite 36/36 x2).
+7. [FIXED m209, 2026-10-07 packages relay] DESTRUCTURING A REFERENCE TO A
+   TUPLE ELEMENT YIELDED POINTER-LIKE VALUES: `let (k, v) = &vec[i];` over
+   `Vec[(Str, Str)]` bound `k`/`v` that stringified as decimal addresses and
+   never compared equal to the expected `Str` (`k == &key` false), so key
+   lookups silently missed (grpc `metadata_get` returned None for a present
+   key and `set` appended duplicates). Direct component reads
+   (`vec[i].0 == key`) were correct. Evidence: packages
+   `docs/COMPILER-FINDINGS.md` 2026-10-07 row (`refeq=0`, `cmp=0`,
+   `resp.len=1`).
 
-   ROOT CAUSE, LOCALIZED + PARTIALLY FIXED THIS SESSION (candidate patch
-   reverted; needs the second half):
-   - `Stmt::Destructure`'s scalar fallback (`zero_val_for` branch,
-     stmt.rs ~3179) binds the SAME i64 -- the `&vec[i]` reference
-     (ptrtoint'd element address) -- to every name; `k`/`v` are pointer bits
-     and `k == &key` compares raw addresses. Repro:
-     `tmp/pulse05/tuple_ref_destructure.xi` (exit 1; IR
-     `tmp/pulse05/tuple_ref.ll`).
-   - A candidate fix (inttoptr the reference, GEP each component, bind the
-     component ADDRESS as an i64 ref and record `local_xiom_types[k] =
-     "&Str"` -- the round-8 convention) made `k` a correct ref
-     (`tmp/pulse05/tuple_ref2.ll`: `inttoptr -> gep field 0 -> ptrtoint`,
-     and the comparison derefs k once). It still fails end-to-end because
-     the RHS `&key` (key: Str param) lowers to `ptrtoint <key-slot>` and the
-     Eq path derefs only the `&Str`-annotated side: `strcmp(pointee(k),
-     inttoptr(key-slot-addr to i8*))` compares the string against the slot
-     BYTES. The reference-comparison path needs SYMMETRIC deref for `&T`
-     operands (compile_expr(Ref) / Eq decision in expr.rs) before the
-     destructure fix can land.
-   - Locks to add with the final fix: an e2e over
-     `tmp/pulse05/tuple_ref_destructure.xi` shape + an IR assertion that the
-     binding GEPs components and the comparison derefs both refs.
+   ROOT CAUSE (two halves):
+   - `Stmt::Destructure`'s scalar fallback (`zero_val_for` branch) bound the
+     SAME i64 -- the ptrtoint'd `&vec[i]` element address -- to every name.
+   - `auto_deref_ref` (vec_abi.rs) recognised only `&T`-ANNOTATED idents, so
+     the `&key` operand was inttoptr'd straight to i8* and
+     `strcmp(pointee(k), key-slot-bytes)` compared the string against the
+     pointer slot.
+
+   FIX (m209): (1) the destructure now handles `&vec[i]` (Ref/MutRef over
+   Vec-index) by inttoptr + GEP per component and binds each component
+   ADDRESS as an i64 slot with the round-8 `local_xiom_types` annotation
+   (`&Str`); (2) `auto_deref_ref` also recognises `&ident` / `&(ident)`
+   Ref/MutRef operands in value positions and loads through the slot once,
+   making the comparison symmetric.
+
+   EVIDENCE: `tmp/pulse05/tuple_ref_destructure.xi` exit 1 -> 0; IR
+   (`tuple_ref3.ll`) shows TWO `inttoptr ... to i8**` slot derefs and
+   `strcmp(pointee(k), pointee(key))`, where pre-fix had an i64 address
+   compare (zero derefs).
+
+   LOCKS: `regress_m209_tuple_ref_destructure` (IR: tuple inttoptr, strcmp,
+   >= 2 `to i8**` derefs), e2e `e2e_m209_tuple_ref_destructure` + fixture
+   (`tests/regression/m209_tuple_ref_destructure/`), CI line. Gates: feature
+   531/531, e2e 2435/0/4. Packages can drop the "never destructure a
+   reference to a tuple element" rule after the v0.64.1 pin.
 8. [RE-CONFIRMED OPEN, 2026-10-07 packages relay] `Vec[Struct].clone()`
    is still RED on compiler main m199..m207: `probe_struct_clone.xi`
    (`docs/repro/struct-clone/`) aborts `0xC0000005` while the no-clone

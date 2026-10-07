@@ -485,14 +485,13 @@
 >     STAGE6_PERF_PLAN item 1. Also confirm the benchmark's xiom-run-aot
 >     lane flags (if it passes --no-cache, its v0.62.3 fast numbers were
 >     the pre-C25 dead-cache bug).
-> 14. OPEN (packages relay 2026-10-07): `let (k, v) = &vec[i]` over
->     `Vec[(Str, Str)]` yields pointer-like values (silent lookup misses;
->     direct component reads are correct). LOCALIZED: Stmt::Destructure's
->     scalar fallback binds the same ptrtoint'd element address to every
->     name; candidate fix (GEP components, bind refs + "&T" annotation)
->     works for `k` but `&key` compares asymmetrically (slot bytes vs
->     pointee) -- the Eq path needs symmetric `&T` deref. Patch reverted;
->     full analysis + repro paths in COMPILER_BUGS relay bundle #7.
+> 14. [DONE m209] `let (k, v) = &vec[i]` over `Vec[(Str, Str)]` yielded
+>     pointer-like values. TWO halves fixed: Stmt::Destructure now GEPs
+>     components and binds refs with the "&T" annotation; auto_deref_ref
+>     recognizes `&ident` operands so `k == &key` derefs BOTH sides
+>     (strcmp(pointee, pointee)). Repro exit 1 -> 0; locks regress_m209 +
+>     e2e_m209; feature 531/531, e2e 2435/0/4. Packages can drop the
+>     never-destructure-a-tuple-ref rule at the next pin.
 > 15. OPEN (packages relay 2026-10-07): `Vec[Struct].clone()` aborts
 >     0xC0000005 on m199..m207 (`docs/repro/struct-clone/`); `io.list_dir`
 >     still broken as "correct count, last name repeated" (dedicated

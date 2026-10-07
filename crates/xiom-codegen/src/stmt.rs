@@ -3159,6 +3159,47 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
             Stmt::Destructure(names, value, _) => {
                 // Value sink: use the value's real LLVM type from compile_expr.
                 let (val, llvm_ty) = self.compile_expr(value)?;
+                // m209 (packages relay 2026-10-07): destructuring a REFERENCE
+                // to a tuple/struct element (`let (k, v) = &vec[i]`) used to
+                // fall to the scalar fallback below, which bound the SAME i64
+                // -- the ptrtoint'd element ADDRESS -- to every name. `k`/`v`
+                // were pointer bits and `k == &key` compared raw addresses, so
+                // metadata lookups silently missed. Deref the reference, GEP
+                // each component and bind its ADDRESS as an i64 reference with
+                // the round-8 `&T` annotation so value uses auto-deref
+                // (see auto_deref_ref, which also handles the `&key` operand).
+                if names.len() > 1 && llvm_ty == "i64" {
+                    let pointee_elem = match value {
+                        Expr::Ref(inner, _) | Expr::MutRef(inner, _) => match inner.as_ref() {
+                            Expr::Index(container, _, _) => self.resolve_vec_elem_type(container),
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    if let Some(elem) = pointee_elem {
+                        let norm = Self::tuple_xiom_to_struct_name(&elem);
+                        if let Ok(s_ty) = self.llvm_type_for(&norm) {
+                            if s_ty.starts_with('%') {
+                                let sptr = self.fresh_tmp();
+                                self.emitln(&format!("  {sptr} = inttoptr i64 {val} to {s_ty}*"));
+                                for (i, name) in names.iter().enumerate() {
+                                    let gep = self.fresh_tmp();
+                                    self.emitln(&format!("  {gep} = getelementptr {s_ty}, {s_ty}* {sptr}, i32 0, i32 {i}"));
+                                    let field_ty = self.field_llvm_type(&norm, i);
+                                    let addr = self.fresh_tmp();
+                                    self.emitln(&format!("  {addr} = ptrtoint {field_ty}* {gep} to i64"));
+                                    let slot = self.fresh_tmp();
+                                    self.emitln(&format!("  {slot} = alloca i64"));
+                                    self.emitln(&format!("  store i64 {addr}, i64* {slot}"));
+                                    let comp_xiom = Self::xiom_type_name_from_llvm(&field_ty);
+                                    self.local.local_xiom_types.insert(name.name.clone(), format!("&{comp_xiom}"));
+                                    self.add_local(&name.name, slot, "i64");
+                                }
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
                 if llvm_ty.starts_with("%struct.") && names.len() > 0 {
                     // Alloca + store the struct value, then GEP to extract each field
                     let alloca_struct = self.fresh_tmp();
