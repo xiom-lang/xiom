@@ -305,6 +305,71 @@
 > fixing (1) alone turns honest UNKNOWNs into FALSE VIOLATEDs -- the sort
 > experiment was reverted and v0.64.0 behavior (honest skips) kept. Design:
 > locals fix + havoc loop summary + unknown-not-violated policy + locks.
+
+> KICKOFF PROMPT (v0.64.1 session, 2026-10-07) -- paste from the marker:
+>
+> Continue the XIOM compiler lane. STATE: v0.64.0 is released
+> (github.com/xiom-lang/xiom/releases/tag/v0.64.0, tag c68d91de); benchmark
+> confirmed R-8 fixed (JIT+AOT), stdlib/registry/packages are consuming the
+> pin (runtime-link + crypto RESOLVED, aws/saml retired). Local main has 5
+> UNPUSHED commits: m197 (Pulse C-PULSE-04 bare &mut read + return gating
+> follow-up), m198 (Pulse C-PULSE-06 incomplete struct literal -> T001),
+> selfhost-status + contracts-emitter docs, ascii repair. Gates on this
+> tree: e2e 2428/0/4, feature 524, checker 197, verifier 39, driver 61 (at
+> m196), parity 5/5 (at the release). Push only when the owner asks.
+>
+> FIX QUEUE (impact order; repros local):
+> 1. C-PULSE-05 -- W005 erased-interface stub on a module-const receiver now
+>    ABORTS 0x80000003 on v0.64.0 (Pulse tests/probes/probe_const_to_str.xi;
+>    call-result receivers work). Keep the const receiver's concrete type.
+> 2. p_rvalue_float_vec_index.xi (stdlib known_failures) -- rvalue
+>    Vec[Float64] index reads raw bits; bound local and Vec[Int] correct;
+>    likely the rvalue element-load path missing the double bitcast.
+> 3. multipart_parse Part fields (root cause ISOLATED): the Ok(out) match
+>    binding keeps the erased Vec type, so out[0] lowers through the runtime
+>    elem-size switch (scalar default) instead of the struct memcpy path.
+>    Preserve the concrete element type on match payload bindings; likely
+>    also clears geom_matrix_result_infer + polyhedra_nested_hull.
+> 4. grpc Vec[(Str, Str)] read-after-mutation crash (packages; both probes
+>    0xC0000005 on v0.64.0; sources at
+>    E:\xiom-packages\packages\packages\xiom-grpc\tests\). m189/m192 do not
+>    cover it.
+> 5. iter Range.count ensures clause -> clang "use of undefined value
+>    (%tmp8)" (re-verified on v0.64.0; smoke_iter + `ensures: result >= 0`).
+> 6. C-PULSE-07 -- module-scope var + cross-package ctor emits a call with
+>    no definition (Pulse docs/repro/module-scope-package-init/).
+> 7. graphql enum-payload Str 9/10 (distinct root cause; minimal repro
+>    pending in packages).
+> 8. C-PULSE-02 -- installed registry deps not mapped to catalog source
+>    roots (`xiom.toml source-roots` workaround); raw --run in a package
+>    dir with a root module outside src/ fails catalog type resolution.
+> 9. Verifier pass (design in COMPILER_BUGS): locals sort lookup + havoc
+>    loop summary + unknown-not-violated policy. Invariant syntax:
+>    `while cond invariant: expr { }`; benchmark annotations wait on this.
+> 10. Tooling: route `xiom doc` through run_tool_dispatch (sibling binary;
+>    XIOM_HOME fallback), accept `-doc`, pass --help through.
+> 11. `--icon` exe icon embedding (Windows .rc -> llvm-rc -> link args).
+>
+> RULES: repro-first; locks per fix (IR + e2e + ci.yml line when adding
+> tests); cargo sequential; never rebuild target/debug during a suite;
+> `python tools/ascii_guard.py check` before every commit; docs coupling
+> (compiler AI_CONTEXT + website docs for new flags); atomic commits; push
+> only on owner ask.
+>
+> SELFHOST (parallel; keep it running): worktree
+> .kilo/worktrees/selfhost-phase-4-codegen, branch selfhost-phase-4-codegen,
+> Agent Manager session ses_ef8e3a27cffeKY1Sz63tGGas2t. State: rebased onto
+> v0.64.0 (2ff1f224, suite 6/6), H5/O1 DONE, Phase 5 (scalar bodies +
+> control flow T3) starting; after any push, rebase onto the new main and
+> keep T1/T2/diff_ir_headers green.
+>
+> TOOLING: XIOM_STDLIB=E:\xiom-lang\stdlib for fresh stdlib probes; stdlib
+> known_failures holds the new repros; Pulse findings at
+> E:\xiom-projects\xiom-pulse\docs\COMPILER-FINDINGS-PULSE.md; packages
+> findings at E:\xiom-packages\packages\docs\COMPILER-FINDINGS.md. Gates:
+> cargo test -p xiom-codegen --test e2e_tests | --test
+> feature_regression_tests | --test full_diff_tests; -p xiom-check; -p
+> xiom-verify; -p xiom --lib.
 > FEATURE REQUEST (Pulse gap, owner question): exe icon embedding for
 > compiled programs. Today the link step passes only /SUBSYSTEM,
 > /STACK:8388608, /Brepro (lib.rs:1517); no `--icon` flag exists. Sketch:

@@ -104,6 +104,45 @@ archive; R-8 stays in the language-correctness wave.
 
 ---
 
+## 2026-10-07 -- OPEN (packages/Pulse/stdlib relay bundle): new findings recorded
+
+New reports since v0.64.0 (repro paths local unless noted):
+
+1. GRPC `Vec[(Str, Str)]` read-after-mutation (packages, still RED on
+   v0.64.0; m192 did NOT clear it): `probe_suite_min.xi` and
+   `probe_direct.xi` both exit `0xC0000005` (reproduced locally from
+   `E:\xiom-packages\packages\packages\xiom-grpc\tests\`). Reading
+   `req.metadata[0].0` after `grpc_metadata_set` crashes; m189/m192 do not
+   cover it. grpc stays unpublished.
+2. GraphQL enum-payload `Str` 9/10 (packages): `GraphQLSelection.Field(...)
+   .name` reads `|0|`; standalone shapes pass; distinct root cause from
+   C001/m185/m189. Minimal repro still pending.
+3. C-PULSE-07 (Pulse, OPEN on v0.64.0): a module-scope `var` initialized by
+   a cross-package constructor (`var b = rate_keyed_new(1, 1);`) is accepted
+   but emits `call i64 @rate_keyed_new(...)` with no definition -> clang
+   "use of undefined value"; larger case AV'd during module init. Repro:
+   Pulse `docs/repro/module-scope-package-init/probe.xi`.
+4. `p_rvalue_float_vec_index.xi` (stdlib known_failures, OPEN): indexing the
+   RVALUE of a `Vec[Float64]`-returning call (`mk_f()[0]`) reads the raw
+   bits while a bound local reads correctly; `Vec[Int]` rvalue indexing is
+   correct. Broke `xiom.stats.moments.quantile` q=0/q=1. Likely the rvalue
+   element-load path missing the double bitcast.
+5. Range.count ensures-clause retry (stdlib, re-verified on v0.64.0):
+   adding even `ensures: result >= 0` to `Range.count` makes `smoke_iter`
+   fail with clang "use of undefined value (%tmp8)" -- the closure-lowering
+   clause path remains compiler-blocked; clause reverted, deferred.
+6. TOOLING (owner-reported): `xiom doc <file>` resolves
+   `XIOM_HOME/bin/xiom-doc.exe` (on this host XIOM_HOME points at the stale
+   `...\xiom` dir) instead of the SIBLING binary the way fmt/lsp/mcp/pkg/
+   dbg/verify/ffigen do, so it prints the cargo hint although `xiom-doc.exe`
+   ships in the install; `xiom -doc` (single dash) is not recognized at all
+   and falls through to the normal compile/IR path; `xiom doc --help` hits
+   the main --help first. Queued fix: route doc through `run_tool_dispatch`
+   (sibling first, XIOM_HOME fallback), accept `-doc`, and pass --help
+   through.
+
+---
+
 ## 2026-10-05 -- OPEN (design recorded): verifier locals have no sort + one-step loop encoding (contracts coverage)
 
 Benchmark contracts ask (loop-invariant syntax + emitter coverage).
