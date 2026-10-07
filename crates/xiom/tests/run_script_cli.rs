@@ -205,6 +205,61 @@ fn ux_bare_compile_hints_run_on_stderr() {
     );
 }
 
+// m208 (perf regression, 2026-10-07): plain `xiom run --jit <same source>`
+// must serve the script cache on hit again. The 2026-10-05 gate
+// (`!use_jit || jit_reuse`) made every benchmark JIT sample re-run the full
+// compile+JIT pipeline: v0.62.3's scripting lane measured 35-45ms, the
+// gated lane ~1900ms+. A hit prints neither `compiled:` nor `JIT exit code`.
+// `--no-cache` remains the explicit cold switch (covered by the same
+// fixture's first run + the cold assertions in the perf docs).
+#[test]
+fn m208_jit_serves_script_cache_on_hit() {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("tests")
+        .join("regression")
+        .join("m208_jit_cache_hit")
+        .join("main.xi");
+
+    // Populate the script cache through the plain run path.
+    let warm = Command::new(xiom_bin())
+        .arg("run")
+        .arg(&fixture)
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn '{}': {e}", xiom_bin()));
+    let warm_err = String::from_utf8_lossy(&warm.stderr).into_owned();
+    if !warm.status.success() && (warm_err.contains("os error 225") || warm_err.contains("contains a virus")) {
+        return; // Defender blocks freshly built %TEMP% exes on this dev box
+    }
+    assert!(
+        warm.status.success() || warm_err.contains("compiled:"),
+        "warm-up run must reach codegen; exit={:?}\nstderr:\n{warm_err}",
+        warm.status.code()
+    );
+
+    // Second run with --jit: same source content, must hit the cache.
+    let jit = Command::new(xiom_bin())
+        .arg("run")
+        .arg("--jit")
+        .arg(&fixture)
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn '{}': {e}", xiom_bin()));
+    let jit_err = String::from_utf8_lossy(&jit.stderr).into_owned();
+    if jit_err.contains("os error 225") || jit_err.contains("contains a virus") {
+        return; // cached-exe launch blocked locally; CI (Linux) covers it
+    }
+    assert!(
+        !jit_err.contains("JIT exit code") && !jit_err.contains("compiled:"),
+        "`xiom run --jit` on a warm cache must replay the cached build, not recompile (m208); stderr:\n{jit_err}"
+    );
+    let jit_out = String::from_utf8_lossy(&jit.stdout);
+    assert!(
+        jit_out.contains("m208-jit-cache"),
+        "the cached replay must produce the program output (m208); stdout:\n{jit_out}"
+    );
+}
+
 // m204 (C-PULSE-07, Pulse relay): a module-level `var` initialized by a
 // cross-module constructor call must emit the callee body. Pre-fix the
 // checker's reachability filter ignored TopDecl::Const initializers, so the

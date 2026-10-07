@@ -299,10 +299,31 @@ ladder. Gate P acceptance lives in `docs/RELEASE_GATE_v0.62.3.md`.
      before skipping bodies; alternatively investigate `xiom.math` body
      check directly (671 lines / 61 fns for 0.68s). `-e` fast path;
      remaining index walk/stat cost (~0.3-0.5s).
-   - Persistent CHECK cache for stdlib modules keyed by source hash +
-     compiler identity + config (same identity scheme as `xiom::jit`
-     script cache): skip re-checking the injected catalog graph; pair
-     with a per-module IR/object cache for the codegen side.
+    - REGRESSION FIXED (2026-10-07, v0.64.1): plain `xiom run --jit` serves
+      the script cache on hit AGAIN. The 2026-10-05 `(!use_jit || jit_reuse)`
+      gate made every JIT-lane sample re-run the full pipeline; the v0.62.3
+      scripting session (`run_1791053692625`, t6) measures the regression
+      precisely: xiom-run 32ms / xiom-run-jit 45ms / xiom-run-aot 36ms /
+      xiom-run-cache 26ms (all double-digit) vs ~1900-8500ms per JIT sample
+      on the gated tree. `--no-cache` remains the explicit cold switch (C25);
+      `--jit --cache` keeps AOT-compile+cache on miss (scored reuse lane).
+      Local t6 template (release, warm caches): `--jit` hit 55-60ms,
+      `--jit --cache` hit 80ms, `--jit --no-cache` 1.39s, cold AOT
+      (`--no-cache`) 1.66s. Lock:
+      `m208_jit_serves_script_cache_on_hit` (crates/xiom/tests/run_script_cli.rs).
+    - STILL OPEN -- the COLD lanes (`xiom-run-aot`, and any `--no-cache`
+      measurement): true cold AOT/JIT is clang+check-bound. Local profile on
+      the t6 template / smoke (release): index 0.44-0.67s, check 1.25-1.49s
+      (catalog-bodies 0.62 + check-bodies 0.80), borrow+codegen 0.2-0.3s,
+      emitted IR 668KB / 17k lines / 222 fns, `clang -c -O2` 0.86s, link
+      ~0.6s. Opt level barely matters (-O0 3.03s vs -O2 3.24s wall); the
+      cost is compiling the whole stdlib graph every run. Double-digit-ms
+      cold needs the separate-compilation/precompiled-stdlib slice below
+      (or the benchmark lanes using `--cache`), NOT micro-tuning.
+    - Persistent CHECK cache for stdlib modules keyed by source hash +
+      compiler identity + config (same identity scheme as `xiom::jit`
+      script cache): skip re-checking the injected catalog graph; pair
+      with a per-module IR/object cache for the codegen side.
    - Separate compilation: link precompiled stdlib objects instead of
      re-emitting the graph; ship a precompiled stdlib in the release
      archive, generated on install from the pinned source.

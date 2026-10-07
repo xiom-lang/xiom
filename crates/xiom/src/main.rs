@@ -1659,10 +1659,15 @@ fn real_main() {
 
         // M10: Check script cache for instant re-run
         let script_cache_level = xiom::jit::effective_opt_level(script_opt_level, false);
-        // C25: `--jit` must not execute a cached binary just to discard it.
-        // 2026-10-05: EXCEPT when `--cache` is explicit (`--jit --cache`) --
-        // that lane wants reuse, not a cold JIT per sample.
-        if !no_cache && (!use_jit || jit_reuse) {
+        // Perf regression fix (2026-10-07, v0.64.1): plain `--jit` serves the
+        // script cache on hit AGAIN. The 2026-10-05 gate
+        // (`!use_jit || jit_reuse`) made every `xiom run --jit <same source>`
+        // sample re-run the full compile+JIT pipeline: the benchmark
+        // scripting lane measured 35-45ms across v0.62.3 and ~1900-8500ms
+        // after the gate. `--no-cache` stays the explicit cold switch (C25),
+        // and a cache MISS still falls through to the true JIT below (or to
+        // AOT-compile+cache for `--jit --cache`, the scored reuse lane).
+        if !no_cache {
             if let Some(cached) = xiom::jit::script_cache_get(&source, script_cache_level) {
                 // C25: Command::output() defaults the child's stdin to NULL,
                 // so a warm cache served `[]` where the cold run read the
@@ -1672,7 +1677,7 @@ fn real_main() {
                     .stdin(std::process::Stdio::inherit())
                     .output();
                 if let Ok(out) = output {
-                    if out.status.success() && (!use_jit || jit_reuse) {
+                    if out.status.success() {
                         let stdout = String::from_utf8_lossy(&out.stdout);
                         if !stdout.is_empty() { print!("{stdout}"); }
                         return;
@@ -1681,9 +1686,10 @@ fn real_main() {
             }
         }
 
-        // M10.1d: True JIT execution for `--jit` WITHOUT explicit cache reuse.
-        // (`--jit --cache` is owned by the cache path above: hit -> run the
-        // cached build; miss -> fall through and AOT-compile+cache below.)
+        // M10.1d: True JIT execution for `--jit` on a cache MISS (or with
+        // `--no-cache`). A hit is served by the cache path above.
+        // (`--jit --cache` is owned by the cache path: hit -> run the cached
+        // build; miss -> fall through and AOT-compile+cache below.)
         if use_jit && !jit_reuse {
             match xiom::jit::jit_execute(&source) {
                 Ok(code) => { eprintln!("  JIT exit code: {code}"); return; }

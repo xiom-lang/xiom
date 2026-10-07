@@ -396,6 +396,22 @@
 > checker typing gap ("cannot compare <error> with Int") -- separate
 > from m204.
 
+> PERF (2026-10-07, v0.64.1): JIT-lane regression FIXED (m208). The
+> 2026-10-05 `--jit` cache gate made the benchmark's xiom-run-jit lane
+> ~1900-8500ms per sample; v0.62.3 (scripting session
+> run_1791053692625, t6) measured run/jit/aot/cache =
+> 32/45/36/26ms. Plain `--jit` again serves the script cache on hit
+> (~55-60ms local on the t6 template; `--jit --cache` 80ms);
+> `--no-cache` stays the true cold switch (`--jit --no-cache` 1.39s,
+> cold AOT 1.66s locally). Lock: m208_jit_serves_script_cache_on_hit.
+> NOTE on the AOT lane: if the harness runs it with `--no-cache`,
+> v0.62.3's 36ms came from the pre-C25 dead-cache bug -- true cold is
+> clang/check-bound (index ~0.5s, check ~1.3s, clang 0.86s on the 668KB
+> emitted IR, link ~0.6s) and needs the STAGE6 separate-compilation
+> slice; profile recorded in STAGE6_PERF_PLAN item 1. Also: t3
+> hot-reload stays ~223ms system-arena (per-iteration confined-unsafe
+> trampoline, attributed 2026-10-05; hoist/variant runs 25-29ms).
+
 > KICKOFF PROMPT (v0.64.1 session, 2026-10-07) -- paste from the marker:
 >
 > Continue the XIOM compiler lane. STATE: v0.64.0 is released
@@ -462,6 +478,13 @@
 >     read 'build'" -- resolve_source_files did not skip the `build`
 >     subcommand token. Fixed (positional-sugar skip + exists() guard);
 >     `xiom build` verified end-to-end; lock m207_build_subcommand.
+> 13. PERF (open): true-cold AOT/JIT is clang+check-bound; double-digit-ms
+>     cold needs STAGE6 item 1 separate compilation / precompiled stdlib
+>     objects (check cache + per-module IR/object cache + parallel codegen
+>     wiring). m208 fixed the JIT lane's cache reuse; profile + numbers in
+>     STAGE6_PERF_PLAN item 1. Also confirm the benchmark's xiom-run-aot
+>     lane flags (if it passes --no-cache, its v0.62.3 fast numbers were
+>     the pre-C25 dead-cache bug).
 >
 > RULES: repro-first; locks per fix (IR + e2e + ci.yml line when adding
 > tests); cargo sequential; never rebuild target/debug during a suite;
