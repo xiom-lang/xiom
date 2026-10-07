@@ -324,7 +324,14 @@
 > through callee_return_xiom, so the read bit-reinterprets (all three sites
 > bitcast i64->double, no sitofp). Probe rc 1 -> 0; locks
 > regress_m200_rvalue_float_vec_index_bits + e2e_m200 + fixture; CI line.
-> Next: multipart match-binding (concrete Vec element type on Ok payload).
+> m201 FIXED -- multipart match-binding: the `Ok(out)` payload binding
+> recorded the Vec element type only for i64 handle bindings, so the
+> %struct.Vec alias shape fell to the runtime elem-size switch (scalar
+> default; Part fields -1). local_vec_elem is now set for that shape too;
+> multipart rc 1 -> 0, and the same class clears
+> p_geom_matrix_result_infer + p_polyhedra_nested_hull (both rc 0).
+> Locks: regress_m201 (IR) + e2e_m201 + fixture; CI line; feature 527/527.
+> Next: grpc Vec[(Str, Str)] read-after-mutation (packages probes).
 
 > KICKOFF PROMPT (v0.64.1 session, 2026-10-07) -- paste from the marker:
 >
@@ -351,11 +358,12 @@
 >    correct; likely the rvalue element-load path missing the double
 >    bitcast. Fixed in vec_elem_float_type (Call/GenericCall containers via
 >    callee_return_xiom); probe rc 1 -> 0; locks regress_m200 + e2e_m200.
-> 3. multipart_parse Part fields (root cause ISOLATED): the Ok(out) match
->    binding keeps the erased Vec type, so out[0] lowers through the runtime
->    elem-size switch (scalar default) instead of the struct memcpy path.
->    Preserve the concrete element type on match payload bindings; likely
->    also clears geom_matrix_result_infer + polyhedra_nested_hull.
+> 3. [DONE m201] multipart_parse Part fields: the Ok(out) match binding kept
+>    the erased Vec type, so out[0] lowered through the runtime elem-size
+>    switch (scalar default) instead of the struct memcpy path. Concrete
+>    element type now preserved on match payload bindings (local_vec_elem);
+>    multipart rc 1 -> 0; also clears geom_matrix_result_infer +
+>    polyhedra_nested_hull (both rc 0). Locks regress_m201 + e2e_m201.
 > 4. grpc Vec[(Str, Str)] read-after-mutation crash (packages; both probes
 >    0xC0000005 on v0.64.0; sources at
 >    E:\xiom-packages\packages\packages\xiom-grpc\tests\). m189/m192 do not

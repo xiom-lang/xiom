@@ -5870,6 +5870,16 @@ fn e2e_safety_probe() {
     );
 }
 
+// m201 (stdlib p_multipart_parse_name): a match-bound Result[Vec[Struct], _]
+// payload must keep the concrete Vec element type (struct memcpy reads).
+#[test] fn e2e_m201_match_payload_vec_elem() {
+    assert_eq!(
+        compile_and_run("tests/regression/m201_match_payload_vec_elem/main.xi"),
+        Some(0),
+        "match-bound Vec[Struct] payloads must read their fields (m201)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

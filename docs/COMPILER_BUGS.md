@@ -309,36 +309,47 @@ feature 525/525.
 
 ---
 
-## 2026-10-05 -- OPEN (root cause isolated): multipart_parse Part fields corrupt (erased Vec element type on match binding)
+## 2026-10-07 -- FIXED: multipart_parse Part fields corrupt (erased Vec element type on match binding, m201)
 
-Stdlib probe `tools/known_failures/p_multipart_parse_name.xi` (rc 1) is
-REPRODUCED locally with the sibling stdlib head. `out[0].name` prints `0`
-with `.len() == -1`; `out[0].filename/content_type/data` all read -1; a
+Stdlib probe `tools/known_failures/p_multipart_parse_name.xi` (rc 1 on the
+pin) reproduced locally with the sibling stdlib head. `out[0].name` printed
+`0` with `.len() == -1`; `out[0].filename/content_type/data` all read -1; a
 directly constructed `parts[0]` reads `"f"` correctly; `out.len() == 1` is
 correct.
 
-ROOT CAUSE (IR evidence, `tmp/contracts/known/multipart_dbg.ll`):
+ROOT CAUSE (IR evidence, `tmp/pulse05/multipart.ll` pre-fix):
 - `multipart_parse` returns `Result[Vec[Part], Str]`; the callee boxes the Ok
   Vec (`malloc(sizeof(Vec))`, pointer in payload field 1) -- caller and
   callee agree on that ABI.
 - The caller's DIRECT read of `parts[0]` (concrete `Vec[Part]` local) uses
   the compile-time elem size 56 + `memcpy` of a `%struct.Part` -- CORRECT.
-- The read of the match-bound `out[0]` instead emits a RUNTIME elem-size
+- The read of the match-bound `out[0]` instead emitted a RUNTIME elem-size
   switch (`extractvalue %struct.Vec, 3` then `switch i64 56` -> default
   `elem_load` = `load i64`). The switch only has cases 1/2/4 and defaults to
-  an i64 scalar load, so a struct element (56 B) is read as an integer; the
-  `.name` field access then compiles to `inttoptr i64 0` / `xiom_int_to_string(0)`.
-  i.e. the `Ok(out)` match binding kept only the erased `Vec` type, losing
-  the concrete element type (`Vec[Part]`) the checker had.
+  an i64 scalar load, so a struct element (56 B) was read as an integer; the
+  `.name` field access then compiled to `inttoptr i64 0`.
+- At the binding site (stmt.rs payload binding), the `declared` payload
+  "Vec[Part]" was known, but the element type was recorded ONLY for i64
+  HANDLE bindings (`local_vec_handle`, `bind_ty_inner == "i64"`); the
+  `%struct.Vec` alias shape (boxed header bound by address) recorded neither
+  map, so the Index handler found no element type.
 
-NEXT STEP: preserve the concrete element type when lowering/registering
-match-arm payload bindings (the checker's `out: Vec[Part]` must reach the
-codegen local-type map used by indexing), OR make the runtime elem-size
-switch's fallback yield the element ADDRESS for sizes outside 1/2/4/8 -- the
-former is the principled fix and likely also covers the matrix
-result-inference and polyhedra probes (same erased-generic-value class).
-Locks to add with the fix: e2e `p_multipart_parse_name` shape +
-`out[0].data.len()` and a `Result[Vec[Struct], Str]` IR fixture.
+FIX (m201): the payload binding now records the declared `Vec[T]` element in
+`local_vec_elem` for the `%struct.Vec` ABI shape (and keeps `local_vec_handle`
+for the i64 handle shape), after clearing both maps for shadowing. `out[0]`
+then takes the struct memcpy path.
+
+EVIDENCE: multipart probe rc 1 -> 0; IR now `memcpy` + `load %struct.Part`
+for each payload read, no runtime elem-size switch. Same-class probes also
+turn green on the same fix: `p_geom_matrix_result_infer.xi` rc 0 and
+`p_polyhedra_nested_hull.xi` rc 0 (`p_geom_box_unnameable.xi` stays T001 --
+distinct checker issue).
+
+LOCKS: `regress_m201_match_payload_vec_elem` (IR: >= 2 `load %struct.Part`,
+no `switch i64`), e2e `e2e_m201_match_payload_vec_elem` +
+`tests/regression/m201_match_payload_vec_elem/main.xi` (self-contained
+Result[Vec[Part], Str] shape), CI line. Red-before verified (pre-fix fixture
+program exit code 1, scalar switch dispatch).
 
 ---
 

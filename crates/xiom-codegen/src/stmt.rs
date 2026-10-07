@@ -2850,11 +2850,19 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                 // Vec[T] payloads bound as i64 handles are registered
                                 // for handle deref; a %struct.Vec binding needs no
                                 // handle registration (all consumers use it directly).
+                                // multipart fix (m201): the ELEMENT type must be
+                                // recorded for BOTH ABI shapes -- `Ok(out)` -> `out[0]`
+                                // otherwise fell to the runtime elem-size switch
+                                // (scalar i64 default) and read a struct slot as an
+                                // integer (multipart Part fields -1, rc 1).
                                 self.local.local_vec_handle.remove(&ident.name);
-                                if bind_ty_inner == "i64" {
-                                    if let Some(decl_ty) = declared.as_deref() {
-                                        if let Some(elem) = decl_ty.strip_prefix("Vec[").and_then(|s| s.strip_suffix(']')) {
+                                self.local.local_vec_elem.remove(&ident.name);
+                                if let Some(decl_ty) = declared.as_deref() {
+                                    if let Some(elem) = decl_ty.strip_prefix("Vec[").and_then(|s| s.strip_suffix(']')) {
+                                        if bind_ty_inner == "i64" {
                                             self.local.local_vec_handle.insert(ident.name.clone(), elem.to_string());
+                                        } else {
+                                            self.local.local_vec_elem.insert(ident.name.clone(), elem.to_string());
                                         }
                                     }
                                 }

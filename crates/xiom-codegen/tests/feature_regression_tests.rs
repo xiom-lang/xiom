@@ -7009,3 +7009,44 @@ fn main() -> Int {
         "m200: the rvalue float element must not be sitofp'd; got:\n{ir}"
     );
 }
+
+// m201 (stdlib p_multipart_parse_name): a match-bound Result[Vec[Struct], _]
+// payload must keep the concrete Vec ELEMENT type. Pre-fix `Ok(out)` recorded
+// no element type for the %struct.Vec ABI shape, so `out[0]` fell to the
+// runtime elem-size switch (scalar i64 default) and every struct field read
+// garbage (multipart Part fields -1, rc 1).
+#[test]
+fn regress_m201_match_payload_vec_elem() {
+    let source = r#"
+type Part = {
+  name: Str;
+  value: Str;
+}
+fn mk() -> Result[Vec[Part], Str] {
+  var v = Vec[Part].new();
+  v.push(Part{ name: "f", value: "v" });
+  return Ok(v);
+}
+fn main() -> Int {
+  match mk() {
+    Ok(out) => {
+      if out.len() != 1 { return 2; }
+      return out[0].name.len();
+    },
+    Err(_) => { return 3; },
+  }
+}
+"#;
+    let ir = compile(source).expect("m201: match payload Vec[Part] must compile");
+    // Pre-fix the payload read was the runtime elem-size switch + scalar load
+    // (ctor load only); the fix adds the struct memcpy read (>= 2 loads).
+    let part_loads = ir.matches("load %struct.Part").count();
+    assert!(
+        part_loads >= 2,
+        "m201: the payload struct read must load %struct.Part (ctor + read); got {part_loads} in:\n{ir}"
+    );
+    assert!(
+        !ir.contains("switch i64"),
+        "m201: no runtime elem-size dispatch may remain for a known struct element; got:\n{ir}"
+    );
+}
