@@ -5848,6 +5848,18 @@ fn e2e_safety_probe() {
     );
 }
 
+// m199 (Pulse C-PULSE-05): a method call on a module-level `const` receiver
+// must keep the const's concrete type. Pre-fix the receiver was dropped for
+// `const ... : Int` and the call lowered to the erased-interface `@to_str()`
+// typed stub (W005 -> empty render; v0.64.0 aborted 0x80000003).
+#[test] fn e2e_m199_const_receiver_method_dispatch() {
+    assert_eq!(
+        compile_and_run("tests/regression/m199_const_receiver_to_str/main.xi"),
+        Some(0),
+        "const receivers must dispatch with their concrete type (m199)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

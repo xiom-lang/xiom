@@ -306,6 +306,20 @@
 > experiment was reverted and v0.64.0 behavior (honest skips) kept. Design:
 > locals fix + havoc loop summary + unknown-not-violated policy + locks.
 
+> COMPILER LANE (2026-10-07, v0.64.1 batch): m199 FIXED -- Pulse C-PULSE-05:
+> module-const receivers (`const SCHEMA_VERSION: Int = 1`) were classified as
+> module paths (receiver_is_instance knew only locals + mutable globals), so
+> `SCHEMA_VERSION.to_str()` dropped the receiver and lowered to the erased
+> `@to_str()` W005 stub -- empty render on v0.63.1, 0x80000003 abort on
+> v0.64.0 (probe `probe_const_to_str.xi`). Fix: constants count as values;
+> immutable consts record their declared XIOM type in global_xiom_types
+> (bare + qualified, mirroring the mutable BUG 29 pass); deep inference
+> consults it. Probe green (const-to-str=[41]); matrix const
+> Int/Str/Float64/Bool to_str + .eq/.lt green. Locks:
+> regress_m199_const_receiver_keeps_type (IR, no @to_str),
+> e2e_m199_const_receiver_method_dispatch + fixture; CI line; feature
+> 525/525. Next: p_rvalue_float_vec_index.
+
 > KICKOFF PROMPT (v0.64.1 session, 2026-10-07) -- paste from the marker:
 >
 > Continue the XIOM compiler lane. STATE: v0.64.0 is released
@@ -319,9 +333,13 @@
 > m196), parity 5/5 (at the release). Push only when the owner asks.
 >
 > FIX QUEUE (impact order; repros local):
-> 1. C-PULSE-05 -- W005 erased-interface stub on a module-const receiver now
->    ABORTS 0x80000003 on v0.64.0 (Pulse tests/probes/probe_const_to_str.xi;
->    call-result receivers work). Keep the const receiver's concrete type.
+> 1. [DONE m199] C-PULSE-05 -- W005 erased-interface stub on a module-const
+>    receiver now ABORTS 0x80000003 on v0.64.0 (Pulse
+>    tests/probes/probe_const_to_str.xi; call-result receivers work). Keep
+>    the const receiver's concrete type. Consts are values
+>    (receiver_is_instance + constants), declared XIOM type recorded in
+>    global_xiom_types, deep inference consults it; probe + matrix green;
+>    locks regress_m199 + e2e_m199; feature 525/525.
 > 2. p_rvalue_float_vec_index.xi (stdlib known_failures) -- rvalue
 >    Vec[Float64] index reads raw bits; bound local and Vec[Int] correct;
 >    likely the rvalue element-load path missing the double bitcast.

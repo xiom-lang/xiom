@@ -407,7 +407,12 @@ impl IrEmitter {
     pub(crate) fn infer_expr_xiom_type_deep(&self, expr: &Expr) -> Option<String> {
         match expr {
             Expr::Paren(inner, _) => self.infer_expr_xiom_type_deep(inner),
-            Expr::Ident(id) => self.xiom_type_of_local(&id.name),
+            // C-PULSE-05: module-level consts/globals carry their declared XIOM
+            // type in global_xiom_types; fall back to it so `const V: Int = 41;
+            // V.to_str()` (and Str/Float/Bool consts) pick the right conversion.
+            Expr::Ident(id) => self
+                .xiom_type_of_local(&id.name)
+                .or_else(|| self.local.global_xiom_types.get(&id.name).cloned()),
             // m148b: struct literals carry their named type -- needed by
             // `match Some(Cell{ n: 9 }) { Some(t) => t.n }` (temporary
             // scrutinees) so the arm binding dereferences the boxed payload.

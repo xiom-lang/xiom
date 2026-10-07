@@ -5978,6 +5978,13 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     // (`var _coverage: Map[Str, Bool]`) is a VALUE -- generic
                     // method calls on it must pass the receiver instance.
                     || self.local.module_globals.contains_key(&ident.name)
+                    // C-PULSE-05: an immutable module-level `const` (substituted
+                    // from self.local.constants) is a VALUE too. Without this,
+                    // `SCHEMA_VERSION.to_str()` on a `const ... : Int` was
+                    // classified as a module path, the receiver was dropped and
+                    // the call lowered to an erased `@to_str()` stub (W005,
+                    // empty render / abort).
+                    || self.local.constants.contains_key(&ident.name)
             }
             // `a.b`: instance iff its base chain is rooted in a value (local/self),
             // e.g. `obj.field`. A module path like `xiom.char` is rooted in `xiom`

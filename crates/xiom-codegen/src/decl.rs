@@ -598,6 +598,17 @@ impl IrEmitter {
                 // `internal constant` global (one per module) instead of
                 // re-materializing the table at every read site.
                 self.try_register_const_array_global(cd, &evaluated);
+                // C-PULSE-05: also record the DECLARED XIOM type of the const
+                // (bare + module-qualified) so method dispatch on a const
+                // receiver sees its concrete type (`const V: Int = 41;
+                // V.to_str()`) instead of the erased i64 default. Mirrors the
+                // mutable-global pass above (BUG 29).
+                if let Some(xiom_ty) = Self::type_from_ast_with_args_opt(&cd.ty) {
+                    self.local.global_xiom_types.insert(cd.name.name.clone(), xiom_ty.clone());
+                    if let Some(ref m) = self.local.current_module {
+                        self.local.global_xiom_types.insert(format!("{m}.{}", cd.name.name), xiom_ty);
+                    }
+                }
                 self.local.constants.insert(cd.name.name.clone(), evaluated);
             }
         }

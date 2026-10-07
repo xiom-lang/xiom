@@ -243,16 +243,39 @@ it. Borrow cluster 20/20, feature 524/524, full e2e 2427/0/4.
 
 ---
 
-## 2026-10-05 -- OPEN: W005 erased-interface stub fires for module-const receivers (Pulse C-PULSE-05)
+## 2026-10-07 -- FIXED: W005 erased-interface stub fired for module-const receivers (Pulse C-PULSE-05, m199)
 
 Pulse relay: `SCHEMA_VERSION.to_str()` -- where SCHEMA_VERSION is a module
-constant -- hits the W005 erased-interface auto-stub and silently renders an
-empty string, producing invalid JSON on disk; call-result receivers in the
-same module compile correctly. Workaround: `convert.int_to_string(...)`.
-Next: keep the receiver's concrete primitive type in the erased-interface /
-W005 stub path for module-const receivers; lock an e2e (`const N: Int = 5;
-N.to_str()`) plus an IR assertion that the stub does not replace the
-builtin. Scheduled for v0.64.1 (relayed from Pulse; not part of v0.64.0).
+constant -- hit the W005 erased-interface auto-stub: v0.63.1 silently rendered
+an empty string (invalid JSON on disk); v0.64.0 aborted 0x80000003.
+
+ROOT CAUSE (IR evidence, tmp/pulse05/probe.ll pre-fix): the receiver was
+dropped entirely -- `%tmp4 = call i64 @to_str()` with zero args, then the W005
+typed stub `define i64 @to_str() { ret i64 0 }` answered 0; the NULL Str
+handle aborted in the runtime concat. `receiver_is_instance` treats a bare
+Ident as a VALUE only if it is a bound local (lookup_local) or a mutable
+module global (module_globals); immutable module `const`s live only in
+`constants` (substituted literals), so `V` was classified as a module path and
+the to_str operand became `args.first()` = None. Call-result receivers
+(`f().to_str()`) were unaffected.
+
+FIX (m199): (1) `constants.contains_key(name)` counts as an instance in
+`receiver_is_instance`; (2) immutable consts now record their declared XIOM
+type in `global_xiom_types` (bare + module-qualified, mirroring the
+mutable-global BUG 29 pass); (3) `infer_expr_xiom_type_deep` falls back to
+`global_xiom_types` so Str/Float/Bool consts pick the right conversion instead
+of the erased i64 default.
+
+EVIDENCE: Pulse probe now `const-to-str=[41]` + `[PASS]`, no W005; IR is
+`%tmp4 = call i8* @xiom_int_to_string(i64 41)` and no `@to_str` anywhere.
+Matrix probe (const Int/Str/Float64/Bool receivers, `to_str`/`to_string`,
+`.eq`/`.lt`): exit 0.
+
+LOCKS: `regress_m199_const_receiver_keeps_type` (IR:
+`@xiom_int_to_string(i64 41)`, no `@to_str`), e2e
+`e2e_m199_const_receiver_method_dispatch` +
+`tests/regression/m199_const_receiver_to_str/main.xi`, CI line. Gates:
+feature 525/525.
 
 ---
 

@@ -6956,3 +6956,28 @@ fn main() -> Int {
         "m197: the pointee must be loaded; got:\n{ir}"
     );
 }
+
+// m199 (Pulse C-PULSE-05): a method call on a module-level `const` receiver
+// keeps the const's concrete type -- `VI.to_str()` lowers to the integer
+// conversion at the call site, NOT the erased-interface `@to_str()` typed stub
+// (pre-fix the receiver was dropped and W005 answered an empty string).
+#[test]
+fn regress_m199_const_receiver_keeps_type() {
+    let source = r#"
+const VI: Int = 41;
+fn main() -> Int {
+  var out: Int = 0;
+  if VI.to_str() == "41" { out = 1; }
+  return out;
+}
+"#;
+    let ir = compile(source).expect("m199: const receiver to_str must compile");
+    assert!(
+        ir.contains("@xiom_int_to_string(i64 41)"),
+        "m199: a const Int receiver must lower to the integer conversion; got:\n{ir}"
+    );
+    assert!(
+        !ir.contains("@to_str"),
+        "m199: no erased @to_str call/stub may be emitted; got:\n{ir}"
+    );
+}
