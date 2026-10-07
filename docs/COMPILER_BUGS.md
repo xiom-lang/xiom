@@ -164,9 +164,30 @@ New reports since v0.64.0 (repro paths local unless noted):
    `refeq=0`, `cmp=0`, `resp.len=1`; `grpc_metadata_get` returned None for a
    present key and `set` appended duplicates). Workaround in packages: read
    tuple components directly; only the 2 grpc sites used the shape (both
-   rewritten; suite 36/36 x2). Fix direction: the tuple-destructure
-   binding over a reference target must load/bind the COMPONENTS (or their
-   references), never pass the container/reference bits as each element.
+   rewritten; suite 36/36 x2).
+
+   ROOT CAUSE, LOCALIZED + PARTIALLY FIXED THIS SESSION (candidate patch
+   reverted; needs the second half):
+   - `Stmt::Destructure`'s scalar fallback (`zero_val_for` branch,
+     stmt.rs ~3179) binds the SAME i64 -- the `&vec[i]` reference
+     (ptrtoint'd element address) -- to every name; `k`/`v` are pointer bits
+     and `k == &key` compares raw addresses. Repro:
+     `tmp/pulse05/tuple_ref_destructure.xi` (exit 1; IR
+     `tmp/pulse05/tuple_ref.ll`).
+   - A candidate fix (inttoptr the reference, GEP each component, bind the
+     component ADDRESS as an i64 ref and record `local_xiom_types[k] =
+     "&Str"` -- the round-8 convention) made `k` a correct ref
+     (`tmp/pulse05/tuple_ref2.ll`: `inttoptr -> gep field 0 -> ptrtoint`,
+     and the comparison derefs k once). It still fails end-to-end because
+     the RHS `&key` (key: Str param) lowers to `ptrtoint <key-slot>` and the
+     Eq path derefs only the `&Str`-annotated side: `strcmp(pointee(k),
+     inttoptr(key-slot-addr to i8*))` compares the string against the slot
+     BYTES. The reference-comparison path needs SYMMETRIC deref for `&T`
+     operands (compile_expr(Ref) / Eq decision in expr.rs) before the
+     destructure fix can land.
+   - Locks to add with the final fix: an e2e over
+     `tmp/pulse05/tuple_ref_destructure.xi` shape + an IR assertion that the
+     binding GEPs components and the comparison derefs both refs.
 8. [RE-CONFIRMED OPEN, 2026-10-07 packages relay] `Vec[Struct].clone()`
    is still RED on compiler main m199..m207: `probe_struct_clone.xi`
    (`docs/repro/struct-clone/`) aborts `0xC0000005` while the no-clone

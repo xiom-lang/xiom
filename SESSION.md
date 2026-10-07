@@ -487,8 +487,12 @@
 >     the pre-C25 dead-cache bug).
 > 14. OPEN (packages relay 2026-10-07): `let (k, v) = &vec[i]` over
 >     `Vec[(Str, Str)]` yields pointer-like values (silent lookup misses;
->     direct component reads are correct). Repro row in the COMPILER_BUGS
->     relay bundle #7; only grpc used the shape (rewritten, 36/36 x2).
+>     direct component reads are correct). LOCALIZED: Stmt::Destructure's
+>     scalar fallback binds the same ptrtoint'd element address to every
+>     name; candidate fix (GEP components, bind refs + "&T" annotation)
+>     works for `k` but `&key` compares asymmetrically (slot bytes vs
+>     pointee) -- the Eq path needs symmetric `&T` deref. Patch reverted;
+>     full analysis + repro paths in COMPILER_BUGS relay bundle #7.
 > 15. OPEN (packages relay 2026-10-07): `Vec[Struct].clone()` aborts
 >     0xC0000005 on m199..m207 (`docs/repro/struct-clone/`); `io.list_dir`
 >     still broken as "correct count, last name repeated" (dedicated
