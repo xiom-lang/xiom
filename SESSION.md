@@ -415,6 +415,18 @@
 > slice; profile recorded in STAGE6_PERF_PLAN item 1. Also: t3
 > hot-reload stays ~223ms system-arena (per-iteration confined-unsafe
 > trampoline, attributed 2026-10-05; hoist/variant runs 25-29ms).
+> COST SITES (t3 template: dlopen/dlsym ModuleLoader; indexed 2026-10-07,
+> 223ms / ~100k calls ~ 2.2us per confined entry): block site emits
+> `xiom_trampoline_set_allow_retry` + `xiom_trampoline_call` (SEH __try/
+> __except) + `xiom_trampoline_was_returned` + `xiom_trampoline_get_result`;
+> the block fn itself does `xiom_guard_heap_enter` + `xiom_guard_page_arm`
+> at entry and exit/disarm at return (VirtualProtect-class per call).
+> m192 already hoists the ctx alloca for loop re-entry. Scoped options for
+> a future perf slice: (a) runtime fast path when the block performs no
+> allocations/pointer ops (skip arena+guard-page entirely), (b) benchmark
+> hot paths use `#[unsafe_direct]` + `--enable-unsafe-direct`, (c) combine
+> the four trampoline calls into one entry that returns result/fault/
+> returned in a single TLS read.
 
 > KICKOFF PROMPT (v0.64.1 session, 2026-10-07) -- paste from the marker:
 >
