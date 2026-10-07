@@ -7127,3 +7127,76 @@ fn main() -> Int {
         "m203: only the ENCLOSING fn may carry the ensures check, never the closure; got:\n{ir}"
     );
 }
+
+// m206 (packages graphql relay): an enum whose variant payload structs share
+// the same declared field name gets the BOXED `{ i64 tag, i64 ptr }` layout.
+// Matching a struct payload off a Vec-index scrutinee must inttoptr the box
+// and bind pointer-backed -- pre-fix the binding kept the raw i64 and every
+// payload field read as the constant `0` (graphql 9/10 "validate valid
+// operation"). The `inttoptr ... to %struct.FieldSel*` deref is the
+// discriminator.
+#[test]
+fn regress_m206_enum_struct_payload_field() {
+    let source = r#"
+type FieldSel = {
+  name: Str;
+  alias: Str;
+  args: Vec[Str];
+  directives: Vec[Str];
+  sub: SelSet;
+}
+type SpreadSel = { name: Str; }
+type InlineSel = { type_condition: Str; }
+enum Sel {
+  Field(selection: FieldSel),
+  Spread(selection: SpreadSel),
+  Inline(selection: InlineSel),
+}
+type SelSet = { selections: Vec[Sel]; }
+type TypeField = { name: Str; }
+type GType = { name: Str; fields: Vec[TypeField]; }
+type Op = { name: Str; set: SelSet; }
+fn find_field(ty: &GType, name: Str) -> Bool {
+  var i = 0;
+  while i < ty.fields.len() {
+    if ty.fields[i].name == name { return true; }
+    i = i + 1;
+  };
+  return false;
+}
+fn validate(op: &Op, root: &GType) -> Bool {
+  var i = 0;
+  while i < op.set.selections.len() {
+    match op.set.selections[i] {
+      Sel.Field(fs) => {
+        if !find_field(root, fs.name) { return false; }
+      },
+      Sel.Spread(_) => {},
+      Sel.Inline(_) => {},
+    };
+    i = i + 1;
+  };
+  return true;
+}
+fn main() -> Int {
+  var v: Vec[Sel] = Vec[Sel].new();
+  v.push(Sel.Field(FieldSel{
+    name: "hello",
+    alias: "",
+    args: Vec[Str].new(),
+    directives: Vec[Str].new(),
+    sub: SelSet{ selections: Vec[Sel].new() },
+  }));
+  var op = Op{ name: "q", set: SelSet{ selections: v } };
+  var root = GType{ name: "Query", fields: Vec[TypeField].new() };
+  root.fields.push(TypeField{ name: "hello" });
+  if validate(&op, &root) { return 0; }
+  return 1;
+}
+"#;
+    let ir = compile(source).expect("m206: enum struct payload must compile");
+    assert!(
+        ir.contains("to %struct.FieldSel*"),
+        "m206: the boxed enum payload must be bound via inttoptr to %struct.FieldSel*; got:\n{ir}"
+    );
+}

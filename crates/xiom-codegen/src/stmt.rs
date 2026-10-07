@@ -2526,9 +2526,10 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                             .and_then(|(_, ftypes)| ftypes.get(fi).cloned());
                                         // Float payloads are RAW BITS in the i64 slot:
                                         // bind them as real floats via bitcast so
-                                        // downstream math never sitofp's bit patterns
+                                        // downstream math never sitofp's the bit patterns
                                         // (json_stringify(Number(7.0)) hung in a
                                         // float_to_int loop over 4.6e18).
+                                        let mut alias_payload = false;
                                         let (bind_val, bind_ty): (String, String) = match (field_llvm_ty.as_str(), payload_xiom_ty.as_deref()) {
                                             ("i64", Some("Float64")) | ("i64", Some("Float")) => {
                                                 let d = self.fresh_tmp();
@@ -2549,12 +2550,47 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                                 self.emitln(&format!("  {sptr} = inttoptr i64 {loaded} to i8*"));
                                                 (sptr, LLVM_STR_PTR.to_string())
                                             }
+                                            // GraphQL relay (2026-10-07): a STRUCT/aggregate
+                                            // enum payload (`GraphQLSelection.Field(fs)` ->
+                                            // `fs.name`) lives in the i64 slot as a heap BOX
+                                            // POINTER (the variant ctor mallocs the payload).
+                                            // Bind the pointer-backed struct-local convention
+                                            // (register = box ADDRESS) and record
+                                            // local_boxed_struct so field GEPs deref the box.
+                                            // Pre-fix the raw i64 fell through to the "0"
+                                            // field default: every payload field read as 0
+                                            // (graphql conformance 9/10).
+                                            ("i64", Some(px)) if !px.starts_with("Vec[") => {
+                                                let norm = Self::tuple_xiom_to_struct_name(px);
+                                                let st_opt = self.llvm_type_for(&norm)
+                                                    .or_else(|_| self.llvm_type_for(px));
+                                                if let Ok(st) = st_opt {
+                                                    if st.starts_with("%struct.") {
+                                                        let sptr = self.fresh_tmp();
+                                                        self.emitln(&format!("  {sptr} = inttoptr i64 {loaded} to {st}*"));
+                                                        self.local.local_boxed_struct.insert(field_ident.name.clone(), norm.clone());
+                                                        alias_payload = true;
+                                                        (sptr, st)
+                                                    } else {
+                                                        (loaded.clone(), field_llvm_ty.clone())
+                                                    }
+                                                } else {
+                                                    (loaded.clone(), field_llvm_ty.clone())
+                                                }
+                                            }
                                             _ => (loaded.clone(), field_llvm_ty.clone()),
                                         };
-                                        let field_alloca = self.fresh_tmp();
-                                        self.emitln(&format!("  {field_alloca} = alloca {bind_ty}"));
-                                        self.emitln(&format!("  store {bind_ty} {bind_val}, {bind_ty}* {field_alloca}"));
-                                        self.add_local(&field_ident.name, field_alloca, &bind_ty);
+                                        if alias_payload {
+                                            // Pointer-backed payload: the register IS the
+                                            // box address (no stack copy; field writes
+                                            // through the binding land in the payload).
+                                            self.add_local(&field_ident.name, bind_val, &bind_ty);
+                                        } else {
+                                            let field_alloca = self.fresh_tmp();
+                                            self.emitln(&format!("  {field_alloca} = alloca {bind_ty}"));
+                                            self.emitln(&format!("  store {bind_ty} {bind_val}, {bind_ty}* {field_alloca}"));
+                                            self.add_local(&field_ident.name, field_alloca, &bind_ty);
+                                        }
                                         // 5c.30: a generic-container payload
                                         // (Vec[T]) binds the i64 HANDLE -- record
                                         // it so `items.push(..)` / `items.len()`

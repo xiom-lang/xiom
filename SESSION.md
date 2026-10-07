@@ -364,7 +364,14 @@
 > xiom-doc (the early dispatch table runs before the main --help
 > short-circuit). Verified: doc/-doc/--doc --version -> xiom-doc v0.61.3;
 > `doc <file>` exit 0. Lock: m205_doc_subcommand_dispatches_to_tool.
-> Next: graphql enum-payload Str (needs a minimal packages repro).
+> m206 FIXED -- packages graphql enum struct-payload fields: with the
+> boxed enum layout (variant payload structs sharing one field name),
+> `Sel.Field(fs)` bound the raw i64 box handle and `fs.name` read 0
+> (conformance 9/10). The variant binding now inttoptrs non-Vec struct
+> payloads, records local_boxed_struct and binds pointer-backed (m148
+> convention). Package test 10/10; fixture red-before/green-after; locks
+> regress_m206 + e2e_m206 + CI line.
+> Next: C-PULSE-02 (deps -> catalog source roots).
 
 > V0.64.1 BATCH COMPLETE (2026-10-07): m199 C-PULSE-05 (const receivers),
 > m200 p_rvalue_float_vec_index, m201 multipart match-binding (+matrix/
@@ -431,8 +438,10 @@
 >    Reachability filter ignored Const initializers; fixed in xiom-check;
 >    local repro exit 0; lock m204_module_ginit_emits_cross_module_callee.
 >    Follow-up: global reads still untyped in the checker (separate).
-> 7. graphql enum-payload Str 9/10 (distinct root cause; minimal repro
->    pending in packages).
+> 7. [DONE m206] graphql enum-payload fields 9/10: boxed enum layout made
+>    `Sel.Field(fs)` bind the raw box handle; payload fields read 0. Fixed
+>    in the Pattern::Variant binding (inttoptr + local_boxed_struct);
+>    package test 10/10; locks regress_m206 + e2e_m206.
 > 8. C-PULSE-02 -- installed registry deps not mapped to catalog source
 >    roots (`xiom.toml source-roots` workaround); raw --run in a package
 >    dir with a root module outside src/ fails catalog type resolution.

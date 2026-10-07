@@ -117,9 +117,13 @@ New reports since v0.64.0 (repro paths local unless noted):
    elements were named via the first declared `.clone` suffix
    (MaybeUninit.clone). Details + fix in the m202 section below; packages
    can re-test probe_suite_min/probe_direct (both exit 0 here).
-2. GraphQL enum-payload `Str` 9/10 (packages): `GraphQLSelection.Field(...)
-   .name` reads `|0|`; standalone shapes pass; distinct root cause from
-   C001/m185/m189. Minimal repro still pending.
+2. [FIXED m206, 2026-10-07] GraphQL enum-payload fields 9/10 (packages):
+   `GraphQLSelection.Field(fs)` payload fields read as the constant `0`
+   (`fs.name == "hello"` false) when the variant payload structs share the
+   declared field name (boxed enum layout). Root cause + fix in the m206
+   section below; minimal local repro added
+   (`tests/regression/m206_enum_struct_payload_field/`). Packages can
+   re-run `packages/xiom-graphql/tests/test_conformance.xi` (10/10 here).
 3. [FIXED m204, 2026-10-07] C-PULSE-07 (Pulse): a module-scope `var`
    initialized by a cross-package constructor (`var b = rate_keyed_new(1,
    1);`) was accepted but emitted `call i64 @rate_keyed_new(...)` with no
@@ -157,6 +161,43 @@ New reports since v0.64.0 (repro paths local unless noted):
    plus main.rs). Workaround used during m204: `xiom run <main.xi>` with
    sibling module files. Fix: skip subcommand tokens in
    `resolve_source_files` or resolve the project before source discovery.
+
+---
+
+## 2026-10-07 -- FIXED: graphql boxed enum struct-payload fields read 0 (m206, packages relay)
+
+Packages relay: the `xiom-graphql` conformance suite ran 9/10 -- `validate
+valid operation` failed because `GraphQLSelection.Field(fs)` payload fields
+read as the constant `0` (`fs.name == "hello"` false while `root.name` was
+`Query`). Reproduced locally from the packages repo root:
+`xiom run packages/xiom-graphql/tests/test_conformance.xi` -> 9/10; a
+scratch copy with a debug print showed `fs.name=[0]`.
+
+ROOT CAUSE (IR evidence, tmp/pulse05/gql/test.ll): when an enum's variant
+payload structs share the same declared field name (`selection` in all three
+GraphQLSelection variants), the enum gets the BOXED layout
+`%struct.GraphQLSelection = { i64 tag, i64 payload-ptr }` (the inline
+`{ tag, FieldSel, SpreadSel, ... }` layout only appears when the payload
+field names differ). The `Pattern::Variant` payload binding handled
+Float64/Float32/Str payloads but bound a STRUCT payload as the raw i64
+handle without box-deref registration; the subsequent `fs.name` field read
+on an i64 local then fell through to the constant-`0` field default.
+
+FIX (m206): the variant-payload binding now inttoptrs a registered
+struct/aggregate payload (non-Vec) to its `%struct.X*` box, records
+`local_boxed_struct[fs] = X` and binds the pointer-backed struct-local
+convention (register = box address), mirroring the Option/Result
+struct-payload path (m148). Field GEPs then deref the box; writes through
+the binding land in the payload.
+
+EVIDENCE: package test 10/10; new fixture
+`tests/regression/m206_enum_struct_payload_field/main.xi` is red-before
+(exit 1 with the binding arm disabled, boxed `{ i64, i64 }` layout) and
+green after (exit 0).
+
+LOCKS: `regress_m206_enum_struct_payload_field` (IR:
+`inttoptr ... to %struct.FieldSel*`), e2e
+`e2e_m206_enum_struct_payload_field` + fixture, CI line.
 
 ---
 

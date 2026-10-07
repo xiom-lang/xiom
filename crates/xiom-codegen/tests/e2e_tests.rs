@@ -5903,6 +5903,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// m206 (packages graphql relay): a struct enum payload matched from a
+// Vec-index scrutinee must bind pointer-backed to the boxed payload;
+// pre-fix every payload field read as the constant 0 (graphql 9/10).
+#[test] fn e2e_m206_enum_struct_payload_field() {
+    assert_eq!(
+        compile_and_run("tests/regression/m206_enum_struct_payload_field/main.xi"),
+        Some(0),
+        "enum struct payload fields must read through the box (m206)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {
