@@ -29,6 +29,59 @@ fn target_named_source_files_are_kept_but_bare_sugar_is_skipped() {
     std::env::set_current_dir(old).unwrap();
 }
 
+// m212 (C-PULSE-02): `xiom build` in a project whose `[dependencies]` use a
+// path dependency must discover the dependency's modules. Pre-fix the
+// dependency was never on the catalog path: the build reported only the
+// project module and failed with T001 undefined variable for the
+// dependency's functions (Pulse hard-coded a `source-roots` workaround).
+#[test]
+fn m212_project_path_dependency_is_discovered() {
+    let base = std::env::temp_dir().join(format!("xiom_m212_it_{}", std::process::id()));
+    let app = base.join("app");
+    let core = base.join("core");
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(app.join("src")).unwrap();
+    std::fs::create_dir_all(&core).unwrap();
+    std::fs::write(
+        app.join("xiom.toml"),
+        "[project]\nname = \"app\"\nroot = \"src\"\n\n[dependencies]\ncore = { path = \"../core\" }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        app.join("src/main.xi"),
+        "module app\n\nuse app.core;\n\nvar g = make(2, 3);\n\nfn main() -> Int {\n  return 0;\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        core.join("core.xi"),
+        "module app.core\n\npub fn make(a: Int, b: Int) -> Int {\n  return a + b;\n}\n",
+    )
+    .unwrap();
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_xiom"))
+        .arg("build")
+        .current_dir(&app)
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn xiom: {e}"));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "project build must discover the path dependency (m212); exit={:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        out.status.code()
+    );
+    assert!(
+        !stderr.contains("T001"),
+        "the dependency call must resolve (m212); stderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("make"),
+        "the dependency function must be emitted (m212); stdout head:\n{}",
+        &stdout[..stdout.len().min(400)]
+    );
+    let _ = std::fs::remove_dir_all(&base);
+}
+
 // m207 (found during the C-PULSE-07 repro): the `build` subcommand token must
 // not be read back as a source path -- `xiom build` from a project root died
 // with `cannot read 'build' (os error 2)` before the project-graph branch.

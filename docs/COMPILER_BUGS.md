@@ -216,6 +216,43 @@ New reports since v0.64.0 (repro paths local unless noted):
 
 ---
 
+## 2026-10-07 -- FIXED: [dependencies] are mapped to catalog source roots (m212, C-PULSE-02)
+
+Pulse relay (C-PULSE-02): `[dependencies]` entries were parsed into the
+manifest but NEVER mapped to source directories, so packages installed under
+`$XIOM_HOME/packages` were not on the catalog path; a project had to
+hard-code the installed directories in `[project] source-roots` (the Pulse
+workaround), and a raw `--run` in a package dir with a root module outside
+`src/` failed catalog type resolution.
+
+ROOT CAUSE: `xiom-graph::manifest::resolve_source_roots` built the graph
+roots from `[project].root` / `source-roots` / `src/` / manifest dir only;
+`manifest.dependencies` (path, git, registry) was ignored, so
+`discover_modules` never saw the dependency packages and the checker
+reported `T001 undefined variable` for their functions (or resolved nothing
+for root modules outside `src/`).
+
+FIX (m212): `resolve_source_roots` now appends dependency roots via a new
+`dependency_roots_under` helper -- `path = "..."` maps to that directory
+and its `src/`; registry entries map to the newest matching installed
+package `<xiom_home>/packages/<name>-<version>/`, adding the package ROOT
+(for root modules like `xiom-graphql/graphql.xi`) and its `src/`. Roots are
+deduped and appended after the project's own roots.
+
+EVIDENCE: a local project with `[dependencies] xiom-rate = "0.2"` and a
+module-scope `var` initialized from `rate_keyed_new` builds with
+`xiom build`: pre-fix `Build: pkginit (1 modules)` + T001 undefined
+variable; post-fix `Build: pkginit (3 modules)`, BUILD=0, and the IR emits
+`define %struct.xiom.rate.KeyedBuckets @rate_keyed_new(...)`.
+
+LOCKS: unit tests `dependency_path_roots_are_added` +
+`installed_dependency_roots_are_added` (xiom-graph manifest tests, newest
+version wins) and driver test `m212_project_path_dependency_is_discovered`
+(crates/xiom/tests/cli_args.rs: portable temp project with a path dep,
+`xiom build` must succeed and emit the dependency function).
+
+---
+
 ## 2026-10-07 -- FIXED: Vec[Struct].clone() element reads aborted 0xC0000005 (m210, packages relay)
 
 Packages relay: `let w = v.clone();` over `Vec[Pair]` followed by `w[1]`
@@ -386,8 +423,10 @@ resolves to the qualified symbol (`@rate.rate_keyed_new`).
 
 EVIDENCE: local repro compiles and runs exit 0; IR now contains both
 `define i64 @rate.rate_keyed_new(...)` and the qualified call. Pulse can
-re-test `docs/repro/module-scope-package-init/probe.xi` (its source-roots
-handling still needs C-PULSE-02 for the installed package path).
+re-test `docs/repro/module-scope-package-init/probe.xi`; the installed
+package path is now handled by m212 (C-PULSE-02, [dependencies] -> catalog
+source roots), so the hard-coded `source-roots` workaround is no longer
+needed.
 
 FOLLOW-UP: reading such a global from a function (`bucket == 42`) still
 trips a checker typing gap ("cannot compare <error> with Int") -- the

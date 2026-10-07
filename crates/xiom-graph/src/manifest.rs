@@ -360,6 +360,73 @@ fn extract_deps_legacy(content: &str) -> Vec<DependencySpec> {
 // Source root resolution
 // ---------------------------------------------------------------------------
 
+/// C-PULSE-02 (m212): source roots contributed by `[dependencies]`.
+///
+/// - `path = "..."` form: the directory relative to the manifest dir, plus
+///   its `src/` subdirectory when present.
+/// - Registry form (`dep = "0.2"` / `{ version = "0.2" }`): the installed
+///   package under `<xiom_home>/packages/<name>-<version>/` (newest match
+///   wins when several versions are installed). Both the package ROOT and
+///   its `src/` are added: the packages layout keeps root modules outside
+///   `src/` (e.g. `xiom-graphql/graphql.xi`), and the old behavior left such
+///   dependencies off the catalog path entirely, so `use xiom.rate;`
+///   type-checked against nothing unless the project hard-coded the
+///   directory in `source-roots` (the Pulse workaround).
+fn dependency_roots_under(
+    manifest: &ProjectManifest,
+    manifest_dir: &Path,
+    xiom_home: &Path,
+) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    for dep in &manifest.dependencies {
+        let mut candidates: Vec<PathBuf> = Vec::new();
+        if let Some(ref p) = dep.path {
+            let base = manifest_dir.join(p);
+            candidates.push(base.clone());
+            candidates.push(base.join("src"));
+        } else {
+            let packages = xiom_home.join("packages");
+            let prefix = format!("{}-", dep.name);
+            let requested = if dep.version.trim().is_empty() || dep.version.trim() == "*" {
+                None
+            } else {
+                Some(dep.version.trim())
+            };
+            let mut matches: Vec<PathBuf> = Vec::new();
+            if let Ok(entries) = std::fs::read_dir(&packages) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if !path.is_dir() {
+                        continue;
+                    }
+                    let dir_name = entry.file_name().to_string_lossy().to_string();
+                    let Some(ver) = dir_name.strip_prefix(&prefix) else { continue };
+                    if let Some(req) = requested {
+                        if !ver.starts_with(req) {
+                            continue;
+                        }
+                    }
+                    matches.push(path);
+                }
+            }
+            // Deterministic "newest": lexicographic max of the version dirs.
+            matches.sort();
+            if let Some(latest) = matches.pop() {
+                let named = latest.join(&dep.name);
+                let base = if named.is_dir() { named } else { latest };
+                candidates.push(base.clone());
+                candidates.push(base.join("src"));
+            }
+        }
+        for c in candidates {
+            if c.is_dir() && !roots.contains(&c) {
+                roots.push(c);
+            }
+        }
+    }
+    roots
+}
+
 /// Resolve source root directories from a manifest.
 ///
 /// Priority:
@@ -367,7 +434,9 @@ fn extract_deps_legacy(content: &str) -> Vec<DependencySpec> {
 /// 2. Legacy `modules:` first path segment
 /// 3. `src/` subdirectory (if it exists)
 /// 4. `[project].source-roots` extra entries
-/// 5. Manifest directory itself (fallback)
+/// 5. `[dependencies]` -> local path or installed `$XIOM_HOME/packages`
+///    package roots (C-PULSE-02 / m212)
+/// 6. Manifest directory itself (fallback)
 pub fn resolve_source_roots(manifest: &ProjectManifest, manifest_dir: &Path) -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = Vec::new();
 
@@ -394,6 +463,13 @@ pub fn resolve_source_roots(manifest: &ProjectManifest, manifest_dir: &Path) -> 
         let src_dir = manifest_dir.join("src");
         if src_dir.is_dir() {
             roots.push(src_dir);
+        }
+    }
+
+    // C-PULSE-02: dependency roots (path or installed registry package).
+    for dep_root in dependency_roots_under(manifest, manifest_dir, &crate::paths::xiom_home()) {
+        if !roots.contains(&dep_root) {
+            roots.push(dep_root);
         }
     }
 
@@ -452,6 +528,58 @@ modules: ["core", "string", "math"]
 "#;
         assert_eq!(extract_field(content, "name"), Some("xiom.stdlib".to_string()));
         assert_eq!(extract_field(content, "version"), Some("0.48.9".to_string()));
+    }
+
+    // C-PULSE-02 (m212): `[dependencies]` contribute catalog source roots.
+    #[test]
+    fn dependency_path_roots_are_added() {
+        let dir = std::env::temp_dir().join(format!("xiom_m212_{}", std::process::id()));
+        let lib = dir.join("libs/core");
+        std::fs::create_dir_all(lib.join("src")).unwrap();
+        let manifest = ProjectManifest {
+            project: ProjectMeta { name: "app".into(), ..Default::default() },
+            dependencies: vec![DependencySpec {
+                name: "core".into(),
+                version: "*".into(),
+                path: Some("libs/core".into()),
+                git: None,
+            }],
+            compiler: CompilerConfig::default(),
+            manifest_dir: dir.clone(),
+        };
+        let roots = resolve_source_roots(&manifest, &dir);
+        assert!(roots.contains(&lib), "package root missing: {roots:?}");
+        assert!(roots.contains(&lib.join("src")), "src root missing: {roots:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn installed_dependency_roots_are_added() {
+        let dir = std::env::temp_dir().join(format!("xiom_m212i_{}", std::process::id()));
+        let home = dir.join("home");
+        let pkg = home.join("packages").join("xiom-rate-0.2.0").join("xiom-rate");
+        std::fs::create_dir_all(pkg.join("src")).unwrap();
+        // An older installed version must lose to the newest version match.
+        std::fs::create_dir_all(home.join("packages/xiom-rate-0.1.0/xiom-rate/src")).unwrap();
+        let manifest = ProjectManifest {
+            project: ProjectMeta { name: "app".into(), ..Default::default() },
+            dependencies: vec![DependencySpec {
+                name: "xiom-rate".into(),
+                version: "0.2".into(),
+                path: None,
+                git: None,
+            }],
+            compiler: CompilerConfig::default(),
+            manifest_dir: dir.clone(),
+        };
+        let roots = dependency_roots_under(&manifest, &dir, &home);
+        assert!(roots.contains(&pkg), "installed root missing: {roots:?}");
+        assert!(roots.contains(&pkg.join("src")), "installed src missing: {roots:?}");
+        assert!(
+            !roots.iter().any(|r| r.to_string_lossy().contains("0.1.0")),
+            "older version must not win: {roots:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

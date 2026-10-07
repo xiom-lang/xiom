@@ -464,9 +464,13 @@
 >    `Sel.Field(fs)` bind the raw box handle; payload fields read 0. Fixed
 >    in the Pattern::Variant binding (inttoptr + local_boxed_struct);
 >    package test 10/10; locks regress_m206 + e2e_m206.
-> 8. C-PULSE-02 -- installed registry deps not mapped to catalog source
->    roots (`xiom.toml source-roots` workaround); raw --run in a package
->    dir with a root module outside src/ fails catalog type resolution.
+> 8. [DONE m212] C-PULSE-02: [dependencies] are now mapped to catalog
+>    source roots -- path deps (dir + src/) and registry deps (newest
+>    matching $XIOM_HOME/packages/<name>-<ver>/: package ROOT + src/, so
+>    root modules outside src/ resolve too). Verified: pkginit with
+>    [dependencies] xiom-rate = "0.2" -> pre-fix 1 module + T001; post-fix
+>    3 modules, BUILD=0, @rate_keyed_new emitted. Locks: 2 graph unit
+>    tests + m212_project_path_dependency_is_discovered (portable).
 > 9. Verifier pass (design in COMPILER_BUGS): locals sort lookup + havoc
 >    loop summary + unknown-not-violated policy. Invariant syntax:
 >    `while cond invariant: expr { }`; benchmark annotations wait on this.
