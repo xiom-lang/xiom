@@ -387,8 +387,12 @@
 > m207 `xiom build` subcommand token. Gates on the batch: e2e 2434/0/4,
 > feature 530/530, checker 197/197, driver 61/61 + integration suites
 > (cli_args 3, run_script_cli 5, scripting 28, borrow 2, diff 15,
-> doctor 4, plus 34+6), ascii_guard clean. Local main is 18 commits
-> ahead of origin (6 pre-batch + m199..m207 + batch docs); NOT pushed.
+> doctor 4, plus 34+6), ascii_guard clean. Later in the batch: m208
+> (--jit cache revert, perf), m209 (tuple-ref destructure), m210
+> (Vec[Struct].clone), m211 (from_c_str copy / list_dir), m212
+> (dependencies -> source roots), m213 (verifier sorts + havoc loop
+> summary), m214 (--icon). Local main is 28 commits ahead of origin
+> (6 pre-batch + m199..m214 + batch docs); NOT pushed.
 > Remaining queue: C-PULSE-02 (deps -> catalog source roots), verifier
 > pass (loop invariants), --icon. Selfhost phase-4 worktree is idle at
 > ahead 8 / behind 0 (no rebase needed until a push). Known follow-ups:
