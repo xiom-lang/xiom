@@ -492,11 +492,14 @@
 >     (strcmp(pointee, pointee)). Repro exit 1 -> 0; locks regress_m209 +
 >     e2e_m209; feature 531/531, e2e 2435/0/4. Packages can drop the
 >     never-destructure-a-tuple-ref rule at the next pin.
-> 15. OPEN (packages relay 2026-10-07): `Vec[Struct].clone()` aborts
->     0xC0000005 on m199..m207 (`docs/repro/struct-clone/`); `io.list_dir`
->     still broken as "correct count, last name repeated" (dedicated
->     section); `io.xi:943` multi-module ensures NOT reproduced with a
->     2-module probe (stays open pending a faithful repro).
+> 15. [DONE m210] `Vec[Struct].clone()` aborted 0xC0000005 -- the clone
+>     lowering was correct; the bound local lost the element type and
+>     `w[i]` fell to the runtime elem-size switch (inttoptr of field 0).
+>     `clone_receiver_elem` now inherits it in the Let/Var chains. Probe
+>     exit 0; locks regress_m210 + e2e_m210; feature 532/532. STILL OPEN
+>     from this item: `io.list_dir` "correct count, last name repeated"
+>     (dedicated section); `io.xi:943` multi-module ensures NOT reproduced
+>     with a 2-module probe (stays open pending a faithful repro).
 > 16. RELAY TO STDLIB (owner asked): re-add `ensures: result >= 0` to
 >     `Range.count` (m203 fixed the closure-thunk clause leak); the
 >     known_failures `p_rvalue_float_vec_index` (m200),

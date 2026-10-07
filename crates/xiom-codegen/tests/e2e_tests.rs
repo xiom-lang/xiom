@@ -5925,6 +5925,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// m210 (packages struct-clone relay): `let w = v.clone()` over Vec[Struct]
+// must keep the element type so `w[i]` reads struct fields (pre-fix the
+// runtime elem-size scalar switch aborted 0xC0000005).
+#[test] fn e2e_m210_vec_clone_struct_elem() {
+    assert_eq!(
+        compile_and_run("tests/regression/m210_vec_clone_struct_elem/main.xi"),
+        Some(0),
+        "clone of Vec[Struct] must keep the element type (m210)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

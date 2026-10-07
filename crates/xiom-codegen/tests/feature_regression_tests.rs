@@ -7241,3 +7241,34 @@ fn main() -> Int {
         "m209: BOTH ref operands must deref their slots (inttoptr to i8**); got {derefs} in:\n{ir}"
     );
 }
+
+// m210 (packages struct-clone relay): `let w = v.clone()` over Vec[Struct]
+// must inherit the receiver's element type so `w[0]` takes the struct read
+// path. Pre-fix the read emitted the runtime elem-size `switch i64` (cases
+// 1/2/4, scalar i64 default) and inttoptr'd the element's first field as an
+// address (0xC0000005). No elem-size switch may remain in this fixture.
+#[test]
+fn regress_m210_vec_clone_elem_type() {
+    let source = r#"
+type Pair = {
+  a: Int;
+  b: Str;
+}
+fn main() -> Int {
+  var v: Vec[Pair] = Vec[Pair].new();
+  v.push(Pair{ a: 1, b: "one" });
+  let w = v.clone();
+  if w[0].a == 1 { return 0; }
+  return 1;
+}
+"#;
+    let ir = compile(source).expect("m210: Vec[Struct] clone must compile");
+    assert!(
+        !ir.contains("switch i64"),
+        "m210: the cloned local's index read must not use the runtime elem-size switch; got:\n{ir}"
+    );
+    assert!(
+        ir.contains("llvm.memcpy"),
+        "m210: the struct element read must memcpy the element; got:\n{ir}"
+    );
+}

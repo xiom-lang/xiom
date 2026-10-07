@@ -216,6 +216,26 @@ impl IrEmitter {
         Ok(())
     }
 
+    /// m210 (packages struct-clone relay): a no-arg `clone()` / `to_owned()`
+    /// CALL on a Vec receiver inherits the receiver's element type. The clone
+    /// lowering itself emits a correct deep copy, but without the record the
+    /// bound local's `w[i]` fell to the runtime elem-size scalar switch
+    /// (inttoptr of the element's first field -> 0xC0000005; probe_struct_clone).
+    fn clone_receiver_elem(&self, func: &Expr, args: &[Expr]) -> Option<String> {
+        if !args.is_empty() {
+            return None;
+        }
+        if let Expr::Field(recv, method, _) = func {
+            if matches!(method.name.as_str(), "clone" | "to_owned") {
+                return match recv.as_ref() {
+                    Expr::Ident(rid) => self.local.local_vec_elem.get(&rid.name).cloned(),
+                    _ => self.resolve_vec_elem_xiom(recv),
+                };
+            }
+        }
+        None
+    }
+
     pub(crate) fn compile_stmt_impl(&mut self, stmt: &Stmt) -> Result<(), String> {
         match stmt {
             Stmt::Let(name, _ty, value, _) => {
@@ -293,13 +313,17 @@ impl IrEmitter {
                                     self.local.local_vec_elem.get(&id.name).cloned()
                                 } else { None }
                             });
+                            // Then a clone/to_owned receiver (m210: `let w = v.clone()`
+                            // must keep `v`'s element type).
                             // Then fall back to the callee's declared return type
                             // (e.g. `Vec[Tuple__Str__Str]`).
-                            from_arg.or_else(|| {
-                                self.callee_return_xiom(func).and_then(|rt| {
-                                    rt.strip_prefix("Vec[").and_then(|rest| rest.strip_suffix(']')).map(|e| e.to_string())
+                            from_arg
+                                .or_else(|| self.clone_receiver_elem(func, args))
+                                .or_else(|| {
+                                    self.callee_return_xiom(func).and_then(|rt| {
+                                        rt.strip_prefix("Vec[").and_then(|rest| rest.strip_suffix(']')).map(|e| e.to_string())
+                                    })
                                 })
-                            })
                         }
                         _ => None,
                     };
@@ -722,11 +746,13 @@ impl IrEmitter {
                                     self.local.local_vec_elem.get(&id.name).cloned()
                                 } else { None }
                             });
-                            from_arg.or_else(|| {
-                                self.callee_return_xiom(func).and_then(|rt| {
-                                    rt.strip_prefix("Vec[").and_then(|rest| rest.strip_suffix(']')).map(|e| e.to_string())
+                            from_arg
+                                .or_else(|| self.clone_receiver_elem(func, args))
+                                .or_else(|| {
+                                    self.callee_return_xiom(func).and_then(|rt| {
+                                        rt.strip_prefix("Vec[").and_then(|rest| rest.strip_suffix(']')).map(|e| e.to_string())
+                                    })
                                 })
-                            })
                         }
                         // M33: Array literal bound to Var -- keep the element
                         // type that was inferred above (from first struct element).

@@ -187,13 +187,13 @@ New reports since v0.64.0 (repro paths local unless noted):
    (`tests/regression/m209_tuple_ref_destructure/`), CI line. Gates: feature
    531/531, e2e 2435/0/4. Packages can drop the "never destructure a
    reference to a tuple element" rule after the v0.64.1 pin.
-8. [RE-CONFIRMED OPEN, 2026-10-07 packages relay] `Vec[Struct].clone()`
-   is still RED on compiler main m199..m207: `probe_struct_clone.xi`
-   (`docs/repro/struct-clone/`) aborts `0xC0000005` while the no-clone
-   control `probe_struct_push.xi` exits 0. The m199..m207 batch does not
-   cover it; same family as the 2026-10-02 aggregate-payload `derive[Clone]`
-   corruption (see the packages-facing row; deep clone of container-backed
-   types needs its own analysis).
+8. [FIXED m210, 2026-10-07 packages relay] `Vec[Struct].clone()`
+   aborted `0xC0000005` (probe `docs/repro/struct-clone/probe_struct_clone.xi`
+   on compiler main m199..m207; no-clone control `probe_struct_push.xi`
+   exited 0). The clone lowering itself was CORRECT: the bound local lost
+   the element type, so `w[i]` fell to the runtime elem-size scalar switch.
+   Root cause + fix in the m210 section below; packages can drop the
+   clone-avoidance workaround at the next pin.
 9. [STATUS, 2026-10-07 packages relay] `io.list_dir` (see the dedicated
    2026-10-03 section below): still broken, now "correct count, last name
    repeated for every entry", identical on pinned v0.64.0 and m199..m207.
@@ -213,6 +213,39 @@ New reports since v0.64.0 (repro paths local unless noted):
    compiles). Verified end-to-end: `xiom build` in a project root now builds
    the graph (ginit included). Lock: `m207_build_subcommand_token_not_a_
    source` (crates/xiom/tests/cli_args.rs).
+
+---
+
+## 2026-10-07 -- FIXED: Vec[Struct].clone() element reads aborted 0xC0000005 (m210, packages relay)
+
+Packages relay: `let w = v.clone();` over `Vec[Pair]` followed by `w[1]`
+aborted `0xC0000005` while the no-clone control stayed green. Reproduced
+locally with `docs/repro/struct-clone/probe_struct_clone.xi` (exit
+-1073741819).
+
+ROOT CAUSE (IR evidence, tmp/pulse05/clone.ll): the clone lowering is
+CORRECT -- it allocas the receiver, mallocs `len * elem_size`, memcpys the
+buffer and rebuilds the header (len/cap/esz all preserved). The crash was
+the ELEMENT READ: the Let/Var Vec-element inheritance chain did not know
+that a `clone()` call returns the receiver's element type, so
+`local_vec_elem["w"]` was never recorded; `w[1]` fell to the runtime
+elem-size `switch i64` (cases 1/2/4, scalar i64 default), inttoptr'd the
+element's FIRST FIELD (a=1) as an address and dereferenced it.
+
+FIX (m210): a new `clone_receiver_elem` helper inherits the receiver's
+element type for no-arg `clone()`/`to_owned()` calls, and both the Let and
+Var inheritance chains consult it (after the first-arg check, before the
+callee-return fallback). `w[i]` then takes the struct memcpy path.
+
+EVIDENCE: probe prints `before` / `cloned len=2` / `second=2:two`, exit 0;
+minimal fixture IR has ZERO elem-size switches (pre-fix: one per read).
+Independence is locked too: pushing into the clone leaves the original
+length/elements untouched.
+
+LOCKS: `regress_m210_vec_clone_elem_type` (IR: no `switch i64`, memcpy
+present), e2e `e2e_m210_vec_clone_struct_elem` + fixture
+(`tests/regression/m210_vec_clone_struct_elem/`), CI line. Gates: feature
+532/532.
 
 ---
 
