@@ -2176,10 +2176,24 @@ passing the pointer bits as the element.
 2026-10-07 packages relay (re-confirmed): STILL BROKEN with a slightly
 different symptom -- `io.list_dir` returns the CORRECT count but the LAST
 name is repeated for every entry, identical on the pinned v0.64.0 and on
-compiler main m199..m207 (v0.64.1 candidate). So the entries are valid Str
-values but all point at the final name (the per-entry `readdir` result is
-overwritten/reused across push iterations). Same family as m163; needs a
-minimal probe over the loop-carried `readdir` string.
+compiler main m199..m207 (v0.64.1 candidate).
+
+FIXED m211 (2026-10-07): the entries were valid Str values, but every one
+ALIASED readdir's reused dirent storage. Root cause: the
+`Str::from_c_str`/`from_cstring` codegen builtin was a pure pointer
+identity ("a C string is already a NUL-terminated i8*") -- the comment
+even said "reinterpret", but every caller (io.list_dir, io.read_line,
+console) treats the result as an OWNED Str. readdir overwrites the same
+dirent buffer on each call, so after the loop all pushed pointers pointed
+at the final name. FIX: the builtin now copies via
+`xiom_str_len` + `xiom_str_from_vec` (the D1-hardened NUL-terminating
+copy), matching from_utf8/from_bytes. Probe: `io.list_dir` on
+`stdlib/xiom` -> `n=45`, first=`ai_prompt.txt`, last=`time`, only one
+entry equals the first (pre-fix: all 45 identical).
+LOCKS: `regress_m211_from_c_str_copies` (IR: `@xiom_str_from_vec` +
+`@xiom_str_len` emitted), e2e `e2e_m211_list_dir_owned_names` + fixture
+(creates a dir with 3 files, asserts exactly one entry equals the first),
+CI line.
 
 ---
 

@@ -2792,6 +2792,22 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         self.emitln(&format!("  {str_tmp} = call i8* @xiom_str_from_vec(i8* {data_ptr}, i64 {len_val})"));
                         return Ok((str_tmp, LLVM_STR_PTR.to_string()));
                     }
+                    // m211 (stdlib io.list_dir relay): from_c_str/from_cstring
+                    // must produce an OWNED Str. The old identity made the Str
+                    // alias the source buffer -- io.list_dir pushed
+                    // `Str::from_c_str(xiom_dirent_name(entry))` and every
+                    // element aliased readdir's reused dirent storage, so the
+                    // vec showed the correct count with the LAST name repeated
+                    // for every entry. Copy via strlen + xiom_str_from_vec,
+                    // matching the from_utf8/from_bytes hardening above.
+                    if matches!(fn_name.as_str(), "from_cstring" | "from_c_str") {
+                        let as_ptr = self.coerce_value(&arg_val, &arg_ty, "i8*");
+                        let len_tmp = self.fresh_tmp();
+                        self.emitln(&format!("  {len_tmp} = call i64 @xiom_str_len(i8* {as_ptr})"));
+                        let out = self.fresh_tmp();
+                        self.emitln(&format!("  {out} = call i8* @xiom_str_from_vec(i8* {as_ptr}, i64 {len_tmp})"));
+                        return Ok((out, LLVM_STR_PTR.to_string()));
+                    }
                     let as_ptr = self.coerce_value(&arg_val, &arg_ty, "i8*");
                     return Ok((as_ptr, LLVM_STR_PTR.to_string()));
                 }

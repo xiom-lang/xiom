@@ -5936,6 +5936,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// m211 (stdlib io.list_dir relay): `Str::from_c_str` must copy into an owned
+// Str; the pointer identity made list_dir push aliases of readdir's reused
+// buffer (correct count, last name repeated).
+#[test] fn e2e_m211_list_dir_owned_names() {
+    assert_eq!(
+        compile_and_run("tests/regression/m211_list_dir_owned_names/main.xi"),
+        Some(0),
+        "list_dir entries must be distinct owned names (m211)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

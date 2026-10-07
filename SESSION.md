@@ -496,10 +496,14 @@
 >     lowering was correct; the bound local lost the element type and
 >     `w[i]` fell to the runtime elem-size switch (inttoptr of field 0).
 >     `clone_receiver_elem` now inherits it in the Let/Var chains. Probe
->     exit 0; locks regress_m210 + e2e_m210; feature 532/532. STILL OPEN
->     from this item: `io.list_dir` "correct count, last name repeated"
->     (dedicated section); `io.xi:943` multi-module ensures NOT reproduced
->     with a 2-module probe (stays open pending a faithful repro).
+>     exit 0; locks regress_m210 + e2e_m210; feature 532/532.
+>     [DONE m211] `io.list_dir` "correct count, last name repeated": the
+>     entries aliased readdir's reused dirent buffer because
+>     `Str::from_c_str` was a pure pointer identity; the builtin now copies
+>     (xiom_str_len + xiom_str_from_vec). Probe n=45 with distinct names;
+>     locks regress_m211 + e2e_m211; CI line. STILL OPEN from this item:
+>     `io.xi:943` multi-module ensures NOT reproduced with a 2-module probe
+>     (stays open pending a faithful repro).
 > 16. RELAY TO STDLIB (owner asked): re-add `ensures: result >= 0` to
 >     `Range.count` (m203 fixed the closure-thunk clause leak); the
 >     known_failures `p_rvalue_float_vec_index` (m200),

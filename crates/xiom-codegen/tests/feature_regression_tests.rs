@@ -7272,3 +7272,26 @@ fn main() -> Int {
         "m210: the struct element read must memcpy the element; got:\n{ir}"
     );
 }
+
+// m211 (stdlib io.list_dir relay): `Str::from_c_str` must COPY the C string
+// (strlen + xiom_str_from_vec), not return the source pointer identity --
+// readdir reuses its dirent storage, so every list_dir entry aliased the
+// last name.
+#[test]
+fn regress_m211_from_c_str_copies() {
+    let source = r#"
+fn f(p: *UInt8) -> Str {
+  return Str::from_c_str(p);
+}
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(source).expect("m211: from_c_str must compile");
+    assert!(
+        ir.contains("@xiom_str_from_vec"),
+        "m211: from_c_str must copy via xiom_str_from_vec; got:\n{ir}"
+    );
+    assert!(
+        ir.contains("@xiom_str_len"),
+        "m211: the copy needs the source length; got:\n{ir}"
+    );
+}
