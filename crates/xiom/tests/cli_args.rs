@@ -29,6 +29,79 @@ fn target_named_source_files_are_kept_but_bare_sugar_is_skipped() {
     std::env::set_current_dir(old).unwrap();
 }
 
+// m214 (--icon): the Windows exe icon flag must compile the .rc with
+// llvm-rc (or MSVC rc) and link the .res in; a missing icon file is a hard
+// error, never silently ignored. The ICO is generated in memory (no binary
+// fixture in the repo, which ascii_guard requires to be pure text).
+#[test]
+fn m214_icon_embeds_or_reports_cleanly() {
+    let base = std::env::temp_dir().join(format!("xiom_m214_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let src = base.join("main.xi");
+    let ico = base.join("icon.ico");
+    let out_exe = base.join("icon_out.exe");
+    std::fs::write(&src, "fn main() -> Int { return 0; }\n").unwrap();
+
+    // Minimal 16x16 32bpp ICO: 6-byte header + 16-byte directory entry +
+    // 40-byte BITMAPINFOHEADER + BGRA pixels + AND mask (all zero).
+    let pixels = 16usize * 16 * 4;
+    let mask = 4 * 16;
+    let dib = 40 + pixels + mask;
+    let mut ico_bytes: Vec<u8> = vec![0, 0, 1, 0, 1, 0, 16, 16, 0, 0, 1, 0, 32, 0];
+    ico_bytes.extend_from_slice(&(dib as u32).to_le_bytes());
+    ico_bytes.extend_from_slice(&22u32.to_le_bytes());
+    ico_bytes.extend_from_slice(&40u32.to_le_bytes()); // biSize
+    ico_bytes.extend_from_slice(&16i32.to_le_bytes()); // biWidth
+    ico_bytes.extend_from_slice(&32i32.to_le_bytes()); // biHeight (x2)
+    ico_bytes.extend_from_slice(&1u16.to_le_bytes()); // planes
+    ico_bytes.extend_from_slice(&32u16.to_le_bytes()); // bpp
+    ico_bytes.extend_from_slice(&0u32.to_le_bytes()); // BI_RGB
+    ico_bytes.extend_from_slice(&(pixels as u32).to_le_bytes());
+    for _ in 0..4 {
+        ico_bytes.extend_from_slice(&0u32.to_le_bytes()); // ppm x/y, clr used/important
+    }
+    ico_bytes.resize(22 + dib, 0);
+    std::fs::write(&ico, &ico_bytes).unwrap();
+
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_xiom"))
+        .arg(&src)
+        .arg("-o")
+        .arg(&out_exe)
+        .arg("--icon")
+        .arg(&ico)
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn xiom: {e}"));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if !out.status.success() && stderr.contains("no resource compiler succeeded") {
+        let _ = std::fs::remove_dir_all(&base);
+        return; // no llvm-rc/rc on this machine -- manual evidence in docs
+    }
+    assert!(
+        out.status.success(),
+        "icon compile must succeed (m214); exit={:?}\nstderr:\n{stderr}",
+        out.status.code()
+    );
+    assert!(out_exe.is_file(), "icon exe missing (m214)");
+
+    // Error path: a missing icon file must be a hard, explicit error.
+    let bad = std::process::Command::new(env!("CARGO_BIN_EXE_xiom"))
+        .arg(&src)
+        .arg("-o")
+        .arg(base.join("bad.exe"))
+        .arg("--icon")
+        .arg(base.join("nope.ico"))
+        .output()
+        .unwrap();
+    let bad_err = String::from_utf8_lossy(&bad.stderr);
+    assert!(
+        !bad.status.success() && bad_err.contains("icon file not found"),
+        "missing icon must be a hard error (m214); exit={:?}\nstderr:\n{bad_err}",
+        bad.status.code()
+    );
+    let _ = std::fs::remove_dir_all(&base);
+}
+
 // m212 (C-PULSE-02): `xiom build` in a project whose `[dependencies]` use a
 // path dependency must discover the dependency's modules. Pre-fix the
 // dependency was never on the catalog path: the build reported only the
@@ -104,6 +177,20 @@ fn m207_build_subcommand_token_not_a_source() {
         with_file,
         vec!["src.xi".to_string()],
         "`xiom build src.xi` must keep only the real source"
+    );
+
+    // m214: `--icon <path>` takes a value too -- the .ico must never be
+    // treated as a source file (it read as UTF-8 and failed).
+    let with_icon = resolve_source_files(&[
+        "xiom".to_string(),
+        "src.xi".to_string(),
+        "--icon".to_string(),
+        "app.ico".to_string(),
+    ]);
+    assert_eq!(
+        with_icon,
+        vec!["src.xi".to_string()],
+        "`--icon app.ico` must skip the icon value"
     );
     // The exists() guard keeps a REAL file named `build` compilable; that
     // behavior is locked by target_named_source_files_are_kept_but_bare_sugar

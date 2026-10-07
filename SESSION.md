@@ -484,7 +484,11 @@
 > 10. [DONE m205] Tooling: route `xiom doc` through run_tool_dispatch
 >     (sibling binary; XIOM_HOME fallback), accept `-doc`, pass --help
 >     through. All three spellings verified; lock m205_doc_subcommand.
-> 11. `--icon` exe icon embedding (Windows .rc -> llvm-rc -> link args).
+> 11. [DONE m214] `--icon` exe icon embedding: `--icon <path.ico>` generates
+>     an .rc, compiles it with llvm-rc (MSVC rc fallback) and links the .res
+>     (native Windows only); a missing icon is a hard error. Verified: exe
+>     builds (exit 0) and the icon extracts from the artifact; locks
+>     m214_icon_embeds_or_reports_cleanly + cli parse + source-skip tests.
 > 12. [DONE m207] `xiom build` from a project root failed with "cannot
 >     read 'build'" -- resolve_source_files did not skip the `build`
 >     subcommand token. Fixed (positional-sugar skip + exists() guard);

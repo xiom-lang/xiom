@@ -2137,6 +2137,7 @@ fn real_main() {
             link_libs,
             link_paths,
             c_sources,
+            icon: args.value("icon"),
         hot_reload: false,  // set to true by hot reload loop below
         hot_reload_contracts,
         sanitize,
@@ -2467,6 +2468,7 @@ fn real_main() {
                     link_libs: vec![],
                     link_paths: vec![],
                     c_sources: vec![],
+                    icon: None,
                     hot_reload: false,
                     hot_reload_contracts: false,
                     sanitize: None,
@@ -2523,6 +2525,7 @@ fn real_main() {
                     link_libs: vec![],
                     link_paths: vec![],
                     c_sources: vec![],
+                    icon: None,
                     hot_reload: false,
                     hot_reload_contracts: false,
                     sanitize: None,

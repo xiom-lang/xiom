@@ -584,6 +584,7 @@ BUILD:
   xiom file.xi --debug             -> with DWARF/PDB (v0.56)
   xiom file.xi --target wasm       -> WASM .wasm
   xiom file.xi --shared            -> shared library .dll/.so
+  xiom file.xi --icon app.ico      -> embed a Windows exe icon (v0.64.1)
 
 CHECK:
   xiom --check file.xi             -> type-check only

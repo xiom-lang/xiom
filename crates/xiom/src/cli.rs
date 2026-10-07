@@ -34,6 +34,8 @@ const VALUE_FLAGS: &[&str] = &[
     "ai-timeout",
     "jobs",
     "count",
+    // m214: --icon <path.ico> (Windows exe resource embedding).
+    "icon",
     "registry",
     "verify-output",
     "timeout",
@@ -314,12 +316,15 @@ mod tests {
             "a",
             "--link",
             "b",
+            "--icon",
+            "app.ico",
             "file.xi",
         ]));
         assert!(cli.flag("emit-ir"));
         assert!(!cli.flag("release"));
         assert_eq!(cli.value("sanitize").as_deref(), Some("address"));
         assert_eq!(cli.value("jobs").as_deref(), Some("4"));
+        assert_eq!(cli.value("icon").as_deref(), Some("app.ico"));
         assert_eq!(cli.values("link"), vec!["a".to_string(), "b".to_string()]);
         assert!(!cli.present("sandbox"));
         assert!(cli.raw_has("--sanitize=address"));

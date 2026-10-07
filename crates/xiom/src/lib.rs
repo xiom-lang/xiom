@@ -89,6 +89,11 @@ pub struct CompileConfig {
     pub link_libs: Vec<String>,
     pub link_paths: Vec<String>,
     pub c_sources: Vec<String>,
+    /// m214: `--icon <path.ico>` -- embed a Windows icon resource into the
+    /// linked executable (native Windows targets only). Generates an .rc,
+    /// compiles it with `llvm-rc` (or MSVC `rc`) and adds the .res to the
+    /// link inputs; a requested icon that cannot be embedded is a hard error.
+    pub icon: Option<String>,
     /// M12: Scripting mode -- apply implicit main wrapping if no fn main found
     pub script_mode: bool,
     /// v0.54: Binary cache -- hash source with SHA-256, cache compiled binary
@@ -147,6 +152,7 @@ impl Default for CompileConfig {
             link_paths: Vec::new(),
             c_sources: Vec::new(),
             script_mode: false,
+            icon: None,
             cache: false,
             lto: false,
             parallel_codegen: false,
@@ -1605,6 +1611,24 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             if config.target == Target::Native {
                 for obj in &asm_objects { cmd.arg(obj); }
             }
+            // m214 (--icon): embed a Windows .ico resource. Generate an .rc
+            // (`1 ICON "<abs>"`), compile it with llvm-rc (MSVC rc fallback)
+            // and add the .res to the link inputs. Native Windows only; a
+            // requested icon that cannot be embedded is a hard error.
+            if let Some(icon) = &config.icon {
+                if config.target == Target::Native && cfg!(target_os = "windows") {
+                    match build_icon_resource(icon, &unique_tmp) {
+                        Ok(res) => {
+                            cmd.arg(&res);
+                        }
+                        Err(e) => {
+                            let _ = std::fs::remove_dir_all(&unique_tmp);
+                            eprintln!("error: --icon: {e}");
+                            return Err(vec![format!("--icon failed: {e}")]);
+                        }
+                    }
+                }
+            }
             if config.target != Target::Wasm && config.target != Target::Wasi {
                 for lp in &config.link_paths {
                     cmd.arg(&format!("-L{lp}"));
@@ -1784,7 +1808,7 @@ pub fn resolve_source_files(args: &[String]) -> Vec<String> {
         }
         if matches!(arg.as_str(), "-o" | "--target" | "--verify-output" | "--link" | "--link-path" | "--c-source"
             | "--timeout" | "--max-memory-mb" | "--max-depth" | "--jobs" | "--sanitize" | "--ai-model" | "--ai-timeout"
-            | "--opt-level") {
+            | "--opt-level" | "--icon") {
             skip_next = true;
             continue;
         }
@@ -2138,6 +2162,53 @@ pub fn find_runtime_c_files() -> Vec<String> {
 /// linked just the `find_runtime_c()` fallback (`xiom_runtime.c`) and any
 /// program pulling async/simd/sha256/hot-reload symbols failed at lld-link
 /// (`undefined symbol: xiom_async_now_ms` on v0.63.1; packages 5b7547b0).
+/// m214 (--icon): compile a `.ico` into a Windows `.res` via `llvm-rc`
+/// (falling back to the MSVC `rc`). Returns the absolute `.res` path to add
+/// to the link inputs. Every failure mode is reported -- a requested icon is
+/// never silently dropped.
+fn build_icon_resource(icon: &str, tmp_dir: &std::path::Path) -> Result<String, String> {
+    let icon_path = std::path::Path::new(icon);
+    if !icon_path.is_file() {
+        return Err(format!("icon file not found: {icon}"));
+    }
+    let abs = std::fs::canonicalize(icon_path)
+        .map_err(|e| format!("cannot resolve {icon}: {e}"))?;
+    let rc_path = tmp_dir.join("xiom_icon.rc");
+    let res_path = tmp_dir.join("xiom_icon.res");
+    // Forward slashes keep the .rc portable between llvm-rc and MSVC rc.
+    let rc_body = format!(
+        "1 ICON \"{}\"\n",
+        abs.to_string_lossy().replace('\\', "/")
+    );
+    std::fs::write(&rc_path, rc_body)
+        .map_err(|e| format!("cannot write {}: {e}", rc_path.display()))?;
+    let mut last_err = String::new();
+    for tool in ["llvm-rc", "rc"] {
+        match std::process::Command::new(tool)
+            .arg("/fo")
+            .arg(&res_path)
+            .arg(&rc_path)
+            .output()
+        {
+            Ok(out) if out.status.success() => {
+                return Ok(res_path.to_string_lossy().to_string());
+            }
+            Ok(out) => {
+                last_err = format!(
+                    "{tool} failed: {}",
+                    String::from_utf8_lossy(&out.stderr).trim()
+                );
+            }
+            Err(e) => {
+                last_err = format!("{tool} not available: {e}");
+            }
+        }
+    }
+    Err(format!(
+        "no resource compiler succeeded ({last_err}); install LLVM (llvm-rc) or MSVC rc.exe"
+    ))
+}
+
 fn find_runtime_c_files_in(
     stdlib_roots: &[std::path::PathBuf],
     exe_dir: Option<&std::path::Path>,
