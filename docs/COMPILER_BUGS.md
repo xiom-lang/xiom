@@ -148,6 +148,15 @@ New reports since v0.64.0 (repro paths local unless noted):
    doc/-doc/--doc spellings all dispatch, and --help now reaches xiom-doc
    (the dispatch table runs before the main short-circuit). Lock:
    `m205_doc_subcommand_dispatches_to_tool` (crates/xiom/tests/cli_args.rs).
+7. NEW (found during the m204 repro, OPEN): `xiom build` from a project root
+   is broken in the driver CLI -- `resolve_source_files` does not skip the
+   `build` subcommand token, so that token becomes a source path and the
+   driver fails twice with `error: cannot read 'build': The system cannot
+   find the file specified (os error 2)` and exits 1 (source: the
+   `build_mode` branch after `resolve_source_files`; crates/xiom/src/lib.rs
+   plus main.rs). Workaround used during m204: `xiom run <main.xi>` with
+   sibling module files. Fix: skip subcommand tokens in
+   `resolve_source_files` or resolve the project before source discovery.
 
 ---
 

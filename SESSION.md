@@ -442,6 +442,10 @@
 >     (sibling binary; XIOM_HOME fallback), accept `-doc`, pass --help
 >     through. All three spellings verified; lock m205_doc_subcommand.
 > 11. `--icon` exe icon embedding (Windows .rc -> llvm-rc -> link args).
+> 12. NEW (found during the m204 repro): `xiom build` from a project root
+>     fails with "cannot read 'build'" -- resolve_source_files does not
+>     skip the `build` subcommand token. Workaround: `xiom run <main.xi>`
+>     with sibling modules. See COMPILER_BUGS 2026-10-07 item 7.
 >
 > RULES: repro-first; locks per fix (IR + e2e + ci.yml line when adding
 > tests); cargo sequential; never rebuild target/debug during a suite;
