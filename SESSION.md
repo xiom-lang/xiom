@@ -374,7 +374,8 @@
 > batch: e2e 2433/0/4, feature 529/529, checker 197/197, driver 61/61 +
 > integration suites (cli_args 2, run_script_cli 5, scripting 28, borrow
 > 2, diff 15, doctor 4, plus 34+6), ascii_guard clean. Local main is
-> 13 commits ahead of origin (6 pre-batch + m199..m205); NOT pushed.
+> 15 commits ahead of origin (6 pre-batch + m199..m205 + 2 batch docs);
+> NOT pushed.
 > Remaining queue: graphql enum-payload Str (minimal repro pending),
 > C-PULSE-02 (deps -> catalog source roots), verifier pass (loop
 > invariants), --icon. Selfhost phase-4 worktree is idle at ahead 8 / 
