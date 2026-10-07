@@ -339,7 +339,15 @@
 > Gap A inline clone path (return the receiver type for empty-arg
 > clone/to_owned on non-struct values). Both package probes exit 0
 > (suite_min rc=0; direct match=ok); locks regress_m202 + e2e_m202; CI
-> line; feature 528/528. Next: iter Range.count ensures clause (%tmp8).
+> line; feature 528/528. m203 FIXED -- stdlib iter Range.count entails
+> clause: the block-closure thunk inherited the enclosing fn's
+> current_ensures/result_ptr, so a `return` inside the closure emitted the
+> outer check against an out-of-scope %tmp8 (clang "forward referenced with
+> type 'ptr'"). Closure arm now saves/clears/restores the contract state
+> like the unsafe-block path. Local repro exit 0; with the clause re-added
+> to the sibling stdlib Range.count, smoke_iter prints OK exit 0 (stdlib
+> edit reverted). Locks regress_m203 + e2e_m203; CI line. Stdlib lane can
+> re-add the clause. Next: C-PULSE-07.
 
 > KICKOFF PROMPT (v0.64.1 session, 2026-10-07) -- paste from the marker:
 >
@@ -379,8 +387,11 @@
 >    -> 32-byte elements on an 8-byte-stride buffer; fixed in
 >    infer_llvm_type (Gap A parity); package probes both exit 0. Locks
 >    regress_m202 + e2e_m202.
-> 5. iter Range.count ensures clause -> clang "use of undefined value
->    (%tmp8)" (re-verified on v0.64.0; smoke_iter + `ensures: result >= 0`).
+> 5. [DONE m203] iter Range.count ensures clause -> clang "use of undefined
+>    value (%tmp8)" (re-verified on v0.64.0; smoke_iter + `ensures: result
+>    >= 0`). Block-closure thunk leaked the enclosing
+>    current_ensures/result_ptr; fixed in the Closure arm; smoke_iter + the
+>    clause now OK/exit 0; locks regress_m203 + e2e_m203.
 > 6. C-PULSE-07 -- module-scope var + cross-package ctor emits a call with
 >    no definition (Pulse docs/repro/module-scope-package-init/).
 > 7. graphql enum-payload Str 9/10 (distinct root cause; minimal repro

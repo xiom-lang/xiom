@@ -4671,6 +4671,19 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 let saved_tmp = self.tmp_counter;
                 let saved_block = self.block_counter;
                 let saved_ret = self.fctx.current_return_type.clone();
+                // m203: a `return` inside the closure body must NOT run the
+                // ENCLOSING fn's ensures checks or write the enclosing result
+                // slot -- the outer alloca register is not defined in the
+                // thunk (stdlib Range.count + `ensures: result >= 0` produced
+                // clang "instruction forward referenced with type 'ptr'" on
+                // the leaked %tmp8). Isolate contract state like the
+                // unsafe-block fn path (lib.rs compile_unsafe_block).
+                let saved_result_ptr = self.fctx.result_ptr.take();
+                let saved_result_llvm_ty = self.fctx.result_llvm_ty.take();
+                let saved_result_xiom_ty = self.fctx.result_xiom_ty.take();
+                let saved_match_ptr = self.fctx.match_result_ptr.take();
+                let saved_match_ty = self.fctx.match_result_ty.take();
+                let saved_ensures = std::mem::take(&mut self.fctx.current_ensures);
                 self.tmp_counter = closure_id * 1000;
                 self.block_counter = closure_id * 1000;
                 self.fctx.current_return_type = ret_llvm.clone();
@@ -4776,6 +4789,13 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 self.tmp_counter = saved_tmp;
                 self.block_counter = saved_block;
                 self.fctx.current_return_type = saved_ret;
+                // m203: restore the enclosing fn's contract/result state.
+                self.fctx.result_ptr = saved_result_ptr;
+                self.fctx.result_llvm_ty = saved_result_llvm_ty;
+                self.fctx.result_xiom_ty = saved_result_xiom_ty;
+                self.fctx.match_result_ptr = saved_match_ptr;
+                self.fctx.match_result_ty = saved_match_ty;
+                self.fctx.current_ensures = saved_ensures;
                 
                 // Create closure value: malloc env, store fn_ptr + captures, return ptr
                 if captures.is_empty() {

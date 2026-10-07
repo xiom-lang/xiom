@@ -7076,3 +7076,54 @@ fn main() -> Int {
         "m202: no MaybeUninit element type may leak from the clone suffix lookup; got:\n{ir}"
     );
 }
+
+// m203 (stdlib iter Range.count clause): a `return` inside a closure body must
+// not emit the ENCLOSING fn's ensures checks / result slot -- the outer result
+// alloca register is undefined in the thunk (clang "instruction forward
+// referenced with type 'ptr'"). Pre-fix the clause block leaked into
+// __closure_N (two contract_fail labels); the fix isolates result_ptr /
+// result_llvm_ty / result_xiom_ty / match state / current_ensures like the
+// unsafe-block fn path.
+#[test]
+fn regress_m203_closure_ensures_isolation() {
+    let source = r#"
+fn _count_via[T](next: fn() -> Option[T]) -> Int {
+  var n = 0;
+  var cur = next();
+  while cur.is_some {
+    n = n + 1;
+    cur = next();
+  };
+  return n;
+}
+type R = { start: Int; end: Int; }
+fn R.next(self) -> Option[Int] {
+  if self.start >= self.end { return None; }
+  let v = self.start;
+  self.start = self.start + 1;
+  return Some(v);
+}
+fn R.count(self) -> Int
+  ensures: result >= 0
+{
+  var r = self;
+  return _count_via[Int](fn() -> Option[Int] { return r.next(); });
+}
+fn main() -> Int {
+  var r = R{ start: 0, end: 3 };
+  return r.count();
+}
+"#;
+    let ir = compile(source).expect("m203: closure with outer ensures must compile");
+    assert!(
+        ir.contains("define %struct.Option @__closure_"),
+        "m203: the closure thunk must be emitted; got:\n{ir}"
+    );
+    // Each emitted check contributes one `br ... %contract_failN` plus one
+    // `contract_failN:` label line; the label definition is at line start.
+    assert_eq!(
+        ir.matches("\ncontract_fail").count(),
+        1,
+        "m203: only the ENCLOSING fn may carry the ensures check, never the closure; got:\n{ir}"
+    );
+}

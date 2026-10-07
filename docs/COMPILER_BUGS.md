@@ -130,10 +130,12 @@ New reports since v0.64.0 (repro paths local unless noted):
    (`mk_f()[0]`) read the raw bits while a bound local read correctly;
    `Vec[Int]` rvalue indexing was correct. Root cause + fix in the m200
    section below.
-5. Range.count ensures-clause retry (stdlib, re-verified on v0.64.0):
-   adding even `ensures: result >= 0` to `Range.count` makes `smoke_iter`
-   fail with clang "use of undefined value (%tmp8)" -- the closure-lowering
-   clause path remains compiler-blocked; clause reverted, deferred.
+5. [FIXED m203, 2026-10-07] Range.count ensures-clause retry (stdlib,
+   re-verified on v0.64.0): adding even `ensures: result >= 0` to
+   `Range.count` made `smoke_iter` fail with clang "instruction forward
+   referenced with type 'ptr'" at `%tmp8` -- the closure thunk inherited
+   the enclosing fn's ensures/result state. Fixed; details + verification
+   in the m203 section below. The stdlib lane can re-add the clause.
 6. TOOLING (owner-reported): `xiom doc <file>` resolves
    `XIOM_HOME/bin/xiom-doc.exe` (on this host XIOM_HOME points at the stale
    `...\xiom` dir) instead of the SIBLING binary the way fmt/lsp/mcp/pkg/
@@ -182,6 +184,40 @@ LOCKS: `regress_m202_str_clone_tuple_elem_name` (IR: Tuple__Str__Str, no
 MaybeUninit), e2e `e2e_m202_clone_tuple_vec` +
 `tests/regression/m202_clone_tuple_vec/main.xi` (local + &mut helper
 shape), CI line.
+
+---
+
+## 2026-10-07 -- FIXED: closure body leaked the enclosing ensures clause (m203, stdlib iter Range.count)
+
+Stdlib relay: re-adding even `ensures: result >= 0` to `Range.count` made
+`tests/smoke/smoke_iter.xi` fail with clang "instruction forward referenced
+with type 'ptr'" at `%tmp8 = load i64, i64* @xiom_recursion_counter`.
+Reproduced locally without the stdlib (`tmp/pulse05/iter_clause_range.xi`,
+Range.count shape: generic `_count_via` + self-mutating closure).
+
+ROOT CAUSE (IR evidence, tmp/pulse05/iter_clause_range.ll): the thunk for
+`fn() -> Option[Int] { return r.next(); }` inherited the ENCLOSING
+function's contract state (`current_ensures`, `result_ptr`). `Stmt::Return`
+inside the closure body therefore emitted the outer ensures check and a
+store to the outer result-alloca register (R.count's `%tmp8`), which is not
+defined in `__closure_0`; the numeric SSA name then collided with a later
+same-named definition and clang rejected the module. The outer check itself
+also ran once correctly, so the failure was purely the leaked duplicate.
+
+FIX (m203): the `Expr::Closure` block-thunk path saves/takes/restores
+`result_ptr`, `result_llvm_ty`, `result_xiom_ty`, `match_result_ptr`,
+`match_result_ty` and `current_ensures` around the body, mirroring the
+unsafe-block fn path (lib.rs). The PipeClosure (expression-body) path
+compiles no `return` statement, so it is unaffected.
+
+EVIDENCE: local repro compiles/runs exit 0. With the clause temporarily
+re-added to the sibling stdlib `Range.count`, `smoke_iter` prints OK, exit
+0 (was clang error); the stdlib edit was reverted after the run.
+
+LOCKS: `regress_m203_closure_ensures_isolation` (IR: closure thunk emitted,
+exactly one contract_fail label), e2e `e2e_m203_closure_ensures_isolation` +
+`tests/regression/m203_closure_ensures_isolation/main.xi`, CI line. Stdlib
+lane can re-add the `Range.count` clause now.
 
 ---
 

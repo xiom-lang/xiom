@@ -5892,6 +5892,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// m203 (stdlib iter Range.count clause): an ensures clause on a fn whose
+// return expression contains a block closure must not leak into the closure
+// thunk (clang "instruction forward referenced with type 'ptr'").
+#[test] fn e2e_m203_closure_ensures_isolation() {
+    assert_eq!(
+        compile_and_run("tests/regression/m203_closure_ensures_isolation/main.xi"),
+        Some(0),
+        "closure returns must not emit the enclosing fn's ensures checks (m203)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {
