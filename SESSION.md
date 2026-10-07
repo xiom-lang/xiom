@@ -366,6 +366,22 @@
 > `doc <file>` exit 0. Lock: m205_doc_subcommand_dispatches_to_tool.
 > Next: graphql enum-payload Str (needs a minimal packages repro).
 
+> V0.64.1 BATCH COMPLETE (2026-10-07): m199 C-PULSE-05 (const receivers),
+> m200 p_rvalue_float_vec_index, m201 multipart match-binding (+matrix/
+> polyhedra probes green), m202 grpc Vec[(Str, Str)] clone-tuple,
+> m203 iter Range.count clause (stdlib can re-add), m204 C-PULSE-07
+> (module-scope init callee), m205 `xiom doc` dispatch. Gates on the
+> batch: e2e 2433/0/4, feature 529/529, checker 197/197, driver 61/61 +
+> integration suites (cli_args 2, run_script_cli 5, scripting 28, borrow
+> 2, diff 15, doctor 4, plus 34+6), ascii_guard clean. Local main is
+> 13 commits ahead of origin (6 pre-batch + m199..m205); NOT pushed.
+> Remaining queue: graphql enum-payload Str (minimal repro pending),
+> C-PULSE-02 (deps -> catalog source roots), verifier pass (loop
+> invariants), --icon. Selfhost phase-4 worktree is idle at ahead 8 / 
+> behind 0 (no rebase needed until a push). Known follow-up: reading a
+> cross-module-initialized module global in a fn body trips a checker
+> typing gap ("cannot compare <error> with Int") -- separate from m204.
+
 > KICKOFF PROMPT (v0.64.1 session, 2026-10-07) -- paste from the marker:
 >
 > Continue the XIOM compiler lane. STATE: v0.64.0 is released
