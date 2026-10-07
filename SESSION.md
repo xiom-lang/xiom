@@ -485,6 +485,23 @@
 >     STAGE6_PERF_PLAN item 1. Also confirm the benchmark's xiom-run-aot
 >     lane flags (if it passes --no-cache, its v0.62.3 fast numbers were
 >     the pre-C25 dead-cache bug).
+> 14. OPEN (packages relay 2026-10-07): `let (k, v) = &vec[i]` over
+>     `Vec[(Str, Str)]` yields pointer-like values (silent lookup misses;
+>     direct component reads are correct). Repro row in the COMPILER_BUGS
+>     relay bundle #7; only grpc used the shape (rewritten, 36/36 x2).
+> 15. OPEN (packages relay 2026-10-07): `Vec[Struct].clone()` aborts
+>     0xC0000005 on m199..m207 (`docs/repro/struct-clone/`); `io.list_dir`
+>     still broken as "correct count, last name repeated" (dedicated
+>     section); `io.xi:943` multi-module ensures NOT reproduced with a
+>     2-module probe (stays open pending a faithful repro).
+> 16. RELAY TO STDLIB (owner asked): re-add `ensures: result >= 0` to
+>     `Range.count` (m203 fixed the closure-thunk clause leak); the
+>     known_failures `p_rvalue_float_vec_index` (m200),
+>     `p_multipart_parse_name` (m201, also
+>     geom_matrix_result_infer + polyhedra_nested_hull) are GREEN on this
+>     tree, so they can move out of known_failures at the next stdlib pin.
+>     Packages: grpc publish can proceed once the official pin carries
+>     m202; graphql is 10/10 with m206.
 >
 > RULES: repro-first; locks per fix (IR + e2e + ci.yml line when adding
 > tests); cargo sequential; never rebuild target/debug during a suite;

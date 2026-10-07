@@ -152,6 +152,37 @@ New reports since v0.64.0 (repro paths local unless noted):
    doc/-doc/--doc spellings all dispatch, and --help now reaches xiom-doc
    (the dispatch table runs before the main short-circuit). Lock:
    `m205_doc_subcommand_dispatches_to_tool` (crates/xiom/tests/cli_args.rs).
+7. [NEW OPEN, 2026-10-07 packages relay] DESTRUCTURING A REFERENCE TO A
+   TUPLE ELEMENT YIELDS POINTER-LIKE VALUES: `let (k, v) = &vec[i];` over
+   `Vec[(Str, Str)]` binds `k`/`v` that stringify as decimal addresses
+   (`2175265691024`) and never compare equal to the expected `Str`
+   (`k == &key` false; `compare.str_compare(k, key) == 0` false), so key
+   lookups silently miss. Direct component reads (`vec[i].0 == key`) are
+   correct, and `vec[i] = (..)` writes are fine. Re-confirmed on compiler
+   main m199..m207 (v0.64.1 candidate); evidence: packages
+   `docs/COMPILER-FINDINGS.md` 2026-10-07 row (in-package diagnostic probe:
+   `refeq=0`, `cmp=0`, `resp.len=1`; `grpc_metadata_get` returned None for a
+   present key and `set` appended duplicates). Workaround in packages: read
+   tuple components directly; only the 2 grpc sites used the shape (both
+   rewritten; suite 36/36 x2). Fix direction: the tuple-destructure
+   binding over a reference target must load/bind the COMPONENTS (or their
+   references), never pass the container/reference bits as each element.
+8. [RE-CONFIRMED OPEN, 2026-10-07 packages relay] `Vec[Struct].clone()`
+   is still RED on compiler main m199..m207: `probe_struct_clone.xi`
+   (`docs/repro/struct-clone/`) aborts `0xC0000005` while the no-clone
+   control `probe_struct_push.xi` exits 0. The m199..m207 batch does not
+   cover it; same family as the 2026-10-02 aggregate-payload `derive[Clone]`
+   corruption (see the packages-facing row; deep clone of container-backed
+   types needs its own analysis).
+9. [STATUS, 2026-10-07 packages relay] `io.list_dir` (see the dedicated
+   2026-10-03 section below): still broken, now "correct count, last name
+   repeated for every entry", identical on pinned v0.64.0 and m199..m207.
+   `io.xi:943` false-`ensures` multi-module finding was NOT reproduced with
+   a 2-module scratch program (reads correctly, n=3437, exit 0) -- the
+   original `xiom.kv` shape is not minimized; no compiler action until a
+   faithful repro. `tuple-vec-set` probes are GREEN (m202); the grpc restore
+   is complete on the candidate (36/36 x2, publish held for the official
+   pin).
 7. [FIXED m207, 2026-10-07] `xiom build` from a project root was broken in
    the driver CLI -- `resolve_source_files` did not skip the `build`
    subcommand token, so it became a source path and the driver failed twice
@@ -2088,6 +2119,14 @@ for the 19 modules whose declared dotted name does not match any path shape
 `Vec[Str]` construction inside `stdlib/xiom/io/io.xi::list_dir` (or the
 underlying `opendir`/`readdir` binding) must load the pointee rather than
 passing the pointer bits as the element.
+
+2026-10-07 packages relay (re-confirmed): STILL BROKEN with a slightly
+different symptom -- `io.list_dir` returns the CORRECT count but the LAST
+name is repeated for every entry, identical on the pinned v0.64.0 and on
+compiler main m199..m207 (v0.64.1 candidate). So the entries are valid Str
+values but all point at the final name (the per-entry `readdir` result is
+overwritten/reused across push iterations). Same family as m163; needs a
+minimal probe over the loop-carried `readdir` string.
 
 ---
 
