@@ -318,7 +318,13 @@
 > Int/Str/Float64/Bool to_str + .eq/.lt green. Locks:
 > regress_m199_const_receiver_keeps_type (IR, no @to_str),
 > e2e_m199_const_receiver_method_dispatch + fixture; CI line; feature
-> 525/525. Next: p_rvalue_float_vec_index.
+> 525/525. m200 FIXED -- stdlib p_rvalue_float_vec_index: an rvalue
+> Vec[Float64] index (`mk_f()[0]`) fell to the scalar elem_load + caller
+> sitofp (raw bits, rc 1); vec_elem_float_type now resolves Call containers
+> through callee_return_xiom, so the read bit-reinterprets (all three sites
+> bitcast i64->double, no sitofp). Probe rc 1 -> 0; locks
+> regress_m200_rvalue_float_vec_index_bits + e2e_m200 + fixture; CI line.
+> Next: multipart match-binding (concrete Vec element type on Ok payload).
 
 > KICKOFF PROMPT (v0.64.1 session, 2026-10-07) -- paste from the marker:
 >
@@ -340,9 +346,11 @@
 >    (receiver_is_instance + constants), declared XIOM type recorded in
 >    global_xiom_types, deep inference consults it; probe + matrix green;
 >    locks regress_m199 + e2e_m199; feature 525/525.
-> 2. p_rvalue_float_vec_index.xi (stdlib known_failures) -- rvalue
->    Vec[Float64] index reads raw bits; bound local and Vec[Int] correct;
->    likely the rvalue element-load path missing the double bitcast.
+> 2. [DONE m200] p_rvalue_float_vec_index.xi (stdlib known_failures) --
+>    rvalue Vec[Float64] index reads raw bits; bound local and Vec[Int]
+>    correct; likely the rvalue element-load path missing the double
+>    bitcast. Fixed in vec_elem_float_type (Call/GenericCall containers via
+>    callee_return_xiom); probe rc 1 -> 0; locks regress_m200 + e2e_m200.
 > 3. multipart_parse Part fields (root cause ISOLATED): the Ok(out) match
 >    binding keeps the erased Vec type, so out[0] lowers through the runtime
 >    elem-size switch (scalar default) instead of the struct memcpy path.

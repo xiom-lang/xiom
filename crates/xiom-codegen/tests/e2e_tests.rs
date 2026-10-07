@@ -5860,6 +5860,16 @@ fn e2e_safety_probe() {
     );
 }
 
+// m200 (stdlib p_rvalue_float_vec_index): inline (rvalue) indexing of a
+// returned Vec[Float64] must read the stored double, not the raw i64 bits.
+#[test] fn e2e_m200_rvalue_float_vec_index() {
+    assert_eq!(
+        compile_and_run("tests/regression/m200_rvalue_float_vec_index/main.xi"),
+        Some(0),
+        "rvalue Vec[Float64] index must read the stored element (m200)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

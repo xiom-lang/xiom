@@ -122,11 +122,11 @@ New reports since v0.64.0 (repro paths local unless noted):
    but emits `call i64 @rate_keyed_new(...)` with no definition -> clang
    "use of undefined value"; larger case AV'd during module init. Repro:
    Pulse `docs/repro/module-scope-package-init/probe.xi`.
-4. `p_rvalue_float_vec_index.xi` (stdlib known_failures, OPEN): indexing the
-   RVALUE of a `Vec[Float64]`-returning call (`mk_f()[0]`) reads the raw
-   bits while a bound local reads correctly; `Vec[Int]` rvalue indexing is
-   correct. Broke `xiom.stats.moments.quantile` q=0/q=1. Likely the rvalue
-   element-load path missing the double bitcast.
+4. [FIXED m200, 2026-10-07] `p_rvalue_float_vec_index.xi` (stdlib
+   known_failures): indexing the RVALUE of a `Vec[Float64]`-returning call
+   (`mk_f()[0]`) read the raw bits while a bound local read correctly;
+   `Vec[Int]` rvalue indexing was correct. Root cause + fix in the m200
+   section below.
 5. Range.count ensures-clause retry (stdlib, re-verified on v0.64.0):
    adding even `ensures: result >= 0` to `Range.count` makes `smoke_iter`
    fail with clang "use of undefined value (%tmp8)" -- the closure-lowering
@@ -140,6 +140,36 @@ New reports since v0.64.0 (repro paths local unless noted):
    the main --help first. Queued fix: route doc through `run_tool_dispatch`
    (sibling first, XIOM_HOME fallback), accept `-doc`, and pass --help
    through.
+
+---
+
+## 2026-10-07 -- FIXED: rvalue Vec[Float64] index read raw bits (m200, stdlib p_rvalue_float_vec_index)
+
+Stdlib probe `tools/known_failures/p_rvalue_float_vec_index.xi` (rc 1 on the
+pin, re-verified locally): `mk_f()[0] != 1.0` failed while `var vf = mk_f();
+vf[0]` and `mk_i()[0]` were correct. IR evidence (tmp/pulse05/rvalue.ll
+pre-fix): at the rvalue site the element load produced the i64 bit pattern
+and the comparison emitted `sitofp i64 %tmp91 to double` (1.0 bits ->
+4.6e18); the two bound-local sites emitted `bitcast i64 %.. to double`.
+
+ROOT CAUSE: the Index handler's float fallback (`vec_elem_float_type`) knew
+only Ident containers (local_vec_elem/local_vec_handle/global_vec_elem), the
+BUG 23 nested-Index form and Field containers. A CALL container
+(`mk_f()[0]`) returned None, so the read fell to the plain scalar
+`emit_elem_load` + caller-side sitofp instead of bit-reinterpreting the
+stored double.
+
+FIX (m200): `vec_elem_float_type` resolves `Expr::Call`/`Expr::GenericCall`
+containers through `callee_return_xiom`, mapping a declared `Vec[Float32]` /
+`Vec[Float64]` return to "float"/"double".
+
+EVIDENCE: probe rc 1 -> 0; IR now shows three `bitcast i64 -> double` element
+reads and zero `sitofp i64` (tmp/pulse05/rvalue_fixed.ll). Same-class
+consumer: `xiom.stats.moments.quantile` q=0/q=1 branches.
+
+LOCKS: `regress_m200_rvalue_float_vec_index_bits` (IR: rvalue read is a
+bitcast, no sitofp), e2e `e2e_m200_rvalue_float_vec_index` + fixture, CI
+line.
 
 ---
 

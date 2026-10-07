@@ -6981,3 +6981,31 @@ fn main() -> Int {
         "m199: no erased @to_str call/stub may be emitted; got:\n{ir}"
     );
 }
+
+// m200 (stdlib p_rvalue_float_vec_index): inline (rvalue) indexing of a
+// returned Vec[Float64] must bit-reinterpret the stored double bits -- pre-fix
+// vec_elem_float_type only knew locals/fields, so the scalar load returned i64
+// and the comparison sitofp'd the bit pattern (1.0 -> 4.6e18).
+#[test]
+fn regress_m200_rvalue_float_vec_index_bits() {
+    let source = r#"
+fn mk_f() -> Vec[Float64] {
+  var v = Vec[Float64].new();
+  v.push(1.0);
+  return v;
+}
+fn main() -> Int {
+  if mk_f()[0] != 1.0 { return 1; }
+  return 0;
+}
+"#;
+    let ir = compile(source).expect("m200: rvalue Vec[Float64] index must compile");
+    assert!(
+        ir.contains("bitcast i64") && ir.contains("to double"),
+        "m200: the rvalue float element read must bit-reinterpret the stored bits; got:\n{ir}"
+    );
+    assert!(
+        !ir.contains("sitofp i64"),
+        "m200: the rvalue float element must not be sitofp'd; got:\n{ir}"
+    );
+}

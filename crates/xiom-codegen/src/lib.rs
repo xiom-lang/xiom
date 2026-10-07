@@ -3126,6 +3126,22 @@ impl IrEmitter {
                 }
             }
         }
+        // p_rvalue_float_vec_index: the container is an RVALUE CALL returning
+        // Vec[Float64] (`mk_f()[0]`). Bound locals record local_vec_elem, but
+        // the inline case must resolve the callee's declared return type --
+        // without this the scalar elem_load yielded the raw i64 bits and the
+        // comparison sitofp'd the bit pattern (1.0 -> 4.6e18, probe rc 1).
+        if let Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) = container {
+            if let Some(ret) = self.callee_return_xiom(func) {
+                if let Some(inner) = ret.strip_prefix("Vec[").and_then(|s| s.strip_suffix(']')) {
+                    return match inner.trim() {
+                        "Float32" => Some("float"),
+                        "Float64" | "Float" => Some("double"),
+                        _ => None,
+                    };
+                }
+            }
+        }
         if let Expr::Field(base, field_expr, _) = container {
             let base_ty = self.infer_struct_type_name(base)?;
             for key in self.types.type_meta.keys() {
