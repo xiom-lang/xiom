@@ -382,18 +382,19 @@
 > m200 p_rvalue_float_vec_index, m201 multipart match-binding (+matrix/
 > polyhedra probes green), m202 grpc Vec[(Str, Str)] clone-tuple,
 > m203 iter Range.count clause (stdlib can re-add), m204 C-PULSE-07
-> (module-scope init callee), m205 `xiom doc` dispatch. Gates on the
-> batch: e2e 2433/0/4, feature 529/529, checker 197/197, driver 61/61 +
-> integration suites (cli_args 2, run_script_cli 5, scripting 28, borrow
-> 2, diff 15, doctor 4, plus 34+6), ascii_guard clean. Local main is
-> 15 commits ahead of origin (6 pre-batch + m199..m205 + 2 batch docs);
-> NOT pushed.
-> Remaining queue: graphql enum-payload Str (minimal repro pending),
-> C-PULSE-02 (deps -> catalog source roots), verifier pass (loop
-> invariants), --icon. Selfhost phase-4 worktree is idle at ahead 8 / 
-> behind 0 (no rebase needed until a push). Known follow-up: reading a
-> cross-module-initialized module global in a fn body trips a checker
-> typing gap ("cannot compare <error> with Int") -- separate from m204.
+> (module-scope init callee), m205 `xiom doc` dispatch, m206 packages
+> graphql boxed enum struct-payload fields (package test 10/10),
+> m207 `xiom build` subcommand token. Gates on the batch: e2e 2434/0/4,
+> feature 530/530, checker 197/197, driver 61/61 + integration suites
+> (cli_args 3, run_script_cli 5, scripting 28, borrow 2, diff 15,
+> doctor 4, plus 34+6), ascii_guard clean. Local main is 18 commits
+> ahead of origin (6 pre-batch + m199..m207 + batch docs); NOT pushed.
+> Remaining queue: C-PULSE-02 (deps -> catalog source roots), verifier
+> pass (loop invariants), --icon. Selfhost phase-4 worktree is idle at
+> ahead 8 / behind 0 (no rebase needed until a push). Known follow-ups:
+> reading a cross-module-initialized module global in a fn body trips a
+> checker typing gap ("cannot compare <error> with Int") -- separate
+> from m204.
 
 > KICKOFF PROMPT (v0.64.1 session, 2026-10-07) -- paste from the marker:
 >
