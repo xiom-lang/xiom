@@ -138,15 +138,16 @@ New reports since v0.64.0 (repro paths local unless noted):
    referenced with type 'ptr'" at `%tmp8` -- the closure thunk inherited
    the enclosing fn's ensures/result state. Fixed; details + verification
    in the m203 section below. The stdlib lane can re-add the clause.
-6. TOOLING (owner-reported): `xiom doc <file>` resolves
-   `XIOM_HOME/bin/xiom-doc.exe` (on this host XIOM_HOME points at the stale
-   `...\xiom` dir) instead of the SIBLING binary the way fmt/lsp/mcp/pkg/
-   dbg/verify/ffigen do, so it prints the cargo hint although `xiom-doc.exe`
-   ships in the install; `xiom -doc` (single dash) is not recognized at all
-   and falls through to the normal compile/IR path; `xiom doc --help` hits
-   the main --help first. Queued fix: route doc through `run_tool_dispatch`
-   (sibling first, XIOM_HOME fallback), accept `-doc`, and pass --help
-   through.
+6. [FIXED m205, 2026-10-07] TOOLING (owner-reported): `xiom doc <file>`
+   resolved `XIOM_HOME/bin/xiom-doc.exe` (on this host XIOM_HOME points at
+   the stale `...\xiom` dir) instead of the SIBLING binary the way
+   fmt/lsp/mcp/pkg/dbg/verify/ffigen do; `xiom -doc` (single dash) was not
+   recognized at all and fell through to the compile/IR path; `xiom doc
+   --help` hit the main --help first. Fix: doc routes through
+   `run_tool_dispatch` (sibling first, XIOM_HOME fallback), the
+   doc/-doc/--doc spellings all dispatch, and --help now reaches xiom-doc
+   (the dispatch table runs before the main short-circuit). Lock:
+   `m205_doc_subcommand_dispatches_to_tool` (crates/xiom/tests/cli_args.rs).
 
 ---
 

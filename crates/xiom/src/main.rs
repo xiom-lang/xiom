@@ -1475,6 +1475,12 @@ fn real_main() {
         "dbg" => Some("xiom-dbg"),
         "verify" => Some("xiom-verify"),
         "ffigen" => Some("xiom-ffigen"),
+        // m205: `xiom doc` (and the -doc/--doc spellings) dispatch like every
+        // other tool -- sibling binary first, XIOM_HOME/bin fallback -- instead
+        // of the legacy home-only path that failed on dev trees whose
+        // XIOM_HOME points at a stale install. This table runs BEFORE the
+        // main --help short-circuit, so `xiom doc --help` reaches xiom-doc.
+        "doc" | "-doc" | "--doc" => Some("xiom-doc"),
         _ => None,
     }) {
         run_tool_dispatch(tool, &args[2..]);
@@ -1847,7 +1853,7 @@ fn real_main() {
     let new_mode = args.raw_has("new");
     let build_mode = args.raw_has("build");
     let doctor_mode = args.raw_has("doctor") || args.flag("doctor");
-    let doc_mode = args.raw_has("doc") || args.flag("doc");
+    let doc_mode = args.raw_has("doc") || args.raw_has("-doc") || args.flag("doc");
     let graph_mode = args.present("graph");
     // Exact-form checks: only `--graph=mermaid`/`--graph-format=mermaid`
     // select a format; bare `--graph` defaults to dot (legacy contract).
@@ -2604,7 +2610,7 @@ fn print_usage() {
     eprintln!("  --clean             Clean build artifacts and caches");
     eprintln!();
     eprintln!("TOOLS (launcher: xiom.bat / xiom wrapper):");
-    eprintln!("  fmt | lsp | mcp | pkg | dbg | verify | ffigen | ai | graph | test");
+    eprintln!("  fmt | lsp | mcp | pkg | dbg | verify | ffigen | doc | ai | graph | test");
     eprintln!("  Each runs the matching xiom-* binary from the same bin/ directory.");
     eprintln!("  <tool> --help       Show a tool's own help (e.g. xiom pkg --help)");
     eprintln!();
@@ -3193,15 +3199,24 @@ fn run_tool_dispatch(tool: &str, rest: &[String]) -> ! {
         .and_then(|e| e.parent().map(|p| p.to_path_buf()))
         .unwrap_or_else(|| std::path::PathBuf::from("."));
     let name = if cfg!(windows) { format!("{tool}.exe") } else { tool.to_string() };
-    let candidate = exe_dir.join(&name);
-    if !candidate.exists() {
-        eprintln!(
-            "error: {name} not found next to the compiler ({})",
-            exe_dir.display()
-        );
-        eprintln!("       reinstall the toolchain or run `{tool}` from the install launcher");
-        process::exit(1);
-    }
+    // m205: sibling binary first (dev tree / same bin dir), XIOM_HOME/bin
+    // fallback (installer layout where only the launcher is on PATH).
+    let sibling = exe_dir.join(&name);
+    let candidate = if sibling.exists() {
+        sibling
+    } else {
+        let fallback = xiom_graph::paths::xiom_home().join("bin").join(&name);
+        if !fallback.exists() {
+            eprintln!(
+                "error: {name} not found next to the compiler ({}) or in {}",
+                exe_dir.display(),
+                fallback.parent().map(|p| p.display().to_string()).unwrap_or_default()
+            );
+            eprintln!("       reinstall the toolchain or run `{tool}` from the install launcher");
+            process::exit(1);
+        }
+        fallback
+    };
     match std::process::Command::new(&candidate).args(rest).status() {
         Ok(status) => process::exit(status.code().unwrap_or(1)),
         Err(e) => {
@@ -3211,31 +3226,16 @@ fn run_tool_dispatch(tool: &str, rest: &[String]) -> ! {
     }
 }
 
-/// 9B: xiom doc -- generate documentation for XIOM source files.
+/// 9B/m205: xiom doc -- generate documentation for XIOM source files.
 /// Delegates to the standalone xiom-doc binary, passing through all args
-/// after the `doc` subcommand.
+/// after the `doc` subcommand. Dispatch goes through `run_tool_dispatch`
+/// (sibling first, XIOM_HOME/bin fallback) like every other tool.
 fn run_doc(args: &[String]) {
-    // Find the position of "doc" or "--doc" in args, pass everything after it
-    let doc_pos = args.iter().position(|a| a == "doc" || a == "--doc").unwrap_or(0);
-    let doc_args: Vec<&str> = args[doc_pos + 1..].iter().map(|s| s.as_str()).collect();
-
-    // CRB-3c: same installer-aligned home resolver as `xiom doctor`.
-    let home = xiom_graph::paths::xiom_home();
-    let doc_bin = home.join("bin")
-        .join(if cfg!(windows) { "xiom-doc.exe" } else { "xiom-doc" });
-
-    if doc_bin.exists() {
-        let mut cmd = std::process::Command::new(&doc_bin);
-        cmd.args(&doc_args);
-        let status = cmd.status().unwrap_or_else(|e| {
-            eprintln!("xiom doc: failed to run xiom-doc: {e}");
-            std::process::exit(1);
-        });
-        std::process::exit(status.code().unwrap_or(1));
-    } else {
-        eprintln!("xiom doc: xiom-doc binary not found at {}", doc_bin.display());
-        eprintln!("  Build it with: cargo build -p xiom-doc --release");
-        eprintln!("  Then copy to: {}", doc_bin.display());
-        std::process::exit(1);
-    }
+    // Find the position of the doc subcommand spelling, pass everything
+    // after it.
+    let doc_pos = args.iter()
+        .position(|a| a == "doc" || a == "--doc" || a == "-doc")
+        .unwrap_or(0);
+    let doc_args: Vec<String> = args[doc_pos + 1..].to_vec();
+    run_tool_dispatch("xiom-doc", &doc_args);
 }

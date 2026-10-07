@@ -358,8 +358,13 @@
 > tests/regression/m204_module_ginit_cross_module/ (main.xi + rate.xi);
 > checker 197/197, run_script_cli 5/5, driver 61/61. Follow-up noted:
 > reading such a global still trips a checker typing gap (bucket == 42 ->
-> "cannot compare <error> with Int"). Next: graphql enum-payload Str
-> (needs a minimal packages repro).
+> "cannot compare <error> with Int"). m205 FIXED -- tooling: `xiom doc` now
+> dispatches like every other tool (xiom-doc sibling first, XIOM_HOME/bin
+> fallback), accepts the -doc/--doc spellings, and `doc --help` reaches
+> xiom-doc (the early dispatch table runs before the main --help
+> short-circuit). Verified: doc/-doc/--doc --version -> xiom-doc v0.61.3;
+> `doc <file>` exit 0. Lock: m205_doc_subcommand_dispatches_to_tool.
+> Next: graphql enum-payload Str (needs a minimal packages repro).
 
 > KICKOFF PROMPT (v0.64.1 session, 2026-10-07) -- paste from the marker:
 >
@@ -417,8 +422,9 @@
 > 9. Verifier pass (design in COMPILER_BUGS): locals sort lookup + havoc
 >    loop summary + unknown-not-violated policy. Invariant syntax:
 >    `while cond invariant: expr { }`; benchmark annotations wait on this.
-> 10. Tooling: route `xiom doc` through run_tool_dispatch (sibling binary;
->    XIOM_HOME fallback), accept `-doc`, pass --help through.
+> 10. [DONE m205] Tooling: route `xiom doc` through run_tool_dispatch
+>     (sibling binary; XIOM_HOME fallback), accept `-doc`, pass --help
+>     through. All three spellings verified; lock m205_doc_subcommand.
 > 11. `--icon` exe icon embedding (Windows .rc -> llvm-rc -> link args).
 >
 > RULES: repro-first; locks per fix (IR + e2e + ci.yml line when adding
