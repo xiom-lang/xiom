@@ -29,6 +29,35 @@ fn target_named_source_files_are_kept_but_bare_sugar_is_skipped() {
     std::env::set_current_dir(old).unwrap();
 }
 
+// m207 (found during the C-PULSE-07 repro): the `build` subcommand token must
+// not be read back as a source path -- `xiom build` from a project root died
+// with `cannot read 'build' (os error 2)` before the project-graph branch.
+// A real file named `build` stays a source (exists() guard, mirroring the
+// wasm/arm/riscv positional sugar).
+#[test]
+fn m207_build_subcommand_token_not_a_source() {
+    let bare = resolve_source_files(&["xiom".to_string(), "build".to_string()]);
+    assert!(
+        bare.is_empty(),
+        "the bare `build` token must not become a source path; got {bare:?}"
+    );
+
+    let with_file = resolve_source_files(&[
+        "xiom".to_string(),
+        "build".to_string(),
+        "src.xi".to_string(),
+    ]);
+    assert_eq!(
+        with_file,
+        vec!["src.xi".to_string()],
+        "`xiom build src.xi` must keep only the real source"
+    );
+    // The exists() guard keeps a REAL file named `build` compilable; that
+    // behavior is locked by target_named_source_files_are_kept_but_bare_sugar
+    // _is_skipped above (torch: no second CWD mutation here -- the process
+    // CWD is shared across the parallel test threads).
+}
+
 // m205 (handoff tooling item): `xiom doc` (and the -doc/--doc spellings) must
 // dispatch to the xiom-doc tool -- sibling binary first, XIOM_HOME/bin
 // fallback -- and `--help` must reach the tool instead of being swallowed by

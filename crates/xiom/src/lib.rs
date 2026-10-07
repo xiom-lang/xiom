@@ -1791,11 +1791,16 @@ pub fn resolve_source_files(args: &[String]) -> Vec<String> {
         if arg.starts_with('-') {
             continue;
         }
-        if matches!(arg.as_str(), "wasm" | "arm" | "riscv")
+        if matches!(arg.as_str(), "wasm" | "arm" | "riscv" | "build")
             // Positional target sugar (`xiom build wasm src.xi`) is skipped
             // ONLY when it is not a real path: a source file literally named
             // `wasm`/`arm`/`riscv` used to be silently dropped from the
             // compile set (readiness Stage 5 driver item).
+            // m207: `xiom build` is also a SUBCOMMAND -- the bare `build`
+            // token was read back as a source path, so `xiom build` from a
+            // project root died with "cannot read 'build' (os error 2)"
+            // before the project-graph branch could run. Same exists()
+            // guard as the target sugar.
             && !std::path::Path::new(arg).exists()
         {
             continue;

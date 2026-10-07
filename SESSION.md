@@ -370,7 +370,12 @@
 > (conformance 9/10). The variant binding now inttoptrs non-Vec struct
 > payloads, records local_boxed_struct and binds pointer-backed (m148
 > convention). Package test 10/10; fixture red-before/green-after; locks
-> regress_m206 + e2e_m206 + CI line.
+> regress_m206 + e2e_m206 + CI line. m207 FIXED -- `xiom build` CLI: the
+> `build` subcommand token was read back as a source path ("cannot read
+> 'build'"); it now joins the positional-sugar skip list (exists() guard
+> keeps a real file named `build` compilable). `xiom build` verified
+> end-to-end (project graph + ginit). Lock
+> m207_build_subcommand_token_not_a_source.
 > Next: C-PULSE-02 (deps -> catalog source roots).
 
 > V0.64.1 BATCH COMPLETE (2026-10-07): m199 C-PULSE-05 (const receivers),
@@ -452,10 +457,10 @@
 >     (sibling binary; XIOM_HOME fallback), accept `-doc`, pass --help
 >     through. All three spellings verified; lock m205_doc_subcommand.
 > 11. `--icon` exe icon embedding (Windows .rc -> llvm-rc -> link args).
-> 12. NEW (found during the m204 repro): `xiom build` from a project root
->     fails with "cannot read 'build'" -- resolve_source_files does not
->     skip the `build` subcommand token. Workaround: `xiom run <main.xi>`
->     with sibling modules. See COMPILER_BUGS 2026-10-07 item 7.
+> 12. [DONE m207] `xiom build` from a project root failed with "cannot
+>     read 'build'" -- resolve_source_files did not skip the `build`
+>     subcommand token. Fixed (positional-sugar skip + exists() guard);
+>     `xiom build` verified end-to-end; lock m207_build_subcommand.
 >
 > RULES: repro-first; locks per fix (IR + e2e + ci.yml line when adding
 > tests); cargo sequential; never rebuild target/debug during a suite;
