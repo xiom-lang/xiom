@@ -3720,6 +3720,14 @@ impl Checker {
                         }
                     }
                     TopDecl::Module(md) => collect_referenced_names(&md.items, out),
+                    // C-PULSE-07 (m204): module-level `var`/`const`
+                    // initializers compile into @llvm.global_ctors bodies
+                    // (@__xiom_ginit_N). A function referenced ONLY from such
+                    // an initializer must survive the reachability filter, or
+                    // codegen emits a call to an undefined symbol (Pulse:
+                    // `var b = rate_keyed_new(1, 1);` from xiom.rate produced
+                    // clang "use of undefined value '@rate_keyed_new'").
+                    TopDecl::Const(cd) => collect_expr_names(&cd.value, out),
                     // BUG 25 #2 fix: a use declaration references its TARGET
                     // leaf -- the reachability filter must keep the aliased fn
                     // (`use X.f as af; af(...)` kept abs_float alive, not just

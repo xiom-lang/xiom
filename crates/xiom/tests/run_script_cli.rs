@@ -204,3 +204,53 @@ fn ux_bare_compile_hints_run_on_stderr() {
         "--emit-ir is explicit; no hint expected; stderr:\n{explicit_err}"
     );
 }
+
+// m204 (C-PULSE-07, Pulse relay): a module-level `var` initialized by a
+// cross-module constructor call must emit the callee body. Pre-fix the
+// checker's reachability filter ignored TopDecl::Const initializers, so the
+// catalog fn referenced only from the global init was pruned and codegen
+// emitted `call i64 @rate_keyed_new` with no definition (clang "use of
+// undefined value '@rate_keyed_new'"; Pulse's xiom.rate limiter).
+fn m204_fixture() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("tests")
+        .join("regression")
+        .join("m204_module_ginit_cross_module")
+        .join("main.xi")
+}
+
+#[test]
+fn m204_module_ginit_emits_cross_module_callee() {
+    let out = Command::new(xiom_bin())
+        .arg("run")
+        .arg("--no-cache")
+        .arg(m204_fixture())
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn '{}': {e}", xiom_bin()));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    // The defect was a compile-stage clang failure: the callee body was
+    // pruned by the reachability filter. It must never resurface.
+    assert!(
+        !stderr.contains("undefined value '@rate_keyed_new'"),
+        "module-scope init must emit the cross-module callee (m204); exit={:?}\nstderr:\n{stderr}",
+        out.status.code()
+    );
+    assert!(
+        out.status.success() || stderr.contains("compiled:"),
+        "m204 module-scope init must reach codegen; exit={:?}\nstderr:\n{stderr}",
+        out.status.code()
+    );
+    // Defender can block freshly built %TEMP%/xiom_run exes on this dev box
+    // (os error 225); CI (Linux) takes the full run path.
+    if out.status.success() {
+        assert_eq!(out.status.code(), Some(0), "m204 fixture must exit 0");
+    } else {
+        assert!(
+            stderr.contains("os error 225") || stderr.contains("contains a virus"),
+            "unexpected xiom run failure (m204); exit={:?}\nstderr:\n{stderr}",
+            out.status.code()
+        );
+    }
+}

@@ -347,7 +347,19 @@
 > like the unsafe-block path. Local repro exit 0; with the clause re-added
 > to the sibling stdlib Range.count, smoke_iter prints OK exit 0 (stdlib
 > edit reverted). Locks regress_m203 + e2e_m203; CI line. Stdlib lane can
-> re-add the clause. Next: C-PULSE-07.
+> re-add the clause. m204 FIXED -- Pulse C-PULSE-07: a module-scope `var`
+> initialized by a cross-module ctor emitted `call @rate_keyed_new` with NO
+> definition (clang "use of undefined value"). The checker's reachability
+> filter (collect_referenced_names) ignored TopDecl::Const initializers, so
+> a callee referenced only from a global init was pruned before
+> injection. Fix collects names from Const values; local cross-module repro
+> compiles/runs exit 0, IR has the qualified define + call. Locks:
+> driver test m204_module_ginit_emits_cross_module_callee + fixture dir
+> tests/regression/m204_module_ginit_cross_module/ (main.xi + rate.xi);
+> checker 197/197, run_script_cli 5/5, driver 61/61. Follow-up noted:
+> reading such a global still trips a checker typing gap (bucket == 42 ->
+> "cannot compare <error> with Int"). Next: graphql enum-payload Str
+> (needs a minimal packages repro).
 
 > KICKOFF PROMPT (v0.64.1 session, 2026-10-07) -- paste from the marker:
 >
@@ -392,8 +404,11 @@
 >    >= 0`). Block-closure thunk leaked the enclosing
 >    current_ensures/result_ptr; fixed in the Closure arm; smoke_iter + the
 >    clause now OK/exit 0; locks regress_m203 + e2e_m203.
-> 6. C-PULSE-07 -- module-scope var + cross-package ctor emits a call with
->    no definition (Pulse docs/repro/module-scope-package-init/).
+> 6. [DONE m204] C-PULSE-07 -- module-scope var + cross-module ctor emits a
+>    call with no definition (Pulse docs/repro/module-scope-package-init/).
+>    Reachability filter ignored Const initializers; fixed in xiom-check;
+>    local repro exit 0; lock m204_module_ginit_emits_cross_module_callee.
+>    Follow-up: global reads still untyped in the checker (separate).
 > 7. graphql enum-payload Str 9/10 (distinct root cause; minimal repro
 >    pending in packages).
 > 8. C-PULSE-02 -- installed registry deps not mapped to catalog source

@@ -120,11 +120,13 @@ New reports since v0.64.0 (repro paths local unless noted):
 2. GraphQL enum-payload `Str` 9/10 (packages): `GraphQLSelection.Field(...)
    .name` reads `|0|`; standalone shapes pass; distinct root cause from
    C001/m185/m189. Minimal repro still pending.
-3. C-PULSE-07 (Pulse, OPEN on v0.64.0): a module-scope `var` initialized by
-   a cross-package constructor (`var b = rate_keyed_new(1, 1);`) is accepted
-   but emits `call i64 @rate_keyed_new(...)` with no definition -> clang
-   "use of undefined value"; larger case AV'd during module init. Repro:
-   Pulse `docs/repro/module-scope-package-init/probe.xi`.
+3. [FIXED m204, 2026-10-07] C-PULSE-07 (Pulse): a module-scope `var`
+   initialized by a cross-package constructor (`var b = rate_keyed_new(1,
+   1);`) was accepted but emitted `call i64 @rate_keyed_new(...)` with no
+   definition -> clang "use of undefined value"; larger case AV'd during
+   module init. Root cause + fix in the m204 section below. Repros:
+   Pulse `docs/repro/module-scope-package-init/probe.xi` and the local
+   cross-module equivalent `tmp/pulse05/ginit/`.
 4. [FIXED m200, 2026-10-07] `p_rvalue_float_vec_index.xi` (stdlib
    known_failures): indexing the RVALUE of a `Vec[Float64]`-returning call
    (`mk_f()[0]`) read the raw bits while a bound local read correctly;
@@ -220,6 +222,46 @@ exactly one contract_fail label), e2e `e2e_m203_closure_ensures_isolation` +
 lane can re-add the `Range.count` clause now.
 
 ---
+
+## 2026-10-07 -- FIXED: module-scope init pruned its cross-module callee (m204, Pulse C-PULSE-07)
+
+Pulse relay: `var b = rate_keyed_new(1, 1);` at module scope (xiom.rate's
+limiter) was accepted by the checker but codegen emitted
+`call i64 @rate_keyed_new(i64 1, i64 1)` with no definition -- clang "use of
+undefined value '@rate_keyed_new'"; the larger Pulse suite AV'd during
+module init. Reproduced locally without the packages repo
+(`tmp/pulse05/ginit/`: sibling module xiom.rate + top-level `var bucket =
+rate_keyed_new(1, 1);`).
+
+ROOT CAUSE (IR evidence, tmp/pulse05/ginit_main.ll vs ginit_fn.ll): the
+checker's catalog reachability filter (`collect_referenced_names` in
+xiom-check, used before external decl injection) walked `TopDecl::Fn`
+bodies, `Module`, and `Use` -- but NOT `TopDecl::Const` values. A catalog
+function referenced ONLY from a module-level `var`/`const` initializer was
+therefore pruned from the injected decls: no `define i64 @rate.rate_keyed_new`
+was emitted, and the `@llvm.global_ctors` body for the global emitted a
+call to a symbol that did not exist. A body-level call to the same fn worked
+(it seeded the reachability set).
+
+FIX (m204): `collect_referenced_names` now also collects names from
+`TopDecl::Const(cd.value)` (module-level var/const initializers), so the
+callee survives the filter, is injected with its body, and the ginit call
+resolves to the qualified symbol (`@rate.rate_keyed_new`).
+
+EVIDENCE: local repro compiles and runs exit 0; IR now contains both
+`define i64 @rate.rate_keyed_new(...)` and the qualified call. Pulse can
+re-test `docs/repro/module-scope-package-init/probe.xi` (its source-roots
+handling still needs C-PULSE-02 for the installed package path).
+
+FOLLOW-UP: reading such a global from a function (`bucket == 42`) still
+trips a checker typing gap ("cannot compare <error> with Int") -- the
+global's cross-module-initialized type is not propagated to reads; tracked
+separately, not part of C-PULSE-07's codegen defect.
+
+LOCKS: `m204_module_ginit_emits_cross_module_callee` (driver test in
+crates/xiom/tests/run_script_cli.rs) +
+`tests/regression/m204_module_ginit_cross_module/{main,rate}.xi`. Gates:
+checker 197/197, run_script_cli 5/5, driver lib 61/61.
 
 ## 2026-10-07 -- FIXED: rvalue Vec[Float64] index read raw bits (m200, stdlib p_rvalue_float_vec_index)
 
