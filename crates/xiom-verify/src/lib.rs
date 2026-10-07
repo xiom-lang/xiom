@@ -959,6 +959,43 @@ impl SMTGenerator {
         false
     }
 
+    /// m213 (verifier pass, design step 2): names ASSIGNED anywhere inside a
+    /// loop body (any nesting depth) -- the variables the loop may change,
+    /// hence the ones to havoc after exit.
+    fn collect_assigned_names(stmts: &[StmtOrExpr], out: &mut std::collections::HashSet<String>) {
+        for item in stmts {
+            let stmt = match item {
+                StmtOrExpr::Stmt(s) => s,
+                StmtOrExpr::Expr(..) => continue,
+            };
+            match stmt {
+                Stmt::Assign(target, _, _) => match target {
+                    Expr::Ident(id) => {
+                        out.insert(id.name.clone());
+                    }
+                    Expr::Field(obj, field, _) => {
+                        if let Expr::Ident(id) = obj.as_ref() {
+                            out.insert(format!("{}.{}", id.name, field.name));
+                        }
+                    }
+                    _ => {}
+                },
+                Stmt::If(_, then_b, elifs, else_b, _) => {
+                    Self::collect_assigned_names(&then_b.stmts, out);
+                    for (_, b) in elifs {
+                        Self::collect_assigned_names(&b.stmts, out);
+                    }
+                    if let Some(b) = else_b {
+                        Self::collect_assigned_names(&b.stmts, out);
+                    }
+                }
+                Stmt::While(_, body, _, _, _) => Self::collect_assigned_names(&body.stmts, out),
+                Stmt::For(_, _, body, _, _) => Self::collect_assigned_names(&body.stmts, out),
+                _ => {}
+            }
+        }
+    }
+
     fn encode_stmt(&mut self, stmt: &Stmt, ft: &mut String) {
         match stmt {
             Stmt::Let(name, ty, init, _) | Stmt::Var(name, ty, init, _) => {
@@ -970,7 +1007,13 @@ impl SMTGenerator {
                 let ssa = self.fresh_ssa(&name.name);
                 self.ensure_sort_declared(&sort);
                 self.emit(&format!("(declare-const {} {})", ssa, sort));
-                self.var_sort_map.insert(ssa.clone(), sort);
+                self.var_sort_map.insert(ssa.clone(), sort.clone());
+                // m213 (verifier pass, locals sort lookup): `infer_sort` looks
+                // up the BASE name (`Expr::Ident`), but only the SSA name was
+                // registered -- every local's sort was None after its binding,
+                // so `i < n` / `i > 0` became "operator Gt on non-numeric
+                // operands (sorts None/Some(Int))" and loops were skipped.
+                self.var_sort_map.insert(name.name.clone(), sort);
                 let saved = self.unsupported.take();
                 let val = self.translate_expr_to_val(init);
                 let unsup = self.unsupported.take();
@@ -1070,6 +1113,54 @@ impl SMTGenerator {
                             message: format!("loop invariant must hold: {}", expr_display(inv)),
                             smt: inv_t,
                         });
+
+                        // m213 (verifier pass, design step 2): HAVOC summary.
+                        // The one-step iteration above describes a SINGLE pass;
+                        // post-loop obligations would otherwise read the
+                        // guarded body SSAs as unconstrained, and a SUFFICIENT
+                        // invariant produced spurious VIOLATED verdicts (this
+                        // is why the locals-sort fix was reverted in v0.64.0).
+                        // After the iteration: fresh SSAs for every variable
+                        // the body assigns, then assert the invariant and the
+                        // negated condition over those new SSAs, under the
+                        // current guard -- the standard havoc + invariant loop
+                        // exit summary.
+                        let mut assigned = std::collections::HashSet::new();
+                        Self::collect_assigned_names(&body.stmts, &mut assigned);
+                        let mut names: Vec<String> = assigned.into_iter().collect();
+                        names.sort();
+                        let mut havocked = false;
+                        for name in names {
+                            let Some(sort) = self.var_sort_map.get(&name).cloned() else { continue };
+                            let ssa = self.fresh_ssa(&name);
+                            self.ensure_sort_declared(&sort);
+                            self.emit(&format!("(declare-const {} {})", ssa, sort));
+                            self.var_sort_map.insert(ssa.clone(), sort.clone());
+                            self.latest.insert(name, ssa);
+                            havocked = true;
+                        }
+                        if havocked {
+                            let saved = self.unsupported.take();
+                            let inv_exit = self.translate_expr_to_val(inv);
+                            let inv_unsup = self.unsupported.take();
+                            let cond_exit = if inv_unsup.is_none() {
+                                let saved2 = self.unsupported.take();
+                                let c = self.translate_expr_to_val(cond);
+                                let c_unsup = self.unsupported.take();
+                                self.unsupported = saved2;
+                                if c_unsup.is_none() { Some(c) } else { None }
+                            } else {
+                                None
+                            };
+                            self.unsupported = saved;
+                            if let (None, Some(cond_exit)) = (inv_unsup, cond_exit) {
+                                self.emit("; loop exit summary (havoc + invariant + !cond)");
+                                self.emit(&format!(
+                                    "(assert (=> {} (and {} (not {}))))",
+                                    ft, inv_exit, cond_exit
+                                ));
+                            }
+                        }
                     }
                     None => {
                         // Naked loop: one-step encoding cannot summarize it --
@@ -1127,7 +1218,11 @@ impl SMTGenerator {
                 let ssa = self.fresh_ssa(&base);
                 self.ensure_sort_declared(&sort);
                 self.emit(&format!("(declare-const {} {})", ssa, sort));
-                self.var_sort_map.insert(ssa.clone(), sort);
+                self.var_sort_map.insert(ssa.clone(), sort.clone());
+                // m213: keep the BASE name's sort up to date too (see the
+                // Let/Var arm) -- assignments otherwise left `infer_sort` on
+                // the base name pointing at a stale/absent entry.
+                self.var_sort_map.insert(base.clone(), sort);
                 let saved = self.unsupported.take();
                 let val = self.translate_expr_to_val(expr);
                 let unsup = self.unsupported.take();
@@ -2096,6 +2191,80 @@ mod tests {
             String::from_utf8_lossy(&out.stderr)
         );
         Some(!combined.to_lowercase().contains("error"))
+    }
+
+    // m213 (contracts-lane relay): a local's sort must be registered under its
+    // BASE name, not only its SSA name. Pre-fix every `var i = 0; while i < n`
+    // skipped with "operator Lt on non-numeric operands (sorts
+    // None/Some(\"Int\"))" and the loop/ensures never reached real reasoning.
+    #[test]
+    fn local_sorts_resolve_for_comparisons() {
+        let (smt, report) = generate(
+            r#"
+module verify_locals
+
+fn count_to(cap: Int) -> Int
+  requires: cap > 0
+  ensures: result >= 0
+{
+  var i = 0;
+  while i < cap {
+    i = i + 1;
+  };
+  return i;
+}
+"#,
+        );
+        assert!(
+            !report
+                .skipped
+                .iter()
+                .any(|s| s.reason.contains("non-numeric")),
+            "local comparisons must resolve sorts; skipped: {:?}",
+            report.skipped
+        );
+        assert!(
+            smt.contains("(declare-const |i_ssa0| Int)"),
+            "the local SSA const must be Int-sorted:\n{smt}"
+        );
+    }
+
+    // m213 step 2 (havoc summary): a sufficient loop invariant must rebind the
+    // assigned variables to fresh SSAs and assert the exit state
+    // (invariant + negated condition) so post-loop obligations can be PROVEN
+    // without the spurious VIOLATED verdicts that blocked the BUG 1 fix.
+    #[test]
+    fn invariant_loop_havocs_and_asserts_exit() {
+        let (smt, report) = generate(
+            r#"
+module verify_inv
+
+fn count_to(cap: Int) -> Int
+  requires: cap > 0
+  ensures: result >= 0
+{
+  var i = 0;
+  while i < cap invariant: i >= 0 {
+    i = i + 1;
+  };
+  return i;
+}
+"#,
+        );
+        assert!(report.skipped.is_empty(), "no obligations skipped: {:?}", report.skipped);
+        assert!(
+            smt.contains("; loop exit summary (havoc + invariant + !cond)"),
+            "exit summary must be emitted:\n{smt}"
+        );
+        let i_ssas = smt.matches("(declare-const |i_ssa").count();
+        assert!(
+            i_ssas >= 2,
+            "the loop must havoc `i` to a fresh SSA (one-step + summary); got {i_ssas}:\n{smt}"
+        );
+        assert!(
+            smt.contains("(not (< |i_ssa"),
+            "the exit summary must constrain the negated loop condition:\n{smt}"
+        );
     }
 
     #[test]

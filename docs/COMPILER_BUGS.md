@@ -468,7 +468,7 @@ line.
 
 ---
 
-## 2026-10-05 -- OPEN (design recorded): verifier locals have no sort + one-step loop encoding (contracts coverage)
+## 2026-10-05 -- verifier locals sort + one-step loop encoding (contracts coverage) -- STEPS 1+2 FIXED m213, step 3 open
 
 Benchmark contracts ask (loop-invariant syntax + emitter coverage).
 Findings from a local probe (`tmp/contracts/inv_probe.xi`):
@@ -477,36 +477,46 @@ Findings from a local probe (`tmp/contracts/inv_probe.xi`):
   `while cond invariant: expr { ... }` (parser: "while expr [invariant:
   expr] block"). Type invariants likewise exist on `type` decls.
 - BUG 1 (locals sort): `infer_sort` for `Expr::Ident` looks up
-  `var_sort_map` by the BARE name, but `encode_stmt`'s Let/Var arm inserts
+  `var_sort_map` by the BARE name, but `encode_stmt`'s Let/Var arm inserted
   the sort under the fresh SSA name (bare -> SSA lives in `latest`). Every
-  local therefore infers sort None, so any clause/invariant/body term
-  referencing a local skips with X7006/X7007 ("sorts None/Some(Int)") --
-  the benchmark t4/t8 "no queries emitted" class. One-line fix:
-  resolve `latest[name]` first, then `var_sort_map.get(ssa)`.
-- BUG 2 (loop summary): `Stmt::While` with an invariant is documented as a
-  one-step approximation (assume the invariant at the loop head, encode ONE
-  guarded iteration, register the invariant as an obligation). The post-loop
-  state is never summarized (no havoc + invariant + negated condition), so
-  once BUG 1 is fixed a SUFFICIENT invariant still reports the ensures as
-  VIOLATED with a spurious model -- i.e. the fix alone converts honest
-  UNKNOWNs into FALSE VIOLATIONS. Reverted the BUG 1 experiment and kept the
-  v0.64.0 behavior (honest X7006/X7007 skips).
+  local inferred sort None, so any clause/invariant/body term referencing a
+  local skipped with X7006/X7007 ("sorts None/Some(Int)") -- the benchmark
+  t1/t4/t8 "no queries emitted" class.
+- BUG 2 (loop summary): `Stmt::While` with an invariant is a one-step
+  approximation (assume the invariant at the loop head, encode ONE guarded
+  iteration, register the invariant as an obligation). The post-loop state
+  was never summarized (no havoc + invariant + negated condition), so
+  fixing BUG 1 ALONE converted honest UNKNOWNs into spurious VIOLATEDs --
+  hence the experiment was reverted and x kept in v0.64.0.
 
-DESIGN for the dedicated v0.64.1 verifier pass (needs its own batch):
-1. Fix the locals sort lookup (above) with a unit test.
-2. Replace the one-step loop encoding with a havoc summary: after encoding
-   one guarded iteration (invariant preservation), collect the variables
-   assigned in the body, create fresh SSAs with their sorts, bind them in
-   `latest`, assert `inv` and the negated condition under the current guard,
-   then continue -- so post-loop obligations see `inv ^ !cond`.
-3. Classification policy: obligations that fail ONLY because a loop summary
-   is an over-approximation must surface as UNKNOWN, never VIOLATED (the
-   benchmark workspace must not see false violations).
-4. Locks: `sum_to` with `s == i` invariant proves `result >= n`; the weak
-   invariant yields UNKNOWN (not VIOLATED); the locals-sort unit test; the
-   existing 39 verifier tests stay green.
-Benchmark answer: invariant syntax above; do not annotate reference loops
-expecting proofs until this pass lands.
+STEPS 1+2 FIXED (m213, 2026-10-07):
+1. BUG 1 fixed: the Let/Var AND Assign arms now register the sort under the
+   BASE name as well as the fresh SSA (`var_sort_map.insert(base, sort)`),
+   so `infer_sort(Ident)` resolves local sorts. Unit test
+   `local_sorts_resolve_for_comparisons`.
+2. BUG 2 fixed with the designed havoc summary: after the one guarded
+   iteration, the arm collects every variable ASSIGNED in the body
+   (`collect_assigned_names`, any nesting depth), creates fresh SSAs with
+   their sorts, rebinds them in `latest`, then re-translates the invariant
+   and condition and asserts `(=> ft (and inv (not cond)))` -- the standard
+   havoc + invariant loop exit summary.
+EVIDENCE (z3, local): `count_to` with `invariant: i >= 0` and
+`ensures: result >= 0` -> 2 proven / 0 violated / 0 unknown (was 1 unknown
+with the sort warning); the naked-loop probe stays 1 proven + 1 honest
+X7007 unknown; the INSUFFICIENT invariant probe (`ensures: result >= 5`)
+yields a REAL violation with a countermodel (no over-claiming). Unit test
+`invariant_loop_havocs_and_asserts_exit`; verifier suite 41 green
+(7 lib + 34 integration).
+STILL OPEN (step 3 + full fixpoint):
+3. Classification policy for obligations that fail ONLY because the loop
+   summary is an over-approximation -> must surface as UNKNOWN, never
+   VIOLATED (the benchmark workspace must not see false violations).
+   Preservation in the two-state sense is also not yet encoded (the pushed
+   invariant obligation is establishment + one-step shape).
+4. Full fixpoint VC generation for loops remains future work; the current
+   summary is the documented approximation.
+Benchmark answer: invariant syntax above; a SUFFICIENT invariant now proves
+post-loop obligations (step 2 landed).
 
 ---
 

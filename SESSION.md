@@ -471,8 +471,15 @@
 >    [dependencies] xiom-rate = "0.2" -> pre-fix 1 module + T001; post-fix
 >    3 modules, BUILD=0, @rate_keyed_new emitted. Locks: 2 graph unit
 >    tests + m212_project_path_dependency_is_discovered (portable).
-> 9. Verifier pass (design in COMPILER_BUGS): locals sort lookup + havoc
->    loop summary + unknown-not-violated policy. Invariant syntax:
+> 9. [PARTIAL m213] Verifier pass (design in COMPILER_BUGS): STEP 1 (locals
+>    sort lookup -- base names now registered alongside SSAs) and STEP 2
+>    (havoc loop summary: fresh SSAs + `(=> ft (and inv (not cond)))` exit
+>    assertion) are DONE. Evidence: sufficient invariant -> 2 proven/0
+>    violated; naked loop honest unknown; insufficient invariant -> real
+>    countermodel. Locks: local_sorts_resolve_for_comparisons +
+>    invariant_loop_havocs_and_asserts_exit; verifier 41 green. STILL OPEN:
+>    step 3 (over-approximation-only failures -> UNKNOWN, never VIOLATED)
+>    and full fixpoint VCs. Benchmark contracts lanes can re-run. Invariant syntax:
 >    `while cond invariant: expr { }`; benchmark annotations wait on this.
 > 10. [DONE m205] Tooling: route `xiom doc` through run_tool_dispatch
 >     (sibling binary; XIOM_HOME fallback), accept `-doc`, pass --help
