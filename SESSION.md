@@ -4,7 +4,7 @@
 # KICKOFF PROMPT (v0.64.1 batch, 2026-10-08) -- paste from the marker
 
 > Continue the XIOM compiler lane. STATE: local main carries the v0.64.1
-> batch m199..m218 (31+ commits ahead of origin -- count with
+> batch m199..m219 (31+ commits ahead of origin -- count with
 > `git rev-list --count origin/main..main`; NOT pushed; v0.64.0 tag
 > c68d91de is the last release). This checkout's git identity is
 > Lefteris Notas <lefterisnotas@gmail.com> (repo-local overrides the
@@ -38,7 +38,8 @@
 > m218 XVC-C-05 Float32 Vec-field elements (`vec_elem_float_type` Field arm
 > now uses the deterministic declared_field_type helper; Option__Vector can
 > no longer shadow Vector and force integer bit-pattern math). XVECTOR
-> probe 6/6 exact post-fix.
+> probe 6/6 exact post-fix; m219 XVC-C-01 `&fn()` call shapes (bitcast
+> for pointer slots, deref-peel for `(*f)()`, code address for `*f`).
 >
 > GATES on the tree: e2e 2437/0/4, feature 536/536 (533 pre-m216 + the
 > m216/m217/m218 locks), checker 197/197, verifier 41 (7 lib + 34
@@ -85,13 +86,15 @@
 >    (typing gap, separate from the fixed codegen defect).
 >
 > RELAY QUEUE (new lanes, 2026-10-08):
-> A. XVECTOR (E:\xiom-projects\xiom-xvector): XVC-C-05 FIXED m218
->    (Float32 Vec-field bit-pattern math, nondeterministic). OPEN:
->    XVC-C-01 `&fn()` call emits invalid IR / (*f)() crashes; XVC-C-02 a
->    runtime requires violation prints and exits 0 (silent-green CI);
->    XVC-C-03 W004 false "unreachable arm" on unit enums; XVC-C-04
->    Result[Vec[non-scalar]] payload loses element fields -- RE-TEST vs
->    m217 first. Bundles under docs/repro/ (five; re-run all at archive).
+> A. XVECTOR (E:\xiom-projects\xiom-xvector): re-tested 2026-10-08 on
+>    current main. XVC-C-05 FIXED m218; XVC-C-01 FIXED m219 (all three
+>    fn-ref call shapes green); XVC-C-04 FIXED by m217 (probe_matrix +
+>    probes green, struct rows read id=42); XVC-C-03 FIXED m220 (bare
+>    unit-enum W004 false positives, checker-side; lands next commit).
+>    XVC-C-02 is a
+>    MEASUREMENT ARTIFACT: the trap exits 1 on v0.64.0 AND current main
+>    (Start-Process .ExitCode); the reported 0 came from the cmd
+>    `%ERRORLEVEL%` parse-time expansion gotcha -- no compiler defect.
 > B. ORBITDB (E:\xiom-projects\xiom-orbitdb): C-ORBIT-01 cross-module
 >    generic Result alias payload -- RE-TEST vs m216 first; C-ORBIT-02
 >    Vec[Option[T]] element assignment poisons the slot (matches neither

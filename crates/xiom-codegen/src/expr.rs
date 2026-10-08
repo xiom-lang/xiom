@@ -1276,6 +1276,25 @@ impl IrEmitter {
                         return Ok((tmp, LLVM_I64.to_string()));
                     }
                     UnaryOp::Deref => {
+                        // XVC-C-01 (m219): `*f` where `f` is a fn-REFERENCE
+                        // (`&fn() -> T`) yields the fn VALUE carried by the
+                        // reference. The slot holds the code address as a
+                        // pointer; loading through it read the function's first
+                        // instructions (probe_deref/probe_local crashed with
+                        // 0xC0000005). Plain `fn(...)` params/closure locals
+                        // keep the M20-A1 env convention (i64 slot), so this
+                        // only applies when the slot type is a pointer.
+                        if inner_ty.ends_with('*') {
+                            if let Expr::Ident(id) = inner.as_ref() {
+                                let is_fn_ref = self.local.local_xiom_types.get(&id.name)
+                                    .map_or(false, |d| d.trim_start_matches('&').starts_with("fn("));
+                                if is_fn_ref {
+                                    let addr = self.fresh_tmp();
+                                    self.emitln(&format!("  {addr} = ptrtoint {inner_ty} {val} to i64"));
+                                    return Ok((addr, "i64".to_string()));
+                                }
+                            }
+                        }
                         // `*p`: load through a real pointer. `inner_ty` is e.g. `i64*`
                         // (from a `*T` value). Load the pointee type.
                         if inner_ty.ends_with('*') {

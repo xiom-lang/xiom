@@ -7435,3 +7435,54 @@ fn main() -> Int {
         "m218: the f32 bit patterns must not be multiplied as integers; got:\n{ir}"
     );
 }
+
+// m219 (XVC-C-01): `&fn() -> T` parameter call shapes -- `f()` must bitcast
+// the i64* slot to the fn pointer (inttoptr with a pointer operand is invalid
+// IR), `(*f)()` must not fall into the 1-arg closure signature, and `*f` in a
+// binding must yield the code address (ptrtoint), not load code bytes.
+#[test]
+fn regress_m219_fnptr_ref_call() {
+    let source = r#"
+fn seven() -> Int { return 7; }
+fn call_direct(f: &fn() -> Int) -> Int {
+  return f();
+}
+fn call_deref(f: &fn() -> Int) -> Int {
+  return (*f)();
+}
+fn call_local(f: &fn() -> Int) -> Int {
+  var g: fn() -> Int = *f;
+  return g();
+}
+fn main() -> Int {
+  if call_direct(&seven) != 7 { return 1; }
+  if call_deref(&seven) != 7 { return 2; }
+  if call_local(&seven) != 7 { return 3; }
+  return 0;
+}
+"#;
+    let ir = compile(source).expect("m219: fn-ref call must compile");
+    let body = |sig: &str| -> String {
+        ir.split(sig).nth(1).expect("m219: body missing")
+            .split("\ndefine ").next().unwrap_or("").to_string()
+    };
+    let direct = body("define i64 @call_direct(");
+    assert!(
+        direct.contains("bitcast i64*") && direct.contains("i64 ()*"),
+        "m219: f() must bitcast the i64* slot to the fn pointer; got:\n{ir}"
+    );
+    assert!(
+        !direct.contains("inttoptr i64*"),
+        "m219: inttoptr with a pointer operand is invalid IR; got:\n{ir}"
+    );
+    let deref = body("define i64 @call_deref(");
+    assert!(
+        !deref.contains("(i64)*"),
+        "m219: (*f)() must not use the 1-arg closure signature; got:\n{ir}"
+    );
+    let local = body("define i64 @call_local(");
+    assert!(
+        local.contains("ptrtoint") && local.contains("to i64"),
+        "m219: *f must yield the code address (ptrtoint), not a code load; got:\n{ir}"
+    );
+}

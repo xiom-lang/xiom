@@ -5981,6 +5981,16 @@ fn e2e_safety_probe() {
     );
 }
 
+// m219 (XVC-C-01): `&fn() -> T` parameters: direct call, `(*f)()` and a
+// local rebound from `*f` must all call the passed function correctly.
+#[test] fn e2e_m219_fnptr_ref_call() {
+    assert_eq!(
+        compile_and_run("tests/regression/m219_fnptr_ref_call/main.xi"),
+        Some(0),
+        "&fn() parameter call shapes must dispatch the passed function (m219)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

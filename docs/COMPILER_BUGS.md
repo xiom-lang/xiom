@@ -286,6 +286,40 @@ present), e2e `e2e_m210_vec_clone_struct_elem` + fixture
 
 ---
 
+## 2026-10-08 -- FIXED: &fn() parameter call shapes (m219, XVC-C-01)
+
+XVECTOR relay, XVC-C-01: `f()` on a `&fn() -> T` parameter emitted
+`inttoptr i64* %slot to i64 ()*` (invalid cast ptr->ptr, clang exit 1);
+`(*f)()` compiled through the M20-A1 closure fallback with a bogus 1-arg
+signature and crashed 0xC0000005; `var g = *f; g()` loaded the function's
+first instructions as the address and crashed. Struct-field fn pointers
+were already green.
+
+ROOT CAUSES (IR evidence):
+1. call.rs callee_is_fn_ptr always emitted `inttoptr {slot_ty}`; for the
+   `&fn()` ABI the slot holds the code address typed `i64*`, so the cast
+   must be a bitcast (inttoptr requires an integer operand).
+2. `fn_name_opt` only peeled Ident/Field callees, so `(*f)()` missed the
+   fn-pointer path and fell into the M20-A1 env-first fallback (wrong
+   1-arg signature).
+3. UnaryOp::Deref treated `*f` as a memory load through the code pointer;
+   under the `&fn()` convention the deref is the fn VALUE (code address).
+
+FIX (m219): cast opcode selected from the slot type (bitcast for pointer
+slots, inttoptr for integer slots); the call dispatcher peels
+Expr::Unary(Deref) to resolve the local name; the Deref arm yields the
+code address via ptrtoint when the operand is a fn-reference (pointer slot
+only -- plain fn params keep the M20-A1 env convention).
+
+EVIDENCE: probe.xi / probe_deref.xi / probe_local.xi all exit 0 post-fix
+(pre-fix: clang exit 1 / AV / AV).
+
+LOCKS: regress_m219_fnptr_ref_call (IR: bitcast i64* to i64 ()*, no
+inttoptr i64*, no (i64)*, ptrtoint for the deref), e2e + fixture + CI line.
+Gates: feature 537/537; targeted e2e 8/8; fn-ptr/closure regressions 7/7.
+
+---
+
 ## 2026-10-08 -- FIXED: Float32 Vec-field elements multiplied as bit patterns (m218, XVC-C-05)
 
 XVECTOR relay, XVC-C-05 (critical): per-build nondeterministic lowering --

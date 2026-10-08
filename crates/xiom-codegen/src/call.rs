@@ -643,6 +643,16 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 let (fn_name_opt, receiver_expr) = match func_unwrapped {
                     Expr::Ident(name) => (Some(name.name.clone()), None),
                     Expr::Field(obj, field, _) => (Some(field.name.clone()), Some(obj)),
+                    // XVC-C-01 (m219): `(*f)()` -- peel the deref so a
+                    // fn-pointer LOCAL/param is dispatched through the
+                    // callee_is_fn_ptr path (load the slot, cast, call with
+                    // the real signature) instead of the M20-A1 closure
+                    // fallback, which treated the raw code address as an env
+                    // pointer and called it with a bogus 1-arg signature.
+                    Expr::Unary(UnaryOp::Deref, inner, _) => match inner.as_ref() {
+                        Expr::Ident(name) => (Some(name.name.clone()), None),
+                        _ => (None, None),
+                    },
                     _ => (None, None),
                 };
                 // m143b: bare sibling-method call to a GENERIC receiver method
@@ -5907,7 +5917,18 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             };
                         let fn_ptr_ty = format!("{actual_ret_ty} ({})*", param_types.join(", "));
                         let fn_ptr = self.fresh_tmp();
-                        self.emitln(&format!("  {fn_ptr} = inttoptr {local_llvm_ty} {fn_ptr_loaded} to {fn_ptr_ty}"));
+                        // XVC-C-01 (m219): the slot may hold a POINTER (an
+                        // `&fn() -> T` parameter's `i64*` code address) or an
+                        // integer (a raw fn address bound to a local). Only
+                        // the integer form admits inttoptr -- emitting it for
+                        // a pointer operand is invalid IR ("invalid cast
+                        // opcode for cast from 'ptr' to 'ptr'", clang exit 1).
+                        let cast_op = if local_llvm_ty.trim_end().ends_with('*') || local_llvm_ty.starts_with('%') {
+                            "bitcast"
+                        } else {
+                            "inttoptr"
+                        };
+                        self.emitln(&format!("  {fn_ptr} = {cast_op} {local_llvm_ty} {fn_ptr_loaded} to {fn_ptr_ty}"));
                         if actual_ret_ty == "void" {
                             self.emitln(&format!("  call {fn_ptr_ty} {fn_ptr}({args_str})"));
                             Ok((String::new(), "void".to_string()))
