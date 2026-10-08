@@ -266,6 +266,21 @@ fn m154_w004_guarded_stays_silent() {
     assert_eq!(run.status.code(), Some(0), "the guarded fixture must run cleanly");
 }
 
+// XVC-C-03 (m220): bare unit-enum variant patterns are specific variants,
+// not bindings -- distinct bare arms must not warn.
+#[test]
+fn m220_w004_bare_variants_silent() {
+    let (stderr, code, exe) = run_on("m220_w004_bare_variants");
+    assert_eq!(code, Some(0), "bare unit-enum match must compile. stderr:\n{stderr}");
+    assert!(
+        !stderr.contains("warning[W004]"),
+        "distinct BARE unit-enum arms must stay silent, got:\n{stderr}"
+    );
+    let run = Command::new(&exe).output().expect("run m220_w004_bare_variants");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(run.status.code(), Some(0), "the bare-variant fixture must run cleanly");
+}
+
 // ---------------------------------------------------------------------------
 // Stage 6 lint wave, tier 2: W006 (shift amount out of range), W007
 // (self-comparison always true/false), W008 (literal integer div/rem by

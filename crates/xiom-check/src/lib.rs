@@ -5544,12 +5544,24 @@ impl Checker {
     }
 
     fn pattern_is_catch_all(pattern: &Pattern) -> bool {
+        Self::pattern_is_catch_all_v(pattern, &[])
+    }
+
+    /// XVC-C-03 (m220): with the scrutinee's variant base names, a bare
+    /// `Ident` naming a variant is NOT a catch-all; without them (divergence
+    /// heuristics) every bare Ident stays a binding.
+    fn pattern_is_catch_all_v(pattern: &Pattern, variants: &[String]) -> bool {
         match pattern {
             Pattern::Wildcard(_) => true,
-            // A BARE enum variant (`Color.Red`) parses as a DOTTED Ident --
-            // it is a specific variant, NOT a binding.
-            Pattern::Ident(id) => !id.name.contains('.'),
-            Pattern::Or(alts, _) => alts.iter().any(Self::pattern_is_catch_all),
+            // A DOTTED Ident (`Color.Red`) is a specific variant, NOT a
+            // binding; a BARE Ident is a variant only when it names one of
+            // the scrutinee's variants.
+            Pattern::Ident(id) => {
+                if id.name.contains('.') { return false; }
+                let leaf = id.name.rsplit('.').next().unwrap_or(&id.name);
+                !variants.iter().any(|v| v == leaf)
+            }
+            Pattern::Or(alts, _) => alts.iter().any(|a| Self::pattern_is_catch_all_v(a, variants)),
             _ => false,
         }
     }
@@ -5559,14 +5571,17 @@ impl Checker {
     /// duplicate literal / enum-variant pattern. Complements
     /// `--strict-exhaustive`, which covers MISSING arms. Warning-only and
     /// user-program scoped (call sites guard on `!checking_catalog`).
-    fn lint_w004_unreachable_arms(&mut self, arms: &[MatchArm]) {
+    /// XVC-C-03 (m220): `variants` carries the scrutinee's enum variant base
+    /// names so a BARE variant pattern (`Cosine`) is recognized as a specific
+    /// variant instead of being mistaken for a binding catch-all.
+    fn lint_w004_unreachable_arms(&mut self, arms: &[MatchArm], variants: &[String]) {
         let mut shadowed_by_catch_all = false;
         let mut seen: Vec<String> = Vec::new();
         for arm in arms {
             let unguarded = arm.guard.is_none();
             let mut unreachable = shadowed_by_catch_all;
             if !unreachable {
-                if let Some(key) = Self::pattern_shadow_key(&arm.pattern) {
+                if let Some(key) = Self::pattern_shadow_key(&arm.pattern, variants) {
                     if seen.contains(&key) {
                         unreachable = true;
                     }
@@ -5581,14 +5596,14 @@ impl Checker {
             }
             // Only an UNGUARDED catch-all shadows everything after it; a
             // guarded catch-all may fail and leave later arms reachable.
-            if unguarded && Self::pattern_is_catch_all(&arm.pattern) {
+            if unguarded && Self::pattern_is_catch_all_v(&arm.pattern, variants) {
                 shadowed_by_catch_all = true;
             }
             // Duplicate tracking: only unguarded patterns can shadow by
             // value (a guarded duplicate still reaches later arms when its
             // guard fails).
             if unguarded {
-                if let Some(key) = Self::pattern_shadow_key(&arm.pattern) {
+                if let Some(key) = Self::pattern_shadow_key(&arm.pattern, variants) {
                     seen.push(key);
                 }
             }
@@ -5600,7 +5615,7 @@ impl Checker {
     /// for patterns we do not compare: wildcards/bindings are handled by the
     /// catch-all rule, and struct/tuple/or patterns are skipped to stay
     /// conservative (no false positives).
-    fn pattern_shadow_key(pattern: &Pattern) -> Option<String> {
+    fn pattern_shadow_key(pattern: &Pattern, variants: &[String]) -> Option<String> {
         match pattern {
             Pattern::Lit(lit) => Some(match lit {
                 Literal::Int(v, _) => format!("int:{v}"),
@@ -5613,12 +5628,19 @@ impl Checker {
             // value set depends only on the (dotted) variant path and the
             // payload ARITY (`Circle(r)` and `Circle(rad)` collide).
             Pattern::Variant(name, fields, _) => {
-                Some(format!("variant:{}:{}", name.name, fields.len()))
+                let leaf = name.name.rsplit('.').next().unwrap_or(&name.name);
+                Some(format!("variant:{}:{}", leaf, fields.len()))
             }
-            // A BARE enum variant (`Color.Red`) parses as a dotted Ident --
-            // same value-set key as the parenthesized form with arity 0.
-            Pattern::Ident(id) if id.name.contains('.') => {
-                Some(format!("variant:{}:0", id.name))
+            // A BARE enum variant is a specific variant when it names one of
+            // the scrutinee's variants (dotted forms always are); otherwise
+            // the Ident is a binding (None -- handled by the catch-all rule).
+            Pattern::Ident(id) => {
+                let leaf = id.name.rsplit('.').next().unwrap_or(&id.name);
+                if id.name.contains('.') || variants.iter().any(|v| v == leaf) {
+                    Some(format!("variant:{}:0", leaf))
+                } else {
+                    None
+                }
             }
             Pattern::None(_) => Some("none".to_string()),
             Pattern::Some(inner, _) => {
@@ -5639,7 +5661,7 @@ impl Checker {
     fn pattern_payload_key(pattern: &Pattern) -> Option<String> {
         match pattern {
             Pattern::Wildcard(_) | Pattern::Ident(_) => Some("any".to_string()),
-            _ => Self::pattern_shadow_key(pattern),
+            _ => Self::pattern_shadow_key(pattern, &[]),
         }
     }
 
@@ -6308,7 +6330,8 @@ impl Checker {
                 let matched_ty = self.check_expr(expr);
                 // Stage 6 W004: unreachable match arms (user program only).
                 if !self.checking_catalog {
-                    self.lint_w004_unreachable_arms(arms);
+                    let variants = self.match_variant_names(&matched_ty);
+                    self.lint_w004_unreachable_arms(arms, &variants);
                 }
                 for arm in arms {
                     self.push_scope();
@@ -9114,7 +9137,8 @@ impl Checker {
                 let scr_ty = self.check_expr(scrutinee);
                 // Stage 6 W004: unreachable match arms (user program only).
                 if !self.checking_catalog {
-                    self.lint_w004_unreachable_arms(arms);
+                    let variants = self.match_variant_names(&scr_ty);
+                    self.lint_w004_unreachable_arms(arms, &variants);
                 }
                 // The value of a match-expression is the type of its arm bodies.
                 // Return the first arm's body type (or Unit for an empty match).
@@ -9140,14 +9164,13 @@ impl Checker {
         }
     }
 
-    /// S2: Match exhaustiveness -- verify all variants of the scrutinee type
-    /// are covered by the match arms. Reports an error for missing variants.
-    /// `span` is the MATCH expression's span (D2: used to report the actual
-    /// location instead of the old hardcoded `0:0`).
-    fn check_match_exhaustiveness(&mut self, arms: &[xiom_ast::MatchArm], scr_ty: &CheckedType, span: Span) {
+    /// XVC-C-03 (m220): variant base names of a match scrutinee type
+    /// (deduped, leaf form). Option/Result/Bool are builtin; user enums come
+    /// from `enum_variants` (both bare and qualified registrations).
+    fn match_variant_names(&self, scr_ty: &CheckedType) -> Vec<String> {
         let type_name = match self.resolve_alias(scr_ty) {
             CheckedType::Named(n) => n.name(),
-            _ => return,
+            _ => return Vec::new(),
         };
         let variants: Vec<String> = match type_name {
             "Option" => vec!["Some".to_string(), "None".to_string()],
@@ -9163,16 +9186,28 @@ impl Checker {
                     .collect()
             }
         };
-        if variants.is_empty() { return; }
         // AUDIT #6/#16 FIX: variants register BOTH bare and qualified
         // ("Op" AND "Token.Op") -- dedupe to BASE names so coverage
         // compares pattern names against the same form (the old loop
         // double-warned and false-flagged qualified keys as uncovered).
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let variants: Vec<String> = variants.into_iter()
+        variants.into_iter()
             .map(|v| v.rsplit('.').next().unwrap_or(&v).to_string())
             .filter(|v| seen.insert(v.clone()))
-            .collect();
+            .collect()
+    }
+
+    /// S2: Match exhaustiveness -- verify all variants of the scrutinee type
+    /// are covered by the match arms. Reports an error for missing variants.
+    /// `span` is the MATCH expression's span (D2: used to report the actual
+    /// location instead of the old hardcoded `0:0`).
+    fn check_match_exhaustiveness(&mut self, arms: &[xiom_ast::MatchArm], scr_ty: &CheckedType, span: Span) {
+        let type_name = match self.resolve_alias(scr_ty) {
+            CheckedType::Named(n) => n.name(),
+            _ => return,
+        };
+        let variants = self.match_variant_names(scr_ty);
+        if variants.is_empty() { return; }
         for variant in &variants {
             let covered = arms.iter().any(|arm| pattern_covers_variant(&arm.pattern, variant));
             if !covered {

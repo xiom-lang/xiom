@@ -4,7 +4,7 @@
 # KICKOFF PROMPT (v0.64.1 batch, 2026-10-08) -- paste from the marker
 
 > Continue the XIOM compiler lane. STATE: local main carries the v0.64.1
-> batch m199..m219 (31+ commits ahead of origin -- count with
+> batch m199..m220 (31+ commits ahead of origin -- count with
 > `git rev-list --count origin/main..main`; NOT pushed; v0.64.0 tag
 > c68d91de is the last release). This checkout's git identity is
 > Lefteris Notas <lefterisnotas@gmail.com> (repo-local overrides the
@@ -39,16 +39,19 @@
 > now uses the deterministic declared_field_type helper; Option__Vector can
 > no longer shadow Vector and force integer bit-pattern math). XVECTOR
 > probe 6/6 exact post-fix; m219 XVC-C-01 `&fn()` call shapes (bitcast
-> for pointer slots, deref-peel for `(*f)()`, code address for `*f`).
+> for pointer slots, deref-peel for `(*f)()`, code address for `*f`);
+> m220 XVC-C-03 W004 bare unit-enum variants (scrutinee variant names
+> resolve bare arms as variants -- false positives gone, bindings still
+> shadow).
 >
-> GATES on the tree: e2e 2437/0/4, feature 536/536 (533 pre-m216 + the
-> m216/m217/m218 locks), checker 197/197, verifier 41 (7 lib + 34
-> integration), xiom-graph 34/34, driver lib 61/61 + bin 6/6 + integration
-> suites (2/28/5/15/4/6/34), ascii_guard clean. m218 targeted e2e 8/8.
-> (e2e/feature counts predate m213-m215, which touched verifier/CLI/graph
-> only; feature re-ran after m218.) KNOWN PRE-EXISTING RED:
-> perf_budget_fmt_peek_shape is over budget at HEAD too (97,028 > 95,000
-> IR bytes) -- batch drift, not m216/m217/m218.
+> GATES on the tree: e2e 2437/0/4, feature 537/537 (533 pre-m216 + the
+> m216/m217/m218/m219 locks), checker 197/197 + checker_locks 29/29
+> (m220), verifier 41 (7 lib + 34 integration), xiom-graph 34/34, driver
+> lib 61/61 + bin 6/6 + integration suites (2/28/5/15/4/6/34), ascii_guard
+> clean. m219 targeted e2e 8/8. (e2e/feature counts predate m213-m215,
+> which touched verifier/CLI/graph only; feature re-ran after m219.)
+> KNOWN PRE-EXISTING RED: perf_budget_fmt_peek_shape is over budget at
+> HEAD too (97,028 > 95,000 IR bytes) -- batch drift, not m216..m220.
 >
 > FIX QUEUE (impact order; repros local):
 > 1. C-PULSE-11 -- FIXED m216 (alias resolution for package types landed;
@@ -90,7 +93,7 @@
 >    current main. XVC-C-05 FIXED m218; XVC-C-01 FIXED m219 (all three
 >    fn-ref call shapes green); XVC-C-04 FIXED by m217 (probe_matrix +
 >    probes green, struct rows read id=42); XVC-C-03 FIXED m220 (bare
->    unit-enum W004 false positives, checker-side; lands next commit).
+>    unit-enum W004 false positives, checker-side, locks green).
 >    XVC-C-02 is a
 >    MEASUREMENT ARTIFACT: the trap exits 1 on v0.64.0 AND current main
 >    (Start-Process .ExitCode); the reported 0 came from the cmd

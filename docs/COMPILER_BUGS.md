@@ -286,6 +286,36 @@ present), e2e `e2e_m210_vec_clone_struct_elem` + fixture
 
 ---
 
+## 2026-10-08 -- FIXED: W004 false positives on bare unit-enum variants (m220, XVC-C-03)
+
+XVECTOR relay, XVC-C-03: every arm after the first in an all-unit-enum
+match was reported unreachable (`warning[W004]: unreachable match arm`) --
+18+ false positives in the XVECTOR conformance suite. Minimal repro: match
+on `Metric { Cosine, DotProduct, Euclidean }` with the three bare variant
+arms flagged at arms 2 and 3.
+
+ROOT CAUSE: the W004 lint treated every un-dotted `Pattern::Ident` as a
+binding catch-all (`pattern_is_catch_all`) -- correct for a binding like
+`x`, wrong for a BARE variant name. Dotted forms (`Color.Red`) worked, but
+the engine lanes write bare variants (supported by exhaustiveness through
+`pattern_covers_variant`). The lint had no scrutinee context.
+
+FIX (m220): the lint now receives the scrutinee's variant base names (new
+`match_variant_names`, shared with exhaustiveness); a bare Ident naming one
+of them is a variant (not a catch-all, and its shadow key is
+`variant:<leaf>:0`, so bare/dotted duplicate arms still collide). Bindings
+on non-enum scrutinees stay catch-alls -- the m154 positive cases (dotted
+duplicate, `x` shadowing `5`) still warn.
+
+EVIDENCE: minimal probe 2 W004 warnings pre-fix -> 0 post-fix; XVECTOR
+C-03 shape green.
+
+LOCKS: `m220_w004_bare_variants_silent` checker lock + fixture
+(tests/regression/m220_w004_bare_variants/). Gates: checker_locks 29/29;
+m154 W004 positive/negative unchanged.
+
+---
+
 ## 2026-10-08 -- FIXED: &fn() parameter call shapes (m219, XVC-C-01)
 
 XVECTOR relay, XVC-C-01: `f()` on a `&fn() -> T` parameter emitted
