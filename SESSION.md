@@ -57,10 +57,13 @@
 >    xiom.kv source green. probe_pkg_kv.xi is fully green (single-key,
 >    kv_get Str path, multi-key overwrite) -- both filed defects were
 >    compiler-side; the package was not at fault.
-> 3. C-PULSE-09 -- Vec[SessionStore] aggregate driven from a wrapper
->    module crashes at runtime; the same calls inline are green. Repro
->    pair tests/probes/probe_adopt_smoke.xi (red) vs probe_session_inline.xi
->    (green); needs a compiler-lane bisect (C-PULSE-07 family suspected).
+> 3. C-PULSE-09 -- TRIAGED 2026-10-08: NOT reproducible from committed
+>    sources (the crashing wrapper was an uncommitted adoption attempt,
+>    reverted; Pulse HEAD has no Vec[SessionStore] wrapper). Reconstructed
+>    shapes -- synthetic package + wrapper, and real xiom.session 0.1.0 +
+>    wrapper (create/set/value/count/reset) -- are GREEN on v0.64.0 AND
+>    current main. Needs the Pulse lane to re-run adoption on the next
+>    archive and, if still red, capture the wrapper source + step log.
 > 4. Verifier step 3 + full fixpoint (design: COMPILER_BUGS 2026-10-05
 >    section): over-approximation-only failures -> UNKNOWN never VIOLATED;
 >    two-state preservation; full fixpoint loop VCs. Steps 1+2 landed m213.

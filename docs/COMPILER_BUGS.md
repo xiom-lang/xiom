@@ -286,6 +286,38 @@ present), e2e `e2e_m210_vec_clone_struct_elem` + fixture
 
 ---
 
+## 2026-10-08 -- TRIAGE (open): C-PULSE-09 wrapper-aggregate crash not reproducible from committed sources
+
+Pulse relay, C-PULSE-09: a `Vec[SessionStore]` aggregate driven from a PULSE
+wrapper module was reported to crash at runtime while the same package calls
+inline are green (`probe_adopt_smoke.xi` red vs `probe_session_inline.xi`
+green; C-PULSE-07 family suspected, compiler-lane bisect requested).
+
+TRIAGE (compiler lane): the crashing wrapper was an UNCOMMITTED local
+adoption attempt that PULSE reverted ("local store retained"); Pulse HEAD
+has no module owning `Vec[SessionStore]` (git log -S shows only the probes
+and the relay docs). Two reconstructed tiers were built and run on BOTH the
+v0.64.0 release compiler (where the crash was observed) and current main
+(m199..m217):
+
+1. synthetic `xiom.session` package + wrapper module owning
+   `var g_stores: Vec[SessionStore] = Vec[SessionStore].new()`, consumer
+   driving init/ttl/count/reset (including the reset reassignment);
+2. the REAL `xiom.session` 0.1.0 source (copied from the WSL install tree,
+   `SessionStore = { sessions: Vec[Session], ttl_ms: Int }`) + a wrapper
+   driving create/set/value/count/reset through the package with `&mut
+   g_stores[0]`.
+
+RESULT: every reconstructed shape is GREEN on v0.64.0 AND current main (no
+crash, correct values). The original wrapper source is required to
+reproduce; the m204/m210/m216/m217 fixes may or may not have addressed it.
+
+NEXT: the Pulse lane re-runs the session adoption on the next archive; if
+it still crashes, capture the wrapper source at the failing revision plus
+the durable step log (`/tmp/pulse-adopt-steps.txt`) for the bisect.
+
+---
+
 ## 2026-10-08 -- FIXED: nested Option/Result payload chains kept the erased i64 slot (m217, C-PULSE-10)
 
 Pulse relay, C-PULSE-10: after `kv_put(&mut store, "k", "abcdefghij")`,
