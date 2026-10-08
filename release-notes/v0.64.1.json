@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "tag": "v0.64.1",
+  "summary": "Correctness and tooling release: package type aliases in vectors, nested payload chains, function-pointer references and Float32 enum payloads now compile correctly, and the CLI gains a project build command and deterministic mode.",
+  "highlights": [
+    {
+      "kind": "fix",
+      "title": "Package type aliases resolve inside vectors",
+      "text": "An alias to a struct from another package used as a vector element now resolves to the struct instead of silently reading a zeroed default, and the build no longer prints a false unknown-type warning for valid aliases."
+    },
+    {
+      "kind": "fix",
+      "title": "Nested payload chains keep their inner value",
+      "text": "Reading a value through nested option and result payloads, such as the text inside a result of an option of a string, no longer reinterprets it as a raw number; key-value lookups return the stored text again."
+    },
+    {
+      "kind": "fix",
+      "title": "Float32 vector-field math stays float math",
+      "text": "Multiplying Float32 elements read from a struct field could silently become integer arithmetic on the raw bit patterns, changing result from build to build; the element type now resolves deterministically."
+    },
+    {
+      "kind": "fix",
+      "title": "Calls through function-pointer references work",
+      "text": "Passing a reference to a function and calling it directly, through a dereference, or through a rebound local now emits valid code for all three forms; the direct form previously failed to build and the others crashed at run time."
+    },
+    {
+      "kind": "fix",
+      "title": "Float32 enum payloads keep their value",
+      "text": "Enums whose variants share a payload field name stored 32-bit floats as the bits of a wider value, so values such as 2.5 or 10.0 could read back as 0; the constructor now packs the declared payload width."
+    },
+    {
+      "kind": "tooling",
+      "title": "CLI: project build, deterministic mode, icon, pinned deps",
+      "text": "The compiler CLI gains a project build command, a sequential deterministic mode, icon embedding for Windows executables, and dotted dependency keys now resolve to catalog roots for installed packages."
+    }
+  ],
+  "breaking": [],
+  "known_issues": [
+    "Assigning an optional value into an existing vector element can leave the slot unreadable, and calling a mutating method through a nested field can update a copy instead of the original; both are isolated and queued for the next patch.",
+    "Passing a byte vector by reference to Str.from_utf8 can emit invalid code; pass the byte vector by value until the next patch.",
+    "Some nondeterministic lowering issues in enum-payload-heavy units remain under investigation; re-verify numeric results per build until they are closed."
+  ],
+  "docs": [
+    {
+      "title": "Language guide",
+      "url": "https://docs.xiom-lang.org/latest/"
+    }
+  ],
+  "full_changelog": "https://github.com/xiom-lang/xiom/releases/tag/v0.64.1"
+}

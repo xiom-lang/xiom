@@ -3,10 +3,11 @@
 
 # KICKOFF PROMPT (v0.64.1 batch, 2026-10-08) -- paste from the marker
 
-> Continue the XIOM compiler lane. STATE: local main carries the v0.64.1
-> batch m199..m221 (31+ commits ahead of origin -- count with
-> `git rev-list --count origin/main..main`; NOT pushed; v0.64.0 tag
-> c68d91de is the last release). This checkout's git identity is
+> Continue the XIOM compiler lane. STATE: the v0.64.1 batch m199..m221 is
+> committed, version-bumped (Cargo.toml 0.64.1) and the release notes are
+> committed; RELEASE STEP: push main + tag v0.64.1 (run after the final
+> release-notes verify). v0.64.0 tag c68d91de is the prior release. This
+> checkout's git identity is
 > Lefteris Notas <lefterisnotas@gmail.com> (repo-local overrides the
 > global hugintech); verify identity in any other worktree before
 > committing.
@@ -46,14 +47,13 @@
 > width's bits through enum_variant_field_types; colliding-name slots no
 > longer decode 2.5 as 0.0 -- engine probe 6/6 exact).
 >
-> GATES on the tree: e2e 2437/0/4, feature 538/538 (533 pre-m216 + the
-> m216..m221 locks), checker 197/197 + checker_locks 29/29, verifier 41
-> (7 lib + 34 integration), xiom-graph 34/34, driver lib 61/61 + bin 6/6
-> + integration suites (2/28/5/15/4/6/34), ascii_guard clean. m221
-> targeted e2e 8/8. (e2e/feature counts predate m213-m215, which touched
-> verifier/CLI/graph only; feature re-ran after m221.) KNOWN PRE-EXISTING
-> RED: perf_budget_fmt_peek_shape is over budget at HEAD too
-> (97,028 > 95,000 IR bytes) -- batch drift, not m216..m221.
+> GATES on the RELEASE tree (all run 2026-10-08): e2e 2442/0/4, feature
+> 538/538, checker 197/197 + checker_locks 29/29, verifier 41 (7 lib + 34
+> integration), xiom-graph 34/34, driver lib 61/61 + bin 6/6 + integration
+> (2/29/5/15/4/6/34), ascii_guard clean. KNOWN PRE-EXISTING RED (not a
+> blocker; in the release notes): perf_budget_fmt_peek_shape is over
+> budget at HEAD too (97,028 > 95,000 IR bytes). OPEN (next release):
+> XVC-C-07, ORBIT C-01/02/03, bindings B-01..B-09.
 >
 > FIX QUEUE (impact order; repros local):
 > 1. C-PULSE-11 -- FIXED m216 (alias resolution for package types landed;
