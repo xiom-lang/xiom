@@ -4371,6 +4371,50 @@ impl IrEmitter {
     /// so the ctor's initial buffer overflowed once the 40-byte elements were
     /// stored and the following element reads dereferenced garbage headers
     /// (test_vector/test_db/test_json 0xC0000005; m37 float check).
+    /// LLVM-style alignment for a XIOM field type name (m234 / XVC-C-08 fix).
+    /// Mirrors the emitted layouts: 1/2/4 for the small primitives, 8 for
+    /// i64/Float64/Str/pointers/containers/enums, and max-field-align for
+    /// registered structs (Bool fields occupy i64 slots).
+    fn xiom_type_align(&self, t: &str, depth: u32) -> i64 {
+        if depth > 8 {
+            return 8;
+        }
+        let resolved = self.resolve_alias_name(t);
+        let t = resolved.as_str();
+        match t {
+            "UInt8" | "Int8" | "Char" => 1,
+            "Int16" | "UInt16" => 2,
+            "Int32" | "UInt32" | "Float32" => 4,
+            "Str" => 8,
+            _ => {
+                if t.starts_with("Vec[") || t.starts_with("Map[") || t.starts_with("Set[")
+                    || t.starts_with("Option[") || t.starts_with("Result[")
+                    || t.starts_with('[')
+                {
+                    return 8;
+                }
+                let leaf = t.rsplit('.').next().unwrap_or(t);
+                let meta = self.types.type_meta.get(&t.to_string()).or_else(|| {
+                    let candidates: Vec<String> = self.types.type_meta.keys().into_iter()
+                        .filter(|k| k.ends_with(&format!(".{t}"))
+                            || k.ends_with(&format!(".{leaf}")))
+                        .collect();
+                    self.pick_deterministic(candidates)
+                        .and_then(|k| self.types.type_meta.get(&k))
+                });
+                if let Some(meta) = meta {
+                    let mut a = 1i64;
+                    for (_, fty) in meta.fields.iter() {
+                        a = a.max(if fty == "Bool" { 8 } else { self.xiom_type_align(fty, depth + 1) });
+                    }
+                    return a;
+                }
+                // Enums and opaque handles are i64-aligned.
+                8
+            }
+        }
+    }
+
     fn vec_elem_storage_size(&self, type_name: &str) -> i64 {
         // m216 (C-PULSE-11): resolve type-alias chains first -- `Vec[Store]`
         // with `pub type Store = pkg.SessionStore;` sized the ctor buffer by
@@ -4479,18 +4523,33 @@ impl IrEmitter {
                     return 8;
                 };
                 let mut total = 0i64;
+                let mut max_align = 1i64;
                 for (_, fty) in meta.fields.iter() {
                     // BUG 42 (2026-08-17): Bool FIELDS lower to i64 (8 bytes)
                     // in struct layouts -- only Vec[Bool] ELEMENT slots are
                     // 1 byte. Without this a struct with Bool fields
                     // (ColumnDef { ..., nullable: Bool; primary_key: Bool })
                     // was sized 18 instead of 40.
-                    if fty == "Bool" {
-                        total += 8;
-                        continue;
-                    }
-                    total += self.vec_elem_storage_size(fty);
+                    //
+                    // m234 (XVC-C-08): pad each field to its LLVM alignment
+                    // like the real layout. The naive sum sized Elem5
+                    // { id: Int; distance: Float32; payload: Vec[Node];
+                    //   flag: Bool } at 52 while LLVM lays it out at 56 (4
+                    // bytes of padding before the 8-aligned Vec field), so
+                    // Vec[Elem5] element 1 was pushed/read at a 52-byte
+                    // stride -- overlapping elements, trailing scalar read
+                    // uninitialized garbage (silent wrong results).
+                    let (fsize, falign) = if fty == "Bool" {
+                        (8i64, 8i64)
+                    } else {
+                        (self.vec_elem_storage_size(fty), self.xiom_type_align(fty, 0))
+                    };
+                    let falign = falign.max(1);
+                    total = (total + falign - 1) / falign * falign;
+                    total += fsize;
+                    max_align = max_align.max(falign);
                 }
+                total = (total + max_align - 1) / max_align * max_align;
                 if total == 0 { 8 } else { total }
             }
         }

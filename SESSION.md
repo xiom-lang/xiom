@@ -130,11 +130,12 @@
 >    fallback hard-fails. Repro tmp\sweep2\pulse12\{h3,main_h3}.xi; trace
 >    + fix direction in COMPILER_BUGS m230 (needs a focused pass -- the
 >    per-body isolation must not be half-broken).
-> 15. [EVENING SWEEP] XVC-C-08 OPEN: trailing scalar after a Vec-bearing
->    field in a Vec[Struct] element reads uninitialized garbage (silent
->    wrong results). Repro xv-trailing-field-vec/{probe,variants}.xi;
->    probe exit 1, variants v5/v7/v10/v11/v12/v14 red, v14 Int flag (not
->    Bool-specific), context-sensitive. Needs a fresh codegen bisect.
+> 15. [DONE m234] XVC-C-08 fixed: `vec_elem_storage_size` summed fields
+>    without LLVM alignment padding (Elem5 52 vs real 56; Float32 before
+>    the 8-aligned Vec field). New `xiom_type_align` + padded field loop;
+>    minimal V5 exit 2 -> 0, IR stride 56; XVECTOR bundle probe +
+>    variants all green. Locks: regress_m234 (IR) + e2e_m234 + fixture +
+>    CI. Gates: feature 545/545; full e2e 2451/0/4.
 > 16. [EVENING SWEEP] C-ORBIT-05 OPEN: nested Vec[Page] loop + push into
 >    another Vec[Page] aborts 0xC0000005 at n=418 (repro
 >    orbitdb/docs/repro/vec-push-nested/probe.xi; single ingredients
@@ -283,7 +284,7 @@
 > at E:\tmp_benchmark_results.
 >
 > KEY DOCS: docs/COMPILER_BUGS.md (relay bundles + FIXED sections
-> m199..m233 + the 2026-10-08 RELAY SWEEP matrix and the m230 OPEN entry,
+> m199..m234 + the 2026-10-08 RELAY SWEEP matrix and the m230 OPEN entry,
 > TRIAGE/RE-TEST notes near the top of the dated entries),
 > docs/STAGE6_PERF_PLAN.md item 1, SESSION.md lane blocks below (PERF,
 > m208..m221 notes, verifier design), release-notes/TEMPLATE.md +

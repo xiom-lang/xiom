@@ -286,6 +286,41 @@ present), e2e `e2e_m210_vec_clone_struct_elem` + fixture
 
 ---
 
+## 2026-10-08 -- FIXED: Vec element strides ignored field alignment padding (m234, XVC-C-08)
+
+XVECTOR XVC-C-08: in a `Vec[Struct]` whose element carries a trailing scalar
+after a Vec-bearing field, the trailing scalar read uninitialized garbage
+(probe exit 1 `BAD detach count`, variants V5/V7/V10/V11/V12/V14 red; V14 an
+Int flag, so not Bool-specific).
+
+ROOT CAUSE (codegen): `vec_elem_storage_size` summed field sizes with no
+alignment. `Elem5 { id: Int; distance: Float32; payload: Vec[Node];
+flag: Bool }` was sized **52** while the emitted LLVM layout is
+`{ i64, float, %struct.Vec, i64 }` = **56** (4 bytes of padding before the
+8-aligned Vec field). The push stored `store i64 52` as the element stride,
+so element 1 was written/read 52 bytes apart in a 56-byte array --
+overlapping elements and a garbage trailing scalar. (`Res5 { i64, float }`
+was likewise sized 12 vs the real 16.)
+
+FIX (m234): new `xiom_type_align` (LLVM-style alignment: 1/2/4 for small
+primitives, 8 for i64/Float64/Str/containers/enums, max-field-align for
+structs with Bool fields as i64 slots) and the struct branch of
+`vec_elem_storage_size` now pads each field to its alignment and rounds the
+total to the struct alignment.
+
+EVIDENCE: minimal V5 repro pre-fix exit 2 -> post-fix exit 0 and the IR
+stride is `store i64 56` (was 52). XVECTOR bundle:
+`probe.xi` -> "hydration-guard: green"; `variants.xi` -> "variants: all
+green"; `min.xi` control unchanged.
+
+LOCKS: IR `regress_m234_vec_elem_padding` (stride 56 present, 52 never),
+e2e `e2e_m234_vec_elem_padding` + fixture
+(`tests/regression/m234_vec_elem_padding/`), CI line.
+
+GATES: feature 545/545; full e2e 2451/0/4.
+
+---
+
 ## 2026-10-08 -- FIXED: verifier sort gaps blocked every t8 contract obligation (m233)
 
 Owner t8 container run (run_1791481954111) reported `Results: 0 proven, 0
@@ -355,7 +390,7 @@ reproduction evidence below; benchmark numbers in the second half.
 
 | Finding | Status | Evidence on this tree |
 |---|---|---|
-| **XVC-C-08** trailing scalar after a Vec-bearing field reads uninitialized garbage (`Vec[Struct]` element) | **OPEN** | `docs/repro/xv-trailing-field-vec/probe.xi` -> exit 1 `BAD detach count`; `variants.xi` -> exit 5, v5/v7/v10/v11/v12/v14 red (v14 Int flag, so not Bool-specific); `min.xi` green. Localized to the `hydrate_hits` shape; context-sensitive |
+| **XVC-C-08** trailing scalar after a Vec-bearing field reads uninitialized garbage (`Vec[Struct]` element) | **FIXED m234** | root cause: `vec_elem_storage_size` summed fields without LLVM alignment padding (Elem5 sized 52 vs real 56; Float32 leaves 4 bytes of pad before the 8-aligned Vec field) so element 1 used a 52-byte stride. Minimal V5 pre-fix exit 2 -> post-fix exit 0; XVECTOR bundle probe "hydration-guard: green", variants "all green" |
 | **C-ORBIT-05** nested `Vec[Page]` loop + push into another `Vec[Page]` aborts | **OPEN** | `docs/repro/vec-push-nested/probe.xi` -> exit `0xC0000005` (access violation), no diagnostic; variant D at n=418; controls green |
 | **stdlib M7** `Iterator[T]` receiver type unresolved | **OPEN** | `tools/known_failures/p_iter_iterator_type_unresolved.xi`: `--check` PASSES but compile prints 5x `unknown type 'Iterator' -- defaulting to i64` and fails `error[C001]: unresolved function symbol(s) ... 'Iterator.step_by'` |
 | **packages** `unsafe fn` hard P001 | CONFIRMED | `unsafe fn f()` -> `error[P001]: 2:8: unsafe applies only to block expressions`; keep fn safe + `unsafe { }` body |

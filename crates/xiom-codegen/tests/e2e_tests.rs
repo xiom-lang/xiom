@@ -6086,6 +6086,18 @@ fn e2e_safety_probe() {
     );
 }
 
+// m234 (XVC-C-08): Vec element strides must include LLVM alignment padding
+// (Float32 before an 8-aligned Vec field). The naive field sum used a 52-byte
+// stride for a 56-byte struct, so the second element's trailing scalar read
+// garbage (silent wrong results).
+#[test] fn e2e_m234_vec_elem_padding() {
+    assert_eq!(
+        compile_and_run("tests/regression/m234_vec_elem_padding/main.xi"),
+        Some(0),
+        "Vec[Struct] element stride must match the padded LLVM layout (m234)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

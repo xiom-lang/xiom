@@ -7716,3 +7716,44 @@ fn main() -> Int {
         "m231: Kind.Integer must compare variant index 1; got:\n{ir}"
     );
 }
+
+// m234 (XVC-C-08): the Vec element stride for
+// `{ id: Int; distance: Float32; payload: Vec[Node]; flag: Bool }` must be the
+// PADDED LLVM size (56), not the naive field sum (52): the float leaves 4
+// bytes of padding before the 8-aligned Vec field. A 52-byte stride made
+// element 1 overlap and its trailing Bool read garbage.
+#[test]
+fn regress_m234_vec_elem_padding() {
+    let source = r#"
+type Node = { id: Int; }
+type Elem = { id: Int; distance: Float32; payload: Vec[Node]; flag: Bool; }
+fn build(items: &Vec[Int]) -> Vec[Elem] {
+  var out = Vec[Elem].new();
+  var i: Int = 0;
+  while i < items.len() {
+    var pl = Vec[Node].new();
+    out.push(Elem{ id: items[i], distance: 0.5, payload: pl, flag: false });
+    i = i + 1;
+  }
+  return out;
+}
+fn main() -> Int {
+  var xs = Vec[Int].new();
+  xs.push(1);
+  xs.push(2);
+  var off = build(&xs);
+  if off[0].flag { return 1; }
+  if off[1].flag { return 2; }
+  return 0;
+}
+"#;
+    let ir = compile(source).expect("m234: padded Vec element must compile");
+    assert!(
+        ir.contains("store i64 56"),
+        "m234: the Elem stride must be the padded size 56; got:\n{ir}"
+    );
+    assert!(
+        !ir.contains("store i64 52"),
+        "m234: the naive 52-byte stride must never be used; got:\n{ir}"
+    );
+}
