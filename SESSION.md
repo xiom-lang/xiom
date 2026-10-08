@@ -6,7 +6,8 @@
 > Continue the XIOM compiler lane. STATE: the v0.64.1 batch m199..m221 is
 > committed, version-bumped (Cargo.toml 0.64.1) and the release notes are
 > committed; RELEASE STEP: push main + tag v0.64.1 (run after the final
-> release-notes verify). v0.64.0 tag c68d91de is the prior release. This
+> release-notes verify; re-tag after the mcp icon-field build fix if the
+> first run failed). v0.64.0 tag c68d91de is the prior release. This
 > checkout's git identity is
 > Lefteris Notas <lefterisnotas@gmail.com> (repo-local overrides the
 > global hugintech); verify identity in any other worktree before
