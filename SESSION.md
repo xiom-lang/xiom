@@ -64,8 +64,10 @@
 > WORK QUEUE (v0.64.2, impact order; external lane items in the RELAY
 > QUEUE below):
 > 1. [DONE m222] XVC-C-07 `Str::from_utf8(&Vec[UInt8])` invalid IR (ONLY
->    open XVC finding; repro in relay block A) -- then ORBIT C-01..C-04 and
->    the C-PULSE-09 wrapper reduction (hint in relay block D).
+>    open XVC finding; repro in relay block A). [DONE m223..m226] ORBIT
+>    C-01..C-04 all fixed -- see the lane block below. [DONE m227]
+>    C-PULSE-09 wrapper reduction (module-level Vec `.len()` mislowering).
+>    NEXT: WORK QUEUE items 2-11.
 > 2. Residual hard-error guard (from m216): the final fallback + ~13
 >    direct xiom_to_llvm_type sites swallow errors into i64; needs the
 >    error-propagation pass before the warning can become a hard error.
@@ -110,12 +112,13 @@
 >    xv-from-utf8-vec-ref/; Addendum 3 in their docs/RELAY-COMPILER.md.
 >    Unwind candidates: SearchHits wrapper, direct dispatch, FloatVal
 >    diagnostics; pin probe probe_floatval_roundtrip.xi stays.
-> B. ORBITDB (E:\xiom-projects\xiom-orbitdb): v0.64.1 re-test -- ALL FOUR
->    OPEN. C-ORBIT-01 match-bound Result alias receiver (4 T001 sites);
->    C-ORBIT-02 Vec[Option[T]] element assign (V1/V3/V6/V8/V9 no arm);
->    C-ORBIT-03 nested-field &mut receivers copy (A=0 C=0); C-ORBIT-04
->    NEW: enum variant collision across modules (clang `%struct.WALOp` vs
->    `%struct.WALOpKind`, IR line 71079). Lane regression clean 104/104.
+> B. ORBITDB (E:\xiom-projects\xiom-orbitdb): ALL FOUR FIXED in the v0.64.2
+>    batch -- C-ORBIT-01 = m223 (alias-typed match payloads; 4 T001 sites),
+>    C-ORBIT-02 = m226 (`Vec[Option/Result]` element assign),
+>    C-ORBIT-03 = m224 (nested-field &mut receivers), C-ORBIT-04 = m225
+>    (enum variant module scope). All committed repro bundles green; the
+>    lane re-tests with the C-ORBIT-04 qualification workaround reverted.
+>    Lane regression was clean 104/104 pre-fix.
 > C. BINDINGS lane (branch bindings): v0.64.1 sweep -- B-06 (up/down
 >    full-catalog crash) and B-09 (Win32/WGL 0xC0000409) FIXED. OPEN:
 >    B-01 enum-payload nondeterminism (same 2/6), B-05 alloc/free guard
@@ -125,10 +128,13 @@
 > D. PULSE (E:\xiom-projects\xiom-pulse): v0.64.1 sweep -- C-PULSE-08
 >    CLOSED (dep-roots dash+dot exit 0, no source-roots workaround);
 >    C-PULSE-10 CLOSED; C-PULSE-11 fixed (swap retry is its acceptance).
->    C-PULSE-09 OPEN with a reduction hint: two catalog modules, A pushes
->    a SessionStore into a module-level Vec, B calls session_count(&a_vec
->    [0]); pre-v0.64.1 the bridge only miscompiled, now it compiles and
->    crashes 0xC0000005 at the first cross-module access.
+>    C-PULSE-09 FIXED m227: the relay reduction reproduced (module A owns
+>    a module-level `Vec[SessionStore]`, B bridges, `stores.len()` in A's
+>    sb_ensure) -- the module-global receiver missed the Vec builtin and
+>    the BUG 29 fn-field path loaded the LEN field and called it
+>    (inttoptr -> call -> 0xC000001D here, 0xC0000005 per PULSE). Both
+>    layers fixed (module_globals typing + fn-typed-field guard); the
+>    lane re-runs probe_adopt_smoke with the session-store swap.
 > E. REGISTRY/PACKAGES: v0.64.1 accepted (flows 20/20, kv gate green).
 >    COMPILER-LANE FIX (v0.64.2): home split -- xiom-pkg installs to
 >    ~/xiom/packages while paths::xiom_home() picks ~/.local/share/xiom;
@@ -170,7 +176,7 @@
 > at E:\tmp_benchmark_results.
 >
 > KEY DOCS: docs/COMPILER_BUGS.md (relay bundles + FIXED sections
-> m199..m221, TRIAGE/RE-TEST notes near the top of the dated entries),
+> m199..m227, TRIAGE/RE-TEST notes near the top of the dated entries),
 > docs/STAGE6_PERF_PLAN.md item 1, SESSION.md lane blocks below (PERF,
 > m208..m221 notes, verifier design), release-notes/TEMPLATE.md +
 > v0.64.1.md (the shipped reference), .github/workflows/release.yml
@@ -189,9 +195,41 @@
 > docs/repro/xv-from-utf8-vec-ref/probe.xi -- pre-fix clang exit 1;
 > post-fix compile exit 0 + run exit 0. LOCKS:
 > regress_m222_from_utf8_vec_ref (IR) + e2e_m222_from_utf8_vec_ref +
-> fixture + CI line. Gates: feature 539/539; targeted e2e 1/1. Next in this
-> batch: ORBIT C-01..C-04, then the C-PULSE-09 wrapper reduction hint,
-> then the remaining WORK QUEUE items.
+> fixture + CI line. Gates: feature 539/539; targeted e2e 1/1.
+>
+> COMPILER LANE (2026-10-08, v0.64.2 ORBIT batch): m223..m226 FIXED --
+> ORBIT C-01..C-04 all green on the committed repro bundles.
+> m223 C-ORBIT-01 alias payloads: `resolve_alias` expands APPLIED aliases
+> via `alias_params` (`DbResult[Row]` -> `Result[Row, DbError]`), match
+> bindings stop falling to the `_` wildcard; codegen mirrors it
+> (`type_alias_bodies` + `type_string_full` keeps Named args + alias-aware
+> payload extraction) -- probe_import bits=0, rebind/only_i/name green.
+> m224 C-ORBIT-03 field receivers of pointer-self methods: `compile_lvalue`
+> place-address replaces the value-copy temp (probe A=1 B=1 C=1 D=1).
+> m225 C-ORBIT-04 enum module scope: injection records (enum, module)
+> hints -> `pick_variant_parent` module preference before decl-order (twin
+> enums with swapped order; minimal repro + fixture green; no type renames).
+> m226 C-ORBIT-02 `Vec[Option/Result]` element assign: container elem names
+> resolve through `llvm_type_for` to the erased generic struct -> memcpy
+> (full probe matrix V1..V10 green). LOCKS: regress_m223 + regress_m226 (IR),
+> e2e_m223..e2e_m226 + fixtures + CI lines. Gates: checker 197/197 +
+> checker_locks 29/29; feature 541/541; targeted e2e 4/4 (m223..m226).
+>
+> COMPILER LANE (2026-10-08, v0.64.2 C-PULSE-09): m227 FIXED -- the relay
+> wrapper reduction reproduced: module A owns a module-level
+> `Vec[SessionStore]`, B bridges, `stores.len()` in A's sb_ensure trapped
+> (Windows 0xC000001D/0xC0000005; Linux read len 0 by luck). Root cause:
+> (1) `infer_llvm_type`'s Ident arm ignored module_globals, so the Vec
+> builtin `.len()` intercept never fired for global receivers; (2) the
+> BUG 29 module-global fn-field call path matched `len` by NAME and
+> emitted `inttoptr <len> to i64 ()*; call`. Both fixed (globals typing +
+> fn-typed-field guard). REPRO: tmp two-module reduction pre-fix crash ->
+> post-fix exit 0. LOCKS: regress_m227_module_global_vec_len (IR) +
+> e2e_m227_module_global_vec_len + fixture + CI line. Gates: feature
+> 542/542; targeted e2e 1/1; full e2e 2448/0/4 (final tree, single run,
+> no XIOM_STDLIB override -- the override makes the compiler scan two
+> stdlib copies and m17_zero_warnings goes red on spurious W001). NEXT:
+> remaining WORK QUEUE items 2-11.
 
 ---
 

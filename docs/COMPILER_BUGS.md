@@ -286,6 +286,197 @@ present), e2e `e2e_m210_vec_clone_struct_elem` + fixture
 
 ---
 
+## 2026-10-08 -- FIXED: module-level Vec receivers called their len field (m227, C-PULSE-09)
+
+PULSE relay C-PULSE-09: the session-store bridge compiled on v0.64.1 but
+crashed at the first cross-module access (Windows 0xC0000005; Linux green).
+Reduction per the relay hint -- module A owns a module-level
+`Vec[SessionStore]`, module B bridges into it:
+
+```
+var stores: Vec[SessionStore] = Vec[SessionStore].new();
+pub fn sb_ensure() { if stores.len() == 0 { ... } }
+```
+
+crashed at `stores.len()`. ROOT CAUSE (codegen, two layers):
+
+1. `infer_llvm_type_impl`'s Ident arm consulted only `lookup_local`, not
+   `module_globals`, so a module-level `Vec` receiver typed as "i64"; the
+   `.len()` Vec builtin intercept never fired and the call fell to the
+   generic dispatch.
+2. The BUG 29 "module-global fn-field call" path matched a field by NAME
+   alone against the struct's type_meta; `Vec` has a field literally named
+   `len`, so `stores.len()` emitted
+   `getelementptr %struct.Vec, ... i32 0, 1` (the LEN field) ->
+   `load i64` -> `inttoptr i64 %len to i64 ()*` -> `call` -- jumping to
+   address 0/len. The module-level `stores` is a zeroinitializer global
+   until initialized, so the first access trapped (0xC000001D on this
+   machine; the report's 0xC0000005 is the same call-through-garbage class).
+
+FIX (m227): (1) `infer_llvm_type_impl` resolves module-level `var` receivers
+through their registered `module_globals` type, so Vec/Slice builtins
+dispatch correctly (`.len()`, `.push()`, ...); (2) the fn-field call path
+only fires for fields whose declared type is a fn marker (`fn(`), so a
+non-fn field can never be called through.
+
+EVIDENCE: two-module reduction (A stores, B bridges, main drives):
+pre-fix exit -1073741795 with the IR above; post-fix compile+run exit 0 and
+`sb_ensure` reads the len via `getelementptr %struct.Vec, %struct.Vec*
+%alloca, i32 0, i32 1`. Linux was already green (same IR, len read as 0
+coincidentally) -- the fix removes the mislowering on both platforms.
+
+LOCKS: IR `regress_m227_module_global_vec_len` (no `inttoptr`; Vec struct
+GEP present), e2e `e2e_m227_module_global_vec_len` + multi-file fixture
+(`tests/regression/m227_module_global_vec_len/`: store + bridge + consumer),
+CI line. Gates: feature 542/542; targeted e2e 1/1.
+
+---
+
+## 2026-10-08 -- FIXED: alias-typed match payloads lost their concrete type (m223, C-ORBIT-01)
+
+ORBITDB relay C-ORBIT-01: 4 T001 sites blocked `db.txn.transaction` --
+
+```
+error[T001]: 'get_column' expects 2 argument(s), found 1
+error[T001]: argument 1 type mismatch: expected Row, found Int
+```
+
+`match decoded { Ok(row) => row.get_column(0) }` where `decoded` came from a fn
+returning the ALIAS `DbResult[Row]` (`pub type DbResult[T] = Result[T, DbError]`).
+
+ROOT CAUSE (checker): `CheckedType::from_ast_type` erases the type args of
+`Type::Named` (`DbResult[Row]` -> `Named("DbResult")`), and match-payload
+extraction (`add_pattern_bindings` -> `container_arg`) required the literal base
+`Result`. An aliased scrutinee fell to the `_` wildcard, so method calls on the
+payload misresolved to the module fn and the call was reported as missing its
+receiver. Plain (non-generic) aliases failed identically.
+
+FIX (checker): `resolve_alias` now also expands APPLIED aliases --
+`alias_params` (parallel to `aliases`) records each alias's declared generic
+params, and `expand_alias_once` substitutes the application's args into the
+alias body before container decomposition (`DbResult[Row]` ->
+`Result[Row, DbError]` -> payload `Row`). `container_payload_arg` runs the
+scrutinee name through `resolve_alias` first. Signature params/returns and
+let/var annotations preserve alias applications via
+`checked_type_from_ast_preserve_alias` (only for REGISTERED aliases; non-alias
+user generics keep the historical erased spelling).
+
+FIX (codegen): mirror the expansion so the emitter's own binding tracker types
+alias payloads too -- `type_alias_params` / `type_alias_bodies` are registered
+at alias layout time, `type_string_full` keeps `Type::Named` args (so
+`fn_return_xiom` carries `AliasRes[R]`), and
+`option_result_payload_alias`/`option_result_err_payload_alias` expand applied
+and plain aliases (chains included) before extracting the payload. Without it
+the Ok binding stayed a raw i64 handle: `x.id` read 0 and the method call passed
+the binding slot as the receiver (`@R.get_id(i64* %slot)`).
+
+EVIDENCE (ORBITDB repro `docs/repro/ok-method-receiver/probe_import.xi`):
+pre-fix 4 T001 at 34/36/53/69; post-fix `bits=0`, plus `probe_rebind`,
+`probe_only_i`, `probe_name` exit 0. Minimal local probe (alias + plain alias +
+applied alias, field read + & method call) pre-fix T001, post-fix exit 0.
+
+LOCKS: IR `regress_m223_alias_result_payload` (payload receiver is
+`@Cell.get_n(%struct.`, never `i64*`), e2e `e2e_m223_alias_result_payload` +
+fixture (`tests/regression/m223_alias_result_payload/`: generic alias, plain
+alias, annotated let), CI line. Gates: checker 197/197 + checker_locks 29/29;
+feature 541/541; targeted e2e 4/4.
+
+---
+
+## 2026-10-08 -- FIXED: field receivers of pointer-self methods bumped a copy (m224, C-ORBIT-03)
+
+ORBITDB relay C-ORBIT-03: `nested-field-mut/probe.xi` printed A=0, B=1, C=0,
+D=1 (expected all 1). `o.inner.bump()` inside `Outer.bump(o: &mut Outer)` and
+`c.inner.bump()` on a local both loaded the field, alloca'd a TEMP copy, bumped
+the temp and discarded it; `StorageEngine.cache_page` silently lost the page.
+
+ROOT CAUSE (codegen): the non-generic pointer-self method path (call.rs) had
+receiver arms for Ident / Index / struct-value temp but none for
+`Expr::Field`, so a field receiver fell to the struct-value temp arm.
+
+FIX (m224): the Field receiver computes the field's ADDRESS through the shared
+`compile_lvalue` place machinery (reference params load their pointer, nested
+fields `h.mid.inner` recurse through GEPs), then coerces the pointer to the
+callee's `p0` (exact / ptr-typed / bitcast). The Ref-based attempt first tripped
+on deep chains (`Ref(field)` returns a loaded struct there); `compile_lvalue` is
+the assign-path machinery and handles the chains uniformly. Unsupported place
+chains keep the historical copy behavior.
+
+EVIDENCE (ORBITDB `docs/repro/nested-field-mut/probe.xi`): A=1 B=1 C=1 D=1.
+
+LOCKS: e2e `e2e_m224_nested_field_mut_receiver` + fixture
+(`tests/regression/m224_nested_field_mut_receiver/`: `&mut Outer` base, local
+base, double-nested `h.deep()` chain), CI line. Gates: feature 541/541;
+targeted e2e 4/4.
+
+---
+
+## 2026-10-08 -- FIXED: bare enum variants ignored the declaring module (m225, C-ORBIT-04)
+
+ORBITDB relay C-ORBIT-04: the conformance suite failed to build --
+`b_make`'s `return Update;` emitted `ret %struct.db.wal_txn.WALOp` where
+`%struct.db.wal_file.WALOpKind` was expected (clang rejects the module; IR line
+71079 `%struct.WALOp` vs `%struct.WALOpKind`). Two modules declare structurally
+identical enums; the first-registered bare key won every unqualified variant
+resolution.
+
+ROOT CAUSE: catalog/user module decls are injected FLAT into the codegen
+program (`collect_pub_decls`), so enum keys are BARE and codegen's scope-first
+`pick_variant_parent` had no module to match: candidates `[WALOp, WALOpKind]`
+with scope `wal_file` fell through to declaration order. The checker's own
+bare-variant resolution had the same blind spot.
+
+FIX (checker+codegen): `collect_pub_decls` records `(enum name, declaring
+module)` for every injected enum (`Checker::external_enum_modules`); the driver
+passes them via `set_enum_module_hints`, and codegen's `pick_variant_parent`
+prefers a candidate whose hint module matches a scope (suffix/leaf-wise, so
+scope `wal_file` matches `xiom.db.wal_file`) BEFORE declaration order. No
+struct/enum RENAMES, so existing `%struct.` names and IR stay stable.
+
+EVIDENCE: minimal two-module repro (twin `Insert/Update` enums, SWAPPED variant
+order so a wrong parent also flips tags): pre-fix clang
+`ret type %struct.BKind vs %struct.AKind`; post-fix compile+run exit 0. The
+suite workaround (qualified `WALOpKind.Insert`) is unaffected; the ORBIT lane
+re-tests with it reverted.
+
+LOCKS: e2e `e2e_m225_enum_module_scope` + multi-file fixture
+(`tests/regression/m225_enum_module_scope/`: a_enum/b_enum sibling modules with
+swapped variant order, module-internal construction + caller-side match), CI
+line. Gates: checker 197/197; feature 541/541; targeted e2e 4/4.
+
+---
+
+## 2026-10-08 -- FIXED: Vec container-element assign stored an 8-byte handle (m226, C-ORBIT-02)
+
+ORBITDB relay C-ORBIT-02: `option-vec-assign/probe.xi` -- after
+`v.push(None); v[0] = Some(44);` the following `match v[0]` ran NO arm (V1/V3/V6
+/V8 silently skipped). The slot is a 16-byte `%struct.Option`; the write stored
+the 8-byte boxed handle, so the match read a pointer where the tag lives.
+
+ROOT CAUSE (codegen): the Assign(Index) struct-memcpy guard built the element
+type as `format!("%struct.{elem_name}")`. For container elements the recorded
+name is bracketed (`Option[Int]`, `Result[Int, Int]`), so
+`%struct.Option[Int]` never equalled the value's `%struct.Option`; the write
+fell to the scalar `emit_elem_store` size-switch (1/2/4/8) whose default stores
+`i64 handle` -- while `push` correctly memcpy'd. Result and Option were both
+affected.
+
+FIX (m226): for `Option[`/`Result[`/`Map[`/`Set[` element names, resolve the
+ERASED generic struct through `llvm_type_for` (`Option[Int]` ->
+`%struct.Option`) so the existing memcpy branch fires; user struct/enum names
+keep the previous spelling. `Vec[` keeps its special case.
+
+EVIDENCE (ORBITDB `docs/repro/option-vec-assign/`): probe V1=SOME after-v1
+V2=SOME V3=SOME V4=SOME V5=OK; probe2 V6=SOME V7=B V8=SOME V9=NONE
+V10.0=NONE V10.1=SOME -- the full expected matrix.
+
+LOCKS: IR `regress_m226_vec_option_assign` (memcpy present, no `elem_store`
+label), e2e `e2e_m226_vec_option_assign` + fixture
+(`tests/regression/m226_vec_option_assign/`: Option and Result elements), CI
+line. Gates: feature 541/541; targeted e2e 4/4.
+
+---
+
 ## 2026-10-08 -- FIXED: Str::from_utf8(&Vec[UInt8]) emitted invalid LLVM IR (m222, XVC-C-07)
 
 XVECTOR relay Addendum 3: XVC-C-07 was the only open XVC finding on v0.64.1.

@@ -714,6 +714,9 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
     emitter.set_catalog_call_targets(checker.catalog_resolved_calls.clone());
     emitter.set_program_bare_targets(checker.program_bare_targets.clone());
     emitter.set_module_receiver_paths(checker.module_receiver_paths.clone());
+    // m225 (C-ORBIT-04): enum -> declaring-module hints so codegen scopes
+    // bare-variant construction to the enclosing module's enum.
+    emitter.set_enum_module_hints(checker.external_enum_modules.clone());
     if !effective_sources.is_empty() {
         emitter.set_source_file(effective_sources[0].clone());
     }
@@ -1199,6 +1202,9 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     emitter.set_catalog_call_targets(checker.catalog_resolved_calls.clone());
     emitter.set_program_bare_targets(checker.program_bare_targets.clone());
     emitter.set_module_receiver_paths(checker.module_receiver_paths.clone());
+    // m225 (C-ORBIT-04): enum -> declaring-module hints so codegen scopes
+    // bare-variant construction to the enclosing module's enum.
+    emitter.set_enum_module_hints(checker.external_enum_modules.clone());
     if !effective_sources.is_empty() {
         emitter.set_source_file(effective_sources[0].clone());
     }

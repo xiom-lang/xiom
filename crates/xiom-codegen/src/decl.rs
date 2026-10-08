@@ -20,10 +20,21 @@ impl IrEmitter {
             if td.fields.is_empty() {
                 if let Some(ref alias_ty) = td.alias {
                     let resolved = Self::type_from_ast(alias_ty);
+                    // m223 (C-ORBIT-01): keep the FULL body (args included)
+                    // and the declared generic params so an APPLIED alias in
+                    // a rendered type name expands (`AliasRes[R]` ->
+                    // `Result[R, Int]`) before Option/Result payload
+                    // extraction.
+                    let body_full = Self::type_string_full(alias_ty);
+                    let params: Vec<String> = td.generics.iter().map(|g| g.name.name.clone()).collect();
                     self.types.type_aliases.insert(type_name.clone(), resolved.clone());
+                    self.types.type_alias_params.insert(type_name.clone(), params.clone());
+                    self.types.type_alias_bodies.insert(type_name.clone(), body_full.clone());
                     // Also register under bare name for unqualified lookup
                     if !prefix.is_empty() {
                         self.types.type_aliases.insert(bare_name.clone(), resolved);
+                        self.types.type_alias_params.insert(bare_name.clone(), params);
+                        self.types.type_alias_bodies.insert(bare_name.clone(), body_full);
                     }
                     return;
                 }

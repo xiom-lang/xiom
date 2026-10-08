@@ -5319,6 +5319,42 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         let ptr_reg = self.fresh_tmp();
                                         self.emitln(&format!("  {ptr_reg} = inttoptr i64 {addr_val} to {p0}"));
                                         (ptr_reg, p0.clone())
+                                    } else if let Some(Expr::Field(..)) = inner_ident {
+                                        // m224 (C-ORBIT-03): `o.inner.bump()` -- a
+                                        // FIELD receiver with a pointer-self
+                                        // callee must pass the field's ADDRESS,
+                                        // not a copy of the loaded value. The old
+                                        // path fell to the struct-value temp arm
+                                        // below and bumped a discarded copy (probe
+                                        // A=0/C=0; StorageEngine.cache_page lost
+                                        // the page). `compile_lvalue` handles the
+                                        // whole place chain: reference params load
+                                        // their pointer, nested fields (h.mid.inner)
+                                        // recurse through GEPs.
+                                        if let Some((l_ptr, l_ptr_ty, l_elem_ty)) = self.compile_lvalue(receiver) {
+                                            let (coerced, coerced_ty) = if l_ptr_ty == *p0 {
+                                                (l_ptr, l_ptr_ty)
+                                            } else if l_elem_ty == *p0 {
+                                                (l_ptr, format!("{l_elem_ty}*"))
+                                            } else if l_ptr_ty.ends_with('*') {
+                                                let r = self.fresh_tmp();
+                                                self.emitln(&format!("  {r} = bitcast {l_ptr_ty} {l_ptr} to {p0}"));
+                                                (r, p0.clone())
+                                            } else {
+                                                let r = self.fresh_tmp();
+                                                self.emitln(&format!("  {r} = inttoptr {l_ptr_ty} {l_ptr} to {p0}"));
+                                                (r, p0.clone())
+                                            };
+                                            (coerced, coerced_ty)
+                                        } else {
+                                            // Unsupported place chain: keep the
+                                            // historical copy semantics rather
+                                            // than emitting an untyped address.
+                                            let slot = self.fresh_tmp();
+                                            self.emitln(&format!("  {slot} = alloca {recv_llvm_ty}"));
+                                            self.emitln(&format!("  store {recv_llvm_ty} {recv_val}, {recv_llvm_ty}* {slot}"));
+                                            (slot, format!("{recv_llvm_ty}*"))
+                                        }
                                     } else if recv_llvm_ty.starts_with("%struct.")
                                         && p0 == &format!("{recv_llvm_ty}*")
                                     {
@@ -5762,8 +5798,18 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         if let Some(Expr::Ident(obj_id)) = receiver_expr.map(|r| r.as_ref()) {
                             if let Some((symbol, global_llvm_ty)) = self.local.module_globals.get(&obj_id.name).cloned() {
                                 if let Some(struct_name) = global_llvm_ty.strip_prefix("%struct.").map(|s| s.trim_end_matches('*').to_string()) {
+                                    // m227 (C-PULSE-09): ONLY fn-typed fields
+                                    // are callable through this path. A global
+                                    // Vec's `len`/`cap` fields matched by NAME
+                                    // alone, so `stores.len()` (module-level
+                                    // `Vec[T]`) loaded the LEN integer and
+                                    // `inttoptr`+called it -> 0xC000001D.
+                                    // The field's declared type must be a fn
+                                    // marker ("fn(...)").
                                     let field_idx = self.types.type_meta.get(&struct_name)
-                                        .and_then(|meta| meta.fields.iter().position(|(fname, _)| fname == &fn_name));
+                                        .and_then(|meta| meta.fields.iter().position(|(fname, fty)| {
+                                            fname == &fn_name && fty.trim_start().starts_with("fn(")
+                                        }));
                                     field_idx.map(|idx| (symbol, struct_name, idx))
                                 } else { None }
                             } else { None }

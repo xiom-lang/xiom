@@ -6013,6 +6013,58 @@ fn e2e_safety_probe() {
     );
 }
 
+// m223 (C-ORBIT-01): match-bound payloads behind type aliases must keep their
+// concrete type (T001 "'get_column' expects 2 argument(s), found 1" blocked
+// the ORBITDB transaction module).
+#[test] fn e2e_m223_alias_result_payload() {
+    assert_eq!(
+        compile_and_run("tests/regression/m223_alias_result_payload/main.xi"),
+        Some(0),
+        "generic + plain type aliases must resolve match payload types (m223)"
+    );
+}
+
+// m224 (C-ORBIT-03): field receivers of pointer-self methods must write
+// through to the field (nested receiver copies dropped the mutation).
+#[test] fn e2e_m224_nested_field_mut_receiver() {
+    assert_eq!(
+        compile_and_run("tests/regression/m224_nested_field_mut_receiver/main.xi"),
+        Some(0),
+        "field receivers of &mut methods must pass the field address (m224)"
+    );
+}
+
+// m225 (C-ORBIT-04): unqualified variant construction must bind the enclosing
+// module's enum (twin enums across modules mis-built the wrong type).
+#[test] fn e2e_m225_enum_module_scope() {
+    assert_eq!(
+        compile_and_run("tests/regression/m225_enum_module_scope/main.xi"),
+        Some(0),
+        "bare variants must scope to the declaring module's enum (m225)"
+    );
+}
+
+// m226 (C-ORBIT-02): index-assign into Vec[Option[...]]/Vec[Result[...]]
+// must memcpy the container struct (scalar handle store made matches no-op).
+#[test] fn e2e_m226_vec_option_assign() {
+    assert_eq!(
+        compile_and_run("tests/regression/m226_vec_option_assign/main.xi"),
+        Some(0),
+        "container-element Vec assignment must keep the tag/payload layout (m226)"
+    );
+}
+
+// m227 (C-PULSE-09): `.len()` on a module-level `Vec[T]` must dispatch the
+// Vec builtin; it used to load the LEN field and call it as a fn pointer
+// (0xC000001D at the first cross-module access on Windows).
+#[test] fn e2e_m227_module_global_vec_len() {
+    assert_eq!(
+        compile_and_run("tests/regression/m227_module_global_vec_len/main.xi"),
+        Some(0),
+        "module-level Vec receivers must dispatch builtins, not call the len field (m227)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

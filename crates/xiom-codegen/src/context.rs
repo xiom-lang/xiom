@@ -135,6 +135,13 @@ pub struct CodegenConfig {
     /// bare-call alias path (BUG 25 #2), where module entries perturbed
     /// same-named bare calls.
     pub module_receiver_paths: HashMap<String, String>,
+    /// m225 (C-ORBIT-04): (injected enum name, declaring module) pairs from
+    /// the checker's `collect_external_decls`. `pick_variant_parent` prefers a
+    /// candidate whose declaring module matches a scope prefix, so a bare
+    /// variant construct inside module B's function binds B's enum instead of
+    /// the first-registered structurally identical twin from module A
+    /// (`return Update;` in db.wal_file built db.wal_txn.WALOp -> clang).
+    pub enum_module_hints: Vec<(String, String)>,
     /// R15: catalog-body call sites (span "line:col") -> the checker's fully
     /// dotted resolved key. The emitter cannot see a catalog module's own
     /// `use` aliases (checker contexts are isolated/restored), so
@@ -188,6 +195,7 @@ impl Default for CodegenConfig {
             unsafe_direct_cap: 64,
             use_alias_paths: HashMap::new(),
             module_receiver_paths: HashMap::new(),
+            enum_module_hints: Vec::new(),
             catalog_call_targets: HashMap::new(),
             program_bare_targets: HashMap::new(),
             catalog_fn_keys: std::collections::HashSet::new(),
@@ -255,6 +263,14 @@ pub struct TypeContext {
     pub used_builtins: HashSet<String>,
     /// M36: Type alias map -- alias name -> resolved XIOM type name
     pub type_aliases: SyncRegistry<String, String>,
+    /// m223 (C-ORBIT-01): generic param names of each alias declaration
+    /// (`AliasRes[T] = ...` -> ["T"]), used to expand APPLIED aliases in
+    /// rendered type names (`AliasRes[R]` -> the body substituted with R).
+    pub type_alias_params: SyncRegistry<String, Vec<String>>,
+    /// m223: full alias body WITH generic args (`Result[T, Int]`), the
+    /// substitution source for applied-alias expansion. `type_aliases` keeps
+    /// the erased terminal name for the existing `resolve_alias_name` users.
+    pub type_alias_bodies: SyncRegistry<String, String>,
     /// M19: Default method bodies from interfaces, keyed by "Interface.method".
     pub interface_defaults: SyncRegistry<String, FnDecl>,
 }

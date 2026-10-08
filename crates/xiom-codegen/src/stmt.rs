@@ -1180,8 +1180,23 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         let mut stored_struct = false;
                         if val_ty.starts_with('%') {
                             if let Some(elem_name) = self.resolve_vec_elem_type(container) {
+                                // m226 (C-ORBIT-02): bracket CONTAINER elements map
+                                // to their ERASED generic struct via llvm_type_for
+                                // ("Option[Int]" -> "%struct.Option"); the old
+                                // format!("%struct.{elem_name}") never matched
+                                // val_ty, so the write fell to the scalar
+                                // elem_store and put an 8-byte boxed handle into a
+                                // 16-byte slot (the match then read a garbage tag
+                                // and ran no arm). User struct/enum names keep the
+                                // previous spelling.
                                 let struct_ty = if elem_name.starts_with("Vec[") {
                                     "%struct.Vec".to_string()
+                                } else if elem_name.starts_with("Option[")
+                                    || elem_name.starts_with("Result[")
+                                    || elem_name.starts_with("Map[")
+                                    || elem_name.starts_with("Set[")
+                                {
+                                    self.llvm_type_for(&elem_name).unwrap_or_else(|_| format!("%struct.{elem_name}"))
                                 } else {
                                     format!("%struct.{elem_name}")
                                 };

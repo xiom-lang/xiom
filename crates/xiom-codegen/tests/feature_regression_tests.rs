@@ -7550,3 +7550,99 @@ fn main() -> Int {
         "m222: from_utf8(&Vec) must still lower to the owned-Str copy (xiom_str_from_vec); got:\n{ir}"
     );
 }
+
+// m223 (C-ORBIT-01): a match-bound Ok payload behind a type ALIAS must keep
+// its concrete type through codegen's own binding tracker too. The old
+// `fn_return_xiom` erased `CellRes[Cell]` to `CellRes`, so the payload typed
+// as a wildcard/raw i64 handle: `x.get_n()` reached the method with an i64*
+// argument (the binding slot) and `x.n` read 0. Applied aliases must expand
+// (`CellRes[Cell]` -> `Result[Cell, Int]`) before payload extraction.
+#[test]
+fn regress_m223_alias_result_payload() {
+    let source = r#"
+type Cell = { n: Int; }
+pub fn Cell.get_n(c: &Cell) -> Int { return c.n; }
+pub type CellRes[T] = Result[T, Int];
+fn make_alias() -> CellRes[Cell] { return Ok(Cell{ n: 7 }); }
+fn main() -> Int {
+  let r = make_alias();
+  match r {
+    Err(e) => { return 10 + e; }
+    Ok(x) => {
+      if x.n != 7 { return 20 + x.n; }
+      return x.get_n();
+    }
+  }
+}
+"#;
+    let ir = compile(source).expect("m223: alias Result payload must compile");
+    assert!(
+        ir.contains("@Cell.get_n(%struct."),
+        "m223: the alias-bound payload receiver must be passed as a struct pointer; got:\n{ir}"
+    );
+    assert!(
+        !ir.contains("@Cell.get_n(i64*"),
+        "m223: the method must not receive the raw i64 binding slot; got:\n{ir}"
+    );
+}
+
+// m226 (C-ORBIT-02): `Vec[Option[Int]]` / `Vec[Result[Int, Int]]` element
+// assignment must memcpy the erased container struct into the slot. The old
+// path boxed the value and scalar-stored the 8-byte handle through the
+// elem_store size-switch; the match then read a pointer where the tag was
+// expected and ran no arm (ORBITDB V1/V3/V6/V8 silently skipped).
+#[test]
+fn regress_m226_vec_option_assign() {
+    let source = r#"
+fn main() -> Int {
+  var v = Vec[Option[Int]].new();
+  v.push(None);
+  v[0] = Some(44);
+  match v[0] {
+    None => { return 1; }
+    Some(x) => { if x != 44 { return 2; } }
+  }
+  var r = Vec[Result[Int, Int]].new();
+  r.push(Err(1));
+  r[0] = Ok(7);
+  match r[0] {
+    Err(e) => { return 3 + e; }
+    Ok(x) => { if x != 7 { return 4; } }
+  }
+  return 0;
+}
+"#;
+    let ir = compile(source).expect("m226: container-element assign must compile");
+    assert!(
+        ir.contains("call void @llvm.memcpy"),
+        "m226: the container-element write must memcpy the struct into the slot; got:\n{ir}"
+    );
+    assert!(
+        !ir.contains("elem_store"),
+        "m226: the scalar elem_store path must not be used for container elements; got:\n{ir}"
+    );
+}
+
+// m227 (C-PULSE-09): a module-level `var g: Vec[T]` receiver must resolve its
+// global type for Vec builtin dispatch. The old path missed the `.len()`
+// intercept (module_globals invisible to infer_llvm_type), fell to the
+// fn-field call path of the generic dispatch and emitted
+// `load i64 <len>; inttoptr i64 ... to i64 ()*; call` -- on Windows the first
+// cross-module access trapped (0xC000001D), on Linux it read garbage.
+#[test]
+fn regress_m227_module_global_vec_len() {
+    let source = r#"
+var g: Vec[Int] = Vec[Int].new();
+fn f() -> Int { return g.len(); }
+fn main() -> Int { return f(); }
+"#;
+    let ir = compile(source).expect("m227: module-global Vec len must compile");
+    assert!(
+        !ir.contains("inttoptr"),
+        "m227: the len field must never be inttoptr'd/called; got:\n{ir}"
+    );
+    assert!(
+        ir.contains("getelementptr %struct.Vec, %struct.Vec*"),
+        "m227: the module-global Vec must be read through its struct layout; got:\n{ir}"
+    );
+}

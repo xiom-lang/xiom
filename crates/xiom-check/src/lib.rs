@@ -129,6 +129,13 @@ pub struct Checker {
     /// graph (kept separate from `use_alias_paths`, which the codegen's
     /// bare-call alias path also consults).
     pub module_receiver_paths: HashMap<String, String>,
+    /// m225 (C-ORBIT-04): (injected enum name, declaring module) pairs from
+    /// `collect_external_decls`; the driver surfaces them to codegen so a bare
+    /// variant construct inside a module's function binds that MODULE's enum
+    /// (two modules can declare structurally identical enums -- the
+    /// first-registered bare key made `return Update;` construct the wrong
+    /// type and clang rejected the module).
+    pub external_enum_modules: Vec<(String, String)>,
     /// Enum variant name -> parent enum type name
     enum_variants: HashMap<String, String>,
     /// Module-level `const`/`var` global names -> declared type (so references to
@@ -229,6 +236,11 @@ pub struct Checker {
     /// Used by types_compatible to auto-coerce newtypes to their underlying types
     /// for seamless FFI calls and ecosystem wrapper ergonomics.
     aliases: HashMap<String, CheckedType>,
+    /// m223 (C-ORBIT-01): generic parameter names of each alias declaration
+    /// (`DbResult[T] = ...` -> ["T"]), parallel to `aliases`, so an alias
+    /// APPLICATION (`DbResult[Row]`) can substitute its arguments into the
+    /// alias body before container decomposition (match payload bindings).
+    alias_params: HashMap<String, Vec<String>>,
     /// I1: Set of type names that implement Send + Sync marker interfaces.
     /// Auto-populated for primitives and derived for composite types.
     pub send_sync_types: HashSet<String>,
@@ -366,6 +378,7 @@ impl Checker {
             imported_items: HashMap::new(),
             use_alias_paths: HashMap::new(),
             module_receiver_paths: HashMap::new(),
+            external_enum_modules: Vec::new(),
             enum_variants: HashMap::new(),
             global_consts: HashMap::new(),
             catalog_global_consts: HashMap::new(),
@@ -394,6 +407,7 @@ impl Checker {
             checking_catalog: false,
             type_arena: TypeArena::new(),
             aliases: HashMap::new(),
+            alias_params: HashMap::new(),
             send_sync_types: HashSet::new(),
             struct_field_types: HashMap::new(),
             enum_field_types: HashMap::new(),
@@ -1314,13 +1328,13 @@ impl Checker {
                 // "cannot compare Option with Int").
                 let payload_ty = match (&scrutinee_type, pattern) {
                     (CheckedType::Named(n), Pattern::Some(..)) => {
-                        Self::container_arg(n, "Option", 0)
+                        self.container_payload_arg(n, "Option", 0)
                     }
                     (CheckedType::Named(n), Pattern::Ok(..)) => {
-                        Self::container_arg(n, "Result", 0)
+                        self.container_payload_arg(n, "Result", 0)
                     }
                     (CheckedType::Named(n), Pattern::Err(..)) => {
-                        Self::container_arg(n, "Result", 1)
+                        self.container_payload_arg(n, "Result", 1)
                     }
                     _ => None,
                 };
@@ -1400,6 +1414,71 @@ impl Checker {
             return None;
         }
         args.get(idx).map(|a| CheckedType::from_str(a))
+    }
+
+    /// m223 (C-ORBIT-01): payload extraction with ALIAS EXPANSION. The name is
+    /// resolved through the type-alias table first, so a scrutinee typed
+    /// `DbResult[Row]` (alias of `Result[T, DbError]`) yields `Row` for an
+    /// `Ok(..)` binding instead of falling to the `_` wildcard. The wildcard
+    /// made method calls on the binding misresolve to the module fn and
+    /// produced "'get_column' expects 2 argument(s), found 1" / "expected Row,
+    /// found Int" on every aliased Result/Option payload.
+    fn container_payload_arg(&self, name: &str, base: &str, idx: usize) -> Option<CheckedType> {
+        let resolved = self.resolve_alias(&CheckedType::from_str(name));
+        Self::container_arg(resolved.name().as_str(), base, idx)
+    }
+
+    /// m223: one alias-resolution step, covering BOTH:
+    /// - plain alias / alias chain: exact-key lookup (`PlainRes` ->
+    ///   the registered `Result[R, Int]`);
+    /// - applied generic alias: base-key lookup + substitution of the
+    ///   declaration's params with the application's args (`DbResult[Row]`
+    ///   + `DbResult[T] = Result[T, DbError]` -> `Result[Row, DbError]`).
+    /// Returns None when the name is not an alias (callers keep their
+    /// permissive behavior).
+    fn expand_alias_once(&self, name: &str) -> Option<CheckedType> {
+        if let Some(resolved) = self.aliases.get(name) {
+            return Some(resolved.clone());
+        }
+        let (alias_base, args) = crate::structural::container_parts(name)?;
+        let alias_ty = self.aliases.get(&alias_base)?;
+        let params = self.alias_params.get(&alias_base)?;
+        if params.len() != args.len() {
+            return None;
+        }
+        let subst: HashMap<String, CheckedType> = params.iter()
+            .zip(args.iter())
+            .map(|(p, a)| (p.clone(), CheckedType::from_str(a)))
+            .collect();
+        Self::substitute_generic_type(alias_ty, &subst)
+    }
+
+    /// m223 (C-ORBIT-01): `CheckedType::from_ast_type` ERASES the type args of
+    /// `Type::Named` user types (`AliasRes[R]` -> `Named("AliasRes")`). For a
+    /// name that is a REGISTERED TYPE ALIAS the application carries real
+    /// meaning (`DbResult[Row]` must expand to `Result[Row, DbError]` before
+    /// match-payload extraction), so preserve the args for aliases only --
+    /// non-alias generic user types keep the historical erased spelling whose
+    /// compatibility rules tolerate it. Applied at signature params/returns
+    /// and let/var annotations.
+    fn checked_type_from_ast_preserve_alias(&self, ty: &Type) -> CheckedType {
+        if let Type::Named(ident, args) = ty {
+            if !args.is_empty() {
+                let leaf = ident.name.rsplit('.').next().unwrap_or(&ident.name);
+                let is_alias = self.aliases.contains_key(&ident.name)
+                    || self.aliases.contains_key(leaf)
+                    || self.current_module.as_ref().map_or(false, |m| {
+                        self.aliases.contains_key(&format!("{}.{}", m, ident.name))
+                    });
+                if is_alias {
+                    let rendered: Vec<String> = args.iter()
+                        .map(|a| self.checked_type_from_ast_preserve_alias(a).name())
+                        .collect();
+                    return CheckedType::named(format!("{}[{}]", ident.name, rendered.join(", ")));
+                }
+            }
+        }
+        CheckedType::from_ast_type(ty)
     }
 
     /// round-14 (tuple payloads): substitute generic PARAM tokens inside a
@@ -2055,9 +2134,15 @@ impl Checker {
                 if let Some(ref alias_ty) = td.alias {
                     let resolved = CheckedType::from_ast_type(alias_ty);
                     let key = if module_path.is_empty() { td.name.name.clone() } else { format!("{}.{}", module_path, td.name.name) };
+                    // m223 (C-ORBIT-01): keep the alias's generic params so an
+                    // APPLIED alias (`DbResult[Row]`) can substitute its args
+                    // into the alias body before container decomposition.
+                    let params: Vec<String> = td.generics.iter().map(|g| g.name.name.clone()).collect();
                     self.aliases.insert(key.clone(), resolved.clone());
+                    self.alias_params.insert(key.clone(), params.clone());
                     if key != td.name.name {
                         self.aliases.entry(td.name.name.clone()).or_insert(resolved);
+                        self.alias_params.entry(td.name.name.clone()).or_insert(params);
                     }
                 }
                 let mut fields = HashMap::new();
@@ -2558,12 +2643,12 @@ impl Checker {
                 // and every call mis-reports "expected Self".
                 for p in &fd.params {
                     self.register_anon_struct_from_ast(&p.ty);
-                    params.push((p.name.name.clone(), CheckedType::from_ast_type(&p.ty)));
+                    params.push((p.name.name.clone(), self.checked_type_from_ast_preserve_alias(&p.ty)));
                 }
                 if let Some(ref ret) = fd.return_type {
                     self.register_anon_struct_from_ast(ret);
                 }
-                let return_type = fd.return_type.as_ref().map(|t| CheckedType::from_ast_type(t));
+                let return_type = fd.return_type.as_ref().map(|t| self.checked_type_from_ast_preserve_alias(t));
                 // BUG 29 (m35_t16): strip a receiver prefix already present in
                 // the fn NAME. expand_impl_blocks emits `impl Sum for NumPair`
                 // methods as name="NumPair.sum" AND receiver=NumPair -- naive
@@ -3086,6 +3171,9 @@ impl Checker {
     pub fn collect_external_decls(&mut self, program: &Program) -> Vec<TopDecl> {
         // Names already declared in the program (to avoid duplicates).
         let mut existing: HashSet<String> = HashSet::new();
+        // m225 (C-ORBIT-04): (enum name, declaring module) for every injected
+        // enum; codegen scopes bare-variant resolution with these hints.
+        let mut enum_modules: Vec<(String, String)> = Vec::new();
         // Delegation-crash fix (stdlib-audit #3, 2026-09-09): the old
         // `user_free_fns` shadow set made injection SKIP any stdlib free fn
         // whose BARE name matched a user fn -- so `xiom.num.convert.to_base58`
@@ -3185,6 +3273,7 @@ impl Checker {
                 generic_types: &HashSet<String>,
                 module_name: &str,
                 out: &mut Vec<TopDecl>,
+                enum_modules: &mut Vec<(String, String)>,
             ) {
                 // BUG 9 / BUG 29: struct-name walkers shared by the Fn and Const
                 // arms so injected bodies/initializers pull in the layouts of the
@@ -3311,6 +3400,15 @@ impl Checker {
                             if ed.is_pub && !existing.contains(&ed.name.name)
                                 && !primitives.contains(&ed.name.name.as_str()) {
                                 existing.insert(ed.name.name.clone());
+                                // m225 (C-ORBIT-04): the enum's DECLARING module
+                                // must ride along so codegen can scope bare-variant
+                                // resolution (two modules can declare structurally
+                                // identical enums; the first-registered bare key
+                                // made `return Update;` construct the other
+                                // module's enum -> clang type mismatch).
+                                if !module_name.is_empty() {
+                                    enum_modules.push((ed.name.name.clone(), module_name.to_string()));
+                                }
                                 out.push(TopDecl::Enum(ed.clone()));
                             }
                         }
@@ -3437,6 +3535,12 @@ impl Checker {
                                             }
                                             TopDecl::Enum(ed) if ed.name.name == ty_name => {
                                                 existing.insert(ty_name.clone());
+                                                // m225 (C-ORBIT-04): record the
+                                                // declaring module for scoped
+                                                // bare-variant resolution.
+                                                if !module_name.is_empty() {
+                                                    enum_modules.push((ed.name.name.clone(), module_name.to_string()));
+                                                }
                                                 out.push(TopDecl::Enum(ed.clone()));
                                                 break;
                                             }
@@ -3483,7 +3587,7 @@ impl Checker {
                             // external-decl injection, so wrapped decls would never
                             // reach codegen. Module context is preserved instead by
                             // leaf-qualifying free fn names above.
-                            collect_pub_decls(&md.items, existing, primitives, generic_types, module_name, out);
+                            collect_pub_decls(&md.items, existing, primitives, generic_types, module_name, out, enum_modules);
                         }
                         TopDecl::Extern(eb) => {
                             // Inject external modules' `extern "C"` blocks so their
@@ -3532,6 +3636,12 @@ impl Checker {
                                             }
                                             TopDecl::Enum(ed) if ed.name.name == ty_name => {
                                                 existing.insert(ty_name.clone());
+                                                // m225 (C-ORBIT-04): record the
+                                                // declaring module for scoped
+                                                // bare-variant resolution.
+                                                if !module_name.is_empty() {
+                                                    enum_modules.push((ed.name.name.clone(), module_name.to_string()));
+                                                }
                                                 out.push(TopDecl::Enum(ed.clone()));
                                                 break;
                                             }
@@ -3683,8 +3793,11 @@ impl Checker {
             })
             .collect();
         for (cached_module_name, items) in &prepared {
-            collect_pub_decls(items, &mut existing, PRIMITIVES, &generic_type_names, cached_module_name, &mut decls);
+            collect_pub_decls(items, &mut existing, PRIMITIVES, &generic_type_names, cached_module_name, &mut decls, &mut enum_modules);
         }
+        // m225 (C-ORBIT-04): expose the (enum, module) hints to the driver so
+        // codegen can scope bare-variant resolution to the declaring module.
+        self.external_enum_modules = enum_modules;
 
         // Reachability filter: only inject FUNCTIONS whose (leaf) name is actually
         // referenced, transitively, from the program. Uncalled stdlib functions are
@@ -5008,7 +5121,8 @@ impl Checker {
 
         // Add parameters to scope
         for param in &fd.params {
-            self.add_local(&param.name.name, CheckedType::from_ast_type(&param.ty));
+            let param_ty = self.checked_type_from_ast_preserve_alias(&param.ty);
+            self.add_local(&param.name.name, param_ty);
         }
 
         // 5c-E: register const-generic parameters as locals
@@ -6181,7 +6295,7 @@ impl Checker {
                         self.add_local(&name.name, val_ty.clone());
                         return;
                     }
-                    let annot_ty = CheckedType::from_ast_type(annot);
+                    let annot_ty = self.checked_type_from_ast_preserve_alias(annot);
                     // An uninitialized let/var defaults to the placeholder `Int(0)`.
                     // When a type annotation is present the var is zero-initialized to that
                     // type, so trust the annotation instead of erroring on the placeholder.
@@ -6234,7 +6348,7 @@ impl Checker {
             Stmt::Var(name, ty_annot, value, span) => {
                 let val_ty = self.check_expr(value);
                 if let Some(annot) = ty_annot {
-                    let annot_ty = CheckedType::from_ast_type(annot);
+                    let annot_ty = self.checked_type_from_ast_preserve_alias(annot);
                     // An uninitialized let/var defaults to the placeholder `Int(0)`.
                     // When a type annotation is present the var is zero-initialized to that
                     // type, so trust the annotation instead of erroring on the placeholder.
@@ -9228,20 +9342,19 @@ impl Checker {
 
     /// Phase 7E/Feature: Resolve type aliases recursively.
     /// `type Foo = Int; type Bar = Foo;` -- resolving Bar gives Int.
+    /// m223 (C-ORBIT-01): also expands APPLIED aliases (`DbResult[Row]` ->
+    /// `Result[Row, DbError]`) via `expand_alias_once`.
     /// Guards against infinite loops (max depth 16).
     fn resolve_alias(&self, ty: &CheckedType) -> CheckedType {
         let mut current = ty.clone();
         let mut depth = 0;
         loop {
             if depth > 16 { break; } // cycle guard
-            if let CheckedType::Named(name) = &current {
-                if let Some(resolved) = self.aliases.get(name.name()) {
-                    current = resolved.clone();
-                    depth += 1;
-                    continue;
-                }
-            }
-            break;
+            let CheckedType::Named(name) = &current else { break; };
+            let Some(next) = self.expand_alias_once(name.name()) else { break; };
+            if next == current { break; }
+            current = next;
+            depth += 1;
         }
         current
     }

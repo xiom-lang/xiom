@@ -225,6 +225,12 @@ impl IrEmitter {
         self.config.module_receiver_paths = paths;
     }
 
+    /// m225 (C-ORBIT-04): (enum name, declaring module) hints from the
+    /// checker's external-decl injection -- see `enum_module_hints`.
+    pub fn set_enum_module_hints(&mut self, hints: Vec<(String, String)>) {
+        self.config.enum_module_hints = hints;
+    }
+
     pub fn set_source_file(&mut self, path: String) {
         self.config.source_file = path;
     }
@@ -2097,6 +2103,14 @@ impl IrEmitter {
             // `Vec[fn() -> Int]` element recording, closure-binding detection
             // and element calls match on. The ABI still erases it to i64.
             Type::Fn(_, _) => Self::type_from_ast_with_args(ty),
+            // m223 (C-ORBIT-01): a user NAMED type application keeps its args
+            // ("AliasRes[R]", "Cell[Int]") -- fn_return_xiom must carry the
+            // application so alias-aware payload extraction can expand it.
+            Type::Named(ident, args) if !args.is_empty() => format!(
+                "{}[{}]",
+                ident.name,
+                args.iter().map(Self::type_string_full).collect::<Vec<_>>().join(", ")
+            ),
             other => Self::type_from_ast(other),
         }
     }
@@ -2544,6 +2558,60 @@ impl IrEmitter {
         None
     }
 
+    /// m223 (C-ORBIT-01): expand an APPLIED generic alias in a rendered type
+    /// name: `AliasRes[R]` + `AliasRes[T] = Result[T, Int]` ->
+    /// `Result[R, Int]`; plain aliases (`PlainRes` -> `Result[R, Int]`) and
+    /// alias chains resolve through the FULL stored bodies first (the erased
+    /// `type_aliases` terminal would drop the generic args). Returns the
+    /// input unchanged when no alias applies.
+    fn expand_alias_application_xiom(&self, s: &str) -> String {
+        let mut current = s.to_string();
+        for _ in 0..8 {
+            let mut next: Option<String> = None;
+            let (base, args) = Self::parse_generic_type_string(&current);
+            if !args.is_empty() {
+                if let (Some(body), Some(params)) = (
+                    self.types.type_alias_bodies.get(&base),
+                    self.types.type_alias_params.get(&base),
+                ) {
+                    if params.len() == args.len() {
+                        next = Some(Self::subst_type_params(&body, &params, &args));
+                    }
+                }
+            } else if let Some(body) = self.types.type_alias_bodies.get(&current) {
+                next = Some(body);
+            }
+            match next {
+                Some(n) if n != current => {
+                    current = n;
+                }
+                _ => {
+                    let plain = self.resolve_alias_name(&current);
+                    if plain != current {
+                        current = plain;
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+        current
+    }
+
+    /// m223: alias-aware success-payload extraction (`Option[T]`/`Result[T, E]`
+    /// behind a type alias, e.g. `DbResult[Row]` -> `Row`).
+    fn option_result_payload_alias(&self, s: &str) -> Option<String> {
+        let expanded = self.expand_alias_application_xiom(s);
+        Self::option_result_payload(&expanded)
+    }
+
+    /// m223: alias-aware error-payload extraction (`DbResult[Row]` -> the
+    /// declared `DbError`).
+    fn option_result_err_payload_alias(&self, s: &str) -> Option<String> {
+        let expanded = self.expand_alias_application_xiom(s);
+        Self::option_result_err_payload(&expanded)
+    }
+
     /// 5c.30: Resolve the declared XIOM return type of a call expression's
     /// callee (exact key, then unique `.name` suffix match).
     fn callee_return_xiom(&self, func: &Expr) -> Option<String> {
@@ -2781,7 +2849,7 @@ impl IrEmitter {
                                 other => other,
                             };
                             self.callee_return_xiom(inner_callee)
-                                .and_then(|ret| Self::option_result_payload(&ret))
+                                .and_then(|ret| self.option_result_payload_alias(&ret))
                                 .map(|p| {
                                     if p.contains('[') {
                                         p
@@ -2807,7 +2875,7 @@ impl IrEmitter {
             // General call returning Option[X]/Result[X, E]: record X so a
             // later `.unwrap()` binding can be classified.
             if let Some(ret) = self.callee_return_xiom(func) {
-                if let Some(payload) = Self::option_result_payload(&ret) {
+                if let Some(payload) = self.option_result_payload_alias(&ret) {
                     // Struct payload names are stored qualified when possible.
                     let stored = if payload.contains('[') {
                         payload
@@ -2819,7 +2887,7 @@ impl IrEmitter {
                     self.local.local_opt_payload.insert(name.to_string(), stored);
                 }
                 // 5d: record the Result ERROR payload for unwrap_err/match Err(e).
-                if let Some(err_payload) = Self::option_result_err_payload(&ret) {
+                if let Some(err_payload) = self.option_result_err_payload_alias(&ret) {
                     self.local.local_err_payload.insert(name.to_string(), err_payload);
                 }
             } else if let Expr::Ident(id) = func.as_ref() {
@@ -2835,7 +2903,7 @@ impl IrEmitter {
                     eprintln!("[tbp] name={} callee={} flr={:?}", name, id.name, self.local.fn_local_returns.get(&id.name));
                 }
                 if let Some(rt) = self.local.fn_local_returns.get(&id.name) {
-                    if let Some(payload) = Self::option_result_payload(rt) {
+                    if let Some(payload) = self.option_result_payload_alias(rt) {
                         let stored = if payload.contains('[') {
                             payload
                         } else {
@@ -3461,6 +3529,26 @@ impl IrEmitter {
                 return Some(hit.clone());
             }
         }
+        // m225 (C-ORBIT-04): prefer a candidate whose DECLARING MODULE (from
+        // the checker's injection hints) matches a scope: inside `db.wal_file`
+        // a bare `Update` must bind `wal_file`'s enum, not the first-declared
+        // structurally identical twin from another module. Without this,
+        // injected enums are keyed BARE, the scope-prefix loops above can
+        // never match, and declaration order decided (`return Update;` built
+        // the twin type -> clang "ret type mismatch"). Module comparison is
+        // suffix/leaf-wise so scope "wal_file" matches "xiom.db.wal_file".
+        for scope in &scopes {
+            if let Some(hit) = candidates.iter().find(|k| {
+                self.config.enum_module_hints.iter().any(|(n, m)| {
+                    (k.as_str() == n.as_str() || k.ends_with(&format!(".{n}")))
+                        && (m == scope
+                            || m.ends_with(&format!(".{scope}"))
+                            || scope.ends_with(&format!(".{m}")))
+                })
+            }) {
+                return Some(hit.clone());
+            }
+        }
         self.types.enum_decl_order.iter()
             .find(|k| candidates.iter().any(|c| c == *k))
             .cloned()
@@ -3525,15 +3613,15 @@ impl IrEmitter {
                         .or_else(|| self.local.local_opt_payload_xiom.get(&sid.name).cloned()
                             .filter(|t| !Self::is_generic_placeholder_name(t)))
                         .or_else(|| self.local.local_xiom_types.get(&sid.name)
-                            .and_then(|t| Self::option_result_payload(t)))
+                            .and_then(|t| self.option_result_payload_alias(&t)))
                 }
             }
             Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
                 let payload = self.callee_return_xiom(func).and_then(|full| {
                     if field_idx == 2 {
-                        Self::option_result_err_payload(&full)
+                        self.option_result_err_payload_alias(&full)
                     } else {
-                        Self::option_result_payload(&full)
+                        self.option_result_payload_alias(&full)
                     }
                 });
                 // round-13 (tuple payloads): the GENERIC Vec.get/pop decl
@@ -8661,6 +8749,17 @@ impl IrEmitter {
             Expr::Ident(ident) => {
                 if let Some((_, llvm_ty)) = self.lookup_local(&ident.name) {
                     if llvm_ty == "double" { return "double".to_string(); }
+                    return llvm_ty.clone();
+                }
+                // m227 (C-PULSE-09): module-level `var` receivers must resolve
+                // their registered global type. Without this, `stores.len()`
+                // on a module-level `Vec[T]` saw "i64"/unknown, missed the
+                // Vec builtin intercept, and fell to the fn-field call path of
+                // the generic dispatch (BUG 29): `getelementptr ... i32 0, 1`
+                // (the LEN field) -> `inttoptr` -> `call i64 %len()` ->
+                // 0xC000001D at the first access (Windows). Local receivers
+                // were already covered by `lookup_local` above.
+                if let Some((_, llvm_ty)) = self.local.module_globals.get(&ident.name) {
                     return llvm_ty.clone();
                 }
                 // If the ident is an enum variant name (e.g., DivByZero), return the parent enum's struct type
