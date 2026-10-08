@@ -453,17 +453,39 @@ fn main() -> Int { return h3.p(); }
 -> `error[T001]: catalog body [xiom.encoding] 409:22: cannot call 'get' on
 this expression` (also 419:46, 466:22), `compilation failed`. Same through
 `use xiom.net.server;` (transitively pulls encoding). Importing
-`xiom.encoding` from the MAIN file passes -- the body is only hard-checked
-when reached through a user-module import. The three sites are
-`tmp.get(j).value` on a `Vec[UInt8]` inside `unsafe` blocks of
-`url_encode`/`url_decode`; the same source checks clean when encoding is
-flushed as a catalog body from main. Suspect: the late/on-demand catalog
-flush runs without the per-module isolated import context (or with
-`checking_catalog` false), so the latent T001s flip from warnings to errors.
+`xiom.encoding` from the MAIN file passes.
 
-Repro kept at `E:\xiom-lang\xiom\tmp\sweep2\pulse12\{h3.xi,main_h3.xi}` (tmp;
-not tracked). Impact: any package/binding module importing `xiom.encoding`
-(or a module that pulls it) cannot be built.
+ROOT CAUSE (instrumented, `XIOM_TRACE_ENC` at the check_call fallback):
+
+```
+[dbg enc] obj_ty=Named("Vec[UInt8]") args=1 checking_catalog=true fns=423
+  pre_use=["h3", "main_h3", "xiom"]
+  modules=["ascii85","base32","base64","h3","hex","idna","main_h3",
+           "percent","punycode","string","xiom"]
+  get_cands=[]
+```
+
+When the import chain goes MAIN -> user module h3 -> `xiom.encoding`, the
+stdlib catalog PRELOAD is never triggered (the main program's own `use` list
+does not name a stdlib module). `pre_use_module_keys` is therefore nearly
+empty, and the isolated per-body check of encoding runs with only encoding's
+own family registered: the core container declarations (`Vec.get`, ...) are
+absent, so `tmp.get(j)` falls to the check_call fallback and hard-fails under
+`strict_catalog_findings` (default true). Importing encoding from MAIN takes
+the preload path, so the same body resolves and no finding is even produced.
+The Stage-6 `use`-skip optimizer does not apply here (encoding imports no
+collections module) -- the missing piece is the preload itself.
+
+FIX DIRECTION: trigger the stdlib catalog preload whenever an import
+resolution (from ANY module, not just the entry) reaches the stdlib roots
+(e.g. hook `xiom.*` resolution to the same preload path the entry uses), or
+register the core container declarations before isolated catalog-body checks.
+Careless half-fixes here risk re-poisoning the per-body isolation (the
+Retain/pre_use design), so this wants its own focused pass.
+
+Repro kept at `E:\xiom-lang\xiom\tmp\sweep2\pulse12\{h3.xi,main_h3.xi,
+main_dir_enc.xi}` (tmp; not tracked). Impact: any package/binding module
+importing `xiom.encoding` (or a module that pulls it) cannot be built.
 
 ---
 

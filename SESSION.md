@@ -123,10 +123,13 @@
 > 14. m230 OPEN (found in the sweep, pre-existing on v0.64.1): a non-main
 >    module importing `xiom.encoding` (or `xiom.net.server`, which pulls
 >    it) hard-fails with 3 catalog-body T001s at encoding.xi 409/419/466
->    (`tmp.get(j)`); same import from MAIN passes. Repro
->    tmp\sweep2\pulse12\{h3.xi,main_h3.xi}. Suspect the late catalog flush
->    lacks the isolated import context / checking_catalog. Blocks any
->    package module importing encoding.
+>    (`tmp.get(j)`); same import from MAIN passes. Root cause (traced):
+>    the import chain MAIN -> user module -> stdlib never triggers the
+>    stdlib catalog PRELOAD, so the isolated per-body check runs without
+>    the core container declarations (`Vec.get`) and the check_call
+>    fallback hard-fails. Repro tmp\sweep2\pulse12\{h3,main_h3}.xi; trace
+>    + fix direction in COMPILER_BUGS m230 (needs a focused pass -- the
+>    per-body isolation must not be half-broken).
 >
 > RELAY QUEUE (post-v0.64.1 re-tests, 2026-10-08):
 > A. XVECTOR (E:\xiom-projects\xiom-xvector): v0.64.1 re-test -- C-01,
