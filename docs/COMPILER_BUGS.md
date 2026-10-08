@@ -286,6 +286,45 @@ present), e2e `e2e_m210_vec_clone_struct_elem` + fixture
 
 ---
 
+## 2026-10-08 -- FIXED: nested Option/Result payload chains kept the erased i64 slot (m217, C-PULSE-10)
+
+Pulse relay, C-PULSE-10: after `kv_put(&mut store, "k", "abcdefghij")`,
+`kv_get(&store, "k")` returned an address-like decimal Str for every key
+while `kv_get_bytes` returned the stored bytes correctly; multi-key
+overwrites then read back corrupted through the same helper (kv_text).
+Classified compiler-vs-package open (C-PULSE-04/05 family suspected).
+Reproduced on current main with the xiom.kv 0.1.0 source (copied from the
+WSL install tree): `kv_get = [1527232326592]`, bytes path and the local
+`Str::from_utf8` control green.
+
+ROOT CAUSE (IR evidence, minimal compiler-side repro): `field_payload_xiom`
+resolved payload field reads (`.value`/`.error`) for Ident/Call/Paren
+receivers but had no `Expr::Field` arm, so a NESTED chain
+(`gs.value.value` on `Result[Option[Str], Str]`) fell to `None`: the INNER
+`.value` read kept the erased i64 slot, and the consumer stringified the
+payload (the Str data pointer) via `xiom_int_to_string` -- hence the
+decimal. The package was NOT at fault: `kv_get` is a plain `kv_get_bytes` +
+`Str::from_utf8`, and the record bytes round-trip.
+
+FIX (m217): a recursive `Expr::Field` arm in `field_payload_xiom` resolves
+the base field's payload type, then extracts the inner payload/error of that
+container (bracket-safe through the existing option_result_payload /
+option_result_err_payload helpers).
+
+EVIDENCE: minimal compiler-side repro (`Result[Option[Str], Str]` built
+directly and via a match-mediated local) pre-fix printed `[1963459382448]`
+/ `[1963459381648]`; post-fix all four shapes print `[abcdefghij]`. On the
+copied xiom.kv source `kv_get=[abcdefghij]`, and the PULSE acceptance gate
+`probe_pkg_kv.xi` is fully green (single-key roundtrip, kv_get Str path,
+multi-key overwrite stability; exit 0) -- both filed defects resolve.
+
+LOCKS: `regress_m217_nested_option_payload` (IR: no `xiom_int_to_string` in
+main, the inner read emits `inttoptr i64 ... to i8*`), e2e
+`e2e_m217_nested_option_payload` + fixture, CI line. Gates: feature 535/535;
+targeted e2e 12/12.
+
+---
+
 ## 2026-10-08 -- FIXED: type-alias Vec elements resolved + spurious unknown-type warning (m216, C-PULSE-11)
 
 Pulse relay, C-PULSE-11: a wrapper module exposing a package type through an

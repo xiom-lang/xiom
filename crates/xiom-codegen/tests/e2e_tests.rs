@@ -5959,6 +5959,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// m217 (C-PULSE-10): `Result[Option[Str], Str]` read as `c.value.value` must
+// keep the inner Str payload type; pre-fix the inner read kept the erased i64
+// slot and kv_get printed the data pointer as an address-like decimal.
+#[test] fn e2e_m217_nested_option_payload() {
+    assert_eq!(
+        compile_and_run("tests/regression/m217_nested_option_payload/main.xi"),
+        Some(0),
+        "nested Option payload chains must keep the inner Str payload (m217)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

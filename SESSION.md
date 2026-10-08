@@ -4,7 +4,7 @@
 # KICKOFF PROMPT (v0.64.1 batch, 2026-10-08) -- paste from the marker
 
 > Continue the XIOM compiler lane. STATE: local main carries the v0.64.1
-> batch m199..m216 (31+ commits ahead of origin -- count with
+> batch m199..m217 (31+ commits ahead of origin -- count with
 > `git rev-list --count origin/main..main`; NOT pushed; v0.64.0 tag
 > c68d91de is the last release). This checkout's git identity is
 > Lefteris Notas <lefterisnotas@gmail.com> (repo-local overrides the
@@ -32,16 +32,18 @@
 > elements (`Vec[Store]` field reads resolve to the aliased struct;
 > `Vec[Store].new()` sizes by the real struct) + lazy builtin probe kills
 > the spurious "unknown type" warning. Guard for GENUINELY unknown
-> defaulting still open.
+> defaulting still open; m217 C-PULSE-10 nested Option/Result payload
+> chains (`c.value.value` keeps the inner Str; probe_pkg_kv acceptance
+> gate fully green -- the kv defect was compiler-side, not the package).
 >
-> GATES on the tree: e2e 2437/0/4, feature 534/534 (533 pre-m216 + the
-> m216 lock), checker 197/197, verifier 41 (7 lib + 34 integration),
+> GATES on the tree: e2e 2437/0/4, feature 535/535 (533 pre-m216 + the
+> m216/m217 locks), checker 197/197, verifier 41 (7 lib + 34 integration),
 > xiom-graph 34/34, driver lib 61/61 + bin 6/6 + integration suites
-> (2/28/5/15/4/6/34), ascii_guard clean. m216 targeted e2e 11/11.
+> (2/28/5/15/4/6/34), ascii_guard clean. m216/m217 targeted e2e 12/12.
 > (e2e/feature counts predate m213-m215, which touched verifier/CLI/graph
-> only; feature re-ran after m216.) KNOWN PRE-EXISTING RED:
+> only; feature re-ran after m216/m217.) KNOWN PRE-EXISTING RED:
 > perf_budget_fmt_peek_shape is over budget at HEAD too (97,028 > 95,000
-> IR bytes) -- batch drift, not m216.
+> IR bytes) -- batch drift, not m216/m217.
 >
 > FIX QUEUE (impact order; repros local):
 > 1. C-PULSE-11 -- FIXED m216 (alias resolution for package types landed;
@@ -50,10 +52,11 @@
 >    GENUINELY unknown defaulting -- final fallback + the ~13 direct
 >    xiom_to_llvm_type fallback sites that swallow errors into i64 --
 >    still needs the error-propagation pass.
-> 2. C-PULSE-10 -- kv_get returns an address-like decimal Str after
->    kv_put; multi-key writes also corrupt kv_get_bytes. Repro
->    docs/repro/kv-get-str-corruption/ + gate tests/probes/probe_pkg_kv.xi.
->    Triage with the NATIVE PACKAGES lane (C-PULSE-04/05 family suspected).
+> 2. C-PULSE-10 -- FIXED m217: nested Result[Option[Str]] payload reads
+>    (`gs.value.value`) now keep the inner Str; minimal repro + copied
+>    xiom.kv source green. probe_pkg_kv.xi is fully green (single-key,
+>    kv_get Str path, multi-key overwrite) -- both filed defects were
+>    compiler-side; the package was not at fault.
 > 3. C-PULSE-09 -- Vec[SessionStore] aggregate driven from a wrapper
 >    module crashes at runtime; the same calls inline are green. Repro
 >    pair tests/probes/probe_adopt_smoke.xi (red) vs probe_session_inline.xi

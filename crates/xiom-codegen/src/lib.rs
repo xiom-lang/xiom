@@ -3689,6 +3689,22 @@ impl IrEmitter {
                 }
             }
             Expr::Paren(inner, _) => self.field_payload_xiom(inner, field_name),
+            Expr::Field(base, inner_field, _) => {
+                // m217 (C-PULSE-10): NESTED payload chains -- the receiver is
+                // itself a payload field (`gs.value.value` from kv_get's
+                // Result[Option[Str], Str]). Resolve the base field's payload
+                // type recursively, then extract the payload/error of that
+                // container. Without this the inner `.value` read kept the
+                // erased i64 slot and the Str payload was stringified as a
+                // POINTER (kv_get printed an address-like decimal while
+                // kv_get_bytes was correct).
+                let base_payload = self.field_payload_xiom(base, &inner_field.name)?;
+                if is_err_field {
+                    Self::option_result_err_payload(&base_payload)
+                } else {
+                    Self::option_result_payload(&base_payload)
+                }
+            }
             _ => None,
         }
     }

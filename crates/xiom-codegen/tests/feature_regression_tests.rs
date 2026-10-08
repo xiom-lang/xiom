@@ -7335,3 +7335,48 @@ fn main() -> Int {
         "m216: the field read must GEP through %struct.pkg.SessionStore; got:\n{ir}"
     );
 }
+
+// m217 (C-PULSE-10): `Result[Option[Str], Str]` read as `c.value.value` must
+// reinterpret the INNER payload as the Str handle -- pre-fix the inner
+// `.value` read kept the erased i64 slot (field_payload_xiom had no Field
+// arm) so concatenating it stringified the data pointer via
+// `xiom_int_to_string` (xiom.kv `kv_get` printed an address-like decimal
+// while `kv_get_bytes` was correct). Discriminators: the inner read emits
+// `inttoptr i64 ... to i8*` and no `xiom_int_to_string` fires for it.
+#[test]
+fn regress_m217_nested_option_payload() {
+    let source = r#"
+fn mk_bytes() -> Vec[UInt8] {
+  var out: Vec[UInt8] = Vec[UInt8].new();
+  var i = 0;
+  while i < 10 {
+    out.push((97 + i) as UInt8);
+    i = i + 1;
+  }
+  return out;
+}
+fn get_nested() -> Result[Option[Str], Str] {
+  let b = mk_bytes();
+  return Ok(Some(Str::from_utf8(b)));
+}
+fn main() -> Int {
+  let c = get_nested();
+  let s = "[" + c.value.value + "]";
+  if s.len() == 12 { return 0; }
+  return 1;
+}
+"#;
+    let ir = compile(source).expect("m217: nested payload must compile");
+    let main_body = ir.split("@main(").nth(1).expect("m217: main body missing");
+    let main_body = main_body.split("\ndefine ").next().unwrap_or(main_body);
+    assert!(
+        !main_body.contains("xiom_int_to_string"),
+        "m217: the nested Str payload must not be stringified as an integer; got:\n{ir}"
+    );
+    assert!(
+        main_body
+            .lines()
+            .any(|l| l.contains("inttoptr i64") && l.trim_end().ends_with("to i8*")),
+        "m217: the inner .value read must inttoptr the payload to i8*; got:\n{ir}"
+    );
+}
