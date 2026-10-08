@@ -3,11 +3,11 @@
 
 # KICKOFF PROMPT (v0.64.1 batch, 2026-10-08) -- paste from the marker
 
-> Continue the XIOM compiler lane. STATE: the v0.64.1 batch m199..m221 is
-> committed, version-bumped (Cargo.toml 0.64.1) and the release notes are
-> committed; RELEASE STEP: push main + tag v0.64.1 (run after the final
-> release-notes verify; re-tag after the mcp icon-field build fix if the
-> first run failed). v0.64.0 tag c68d91de is the prior release. This
+> Continue the XIOM compiler lane. STATE: v0.64.1 RELEASED 2026-10-08
+> (tag ba930943 -> commit 3c6f3bb5; release run 37775567185 success; all
+> assets published). The m199..m221 batch is in; begin with the RELAY
+> QUEUE below (C-07, ORBIT, bindings) plus the residual hard-error guard.
+> v0.64.0 tag c68d91de is the prior release. This
 > checkout's git identity is
 > Lefteris Notas <lefterisnotas@gmail.com> (repo-local overrides the
 > global hugintech); verify identity in any other worktree before
