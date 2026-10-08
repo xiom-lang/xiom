@@ -286,6 +286,106 @@ present), e2e `e2e_m210_vec_clone_struct_elem` + fixture
 
 ---
 
+## 2026-10-08 -- EVENING LANE RE-SWEEP + BENCHMARK RUN
+
+Second sweep of all lanes after the m222..m232 batch, plus a manual benchmark
+pass on the current tree with RELEASE-built outputs (release `xiom` from the
+v0.64.2 tree; victim binaries `--release --target native`). New findings and
+reproduction evidence below; benchmark numbers in the second half.
+
+### New findings
+
+| Finding | Status | Evidence on this tree |
+|---|---|---|
+| **XVC-C-08** trailing scalar after a Vec-bearing field reads uninitialized garbage (`Vec[Struct]` element) | **OPEN** | `docs/repro/xv-trailing-field-vec/probe.xi` -> exit 1 `BAD detach count`; `variants.xi` -> exit 5, v5/v7/v10/v11/v12/v14 red (v14 Int flag, so not Bool-specific); `min.xi` green. Localized to the `hydrate_hits` shape; context-sensitive |
+| **C-ORBIT-05** nested `Vec[Page]` loop + push into another `Vec[Page]` aborts | **OPEN** | `docs/repro/vec-push-nested/probe.xi` -> exit `0xC0000005` (access violation), no diagnostic; variant D at n=418; controls green |
+| **stdlib M7** `Iterator[T]` receiver type unresolved | **OPEN** | `tools/known_failures/p_iter_iterator_type_unresolved.xi`: `--check` PASSES but compile prints 5x `unknown type 'Iterator' -- defaulting to i64` and fails `error[C001]: unresolved function symbol(s) ... 'Iterator.step_by'` |
+| **packages** `unsafe fn` hard P001 | CONFIRMED | `unsafe fn f()` -> `error[P001]: 2:8: unsafe applies only to block expressions`; keep fn safe + `unsafe { }` body |
+| **packages** `let _ = unsafe { call() };` invalid IR (pointer/Str/struct returns) | LANE-REPORTED, not reproduced minimally | their exact shape: `trunc i64 -> i32` then `ret i8*` in project builds; a minimal `let _ = unsafe { alloc(8) };` compiles clean on this tree -- exact repro wanted |
+| **packages** grpc catalog-dep rehearsal RED: 6 T001 "ambiguous function exported by multiple imported modules" | LANE-REPORTED | queued by the packages lane 18:33Z; needs their grpc depot to bisect |
+| **PULSE** C-PULSE-13 recurrence (toolchain re-extract deleted the canonical `packages/` bridge) | PARTIAL (m232) | xiom-pkg now resolves `paths::xiom_home()` for install/cache; the remaining piece is the Unix toolchain INSTALLER creating the canonical `packages/` dir on every install (installer lane, not compiler) |
+| `xiom.http` 0.1.2 (67 T001 -> 0) | FIXED lane-side | republished; PULSE probe should flip green |
+| **ORBITDB C-ORBIT-01..04 / XVECTOR XVC-C-01..C-07** | FIXED compiler-side (m222..m226); lane docs still show pre-sweep status | their docs note "no v0.64.2 archive installed yet" -- re-verify pending on the archive |
+
+### Benchmark run (this box, Windows; release outputs; 3 samples unless noted)
+
+System arena (`reference/systems-arena/*.xi`, compile `--release --target native`):
+
+| task | compile | run (warm) | note |
+|---|---|---|---|
+| t1-allocator | 7.7 s | 46-52 ms | prints OK |
+| t2-queue | 7.2 s | 40-48 ms | prints OK |
+| t3-hot-reload | 2.8 s | 18-28 ms | `dlopen failed` -- reference is Linux-shaped (`libc.so.6`); timing needs WSL/Linux |
+| t4-packet | 7.1 s | 59-62 ms | prints OK |
+| t5-btree | 7.5 s | 22-31 ms | prints OK |
+| t8-safety-probe | 2.7 s | 16.8-19.1 s | per-attack JSON; mostly SILENT_UB/INCONCLUSIVE, no crash |
+
+Contracts arena (`reference/systems-contracts-arena/*.xi`): all six `--check`
+PASSED. `xiom-verify --check` (z3):
+
+- t1-allocator: **2 proven, 0 violated, 10 unknown, 0 errors** (X7007 loop
+  without invariant / complex call target).
+- t2-queue, t3-hot-reload, t4-packet, t5-btree: `no queries emitted (all
+  obligations skipped as UNKNOWN)` -> **0 proven, 0 violated, 1 unknown,
+  0 errors**. Root cause is the REFERENCE, not the compiler: clause counts
+  t1 requires=12 ensures=5 invariant=1 vs t2-t5 **all zero** (t8: 3 requires,
+  0 ensures -> 4 unknown). Harness "FAIL" for t2-t5 is a no-obligation
+  benchmark gap; either add a provable clause to the references or exempt
+  no-obligation trials.
+- This matches the owner's report ("t1 contracts passes, the others fail")
+  and the 2026-10-05 audit (`COMPILER_BUGS.md` contracts section).
+
+Scripting arena (`reference/scripting-arena/*.xi`, `xiom run` modes, release
+xiom, BENCH_INPUT from `data/probes/t6_ops.jsonl` / `t7_ops.jsonl`):
+
+| task | default | --jit --cache | --jit --no-cache | --cache | --no-cache |
+|---|---|---|---|---|---|
+| t6 | 3680/893 ms | 130/231 ms | 3004/2785 ms | 58/56 ms | 3383/3464 ms |
+| t7 | 19328 ms | 1943 ms | 15664 ms | 1417 ms | 16070 ms |
+
+Correctness: t6 output matches the Python reference for all 13 ops (11 pass +
+2 expected malformed fails; only JSON whitespace differs). t7 matches the
+Python reference's per-op classifications (http_get pass, 2 parse_json pass,
+2 malformed parse_json fail, 2 read_file fail, stress_requests/parse pass,
+shell_exec pass). "Slow JIT/AOT as before" reproduces: JIT cold ~2.8-3.0 s,
+AOT cold ~3.4 s, JIT warm ~0.13-0.23 s, cache warm ~56-58 ms (t6). The t3
+hot-reload 216-245 ms trampoline issue (item 7) is unchanged and still needs
+the Linux/containers lane to re-measure.
+
+### t8-safety-probe container run (owner paste, run_1791481954111, Linux/`/app`)
+
+- Safety Index **30/100** (12 probes; 3 runs; 0 flaky), sanitized same 30.
+  Probe outcomes: use-after-free and double-free = **SILENT_FAILURE**
+  (state_corrupted true, canary_intact false), buffer-overflow/stack-overflow/
+  use-of-uninit/buffer-overflow-write/integer-overflow = SILENT_UB, null-deref/
+  double-free = INCONCLUSIVE, type-confusion = SILENT_FAILURE. This is the
+  unsanitized-UB safety model (no runtime containment), not a compile failure;
+  it does show the probes exercise real memory corruption in the container.
+- Speed: 7 samples + warm-up, medians 198 / 153 / 163 ms (sigma 12.8-31.3 ms),
+  peak 2 MB.
+- Contracts verdict: **unproven -- 0 proven, 0 violated, 4 unknown, 0 errors**
+  (469-712 ms), i.e. the harness-visible FAIL. Root causes are two SORT GAPS
+  in the verifier's SMT translation, all three shapes from the reference:
+
+```
+fn cstr(s: Str) -> *UInt8
+  requires: s.len() > 0            -> X7007 Gt on non-numeric operands
+                                      (sorts None/Some("Int"))   [cstr]
+fn store_word(base: *mut UInt8, ...)
+  requires: base != null           -> X7007 equality with unresolved
+fn load_word(base: *mut UInt8, ...)   operand sort                 [store/load]
+```
+
+  `infer_sort` has no rule for (a) builtin `len`-family method calls (so
+  `s.len()` -> None) and (b) the `null` literal against an opaque pointer sort
+  (`*mut UInt8` maps to `|xiom_...|`, `null` maps to nothing). With every
+  axiom skipped, zero queries are emitted -- the same "no queries emitted"
+  class as t2-t5, and the reason t8's contract track fails. Note t1 PASSES
+  with unknowns (queries ARE emitted), so restoring real queries for these
+  shapes is the path to a passing t8 contract verdict.
+
+---
+
 ## 2026-10-08 -- RELAY SWEEP (v0.64.2, post m222..m229): lane re-test matrix
 
 Compiler dev binary at 35ed820e + m228/m229, checked against the four external

@@ -130,6 +130,59 @@
 >    fallback hard-fails. Repro tmp\sweep2\pulse12\{h3,main_h3}.xi; trace
 >    + fix direction in COMPILER_BUGS m230 (needs a focused pass -- the
 >    per-body isolation must not be half-broken).
+> 15. [EVENING SWEEP] XVC-C-08 OPEN: trailing scalar after a Vec-bearing
+>    field in a Vec[Struct] element reads uninitialized garbage (silent
+>    wrong results). Repro xv-trailing-field-vec/{probe,variants}.xi;
+>    probe exit 1, variants v5/v7/v10/v11/v12/v14 red, v14 Int flag (not
+>    Bool-specific), context-sensitive. Needs a fresh codegen bisect.
+> 16. [EVENING SWEEP] C-ORBIT-05 OPEN: nested Vec[Page] loop + push into
+>    another Vec[Page] aborts 0xC0000005 at n=418 (repro
+>    orbitdb/docs/repro/vec-push-nested/probe.xi; single ingredients
+>    green). No diagnostic -- bisect from the variant D marker.
+> 17. [EVENING SWEEP] stdlib M7 OPEN: `Iterator[T]` receiver type is
+>    declared nowhere; `use xiom.iter;` consumers print 5x unknown type
+>    warnings and fail codegen `C001 'Iterator.step_by'`. Repro
+>    stdlib/tools/known_failures/p_iter_iterator_type_unresolved.xi
+>    (--check passes; compile+run fails). Needs the Iterator[T] type
+>    declared (stdlib) or the receiver resolution fixed (compiler).
+> 18. [EVENING SWEEP] packages follow-ups: grpc catalog-dep rehearsal RED
+>    (6 T001 ambiguous exported fn) needs the grpc depot to bisect;
+>    `let _ = unsafe { call() };` invalid-IR shape needs the exact repro
+>    (minimal alloc shape compiles clean here); `unsafe fn` P001 is
+>    intentional (keep safe fn + unsafe body); the Unix toolchain
+>    installer must create the canonical `packages/` dir (installer lane,
+>    m232 covers the xiom-pkg side).
+> BENCH (evening run, release outputs): contracts t1 2 proven/10 unknown,
+>    t2-t5 `no queries emitted` because the REFERENCES declare ZERO
+>    clauses (t1 has 12+5+1; t8 3 requires/0 ensures) -- harness FAIL is a
+>    benchmark-reference gap, not a compiler defect; scripting t6 13/13
+>    ops match the Python reference and t7 matches per-op classifications;
+>    JIT cold ~2.8-3.0 s / AOT cold ~3.4 s / JIT warm ~0.13-0.23 s /
+>    cache warm ~56-58 ms (t6) -- "slow jit/aot as before" reproduces;
+>    t3 hot-reload needs the Linux lane (Windows reference is
+>    Linux-shaped: dlopen libc.so.6). Numbers + tables in COMPILER_BUGS
+>    (2026-10-08 EVENING LANE RE-SWEEP + BENCHMARK RUN).
+> BENCH (t8 container, owner paste run_1791481954111): Safety Index 30/100
+>    (SILENT_FAILURE uaf/double-free, canary hits -- unsanitized-UB model),
+>    speed medians 153-198 ms, peak 2 MB; CONTRACTS VERDICT UNPROVEN --
+>    0 proven/0 violated/4 unknown/0 errors with zero queries emitted.
+>    Two verifier sort gaps block every t8 axiom:
+>    (a) `s.len() > 0` -> X7007 Gt on non-numeric (sorts None/Some("Int"))
+>        -- `infer_sort` has no builtin len-family rule and `translate_call`
+>        hits "complex call target" (needs a declared uninterpreted
+>        `str.len`/`vec.len` per receiver sort, or leaf-suffix resolution
+>        into fn_sigs for Str.len);
+>    (b) `base != null` on `*mut UInt8` -> X7007 equality with unresolved
+>        operand sort -- pointers map to opaque `|xiom_...|` sorts and
+>        `null` has no sort; needs a per-sort null constant (lazy
+>        `(declare-const |null|<sort>)`) unified with the known operand.
+>    t1 passes WITH unknowns, so emitting real queries is the acceptance
+>    path; harness-visible `Exit code: -1` is the unproven/no-query class.
+> 19. Verifier sort inference (from item 18/t8): implement (a) and (b)
+>    above in crates/xiom-verify with locks -- expected flip of the t8
+>    contracts verdict from no-queries to emitted obligations; re-run
+>    `xiom-verify --check` on reference/systems-contracts-arena/t8 and the
+>    owner's arena task. Also re-measure t3 hot-reload on Linux after.
 >
 > RELAY QUEUE (post-v0.64.1 re-tests, 2026-10-08):
 > A. XVECTOR (E:\xiom-projects\xiom-xvector): v0.64.1 re-test -- C-01,
