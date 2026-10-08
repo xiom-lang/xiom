@@ -286,6 +286,114 @@ present), e2e `e2e_m210_vec_clone_struct_elem` + fixture
 
 ---
 
+## 2026-10-08 -- RELAY SWEEP (v0.64.2, post m222..m229): lane re-test matrix
+
+Compiler dev binary at 35ed820e + m228/m229, checked against the four external
+lanes' own repro bundles. Runner-up evidence lines below; lane docs keep the
+per-finding detail.
+
+| Lane / finding | Status | Evidence on this sweep |
+|---|---|---|
+| XVECTOR XVC-C-01..C-06 | FIXED (v0.64.1, re-confirmed) | lane Addendum 3; no new bundles |
+| XVECTOR XVC-C-07 | FIXED m222 | `xv-from-utf8-vec-ref/probe.xi` compile+run exit 0 |
+| ORBIT C-ORBIT-01..C-04 | FIXED m223..m226 | all four committed bundles green (C-01 bits=0; C-03 A=B=C=D=1; C-02 full V1..V10 matrix; C-04 twin-enum repro) |
+| PULSE C-PULSE-08/10/11 | CLOSED (lane v0.64.1) | lane sweep logdirs; C-11 swap retry is the lane acceptance |
+| PULSE C-PULSE-09 | FIXED m227 | two-module reduction pre-fix trap -> post-fix exit 0 |
+| PULSE C-PULSE-12 (alias shadowing) | NOT REPRODUCED in the minimal shape | module `pulse12.server` + consumer `use xiom.net.server; server.server_parse_request(&b)`: the alias resolves (no "cannot call ... on this expression"); the compile instead dies on m230 below. Faithful http.xi re-test routed to the lane |
+| PULSE C-PULSE-13 (home split) | OPEN (compiler-side, queue item 3) | `xiom pkg` home vs `paths::xiom_home()` |
+| BINDINGS B-01 enum-payload ND | **STILL OPEN, rate worsened on main** | repro `enum-payload-nd/pkg/`: bad-build rate main **7/12** vs release v0.64.1 **3/12** (`B=false`); root evidence: same source emits **two IR variants** (hash 4722EA.. 757,632 B vs 3D46A0.. 752,368 B); per-function diff localizes to exactly 3 fns -- `SqliteValue.as_int`, `SqliteValue.as_text`, `clone_sqlite_value` (SqliteValueKind payload handling: struct-value layout vs i64-field layout, tag constants 0 vs 1). Needs a dedicated deterministic-order bisect |
+| BINDINGS B-02/B-03 (const resolver recursion) | NOT RE-TESTED | pre-fix large catalogs gone; rebuild from descriptions if needed |
+| BINDINGS B-04 (child imports parent) | FIXED on this sweep (minimal shape) | module `p.child` `use p;` + unqualified `parent_fn()` -> exit 0 |
+| BINDINGS B-05 (alloc/free guard spin) | **STILL OPEN** | `alloc-guard-spin` watchdog kill at 8 s, 7.53 CPU-s burned, same spin |
+| BINDINGS B-06/B-09 | FIXED (v0.64.1, re-confirmed) | lane sweep |
+| BINDINGS B-07 (ffi alias shadowing) | FIXED on this sweep (minimal shape) | module `p.ffi` `use xiom.ffi;` + unqualified `safe_ptr_alloc(8)` -> exit 0 |
+| BINDINGS B-08 (`--run` exit masking) | FIXED m228 | `--run` now exits with the program's code (5 -> 5) |
+| PACKAGES `is Ok(<literal>)` | FIXED m229 | `pick(2) is Ok(1)` now false; tag AND payload compare |
+| PACKAGES Result equality of equal Ok(Vec) pairs | STILL OPEN | `res_eq` probe: two equal `Ok(Vec[UInt8].new())` pairs compare FALSE quietly |
+| PACKAGES io.xi:943 | clean (lane v0.64.1) | lane battery; no change on main retest |
+
+New in this sweep (not reported by any lane): **m230** below -- a user module
+importing `xiom.encoding` (directly or via `xiom.net.server`) hard-fails the
+compile with 3 latent catalog-body T001s. Pre-existing on v0.64.1.
+
+---
+
+## 2026-10-08 -- FIXED: `xiom --run` masked the program's exit code (m228, B-08)
+
+BINDINGS B-08: `xiom --run prog.xi` where `main` returned 5 printed
+`exit code: 5` on stderr but the xiom process exited 0, so suites trusting
+`$LASTEXITCODE` saw success.
+
+FIX: `compile()` records the child's exit code (cached-run path too) in a
+process-level atomic; the CLI's `compile_or_exit` consumes it
+(`xiom::take_last_run_exit_code`) and exits with the program's code when
+non-zero. Compile-only invocations return None and keep exiting 0; the
+`--jit` lane mirrors the rule (was `return` after printing).
+
+EVIDENCE: `main(){return 5}` -> `LASTEXITCODE=5` (was 0).
+
+LOCK: `m228_run_propagates_program_exit_code` in
+crates/xiom/tests/run_script_cli.rs + fixture
+(`tests/regression/m228_run_exit_code/`); the target already runs in ci.yml.
+
+---
+
+## 2026-10-08 -- FIXED: `is Ok(<literal>)` ignored the payload literal (m229, packages lane)
+
+PACKAGES v0.64.1 battery: "`is Ok(<literal>)` still ignores the literal
+payload (`pick(2) is Ok(1)` true)". The `Expr::Is` lowering compared only the
+discriminant and then optionally bound the payload; literal inner patterns
+(Int/Bool) were treated like bindings.
+
+FIX (codegen): `emit_is_payload_literal_cmp` emits the payload comparison for
+`Some(<lit>)`/`Ok(<lit>)`/`Err(<lit>)` (field 1; Err field 2) and the `is`
+result is `tag && payload == lit`. Bindings/wildcards/other literal kinds
+keep the historical tag-only behavior. Applied in both the registered-variant
+and the builtin Option/Result branches.
+
+EVIDENCE: probe `pick(2) is Ok(1)` pre-fix true (exit 1), post-fix false;
+`!(pick(1) is Ok(1))` and `Some`/None variants all correct (fixture exit 0).
+
+LOCKS: IR `regress_m229_is_payload_literal` (`and i1` present), e2e
+`e2e_m229_is_payload_literal` + fixture, CI line.
+
+---
+
+## 2026-10-08 -- OPEN: user-module import of xiom.encoding hard-fails on latent catalog-body T001s (m230)
+
+Found during the v0.64.2 relay sweep; **pre-existing** (the v0.64.1 release
+binary reproduces identically).
+
+Minimal repro: a non-main module that merely imports `xiom.encoding`:
+
+```
+// h3.xi
+module h3
+use xiom.encoding;
+pub fn p() -> Int { return 0; }
+// main.xi
+module main_h3
+use h3;
+fn main() -> Int { return h3.p(); }
+```
+
+-> `error[T001]: catalog body [xiom.encoding] 409:22: cannot call 'get' on
+this expression` (also 419:46, 466:22), `compilation failed`. Same through
+`use xiom.net.server;` (transitively pulls encoding). Importing
+`xiom.encoding` from the MAIN file passes -- the body is only hard-checked
+when reached through a user-module import. The three sites are
+`tmp.get(j).value` on a `Vec[UInt8]` inside `unsafe` blocks of
+`url_encode`/`url_decode`; the same source checks clean when encoding is
+flushed as a catalog body from main. Suspect: the late/on-demand catalog
+flush runs without the per-module isolated import context (or with
+`checking_catalog` false), so the latent T001s flip from warnings to errors.
+
+Repro kept at `E:\xiom-lang\xiom\tmp\sweep2\pulse12\{h3.xi,main_h3.xi}` (tmp;
+not tracked). Impact: any package/binding module importing `xiom.encoding`
+(or a module that pulls it) cannot be built.
+
+---
+
 ## 2026-10-08 -- FIXED: module-level Vec receivers called their len field (m227, C-PULSE-09)
 
 PULSE relay C-PULSE-09: the session-store bridge compiled on v0.64.1 but

@@ -7646,3 +7646,22 @@ fn main() -> Int { return f(); }
         "m227: the module-global Vec must be read through its struct layout; got:\n{ir}"
     );
 }
+
+// m229 (packages lane): `x is Ok(<literal>)` used to compare only the tag
+// (`pick(2) is Ok(1)` was true). The lowered expression must AND the tag
+// check with a payload comparison against the literal.
+#[test]
+fn regress_m229_is_payload_literal() {
+    let source = r#"
+fn pick(n: Int) -> Result[Int, Int] { return Ok(n); }
+fn main() -> Int {
+  if pick(2) is Ok(1) { return 1; }
+  return 0;
+}
+"#;
+    let ir = compile(source).expect("m229: is Ok(literal) must compile");
+    assert!(
+        ir.contains("and i1"),
+        "m229: `is Ok(1)` must AND the tag check with the payload literal comparison; got:\n{ir}"
+    );
+}

@@ -2311,6 +2311,13 @@ impl IrEmitter {
                                     self.bind_is_payload_xiom(expr, &pattern, id);
                                 }
                             }
+                            // m229: `is Ok(<literal>)` must also compare the
+                            // payload (registered-variant branch).
+                            let cmp = if let Some(pc) = self.emit_is_payload_literal_cmp(&pattern, &ty, &alloca) {
+                                let both = self.fresh_tmp();
+                                self.emitln(&format!("  {both} = and i1 {cmp}, {pc}"));
+                                both
+                            } else { cmp };
                             let ext = self.fresh_tmp();
                             self.emitln(&format!("  {ext} = zext i1 {cmp} to i64"));
                             return Ok((ext, LLVM_I64.to_string()));
@@ -2371,19 +2378,23 @@ impl IrEmitter {
                         }
                     };
                     bind_payload(self, &pattern, &alloca, &ty);
+                    let tag_cmp = self.fresh_tmp();
                     if variant_name == "Some" || variant_name == "Ok" {
-                        let cmp = self.fresh_tmp();
-                        self.emitln(&format!("  {cmp} = icmp ne i64 {loaded}, 0"));
-                        let ext = self.fresh_tmp();
-                        self.emitln(&format!("  {ext} = zext i1 {cmp} to i64"));
-                        return Ok((ext, LLVM_I64.to_string()));
+                        self.emitln(&format!("  {tag_cmp} = icmp ne i64 {loaded}, 0"));
                     } else {
-                        let cmp = self.fresh_tmp();
-                        self.emitln(&format!("  {cmp} = icmp eq i64 {loaded}, 0"));
-                        let ext = self.fresh_tmp();
-                        self.emitln(&format!("  {ext} = zext i1 {cmp} to i64"));
-                        return Ok((ext, LLVM_I64.to_string()));
+                        self.emitln(&format!("  {tag_cmp} = icmp eq i64 {loaded}, 0"));
                     }
+                    // m229: `is Ok(<literal>)` must also compare the payload.
+                    let final_cmp = if let Some(pc) = self.emit_is_payload_literal_cmp(&pattern, &ty, &alloca) {
+                        let both = self.fresh_tmp();
+                        self.emitln(&format!("  {both} = and i1 {tag_cmp}, {pc}"));
+                        both
+                    } else {
+                        tag_cmp
+                    };
+                    let ext = self.fresh_tmp();
+                    self.emitln(&format!("  {ext} = zext i1 {final_cmp} to i64"));
+                    return Ok((ext, LLVM_I64.to_string()));
                 }
                 // M18: Handle `is` on i64 values (nested is-expressions, match-bound payloads).
                 // When `inner` was bound from `x is Some(inner)`, it's stored as i64.
@@ -5856,6 +5867,32 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
             }
             self.local.local_xiom_types.insert(id.name.clone(), pt);
         }
+    }
+
+    /// m229 (packages lane): `x is Ok(<literal>)` must compare the PAYLOAD,
+    /// not just the tag -- `pick(2) is Ok(1)` used to be true. Emits the
+    /// payload comparison for Int/Bool literal patterns in Option/Result
+    /// payload slots (field 1 for Some/Ok, field 2 for Err) and returns the
+    /// i1 register; None for bindings/wildcards/unsupported literal kinds
+    /// (those keep the historical tag-only behavior).
+    fn emit_is_payload_literal_cmp(&mut self, pattern: &xiom_ast::Pattern, ty: &str, alloca: &str) -> Option<String> {
+        let (inner, idx) = match pattern {
+            xiom_ast::Pattern::Some(p, _) | xiom_ast::Pattern::Ok(p, _) => (p.as_ref(), 1usize),
+            xiom_ast::Pattern::Err(p, _) => (p.as_ref(), 2usize),
+            _ => return None,
+        };
+        let lit: i64 = match inner {
+            xiom_ast::Pattern::Lit(xiom_ast::Literal::Int(n, _)) => *n as i64,
+            xiom_ast::Pattern::Lit(xiom_ast::Literal::Bool(b, _)) => *b as i64,
+            _ => return None,
+        };
+        let gep = self.fresh_tmp();
+        self.emitln(&format!("  {gep} = getelementptr {ty}, {ty}* {alloca}, i32 0, i32 {idx}"));
+        let loaded = self.fresh_tmp();
+        self.emitln(&format!("  {loaded} = load i64, i64* {gep}"));
+        let cmp = self.fresh_tmp();
+        self.emitln(&format!("  {cmp} = icmp eq i64 {loaded}, {lit}"));
+        Some(cmp)
     }
 
     /// R18: convert a raw i64 payload slot to the LLVM representation of its

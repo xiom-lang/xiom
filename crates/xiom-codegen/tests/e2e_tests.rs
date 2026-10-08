@@ -6065,6 +6065,16 @@ fn e2e_safety_probe() {
     );
 }
 
+// m229 (packages lane): `is Ok(<literal>)` must compare the payload literal,
+// not just the tag.
+#[test] fn e2e_m229_is_payload_literal() {
+    assert_eq!(
+        compile_and_run("tests/regression/m229_is_payload_literal/main.xi"),
+        Some(0),
+        "is-patterns with literal payloads must compare the payload (m229)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

@@ -35,6 +35,25 @@ pub enum Target {
     RisCv,
 }
 
+/// m228 (B-08, bindings-lane tooling): the exit code of the child binary that
+/// `--run` executed, surfaced to the CLI so `xiom --run prog.xi` mirrors the
+/// program's status instead of always exiting 0. `i64::MIN` means "no run
+/// happened in this process".
+static LAST_RUN_EXIT: std::sync::atomic::AtomicI64 =
+    std::sync::atomic::AtomicI64::new(i64::MIN);
+
+/// m228: consume the exit code of the most recent `--run` child, if any.
+/// Returns None for compile-only invocations (or after a previous take()).
+pub fn take_last_run_exit_code() -> Option<i32> {
+    let v = LAST_RUN_EXIT.swap(i64::MIN, std::sync::atomic::Ordering::SeqCst);
+    if v == i64::MIN { None } else { Some(v as i32) }
+}
+
+/// m228: record a `--run` child's exit code for `take_last_run_exit_code`.
+fn record_last_run_exit_code(code: i32) {
+    LAST_RUN_EXIT.store(code as i64, std::sync::atomic::Ordering::SeqCst);
+}
+
 pub struct CompileConfig {
     pub target: Target,
     pub emit_ir: bool,
@@ -771,7 +790,9 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 let run_status = Command::new(&cached).status();
                 match run_status {
                     Ok(s) => {
-                        eprintln!("  cached run exit code: {}", s.code().unwrap_or(-1));
+                        let code = s.code().unwrap_or(-1);
+                        eprintln!("  cached run exit code: {}", code);
+                        record_last_run_exit_code(code);
                         return Ok(());
                     }
                     Err(_) => { /* stale cache entry or binary removed -- proceed */ }
@@ -1676,7 +1697,11 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                         };
                         let run_status = Command::new(&exe).status();
                         match run_status {
-                            Ok(s) => eprintln!("  exit code: {}", s.code().unwrap_or(-1)),
+                            Ok(s) => {
+                                let code = s.code().unwrap_or(-1);
+                                eprintln!("  exit code: {}", code);
+                                record_last_run_exit_code(code);
+                            }
                             Err(e) => {
                                 // AUDIT #12 FIX: this was process::exit(1)
                                 // inside LIBRARY code -- it killed embedders

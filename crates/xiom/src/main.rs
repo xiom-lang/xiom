@@ -37,6 +37,14 @@ fn compile_or_exit(config: &CompileConfig, sources: &[String]) {
         }
         process::exit(1);
     }
+    // m228 (B-08): `--run` must mirror the program's exit code. The child's
+    // status is recorded by compile(); consume it here (None for compile-only
+    // invocations, so plain builds keep exiting 0).
+    if let Some(code) = xiom::take_last_run_exit_code() {
+        if code != 0 {
+            process::exit(code);
+        }
+    }
 }
 
 /// M10: Watch mode for `xiom run --watch <file>`.
@@ -1692,7 +1700,12 @@ fn real_main() {
         // build; miss -> fall through and AOT-compile+cache below.)
         if use_jit && !jit_reuse {
             match xiom::jit::jit_execute(&source) {
-                Ok(code) => { eprintln!("  JIT exit code: {code}"); return; }
+                Ok(code) => {
+                    eprintln!("  JIT exit code: {code}");
+                    // m228 (B-08): same mirror rule for the JIT lane.
+                    if code != 0 { process::exit(code); }
+                    return;
+                }
                 Err(e) => { eprintln!("  JIT error: {e}"); process::exit(1); }
             }
         }

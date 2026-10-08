@@ -67,7 +67,10 @@
 >    open XVC finding; repro in relay block A). [DONE m223..m226] ORBIT
 >    C-01..C-04 all fixed -- see the lane block below. [DONE m227]
 >    C-PULSE-09 wrapper reduction (module-level Vec `.len()` mislowering).
->    NEXT: WORK QUEUE items 2-11.
+>    [DONE m228] BINDINGS B-08 `--run` exit masking. [DONE m229] PACKAGES
+>    `is Ok(<literal>)`. [SWEEP] v0.64.2 relay sweep across PULSE/ORBITDB/
+>    XVECTOR/PACKAGES/BINDINGS -- matrix in COMPILER_BUGS (same date);
+>    new top item 12 below.
 > 2. Residual hard-error guard (from m216): the final fallback + ~13
 >    direct xiom_to_llvm_type sites swallow errors into i64; needs the
 >    error-propagation pass before the warning can become a hard error.
@@ -101,6 +104,28 @@
 >    new pin (decision relayed; package.xi bump + notes fragment at the
 >    tag). Once the tag exists, move STDLIB_VERSION to it and keep
 >    release-notes/v0.64.2.md at that commit for the notes merge.
+> 12. [TOP NEW] B-01 enum-payload nondeterminism: same source emits TWO IR
+>    variants across runs (757,632 B vs 752,368 B); diff localizes to 3 fns
+>    -- `SqliteValue.as_int`, `SqliteValue.as_text`,
+>    `clone_sqlite_value` (SqliteValueKind: struct-value layout vs
+>    i64-field layout; tag constants 0 vs 1). Bad-build rate main 7/12 vs
+>    release v0.64.1 3/12. Repro: E:\xiom-packages\packages\docs\repro\
+>    bindings-pilot\enum-payload-nd\pkg (`xiom --run tests\probe.xi
+>    --c-source <repo>\packages\xiom-sqlite\vendor\sqlite3.c`). Next: make
+>    every variant-parent/type-pick site deterministic (sort candidates),
+>    then bisect the 3 fns; silent wrong results -- highest priority.
+> 13. B-05 alloc/free guard spin (bindings): `xiom.ffi.alloc` in a confined
+>    block + `xiom.ffi.free` spins the guard heap (watchdog 8 s / 7.53
+>    CPU-s, flat 4.5 MB). Repro docs\repro\bindings-pilot\alloc-guard-spin
+>    (watchdog required). Fix direction: guard-aware free or refuse libc
+>    free of guard pointers.
+> 14. m230 OPEN (found in the sweep, pre-existing on v0.64.1): a non-main
+>    module importing `xiom.encoding` (or `xiom.net.server`, which pulls
+>    it) hard-fails with 3 catalog-body T001s at encoding.xi 409/419/466
+>    (`tmp.get(j)`); same import from MAIN passes. Repro
+>    tmp\sweep2\pulse12\{h3.xi,main_h3.xi}. Suspect the late catalog flush
+>    lacks the isolated import context / checking_catalog. Blocks any
+>    package module importing encoding.
 >
 > RELAY QUEUE (post-v0.64.1 re-tests, 2026-10-08):
 > A. XVECTOR (E:\xiom-projects\xiom-xvector): v0.64.1 re-test -- C-01,
@@ -119,12 +144,17 @@
 >    (enum variant module scope). All committed repro bundles green; the
 >    lane re-tests with the C-ORBIT-04 qualification workaround reverted.
 >    Lane regression was clean 104/104 pre-fix.
-> C. BINDINGS lane (branch bindings): v0.64.1 sweep -- B-06 (up/down
->    full-catalog crash) and B-09 (Win32/WGL 0xC0000409) FIXED. OPEN:
->    B-01 enum-payload nondeterminism (same 2/6), B-05 alloc/free guard
->    spin (same hang), B-08 `--run` exit masking (main returns 5 -> 0).
->    B-02/B-03/B-04/B-07 not re-tested (pre-fix catalogs gone; rebuild-
->    able). Workarounds stay.
+> C. BINDINGS lane (E:\xiom-packages\packages): v0.64.2 sweep -- B-06
+>    (up/down full-catalog crash) and B-09 (Win32/WGL 0xC0000409) FIXED
+>    (v0.64.1). RE-TESTED THIS SWEEP: B-04 (child imports parent) and B-07
+>    (module `p.ffi` importing `xiom.ffi`) GREEN in the minimal shapes;
+>    B-08 FIXED m228 (`--run` now exits with the program's code).
+>    OPEN: B-01 enum-payload nondeterminism -- rate WORSENED on main
+>    (7/12 bad builds vs 3/12 on release v0.64.1) and root evidence
+>    captured (two IR variants; 3 fns diverge) -- now WORK QUEUE item 12;
+>    B-05 alloc/free guard spin unchanged (item 13); B-02/B-03 (const
+>    resolver recursion) not re-tested (rebuildable from descriptions).
+>    Workarounds stay until the lanes re-test on the v0.64.2 archive.
 > D. PULSE (E:\xiom-projects\xiom-pulse): v0.64.1 sweep -- C-PULSE-08
 >    CLOSED (dep-roots dash+dot exit 0, no source-roots workaround);
 >    C-PULSE-10 CLOSED; C-PULSE-11 fixed (swap retry is its acceptance).
@@ -135,13 +165,22 @@
 >    (inttoptr -> call -> 0xC000001D here, 0xC0000005 per PULSE). Both
 >    layers fixed (module_globals typing + fn-typed-field guard); the
 >    lane re-runs probe_adopt_smoke with the session-store swap.
-> E. REGISTRY/PACKAGES: v0.64.1 accepted (flows 20/20, kv gate green).
->    COMPILER-LANE FIX (v0.64.2): home split -- xiom-pkg installs to
->    ~/xiom/packages while paths::xiom_home() picks ~/.local/share/xiom;
->    unify installer home resolution with paths::xiom_home(). PULSE also
->    reports: v0.64.1 enforces extern-unsafe confinement in catalog
->    bodies and published xiom.http 0.1.1 violates it (67 T001s) ->
->    decide gate-for-published-packages vs republish + breaking note.
+> E. REGISTRY/PACKAGES (E:\xiom-packages\packages): v0.64.1 accepted (flows
+>    20/20, kv gate green). v0.64.2 sweep: `is Ok(<literal>)` FIXED m229
+>    (`pick(2) is Ok(1)` now false); Result equality of equal `Ok(Vec)`
+>    pairs STILL OPEN (compares FALSE quietly; probe tmp\sweep2\pkg\
+>    res_eq.xi); C-PULSE-10 kv_get Linux Open row on the packages side but
+>    CLOSED by PULSE on v0.64.1 (cross-lane reconciliation on the next
+>    archive). COMPILER-LANE FIX (queue): home split -- xiom-pkg installs
+>    to ~/xiom/packages while paths::xiom_home() picks ~/.local/share/xiom;
+>    unify installer home resolution. PULSE also reports: v0.64.1 enforces
+>    extern-unsafe confinement in catalog bodies and published xiom.http
+>    0.1.1 violates it (67 T001s) -> decide gate-for-published-packages vs
+>    republish + breaking note.
+> H. SWEEP NEW (m230, pre-existing): user-module import of xiom.encoding
+>    hard-fails 3 catalog-body T001s; blocks any package module importing
+>    encoding or xiom.net.server. Repro + analysis in COMPILER_BUGS m230;
+>    work queue item 14.
 > F. BENCHMARK: perf budget recalibration is compiler-side (not a lane
 >    gate): v0.64.0 archive 96,802 / v0.64.1 archive 97,030 IR bytes vs
 >    the 95,000 budget -- drift predates v0.64.0; recalibrate to ~100,000
@@ -176,7 +215,8 @@
 > at E:\tmp_benchmark_results.
 >
 > KEY DOCS: docs/COMPILER_BUGS.md (relay bundles + FIXED sections
-> m199..m227, TRIAGE/RE-TEST notes near the top of the dated entries),
+> m199..m229 + the 2026-10-08 RELAY SWEEP matrix and the m230 OPEN entry,
+> TRIAGE/RE-TEST notes near the top of the dated entries),
 > docs/STAGE6_PERF_PLAN.md item 1, SESSION.md lane blocks below (PERF,
 > m208..m221 notes, verifier design), release-notes/TEMPLATE.md +
 > v0.64.1.md (the shipped reference), .github/workflows/release.yml
@@ -229,7 +269,25 @@
 > 542/542; targeted e2e 1/1; full e2e 2448/0/4 (final tree, single run,
 > no XIOM_STDLIB override -- the override makes the compiler scan two
 > stdlib copies and m17_zero_warnings goes red on spurious W001). NEXT:
-> remaining WORK QUEUE items 2-11.
+> WORK QUEUE items 2-14 (item 12 = B-01 is the top priority).
+>
+> COMPILER LANE (2026-10-08, v0.64.2 relay sweep + m228/m229): swept
+> PULSE, ORBITDB, XVECTOR, NATIVE PACKAGES and BINDINGS lane bundles
+> against the dev binary (matrix + evidence in docs/COMPILER_BUGS.md,
+> same date). Fixed: m228 B-08 `--run` exit masking (exit code now
+> mirrors the program; lock in run_script_cli); m229 packages
+> `is Ok(<literal>)` now ANDs the payload literal comparison (IR + e2e
+> locks). Re-tested green in minimal shapes: B-04 child-imports-parent,
+> B-07 ffi alias shadowing; C-PULSE-12 alias shadowing did NOT reproduce
+> (the minimal module `pulse12.server` + `use xiom.net.server` consumer
+> resolves the alias; the compile instead hits the new m230). Still open
+> with fresh evidence: B-01 enum-payload nondeterminism (two IR variants
+> per build; 3 fns diverge: SqliteValue.as_int/as_text/
+> clone_sqlite_value; bad-build rate 7/12 main vs 3/12 release) -> queue
+> item 12; B-05 alloc/free guard spin (8 s watchdog / 7.53 CPU-s) ->
+> item 13; packages Result-equality `Ok(Vec)` compares false quietly;
+> m230 encoding-import hard-fail -> item 14. XVECTOR and ORBITDB
+> findings all green on their committed bundles.
 
 ---
 

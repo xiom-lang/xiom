@@ -309,3 +309,32 @@ fn m204_module_ginit_emits_cross_module_callee() {
         );
     }
 }
+
+// m228 (B-08, bindings-lane): `xiom --run` must mirror the program's exit
+// code. The defect printed `exit code: 5` on stderr but the xiom process
+// exited 0, so suites that trusted $LASTEXITCODE saw success.
+#[test]
+fn m228_run_propagates_program_exit_code() {
+    let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("tests")
+        .join("regression")
+        .join("m228_run_exit_code")
+        .join("main.xi");
+    let out_exe = std::env::temp_dir().join(format!("m228_{}.exe", std::process::id()));
+    let out = Command::new(xiom_bin())
+        .arg("--run")
+        .arg("-o")
+        .arg(&out_exe)
+        .arg(&fixture)
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn '{}': {e}", xiom_bin()));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let _ = std::fs::remove_file(&out_exe);
+    assert_eq!(
+        out.status.code(),
+        Some(5),
+        "xiom --run must exit with the program's code (B-08); stderr:\n{stderr}"
+    );
+}
