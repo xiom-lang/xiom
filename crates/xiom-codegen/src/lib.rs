@@ -5298,7 +5298,165 @@ impl IrEmitter {
         // emitted above reference these ids; LLVM resolves forward refs).
         self.flush_debug_locations();
 
-        Ok(self.output.clone())
+        Ok(Self::hoist_static_allocas(&self.output))
+    }
+
+    /// m235 (C-ORBIT-05): move every STATIC `alloca` instruction to its
+    /// function's entry block. LLVM executes an `alloca` every time control
+    /// reaches it and frees the memory only at function return, so temp
+    /// allocas emitted INSIDE a long-running loop leak stack every iteration.
+    /// The ORBITDB repro (nested `Vec[Page]` loops with struct-element reads)
+    /// died with 0xC0000005 after ~86.7k iterations = ~16.6 MB of leaked
+    /// 48-byte temps; a one-read shape crashed at the same BYTE total with
+    /// twice the iterations. Entry-block insertion preserves dominance because
+    /// static allocas have no operands; DYNAMIC allocas (`alloca T, i64 %n`)
+    /// stay in place -- their size expression may not dominate the entry.
+    /// Existing per-site `finish_hoisted_allocas` users are unaffected (an
+    /// entry alloca moved to the entry top is still an entry alloca).
+    fn hoist_static_allocas(text: &str) -> String {
+        let mut out = String::with_capacity(text.len() + 1024);
+        let mut lines = text.lines().peekable();
+        while let Some(line) = lines.next() {
+            let t = line.trim_start();
+            if t.starts_with("define ") && line.contains('{') {
+                let mut body: Vec<&str> = Vec::new();
+                for body_line in lines.by_ref() {
+                    if body_line == "}" {
+                        break;
+                    }
+                    body.push(body_line);
+                }
+                // Only allocas in CYCLIC blocks (loop bodies) leak stack per
+                // execution; acyclic allocas run at most once per call and
+                // stay in place (moving them changed uninitialized-slot
+                // semantics and trapped the m65 fixture: confined faults in
+                // later blocks fire llvm.trap).
+                let cyclic = Self::cyclic_labels(&body);
+                let mut hoisted: Vec<&str> = Vec::new();
+                let mut kept: Vec<&str> = Vec::new();
+                let mut cur_label = String::from("entry");
+                for b in &body {
+                    let bt = b.trim();
+                    if Self::is_label_line(bt) {
+                        cur_label = bt.trim_end_matches(':').to_string();
+                        kept.push(*b);
+                        continue;
+                    }
+                    if Self::is_static_alloca(b) && cyclic.contains(&cur_label) {
+                        hoisted.push(*b);
+                    } else {
+                        kept.push(*b);
+                    }
+                }
+                // Insert right AFTER the entry label when the body STARTS
+                // with one (the labeled entry dominates everything). When the
+                // body has no leading label, insert at position 0 (implicit
+                // entry block -- its termination is unchanged from the
+                // original body). A label found MID-body must NOT be used as
+                // the insertion point: allocas moved past earlier uses break
+                // dominance ("Instruction does not dominate all uses").
+                let first_code = kept.iter().position(|b| {
+                    let t = b.trim();
+                    !t.is_empty() && !t.starts_with(';')
+                });
+                let insert_at = match first_code {
+                    Some(i) if Self::is_label_line(kept[i].trim()) => i + 1,
+                    _ => 0,
+                };
+
+                out.push_str(line);
+                out.push('\n');
+                for (i, b) in kept.iter().enumerate() {
+                    if i == insert_at {
+                        for h in &hoisted {
+                            out.push_str(h);
+                            out.push('\n');
+                        }
+                    }
+                    out.push_str(b);
+                    out.push('\n');
+                }
+                if insert_at >= kept.len() {
+                    for h in &hoisted {
+                        out.push_str(h);
+                        out.push('\n');
+                    }
+                }
+                out.push_str("}\n");
+                continue;
+            }
+            out.push_str(line);
+            out.push('\n');
+        }
+        out
+    }
+
+    /// Labels that are part of at least one CFG cycle (loop headers/bodies),
+    /// computed textually from a function body. Blocks before the first label
+    /// are the implicit `entry` block.
+    fn cyclic_labels(body: &[&str]) -> std::collections::HashSet<String> {
+        use std::collections::{HashMap, HashSet};
+        let mut order: Vec<String> = Vec::new();
+        let mut edges: HashMap<String, Vec<String>> = HashMap::new();
+        let mut cur = "entry".to_string();
+        order.push(cur.clone());
+        edges.entry(cur.clone()).or_default();
+        for line in body {
+            let t = line.trim();
+            if Self::is_label_line(t) {
+                cur = t.trim_end_matches(':').to_string();
+                if !edges.contains_key(&cur) {
+                    order.push(cur.clone());
+                    edges.entry(cur.clone()).or_default();
+                }
+                continue;
+            }
+            if t.contains(" label %") {
+                for (i, part) in t.split("label %").enumerate() {
+                    if i == 0 {
+                        continue;
+                    }
+                    let target: String = part
+                        .chars()
+                        .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '.')
+                        .collect();
+                    if !target.is_empty() {
+                        edges.entry(cur.clone()).or_default().push(target);
+                    }
+                }
+            }
+        }
+        let mut cyclic = HashSet::new();
+        for n in &order {
+            let mut stack: Vec<String> = edges.get(n).cloned().unwrap_or_default();
+            let mut seen = HashSet::new();
+            while let Some(x) = stack.pop() {
+                if &x == n {
+                    cyclic.insert(n.clone());
+                    break;
+                }
+                if !seen.insert(x.clone()) {
+                    continue;
+                }
+                if let Some(next) = edges.get(&x) {
+                    stack.extend(next.iter().cloned());
+                }
+            }
+        }
+        cyclic
+    }
+
+    /// `%t = alloca T, align N` (or with a CONSTANT i64 count) is hoistable;
+    /// a dynamic count (`i64 %reg`) is not.
+    fn is_static_alloca(line: &str) -> bool {
+        let t = line.trim();
+        t.contains(" = alloca ") && !t.contains(", i64 %")
+    }
+
+    /// A bare LLVM label line (`entry0:`, `while_cond5:`).
+    fn is_label_line(line: &str) -> bool {
+        let t = line.trim();
+        t.ends_with(':') && !t.contains(' ') && !t.starts_with(';')
     }
 
     // ========================================================================

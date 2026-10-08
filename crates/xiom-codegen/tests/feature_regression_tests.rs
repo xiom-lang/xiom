@@ -7757,3 +7757,56 @@ fn main() -> Int {
         "m234: the naive 52-byte stride must never be used; got:\n{ir}"
     );
 }
+
+// m235 (C-ORBIT-05): static allocas must be hoisted to the entry block. A
+// static alloca emitted after the SECOND label of a function sits inside a
+// loop/conditional block and leaks stack per execution (the nested Vec[Page]
+// repro died at ~16.6 MB of leaked 48-byte temps). Allocas directly after the
+// FIRST label are the hoisted set and are expected.
+#[test]
+fn regress_m235_loop_alloca_hoist() {
+    let source = r#"
+type Page = { id: Int; data: Vec[Int]; checksum: Int; }
+fn main() -> Int {
+  var all = Vec[Page].new();
+  var i = 0;
+  while i < 64 {
+    var d = Vec[Int].new();
+    d.push(i);
+    all.push(Page{ id: i, data: d, checksum: 0 });
+    i = i + 1;
+  }
+  var out2 = Vec[Page].new();
+  var k3 = 0;
+  while k3 < all.len() {
+    var j3 = k3 + 1;
+    while j3 < all.len() {
+      if all[j3].id == all[k3].id { j3 = j3 + 1; }
+      j3 = j3 + 1;
+    }
+    out2.push(all[0]);
+    k3 = k3 + 1;
+  }
+  return out2.len();
+}
+"#;
+    let ir = compile(source).expect("m235: loop alloca hoist must compile");
+    // No static alloca may remain inside a loop block (`while_*`): those
+    // execute per iteration and leak stack. Acyclic allocas stay in place
+    // (moving them changed uninitialized-slot semantics in the field).
+    let mut cur_label = String::new();
+    for line in ir.lines() {
+        let t = line.trim();
+        let is_label = t.ends_with(':') && !t.contains(' ') && !t.starts_with(';');
+        if is_label {
+            cur_label = t.trim_end_matches(':').to_string();
+            continue;
+        }
+        if cur_label.starts_with("while_cond") || cur_label.starts_with("while_body") {
+            assert!(
+                !t.contains(" = alloca "),
+                "m235: static alloca inside loop block {cur_label}: {t}"
+            );
+        }
+    }
+}

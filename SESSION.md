@@ -136,10 +136,14 @@
 >    minimal V5 exit 2 -> 0, IR stride 56; XVECTOR bundle probe +
 >    variants all green. Locks: regress_m234 (IR) + e2e_m234 + fixture +
 >    CI. Gates: feature 545/545; full e2e 2451/0/4.
-> 16. [EVENING SWEEP] C-ORBIT-05 OPEN: nested Vec[Page] loop + push into
->    another Vec[Page] aborts 0xC0000005 at n=418 (repro
->    orbitdb/docs/repro/vec-push-nested/probe.xi; single ingredients
->    green). No diagnostic -- bisect from the variant D marker.
+> 16. [DONE m235] C-ORBIT-05 fixed: the crash scales with struct-element
+>    reads (~173k reads = ~16.6 MB of loop-body alloca temps); LLVM leaks
+>    stack per alloca execution in loops. `compile_program` now hoists
+>    static allocas from CYCLIC blocks only (acyclic hoisting regressed
+>    m65 via confined-fault traps). Minimal repro exit 0xC0000005 ->
+>    `D ok out=417`; bundle A/B/C/D all `ok out=418`. Locks: regress_m235
+>    (IR) + e2e_m235 + fixture + CI. Gates: feature 546/546; full e2e
+>    2452/0/4; driver suites green.
 > 17. [EVENING SWEEP] stdlib M7 OPEN: `Iterator[T]` receiver type is
 >    declared nowhere; `use xiom.iter;` consumers print 5x unknown type
 >    warnings and fail codegen `C001 'Iterator.step_by'`. Repro
@@ -284,7 +288,7 @@
 > at E:\tmp_benchmark_results.
 >
 > KEY DOCS: docs/COMPILER_BUGS.md (relay bundles + FIXED sections
-> m199..m234 + the 2026-10-08 RELAY SWEEP matrix and the m230 OPEN entry,
+> m199..m235 + the 2026-10-08 RELAY SWEEP matrix and the m230 OPEN entry,
 > TRIAGE/RE-TEST notes near the top of the dated entries),
 > docs/STAGE6_PERF_PLAN.md item 1, SESSION.md lane blocks below (PERF,
 > m208..m221 notes, verifier design), release-notes/TEMPLATE.md +

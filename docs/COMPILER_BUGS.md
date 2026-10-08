@@ -286,6 +286,51 @@ present), e2e `e2e_m210_vec_clone_struct_elem` + fixture
 
 ---
 
+## 2026-10-08 -- FIXED: loop-body static allocas leaked stack (m235, C-ORBIT-05)
+
+ORBITDB C-ORBIT-05: a nested loop over `Vec[Page]` (struct with Vec fields)
+that reads elements and pushes into another `Vec[Page]` aborted with
+0xC0000005 at n=418, no diagnostic; the committed bundle probe died before
+printing ("D ok" never appeared).
+
+DIAGNOSIS (windows x64): the crash point scales with the NUMBER OF
+STRUCT-ELEMENT READS: n=417 crashed during outer iteration k3=408 (~86.7k
+inner iterations = ~173k reads), n=418 at k3=388, n=600 at k3=168 -- all at
+~173k element reads. A one-read-per-iteration variant crashed at ~173k
+iterations (half the bytes per iteration, double the iterations): both shapes
+cross ~16.6 MB of temporary ALLOCA bytes. The inner-loop IR is call-free but
+contains `alloca %struct.Page` temporaries (4 x 48 B per iteration): LLVM
+executes an `alloca` every time control reaches it and frees the memory only
+at function return, so statically-sized temps emitted inside a loop leak
+stack per iteration until the 16 MB stack reserve is exhausted -> AV/trap.
+(`Vec[Int]` reads do not crash: 8-byte temps are promoted by clang;
+`Vec[Page]`'s aggregate temps are not.)
+
+FIX (m235): `compile_program` now runs `hoist_static_allocas`, a module
+post-pass that moves **static allocas inside CYCLIC blocks** (loop bodies,
+identified by a textual CFG cycle analysis per function; `alloca T, i64 %n`
+dynamic allocas stay) to the function's entry block. A first cut hoisted ALL
+static allocas and regressed `m65_vec_option_struct_str` (acyclic slots
+changed uninitialized-slot semantics; a confined fault then turned into
+`llvm.trap`, exit 0xC000001D) -- hence the cyclic-only scope, which fixes the
+leak class without touching acyclic code.
+
+EVIDENCE: minimal repro (`tmp/bench/orbit05_min.xi`, `Page{id,data:Vec[Int],
+checksum}`, nested read+push) pre-fix exit 0xC0000005 -> post-fix
+`D ok out=417`; n=600 also green. ORBITDB bundle probe now prints
+`A ok out=418 / B ok out=418 / C ok out=418 / D ok out=418`, exit 0.
+XVECTOR probe unaffected ("hydration-guard: green").
+
+LOCKS: IR `regress_m235_loop_alloca_hoist` (no static alloca in any
+`while_cond*`/`while_body*` block; acyclic blocks untouched), e2e
+`e2e_m235_loop_alloca_hoist` + fixture
+(`tests/regression/m235_loop_alloca_hoist/`, n=417), CI line.
+
+GATES: feature 546/546; full e2e 2452/0/4; driver suites
+61/6/2/29/5/15/4/7/34.
+
+---
+
 ## 2026-10-08 -- FIXED: Vec element strides ignored field alignment padding (m234, XVC-C-08)
 
 XVECTOR XVC-C-08: in a `Vec[Struct]` whose element carries a trailing scalar
@@ -391,7 +436,7 @@ reproduction evidence below; benchmark numbers in the second half.
 | Finding | Status | Evidence on this tree |
 |---|---|---|
 | **XVC-C-08** trailing scalar after a Vec-bearing field reads uninitialized garbage (`Vec[Struct]` element) | **FIXED m234** | root cause: `vec_elem_storage_size` summed fields without LLVM alignment padding (Elem5 sized 52 vs real 56; Float32 leaves 4 bytes of pad before the 8-aligned Vec field) so element 1 used a 52-byte stride. Minimal V5 pre-fix exit 2 -> post-fix exit 0; XVECTOR bundle probe "hydration-guard: green", variants "all green" |
-| **C-ORBIT-05** nested `Vec[Page]` loop + push into another `Vec[Page]` aborts | **OPEN** | `docs/repro/vec-push-nested/probe.xi` -> exit `0xC0000005` (access violation), no diagnostic; variant D at n=418; controls green |
+| **C-ORBIT-05** nested `Vec[Page]` loop + push into another `Vec[Page]` aborts | **FIXED m235** | root cause: static `alloca` temps emitted inside the loop leaked stack per iteration (~16.6 MB of 48-byte temps -> 0xC0000005 at ~173k element reads). Cyclic-block alloca hoist in `compile_program`; minimal repro pre-fix exit 0xC0000005 -> `D ok out=417`; bundle probe A/B/C/D all `ok out=418` |
 | **stdlib M7** `Iterator[T]` receiver type unresolved | **OPEN** | `tools/known_failures/p_iter_iterator_type_unresolved.xi`: `--check` PASSES but compile prints 5x `unknown type 'Iterator' -- defaulting to i64` and fails `error[C001]: unresolved function symbol(s) ... 'Iterator.step_by'` |
 | **packages** `unsafe fn` hard P001 | CONFIRMED | `unsafe fn f()` -> `error[P001]: 2:8: unsafe applies only to block expressions`; keep fn safe + `unsafe { }` body |
 | **packages** `let _ = unsafe { call() };` invalid IR (pointer/Str/struct returns) | LANE-REPORTED, not reproduced minimally | their exact shape: `trunc i64 -> i32` then `ret i8*` in project builds; a minimal `let _ = unsafe { alloc(8) };` compiles clean on this tree -- exact repro wanted |

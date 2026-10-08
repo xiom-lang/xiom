@@ -6098,6 +6098,18 @@ fn e2e_safety_probe() {
     );
 }
 
+// m235 (C-ORBIT-05): static allocas emitted inside a long loop leaked stack
+// (alloca executes per reach; freed only at return): nested Vec[Page] reads +
+// push died with 0xC0000005 after ~86.7k iterations. Static allocas are now
+// hoisted to the entry block.
+#[test] fn e2e_m235_loop_alloca_hoist() {
+    assert_eq!(
+        compile_and_run("tests/regression/m235_loop_alloca_hoist/main.xi"),
+        Some(0),
+        "loop-body static allocas must be hoisted to the entry block (m235)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {
