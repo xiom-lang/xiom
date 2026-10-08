@@ -5991,6 +5991,16 @@ fn e2e_safety_probe() {
     );
 }
 
+// m221 (XVC-C-06): colliding enum payload field names erase to i64; Float32
+// payloads must pack their f32 bits (FloatVal(2.5) used to extract as 0.0).
+#[test] fn e2e_m221_enum_f32_payload_pack() {
+    assert_eq!(
+        compile_and_run("tests/regression/m221_enum_f32_payload_pack/main.xi"),
+        Some(0),
+        "Float32 enum payloads must roundtrip through the erased i64 slot (m221)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

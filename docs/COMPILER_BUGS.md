@@ -286,7 +286,39 @@ present), e2e `e2e_m210_vec_clone_struct_elem` + fixture
 
 ---
 
-## 2026-10-08 -- TRIAGE (open): XVC-C-06 f32 enum payloads read as 0 in larger units
+## 2026-10-08 -- FIXED: Float32 enum payloads packed as double bits (m221, XVC-C-06)
+
+XVECTOR relay addendum: `FieldValue.FloatVal(2.5)` decoded as 0.0 with the
+tag intact in larger units. IR evidence from the engine probe: the ctor
+stored `bitcast double 2.5 to i64` into the erased payload slot while the
+match binding decoded the low 32 bits as f32 (`trunc i64 -> i32; bitcast
+i32 -> float`) -> 0x00000000.
+
+ROOT CAUSE: when payload field names collide across variants (`IntVal(v)` /
+`FloatVal(v: Float32)` / ...), decl.rs erases the shared slot to i64 (M19)
+and readers decode through `enum_variant_field_types`; enum_ctors.rs never
+consulted that map -- `val_to_i64(double)` stored the f64 bits. Values whose
+f64 low half is zero (2.5, 10.0, ...) decoded exactly 0.0; the mismatch
+surfaced per unit/build.
+
+FIX (m221): the ctor resolves the variant's declared payload type from
+`enum_variant_field_types` and narrows/widens before packing (Float32
+declared + double arg -> fptrunc; Float64/Float declared + float arg ->
+fpext); integer/string/struct payloads keep the existing path.
+
+EVIDENCE: engine probe 6/6 builds `bits=4612811918334230528` (correct 2.5),
+0 failed checks (pre-fix 6/6 `bits=0`); minimal colliding-name repro green.
+
+LOCKS: regress_m221_enum_f32_payload_pack (IR: fptrunc double 2.5 to float
+present, no `bitcast double 2.5 to i64`), e2e + fixture + CI line.
+Gates: feature 538/538; targeted e2e 8/8.
+
+---
+
+## 2026-10-08 -- TRIAGE (resolved by m221, section above): XVC-C-06 f32 enum payloads read as 0 in larger units
+
+RESOLVED by m221: colliding payload field names erase the slot to i64 and
+the ctor packed double bits while the reader decoded f32.
 
 XVECTOR relay addendum (same family as XVC-C-05): `FieldValue.FloatVal(x)`
 payloads extract as 0.0 with the tag intact in larger units (suite form

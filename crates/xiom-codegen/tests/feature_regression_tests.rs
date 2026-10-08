@@ -7486,3 +7486,38 @@ fn main() -> Int {
         "m219: *f must yield the code address (ptrtoint), not a code load; got:\n{ir}"
     );
 }
+
+// m221 (XVC-C-06): colliding payload field names erase the enum slot to i64;
+// a Float32-declared payload must be narrowed (fptrunc) before packing. Pre-
+// fix the ctor stored the raw double bits (`bitcast double 2.5 to i64`) and
+// the reader's f32 decode produced 0.0.
+#[test]
+fn regress_m221_enum_f32_payload_pack() {
+    let source = r#"
+enum Value {
+  IntVal(v: Int),
+  FloatVal(v: Float32),
+  DoubleVal(v: Float64),
+  TextVal(v: Str),
+}
+fn make() -> Value {
+  return Value.FloatVal(2.5);
+}
+fn main() -> Int {
+  var x = make();
+  match x {
+    FloatVal(f) => { if f == 2.5 { return 0; } return 1; }
+    _ => { return 2; }
+  }
+}
+"#;
+    let ir = compile(source).expect("m221: colliding payload enum must compile");
+    assert!(
+        ir.contains("fptrunc double 2.50000000000000000e0 to float"),
+        "m221: the Float32 payload must be narrowed before packing; got:\n{ir}"
+    );
+    assert!(
+        !ir.contains("bitcast double 2.50000000000000000e0 to i64"),
+        "m221: the ctor must not pack the raw double bits; got:\n{ir}"
+    );
+}

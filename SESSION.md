@@ -4,7 +4,7 @@
 # KICKOFF PROMPT (v0.64.1 batch, 2026-10-08) -- paste from the marker
 
 > Continue the XIOM compiler lane. STATE: local main carries the v0.64.1
-> batch m199..m220 (31+ commits ahead of origin -- count with
+> batch m199..m221 (31+ commits ahead of origin -- count with
 > `git rev-list --count origin/main..main`; NOT pushed; v0.64.0 tag
 > c68d91de is the last release). This checkout's git identity is
 > Lefteris Notas <lefterisnotas@gmail.com> (repo-local overrides the
@@ -42,16 +42,18 @@
 > for pointer slots, deref-peel for `(*f)()`, code address for `*f`);
 > m220 XVC-C-03 W004 bare unit-enum variants (scrutinee variant names
 > resolve bare arms as variants -- false positives gone, bindings still
-> shadow).
+> shadow); m221 XVC-C-06 Float32 enum payloads (ctor packs the DECLARED
+> width's bits through enum_variant_field_types; colliding-name slots no
+> longer decode 2.5 as 0.0 -- engine probe 6/6 exact).
 >
-> GATES on the tree: e2e 2437/0/4, feature 537/537 (533 pre-m216 + the
-> m216/m217/m218/m219 locks), checker 197/197 + checker_locks 29/29
-> (m220), verifier 41 (7 lib + 34 integration), xiom-graph 34/34, driver
-> lib 61/61 + bin 6/6 + integration suites (2/28/5/15/4/6/34), ascii_guard
-> clean. m219 targeted e2e 8/8. (e2e/feature counts predate m213-m215,
-> which touched verifier/CLI/graph only; feature re-ran after m219.)
-> KNOWN PRE-EXISTING RED: perf_budget_fmt_peek_shape is over budget at
-> HEAD too (97,028 > 95,000 IR bytes) -- batch drift, not m216..m220.
+> GATES on the tree: e2e 2437/0/4, feature 538/538 (533 pre-m216 + the
+> m216..m221 locks), checker 197/197 + checker_locks 29/29, verifier 41
+> (7 lib + 34 integration), xiom-graph 34/34, driver lib 61/61 + bin 6/6
+> + integration suites (2/28/5/15/4/6/34), ascii_guard clean. m221
+> targeted e2e 8/8. (e2e/feature counts predate m213-m215, which touched
+> verifier/CLI/graph only; feature re-ran after m221.) KNOWN PRE-EXISTING
+> RED: perf_budget_fmt_peek_shape is over budget at HEAD too
+> (97,028 > 95,000 IR bytes) -- batch drift, not m216..m221.
 >
 > FIX QUEUE (impact order; repros local):
 > 1. C-PULSE-11 -- FIXED m216 (alias resolution for package types landed;
@@ -98,12 +100,11 @@
 >    MEASUREMENT ARTIFACT: the trap exits 1 on v0.64.0 AND current main
 >    (Start-Process .ExitCode); the reported 0 came from the cmd
 >    `%ERRORLEVEL%` parse-time expansion gotcha -- no compiler defect.
->    XVC-C-06 (addendum, same family): f32 enum payloads read as 0 in
->    larger units; re-tested 2026-10-08 -- engine probe 6/6 bits=0 on
->    main AND v0.64.0 (pre-existing; minimal direct shape green 3/3 on
->    both) -> needs reduction; NOT a batch regression. One 1-in-13
->    spurious T001 catalog-body flake (wal_writer_checkpoint_from, engine
->    unit) -- watch item for the release gate.
+>    XVC-C-06: FIXED m221 (ctor packs the declared width; engine probe
+>    6/6 exact bits, 0 failed checks).
+>    XVC-C-07 (NEW INCOMING, next release): `Str::from_utf8(&Vec[UInt8])`
+>    type-checks but emits invalid LLVM IR (clang getelementptr indices);
+>    by-value is correct; repro docs/repro/xv-from-utf8-vec-ref/.
 > B. ORBITDB (E:\xiom-projects\xiom-orbitdb): re-tested 2026-10-08 on
 >    current main -- ALL THREE STILL RED. C-ORBIT-01 probe_import still
 >    T001 "get_column expects 2 argument(s), found 1" (m216 did NOT cover
@@ -112,12 +113,14 @@
 >    variant line (no arm runs after an element assignment); V2/V4/V5/V7/
 >    V10 fine. C-ORBIT-03 nested-field-mut A=0 C=0 (B/D=1). Bundles
 >    docs/repro/{ok-method-receiver, option-vec-assign, nested-field-mut}.
-> C. BINDINGS lane (branch bindings, tip 1b3a8539): B-01..B-08 in
+> C. BINDINGS lane (branch bindings, tip 1b3a8539): B-01..B-09 in
 >    docs/BINDINGS-COMPILER-FINDINGS.md + docs/repro/bindings-pilot/.
 >    B-05 alloc/free guard spin (deterministic, watchdog); B-01
 >    enum-payload nondeterminism (~1/3 rebuilds); B-02/B-06 resolver
->    recursion overflows (full-catalog bisects). Merge to main before
->    reading from main.
+>    recursion overflows (full-catalog bisects); B-09 pure-XIOM
+>    Win32/WGL context poisons the binary pre-output (deterministic
+>    0xC0000409; repro win32-gl-unsafe/, the bridge is the workaround).
+>    Merge to main before reading from main. ALL next-release items.
 >
 > LANE CONTEXT (2026-10-08): the former packages lane split into
 > (a) NATIVE PACKAGES lane (non-FFI packages: xiom.rate, xiom.kv,
