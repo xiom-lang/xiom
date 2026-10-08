@@ -987,17 +987,14 @@ fn install_from_ecosystem(pkg_name: &str) -> bool {
 
 /// Copy package files from source directory to install location.
 fn install_package_files(src_dir: &Path, pkg_name: &str) {
-    // Determine install directory
-    let xiom_home = std::env::var("XIOM_HOME").ok()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            let base = if cfg!(windows) {
-                PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".to_string()))
-            } else {
-                PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".to_string()))
-            };
-            base.join("xiom")
-        });
+    // C-PULSE-13: ONE home resolution shared with the compiler
+    // (`xiom_graph::paths::xiom_home()`: XIOM_HOME wins, else the first
+    // EXISTING candidate -- canonical installer layout first, then legacy
+    // `~/.local/xiom` / `~/xiom` -- else the canonical default). The old
+    // private fallback ($HOME/xiom on Unix) installed into a LEGACY dir while
+    // the compiler resolved the existing canonical `~/.local/share/xiom`, so
+    // `xiom pkg` output was invisible to dependency lookup.
+    let xiom_home = xiom_graph::paths::xiom_home();
 
     let pkg_version = read_package_version(src_dir).unwrap_or_else(|| "0.1.0".to_string());
     let dest_dir = xiom_home.join("packages").join(format!("{}-{}", pkg_name, pkg_version));
@@ -1089,14 +1086,9 @@ fn download_and_install(pkg_name: &str, version: &str, url: &str) -> Result<(), 
     Ok(())
 }
 fn get_xiom_home() -> PathBuf {
-    std::env::var("XIOM_HOME").ok().map(PathBuf::from).unwrap_or_else(|| {
-        let base = if cfg!(windows) {
-            PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".to_string()))
-        } else {
-            PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".to_string()))
-        };
-        base.join("xiom")
-    })
+    // C-PULSE-13: identical resolution to the compiler's
+    // `xiom_graph::paths::xiom_home()` -- see `install_package_files`.
+    xiom_graph::paths::xiom_home()
 }
 
 fn find_workspace_root(project_root: &Path) -> PathBuf {
@@ -1777,6 +1769,16 @@ homepage: "https://example.com";
 "#;
         let pkg = parse_manifest(manifest);
         assert_eq!(pkg.name, "web-pkg");
+    }
+
+    // C-PULSE-13: the installer/update home must be the compiler's
+    // `paths::xiom_home()` -- XIOM_HOME wins, else the first EXISTING
+    // candidate (canonical installer layout first), else the canonical
+    // default. A private fallback here split `xiom pkg` installs from the
+    // compiler's dependency lookup (PULSE: wrote $HOME/xiom/packages while
+    // paths::xiom_home() resolved the existing ~/.local/share/xiom).
+    #[test] fn test_get_xiom_home_delegates_to_paths() {
+        assert_eq!(get_xiom_home(), xiom_graph::paths::xiom_home());
     }
 
     #[test] fn test_parse_optional_keywords() {

@@ -74,9 +74,12 @@
 > 2. Residual hard-error guard (from m216): the final fallback + ~13
 >    direct xiom_to_llvm_type sites swallow errors into i64; needs the
 >    error-propagation pass before the warning can become a hard error.
-> 3. Home split: unify the xiom-pkg installer home with
->    paths::xiom_home() (xiom-pkg defaults to $HOME/xiom, the compiler
->    scans candidates -- install and dependency lookup must never split).
+> 3. [DONE m232] Home split: xiom-pkg now depends on xiom-graph and resolves
+>    install + cache dirs through `paths::xiom_home()` (one resolution
+>    shared with the compiler's dependency lookup); signing keys stay at
+>    `~/.xiom` (moving them would orphan the trust store). Lock:
+>    `test_get_xiom_home_delegates_to_paths` + updated cache-dir sandbox
+>    tests.
 > 4. xiom.http 0.1.1 vs extern-unsafe confinement: gate the rule for
 >    published catalog bodies or republish the package; if the rule
 >    ships, v0.64.2 notes need a Breaking changes entry (v0.64.1 said
@@ -169,9 +172,10 @@
 >    pairs STILL OPEN (compares FALSE quietly; probe tmp\sweep2\pkg\
 >    res_eq.xi); C-PULSE-10 kv_get Linux Open row on the packages side but
 >    CLOSED by PULSE on v0.64.1 (cross-lane reconciliation on the next
->    archive). COMPILER-LANE FIX (queue): home split -- xiom-pkg installs
->    to ~/xiom/packages while paths::xiom_home() picks ~/.local/share/xiom;
->    unify installer home resolution. PULSE also reports: v0.64.1 enforces
+>    archive). Home split FIXED m232: xiom-pkg installs/caches through
+>    `paths::xiom_home()` (one resolution with the compiler's dependency
+>    lookup); signing keys deliberately stay at `~/.xiom`. PULSE also
+>    reports: v0.64.1 enforces
 >    extern-unsafe confinement in catalog bodies and published xiom.http
 >    0.1.1 violates it (67 T001s) -> decide gate-for-published-packages vs
 >    republish + breaking note.
@@ -213,7 +217,7 @@
 > at E:\tmp_benchmark_results.
 >
 > KEY DOCS: docs/COMPILER_BUGS.md (relay bundles + FIXED sections
-> m199..m231 + the 2026-10-08 RELAY SWEEP matrix and the m230 OPEN entry,
+> m199..m232 + the 2026-10-08 RELAY SWEEP matrix and the m230 OPEN entry,
 > TRIAGE/RE-TEST notes near the top of the dated entries),
 > docs/STAGE6_PERF_PLAN.md item 1, SESSION.md lane blocks below (PERF,
 > m208..m221 notes, verifier design), release-notes/TEMPLATE.md +

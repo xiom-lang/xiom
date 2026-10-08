@@ -1105,19 +1105,20 @@ pub(crate) fn package_cache_dir() -> PathBuf {
 }
 
 /// `$XIOM_HOME/packages` when XIOM_HOME is set (sandboxed runs -- CI, tests --
-/// must not write the developer's real cache), otherwise the platform default
-/// `($LOCALAPPDATA|$HOME)/xiom/packages`, matching `get_xiom_home` in main.rs
-/// (R38).
+/// must not write the developer's real cache), otherwise the SAME home the
+/// compiler resolves: first EXISTING candidate, canonical installer layout
+/// first, then legacy `~/.local/xiom` / `~/xiom`, else the canonical default
+/// (C-PULSE-13: the old private `($LOCALAPPDATA|$HOME)/xiom` fallback could
+/// split the installer's cache from the compiler's package lookup).
 fn resolve_package_cache_dir(xiom_home: Option<&str>) -> PathBuf {
     if let Some(home) = xiom_home.map(str::trim).filter(|h| !h.is_empty()) {
         return PathBuf::from(home).join("packages");
     }
-    let base = if cfg!(windows) {
-        PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".to_string()))
-    } else {
-        PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".to_string()))
-    };
-    base.join("xiom").join("packages")
+    xiom_graph::paths::xiom_home_candidates()
+        .into_iter()
+        .find(|p| p.is_dir())
+        .unwrap_or_else(xiom_graph::paths::canonical_xiom_home)
+        .join("packages")
 }
 
 /// Minimal tar.gz extractor (handles basic .tar.gz files without external tools).

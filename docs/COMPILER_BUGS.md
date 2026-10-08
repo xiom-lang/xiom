@@ -300,7 +300,7 @@ per-finding detail.
 | PULSE C-PULSE-08/10/11 | CLOSED (lane v0.64.1) | lane sweep logdirs; C-11 swap retry is the lane acceptance |
 | PULSE C-PULSE-09 | FIXED m227 | two-module reduction pre-fix trap -> post-fix exit 0 |
 | PULSE C-PULSE-12 (alias shadowing) | NOT REPRODUCED in the minimal shape | module `pulse12.server` + consumer `use xiom.net.server; server.server_parse_request(&b)`: the alias resolves (no "cannot call ... on this expression"); the compile instead dies on m230 below. Faithful http.xi re-test routed to the lane |
-| PULSE C-PULSE-13 (home split) | OPEN (compiler-side, queue item 3) | `xiom pkg` home vs `paths::xiom_home()` |
+| PULSE C-PULSE-13 (home split) | FIXED m232 | xiom-pkg now resolves `paths::xiom_home()` (install + cache); delegation lock `test_get_xiom_home_delegates_to_paths` |
 | BINDINGS B-01 enum-payload ND | **FIXED m231** | root cause: `struct_type_from_expr_inner` matched type keys with `key.ends_with(&base_type)`, so `Option__Value`/`Result__...__Value` also matched leaf `Value`; the FIRST key in random HashMap order decided the field lookup -- when Option__Value won, the field named `value` resolved to Option's PAYLOAD field type (`Value`, not `ValueKind`) and the match compared Integer at tag 0 instead of 1. Repro `enum-payload-nd/pkg/`: pre-fix 7/12 bad builds and TWO IR variants (hash 4722EA.. vs 3D46A0.., 3 fns diverge); post-fix 12/12 green, ONE IR hash |
 | BINDINGS B-02/B-03 (const resolver recursion) | NOT RE-TESTED | pre-fix large catalogs gone; rebuild from descriptions if needed |
 | BINDINGS B-04 (child imports parent) | FIXED on this sweep (minimal shape) | module `p.child` `use p;` + unqualified `parent_fn()` -> exit 0 |
@@ -315,6 +315,35 @@ per-finding detail.
 New in this sweep (not reported by any lane): **m230** below -- a user module
 importing `xiom.encoding` (directly or via `xiom.net.server`) hard-fails the
 compile with 3 latent catalog-body T001s. Pre-existing on v0.64.1.
+
+---
+
+## 2026-10-08 -- FIXED: xiom-pkg home split from the compiler's XIOM home (m232, C-PULSE-13)
+
+PULSE C-PULSE-13: `xiom pkg` installed into `$HOME/xiom/packages` (Unix) while
+the compiler's `paths::xiom_home()` resolved the EXISTING canonical
+`~/.local/share/xiom` first -- installed packages were invisible to dependency
+lookup (`dependency_roots_under(..., &paths::xiom_home())`).
+
+xiom-pkg carried THREE private resolutions: `install_package_files` and
+`get_xiom_home` used `($LOCALAPPDATA|$HOME)/xiom`, and
+`registry::resolve_package_cache_dir` the same platform default; the compiler
+uses `XIOM_HOME` -> first EXISTING candidate (canonical installer layout
+first, then legacy `~/.local/xiom` / `~/xiom`) -> canonical default.
+
+FIX (m232): xiom-pkg depends on xiom-graph and all three sites resolve through
+`xiom_graph::paths::xiom_home()` / `xiom_home_candidates()` +
+`canonical_xiom_home()` (the cache-dir helper keeps the explicit-`XIOM_HOME`
+sandbox contract used by tests). Install and consumer now always agree.
+Signing keys (`signing::default_xiom_home`, `~/.xiom`) are deliberately NOT
+moved in this fix -- relocating the trust store would silently orphan existing
+keys; if key-home unification is wanted, it needs a migration note.
+
+LOCKS: `test_get_xiom_home_delegates_to_paths` (xiom-pkg unit: installer home
+must equal `paths::xiom_home()`; a private fallback re-introduction fails on
+any machine where the env resolves differently), existing
+`resolve_package_cache_dir` sandbox tests updated to the shared resolution.
+ci.yml already runs `cargo test -p xiom-pkg`.
 
 ---
 
