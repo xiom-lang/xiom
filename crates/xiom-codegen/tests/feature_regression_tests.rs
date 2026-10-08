@@ -7295,3 +7295,43 @@ fn main() -> Int { return 0; }
         "m211: the copy needs the source length; got:\n{ir}"
     );
 }
+
+// m216 (C-PULSE-11): a type alias to a package-style struct
+// (`pub type Store = pkg.SessionStore;`) used as a Vec element must resolve
+// in the element-struct lookup -- pre-fix `v[0].field` compiled to the
+// constant 0 (alias-blind `resolve_vec_elem_type`) and `Vec[Store].new()`
+// sized the ctor buffer by the unknown-name default 8. Post-fix the field
+// read GEPs through %struct.pkg.SessionStore.
+#[test]
+fn regress_m216_alias_vec_elem_field() {
+    let source = r#"
+module pkg {
+  pub type SessionStore = {
+    ttl: Int;
+    count: Int;
+  }
+  pub fn session_store_new(ttl: Int) -> SessionStore {
+    return SessionStore { ttl: ttl, count: 7 };
+  }
+}
+module app {
+  pub type Store = pkg.SessionStore;
+}
+fn main() -> Int {
+  var v: Vec[Store] = Vec[Store].new();
+  v.push(session_store_new(60000));
+  if v[0].ttl != 60000 { return 1; }
+  if v[0].count != 7 { return 2; }
+  return 0;
+}
+"#;
+    let ir = compile(source).expect("m216: aliased Vec element must compile");
+    // Scope the assertion to the main body: session_store_new's own field
+    // GEPs appear regardless of the element-read fix.
+    let main_body = ir.split("@main(").nth(1).expect("m216: main body missing");
+    let main_body = main_body.split("\ndefine ").next().unwrap_or(main_body);
+    assert!(
+        main_body.contains("getelementptr %struct.pkg.SessionStore"),
+        "m216: the field read must GEP through %struct.pkg.SessionStore; got:\n{ir}"
+    );
+}

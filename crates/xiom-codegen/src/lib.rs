@@ -3702,6 +3702,13 @@ impl IrEmitter {
                 .or_else(|| self.local.local_vec_handle.get(&id.name))
                 .cloned()
                 .or_else(|| self.global_vec_elem(&id.name))?;
+            // m216 (C-PULSE-11): the element type may be written through a
+            // type alias (`Vec[Store]` with `pub type Store =
+            // pkg.SessionStore;`). Resolve the chain before the primitive/
+            // container/registry scans below -- without this the struct lookup
+            // missed the aliased key and every `v[i].field` read degraded to
+            // the constant-0 default (Pulse wrapper-module shape).
+            let elem = self.resolve_alias_name(&elem);
             if matches!(elem.as_str(), "Int" | "Bool" | "Str" | "Float64" | "Float32" | "UInt8" | "Int8" | "Int16" | "Int32" | "UInt16" | "UInt32" | "Char" | "Float") {
                 return None;
             }
@@ -3755,6 +3762,10 @@ impl IrEmitter {
             let ftype = self.declared_field_type(&base_ty, &field_expr.name)?;
             if let Some(inner) = ftype.strip_prefix("Vec[") {
                 if let Some(bare_name) = inner.strip_suffix(']') {
+                    // m216 (C-PULSE-11): the declared element may be a type
+                    // alias (`Vec[Store]`) -- resolve it before the container
+                    // and registry scans below.
+                    let bare_name = self.resolve_alias_name(bare_name);
                     // R10 (2026-09-11): bracketed CONTAINER
                     // elements ("Option[M2]") keep their name
                     // -- the index site maps them to the
@@ -3772,7 +3783,7 @@ impl IrEmitter {
                     // Only return if this is a known struct type
                     // (not a primitive like Int, Str, Bool, etc.)
                     if let Some(qualified) = self.types.types.keys().into_iter()
-    .find(|k| k.ends_with(&format!(".{}", bare_name)) || k.as_str() == bare_name)
+    .find(|k| k.ends_with(&format!(".{}", bare_name)) || k.as_str() == bare_name.as_str())
                     {
                         return Some(qualified);
                     }
@@ -3891,6 +3902,26 @@ impl IrEmitter {
             Expr::Index(container, _, _) => self.resolve_vec_elem_type(container),
             _ => None,
         }
+    }
+
+    /// m216 (C-PULSE-11): follow a type-alias chain (`pub type Store =
+    /// pkg.SessionStore;`, chains included) to its terminal name,
+    /// cycle-guarded. Returns the input unchanged when it is not an alias.
+    /// Shared by `llvm_type_for` and the Vec element lookups
+    /// (`resolve_vec_elem_type`, `vec_elem_storage_size`) so aliases resolve
+    /// everywhere element types are compared or sized -- the Pulse wrapper
+    /// exposed the alias-blind paths (`Vec[Store]` field reads compiled to
+    /// the constant 0; the ctor buffer sized by the unknown-name default 8).
+    fn resolve_alias_name(&self, type_name: &str) -> String {
+        let mut resolved = type_name.to_string();
+        let mut visited = std::collections::HashSet::new();
+        while let Some(target) = self.types.type_aliases.get(&resolved) {
+            if !visited.insert(resolved.clone()) {
+                break; // cycle detected
+            }
+            resolved = target.clone();
+        }
+        resolved
     }
 
     /// FIELD-I64: When obj_val is an i64 from a Vec index of a struct element
@@ -4017,11 +4048,15 @@ impl IrEmitter {
         if let Some(key) = self.pick_deterministic(candidates) {
             return Ok(format!("%struct.{key}"));
         }
-        // Check builtin types first (match known xiom type names, NOT the default i64 fallback)
-        let builtin = Self::xiom_to_llvm_type(clean_name);
+        // Check builtin types first (match known xiom type names, NOT the
+        // default i64 fallback). m216 (C-PULSE-11): the mapping is computed
+        // lazily inside the match arms -- calling xiom_to_llvm_type EAGERLY
+        // for every unresolved name emitted a spurious "unknown type ...
+        // defaulting to i64" warning for names that resolve later via enums
+        // or type aliases (Pulse `pub type Store = SessionStore;`).
         match type_name {
             "Int" | "Int8" | "Int16" | "Int32" | "Int64" | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
-            | "Bool" | "Float32" | "Float64" | "Str" | "Char" | "()" | "!" => return Ok(builtin.to_string()),
+            | "Bool" | "Float32" | "Float64" | "Str" | "Char" | "()" | "!" => return Ok(Self::xiom_to_llvm_type(clean_name).to_string()),
             // Generic type parameters (single uppercase letters: T, K, V, E, etc.)
             // silently default to i64 -- these are expected when monomorphisation
             // hasn't substituted them yet (e.g. in type_meta field lists).
@@ -4060,7 +4095,7 @@ impl IrEmitter {
         }
         match type_name {
             "Int" | "Int8" | "Int16" | "Int32" | "Int64" | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
-            | "Bool" | "Float32" | "Float64" | "Str" | "Char" | "()" => Ok(builtin.to_string()),
+            | "Bool" | "Float32" | "Float64" | "Str" | "Char" | "()" => Ok(Self::xiom_to_llvm_type(clean_name).to_string()),
             _ => {
                 // 5e.2 G-34: function-pointer types: "fn(Int) -> Int"
                 // f "i64 (i64)*". Parse the signature and lower each part.
@@ -4087,14 +4122,7 @@ impl IrEmitter {
                 // `type MyInt8 = Int8`, `type MyResult = Result[Int, Str]`).
                 // Follow alias chains with cycle detection.
                 {
-                    let mut resolved = type_name.to_string();
-                    let mut visited = std::collections::HashSet::new();
-                    while let Some(target) = self.types.type_aliases.get(&resolved) {
-                        if !visited.insert(resolved.clone()) {
-                            break; // cycle detected
-                        }
-                        resolved = target.clone();
-                    }
+                    let resolved = self.resolve_alias_name(type_name);
                     if resolved != type_name {
                         return self.llvm_type_for(&resolved);
                     }
@@ -4239,6 +4267,11 @@ impl IrEmitter {
     /// stored and the following element reads dereferenced garbage headers
     /// (test_vector/test_db/test_json 0xC0000005; m37 float check).
     fn vec_elem_storage_size(&self, type_name: &str) -> i64 {
+        // m216 (C-PULSE-11): resolve type-alias chains first -- `Vec[Store]`
+        // with `pub type Store = pkg.SessionStore;` sized the ctor buffer by
+        // the unknown-name default (8) instead of the struct width.
+        let resolved = self.resolve_alias_name(type_name);
+        let type_name = resolved.as_str();
         match type_name {
             "UInt8" | "Int8" | "Char" => 1,
             // Bool lowers to i8 in Vec[Bool] ELEMENT slots but to i64 in

@@ -286,6 +286,56 @@ present), e2e `e2e_m210_vec_clone_struct_elem` + fixture
 
 ---
 
+## 2026-10-08 -- FIXED: type-alias Vec elements resolved + spurious unknown-type warning (m216, C-PULSE-11)
+
+Pulse relay, C-PULSE-11: a wrapper module exposing a package type through an
+alias (`pub type Store = SessionStore;`, module B consuming `Store`) only
+emitted `warning: unknown type 'Store' -- defaulting to i64`, and `Vec[Store]`
+field reads silently compiled to the constant 0. Reproduced synthetically
+(package module + alias wrapper + consumer; `Vec[SessionStore]` control
+green, `Vec[Store]` red); the fuller shape (`pick(v[0])` by value) aborted
+0xC0000005.
+
+TWO ROOT CAUSES:
+1. `resolve_vec_elem_type` (lib.rs) scanned `types`/`enum_variants` keys by
+   exact/`.Store` suffix match but never consulted `type_aliases`, so
+   `Vec[Store]` took the scalar element path; the `.ttl` field read then fell
+   through to the literal-0 default (the m206 class). `vec_elem_storage_size`
+   was alias-blind too: `Vec[Store].new()` sized the ctor buffer 8 instead of
+   the struct width (the first struct `push` corrected `elem_size`, masking
+   it until a read-before-push or a non-pushing container flow).
+2. The warning itself was SPURIOUS: `llvm_type_for` called
+   `xiom_to_llvm_type(clean_name)` EAGERLY for every unresolved name to test
+   builtins -- the alias resolved correctly afterwards (IR evidence:
+   `store_ttl(%struct.xiom.session.SessionStore*)` while the warning still
+   printed; a temporary backtrace pinned every hit to that line, none to the
+   final fallback).
+
+FIX (m216): new cycle-guarded `resolve_alias_name` helper (shared with the
+existing `llvm_type_for` alias chain); `resolve_vec_elem_type` (Ident and
+Field arms) and `vec_elem_storage_size` resolve the chain before their
+registry scans; the eager builtin probe computes `xiom_to_llvm_type` lazily
+inside the primitive match arms, so the "defaulting to i64" warning fires
+only for genuinely unknown types.
+
+EVIDENCE: synthetic repro pre-fix `v[0].ttl`/`v[0].count` = 0/0 and the
+`pick(v[0])` shape AVs; post-fix 60000/7 exit 0 (package shape) and
+60000/1000 exit 0 (full shape), zero warnings; `Vec[Store].new()` ctor now
+stores elem_size 24 in IR.
+
+LOCKS: `regress_m216_alias_vec_elem_field` (IR: main body GEPs through
+`%struct.pkg.SessionStore`), e2e `e2e_m216_alias_vec_elem_field` + fixture
+(`tests/regression/m216_alias_vec_elem_field/`), CI line. Gates: feature
+534/534 (533 + the new lock); targeted e2e 11/11.
+
+RELAY (still open from the same bundle): C-PULSE-09 (wrapper-aggregate crash
+bisect) and C-PULSE-10 (kv_get corruption triage). The hard-error guard for
+genuinely-unknown defaulting remains OPEN: after this fix the only warning
+path is the true fallback, which ~13 direct `xiom_to_llvm_type` fallback
+sites still swallow into i64 -- needs the error-propagation pass.
+
+---
+
 ## 2026-10-08 -- FIXED: [dependencies] dotted keys + relay C-PULSE-09/10/11 (m215, C-PULSE-08)
 
 Pulse relay, C-PULSE-08: `dependency_roots_under` (m212) matched `dep.name`

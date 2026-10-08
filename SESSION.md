@@ -4,7 +4,7 @@
 # KICKOFF PROMPT (v0.64.1 batch, 2026-10-08) -- paste from the marker
 
 > Continue the XIOM compiler lane. STATE: local main carries the v0.64.1
-> batch m199..m215 (31+ commits ahead of origin -- count with
+> batch m199..m216 (31+ commits ahead of origin -- count with
 > `git rev-list --count origin/main..main`; NOT pushed; v0.64.0 tag
 > c68d91de is the last release). This checkout's git identity is
 > Lefteris Notas <lefterisnotas@gmail.com> (repo-local overrides the
@@ -28,21 +28,28 @@
 > now prove; insufficient -> real countermodel); m214 --icon;
 > m215 dotted dependency keys (C-PULSE-08 acceptance gate: both
 > dep-roots-name-form/{dash,dot} variants pass xiom build AND the
-> documented xiom --check probe.xi).
+> documented xiom --check probe.xi); m216 C-PULSE-11 type-alias Vec
+> elements (`Vec[Store]` field reads resolve to the aliased struct;
+> `Vec[Store].new()` sizes by the real struct) + lazy builtin probe kills
+> the spurious "unknown type" warning. Guard for GENUINELY unknown
+> defaulting still open.
 >
-> GATES on the tree: e2e 2437/0/4, feature 533/533, checker 197/197,
-> verifier 41 (7 lib + 34 integration), xiom-graph 34/34, driver lib
-> 61/61 + bin 6/6 + integration suites (2/28/5/15/4/6/34), ascii_guard
-> clean. (e2e/feature counts predate m213-m215, which touched verifier/
-> CLI/graph only.)
+> GATES on the tree: e2e 2437/0/4, feature 534/534 (533 pre-m216 + the
+> m216 lock), checker 197/197, verifier 41 (7 lib + 34 integration),
+> xiom-graph 34/34, driver lib 61/61 + bin 6/6 + integration suites
+> (2/28/5/15/4/6/34), ascii_guard clean. m216 targeted e2e 11/11.
+> (e2e/feature counts predate m213-m215, which touched verifier/CLI/graph
+> only; feature re-ran after m216.) KNOWN PRE-EXISTING RED:
+> perf_budget_fmt_peek_shape is over budget at HEAD too (97,028 > 95,000
+> IR bytes) -- batch drift, not m216.
 >
 > FIX QUEUE (impact order; repros local):
-> 1. C-PULSE-11 -- `pub type X = PackageType` fails cross-module ("unknown
->    type") and only WARNS "defaulting to i64" then continues (silent-
->    miscompile class; wrapper structs work). Minimum fix: make that
->    defaulting a hard error. Real fix: alias resolution for package
->    types. Repro: Pulse session-adoption build log; probes under
->    E:\xiom-projects\xiom-pulse.
+> 1. C-PULSE-11 -- FIXED m216 (alias resolution for package types landed;
+>    the "unknown type" warning was the spurious eager builtin probe in
+>    llvm_type_for, now lazy). RESIDUAL: the hard-error guard for
+>    GENUINELY unknown defaulting -- final fallback + the ~13 direct
+>    xiom_to_llvm_type fallback sites that swallow errors into i64 --
+>    still needs the error-propagation pass.
 > 2. C-PULSE-10 -- kv_get returns an address-like decimal Str after
 >    kv_put; multi-key writes also corrupt kv_get_bytes. Repro
 >    docs/repro/kv-get-str-corruption/ + gate tests/probes/probe_pkg_kv.xi.

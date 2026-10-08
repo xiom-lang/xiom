@@ -5947,6 +5947,18 @@ fn e2e_safety_probe() {
     );
 }
 
+// m216 (C-PULSE-11): a type alias to a package-style struct
+// (`pub type Store = pkg.SessionStore;`) used as a Vec element must resolve
+// in the element-struct lookup; pre-fix `v[0].field` read the constant 0
+// (Pulse wrapper-module shape).
+#[test] fn e2e_m216_alias_vec_elem_field() {
+    assert_eq!(
+        compile_and_run("tests/regression/m216_alias_vec_elem_field/main.xi"),
+        Some(0),
+        "Vec[Store] alias elements must resolve to the struct (m216)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {
