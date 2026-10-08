@@ -301,7 +301,7 @@ per-finding detail.
 | PULSE C-PULSE-09 | FIXED m227 | two-module reduction pre-fix trap -> post-fix exit 0 |
 | PULSE C-PULSE-12 (alias shadowing) | NOT REPRODUCED in the minimal shape | module `pulse12.server` + consumer `use xiom.net.server; server.server_parse_request(&b)`: the alias resolves (no "cannot call ... on this expression"); the compile instead dies on m230 below. Faithful http.xi re-test routed to the lane |
 | PULSE C-PULSE-13 (home split) | OPEN (compiler-side, queue item 3) | `xiom pkg` home vs `paths::xiom_home()` |
-| BINDINGS B-01 enum-payload ND | **STILL OPEN, rate worsened on main** | repro `enum-payload-nd/pkg/`: bad-build rate main **7/12** vs release v0.64.1 **3/12** (`B=false`); root evidence: same source emits **two IR variants** (hash 4722EA.. 757,632 B vs 3D46A0.. 752,368 B); per-function diff localizes to exactly 3 fns -- `SqliteValue.as_int`, `SqliteValue.as_text`, `clone_sqlite_value` (SqliteValueKind payload handling: struct-value layout vs i64-field layout, tag constants 0 vs 1). Needs a dedicated deterministic-order bisect |
+| BINDINGS B-01 enum-payload ND | **FIXED m231** | root cause: `struct_type_from_expr_inner` matched type keys with `key.ends_with(&base_type)`, so `Option__Value`/`Result__...__Value` also matched leaf `Value`; the FIRST key in random HashMap order decided the field lookup -- when Option__Value won, the field named `value` resolved to Option's PAYLOAD field type (`Value`, not `ValueKind`) and the match compared Integer at tag 0 instead of 1. Repro `enum-payload-nd/pkg/`: pre-fix 7/12 bad builds and TWO IR variants (hash 4722EA.. vs 3D46A0.., 3 fns diverge); post-fix 12/12 green, ONE IR hash |
 | BINDINGS B-02/B-03 (const resolver recursion) | NOT RE-TESTED | pre-fix large catalogs gone; rebuild from descriptions if needed |
 | BINDINGS B-04 (child imports parent) | FIXED on this sweep (minimal shape) | module `p.child` `use p;` + unqualified `parent_fn()` -> exit 0 |
 | BINDINGS B-05 (alloc/free guard spin) | **STILL OPEN** | `alloc-guard-spin` watchdog kill at 8 s, 7.53 CPU-s burned, same spin |
@@ -318,7 +318,51 @@ compile with 3 latent catalog-body T001s. Pre-existing on v0.64.1.
 
 ---
 
-## 2026-10-08 -- FIXED: `xiom --run` masked the program's exit code (m228, B-08)
+## 2026-10-08 -- FIXED: wrapper-prefix suffix match flipped enum field matches per build (m231, B-01)
+
+BINDINGS B-01: the `enum-payload-nd` pkg repro build+run loop produced `B=false`
+in a fraction of rebuilds (2/6 on v0.64.0, 2/6 on release v0.64.1, 7/12 on the
+v0.64.2 tree) -- silent wrong results through the enum accessor path, not a
+loud failure.
+
+ROOT CAUSE (codegen): `struct_type_from_expr_inner`'s `Expr::Field` arm resolves
+`match s.value`'s scrutinee type by finding the base struct's field type. Its
+key scan used
+
+```rust
+if key.ends_with(&base_type) || key == base_type
+```
+
+so the CONCRETIZED WRAPPER types also matched: `Option__Value`.ends_with("Value")
+and `Result__...__Value`.ends_with("Value") are true. The loop then `break`s at
+the FIRST match -- which is random HashMap order (per-process RandomState). When
+`Option__Value` won, the field named `value` resolved to OPTION'S PAYLOAD field
+type (`Value`, not the enum `ValueKind`), the match took the builtin
+Option/Result field-0 path and compared `Integer` at discriminant 0 (it is 1)
+while binding field 0 as the payload. Same source, two IR variants:
+4722EA.. (757,632 B, wrong) vs 3D46A0.. (752,368 B, correct); diagnosis via
+`--emit-ir` per-function hashing + an `XIOM_TRACE_ENUM` trace (bad builds
+printed `[dbg stfe2] base=Value key=Option__Value`).
+
+FIX (m231): leaf match requires a NAME BOUNDARY --
+`*key == base_type || key.ends_with(&format!(".{}", base_type))` -- wrappers use
+`__`, qualified names use dots, so `Option__Value`/`Result__...__Value` can no
+longer shadow the base struct. Swept the codegen for the same loose pattern:
+this was the only `ends_with(&base_type|leaf)` site without a dot boundary.
+
+EVIDENCE (bindings-pilot `enum-payload-nd/pkg`, 12 rebuilds with the sqlite
+amalgamation): pre-fix 7/12 `B=false`, 2 distinct IR hashes; post-fix **12/12
+green, single IR hash**.
+
+LOCKS: IR `regress_m231_option_wrapper_prefix_shadow` (compiles the hazard
+source 8x in-process, asserts ONE distinct IR and `Kind.Integer` tag index 1),
+e2e `e2e_m231_option_wrapper_prefix_shadow` + fixture
+(`tests/regression/m231_option_wrapper_prefix_shadow/` keeps `Option[Value]`
+concretized so the wrapper key exists), CI line.
+
+---
+
+## 2026-10-08 -- FIXED: xiom --run masked the program's exit code (m228, B-08)
 
 BINDINGS B-08: `xiom --run prog.xi` where `main` returned 5 printed
 `exit code: 5` on stderr but the xiom process exited 0, so suites trusting

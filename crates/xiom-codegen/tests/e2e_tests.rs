@@ -6075,6 +6075,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// m231 (BINDINGS B-01): a struct field whose type is matched by enum variants
+// must not resolve through Option__/Result__ wrapper keys (nondeterministic
+// wrong-tag builds; 7/12 on the bindings pkg repro).
+#[test] fn e2e_m231_option_wrapper_prefix_shadow() {
+    assert_eq!(
+        compile_and_run("tests/regression/m231_option_wrapper_prefix_shadow/main.xi"),
+        Some(0),
+        "enum field matches must resolve the field's own type, not a wrapper payload type (m231)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

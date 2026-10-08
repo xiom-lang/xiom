@@ -7665,3 +7665,54 @@ fn main() -> Int {
         "m229: `is Ok(1)` must AND the tag check with the payload literal comparison; got:\n{ir}"
     );
 }
+
+// m231 (BINDINGS B-01): the scrutinee-type lookup for `match s.value` matched
+// wrapper type keys by loose suffix -- `Option__Value` also ends with `Value`
+// -- so random HashMap order decided whether the field `value` resolved to the
+// Kind enum or to Option's PAYLOAD field type. Bad builds compared Integer at
+// tag 0 instead of 1 and read garbage (7/12 builds on the pkg repro). The IR
+// for the same source must be IDENTICAL across compiles and use the correct
+// variant index.
+#[test]
+fn regress_m231_option_wrapper_prefix_shadow() {
+    let source = r#"
+type Value = { value: Kind; }
+enum Kind { Null, Integer(value: Int), Text(value: Str); }
+pub fn get(xs: &Vec[Value], i: Int) -> Option[Value] { return Some(xs[i]); }
+fn as_int(v: &Value) -> Option[Int] {
+  match v.value {
+    Kind.Integer(value) => Some(value),
+    _ => None,
+  }
+}
+fn main() -> Int {
+  var xs = Vec[Value].new();
+  xs.push(Value{ value: Kind.Integer(7) });
+  let o = get(&xs, 0);
+  match o {
+    None => { return 1; }
+    Some(v) => {
+      let n = as_int(&v);
+      match n { None => { return 2; } Some(m) => { return m; } }
+    }
+  }
+}
+"#;
+    let mut seen = std::collections::BTreeSet::new();
+    let mut first: Option<String> = None;
+    for _ in 0..8 {
+        let ir = compile(source).expect("m231: wrapper-prefix shadow must compile");
+        seen.insert(ir.clone());
+        if first.is_none() { first = Some(ir); }
+    }
+    assert_eq!(
+        seen.len(), 1,
+        "m231: IR must be deterministic across compiles (got {} variants)",
+        seen.len()
+    );
+    let ir = first.unwrap();
+    assert!(
+        ir.contains("icmp eq i64") && ir.contains(", 1"),
+        "m231: Kind.Integer must compare variant index 1; got:\n{ir}"
+    );
+}

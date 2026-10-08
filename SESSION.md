@@ -104,16 +104,14 @@
 >    new pin (decision relayed; package.xi bump + notes fragment at the
 >    tag). Once the tag exists, move STDLIB_VERSION to it and keep
 >    release-notes/v0.64.2.md at that commit for the notes merge.
-> 12. [TOP NEW] B-01 enum-payload nondeterminism: same source emits TWO IR
->    variants across runs (757,632 B vs 752,368 B); diff localizes to 3 fns
->    -- `SqliteValue.as_int`, `SqliteValue.as_text`,
->    `clone_sqlite_value` (SqliteValueKind: struct-value layout vs
->    i64-field layout; tag constants 0 vs 1). Bad-build rate main 7/12 vs
->    release v0.64.1 3/12. Repro: E:\xiom-packages\packages\docs\repro\
->    bindings-pilot\enum-payload-nd\pkg (`xiom --run tests\probe.xi
->    --c-source <repo>\packages\xiom-sqlite\vendor\sqlite3.c`). Next: make
->    every variant-parent/type-pick site deterministic (sort candidates),
->    then bisect the 3 fns; silent wrong results -- highest priority.
+> 12. [DONE m231] B-01 enum-payload nondeterminism: root cause was the loose
+>    suffix match in `struct_type_from_expr_inner` (`Option__Value` also
+>    ends_with `Value`; random HashMap order picked the wrapper, whose
+>    payload field `value` flipped the scrutinee type and tag index).
+>    Boundary fix (`.`-qualified keys only). Repro: pre-fix 7/12 bad builds
+>    + 2 IR variants; post-fix 12/12 green + 1 hash. Locks: IR determinism
+>    (8 in-process compiles, one hash) + e2e + fixture + CI. Module
+>    `SqliteValueKind` shapes now stable; lanes re-run on v0.64.2.
 > 13. B-05 alloc/free guard spin (bindings): `xiom.ffi.alloc` in a confined
 >    block + `xiom.ffi.free` spins the guard heap (watchdog 8 s / 7.53
 >    CPU-s, flat 4.5 MB). Repro docs\repro\bindings-pilot\alloc-guard-spin
@@ -149,11 +147,11 @@
 >    (v0.64.1). RE-TESTED THIS SWEEP: B-04 (child imports parent) and B-07
 >    (module `p.ffi` importing `xiom.ffi`) GREEN in the minimal shapes;
 >    B-08 FIXED m228 (`--run` now exits with the program's code).
->    OPEN: B-01 enum-payload nondeterminism -- rate WORSENED on main
->    (7/12 bad builds vs 3/12 on release v0.64.1) and root evidence
->    captured (two IR variants; 3 fns diverge) -- now WORK QUEUE item 12;
->    B-05 alloc/free guard spin unchanged (item 13); B-02/B-03 (const
->    resolver recursion) not re-tested (rebuildable from descriptions).
+>    OPEN: B-01 enum-payload nondeterminism FIXED m231 (loose suffix match
+>    in the Field-scrutinee type lookup; pre-fix 7/12 bad builds + 2 IR
+>    variants, post-fix 12/12 + 1 hash); B-05 alloc/free guard spin
+>    unchanged (item 13); B-02/B-03 (const resolver recursion) not
+>    re-tested (rebuildable from descriptions).
 >    Workarounds stay until the lanes re-test on the v0.64.2 archive.
 > D. PULSE (E:\xiom-projects\xiom-pulse): v0.64.1 sweep -- C-PULSE-08
 >    CLOSED (dep-roots dash+dot exit 0, no source-roots workaround);
@@ -215,7 +213,7 @@
 > at E:\tmp_benchmark_results.
 >
 > KEY DOCS: docs/COMPILER_BUGS.md (relay bundles + FIXED sections
-> m199..m229 + the 2026-10-08 RELAY SWEEP matrix and the m230 OPEN entry,
+> m199..m231 + the 2026-10-08 RELAY SWEEP matrix and the m230 OPEN entry,
 > TRIAGE/RE-TEST notes near the top of the dated entries),
 > docs/STAGE6_PERF_PLAN.md item 1, SESSION.md lane blocks below (PERF,
 > m208..m221 notes, verifier design), release-notes/TEMPLATE.md +
@@ -281,13 +279,13 @@
 > B-07 ffi alias shadowing; C-PULSE-12 alias shadowing did NOT reproduce
 > (the minimal module `pulse12.server` + `use xiom.net.server` consumer
 > resolves the alias; the compile instead hits the new m230). Still open
-> with fresh evidence: B-01 enum-payload nondeterminism (two IR variants
-> per build; 3 fns diverge: SqliteValue.as_int/as_text/
-> clone_sqlite_value; bad-build rate 7/12 main vs 3/12 release) -> queue
-> item 12; B-05 alloc/free guard spin (8 s watchdog / 7.53 CPU-s) ->
-> item 13; packages Result-equality `Ok(Vec)` compares false quietly;
-> m230 encoding-import hard-fail -> item 14. XVECTOR and ORBITDB
-> findings all green on their committed bundles.
+> with fresh evidence: B-05 alloc/free guard spin (8 s watchdog / 7.53
+> CPU-s) -> item 13; packages Result-equality `Ok(Vec)` compares false
+> quietly; m230 encoding-import hard-fail -> item 14. B-01 enum-payload
+> nondeterminism FIXED m231 (loose `ends_with` matched `Option__Value` as
+> the base struct; 7/12 bad builds pre-fix, 12/12 + single IR hash
+> post-fix). XVECTOR and ORBITDB findings all green on their committed
+> bundles.
 
 ---
 

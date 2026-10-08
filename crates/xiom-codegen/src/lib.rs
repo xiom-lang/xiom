@@ -5569,7 +5569,17 @@ impl IrEmitter {
                 // scrutinee type, not `Agent`.
                 if let Some(base_type) = self.infer_struct_type_name(obj.as_ref()) {
                     for key in self.types.type_meta.keys() {
-                        if key.ends_with(&base_type) || key == base_type {
+                        // m231 (B-01): leaf match must respect a NAME BOUNDARY.
+                        // `ends_with("SqliteValue")` also matched the WRAPPER
+                        // types `Option__SqliteValue` / `Result__...__SqliteValue`
+                        // and the FIRST key in random HashMap order decided the
+                        // field lookup: when Option__SqliteValue won, the field
+                        // named `value` resolved to Option's PAYLOAD field type
+                        // (`SqliteValue` instead of `SqliteValueKind`) and the
+                        // match compared the wrong discriminant (Integer at 0
+                        // instead of 1) -- the per-build B-01 flips. Qualified
+                        // names use dots, wrappers use `__`.
+                        if *key == base_type || key.ends_with(&format!(".{}", base_type)) {
                             if let Some(meta) = self.types.type_meta.get(&key) {
                                 for (fname, ftype) in &meta.fields {
                                     if fname == &field.name {
