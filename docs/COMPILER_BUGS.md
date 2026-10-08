@@ -286,6 +286,36 @@ present), e2e `e2e_m210_vec_clone_struct_elem` + fixture
 
 ---
 
+## 2026-10-08 -- RELAY RE-TEST: XVECTOR deltas (C-02 artifact, C-04 fixed by m217) + ORBITDB all three open
+
+XVECTOR (bundles under E:\xiom-projects\xiom-xvector\docs\repro), re-tested
+on current main after the m216..m220 batch:
+- XVC-C-04 (`Result[Vec[non-scalar]]` payload) is FIXED by m217:
+  `probe_matrix.xi` struct rows now read `id=42` (scalar_int green) and the
+  direct/wrapped/inline probes are green.
+- XVC-C-02 (contract trap exits 0) is NOT a defect: the trap exits 1 on
+  v0.64.0 AND current main (Start-Process `.ExitCode`); the reported 0 came
+  from the cmd `%ERRORLEVEL%` parse-time expansion gotcha. Re-measure with
+  Start-Process `.ExitCode` or bash `$?`.
+- XVC-C-05 fixed m218, XVC-C-01 fixed m219, XVC-C-03 fixed m220 (sections
+  above).
+
+ORBITDB (bundles under E:\xiom-projects\xiom-orbitdb\docs\repro), re-tested
+on current main -- ALL THREE STILL RED:
+- C-ORBIT-01: `probe_import.xi` still fails `T001 34:16 'get_column'
+  expects 2 argument(s), found 1` (match-bound generic Result alias
+  payload loses the receiver type; m216 did NOT cover this shape).
+  `probe_only_i.xi` (annotated rebind workaround) is green.
+- C-ORBIT-02: `option-vec-assign` V1/V3/V6/V8/V9 print no variant line
+  (no arm matches after an element assignment); V2/V4/V5/V7/V10 fine.
+- C-ORBIT-03: `nested-field-mut` A=0, C=0 (B=1, D=1) -- `&mut` method
+  receivers on field projections still mutate a copy.
+
+NEXT: the ORBITDB findings are open compiler-lane work (checker generic
+alias receiver + element-assign discriminant + projection auto-ref).
+
+---
+
 ## 2026-10-08 -- FIXED: W004 false positives on bare unit-enum variants (m220, XVC-C-03)
 
 XVECTOR relay, XVC-C-03: every arm after the first in an all-unit-enum

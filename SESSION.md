@@ -98,12 +98,14 @@
 >    MEASUREMENT ARTIFACT: the trap exits 1 on v0.64.0 AND current main
 >    (Start-Process .ExitCode); the reported 0 came from the cmd
 >    `%ERRORLEVEL%` parse-time expansion gotcha -- no compiler defect.
-> B. ORBITDB (E:\xiom-projects\xiom-orbitdb): C-ORBIT-01 cross-module
->    generic Result alias payload -- RE-TEST vs m216 first; C-ORBIT-02
->    Vec[Option[T]] element assignment poisons the slot (matches neither
->    None nor Some); C-ORBIT-03 nested-field &mut method receivers mutate
->    a copy. Bundles docs/repro/{ok-method-receiver, option-vec-assign,
->    nested-field-mut}.
+> B. ORBITDB (E:\xiom-projects\xiom-orbitdb): re-tested 2026-10-08 on
+>    current main -- ALL THREE STILL RED. C-ORBIT-01 probe_import still
+>    T001 "get_column expects 2 argument(s), found 1" (m216 did NOT cover
+>    the generic-alias match-binding receiver); probe_only_i green
+>    (workaround). C-ORBIT-02 option-vec-assign: V1/V3/V6/V8/V9 print no
+>    variant line (no arm runs after an element assignment); V2/V4/V5/V7/
+>    V10 fine. C-ORBIT-03 nested-field-mut A=0 C=0 (B/D=1). Bundles
+>    docs/repro/{ok-method-receiver, option-vec-assign, nested-field-mut}.
 > C. BINDINGS lane (branch bindings, tip 1b3a8539): B-01..B-08 in
 >    docs/BINDINGS-COMPILER-FINDINGS.md + docs/repro/bindings-pilot/.
 >    B-05 alloc/free guard spin (deterministic, watchdog); B-01
