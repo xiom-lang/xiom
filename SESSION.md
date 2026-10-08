@@ -1,6 +1,102 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
+# KICKOFF PROMPT (v0.64.1 batch, 2026-10-08) -- paste from the marker
+
+> Continue the XIOM compiler lane. STATE: local main carries the v0.64.1
+> batch m199..m215 (31+ commits ahead of origin -- count with
+> `git rev-list --count origin/main..main`; NOT pushed; v0.64.0 tag
+> c68d91de is the last release). This checkout's git identity is
+> Lefteris Notas <lefterisnotas@gmail.com> (repo-local overrides the
+> global hugintech); verify identity in any other worktree before
+> committing.
+>
+> BATCH (all committed, reproduced + locked + documented):
+> m199 C-PULSE-05 const receivers; m200 rvalue Vec[Float64] index;
+> m201 multipart Ok(out) match-binding elem types (+ geom matrix/polyhedra
+> known-failures green); m202 grpc Vec[(Str,Str)] clone-tuple
+> (probe_suite_min/probe_direct green, packages finished 36/36 x2);
+> m203 iter Range.count closure-ensures leak (stdlib can re-add the
+> clause); m204 C-PULSE-07 module-scope init reachability; m205 xiom doc
+> dispatch; m206 graphql boxed enum struct payloads (conformance 10/10);
+> m207 xiom build token; m208 plain --jit serves the script cache again
+> (JIT-lane perf regression: v0.62.3 45ms -> 1900ms+ -> fixed);
+> m209 tuple-ref destructure (component refs + symmetric ref compare);
+> m210 Vec[Struct].clone elem type (0xC0000005); m211 Str::from_c_str
+> copies (io.list_dir aliasing); m212 [dependencies] -> catalog roots;
+> m213 verifier locals sorts + havoc loop summary (sufficient invariants
+> now prove; insufficient -> real countermodel); m214 --icon;
+> m215 dotted dependency keys (C-PULSE-08 acceptance gate: both
+> dep-roots-name-form/{dash,dot} variants pass xiom build AND the
+> documented xiom --check probe.xi).
+>
+> GATES on the tree: e2e 2437/0/4, feature 533/533, checker 197/197,
+> verifier 41 (7 lib + 34 integration), xiom-graph 34/34, driver lib
+> 61/61 + bin 6/6 + integration suites (2/28/5/15/4/6/34), ascii_guard
+> clean. (e2e/feature counts predate m213-m215, which touched verifier/
+> CLI/graph only.)
+>
+> FIX QUEUE (impact order; repros local):
+> 1. C-PULSE-11 -- `pub type X = PackageType` fails cross-module ("unknown
+>    type") and only WARNS "defaulting to i64" then continues (silent-
+>    miscompile class; wrapper structs work). Minimum fix: make that
+>    defaulting a hard error. Real fix: alias resolution for package
+>    types. Repro: Pulse session-adoption build log; probes under
+>    E:\xiom-projects\xiom-pulse.
+> 2. C-PULSE-10 -- kv_get returns an address-like decimal Str after
+>    kv_put; multi-key writes also corrupt kv_get_bytes. Repro
+>    docs/repro/kv-get-str-corruption/ + gate tests/probes/probe_pkg_kv.xi.
+>    Triage with the NATIVE PACKAGES lane (C-PULSE-04/05 family suspected).
+> 3. C-PULSE-09 -- Vec[SessionStore] aggregate driven from a wrapper
+>    module crashes at runtime; the same calls inline are green. Repro
+>    pair tests/probes/probe_adopt_smoke.xi (red) vs probe_session_inline.xi
+>    (green); needs a compiler-lane bisect (C-PULSE-07 family suspected).
+> 4. Verifier step 3 + full fixpoint (design: COMPILER_BUGS 2026-10-05
+>    section): over-approximation-only failures -> UNKNOWN never VIOLATED;
+>    two-state preservation; full fixpoint loop VCs. Steps 1+2 landed m213.
+> 5. t3 confined-unsafe fast path: cost sites + options recorded in the
+>    lane block below (four trampoline calls + guard enter/exit + page
+>    arm/disarm per entry; 223ms/100k; options: no-alloc fast path,
+>    #[unsafe_direct] for hot benchmark paths, single TLS entry point).
+> 6. Stage 6 true-cold AOT/JIT (--no-cache lanes): separate compilation /
+>    precompiled stdlib objects; profile + numbers in STAGE6_PERF_PLAN
+>    item 1. m208 already fixed the JIT cache-reuse regression.
+> 7. io.xi:943 multi-module false ensures -- still NOT reproduced; open
+>    pending a faithful repro.
+> 8. Checker follow-up from m204: reading a cross-module-initialized
+>    module global in a fn body trips "cannot compare <error> with Int"
+>    (typing gap, separate from the fixed codegen defect).
+>
+> LANE CONTEXT (2026-10-08): the former packages lane split into
+> (a) NATIVE PACKAGES lane (non-FFI packages: xiom.rate, xiom.kv,
+> xiom.stats, ...) and (b) BINDINGS lane (C FFI binding packages), same
+> repo. Route relay findings to the right lane and name the reporting
+> lane in compiler-side triage notes.
+>
+> SELFHOST: keep Phase 5 running in parallel in
+> .kilo/worktrees/selfhost-phase-4-codegen (session
+> ses_ef8e3a27cffeKY1Sz63tGGas2t, branch selfhost-phase-4-codegen); last
+> seen idle at ahead 8 / behind 0; after any push, rebase onto the new
+> main and keep T1/T2/diff_ir_headers green.
+>
+> RULES: repro-first; locks per fix (IR + e2e/driver + ci.yml line when
+> adding tests); cargo sequential; `python tools/ascii_guard.py check`
+> before every commit; docs coupling (COMPILER_BUGS + SESSION in the same
+> commit); atomic commits; push only on owner ask.
+>
+> TOOLING: XIOM_STDLIB=E:\xiom-lang\stdlib for stdlib probes; installed
+> packages at %LOCALAPPDATA%\xiom\packages; Pulse repros at
+> E:\xiom-projects\xiom-pulse\docs\repro\{dep-roots-name-form,
+> struct-clone, kv-get-str-corruption}; arena/benchmark assets at
+> E:\xiom-perf\lz4\bench (t1c, t3, scripting/t6); benchmark session JSONs
+> at E:\tmp_benchmark_results.
+>
+> KEY DOCS: docs/COMPILER_BUGS.md (relay bundles + FIXED sections
+> m199..m215), docs/STAGE6_PERF_PLAN.md item 1, SESSION.md lane blocks
+> below (PERF, m208..m215 notes, verifier design).
+
+---
+
 # CONTINUATION HANDOFF (2026-10-05 (2), v0.63.1 SHIPPED -- next stop v0.63.2 / v0.64.0)
 
 > STATE (2026-10-05, later): **v0.63.1 PUBLISHED** --
