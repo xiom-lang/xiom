@@ -91,37 +91,49 @@
 >    module global in a fn body trips "cannot compare <error> with Int"
 >    (typing gap, separate from the fixed codegen defect).
 >
-> RELAY QUEUE (new lanes, 2026-10-08):
-> A. XVECTOR (E:\xiom-projects\xiom-xvector): re-tested 2026-10-08 on
->    current main. XVC-C-05 FIXED m218; XVC-C-01 FIXED m219 (all three
->    fn-ref call shapes green); XVC-C-04 FIXED by m217 (probe_matrix +
->    probes green, struct rows read id=42); XVC-C-03 FIXED m220 (bare
->    unit-enum W004 false positives, checker-side, locks green).
->    XVC-C-02 is a
->    MEASUREMENT ARTIFACT: the trap exits 1 on v0.64.0 AND current main
->    (Start-Process .ExitCode); the reported 0 came from the cmd
->    `%ERRORLEVEL%` parse-time expansion gotcha -- no compiler defect.
->    XVC-C-06: FIXED m221 (ctor packs the declared width; engine probe
->    6/6 exact bits, 0 failed checks).
->    XVC-C-07 (NEW INCOMING, next release): `Str::from_utf8(&Vec[UInt8])`
->    type-checks but emits invalid LLVM IR (clang getelementptr indices);
->    by-value is correct; repro docs/repro/xv-from-utf8-vec-ref/.
-> B. ORBITDB (E:\xiom-projects\xiom-orbitdb): re-tested 2026-10-08 on
->    current main -- ALL THREE STILL RED. C-ORBIT-01 probe_import still
->    T001 "get_column expects 2 argument(s), found 1" (m216 did NOT cover
->    the generic-alias match-binding receiver); probe_only_i green
->    (workaround). C-ORBIT-02 option-vec-assign: V1/V3/V6/V8/V9 print no
->    variant line (no arm runs after an element assignment); V2/V4/V5/V7/
->    V10 fine. C-ORBIT-03 nested-field-mut A=0 C=0 (B/D=1). Bundles
->    docs/repro/{ok-method-receiver, option-vec-assign, nested-field-mut}.
-> C. BINDINGS lane (branch bindings, tip 1b3a8539): B-01..B-09 in
->    docs/BINDINGS-COMPILER-FINDINGS.md + docs/repro/bindings-pilot/.
->    B-05 alloc/free guard spin (deterministic, watchdog); B-01
->    enum-payload nondeterminism (~1/3 rebuilds); B-02/B-06 resolver
->    recursion overflows (full-catalog bisects); B-09 pure-XIOM
->    Win32/WGL context poisons the binary pre-output (deterministic
->    0xC0000409; repro win32-gl-unsafe/, the bridge is the workaround).
->    Merge to main before reading from main. ALL next-release items.
+> RELAY QUEUE (post-v0.64.1 re-tests, 2026-10-08):
+> A. XVECTOR (E:\xiom-projects\xiom-xvector): v0.64.1 re-test -- C-01,
+>    C-03, C-04, C-05, C-06 FIXED (C-06 = m221; C-02 measurement
+>    artifact). XVC-C-07 is the ONLY OPEN finding: `Str::from_utf8(
+>    &Vec[UInt8])` type-checks but emits invalid LLVM IR (clang + WSL
+>    verifier getelementptr); pass by value stays. Repro docs/repro/
+>    xv-from-utf8-vec-ref/; Addendum 3 in their docs/RELAY-COMPILER.md.
+>    Unwind candidates: SearchHits wrapper, direct dispatch, FloatVal
+>    diagnostics; pin probe probe_floatval_roundtrip.xi stays.
+> B. ORBITDB (E:\xiom-projects\xiom-orbitdb): v0.64.1 re-test -- ALL FOUR
+>    OPEN. C-ORBIT-01 match-bound Result alias receiver (4 T001 sites);
+>    C-ORBIT-02 Vec[Option[T]] element assign (V1/V3/V6/V8/V9 no arm);
+>    C-ORBIT-03 nested-field &mut receivers copy (A=0 C=0); C-ORBIT-04
+>    NEW: enum variant collision across modules (clang `%struct.WALOp` vs
+>    `%struct.WALOpKind`, IR line 71079). Lane regression clean 104/104.
+> C. BINDINGS lane (branch bindings): v0.64.1 sweep -- B-06 (up/down
+>    full-catalog crash) and B-09 (Win32/WGL 0xC0000409) FIXED. OPEN:
+>    B-01 enum-payload nondeterminism (same 2/6), B-05 alloc/free guard
+>    spin (same hang), B-08 `--run` exit masking (main returns 5 -> 0).
+>    B-02/B-03/B-04/B-07 not re-tested (pre-fix catalogs gone; rebuild-
+>    able). Workarounds stay.
+> D. PULSE (E:\xiom-projects\xiom-pulse): v0.64.1 sweep -- C-PULSE-08
+>    CLOSED (dep-roots dash+dot exit 0, no source-roots workaround);
+>    C-PULSE-10 CLOSED; C-PULSE-11 fixed (swap retry is its acceptance).
+>    C-PULSE-09 OPEN with a reduction hint: two catalog modules, A pushes
+>    a SessionStore into a module-level Vec, B calls session_count(&a_vec
+>    [0]); pre-v0.64.1 the bridge only miscompiled, now it compiles and
+>    crashes 0xC0000005 at the first cross-module access.
+> E. REGISTRY/PACKAGES: v0.64.1 accepted (flows 20/20, kv gate green).
+>    COMPILER-LANE FIX (v0.64.2): home split -- xiom-pkg installs to
+>    ~/xiom/packages while paths::xiom_home() picks ~/.local/share/xiom;
+>    unify installer home resolution with paths::xiom_home(). PULSE also
+>    reports: v0.64.1 enforces extern-unsafe confinement in catalog
+>    bodies and published xiom.http 0.1.1 violates it (67 T001s) ->
+>    decide gate-for-published-packages vs republish + breaking note.
+> F. BENCHMARK: perf budget recalibration is compiler-side (not a lane
+>    gate): v0.64.0 archive 96,802 / v0.64.1 archive 97,030 IR bytes vs
+>    the 95,000 budget -- drift predates v0.64.0; recalibrate to ~100,000
+>    and document the archive reproduction (bisect archives
+>    2026-09-24..v0.64.0 if the growth needs a source).
+> G. STDLIB: compiler v0.64.2 moves STDLIB_VERSION to the stdlib v0.64.2
+>    tag (pending stdlib-lane cut decision; v0.64.1 ships 6e60e958).
+>    release-notes/v0.64.2.md feeds the fragment merge.
 >
 > LANE CONTEXT (2026-10-08): the former packages lane split into
 > (a) NATIVE PACKAGES lane (non-FFI packages: xiom.rate, xiom.kv,
