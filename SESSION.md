@@ -1,17 +1,22 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 
-# KICKOFF PROMPT (v0.64.1 batch, 2026-10-08) -- paste from the marker
+# KICKOFF PROMPT (v0.64.2 batch, 2026-10-08) -- paste from the marker
 
-> Continue the XIOM compiler lane. STATE: v0.64.1 RELEASED 2026-10-08
-> (tag ba930943 -> commit 3c6f3bb5; release run 37775567185 success; all
-> assets published). The m199..m221 batch is in; begin with the RELAY
-> QUEUE below (C-07, ORBIT, bindings) plus the residual hard-error guard.
-> v0.64.0 tag c68d91de is the prior release. This
-> checkout's git identity is
-> Lefteris Notas <lefterisnotas@gmail.com> (repo-local overrides the
-> global hugintech); verify identity in any other worktree before
-> committing.
+> Continue the XIOM compiler lane, v0.64.2 batch. STATE: v0.64.1 was
+> RELEASED 2026-10-08 (tag ba930943 -> commit 3c6f3bb5; run 37775567185
+> success; all assets published; STDLIB_VERSION still 6e60e958). main is
+> pushed and in sync. v0.64.0 tag c68d91de is the prior release.
+> RELEASE MECHANICS: the tag must equal Cargo.toml [workspace.package]
+> version; release-notes/<tag>.json must be committed and pass
+> `cargo run --quiet -p xiom-release-notes -- convert|verify --tag <tag>
+> --stdlib <path>` BEFORE the tag; the tag workflow builds NINE tools
+> (`cargo build --release -p xiom -p xiom-pkg -p xiom-fmt -p xiom-doc -p
+> xiom-lsp -p xiom-dbg -p xiom-mcp -p xiom-verify -p xiom-ffigen`) --
+> run exactly that locally before tagging (the v0.64.1 first run failed
+> on an E0063 in xiom-mcp). This checkout's git identity is Lefteris
+> Notas <lefterisnotas@gmail.com> (repo-local overrides the global
+> hugintech); verify identity in any other worktree before committing.
 >
 > BATCH (all committed, reproduced + locked + documented):
 > m199 C-PULSE-05 const receivers; m200 rvalue Vec[Float64] index;
@@ -53,43 +58,47 @@
 > integration), xiom-graph 34/34, driver lib 61/61 + bin 6/6 + integration
 > (2/29/5/15/4/6/34), ascii_guard clean. KNOWN PRE-EXISTING RED (not a
 > blocker; in the release notes): perf_budget_fmt_peek_shape is over
-> budget at HEAD too (97,028 > 95,000 IR bytes). OPEN (next release):
-> XVC-C-07, ORBIT C-01/02/03, bindings B-01..B-09.
+> budget at HEAD too (97,028 > 95,000 IR bytes; recalibration queued).
+> OPEN items: see the post-v0.64.1 RELAY QUEUE and WORK QUEUE below.
 >
-> FIX QUEUE (impact order; repros local):
-> 1. C-PULSE-11 -- FIXED m216 (alias resolution for package types landed;
->    the "unknown type" warning was the spurious eager builtin probe in
->    llvm_type_for, now lazy). RESIDUAL: the hard-error guard for
->    GENUINELY unknown defaulting -- final fallback + the ~13 direct
->    xiom_to_llvm_type fallback sites that swallow errors into i64 --
->    still needs the error-propagation pass.
-> 2. C-PULSE-10 -- FIXED m217: nested Result[Option[Str]] payload reads
->    (`gs.value.value`) now keep the inner Str; minimal repro + copied
->    xiom.kv source green. probe_pkg_kv.xi is fully green (single-key,
->    kv_get Str path, multi-key overwrite) -- both filed defects were
->    compiler-side; the package was not at fault.
-> 3. C-PULSE-09 -- TRIAGED 2026-10-08: NOT reproducible from committed
->    sources (the crashing wrapper was an uncommitted adoption attempt,
->    reverted; Pulse HEAD has no Vec[SessionStore] wrapper). Reconstructed
->    shapes -- synthetic package + wrapper, and real xiom.session 0.1.0 +
->    wrapper (create/set/value/count/reset) -- are GREEN on v0.64.0 AND
->    current main. Needs the Pulse lane to re-run adoption on the next
->    archive and, if still red, capture the wrapper source + step log.
-> 4. Verifier step 3 + full fixpoint (design: COMPILER_BUGS 2026-10-05
->    section): over-approximation-only failures -> UNKNOWN never VIOLATED;
->    two-state preservation; full fixpoint loop VCs. Steps 1+2 landed m213.
-> 5. t3 confined-unsafe fast path: cost sites + options recorded in the
+> WORK QUEUE (v0.64.2, impact order; external lane items in the RELAY
+> QUEUE below):
+> 1. XVC-C-07 `Str::from_utf8(&Vec[UInt8])` invalid IR (ONLY open XVC
+>    finding; repro in relay block A) -- then ORBIT C-01..C-04 and the
+>    C-PULSE-09 wrapper reduction (hint in relay block D).
+> 2. Residual hard-error guard (from m216): the final fallback + ~13
+>    direct xiom_to_llvm_type sites swallow errors into i64; needs the
+>    error-propagation pass before the warning can become a hard error.
+> 3. Home split: unify the xiom-pkg installer home with
+>    paths::xiom_home() (xiom-pkg defaults to $HOME/xiom, the compiler
+>    scans candidates -- install and dependency lookup must never split).
+> 4. xiom.http 0.1.1 vs extern-unsafe confinement: gate the rule for
+>    published catalog bodies or republish the package; if the rule
+>    ships, v0.64.2 notes need a Breaking changes entry (v0.64.1 said
+>    "None").
+> 5. perf_budget_fmt_peek_shape: recalibrate to ~100,000 IR bytes and
+>    document the archive reproduction (v0.64.0 96,802 / v0.64.1 97,030;
+>    drift predates v0.64.0).
+> 6. Verifier step 3 + full fixpoint (design: COMPILER_BUGS 2026-10-05
+>    section): over-approximation-only failures -> UNKNOWN never
+>    VIOLATED; two-state preservation; full fixpoint loop VCs. Steps 1+2
+>    landed m213.
+> 7. t3 confined-unsafe fast path: cost sites + options recorded in the
 >    lane block below (four trampoline calls + guard enter/exit + page
 >    arm/disarm per entry; 223ms/100k; options: no-alloc fast path,
 >    #[unsafe_direct] for hot benchmark paths, single TLS entry point).
-> 6. Stage 6 true-cold AOT/JIT (--no-cache lanes): separate compilation /
+> 8. Stage 6 true-cold AOT/JIT (--no-cache lanes): separate compilation /
 >    precompiled stdlib objects; profile + numbers in STAGE6_PERF_PLAN
 >    item 1. m208 already fixed the JIT cache-reuse regression.
-> 7. io.xi:943 multi-module false ensures -- still NOT reproduced; open
+> 9. io.xi:943 multi-module false ensures -- still NOT reproduced; open
 >    pending a faithful repro.
-> 8. Checker follow-up from m204: reading a cross-module-initialized
+> 10. Checker follow-up from m204: reading a cross-module-initialized
 >    module global in a fn body trips "cannot compare <error> with Int"
 >    (typing gap, separate from the fixed codegen defect).
+> 11. STDLIB pin for v0.64.2: the stdlib lane cuts stdlib-v0.64.2 at the
+>    new pin (decision relayed; package.xi bump + notes fragment at the
+>    tag). Once the tag exists, move STDLIB_VERSION to it and keep
+>    release-notes/v0.64.2.md at that commit for the notes merge.
 >
 > RELAY QUEUE (post-v0.64.1 re-tests, 2026-10-08):
 > A. XVECTOR (E:\xiom-projects\xiom-xvector): v0.64.1 re-test -- C-01,
@@ -160,8 +169,11 @@
 > at E:\tmp_benchmark_results.
 >
 > KEY DOCS: docs/COMPILER_BUGS.md (relay bundles + FIXED sections
-> m199..m215), docs/STAGE6_PERF_PLAN.md item 1, SESSION.md lane blocks
-> below (PERF, m208..m215 notes, verifier design).
+> m199..m221, TRIAGE/RE-TEST notes near the top of the dated entries),
+> docs/STAGE6_PERF_PLAN.md item 1, SESSION.md lane blocks below (PERF,
+> m208..m221 notes, verifier design), release-notes/TEMPLATE.md +
+> v0.64.1.md (the shipped reference), .github/workflows/release.yml
+> (tag mechanics + notes verify).
 
 ---
 
