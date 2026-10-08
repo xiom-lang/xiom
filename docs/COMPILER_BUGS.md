@@ -286,6 +286,64 @@ present), e2e `e2e_m210_vec_clone_struct_elem` + fixture
 
 ---
 
+## 2026-10-08 -- FIXED: verifier sort gaps blocked every t8 contract obligation (m233)
+
+Owner t8 container run (run_1791481954111) reported `Results: 0 proven, 0
+violated, 4 unknown` + `no queries emitted` on `systems-contracts-arena/
+t8-safety-probe.xi` -- a harness FAIL. The three reference shapes:
+
+```
+fn cstr(s: Str) requires: s.len() > 0        -> X7007 Gt on non-numeric (None/Some("Int"))
+fn store_word(base: *mut UInt8, ...) requires: base != null   -> X7007 equality unresolved
+fn load_word(...)                    requires: base != null   -> same
+```
+
+ROOT CAUSE: `infer_sort` had no rule for builtin `len`-family methods
+(`s.len()` -> None) and no model for the `null` literal against opaque pointer
+sorts; `translate_expr` additionally routed `s.len()` to "call to unknown
+function 'len'". Every axiom was skipped -> zero queries.
+
+FIX (m233):
+1. `s.len()` on a `String`-sorted receiver now infers `Int` and emits SMT
+   `(str.len s)`.
+2. `ensure_sort_declared` + the top-level `collect_dynamic_sorts` pass give
+   every `|xiom_ptr_...|` sort a modeled null constant
+   (`(declare-const |null_xiom_ptr_UInt8| |xiom_ptr_UInt8|)`);
+   `x ==/!= null` compares via `=`/`distinct` against it (infer_sort inherits
+   the other operand's sort for the null side).
+3. Latent emission bug surfaced by (1)+(2): inferred-return fns (no `-> T`)
+   asserted `(= |result| ...)` with `|result|` UNDECLARED -- z3 would have
+   rejected the whole script the first time it ran with queries. The
+   body-return encoder now declares `|result|` once per function (per-fn
+   `latest` marker), inferred sort from the returned value.
+
+EVIDENCE:
+- t8: X7007 sort-gap warnings gone; unknowns 4 -> 1; the full SMT parses in
+  z3 clean. Verdict remains `unproven / no queries emitted` because t8 bodies
+  do raw pointer stores/loads (`*(p + word) = value`) the encoder cannot
+  model -- HONEST LIMIT: raw-memory (SMT Array) modeling is the next step,
+  tracked in the queue.
+- t1-allocator unchanged: 2 proven, 0 violated, 10 unknown, 0 errors.
+- xiom-verify: 8 unit + 34 integration green.
+- BONUS (same session): the arena C001 reducer
+  (`E:\xiom-perf\c001\reducer.xi`) is **12/12 clean** on the current tree
+  (was 3/6 failing on v0.62.4; smokes 8/20 + 12/20) -- the m231 name-boundary
+  fix removed the same hash-order nondeterminism class. Release-gate
+  exclusions for `smoke_iter_range`/`smoke_iter_find_all_any` can be dropped
+  on the next archive.
+
+LOCK: `str_len_and_pointer_null_are_modeled` (asserts `(str.len s)` emission,
+the per-sort null declaration + `distinct` comparison, no sort-gap skips, and
+z3 parses the script).
+
+RELAY: written to the benchmark lane repo
+(`E:\xiom-projects\xiom-benchmark-chaos\docs\COMPILER-RELAY-2026-10-08.md`):
+t2-t5 contract "FAIL" is a reference clause gap (zero clauses -> zero
+obligations), t3 needs the Linux lane, t8 details, and the honest safety
+recommendation (real hardened build variant, not scorer tricks).
+
+---
+
 ## 2026-10-08 -- EVENING LANE RE-SWEEP + BENCHMARK RUN
 
 Second sweep of all lanes after the m222..m232 batch, plus a manual benchmark

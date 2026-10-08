@@ -178,11 +178,21 @@
 >        `(declare-const |null|<sort>)`) unified with the known operand.
 >    t1 passes WITH unknowns, so emitting real queries is the acceptance
 >    path; harness-visible `Exit code: -1` is the unproven/no-query class.
-> 19. Verifier sort inference (from item 18/t8): implement (a) and (b)
->    above in crates/xiom-verify with locks -- expected flip of the t8
->    contracts verdict from no-queries to emitted obligations; re-run
->    `xiom-verify --check` on reference/systems-contracts-arena/t8 and the
->    owner's arena task. Also re-measure t3 hot-reload on Linux after.
+> 19. [DONE m233] Verifier sort inference (from item 18/t8): `s.len()`
+>    emits `(str.len s)`; pointer sorts get modeled null constants
+>    (`|null_xiom_ptr_UInt8|`) so `base != null` emits `distinct`; plus a
+>    latent inferred-return `|result|`-undeclared emission bug that would
+>    have poisoned the first z3 run with queries. t8: 4->1 unknown, SMT
+>    z3-clean; verdict stays unproven HONESTLY (raw pointer loads/stores
+>    in bodies are unmodeled -- next step: SMT Array memory model).
+>    t1 unchanged 2/0/10/0; xiom-verify 8+34 green. LOCK:
+>    str_len_and_pointer_null_are_modeled.
+>    BONUS: arena C001 reducer 12/12 clean (was ~50% failing) -- m231
+>    same hash-order class; bench lane can drop the two smoke exclusions.
+>    RELAY: E:\xiom-projects\xiom-benchmark-chaos\docs\
+>    COMPILER-RELAY-2026-10-08.md (t2-t5 zero-clause reference gap; t3
+>    Linux re-measure; honest safety read: no sanitizer -> 30/100, real
+>    hardened variant is the path, no scoring tricks).
 >
 > RELAY QUEUE (post-v0.64.1 re-tests, 2026-10-08):
 > A. XVECTOR (E:\xiom-projects\xiom-xvector): v0.64.1 re-test -- C-01,
@@ -273,7 +283,7 @@
 > at E:\tmp_benchmark_results.
 >
 > KEY DOCS: docs/COMPILER_BUGS.md (relay bundles + FIXED sections
-> m199..m232 + the 2026-10-08 RELAY SWEEP matrix and the m230 OPEN entry,
+> m199..m233 + the 2026-10-08 RELAY SWEEP matrix and the m230 OPEN entry,
 > TRIAGE/RE-TEST notes near the top of the dated entries),
 > docs/STAGE6_PERF_PLAN.md item 1, SESSION.md lane blocks below (PERF,
 > m208..m221 notes, verifier design), release-notes/TEMPLATE.md +

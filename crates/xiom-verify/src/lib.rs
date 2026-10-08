@@ -180,6 +180,13 @@ pub struct SMTGenerator {
     obligation_counter: u64,
     /// Dynamic (`|xiom_...|`) sorts already declared via ensure_sort_declared.
     declared_sorts: HashSet<String>,
+    /// T8 sort-gap fix (2026-10-08): per-POINTER-sort `null` constants,
+    /// declared at top level when the pointer sort is declared
+    /// (`|xiom_ptr_UInt8|` -> `|null_xiom_ptr_UInt8|`). Without a modeled
+    /// null, `base != null` (`requires` of the t8 store_word/load_word)
+    /// resolved to "equality with unresolved operand sort" and every t8
+    /// obligation was skipped (zero queries -> harness unproven).
+    null_consts: HashMap<String, String>,
     /// Receiver value-sort -> &T coercion, keyed by the POINTER sort:
     /// (coercion function name, expected value sort). Declared at top level
     /// by `collect_dynamic_sorts`; the call translator wraps a value-sorted
@@ -212,6 +219,7 @@ impl SMTGenerator {
             consts: Vec::new(),
             obligation_counter: 0,
             declared_sorts: HashSet::new(),
+            null_consts: HashMap::new(),
             ref_coercions: HashMap::new(),
             report: GenReport::default(),
         }
@@ -234,6 +242,13 @@ impl SMTGenerator {
         }
         if self.declared_sorts.insert(sort.to_string()) {
             self.emit(&format!("(declare-sort {} 0)", sort));
+            // T8 sort-gap fix: give every pointer sort a modeled null so
+            // `x != null` / `x == null` are well-sorted at the compare site.
+            if sort.starts_with("|xiom_ptr_") {
+                let null_name = format!("|null_{}|", sort.trim_matches('|'));
+                self.emit(&format!("(declare-const {} {})", null_name, sort));
+                self.null_consts.insert(sort.to_string(), null_name);
+            }
         }
     }
 
@@ -503,6 +518,14 @@ impl SMTGenerator {
         for s in sorts {
             if self.declared_sorts.insert(s.clone()) {
                 self.emit(&format!("(declare-sort {} 0)", s));
+                // T8 sort-gap fix: pointer sorts also get a modeled null
+                // (this top-level pass is what actually declares fn-signature
+                // sorts; ensure_sort_declared covers the other call sites).
+                if s.starts_with("|xiom_ptr_") {
+                    let null_name = format!("|null_{}|", s.trim_matches('|'));
+                    self.emit(&format!("(declare-const {} {})", null_name, s));
+                    self.null_consts.insert(s.clone(), null_name);
+                }
             }
         }
         self.emit("");
@@ -790,6 +813,10 @@ impl SMTGenerator {
             self.ensure_sort_declared(&sort);
             self.emit(&format!("(declare-const |result| {})", sort));
             self.var_sort_map.insert("result".to_string(), sort);
+            // Per-function marker (latest is cleared per function): the
+            // body-return fallback must not redeclare |result| in this scope
+            // and MUST declare it for inferred-return fns.
+            self.latest.insert("result".to_string(), "|result|".to_string());
         }
         // Method receiver: contracts reference `self` (field selectors on the
         // receiver). Only type invariants used to declare |self|, so every
@@ -1187,6 +1214,22 @@ impl SMTGenerator {
                             self.emit(&format!("; return skipped: {}", reason))
                         }
                         None => {
+                            // Inferred-return fns (no `-> T` annotation)
+                            // still assert on |result| -- declare it in THIS
+                            // function's scope or z3 rejects the whole script
+                            // ("unknown constant result"; the t8 gap test
+                            // surfaced it: cstr was annotated, store_word
+                            // was not). `latest` is per-function, so this
+                            // fires exactly once per inferred-return fn and
+                            // never duplicates the annotated-fn declaration.
+                            if !self.latest.contains_key("result") {
+                                let sort = self.infer_sort(expr)
+                                    .unwrap_or_else(|| "|xiom_unknown|".to_string());
+                                self.ensure_sort_declared(&sort);
+                                self.emit(&format!("(declare-const |result| {})", sort));
+                                self.var_sort_map.insert("result".to_string(), sort);
+                                self.latest.insert("result".to_string(), "|result|".to_string());
+                            }
                             if ft == "true" {
                                 self.emit(&format!("(assert (= |result| {}))", val));
                             } else {
@@ -1281,8 +1324,21 @@ impl SMTGenerator {
                 _ => self.infer_sort(inner),
             },
             Expr::Binary(l, op, r, _) => {
-                let lt = self.infer_sort(l)?;
-                let rt = self.infer_sort(r)?;
+                let mut lt = self.infer_sort(l);
+                let mut rt = self.infer_sort(r);
+                // T8 sort-gap fix: `x != null` -- the `null` literal inherits
+                // the other operand's sort (a modeled `|null_...|` constant
+                // exists for pointer sorts; see ensure_sort_declared).
+                if matches!(op, BinOp::Eq | BinOp::Neq) {
+                    if lt.is_none() && is_null_expr(l) {
+                        if let Some(b) = rt.clone() { lt = Some(b); }
+                    }
+                    if rt.is_none() && is_null_expr(r) {
+                        if let Some(a) = lt.clone() { rt = Some(a); }
+                    }
+                }
+                let lt = lt?;
+                let rt = rt?;
                 if lt != rt {
                     return None;
                 }
@@ -1295,6 +1351,17 @@ impl SMTGenerator {
                 }
             }
             Expr::Call(func, ..) | Expr::GenericCall(func, ..) => {
+                // T8 sort-gap fix: builtin `x.len()` on a Str receiver is
+                // Int (SMT-LIB `str.len`). Without this, `s.len() > 0`
+                // (cstr's `requires`) resolved to a non-numeric operand and
+                // the obligation was skipped.
+                if let Expr::Field(obj, field, _) = func.as_ref() {
+                    if field.name == "len"
+                        && self.infer_sort(obj).as_deref() == Some("String")
+                    {
+                        return Some("Int".to_string());
+                    }
+                }
                 let name = call_callee_name(func)?;
                 let (_, ret) = self.fn_sigs.get(&name)?;
                 ret.clone()
@@ -1520,6 +1587,24 @@ impl SMTGenerator {
                     return;
                 }
                 if matches!(op, BinOp::Eq | BinOp::Neq) {
+                    // T8 sort-gap fix: `x ==/!= null` against a MODELED
+                    // pointer sort compares against the per-sort null
+                    // constant (|null_xiom_ptr_...|) instead of skipping the
+                    // obligation as "unresolved operand sort".
+                    if is_null_expr(left) || is_null_expr(right) {
+                        let other: &Expr = if is_null_expr(left) { right.as_ref() } else { left.as_ref() };
+                        if let Some(nc) = self.infer_sort(other)
+                            .as_ref()
+                            .and_then(|s| self.null_consts.get(s))
+                            .cloned()
+                        {
+                            let op_str = if *op == BinOp::Eq { "=" } else { "distinct" };
+                            self.buf.push_str(&format!("({} ", op_str));
+                            self.translate_expr(other);
+                            self.buf.push_str(&format!(" {})", nc));
+                            return;
+                        }
+                    }
                     match (&ls, &rs) {
                         (Some(a), Some(b)) if a != b => {
                             self.mark_unsupported(format!("equality across sorts {a} vs {b}"));
@@ -1634,6 +1719,19 @@ impl SMTGenerator {
                 }
             }
             Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => {
+                // T8 sort-gap fix: builtin `s.len()` on a Str receiver emits
+                // the SMT-LIB `str.len` application (Int) instead of falling
+                // to "call to unknown function 'len'".
+                if let Expr::Field(obj, field, _) = func.as_ref() {
+                    if field.name == "len" && args.is_empty()
+                        && self.infer_sort(obj).as_deref() == Some("String")
+                    {
+                        self.buf.push_str("(str.len ");
+                        self.translate_expr(obj);
+                        self.buf.push(')');
+                        return;
+                    }
+                }
                 // Only calls to KNOWN signatures translate; unknown callees
                 // would emit undeclared symbols (z3 hard error).
                 let callee = call_callee_name(func);
@@ -1728,6 +1826,11 @@ fn call_callee_name(func: &Expr) -> Option<String> {
         Expr::Ident(id) => Some(id.name.clone()),
         _ => None,
     }
+}
+
+/// T8 sort-gap fix: the `null` pointer sentinel literal in comparisons.
+fn is_null_expr(e: &Expr) -> bool {
+    matches!(e, Expr::Ident(id) if id.name == "null")
 }
 
 /// Short human kind tag for unsupported expressions.
@@ -2419,5 +2522,54 @@ ensures: result == phantom_value
             matches!(garbage.as_slice(), [VerifyResult::Error { .. }]),
             "unparseable non-empty output must stay an Error, got: {garbage:?}"
         );
+    }
+
+    /// T8 sort-gap fix (2026-10-08): `s.len() > 0` and `base != null` used to
+    /// skip as X7007 ("Gt on non-numeric operands" / "equality with unresolved
+    /// operand sort"), so the whole t8 contract track emitted ZERO queries.
+    /// `Str.len` now maps to SMT `str.len` (Int) and every pointer sort gets a
+    /// modeled `null` constant compared with `distinct`.
+    #[test]
+    fn str_len_and_pointer_null_are_modeled() {
+        let (smt, report) = generate(
+            r#"
+module verify_t8_sort_gaps
+
+pub fn cstr(s: Str) -> Int
+requires: s.len() > 0
+{
+  return 1;
+}
+
+pub fn store_word(base: *mut UInt8, word: Int, value: Int)
+requires: base != null
+{
+  return 0;
+}
+"#,
+        );
+        assert!(
+            smt.contains("(> (str.len s) 0)"),
+            "Str.len must emit the SMT str.len application:\n{smt}"
+        );
+        assert!(
+            smt.contains("(declare-const |null_xiom_ptr_UInt8| |xiom_ptr_UInt8|)"),
+            "pointer sorts must get a modeled null constant:\n{smt}"
+        );
+        assert!(
+            smt.contains("(distinct base |null_xiom_ptr_UInt8|)"),
+            "`base != null` must compare against the modeled null:\n{smt}"
+        );
+        assert!(
+            !report.skipped.iter().any(|s| {
+                s.reason.contains("non-numeric operands")
+                    || s.reason.contains("unresolved operand sort")
+            }),
+            "no sort-gap skips may remain: {:?}",
+            report.skipped
+        );
+        if let Some(ok) = z3_parses(&smt) {
+            assert!(ok, "z3 rejected the generated SMT:\n{smt}");
+        }
     }
 }
