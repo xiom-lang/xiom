@@ -57,7 +57,11 @@ pub struct CompilerConfig {
 #[derive(Debug, Deserialize)]
 struct ManifestToml {
     project: Option<ProjectToml>,
-    dependencies: Option<std::collections::BTreeMap<String, DependencyToml>>,
+    /// Raw TOML value: `[dependencies]` entries are flattened by
+    /// `dependencies_from_toml` so DOTTED keys (`xiom.rate = "0.2"`) keep
+    /// their canonical name instead of deserializing into a nested table
+    /// (`{ xiom: { rate: ... } }`) that silently became dependency `xiom`.
+    dependencies: Option<toml::Value>,
     compiler: Option<CompilerToml>,
 }
 
@@ -72,17 +76,58 @@ struct ProjectToml {
     source_roots: Option<Vec<String>>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum DependencyToml {
-    /// `dependency = "1.0"`
-    Short(String),
-    /// `dependency = { version = "1.0", path = "../lib" }`
-    Full {
-        version: Option<String>,
-        path: Option<String>,
-        git: Option<String>,
-    },
+/// C-PULSE-08: flatten a `[dependencies]` TOML value into specs.
+///
+/// Handles both flat forms (`dep = "1.0"`,
+/// `dep = { version = "1.0", path = "../lib" }`) and the canonical DOTTED
+/// key form (`xiom.rate = "0.2"`), which TOML parses as nested tables:
+/// the name is reconstructed as `parent.child`. Tables carrying any of
+/// `version`/`path`/`git` are treated as spec tables; other tables are
+/// dotted-key nesting and are walked recursively.
+fn dependencies_from_toml(value: &toml::Value) -> Vec<DependencySpec> {
+    fn walk(prefix: &str, value: &toml::Value, out: &mut Vec<DependencySpec>) {
+        match value {
+            toml::Value::Table(table) => {
+                let is_spec = table.contains_key("version")
+                    || table.contains_key("path")
+                    || table.contains_key("git");
+                if is_spec {
+                    out.push(DependencySpec {
+                        name: prefix.to_string(),
+                        version: table
+                            .get("version")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("*")
+                            .to_string(),
+                        path: table.get("path").and_then(|v| v.as_str()).map(str::to_string),
+                        git: table.get("git").and_then(|v| v.as_str()).map(str::to_string),
+                    });
+                } else {
+                    for (key, child) in table {
+                        let full = if prefix.is_empty() {
+                            key.clone()
+                        } else {
+                            format!("{prefix}.{key}")
+                        };
+                        walk(&full, child, out);
+                    }
+                }
+            }
+            toml::Value::String(version) => out.push(DependencySpec {
+                name: prefix.to_string(),
+                version: version.clone(),
+                path: None,
+                git: None,
+            }),
+            _ => {}
+        }
+    }
+
+    let mut specs = Vec::new();
+    if matches!(value, toml::Value::Table(_)) {
+        walk("", value, &mut specs);
+    }
+    specs
 }
 
 #[derive(Debug, Deserialize)]
@@ -196,24 +241,8 @@ fn parse_xiom_toml(path: &Path) -> Result<ProjectManifest, GraphError> {
 
     let dependencies = manifest
         .dependencies
-        .map(|deps| {
-            deps.into_iter()
-                .map(|(name, spec)| match spec {
-                    DependencyToml::Short(version) => DependencySpec {
-                        name,
-                        version,
-                        path: None,
-                        git: None,
-                    },
-                    DependencyToml::Full { version, path, git } => DependencySpec {
-                        name,
-                        version: version.unwrap_or_else(|| "*".to_string()),
-                        path,
-                        git,
-                    },
-                })
-                .collect()
-        })
+        .as_ref()
+        .map(dependencies_from_toml)
         .unwrap_or_default();
 
     let compiler = match manifest.compiler {
@@ -386,7 +415,11 @@ fn dependency_roots_under(
             candidates.push(base.join("src"));
         } else {
             let packages = xiom_home.join("packages");
-            let prefix = format!("{}-", dep.name);
+            // C-PULSE-08: registry dirs use DASHES (`xiom-rate-0.2.0`) while
+            // the canonical manifest key may be dotted (`xiom.rate`), so match
+            // on the dash-normalized name as well as the verbatim name.
+            let dashed = dep.name.replace('.', "-");
+            let prefixes = [format!("{dashed}-"), format!("{}-", dep.name)];
             let requested = if dep.version.trim().is_empty() || dep.version.trim() == "*" {
                 None
             } else {
@@ -396,11 +429,16 @@ fn dependency_roots_under(
             if let Ok(entries) = std::fs::read_dir(&packages) {
                 for entry in entries.flatten() {
                     let path = entry.path();
-                    if !path.is_dir() {
+                    if !path.is_dir() || matches.contains(&path) {
                         continue;
                     }
                     let dir_name = entry.file_name().to_string_lossy().to_string();
-                    let Some(ver) = dir_name.strip_prefix(&prefix) else { continue };
+                    let Some(ver) = prefixes
+                        .iter()
+                        .find_map(|p| dir_name.strip_prefix(p.as_str()))
+                    else {
+                        continue;
+                    };
                     if let Some(req) = requested {
                         if !ver.starts_with(req) {
                             continue;
@@ -412,7 +450,9 @@ fn dependency_roots_under(
             // Deterministic "newest": lexicographic max of the version dirs.
             matches.sort();
             if let Some(latest) = matches.pop() {
-                let named = latest.join(&dep.name);
+                // The installer names the package dir after the DASH form.
+                let named = latest.join(&dashed);
+                let named = if named.is_dir() { named } else { latest.join(&dep.name) };
                 let base = if named.is_dir() { named } else { latest };
                 candidates.push(base.clone());
                 candidates.push(base.join("src"));
@@ -497,7 +537,8 @@ xiom-vulkan = "0.5"
 "#;
         let manifest: ManifestToml = toml::from_str(toml_content).unwrap();
         assert_eq!(manifest.project.as_ref().unwrap().name.as_deref(), Some("test_app"));
-        assert!(manifest.dependencies.as_ref().unwrap().contains_key("xiom-vulkan"));
+        let deps = dependencies_from_toml(manifest.dependencies.as_ref().unwrap());
+        assert!(deps.iter().any(|d| d.name == "xiom-vulkan" && d.version == "0.5"));
     }
 
     #[test]
@@ -591,14 +632,48 @@ name = "test"
 [dependencies]
 dep_a = "1.0"
 dep_b = { version = "2.0", path = "../lib" }
+xiom.rate = "0.2.0"
 "#;
         let manifest: ManifestToml = toml::from_str(toml_content).unwrap();
-        let deps = manifest.dependencies.unwrap();
-        assert_eq!(deps.len(), 2);
+        let deps = dependencies_from_toml(manifest.dependencies.as_ref().unwrap());
+        assert_eq!(deps.len(), 3, "deps: {deps:?}");
+        assert!(deps.iter().any(|d| d.name == "dep_a" && d.version == "1.0"));
+        assert!(deps
+            .iter()
+            .any(|d| d.name == "dep_b" && d.version == "2.0" && d.path.as_deref() == Some("../lib")));
+        // C-PULSE-08: dotted keys keep their canonical name (TOML parses
+        // `xiom.rate = ...` as a nested table; it used to become dep `xiom`).
+        assert!(
+            deps.iter().any(|d| d.name == "xiom.rate" && d.version == "0.2.0"),
+            "dotted key lost: {deps:?}"
+        );
+    }
 
-        match &deps["dep_a"] {
-            DependencyToml::Short(v) => assert_eq!(v, "1.0"),
-            _ => panic!("expected short form"),
-        }
+    // C-PULSE-08: a dotted dependency key must match the DASH-named
+    // installed directory (`xiom.rate` -> `xiom-rate-0.2.0/xiom-rate`).
+    #[test]
+    fn dotted_dependency_matches_dashed_install_dir() {
+        let dir = std::env::temp_dir().join(format!("xiom_m215_{}", std::process::id()));
+        let home = dir.join("home");
+        let pkg = home
+            .join("packages")
+            .join("xiom-rate-0.2.0")
+            .join("xiom-rate");
+        std::fs::create_dir_all(pkg.join("src")).unwrap();
+        let manifest = ProjectManifest {
+            project: ProjectMeta { name: "app".into(), ..Default::default() },
+            dependencies: vec![DependencySpec {
+                name: "xiom.rate".into(),
+                version: "0.2.0".into(),
+                path: None,
+                git: None,
+            }],
+            compiler: CompilerConfig::default(),
+            manifest_dir: dir.clone(),
+        };
+        let roots = dependency_roots_under(&manifest, &dir, &home);
+        assert!(roots.contains(&pkg), "dotted key must find the dash dir: {roots:?}");
+        assert!(roots.contains(&pkg.join("src")), "dotted key src root: {roots:?}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

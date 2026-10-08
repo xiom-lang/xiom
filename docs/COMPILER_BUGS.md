@@ -286,6 +286,47 @@ present), e2e `e2e_m210_vec_clone_struct_elem` + fixture
 
 ---
 
+## 2026-10-08 -- FIXED: [dependencies] dotted keys + relay C-PULSE-09/10/11 (m215, C-PULSE-08)
+
+Pulse relay, C-PULSE-08: `dependency_roots_under` (m212) matched `dep.name`
+verbatim, so the canonical DOTTED key (`xiom.rate`) could never match the
+dash-named installed dir (`xiom-rate-0.2.0/`); the m212 unit tests covered
+dash-form keys only. Worse, the TOML parser silently flattened the dotted
+key into a NESTED table (`{ xiom: { rate: ... } }`), so the dependency was
+recorded as name `xiom`, version `*` -- it matched `xiom-*` dirs by
+accident and would mis-match any future `xiom-*` package.
+
+FIX (m215): `dependencies_from_toml` flattens the raw `[dependencies]` TOML
+value, reconstructing canonical dotted names (`parent.child`) and treating
+tables with version/path/git as specs; `dependency_roots_under` matches the
+dash-normalized name (`xiom.rate` -> `xiom-rate-`) as well as the verbatim
+name, and probes both dash and dotted inner package dirs.
+
+EVIDENCE: Pulse repro `docs/repro/dep-roots-name-form/{dash,dot}` -- both
+`xiom build` and the documented `xiom --check probe.xi` now exit 0 with
+"Type check PASSED" (pre-fix: T001 undefined variable / no roots). Unit
+tests: dotted keys keep their canonical name; a dotted dependency finds the
+dash-named install dir and its `src/`; xiom-graph 34/34.
+
+RELAY (same batch, OPEN):
+- C-PULSE-09: a `Vec[SessionStore]` package aggregate driven from a PULSE
+  wrapper module crashes at runtime while the same calls inline are green
+  (`tests/probes/probe_adopt_smoke.xi` red vs `probe_session_inline.xi`
+  green); suspected C-PULSE-07 family (module-state vs package aggregates);
+  needs a compiler-lane bisect.
+- C-PULSE-10: `kv_get` returns an address-like decimal Str for every key
+  after `kv_put` (multi-key writes also corrupt `kv_get_bytes`); repro
+  `docs/repro/kv-get-str-corruption/`, gate `tests/probes/probe_pkg_kv.xi`;
+  possible package-internal Str construction miscompile (C-PULSE-04/05
+  family) -- packages + compiler lanes to triage.
+- C-PULSE-11: `pub type Store = SessionStore;` (alias to a PACKAGE type) is
+  "unknown type 'Store'" cross-module, and the build only emits
+  `warning: unknown type 'Store' -- defaulting to i64` before continuing --
+  a silent-miscompile class; wrapper structs work. At minimum the
+  defaulting warning must become a hard error; the alias should resolve.
+
+---
+
 ## 2026-10-07 -- FIXED: graphql boxed enum struct-payload fields read 0 (m206, packages relay)
 
 Packages relay: the `xiom-graphql` conformance suite ran 9/10 -- `validate

@@ -535,6 +535,22 @@
 >     locks regress_m211 + e2e_m211; CI line. STILL OPEN from this item:
 >     `io.xi:943` multi-module ensures NOT reproduced with a 2-module probe
 >     (stays open pending a faithful repro).
+> 17. [DONE m215] C-PULSE-08: [dependencies] dotted keys. Parser now
+>     reconstructs `xiom.rate` from TOML nested tables; roots matcher
+>     normalizes dots->dashes for installed dirs. Both repro variants
+>     (`dep-roots-name-form/{dash,dot}`) pass `xiom build` AND the
+>     documented `xiom --check probe.xi` (exit 0). Locks: dotted parse +
+>     dotted-vs-dash-dir unit tests; xiom-graph 34/34.
+> 18. OPEN (Pulse relay 2026-10-08): C-PULSE-09 package-aggregate wrapper
+>     crash (`probe_adopt_smoke.xi` red vs `probe_session_inline.xi`
+>     green); needs a bisect (C-PULSE-07 family suspected).
+> 19. OPEN (Pulse relay): C-PULSE-10 kv_get address-like Str after
+>     kv_put (+ kv_get_bytes corruption); repro `docs/repro/
+>     kv-get-str-corruption/`, gate `probe_pkg_kv.xi`; triage with
+>     packages (C-PULSE-04/05 family suspected).
+> 20. OPEN (Pulse relay): C-PULSE-11 `pub type X = PackageType` fails
+>     cross-module and silently defaults to i64 (warning only). Minimum
+>     fix: hard error on the defaulting path; real fix: alias resolution.
 > 16. RELAY TO STDLIB (owner asked): re-add `ensures: result >= 0` to
 >     `Range.count` (m203 fixed the closure-thunk clause leak); the
 >     known_failures `p_rvalue_float_vec_index` (m200),
