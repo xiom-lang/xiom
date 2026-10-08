@@ -286,6 +286,32 @@ present), e2e `e2e_m210_vec_clone_struct_elem` + fixture
 
 ---
 
+## 2026-10-08 -- TRIAGE (open): XVC-C-06 f32 enum payloads read as 0 in larger units
+
+XVECTOR relay addendum (same family as XVC-C-05): `FieldValue.FloatVal(x)`
+payloads extract as 0.0 with the tag intact in larger units (suite form
+`float_bits(FloatVal(10.0))` = 0; engine probe
+`diag FloatVal(2.5) roundtrip bits=0 (expected 4612811918334230528)`).
+
+RE-TEST on Windows (current main vs v0.64.0 release):
+- engine probe `tests/probes/probe_filtered_search.xi`: 6/6 bits=0 on BOTH
+  compilers (deterministic here; the lane saw 2/3 red on v0.64.0).
+- minimal direct form (`enum FV { FloatVal(f: Float32) }`, construct +
+  match-extract + float_bits): GREEN 3/3 on BOTH compilers -- the simple
+  shape is not the trigger; the lane's "needs the larger unit" stands.
+- NOT a batch regression: v0.64.0 behaves identically.
+
+Also observed once in 13 builds: spurious
+`error[T001]: catalog body [xiom.vector.engine] 921:13:
+'wal_writer_checkpoint_from' expects 2 argument(s), found 3` -- an
+intermittent checker catalog flake; not reproduced in 12 subsequent builds.
+Watch item for the release gate.
+
+NEXT: reduce the engine-unit trigger (f32 payload through the engine's
+payload_set/get path); distinguish compiler vs package-side before fixing.
+
+---
+
 ## 2026-10-08 -- RELAY RE-TEST: XVECTOR deltas (C-02 artifact, C-04 fixed by m217) + ORBITDB all three open
 
 XVECTOR (bundles under E:\xiom-projects\xiom-xvector\docs\repro), re-tested

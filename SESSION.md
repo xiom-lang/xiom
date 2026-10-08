@@ -98,6 +98,12 @@
 >    MEASUREMENT ARTIFACT: the trap exits 1 on v0.64.0 AND current main
 >    (Start-Process .ExitCode); the reported 0 came from the cmd
 >    `%ERRORLEVEL%` parse-time expansion gotcha -- no compiler defect.
+>    XVC-C-06 (addendum, same family): f32 enum payloads read as 0 in
+>    larger units; re-tested 2026-10-08 -- engine probe 6/6 bits=0 on
+>    main AND v0.64.0 (pre-existing; minimal direct shape green 3/3 on
+>    both) -> needs reduction; NOT a batch regression. One 1-in-13
+>    spurious T001 catalog-body flake (wal_writer_checkpoint_from, engine
+>    unit) -- watch item for the release gate.
 > B. ORBITDB (E:\xiom-projects\xiom-orbitdb): re-tested 2026-10-08 on
 >    current main -- ALL THREE STILL RED. C-ORBIT-01 probe_import still
 >    T001 "get_column expects 2 argument(s), found 1" (m216 did NOT cover
