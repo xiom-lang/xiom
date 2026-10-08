@@ -2787,15 +2787,33 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     if matches!(fn_name.as_str(), "from_utf8" | "from_bytes")
                         && arg_ty.starts_with("%struct.")
                     {
-                        let vec_tmp = self.fresh_tmp();
-                        self.emitln(&format!("  {vec_tmp} = alloca {arg_ty}, align 16"));
-                        self.emitln(&format!("  store {arg_ty} {arg_val}, {arg_ty}* {vec_tmp}, align 16"));
+                        // m222 (XVC-C-07): a REFERENCE argument (`Str::from_utf8(
+                        // &bytes)`) arrives as `%struct.Vec*`. The field GEPs must
+                        // go through the POINTEE struct; the old code alloca'd the
+                        // pointer value and used the pointer type as the aggregate,
+                        // emitting `getelementptr %struct.Vec*, %struct.Vec** %slot,
+                        // i32 0, i32 0` -- LLVM rejects the second index into a
+                        // plain pointer ("invalid getelementptr indices"). The
+                        // by-value form (`%struct.Vec`) keeps the alloca path.
+                        let (vec_ref, agg_ty) = match arg_ty.strip_suffix('*') {
+                            Some(pointee)
+                                if pointee.starts_with("%struct.") && !pointee.ends_with('*') =>
+                            {
+                                (arg_val, pointee.to_string())
+                            }
+                            _ => {
+                                let vec_tmp = self.fresh_tmp();
+                                self.emitln(&format!("  {vec_tmp} = alloca {arg_ty}, align 16"));
+                                self.emitln(&format!("  store {arg_ty} {arg_val}, {arg_ty}* {vec_tmp}, align 16"));
+                                (vec_tmp, arg_ty.clone())
+                            }
+                        };
                         let data_gep = self.fresh_tmp();
-                        self.emitln(&format!("  {data_gep} = getelementptr {arg_ty}, {arg_ty}* {vec_tmp}, i32 0, i32 0"));
+                        self.emitln(&format!("  {data_gep} = getelementptr {agg_ty}, {agg_ty}* {vec_ref}, i32 0, i32 0"));
                         let data_ptr = self.fresh_tmp();
                         self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_gep}"));
                         let len_gep = self.fresh_tmp();
-                        self.emitln(&format!("  {len_gep} = getelementptr {arg_ty}, {arg_ty}* {vec_tmp}, i32 0, i32 1"));
+                        self.emitln(&format!("  {len_gep} = getelementptr {agg_ty}, {agg_ty}* {vec_ref}, i32 0, i32 1"));
                         let len_val = self.fresh_tmp();
                         self.emitln(&format!("  {len_val} = load i64, i64* {len_gep}"));
                         let str_tmp = self.fresh_tmp();

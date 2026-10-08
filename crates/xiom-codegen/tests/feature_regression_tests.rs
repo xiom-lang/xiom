@@ -7521,3 +7521,32 @@ fn main() -> Int {
         "m221: the ctor must not pack the raw double bits; got:\n{ir}"
     );
 }
+
+// m222 (XVC-C-07): `Str::from_utf8(&Vec[UInt8])` -- a reference argument
+// arrives as `%struct.Vec*`; the old intrinsic path alloca'd the pointer and
+// GEP'd the fields through it as if the pointer VALUE were the struct, emitting
+// `getelementptr %struct.Vec*, %struct.Vec** %slot, i32 0, i32 0` (clang/LLVM:
+// "invalid getelementptr indices" -- the second index steps into a plain
+// pointer). The fields must be read through the POINTEE struct of the
+// reference; the by-value form keeps its alloca path.
+#[test]
+fn regress_m222_from_utf8_vec_ref() {
+    let source = r#"
+fn main() -> Int {
+  var kb = Vec[UInt8].new();
+  kb.push(65u8);
+  var s = Str::from_utf8(&kb);
+  if s == "A" { return 0; }
+  return 1;
+}
+"#;
+    let ir = compile(source).expect("m222: from_utf8(&Vec) must compile");
+    assert!(
+        !ir.contains("getelementptr %struct.Vec*, %struct.Vec**"),
+        "m222: a reference must not be GEP'd as if the pointer value were the struct; got:\n{ir}"
+    );
+    assert!(
+        ir.contains("call i8* @xiom_str_from_vec"),
+        "m222: from_utf8(&Vec) must still lower to the owned-Str copy (xiom_str_from_vec); got:\n{ir}"
+    );
+}

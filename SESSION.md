@@ -63,9 +63,9 @@
 >
 > WORK QUEUE (v0.64.2, impact order; external lane items in the RELAY
 > QUEUE below):
-> 1. XVC-C-07 `Str::from_utf8(&Vec[UInt8])` invalid IR (ONLY open XVC
->    finding; repro in relay block A) -- then ORBIT C-01..C-04 and the
->    C-PULSE-09 wrapper reduction (hint in relay block D).
+> 1. [DONE m222] XVC-C-07 `Str::from_utf8(&Vec[UInt8])` invalid IR (ONLY
+>    open XVC finding; repro in relay block A) -- then ORBIT C-01..C-04 and
+>    the C-PULSE-09 wrapper reduction (hint in relay block D).
 > 2. Residual hard-error guard (from m216): the final fallback + ~13
 >    direct xiom_to_llvm_type sites swallow errors into i64; needs the
 >    error-propagation pass before the warning can become a hard error.
@@ -103,9 +103,10 @@
 > RELAY QUEUE (post-v0.64.1 re-tests, 2026-10-08):
 > A. XVECTOR (E:\xiom-projects\xiom-xvector): v0.64.1 re-test -- C-01,
 >    C-03, C-04, C-05, C-06 FIXED (C-06 = m221; C-02 measurement
->    artifact). XVC-C-07 is the ONLY OPEN finding: `Str::from_utf8(
->    &Vec[UInt8])` type-checks but emits invalid LLVM IR (clang + WSL
->    verifier getelementptr); pass by value stays. Repro docs/repro/
+>    artifact). XVC-C-07 (the ONLY OPEN finding) is FIXED m222 -- see the
+>    lane block above: `Str::from_utf8(
+>    &Vec[UInt8])` type-checks but emitted invalid LLVM IR (clang + WSL
+>    verifier getelementptr); pass by value stays supported. Repro docs/repro/
 >    xv-from-utf8-vec-ref/; Addendum 3 in their docs/RELAY-COMPILER.md.
 >    Unwind candidates: SearchHits wrapper, direct dispatch, FloatVal
 >    diagnostics; pin probe probe_floatval_roundtrip.xi stays.
@@ -174,6 +175,23 @@
 > m208..m221 notes, verifier design), release-notes/TEMPLATE.md +
 > v0.64.1.md (the shipped reference), .github/workflows/release.yml
 > (tag mechanics + notes verify).
+>
+> COMPILER LANE (2026-10-08, v0.64.2 batch): m222 FIXED -- XVC-C-07
+> `Str::from_utf8(&Vec[UInt8])` emitted invalid LLVM IR (clang "invalid
+> getelementptr indices" at xiominput.ll:648; WSL LLVM verifier same
+> shape). ROOT CAUSE: the from_utf8/from_bytes builtin intercept fired on
+> `arg_ty.starts_with("%struct.")`, which also matches REFERENCES
+> (`%struct.Vec*`): it alloca'd the pointer value and GEP'd the fields with
+> the pointer type as the aggregate -- the second index steps into a plain
+> pointer, which LLVM rejects. FIX: single-level `%struct.*` pointer args
+> read ptr/len through the POINTEE struct directly; by-value keeps the
+> alloca path; from_bytes shares the branch. REPRO: XVECTOR
+> docs/repro/xv-from-utf8-vec-ref/probe.xi -- pre-fix clang exit 1;
+> post-fix compile exit 0 + run exit 0. LOCKS:
+> regress_m222_from_utf8_vec_ref (IR) + e2e_m222_from_utf8_vec_ref +
+> fixture + CI line. Gates: feature 539/539; targeted e2e 1/1. Next in this
+> batch: ORBIT C-01..C-04, then the C-PULSE-09 wrapper reduction hint,
+> then the remaining WORK QUEUE items.
 
 ---
 

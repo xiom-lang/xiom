@@ -286,6 +286,47 @@ present), e2e `e2e_m210_vec_clone_struct_elem` + fixture
 
 ---
 
+## 2026-10-08 -- FIXED: Str::from_utf8(&Vec[UInt8]) emitted invalid LLVM IR (m222, XVC-C-07)
+
+XVECTOR relay Addendum 3: XVC-C-07 was the only open XVC finding on v0.64.1.
+`Str::from_utf8(&kb)` type-checks but clang rejects the module:
+
+```
+xiominput.ll:648:40: error: invalid getelementptr indices
+  648 |   %tmp68 = getelementptr %struct.Vec*, %struct.Vec** %tmp67, i32 0, i32 0
+```
+
+(WSL LLVM verifier: same shape at out/r07_lin.exe.ll:648.) Passing the Vec by
+value stays supported and was the stdlib workaround.
+
+ROOT CAUSE: the `from_utf8`/`from_bytes` builtin intercept (call.rs) fired on
+`arg_ty.starts_with("%struct.")`, which also matches REFERENCE types
+(`%struct.Vec*`). It alloca'd a slot of the POINTER type, stored the pointer,
+then GEP'd the fields with the pointer type as the aggregate:
+`getelementptr %struct.Vec*, %struct.Vec** %slot, i32 0, i32 0` -- the second
+index steps into a plain pointer, which LLVM rejects. The value at the slot is
+already the address of the struct; no pointer-level GEP is needed.
+
+FIX (m222): a single-level `%struct.*` pointer argument reads ptr/len through
+the POINTEE struct directly
+(`getelementptr %struct.Vec, %struct.Vec* %ref, i32 0, {0, 1}`); struct VALUE
+arguments keep the alloca path (and the owned-Str copy via
+`xiom_str_from_vec` is unchanged for both). `from_bytes` shares the branch and
+is fixed identically.
+
+EVIDENCE (repro `docs/repro/xv-from-utf8-vec-ref/probe.xi`, XVECTOR):
+pre-fix clang exit 1 at line 648; post-fix compile exit 0, run exit 0
+(`Str::from_utf8(&kb) == "A"`), IR now `getelementptr %struct.Vec,
+%struct.Vec* %tmp21, i32 0, {0,1}` feeding `xiom_str_from_vec`.
+
+LOCKS: `regress_m222_from_utf8_vec_ref` (IR: no
+`getelementptr %struct.Vec*, %struct.Vec**`, `xiom_str_from_vec` call present),
+e2e `e2e_m222_from_utf8_vec_ref` + fixture
+(`tests/regression/m222_from_utf8_vec_ref/`: by-ref + by-value + `from_bytes`),
+CI line. Gates: feature 539/539; targeted e2e 1/1.
+
+---
+
 ## 2026-10-08 -- FIXED: Float32 enum payloads packed as double bits (m221, XVC-C-06)
 
 XVECTOR relay addendum: `FieldValue.FloatVal(2.5)` decoded as 0.0 with the

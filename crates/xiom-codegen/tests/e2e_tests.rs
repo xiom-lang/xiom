@@ -6001,6 +6001,18 @@ fn e2e_safety_probe() {
     );
 }
 
+// m222 (XVC-C-07): `Str::from_utf8(&Vec[UInt8])` used to emit invalid LLVM IR
+// (`getelementptr %struct.Vec*, %struct.Vec** %slot, i32 0, i32 0`); the
+// reference form, the by-value form and `from_bytes(&Vec)` must all build and
+// return the exact string.
+#[test] fn e2e_m222_from_utf8_vec_ref() {
+    assert_eq!(
+        compile_and_run("tests/regression/m222_from_utf8_vec_ref/main.xi"),
+        Some(0),
+        "Str::from_utf8 on a &Vec[UInt8] must build and produce the exact string (m222)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {
