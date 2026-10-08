@@ -3144,21 +3144,22 @@ impl IrEmitter {
         }
         if let Expr::Field(base, field_expr, _) = container {
             let base_ty = self.infer_struct_type_name(base)?;
-            for key in self.types.type_meta.keys() {
-                if key.ends_with(&base_ty) || key == base_ty {
-                    if let Some(meta) = self.types.type_meta.get(&key) {
-                        for (fname, ftype) in &meta.fields {
-                            if fname == &field_expr.name {
-                                return match ftype.as_str() {
-                                    "Vec[Float32]" => Some("float"),
-                                    "Vec[Float64]" | "Vec[Float]" => Some("double"),
-                                    _ => None,
-                                };
-                            }
-                        }
-                    }
-                    break;
-                }
+            // XVC-C-05 (m218): resolve the field's declared type through the
+            // deterministic helper. The old scan iterated type_meta (HashMap
+            // order) and BROKE on the first key whose name ended with the base
+            // type -- a generated aggregate such as `Option__Vector` (fields
+            // tag/payload, no `data`) could shadow `Vector`, the field lookup
+            // missed, None was returned and the index read fell to the scalar
+            // elem_load; `a.data[i] * b.data[i]` then multiplied the f32 BIT
+            // PATTERNS as i64 and sitofp'd the product (~50% of compiles,
+            // RandomState). declared_field_type searches all matching keys,
+            // prefers exact/qualified hits and skips generated aggregates.
+            if let Some(ftype) = self.declared_field_type(&base_ty, &field_expr.name) {
+                return match ftype.as_str() {
+                    "Vec[Float32]" => Some("float"),
+                    "Vec[Float64]" | "Vec[Float]" => Some("double"),
+                    _ => None,
+                };
             }
         }
         None

@@ -286,6 +286,46 @@ present), e2e `e2e_m210_vec_clone_struct_elem` + fixture
 
 ---
 
+## 2026-10-08 -- FIXED: Float32 Vec-field elements multiplied as bit patterns (m218, XVC-C-05)
+
+XVECTOR relay, XVC-C-05 (critical): per-build nondeterministic lowering --
+`a.data[i] * b.data[i]` on `Vec[Float32]` struct fields (vector_dot) could
+multiply the f32 BIT PATTERNS as i64 and sitofp the product
+(0x3F666666 x 0x3F800000 -> 1.13e18), flipping red/green per compilation
+(comment-only byte changes and --sequential included, Windows and WSL).
+Measured on current main before the fix: 2/3 binary builds red; 4/8 emit-ir
+runs red.
+
+ROOT CAUSE (IR evidence): `vec_elem_float_type`'s Field arm iterated
+`type_meta` in HashMap order and BROKE on the first key whose name ended
+with the base type. `Vector` registers bare in the engine lane, and the
+generated aggregate `Option__Vector` (fields tag/payload, no `data`) is also
+a suffix match: when it won the race the field lookup missed, the function
+returned None and the index read fell to the scalar elem_load (raw i64), so
+the multiply lowered as `mul i64` + `sitofp`. The class was already
+documented at `declared_field_type` (smoke_error2, round-7) -- this call
+site kept the old scan.
+
+FIX (m218): the Field arm resolves through the deterministic
+`declared_field_type(base_ty, field)` helper (exact/qualified first, skips
+generated aggregates, returns the field from the first meta that actually
+contains it) before mapping Vec[Float32]/Vec[Float64] to float/double.
+
+EVIDENCE: the XVECTOR probe (xv-f32-int-miscompile/probe_failing.xi) on
+current main post-fix: 6/6 builds exact `dot=4606281698659794944` (0.9) and
+`cos=4573701602539470848`, including `--sequential`; pre-fix 2/3 red with
+`dot=4877244244697284608` (integer product). Header-less regression fixture
+reproduced the collision pre-fix 5/6 red, post-fix stable (fmul, no sitofp).
+
+LOCKS: `regress_m218_vec_float_field_lookup` (IR: `fmul float` present, no
+`sitofp` in the dot body), e2e + fixture + CI line. Gates: feature 536/536;
+targeted e2e 8/8.
+
+NOTE: the other XVECTOR bundles are re-tested separately (XVC-C-01/02/03/04,
+ORBITDB C-ORBIT-01/02/03); results tracked in SESSION.
+
+---
+
 ## 2026-10-08 -- TRIAGE (open): C-PULSE-09 wrapper-aggregate crash not reproducible from committed sources
 
 Pulse relay, C-PULSE-09: a `Vec[SessionStore]` aggregate driven from a PULSE

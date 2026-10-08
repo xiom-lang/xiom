@@ -7380,3 +7380,58 @@ fn main() -> Int {
         "m217: the inner .value read must inttoptr the payload to i8*; got:\n{ir}"
     );
 }
+
+// m218 (XVC-C-05): `a.data[i] * b.data[i]` on a `Vec[Float32]` struct field
+// must emit `fmul float` -- pre-fix `vec_elem_float_type`'s Field arm broke
+// on the first type_meta key ending with the base type (HashMap order), so
+// the generated `Option__Vector` aggregate could shadow `Vector` and the f32
+// bit patterns were multiplied as i64 + sitofp'd. Header-less on purpose:
+// the engine lane registers `Vector` bare (a file module header would prefix
+// the key and hide the collision).
+#[test]
+fn regress_m218_vec_float_field_lookup() {
+    let source = r#"
+type Vector = {
+  data: Vec[Float32];
+  dimension: Int;
+}
+fn mk_vec(a: Float32, b: Float32) -> Vector {
+  var d: Vec[Float32] = Vec[Float32].new();
+  d.push(a);
+  d.push(b);
+  return Vector { data: d, dimension: 2 };
+}
+fn maybe(v: Vector) -> Option[Vector] {
+  return Some(v);
+}
+fn dot(a: &Vector, b: &Vector) -> Float32 {
+  var sum: Float32 = 0.0;
+  var i: Int = 0;
+  while i < a.dimension {
+    sum = sum + a.data[i] * b.data[i];
+    i = i + 1;
+  }
+  return sum;
+}
+fn main() -> Int {
+  let a = mk_vec(0.9, 1.0);
+  let b = mk_vec(1.0, 2.0);
+  let c = mk_vec(3.0, 4.0);
+  let m = maybe(c);
+  if m.is_none { return 2; }
+  let d = dot(&a, &b);
+  return 0;
+}
+"#;
+    let ir = compile(source).expect("m218: float field vec must compile");
+    let dot_body = ir.split("define float @dot(").nth(1).expect("m218: dot body missing");
+    let dot_body = dot_body.split("\ndefine ").next().unwrap_or(dot_body);
+    assert!(
+        dot_body.contains("fmul float"),
+        "m218: the field element multiply must be float math; got:\n{ir}"
+    );
+    assert!(
+        !dot_body.contains("sitofp"),
+        "m218: the f32 bit patterns must not be multiplied as integers; got:\n{ir}"
+    );
+}

@@ -5970,6 +5970,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// m218 (XVC-C-05): Float32 arithmetic on a Vec[Float32] struct field must not
+// fall to the scalar int element path when a generated aggregate
+// (`Option__Vector`) shadows the struct key in the HashMap suffix scan.
+#[test] fn e2e_m218_vec_float_field_lookup() {
+    assert_eq!(
+        compile_and_run("tests/regression/m218_vec_float_field_lookup/main.xi"),
+        Some(0),
+        "Vec[Float32] struct-field elements must multiply as floats (m218)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

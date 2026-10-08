@@ -4,7 +4,7 @@
 # KICKOFF PROMPT (v0.64.1 batch, 2026-10-08) -- paste from the marker
 
 > Continue the XIOM compiler lane. STATE: local main carries the v0.64.1
-> batch m199..m217 (31+ commits ahead of origin -- count with
+> batch m199..m218 (31+ commits ahead of origin -- count with
 > `git rev-list --count origin/main..main`; NOT pushed; v0.64.0 tag
 > c68d91de is the last release). This checkout's git identity is
 > Lefteris Notas <lefterisnotas@gmail.com> (repo-local overrides the
@@ -34,16 +34,20 @@
 > the spurious "unknown type" warning. Guard for GENUINELY unknown
 > defaulting still open; m217 C-PULSE-10 nested Option/Result payload
 > chains (`c.value.value` keeps the inner Str; probe_pkg_kv acceptance
-> gate fully green -- the kv defect was compiler-side, not the package).
+> gate fully green -- the kv defect was compiler-side, not the package);
+> m218 XVC-C-05 Float32 Vec-field elements (`vec_elem_float_type` Field arm
+> now uses the deterministic declared_field_type helper; Option__Vector can
+> no longer shadow Vector and force integer bit-pattern math). XVECTOR
+> probe 6/6 exact post-fix.
 >
-> GATES on the tree: e2e 2437/0/4, feature 535/535 (533 pre-m216 + the
-> m216/m217 locks), checker 197/197, verifier 41 (7 lib + 34 integration),
-> xiom-graph 34/34, driver lib 61/61 + bin 6/6 + integration suites
-> (2/28/5/15/4/6/34), ascii_guard clean. m216/m217 targeted e2e 12/12.
+> GATES on the tree: e2e 2437/0/4, feature 536/536 (533 pre-m216 + the
+> m216/m217/m218 locks), checker 197/197, verifier 41 (7 lib + 34
+> integration), xiom-graph 34/34, driver lib 61/61 + bin 6/6 + integration
+> suites (2/28/5/15/4/6/34), ascii_guard clean. m218 targeted e2e 8/8.
 > (e2e/feature counts predate m213-m215, which touched verifier/CLI/graph
-> only; feature re-ran after m216/m217.) KNOWN PRE-EXISTING RED:
+> only; feature re-ran after m218.) KNOWN PRE-EXISTING RED:
 > perf_budget_fmt_peek_shape is over budget at HEAD too (97,028 > 95,000
-> IR bytes) -- batch drift, not m216/m217.
+> IR bytes) -- batch drift, not m216/m217/m218.
 >
 > FIX QUEUE (impact order; repros local):
 > 1. C-PULSE-11 -- FIXED m216 (alias resolution for package types landed;
@@ -79,6 +83,27 @@
 > 8. Checker follow-up from m204: reading a cross-module-initialized
 >    module global in a fn body trips "cannot compare <error> with Int"
 >    (typing gap, separate from the fixed codegen defect).
+>
+> RELAY QUEUE (new lanes, 2026-10-08):
+> A. XVECTOR (E:\xiom-projects\xiom-xvector): XVC-C-05 FIXED m218
+>    (Float32 Vec-field bit-pattern math, nondeterministic). OPEN:
+>    XVC-C-01 `&fn()` call emits invalid IR / (*f)() crashes; XVC-C-02 a
+>    runtime requires violation prints and exits 0 (silent-green CI);
+>    XVC-C-03 W004 false "unreachable arm" on unit enums; XVC-C-04
+>    Result[Vec[non-scalar]] payload loses element fields -- RE-TEST vs
+>    m217 first. Bundles under docs/repro/ (five; re-run all at archive).
+> B. ORBITDB (E:\xiom-projects\xiom-orbitdb): C-ORBIT-01 cross-module
+>    generic Result alias payload -- RE-TEST vs m216 first; C-ORBIT-02
+>    Vec[Option[T]] element assignment poisons the slot (matches neither
+>    None nor Some); C-ORBIT-03 nested-field &mut method receivers mutate
+>    a copy. Bundles docs/repro/{ok-method-receiver, option-vec-assign,
+>    nested-field-mut}.
+> C. BINDINGS lane (branch bindings, tip 1b3a8539): B-01..B-08 in
+>    docs/BINDINGS-COMPILER-FINDINGS.md + docs/repro/bindings-pilot/.
+>    B-05 alloc/free guard spin (deterministic, watchdog); B-01
+>    enum-payload nondeterminism (~1/3 rebuilds); B-02/B-06 resolver
+>    recursion overflows (full-catalog bisects). Merge to main before
+>    reading from main.
 >
 > LANE CONTEXT (2026-10-08): the former packages lane split into
 > (a) NATIVE PACKAGES lane (non-FFI packages: xiom.rate, xiom.kv,
