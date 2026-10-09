@@ -6110,6 +6110,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// m236 (m230): the stdlib prelude must load when a USER module imports a
+// stdlib module; otherwise the imported catalog body checks without core
+// container declarations and hard-fails (3x T001 in xiom.encoding).
+#[test] fn e2e_m236_user_stdlib_prelude() {
+    assert_eq!(
+        compile_and_run("tests/regression/m236_user_stdlib_prelude/main.xi"),
+        Some(0),
+        "user-module stdlib imports must trigger the catalog prelude (m236)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

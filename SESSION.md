@@ -120,16 +120,15 @@
 >    CPU-s, flat 4.5 MB). Repro docs\repro\bindings-pilot\alloc-guard-spin
 >    (watchdog required). Fix direction: guard-aware free or refuse libc
 >    free of guard pointers.
-> 14. m230 OPEN (found in the sweep, pre-existing on v0.64.1): a non-main
->    module importing `xiom.encoding` (or `xiom.net.server`, which pulls
->    it) hard-fails with 3 catalog-body T001s at encoding.xi 409/419/466
->    (`tmp.get(j)`); same import from MAIN passes. Root cause (traced):
->    the import chain MAIN -> user module -> stdlib never triggers the
->    stdlib catalog PRELOAD, so the isolated per-body check runs without
->    the core container declarations (`Vec.get`) and the check_call
->    fallback hard-fails. Repro tmp\sweep2\pulse12\{h3,main_h3}.xi; trace
->    + fix direction in COMPILER_BUGS m230 (needs a focused pass -- the
->    per-body isolation must not be half-broken).
+> 14. [DONE m236] m230 fixed: the stdlib catalog prelude was gated on the
+>    ENTRY program's own `use` list, so `MAIN -> user module -> use
+>    xiom.encoding;` never loaded core/collections and the imported
+>    catalog body hard-failed (3x T001 at encoding.xi 409/419/466). Gate
+>    now also follows the transitive graph (cached_loaded/modules xiom
+>    keys). Repro pre-fix exit 1 (re-verified via stash) -> post-fix exit
+>    0; direct-import and net.server chains green. LOCK: e2e_m236 +
+>    multi-file fixture + CI. Gates: checker 197/197 + locks 29/29;
+>    feature 546/546; e2e 2453/0/4; drivers green.
 > 15. [DONE m234] XVC-C-08 fixed: `vec_elem_storage_size` summed fields
 >    without LLVM alignment padding (Elem5 52 vs real 56; Float32 before
 >    the 8-aligned Vec field). New `xiom_type_align` + padded field loop;
@@ -288,8 +287,8 @@
 > at E:\tmp_benchmark_results.
 >
 > KEY DOCS: docs/COMPILER_BUGS.md (relay bundles + FIXED sections
-> m199..m235 + the 2026-10-08 RELAY SWEEP matrix and the m230 OPEN entry,
-> TRIAGE/RE-TEST notes near the top of the dated entries),
+> m199..m236 + the 2026-10-08 RELAY SWEEP matrix, TRIAGE/RE-TEST notes
+> near the top of the dated entries),
 > docs/STAGE6_PERF_PLAN.md item 1, SESSION.md lane blocks below (PERF,
 > m208..m221 notes, verifier design), release-notes/TEMPLATE.md +
 > v0.64.1.md (the shipped reference), .github/workflows/release.yml

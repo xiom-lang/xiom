@@ -670,7 +670,37 @@ LOCKS: IR `regress_m229_is_payload_literal` (`and i1` present), e2e
 
 ---
 
-## 2026-10-08 -- OPEN: user-module import of xiom.encoding hard-fails on latent catalog-body T001s (m230)
+## 2026-10-08 -- FIXED: stdlib prelude missed transitive user-module imports (m236, was m230 OPEN)
+
+The m230 finding below ("user-module import of xiom.encoding hard-fails") is
+fixed. ROOT CAUSE: the stdlib catalog PRELUDE force-load (core / string /
+collections / trim-lower-upper, which supplies `Vec.get` and friends) was
+gated on the ENTRY program's own `use` list (`uses_xiom_stdlib` over
+`import_snapshot`). In the chain `MAIN -> user module -> use xiom.encoding;`
+the entry program imports only the user module, so the prelude never loaded;
+the on-demand catalog-body check of `xiom.encoding` then ran with only the
+encoding family registered and hard-failed under strict catalog findings:
+3x `T001 cannot call 'get' on this expression` at encoding.xi 409/419/466.
+
+FIX (m236): the prelude gate now also follows the transitive graph --
+`uses_xiom_stdlib ||= cached_loaded has any xiom key || self.modules has any
+xiom key`. User modules that reach stdlib (directly or via `xiom.net.server`
+etc.) load the same prelude the entry path loads.
+
+EVIDENCE: repro `tmp/sweep2/pulse12/{h3.xi,main_h3.xi}` pre-fix exit 1 with
+the 3 T001s (re-verified by stashing the fix: identical errors) -> post-fix
+compile+run exit 0; direct main import (`main_dir_enc.xi`) unchanged PASSED;
+the `xiom.net.server` chain (`main_h2.xi`) also green.
+
+LOCK: e2e `e2e_m236_user_stdlib_prelude` + multi-file fixture
+(`tests/regression/m236_user_stdlib_prelude/`: user module imports
+xiom.encoding, entry imports only the user module; proven red pre-fix, green
+post-fix), CI line. GATES: xiom-check 197/197 + checker_locks 29/29; feature
+546/546; full e2e 2453/0/4; driver suites 61/6/2/29/5/15/4/7/34.
+
+---
+
+## 2026-10-08 -- OPEN (FIXED m236 above): user-module import of xiom.encoding hard-fails on latent catalog-body T001s (m230)
 
 Found during the v0.64.2 relay sweep; **pre-existing** (the v0.64.1 release
 binary reproduces identically).

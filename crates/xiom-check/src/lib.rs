@@ -3066,6 +3066,14 @@ impl Checker {
         //
         // Gated strictly on real stdlib usage: no non-stdlib program (and none of
         // the exact-IR diff/e2e examples, which never `use xiom.*`) is affected.
+        // m236 (m230 fix): the prelude decision must follow the TRANSITIVE
+        // import graph, not just the entry program's use list. When the chain
+        // goes MAIN -> user module -> `xiom.encoding`, main's uses are not
+        // `xiom.*`, so the prelude (core/string/collections) never loaded and
+        // the on-demand body check of encoding ran without the core container
+        // declarations (`Vec.get`), hard-failing strict catalog findings.
+        // Any `xiom*` key already reached by the catalog worklist/module map
+        // means stdlib code is in the graph -- force the prelude too.
         let uses_xiom_stdlib = import_snapshot
             .iter()
             .any(|ud| {
@@ -3075,7 +3083,9 @@ impl Checker {
                     ud.path.first().map(|i| i.name == "xiom").unwrap_or(false)
                 };
                 first
-            });
+            })
+            || self.cached_loaded.iter().any(|k| k == "xiom" || k.starts_with("xiom."))
+            || self.modules.keys().any(|k| k == "xiom" || k.starts_with("xiom."));
         if uses_xiom_stdlib {
             const PRELUDE: &[&[&str]] = &[
                 &["xiom", "core"],
