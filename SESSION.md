@@ -1,5 +1,106 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
-<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
+# KICKOFF PROMPT (v0.64.2 RELEASE-BLOCKED handoff, 2026-10-09) -- paste from the marker
+
+> Continue the XIOM compiler lane, repo E:\xiom-lang\xiom (working dir).
+> STATE: v0.64.1 released 2026-10-08. The v0.64.2 batch m222..m236 is
+> COMMITTED ON LOCAL MAIN (HEAD after the release-prep commit d29f3715)
+> and NOT pushed and NOT released. Release prep IS committed locally:
+> workspace version = 0.64.2 (Cargo.toml), STDLIB_VERSION moved to the
+> stdlib-v0.64.2 tag commit 4dd884423ab7ea39a3962630d1ea2552bfd16a2d,
+> release-notes/v0.64.2.md + .json (6 highlights) committed. DO NOT TAG OR
+> PUSH until ALL FOUR blockers below are fixed and the gates are green.
+>
+> RELEASE BLOCKERS (owner: fix ALL before any tag):
+> 1. Deep container equality (queue item 20): `==`/`!=` on containers is
+>    pointer identity -- `Vec[Int] == Vec[Int]` is false for equal vecs and
+>    `Ok(Vec) == Ok(Vec)` compares boxed handles. Implement content
+>    equality for Vec/Str plus Option/Result payload recursion (Map/Set are
+>    lookup-based -- design first). Acceptance: tmp\sweep2\pkg\res_eq.xi
+>    (packages res_eq probe), a Vec[Int] and Vec[Str] equality fixture with
+>    empty/non-empty and nested cases, both `==` and `!=`. ONE coherent
+>    pass with IR+e2e locks; wrong `==` is a silent-wrong-answer class.
+> 2. Lane-side follow-ups (verify each before release; fix any
+>    compiler-side piece that surfaces): M7 stdlib `Iterator[T]`
+>    declaration (relayed, E:\xiom-lang\stdlib\docs\
+>    COMPILER-RELAY-2026-10-09.md); B-05 guard free spin (runtime/stdlib
+>    lane, same relay file); packages discard-unsafe exact repro + grpc
+>    ambiguity (their lane); t3 hot-reload Linux re-measure; benchmark
+>    t2-t5 reference clause gap (relayed 2026-10-08).
+> 3. Verifier v2 -- SMT Array memory model: t8-safety-probe body VCs must
+>    emit real queries (today honest `unproven / no queries`; m233 fixed
+>    the sort gaps so the SMT is z3-clean). Model `*mut T` reads/writes as
+>    SMT arrays; wire store_word/load_word bodies and the `base != null`
+>    requires; acceptance = `xiom-verify --check` on t8 emits >=1 real
+>    check-sat with meaningful results (proven or honest unknowns) and no
+>    z3 errors.
+> 4. NEW wave-96 stdlib findings -- reproduce FIRST, fix, lock:
+>    a) tools/known_failures/p_array_zip_no_truncate.xi (stdlib repo):
+>       array_zip does not truncate for M<N; emits N pairs and reads b[M]
+>       OOB; the `if M < count { count = M; }` branch is never taken;
+>       clause restricted to N<=M. Acceptance: `afix.array_zip(&[1,2,3],
+>       &[7,8]).len() == 2`, plus M==0 and N<=M control cases.
+>    b) array.fold with a ZERO-LENGTH `[0]Int` passed BY VALUE miscompiles
+>       at clang (`[0 x i64]` vs i64); candidate finding, probe dropped
+>       from the wave (block 80). Repro-first, then fix (zero-length fixed
+>       arrays probably must lower to their element type in param
+>       position).
+>
+> FINAL BATCH (all committed with locks): m222 XVC-C-07; m223 C-ORBIT-01;
+> m224 C-ORBIT-03; m225 C-ORBIT-04; m226 C-ORBIT-02; m227 C-PULSE-09;
+> m228 B-08; m229 packages is-literal; m231 B-01 determinism (closed the
+> arena C001 reducer 12/12); m232 home split; m233 verifier sort gaps;
+> m234 XVC-C-08 stride padding; m235 C-ORBIT-05 alloca hoist; m236
+> transitive stdlib prelude (closed m230). Docs: docs/COMPILER_BUGS.md
+> dated entries + this file's queue items 15-21.
+>
+> GATES BEFORE TAG (run on the FINAL tree after all blockers are fixed,
+> in this order; the post-prep-tree run was intentionally NOT done):
+>   cargo test -p xiom-codegen --test e2e_tests
+>   cargo test -p xiom-codegen --test feature_regression_tests
+>   cargo test -p xiom-check ; cargo test -p xiom --test checker_locks
+>   cargo test -p xiom-verify ; cargo test -p xiom-graph ; cargo test -p xiom
+>   Known pre-existing red: perf_budget_fmt_peek_shape (recalibration
+>   queued). IMPORTANT: run e2e WITHOUT XIOM_STDLIB set (the override makes
+>   the compiler scan two stdlib copies -> spurious W001 -> e2e_m17 red).
+>
+> RELEASE MECHANICS once all blockers are green (tag must equal the
+> workspace version 0.64.2; notes JSON is already committed):
+>   cargo build --release -p xiom -p xiom-pkg -p xiom-fmt -p xiom-doc
+>     -p xiom-lsp -p xiom-dbg -p xiom-mcp -p xiom-verify -p xiom-ffigen
+>   git push origin main ; git tag v0.64.2 ; git push origin v0.64.2
+>   (push only on owner ask; verify tag == version; watch the release run.)
+>
+> Rules (non-negotiable): repro-first; one lock per fix (IR test + e2e or
+> driver test + ci.yml line when adding tests); cargo sequential; run
+> `python tools/ascii_guard.py check` before every commit; docs coupling
+> (COMPILER_BUGS.md + SESSION.md in the same commit); atomic conventional
+> commits. Verify git identity (repo-local Lefteris Notas
+> <lefterisnotas@gmail.com>) before committing in any other worktree.
+>
+> SELFHOST LANE (must continue IN PARALLEL -- do not block or drop it):
+> tracking in docs/SELFHOST_PROGRESS.md + docs/SELFHOST_PLAN.md.
+> DONE: Phase 1 lexer (worktree .kilo/worktrees/selfhost-phase-1-lexer,
+> branch selfhost-phase-1-lexer, HEAD 0831ee6f, canonical --dump-tokens
+> gate green); Phase 2 parser (worktree selfhost-phase-2-parser, branch
+> selfhost-phase-2-parser, HEAD 60731523, arena parser port + diff_ast
+> gate green). NEXT: Phase 3 checker (worktree selfhost-phase-3-checker)
+> and Phase 4 codegen (selfhost-phase-4-codegen). Before running a phase's
+> gates, rebase/merge its worktree onto current main so it picks up the
+> m222..m236 fixes; verify repo-local git identity in each worktree before
+> committing there. Gate commands are in docs/SELFHOST_PROGRESS.md
+> ("Running the gates"): `cargo test -p xiom-codegen --test
+> full_diff_tests` (TIER 1), `$env:XIOM_SELFHOST_DIFF_TIER=2` (T2), `=3`
+> (T3 phase completion), plus the skeleton build
+> `target/debug/xiom.exe -o target/selfhost/xiomc-self.exe
+> selfhost/src/main.xi` + `--selfcheck` and the Phase 1/2 parity spot
+> checks. Advance whichever phase is unblocked whenever the compiler-lane
+> blockers allow; report progress in SELFHOST_PROGRESS.md.
+>
+> Read docs/COMPILER_BUGS.md 2026-10-08/09 entries + this file's
+> RELEASE-BLOCKED block before starting; the older v0.64.2 kickoff block
+> below is historical.
 
 # KICKOFF PROMPT (v0.64.2 batch, 2026-10-08) -- paste from the marker
 

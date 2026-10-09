@@ -670,6 +670,29 @@ LOCKS: IR `regress_m229_is_payload_literal` (`and i1` present), e2e
 
 ---
 
+## 2026-10-09 -- OPEN (stdlib lane, wave-96): array_zip does not truncate + [0]Int by value
+
+Two findings relayed from the stdlib lane's wave-96 array probes. NOT yet
+reproduced by the compiler lane; the probes are in the stdlib repo.
+
+1. `tools/known_failures/p_array_zip_no_truncate.xi` -- `array_zip` does not
+   truncate to the shorter array. Expected: `array_zip([1,2,3], [7,8])`
+   returns 2 pairs. Observed on v0.64.1: 3 pairs (N, not min(N, M)); the
+   `if M < count { count = M; }` branch is never taken, so with M < N the
+   function reads `b[M]` OUT OF BOUNDS. With M == 0 it still emits N pairs;
+   only the N <= M direction truncates. The wave-96 `array_zip` clause is
+   restricted to N <= M until fixed, and any fixed-array zip consumer with
+   unequal lengths must not be trusted. Suspect: the count-min branch's
+   condition lowering (or a checker/codegen mismatch on the branch), to be
+   confirmed repro-first. Repro: `afix.array_zip(&a3, &b2)` with 3/2 lengths,
+   `z.len() != 2` -> rc 1.
+2. CANDIDATE (block 80): `array.fold` with a ZERO-LENGTH fixed array passed
+   BY VALUE miscompiles at clang (`[0 x i64]` vs `i64`); the probe was
+   dropped from the wave. Repro-first, then decide fix (zero-length fixed
+   arrays probably lower to their element type in param position).
+
+---
+
 ## 2026-10-08 -- FIXED: stdlib prelude missed transitive user-module imports (m236, was m230 OPEN)
 
 The m230 finding below ("user-module import of xiom.encoding hard-fails") is
