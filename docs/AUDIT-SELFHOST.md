@@ -11,8 +11,9 @@
 
 **Honest Rating: 3/10 for TRUE self-hosting. 8/10 for the Rust-hosted compiler.**
 
-The SESSION.md claims "Self-hosting readiness: 10/10". This is inaccurate.
-The Rust-hosted compiler (xiom.exe) is production-grade and can compile any XIOM
+An earlier internal status note claimed "Self-hosting readiness: 10/10";
+that claim was inaccurate and has been withdrawn. The Rust-hosted compiler
+(xiom.exe) is production-grade and can compile any XIOM
 source file, including all selfhost/*.xi attempts. However, the XIOM-written
 compiler in selfhost/ cannot compile itself WITHOUT the C runtime doing the
 actual codegen work. True self-hosting requires the XIOM compiler, written in
@@ -295,7 +296,9 @@ Every M19 bug fix re-tested through the selfhost compiler path:
 
 ---
 
-## CURRENT SESSION.md CORRECTION NEEDED
+## READINESS RATING CORRECTION
 
-SESSION.md line 4: `Self-hosting readiness: 10/10` -> should be `3/10`
-with honest notes about the C runtime dependency and missing language features.
+The former internal status file reported `Self-hosting readiness: 10/10`;
+the honest rating is `3/10` (C-runtime codegen dependency plus missing
+language features), tracked with current evidence in
+`docs/SELFHOST_PROGRESS.md`.
