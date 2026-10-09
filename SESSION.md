@@ -106,11 +106,15 @@
 > branch selfhost-phase-1-lexer, HEAD 0831ee6f, canonical --dump-tokens
 > gate green); Phase 2 parser (worktree selfhost-phase-2-parser, branch
 > selfhost-phase-2-parser, HEAD 60731523, arena parser port + diff_ast
-> gate green). NEXT: Phase 3 checker (worktree selfhost-phase-3-checker)
-> and Phase 4 codegen (selfhost-phase-4-codegen). Before running a phase's
-> gates, rebase/merge its worktree onto current main so it picks up the
-> m222..m236 fixes; verify repo-local git identity in each worktree before
-> committing there. Gate commands are in docs/SELFHOST_PROGRESS.md
+> gate green). PHASE 4 + O1 DONE and gate-certified on the v0.64.2 tip
+> (selfhost-phase-4-codegen; 95bea844 rebase + 858fbb1e certification).
+> Phase 5 (codegen scalar bodies + control flow, T3 scalar corpus) was
+> BLOCKED on a missing checklist -- docs/checklists/selfhost-phase5.md is
+> now committed (2026-10-09) with stages S0..S5 and the exact gate
+> commands; the lane should rebase onto current main and execute it.
+> Before running a phase's gates, rebase/merge its worktree onto current
+> main so it picks up the release fixes; verify repo-local git identity in
+> each worktree before committing there. Gate commands are in docs/SELFHOST_PROGRESS.md
 > ("Running the gates"): `cargo test -p xiom-codegen --test
 > full_diff_tests` (TIER 1), `$env:XIOM_SELFHOST_DIFF_TIER=2` (T2), `=3`
 > (T3 phase completion), plus the skeleton build
