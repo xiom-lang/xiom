@@ -359,3 +359,86 @@ ladder. Gate P acceptance lives in `docs/RELEASE_GATE_v0.62.3.md`.
    (`unknown constant self`) plus X7007 loop/body limits keep it at
    3 proven / 9 unknown / 3 errors; the contracts run records the t1 trial
    as UNKNOWN.
+
+   UPDATE 2026-10-09 (superseded): m233 removed the SMT sort errors and
+   m240 added the Array memory model; the v0.64.2 arena reports the t8
+   contracts track at **3 proven / 0 violated / 1 unknown / 0 errors**
+   and the full contracts profile **36/36** (the single unknown is the
+   documented non-pointer-cast class). m245 adds the first value-carrying
+   proof (load-after-store congruence) with a local 3-proven lock.
+
+## 2026-10-09 intake -- benchmark acceptance, lane sweep, and the safety-tier fork
+
+Source: benchmark relays 2026-10-08/09 (v0.64.2 pin `e4fd7c9`, image
+`sha256:a219eaf2...`), the all-lanes findings sweep (COMPILER_BUGS
+2026-10-09 "LANE FINDINGS SWEEP"), and local verification on d9f146cb.
+
+### Accepted (no action)
+
+- m233+m240 on t8: 3 real proven obligations (bench-side `probe_count`
+  clause included), 0 violated, 0 errors; contracts **36/36**.
+- t2-t5 zero-clause gap closed bench-side (v0.5.5), re-verified 4/4.
+- t3 Linux re-measure done: medians 236/290/328/355 ms across five
+  runs, no regression signal.
+- Systems 42/42, scripting XIOM modes 8/8, lz4 3/3, t2-queue 7/7.
+  PERF-1's accepted state (t2 24 ms) holds on v0.64.2.
+
+### Corrected / open from the sweep (perf-relevant)
+
+- **t8 buffer-overflow-write mechanism claim NOT REPRODUCED locally.**
+  Default builds have NO Vec bounds guard (m241/m243/m244 guards are
+  `--overflow-checks`-gated; IR locks assert absence by default). Local
+  default-flag failure mode is SILENT_UB with an intermittent DELAYED
+  0xC0000005 during teardown; with the flag it is a deterministic trap.
+  The arena's RUNTIME_PANIC(6) must be re-reproduced on the Linux image
+  with its exact flags before re-scoring (likely an unmapped-page fault
+  plus platform fault conversion, i.e. layout-dependent, not a guard).
+- Two stdlib timing defects found (stdlib lane): `Instant.now()` is
+  whole-second (`time.xi:227-241`, hence `elapsed().as_millis()`
+  truncates) and `time.sleep_ms` busy-waits on whole seconds
+  (`time.xi:427-434`), making `sleep_ms(300)` a no-op and >=1 s waits
+  short. Not compiler codegen.
+- C-PULSE-14: Linux request-path RSS retention ~48-87 KB/req (runtime /
+  allocator scope; Windows flat on v0.64.2).
+- t3 trampoline: per-entry confined-unsafe arming remains OPEN for
+  untrusted hot blocks (candidate fixes 1/2/3 above).
+- B-05 `xiom.ffi.free` guard-heap spin (runtime-side) still OPEN.
+
+### TIER FORK -- owner decision required (the honest hardening lever)
+
+The safety ladder compiles with `["--release", "--target", "native"]`
+(`xiom-benchmark-chaos/config.yaml:573`) and therefore measures the
+UNCHECKED tier: every containment guard shipped so far (m241 Vec write,
+m243 fixed arrays, m244 null derefs) is invisible to it. Two coherent
+options, both config/policy decisions -- neither lane should take one
+silently:
+
+- **A. Safe tier by default** (Rust-parity): bounds/null guards emitted
+  by default; add an explicit `--no-bounds-checks` fast tier. Honest
+  platform claim, deterministic ladder movement. Costs: measured on a
+  worst-case dependent-gather loop (100M dynamic Vec reads, release,
+  `tmp/perf6/guard_cost2.xi`): median **300 ms -> 385 ms (+28%)**;
+  constant-index guards still fold away. Requires renewing default-IR
+  baselines (IR locks, corpus/diff gates, selfhost T3 parity).
+- **B. Arena switches to the checked tier**: add `--overflow-checks` to
+  the arena XIOM flags so the ladder measures the tier the containment
+  features are designed for. Zero codegen change; but it measures a
+  non-default mode and leaves default builds silently unchecked.
+
+Recommendation: A for the next major (with the measured budget above),
+B only as the interim measurement-correctness fix. Until one lands, the
+sweep's "REPORTED, NEEDS REPRO" tag stands on the t8 bo-write row.
+
+### Checklist additions (2026-10-09)
+
+- [ ] Owner decision: tier A vs B (above); record the outcome here.
+- [ ] If A: default-on guards + `--no-bounds-checks`, renew IR/corpus
+      baselines, re-measure the guard budget on lz4 + t1/t2.
+- [ ] If B: request the arena flag change from the benchmark lane and
+      re-run the ladder from the v0.64.2+ archive.
+- [ ] Stage 6 follow-up for PERF-1 candidate 2 (callee classification)
+      now also covers the t3 per-entry trampoline item.
+- [ ] C-PULSE-14 RSS retention: hand to the runtime/allocation slice with
+      the lane's rss_probe scripts as the acceptance.
+- [ ] `xiom bench` local harness: fold `tmp/perf6/guard_cost2.xi` into it
+      as the guard-budget microbenchmark when the harness next changes.
