@@ -14369,6 +14369,23 @@ convert-wrapping, closure literal, U=Int, apply, and `Option.map` match.
 
 LOCK: e2e `e2e_m250_typechanging_callbacks`, ci.yml line.
 
+## 2026-10-09 -- VERIFIED: packages `unsafe return` not reproducible on current main
+
+Sweep row 6 (`packages unsafe-return`, from the xiom.http 0.1.4 fix pass:
+"whole-body `unsafe { return v as *UInt8; }` yielded null") could not be
+reproduced on the current tree. Two minimal shapes pass (exit 0):
+
+1. uninitialized `var p: *UInt8; unsafe { p = v as *UInt8; } return p;`
+2. the EXACT http.xi pre-fix shape with `ptr.null[UInt8]()` init
+   (`make_long_value(v: Int) -> *UInt8`), value 2048 round-tripping
+   (`q != null`, `q as Int == 2048`).
+
+The Int->pointer value cast through a confined unsafe assignment and a
+return is correct on d9f146cb+ (likely covered by the m223..m247 batch).
+Their original probe is needed to confirm; the lane can retire the
+workaround at the next pin unless their repro still fails. No compiler
+change made.
+
 ## 2026-10-09 -- LANE FINDINGS SWEEP (all lanes)
 
 Full sweep of every lane's latest findings/relay/session docs, deduped
@@ -14532,7 +14549,7 @@ above.
 | packages grpc-catalog | packages | grpc catalog-dep rehearsal RED: 6 T001 "ambiguous function exported by multiple imported modules" | REPORTED, NEEDS REPRO (needs the grpc depot to bisect) | packages docs/COMPILER-FINDINGS.md row |
 | packages io.xi:943 | packages | `io.xi:943` false-ensures fires in multi-module programs | OPEN (not minimized; v0.64.2 re-test green, workaround kept) | packages COMPILER-FINDINGS.md row |
 | packages io:1076 | packages | `io.read_file_lines` ensures false for a zero-line (empty-file) read | OPEN (stdlib contract; workaround kept) | packages COMPILER-FINDINGS.md 2026-10-09 row |
-| packages unsafe-return | packages | whole-body `unsafe { return v as *UInt8; }` yielded null | REPORTED, NEEDS REPRO (xiom.http 0.1.4 fix pass) | packages COMPILER-FINDINGS.md 2026-10-09 row |
+| packages unsafe-return | packages | whole-body `unsafe { return v as *UInt8; }` yielded null | NOT REPRODUCED on current main (two shapes green, 2026-10-09 entry above); needs their original probe | packages COMPILER-FINDINGS.md 2026-10-09 row |
 | packages to_string_char | packages | `tostring.to_string_char(Char(0))` violates its own ensures (C-string truncation) | OPEN (stdlib-side) | packages COMPILER-FINDINGS.md 2026-10-09 row |
 | stdlib @pre-mut | stdlib | `@pre` on a `&mut` parameter scalar field aliases the post-mutation value | OPEN (no ledger entry) | tools/known_failures/p_mut_param_field_pre.xi |
 | stdlib byref-generic | stdlib | generic `&Option[T]`/`&Result` params read wrong; bounded `&Slice[T]` calls C001 | FIXED m248 (by-ref queries, rc 2 -> 0); m249 PARTIAL (bound infers Int; Slice->Vec ABI OPEN) | p_generic_byref_option.xi + p_slice_bound_generic_c001.xi |
