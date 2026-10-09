@@ -14274,6 +14274,64 @@ Vec.len in the consequence). 36 contract-named feature regressions green.
 LOCK: e2e `e2e_m247_isok_guard_imply` + fixture
 `tests/regression/m247_isok_guard_imply/`, ci.yml line.
 
+## 2026-10-09 -- FIXED (m248): generic `&Option[T]`/`&Result[T,E]` query bodies read wrong
+
+Sweep finding `stdlib byref-generic` (`p_generic_byref_option.xi`):
+`core.option_is_some(&o)` returned false for `Some(4)` (direct
+`o.is_some` was true) and the same silent wrongness hit
+`option_is_none` / `result_is_ok` / `result_is_err` through
+`&Option[T]` / `&Result[T, E]` generic params.
+
+ROOT CAUSE (codegen): the `.is_some`/`.is_ok`/`.is_none`/`.is_err`
+pseudo-field handlers only matched VALUE receivers (`%struct.Option`,
+not `%struct.Option*`). In the generic query bodies
+(`pub fn option_is_some[T](o: &Option[T]) -> Bool { return o.is_some; }`)
+`o` is a pointer, so every handler was gated out and the expression
+lowered to a bare constant 0 (`ret i64 0`, with a dead pointer load).
+
+FIX (m248): the pointer-to-struct local field path now handles the
+variant pseudo-fields for Option/Result pointees: load the pointer from
+its slot, GEP field 0 through it, compare the tag (1 = is_ok/is_some,
+0 = is_err/is_none), zext.
+
+EVIDENCE: probe rc 2 -> 0; fixture covers all four queries on
+Some/None/Ok/Err; direct pseudo-field reads unchanged. LOCK: e2e
+`e2e_m248_byref_generic_query` + fixture
+`tests/regression/m248_byref_generic_query/`, ci.yml line.
+
+## 2026-10-09 -- PARTIAL (m249): `&Slice[T]` bound inferred the container; Slice->Vec ABI still open
+
+Sweep finding `stdlib slice-bound C001` (`p_slice_bound_generic_c001.xi`):
+`core.is_sorted(&s)` with `s = array.as_slice(&arr)` failed at codegen
+with `error[C001]: type 'Slice' does not implement 'Ord': missing method
+'compare'`.
+
+ROOT CAUSE (codegen inference): `type_from_ast` strips BOTH the
+reference and the Slice wrapper for `&Slice[T]`, so the "bare T" param
+branch treated the CONTAINER as the generic and inferred T from the
+argument's outer type ("Slice"); the mono became `is_sorted_Slice` and
+the bound check asked for `Slice.compare`.
+
+FIX (m249, inference scope only): the bare-T branch skips params whose
+unwrapped type is a SLICE container, routing them to the
+container-aware inference, which resolves T from the element
+(`is_sorted_Int`). Scope deliberately limited to Slice: Vec/Map/Set/
+Option keep the historical path proven by the push_v/contains/total_area
+locks.
+
+EVIDENCE: C001 gone; `--emit-ir` emits `@core.is_sorted_Int` (IR lock
+`e2e_m249_slice_bound_infer_ir`).
+
+REMAINING OPEN (same probe, next step): the call site passes the
+`%struct.Slice` value where the mono'd `&Slice[T]` def expects its
+`%struct.Vec` by-value lowering -- clang rejects
+`call i64 @core.is_sorted_Int(%struct.Vec %tmp12)` ("defined with type
+'%struct.Slice'" but expected). A Slice->Vec bridge (extend {data,len}
+with cap=len and elem_size from the substituted T) belongs at the
+no-receiver module-call arg emission, where the mono type map is
+available; also affects `core.contains`/`min_slice`/`max_slice` and the
+annotated-Slice-local symptoms listed in the probe header. Tracked OPEN.
+
 ## 2026-10-09 -- LANE FINDINGS SWEEP (all lanes)
 
 Full sweep of every lane's latest findings/relay/session docs, deduped
@@ -14440,7 +14498,7 @@ above.
 | packages unsafe-return | packages | whole-body `unsafe { return v as *UInt8; }` yielded null | REPORTED, NEEDS REPRO (xiom.http 0.1.4 fix pass) | packages COMPILER-FINDINGS.md 2026-10-09 row |
 | packages to_string_char | packages | `tostring.to_string_char(Char(0))` violates its own ensures (C-string truncation) | OPEN (stdlib-side) | packages COMPILER-FINDINGS.md 2026-10-09 row |
 | stdlib @pre-mut | stdlib | `@pre` on a `&mut` parameter scalar field aliases the post-mutation value | OPEN (no ledger entry) | tools/known_failures/p_mut_param_field_pre.xi |
-| stdlib byref-generic | stdlib | generic `&Option[T]`/`&Result` params read wrong; bounded `&Slice[T]` calls C001 | OPEN (no ledger entry) | p_generic_byref_option.xi + p_slice_bound_generic_c001.xi |
+| stdlib byref-generic | stdlib | generic `&Option[T]`/`&Result` params read wrong; bounded `&Slice[T]` calls C001 | FIXED m248 (by-ref queries, rc 2 -> 0); m249 PARTIAL (bound infers Int; Slice->Vec ABI OPEN) | p_generic_byref_option.xi + p_slice_bound_generic_c001.xi |
 | stdlib alias-path | stdlib | alias-qualified type paths T001; method-style foreign calls C001 (C-PULSE-12 family) | OPEN (no ledger entry) | p_alias_module_type_path.xi + p_foreign_method_call.xi |
 | stdlib ensures-isok | stdlib | `(result.is_ok == true) =>` implication violates at runtime; `result is Ok =>` works | FIXED m247 (2026-10-09 entry above); probe rc 1 -> 0 | p_ensures_isok_guard.xi |
 | stdlib polyhedra | stdlib | `convex_hull_2d/3d` collapse on nonempty inputs | OPEN; ledger m201 section claims rc 0 but lane v0.64.1 re-check is rc 1 -- CORRECTION NEEDED | p_polyhedra_nested_hull.xi |

@@ -4278,7 +4278,38 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             let mut container_fallback = false;
                             for (param, arg_expr) in fd.params.iter().zip(args.iter()) {
                                 let param_type = Self::type_from_ast(&param.ty);
-                                if param_type == gp.name.name {
+                                // m249 (stdlib slice-bound C001): `&Slice[T]` /
+                                // `&Vec[T]` / `Slice[T]` params -- type_from_ast
+                                // strips BOTH the ref and the container wrapper,
+                                // so this bare-T branch treated the CONTAINER as
+                                // the generic and inferred T from the argument's
+                                // outer type ("Slice"), mono'ing
+                                // `is_sorted_Slice` -> C001 "Slice does not
+                                // implement Ord". Container params go to the
+                                // container-aware inference below instead.
+                                let param_container_wrapped = {
+                                    let mut inner = &param.ty;
+                                    loop {
+                                        match inner {
+                                            Type::Ref(i) | Type::MutRef(i) | Type::Ptr(i) => {
+                                                inner = i.as_ref()
+                                            }
+                                            _ => break,
+                                        }
+                                    }
+                                    // Scope: SLICE params only. Vec/Map/Set/Option
+                                    // params keep the historical branch A path
+                                    // (proven by the push_v/contains/total_area
+                                    // locks); Slice is the broken family here.
+                                    match inner {
+                                        Type::Slice(_) => true,
+                                        Type::Named(id, args) if !args.is_empty() => {
+                                            id.name == "Slice"
+                                        }
+                                        _ => false,
+                                    }
+                                };
+                                if param_type == gp.name.name && !param_container_wrapped {
                                     // R48 (playground C17): `x: &T` arrives
                                     // with the ref stripped by type_from_ast,
                                     // so this bare-T branch sees the `&p`

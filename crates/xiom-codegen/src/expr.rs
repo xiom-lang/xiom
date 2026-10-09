@@ -2643,6 +2643,39 @@ impl IrEmitter {
                                     return Ok((loaded, field_llvm_ty));
                                 }
                             }
+                            // m248 (stdlib byref-generic finding): `.is_some` /
+                            // `.is_ok` / `.is_err` / `.is_none` on a
+                            // POINTER-to-Option/Result local (`o: &Option[T]` in
+                            // generic query bodies) must read the tag THROUGH the
+                            // pointer. The value-form pseudo-field handler below
+                            // is pointer-gated out, so `return o.is_some;` emitted
+                            // a bare constant 0 (core.option_is_some returned
+                            // false for Some).
+                            let is_result_pen = type_name.ends_with("Result")
+                                || type_name.contains(".Result")
+                                || type_name.starts_with("Result__");
+                            let is_option_pen = type_name.ends_with("Option")
+                                || type_name.contains(".Option")
+                                || type_name.starts_with("Option__");
+                            if (is_result_pen && (field.name == "is_ok" || field.name == "is_err"))
+                                || (is_option_pen
+                                    && (field.name == "is_some" || field.name == "is_none"))
+                            {
+                                let success_variant =
+                                    matches!(field.name.as_str(), "is_ok" | "is_some");
+                                let ptr_val = self.fresh_tmp();
+                                self.emitln(&format!("  {ptr_val} = load {llvm_ty}, {llvm_ty}* {ptr}"));
+                                let disc_gep = self.fresh_tmp();
+                                self.emitln(&format!("  {disc_gep} = getelementptr {pointee}, {llvm_ty} {ptr_val}, i32 0, i32 0"));
+                                let disc_val = self.fresh_tmp();
+                                self.emitln(&format!("  {disc_val} = load i64, i64* {disc_gep}"));
+                                let cmp = self.fresh_tmp();
+                                let want = if success_variant { 1 } else { 0 };
+                                self.emitln(&format!("  {cmp} = icmp eq i64 {disc_val}, {want}"));
+                                let result = self.fresh_tmp();
+                                self.emitln(&format!("  {result} = zext i1 {cmp} to i64"));
+                                return Ok((result, LLVM_I64.to_string()));
+                            }
                         }
                         // Handle .is_ok / .is_some / .is_err / .is_none pseudo-fields
                         // on Result/Option enum types. These check the discriminant

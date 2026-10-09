@@ -6343,6 +6343,36 @@ fn e2e_safety_probe() {
     );
 }
 
+// m248 (stdlib byref-generic finding): generic `&Option[T]`/`&Result[T,E]`
+// query bodies must read the tag through the pointer pseudo-fields.
+#[test] fn e2e_m248_byref_generic_query() {
+    assert_eq!(
+        compile_and_run("tests/regression/m248_byref_generic_query/main.xi"),
+        Some(0),
+        "generic by-ref Option/Result queries must read correctly (m248)"
+    );
+}
+
+// m249 (stdlib slice-bound C001): a `&Slice[T]` param must infer T from
+// the ELEMENT, not the container wrapper. IR lock (--emit-ir stops before
+// clang, so the open Slice->Vec ABI bridge does not gate this).
+#[test] fn e2e_m249_slice_bound_infer_ir() {
+    let output = Command::new(xiom_path())
+        .args(["--emit-ir", "tests/regression/m249_slice_bound_infer/main.xi"])
+        .current_dir(project_root())
+        .output()
+        .expect("emit-ir");
+    let ir = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        ir.contains("@core.is_sorted_Int"),
+        "`&Slice[T]` must infer T from the element (mono is_sorted_Int); got:\n{ir}"
+    );
+    assert!(
+        !ir.contains("is_sorted_Slice"),
+        "the container name must never be used as the generic arg; got:\n{ir}"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {
