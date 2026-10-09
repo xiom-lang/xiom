@@ -14332,6 +14332,43 @@ no-receiver module-call arg emission, where the mono type map is
 available; also affects `core.contains`/`min_slice`/`max_slice` and the
 annotated-Slice-local symptoms listed in the probe header. Tracked OPEN.
 
+## 2026-10-09 -- FIXED (m250, 3/4): type-changing generic callbacks silently miscompiled
+
+Sweep family `typechanging` (4 probes): generic callbacks `fn(T) -> U`
+with U = Str produced silently wrong values (`mapv(&v, to_s)` rc 41,
+`Option.map(to_s)` rc 41, `sort_by_key_Int_Str` rc 1).
+
+FOUR stacked defects, all fixed except the ordering tail:
+1. MISSING RETURN ARM: a `Vec[U]` return parses as `Type::Vec`, which the
+   return-name match in the generic call emission did not handle -- the
+   name degraded to the bare container ("Vec"), so the substituted
+   element never reached callers.
+2. DECLARED-vs-SUBSTITUTED BINDING: let/var tracking runs BEFORE the
+   initializer, so `let a = mapv(&v, to_s)` recorded "Vec[U]".
+   `call.rs` now records the SUBSTITUTED return by callee span
+   (`call_return_xioms`), and the let/var arms re-record after compiling
+   the init; `scrutinee_payload_xiom` prefers it too (the
+   `match o.map(to_s) { Some(s) => ... }` arm bound `s` as Int).
+3. METHOD-CALL ARG ALIGNMENT: inference zipped `fd.params` (self at [0])
+   against `args` (receiver excluded), so a fn-typed param never saw its
+   argument and U stayed "U" (`Option.map(to_s)` mono'd `map_Int_U`).
+   The zip now skips a REAL self receiver only -- module-qualified calls
+   (`sort.sort_by_key`) also carry receiver_expr but have no self param.
+4. CLOSURE-LITERAL CALLBACKS: `fn_arg_generic_binding` handled only
+   fn-ref idents; closure literals now contribute their declared
+   param/return types.
+
+EVIDENCE: all four probes green except `p_generic_typechanging_sortbykey`
+(now correctly mono'd `sort_by_key_Int_Str`). The sort tail is OPEN: the
+generic body's key ORDERING compiles `key(a) < key(b)` as
+`icmp slt i64` (Str pointer bits) instead of strcmp -- lexicographic Str
+`<` lowering for substituted generics is the next step (same family as
+the m239 strcmp content-equality). Fixture
+`tests/regression/m250_typechanging_callbacks/` covers fn-ref,
+convert-wrapping, closure literal, U=Int, apply, and `Option.map` match.
+
+LOCK: e2e `e2e_m250_typechanging_callbacks`, ci.yml line.
+
 ## 2026-10-09 -- LANE FINDINGS SWEEP (all lanes)
 
 Full sweep of every lane's latest findings/relay/session docs, deduped
@@ -14507,7 +14544,7 @@ above.
 | stdlib clause-floatvec | stdlib | clause-position Float64 Vec element index reads garbage | OPEN (no ledger entry) | p_clause_float_vec_index.xi |
 | stdlib vec-shape-av | stdlib | shape-mismatched `&Vec` argument compiles silently and AVs | OPEN (no ledger entry) | p_vec_shape_arg_mismatch_av.xi |
 | stdlib catalog-payload | stdlib | catalog clause reading a payload field poisons user codegen; Ok/Err Str payload clauses false-violate/AV | OPEN (no ledger entry) | tools/probes/evidence/p_result_payload_ir_repro.xi |
-| stdlib typechanging | stdlib | cross-type generic callback returns miscompiled (4 probes) | OPEN (no ledger entry) | p_generic_typechanging_{fnptr,map,core_map,sortbykey}.xi |
+| stdlib typechanging | stdlib | cross-type generic callback returns miscompiled (4 probes) | FIXED m250 3/4 (fnptr/map/core_map green); sortbykey ordering OPEN (icmp vs strcmp) | p_generic_typechanging_{fnptr,map,core_map,sortbykey}.xi |
 | M7 Iterator | stdlib | undeclared `Iterator[T]` receiver: 5x warning + C001 `Iterator.step_by` | OPEN (stdlib-side fix per compiler relay 2026-10-09) | p_iter_iterator_type_unresolved.xi |
 | stdlib polygon-diff | stdlib | `polygon_difference` intersects b's outside half-planes | OPEN (stdlib algorithm, not compiler) | p_polygon_difference_halfplanes.xi |
 | wave-96 array_zip | stdlib | const-generic M bound to N; M<N read OOB / no truncate | FIXED m237 (16df642c, v0.64.2); lane RESOLVED | p_array_zip_no_truncate.xi; p_wave96_shapes.xi |

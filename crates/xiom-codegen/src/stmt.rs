@@ -515,6 +515,39 @@ impl IrEmitter {
                 } else {
                     self.compile_expr(value)?
                 };
+                // m250 (typechanging generic maps): the tracking above ran
+                // BEFORE the initializer, so a generic-call binding recorded
+                // the DECLARED return ("Vec[U]"). The call emission now
+                // records its substituted return by callee span; re-record
+                // here so `a[0]` loads the right element ("Str" handle, not
+                // an i64 truncated to a byte).
+                if let Expr::Call(f, ..) | Expr::GenericCall(f, ..) = value {
+                    let csp = f.span();
+                    if csp.byte_start != 0 || csp.byte_end != 0 {
+                        if let Some(rt) = self
+                            .mono
+                            .call_return_xioms
+                            .get(&(csp.byte_start, csp.byte_end))
+                            .cloned()
+                        {
+                            if let Some(elem) = rt.strip_prefix("Vec[").and_then(|s| s.strip_suffix(']')) {
+                                let cur_generic = self
+                                    .local
+                                    .local_vec_elem
+                                    .get(&name.name)
+                                    .map_or(true, |c| {
+                                        c.len() == 1
+                                            && c.chars().next().map_or(false, |ch| ch.is_ascii_uppercase())
+                                    });
+                                if cur_generic && elem.len() > 1 {
+                                    self.local
+                                        .local_vec_elem
+                                        .insert(name.name.clone(), elem.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
                 let declared_llvm_ty: Option<String> = _ty.as_ref().map(|t| {
                     // M65 R7 (2026-09-10): an ANNOTATED local slot must use the
                     // CONCRETE container type -- `var found: Option[JsonValue];`
@@ -1006,6 +1039,35 @@ impl IrEmitter {
                 } else {
                     self.compile_expr(value)?
                 };
+                // m250: see the let-binding arm -- a generic-call `var`
+                // binding re-records its SUBSTITUTED Vec element type.
+                if let Expr::Call(f, ..) | Expr::GenericCall(f, ..) = value {
+                    let csp = f.span();
+                    if csp.byte_start != 0 || csp.byte_end != 0 {
+                        if let Some(rt) = self
+                            .mono
+                            .call_return_xioms
+                            .get(&(csp.byte_start, csp.byte_end))
+                            .cloned()
+                        {
+                            if let Some(elem) = rt.strip_prefix("Vec[").and_then(|s| s.strip_suffix(']')) {
+                                let cur_generic = self
+                                    .local
+                                    .local_vec_elem
+                                    .get(&name.name)
+                                    .map_or(true, |c| {
+                                        c.len() == 1
+                                            && c.chars().next().map_or(false, |ch| ch.is_ascii_uppercase())
+                                    });
+                                if cur_generic && elem.len() > 1 {
+                                    self.local
+                                        .local_vec_elem
+                                        .insert(name.name.clone(), elem.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
                 let orig_val_ty = val_llvm_ty.clone();
                 // M17: Use declared type for alloca width when present, falling back
                 // to value type. Special cases preserved for zero-init and float->double.

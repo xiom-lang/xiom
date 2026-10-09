@@ -6373,6 +6373,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// m250 (stdlib typechanging family): cross-type generic callbacks
+// (fn(T) -> U with U = Str) -- fn-ref, closure literal, core Option.map,
+// substituted binding/scrutinee element resolution.
+#[test] fn e2e_m250_typechanging_callbacks() {
+    assert_eq!(
+        compile_and_run("tests/regression/m250_typechanging_callbacks/main.xi"),
+        Some(0),
+        "type-changing generic callbacks must produce correct Str elements (m250)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {
