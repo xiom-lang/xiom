@@ -14326,11 +14326,21 @@ REMAINING OPEN (same probe, next step): the call site passes the
 `%struct.Slice` value where the mono'd `&Slice[T]` def expects its
 `%struct.Vec` by-value lowering -- clang rejects
 `call i64 @core.is_sorted_Int(%struct.Vec %tmp12)` ("defined with type
-'%struct.Slice'" but expected). A Slice->Vec bridge (extend {data,len}
-with cap=len and elem_size from the substituted T) belongs at the
-no-receiver module-call arg emission, where the mono type map is
-available; also affects `core.contains`/`min_slice`/`max_slice` and the
-annotated-Slice-local symptoms listed in the probe header. Tracked OPEN.
+'%struct.Slice = type { ptr, i64 }'" but expected).
+
+LOCALIZATION 2026-10-09 (second attempt): a Slice->Vec bridge (extend
+{data,len} with cap=len + elem_size from the substituted T) was wired at
+three candidate call-emission sites and at the `coerce_arg_for_param`
+choke point; NONE fired -- instrumented traces show this call's args are
+emitted RAW (the arg value reaches the call without passing the
+type-aware coercion; `pre_ty` there is not `%struct.Slice` at the choke
+point, and the no-receiver branch is not taken). The exact emission site
+for the module-qualified generic call's arg list is the next thing to
+pin down (add a trace at the `@core.is_sorted_Int` call-string emission,
+candidates L5707/L5811/L5921 in crate call.rs at the time of this entry).
+The attempt code was reverted (tree clean); no behavior change. Also
+affects `core.contains`/`min_slice`/`max_slice` and the
+annotated-Slice-local symptoms in the probe header. Tracked OPEN.
 
 ## 2026-10-09 -- FIXED (m250, 3/4): type-changing generic callbacks silently miscompiled
 
