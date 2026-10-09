@@ -6217,6 +6217,43 @@ fn e2e_safety_probe() {
     );
 }
 
+// m243 (honest containment, m241 follow-up): a fixed-array `[N]T` index
+// READ or WRITE out of bounds must trap under --overflow-checks.
+#[test] fn e2e_m243_fixed_array_bounds_traps() {
+    let code = compile_and_run_with_flags(
+        "tests/regression/m243_fixed_array_bounds/main.xi",
+        &["--overflow-checks"],
+    );
+    assert!(
+        code.is_some() && code != Some(0),
+        "OOB fixed-array access must trap under --overflow-checks (m243), got {code:?}"
+    );
+}
+
+// m243 IR lock: the fixed-array guard (read and write) is emitted under
+// --overflow-checks and stays out of default builds.
+#[test] fn e2e_m243_fixed_array_bounds_ir() {
+    let emit = |extra: &[&str]| -> String {
+        let output = Command::new(xiom_path())
+            .args(extra)
+            .args(["--emit-ir", "tests/regression/m243_fixed_array_bounds/main.xi"])
+            .current_dir(project_root())
+            .output()
+            .expect("emit-ir");
+        String::from_utf8_lossy(&output.stdout).to_string()
+    };
+    let checked = emit(&["--overflow-checks"]);
+    assert!(
+        checked.contains("abounds_trap"),
+        "the fixed-array bounds trap must be emitted under --overflow-checks"
+    );
+    let default = emit(&[]);
+    assert!(
+        !default.contains("abounds_trap"),
+        "default builds must keep the historical unchecked fixed-array path"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

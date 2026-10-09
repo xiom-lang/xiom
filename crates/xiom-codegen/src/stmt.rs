@@ -1266,6 +1266,11 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     } else if cont_ty.starts_with('[') && cont_ty.contains(" x ") {
                         let (idx_raw, idx_ty) = self.compile_expr(index)?;
                         let idx = self.val_to_i64(&idx_raw, &idx_ty);
+                        // m243: fixed-array WRITE bounds guard (the m241 Vec
+                        // write guard's fixed-array sibling).
+                        if let Some(n) = Self::extract_array_len(&cont_ty) {
+                            self.emit_fixed_array_bounds_guard(&idx, n);
+                        }
                         // Use the existing local alloca when the container is an
                         // Ident -- avoids fresh alloca/load/store on every write.
                         let mut is_ident = false;

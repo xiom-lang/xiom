@@ -19,6 +19,29 @@ impl IrEmitter {
         format!("{label}{n}")
     }
 
+    /// m243 (honest containment): bounds guard for FIXED-ARRAY indexing
+    /// under `--overflow-checks` -- the m241 Vec write guard's fixed-array
+    /// sibling (read + write paths). `n` is compile-time known, so
+    /// in-range CONSTANT indices fold away entirely in the optimizer.
+    pub(crate) fn emit_fixed_array_bounds_guard(&mut self, idx: &str, n: i64) {
+        if !self.config.overflow_checks {
+            return;
+        }
+        let ge0 = self.fresh_tmp();
+        self.emitln(&format!("  {ge0} = icmp sge i64 {idx}, 0"));
+        let lt = self.fresh_tmp();
+        self.emitln(&format!("  {lt} = icmp slt i64 {idx}, {n}"));
+        let ok = self.fresh_tmp();
+        self.emitln(&format!("  {ok} = and i1 {ge0}, {lt}"));
+        let ok_b = self.fresh_block("abounds_ok");
+        let trap_b = self.fresh_block("abounds_trap");
+        self.emitln(&format!("  br i1 {ok}, label %{ok_b}, label %{trap_b}"));
+        self.emitln(&format!("\n{trap_b}:"));
+        self.emitln("  call void @llvm.trap()");
+        self.emitln("  unreachable");
+        self.emitln(&format!("\n{ok_b}:"));
+    }
+
     pub(crate) fn push_scope(&mut self) {
         self.fctx.locals.push(HashMap::new());
     }

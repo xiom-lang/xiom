@@ -709,6 +709,32 @@ LOCKS: e2e `e2e_m242_sibling_dup_alias` +
 `tests/regression/m242_sibling_dup_alias{,_popcount_bitwise}/`, ci.yml
 lines.
 
+## 2026-10-09 -- FIXED (m243): fixed-array `[N]T` bounds guards under --overflow-checks
+
+Follow-up to m241: fixed-size array indexing had NO bounds check at all
+even with `--overflow-checks` -- probe `a[100] = 42; var s = a[100];` on
+`let a = [1,2,3]` silently wrote/read the stack slot out of bounds (exit
+42). Both directions are now guarded:
+
+- READ: stack-array branch (expr.rs, `[N x T]` containers) and the
+  `[N x T]*` pointer form (N is in the pointee type).
+- WRITE: the fixed-array assign branch (stmt.rs).
+- The guard (`emit_fixed_array_bounds_guard`) mirrors the Vec write guard
+  from m241 and is gated on `--overflow-checks`; N is compile-time known,
+  so in-range CONSTANT indices fold away entirely.
+
+EVIDENCE: probe with the flag rc 42 -> trap (0xC000001D, llvm.trap);
+in-range control `a[1] = 20; a[1]+a[0]+a[2]` -> 24 under the flag; without
+the flag the historical rc 42 path is unchanged; IR emits `abounds_trap`
+under the flag and none by default.
+
+KNOWN LIMITATION (honest, documented): `&mut [N]T` writes lower to an
+ELEMENT pointer whose type no longer carries N, so that path cannot be
+guarded without a length descriptor; it is excluded here.
+
+LOCKS: IR `e2e_m243_fixed_array_bounds_ir` + `..._traps` + fixture
+`tests/regression/m243_fixed_array_bounds/`, ci.yml lines.
+
 ## 2026-10-09 -- FIXED (m241): OOB Vec index WRITE now traps (honest containment)
 
 Owner safety-probe review: the t8 arena reported buffer-overflow-write as
@@ -733,12 +759,8 @@ LOCKS: IR `e2e_m241_vec_write_bounds_ir` (wbounds_trap emitted under the
 flag, absent by default) + `e2e_m241_vec_write_bounds_traps` (nonzero
 exit) + fixture `tests/regression/m241_vec_write_bounds/`, ci.yml lines.
 
-OPEN FOLLOW-UP (not fixed here): FIXED-ARRAY `[N]T` index read/write has
-no bounds check under `--overflow-checks` either -- probe `tmp/arr_oob.xi`
-(`let a = [1,2,3]; a[100] = 42; var s = a[100];`) exits 42 with the flag.
-The length is compile-time known, so constant-index checks fold away; a
-follow-up (m242 candidate) can add the same guard to the fixed-array
-branches.
+FOLLOW-UP (fixed in m243): FIXED-ARRAY `[N]T` index read/write had no
+bounds check under `--overflow-checks` either; see the m243 entry below.
 
 ## 2026-10-09 -- HONEST CONTAINMENT BACKLOG (t8 arena results, owner ask)
 
@@ -775,10 +797,12 @@ isolation, not just detection. The ladder distinguishes both.
 - integer-overflow / division-by-zero / stack-overflow (RUNTIME_PANIC):
   already deterministic.
 
-Order of work: 1) m241 done; 2) fixed-array bounds (follow-up above);
-3) fault->panic reporting for null/invalid pointers (largest INCONCLUSIVE
-lever); 4) hardened allocator (poison + quarantine + guard pages) as a
-documented mode with measured cost; 5) tagged memory (research-grade).
+Order of work: 1) m241 done; 2) fixed-array bounds -- DONE in m243
+(read+write guards; the `&mut [N]T` element-pointer path stays
+documented-unchecked); 3) fault->panic reporting for null/invalid
+pointers (largest INCONCLUSIVE lever); 4) hardened allocator (poison +
+quarantine + guard pages) as a documented mode with measured cost;
+5) tagged memory (research-grade).
 
 ## 2026-10-09 -- FIXED (m240): verifier v2 -- SMT Array memory model (t8 body VCs)
 

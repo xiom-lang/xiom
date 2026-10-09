@@ -3322,6 +3322,10 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // -- clang "invalid getelementptr indices"). Pointer-typed
                 // arrays fall through to the array-ref branch below.
                 if cont_ty.starts_with('[') && cont_ty.contains(" x ") && !cont_ty.ends_with('*') {
+                    // m243: fixed-array read bounds guard (--overflow-checks).
+                    if let Some(n) = Self::extract_array_len(&cont_ty) {
+                        self.emit_fixed_array_bounds_guard(&idx, n);
+                    }
                     let (arr_ptr, arr_ptr_ty) = if let Expr::Ident(id) = &**container {
                         if let Some((slot, _slot_ty)) = self.lookup_local(&id.name) {
                             // Use the existing alloca pointer directly -- avoids
@@ -3386,6 +3390,11 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // the end (array smoke: contains() returned false / crashed).
                 if cont_ty.ends_with('*') && cont_ty != "i8*" {
                     let elem_ty = cont_ty.trim_end_matches('*');
+                    // m243: `[N x T]*` reads carry N in the pointee type --
+                    // guard them too (--overflow-checks).
+                    if let Some(n) = Self::extract_array_len(elem_ty) {
+                        self.emit_fixed_array_bounds_guard(&idx, n);
+                    }
                     // BUG 53 (2026-08-18): `[N x T]*` pointers (non-generic
                     // `&[N]T` params lower to the typed array pointer) need a
                     // TWO-INDEX GEP (`i64 0, i64 idx` -- one index would scale
