@@ -3,7 +3,7 @@
 
 # XIOM Selfhost -- bootstrap progress tracker
 
-**Last updated:** 2026-10-05 | **Plan:** `docs/SELFHOST_PLAN.md` |
+**Last updated:** 2026-10-09 | **Plan:** `docs/SELFHOST_PLAN.md` |
 **Phase 0 checklist:** `docs/checklists/selfhost-phase0.md` |
 **Phase 1 checklist:** `docs/checklists/selfhost-phase1.md` |
 **Phase 2 checklist:** `docs/checklists/selfhost-phase2.md` |
@@ -54,6 +54,20 @@ builtin declare table + user-extern order (deferred thread_spawn). Gate 4
 flips to DONE and the meter to 45% (5/11). Next: **O1 selfhost code quality**
 (`--strict`, zero warnings) then Phase 5 (scalar bodies + control flow T3).
 
+PHASE 5 STATUS (2026-10-09, on the v0.64.2 release tip): branch
+`selfhost-phase-4-codegen` was rebased onto the release tree and continues
+in the same worktree (21 commits ahead, 0 behind at this entry).
+Checklist `docs/checklists/selfhost-phase5.md` landed; stages so far:
+S0 scalar-corpus manifest (19 scalar / 64 phase6) + first body port,
+T3 **2/19** (`c6c79632`); S1/S2 locals, arithmetic, calls, if/while,
+alloca hoist, T3 **8/19** (`d757d249`); S3 unsigned literals, casts,
+`&&`/`||`, refs/borrow args, T3 **13/19** (`4fcc272a`). Remaining: S4 --
+T3 green over all 19 scalar files + T2 over the same set; documented
+blocker: float literal `{:.17e}` exactness (formatter validated; stdlib
+decimal->f64 parse 1 ULP off on 0.123456789, `438da6c8`). T1 +
+`diff_ir_headers` stay green at every stage; meter stays 45% (5/11)
+until this phase gate flips.
+
 PHASE 4 + O1 STATUS (2026-10-05, post-v0.64.0): branch
 `selfhost-phase-4-codegen` is rebased onto the **v0.64.0 release commit**
 (`2ff1f224`: full parity suite 6/6, header counts identical) with the
@@ -84,7 +98,7 @@ row flips.
 | 3 | Checker: diagnostics + type-annotation equality | **DONE 2026-10-03** | Full parity gate green: `cargo test -p xiom-codegen --test full_diff_tests` -> 5 passed (diff_corpus T1, diff_tokens, diff_ast, diff_check, runtime_ffi_selfcheck), 443.9 s on main `018daf05`. `diff_check` = 83 corpus files, 11 diagnostic lines (4x W003, 1x W008, 6x E001), line-exact on both drivers + 75 manifest cases (catalog/imports, containers, lints, methods, patterns incl. m178/m181, assoc, catalog bodies). Ported: canonical type names, statements/exprs, calls/generics, contracts, diagnostics ordering, catalog/imports + module member calls, container method sets + R8 UFCS + `methods` map, unknown-method/struct-field validation, W000/W004/W006/W007 lints, non-strict borrow pass, uppercase bare-name resolution, associated-form interface dispatch, local catalog-body checking. Bounded exceptions (documented in the checklist, exact for this tree): stdlib bodies are not re-checked (the stdlib ships clean) and relocated stdlib modules use a static path table (io.list_dir defect). Checklist `docs/checklists/selfhost-phase3.md` |
 | 4 | Codegen: fn-header T3 IR equality | **DONE 2026-10-05** | Phase 4; `selfhost/src/codegen.xi` + `codegen_cost.xi` + `codegen_declares.xi` port signatures (ptr/byval, `Option__`/`Result__`/`Tuple__` BUG-1 naming), tuple struct defs, `approx_block_cost` inline policy and the builtin/extern declare order; harness `full_diff_tests::diff_ir_headers` green over the 83-file corpus (8337 header lines byte-exact: 258 primary define symbols, 4 tuple defs, 7909 declares); T1 green on the same tree; checklist `docs/checklists/selfhost-phase4.md` |
 | O1 | Selfhost code quality: `--strict`, zero warnings, contracts on | **DONE 2026-10-05** | `e59b6f7e`; selfhost sources strict-clean with zero warnings, 13 API contracts restored; full parity gate re-ran green on the rebased tree (`0093c748`) |
-| 5 | Codegen: scalar bodies + control flow T3 (scalar corpus) | NOT STARTED | Phase 5 |
+| 5 | Codegen: scalar bodies + control flow T3 (scalar corpus) | **IN PROGRESS 2026-10-09 (T3 13/19)** | Phase 5, branch `selfhost-phase-4-codegen`: S0 `c6c79632` (2/19), S1/S2 `d757d249` (8/19), S3 `4fcc272a` (13/19); remaining S4 + float `{:.17e}` blocker `438da6c8` |
 | 6 | Codegen: structs/tuples/generics/unsafe T3 (whole corpus) | NOT STARTED | Phase 6 |
 | 7 | Self-compile chain: self1 == self2 sha256 + T3 on self1-vs-self2 IR | NOT STARTED | Phase 7 |
 | O2 | Bootstrap perf: self1 within 2x of `xiom.exe` on the corpus | NOT STARTED | after Phase 7; target < 60 s self-compile on this box |
