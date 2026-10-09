@@ -135,6 +135,12 @@ pub struct ModuleCatalog {
     /// Hits/misses of the last `build_index` (locks + XIOM_TIMINGS).
     pub index_cache_hits: usize,
     pub index_cache_misses: usize,
+    /// Stage 6 (m252): (canonical path, mtime_ns, size) for every indexed
+    /// file, used by [`Self::tree_digest`] to invalidate the catalog-body
+    /// check cache when ANY source in the indexed tree changed. Metadata
+    /// based, like the index cache itself; a module's own check-cache entry
+    /// additionally carries its content hash.
+    index_tree_files: std::collections::BTreeSet<(String, u128, u64)>,
 }
 
 /// Stage 6: persistent cache entry for one indexed `.xi` path.
@@ -162,6 +168,7 @@ impl ModuleCatalog {
             index_cache_dirty: false,
             index_cache_hits: 0,
             index_cache_misses: 0,
+            index_tree_files: std::collections::BTreeSet::new(),
         }
     }
 
@@ -189,6 +196,7 @@ impl ModuleCatalog {
         self.index_cache_misses = 0;
         self.index_cache_dirty = false;
         self.index_cache_touched.clear();
+        self.index_tree_files.clear();
         self.load_index_cache();
         for (dir_index, dir) in self.source_dirs.clone().iter().enumerate() {
             self.index_dir(Path::new(&dir), dir_index);
@@ -299,6 +307,11 @@ impl ModuleCatalog {
                 if self.index_cache_path.is_some() {
                     self.index_cache_touched.insert(display);
                 }
+                self.index_tree_files.insert((
+                    entry.canonical.clone(),
+                    entry.mtime_ns,
+                    entry.size,
+                ));
                 return Some((entry.header.clone(), entry.canonical.clone()));
             }
         }
@@ -307,6 +320,7 @@ impl ModuleCatalog {
         let canonical = std::fs::canonicalize(path)
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| display.clone());
+        self.index_tree_files.insert((canonical.clone(), mtime_ns, size));
         if self.index_cache_path.is_some() {
             self.index_cache.insert(
                 display.clone(),
@@ -403,6 +417,34 @@ impl ModuleCatalog {
             let _ = std::fs::rename(&tmp, &path);
         }
         self.index_cache_dirty = false;
+    }
+
+    /// Stage 6 (m252): number of indexed-tree rows feeding [`Self::tree_digest`]
+    /// (XIOM_TIMINGS diagnostics only).
+    pub fn tree_row_count(&self) -> usize {
+        self.index_tree_files.len()
+    }
+
+    /// Stage 6 (m252): deterministic digest of the indexed source tree
+    /// (canonical path, mtime, size of every indexed file). The catalog-body
+    /// check cache records this and invalidates every entry when ANY indexed
+    /// source changed -- a conservative superset of the "import closure
+    /// changed" condition. Metadata based, like the index cache itself.
+    pub fn tree_digest(&self) -> String {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for (path, mtime, size) in &self.index_tree_files {
+            Self::fnv1a_into(&mut h, path.as_bytes());
+            Self::fnv1a_into(&mut h, &mtime.to_le_bytes());
+            Self::fnv1a_into(&mut h, &size.to_le_bytes());
+        }
+        format!("{h:016x}")
+    }
+
+    fn fnv1a_into(h: &mut u64, bytes: &[u8]) {
+        for b in bytes {
+            *h ^= *b as u64;
+            *h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
     }
 
     fn index_lookup(&self, path_segments: &[String]) -> Option<CachedModule> {

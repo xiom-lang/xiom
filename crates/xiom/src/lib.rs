@@ -625,9 +625,14 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
     for dir in &config.extra_source_dirs {
         checker.add_source_dir(dir.clone());
     }
-    // Phase 7A: Add source root directories from the dependency graph
+    // Phase 7A: Add source root directories from the dependency graph.
+    // m252: never index the `xiom run` scratch dir -- its per-invocation
+    // `_script_*.xi` copies are not catalog modules and destabilise
+    // tree-digest-keyed caches.
     for dir in &graph_source_dirs {
-        checker.add_source_dir(dir.clone());
+        if !is_run_scratch_dir(Path::new(dir)) {
+            checker.add_source_dir(dir.clone());
+        }
     }
     for stdlib_dir in find_stdlib_dirs() {
         checker.add_source_dir(stdlib_dir);
@@ -930,11 +935,12 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         // cold index; COMPILER_BUGS 2026-10-04). Real script dirs arrive via
         // `extra_source_dirs` (`run_script_source_dirs`).
         if let Some(parent) = file_path.parent() {
-            if !temp_root_covers(parent) {
+            if !temp_root_covers(parent) && !is_run_scratch_dir(parent) {
                 checker.add_source_dir(parent.to_string_lossy().to_string());
             }
             if let Some(grandparent) = parent.parent() {
                 if !temp_root_covers(grandparent)
+                    && !is_run_scratch_dir(grandparent)
                     && std::fs::read_dir(grandparent).map_or(false, |entries| {
                         entries.flatten().any(|e| e.path().extension().map_or(false, |ext| ext == "xi"))
                     })
@@ -955,9 +961,14 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     for dir in &config.extra_source_dirs {
         checker.add_source_dir(dir.clone());
     }
-    // Phase 7A: Add source root directories from the dependency graph
+    // Phase 7A: Add source root directories from the dependency graph.
+    // m252: never index the `xiom run` scratch dir -- its per-invocation
+    // `_script_*.xi` copies are not catalog modules and destabilise
+    // tree-digest-keyed caches.
     for dir in &graph_source_dirs {
-        checker.add_source_dir(dir.clone());
+        if !is_run_scratch_dir(Path::new(dir)) {
+            checker.add_source_dir(dir.clone());
+        }
     }
     let examples_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent().expect("CARGO_MANIFEST_DIR has parent")
@@ -979,6 +990,11 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         eprintln!("[timings] index-cache hits={hits} misses={misses}");
     }
     let is_multi_file = effective_sources.len() > 1 || checker.source_dirs.len() > 0;
+    // Stage 6 item 1 (m252): persistent CATALOG-BODY CHECK cache -- warm runs
+    // replay clean catalog bodies (the stdlib module graph) instead of
+    // re-checking them. Positive-only; the checker saves it at the end of the
+    // catalog-body flush.
+    checker.enable_body_check_cache(xiom_check::checkcache::default_body_cache_path());
     let check_outcome = checker.check_program(&program);
     timing_mark("check");
     // R21d follow-up: ambiguous module declarations are reported, never
@@ -2052,6 +2068,17 @@ pub fn find_stdlib_dirs() -> Vec<String> {
 /// fixtures and temp-rooted projects rely on that.
 pub fn temp_root_covers(dir: &Path) -> bool {
     std::env::temp_dir().starts_with(dir)
+}
+
+/// m252: true when `dir` is the `xiom run` scratch directory (`%TEMP%/xiom_run`)
+/// or a directory under it. The run path writes a fresh `_script_<rand>.xi`
+/// copy there per invocation; indexing it polluted the catalog with every
+/// prior run's temporaries AND made the catalog-body check cache's tree
+/// digest unstable across runs (each new random script changed the indexed
+/// tree). The real script directory arrives via `extra_source_dirs`
+/// (`run_script_source_dirs`, C22).
+pub fn is_run_scratch_dir(dir: &Path) -> bool {
+    dir.starts_with(std::env::temp_dir().join("xiom_run"))
 }
 
 /// 5e.3 G-30/G-31: walk up from a source file's parent directory looking for

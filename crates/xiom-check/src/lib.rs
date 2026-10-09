@@ -14,6 +14,7 @@ use crate::types::{TypeArena, TypeId};
 pub mod types;
 pub mod structural;
 pub mod catalog;
+pub mod checkcache;
 pub mod borrow;
 pub mod type_qualify;
 
@@ -197,6 +198,22 @@ pub struct Checker {
     /// Dotted names (or source-hash keys) of catalog bodies already checked --
     /// idempotent across repeated `check_program` calls / LSP snapshots.
     checked_catalog_bodies: HashSet<String>,
+    /// Stage 6 item 1 (m252): persistent catalog-body check cache (positive
+    /// only). `None` disables recording and replay (tests, corpus gate, and
+    /// callers that never opt in); the driver wires
+    /// [`crate::checkcache::default_body_cache_path`].
+    body_check_cache: Option<crate::checkcache::BodyCheckCache>,
+    /// m252: set while checking a catalog body whenever resolution fell back
+    /// to a non-isolated GLOBAL table (bare-slot lookup / alternative bare
+    /// resolution). Such a body is program/load-order sensitive and is never
+    /// cached or replayed.
+    catalog_body_global_dep: bool,
+    /// m252: names declared by the USER program (fns incl. method leaves,
+    /// types, enums + variants, interfaces, consts, modules). A catalog body
+    /// that references one of these names is cache-ineligible: its
+    /// resolution could bind the program's declaration instead of the
+    /// catalog's (conservative program-independence guard).
+    program_defined_names: HashSet<String>,
     /// Stage 6 catalog-flush: identifier names referenced anywhere in the
     /// catalog body currently being checked, PLUS every use path root (see
     /// `catalog_reference_names`). `check_top_decl` skips a catalog-body `use`
@@ -393,6 +410,9 @@ impl Checker {
             module_import_paths: HashMap::new(),
             pending_catalog_bodies: Vec::new(),
             checked_catalog_bodies: HashSet::new(),
+            body_check_cache: None,
+            catalog_body_global_dep: false,
+            program_defined_names: HashSet::new(),
             catalog_body_refs: HashSet::new(),
             catalog_body_skip_allowed: false,
             catalog_uses_skipped: 0,
@@ -477,6 +497,19 @@ impl Checker {
     /// Stage 6: (hits, misses) of the last [`Self::build_catalog_index`].
     pub fn catalog_index_cache_stats(&self) -> (usize, usize) {
         (self.catalog.index_cache_hits, self.catalog.index_cache_misses)
+    }
+
+    /// Stage 6 item 1 (m252): opt into the persistent catalog-body check
+    /// cache (positive-only). Call before [`Self::check_program`]; the cache
+    /// is saved at the end of the catalog-body flush.
+    pub fn enable_body_check_cache(&mut self, path: std::path::PathBuf) {
+        self.body_check_cache = Some(crate::checkcache::BodyCheckCache::load(path));
+    }
+
+    /// Stage 6 item 1 (m252): (hits, misses) of the catalog-body check cache
+    /// for this run (0, 0 when disabled).
+    pub fn body_check_cache_stats(&self) -> (usize, usize) {
+        self.body_check_cache.as_ref().map_or((0, 0), |c| c.stats())
     }
 
     /// R21d follow-up: ambiguous module-name declarations found while indexing
@@ -582,6 +615,23 @@ impl Checker {
         let mut capture_secs = 0.0f64;
         let mut skipped_total = 0usize;
         let mut slowest: (f64, String) = (0.0, String::new());
+        // Stage 6 item 1 (m252): positive-only persistent check cache. Off in
+        // the corpus gate (the gate must exercise live checking) and for any
+        // caller that never opted in. The tree digest invalidates every entry
+        // when ANY indexed source changed -- a conservative superset of the
+        // "import closure changed" condition.
+        let cache_enabled = self.body_check_cache.is_some() && !self.corpus_loading;
+        let tree_digest = if cache_enabled {
+            self.catalog.tree_digest()
+        } else {
+            String::new()
+        };
+        if timings && cache_enabled {
+            eprintln!(
+                "[timings] body-cache tree-digest {tree_digest} rows={}",
+                self.catalog.tree_row_count()
+            );
+        }
         for cached in &pending {
             let key = if cached.dotted_name.is_empty() {
                 format!("#{:016x}", cached.source_hash)
@@ -590,6 +640,46 @@ impl Checker {
             };
             if !self.checked_catalog_bodies.insert(key.clone()) {
                 continue; // checked in an earlier flush
+            }
+            // Stage 6 m252: the reference surface is computed BEFORE the
+            // capture so cache eligibility is evaluated on both paths (pure
+            // AST scan). check_top_decl skips unused `use` declarations
+            // instead of parsing/registering the modules they name; skipping
+            // is only safe when the body's BARE TYPE surface is
+            // self-contained (bare fn names resolve through the global
+            // `functions` registry, but a bare type name that is neither
+            // declared in the body nor a scalar/generic must come from an
+            // import -- xor is this exact hazard: serialize/json's `Map` fell
+            // back to a same-leaf foreign declaration once
+            // `use xiom.collections;` was skipped).
+            self.catalog_body_refs =
+                crate::type_qualify::catalog_reference_names(&cached.program.items);
+            let type_refs = crate::type_qualify::referenced_type_names(&cached.program.items);
+            let mut declared_types = std::collections::BTreeSet::new();
+            crate::type_qualify::declared_type_leaves(&cached.program.items, &mut declared_types);
+            let generics = crate::type_qualify::declared_generic_params(&cached.program.items);
+            self.catalog_body_skip_allowed = type_refs.iter().all(|n| {
+                declared_types.contains(n) || generics.contains(n) || Self::is_scalar_type_name(n)
+            });
+            self.catalog_uses_skipped = 0;
+            // m252: a body that references any name the USER program declares
+            // can resolve differently per program (bare-slot fallbacks);
+            // keep such bodies live and uncached.
+            let overlaps_program = self
+                .program_defined_names
+                .iter()
+                .any(|n| self.catalog_body_refs.contains(n) || type_refs.contains(n));
+            if cache_enabled && !overlaps_program {
+                let hit = self
+                    .body_check_cache
+                    .as_mut()
+                    .and_then(|c| c.lookup(&key, cached.source_hash, &tree_digest));
+                if let Some(replay) = hit {
+                    for (k, v) in replay {
+                        self.catalog_resolved_calls.insert(k, v);
+                    }
+                    continue;
+                }
             }
             let capture_started = std::time::Instant::now();
             let ctx = self.capture_catalog_import_context();
@@ -619,25 +709,16 @@ impl Checker {
             for item in &cached.program.items {
                 self.register_fn_signature(item);
             }
-            // Stage 6 catalog-flush: compute the body's reference set ONCE --
-            // check_top_decl skips unused `use` declarations instead of
-            // parsing/registering the modules they name. Skipping is only
-            // safe when the body's BARE TYPE surface is self-contained:
-            // bare fn names resolve through the global `functions` registry,
-            // but a bare type name that is neither declared in the body nor a
-            // scalar/generic must come from an import (xor is this exact
-            // hazard -- serialize/json's `Map` fell back to a same-leaf
-            // foreign declaration once `use xiom.collections;` was skipped).
-            self.catalog_body_refs =
-                crate::type_qualify::catalog_reference_names(&cached.program.items);
-            let type_refs = crate::type_qualify::referenced_type_names(&cached.program.items);
-            let mut declared_types = std::collections::BTreeSet::new();
-            crate::type_qualify::declared_type_leaves(&cached.program.items, &mut declared_types);
-            let generics = crate::type_qualify::declared_generic_params(&cached.program.items);
-            self.catalog_body_skip_allowed = type_refs.iter().all(|n| {
-                declared_types.contains(n) || generics.contains(n) || Self::is_scalar_type_name(n)
-            });
-            self.catalog_uses_skipped = 0;
+            // Stage 6 m252: snapshot the resolved-call table so this body's
+            // delta can be recorded, and reset the global-dependency flag the
+            // resolution sites set. (The reference surface was computed
+            // above, before the cache lookup.)
+            let replay_before = if cache_enabled && !overlaps_program {
+                Some(self.catalog_resolved_calls.clone())
+            } else {
+                None
+            };
+            self.catalog_body_global_dep = false;
             let body_started = std::time::Instant::now();
             for item in &cached.program.items {
                 let item_started = std::time::Instant::now();
@@ -678,7 +759,41 @@ impl Checker {
                     e.message = format!("catalog body [{}]: {}", key, rest);
                 }
             }
+            // Stage 6 m252: record CLEAN bodies only -- and only when the
+            // body's resolution stayed inside its isolated context (no
+            // global bare-slot fallback) and referenced no name the user
+            // program declares. The replay payload reproduces this body's
+            // `catalog_resolved_calls` delta on a cache hit.
+            if let Some(before_map) = replay_before {
+                let clean = self.warnings.len() == before && self.errors.len() == before_errors;
+                if clean && !self.catalog_body_global_dep {
+                    let mut replay: Vec<(String, String)> = Vec::new();
+                    for (k, v) in &self.catalog_resolved_calls {
+                        if before_map.get(k) != Some(v) {
+                            replay.push((k.clone(), v.clone()));
+                        }
+                    }
+                    if let Some(c) = self.body_check_cache.as_mut() {
+                        c.record(&key, cached.source_hash, &tree_digest, replay);
+                    }
+                } else if timings && clean {
+                    eprintln!("[timings]   body {key} not cached: global bare-slot fallback");
+                }
+            } else if timings && overlaps_program {
+                eprintln!("[timings]   body {key} not cached: references program names");
+            }
             self.restore_catalog_import_context(ctx);
+        }
+        // Stage 6 m252: persist new/updated clean verdicts (temp + rename).
+        if let Some(c) = self.body_check_cache.as_mut() {
+            c.save();
+        }
+        if timings && cache_enabled {
+            let (hits, misses) = self
+                .body_check_cache
+                .as_ref()
+                .map_or((0, 0), |c| c.stats());
+            eprintln!("[timings] body-cache hits={hits} misses={misses}");
         }
         if timings {
             eprintln!(
@@ -1931,9 +2046,66 @@ impl Checker {
         }
         // Build variant field maps from all enum declarations
         self.register_all_variant_fields(program);
+        // Stage 6 item 1 (m252): record the program's declared names for the
+        // catalog-body cache eligibility guard (`program_defined_names`).
+        Self::collect_program_defined_names(&expanded.items, &mut self.program_defined_names);
         Self::perf_mark("collect-sigs");
         // Resolve module system (imports and module hierarchy)
         self.resolve_imports(program);
+    }
+
+    /// m252: true when a bare-call slot's owner modules could vary with the
+    /// program's own `use` closure (an owner not registered before use
+    /// processing, or an unknown provider). Such slots make a catalog body
+    /// program-subset dependent, so the body is never cached or replayed.
+    fn bare_slot_subset_unsafe(&self, name: &str) -> bool {
+        self.fn_owner_module
+            .get(name)
+            .map(|owners| owners.iter().any(|m| !self.pre_use_module_keys.contains(m)))
+            .unwrap_or(true)
+    }
+
+    /// m252: collect every name the user program declares (fns incl. method
+    /// leaves, types, enums + variants, interfaces, consts, module names).
+    /// Conservative: extra names only cost cache eligibility.
+    fn collect_program_defined_names(items: &[TopDecl], out: &mut HashSet<String>) {
+        for item in items {
+            match item {
+                TopDecl::Fn(fd) => {
+                    out.insert(fd.name.name.clone());
+                    if let Some(leaf) = fd.name.name.rsplit('.').next() {
+                        out.insert(leaf.to_string());
+                    }
+                    if let Some(recv) = &fd.receiver {
+                        out.insert(recv.name.clone());
+                    }
+                }
+                TopDecl::Type(td) => {
+                    out.insert(td.name.name.clone());
+                }
+                TopDecl::Enum(ed) => {
+                    out.insert(ed.name.name.clone());
+                    for v in &ed.variants {
+                        out.insert(v.name.name.clone());
+                    }
+                }
+                TopDecl::Interface(id) => {
+                    out.insert(id.name.name.clone());
+                }
+                TopDecl::Const(cd) => {
+                    out.insert(cd.name.name.clone());
+                }
+                TopDecl::Module(md) => {
+                    out.insert(md.name.name.clone());
+                    Self::collect_program_defined_names(&md.items, out);
+                }
+                TopDecl::Impl(id) => {
+                    out.insert(id.trait_name.name.clone());
+                    out.insert(id.type_name.name.clone());
+                }
+                _ => {}
+            }
+        }
     }
 
     /// 5c-R: Phase 2 -- Check all function bodies (collect must run first).
@@ -8616,8 +8788,26 @@ impl Checker {
                             imported_sig
                         } else if let Some(ref module) = self.current_module {
                             let prefixed = format!("{}.{}", module, name.name);
-                            self.functions.get(&prefixed).or_else(|| self.functions.get(&name.name))
+                            match self.functions.get(&prefixed) {
+                                Some(sig) => Some(sig),
+                                None => {
+                                    // m252: a bare fallback is only cache
+                                    // safe when the slot's owners registered
+                                    // before the program's own use closure.
+                                    if self.checking_catalog
+                                        && self.bare_slot_subset_unsafe(&name.name)
+                                    {
+                                        self.catalog_body_global_dep = true;
+                                    }
+                                    self.functions.get(&name.name)
+                                }
+                            }
                         } else {
+                            if self.checking_catalog
+                                && self.bare_slot_subset_unsafe(&name.name)
+                            {
+                                self.catalog_body_global_dep = true;
+                            }
                             self.functions.get(&name.name)
                         }
                     } else {
@@ -8638,6 +8828,10 @@ impl Checker {
                         // xiom.array's Array version).
                         if !self.sig_accepts_args(&sig, &arg_types) {
                             if let Some(alt) = self.resolve_alternative_bare_fn(&name.name, &arg_types) {
+                                // m252: program/load-order-sensitive fallback.
+                                if self.checking_catalog {
+                                    self.catalog_body_global_dep = true;
+                                }
                                 sig = alt;
                             }
                         }

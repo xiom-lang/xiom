@@ -530,12 +530,37 @@ structural lever and its monomorphisation design (per-program `Option__X`
 If the benchmark lanes can carry `--cache`, the scored numbers move with
 no code at all; that relay answer should land before re-prioritising.
 
-- [ ] Owner decision: implement the check-cache slice now (positive-only
-      clean verdicts + resolved-call replay + eligibility guard), or wait
-      for the benchmark-lane config relay, or schedule the
-      precompiled-stdlib design first.
-- [ ] If implemented: three locks -- (a) full diagnostics byte-parity
-      cache-on vs cache-off over the corpus plus the lz4 smoke (R15/m162
-      shapes) and a user-name collision probe; (b) `catalog_corpus_is_clean`
-      un-ignored; (c) invalidation on a stdlib source edit and on a
-      compiler-identity change.
+- [x] Owner decision (2026-10-10): implement the check-cache slice now.
+- [x] LANDED (m252, 2026-10-10): positive-only clean-verdict cache
+      (`xiom-check/src/checkcache.rs`) + resolved-call replay, driver
+      opt-in (`$HOME/.xiom/checkbodies.txt`; tests and the corpus gate stay
+      cache-free). Guards: clean-only, no subset-dependent global bare slot
+      (`bare_slot_subset_unsafe`), no name overlap with the user program.
+      Tree invalidation via `ModuleCatalog::tree_digest` (sorted
+      canonical/mtime/size rows). Locks: checkcache unit tests (roundtrip,
+      identity, invalidation, corrupt lines) + driver
+      `m252_body_check_cache_parity_and_invalidate` (checker_locks, on CI):
+      cold vs warm `--check` diagnostics byte-identical, cold vs warm
+      `--emit-ir` stdout byte-identical (locks the replay through codegen),
+      sibling edit invalidates and surfaces. Suites: xiom-check 199/199,
+      checker_locks 30/30, diff_tests 15/15, run_script_cli 7/7,
+      scripting 34/34.
+- [x] LANDED (m252 prerequisite): `xiom run` no longer indexes the
+      `%TEMP%/xiom_run` scratch dir (new `is_run_scratch_dir` guard on the
+      primary-source walk + `graph_source_dirs` in both compile paths).
+      Prior scratch files were catalog-indexed (538 stale catidx entries on
+      the dev box) and made the tree digest change every run. lz4 smoke:
+      indexed rows ~2900 -> 1868, index phase 0.67s -> 0.37s (warm catidx).
+- MEASURED (release, lz4 smoke, warm catidx): check 1.051s -> 0.911s warm;
+      catalog-bodies 0.564s/31 checked -> 0.470s/17 checked + 14 replays.
+      The strict guard excludes 17/31 bodies -- ALL for cross-module bare
+      slots (0 program-name exclusions); the excluded set is the expensive
+      call-heavy half, so the wall win is modest (~0.1-0.3s of ~2.4s).
+- [ ] Follow-up (hit-rate): record+verify the resolved binding per bare
+      name (sig/ownership fingerprint) instead of excluding the body, to
+      admit surface-import bodies; then re-measure the arena lane from the
+      next archive. Keep the parity/IR locks as the gate.
+- [ ] Follow-up (reach): the cache pays off on repeated compiles of the
+      same closure (dev loops, `--no-cache` reruns, LSP); across DIFFERENT
+      programs the closure-dependent entries miss by design. The
+      precompiled-stdlib half remains the structural cold lever.

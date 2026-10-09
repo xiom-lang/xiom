@@ -528,3 +528,153 @@ fn m177_result_payload_mismatch_rejected() {
         "expected the return-type mismatch diagnostic, got:\n{stderr}"
     );
 }
+
+// m252 (Stage 6 item 1, STAGE6_PERF_PLAN): persistent catalog-body CHECK
+// cache. Locks: (a) cold vs warm `--check` diagnostics byte-identical after
+// stripping the [timings] probe lines, warm run reports hits; (b) cold vs
+// warm `--emit-ir` stdout byte-identical -- the replayed
+// `catalog_resolved_calls` delta must reproduce codegen's cross-module
+// binding exactly; (c) a sibling-module edit invalidates the cached body and
+// surfaces the new diagnostic.
+fn m252_fixture_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("tests")
+        .join("regression")
+        .join("m252_body_check_cache")
+}
+
+fn m252_strip_timings(stderr: &[u8]) -> String {
+    String::from_utf8_lossy(stderr)
+        .lines()
+        .filter(|l| !l.contains("[timings]"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn m252_cache_stats(stderr: &[u8]) -> (usize, usize) {
+    for line in String::from_utf8_lossy(stderr).lines() {
+        if let Some(rest) = line.split("body-cache hits=").nth(1) {
+            let mut parts = rest.split(" misses=");
+            let hits = parts.next().and_then(|v| v.trim().parse::<usize>().ok()).unwrap_or(0);
+            let misses = parts.next().and_then(|v| v.trim().parse::<usize>().ok()).unwrap_or(0);
+            return (hits, misses);
+        }
+    }
+    (0, 0)
+}
+
+#[test]
+fn m252_body_check_cache_parity_and_invalidate() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let root = std::env::temp_dir().join(format!("xiom_m252_{}_{nanos:x}", std::process::id()));
+    let proj = root.join("proj");
+    let home = root.join("home");
+    std::fs::create_dir_all(&proj).expect("create m252 project dir");
+    std::fs::create_dir_all(&home).expect("create m252 home dir");
+    for name in ["main.xi", "m252_helper.xi", "m252_math.xi"] {
+        std::fs::copy(m252_fixture_dir().join(name), proj.join(name))
+            .unwrap_or_else(|e| panic!("copy {name}: {e}"));
+    }
+    let main = proj.join("main.xi");
+    let run = |args: &[&str]| {
+        Command::new(xiom_bin())
+            .args(args)
+            .arg(&main)
+            .env("HOME", &home)
+            .env("USERPROFILE", &home)
+            .env("XIOM_TIMINGS", "1")
+            .output()
+            .unwrap_or_else(|e| panic!("failed to spawn '{}': {e}", xiom_bin()))
+    };
+
+    // (a) cold vs warm --check: identical diagnostics; warm hits.
+    let c1 = run(&["--check"]);
+    assert_eq!(
+        c1.status.code(),
+        Some(0),
+        "cold check must pass:\n{}",
+        String::from_utf8_lossy(&c1.stderr)
+    );
+    let (_, cold_misses) = m252_cache_stats(&c1.stderr);
+    assert!(
+        cold_misses >= 1,
+        "cold check must record body-cache misses:\n{}",
+        String::from_utf8_lossy(&c1.stderr)
+    );
+    let c2 = run(&["--check"]);
+    assert_eq!(
+        c2.status.code(),
+        Some(0),
+        "warm check must pass:\n{}",
+        String::from_utf8_lossy(&c2.stderr)
+    );
+    let (warm_hits, _) = m252_cache_stats(&c2.stderr);
+    assert!(
+        warm_hits >= 1,
+        "warm check must hit the body cache:\n{}",
+        String::from_utf8_lossy(&c2.stderr)
+    );
+    assert_eq!(
+        m252_strip_timings(&c1.stderr),
+        m252_strip_timings(&c2.stderr),
+        "cold vs warm diagnostics must be byte-identical"
+    );
+
+    // (b) cold vs warm --emit-ir: stdout byte-identical (replay lock).
+    let ir_home = root.join("ir_home");
+    std::fs::create_dir_all(&ir_home).expect("create m252 ir home");
+    let ir_run = || {
+        Command::new(xiom_bin())
+            .arg("--emit-ir")
+            .arg(&main)
+            .env("HOME", &ir_home)
+            .env("USERPROFILE", &ir_home)
+            .output()
+            .unwrap_or_else(|e| panic!("failed to spawn '{}': {e}", xiom_bin()))
+    };
+    let ir1 = ir_run();
+    let ir2 = ir_run();
+    assert_eq!(
+        ir1.status.code(),
+        Some(0),
+        "cold emit-ir must succeed:\n{}",
+        String::from_utf8_lossy(&ir1.stderr)
+    );
+    assert_eq!(
+        ir2.status.code(),
+        Some(0),
+        "warm emit-ir must succeed:\n{}",
+        String::from_utf8_lossy(&ir2.stderr)
+    );
+    assert!(!ir1.stdout.is_empty(), "cold emit-ir must produce IR on stdout");
+    assert_eq!(
+        ir1.stdout, ir2.stdout,
+        "cold vs warm IR must be byte-identical (resolved-call replay)"
+    );
+
+    // (c) invalidation: the sibling edit is re-checked and surfaces.
+    std::fs::write(
+        proj.join("m252_helper.xi"),
+        "module m252_helper;\n\nuse m252_math.sq;\n\npub fn triple(x: Int) -> Int {\n  return sq(x) * 3 + missing_fn_xyz(x);\n}\n",
+    )
+    .expect("rewrite m252 helper");
+    let c3 = run(&["--check"]);
+    let err3 = String::from_utf8_lossy(&c3.stderr).into_owned();
+    assert_ne!(c3.status.code(), Some(0), "edited helper must fail the check:\n{err3}");
+    assert!(
+        err3.contains("missing_fn_xyz"),
+        "the post-edit diagnostic must surface:\n{err3}"
+    );
+    let (_, invalidated_misses) = m252_cache_stats(&c3.stderr);
+    assert!(
+        invalidated_misses >= 1,
+        "edited source must invalidate its cached body:\n{err3}"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}

@@ -14725,6 +14725,67 @@ Corrections discovered while deduping:
 - m201 polyhedra/geom-matrix ledger claims vs the stdlib lane's official
   re-checks (item 10 in section (b)).
 
+---
+
+## 2026-10-10 -- PERF/FIXED (m252): persistent catalog-body CHECK cache + run-scratch indexing
+
+Stage 6 item 1 slice, owner-approved after the 2026-10-10 check-cache seam
+audit (STAGE6_PERF_PLAN). Two parts:
+
+1. RUN SCRATCH FIX (driver). `xiom run` compiles a
+   `%TEMP%/xiom_run/_script_<rand>.xi` copy, and `compile()` added that
+   copy's parent as a catalog source dir (the `temp_root_covers` guard only
+   excludes dirs AT/ABOVE the temp root; the C22 `graph_source_dirs` loop
+   had no guard at all). Every PRIOR run's temporaries were therefore
+   indexed -- 538 stale `_script_*.xi` entries in a dev catidx -- poisoning
+   the catalog and making any tree-digest-keyed cache unstable. Fix: new
+   `is_run_scratch_dir` guard applied to the primary-source
+   parent/grandparent walk and the `graph_source_dirs` loop in `compile()`
+   (and the graph loop in `compile_with_diagnostics`). Real script dirs
+   still arrive via `extra_source_dirs` (C22 `run_script_source_dirs`).
+   lz4 smoke: indexed rows ~2900 -> 1868; index phase 0.67s -> 0.37s (warm
+   catidx).
+
+2. PERSISTENT POSITIVE-ONLY CHECK CACHE (`xiom-check/src/checkcache.rs`).
+   `flush_catalog_bodies` re-checks every loaded catalog body on every
+   compile; a CLEAN body is now recorded (module content hash + indexed-tree
+   digest + compiler identity) together with its `catalog_resolved_calls`
+   delta, and a later run replays instead of re-checking. Driver opt-in
+   (`Checker::enable_body_check_cache`, `$HOME/.xiom/checkbodies.txt`);
+   tests stay cache-free and the corpus gate stays live
+   (`corpus_loading` disables the cache by construction).
+   Guards (positive-only): record only bodies with (a) zero new diagnostics,
+   (b) no resolution through a subset-dependent global bare slot (owner not
+   registered before the program's use closure -- `bare_slot_subset_unsafe`),
+   (c) no reference overlapping a name the USER program declares. Any
+   identity/content/tree mismatch is a miss -> live check.
+   `ModuleCatalog::tree_digest` (sorted canonical/mtime/size rows)
+   conservatively invalidates every entry when any indexed source changes.
+
+   MEASURED (release, lz4 smoke, warm catidx): check 1.051s -> 0.911s warm;
+   catalog-bodies 0.564s/31 checked -> 0.470s/17 checked + 14 replays. The
+   strict guard excludes 17/31 bodies, ALL for cross-module bare slots
+   (0 program-name exclusions); the excluded set is the call-heavy half, so
+   the wall win is modest (~0.1-0.3s of ~2.4s) until the follow-up below.
+
+   LOCKS: `checkcache::tests::cache_roundtrip_identity_and_invalidation` and
+   `cache_corrupt_lines_are_ignored`; driver
+   `m252_body_check_cache_parity_and_invalidate` (checker_locks, on the CI
+   test line): cold vs warm `--check` diagnostics byte-identical (timings
+   stripped), cold vs warm `--emit-ir` stdout byte-identical (locks the
+   resolved-call replay through codegen), and a sibling-module edit
+   invalidates the cached body and surfaces its new diagnostic. Suites:
+   xiom-check 199/199 (incl. un-ignored `catalog_corpus_is_clean`),
+   checker_locks 30/30, diff_tests 15/15, run_script_cli 7/7, scripting
+   34/34.
+
+   FOLLOW-UP (hit rate): record+verify the resolved binding per bare name
+   (sig/ownership fingerprint) instead of excluding the body, to admit
+   surface-import bodies; keep the parity/IR locks as the gate. The cache
+   pays off on repeated compiles of the same closure (dev loops,
+   `--no-cache` reruns, LSP); across different programs the
+   closure-dependent entries miss by design.
+
 
 
 
