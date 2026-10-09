@@ -341,6 +341,13 @@
 >    2026-10-09 OPEN entry.
 >
 > RELAY QUEUE (post-v0.64.1 re-tests, 2026-10-08):
+> v0.64.2 RELEASE RELAY dispatched 2026-10-09 to stdlib / xiom-bench +
+> benchmark-chaos / registry / packages / bindings / pulse / orbitdb /
+> xvector (docs/COMPILER-RELAY-2026-10-09-v0.64.2.md in each lane, left
+> untracked in their repos per convention): v0.64.2 is release-ready,
+> each lane re-verifies on the archive once the tag lands, wave-97
+> sibling-alias finding recorded + reproduced compiler-side, M7/B-05
+> remain stdlib/runtime-side.
 > A. XVECTOR (E:\xiom-projects\xiom-xvector): v0.64.1 re-test -- C-01,
 >    C-03, C-04, C-05, C-06 FIXED (C-06 = m221; C-02 measurement
 >    artifact). XVC-C-07 (the ONLY OPEN finding) is FIXED m222 -- see the
