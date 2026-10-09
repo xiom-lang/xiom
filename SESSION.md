@@ -28,13 +28,15 @@
 >    lane, same relay file); packages discard-unsafe exact repro + grpc
 >    ambiguity (their lane); t3 hot-reload Linux re-measure; benchmark
 >    t2-t5 reference clause gap (relayed 2026-10-08).
-> 3. Verifier v2 -- SMT Array memory model: t8-safety-probe body VCs must
->    emit real queries (today honest `unproven / no queries`; m233 fixed
->    the sort gaps so the SMT is z3-clean). Model `*mut T` reads/writes as
->    SMT arrays; wire store_word/load_word bodies and the `base != null`
->    requires; acceptance = `xiom-verify --check` on t8 emits >=1 real
->    check-sat with meaningful results (proven or honest unknowns) and no
->    z3 errors.
+> 3. [FIXED m240 2026-10-09] Verifier v2 -- SMT Array memory model:
+>    `unsafe` bodies are now transparent, raw pointer loads/stores go
+>    through per-pointer memory functions, pointer-sort casts carry ground
+>    null-preservation, and every body deref emits an X7009 null-safety VC.
+>    t8 reference: 2 proven / 0 violated / 1 unknown / 0 errors with 2 real
+>    check-sats (was 0 proven, no queries). Remaining unknown = honest
+>    class (non-pointer->pointer casts, e.g. `0 as *Int`). Locks:
+>    t8_pointer_memory_model_emits_vcs + smt_ptr_memory_model_emitted +
+>    z3_ptr_memory_model_proven.
 > 4. NEW wave-96 stdlib findings -- reproduce FIRST, fix, lock:
 >    a) [FIXED m237 2026-10-09] tools/known_failures/
 >       p_array_zip_no_truncate.xi (stdlib repo): array_zip did not

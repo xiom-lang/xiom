@@ -353,6 +353,48 @@ fn z3_compose_proven() {
         "use_square must be proven via contract composition:\n{stderr}");
 }
 
+// m240 (verifier v2, SMT Array memory model): the emitted script must carry
+// the per-pointer memory function, the X7009 null-safety obligation and the
+// body encoding for raw pointer store/load (no body-gap skip).
+#[test]
+fn smt_ptr_memory_model_emitted() {
+    let smt = smt_for("tests/verify/test_ptr_mem.xi");
+    assert!(
+        smt.contains("(declare-fun mem_xiom_ptr_Int (|xiom_ptr_Int| Int) Int)"),
+        "the per-pointer memory array must be declared:\n{smt}"
+    );
+    assert!(
+        smt.contains("|mem_xiom_ptr_Int|"),
+        "deref loads/stores must go through the memory array:\n{smt}"
+    );
+    assert!(
+        smt.contains("X7009"),
+        "raw pointer derefs must emit X7009 null-safety obligations:\n{smt}"
+    );
+    assert!(
+        smt.contains("|cast_xiom_ptr_UInt8_xiom_ptr_Int|"),
+        "pointer-sort casts must be modeled:\n{smt}"
+    );
+    assert!(
+        !smt.contains("deref store skipped") && !smt.contains("deref load skipped"),
+        "the bodies must encode, not skip:\n{smt}"
+    );
+}
+
+// m240: end-to-end -- the X7009 obligations are PROVEN from
+// `requires: base != null` + cast null preservation, with no z3 errors.
+#[test]
+fn z3_ptr_memory_model_proven() {
+    if z3_path().is_none() { eprintln!("SKIP: z3 not found"); return; }
+    let output = verify_with_z3("tests/verify/test_ptr_mem.xi");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("0 errors"), "pointer VCs must be z3-clean:\n{stderr}");
+    assert!(stderr.contains("VERIFIED"), "null-safety VCs must be proven:\n{stderr}");
+    assert!(stderr.contains("2 proven"), "both obligations must be proven:\n{stderr}");
+    assert!(!stderr.contains("no queries emitted"),
+        "queries must actually be emitted:\n{stderr}");
+}
+
 // =========================================================================
 // Z3Runner Parsing Tests (unit tests, no z3 required)
 // =========================================================================

@@ -670,6 +670,49 @@ LOCKS: IR `regress_m229_is_payload_literal` (`and i1` present), e2e
 
 ---
 
+## 2026-10-09 -- FIXED (m240): verifier v2 -- SMT Array memory model (t8 body VCs)
+
+Blocker 3: after m233 made the SMT sort-clean, `xiom-verify --check` on the
+t8 reference still reported `0 proven, 4 unknown, no queries emitted` --
+`store_word`/`load_word` bodies were entirely unmodeled (`unsafe` blocks
+were silently skipped, pointer derefs unsupported), so no `check-sat`
+was ever emitted for the t8 helpers.
+
+FIX (m240, `crates/xiom-verify/src/lib.rs`):
+1. `unsafe { ... }` blocks are transparent to the body encoder (confinement
+   is a compile-time property); inner statements encode so derefs produce
+   VCs.
+2. Raw pointer loads/stores are modeled with a per-pointer memory function
+   `(declare-fun |mem_<ptrsort>| (<ptrsort> Int) <value-sort>)` (keyed by
+   pointer VALUE and word offset; load = application, store = guarded
+   equality). Value sort follows the pointee (`*mut Float64` -> Real).
+   Store sequencing is the documented v1 approximation (same-term
+   congruence still proves load-after-store).
+3. Pointer-sort casts (`base as *mut Int`) get an uninterpreted cast
+   function plus a GROUND null-preservation instance
+   `(=> (distinct src null_src) (distinct (cast src) null_dst))` --
+   quantifier-free, emitted at translate depth 0 so declaration order is
+   z3-valid.
+4. Every body deref emits an X7009 null-safety side condition
+   (`(distinct p null)` under the `base != null` requires). Non-pointer
+   `as` casts keep their historical skip class; pointer<->non-pointer
+   casts stay honestly unmodeled (UNKNOWN, never a fabricated term or a
+   z3 error).
+
+EVIDENCE (t8 reference `tmp/contracts/ref/t8-safety-probe.xi --check`):
+before = 0 proven / 0 violated / 1 unknown (no queries) / 0 errors;
+after = 2 proven / 0 violated / 1 unknown / 0 errors with 2 real
+`(check-sat)` -- store_word and load_word X7009 obligations proven from
+`requires: base != null` + cast null preservation. The remaining unknown
+is the honest class: `cstr`'s `Str as *UInt8` and `0 as *Int` are
+non-pointer->pointer casts (next step: an inttoptr null mapping).
+Targeted probe `tests/verify/test_ptr_mem.xi`: 2 proven, 0 unknown,
+0 errors.
+
+LOCKS: in-crate `t8_pointer_memory_model_emits_vcs` (memory fun +
+X7009 + check-sat + no body gaps), integration `smt_ptr_memory_model_emitted`
+(SMT text) and z3-gated `z3_ptr_memory_model_proven` (2 proven, 0 errors).
+
 ## 2026-10-09 -- FIXED (m239): deep container equality (queue item 20)
 
 `==`/`!=` on containers compared ERASED FIELD BITS: `Vec[Int] == Vec[Int]`

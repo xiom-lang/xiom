@@ -57,6 +57,9 @@ pub const X7005_ARRAY_BOUNDS: &str = "X7005";
 pub const X7006_INVARIANT: &str = "X7006";
 pub const X7007_UNKNOWN: &str = "X7007";
 pub const X7008_TYPE_ERROR: &str = "X7008";
+/// m240 (verifier v2): raw-pointer dereference safety -- the dereferenced
+/// pointer must be provably non-null under the function's requires.
+pub const X7009_MEMORY_SAFETY: &str = "X7009";
 
 // =========================================================================
 // Verification Result
@@ -192,6 +195,23 @@ pub struct SMTGenerator {
     /// by `collect_dynamic_sorts`; the call translator wraps a value-sorted
     /// `self` argument in the coercion when the callee parameter is `&T`.
     ref_coercions: HashMap<String, (String, String)>,
+    /// m240 (verifier v2, SMT Array memory model): true while encoding a
+    /// function BODY -- only body dereferences produce X7009 memory-safety
+    /// side conditions (contract clauses state assumptions, not obligations).
+    in_body: bool,
+    /// m240: pointer-sort CAST functions declared in the CURRENT function
+    /// scope. Scope-local `declare-fun`s are legal, but the symbol must be
+    /// declared before every scope that uses it -- reset per function and
+    /// re-declared on first use.
+    cast_declared: HashSet<String>,
+    /// m240: pending cast declarations + ground null-preservation axioms.
+    /// They cannot be emitted mid-translation (the translate buffer is
+    /// swapped), so they are queued and flushed at translate depth 0 --
+    /// declarations must precede the first use in the SMT-LIB script.
+    pending_casts: Vec<String>,
+    /// m240: nesting depth of translate_expr_to_val (nested deref addresses
+    /// must NOT flush -- the emit buffer holds expression text then).
+    translate_depth: u32,
     report: GenReport,
 }
 
@@ -221,7 +241,99 @@ impl SMTGenerator {
             declared_sorts: HashSet::new(),
             null_consts: HashMap::new(),
             ref_coercions: HashMap::new(),
+            in_body: false,
+            cast_declared: HashSet::new(),
+            pending_casts: Vec::new(),
+            translate_depth: 0,
             report: GenReport::default(),
+        }
+    }
+
+    // =====================================================================
+    // m240 (verifier v2) -- SMT Array memory model helpers
+    // =====================================================================
+
+    /// m240: the VALUE sort denoted by a `|xiom_ptr_X|` sort -- the word
+    /// sort of the per-pointer memory array (`*mut UInt8` -> Int,
+    /// `*mut Float64` -> Real, opaque elements -> Int word model).
+    fn value_sort_from_ptr_sort(ptr_sort: &str) -> String {
+        let key = ptr_sort
+            .strip_prefix("|xiom_ptr_")
+            .and_then(|k| k.strip_suffix('|'))
+            .unwrap_or("Int");
+        match key {
+            "Float32" | "Float64" => "Real".to_string(),
+            "Bool" => "Bool".to_string(),
+            "Str" => "String".to_string(),
+            _ => "Int".to_string(),
+        }
+    }
+
+    /// m240: the per-pointer memory function symbol:
+    /// `(declare-fun |mem_<key>| (<ptrsort> Int) <value-sort>)` (declared in
+    /// the top-level pass). Keyed by the POINTER VALUE and a WORD offset, so
+    /// distinct pointers of one sort stay separated; store sequencing is the
+    /// documented v1 approximation (same-term congruence still proves
+    /// load-after-store). Quoted, so bracket keys (`Vec[Int]`) stay valid.
+    fn mem_fn_name(ptr_sort: &str) -> String {
+        format!("|mem_{}|", ptr_sort.trim_matches('|'))
+    }
+
+    /// m240: memory function for STATEMENT context (declares the sort if
+    /// missing). Never call from inside `translate_expr`: it swaps the emit
+    /// buffer, so nested `emit` would corrupt the expression text.
+    fn mem_fn_for(&mut self, ptr_sort: &str) -> String {
+        self.ensure_sort_declared(ptr_sort);
+        Self::mem_fn_name(ptr_sort)
+    }
+
+    /// m240: null constant LOOKUP, no emission (safe in any context).
+    fn ptr_null_lookup(&self, ptr_sort: &str) -> Option<String> {
+        self.null_consts.get(ptr_sort).cloned()
+    }
+
+    /// m240: queue a pointer-sort cast declaration + a GROUND
+    /// null-preservation instance for this source term:
+    /// `(=> (distinct src null_src) (distinct (cast src) null_dst))`.
+    /// A pointer cast of a non-null address is non-null -- a ground
+    /// instantiation of the true forall, quantifier-free for z3.
+    fn queue_ptr_cast(&mut self, src_sort: &str, dst_sort: &str, src_term: &str) -> String {
+        let (sk, dk) = (
+            src_sort.trim_matches('|').to_string(),
+            dst_sort.trim_matches('|').to_string(),
+        );
+        let cast = format!("|cast_{}_{}|", sk, dk);
+        let key = format!("{}=>{}", sk, dk);
+        if self.cast_declared.insert(key) {
+            self.pending_casts
+                .push(format!("(declare-fun {} ({}) {})", cast, src_sort, dst_sort));
+        }
+        if let (Some(null_src), Some(null_dst)) = (
+            self.ptr_null_lookup(src_sort),
+            self.ptr_null_lookup(dst_sort),
+        ) {
+            let axiom = format!(
+                "(assert (=> (distinct {} {}) (distinct ({} {}) {})))",
+                src_term, null_src, cast, src_term, null_dst
+            );
+            if !self.pending_casts.contains(&axiom) {
+                self.pending_casts.push(axiom);
+            }
+        }
+        format!("({} {})", cast, src_term)
+    }
+
+    /// m240: flush queued cast declarations/axioms into the script. Safe to
+    /// call repeatedly; declarations precede every obligation that uses
+    /// them (SMT-LIB is order-sensitive for symbol declarations).
+    fn flush_pending_casts(&mut self) {
+        if self.pending_casts.is_empty() {
+            return;
+        }
+        self.emit("; --- pointer casts (m240) ---");
+        let queued: Vec<String> = self.pending_casts.drain(..).collect();
+        for line in queued {
+            self.emit(&line);
         }
     }
 
@@ -490,6 +602,10 @@ impl SMTGenerator {
             ann_types.push(ty.clone());
         }
         Self::walk_annotated_types(&program.items, &mut ann_types);
+        // m240: pointer sorts that appear ONLY in body casts (`base as *mut
+        // Int`) must also be top-level declared -- their memory functions
+        // are used from body translations and must not be undeclared.
+        Self::walk_cast_types(&program.items, &mut ann_types);
         let mut sorts: Vec<String> = vec!["|xiom_unknown|".to_string()];
         let mut declared_names: Vec<String> = Vec::new();
         Self::collect_declared_type_names(&program.items, &mut declared_names);
@@ -525,6 +641,12 @@ impl SMTGenerator {
                     let null_name = format!("|null_{}|", s.trim_matches('|'));
                     self.emit(&format!("(declare-const {} {})", null_name, s));
                     self.null_consts.insert(s.clone(), null_name);
+                    // m240 (verifier v2 memory model): per-pointer word
+                    // array -- `(mem_<key> <ptrsort> Int) <value-sort>`
+                    // keyed by pointer VALUE and word offset.
+                    let value_sort = Self::value_sort_from_ptr_sort(&s);
+                    let mem = format!("mem_{}", s.trim_matches('|'));
+                    self.emit(&format!("(declare-fun {} ({} Int) {})", mem, s, value_sort));
                 }
             }
         }
@@ -597,27 +719,99 @@ impl SMTGenerator {
         }
     }
 
-    fn walk_block_types(b: &Block, out: &mut Vec<Type>) {
-        for item in &b.stmts {
-            let stmt = match item {
-                StmtOrExpr::Stmt(s) => s,
-                StmtOrExpr::Expr(..) => continue,
-            };
-            match stmt {
-                Stmt::Let(_, Some(t), ..) | Stmt::Var(_, Some(t), ..) => out.push((**t).clone()),
-                Stmt::If(_, then_b, elifs, else_b, _) => {
-                    Self::walk_block_types(then_b, out);
-                    for (_, b) in elifs {
-                        Self::walk_block_types(b, out);
-                    }
-                    if let Some(b) = else_b {
+    /// m240: collect pointer sorts from body EXPRESSIONS -- the As-cast
+    /// targets (`base as *mut Int`) that `walk_annotated_types` cannot see.
+    fn walk_cast_types(items: &[TopDecl], out: &mut Vec<Type>) {
+        for item in items {
+            match item {
+                TopDecl::Fn(f) => {
+                    if let Some(b) = &f.body {
                         Self::walk_block_types(b, out);
                     }
                 }
-                Stmt::While(_, body, _, _, _) => Self::walk_block_types(body, out),
-                Stmt::For(_, _, body, _, _) => Self::walk_block_types(body, out),
+                TopDecl::Module(m) => Self::walk_cast_types(&m.items, out),
                 _ => {}
             }
+        }
+    }
+
+    fn walk_expr_types(e: &Expr, out: &mut Vec<Type>) {
+        match e {
+            Expr::As(inner, ty, _) => {
+                out.push(ty.clone());
+                Self::walk_expr_types(inner, out);
+            }
+            Expr::Paren(inner, _)
+            | Expr::Unary(_, inner, _)
+            | Expr::Ref(inner, _)
+            | Expr::MutRef(inner, _)
+            | Expr::Await(inner, _)
+            | Expr::Comptime(inner, _)
+            | Expr::ConstBlock(inner, _)
+            | Expr::Try(inner, _) => Self::walk_expr_types(inner, out),
+            Expr::Binary(l, _, r, _) => {
+                Self::walk_expr_types(l, out);
+                Self::walk_expr_types(r, out);
+            }
+            Expr::Call(f, args, _) | Expr::GenericCall(f, _, args, _) => {
+                Self::walk_expr_types(f, out);
+                for a in args {
+                    Self::walk_expr_types(a, out);
+                }
+            }
+            Expr::Index(b, i, _) => {
+                Self::walk_expr_types(b, out);
+                Self::walk_expr_types(i, out);
+            }
+            Expr::Field(b, _, _) => Self::walk_expr_types(b, out),
+            Expr::Unsafe(b, _) | Expr::BlockExpr(b, _) => Self::walk_block_types(b, out),
+            _ => {}
+        }
+    }
+
+    fn walk_block_types(b: &Block, out: &mut Vec<Type>) {
+        for item in &b.stmts {
+            match item {
+                StmtOrExpr::Expr(e) => Self::walk_expr_types(e, out),
+                StmtOrExpr::Stmt(s) => Self::walk_stmt_types(s, out),
+            }
+        }
+    }
+
+    fn walk_stmt_types(stmt: &Stmt, out: &mut Vec<Type>) {
+        match stmt {
+            Stmt::Let(_, ty, init, _) | Stmt::Var(_, ty, init, _) => {
+                if let Some(t) = ty {
+                    out.push((**t).clone());
+                }
+                Self::walk_expr_types(init, out);
+            }
+            Stmt::Assign(target, rhs, _) => {
+                Self::walk_expr_types(target, out);
+                Self::walk_expr_types(rhs, out);
+            }
+            Stmt::Return(Some(e), _) => Self::walk_expr_types(e, out),
+            Stmt::Expr(e, _) => Self::walk_expr_types(e, out),
+            Stmt::If(cond, then_b, elifs, else_b, _) => {
+                Self::walk_expr_types(cond, out);
+                Self::walk_block_types(then_b, out);
+                for (c, b) in elifs {
+                    Self::walk_expr_types(c, out);
+                    Self::walk_block_types(b, out);
+                }
+                if let Some(b) = else_b {
+                    Self::walk_block_types(b, out);
+                }
+            }
+            Stmt::While(cond, body, inv, _, _) => {
+                Self::walk_expr_types(cond, out);
+                if let Some(i) = inv {
+                    Self::walk_expr_types(i, out);
+                }
+                Self::walk_block_types(body, out);
+            }
+            Stmt::For(_, _, body, _, _) => Self::walk_block_types(body, out),
+            _ => {}
         }
     }
 
@@ -788,6 +982,10 @@ impl SMTGenerator {
         self.latest.clear();
         self.ssa_counter = 0;
         self.body_unsupported = None;
+        // m240: cast symbols are scoped to this function's (push)/(pop).
+        self.in_body = false;
+        self.cast_declared.clear();
+        self.pending_casts.clear();
 
         // R64 soundness fix: assume every OTHER function's contract axiom
         // (call-site composition), never this function's own -- assuming its
@@ -872,9 +1070,14 @@ impl SMTGenerator {
         // Body encoding (guarded SSA).
         if let Some(body) = &f.body {
             self.emit("; --- body encoding ---");
+            self.in_body = true;
             let _ = self.encode_block(&body.stmts, "true");
+            self.in_body = false;
             self.emit("");
         }
+        // m240: cast declarations/axioms collected during translation are
+        // flushed before any obligation references them.
+        self.flush_pending_casts();
 
         // When the body could not be fully encoded, |result| is
         // unconstrained: running ensures checks against NOTHING would fire
@@ -906,6 +1109,7 @@ impl SMTGenerator {
                         format!("ensures (line {}) unsupported: {}", span.line, reason));
                     continue;
                 }
+                self.flush_pending_casts();
                 self.emit("(push)");
                 self.emit(&format!("(assert (! (not {})", term));
                 self.emit(&format!(" :named |{}|))", label));
@@ -930,6 +1134,7 @@ impl SMTGenerator {
                     continue;
                 }
                 self.emit(&format!("; {}: {}", sc.code, sc.message));
+                self.flush_pending_casts();
                 self.emit("(push)");
                 let label = self.unique_label(&format!("obl_{}", sc.code));
                 self.emit(&format!("(assert (! (not {}) :named |{}|))", sc.smt, label));
@@ -955,6 +1160,15 @@ impl SMTGenerator {
             match item {
                 StmtOrExpr::Stmt(stmt) => self.encode_stmt(stmt, &mut ft),
                 StmtOrExpr::Expr(expr) => {
+                    // m240 (verifier v2): `unsafe { ... }` blocks are
+                    // transparent to the verifier (confinement is a
+                    // compile-time property). Encode their statements so
+                    // raw-pointer bodies produce their X7009 VCs instead of
+                    // failing the whole body as unsupported.
+                    if let Expr::Unsafe(block, _) = expr {
+                        ft = self.encode_block(&block.stmts, &ft);
+                        continue;
+                    }
                     let saved = self.unsupported.take();
                     let _ = self.translate_expr_to_val(expr);
                     let _ = self.unsupported.take();
@@ -1240,6 +1454,12 @@ impl SMTGenerator {
                 }
             }
             Stmt::Assign(target, expr, _) => {
+                // m240 (verifier v2): store through a raw pointer
+                // (`*(p + i) = v`) -- memory-array update + null-safety VC.
+                if let Expr::Unary(UnaryOp::Deref, addr, _) = target {
+                    self.encode_deref_store(addr, expr, ft);
+                    return;
+                }
                 let base = match target {
                     Expr::Ident(id) => id.name.clone(),
                     Expr::Field(obj, field, _) => match obj.as_ref() {
@@ -1296,6 +1516,99 @@ impl SMTGenerator {
             }
         }
     }
+    /// m240: parse a dereference ADDRESS into (pointer term, pointer sort,
+    /// word offset): `*(p + i)` -> (p, |xiom_ptr_X|, i), `*p` -> (p, sort,
+    /// "0"). Marks `unsupported` for unmodeled shapes.
+    fn deref_target(&mut self, addr: &Expr) -> Option<(String, String, String)> {
+        let inner = match addr {
+            Expr::Paren(e, _) => e.as_ref(),
+            other => other,
+        };
+        if let Expr::Binary(l, BinOp::Add, r, _) = inner {
+            let ls = self.infer_sort(l);
+            let rs = self.infer_sort(r);
+            let l_ptr = ls.filter(|s| s.starts_with("|xiom_ptr_"));
+            let r_ptr = rs.filter(|s| s.starts_with("|xiom_ptr_"));
+            if let Some(ps) = l_ptr {
+                let pt = self.translate_expr_to_val(l);
+                let off = self.translate_expr_to_val(r);
+                return Some((pt, ps, off));
+            }
+            if let Some(ps) = r_ptr {
+                let off = self.translate_expr_to_val(l);
+                let pt = self.translate_expr_to_val(r);
+                return Some((pt, ps, off));
+            }
+            self.mark_unsupported("pointer arithmetic on non-pointer operands".to_string());
+            return None;
+        }
+        let ps = match self.infer_sort(inner) {
+            Some(s) if s.starts_with("|xiom_ptr_") => s,
+            Some(_) => {
+                self.mark_unsupported("dereference of a non-pointer value".to_string());
+                return None;
+            }
+            None => {
+                self.mark_unsupported("dereference address sort unknown".to_string());
+                return None;
+            }
+        };
+        let pt = self.translate_expr_to_val(inner);
+        Some((pt, ps, "0".to_string()))
+    }
+
+    /// m240: X7009 null-safety side condition for a dereferenced pointer
+    /// (body encoding only; a missing modeled sort degrades to no VC --
+    /// the caller reports UNKNOWN instead of fabricating a term).
+    fn note_deref_safety(&mut self, ptr_term: &str, ptr_sort: &str, what: &str) {
+        if !self.in_body {
+            return;
+        }
+        let Some(null) = self.ptr_null_lookup(ptr_sort) else { return };
+        self.side_conditions.push(SideCondition {
+            code: X7009_MEMORY_SAFETY,
+            message: format!("raw pointer {} must be non-null", what),
+            smt: format!("(distinct {} {})", ptr_term, null),
+        });
+    }
+
+    /// m240: encode `*(p + i) = v` as a memory-array update
+    /// `(= (|mem_P| p i) v)` plus the X7009 null-safety VC.
+    fn encode_deref_store(&mut self, addr: &Expr, rhs: &Expr, ft: &str) {
+        let saved = self.unsupported.take();
+        let target = self.deref_target(addr);
+        let target_unsup = self.unsupported.take();
+        self.unsupported = saved;
+        if let Some(reason) = target_unsup {
+            self.note_body_gap(&reason);
+            self.emit(&format!("; deref store skipped: {}", reason));
+            return;
+        }
+        let Some((pt, ps, off)) = target else { return };
+        if self.ptr_null_lookup(&ps).is_none() {
+            self.note_body_gap(&format!("pointer sort {} not modeled", ps));
+            self.emit(&format!("; deref store skipped: pointer sort {} not modeled", ps));
+            return;
+        }
+        let saved = self.unsupported.take();
+        let v = self.translate_expr_to_val(rhs);
+        let rhs_unsup = self.unsupported.take();
+        self.unsupported = saved;
+        if let Some(reason) = rhs_unsup {
+            self.note_body_gap(&reason);
+            self.emit(&format!("; deref store skipped: {}", reason));
+            return;
+        }
+        self.note_deref_safety(&pt, &ps, "store");
+        let mem = self.mem_fn_for(&ps);
+        let eq = format!("(= ({} {} {}) {})", mem, pt, off, v);
+        if ft == "true" {
+            self.emit(&format!("(assert {})", eq));
+        } else {
+            self.emit(&format!("(assert (=> {} {}))", ft, eq));
+        }
+    }
+
     fn fresh_ssa(&mut self, base: &str) -> String {
         let name = format!("|{}_ssa{}|", smt_escape(base), self.ssa_counter);
         self.ssa_counter += 1;
@@ -1319,13 +1632,41 @@ impl SMTGenerator {
             Expr::Bool(..) => Some("Bool".to_string()),
             Expr::Str(..) => Some("String".to_string()),
             Expr::Ident(id) => self.var_sort_map.get(&id.name).cloned(),
+            // m240: a pointer cast has the TARGET sort.
+            Expr::As(_, ty, _) => {
+                let s = self.sort_for(ty);
+                if s.starts_with("|xiom_ptr_") {
+                    Some(s)
+                } else {
+                    None
+                }
+            }
             Expr::Unary(op, inner, _) => match op {
                 UnaryOp::Not => Some("Bool".to_string()),
+                // m240: `*p` has the VALUE sort of p's pointer sort.
+                UnaryOp::Deref => {
+                    let s = self.infer_sort(inner)?;
+                    if s.starts_with("|xiom_ptr_") {
+                        Some(Self::value_sort_from_ptr_sort(&s))
+                    } else {
+                        None
+                    }
+                }
                 _ => self.infer_sort(inner),
             },
             Expr::Binary(l, op, r, _) => {
                 let mut lt = self.infer_sort(l);
                 let mut rt = self.infer_sort(r);
+                // m240: pointer arithmetic (`p + i`) stays in the pointer
+                // sort (the word offset is an Int).
+                if matches!(op, BinOp::Add | BinOp::Sub) {
+                    if let Some(s) = lt.clone().filter(|s| s.starts_with("|xiom_ptr_")) {
+                        return Some(s);
+                    }
+                    if let Some(s) = rt.clone().filter(|s| s.starts_with("|xiom_ptr_")) {
+                        return Some(s);
+                    }
+                }
                 // T8 sort-gap fix: `x != null` -- the `null` literal inherits
                 // the other operand's sort (a modeled `|null_...|` constant
                 // exists for pointer sorts; see ensure_sort_declared).
@@ -1464,8 +1805,18 @@ impl SMTGenerator {
     fn translate_expr_to_val(&mut self, expr: &Expr) -> String {
         let mut val = String::new();
         std::mem::swap(&mut self.buf, &mut val);
+        self.translate_depth += 1;
         self.translate_expr(expr);
+        self.translate_depth -= 1;
         std::mem::swap(&mut self.buf, &mut val);
+        // m240: cast declarations/axioms queued during this translation are
+        // emitted now, at the outermost return. The caller has already
+        // emitted its own lines (e.g. the SSA const declaration) and will
+        // emit the assertion that USES the cast next -- declaration order
+        // stays valid without touching the swapped expression buffer.
+        if self.translate_depth == 0 {
+            self.flush_pending_casts();
+        }
         val
     }
 
@@ -1713,11 +2064,60 @@ impl SMTGenerator {
                         self.translate_expr(inner);
                         self.buf.push(')');
                     }
+                    // m240 (verifier v2 memory model): raw pointer load
+                    // `*(p + i)` -> `(|mem_P| p i)`, with an X7009
+                    // null-safety side condition while encoding a body.
+                    UnaryOp::Deref => {
+                        let target = self.deref_target(inner);
+                        let Some((pt, ps, off)) = target else { return };
+                        if self.ptr_null_lookup(&ps).is_none() {
+                            self.mark_unsupported(format!("pointer sort {} not modeled", ps));
+                            return;
+                        }
+                        self.note_deref_safety(&pt, &ps, "load");
+                        let mem = Self::mem_fn_name(&ps);
+                        self.buf.push_str(&format!("({} {} {})", mem, pt, off));
+                    }
                     other => {
                         self.mark_unsupported(format!("unary operator {:?}", other));
                     }
                 }
             }
+            // m240: pointer-sort casts -> uninterpreted cast function with a
+            // ground null-preservation instance; pointer<->non-pointer
+            // casts stay honestly unmodeled, and non-pointer `as` casts
+            // keep their historical skip class.
+            Expr::As(inner, ty, _) => {
+                let dst_sort = self.sort_for(ty);
+                let dst_ptr = dst_sort.starts_with("|xiom_ptr_");
+                let src_sort = self.infer_sort(inner);
+                let src_ptr = src_sort
+                    .as_deref()
+                    .map_or(false, |s| s.starts_with("|xiom_ptr_"));
+                if dst_ptr && src_ptr {
+                    let ss = src_sort.clone().unwrap_or_default();
+                    let vt = self.translate_expr_to_val(inner);
+                    if ss == dst_sort {
+                        self.buf.push_str(&vt);
+                    } else {
+                        let cast = self.queue_ptr_cast(&ss, &dst_sort, &vt);
+                        self.buf.push_str(&cast);
+                    }
+                } else if dst_ptr || src_ptr {
+                    self.mark_unsupported(
+                        "pointer cast to/from non-pointer source (unmodeled)".to_string(),
+                    );
+                } else {
+                    self.mark_unsupported("non-pointer 'as' cast".to_string());
+                }
+            }
+            // m240: a single-tail `unsafe { expr }` in value position is
+            // transparent; multi-statement unsafe blocks stay unmodeled
+            // here (statement position is handled by encode_block).
+            Expr::Unsafe(block, _) => match block.stmts.as_slice() {
+                [StmtOrExpr::Expr(e)] => self.translate_expr(e),
+                _ => self.mark_unsupported("unsafe block in value position".to_string()),
+            },
             Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => {
                 // T8 sort-gap fix: builtin `s.len()` on a Str receiver emits
                 // the SMT-LIB `str.len` application (Int) instead of falling
@@ -2571,5 +2971,62 @@ requires: base != null
         if let Some(ok) = z3_parses(&smt) {
             assert!(ok, "z3 rejected the generated SMT:\n{smt}");
         }
+    }
+
+    /// m240 (verifier v2, SMT Array memory model): raw pointer store/load
+    /// bodies must encode through the per-pointer memory function with
+    /// X7009 null-safety obligations -- the t8 class used to emit ZERO
+    /// queries because `unsafe`/deref bodies were entirely unmodeled.
+    #[test]
+    fn t8_pointer_memory_model_emits_vcs() {
+        let (smt, report) = generate(
+            r#"
+module verify_t8_ptr_mem
+
+pub fn store_word(base: *mut UInt8, word: Int, value: Int)
+requires: base != null
+{
+  unsafe {
+    var p = base as *mut Int;
+    *(p + word) = value;
+  }
+}
+
+pub fn load_word(base: *mut UInt8, word: Int) -> Int
+requires: base != null
+{
+  unsafe {
+    var p = base as *Int;
+    return *(p + word);
+  }
+}
+"#,
+        );
+        assert!(
+            smt.contains("(declare-fun mem_xiom_ptr_Int (|xiom_ptr_Int| Int) Int)"),
+            "per-pointer memory arrays must be declared:\n{smt}"
+        );
+        assert!(
+            smt.contains("|mem_xiom_ptr_Int|"),
+            "deref loads/stores must use the memory array:\n{smt}"
+        );
+        assert!(
+            smt.contains("X7009"),
+            "null-safety side conditions must be emitted:\n{smt}"
+        );
+        assert!(
+            smt.contains("(check-sat)"),
+            "real z3 queries must be emitted:\n{smt}"
+        );
+        assert!(
+            !report.skipped.iter().any(|s| {
+                s.reason.contains("unmodeled") || s.reason.contains("body incomplete")
+            }),
+            "store/load bodies must encode without gaps: {:?}",
+            report.skipped
+        );
+        // NB: z3-level verification lives in the integration test
+        // (`z3_ptr_memory_model_proven`) -- `z3_parses` would flag z3's
+        // benign "model is not available" after an UNSAT check-sat.
     }
 }
