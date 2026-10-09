@@ -14199,6 +14199,310 @@ feature-reg 510/510; freeze 2/2; quick suites: scripting 34/34
 perf 3/3, diff 24 (+1 ignored), cli 1, doctor 4, borrow 2; checker_locks
 22/22; ascii_guard clean.
 
+---
+
+## 2026-10-09 -- LANE FINDINGS SWEEP (all lanes)
+
+Full sweep of every lane's latest findings/relay/session docs, deduped
+against this ledger. Sources read: stdlib `docs/COMPILER-RELAY-2026-10-09*.md`,
+`docs/stdlib_session.md`, `docs/PRODUCTION_READINESS_QUEUE.md`,
+`tools/known_failures/README.md`; packages + bindings
+`docs/COMPILER-FINDINGS.md`, `docs/BINDINGS-COMPILER-FINDINGS.md`,
+`docs/COMPILER-RELAY-2026-10-09-v0.64.2.md`; PULSE
+`docs/COMPILER-FINDINGS-PULSE.md`; ORBITDB
+`docs/COMPILER-FINDINGS-ORBITDB.md` + `RELAY-COMPILER-ORBITDB.md`; XVECTOR
+`docs/COMPILER-FINDINGS-XVECTOR.md` + `RELAY-COMPILER.md`; benchmark
+`docs/COMPILER-RELAY-2026-10-08.md` + `-2026-10-09-v0.64.2.md` and
+`config.yaml`/`reference/systems-contracts-arena/t8-safety-probe.xi`.
+
+Method: every fix status below is cross-checked against THIS repo's git log
+(commit present; release tag that first contains it noted where checked).
+Any claim not reproducible in this checkout is marked REPORTED, NEEDS REPRO;
+no fix is asserted without a commit or a tag-level re-test behind it. Local
+instrument: `target/debug/xiom.exe` built 2026-10-09 on tree d9f146cb
+(v0.64.2 tag + m242..m244 on local main). Verification probes are untracked
+under `tmp/bench-sweep/` (this repo's tmp is gitignored).
+
+### Verification item 1 -- benchmark buffer-overflow-write claim: NOT REPRODUCED (mechanism claim contradicted)
+
+Claim under test (benchmark relays 2026-10-08/09, repeated in the
+2026-10-09-v0.64.2 relay): `buffer-overflow-write` moved SILENT_UB(0) ->
+RUNTIME_PANIC(6) under the DEFAULT arena flags, attributed to an "always-on
+Vec bounds guard now shared with the read path". Arena flags in
+`xiom-benchmark-chaos/config.yaml:573` are exactly
+`["--release", "--target", "native"]` (no `--overflow-checks`).
+
+Actual arena shape (read from `reference/systems-contracts-arena/t8-safety-probe.xi:275-293`):
+`probe_buffer_overflow_write` allocates an 8-byte canary guard, builds
+`Vec[Int].with_capacity(4)`, pushes 1..4, records len, executes
+`buf[100] = 42`, then checks the canary and len and writes its observation.
+It is a `Vec[Int]` shape, not `Vec[UInt8]`; both were reproduced.
+
+Measured on this checkout WITHOUT `--overflow-checks` (or any extra flag):
+- IR inspection (default flags): zero `wbounds_trap` (and zero read-guard
+  material). The m241 IR lock (`e2e_m241_vec_write_bounds_ir`,
+  crates/xiom-codegen/tests/e2e_tests.rs:6173-6195) asserts exactly that:
+  the write-path guard is emitted under `--overflow-checks` and is ABSENT
+  in default builds. There is no always-on vector bounds guard in the
+  emitted code on this tree.
+- Debug AOT (arena-shape probe, 3 runs): write is unchecked; the probe's own
+  `after-write` observation prints, canary 3735928559 intact, len 4 intact;
+  rc 0 once, rc -1073741819 (0xC0000005) twice, AFTER the printed output --
+  a delayed OS-level access violation during teardown/heap activity, not an
+  `llvm.trap`.
+- Release + `--target native` (arena compilation shape, 5 runs): rc 0 four
+  times (silent corruption, canary intact) and rc -1073741819 once.
+- JIT `xiom run`: output prints, process ends rc -1073741819.
+- `Vec[UInt8].with_capacity(4)` + push x4 + `buf[100] = 42 as UInt8`
+  (task-named variant, JIT): rc 0, no trap, no observation.
+- Control (same program, no OOB write): rc 0, 3/3.
+- WITH `--overflow-checks`: deterministic rc -1073741795 = 0xC000001D
+  (llvm.trap/STATUS_ILLEGAL_INSTRUCTION) 3/3 at the write (nothing after
+  `before-write` is printed).
+- The read path by default is ALSO unchecked here: `sink = buf[100]` ran
+  rc 0 with garbage/0 sink values on all 3 runs (no guard emitted).
+
+Sweep verdict: the "always-on Vec bounds guard under default flags" claim is
+NOT supported by this checkout -- the m241 guard is `--overflow-checks`-gated
+in source, IR, and runtime behavior. Local default-flag failure mode is
+SILENT_UB (write survives, canary/len intact) with an intermittent delayed
+0xC0000005, i.e. neither a deterministic bounds trap nor a clean panic. The
+arena's observed Linux RUNTIME_PANIC(6) is therefore REPORTED, NEEDS REPRO
+on the Linux/Docker arena image with its exact XIOM flags; plausible causes
+to check there: the OOB access hitting an unmapped page + the platform fault
+path converting SIGSEGV into an orderly nonzero exit, or an image built with
+different codegen flags. Do not re-score from this claim until that repro
+lands. (Related: m241's own entry documents the guard as gated and default
+builds as "historical unchecked write path".)
+
+Evidence kept: `tmp/bench-sweep/bo_write_int.xi` (+ `.ll`, AOT/JIT rc log),
+`tmp/bench-sweep/bo_write_uint8.xi`, `tmp/bench-sweep/bo_write_control.xi`,
+`tmp/bench-sweep/bo_write_int_checked.exe` (rc log). Untracked by design.
+
+### Verification item 2 -- stdlib t3 timing findings: REPRODUCED; root cause found stdlib-side
+
+Benchmark relay (2026-10-09): `Instant.elapsed().as_millis()` is
+seconds-truncated (`sleep_ms(300)` -> 0, `sleep_ms(1200)` -> 1000) and
+`sleep_ms` wall totals run short under load.
+
+Local probe `tmp/bench-sweep/t3_time_probe.xi` (built and run on
+`target/debug/xiom.exe`, 3 runs, debug AOT, default flags):
+- `sleep300 elapsed_ms=0 wall_ms=0` (3/3)
+- `sleep1200 elapsed_ms=1000 wall_ms=771 / 984 / 988` (3/3)
+
+Root cause (stdlib source, cheap to locate):
+- `E:\xiom-lang\stdlib\xiom\time\time.xi:227-232`: `Instant.now()` returns
+  `Instant{ t: monotonic_ms() / 1000; }` -- whole-second resolution (the doc
+  comment says so). `Instant.elapsed()` (time.xi:234-241) differences those
+  whole seconds and wraps with `Duration.from_secs(diff)`, so
+  `Duration.as_millis()` (time.xi:116-118) = secs * 1000. 300 ms -> 0,
+  1200 ms -> 1000 exactly as reported. This is also why the t3 reference
+  prints `"time_ms":0`.
+- `E:\xiom-lang\stdlib\xiom\time\time.xi:427-434`: `sleep_ms(ms)` busy-waits
+  on `time(0)` (whole seconds): `end = start + ms / 1000`. For ms < 1000 the
+  end equals start, so the call returns immediately (300 ms sleep is a
+  no-op); for ms >= 1000 it waits only to the next whole-second boundary,
+  so the wall total is short (771-988 ms for a 1200 ms request).
+- Not affected: `xiom.thread.sleep_ms` (thread.xi:134) and
+  `xiom.async.sleep_ms` (async.xi:208) call the millisecond runtime
+  `xiom_thread_sleep_ms`; the defect is specific to `xiom.time.sleep_ms`.
+
+Status: OPEN, stdlib-side (not a compiler defect). Fix direction: base
+`Instant`/`elapsed` on `monotonic_ms()` directly (millisecond Instant or a
+Duration from ms) and implement `time.sleep_ms` via `xiom_thread_sleep_ms`
+(or a ms-resolution wait). Evidence paths:
+`E:\xiom-lang\stdlib\xiom\time\time.xi:227-241,427-434` plus the local probe
+above.
+
+### (a) Findings table
+
+| finding id | lane | one-line summary | status | evidence path |
+|---|---|---|---|---|
+| C-PULSE-01 | PULSE | one-arg method `read` hijacked by the raw-pointer builtin (TcpStream.read elision) | FIXED m196 (e279c544, v0.64.0+) | xiom-pulse docs/COMPILER-FINDINGS-PULSE.md; docs/repro/read-method-builtin-shadow/ |
+| C-PULSE-02 | PULSE | `[dependencies]` not mapped to catalog source roots | FIXED m212 (186786c9, v0.64.1+) | docs/repro/registry-dep-resolution/ |
+| C-PULSE-04 | PULSE | bare `&mut Int` read yields the address, not the pointee | FIXED m197 (ef497578, v0.64.1+) | docs/repro/mut-int-bare-read/ |
+| C-PULSE-05 | PULSE | module-const receiver `.to_str()` hit the W005 stub (empty Str; 0x80000003 on v0.64.0) | FIXED m199 (8221b358, v0.64.1+) | tests/probes/probe_const_to_str.xi |
+| C-PULSE-06 | PULSE | struct literal with a missing field compiled; omitted field read garbage | FIXED m198 (cd5ffc31, v0.64.1+) | docs/repro/missing-struct-field/ |
+| C-PULSE-07 | PULSE | module-scope `var` from a cross-package ctor emitted an undefined call / AV at module init | FIXED m204 (dbcb1cf0, v0.64.1+) | docs/repro/module-scope-package-init/ |
+| C-PULSE-08 | PULSE | dotted dependency keys never matched installed package dirs | FIXED m215 (9033c6b8, v0.64.1; lane closed) | docs/repro/dep-roots-name-form/ |
+| C-PULSE-09 | PULSE | cross-module `Vec[SessionStore]` bridge crash (Windows 0xC0000005) | FIXED m227 in 35ed820e (v0.64.2); lane closed wrap 9 | tests/probes/probe_adopt_smoke.xi |
+| C-PULSE-10 | PULSE | `kv_get` returned address-like decimal Str after `kv_put` | FIXED m217 (fd6ea4c6, v0.64.1+) | docs/repro/kv-get-str-corruption/ |
+| C-PULSE-11 | PULSE | `pub type Store = SessionStore` unknown cross-module; silent i64 default | FIXED m216 (0c5337e0, v0.64.1+) | session-adoption build log + repro |
+| C-PULSE-12 | PULSE | module last segment shadows a stdlib import alias (`server.` vs `xiom.net.server`) | REPORTED, NEEDS REPRO (minimal shape did not reproduce; lane renamed module) | delta 2026-10-08 in COMPILER-FINDINGS-PULSE.md |
+| C-PULSE-13 | PULSE | xiom-pkg install home split from the compiler XIOM home (Unix) | FIXED m232 (4c1a672c, v0.64.2); lane closed | PACKAGE-WISHLIST-PULSE.md row C-PULSE-13 |
+| C-PULSE-14 | PULSE | request-path RSS retention ~48-87 KB/req on Linux (Windows flat on v0.64.2) | OPEN (runtime/allocator; lane-measured) | scripts/rss_probe.{ps1,sh}; probe-logs/soak-http* |
+| C-PULSE-16 | PULSE | `socket_bind` wildcard-only; PULSE_BIND ignored | OPEN (runtime/stdlib ask, not compiler codegen) | delta wrap 8 in COMPILER-FINDINGS-PULSE.md |
+| C-ORBIT-01 | ORBITDB | cross-module generic Result alias payload lost its type | FIXED m223 (35ed820e batch, v0.64.2) | docs/repro/ok-method-receiver/ |
+| C-ORBIT-02 | ORBITDB | `Vec[Option[T]]` element assignment poisoned the slot | FIXED m226 (35ed820e batch, v0.64.2) | docs/repro/option-vec-assign/ |
+| C-ORBIT-03 | ORBITDB | nested-field `&mut` method receiver mutated a copy | FIXED m224 (35ed820e batch, v0.64.2) | docs/repro/nested-field-mut/ |
+| C-ORBIT-04 | ORBITDB | unqualified enum variant bound another module's structural twin | FIXED m225 (35ed820e batch, v0.64.2); residual consumer-scope caveat below | docs/repro twin-enum; v0.64.2 re-test caveat |
+| C-ORBIT-05 | ORBITDB | nested `Vec[Page]` loop + push aborted 0xC0000005 | FIXED m235 (53bf96ed, v0.64.2) | docs/repro/vec-push-nested/ |
+| XVC-C-01 | XVECTOR | `&fn() -> T` parameter call emitted invalid IR; `(*f)()` AV'd | FIXED m219 (10c5a92e, v0.64.1) | docs/repro/xv-fnptr-call-inttoptr/ |
+| XVC-C-02 | XVECTOR | runtime `requires` violation exited 0 | NOT A DEFECT (cmd %ERRORLEVEL% parse artifact; exits 1) | docs/repro/contract-trap-exit0/ |
+| XVC-C-03 | XVECTOR | W004 false positives on every unit-enum arm after the first | FIXED m220 (9e8b4f9a, v0.64.1) | tests/test_conformance.xi logs |
+| XVC-C-04 | XVECTOR | `Result[Vec[non-scalar]]` payload lost element fields | FIXED m217 (fd6ea4c6, v0.64.1) | docs/repro/xv-result-vec-struct/ |
+| XVC-C-05 | XVECTOR | per-build Float32 Vec element arithmetic on IEEE bit patterns | FIXED m218 (a7b0373e, v0.64.1) | docs/repro/xv-f32-int-miscompile/ |
+| XVC-C-06 | XVECTOR | Float32 enum payload read 0 in some units | FIXED m221 (ed9099ca, v0.64.1) | docs/repro/xv-f32-payload-zero/ |
+| XVC-C-07 | XVECTOR | `Str::from_utf8(&Vec[UInt8])` emitted invalid getelementptr | FIXED m222 (6ccd9384, v0.64.2) | docs/repro/xv-from-utf8-vec-ref/ |
+| XVC-C-08 | XVECTOR | trailing scalar after a Vec-bearing field read uninitialized garbage (stride padding) | FIXED m234 (99359c6e, v0.64.2) | docs/repro/xv-trailing-field-vec/ |
+| XVC-C-09 | XVECTOR | WSL-only segfault on nested-field mutation through another module | lane re-test green v0.64.2 (weaker re-test; no dedicated ledger entry) | docs/repro/xv-wsl-nested-field/ |
+| XVC-C-10 | XVECTOR | `hnsw_decode` inline pad loop segfaulted at m>=512 | lane re-test green v0.64.2 (m235 class; no dedicated ledger entry) | docs/repro/xv-decode-pad-loop/ |
+| XVC-C-11 | XVECTOR | `io.read_file` Str content broken in some units | lane re-test green in original unit v0.64.2 (no ledger entry) | docs/repro/xv-stdlib-file-read-defects/ |
+| XVC-C-12 | XVECTOR | `io.read_file_bytes` aborted on files <= 8 bytes | lane re-test green in original unit v0.64.2 (no ledger entry) | docs/repro/xv-stdlib-file-read-defects/ |
+| B-01 | bindings | user-enum payload reads nondeterministically miscompiled per rebuild | FIXED m231 (0c671211, v0.64.2); workaround retired in xiom.sqlite 0.3.0 | docs/repro/bindings-pilot/enum-payload-nd/ |
+| B-02 | bindings | exported const refs in confined blocks / long const chains recurse resolver to stack overflow (large catalogs) | REPORTED, NEEDS REPRO (not re-tested; trigger catalog gone) | BINDINGS-COMPILER-FINDINGS.md row B-02 |
+| B-03 | bindings | cross-module const aliases recurse the resolver | REPORTED, NEEDS REPRO (minimal shape green v0.64.2; large-catalog trigger unverified) | B-03 row + repro const-alias/pkg/ |
+| B-04 | bindings | child module `use parent` failed to resolve | FIXED (minimal + pub-visibility re-tests green; commit not pinpointed) | repro child-import-parent/pkg/ |
+| B-05 | bindings | `xiom.ffi.alloc` in a confined block + `xiom.ffi.free` spins the guard heap | OPEN v0.64.2 (runtime-side; 8-10 s watchdog, 8.7 CPU-s, flat 4.5 MB) | docs/repro/bindings-pilot/alloc-guard-spin/ |
+| B-06 | bindings | assoc fn whose leaf is `up`/`down` crashed the full package catalog | FIXED v0.64.1 (lane re-test up=1 down=1; commit not pinpointed) | B-06 row |
+| B-07 | bindings | module path ending in `ffi` + `use xiom.ffi` leaves unqualified stdlib names unresolved | REPORTED, NEEDS REPRO (lane v0.64.2 minimal still broken with `c_strlen`; 2026-10-08 ledger row says fixed minimal with `safe_ptr_alloc`) | repro ffi-alias-shadow/probe.xi |
+| B-08 | bindings | `xiom --run` masked the program's exit code | FIXED m228 (ba19be61, v0.64.2) | docs/repro/bindings-pilot/run-exit/ |
+| B-09 | bindings | large Win32 window+WGL confined unsafe block poisoned the binary (0xC0000409) | FIXED v0.64.1 (lane re-test q1/q2 green, GL 4.6.0; commit not pinpointed) | docs/repro/bindings-pilot/win32-gl-unsafe/ |
+| B-10 | bindings | local fn-pointer named `alloc` redirected to `xiom_guard_alloc` inside confined blocks | OPEN v0.64.2 (odbc 3-way control: f_alloc/my_alloc green, alloc FAIL) | xiom.odbc scratch control; no bundle yet |
+| packages unsafe fn | packages | `unsafe fn f()` is a hard P001 | CONFIRMED behavior (safe fn + `unsafe { }` body) | packages docs/COMPILER-FINDINGS.md relay table |
+| packages let-unsafe | packages | `let _ = unsafe { call() };` invalid IR for pointer/Str/struct returns | REPORTED, NEEDS REPRO (minimal `alloc(8)` shape compiles clean) | packages docs/COMPILER-FINDINGS.md row |
+| packages grpc-catalog | packages | grpc catalog-dep rehearsal RED: 6 T001 "ambiguous function exported by multiple imported modules" | REPORTED, NEEDS REPRO (needs the grpc depot to bisect) | packages docs/COMPILER-FINDINGS.md row |
+| packages io.xi:943 | packages | `io.xi:943` false-ensures fires in multi-module programs | OPEN (not minimized; v0.64.2 re-test green, workaround kept) | packages COMPILER-FINDINGS.md row |
+| packages io:1076 | packages | `io.read_file_lines` ensures false for a zero-line (empty-file) read | OPEN (stdlib contract; workaround kept) | packages COMPILER-FINDINGS.md 2026-10-09 row |
+| packages unsafe-return | packages | whole-body `unsafe { return v as *UInt8; }` yielded null | REPORTED, NEEDS REPRO (xiom.http 0.1.4 fix pass) | packages COMPILER-FINDINGS.md 2026-10-09 row |
+| packages to_string_char | packages | `tostring.to_string_char(Char(0))` violates its own ensures (C-string truncation) | OPEN (stdlib-side) | packages COMPILER-FINDINGS.md 2026-10-09 row |
+| stdlib @pre-mut | stdlib | `@pre` on a `&mut` parameter scalar field aliases the post-mutation value | OPEN (no ledger entry) | tools/known_failures/p_mut_param_field_pre.xi |
+| stdlib byref-generic | stdlib | generic `&Option[T]`/`&Result` params read wrong; bounded `&Slice[T]` calls C001 | OPEN (no ledger entry) | p_generic_byref_option.xi + p_slice_bound_generic_c001.xi |
+| stdlib alias-path | stdlib | alias-qualified type paths T001; method-style foreign calls C001 (C-PULSE-12 family) | OPEN (no ledger entry) | p_alias_module_type_path.xi + p_foreign_method_call.xi |
+| stdlib ensures-isok | stdlib | `(result.is_ok == true) =>` implication violates at runtime; `result is Ok =>` works | OPEN (no ledger entry) | p_ensures_isok_guard.xi |
+| stdlib polyhedra | stdlib | `convex_hull_2d/3d` collapse on nonempty inputs | OPEN; ledger m201 section claims rc 0 but lane v0.64.1 re-check is rc 1 -- CORRECTION NEEDED | p_polyhedra_nested_hull.xi |
+| stdlib geom-matrix | stdlib | tuple-element unannotated nested Vec loses a level (rc 4); inferred-local half fixed | OPEN (partial; no ledger entry) | p_geom_matrix_result_infer.xi |
+| stdlib geom-box | stdlib | `geom.geometry_3d.Box` unnameable from consumers | OPEN (no ledger entry) | p_geom_box_unnameable.xi |
+| stdlib clause-floatvec | stdlib | clause-position Float64 Vec element index reads garbage | OPEN (no ledger entry) | p_clause_float_vec_index.xi |
+| stdlib vec-shape-av | stdlib | shape-mismatched `&Vec` argument compiles silently and AVs | OPEN (no ledger entry) | p_vec_shape_arg_mismatch_av.xi |
+| stdlib catalog-payload | stdlib | catalog clause reading a payload field poisons user codegen; Ok/Err Str payload clauses false-violate/AV | OPEN (no ledger entry) | tools/probes/evidence/p_result_payload_ir_repro.xi |
+| stdlib typechanging | stdlib | cross-type generic callback returns miscompiled (4 probes) | OPEN (no ledger entry) | p_generic_typechanging_{fnptr,map,core_map,sortbykey}.xi |
+| M7 Iterator | stdlib | undeclared `Iterator[T]` receiver: 5x warning + C001 `Iterator.step_by` | OPEN (stdlib-side fix per compiler relay 2026-10-09) | p_iter_iterator_type_unresolved.xi |
+| stdlib polygon-diff | stdlib | `polygon_difference` intersects b's outside half-planes | OPEN (stdlib algorithm, not compiler) | p_polygon_difference_halfplanes.xi |
+| wave-96 array_zip | stdlib | const-generic M bound to N; M<N read OOB / no truncate | FIXED m237 (16df642c, v0.64.2); lane RESOLVED | p_array_zip_no_truncate.xi; p_wave96_shapes.xi |
+| wave-96 zero-len | compiler | zero-length `[0]T` by value rejected by clang | FIXED m238 (9eb70ea8, v0.64.2) | tests/regression/m238_zero_len_array_by_value/ |
+| wave-97 sibling-dup | stdlib | 3+ sibling submodules exporting the same leaf broke alias-qualified calls | FIXED m242 (516ea33b, POST-v0.64.2 tag; next archive); lane re-test green | p_sibling_dup_fn_alias.xi; p_wave97_shapes.xi |
+| t8 verifier sorts | benchmark | sort gaps (s.len(), null) made the t8 contract track emit no queries | FIXED m233 (1f6fce55, v0.64.2); arena 3 proven / 0 / 1 / 0 | xiom-benchmark-chaos docs/COMPILER-RELAY-2026-10-09-v0.64.2.md |
+| t8 raw-mem | benchmark | pointer body VCs unmodeled (`store_word`/`load_word`) | FIXED m240 (90e778f3, v0.64.2); 1 honest unknown (non-pointer casts) | bench relay; tests/verify/test_ptr_mem.xi |
+| t8 bo-write | benchmark | buffer-overflow-write claimed SILENT_UB -> RUNTIME_PANIC under DEFAULT flags | REPORTED, NEEDS REPRO (NOT reproduced here; default builds have no guard -- see verification 1) | t8-safety-probe.xi:275-293; bench relays |
+| t3 trampoline | benchmark | per-entry confined-unsafe trampoline 216-355 ms on t3-hot-reload | OPEN (perf; compiler-side elide item) | bench t3 sections; ledger 2026-10-05 t3 attribution |
+| t3 timing | benchmark/stdlib | `Instant.elapsed().as_millis()` seconds-truncated; `sleep_ms` short | OPEN (stdlib-side; verified locally, root cause found) | stdlib time.xi:227-241,427-434; tmp/bench-sweep/t3_time_probe.xi |
+| t2-t5 clauses | benchmark | zero-clause references made the contracts harness FAIL | FIXED bench-side (v0.5.5); re-verified 4/4 on v0.64.2 | bench relays 2026-10-08/09 |
+| Darwin codegen | PULSE (dry run) | darwin arm64: `use of undefined value '@llvm.memset.p0i8.i64'` | REPORTED, NEEDS REPRO (no darwin host here) | COMPILER-FINDINGS-PULSE.md wrap 8b |
+| Darwin runtime | PULSE (dry run) | `_SC_AVPHYS_PAGES` undeclared on darwin; fp128 x86 asm on arm64 | OPEN (stdlib/runtime, cross-filed; not compiler codegen) | COMPILER-FINDINGS-PULSE.md wrap 8b |
+
+### (b) OPEN -- NOT YET IN A DATED ENTRY
+
+These are open (or needs-repro) items with no dated entry in this ledger
+found by probe name or phrasing; some predate this file's recent sections
+and are surfaced here for the first time:
+
+1. C-PULSE-14 -- Linux request-path RSS retention (~48-87 KB/req); Windows
+   flat on v0.64.2. Runtime/allocator scope. Lane repro:
+   `xiom-pulse/scripts/rss_probe.{ps1,sh}` + `tests/probes/probe_alloc_loop.xi`.
+2. C-PULSE-16 -- address-aware `socket_bind` (`xiom_socket_bind` takes no
+   address; PULSE_BIND advisory). Runtime + stdlib ask.
+3. B-10 -- local fn-pointer named `alloc` redirected to `xiom_guard_alloc`
+   inside confined blocks (name-keyed guard rewrite). OPEN on v0.64.2
+   (odbc 3-way control). Fix direction: rewrite only calls that resolve to
+   the actual stdlib allocator.
+4. B-07 -- module path ending in `ffi` + `use xiom.ffi` leaves unqualified
+   stdlib names unresolved. STATUS CONFLICT: lane says still broken on
+   v0.64.2 (`c_strlen`); the 2026-10-08 relay-sweep row in this ledger says
+   fixed in a minimal shape (`safe_ptr_alloc`). Needs one authoritative
+   re-repro to settle.
+5. Darwin codegen -- `@llvm.memset.p0i8.i64` declaration missing for the
+   darwin target (arm64 log); blocks macOS release legs.
+6. packages unsafe-return -- whole-body `unsafe { return v as *UInt8; }`
+   yields null (statement-assignment form works).
+7. packages io:1076 -- `io.read_file_lines` ensures `result.len() >= 1` is
+   logically false for an empty file (stdlib contract).
+8. packages to_string_char -- `to_string_char(Char(0))` C-string truncation
+   violates the documented contract (stdlib-side).
+9. stdlib known_failures, unrecorded compiler-side repros (all OPEN,
+   all listed in `E:\xiom-lang\stdlib\tools\known_failures\README.md`):
+   - `p_mut_param_field_pre.xi` -- `@pre` on `&mut` param scalar field
+     aliases the post-mutation value.
+   - `p_generic_byref_option.xi` + `p_slice_bound_generic_c001.xi` --
+     generic by-ref Option/Result params misread; bounded `&Slice[T]`
+     calls hit C001.
+   - `p_alias_module_type_path.xi` + `p_foreign_method_call.xi` --
+     alias-qualified type paths T001; method-style foreign calls C001.
+   - `p_ensures_isok_guard.xi` -- `(result.is_ok == true) =>` implication
+     violates at runtime; `result is Ok =>` is correct.
+   - `p_geom_matrix_result_infer.xi` -- tuple-element unannotated nested
+     Vec loses a level (rc 4; inferred-local half fixed).
+   - `p_geom_box_unnameable.xi` -- `geometry_3d.Box` unnameable.
+   - `p_clause_float_vec_index.xi` -- clause-position Float64 Vec element
+     index reads garbage.
+   - `p_vec_shape_arg_mismatch_av.xi` -- shape-mismatched `&Vec` arg
+     compiles silently and AVs.
+   - `p_result_payload_ir_repro.xi` (evidence) -- catalog clause payload
+     reads poison user codegen / false-violate.
+   - `p_generic_typechanging_{fnptr,map,core_map,sortbykey}.xi` --
+     cross-type generic callback returns miscompiled.
+10. ledger correction needed: the m201 section (2026-10-07) asserts
+    `p_polyhedra_nested_hull.xi` rc 0; the stdlib lane's official-pin
+    re-check (v0.64.1) is rc 1 and the v0.64.2 status stays NOT FIXED
+    (STAYS in known_failures). Same section's `p_geom_matrix_result_infer`
+    claim is only partially true (tuple-element case rc 4 remains).
+
+### (c) DUPLICATES / ALREADY-RECORDED (mapped to existing dated entries)
+
+| finding | already recorded at |
+|---|---|
+| C-PULSE-01 | 2026-10-05 m196 section |
+| C-PULSE-02 | 2026-10-07 m212 (+ m215 dotted keys) |
+| C-PULSE-04 | 2026-10-05 m197 section |
+| C-PULSE-05 | 2026-10-07 m199 section |
+| C-PULSE-06 | 2026-10-05 m198 section |
+| C-PULSE-07 | 2026-10-07 m204 section |
+| C-PULSE-08 | 2026-10-08 m215 / relay-sweep row |
+| C-PULSE-09 | 2026-10-08 m227 section |
+| C-PULSE-10 | 2026-10-08 m217 section |
+| C-PULSE-11 | 2026-10-08 m216 section |
+| C-PULSE-12 | 2026-10-08 relay-sweep row (NOT REPRODUCED minimal) |
+| C-PULSE-13 | 2026-10-08 m232 section |
+| C-ORBIT-01/02/03/04 | 2026-10-08 m223 / m226 / m224 / m225 sections |
+| C-ORBIT-05 | 2026-10-08 m235 section |
+| XVC-C-01 | 2026-10-08 m219 section |
+| XVC-C-02 | 2026-10-08 relay re-test (not a defect) |
+| XVC-C-03 | 2026-10-08 m220 section |
+| XVC-C-04 | 2026-10-08 m217 section |
+| XVC-C-05 | 2026-10-08 m218 section |
+| XVC-C-06 | 2026-10-08 m221 section (+ triage section) |
+| XVC-C-07 | 2026-10-08 m222 section |
+| XVC-C-08 | 2026-10-08 m234 section |
+| B-01 | 2026-10-08 m231 section |
+| B-02/B-03 | 2026-10-08 relay-sweep row (NOT RE-TESTED) |
+| B-04 | 2026-10-08 relay-sweep row (FIXED minimal) |
+| B-05 | 2026-10-08 relay-sweep row (STILL OPEN) |
+| B-06/B-09 | 2026-10-08 relay-sweep row (FIXED v0.64.1) |
+| B-07 | 2026-10-08 relay-sweep row (fix claim conflicts with lane v0.64.2) |
+| B-08 | 2026-10-08 m228 section |
+| packages unsafe fn | 2026-10-08 relay-sweep row (CONFIRMED) |
+| packages let-unsafe | 2026-10-08 relay-sweep row (lane-reported) |
+| packages grpc-catalog | 2026-10-08 relay-sweep row (lane-reported, queued) |
+| packages io.xi:943 | 2026-10-07 m209-region packages rows; 2026-10-08 status row |
+| M7 Iterator | 2026-10-08 relay-sweep row + 2026-10-09 compiler relays |
+| wave-96 array_zip | 2026-10-09 m237 section |
+| wave-96 zero-len | 2026-10-09 m238 section |
+| wave-97 sibling-dup | 2026-10-09 m242 section |
+| t8 verifier sorts | 2026-10-08 m233 section |
+| t8 raw-mem | 2026-10-09 m240 section |
+| t8 bo-write | 2026-10-09 m241 section (guard gated on --overflow-checks) |
+| t3 trampoline | 2026-10-05 t3 attribution section |
+| t2-t5 clause gap | 2026-10-05 contracts audit + 2026-10-08 sections |
+| BUGS 29 / etc. | not re-listed here; no new lane reports this sweep |
+
+Corrections discovered while deduping:
+- PULSE wrap-9 states "m235 was not in the v0.64.2 batch"; the git log
+  shows m235 (53bf96ed) IS contained in the v0.64.2 tag. The residual Linux
+  RSS growth is therefore not explained by a missing m235.
+- B-07 status conflict (row above) needs a single authoritative repro.
+- m201 polyhedra/geom-matrix ledger claims vs the stdlib lane's official
+  re-checks (item 10 in section (b)).
+
 
 
 
