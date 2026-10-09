@@ -21,13 +21,16 @@
 >    args now record (`Vec[Vec[Int]].new()`). Map/Set remain OPEN by
 >    design (lookup-based; documented in COMPILER_BUGS). Acceptance:
 >    res_eq probe rc 1 -> 0; matrix fixture green; IR + e2e locks.
-> 2. Lane-side follow-ups (verify each before release; fix any
->    compiler-side piece that surfaces): M7 stdlib `Iterator[T]`
->    declaration (relayed, E:\xiom-lang\stdlib\docs\
->    COMPILER-RELAY-2026-10-09.md); B-05 guard free spin (runtime/stdlib
->    lane, same relay file); packages discard-unsafe exact repro + grpc
->    ambiguity (their lane); t3 hot-reload Linux re-measure; benchmark
->    t2-t5 reference clause gap (relayed 2026-10-08).
+> 2. [VERIFIED 2026-10-09, no compiler change needed] Lane-side
+>    follow-ups: M7 re-run on the current tree confirms the relayed
+>    status -- `--check` PASSED, `--run` fails C001 'Iterator.step_by'
+>    with 5x "unknown type 'Iterator'" warnings; the stale receiver lives
+>    in stdlib xiom/iter/iter.xi and the fix is stdlib-side exactly as
+>    relayed (declare an opaque handle or drop the receiver). B-05 guard
+>    spin: runtime-side (guard arena in stdlib repo) -- still open, no
+>    compiler-side piece. Compiler-side siblings m230/m234/m235 are FIXED
+>    + locked (relay confirms). packages/t3/benchmark items are the other
+>    lanes' re-measures.
 > 3. [FIXED m240 2026-10-09] Verifier v2 -- SMT Array memory model:
 >    `unsafe` bodies are now transparent, raw pointer loads/stores go
 >    through per-pointer memory functions, pointer-sort casts carry ground
