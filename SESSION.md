@@ -326,15 +326,19 @@
 >    COMPILER-RELAY-2026-10-08.md (t2-t5 zero-clause reference gap; t3
 >    Linux re-measure; honest safety read: no sanitizer -> 30/100, real
 >    hardened variant is the path, no scoring tricks).
-> 20. Deep container equality (designed feature): `==`/`!=` on containers
->    is pointer/handle identity today -- `Vec[Int] == Vec[Int]` returns
->    FALSE for two empty vecs, and `Ok(Vec...) == Ok(Vec...)` compares the
->    boxed payload handles (packages-lane finding still open). Needs real
->    content equality for Vec/Str (bytes/strcmp paths) and recursion
->    through Option/Result payloads; Map/Set content equality is harder
->    (lookup-based). Do as one coherent pass with tests, not a partial
->    hack -- wrong `==` is a silent-wrong-answer class. Packages lane's
->    res_eq probe (tmp\sweep2\pkg\res_eq.xi) is the acceptance shape.
+> 20. [DONE m239 2026-10-09] Deep container equality: Vec/Str content
+>    equality + Option/Result active-payload recursion (deep_eq.rs);
+>    res_eq probe rc 1 -> 0; matrix fixture + IR/e2e locks. Map/Set
+>    content equality stays OPEN by design (lookup-based; design
+>    documented in COMPILER_BUGS m239 entry).
+> 22. [NEW OPEN 2026-10-09, wave-97 stdlib finding] Triplicate sibling
+>    exports break alias-qualified calls: importing xiom.bits.rotation +
+>    xiom.bits.popcount + xiom.bits.bitwise together makes
+>    `popcount.next_pow2(1)` fail (T001; pairs work). Probe
+>    tools/known_failures/p_sibling_dup_fn_alias.xi; reproduced on the
+>    v0.64.2 tree. Not a release blocker (workaround: split probes);
+>    next compiler batch. Details + suspects in COMPILER_BUGS
+>    2026-10-09 OPEN entry.
 >
 > RELAY QUEUE (post-v0.64.1 re-tests, 2026-10-08):
 > A. XVECTOR (E:\xiom-projects\xiom-xvector): v0.64.1 re-test -- C-01,

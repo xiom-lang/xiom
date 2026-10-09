@@ -670,6 +670,34 @@ LOCKS: IR `regress_m229_is_payload_literal` (`and i1` present), e2e
 
 ---
 
+## 2026-10-09 -- OPEN (wave-97 stdlib finding): triplicate sibling exports break alias calls
+
+Stdlib wave-97 report (`d54929d`, their finding 16/16): probe
+`tools/known_failures/p_sibling_dup_fn_alias.xi` (stdlib repo).
+
+Repro: `xiom.bits.rotation`, `xiom.bits.popcount` and `xiom.bits.bitwise`
+each export `rotate_left`/`rotate_right`; a program importing all THREE
+siblings and calling an alias-qualified fn on an innocent module
+(`popcount.next_pow2(1)`) fails to resolve. Pairwise imports
+(bitfield+popcount, rotation+popcount) compile and run; adding the third
+copy of the duplicate leaf poisons alias-qualified resolution. Workaround
+used by the wave: split the probe into `p_wave97_shapes.xi` (67 checks) +
+`p_wave97_bitwise_shapes.xi` (11 checks).
+
+REPRODUCED on the v0.64.2 release tree (this checkout):
+`xiom --run tools/known_failures/p_sibling_dup_fn_alias.xi` ->
+`error[T001]: 25:6: cannot compare <error> with Int`, rc 1 (v0.64.1
+reported `cannot call 'next_pow2' on this expression` -- same root cause,
+different first diagnostic). Suspect the alias-qualified resolution
+table when a leaf is exported by 3+ sibling submodules (m162
+sameleaf-catalog family is adjacent; the barely-qualified candidate scan
+must key on the alias/owner, not the leaf).
+
+Impact: user programs importing 3+ sibling modules with duplicate leaf
+exports; not a v0.64.2 release blocker (workaround documented), targeted
+for the next compiler batch. NEXT: minimal 3-module repro in-repo
+(`tmp/sprintc/`), then IR/e2e locks when fixed.
+
 ## 2026-10-09 -- FIXED (m241): OOB Vec index WRITE now traps (honest containment)
 
 Owner safety-probe review: the t8 arena reported buffer-overflow-write as
