@@ -161,6 +161,76 @@ impl IrEmitter {
         }
     }
 
+    /// m237: does a type AST reference the CONST-generic name `name`,
+    /// including fixed-array SIZE expressions (`&[N]Int` ->
+    /// ArrayTy(ExprIdent "N", Int))? `type_contains_generic` deliberately
+    /// ignores size exprs (it answers TYPE-generic questions), so const
+    /// inference needs its own walker.
+    fn type_ast_mentions_const(ty: &xiom_ast::Type, name: &str) -> bool {
+        use xiom_ast::Type;
+        match ty {
+            Type::Named(id, args) => {
+                id.name == name || args.iter().any(|a| Self::type_ast_mentions_const(a, name))
+            }
+            Type::Ref(i) | Type::MutRef(i) | Type::Ptr(i) | Type::Slice(i) | Type::Vec(i)
+            | Type::Set(i) | Type::Option(i) => Self::type_ast_mentions_const(i, name),
+            Type::Map(k, v) | Type::Result(k, v) => {
+                Self::type_ast_mentions_const(k, name) || Self::type_ast_mentions_const(v, name)
+            }
+            Type::Tuple(items) => items.iter().any(|t| Self::type_ast_mentions_const(t, name)),
+            Type::Array(size_expr, elem) => {
+                Self::expr_mentions_const_ident(size_expr, name)
+                    || Self::type_ast_mentions_const(elem, name)
+            }
+            Type::Fn(params, ret) => {
+                params.iter().any(|p| Self::type_ast_mentions_const(p, name))
+                    || Self::type_ast_mentions_const(ret, name)
+            }
+            _ => false,
+        }
+    }
+
+    /// m237: shallow probe for a const-generic identifier inside an array
+    /// size expression (`[N]Int`, `[N + 1]Int`).
+    fn expr_mentions_const_ident(expr: &Expr, name: &str) -> bool {
+        match expr {
+            Expr::Ident(id) => id.name == name,
+            Expr::Paren(e, _) | Expr::Unary(_, e, _) => Self::expr_mentions_const_ident(e, name),
+            Expr::Binary(a, _, b, _) => {
+                Self::expr_mentions_const_ident(a, name) || Self::expr_mentions_const_ident(b, name)
+            }
+            _ => false,
+        }
+    }
+
+    /// m237: fixed-array size of an argument expression naming a local
+    /// (`&a3` / `a3` where `a3: [3]Int`) or an array LITERAL
+    /// (`&[1, 2, 3]` -> 3). Mirrors the historical scan's two sources
+    /// (recorded literal size, then the local's slot type) and adds the
+    /// literal arm the historical scan lacked.
+    fn const_size_from_array_arg(&self, arg_expr: &Expr) -> Option<i64> {
+        let inner_expr: &Expr = match arg_expr {
+            Expr::Ref(i, _) | Expr::MutRef(i, _)
+            | Expr::Unary(UnaryOp::Ref, i, _)
+            | Expr::Unary(UnaryOp::MutRef, i, _) => i.as_ref(),
+            other => other,
+        };
+        if let Expr::Array(elems, _) = inner_expr {
+            return Some(elems.len() as i64);
+        }
+        if let Expr::Ident(id) = inner_expr {
+            if let Some(size) = self.local.local_array_sizes.get(&id.name) {
+                return Some(*size);
+            }
+            if let Some((_, slot_ty)) = self.lookup_local(&id.name) {
+                if let Some(n) = Self::extract_array_len(&slot_ty) {
+                    return Some(n);
+                }
+            }
+        }
+        None
+    }
+
     /// True when `s` is a generic CONTAINER spelling ("Vec[Str]", "Map[K,V]")
     /// -- an identifier followed by '['. Fixed-array spellings ("[5 x i64]")
     /// start with '[' and must NOT match: for array locals the element type is
@@ -4132,38 +4202,39 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         found_const = true;
                                     }
                                 }
-                                // 5c.30: If no explicit type arg, infer const-generic value
-                                // from any argument that references an array local.
-                                // We search ALL params because const-generic names
-                                // may not appear in the parameter type AST (parser
-                                // lowers [N]T as Slice(T), losing N).
+                                // m237: bind the const value to the PARAMETER
+                                // whose type names this const generic
+                                // (`&[N]Int` -> N from args[0], `&[M]Int` ->
+                                // M from args[1]). The historical scan below
+                                // looked at ALL args and took the FIRST array
+                                // local, so `array_zip(&[3]Int, &[2]Int)` bound
+                                // BOTH N and M to 3 -> `if M < count` was dead
+                                // and the loop read b[2] out of bounds.
+                                if !found_const && args.len() == fd.params.len() {
+                                    let named_pos = fd.params.iter().position(|p| {
+                                        Self::type_ast_mentions_const(&p.ty, &gp.name.name)
+                                    });
+                                    if let Some(pos) = named_pos {
+                                        if let Some(size) = args
+                                            .get(pos)
+                                            .and_then(|a| self.const_size_from_array_arg(a))
+                                        {
+                                            const_values.insert(gp.name.name.clone(), size);
+                                            found_const = true;
+                                        }
+                                    }
+                                }
+                                // 5c.30 fallback: infer const-generic value
+                                // from any argument that references an array
+                                // local. We search ALL params because
+                                // const-generic names may not appear in the
+                                // parameter type AST (parser lowers [N]T as
+                                // Slice(T), losing N).
                                 if !found_const {
                                     for (_param, arg_expr) in fd.params.iter().zip(args.iter()) {
-                                        let inner_expr: &Expr = match arg_expr {
-                                            Expr::Ref(i, _) | Expr::MutRef(i, _)
-                                            | Expr::Unary(UnaryOp::Ref, i, _)
-                                            | Expr::Unary(UnaryOp::MutRef, i, _) => i.as_ref(),
-                                            other => other,
-                                        };
-                                        if let Expr::Ident(id) = inner_expr {
-                                            if let Some(size) = self.local.local_array_sizes.get(&id.name) {
-                                                const_values.insert(gp.name.name.clone(), *size);
-                                                break;
-                                            }
-                                            // round-15 (probe_map): the arg may be
-                                            // bound from a CALL returning [N]T
-                                            // (`var doubled = array.map(...)` ->
-                                            // slot "[5 x i64]"): extract N from the
-                                            // local's fixed-array slot type so
-                                            // `array.len(&doubled)` mono's with
-                                            // N=5 (the old fallback left N
-                                            // unresolved -> ret 0 -> len=0).
-                                            if let Some((_, slot_ty)) = self.lookup_local(&id.name) {
-                                                if let Some(n) = Self::extract_array_len(&slot_ty) {
-                                                    const_values.insert(gp.name.name.clone(), n);
-                                                    break;
-                                                }
-                                            }
+                                        if let Some(size) = self.const_size_from_array_arg(arg_expr) {
+                                            const_values.insert(gp.name.name.clone(), size);
+                                            break;
                                         }
                                     }
                                 }

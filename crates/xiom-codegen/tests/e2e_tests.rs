@@ -6121,6 +6121,18 @@ fn e2e_safety_probe() {
     );
 }
 
+// m237 (wave-96 p_array_zip_no_truncate): const-generic inference bound M to
+// N's array size, so `if M < count` was dead and array_zip read b[M] out of
+// bounds for M < N. Now each const generic binds to the parameter whose type
+// names it; the fixture covers M<N, M==0, N<=M and N==M with value checks.
+#[test] fn e2e_m237_array_zip_truncate() {
+    assert_eq!(
+        compile_and_run("tests/regression/m237_array_zip_truncate/main.xi"),
+        Some(0),
+        "array_zip must truncate to the shorter array (m237)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

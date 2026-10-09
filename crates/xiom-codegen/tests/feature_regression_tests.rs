@@ -7666,6 +7666,36 @@ fn main() -> Int {
     );
 }
 
+// m237 (wave-96 p_array_zip_no_truncate): each const generic must bind to
+// the parameter whose type NAMES it -- the old scan took the first array
+// local among ALL args, so zip2(&[3]Int, &[2]Int) mono'd as zip2_3_3 and
+// the `M < count` truncate branch was dead (the real array_zip then read
+// b[M] out of bounds).
+#[test]
+fn regress_m237_const_generic_param_binding() {
+    let source = r#"
+fn zip2[const N: Int, const M: Int](a: &[N]Int, b: &[M]Int) -> Int {
+  var count = N;
+  if M < count { count = M; }
+  return count;
+}
+fn main() -> Int {
+  let a = [1, 2, 3];
+  let b = [7, 8];
+  return zip2(&a, &b);
+}
+"#;
+    let ir = compile(source).expect("m237: const-generic zip must compile");
+    assert!(
+        ir.contains("zip2_3_2"),
+        "m237: M must bind to its own parameter's array size (mono name zip2_3_2); got:\n{ir}"
+    );
+    assert!(
+        ir.contains("icmp slt i64 2,"),
+        "m237: the truncate branch must compare the M=2 literal; got:\n{ir}"
+    );
+}
+
 // m231 (BINDINGS B-01): the scrutinee-type lookup for `match s.value` matched
 // wrapper type keys by loose suffix -- `Option__Value` also ends with `Value`
 // -- so random HashMap order decided whether the field `value` resolved to the

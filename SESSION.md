@@ -36,11 +36,14 @@
 >    check-sat with meaningful results (proven or honest unknowns) and no
 >    z3 errors.
 > 4. NEW wave-96 stdlib findings -- reproduce FIRST, fix, lock:
->    a) tools/known_failures/p_array_zip_no_truncate.xi (stdlib repo):
->       array_zip does not truncate for M<N; emits N pairs and reads b[M]
->       OOB; the `if M < count { count = M; }` branch is never taken;
->       clause restricted to N<=M. Acceptance: `afix.array_zip(&[1,2,3],
->       &[7,8]).len() == 2`, plus M==0 and N<=M control cases.
+>    a) [FIXED m237 2026-10-09] tools/known_failures/
+>       p_array_zip_no_truncate.xi (stdlib repo): array_zip did not
+>       truncate for M<N -- const-generic M was bound to N's array size
+>       at the call site (mono `array_zip_3_3`), so the `if M < count`
+>       branch was dead and the loop read b[M] OOB. Fix: bind each const
+>       generic to the parameter whose type names it. Acceptance fixture
+>       M<N / M==0 / N<=M / N==M green; IR + e2e locks. The wave-96
+>       stdlib clause can go back to full min(N,M).
 >    b) array.fold with a ZERO-LENGTH `[0]Int` passed BY VALUE miscompiles
 >       at clang (`[0 x i64]` vs i64); candidate finding, probe dropped
 >       from the wave (block 80). Repro-first, then fix (zero-length fixed
@@ -52,7 +55,8 @@
 > m228 B-08; m229 packages is-literal; m231 B-01 determinism (closed the
 > arena C001 reducer 12/12); m232 home split; m233 verifier sort gaps;
 > m234 XVC-C-08 stride padding; m235 C-ORBIT-05 alloca hoist; m236
-> transitive stdlib prelude (closed m230). Docs: docs/COMPILER_BUGS.md
+> transitive stdlib prelude (closed m230); m237 wave-96 array_zip
+> const-generic M binding. Docs: docs/COMPILER_BUGS.md
 > dated entries + this file's queue items 15-21.
 >
 > GATES BEFORE TAG (run on the FINAL tree after all blockers are fixed,

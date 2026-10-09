@@ -670,26 +670,42 @@ LOCKS: IR `regress_m229_is_payload_literal` (`and i1` present), e2e
 
 ---
 
-## 2026-10-09 -- OPEN (stdlib lane, wave-96): array_zip does not truncate + [0]Int by value
+## 2026-10-09 -- FIXED (m237): array_zip did not truncate -- const-generic M bound to N
 
-Two findings relayed from the stdlib lane's wave-96 array probes. NOT yet
-reproduced by the compiler lane; the probes are in the stdlib repo.
+Wave-96 finding `tools/known_failures/p_array_zip_no_truncate.xi` (stdlib
+repo): `array_zip([1,2,3], [7,8])` returned 3 pairs instead of 2, so with
+M < N the loop read `b[M]` OUT OF BOUNDS; M == 0 still emitted N pairs.
 
-1. `tools/known_failures/p_array_zip_no_truncate.xi` -- `array_zip` does not
-   truncate to the shorter array. Expected: `array_zip([1,2,3], [7,8])`
-   returns 2 pairs. Observed on v0.64.1: 3 pairs (N, not min(N, M)); the
-   `if M < count { count = M; }` branch is never taken, so with M < N the
-   function reads `b[M]` OUT OF BOUNDS. With M == 0 it still emits N pairs;
-   only the N <= M direction truncates. The wave-96 `array_zip` clause is
-   restricted to N <= M until fixed, and any fixed-array zip consumer with
-   unequal lengths must not be trusted. Suspect: the count-min branch's
-   condition lowering (or a checker/codegen mismatch on the branch), to be
-   confirmed repro-first. Repro: `afix.array_zip(&a3, &b2)` with 3/2 lengths,
-   `z.len() != 2` -> rc 1.
-2. CANDIDATE (block 80): `array.fold` with a ZERO-LENGTH fixed array passed
-   BY VALUE miscompiles at clang (`[0 x i64]` vs `i64`); the probe was
-   dropped from the wave. Repro-first, then decide fix (zero-length fixed
-   arrays probably lower to their element type in param position).
+ROOT CAUSE (codegen, not the clause): at the call site each const generic
+was inferred by scanning ALL arguments for the first array local and
+breaking -- `array_zip(&a3, &b2)` bound N=3 from a3, then bound M=3 from
+a3 AGAIN before ever reaching b2. The monomorphised symbol was
+`array.fixed.array_zip_3_3`; in the body `if M < count` folded to
+`icmp slt i64 3, ...` (never true) and `count = M` stored 3.
+
+FIX (m237): const-generic inference first binds the value from the
+PARAMETER whose type NAMES the const generic (`&[N]Int` -> args[0],
+`&[M]Int` -> args[1]) via a new `type_ast_mentions_const` walker (the
+existing `type_contains_generic` deliberately ignores fixed-array size
+expressions) plus a `const_size_from_array_arg` helper; the historical
+all-args scan remains as fallback for shapes where the parser lost the
+const name.
+
+EVIDENCE: probe rc 1 -> rc 0; IR now emits `@array.fixed.array_zip_3_2`
+with `icmp slt i64 2,` in the body (was `_3_3` / `slt i64 3,`).
+Acceptance fixture covers M<N (content-checked), M==0, N<=M, N==M --
+exit 0.
+
+LOCKS: IR `regress_m237_const_generic_param_binding` (mono name
+`zip2_3_2` + `icmp slt i64 2,`), e2e `e2e_m237_array_zip_truncate` +
+fixture `tests/regression/m237_array_zip_truncate/`, ci.yml line.
+
+## 2026-10-09 -- OPEN (stdlib lane, wave-96): [0]Int by value
+
+CANDIDATE (block 80): `array.fold` with a ZERO-LENGTH fixed array passed
+BY VALUE miscompiles at clang (`[0 x i64]` vs `i64`); the probe was
+dropped from the wave. Repro-first, then decide fix (zero-length fixed
+arrays probably lower to their element type in param position).
 
 ---
 
