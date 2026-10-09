@@ -1303,6 +1303,8 @@ impl IrEmitter {
                             // (an `i8**` -- pointer to the Str slot) emitted
                             // `load i8, i8**` (a byte) instead of `load i8*, i8**`.
                             let pointee = inner_ty.strip_suffix('*').unwrap_or(&inner_ty).to_string();
+                            // m244: raw deref null guard (--overflow-checks).
+                            self.emit_null_deref_guard(&val, &inner_ty);
                             self.emitln(&format!("  {tmp} = load {pointee}, {inner_ty} {val}"));
                             return Ok((tmp, pointee));
                         }
@@ -1336,12 +1338,15 @@ impl IrEmitter {
                             if let Some(pointee) = pointee_llvm {
                                 // `&T` params/locals carry the ADDRESS (as i64) --
                                 // inttoptr to the pointee type and load the value.
+                                // m244: null guard for the i64-held address.
+                                self.emit_null_deref_guard(&val, "i64");
                                 let ptr = self.fresh_tmp();
                                 self.emitln(&format!("  {ptr} = inttoptr i64 {val} to {pointee}*"));
                                 self.emitln(&format!("  {tmp} = load {pointee}, {pointee}* {ptr}"));
                                 return Ok((tmp, pointee));
                             }
                             // M19: Legacy byte-pointer path (ptr.offset() compat)
+                            self.emit_null_deref_guard(&val, "i64");
                             let ptr = self.fresh_tmp();
                             self.emitln(&format!("  {ptr} = inttoptr i64 {val} to i8*"));
                             let loaded = self.fresh_tmp();

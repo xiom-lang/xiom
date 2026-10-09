@@ -709,6 +709,41 @@ LOCKS: e2e `e2e_m242_sibling_dup_alias` +
 `tests/regression/m242_sibling_dup_alias{,_popcount_bitwise}/`, ci.yml
 lines.
 
+## 2026-10-09 -- FIXED (m244): NULL guards for raw pointer dereferences under --overflow-checks
+
+Containment backlog item 3 (the INCONCLUSIVE null-deref lever): the t8
+probe read through address 0 and survived without an observation. Raw
+derefs now null-check BEFORE the access when `--overflow-checks` is on:
+
+- READ sites: the typed-pointer load (`load T, T* p`), the i64-held
+  address paths (legacy `&T`/ptrtoint, `ptr.offset()` byte pointers).
+- WRITE sites: `*p = v` for typed pointers and for i64-held addresses.
+- Guard: `emit_null_deref_guard` (typed pointers vs `null`, i64 address
+  vs 0), same trap shape as m241/m243; skip for the fn-reference deref
+  special case.
+
+SEMANTICS (verified): inside a confined `unsafe` block the guard's
+`llvm.trap` surfaces through the runtime hardware-fault trampoline --
+`[trampoline] fault win=0xC000001D` (illegal instruction = fault code 2,
+the llvm.trap class) -- deterministically, BEFORE any memory access, and
+the language-level unsafe-block contract contains it (no corruption).
+Outside confinement it is a loud nonzero trap like m241/m243. Without the
+flag the historical path is unchanged.
+
+EVIDENCE: null read and null write probes both report the deterministic
+fault with `XIOM_TRACE_FAULT=1` and complete contained; the valid-reference
+control (`var r = &x; *r`) returns 41 under the flag; IR emits
+`null_deref_trap` under the flag and none by default.
+
+REMAINING (honest): non-null INVALID pointers (`0x1`) are not caught by a
+null guard -- they still depend on the platform fault + confinement; the
+allocator/fault-reporting items in the containment backlog cover that
+class.
+
+LOCKS: IR `e2e_m244_null_deref_guard_ir` + `..._contained` + 
+`..._fault_trace` + fixture `tests/regression/m244_null_deref_guard/`,
+ci.yml lines.
+
 ## 2026-10-09 -- FIXED (m243): fixed-array `[N]T` bounds guards under --overflow-checks
 
 Follow-up to m241: fixed-size array indexing had NO bounds check at all
@@ -799,10 +834,12 @@ isolation, not just detection. The ladder distinguishes both.
 
 Order of work: 1) m241 done; 2) fixed-array bounds -- DONE in m243
 (read+write guards; the `&mut [N]T` element-pointer path stays
-documented-unchecked); 3) fault->panic reporting for null/invalid
-pointers (largest INCONCLUSIVE lever); 4) hardened allocator (poison +
-quarantine + guard pages) as a documented mode with measured cost;
-5) tagged memory (research-grade).
+documented-unchecked); 3) null pointers -- DONE in m244 for
+`--overflow-checks` builds (deterministic contained faults); non-null
+invalid pointers still depend on the platform fault + confinement, and
+the process-level signal->panic reporting remains open; 4) hardened
+allocator (poison + quarantine + guard pages) as a documented mode with
+measured cost; 5) tagged memory (research-grade).
 
 ## 2026-10-09 -- FIXED (m240): verifier v2 -- SMT Array memory model (t8 body VCs)
 

@@ -1092,6 +1092,8 @@ impl IrEmitter {
                         let pointee = ptr_ty.strip_suffix('*').unwrap_or(&ptr_ty).to_string();
                         let (val, val_ty) = self.compile_expr(value)?;
                         let store_val = self.coerce_value(&val, &val_ty, &pointee);
+                        // m244: raw deref-store null guard (--overflow-checks).
+                        self.emit_null_deref_guard(&ptr_val, &ptr_ty);
                         self.emitln(&format!("  store {pointee} {store_val}, {ptr_ty} {ptr_val}"));
                         return Ok(());
                     }
@@ -1111,6 +1113,8 @@ impl IrEmitter {
                         } else { None };
                         let pointee = pointee_llvm.unwrap_or_else(|| LLVM_I64.to_string());
                         let (val, val_ty) = self.compile_expr(value)?;
+                        // m244: null guard for the i64-held address store.
+                        self.emit_null_deref_guard(&ptr_val, "i64");
                         let real_ptr = self.fresh_tmp();
                         self.emitln(&format!("  {real_ptr} = inttoptr i64 {ptr_val} to {pointee}*"));
                         let store_val = self.coerce_value(&val, &val_ty, &pointee);

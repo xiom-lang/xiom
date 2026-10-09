@@ -19,6 +19,28 @@ impl IrEmitter {
         format!("{label}{n}")
     }
 
+    /// m244 (honest containment): null guard for RAW POINTER
+    /// dereferences under `--overflow-checks`. The t8 null-deref probe
+    /// currently survives a read through address 0 (INCONCLUSIVE); with
+    /// the flag the deref traps deterministically BEFORE the access.
+    /// `ptr_ty` is the operand spelling: typed pointers compare against
+    /// `null`, i64-held addresses (legacy `&T`/ptrtoint path) against 0.
+    pub(crate) fn emit_null_deref_guard(&mut self, ptr_val: &str, ptr_ty: &str) {
+        if !self.config.overflow_checks {
+            return;
+        }
+        let null_val = if ptr_ty.ends_with('*') { "null" } else { "0" };
+        let isnull = self.fresh_tmp();
+        self.emitln(&format!("  {isnull} = icmp eq {ptr_ty} {ptr_val}, {null_val}"));
+        let ok_b = self.fresh_block("deref_ok");
+        let trap_b = self.fresh_block("null_deref_trap");
+        self.emitln(&format!("  br i1 {isnull}, label %{trap_b}, label %{ok_b}"));
+        self.emitln(&format!("\n{trap_b}:"));
+        self.emitln("  call void @llvm.trap()");
+        self.emitln("  unreachable");
+        self.emitln(&format!("\n{ok_b}:"));
+    }
+
     /// m243 (honest containment): bounds guard for FIXED-ARRAY indexing
     /// under `--overflow-checks` -- the m241 Vec write guard's fixed-array
     /// sibling (read + write paths). `n` is compile-time known, so

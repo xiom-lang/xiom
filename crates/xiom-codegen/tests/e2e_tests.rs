@@ -6254,6 +6254,73 @@ fn e2e_safety_probe() {
     );
 }
 
+// m244 (honest containment): raw derefs get a NULL guard under
+// --overflow-checks; IR lock + contained-fault runtime locks.
+#[test] fn e2e_m244_null_deref_guard_ir() {
+    let emit = |extra: &[&str]| -> String {
+        let output = Command::new(xiom_path())
+            .args(extra)
+            .args(["--emit-ir", "tests/regression/m244_null_deref_guard/main.xi"])
+            .current_dir(project_root())
+            .output()
+            .expect("emit-ir");
+        String::from_utf8_lossy(&output.stdout).to_string()
+    };
+    let checked = emit(&["--overflow-checks"]);
+    assert!(
+        checked.contains("null_deref_trap"),
+        "the null-deref guard must be emitted under --overflow-checks"
+    );
+    let default = emit(&[]);
+    assert!(
+        !default.contains("null_deref_trap"),
+        "default builds must keep the historical unguarded deref path"
+    );
+}
+
+// m244: the guarded derefs are CONTAINED by the unsafe-block trampoline --
+// the program completes (the confined blocks fault deterministically and
+// the language-level fault path continues), and the valid reference
+// control still reads correctly.
+#[test] fn e2e_m244_null_deref_guard_contained() {
+    assert_eq!(
+        compile_and_run_with_flags(
+            "tests/regression/m244_null_deref_guard/main.xi",
+            &["--overflow-checks"]
+        ),
+        Some(0),
+        "guarded null derefs must be contained, not crash (m244)"
+    );
+}
+
+// m244: with the runtime fault trace on, the confined block reports the
+// deterministic fault (SIGILL-equivalent from llvm.trap), proving the
+// guard fired before any memory access.
+#[test] fn e2e_m244_null_deref_guard_fault_trace() {
+    let exe = project_root().join("target").join("m244_null_deref_trace.exe");
+    let compile = Command::new(xiom_path())
+        .args([
+            "--overflow-checks",
+            "tests/regression/m244_null_deref_guard/main.xi",
+            "-o",
+        ])
+        .arg(&exe)
+        .current_dir(project_root())
+        .output()
+        .expect("compile m244 fixture");
+    assert!(compile.status.success(), "m244 fixture must compile");
+    let run = Command::new(&exe)
+        .env("XIOM_TRACE_FAULT", "1")
+        .output()
+        .expect("run m244 fixture");
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert!(
+        stderr.contains("[trampoline] fault"),
+        "the confined null deref must report a deterministic fault; stderr:\n{stderr}"
+    );
+    assert_eq!(run.status.code(), Some(0), "fault must be contained");
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {
