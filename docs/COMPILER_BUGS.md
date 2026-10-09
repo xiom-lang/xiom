@@ -14222,6 +14222,29 @@ for straight-line load-after-store).
 LOCK: z3-gated `z3_mem_store_load_proven` (integration, asserts 3 proven
 + 0 errors).
 
+## 2026-10-09 -- FIXED (m246): local `alloc`/`free` fn-pointers hijacked by allocator builtins (B-10)
+
+Sweep finding B-10 (bindings/odbc control): a LOCAL fn-pointer named
+`alloc` called inside a confined unsafe block routed to the compiler's
+allocator builtin, so `@xiom_guard_alloc` ran instead of the user's
+function.
+
+REPRO (minimal, this repo): `let alloc = real_alloc; unsafe { r =
+alloc(35); }` -> rc 755105792 (arena pointer truncated to the exit code);
+pre-fix the call never reached `real_alloc` (which returns 42).
+
+ROOT CAUSE (codegen): the call dispatch intercepts `fn_name == "alloc"`
+/ `"free"` unconditionally (call.rs), ahead of any local-binding
+resolution -- the same shadowing class the `user_defined_to_str` guard
+already prevents for `to_str`.
+
+FIX (m246): both builtins are skipped when `lookup_local(fn_name)` finds
+a binding; only the unshadowed builtin allocates/frees.
+
+EVIDENCE: minimal probe rc 755105792 -> 42; local `free` gets the same
+guard (fixture covers both). LOCK: e2e `e2e_m246_local_alloc_shadow` +
+fixture `tests/regression/m246_local_alloc_shadow/`, ci.yml line.
+
 ## 2026-10-09 -- LANE FINDINGS SWEEP (all lanes)
 
 Full sweep of every lane's latest findings/relay/session docs, deduped
@@ -14379,7 +14402,7 @@ above.
 | B-07 | bindings | module path ending in `ffi` + `use xiom.ffi` leaves unqualified stdlib names unresolved | REPORTED, NEEDS REPRO (lane v0.64.2 minimal still broken with `c_strlen`; 2026-10-08 ledger row says fixed minimal with `safe_ptr_alloc`) | repro ffi-alias-shadow/probe.xi |
 | B-08 | bindings | `xiom --run` masked the program's exit code | FIXED m228 (ba19be61, v0.64.2) | docs/repro/bindings-pilot/run-exit/ |
 | B-09 | bindings | large Win32 window+WGL confined unsafe block poisoned the binary (0xC0000409) | FIXED v0.64.1 (lane re-test q1/q2 green, GL 4.6.0; commit not pinpointed) | docs/repro/bindings-pilot/win32-gl-unsafe/ |
-| B-10 | bindings | local fn-pointer named `alloc` redirected to `xiom_guard_alloc` inside confined blocks | OPEN v0.64.2 (odbc 3-way control: f_alloc/my_alloc green, alloc FAIL) | xiom.odbc scratch control; no bundle yet |
+| B-10 | bindings | local fn-pointer named `alloc` redirected to `xiom_guard_alloc` inside confined blocks | FIXED m246 (2026-10-09 entry above); repro rc 755105792 -> 42 | xiom.odbc scratch control; tests/regression/m246_local_alloc_shadow/ |
 | packages unsafe fn | packages | `unsafe fn f()` is a hard P001 | CONFIRMED behavior (safe fn + `unsafe { }` body) | packages docs/COMPILER-FINDINGS.md relay table |
 | packages let-unsafe | packages | `let _ = unsafe { call() };` invalid IR for pointer/Str/struct returns | REPORTED, NEEDS REPRO (minimal `alloc(8)` shape compiles clean) | packages docs/COMPILER-FINDINGS.md row |
 | packages grpc-catalog | packages | grpc catalog-dep rehearsal RED: 6 T001 "ambiguous function exported by multiple imported modules" | REPORTED, NEEDS REPRO (needs the grpc depot to bisect) | packages docs/COMPILER-FINDINGS.md row |

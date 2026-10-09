@@ -6321,6 +6321,17 @@ fn e2e_safety_probe() {
     assert_eq!(run.status.code(), Some(0), "fault must be contained");
 }
 
+// m246 (sweep finding B-10): a LOCAL fn-pointer named `alloc`/`free`
+// called inside a confined unsafe block must call the local, not the
+// compiler allocator builtins (guard-arena hijack).
+#[test] fn e2e_m246_local_alloc_shadow() {
+    assert_eq!(
+        compile_and_run("tests/regression/m246_local_alloc_shadow/main.xi"),
+        Some(0),
+        "local `alloc`/`free` fn-pointers must not be hijacked by builtins (m246)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

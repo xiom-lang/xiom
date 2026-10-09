@@ -1273,7 +1273,14 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     }
                 }
                 // Check for memory allocation/free builtins
-                if fn_name == "alloc" {
+                // B-10 fix (2026-10-09): never hijack a LOCAL binding named
+                // `alloc` -- a fn-pointer variable `let alloc = real_alloc;`
+                // called inside a confined block used to route to
+                // @xiom_guard_alloc (the odbc 3-way control: f_alloc/my_alloc
+                // green, alloc failed). Mirrors the user_defined_to_str guard
+                // below: only the unshadowed builtin allocates.
+                let user_shadowed_alloc = self.lookup_local(&fn_name).is_some();
+                if fn_name == "alloc" && !user_shadowed_alloc {
                     if let Some(size_arg) = args.first() {
                         let (size_raw, size_ty) = self.compile_expr(size_arg)?;
                         let size_val = self.val_to_i64(&size_raw, &size_ty);
@@ -1453,7 +1460,10 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     self.emitln(&format!("  store {ty} {val}, {ty}* {slot}{}", self.store_align(&ty)));
                     return Ok((slot, format!("{ty}*")));
                 }
-                if fn_name == "free" {
+                // B-10 fix (same class as `alloc` above): a LOCAL fn-pointer
+                // named `free` must not be hijacked by the C free() builtin.
+                let user_shadowed_free = self.lookup_local(&fn_name).is_some();
+                if fn_name == "free" && !user_shadowed_free {
                     if let Some(ptr_arg) = args.first() {
                         let (ptr_val, ptr_ty) = self.compile_expr(ptr_arg)?;
                         // Coerce the freed pointer to i8* (it may be typed i64 or a
