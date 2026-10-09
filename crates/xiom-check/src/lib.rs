@@ -4466,7 +4466,7 @@ impl Checker {
         } else {
             // `use module.item;` or `use module.item as alias;`
             let item_name = &effective_path.last().unwrap().name;
-            let export = match current.get(item_name) {
+            let mut export = match current.get(item_name) {
                 Some(e) => e.clone(),
                 None => {
                     // R21 (scope-first, 2026-09-15): the path may itself NAME
@@ -4525,6 +4525,37 @@ impl Checker {
                     }
                 }
             };
+            // m242 (wave-97 p_sibling_dup_fn_alias): a dotted use path whose
+            // FULL spelling is a DECLARED MODULE binds the MODULE even when
+            // the parent module also exports a same-named item. bits.xi has
+            // `pub fn popcount` AND the `xiom.bits.popcount` submodule:
+            // `use xiom.bits.popcount;` bound the FUNCTION, so
+            // `popcount.next_pow2(...)` failed, and importing a second
+            // duplicate-leaf sibling appeared to poison the first (the
+            // duplicate leaves only changed which parent surface won the
+            // first-wins registration). Module paths win over same-named
+            // items; the item stays reachable via its parent module.
+            if !matches!(export, ModuleExport::SubModule(_)) {
+                let full_dotted = effective_path
+                    .iter()
+                    .map(|p| p.name.clone())
+                    .collect::<Vec<_>>()
+                    .join(".");
+                if self.catalog.is_declared_module(&full_dotted) {
+                    let segs: Vec<String> = effective_path.iter().map(|p| p.name.clone()).collect();
+                    let loaded = if self.checking_catalog {
+                        self.catalog.peek_owned(&segs)
+                    } else {
+                        self.catalog.find_owned(&segs)
+                    };
+                    if let Some(cached) = loaded {
+                        for item in &cached.program.items {
+                            self.register_fn_signature(item);
+                        }
+                        export = ModuleExport::SubModule(self.module_exports_with_submodules(&cached));
+                    }
+                }
+            }
             let local_name = ud.alias.as_ref()
                 .map(|a| a.name.clone())
                 .unwrap_or_else(|| item_name.clone());
@@ -4862,10 +4893,27 @@ impl Checker {
                 if let Some(root) = self.modules.get(segs[0]) {
                     let mut current = root;
                     let mut resolved = true;
+                    let mut walked = segs[0].to_string();
                     for seg in &segs[1..] {
+                        walked = format!("{walked}.{seg}");
                         match current.get(*seg) {
                             Some(ModuleExport::SubModule(sub)) => current = sub,
-                            _ => { resolved = false; break; }
+                            _ => {
+                                // m242: the segment collides with a
+                                // same-named fn/type (bits.xi's
+                                // `pub fn popcount` vs the submodule) or is
+                                // missing -- descend through the lazily
+                                // recorded submodule alias for the full
+                                // dotted path, the same collision policy
+                                // resolve_module_function uses.
+                                match self.submodule_aliases.get(&walked) {
+                                    Some(alias) => current = alias,
+                                    None => {
+                                        resolved = false;
+                                        break;
+                                    }
+                                }
+                            }
                         }
                     }
                     if resolved {

@@ -6194,6 +6194,29 @@ fn e2e_safety_probe() {
     );
 }
 
+// m242 (wave-97 p_sibling_dup_fn_alias): a dotted `use` path naming a
+// DECLARED MODULE must bind the module even when the parent exports a
+// same-named fn (bits.xi's `pub fn popcount` vs xiom.bits.popcount). The
+// trio of duplicate-leaf siblings must all stay independently callable.
+#[test] fn e2e_m242_sibling_dup_alias() {
+    assert_eq!(
+        compile_and_run("tests/regression/m242_sibling_dup_alias/main.xi"),
+        Some(0),
+        "triplicate sibling exports must not break alias-qualified calls (m242)"
+    );
+}
+
+// m242 minimal shape: popcount imported BEFORE a duplicate-leaf sibling
+// (the order that used to fail because the parent's fn won the first-wins
+// leaf slot).
+#[test] fn e2e_m242_sibling_dup_alias_popcount_bitwise() {
+    assert_eq!(
+        compile_and_run("tests/regression/m242_sibling_dup_alias_popcount_bitwise/main.xi"),
+        Some(0),
+        "popcount-then-bitwise import order must resolve (m242)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

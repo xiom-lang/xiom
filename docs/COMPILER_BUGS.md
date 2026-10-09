@@ -670,33 +670,44 @@ LOCKS: IR `regress_m229_is_payload_literal` (`and i1` present), e2e
 
 ---
 
-## 2026-10-09 -- OPEN (wave-97 stdlib finding): triplicate sibling exports break alias calls
+## 2026-10-09 -- FIXED (m242): duplicate sibling exports broke alias calls -- module path lost to a same-named fn
 
-Stdlib wave-97 report (`d54929d`, their finding 16/16): probe
-`tools/known_failures/p_sibling_dup_fn_alias.xi` (stdlib repo).
+Wave-97 stdlib finding (`d54929d`): probe
+`tools/known_failures/p_sibling_dup_fn_alias.xi` (stdlib repo). It was
+NOT triplication-specific: the minimal failing shape is importing
+`xiom.bits.popcount` BEFORE any other duplicate-leaf sibling (pairs
+"worked" only when popcount registered last).
 
-Repro: `xiom.bits.rotation`, `xiom.bits.popcount` and `xiom.bits.bitwise`
-each export `rotate_left`/`rotate_right`; a program importing all THREE
-siblings and calling an alias-qualified fn on an innocent module
-(`popcount.next_pow2(1)`) fails to resolve. Pairwise imports
-(bitfield+popcount, rotation+popcount) compile and run; adding the third
-copy of the duplicate leaf poisons alias-qualified resolution. Workaround
-used by the wave: split the probe into `p_wave97_shapes.xi` (67 checks) +
-`p_wave97_bitwise_shapes.xi` (11 checks).
+ROOT CAUSE (checker): `xiom.bits.bits.xi` (the parent module) exports
+`pub fn popcount`, and `xiom.bits.popcount` is also a submodule. The
+collision policy keeps the Function in the parent's export map, so
+`process_use`'s last-segment lookup for `use xiom.bits.popcount;` bound
+the FUNCTION and never registered the module leaf. The later
+alias-qualified call `popcount.next_pow2(1)` then failed
+(`cannot call 'next_pow2' on this expression`, previously
+`cannot compare <error> with Int`). Order sensitivity came from the
+first-wins leaf registration: importing popcount last let its module
+surface win the slot.
 
-REPRODUCED on the v0.64.2 release tree (this checkout):
-`xiom --run tools/known_failures/p_sibling_dup_fn_alias.xi` ->
-`error[T001]: 25:6: cannot compare <error> with Int`, rc 1 (v0.64.1
-reported `cannot call 'next_pow2' on this expression` -- same root cause,
-different first diagnostic). Suspect the alias-qualified resolution
-table when a leaf is exported by 3+ sibling submodules (m162
-sameleaf-catalog family is adjacent; the barely-qualified candidate scan
-must key on the alias/owner, not the leaf).
+FIX (m242, `crates/xiom-check/src/lib.rs`):
+1. `process_use`: when the last segment resolves to a non-SubModule but
+   the FULL dotted use path is a DECLARED module, the module wins --
+   load it and bind the submodule surface. Module paths outrank
+   same-named items; the item stays reachable via its parent module.
+2. `module_exports_for_alias`: the dotted descent now falls back to the
+   lazily recorded `submodule_aliases` entry for the accumulated dotted
+   path when a segment collides with a same-named fn/type (the same
+   policy `resolve_module_function` already used).
 
-Impact: user programs importing 3+ sibling modules with duplicate leaf
-exports; not a v0.64.2 release blocker (workaround documented), targeted
-for the next compiler batch. NEXT: minimal 3-module repro in-repo
-(`tmp/sprintc/`), then IR/e2e locks when fixed.
+EVIDENCE: probe rc 1 -> 0; the pair orders popcount+bitwise,
+bitwise+popcount, popcount+rotation, rotation+popcount all green; the
+trio green; wave-97 split probes `p_wave97_shapes.xi` + 
+`p_wave97_bitwise_shapes.xi` green; xiom-check 197/197.
+
+LOCKS: e2e `e2e_m242_sibling_dup_alias` + 
+`e2e_m242_sibling_dup_alias_popcount_bitwise` with fixtures
+`tests/regression/m242_sibling_dup_alias{,_popcount_bitwise}/`, ci.yml
+lines.
 
 ## 2026-10-09 -- FIXED (m241): OOB Vec index WRITE now traps (honest containment)
 
