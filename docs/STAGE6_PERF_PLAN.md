@@ -468,3 +468,74 @@ sweep's "REPORTED, NEEDS REPRO" tag stands on the t8 bo-write row.
       the lane's rss_probe scripts as the acceptance.
 - [ ] `xiom bench` local harness: fold `tmp/perf6/guard_cost2.xi` into it
       as the guard-budget microbenchmark when the harness next changes.
+
+## 2026-10-10 -- check-cache seam audit (Stage 6 item 1 prerequisite)
+
+Continuation session on main `e0be8114` (v0.64.2 tip + 15 unpushed). Repro:
+lz4 smoke `docs/repro/lz4/p4c_lz4.xi`, release driver v0.64.2,
+`XIOM_TIMINGS=1`, warm runtime-object cache, true cold = `run --no-cache`.
+
+- cold wall 2.94s (repeat 3.46s). Raw marks (cold2): index 0.576s
+  (index-cache 2903 hits / 3 misses); check 1.148s (`catalog-bodies
+  checked=31 elapsed=0.393s capture=0.118s` -- context capture alone is
+  30% of the catalog-body window); borrow 1.235s; codegen 1.327s;
+  rt-cache HIT; last mark to wall ~1.6s = clang+link+run.
+- Warm (entry present) `run` and `run --jit` serve the script cache in
+  0.05-0.06s; a miss populates. The arena's 7-8s is a true-cold profile,
+  not a cache-path defect on this tree.
+
+AUDIT -- what a persistent catalog-body check cache must reproduce (the
+"generic-instantiation state-effects audit" this plan asked for):
+
+1. Isolation is already per-body: `flush_catalog_bodies` captures/restores
+   14 resolution maps (xiom-check lib.rs:698-729) and re-registers the
+   module's own declarations per body (R24, lib.rs:619-621).
+   Monomorphisation lives in CODEGEN (`generic_instantiations` worklist,
+   xiom-codegen context.rs:351-384); the checker's body pass produces
+   diagnostics + resolved-call tables, not codegen state.
+2. Non-isolated effects a skip must account for:
+   - warnings/errors (empty for a clean module -- the cache verdict);
+   - `catalog_resolved_calls` (pub; driver hands to emitter,
+     xiom/src/lib.rs:733/1223; inserts xiom-check lib.rs:4764-4776,
+     8602-8614) keyed `{owner}#{line}:{col}` plus a legacy `{line}:{col}`
+     fallback. A skip MUST replay that module's entries (R15/m162 bind
+     cross-module catalog calls through this map);
+   - type interning is process-global but append-only and semantically
+     structural ("do not persist", types.rs:71) -- not a hazard.
+3. Program independence is the crux. Bare `functions` slots are
+   KEEP-FIRST (lib.rs:2678-2692) and the catalog-body lookup is
+   qualified-first with a bare fallback (lib.rs:8617-8621); the comments
+   disagree on whether program or catalog registrations land first in
+   every flow, so a clean catalog body MAY resolve a bare name to a slot
+   a user program would claim in a real compile. A program-independent
+   cache therefore needs either (a) an eligibility guard proving the
+   body's bare references resolve inside its isolated context (a
+   `catalog_reference_names`-style analysis), or (b) fully isolating the
+   flush context from program registrations (behavior change; corpus and
+   e2e parity must prove it first). A collision probe belongs in the
+   locks either way.
+4. Key identity must cover the import closure, not just the module hash: a
+   body's findings depend on the registered signatures it imports and on
+   `pre_use_module_keys`. Natural scheme: (compiler version + OS/arch +
+   stdlib pin) x per-module source CONTENT hash, mirroring rtcache.rs and
+   the catidx index cache (driver opt-in; tests stay cache-free).
+   Positive-only (clean) entries; diagnostics parity is the gate.
+
+EXPECTED WIN (honest): skipping 31 clean catalog bodies removes ~0.4s of
+the ~2.9s local true-cold wall (13-15%); on a loaded arena box the
+recorded whole-stdlib recheck is ~1.3s of 7-8s. "ms-class" cold is NOT
+reached by this slice alone -- the precompiled-stdlib/object half is the
+structural lever and its monomorphisation design (per-program `Option__X`
+/ `Result__X__Y` instantiations) needs a separate decision before work.
+If the benchmark lanes can carry `--cache`, the scored numbers move with
+no code at all; that relay answer should land before re-prioritising.
+
+- [ ] Owner decision: implement the check-cache slice now (positive-only
+      clean verdicts + resolved-call replay + eligibility guard), or wait
+      for the benchmark-lane config relay, or schedule the
+      precompiled-stdlib design first.
+- [ ] If implemented: three locks -- (a) full diagnostics byte-parity
+      cache-on vs cache-off over the corpus plus the lz4 smoke (R15/m162
+      shapes) and a user-name collision probe; (b) `catalog_corpus_is_clean`
+      un-ignored; (c) invalidation on a stdlib source edit and on a
+      compiler-identity change.
