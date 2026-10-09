@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "tag": "v0.64.2",
+  "summary": "Correctness release: vector element layout, alias and enum payloads, and reference-passing bugs are fixed, loops no longer exhaust the stack, and the CLI reports program exit codes.",
+  "highlights": [
+    {
+      "kind": "fix",
+      "title": "Vector element layout matches the compiled structs",
+      "text": "Reading or assigning elements of vectors of structs now uses each struct's padded compiled layout, so a trailing flag or value after a vector-bearing field reads correctly, and assigning optional or result elements keeps the slot's tag and payload readable."
+    },
+    {
+      "kind": "fix",
+      "title": "Aliases, enum variants, and determinism",
+      "text": "Match payloads behind package type aliases keep their concrete type, bare enum variants resolve to the declaring module instead of the first registered twin, and a hash-order-dependent type lookup that could flip enum field reads between builds is fixed."
+    },
+    {
+      "kind": "fix",
+      "title": "References and nested fields write through",
+      "text": "Passing a byte vector by reference to string-from-bytes constructors emits valid code again, and calling a mutating method through a nested field updates the original value instead of a discarded copy."
+    },
+    {
+      "kind": "fix",
+      "title": "Long loops and tooling",
+      "text": "Temporaries created inside loops no longer reserve stack per iteration, builtins on module-level vectors dispatch the real implementations, and the run command exits with the program's exit code."
+    },
+    {
+      "kind": "stdlib",
+      "title": "Iter contracts unblocked",
+      "text": "The closure-thunk clause leak is gone on the new pin: Range.count and the retried range set (contains, sum, product, collect, count, max, min, find, all, any, nth, last) carry contracts again, and the iter smoke family passes at high parallelism."
+    },
+    {
+      "kind": "fix",
+      "title": "Byte-exact file IO and CRLF-clean line reads",
+      "text": "write_file, append_file and write_file_bytes open in binary mode, so newlines are never rewritten when writing on Windows; read_file_lines strips a trailing carriage return so CRLF files parse cleanly. Both carry regression locks."
+    }
+  ],
+  "breaking": [],
+  "known_issues": [
+    "Comparing containers with equality operators is pointer identity: two equal vectors compare unequal, and equal result-of-vector values compare unequal; deep container equality is designed and queued.",
+    "A confined allocation followed by a free can spin in the guard heap; keep the exit block as the last statement and avoid manual free until the runtime patch lands.",
+    "Hot reload benchmarks that enter confined blocks remain slow while the trampoline cost is worked through."
+  ],
+  "docs": [
+    {
+      "title": "Contracts guide",
+      "url": "https://docs.xiom-lang.org/latest/contracts/"
+    },
+    {
+      "title": "Language guide",
+      "url": "https://docs.xiom-lang.org/latest/"
+    }
+  ],
+  "full_changelog": "https://github.com/xiom-lang/xiom/releases/tag/v0.64.2"
+}
