@@ -340,6 +340,32 @@ ladder. Gate P acceptance lives in `docs/RELEASE_GATE_v0.62.3.md`.
    KPI: within 1.5x of c.
 3. t3-hot-reload (256 ms): confirm task semantics; if per-reload latency,
    covered by item 1.
+
+## 2026-10-09 late intake -- owner benchmark numbers (unchanged since last read)
+
+- JIT/AOT lanes ~7-8 s per sample: the scored lanes are running the COLD
+  path; matches the recorded cold profile (whole-stdlib re-check ~1.3 s +
+  codegen + `clang -c -O2` ~0.9 s + link, on a loaded arena box). The
+  m208 fix makes `--jit`/`--jit --cache` hit the script cache; if the
+  arena's `xiom-run-jit`/`xiom-run-aot` commands can carry `--cache`, the
+  scored numbers should drop to double-digit ms WITHOUT code changes
+  (config question for the benchmark lane). True cold double-digit needs
+  the item-1 work below (persistent check cache / precompiled stdlib
+  slice), not micro-tuning.
+- t3-hot-reload 275 ms: within noise of the recorded 256 ms. Semantics
+  still need confirmation (per-reload latency vs full arena cycle); if
+  per-reload, item 1 covers it. The arena side was asked to confirm.
+- t1-allocator 30 MB peak (c 9 / rust 3): unchanged; next step is an
+  allocation-profile run on the t1 task (count/size histogram) before any
+  policy change; candidate levers: right-sized Vec growth for the
+  allocator workload and arena reuse. KPI unchanged.
+- PRIORITY for the next code slice (this order):
+  1) persistent stdlib CHECK cache (source hash + compiler identity +
+     config) -- the single largest cold-lane lever;
+  2) wire the driver to the existing parallel module codegen
+     (`e2e_i2_parallel_codegen` covers the emitter);
+  3) precompiled stdlib slice shipped in the release archive;
+  4) t1 allocation profile (30 MB) before touching allocator policy.
 4. SAFETY HARDENING (post-selfhost, per owner):
    - compile prevention (0% now): expand move/free diagnostics (existing
      mutation/borrow queue items); SAFE_SUBSET probes should be
