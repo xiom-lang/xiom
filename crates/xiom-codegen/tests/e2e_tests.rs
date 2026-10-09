@@ -6133,6 +6133,18 @@ fn e2e_safety_probe() {
     );
 }
 
+// m238 (wave-96 block 80): a zero-length fixed array passed BY VALUE to a
+// generic `[N]T` param miscompiled at clang ([0 x i64] vs i64); the call
+// now passes a zero element value, and annotated empty locals record their
+// element type so `[0]Str` infers T=Str.
+#[test] fn e2e_m238_zero_len_array_by_value() {
+    assert_eq!(
+        compile_and_run("tests/regression/m238_zero_len_array_by_value/main.xi"),
+        Some(0),
+        "zero-length fixed arrays by value must lower to the element type (m238)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

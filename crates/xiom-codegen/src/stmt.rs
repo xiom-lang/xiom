@@ -263,6 +263,20 @@ impl IrEmitter {
                         if let Some(elem_xiom) = elems.first().and_then(|e| self.infer_scalar_elem_xiom(e)) {
                             self.local.local_array_elem_xiom.insert(name.name.clone(), elem_xiom);
                         }
+                        // m238: an EMPTY literal has no element evidence --
+                        // take it from the ANNOTATION (`let s0: [0]Str = []`)
+                        // so `[N]T` generic-arg inference resolves T=Str
+                        // instead of defaulting to Int (the [0 x i8*] arg
+                        // then hit a callee mono'd for [0]Int -> clang type
+                        // mismatch).
+                        if elems.is_empty() {
+                            if let Some(Type::Array(_, elem)) = _ty.as_ref().map(|t| &**t) {
+                                let elem_xiom = Self::type_from_ast(elem);
+                                if !elem_xiom.is_empty() {
+                                    self.local.local_array_elem_xiom.insert(name.name.clone(), elem_xiom);
+                                }
+                            }
+                        }
                         // 5c.30: record array size for const-generic inference
                         self.local.local_array_sizes.insert(name.name.clone(), elems.len() as i64);
                         // C1: an array literal of bare fn references records
@@ -702,6 +716,16 @@ impl IrEmitter {
                         // (`[200 as UInt8, ...]` -> "UInt8", not "Int8").
                         if let Some(elem_xiom) = elems.first().and_then(|e| self.infer_scalar_elem_xiom(e)) {
                             self.local.local_array_elem_xiom.insert(name.name.clone(), elem_xiom);
+                        }
+                        // m238: empty literal -> element type from the
+                        // annotation (mirrors the let-binding arm).
+                        if elems.is_empty() {
+                            if let Some(Type::Array(_, elem)) = _ty.as_ref().map(|t| &**t) {
+                                let elem_xiom = Self::type_from_ast(elem);
+                                if !elem_xiom.is_empty() {
+                                    self.local.local_array_elem_xiom.insert(name.name.clone(), elem_xiom);
+                                }
+                            }
                         }
                         // 5c.30: record array size for const-generic inference
                         self.local.local_array_sizes.insert(name.name.clone(), elems.len() as i64);

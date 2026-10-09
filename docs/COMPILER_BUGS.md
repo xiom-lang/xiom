@@ -700,12 +700,43 @@ LOCKS: IR `regress_m237_const_generic_param_binding` (mono name
 `zip2_3_2` + `icmp slt i64 2,`), e2e `e2e_m237_array_zip_truncate` +
 fixture `tests/regression/m237_array_zip_truncate/`, ci.yml line.
 
-## 2026-10-09 -- OPEN (stdlib lane, wave-96): [0]Int by value
+## 2026-10-09 -- FIXED (m238): zero-length fixed array by value ([0]Int vs i64)
 
-CANDIDATE (block 80): `array.fold` with a ZERO-LENGTH fixed array passed
-BY VALUE miscompiles at clang (`[0 x i64]` vs `i64`); the probe was
-dropped from the wave. Repro-first, then decide fix (zero-length fixed
-arrays probably lower to their element type in param position).
+Wave-96 block-80 candidate, reproduced: `array.fold` with a ZERO-LENGTH
+fixed array passed BY VALUE made clang reject the module:
+
+    error: '%tmp' defined with type '[0 x i64]' but expected 'i64'
+    %tmp47 = call i64 @array.fold_Int_Int_0(i64 %tmp41, i64 43, ...)
+
+(trigger shape: an EXPLICITLY annotated empty local `let a: [0]Int = [];`;
+the untyped `let a = [];` path happened to pass i64 already).
+
+ROOT CAUSE: both the mono DEF and the call-site ABI computation lower a
+`[N]T` param to its ELEMENT type when N == 0 (lib.rs/decl.rs `if n == 0 {
+elem_llvm }`), but the ARGUMENT VALUE stayed the `[0 x i64]` aggregate and
+`coerce_arg_for_param` had no `[0 x T] -> T` rule (every coercion arm
+missed and the value passed through). A second gap: `let s: [0]Str = []`
+recorded no element type for the empty literal, so `[N]T` inference
+defaulted T=Int and the i8*-element arg met an i64 param.
+
+FIX (m238): `coerce_arg_for_param` turns a zero-length array value into a
+default of the element type when the param IS the array's element type
+(the callee can never index an empty array); the Let/Var literal tracking
+now records the ANNOTATION's element type for empty arrays
+(`let s0: [0]Str = []` -> T=Str). Array/pointer param shapes untouched.
+
+EVIDENCE: pre-fix clang reject reproduced on the annotated [0]Int shape;
+post-fix `array.fold(i0, 43, ...)` -> 43, `[0]Str` fold -> 44, untyped and
+inline-literal forms -> 45/46, non-empty Int/Str controls green (exit 0).
+
+LOCKS: IR `regress_m238_zero_len_array_param_abi` (call emits
+`@zlen_0(i64 0)`), e2e `e2e_m238_zero_len_array_by_value` + fixture
+`tests/regression/m238_zero_len_array_by_value/`, ci.yml line.
+
+NOTE (pre-existing, unrelated): compiling any generic `[N]T` array fn
+prints `warning: unknown type '[N x T]' -- defaulting to i64` (also on the
+green smoke_array_fold); the mono body resolves N/T per instance, so the
+warning is cosmetic here -- left as-is.
 
 ---
 

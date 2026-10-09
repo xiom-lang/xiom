@@ -10,6 +10,25 @@ use crate::llvm_consts::*;
 
 impl IrEmitter {
     pub(crate) fn coerce_arg_for_param(&mut self, arg_expr: &Expr, pre_val: &str, pre_ty: &str, param_ty: &str) -> String {
+        // m238 (wave-96 block-80 follow-up): a ZERO-LENGTH fixed-array value
+        // (`let a: [0]Int = []` -> `[0 x i64]`) fed to a param that lowered
+        // to its ELEMENT type in param position. Both the mono DEF and the
+        // call-site ABI computation use `if n == 0 { elem }` for `[N]T`
+        // params, so the callee takes `i64` -- but the arg value stayed
+        // `[0 x i64]` and clang rejected the call ("defined with type
+        // '[0 x i64]' but expected 'i64'"). The callee can never index the
+        // array (N == 0), so pass a zero element value. Array-typed params
+        // and pointer params are untouched.
+        if pre_ty.starts_with('[') && pre_ty.contains(" x ") {
+            if let Some(0) = Self::extract_array_len(pre_ty) {
+                // Fires only when the param IS the element type (i64 for
+                // [0]Int, i8* for [0]Str) -- any other shape keeps its
+                // existing coercion paths.
+                if param_ty == Self::extract_array_elem_ty(pre_ty) {
+                    return Self::default_const_for(param_ty);
+                }
+            }
+        }
         // round-15 (probe_map): a BY-VALUE [N]T param (array.map/zip) receiving
         // a %struct.Vec VALUE (unannotated VAR array literals convert to Vec
         // -- M33) -- the mono def declares "[5 x i64]" and reads the aggregate,

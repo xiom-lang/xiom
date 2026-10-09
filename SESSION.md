@@ -44,11 +44,12 @@
 >       generic to the parameter whose type names it. Acceptance fixture
 >       M<N / M==0 / N<=M / N==M green; IR + e2e locks. The wave-96
 >       stdlib clause can go back to full min(N,M).
->    b) array.fold with a ZERO-LENGTH `[0]Int` passed BY VALUE miscompiles
->       at clang (`[0 x i64]` vs i64); candidate finding, probe dropped
->       from the wave (block 80). Repro-first, then fix (zero-length fixed
->       arrays probably must lower to their element type in param
->       position).
+>    b) [FIXED m238 2026-10-09] array.fold with a ZERO-LENGTH `[0]Int`
+>       passed BY VALUE miscompiled at clang (`[0 x i64]` vs i64). Fix:
+>       the call coerces a zero-length array value to the param's element
+>       type; empty literals also record their ANNOTATED element type so
+>       `[0]Str` infers T=Str. IR + e2e locks; fixture green (Int/Str,
+>       untyped, inline, non-empty controls).
 >
 > FINAL BATCH (all committed with locks): m222 XVC-C-07; m223 C-ORBIT-01;
 > m224 C-ORBIT-03; m225 C-ORBIT-04; m226 C-ORBIT-02; m227 C-PULSE-09;
@@ -56,8 +57,9 @@
 > arena C001 reducer 12/12); m232 home split; m233 verifier sort gaps;
 > m234 XVC-C-08 stride padding; m235 C-ORBIT-05 alloca hoist; m236
 > transitive stdlib prelude (closed m230); m237 wave-96 array_zip
-> const-generic M binding. Docs: docs/COMPILER_BUGS.md
-> dated entries + this file's queue items 15-21.
+> const-generic M binding; m238 zero-length fixed array by value.
+> Docs: docs/COMPILER_BUGS.md dated entries + this file's queue
+> items 15-21.
 >
 > GATES BEFORE TAG (run on the FINAL tree after all blockers are fixed,
 > in this order; the post-prep-tree run was intentionally NOT done):

@@ -7696,6 +7696,29 @@ fn main() -> Int {
     );
 }
 
+// m238 (wave-96 block 80): a zero-length fixed array value (`[0 x i64]`)
+// fed to a generic `[N]T` param must pass a value of the ELEMENT type --
+// the mono def lowers `[0]T` params to `T` in parameter position, and the
+// raw aggregate made clang reject the call ("defined with type
+// '[0 x i64]' but expected 'i64'").
+#[test]
+fn regress_m238_zero_len_array_param_abi() {
+    let source = r#"
+fn zlen[const N: Int](a: [N]Int) -> Int {
+  return N;
+}
+fn main() -> Int {
+  let a: [0]Int = [];
+  return zlen(a);
+}
+"#;
+    let ir = compile(source).expect("m238: zero-length array by value must compile");
+    assert!(
+        ir.contains("@zlen_0(i64 0)"),
+        "m238: the call must pass an i64 element value, not the [0 x i64] aggregate; got:\n{ir}"
+    );
+}
+
 // m231 (BINDINGS B-01): the scrutinee-type lookup for `match s.value` matched
 // wrapper type keys by loose suffix -- `Option__Value` also ends with `Value`
 // -- so random HashMap order decided whether the field `value` resolved to the
