@@ -71,15 +71,18 @@
 > Docs: docs/COMPILER_BUGS.md dated entries + this file's queue
 > items 15-21.
 >
-> GATES BEFORE TAG (run on the FINAL tree after all blockers are fixed,
-> in this order; the post-prep-tree run was intentionally NOT done):
->   cargo test -p xiom-codegen --test e2e_tests
->   cargo test -p xiom-codegen --test feature_regression_tests
->   cargo test -p xiom-check ; cargo test -p xiom --test checker_locks
->   cargo test -p xiom-verify ; cargo test -p xiom-graph ; cargo test -p xiom
->   Known pre-existing red: perf_budget_fmt_peek_shape (recalibration
->   queued). IMPORTANT: run e2e WITHOUT XIOM_STDLIB set (the override makes
->   the compiler scan two stdlib copies -> spurious W001 -> e2e_m17 red).
+> GATES BEFORE TAG -- ALL GREEN, run 2026-10-09 on the final tree
+> (afc63a9a; log tmp/gates_final_v0642.log; e2e ran WITHOUT XIOM_STDLIB):
+>   e2e_tests              2458 passed / 0 failed / 4 ignored (957s)
+>   feature_regression     549 / 0 / 0
+>   xiom-check             197 / 0 / 0
+>   checker_locks          29 / 0 / 0
+>   xiom-verify            9 lib + 36 integration / 0 failed
+>   xiom-graph             34 / 0 / 0
+>   xiom driver            61 lib + 6 bin + integration 2/29/5/15/4/7/34,
+>                          0 failed
+>   ascii_guard clean. perf_budget_fmt_peek_shape did not run in these
+>   suites (no occurrence); the queued recalibration stays a note.
 >
 > RELEASE MECHANICS once all blockers are green (tag must equal the
 > workspace version 0.64.2; notes JSON is already committed):
