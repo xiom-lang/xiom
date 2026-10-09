@@ -6332,6 +6332,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// m247 (stdlib ensures-isok finding): method-form variant guards in
+// ensures implications (`(result.is_ok == true) =>`, bare `result.is_ok =>`)
+// must carry the canonical `is Ok =>` payload knowledge.
+#[test] fn e2e_m247_isok_guard_imply() {
+    assert_eq!(
+        compile_and_run("tests/regression/m247_isok_guard_imply/main.xi"),
+        Some(0),
+        "method-form variant guards must not false-violate (m247)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

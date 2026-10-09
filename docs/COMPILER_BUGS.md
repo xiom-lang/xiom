@@ -14245,6 +14245,35 @@ EVIDENCE: minimal probe rc 755105792 -> 42; local `free` gets the same
 guard (fixture covers both). LOCK: e2e `e2e_m246_local_alloc_shadow` +
 fixture `tests/regression/m246_local_alloc_shadow/`, ci.yml line.
 
+## 2026-10-09 -- FIXED (m247): method-form variant guards in ensures implications false-violated
+
+Sweep finding `stdlib ensures-isok` (`p_ensures_isok_guard.xi`):
+`ensures: (result.is_ok == true) => (result.len() == s.len())` aborted at
+runtime with "contract violated" while the canonical
+`result is Ok => result.len() == s.len()` passed on the same call.
+
+ROOT CAUSE (codegen): the Imply-left lowering rebinds a bare `is Ok`
+scrutinee to its PAYLOAD slot (BUG 29/30/38), so the consequence's
+`result.len()` dispatches as the payload method. The method-form guard
+compiles through the normal call path and never rebinds, so the
+consequence's `Result.len` ran on the erased Result and compared wrong.
+
+FIX (m247): after the guard compiles and before the consequence, the
+Imply lowering recognizes method-form variant guards -- bare
+`result.is_ok` (Field form), `result.is_ok == true`, `true == result.is_ok`,
+`result.is_ok != false`, plus the `is_some`/`is_err` spellings -- and
+performs the same scrutinee-to-payload rebind (field 1 for Ok/Some,
+field 2 for Err), including XIOM payload-type recording and the
+fn-marker handling. Truthy spellings only; falsy forms keep the previous
+behavior.
+
+EVIDENCE: probe rc 1 -> 0; fixture covers canonical/guarded/bare
+spellings, the Err vacuous path, and a BOXED Vec payload (unbox +
+Vec.len in the consequence). 36 contract-named feature regressions green.
+
+LOCK: e2e `e2e_m247_isok_guard_imply` + fixture
+`tests/regression/m247_isok_guard_imply/`, ci.yml line.
+
 ## 2026-10-09 -- LANE FINDINGS SWEEP (all lanes)
 
 Full sweep of every lane's latest findings/relay/session docs, deduped
@@ -14413,7 +14442,7 @@ above.
 | stdlib @pre-mut | stdlib | `@pre` on a `&mut` parameter scalar field aliases the post-mutation value | OPEN (no ledger entry) | tools/known_failures/p_mut_param_field_pre.xi |
 | stdlib byref-generic | stdlib | generic `&Option[T]`/`&Result` params read wrong; bounded `&Slice[T]` calls C001 | OPEN (no ledger entry) | p_generic_byref_option.xi + p_slice_bound_generic_c001.xi |
 | stdlib alias-path | stdlib | alias-qualified type paths T001; method-style foreign calls C001 (C-PULSE-12 family) | OPEN (no ledger entry) | p_alias_module_type_path.xi + p_foreign_method_call.xi |
-| stdlib ensures-isok | stdlib | `(result.is_ok == true) =>` implication violates at runtime; `result is Ok =>` works | OPEN (no ledger entry) | p_ensures_isok_guard.xi |
+| stdlib ensures-isok | stdlib | `(result.is_ok == true) =>` implication violates at runtime; `result is Ok =>` works | FIXED m247 (2026-10-09 entry above); probe rc 1 -> 0 | p_ensures_isok_guard.xi |
 | stdlib polyhedra | stdlib | `convex_hull_2d/3d` collapse on nonempty inputs | OPEN; ledger m201 section claims rc 0 but lane v0.64.1 re-check is rc 1 -- CORRECTION NEEDED | p_polyhedra_nested_hull.xi |
 | stdlib geom-matrix | stdlib | tuple-element unannotated nested Vec loses a level (rc 4); inferred-local half fixed | OPEN (partial; no ledger entry) | p_geom_matrix_result_infer.xi |
 | stdlib geom-box | stdlib | `geom.geometry_3d.Box` unnameable from consumers | OPEN (no ledger entry) | p_geom_box_unnameable.xi |

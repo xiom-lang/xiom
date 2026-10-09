@@ -2245,6 +2245,17 @@ impl IrEmitter {
                 self.local.in_imply_lhs = true;
                 let (l, lt) = self.compile_expr(left)?;
                 self.local.in_imply_lhs = saved_imply_lhs;
+                // m247 (stdlib ensures-isok finding): the METHOD-form variant
+                // guard (`(result.is_ok == true) => ...`, bare `result.is_ok`,
+                // `is_some`/`is_err` spellings) carries the same consequence
+                // knowledge as the canonical `is Ok =>` form. The Is() path
+                // rebinds the scrutinee to its payload slot while compiling
+                // its left side; the method form compiles through the normal
+                // call path, so bind the payload HERE -- after the condition,
+                // before the consequence -- or `result.len()` in the
+                // consequence dispatches on the erased Result and
+                // false-violates.
+                self.bind_method_guard_payload(left);
                 // bi4 fix (2026-08-19): SHORT-CIRCUIT the consequence.
                 // The old code compiled the right side unconditionally and
                 // masked it with `or (!l, r)` -- for an Err result the
@@ -5910,6 +5921,119 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 }
             }
             self.local.local_xiom_types.insert(id.name.clone(), pt);
+        }
+    }
+
+    /// m247 (stdlib ensures-isok finding): recognize a method-form variant
+    /// guard and return its scrutinee + implied variant:
+    /// `e.is_ok`, `e.is_ok == true`, `true == e.is_ok`, `e.is_ok != false`
+    /// (and the `is_some` / `is_err` spellings). Truthy forms only; falsy
+    /// forms keep the historical behavior.
+    fn method_guard_scrutinee(e: &Expr) -> Option<(&Expr, &'static str)> {
+        fn variant_of(fname: &str) -> Option<&'static str> {
+            match fname {
+                "is_ok" => Some("Ok"),
+                "is_some" => Some("Some"),
+                "is_err" => Some("Err"),
+                _ => None,
+            }
+        }
+        fn call_variant(e: &Expr) -> Option<(&Expr, &'static str)> {
+            let e = match e {
+                Expr::Paren(inner, _) => inner.as_ref(),
+                other => other,
+            };
+            match e {
+                // Bare `result.is_ok` (no call parens) parses as a Field.
+                Expr::Field(recv, fname, _) => Some((recv.as_ref(), variant_of(&fname.name)?)),
+                Expr::Call(callee, args, _) if args.is_empty() => match callee.as_ref() {
+                    Expr::Field(recv, fname, _) => Some((recv.as_ref(), variant_of(&fname.name)?)),
+                    _ => None,
+                },
+                _ => None,
+            }
+        }
+        let g = match e {
+            Expr::Paren(inner, _) => inner.as_ref(),
+            other => other,
+        };
+        if let Some(hit) = call_variant(g) {
+            return Some(hit);
+        }
+        if let Expr::Binary(l, op, r, _) = g {
+            // Eq(true) / Ne(false) are the truthy spellings.
+            let truthy = match op {
+                BinOp::Eq => true,
+                BinOp::Neq => false,
+                _ => return None,
+            };
+            if let Expr::Bool(b, _) = r.as_ref() {
+                if *b == truthy {
+                    if let Some(hit) = call_variant(l) {
+                        return Some(hit);
+                    }
+                }
+            }
+            if let Expr::Bool(b, _) = l.as_ref() {
+                if *b == truthy {
+                    if let Some(hit) = call_variant(r) {
+                        return Some(hit);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// m247: rebind the scrutinee ident to its payload slot for the
+    /// implication consequence, mirroring the `is Ok` rebind in the Is()
+    /// lowering (BUG 29/30/38). Runs after the guard compiled and inside
+    /// the Imply's scope, so the binding dies with the consequence.
+    fn bind_method_guard_payload(&mut self, guard: &Expr) {
+        let Some((scrutinee, variant)) = Self::method_guard_scrutinee(guard) else {
+            return;
+        };
+        let Expr::Ident(sid) = scrutinee else { return };
+        let Some(scrut_xiom) = self.local.local_xiom_types.get(&sid.name).cloned() else {
+            return;
+        };
+        let (base, args) = Self::parse_generic_type_string(&scrut_xiom);
+        if base != "Option" && base != "Result" {
+            return;
+        }
+        let Ok((val, ty)) = self.compile_expr(scrutinee) else { return };
+        if !ty.starts_with("%struct.") {
+            return;
+        }
+        let field = if variant == "Err" { 2 } else { 1 };
+        let alloca = self.fresh_tmp();
+        self.emitln(&format!("  {alloca} = alloca {ty}"));
+        self.emitln(&format!("  store {ty} {val}, {ty}* {alloca}"));
+        let gep = self.fresh_tmp();
+        self.emitln(&format!("  {gep} = getelementptr {ty}, {ty}* {alloca}, i32 0, i32 {field}"));
+        let loaded = self.fresh_tmp();
+        self.emitln(&format!("  {loaded} = load i64, i64* {gep}"));
+        let inner_alloca = self.fresh_tmp();
+        // Hoist: the binding is created in this block but read inside the
+        // consequence block (dominance), same as the Is() rebind.
+        self.local.hoisted_allocas.push((inner_alloca.clone(), "i64".to_string()));
+        self.emitln(&format!("  store i64 {loaded}, i64* {inner_alloca}"));
+        self.add_local(&sid.name, inner_alloca, "i64");
+        self.local.is_payload_rebind.insert(sid.name.clone());
+        let payload_ty = match (base.as_str(), variant) {
+            ("Option", _) => args.first().cloned(),
+            ("Result", "Err") => args.get(1).cloned(),
+            ("Result", _) => args.first().cloned(),
+            _ => None,
+        };
+        if let Some(pt) = payload_ty {
+            if pt.starts_with("fn(") {
+                self.local.closure_locals.insert(sid.name.clone());
+                if let Some(ret_str) = pt.rsplit_once(") -> ").map(|(_, r)| r.trim().to_string()) {
+                    self.local.fn_local_returns.insert(sid.name.clone(), ret_str);
+                }
+            }
+            self.local.local_xiom_types.insert(sid.name.clone(), pt);
         }
     }
 
