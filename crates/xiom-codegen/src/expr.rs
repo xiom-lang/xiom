@@ -1567,6 +1567,36 @@ impl IrEmitter {
                     self.emitln(&format!("  {result} = {op_name} i64 {lw}, {rw}"));
                     return Ok((result, LLVM_I64.to_string()));
                 }
+                // m239 (queue item 20): deep CONTENT equality for container
+                // operands. The erased Vec/Option/Result shells compare
+                // erased field bits today (data pointers / boxed payload
+                // handles), so equal values built separately compare FALSE
+                // and `Ok(Vec) == Ok(Vec)` is silently wrong. Engage the
+                // recursive comparator only when an operand's XIOM type
+                // proves Vec/Option/Result; Map/Set stay on the old path
+                // (lookup-based design pending).
+                if matches!(op, BinOp::Eq | BinOp::Neq) {
+                    let l_hint = self.operand_xiom_hint(left);
+                    let r_hint = self.operand_xiom_hint(right);
+                    let cand = l_hint
+                        .as_deref()
+                        .filter(|s| Self::is_deep_eq_container(s))
+                        .or_else(|| r_hint.as_deref().filter(|s| Self::is_deep_eq_container(s)))
+                        .map(|s| s.to_string());
+                    if let Some(cty) = cand {
+                        if Self::deep_eq_llvm_compatible(&cty, &lt)
+                            && Self::deep_eq_llvm_compatible(&cty, &rt)
+                        {
+                            let eq_result = self.emit_deep_eq_operands(&cty, &l, &lt, &r, &rt);
+                            if matches!(op, BinOp::Neq) {
+                                let negated = self.fresh_tmp();
+                                self.emitln(&format!("  {negated} = xor i64 {eq_result}, 1"));
+                                return Ok((negated, LLVM_I64.to_string()));
+                            }
+                            return Ok((eq_result, LLVM_I64.to_string()));
+                        }
+                    }
+                }
                 // For struct-typed equality/inequality, call derived eq() instead of icmp.
                 // Exclude pointer-to-struct types (e.g. `%struct.ArcInner*`) which end
                 // with `*`; those compare pointer identity, not struct contents.

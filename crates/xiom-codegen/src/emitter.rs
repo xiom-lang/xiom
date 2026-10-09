@@ -366,6 +366,32 @@ impl IrEmitter {
         Some(rt)
     }
 
+    /// m239: render ONE generic type-argument EXPRESSION from a ctor's
+    /// index syntax, nested args included: `Index(Vec, Int)` -> "Vec[Int]",
+    /// `Index(Map, Tuple([Str, Int]))` -> "Map[Str, Int]". The historical
+    /// arms only understood flat idents/ints, so `Vec[Vec[Int]].new()`
+    /// recorded NO type and container `==` saw erased i64 fields.
+    fn type_arg_expr_name(e: &Expr) -> Option<String> {
+        match e {
+            Expr::Ident(id) => Some(id.name.clone()),
+            Expr::Int(n, _) => Some(n.to_string()),
+            Expr::Paren(inner, _) => Self::type_arg_expr_name(inner),
+            Expr::Index(base, sub, _) => {
+                let base_name = Self::type_arg_expr_name(base)?;
+                let sub_name = match sub.as_ref() {
+                    Expr::Tuple(elems, _) => elems
+                        .iter()
+                        .map(Self::type_arg_expr_name)
+                        .collect::<Option<Vec<_>>>()?
+                        .join(", "),
+                    other => Self::type_arg_expr_name(other)?,
+                };
+                Some(format!("{base_name}[{sub_name}]"))
+            }
+            _ => None,
+        }
+    }
+
     /// BUG 14 fix: infer a binding's XIOM type from its VALUE expression when
     /// no explicit type annotation is present -- `var big = x as UInt128` must
     /// register "UInt128" so signedness-aware lowering (zext/lshr) works.
@@ -448,14 +474,16 @@ impl IrEmitter {
                             Expr::Ident(id) => arg_names.push(id.name.clone()),
                             Expr::Tuple(elems, _) => {
                                 for e in elems {
-                                    match e {
-                                        Expr::Ident(id) => arg_names.push(id.name.clone()),
-                                        Expr::Int(n, _) => arg_names.push(n.to_string()),
-                                        _ => { all_idents = false; break; }
+                                    match Self::type_arg_expr_name(e) {
+                                        Some(n) => arg_names.push(n),
+                                        None => { all_idents = false; break; }
                                     }
                                 }
                             }
-                            _ => { all_idents = false; }
+                            other => match Self::type_arg_expr_name(other) {
+                                Some(n) => arg_names.push(n),
+                                None => { all_idents = false; }
+                            },
                         }
                         if all_idents && !arg_names.is_empty() {
                             return Some(format!("{base_name}[{}]", arg_names.join(", ")));

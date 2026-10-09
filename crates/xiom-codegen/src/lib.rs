@@ -23,6 +23,7 @@ pub mod coerce;
 pub mod context;
 pub mod contracts;
 pub mod decl;
+pub mod deep_eq;
 pub mod emitter;
 pub mod enum_ctors;
 pub mod expr;

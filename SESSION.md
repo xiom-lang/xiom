@@ -13,14 +13,14 @@
 > PUSH until ALL FOUR blockers below are fixed and the gates are green.
 >
 > RELEASE BLOCKERS (owner: fix ALL before any tag):
-> 1. Deep container equality (queue item 20): `==`/`!=` on containers is
->    pointer identity -- `Vec[Int] == Vec[Int]` is false for equal vecs and
->    `Ok(Vec) == Ok(Vec)` compares boxed handles. Implement content
->    equality for Vec/Str plus Option/Result payload recursion (Map/Set are
->    lookup-based -- design first). Acceptance: tmp\sweep2\pkg\res_eq.xi
->    (packages res_eq probe), a Vec[Int] and Vec[Str] equality fixture with
->    empty/non-empty and nested cases, both `==` and `!=`. ONE coherent
->    pass with IR+e2e locks; wrong `==` is a silent-wrong-answer class.
+> 1. [FIXED m239 2026-10-09] Deep container equality (queue item 20):
+>    `==`/`!=` compared erased field bits. New recursive comparator
+>    (deep_eq.rs): Vec length+elements (GEP stride), Str strcmp, erased
+>    Option/Result tag + ACTIVE payload recursion (boxed aggregates
+>    unboxed), user structs via `.eq`/field recursion. Nested ctor type
+>    args now record (`Vec[Vec[Int]].new()`). Map/Set remain OPEN by
+>    design (lookup-based; documented in COMPILER_BUGS). Acceptance:
+>    res_eq probe rc 1 -> 0; matrix fixture green; IR + e2e locks.
 > 2. Lane-side follow-ups (verify each before release; fix any
 >    compiler-side piece that surfaces): M7 stdlib `Iterator[T]`
 >    declaration (relayed, E:\xiom-lang\stdlib\docs\
@@ -57,7 +57,8 @@
 > arena C001 reducer 12/12); m232 home split; m233 verifier sort gaps;
 > m234 XVC-C-08 stride padding; m235 C-ORBIT-05 alloca hoist; m236
 > transitive stdlib prelude (closed m230); m237 wave-96 array_zip
-> const-generic M binding; m238 zero-length fixed array by value.
+> const-generic M binding; m238 zero-length fixed array by value; m239
+> deep container equality (Map/Set design documented, not implemented).
 > Docs: docs/COMPILER_BUGS.md dated entries + this file's queue
 > items 15-21.
 >

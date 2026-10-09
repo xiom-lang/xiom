@@ -670,6 +670,49 @@ LOCKS: IR `regress_m229_is_payload_literal` (`and i1` present), e2e
 
 ---
 
+## 2026-10-09 -- FIXED (m239): deep container equality (queue item 20)
+
+`==`/`!=` on containers compared ERASED FIELD BITS: `Vec[Int] == Vec[Int]`
+was false for equal vecs built separately (different data pointers), and
+`Ok(Vec) == Ok(Vec)` compared the boxed payload handles. Silent
+wrong-answer class (packages res_eq probe rc 1).
+
+FIX (m239): recursive content comparator (new module
+`crates/xiom-codegen/src/deep_eq.rs`) engaged by the `==`/`!=` lowering
+when an operand's XIOM type proves Vec/Option/Result (locals via tracked
+types; literals/ctors/calls via inference). It emits:
+
+- Vec[T]: length equality + elementwise recursion through an LLVM GEP on
+  the element type (padding-aware stride, parity with m234 storage).
+- Str: strcmp (same lowering as the scalar `==`).
+- Erased Option[T]/Result[T, E]: tag equality, then recursion into the
+  ACTIVE payload only -- boxed aggregates (nested Vec/Option/Result,
+  tuples, structs) are unboxed and recursed; Str via strcmp; Float64/
+  Float32 bitcast+fcmp; other scalars bitwise.
+- User structs reached as elements/payloads: derived `.eq` when
+  registered, else field-by-field recursion over `type_meta`.
+
+Supporting fix: `infer_value_xiom_type` now renders NESTED ctor type args
+(`Vec[Vec[Int]].new()` recorded no type, so the comparison saw erased i64
+fields and compared element data pointers).
+
+MAP/SET DESIGN (deferred, not implemented): equality must be
+lookup-based, not order-based -- `Map[K, V]`: len equality + for every
+entry (k, v) in L, R.get(k) exists and deep-equals v (values recurse
+through this same comparator; keys use scalar/Str equality). `Set[T]`:
+len equality + for every element x in L, R.contains(x). Requires the
+generic lookup methods and a stable iteration primitive; today Map/Set
+keep the historical pointer-bits comparison and MUST NOT ship as
+"container equality is done" without this design.
+
+EVIDENCE: packages `tmp/sweep2/pkg/res_eq.xi` rc 1 -> rc 0; matrix
+fixture green for Vec[Int]/Vec[Str]/Vec[Vec[Int]]/Vec[Option[Int]]/
+Vec[struct]/Option[Vec]/Result payloads, empty+non-empty, == and !=.
+
+LOCKS: IR `regress_m239_deep_container_eq` (`deq_res_merge` +
+`deq_res_okok` block family), e2e `e2e_m239_deep_container_eq` + fixture
+`tests/regression/m239_deep_container_eq/`, ci.yml line.
+
 ## 2026-10-09 -- FIXED (m237): array_zip did not truncate -- const-generic M bound to N
 
 Wave-96 finding `tools/known_failures/p_array_zip_no_truncate.xi` (stdlib

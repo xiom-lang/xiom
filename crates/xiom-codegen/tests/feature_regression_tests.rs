@@ -7719,6 +7719,28 @@ fn main() -> Int {
     );
 }
 
+// m239 (queue item 20): `==`/`!=` on erased Option/Result shells must
+// compare CONTENT (tag + active payload), not the erased i64 field bits.
+// The emitted comparison is tagged by the deq_* block family.
+#[test]
+fn regress_m239_deep_container_eq() {
+    let source = r#"
+fn main() -> Int {
+  var a: Result[Int, Int] = Ok(1);
+  var b: Result[Int, Int] = Ok(1);
+  if a != b { return 1; }
+  var c: Result[Int, Int] = Ok(2);
+  if a == c { return 2; }
+  return 0;
+}
+"#;
+    let ir = compile(source).expect("m239: Result equality must compile");
+    assert!(
+        ir.contains("deq_res_merge") && ir.contains("deq_res_okok"),
+        "m239: Result equality must take the tag+payload deep comparator; got:\n{ir}"
+    );
+}
+
 // m231 (BINDINGS B-01): the scrutinee-type lookup for `match s.value` matched
 // wrapper type keys by loose suffix -- `Option__Value` also ends with `Value`
 // -- so random HashMap order decided whether the field `value` resolved to the

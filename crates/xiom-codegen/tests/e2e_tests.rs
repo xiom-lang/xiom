@@ -6145,6 +6145,16 @@ fn e2e_safety_probe() {
     );
 }
 
+// m239 (queue item 20): container `==`/`!=` must compare content, not the
+// erased field bits (Vec data pointers / boxed Option-Result payloads).
+#[test] fn e2e_m239_deep_container_eq() {
+    assert_eq!(
+        compile_and_run("tests/regression/m239_deep_container_eq/main.xi"),
+        Some(0),
+        "Vec/Option/Result equality must compare content (m239)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {
