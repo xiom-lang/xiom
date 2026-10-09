@@ -95,11 +95,43 @@ impl IrEmitter {
                     return view;
                 }
             }
-            if let Expr::Ref(i, _) | Expr::MutRef(i, _) = arg_expr {
-                if let Ok((v, t)) = self.compile_expr(i) {
-                    return self.coerce_value(&v, &t, param_ty);
+        if let Expr::Ref(i, _) | Expr::MutRef(i, _) = arg_expr {
+            if let Ok((v, t)) = self.compile_expr(i) {
+                // m249 (slice-bound C001 follow-up): a `&s` reference whose
+                // loaded value is a `%struct.Slice` fed to a mono'd
+                // `&Slice[T]` param -- the def lowers Slice to %struct.Vec
+                // BY VALUE, so bridge {data,len} -> {data,len,len,elem_size}.
+                // This is the point where the inner value type is visible
+                // (`from` at the call site is the Slice* POINTER, which is
+                // why the type-aware path never saw the mismatch).
+                if t == "%struct.Slice" && param_ty == "%struct.Vec" {
+                    let elem_xiom = match i.as_ref() {
+                        Expr::Ident(id) => self
+                            .local
+                            .local_vec_elem
+                            .get(&id.name)
+                            .cloned()
+                            .or_else(|| {
+                                self.local
+                                    .local_xiom_types
+                                    .get(&id.name)
+                                    .and_then(|t| t.strip_prefix("Slice["))
+                                    .and_then(|s| s.strip_suffix(']'))
+                                    .map(|s| s.trim().to_string())
+                            })
+                            .or_else(|| self.local.local_array_elem_xiom.get(&id.name).cloned()),
+                        _ => None,
+                    };
+                    // Unknown element: default to the i64 width (Int
+                    // workloads); elem_size only feeds the indexing stride.
+                    let ell = elem_xiom
+                        .map(|ex| self.llvm_type_for(&ex).unwrap_or_else(|_| LLVM_I64.to_string()))
+                        .unwrap_or_else(|| LLVM_I64.to_string());
+                    return self.emit_slice_to_vec_bridge(&v, &ell);
                 }
+                return self.coerce_value(&v, &t, param_ty);
             }
+        }
         }
         // m168 residual: a `&mut T` PARAM passed to a BY-VALUE T param in a
         // direct call (`byval(s)`) must load the pointee; the helper below was
@@ -323,6 +355,35 @@ impl IrEmitter {
             }
         }
         self.coerce_value(pre_val, pre_ty, param_ty)
+    }
+
+    /// m249 (slice-bound C001 follow-up): bridge a `%struct.Slice` value
+    /// {data, len} to the erased `%struct.Vec` encoding
+    /// {data, len, cap, elem_size} used for mono'd `&Slice[T]` params (the
+    /// def lowers Slice -> %struct.Vec by value). cap = len (read-only
+    /// Slice consumers never grow); elem_size from the substituted T.
+    pub(crate) fn emit_slice_to_vec_bridge(&mut self, val: &str, elem_llvm: &str) -> String {
+        let esz = Self::llvm_type_byte_size(elem_llvm, &self.types.type_meta);
+        let sa = self.fresh_tmp();
+        self.emitln(&format!("  {sa} = alloca %struct.Slice"));
+        self.emitln(&format!("  store %struct.Slice {val}, %struct.Slice* {sa}"));
+        let dg = self.fresh_tmp();
+        self.emitln(&format!("  {dg} = getelementptr %struct.Slice, %struct.Slice* {sa}, i32 0, i32 0"));
+        let data = self.fresh_tmp();
+        self.emitln(&format!("  {data} = load i8*, i8** {dg}"));
+        let lg = self.fresh_tmp();
+        self.emitln(&format!("  {lg} = getelementptr %struct.Slice, %struct.Slice* {sa}, i32 0, i32 1"));
+        let len = self.fresh_tmp();
+        self.emitln(&format!("  {len} = load i64, i64* {lg}"));
+        let s0 = self.fresh_tmp();
+        self.emitln(&format!("  {s0} = insertvalue %struct.Vec undef, i8* {data}, 0"));
+        let s1 = self.fresh_tmp();
+        self.emitln(&format!("  {s1} = insertvalue %struct.Vec {s0}, i64 {len}, 1"));
+        let s2 = self.fresh_tmp();
+        self.emitln(&format!("  {s2} = insertvalue %struct.Vec {s1}, i64 {len}, 2"));
+        let s3 = self.fresh_tmp();
+        self.emitln(&format!("  {s3} = insertvalue %struct.Vec {s2}, i64 {esz}, 3"));
+        s3
     }
 
     /// LET-array P3 (docs/LET_ARRAY_DECISION.md): materialize a heap-backed

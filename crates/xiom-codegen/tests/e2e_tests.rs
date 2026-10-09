@@ -6353,9 +6353,18 @@ fn e2e_safety_probe() {
     );
 }
 
-// m249 (stdlib slice-bound C001): a `&Slice[T]` param must infer T from
-// the ELEMENT, not the container wrapper. IR lock (--emit-ir stops before
-// clang, so the open Slice->Vec ABI bridge does not gate this).
+// m249 (stdlib slice-bound C001): the Slice->Vec bridge at the Ref unwrap
+// makes the module-qualified `is_sorted(&s)` shape run end to end.
+#[test] fn e2e_m249_slice_bound_run() {
+    assert_eq!(
+        compile_and_run("tests/regression/m249_slice_bound_infer/main.xi"),
+        Some(0),
+        "Slice values must bridge to the mono'd &Slice[T] Vec ABI (m249)"
+    );
+}
+
+// m249 IR lock: a `&Slice[T]` param must infer T from the ELEMENT, not
+// the container wrapper.
 #[test] fn e2e_m249_slice_bound_infer_ir() {
     let output = Command::new(xiom_path())
         .args(["--emit-ir", "tests/regression/m249_slice_bound_infer/main.xi"])
