@@ -115,11 +115,12 @@
 >    + 2 IR variants; post-fix 12/12 green + 1 hash. Locks: IR determinism
 >    (8 in-process compiles, one hash) + e2e + fixture + CI. Module
 >    `SqliteValueKind` shapes now stable; lanes re-run on v0.64.2.
-> 13. B-05 alloc/free guard spin (bindings): `xiom.ffi.alloc` in a confined
->    block + `xiom.ffi.free` spins the guard heap (watchdog 8 s / 7.53
->    CPU-s, flat 4.5 MB). Repro docs\repro\bindings-pilot\alloc-guard-spin
->    (watchdog required). Fix direction: guard-aware free or refuse libc
->    free of guard pointers.
+> 13. B-05 alloc/free guard spin (bindings): RELAYED to the stdlib/runtime
+>    lane (guard arena lives in runtime/xiom_runtime.c) -- see
+>    E:\xiom-lang\stdlib\docs\COMPILER-RELAY-2026-10-09.md. Repro
+>    docs\repro\bindings-pilot\alloc-guard-spin (watchdog required): 8 s /
+>    7.53 CPU-s spin, flat ~4.5 MB; start at the xiom_guard_vfree slab
+>    walk. Compiler batch m222..m236 unrelated to this hang.
 > 14. [DONE m236] m230 fixed: the stdlib catalog prelude was gated on the
 >    ENTRY program's own `use` list, so `MAIN -> user module -> use
 >    xiom.encoding;` never loaded core/collections and the imported
@@ -143,12 +144,14 @@
 >    `D ok out=417`; bundle A/B/C/D all `ok out=418`. Locks: regress_m235
 >    (IR) + e2e_m235 + fixture + CI. Gates: feature 546/546; full e2e
 >    2452/0/4; driver suites green.
-> 17. [EVENING SWEEP] stdlib M7 OPEN: `Iterator[T]` receiver type is
->    declared nowhere; `use xiom.iter;` consumers print 5x unknown type
->    warnings and fail codegen `C001 'Iterator.step_by'`. Repro
->    stdlib/tools/known_failures/p_iter_iterator_type_unresolved.xi
->    (--check passes; compile+run fails). Needs the Iterator[T] type
->    declared (stdlib) or the receiver resolution fixed (compiler).
+> 17. [RELAYED] stdlib M7: `Iterator[T]` is declared NOWHERE in the stdlib
+>    (leftover of the removed interface design); the M7 adapters declare
+>    fields and receiver methods on it, so codegen warns 5x unknown type
+>    and fails `C001 Iterator.step_by`. --check passes; --run fails.
+>    RELAY written: E:\xiom-lang\stdlib\docs\COMPILER-RELAY-2026-10-09.md
+>    (declare `pub type Iterator[T] = Int;` or rework the adapters to the
+>    closure-based shape; no compiler change needed once the receiver type
+>    is real).
 > 18. [EVENING SWEEP] packages follow-ups: grpc catalog-dep rehearsal RED
 >    (6 T001 ambiguous exported fn) needs the grpc depot to bisect;
 >    `let _ = unsafe { call() };` invalid-IR shape needs the exact repro
@@ -197,6 +200,15 @@
 >    COMPILER-RELAY-2026-10-08.md (t2-t5 zero-clause reference gap; t3
 >    Linux re-measure; honest safety read: no sanitizer -> 30/100, real
 >    hardened variant is the path, no scoring tricks).
+> 20. Deep container equality (designed feature): `==`/`!=` on containers
+>    is pointer/handle identity today -- `Vec[Int] == Vec[Int]` returns
+>    FALSE for two empty vecs, and `Ok(Vec...) == Ok(Vec...)` compares the
+>    boxed payload handles (packages-lane finding still open). Needs real
+>    content equality for Vec/Str (bytes/strcmp paths) and recursion
+>    through Option/Result payloads; Map/Set content equality is harder
+>    (lookup-based). Do as one coherent pass with tests, not a partial
+>    hack -- wrong `==` is a silent-wrong-answer class. Packages lane's
+>    res_eq probe (tmp\sweep2\pkg\res_eq.xi) is the acceptance shape.
 >
 > RELAY QUEUE (post-v0.64.1 re-tests, 2026-10-08):
 > A. XVECTOR (E:\xiom-projects\xiom-xvector): v0.64.1 re-test -- C-01,
