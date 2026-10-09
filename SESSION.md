@@ -60,7 +60,11 @@
 > m234 XVC-C-08 stride padding; m235 C-ORBIT-05 alloca hoist; m236
 > transitive stdlib prelude (closed m230); m237 wave-96 array_zip
 > const-generic M binding; m238 zero-length fixed array by value; m239
-> deep container equality (Map/Set design documented, not implemented).
+> deep container equality (Map/Set design documented, not implemented);
+> m240 verifier v2 SMT Array memory model; m241 OOB Vec index WRITE now
+> traps under --overflow-checks (honest containment; t8 arena
+> SILENT_UB -> runtime trap; fixed-array follow-up OPEN, see
+> COMPILER_BUGS "HONEST CONTAINMENT BACKLOG").
 > Docs: docs/COMPILER_BUGS.md dated entries + this file's queue
 > items 15-21.
 >

@@ -1189,6 +1189,31 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         self.emitln(&format!("  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {vslot}, i32 0, i32 0"));
                         let data_ptr = self.fresh_tmp();
                         self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_gep}"));
+                        // m241 (honest containment): the READ path traps on
+                        // out-of-bounds Vec indexing under --overflow-checks
+                        // (expr.rs S1), but the WRITE path had no check --
+                        // `buf[100] = 42` was silent UB in the t8 arena
+                        // (SILENT_UB while the read probe was RUNTIME_PANIC).
+                        // Mirror the read check exactly.
+                        if self.config.overflow_checks {
+                            let len_gep = self.fresh_tmp();
+                            let len_val = self.fresh_tmp();
+                            self.emitln(&format!("  {len_gep} = getelementptr %struct.Vec, %struct.Vec* {vslot}, i32 0, i32 1"));
+                            self.emitln(&format!("  {len_val} = load i64, i64* {len_gep}"));
+                            let idx_ge0 = self.fresh_tmp();
+                            self.emitln(&format!("  {idx_ge0} = icmp sge i64 {idx}, 0"));
+                            let idx_lt_len = self.fresh_tmp();
+                            self.emitln(&format!("  {idx_lt_len} = icmp slt i64 {idx}, {len_val}"));
+                            let in_bounds = self.fresh_tmp();
+                            self.emitln(&format!("  {in_bounds} = and i1 {idx_ge0}, {idx_lt_len}"));
+                            let ok_block = self.fresh_block("wbounds_ok");
+                            let trap_block = self.fresh_block("wbounds_trap");
+                            self.emitln(&format!("  br i1 {in_bounds}, label %{ok_block}, label %{trap_block}"));
+                            self.emitln(&format!("\n{trap_block}:"));
+                            self.emitln("  call void @llvm.trap()");
+                            self.emitln("  unreachable");
+                            self.emitln(&format!("\n{ok_block}:"));
+                        }
                         let byte_off = self.fresh_tmp();
                         self.emitln(&format!("  {byte_off} = mul i64 {idx}, {esz_val}"));
                         let elem_ptr = self.fresh_tmp();

@@ -6155,6 +6155,45 @@ fn e2e_safety_probe() {
     );
 }
 
+// m241 (honest containment, t8 arena): an out-of-bounds Vec index WRITE
+// must trap under --overflow-checks like the read path already does. The
+// fixture writes buf[100] on a 4-element Vec: pre-fix it exited 0 silently
+// (SILENT_UB in the arena); post-fix llvm.trap fires.
+#[test] fn e2e_m241_vec_write_bounds_traps() {
+    let code = compile_and_run_with_flags(
+        "tests/regression/m241_vec_write_bounds/main.xi",
+        &["--overflow-checks"],
+    );
+    assert!(
+        code.is_some() && code != Some(0),
+        "OOB Vec write must trap under --overflow-checks (m241), got {code:?}"
+    );
+}
+
+// m241 IR lock: the write-path bounds guard is emitted under
+// --overflow-checks and stays out of default builds.
+#[test] fn e2e_m241_vec_write_bounds_ir() {
+    let emit = |extra: &[&str]| -> String {
+        let output = Command::new(xiom_path())
+            .args(extra)
+            .args(["--emit-ir", "tests/regression/m241_vec_write_bounds/main.xi"])
+            .current_dir(project_root())
+            .output()
+            .expect("emit-ir");
+        String::from_utf8_lossy(&output.stdout).to_string()
+    };
+    let checked = emit(&["--overflow-checks"]);
+    assert!(
+        checked.contains("wbounds_trap"),
+        "the indexed-write bounds trap must be emitted under --overflow-checks"
+    );
+    let default = emit(&[]);
+    assert!(
+        !default.contains("wbounds_trap"),
+        "default builds must keep the historical unchecked write path"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

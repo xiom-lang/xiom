@@ -670,6 +670,77 @@ LOCKS: IR `regress_m229_is_payload_literal` (`and i1` present), e2e
 
 ---
 
+## 2026-10-09 -- FIXED (m241): OOB Vec index WRITE now traps (honest containment)
+
+Owner safety-probe review: the t8 arena reported buffer-overflow-write as
+SILENT_UB while buffer-overflow (read) was RUNTIME_PANIC. Reproduced
+locally with the arena flag: `buf[100] = 42` on a capacity-4 Vec exited 0
+silently; `buf[100]` read trapped. The READ path had the S1 bounds guard
+(expr.rs, `--overflow-checks`) but the WRITE path (`Stmt::Assign` on
+`Expr::Index` into Vec, stmt.rs) had NO check -- the OOB write corrupted
+adjacent heap bytes with no signal.
+
+FIX (m241): mirrored the read-path guard on the write path: load len,
+`idx >= 0 && idx < len`, `llvm.trap` otherwise, gated on
+`--overflow-checks` exactly like reads.
+
+EVIDENCE: same probe compiled with `--overflow-checks` now exits
+0xC000001D (illegal instruction from llvm.trap) on Windows for BOTH read
+and write; arena re-measure on the benchmark platform is the confirming
+step once it rebuilds with this compiler. Default (no-flag) builds keep
+the historical unchecked write path -- documented, not hidden.
+
+LOCKS: IR `e2e_m241_vec_write_bounds_ir` (wbounds_trap emitted under the
+flag, absent by default) + `e2e_m241_vec_write_bounds_traps` (nonzero
+exit) + fixture `tests/regression/m241_vec_write_bounds/`, ci.yml lines.
+
+OPEN FOLLOW-UP (not fixed here): FIXED-ARRAY `[N]T` index read/write has
+no bounds check under `--overflow-checks` either -- probe `tmp/arr_oob.xi`
+(`let a = [1,2,3]; a[100] = 42; var s = a[100];`) exits 42 with the flag.
+The length is compile-time known, so constant-index checks fold away; a
+follow-up (m242 candidate) can add the same guard to the fixed-array
+branches.
+
+## 2026-10-09 -- HONEST CONTAINMENT BACKLOG (t8 arena results, owner ask)
+
+Benchmark read (12 probes, 3 runs, LSI 30): which classes are silent or
+inconclusive, and the honest route for each. Principles: no scoring
+tricks; a probe may only move when the RUNTIME genuinely detects or
+contains the fault under the arena flags (--no-contracts
+--overflow-checks). "Detection" = reported runtime trap/panic;
+"containment" = the program stays alive with integrity, which needs
+isolation, not just detection. The ladder distinguishes both.
+
+- buffer-overflow-write (SILENT_UB): FIXED m241 (write-path bounds trap).
+- use-after-free / double-free (SILENT_FAILURE): needs allocator-level
+  detection -- free-time poisoning (canary pattern), a quarantine list so
+  freed blocks are not immediately reused, magic headers so a double free
+  is detectable, and (optionally) guard pages / mprotect(PROT_NONE) for
+  large blocks. Honest route: default-on hardened allocator with a
+  documented `--fast-alloc` opt-out, plus a measured performance budget.
+- use-of-uninit (SILENT_UB): alloc poisoning (0xAA fill) makes reads
+  deterministic; true DETECTION needs init-tracking (shadow bits) or
+  poison checks in `ptr.read` under a hardened mode. Poisoning alone is
+  mitigation, not detection -- do not claim otherwise.
+- null-deref / invalid-pointer (INCONCLUSIVE): the child read through
+  0/1 and survived without writing an observation -- the runtime neither
+  reports nor contains the fault. Honest route: make the OS fault a
+  FIRST-CLASS runtime panic (the platform fault handler reports and the
+  process exits non-zero). This is detection of a real fault, not a score
+  trick; validate on the benchmark platform (Linux/Docker).
+- type-confusion (SILENT_FAILURE): raw pointer reinterpretation inside
+  `unsafe`. Runtime detection requires tagged memory / pointer provenance
+  (MTE-style or fat pointers) -- a feature program, not a patch. Honest
+  interim: `--sandbox=strict` compile-time gating already forces the
+  construct into `unsafe`; the arena measures the unsanitized tier.
+- integer-overflow / division-by-zero / stack-overflow (RUNTIME_PANIC):
+  already deterministic.
+
+Order of work: 1) m241 done; 2) fixed-array bounds (follow-up above);
+3) fault->panic reporting for null/invalid pointers (largest INCONCLUSIVE
+lever); 4) hardened allocator (poison + quarantine + guard pages) as a
+documented mode with measured cost; 5) tagged memory (research-grade).
+
 ## 2026-10-09 -- FIXED (m240): verifier v2 -- SMT Array memory model (t8 body VCs)
 
 Blocker 3: after m233 made the SMT sort-clean, `xiom-verify --check` on the
