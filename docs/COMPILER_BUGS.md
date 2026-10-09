@@ -14201,6 +14201,27 @@ perf 3/3, diff 24 (+1 ignored), cli 1, doctor 4, borrow 2; checker_locks
 
 ---
 
+## 2026-10-09 -- FIXED (m245): verifier v2 follow-up -- load-after-store congruence proven
+
+Extends the m240 SMT Array memory model with its first real
+value-carrying proof: a word written through a raw pointer is PROVEN equal
+to a subsequent read of the same address.
+
+Fixture `tests/verify/test_mem_store_load.xi`:
+
+    pub fn roundtrip(base: *mut Int, word: Int, value: Int) -> Int
+      requires: base != null
+      ensures: result == value
+    { unsafe { *(base + word) = value; return *(base + word); } }
+
+EVIDENCE: `xiom-verify --check` -> 3 proven / 0 violated / 0 unknown /
+0 errors (two X7009 null-safety VCs + the ensures via same-term
+congruence; the documented v1 store-sequencing approximation is adequate
+for straight-line load-after-store).
+
+LOCK: z3-gated `z3_mem_store_load_proven` (integration, asserts 3 proven
++ 0 errors).
+
 ## 2026-10-09 -- LANE FINDINGS SWEEP (all lanes)
 
 Full sweep of every lane's latest findings/relay/session docs, deduped

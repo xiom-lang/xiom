@@ -381,6 +381,19 @@ fn smt_ptr_memory_model_emitted() {
     );
 }
 
+// m245 (verifier v2 follow-up): load-after-store congruence -- a word
+// written through a raw pointer must be PROVEN equal to a subsequent read
+// of the same address (plus the two X7009 null-safety VCs).
+#[test]
+fn z3_mem_store_load_proven() {
+    if z3_path().is_none() { eprintln!("SKIP: z3 not found"); return; }
+    let output = verify_with_z3("tests/verify/test_mem_store_load.xi");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("0 errors"), "memory VCs must be z3-clean:\n{stderr}");
+    assert!(stderr.contains("VERIFIED"), "load-after-store must be proven:\n{stderr}");
+    assert!(stderr.contains("3 proven"), "expected 3 proven obligations:\n{stderr}");
+}
+
 // m240: end-to-end -- the X7009 obligations are PROVEN from
 // `requires: base != null` + cast null preservation, with no z3 errors.
 #[test]
