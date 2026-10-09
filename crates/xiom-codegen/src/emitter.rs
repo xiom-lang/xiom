@@ -623,6 +623,40 @@ impl IrEmitter {
     /// Idents resolve through the registered type; casts check the target type
     /// name; shifts inherit the left operand's unsignedness.
     /// packages `byte_at >= 128` fix: a CALL result resolves through the
+    /// m251 (sortbykey tail): is this comparison operand a Str at the XIOM
+    /// level? Covers locals, fn-typed param returns recorded in
+    /// `fn_local_returns` (`key(x)` with `key: fn(&T) -> K`, K substituted
+    /// to Str via the active mono type map), and value/call-return
+    /// inference. Used by the relational Str ordering branch (strcmp).
+    pub(crate) fn compare_operand_is_str(&self, e: &Expr) -> bool {
+        let raw = match e {
+            Expr::Ident(id) => self
+                .local
+                .fn_local_returns
+                .get(&id.name)
+                .cloned()
+                .or_else(|| self.local.local_xiom_types.get(&id.name).cloned()),
+            Expr::Paren(inner, _) => return self.compare_operand_is_str(inner),
+            Expr::Call(f, ..) | Expr::GenericCall(f, ..) => {
+                let callee_name = match f.as_ref() {
+                    Expr::Ident(id) => Some(id.name.clone()),
+                    Expr::Paren(inner, _) => match inner.as_ref() {
+                        Expr::Ident(id) => Some(id.name.clone()),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                callee_name
+                    .and_then(|n| self.local.fn_local_returns.get(&n).cloned())
+                    .or_else(|| self.infer_call_return_xiom(e))
+                    .or_else(|| Self::infer_value_xiom_type(e))
+            }
+            _ => Self::infer_value_xiom_type(e).or_else(|| self.infer_call_return_xiom(e)),
+        };
+        raw.map(|t| Self::subst_type_tokens(&t, &self.mono.current_type_map))
+            .map_or(false, |t| t == "Str")
+    }
+
     /// callee's declared return type, so a direct `string.byte_at(s, i)`
     /// operand widens with `zext` instead of the default `sext` (195 became
     /// -61 and every direct compare failed while typed locals worked).

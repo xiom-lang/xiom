@@ -1778,6 +1778,39 @@ impl IrEmitter {
                         return Ok((ext, LLVM_I64.to_string()));
                     }
                 }
+                // m251 (sortbykey tail): RELATIONAL ORDERING on Str operands
+                // must use strcmp content order, not pointer/byte order. Must
+                // run BEFORE the pointer auto-deref below: an i8* Str handle
+                // would otherwise be deref'd to its FIRST BYTE and the compare
+                // became a 1-byte compare (core.Str.compare did exactly that,
+                // so "1" vs "10" reported equal and sort_by_key_Int_Str
+                // mis-sorted silently). Inside generic bodies a
+                // Str-substituted key (`fn(T) -> K`, K = Str) may also flow
+                // as an i64 handle, detected via the operand XIOM type.
+                if matches!(op, BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge)
+                    && (self.compare_operand_is_str(left)
+                        || self.compare_operand_is_str(right)
+                        || lt == "i8*"
+                        || rt == "i8*")
+                    && (lt == "i64" || lt == "i8*")
+                    && (rt == "i64" || rt == "i8*")
+                {
+                    let lp = self.val_to_i8ptr(&l, &lt);
+                    let rp = self.val_to_i8ptr(&r, &rt);
+                    let cmp = self.fresh_tmp();
+                    self.emitln(&format!("  {cmp} = call i32 @strcmp(i8* {lp}, i8* {rp})"));
+                    let cond = match op {
+                        BinOp::Lt => "slt",
+                        BinOp::Gt => "sgt",
+                        BinOp::Le => "sle",
+                        _ => "sge",
+                    };
+                    let is = self.fresh_tmp();
+                    self.emitln(&format!("  {is} = icmp {cond} i32 {cmp}, 0"));
+                    let ext = self.fresh_tmp();
+                    self.emitln(&format!("  {ext} = zext i1 {is} to i64"));
+                    return Ok((ext, LLVM_I64.to_string()));
+                }
                 // Auto-deref pointer operands for relational comparisons (Lt/Gt/Le/Ge).
                 // A field like `count: *Int` loaded from the struct is a pointer (e.g.
                 // `i64*`); when compared to an integer, load through the pointer so the

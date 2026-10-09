@@ -6384,6 +6384,16 @@ fn e2e_safety_probe() {
     );
 }
 
+// m251 (sortbykey tail): Str relational ordering is strcmp-lexicographic;
+// sort_by_key with a Str key sorts correctly.
+#[test] fn e2e_m251_str_ordering() {
+    assert_eq!(
+        compile_and_run("tests/regression/m251_str_ordering/main.xi"),
+        Some(0),
+        "Str < / > / <= / >= must be lexicographic and sort_by_key correct (m251)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

@@ -14386,6 +14386,30 @@ Their original probe is needed to confirm; the lane can retire the
 workaround at the next pin unless their repro still fails. No compiler
 change made.
 
+## 2026-10-09 -- FIXED (m251): Str relational ordering used pointer/byte order (closes the m250 tail)
+
+The last open probe of the typechanging family
+(`p_generic_typechanging_sortbykey`, rc 1, "silently mis-sorts") had TWO
+stacked causes, both fixed:
+
+1. `core.Str.compare` compared only the FIRST BYTE of each operand:
+   its `a < b` on i8* Str params hit the pointer auto-deref path, which
+   loaded a single i8 from each handle (`1` vs `10` -> equal). The
+   relational lowering now strcmp's Str operands BEFORE the auto-deref
+   block (i8* operand, or an operand whose XIOM type resolves to Str --
+   including an i64-held Str-substituted generic key via
+   `compare_operand_is_str`, which consults `fn_local_returns` + the
+   active mono type map).
+2. `sort_by_key_Int_Str` had already been mono-corrected by m250; with
+   Str.compare fixed it sorts lexicographically: [2,10,1] -> [1,10,2].
+
+EVIDENCE: all four typechanging probes green; fixture
+`tests/regression/m251_str_ordering/` covers direct literal ordering
+(<, <=, >, >=, prefix "1" < "10") and the stdlib `sort.sort_by_key`
+exposure T=Int/K=Str. Feature regression 549/549 green.
+
+LOCK: e2e `e2e_m251_str_ordering`, ci.yml line.
+
 ## 2026-10-09 -- LANE FINDINGS SWEEP (all lanes)
 
 Full sweep of every lane's latest findings/relay/session docs, deduped
@@ -14561,7 +14585,7 @@ above.
 | stdlib clause-floatvec | stdlib | clause-position Float64 Vec element index reads garbage | OPEN (no ledger entry) | p_clause_float_vec_index.xi |
 | stdlib vec-shape-av | stdlib | shape-mismatched `&Vec` argument compiles silently and AVs | OPEN (no ledger entry) | p_vec_shape_arg_mismatch_av.xi |
 | stdlib catalog-payload | stdlib | catalog clause reading a payload field poisons user codegen; Ok/Err Str payload clauses false-violate/AV | OPEN (no ledger entry) | tools/probes/evidence/p_result_payload_ir_repro.xi |
-| stdlib typechanging | stdlib | cross-type generic callback returns miscompiled (4 probes) | FIXED m250 3/4 (fnptr/map/core_map green); sortbykey ordering OPEN (icmp vs strcmp) | p_generic_typechanging_{fnptr,map,core_map,sortbykey}.xi |
+| stdlib typechanging | stdlib | cross-type generic callback returns miscompiled (4 probes) | FIXED m250 + m251 (all four probes green; sortbykey via strcmp ordering) | p_generic_typechanging_{fnptr,map,core_map,sortbykey}.xi |
 | M7 Iterator | stdlib | undeclared `Iterator[T]` receiver: 5x warning + C001 `Iterator.step_by` | OPEN (stdlib-side fix per compiler relay 2026-10-09) | p_iter_iterator_type_unresolved.xi |
 | stdlib polygon-diff | stdlib | `polygon_difference` intersects b's outside half-planes | OPEN (stdlib algorithm, not compiler) | p_polygon_difference_halfplanes.xi |
 | wave-96 array_zip | stdlib | const-generic M bound to N; M<N read OOB / no truncate | FIXED m237 (16df642c, v0.64.2); lane RESOLVED | p_array_zip_no_truncate.xi; p_wave96_shapes.xi |
