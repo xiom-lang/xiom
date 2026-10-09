@@ -84,12 +84,14 @@
 >   ascii_guard clean. perf_budget_fmt_peek_shape did not run in these
 >   suites (no occurrence); the queued recalibration stays a note.
 >
-> RELEASE MECHANICS once all blockers are green (tag must equal the
-> workspace version 0.64.2; notes JSON is already committed):
->   cargo build --release -p xiom -p xiom-pkg -p xiom-fmt -p xiom-doc
->     -p xiom-lsp -p xiom-dbg -p xiom-mcp -p xiom-verify -p xiom-ffigen
->   git push origin main ; git tag v0.64.2 ; git push origin v0.64.2
->   (push only on owner ask; verify tag == version; watch the release run.)
+> RELEASE MECHANICS -- nine-tool release build DONE 2026-10-09
+> (RC=0; all 9 binaries fresh; log tmp/release_build_v0642.log).
+> Version checks: workspace Cargo.toml = 0.64.2 and STDLIB_VERSION =
+> 4dd884423ab7ea39a3962630d1ea2552bfd16a2d (= stdlib-v0.64.2 tag) --
+> tag would equal the workspace version.
+> STILL HELD (owner ask required): git push origin main ; git tag
+> v0.64.2 ; git push origin v0.64.2 ; watch the release run.
+> Nothing pushed, no tag created.
 >
 > Rules (non-negotiable): repro-first; one lock per fix (IR test + e2e or
 > driver test + ci.yml line when adding tests); cargo sequential; run
