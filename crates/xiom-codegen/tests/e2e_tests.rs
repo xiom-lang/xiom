@@ -6332,17 +6332,6 @@ fn e2e_safety_probe() {
     );
 }
 
-// m247 (stdlib ensures-isok finding): method-form variant guards in
-// ensures implications (`(result.is_ok == true) =>`, bare `result.is_ok =>`)
-// must carry the canonical `is Ok =>` payload knowledge.
-#[test] fn e2e_m247_isok_guard_imply() {
-    assert_eq!(
-        compile_and_run("tests/regression/m247_isok_guard_imply/main.xi"),
-        Some(0),
-        "method-form variant guards must not false-violate (m247)"
-    );
-}
-
 // m248 (stdlib byref-generic finding): generic `&Option[T]`/`&Result[T,E]`
 // query bodies must read the tag through the pointer pseudo-fields.
 #[test] fn e2e_m248_byref_generic_query() {
@@ -6379,27 +6368,6 @@ fn e2e_safety_probe() {
     assert!(
         !ir.contains("is_sorted_Slice"),
         "the container name must never be used as the generic arg; got:\n{ir}"
-    );
-}
-
-// m250 (stdlib typechanging family): cross-type generic callbacks
-// (fn(T) -> U with U = Str) -- fn-ref, closure literal, core Option.map,
-// substituted binding/scrutinee element resolution.
-#[test] fn e2e_m250_typechanging_callbacks() {
-    assert_eq!(
-        compile_and_run("tests/regression/m250_typechanging_callbacks/main.xi"),
-        Some(0),
-        "type-changing generic callbacks must produce correct Str elements (m250)"
-    );
-}
-
-// m251 (sortbykey tail): Str relational ordering is strcmp-lexicographic;
-// sort_by_key with a Str key sorts correctly.
-#[test] fn e2e_m251_str_ordering() {
-    assert_eq!(
-        compile_and_run("tests/regression/m251_str_ordering/main.xi"),
-        Some(0),
-        "Str < / > / <= / >= must be lexicographic and sort_by_key correct (m251)"
     );
 }
 

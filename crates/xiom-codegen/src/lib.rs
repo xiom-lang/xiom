@@ -3618,25 +3618,7 @@ impl IrEmitter {
                 }
             }
             Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
-                // m250 follow-up (core-map): prefer the SUBSTITUTED return
-                // recorded by the call emission (`o.map(to_s)` ->
-                // "Option[Str]"). The DECLARED type still carries the
-                // generic param ("Option[U]"), so the Some arm bound `s`
-                // as Int and str_compare saw a truncated handle.
-                let substituted = {
-                    let csp = func.span();
-                    if csp.byte_start != 0 || csp.byte_end != 0 {
-                        self.mono
-                            .call_return_xioms
-                            .get(&(csp.byte_start, csp.byte_end))
-                            .cloned()
-                    } else {
-                        None
-                    }
-                };
-                let payload = substituted
-                    .or_else(|| self.callee_return_xiom(func))
-                    .and_then(|full| {
+                let payload = self.callee_return_xiom(func).and_then(|full| {
                     if field_idx == 2 {
                         self.option_result_err_payload_alias(&full)
                     } else {

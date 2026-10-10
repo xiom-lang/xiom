@@ -81,46 +81,6 @@ impl IrEmitter {
         gp: &str,
         arg_expr: &Expr,
     ) -> Option<String> {
-        // m250 follow-up: a closure LITERAL arg carries its declared
-        // signature in the AST (`mapv(&v, fn(x: Int) -> Str { ... })`).
-        // Read it directly; without this U mono'd as Int and the Str
-        // return was coerced to an integer.
-        let closure_arg = match arg_expr {
-            Expr::Closure(..) => Some(arg_expr),
-            Expr::Paren(inner, _) if matches!(inner.as_ref(), Expr::Closure(..)) => {
-                Some(inner.as_ref())
-            }
-            _ => None,
-        };
-        if let Some(Expr::Closure(cparams, cret, _, _)) = closure_arg {
-            if let Some(pos) = fn_params
-                .iter()
-                .position(|p| Self::type_contains_generic(p, gp))
-            {
-                if let Some(cp) = cparams.get(pos) {
-                    let pty = Self::type_from_ast(&cp.ty)
-                        .trim_start_matches(['&', '*'])
-                        .trim()
-                        .to_string();
-                    if !pty.is_empty() && pty != gp {
-                        return Some(pty);
-                    }
-                }
-            }
-            let bare_ret = match fn_ret {
-                xiom_ast::Type::Named(id, args) => args.is_empty() && id.name == gp,
-                _ => false,
-            };
-            if bare_ret {
-                if let Some(rt) = cret {
-                    let rty = Self::type_from_ast(rt);
-                    if !rty.is_empty() && rty != gp {
-                        return Some(rty);
-                    }
-                }
-            }
-            return None;
-        }
         let (arg_params, arg_ret) = match arg_expr {
             Expr::Ident(id) => self.resolve_fn_ref_signature(id)?,
             Expr::Paren(inner, _) => match inner.as_ref() {
@@ -4316,30 +4276,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // Keep scanning; the historical "Int" default is
                             // applied below when nothing else resolves.
                             let mut container_fallback = false;
-                            // m250 follow-up (core-map): a METHOD call's args
-                            // exclude the receiver while fd.params carries it
-                            // at [0]; without the offset the zip paired `self`
-                            // with the first real arg, so a fn-typed param
-                            // (`f: fn(T) -> U`) never saw its argument and U
-                            // stayed "U" (Option.map(to_s) mono'd as
-                            // map_Int_U; same-type Int smokes hid it because
-                            // the Int fallback was accidentally right).
-                            // Module-qualified calls (`sort.sort_by_key(...)`)
-                            // ALSO carry receiver_expr (the module name) but
-                            // their fd.params has NO self entry -- offset only
-                            // when param[0] is a real receiver.
-                            let recv_offset = if receiver_expr.is_some()
-                                && fd.params.first().map_or(false, |p| {
-                                    p.is_ref_self || p.is_mut_self || p.name.name == "self"
-                                })
-                            {
-                                1
-                            } else {
-                                0
-                            };
-                            for (param, arg_expr) in
-                                fd.params.iter().skip(recv_offset).zip(args.iter())
-                            {
+                            for (param, arg_expr) in fd.params.iter().zip(args.iter()) {
                                 let param_type = Self::type_from_ast(&param.ty);
                                 // m249 (stdlib slice-bound C001): `&Slice[T]` /
                                 // `&Vec[T]` / `Slice[T]` params -- type_from_ast
@@ -5015,17 +4952,6 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         // mismatch; smoke_array_slice read the
                                         // wrong value).
                                         Type::Slice(_) => "Slice".to_string(),
-                                        // m250: a `Vec[U]` RETURN parsed as
-                                        // Type::Vec had no arm -- the name
-                                        // degraded to the bare container
-                                        // ("Vec"), so the substituted element
-                                        // never reached the binding/locals
-                                        // (typechanging mapv recorded "U" and
-                                        // `a[0]` scalar-loaded a Str handle).
-                                        Type::Vec(inner) => format!(
-                                            "Vec[{}]",
-                                            Self::type_from_ast(inner)
-                                        ),
                                         Type::Named(id, args) if !args.is_empty() => {
                                             let parts: Vec<String> = args.iter()
                                                 .map(|a| Self::type_from_ast(a))
@@ -5047,20 +4973,6 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         ),
                                         _ => Self::type_from_ast(&subst),
                                     };
-                                    // m250: record the SUBSTITUTED return name
-                                    // by callee span; the let/var binding
-                                    // re-reads it after the initializer (its
-                                    // pre-compile tracking only saw the
-                                    // declared "Vec[U]").
-                                    {
-                                        let csp = func.span();
-                                        if csp.byte_start != 0 || csp.byte_end != 0 {
-                                            self.mono.call_return_xioms.insert(
-                                                (csp.byte_start, csp.byte_end),
-                                                name.clone(),
-                                            );
-                                        }
-                                    }
                                     // BUG 41 (2026-08-17): concrete Result/
                                     // Option payloads must resolve to the
                                     // monomorphised struct (Result__Env__Str),

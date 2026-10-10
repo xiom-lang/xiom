@@ -14245,35 +14245,6 @@ EVIDENCE: minimal probe rc 755105792 -> 42; local `free` gets the same
 guard (fixture covers both). LOCK: e2e `e2e_m246_local_alloc_shadow` +
 fixture `tests/regression/m246_local_alloc_shadow/`, ci.yml line.
 
-## 2026-10-09 -- FIXED (m247): method-form variant guards in ensures implications false-violated
-
-Sweep finding `stdlib ensures-isok` (`p_ensures_isok_guard.xi`):
-`ensures: (result.is_ok == true) => (result.len() == s.len())` aborted at
-runtime with "contract violated" while the canonical
-`result is Ok => result.len() == s.len()` passed on the same call.
-
-ROOT CAUSE (codegen): the Imply-left lowering rebinds a bare `is Ok`
-scrutinee to its PAYLOAD slot (BUG 29/30/38), so the consequence's
-`result.len()` dispatches as the payload method. The method-form guard
-compiles through the normal call path and never rebinds, so the
-consequence's `Result.len` ran on the erased Result and compared wrong.
-
-FIX (m247): after the guard compiles and before the consequence, the
-Imply lowering recognizes method-form variant guards -- bare
-`result.is_ok` (Field form), `result.is_ok == true`, `true == result.is_ok`,
-`result.is_ok != false`, plus the `is_some`/`is_err` spellings -- and
-performs the same scrutinee-to-payload rebind (field 1 for Ok/Some,
-field 2 for Err), including XIOM payload-type recording and the
-fn-marker handling. Truthy spellings only; falsy forms keep the previous
-behavior.
-
-EVIDENCE: probe rc 1 -> 0; fixture covers canonical/guarded/bare
-spellings, the Err vacuous path, and a BOXED Vec payload (unbox +
-Vec.len in the consequence). 36 contract-named feature regressions green.
-
-LOCK: e2e `e2e_m247_isok_guard_imply` + fixture
-`tests/regression/m247_isok_guard_imply/`, ci.yml line.
-
 ## 2026-10-09 -- FIXED (m248): generic `&Option[T]`/`&Result[T,E]` query bodies read wrong
 
 Sweep finding `stdlib byref-generic` (`p_generic_byref_option.xi`):
@@ -14345,43 +14316,6 @@ run end to end. LOCKS: e2e `e2e_m249_slice_bound_run` +
 `tests/regression/m249_slice_bound_infer/`, ci.yml lines. Also clears the
 `core.contains`/`min_slice`/`max_slice` family at the next stdlib touch.
 
-## 2026-10-09 -- FIXED (m250, 3/4): type-changing generic callbacks silently miscompiled
-
-Sweep family `typechanging` (4 probes): generic callbacks `fn(T) -> U`
-with U = Str produced silently wrong values (`mapv(&v, to_s)` rc 41,
-`Option.map(to_s)` rc 41, `sort_by_key_Int_Str` rc 1).
-
-FOUR stacked defects, all fixed except the ordering tail:
-1. MISSING RETURN ARM: a `Vec[U]` return parses as `Type::Vec`, which the
-   return-name match in the generic call emission did not handle -- the
-   name degraded to the bare container ("Vec"), so the substituted
-   element never reached callers.
-2. DECLARED-vs-SUBSTITUTED BINDING: let/var tracking runs BEFORE the
-   initializer, so `let a = mapv(&v, to_s)` recorded "Vec[U]".
-   `call.rs` now records the SUBSTITUTED return by callee span
-   (`call_return_xioms`), and the let/var arms re-record after compiling
-   the init; `scrutinee_payload_xiom` prefers it too (the
-   `match o.map(to_s) { Some(s) => ... }` arm bound `s` as Int).
-3. METHOD-CALL ARG ALIGNMENT: inference zipped `fd.params` (self at [0])
-   against `args` (receiver excluded), so a fn-typed param never saw its
-   argument and U stayed "U" (`Option.map(to_s)` mono'd `map_Int_U`).
-   The zip now skips a REAL self receiver only -- module-qualified calls
-   (`sort.sort_by_key`) also carry receiver_expr but have no self param.
-4. CLOSURE-LITERAL CALLBACKS: `fn_arg_generic_binding` handled only
-   fn-ref idents; closure literals now contribute their declared
-   param/return types.
-
-EVIDENCE: all four probes green except `p_generic_typechanging_sortbykey`
-(now correctly mono'd `sort_by_key_Int_Str`). The sort tail is OPEN: the
-generic body's key ORDERING compiles `key(a) < key(b)` as
-`icmp slt i64` (Str pointer bits) instead of strcmp -- lexicographic Str
-`<` lowering for substituted generics is the next step (same family as
-the m239 strcmp content-equality). Fixture
-`tests/regression/m250_typechanging_callbacks/` covers fn-ref,
-convert-wrapping, closure literal, U=Int, apply, and `Option.map` match.
-
-LOCK: e2e `e2e_m250_typechanging_callbacks`, ci.yml line.
-
 ## 2026-10-09 -- VERIFIED: packages `unsafe return` not reproducible on current main
 
 Sweep row 6 (`packages unsafe-return`, from the xiom.http 0.1.4 fix pass:
@@ -14398,30 +14332,6 @@ return is correct on d9f146cb+ (likely covered by the m223..m247 batch).
 Their original probe is needed to confirm; the lane can retire the
 workaround at the next pin unless their repro still fails. No compiler
 change made.
-
-## 2026-10-09 -- FIXED (m251): Str relational ordering used pointer/byte order (closes the m250 tail)
-
-The last open probe of the typechanging family
-(`p_generic_typechanging_sortbykey`, rc 1, "silently mis-sorts") had TWO
-stacked causes, both fixed:
-
-1. `core.Str.compare` compared only the FIRST BYTE of each operand:
-   its `a < b` on i8* Str params hit the pointer auto-deref path, which
-   loaded a single i8 from each handle (`1` vs `10` -> equal). The
-   relational lowering now strcmp's Str operands BEFORE the auto-deref
-   block (i8* operand, or an operand whose XIOM type resolves to Str --
-   including an i64-held Str-substituted generic key via
-   `compare_operand_is_str`, which consults `fn_local_returns` + the
-   active mono type map).
-2. `sort_by_key_Int_Str` had already been mono-corrected by m250; with
-   Str.compare fixed it sorts lexicographically: [2,10,1] -> [1,10,2].
-
-EVIDENCE: all four typechanging probes green; fixture
-`tests/regression/m251_str_ordering/` covers direct literal ordering
-(<, <=, >, >=, prefix "1" < "10") and the stdlib `sort.sort_by_key`
-exposure T=Int/K=Str. Feature regression 549/549 green.
-
-LOCK: e2e `e2e_m251_str_ordering`, ci.yml line.
 
 ## 2026-10-09 -- LANE FINDINGS SWEEP (all lanes)
 
@@ -14598,7 +14508,7 @@ above.
 | stdlib clause-floatvec | stdlib | clause-position Float64 Vec element index reads garbage | OPEN (no ledger entry) | p_clause_float_vec_index.xi |
 | stdlib vec-shape-av | stdlib | shape-mismatched `&Vec` argument compiles silently and AVs | OPEN (no ledger entry) | p_vec_shape_arg_mismatch_av.xi |
 | stdlib catalog-payload | stdlib | catalog clause reading a payload field poisons user codegen; Ok/Err Str payload clauses false-violate/AV | OPEN (no ledger entry) | tools/probes/evidence/p_result_payload_ir_repro.xi |
-| stdlib typechanging | stdlib | cross-type generic callback returns miscompiled (4 probes) | FIXED m250 + m251 (all four probes green; sortbykey via strcmp ordering) | p_generic_typechanging_{fnptr,map,core_map,sortbykey}.xi |
+| stdlib typechanging | stdlib | cross-type generic callback returns miscompiled (4 probes) | FIXED m250 3/4 (fnptr/map/core_map green); sortbykey ordering OPEN (icmp vs strcmp) | p_generic_typechanging_{fnptr,map,core_map,sortbykey}.xi |
 | M7 Iterator | stdlib | undeclared `Iterator[T]` receiver: 5x warning + C001 `Iterator.step_by` | OPEN (stdlib-side fix per compiler relay 2026-10-09) | p_iter_iterator_type_unresolved.xi |
 | stdlib polygon-diff | stdlib | `polygon_difference` intersects b's outside half-planes | OPEN (stdlib algorithm, not compiler) | p_polygon_difference_halfplanes.xi |
 | wave-96 array_zip | stdlib | const-generic M bound to N; M<N read OOB / no truncate | FIXED m237 (16df642c, v0.64.2); lane RESOLVED | p_array_zip_no_truncate.xi; p_wave96_shapes.xi |
@@ -14867,6 +14777,38 @@ runtime/startup overhead.
   (branch `chore/pin-stdlib-v0.64.3` is pushed; PR creation failed on token
   scope). Use the official archive binary for wave batteries; the shared
   local build path is main-drifted (see the regression above).
+
+---
+
+## 2026-10-10 -- REVERTED (m253): m247/m250/m251 pulled from the v0.64.3 batch (stdlib smoke regressions)
+
+The stdlib lane reported the shared main-tip build failing four corpus
+smokes vs the official v0.64.2 archive (relay
+`docs/STDLIB-RELAY-2026-10-10.md`). Bisect (debug builds, fresh HOME,
+`XIOM_STDLIB=E:\xiom-lang\stdlib`, `XIOM_RUNTIME_DIR` set):
+
+1. `smoke_stress_regex_find` (AV 0xC0000005): PASSES at m244/m246, FAILS
+   from **m247** (`ae79c8c2`) on -- the method-form guard payload rebind
+   (`bind_method_guard_payload`) miscompiles contract guards in these
+   paths.
+2. `smoke_rand_weighted` (rc 1) and `smoke_cell_narrow` (rc 2) FAIL from
+   **m250** (`96036551`) on: rand -- `rand.weighted_pick`'s Option[Str]
+   payload binds as a raw i8* instead of the boxed handle (the
+   `call_return_xioms` substituted-return preference); cell -- the
+   receiver-offset zip infers T from `127 as Int8` (`_Int`) while the
+   call still emits the cast's i8. `smoke_collections_btree_map` (rc 7)
+   fails at m250 too and is green on the reverted tree (attribution
+   between m247/m250 for this one was not isolated).
+   m251 (`0d4ca07d`) only extended the same m250 fallout.
+
+REVERT (m253): `git revert` of m247, m250, m251 (fixtures, locks, ci.yml
+lines and their ledger sections removed). All four smokes are green again
+on the reverted tree (debug + release) under the same setup; m248/m249
+(+ bridge) and m252 stay in the batch. The three reverted fixes reopen
+their v0.64.2-era findings (`p_ensures_isok_guard`,
+`p_generic_typechanging_*`) -- deferred to the next batch with the four
+smokes above as acceptance locks. The m250/m251 implementation notes
+remain recoverable from `96036551`/`0d4ca07d`.
 
 
 

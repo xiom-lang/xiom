@@ -367,12 +367,6 @@ pub struct MonoContext {
     /// here so emission picks the right monomorphisation instead of the `0`
     /// fallback.
     pub prepass_call_types: HashMap<(u32, u32), Vec<String>>,
-    /// m250 (typechanging generic maps): the SUBSTITUTED return type name of
-    /// a generic call, keyed by the CALLEE expression span (byte_start,
-    /// byte_end). Let/var bindings re-read it after compiling their
-    /// initializer so `let a = mapv(&v, to_s)` records "Vec[Str]" (the
-    /// pre-compile tracking could only see the DECLARED "Vec[U]").
-    pub call_return_xioms: HashMap<(u32, u32), String>,
     /// Const-generic value map: monomorphised_fn_name -> {const_param_name -> value}
     pub const_value_map: HashMap<String, HashMap<String, i64>>,
     /// Specialized monomorphised function names already emitted
