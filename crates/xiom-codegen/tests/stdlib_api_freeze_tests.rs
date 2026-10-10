@@ -45,6 +45,13 @@ fn project_root() -> &'static Path {
 /// methods, same signatures) and `net.HttpResponse` -> `net.NetHttpResponse`
 /// (same http_get/http_post signatures). Renamed here so the freeze keeps
 /// guarding against real removals.
+/// 2026-10-10 (v0.64.3 vendored sync, stdlib d052a3c5): four entries were
+/// rename/syntax drift against the refreshed tree -- compress's umbrella lz4
+/// wrappers were renamed to `lz4_compress_checked`/`lz4_decompress_checked`
+/// (stdlib commit 8991c3e, unique-leaf rename) and reflect's `Option<&T>`
+/// spellings now use the canonical bracket syntax. Repaired here (same
+/// policy as the m125 note above) so the freeze keeps guarding against real
+/// removals.
 const FROZEN: &[&str] = &[
         "aes :: pub fn aes_sbox(b: Int) -> Int",
         "aes :: pub fn aes_inv_sbox(b: Int) -> Int",
@@ -175,8 +182,8 @@ const FROZEN: &[&str] = &[
         "compress :: pub fn brotli_compress(data: &Vec[UInt8]) -> Result[Vec[UInt8], Str]",
         "compress :: pub fn brotli_compress_level(data: &Vec[UInt8], quality: Int) -> Result[Vec[UInt8], Str]",
         "compress :: pub fn brotli_decompress(data: &Vec[UInt8]) -> Result[Vec[UInt8], Str]",
-        "compress :: pub fn lz4_compress(data: &Vec[UInt8]) -> Result[Vec[UInt8], Str]",
-        "compress :: pub fn lz4_decompress(data: &Vec[UInt8]) -> Result[Vec[UInt8], Str]",
+        "compress :: pub fn lz4_compress_checked(data: &Vec[UInt8]) -> Result[Vec[UInt8], Str]",
+        "compress :: pub fn lz4_decompress_checked(data: &Vec[UInt8]) -> Result[Vec[UInt8], Str]",
         "compress :: pub fn snappy_compress(data: &Vec[UInt8]) -> Result[Vec[UInt8], Str]",
         "compress :: pub fn snappy_decompress(data: &Vec[UInt8]) -> Result[Vec[UInt8], Str]",
         "compress :: pub fn compression_ratio(original: Int, compressed: Int) -> Float64",
@@ -719,8 +726,8 @@ const FROZEN: &[&str] = &[
         "reflect :: pub fn type_name[T]() -> Str",
         "reflect :: pub fn type_size[T]() -> Int",
         "reflect :: pub fn type_align[T]() -> Int",
-        "reflect :: pub fn downcast_ref[T: Any](value: &dyn Any) -> Option<&T>",
-        "reflect :: pub fn downcast_mut[T: Any](value: &mut dyn Any) -> Option<&mut T>",
+        "reflect :: pub fn downcast_ref[T: Any](value: &dyn Any) -> Option[&T]",
+        "reflect :: pub fn downcast_mut[T: Any](value: &mut dyn Any) -> Option[&mut T]",
         "reflect :: pub fn reflect_type[T]() -> TypeInfo",
         "reflect :: pub fn type_info_by_name(name: Str) -> Option<TypeInfo>",
         "reflect :: pub fn all_types() -> Vec<TypeInfo>",
