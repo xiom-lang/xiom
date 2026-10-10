@@ -54,7 +54,7 @@ any is missing it shows a notification with an install button
 (<https://xiom-lang.org/install>) and registers `XIOM: Recheck toolchain`.
 It never installs anything silently -- the official installer is the single
 install path. **Minimum toolchain: v0.61.0** (the LSP/DAP protocol this
-extension speaks); **0.12.2** is tested against the v0.62.3 toolchain, and
+extension speaks); **0.12.2** is tested against the v0.64.3 toolchain, and
 its Stage 6 diagnostic codes (W002-W008 warnings, T001 errors) surface in
 the Problems panel automatically through `xiom-lsp`.
 
