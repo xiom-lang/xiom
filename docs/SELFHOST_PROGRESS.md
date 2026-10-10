@@ -3,11 +3,13 @@
 
 # XIOM Selfhost -- bootstrap progress tracker
 
-**Last updated:** 2026-10-09 | **Plan:** `docs/SELFHOST_PLAN.md` |
+**Last updated:** 2026-10-10 | **Plan:** `docs/SELFHOST_PLAN.md` |
 **Phase 0 checklist:** `docs/checklists/selfhost-phase0.md` |
 **Phase 1 checklist:** `docs/checklists/selfhost-phase1.md` |
 **Phase 2 checklist:** `docs/checklists/selfhost-phase2.md` |
 **Phase 3 checklist:** `docs/checklists/selfhost-phase3.md` |
+**Phase 4 checklist:** `docs/checklists/selfhost-phase4.md` |
+**Phase 5 checklist:** `docs/checklists/selfhost-phase5.md` |
 **Owner policy:** selfhost ships only at 100% bootstrap; every release stays
 Rust-hosted until then.
 
@@ -26,7 +28,8 @@ All six must hold (SELFHOST_PLAN section 7):
 
 ## Bootstrap meter
 
-**45% -- 5 of 11 tracked gates complete.**
+**55% -- 6 of 11 tracked gates complete.** (Gate 5 done: Phase 5 T3 19/19
+scalar corpus byte-exact, `fe6b8352`.)
 
 **Gates: e2e 2411/2411 (+4 ignored), checker 195/195, feature 518/518, robustness 63/63, fuzz 24/24, perf 3/3, formatter 86/86, lsp 45/45.**
 
@@ -39,6 +42,68 @@ snapshots: 2409 at `f4734c07`, 2408 at `592c64d4`, 2406 at `d1ab8ec4`,
 Release context: v0.62.3 shipped 2026-10-03 with `SELFHOST_VERSION` bumped
 to 0.62.3; the selfhost source is otherwise unchanged by this release and
 the Rust compiler remains the shipped bootstrap.
+
+PHASE 4 REBASE RE-VERIFY (2026-10-09, v0.64.2 batch `a6ee8839`): branch
+`selfhost-phase-4-codegen` rebased onto local main (8 commits replayed, no
+conflicts). Two release-lane drifts surfaced by the gates and fixed on the
+lane: `SELFHOST_VERSION` bumped 0.64.0 -> 0.64.2 (the v0.64.2 prep bumped
+the workspace version; the banner contract is the tree version), and main's
+m198 (Pulse C-PULSE-06) missing-struct-field rejection ported to the
+selfhost checker (`ce_check_struct_lit`: sorted `struct literal for 'X' is
+missing field(s) ...` T001 after the unknown-field errors, enum-variant /
+builtin-layout guards, Rust's `missing.sort()` order) plus the
+`unknown_struct_field_lit.expected` manifest update. Full suite: `cargo test
+-p xiom-codegen --test full_diff_tests` -> 6 passed / 0 failed (759.9 s);
+`diff_ir_headers` counts IDENTICAL (83 files / 8337 header lines / 258
+primary define symbols / 4 tuple defs / 7909 declares) -- no drift from
+m195/m196/m237/m238/m239. Spot checks: `--selfcheck` OK, token/ast dump
+parity 0 diffs, `xiomc-self examples/diff_test.xi` emits the v0.64.2
+banner. T2 tier (`XIOM_SELFHOST_DIFF_TIER=2`, diff_corpus) is RED as
+designed: the first normalized mismatch is the module prologue (target
+triple/datalayout blank lines) before any body, so T2/T3 stay gated by the
+Phase 5/6 full-module port. Meter (2026-10-05): 45% (5 of 11) -- SUPERSEDED
+2026-10-09: gate 5 is DONE (T3 19/19) -> meter 55% (6 of 11), and the T2
+tier is green over the ported set (T2 runs first inside the T3 pass).
+Final certification: re-rebased onto the v0.64.2 tip `afc63a9a` (m240 verifier + m241 Vec-write
+trap landed mid-run) -> full suite 6 passed / 0 failed (392.2 s); no parity
+drift. PHASE 5 STATUS (2026-10-09): **S0-S4 DONE -- T3 19/19 scalar files
+byte-exact** (phase gate). The scalar-corpus manifest (19 SCALAR / 64
+PHASE6 of 83), harness scoping (T1 whole corpus; T2/T3 exact over the
+ported set; T3 now asserts `T3_FILES == SCALAR_FILES`) and the full body
+port are landed. Green end-to-end: diff_test, phase1_impl_trait,
+phase1_modules, phase1_async, phase1_async_spawn, phase1_interface,
+phase1_ownership, stress_body_parser, stress_borrow_10level, demo_float,
+stress_float_matrix, m37_bug44_str_deref, m37_else_if, m37_f128,
+m37_float_precision, m37_labeled_loops, m37_numeric_policy,
+m37_short_circuit, m37_u128. Ported beyond S1/S2: exact float literals
+(selfhost correctly-rounded decimal->f64 parse + `{:.17e}` formatter,
+validated 11/11 literals), float binops/casts (fadd..frem, fcmp, i64<->f32/
+f64/f128, fpext/fptrunc), `@.strN` string globals + strcmp `==`/`!=`, `&Str`
+ref-local tracking, `*p` on i64-held refs, call-site ref/pointer coercion,
+int trunc coercion, `Stmt::Assign` store parity. Blocker archaeology: the
+S1/S2 "checker registration" bug was the parser silently dropping any
+function containing `let not = ...` (reserved token); the float blocker was
+the 1-ULP-off stdlib parse + missing formatter, both replaced by
+selfhost-side code. Findings filed in docs/COMPILER_BUGS.md 2026-10-09
+(str_contains AV; Vec-by-value move; `let not` function drop; Bool/UInt
+string conversion; Int128 division AV). Unsupported constructs still fall
+back to the legacy stub, so T1 stays valid on every corpus file. The lane
+is green and idle; next phase is 6 (structs/tuples/generics/unsafe
+whole-corpus T3).
+
+PHASE 5 float blocker (2026-10-09, exact evidence; **RESOLVED same day,
+S4**). History: the 5 float files needed Rust `{:.17e}` literal exactness;
+an exact formatter was validated in `tmp/sprintc/phase5/probe_float_fmt.xi`
+(10/11 literals) but both `xiom.core.to_float_from_str` and a manual
+digit-accumulation parse were 1 ULP off on `0.123456789` (printed
+`1.23456789000000011e-1` vs Rust's `1.23456788999999997e-1`). RESOLUTION:
+the selfhost parses literals itself with integer-only, correctly-rounded
+(round-to-nearest-even) arithmetic -- `cg_parse_dec_float` +
+`cg_fmt_double` in `selfhost/src/codegen.xi` (decimal bignum digit arrays;
+i64-only after Int128 division turned out to AV) -- validated 11/11 corpus
+literals byte-equal (`tmp/sprintc/phase5/probe_float2.xi`); all 5 float
+files are T3-green, and `m37_bug44_str_deref.xi` closed with the
+`@.strN`/strcmp/ref-deref slice. T3 is 19/19.
 
 PHASE 4 STATUS (2026-10-05): **COMPLETE** -- branch
 `selfhost-phase-4-codegen` rebased onto `8405d2e6` (v0.63.0). Full gate:
@@ -53,6 +118,14 @@ naming), tuple struct definitions, `approx_block_cost` inline policy,
 builtin declare table + user-extern order (deferred thread_spawn). Gate 4
 flips to DONE and the meter to 45% (5/11). Next: **O1 selfhost code quality**
 (`--strict`, zero warnings) then Phase 5 (scalar bodies + control flow T3).
+Re-verified on the v0.64.0 release commit `fe346094` (lane rebased
+2026-10-05; m195 parser + m196 codegen receiver-less read gate landed):
+`cargo test -p xiom-codegen --test full_diff_tests` -> 6 passed / 0 failed
+(323.1 s) and `diff_ir_headers` counts identical (8337 header lines / 258
+primary define symbols / 4 tuple defs / 7909 declares) -- no drift. H5/O1
+partial: selfhost sources are `--strict`-clean (0 selfhost-attributed
+warnings; 15 stdlib `#[safety_audit]` gaps remain on the stdlib side) and
+carry 13 trivial API contracts; the O1 row stays open.
 
 PHASE 5 STATUS (2026-10-09, on the v0.64.2 release tip): branch
 `selfhost-phase-4-codegen` was rebased onto the release tree and continues
@@ -66,7 +139,11 @@ T3 green over all 19 scalar files + T2 over the same set; documented
 blocker: float literal `{:.17e}` exactness (formatter validated; stdlib
 decimal->f64 parse 1 ULP off on 0.123456789, `438da6c8`). T1 +
 `diff_ir_headers` stay green at every stage; meter stays 45% (5/11)
-until this phase gate flips.
+until this phase gate flips. SUPERSEDED 2026-10-10: S4/S5 landed --
+T3 19/19, meter 55% (see the Phase 5 completion block above); the
+S0-S3 shas cited here are pre-rebase
+(`c6c79632`/`d757d249`/`4fcc272a` ->
+`7ef0cb35`/`4ce6f0ee`/`3aeaf353` after the v0.64.2-tip rebase).
 
 PHASE 4 + O1 STATUS (2026-10-05, post-v0.64.0): branch
 `selfhost-phase-4-codegen` is rebased onto the **v0.64.0 release commit**
@@ -98,7 +175,7 @@ row flips.
 | 3 | Checker: diagnostics + type-annotation equality | **DONE 2026-10-03** | Full parity gate green: `cargo test -p xiom-codegen --test full_diff_tests` -> 5 passed (diff_corpus T1, diff_tokens, diff_ast, diff_check, runtime_ffi_selfcheck), 443.9 s on main `018daf05`. `diff_check` = 83 corpus files, 11 diagnostic lines (4x W003, 1x W008, 6x E001), line-exact on both drivers + 75 manifest cases (catalog/imports, containers, lints, methods, patterns incl. m178/m181, assoc, catalog bodies). Ported: canonical type names, statements/exprs, calls/generics, contracts, diagnostics ordering, catalog/imports + module member calls, container method sets + R8 UFCS + `methods` map, unknown-method/struct-field validation, W000/W004/W006/W007 lints, non-strict borrow pass, uppercase bare-name resolution, associated-form interface dispatch, local catalog-body checking. Bounded exceptions (documented in the checklist, exact for this tree): stdlib bodies are not re-checked (the stdlib ships clean) and relocated stdlib modules use a static path table (io.list_dir defect). Checklist `docs/checklists/selfhost-phase3.md` |
 | 4 | Codegen: fn-header T3 IR equality | **DONE 2026-10-05** | Phase 4; `selfhost/src/codegen.xi` + `codegen_cost.xi` + `codegen_declares.xi` port signatures (ptr/byval, `Option__`/`Result__`/`Tuple__` BUG-1 naming), tuple struct defs, `approx_block_cost` inline policy and the builtin/extern declare order; harness `full_diff_tests::diff_ir_headers` green over the 83-file corpus (8337 header lines byte-exact: 258 primary define symbols, 4 tuple defs, 7909 declares); T1 green on the same tree; checklist `docs/checklists/selfhost-phase4.md` |
 | O1 | Selfhost code quality: `--strict`, zero warnings, contracts on | **DONE 2026-10-05** | `e59b6f7e`; selfhost sources strict-clean with zero warnings, 13 API contracts restored; full parity gate re-ran green on the rebased tree (`0093c748`) |
-| 5 | Codegen: scalar bodies + control flow T3 (scalar corpus) | **IN PROGRESS 2026-10-09 (T3 13/19)** | Phase 5, branch `selfhost-phase-4-codegen`: S0 `c6c79632` (2/19), S1/S2 `d757d249` (8/19), S3 `4fcc272a` (13/19); remaining S4 + float `{:.17e}` blocker `438da6c8` |
+| 5 | Codegen: scalar bodies + control flow T3 (scalar corpus) | **DONE 2026-10-09 (T3 19/19)** | Phase 5, branch `selfhost-phase-4-codegen` (post-rebase shas): S0 `7ef0cb35` (2/19), S1/S2 `4ce6f0ee` (8/19), S3 `3aeaf353` (13/19), S4 `fe6b8352` (19/19, float+string slice), S5 `7ff90fa9`/`ac0e4d1b` (tracker + checklist); float blocker resolved by a selfhost-side correctly-rounded parser + `{:.17e}` formatter; checklist `docs/checklists/selfhost-phase5.md` |
 | 6 | Codegen: structs/tuples/generics/unsafe T3 (whole corpus) | NOT STARTED | Phase 6 |
 | 7 | Self-compile chain: self1 == self2 sha256 + T3 on self1-vs-self2 IR | NOT STARTED | Phase 7 |
 | O2 | Bootstrap perf: self1 within 2x of `xiom.exe` on the corpus | NOT STARTED | after Phase 7; target < 60 s self-compile on this box |
