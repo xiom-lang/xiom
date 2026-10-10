@@ -14893,6 +14893,43 @@ W004). LOCK: `m255_check_bare_filename_resolves_sibling_module`
 (run_script_cli.rs, already in the CI line-146 filter) over
 tests/regression/c22_run_sibling_module/.
 
+---
+
+## 2026-10-10 -- FIXED (m256): match-arm Vec binding loses its container type in a tuple return (REL-20261010-1803-selfhost)
+
+The selfhost lane's failed helper (`cgb_match_parts`, replaced by two
+single-value accessors before it could be committed) is reconstructed as a
+live repro from their report: a codegen-module helper returning `(Int,
+Vec[Int])` whose second element is a `NkStmtMatch(scrut, arms)` arm binding
+failed the v0.64.3 clang build with
+`%tmp36 defined with type '%struct.Tuple__Int__Int' but expected
+'%struct.Tuple__Int__Vec'` at the ret. Minimal trigger is NOT the
+foreign-enum pattern resolution: decl.rs M19 erases a variant payload field
+to i64 in the struct layout/meta whenever the field NAME repeats across
+variants -- `arms` appears in both NkStmtMatch and NkExprMatch (in the real
+selfhost_ast.NodeKind too) even though both declare Vec[Int]. The binding
+is then an i64 container HANDLE tracked only in `local_vec_handle` (the
+Vec-args `local_xiom_types` entry is deliberately skipped), so both tuple
+namers fell back to Int and the build emitted Tuple__Int__Int against the
+declared Tuple__Int__Vec. Single-module probes with unique field names
+stayed green because the slot keeps `%struct.Vec`.
+
+FIX (m256): the expr.rs literal path and `infer_llvm_type_impl` name a
+`local_vec_handle` binding "Vec" (matching the decl-side scan), and the
+literal build materializes the handle through the box
+(`inttoptr i64 -> %struct.Vec*` + load) into the tuple's `%struct.Vec`
+slot.
+
+EVIDENCE: 4-file repro (ast/Parser/helper/main, the minimal enum only
+NkStmtMatch + NkExprMatch) red on the official v0.64.3 (identical clang
+error) -> green on the fixed build (compiles, runs exit 0); the full
+selfhost_ast.NodeKind variant list behaves the same. Tuple/enum e2e
+regression set 12/12 green (m254, m87, m112, m114, m115, m202, m209, m206,
+m201, m189, m97 + the new lock). LOCK: `e2e_m256_vec_arm_binding_tuple`,
+fixture tests/regression/m256_vec_arm_binding_tuple/, ci.yml line. Selfhost
+lane: the workaround can be reverted on the next archive and the helper
+kept behind this fixture.
+
 
 
 

@@ -9211,6 +9211,14 @@ impl IrEmitter {
                             if let Some(base) = self.mono_param_xiom_name(&id.name) {
                                 return base;
                             }
+                            // m256 (REL-20261010-1803-selfhost): an i64
+                            // container-handle binding (match-arm Vec payload
+                            // with a name repeated across variants) names the
+                            // tuple element after the container base, matching
+                            // the expr.rs literal path and the decl-side scan.
+                            if self.local.local_vec_handle.contains_key(&id.name) {
+                                return "Vec".to_string();
+                            }
                         }
                         // R45b: cast elements use the CAST TARGET's XIOM type
                         // (see the literal path in expr.rs).

@@ -1102,6 +1102,20 @@ impl IrEmitter {
                                     let bare = bare.strip_prefix("mut ").unwrap_or(bare).trim();
                                     return bare.to_string();
                                 }
+                                // m256 (REL-20261010-1803-selfhost): a match-arm
+                                // Vec payload binding whose field name repeats
+                                // across variants is M19-erased to an i64
+                                // container HANDLE -- tracked only in
+                                // local_vec_handle (the Vec-args
+                                // local_xiom_types entry is deliberately skipped
+                                // to avoid double-typing the handle ABI). Name
+                                // the element by the container base so the tuple
+                                // matches the decl-side "Vec[Int]" ->
+                                // Tuple__Int__Vec instead of erasing to
+                                // Tuple__Int__Int.
+                                if self.local.local_vec_handle.contains_key(&id.name) {
+                                    return "Vec".to_string();
+                                }
                             }
                             // R45: comparisons, logical ops and tracked Bool
                             // locals are Bool even though their LLVM width is
@@ -1227,8 +1241,31 @@ impl IrEmitter {
                         // e.g., 0.0 defaults to double, but Float32 field needs float.
                         if let Some(needed) = field_types.get(i) {
                             if *needed != item_ty {
-                                item_val = self.coerce_value(&item_val, &item_ty, needed);
-                                item_ty = needed.clone();
+                                // m256 (REL-20261010-1803-selfhost): an i64
+                                // container HANDLE element (match-arm Vec
+                                // payload binding, M19-erased slot) must be
+                                // materialized through the box -- the tuple
+                                // slot is the %struct.Vec value the decl side
+                                // named; a plain coercion here left the i64
+                                // handle in a %struct.Vec slot (clang
+                                // "defined with type i64 but expected
+                                // %struct.Tuple__Int__Vec").
+                                if item_ty == "i64" && needed.starts_with("%struct.") {
+                                    if let Expr::Ident(id) = item {
+                                        if self.local.local_vec_handle.contains_key(&id.name) {
+                                            let hbox = self.fresh_tmp();
+                                            self.emitln(&format!("  {hbox} = inttoptr i64 {item_val} to {needed}*"));
+                                            let hval = self.fresh_tmp();
+                                            self.emitln(&format!("  {hval} = load {needed}, {needed}* {hbox}"));
+                                            item_val = hval;
+                                            item_ty = needed.clone();
+                                        }
+                                    }
+                                }
+                                if *needed != item_ty {
+                                    item_val = self.coerce_value(&item_val, &item_ty, needed);
+                                    item_ty = needed.clone();
+                                }
                             }
                         }
                         let gep = self.fresh_tmp();

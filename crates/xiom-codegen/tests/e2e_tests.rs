@@ -6384,6 +6384,18 @@ fn e2e_safety_probe() {
     );
 }
 
+// m256 (REL-20261010-1803-selfhost): a match-arm Vec payload binding whose
+// field name repeats across enum variants (M19-erased i64 handle slot) must
+// still name the tuple element Vec -- the literal built Tuple__Int__Int
+// against the declared Tuple__Int__Vec and clang rejected the ret.
+#[test] fn e2e_m256_vec_arm_binding_tuple() {
+    assert_eq!(
+        compile_and_run("tests/regression/m256_vec_arm_binding_tuple/main.xi"),
+        Some(0),
+        "Vec payload arm bindings in tuple returns must keep the container type (m256)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {
