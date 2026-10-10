@@ -51,5 +51,13 @@ regressed vs the v0.64.2 archive; bisected). Pin moves to `stdlib-v0.64.3`
 
 ## Gate D -- tag + publish
 
-- [ ] v0.64.3 pushed on the release commit; release run watched.
-- [ ] Release assets + the notes JSON present at the tag.
+- [x] v0.64.3 pushed on the release commit `a5b87965`; release run
+      **38071481303 GREEN** in 5m (guard 6s; linux-x64 2m53s; windows-x64
+      4m25s; macos-arm64 2m25s; macos-x64 3m19s; VSIX 23s; publish 22s).
+- [x] Release assets + the notes JSON present at the tag:
+      https://github.com/xiom-lang/xiom/releases/tag/v0.64.3
+      (`SHA256SUMS`, `xiom-0.64.3-{linux-x64.tar.gz,windows-x64.zip,
+      macos-x64.tar.gz,macos-arm64.tar.gz}`, `xiom-vscode-0.12.2.vsix`,
+      wasm assets; `release-notes/v0.64.3.json` 200/3036 bytes).
+- [x] Release-check live on the bus (`release-checks/compiler-v0.64.3`);
+      lanes fill their verdict rows.
