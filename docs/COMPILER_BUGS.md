@@ -14930,6 +14930,17 @@ fixture tests/regression/m256_vec_arm_binding_tuple/, ci.yml line. Selfhost
 lane: the workaround can be reverted on the next archive and the helper
 kept behind this fixture.
 
+---
+
+## 2026-10-10 -- FIXED (m257): `xiom --help` lists `--icon` (REL-20261010-1834-engine-7)
+
+`--icon <path.ico>` (m214, Windows exe icon embedding) was implemented and
+noted in COMPILER_BUGS but absent from the printed help (engine inventory).
+Added to the flag block in `print_usage`:
+`--icon <path.ico>  Embed a Windows exe icon (--target native, Windows only)`.
+The release-notes mention lands with the next tag's authored notes (v0.64.3
+notes are frozen).
+
 
 
 

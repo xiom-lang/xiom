@@ -2689,6 +2689,9 @@ fn print_usage() {
     eprintln!("  --link <name>       Link a native library (repeatable, e.g. vulkan-1)");
     eprintln!("  --link-path <dir>   Add a library search path (repeatable, -L<dir>)");
     eprintln!("  --c-source <file>   Link an extra C/object file (repeatable)");
+    // m257 (REL-20261010-1834-engine-7): --icon existed since m214 but was
+    // absent from --help.
+    eprintln!("  --icon <path.ico>   Embed a Windows exe icon (--target native, Windows only)");
     eprintln!("  --check             Type-check only (no code generation)");
     eprintln!();
     eprintln!("PACKAGES, BENCHMARKS, AI:");
