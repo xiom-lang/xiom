@@ -2151,6 +2151,7 @@ fn real_main() {
             link_paths,
             c_sources,
             icon: args.value("icon"),
+            cxx_standard: args.value("cxx-standard"),
         hot_reload: false,  // set to true by hot reload loop below
         hot_reload_contracts,
         sanitize,
@@ -2482,6 +2483,7 @@ fn real_main() {
                     link_paths: vec![],
                     c_sources: vec![],
                     icon: None,
+                    cxx_standard: None,
                     hot_reload: false,
                     hot_reload_contracts: false,
                     sanitize: None,
@@ -2539,6 +2541,7 @@ fn real_main() {
                     link_paths: vec![],
                     c_sources: vec![],
                     icon: None,
+                    cxx_standard: None,
                     hot_reload: false,
                     hot_reload_contracts: false,
                     sanitize: None,
@@ -2692,6 +2695,8 @@ fn print_usage() {
     // m257 (REL-20261010-1834-engine-7): --icon existed since m214 but was
     // absent from --help.
     eprintln!("  --icon <path.ico>   Embed a Windows exe icon (--target native, Windows only)");
+    // m258 (REL-20261010-1815-bindings): --cxx-standard for C++ --c-source.
+    eprintln!("  --cxx-standard <std> C++ standard for C++ --c-source files (e.g. 17, c++20, gnu++17)");
     eprintln!("  --check             Type-check only (no code generation)");
     eprintln!();
     eprintln!("PACKAGES, BENCHMARKS, AI:");

@@ -113,6 +113,12 @@ pub struct CompileConfig {
     /// compiles it with `llvm-rc` (or MSVC `rc`) and adds the .res to the
     /// link inputs; a requested icon that cannot be embedded is a hard error.
     pub icon: Option<String>,
+    /// m258 (REL-20261010-1815-bindings / packages-6): `--cxx-standard <std>`
+    /// (`17`, `c++20`, `gnu++17`, ...) applied to C++ `--c-source` inputs.
+    /// C++ sources compile in a dedicated clang invocation -- clang rejects
+    /// `-std=c++NN` in a command that also compiles C, and the runtime .c
+    /// files share this link command. `None` = clang default std.
+    pub cxx_standard: Option<String>,
     /// M12: Scripting mode -- apply implicit main wrapping if no fn main found
     pub script_mode: bool,
     /// v0.54: Binary cache -- hash source with SHA-256, cache compiled binary
@@ -172,6 +178,7 @@ impl Default for CompileConfig {
             c_sources: Vec::new(),
             script_mode: false,
             icon: None,
+            cxx_standard: None,
             cache: false,
             lto: false,
             parallel_codegen: false,
@@ -1564,6 +1571,10 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 }
             }
             if config.static_lib { cmd.arg("-c"); }
+            // m258 (REL-20261010-1815-bindings): C++ --c-source inputs split
+            // out for a dedicated clang invocation when --cxx-standard is
+            // set (populated in the collection loop below).
+            let mut cxx_sources: Vec<String> = Vec::new();
             match config.target {
                 Target::Wasm => {
                     cmd.args(["--target=wasm32-unknown-unknown", "-nostdlib", "-Wl,--no-entry", "-Wl,--export-all"]);
@@ -1644,7 +1655,16 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 }
                 for cs in &config.c_sources {
                     if seen_c_sources.insert(canonical_key(cs)) {
-                        cmd.arg(cs);
+                        // m258 (REL-20261010-1815-bindings / packages-6):
+                        // with --cxx-standard, C++ sources compile in their
+                        // own invocation below -- clang rejects `-std=c++NN`
+                        // in a command that also carries C inputs (the
+                        // runtime .c files live in this one).
+                        if config.cxx_standard.is_some() && is_cxx_source(cs) {
+                            cxx_sources.push(cs.clone());
+                        } else {
+                            cmd.arg(cs);
+                        }
                     }
                 }
             }
@@ -1684,6 +1704,40 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                             let _ = std::fs::remove_dir_all(&unique_tmp);
                             eprintln!("error: --icon: {e}");
                             return Err(vec![format!("--icon failed: {e}")]);
+                        }
+                    }
+                }
+            }
+            // m258 (REL-20261010-1815-bindings / packages-6): compile the
+            // C++ --c-source inputs gathered above with --cxx-standard and
+            // add their objects to the link. Every failure is a hard error
+            // naming the source and clang's stderr.
+            if !cxx_sources.is_empty() {
+                let std_arg = format!(
+                    "-std={}",
+                    normalize_cxx_std(config.cxx_standard.as_deref().unwrap_or("c++17"))
+                );
+                for (i, cs) in cxx_sources.iter().enumerate() {
+                    let obj = unique_tmp.join(format!("cxxsource_{i}.o"));
+                    let mut ccmd = Command::new(&clang_info.path);
+                    ccmd.arg("-c").arg(&std_arg).arg(cs).arg("-o").arg(&obj);
+                    if config.shared_lib && !cfg!(windows) {
+                        ccmd.arg("-fPIC");
+                    }
+                    match ccmd.output() {
+                        Ok(out) if out.status.success() => {
+                            cmd.arg(&obj);
+                        }
+                        Ok(out) => {
+                            let stderr = String::from_utf8_lossy(&out.stderr);
+                            let _ = std::fs::remove_dir_all(&unique_tmp);
+                            eprintln!("error: --cxx-standard: clang failed for {cs}:\n{stderr}");
+                            return Err(vec![format!("C++ compile failed: {cs}")]);
+                        }
+                        Err(e) => {
+                            let _ = std::fs::remove_dir_all(&unique_tmp);
+                            eprintln!("error: --cxx-standard: cannot run clang: {e}");
+                            return Err(vec![format!("clang invocation failed: {e}")]);
                         }
                     }
                 }
@@ -1871,7 +1925,7 @@ pub fn resolve_source_files(args: &[String]) -> Vec<String> {
         }
         if matches!(arg.as_str(), "-o" | "--target" | "--verify-output" | "--link" | "--link-path" | "--c-source"
             | "--timeout" | "--max-memory-mb" | "--max-depth" | "--jobs" | "--sanitize" | "--ai-model" | "--ai-timeout"
-            | "--opt-level" | "--icon") {
+            | "--opt-level" | "--icon" | "--cxx-standard") {
             skip_next = true;
             continue;
         }
@@ -2236,6 +2290,29 @@ pub fn find_runtime_c_files() -> Vec<String> {
 /// linked just the `find_runtime_c()` fallback (`xiom_runtime.c`) and any
 /// program pulling async/simd/sha256/hot-reload symbols failed at lld-link
 /// (`undefined symbol: xiom_async_now_ms` on v0.63.1; packages 5b7547b0).
+/// m258 (REL-20261010-1815-bindings): does this `--c-source` path compile as
+/// C++? `.cpp/.cxx/.cc/.c++/.C` -- everything else (C sources, assembly,
+/// prebuilt objects) stays on the shared link invocation.
+fn is_cxx_source(path: &str) -> bool {
+    match std::path::Path::new(path).extension() {
+        Some(e) => {
+            let e = e.to_string_lossy();
+            matches!(e.as_ref(), "cpp" | "cxx" | "cc" | "c++" | "C")
+        }
+        None => false,
+    }
+}
+
+/// m258: `17`/`20`/`2b` -> `c++17`/`c++20`/`c++2b`; `c++NN`/`gnu++NN` pass
+/// through verbatim. Anything else is handed to clang as-is.
+fn normalize_cxx_std(v: &str) -> String {
+    if v.starts_with("c++") || v.starts_with("gnu++") {
+        v.to_string()
+    } else {
+        format!("c++{v}")
+    }
+}
+
 /// m214 (--icon): compile a `.ico` into a Windows `.res` via `llvm-rc`
 /// (falling back to the MSVC `rc`). Returns the absolute `.res` path to add
 /// to the link inputs. Every failure mode is reported -- a requested icon is
@@ -2971,6 +3048,22 @@ mod tests {
 
     fn default_config() -> CompileConfig {
         CompileConfig::default()
+    }
+
+    #[test]
+    fn cxx_standard_helpers_m258() {
+        assert_eq!(normalize_cxx_std("17"), "c++17");
+        assert_eq!(normalize_cxx_std("20"), "c++20");
+        assert_eq!(normalize_cxx_std("c++17"), "c++17");
+        assert_eq!(normalize_cxx_std("gnu++17"), "gnu++17");
+        assert!(is_cxx_source("a/b/probe.cpp"));
+        assert!(is_cxx_source("x.cxx"));
+        assert!(is_cxx_source("x.cc"));
+        assert!(is_cxx_source("x.c++"));
+        assert!(is_cxx_source("x.C"));
+        assert!(!is_cxx_source("x.c"));
+        assert!(!is_cxx_source("x.o"));
+        assert!(!is_cxx_source("noext"));
     }
 
     fn write_temp_file(name: &str, content: &str) -> std::path::PathBuf {

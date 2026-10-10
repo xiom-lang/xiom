@@ -726,6 +726,7 @@ fn tool_compile_and_fix(params: &Value) -> Result<String, String> {
         shared_lib: false, static_lib: false, max_recursion_depth: 500,
         dump_contracts: false, verify: false, verify_output: None,
         output_file: None, link_libs: vec![], link_paths: vec![], c_sources: vec![],
+        cxx_standard: None,
         hot_reload: false,
         hot_reload_contracts: false,
         sanitize: None,

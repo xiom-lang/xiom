@@ -14941,6 +14941,36 @@ Added to the flag block in `print_usage`:
 The release-notes mention lands with the next tag's authored notes (v0.64.3
 notes are frozen).
 
+---
+
+## 2026-10-10 -- ADDED (m258): `--cxx-standard` passthrough for C++ `--c-source` (REL-20261010-1815-bindings / packages-6)
+
+bindings re-tested the -7 "C++17 available" verdict and found it a false
+positive: clang 22 accepts `if constexpr`/fold expressions as C++14
+EXTENSIONS (warning `-Wc++17-extensions`, `__cplusplus` still 201402L), so
+the probe could not distinguish stds. Real C++17 headers fail on v0.64.3
+(xiom.jolt: `no member named string_view`, `no type named align_val_t`),
+because the link line carries no `-std` for C++ `--c-source` inputs and
+clang's default here is pre-17 (verified locally: clang 22.1.8, default std
+rejects `std::string_view`).
+
+FIX (m258): new `--cxx-standard <std>` (`17`, `c++20`, `gnu++17`, ...).
+When set, C++ `--c-source` inputs (`.cpp/.cxx/.cc/.c++/.C` -- exact-case so
+`.C` stays C++ while `.c` stays C) compile in a dedicated clang invocation
+with `-std=<std>` and contribute objects to the link; C sources and the
+runtime keep the untouched single-invocation path (clang rejects
+`-std=c++NN` in a command that also compiles C). Failures are hard errors
+naming the source and clang's stderr. `--help` lists the flag.
+
+EVIDENCE: local A/B/C on clang 22.1.8 -- no flag: `std::string_view` probe
+fails (default pre-17); `--cxx-standard 14`: fails via the new path;
+`--cxx-standard 17`: compiles. Locks:
+`cxx_standard_applies_to_c_source_cpp` + `help_lists_icon_and_cxx_standard`
+(crates/xiom/tests/cxx_standard_cli.rs, CI line 146),
+`cxx_standard_helpers_m258` (normalize/extension table), cli parse test
+extended. The -7 row needs a bindings re-verdict with a non-extension probe;
+jolt unblocks once the packages side threads the flag into its build.
+
 
 
 
