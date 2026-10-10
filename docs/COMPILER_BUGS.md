@@ -14786,6 +14786,88 @@ audit (STAGE6_PERF_PLAN). Two parts:
    `--no-cache` reruns, LSP); across different programs the
    closure-dependent entries miss by design.
 
+---
+
+## 2026-10-10 -- FETCH (all lanes) + OPEN REGRESSION: main tip fails 4 stdlib smokes (bisected to m250)
+
+### Regression (confirmed; blocks a v0.64.3 cut from this tree)
+
+`E:\xiom-lang\stdlib\tests\smoke\{smoke_rand_weighted, smoke_cell_narrow,
+smoke_collections_btree_map, smoke_stress_regex_find}.xi` all compile rc 0
+and then fail at runtime (rc 1 / 2 / 7 / 0xC0000005) with the current main
+tip (`da7798da`, m252). The official v0.64.2 archive passes all four (rc 0)
+under the identical setup (`XIOM_STDLIB=E:\xiom-lang\stdlib`,
+`XIOM_RUNTIME_DIR=<stdlib>\runtime`, fresh HOME). Debug and release both
+fail. Bisect (debug builds, fresh HOME per run): PASS at `0196b9d2`
+(m248+m249); FAIL at `96036551` (m250) and `0d4ca07d` (m251), and at the
+tip (m252); m249-bridge (`d481c490`) was not tested separately (it is later
+than the first bad commit). Culprit: **m250** (type-changing generic
+callbacks: substituted returns, receiver alignment, closure signatures).
+m252 is exonerated: cold (fresh HOME -> all misses -> live checking) and
+warm rcs are identical and its parity/IR locks are green. Reported by the
+stdlib lane as shared-build binary drift (`stdlib_session.md` STATE
+2026-10-10); reproduced and bisected by the compiler lane. FIX DIRECTION:
+re-run these four smokes (plus the m250 locks) on any m250 fix/revert before
+the next cut.
+
+### Benchmark relay -- the cold-lane/cache question is ANSWERED
+
+`xiom-run-jit` = `xiom run --jit --no-cache`; `xiom-run-aot` =
+`xiom run --no-cache`; `xiom-run` = `--jit --cache` (scored JIT+cache);
+`xiom-run-cache` = AOT+cache (reference-only). Samples share the container
+HOME; the harness never clears a cache or sets a per-sample HOME; the cold
+lanes are cold BY FLAG. CAUTION for re-scoring: `--no-cache` bypasses the
+script cache but NOT the m252 check cache or the catidx index cache -- the
+"cold" lanes replay clean catalog bodies from sample 2 on once the check
+cache is warm. Decide (compiler/benchmark): make `--no-cache` also disable
+the check cache (read+write), or document the accepted cache state. Same
+relay: t3-hot-reload prints `time_ms=1000` vs a 228 ms wall (timer-unit
+suspicion; consistent with the stdlib whole-second `Instant` root cause in
+the 2026-10-09 sweep) and the XIOM wall gap vs 8-24 ms peers is
+runtime/startup overhead.
+
+### New lane items since the 2026-10-09 sweep
+
+- stdlib `p_tuple_elem_vec_read.xi` (2026-10-10): an INLINE Vec element
+  read inside a tuple literal corrupts the Float64 component
+  (`pairs.push((y_pred[j], y_true[j]))`; bind first to work around; rc 1 on
+  v0.64.2).
+- stdlib `p_tostring_import_breaks_adapters.xi` (2026-10-09): importing
+  `xiom.convert.tostring` (any alias) breaks closure predicate dispatch
+  (`Range.filter`/`take_while` see nothing; rc 1 on v0.64.2).
+- selfhost lane (previously only in the worktree ledger; migrated here):
+  `Int128 /` and `%` AV (probe_i128_div3.xi); `str_contains` AV for any
+  input (probe_contains4.xi); `Vec` passed by value MOVES it and
+  use-after-move is accepted then AVs (E001 should reject); the parser
+  silently DROPS any fn containing `let not = ...` (reserved token; fix:
+  real parse error); `Bool + ""` AVs / `UInt + ""` prints signed; S0
+  findings (top-level const-array `.len()` miscompile; `&T`-param methods
+  reject bare receiver-field access).
+- PULSE C-PULSE-17 (2026-10-10): `io.list_dir` returns dangling names
+  (bytes clobbered by later allocations; repro
+  `docs/repro/io-list-dir-dangling/probe.xi`); C-PULSE-14 Linux RSS still
+  grows (~87 KB/req; Windows flat on v0.64.2); Darwin
+  `@llvm.memset.p0i8.i64` emit sites (emitter.rs:859, expr.rs:3774,
+  stmt.rs:713, stmt.rs:1131). `--icon`: RESOLVED as present since m214
+  (cli.rs + unit test) but MISSING from `--help` -- add it to help and the
+  next release notes.
+- ORBITDB C-ORBIT-06 (2026-10-10): phantom imports and undeclared signature
+  types are silently accepted; a foreign structural twin turns it into a
+  hard T001; bogus W004 unreachable arm. Repro
+  `docs/repro/phantom-core-import/`. C-ORBIT-04 residual caveat stands.
+- XVECTOR: C-13 (`&Str` param -> `unknown type`) stays open; C-09 only a
+  weaker v0.64.2 re-test.
+- bindings/packages: B-05 (alloc-guard spin) and B-07 (`ffi` alias shadow)
+  stay open; B-10 is fixed on main (m246) -- the lane's STILL OPEN status
+  is on the v0.64.2 archive (no m246); re-test at the next pin. B-11
+  (Vulkan out-param slot recycle) open, runtime lead (VEH + guard-arena
+  discard vs the NVIDIA loader).
+- stdlib release mechanics: stdlib-v0.64.3 (d052a3c) is RELEASED and
+  registry-live; the `STDLIB_VERSION` pin PR must be opened MANUALLY
+  (branch `chore/pin-stdlib-v0.64.3` is pushed; PR creation failed on token
+  scope). Use the official archive binary for wave batteries; the shared
+  local build path is main-drifted (see the regression above).
+
 
 
 
