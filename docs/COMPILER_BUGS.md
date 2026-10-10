@@ -14971,6 +14971,46 @@ fails (default pre-17); `--cxx-standard 14`: fails via the new path;
 extended. The -7 row needs a bindings re-verdict with a non-extension probe;
 jolt unblocks once the packages side threads the flag into its build.
 
+---
+
+## 2026-10-10 -- OPEN (diagnosed): pulse site-mode test dies at startup on the v0.64.3 program side (REL-20261010-1854-pulse)
+
+Symptom: `xiom --run tests/test_app.xi` on xiom-pulse feat/site-mode @
+51760b1 compiles, then the PROGRAM dies with AV 0xC0000005 (exit
+-1073741819) before any output (CI: program_exit=-1, compiler_exit=255).
+Reproduces on official v0.64.3 AND HEAD (through m258), debug and
+`--release` alike; no workaround found.
+
+Minimal repro (verified, reverted-main tree 01dcd1b + this UNUSED helper in
+tests/test_app.xi = crash, helper in a 60-line probe = green, site-mode src
+alone = green):
+
+    fn out_text(o: &HandlerOut) -> Str {
+      if o.body.len() > 0 { return o.body; }
+      return http.bytes_to_str(&o.body_bytes, 0, o.body_bytes.len());
+    }
+
+Findings:
+- The unused definition triggers an emission cascade: green exe 341 KB vs
+  crashing exe 1.9 MB; 13,134 `%gs:` TLS accesses vs 307.
+- The crashing exe contains exactly TWO mis-lowered accesses (zero in the
+  green exe): `movq 0xf8, %rcx` -- an absolute load from address 0xF8, a
+  TLS OFFSET used as an address. Neighboring accesses do the correct
+  dynamic-TLS dance; the generated module's `@xiom_recursion_counter` is
+  `internal thread_local` (TLS block size 0x558, counter at 0x550).
+  Faulting RVA 0xA9594 (-g build); WER 0xc0000005; nearest symbol
+  pulse.app.handle_route (region = inlined check()/print path).
+- NOT the tuple/Str call shape itself (minimal probe green), NOT the
+  site-mode src changes (site src + unmodified tests = green).
+- The src `serve_site_page`/`site_candidate` additions are incidental (the
+  earlier "src changes crash the suite" bisect was confounded by the test
+  file's helper).
+
+NEXT: root-cause the two malformed TLS accesses and the emission cascade
+(compare emitted IR green vs crashing around the guard emission; why an
+unused fn adds ~1.6 MB and yields TLS-offset-as-address loads at scale).
+Pulse reverted main; work preserved at feat/site-mode 51760b1.
+
 
 
 
