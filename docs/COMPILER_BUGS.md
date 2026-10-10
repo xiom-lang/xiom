@@ -8,6 +8,24 @@ Dated sections. Each entry: file(s) affected, construct, error observed, and
 deliberately NOT applied where the stdlib mandate says "production grade, no
 workarounds" -- the compiler must be fixed, then the stdlib lands.
 
+## Cross-lane coordination (2026-10-10): the xiom-relays bus
+
+Cross-lane findings, wishlists, and release checks now travel through the
+private `xiom-relays` repository (bus root on this machine:
+`E:\xiom-lang\xiom-relays`; `tools/relay.py` is stdlib-only Python). Lane
+working lines (recorded here because the compiler repo no longer carries a
+SESSION.md by owner decision):
+
+- At session start and before finishing any task: pull `xiom-relays` and
+  process items addressed to this lane
+  (`python tools/relay.py view --lane compiler`).
+- Never edit another lane's item; open a new item instead.
+
+A recurring doorbell check (cron, every 3 h while active) pulls the bus and
+processes `to: compiler` items; statuses move open -> acked -> fixed here,
+and the reporter lane verifies at the next release check
+(`relay.py check-new --release compiler-vX.Y.Z --lane compiler` at cut time).
+
 ---
 
 ## 2026-10-05 -- FIXED (UX): bare `xiom file.xi` printed IR with no `xiom run` hint
