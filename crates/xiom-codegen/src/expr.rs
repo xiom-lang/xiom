@@ -1141,6 +1141,23 @@ impl IrEmitter {
                                     }
                                 }
                             }
+                            // stdlib p_tuple_elem_vec_read: an indexed
+                            // element read (`pred[i]`) names the component
+                            // after the receiver's element type; the fallback
+                            // erased it to Int and corrupted the Float64
+                            // component of (Float64, Int) literals.
+                            if let Expr::Index(arr, _, _) = i {
+                                if let Expr::Ident(id) = arr.as_ref() {
+                                    let rt = self
+                                        .mono_param_xiom_name(&id.name)
+                                        .or_else(|| self.local.local_xiom_types.get(&id.name).cloned());
+                                    if let Some(rt) = rt {
+                                        if let Some(elem) = Self::container_element_xiom_name(&rt) {
+                                            return elem;
+                                        }
+                                    }
+                                }
+                            }
                             // BUG 29 (BUG 28 #6): name LITERALS by their XIOM type
                             // too. infer_llvm_type erases Bool->i64->"Int", so
                             // `(PathBuf, Bool)` returns built the expression

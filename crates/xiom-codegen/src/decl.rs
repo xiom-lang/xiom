@@ -2939,8 +2939,61 @@ impl IrEmitter {
             }
             Expr::Some(..) | Expr::None(_) => "Option".to_string(),
             Expr::Ok(..) | Expr::Err(..) => "Result".to_string(),
+            // stdlib p_tuple_elem_vec_read: an indexed element read names
+            // the tuple component after the receiver's element type.
+            Expr::Index(arr, _, _) => {
+                if let Expr::Ident(id) = arr.as_ref() {
+                    if let Some(t) = vars.get(&id.name) {
+                        if let Some(elem) = Self::container_element_xiom_name(t) {
+                            return elem;
+                        }
+                    }
+                }
+                "Int".to_string()
+            }
             _ => "Int".to_string(),
         }
+    }
+
+    /// stdlib p_tuple_elem_vec_read (2026-10-10): element XIOM type name for
+    /// an indexed read `recv[i]` whose receiver has a container XIOM type
+    /// ("Vec[Float64]", "&Vec[Float64]", "Slice[T]", "mut Vec[U]"). The three
+    /// tuple-element namers (this scan, expr.rs's literal path, lib.rs's
+    /// infer_llvm_type) all defaulted Index to "Int", so
+    /// `v.push((pred[i], lab[i]))` built Tuple__Int__Int over a
+    /// (Float64, Int) literal: the Float64 component was coerced to i64 and
+    /// corrupted. Single-argument containers only (nested containers name
+    /// their element by the bare base, mirroring the R60 policy); anything
+    /// else returns None and keeps the historical fallback.
+    pub(crate) fn container_element_xiom_name(xiom: &str) -> Option<String> {
+        let t = xiom.trim();
+        let t = t.trim_start_matches('&').trim();
+        let t = t.strip_prefix("mut ").unwrap_or(t).trim();
+        let (base, rest) = t.split_once('[')?;
+        if base.trim().is_empty() {
+            return None;
+        }
+        // Text inside the OUTERMOST bracket group: the rest must end with ']'.
+        let inner = rest.strip_suffix(']')?.trim();
+        if inner.is_empty() {
+            return None;
+        }
+        // Multi-arg containers (Map[K, V] & co): keep the historical
+        // fallback rather than guessing which argument indexing yields.
+        if inner.contains(',') {
+            return None;
+        }
+        let elem = if inner.contains('[') {
+            // Nested container element: bare base name (R60).
+            inner.split('[').next().unwrap_or(inner).trim()
+        } else {
+            inner
+        };
+        let elem = elem.trim();
+        if elem.is_empty() {
+            return None;
+        }
+        Some(elem.to_string())
     }
 
     pub(crate) fn stmt_or_expr_contains_unsafe(item: &xiom_ast::StmtOrExpr) -> bool {

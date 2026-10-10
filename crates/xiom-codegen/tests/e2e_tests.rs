@@ -6371,6 +6371,19 @@ fn e2e_safety_probe() {
     );
 }
 
+// m254 (stdlib tuple-literal element read): an INDEXED element read written
+// inside a tuple literal must keep the element's XIOM type -- the tuple
+// namers defaulted Index to "Int", so `v.push((pred[i], lab[i]))` built
+// Tuple__Int__Int over a (Float64, Int) vector and corrupted the Float64
+// component.
+#[test] fn e2e_m254_tuple_literal_index_elem() {
+    assert_eq!(
+        compile_and_run("tests/regression/m254_tuple_literal_index_elem/main.xi"),
+        Some(0),
+        "inline Vec element reads in tuple literals must keep their XIOM type (m254)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

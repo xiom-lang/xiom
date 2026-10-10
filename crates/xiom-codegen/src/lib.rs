@@ -9239,6 +9239,21 @@ impl IrEmitter {
                                 }
                             }
                         }
+                        // stdlib p_tuple_elem_vec_read (see expr.rs literal
+                        // path): indexed element reads name the component
+                        // after the receiver's element type.
+                        if let Expr::Index(arr, _, _) = i {
+                            if let Expr::Ident(id) = arr.as_ref() {
+                                let rt = self
+                                    .mono_param_xiom_name(&id.name)
+                                    .or_else(|| self.local.local_xiom_types.get(&id.name).cloned());
+                                if let Some(rt) = rt {
+                                    if let Some(elem) = Self::container_element_xiom_name(&rt) {
+                                        return elem;
+                                    }
+                                }
+                            }
+                        }
                         match i {
                             Expr::Int(..) | Expr::BigInt(..) => "Int".to_string(),
                             Expr::Str(..) => "Str".to_string(),

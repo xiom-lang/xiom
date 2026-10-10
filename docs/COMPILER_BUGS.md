@@ -14828,6 +14828,34 @@ their v0.64.2-era findings (`p_ensures_isok_guard`,
 smokes above as acceptance locks. The m250/m251 implementation notes
 remain recoverable from `96036551`/`0d4ca07d`.
 
+---
+
+## 2026-10-10 -- FIXED (m254): inline Vec element read in a tuple literal lost the element type
+
+Relay REL-20261010-1548-stdlib-2 (probe
+`tools/known_failures/p_tuple_elem_vec_read.xi`): `v.push((pred[i],
+lab[i]))` inside a loop built `Tuple__Int__Int` over a
+`Vec[(Float64, Int)]` -- the Float64 component was coerced to i64 and
+corrupted (labels stayed correct; binding the elements first was the
+workaround). THREE tuple-element namers all defaulted `Expr::Index` to
+"Int": the pre-registration scan (`decl.rs::infer_expr_type_name` via
+`scan_expr_for_tuples`), the literal path (`expr.rs`), and
+`infer_llvm_type`'s tuple arm (`lib.rs`).
+
+FIX (m254): new `container_element_xiom_name` resolves a container
+receiver's element type (`Vec[T]`, `&Vec[T]`, `Slice[T]`; from
+`local_xiom_types` / mono params at codegen time and the scan's `vars`)
+and all three namers use it for Index elements. Single-argument
+containers only; nested containers name by bare base (R60 policy);
+multi-arg containers keep the historical fallback.
+
+EVIDENCE: probe rc 1 -> 0; the IR now allocas
+`%struct.Tuple__Float64__Int { double, i64 }`; new fixture
+`tests/regression/m254_tuple_literal_index_elem/`; tuple-filtered e2e
+13/13; stdlib_tests 40/40; stdlib_execution_tests 85/85 (+2 ignored); the
+four v0.64.3 smokes stay green. LOCK: e2e
+`e2e_m254_tuple_literal_index_elem`, ci.yml line.
+
 
 
 
