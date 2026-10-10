@@ -599,6 +599,15 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
         let file_path = Path::new(primary);
         // Add the file's parent directory (e.g. examples/)
         if let Some(parent) = file_path.parent() {
+            // m255: a bare filename's parent is the EMPTY path, and an empty
+            // source dir indexes nothing -- `xiom --check main.xi` resolved
+            // no sibling modules while `xiom --check ./main.xi` did. Treat it
+            // as `.` exactly like `run_script_source_dirs` does.
+            let parent: &Path = if parent.as_os_str().is_empty() {
+                Path::new(".")
+            } else {
+                parent
+            };
             checker.add_source_dir(parent.to_string_lossy().to_string());
             // 5e.3 G-31: also walk up one level for `project/examples/demo.xi`
             // using `project/vulkan.xi`. Guard: only add the grandparent if it
@@ -935,6 +944,13 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         // cold index; COMPILER_BUGS 2026-10-04). Real script dirs arrive via
         // `extra_source_dirs` (`run_script_source_dirs`).
         if let Some(parent) = file_path.parent() {
+            // m255: see the sibling block in compile_with_diagnostics -- a
+            // bare filename's empty parent must mean the file's own dir.
+            let parent: &Path = if parent.as_os_str().is_empty() {
+                Path::new(".")
+            } else {
+                parent
+            };
             if !temp_root_covers(parent) && !is_run_scratch_dir(parent) {
                 checker.add_source_dir(parent.to_string_lossy().to_string());
             }

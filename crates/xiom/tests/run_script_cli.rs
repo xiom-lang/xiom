@@ -72,6 +72,38 @@ fn c22_check_still_resolves_sibling_module() {
     );
 }
 
+// m255 (REL-20261010-1802-orbitdb root cause): a BARE relative filename
+// (`xiom --check main.xi` from the file's own directory) resolved NO source
+// dir -- `Path::new("main.xi").parent()` is the empty path, which indexes
+// nothing, while `xiom --check ./main.xi` indexes the directory. Sibling
+// modules then flipped between "resolved" and "phantom" depending on how
+// the same file was spelled on the command line (the C-ORBIT-06 verdict
+// split: packages' bare-form pass vs orbitdb's path-form T001). The bare
+// form must index the file's own directory exactly like the path form.
+#[test]
+fn m255_check_bare_filename_resolves_sibling_module() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("tests")
+        .join("regression")
+        .join("c22_run_sibling_module");
+    for arg in ["main.xi", "./main.xi"] {
+        let out = Command::new(xiom_bin())
+            .arg("--check")
+            .arg(arg)
+            .current_dir(&dir)
+            .output()
+            .unwrap_or_else(|e| panic!("failed to spawn '{}': {e}", xiom_bin()));
+        assert!(
+            out.status.success(),
+            "xiom --check {arg} must resolve sibling modules from the file's own dir (m255); exit={:?}\nstderr:\n{}",
+            out.status.code(),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+}
+
 // C25 (playground relay): `xiom run` executes a WARM script-cache hit via
 // Command::output(), whose default stdin is NULL -- cached reruns printed
 // `got: []` while the cold run read the piped line. The cached path must

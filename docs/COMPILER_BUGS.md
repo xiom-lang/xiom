@@ -14856,6 +14856,43 @@ EVIDENCE: probe rc 1 -> 0; the IR now allocas
 four v0.64.3 smokes stay green. LOCK: e2e
 `e2e_m254_tuple_literal_index_elem`, ci.yml line.
 
+---
+
+## 2026-10-10 -- FIXED (m255): bare-filename invocation resolved no sibling modules (C-ORBIT-06 verdict split)
+
+REL-20261010-1802-orbitdb reconciliation: the same committed C-ORBIT-06
+bundle on the same v0.64.3 shadow install produced BOTH filed verdicts --
+T001 30:5 for `xiom --check docs/repro/phantom-core-import/probe_with_twin.xi`
+(orbitdb) and "Type check PASSED (2x W004)" for
+`cd docs/repro/phantom-core-import` + `xiom --check probe_with_twin.xi`
+(packages) -- on v0.64.3 AND on HEAD alike. The variable is not the
+compiler build: `compile()`/`compile_with_diagnostics` add
+`Path::new(primary).parent()` as a checker source dir, and for a BARE
+filename that parent is the EMPTY path; `read_dir("")` indexes nothing, so
+the file's own directory never reached the catalog. Every path-spelled form
+(`./file.xi`, `.\file.xi`, `docs/.../file.xi`, absolute) has a non-empty
+parent and indexes the directory. Same file, same cwd, different resolution.
+
+User-facing proof (plain sibling module, no phantoms): `use
+c22_sibling_lib;` + call -- bare `xiom --check main.xi` exits 1 ("value's
+type does not support this method", 3 type errors) while `xiom --check
+.\main.xi` exits 0; reproduced on official v0.64.3 and HEAD debug.
+
+FIX (m255): coerce an empty parent to `.` before adding it as a source dir
+in both compile entry points (mirrors `run_script_source_dirs`, which
+already coerced for the `xiom run` path; `main.rs` even documents that it
+"mirrors compile()'s walk" -- compile() never had the coercion).
+
+EVIDENCE (official v0.64.3 + HEAD debug): sibling probe bare 1 -> 0 and
+`.\` 0 -> 0; orbitdb twin probe bare pass -> T001 30:5 and path T001 -> T001
+(now invocation-independent). So packages' "with-twin hard T001 gone (probe
+passes)" verdict was the bare-filename artifact; the twin half of C-ORBIT-06
+stays open on v0.64.3 via the documented path-form invocation, and the
+phantom acceptance core ask is untouched (probe_alone still passes with 2x
+W004). LOCK: `m255_check_bare_filename_resolves_sibling_module`
+(run_script_cli.rs, already in the CI line-146 filter) over
+tests/regression/c22_run_sibling_module/.
+
 
 
 
