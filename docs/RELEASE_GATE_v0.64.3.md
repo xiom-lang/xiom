@@ -9,10 +9,11 @@ regressed vs the v0.64.2 archive; bisected). Pin moves to `stdlib-v0.64.3`
 
 - [x] Workspace version 0.64.3 (`Cargo.toml`) and `selfhost/src/codegen.xi`
       `SELFHOST_VERSION` = 0.64.3.
-- [x] `STDLIB_VERSION` = `stdlib-v0.64.3`; repo-local `stdlib/` refreshed to
-      d052a3c5 (mirror of the tag); stdlib suites green on it.
-- [ ] `release-notes/v0.64.3.json` committed -- convert+verify BLOCKED on
-      the stdlib fragment schema violation (see Blockers).
+- [x] `STDLIB_VERSION` = `ab894b478e2f1fbfa69e42dc731015a0a1c6d810` (doc-only
+      on the `stdlib-v0.64.3` tag base: three notes-schema fixes); repo-local
+      `stdlib/` refreshed to that ref; stdlib suites green on it.
+- [x] `release-notes/v0.64.3.json` committed; convert+verify green
+      (6 highlights: 4 compiler + 2 stdlib, 0 breaking, 2 docs).
 - [x] VSIX: toolchain-only release -- `editors/vscode/package.json` stays
       0.12.2 (marketplace publish skips cleanly); README pin text -> v0.64.3.
 
@@ -38,10 +39,10 @@ regressed vs the v0.64.2 archive; bisected). Pin moves to `stdlib-v0.64.3`
 
 ## Blockers / notes
 
-- `stdlib-v0.64.3` `release-notes/v0.64.3.md` uses `->` in highlight text,
-  which `xiom-release-notes` rejects; the release workflow's
-  `verify --tag ... --stdlib ../stdlib` fails until the fragment is
-  rephrased at a pinnable ref (relay item filed to stdlib, high).
+- RESOLVED: the `stdlib-v0.64.3` notes fragment failed the schema on three
+  counts -- `->` arrows, an `(m242)` task id, and `&mut-param`; the stdlib
+  lane fixed all three on the tag base (`fix/notes-v0.64.3`, f475c9d ->
+  ab894b47), and the pin now points at that doc-only ref.
 - Reverted in this batch: m247 (regex smoke AV), m250 (rand payload +
   cell/narrow + btree drift), m251 (same m250 fallout). Their findings
   reopen as known-open; the four smoke repros are the acceptance locks
