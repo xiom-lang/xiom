@@ -480,6 +480,21 @@ impl IrEmitter {
         val
     }
 
+    /// m272 (fn-value ABI regression): does the resolved callee key name an
+    /// `extern "C"` declaration? The B-13 field-0 unwrap is a C-boundary
+    /// contract; an internal XIOM callee receives the closure ENV (round-11
+    /// B-007), so forwarding an env-valued fn param to it must keep the
+    /// env pointer (unwrapping handed the callee a code address it
+    /// dereferenced as an env -> 0xC0000005: m48/m49/m35/m37 class).
+    /// Matches the bare registration name and the module-qualified
+    /// spelling a resolved call key may carry.
+    pub(crate) fn callee_is_extern(&self, key: &str) -> bool {
+        !key.is_empty()
+            && (self.mono.extern_fn_names.contains(key)
+                || self.mono.extern_fn_names.iter()
+                    .any(|e| key.ends_with(&format!(".{}", e))))
+    }
+
     pub(crate) fn compile_call(&mut self, func: &Expr, args: &[Expr]) -> Result<(String, String), String> {
         // R52 (playground L5-43): tolerate a REDUNDANT explicit receiver
         // argument (`s.push(&mut s, "Alice")`). The method call already passes
@@ -5380,11 +5395,12 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                             if !ref_name.is_empty() {
                                                 coerced = self.wrap_fn_ref_env(&ref_name, &coerced, &ret_xiom, ref_params);
                                             }
-                                        } else {
-                                            // B-13 (2026-10-11): an env-valued fn
-                                            // param/local exiting to a C fn-typed
-                                            // param hands over field 0 (the code
-                                            // address), not the env pointer.
+                                        } else if self.callee_is_extern(&fn_name) {
+                                            // B-13 (2026-10-11, m272 gate):
+                                            // an env-valued fn param/local
+                                            // exiting to a C fn-typed param
+                                            // hands over field 0; internal
+                                            // XIOM callees keep the env.
                                             coerced = self.unwrap_fn_env_for_c(ae, coerced);
                                         }
                                     }
@@ -5746,9 +5762,12 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                 if !ref_name.is_empty() {
                                                     coerced = self.wrap_fn_ref_env(&ref_name, &coerced, &ret_xiom, ref_params);
                                                 }
-                                            } else {
-                                                // B-13 (2026-10-11): env-valued fn
-                                                // param/local -> field 0 for C.
+                                            } else if self.callee_is_extern(&resolved_fn_key) {
+                                                // B-13 (2026-10-11, m272 gate):
+                                                // env-valued fn param/local
+                                                // exiting to a C fn-typed param
+                                                // hands over field 0; internal
+                                                // XIOM callees keep the env.
                                                 coerced = self.unwrap_fn_env_for_c(ae, coerced);
                                             }
                                         }
@@ -5794,9 +5813,12 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                 if !ref_name.is_empty() {
                                                     coerced = self.wrap_fn_ref_env(&ref_name, &coerced, &ret_xiom, ref_params);
                                                 }
-                                            } else {
-                                                // B-13 (2026-10-11): env-valued fn
-                                                // param/local -> field 0 for C.
+                                            } else if self.callee_is_extern(&resolved_fn_key) {
+                                                // B-13 (2026-10-11, m272 gate):
+                                                // env-valued fn param/local
+                                                // exiting to a C fn-typed param
+                                                // hands over field 0; internal
+                                                // XIOM callees keep the env.
                                                 coerced = self.unwrap_fn_env_for_c(ae, coerced);
                                             }
                                         }
@@ -5909,9 +5931,12 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                 if !ref_name.is_empty() {
                                                     coerced = self.wrap_fn_ref_env(&ref_name, &coerced, &ret_xiom, ref_params);
                                                 }
-                                            } else {
-                                                // B-13 (2026-10-11): env-valued fn
-                                                // param/local -> field 0 for C.
+                                            } else if self.callee_is_extern(&resolved_fn_key) {
+                                                // B-13 (2026-10-11, m272 gate):
+                                                // env-valued fn param/local
+                                                // exiting to a C fn-typed param
+                                                // hands over field 0; internal
+                                                // XIOM callees keep the env.
                                                 coerced = self.unwrap_fn_env_for_c(ae, coerced);
                                             }
                                         }

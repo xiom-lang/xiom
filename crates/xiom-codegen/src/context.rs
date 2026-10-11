@@ -403,6 +403,14 @@ pub struct MonoContext {
     /// garbage). Keys cover the bare key, the leaf-qualified alias, and the
     /// module-qualified call key.
     pub fn_symbol_map: HashMap<String, String>,
+    /// m272 (fn-value ABI regression): names of `extern "C"` functions
+    /// declared in the program (bare registration name). The B-13 field-0
+    /// unwrap at call sites applies ONLY at the C boundary -- an internal
+    /// XIOM callee receives the closure ENV (round-11 B-007), so a
+    /// forwarded fn-typed param must keep its env pointer there
+    /// (unwrapping it handed the callee a code address it dereferenced as
+    /// an env -> 0xC0000005).
+    pub extern_fn_names: HashSet<String>,
 }
 
 // ============================================================================

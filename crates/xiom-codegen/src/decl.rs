@@ -792,7 +792,20 @@ impl IrEmitter {
                 .map(|(i, p)| (i, match &p.ty { Type::Fn(_, ret) => Self::type_from_ast(ret), _ => "Int".to_string() }))
                 .collect();
             if !fn_param_indices.is_empty() {
-                self.mono.fn_typed_params.insert(key.clone(), fn_param_indices);
+                self.mono.fn_typed_params.insert(key.clone(), fn_param_indices.clone());
+                // m272 (fn-value ABI regression, m81 class): m261's
+                // module-local precedence resolves a bare call to the
+                // MODULE-QUALIFIED key ("alpha.apply"), so the fn-typed-param
+                // table must carry that key too -- otherwise the B-007 wrap
+                // misses and a raw fn NAME is passed where the callee expects
+                // a closure env (`ptrtoint @alpha.is_even` -> the callee
+                // dereferences code as env -> 0xC0000005).
+                if fd.receiver.is_none() {
+                    if let Some(ref module) = self.local.current_module {
+                        let qualified = format!("{module}.{key}");
+                        self.mono.fn_typed_params.entry(qualified).or_insert(fn_param_indices);
+                    }
+                }
             }
             // Injected stdlib free fns arrive leaf-qualified ("array.contains")
             // because the driver merge drops TopDecl::Module wrappers. Register a
@@ -936,6 +949,12 @@ impl IrEmitter {
                     .map(|t| self.extern_type_to_llvm(t))
                     .unwrap_or_else(|| "void".to_string());
                 self.types.functions.insert(fd.name.name.clone(), (param_types, ret_type));
+                // m272 (fn-value ABI regression): remember the extern-ness so
+                // the call-site B-13 field-0 unwrap fires ONLY at the C
+                // boundary. Applying it to internal XIOM callees (which take
+                // closure ENVs, round-11 B-007) handed them a code address
+                // they dereferenced as an env -> 0xC0000005 (m48/m49 class).
+                self.mono.extern_fn_names.insert(fd.name.name.clone());
                 // B-13 (2026-10-11): register fn-typed extern params so the
                 // call-site B-007 machinery fires for extern callees exactly
                 // like XIOM fns -- bare fn-NAME args wrap into an env; an

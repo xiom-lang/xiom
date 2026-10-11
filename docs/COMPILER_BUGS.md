@@ -15357,6 +15357,42 @@ shape green. IR witness: `fptrunc double 7.0 to float` at the A store site,
 `e2e_m271_f32_slot_store` + `tests/regression/m271_f32_slot_store/`
 (fails Some(4) pre-fix; ci.yml e2e list).
 
+---
+
+## 2026-10-11 -- FIXED (m272): fn-value ABI regressions -- C-only env unwrap gate + module-qualified fn-typed keys (m35/m37/m48/m49/m81 class)
+
+The full release-gate e2e run surfaced six runtime access violations in
+long-standing tests outside the CI list. Two root causes, both regressions
+carried by the v0.64.4 stack:
+
+1) B-13 (fde5548e) applied the C-boundary `unwrap_fn_env_for_c` at the
+   SHARED internal/extern call-marshaling sites. A fn-typed param forwarded
+   to another INTERNAL XIOM callee receives a closure ENV (round-11 B-007),
+   so stripping it to field 0 handed the callee a code address it
+   dereferenced as an env (0xC0000005). Hit m35_z07/z23,
+   m37_bug47_ref_params_leak, m48_writeback_aggregates,
+   m49_fnfloat_constarrays.
+2) m261 (677d65a7) resolves bare calls to the MODULE-QUALIFIED key
+   ("alpha.apply") while `mono.fn_typed_params` registered only the bare
+   key: the B-007 wrap missed and `apply(is_even, 3)` passed a RAW code
+   address (`ptrtoint @alpha.is_even`) where the callee expected an env.
+   Hit m81_fn_ref_same_leaf (AV inside apply on the first call).
+
+FIX:
+- `mono.extern_fn_names` populated at extern registration; the four
+  call-site unwraps are gated by `callee_is_extern` -- field 0 is handed
+  over ONLY at the C boundary, internal callees keep the env.
+- `fn_typed_params` registers the module-qualified key alongside the bare
+  key for free fns, so resolution and the wrap table agree.
+
+EVIDENCE: pre-fix the six programs exit 0xC0000005; post-fix all green --
+m81 now emits a `__fnwrap` env per module (alpha wraps alpha.is_even,
+beta wraps beta.is_even) instead of raw ptrtoint. The m263 C-boundary CLI
+lock (`ffi_fnptr_abi`) stays green, as do the batch's m264/m265/m130/m131
+locks. LOCKS: the six tests are now in the ci.yml e2e list; the m81 and
+m272 fixes are independent (each fixes a disjoint subset).
+
+
 
 
 
