@@ -10,7 +10,9 @@ path (and, where useful, the line) in commit messages and bus notes.
 - Location: `E:\repos\rust`
 - Commit: `7211ea594cbf137ef6118b1752b959dea7cb9088` (2026-10-11, "Auto merge
   of #164132"), cloned with `--depth 1 --filter=blob:none --sparse`.
-- Materialized: `compiler/` -- all 80 `rustc_*` crates (~34 MB of source).
+- Materialized: `compiler/` -- all 80 `rustc_*` crates (~34 MB of source) --
+  plus `src/bootstrap` and `src/tools/compiletest` (for the selfhost/infra
+  study).
 - Extend the sparse set on demand (blobs fetch lazily over the network):
   - `git -C E:\repos\rust sparse-checkout add tests/ui` (golden diagnostic tests)
   - `git -C E:\repos\rust sparse-checkout add src/tools/compiletest`
