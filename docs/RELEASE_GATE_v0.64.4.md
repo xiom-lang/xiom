@@ -2,10 +2,10 @@
 
 Six-batch correctness release + release-gate regression fixes. Scope:
 m254-m271 (resolver/isolation, fn-value ABI, imports/patterns, home/paths,
-pulse startup AV, Float32 slot stores) + m272/m273 (fn-value ABI
-regressions found by this gate's full-suite run; m219 lock update). Pin:
-moves to `stdlib-v0.64.4` at the pin commit (pending the stdlib tag per
-REL-20261011-1812-compiler).
+pulse startup AV, Float32 slot stores) + m272-m274 (fn-value ABI
+regressions found by this gate's full-suite run and the wave-2 bindings
+verdicts; m273 lock update). Pin: moves to `stdlib-v0.64.4` at the pin
+commit (pending the stdlib tag per REL-20261011-1812-compiler).
 
 ## Preconditions (before the tag)
 
@@ -33,6 +33,14 @@ State: `c44d9fae` (m273). All runs WITHOUT `XIOM_STDLIB` (vendored tree).
       m49_fnfloat_constarrays, m81_fn_ref_same_leaf; all exit 0xC0000005);
       fixed by `m272` (`745ff47e`, see docs/COMPILER_BUGS.md) and re-run
       clean.
+- [x] full e2e RE-RUN at `b873c6d6` (after the wave-2 `m274` B-18 wrap
+      gate): 2480 passed / 0 failed / 4 ignored (890 s). Post-m274 re-runs:
+      feature-reg 549/549; stdlib_tests 40/40 + stdlib_execution 85/85
+      (+2 ignored) + api_freeze 2/2; checker 199/199; parser 108/108;
+      locks 2/32/2/4/1/8; verify 9+37; graph 36; codegen 12;
+      release-notes 6; pkg 79; `cargo check --workspace --all-targets`
+      clean; encoding guard clean; nine-tool release build + v0.64.4
+      reports (unchanged by m274).
 - [x] feature-reg 549/549 (`m273`, `c44d9fae`, updates the m219 IR-shape
       lock to the m263 fn-pointer spelling `i64 ()**` + bitcast; runtime
       unchanged, e2e m219 green before and after).
@@ -63,6 +71,17 @@ State: `c44d9fae` (m273). All runs WITHOUT `XIOM_STDLIB` (vendored tree).
   envs), and m261's module-qualified keys missed the fn-typed param table
   (m81). Both fixed in `m272`; the six tests are now in the ci.yml e2e
   list. `m273` updates the m219 IR-shape lock.
+- Release-gate round 2 (wave-2 bindings verdicts on fde5548e): `m274`
+  (`b873c6d6`) fixes B-18 -- the call-site B-007 WRAP paths now hand an
+  extern callee the bare fn name's raw code address (pre-m274 the wrap
+  passed a closure env; C executed the heap data, the unsafe-block
+  trampoline caught the fault and the enclosing fn returned 0 silently).
+  B-19 resolved `wontfix` as NOT a compiler regression: the sdl3 package
+  declares SDL_WasInit (a `Uint32`-returning C fn) as `fn(Int) -> UInt8`;
+  m263 honors declared return widths, so the i8 read truncates 16384
+  (0x4000) to 0. Same build with `fn(Int) -> UInt32` prints the v0.64.3
+  contract (`elapsed=100 init=1 w_all=16384`); one-line package-side fix
+  suggested to bindings. No open v0.64.4 regressions remain known.
 - The v0.64.3 m247/m250/m251 gaps remain open (unchanged; not part of this
   scope).
 - m247-m262 are already on origin; `b1ee2f4f..c44d9fae` (+ this record)

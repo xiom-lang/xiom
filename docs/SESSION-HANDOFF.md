@@ -37,12 +37,18 @@ later commits are staged for the doorbell push -- NEVER push yourself):
   C-boundary-only `callee_is_extern` unwrap gate + module-qualified
   `fn_typed_params` keys; locks = the six tests added to ci.yml.
 - `c44d9fae` m273: m219 IR-shape lock follows the m263 `i64 ()**` spelling.
+- `b873c6d6` m274: B-18 fix (bare fn NAME to an extern fn-typed param
+  passes the raw code address; the four call-site wrap paths are gated by
+  `callee_is_extern`); m263 CLI lock gained the bare-name arm. B-19
+  resolved `wontfix` -- package-side `UInt8` vs `Uint32` declaration for
+  SDL_WasInit (see COMPILER_BUGS m274; probe/package evidence).
 - this commit: `docs/RELEASE_GATE_v0.64.4.md` + this handoff refresh.
 
-Local vs origin at this docs commit: ahead 11 (`fde5548e`..HEAD); the
-release wave is staged for the doorbell push. The full Gate A battery is
-recorded in `docs/RELEASE_GATE_v0.64.4.md` (2480 e2e / 0 failed, all
-suites green; `diff_check` red is the pre-existing selfhost parity drift).
+Local vs origin at this docs commit: ahead 13 (`fde5548e`..HEAD); the
+release wave is staged for the doorbell push. Wave verdicts so far: pulse
+1854/2122 + 0317 verified/closed; bindings B-13/1904/B-14/B-15 verified
+fixed, B-18 fixed (m274), B-19 wontfix (package-side); no open v0.64.4
+regressions remain known. Gate record: `docs/RELEASE_GATE_v0.64.4.md`.
 
 ## 1b. Release wave state (next actions)
 
@@ -156,7 +162,7 @@ until the stdlib tag lands; then the pin commit (section 1b).
 
 ## 7. m-numbering
 
-- m261-m273 LANDED; **next free is m274**.
+- m261-m274 LANDED; **next free is m275**.
 
 ## 8. CONTINUATION PROMPT (paste into a fresh session)
 
