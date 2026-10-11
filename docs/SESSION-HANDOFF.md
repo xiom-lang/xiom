@@ -42,14 +42,19 @@ later commits are staged for the doorbell push -- NEVER push yourself):
   `callee_is_extern`); m263 CLI lock gained the bare-name arm. B-19
   resolved `wontfix` -- package-side `UInt8` vs `Uint32` declaration for
   SDL_WasInit (see COMPILER_BUGS m274; probe/package evidence).
+- `4c42fc0a` m275: stdlib wave-regression fix (REL-20261011-2045-stdlib):
+  the As-cast env unwrap now requires the compiled value to be the i64 env
+  slot, so a fn-typed param name leaked into closure_locals can no longer
+  hijack a float's cast (`Float32.to_float(v) { return v as Float64; }`);
+  collision lock added to the m263 CLI fixture. Pushed.
 - this commit: `docs/RELEASE_GATE_v0.64.4.md` + this handoff refresh.
 
-Local vs origin: ahead 0 -- the PUSH LANDED 2026-10-11T20:21Z
-(owner-authorized): origin/main = `87c6ca3c` (m254-m274). Wave verdicts so
-far: pulse 1854/2122 + 0317 verified/closed; bindings B-13/1904/B-14/B-15
-verified fixed, B-18 fixed (m274), B-19 wontfix (package-side); no open
-v0.64.4 regressions remain known. Gate record:
-`docs/RELEASE_GATE_v0.64.4.md`.
+Local vs origin: ahead 0 -- pushed twice (owner-authorized): 20:21Z
+`87c6ca3c` (m254-m274) and 21:10Z `4c42fc0a` (m275). Wave verdicts:
+pulse 1854/2122 + 0317 verified/closed; bindings B-13/1904/B-14/B-15
+verified fixed, B-18 fixed (m274), B-19 wontfix (package-side); stdlib
+wave regression 2045 fixed (m275); no open v0.64.4 regressions remain
+known. Gate record: `docs/RELEASE_GATE_v0.64.4.md`.
 
 ## 1b. Release wave state (next actions)
 
@@ -164,7 +169,7 @@ until the stdlib tag lands; then the pin commit (section 1b).
 
 ## 7. m-numbering
 
-- m261-m274 LANDED; **next free is m275**.
+- m261-m275 LANDED; **next free is m276**.
 
 ## 8. CONTINUATION PROMPT (paste into a fresh session)
 

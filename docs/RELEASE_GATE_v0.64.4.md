@@ -2,10 +2,11 @@
 
 Six-batch correctness release + release-gate regression fixes. Scope:
 m254-m271 (resolver/isolation, fn-value ABI, imports/patterns, home/paths,
-pulse startup AV, Float32 slot stores) + m272-m274 (fn-value ABI
-regressions found by this gate's full-suite run and the wave-2 bindings
-verdicts; m273 lock update). Pin: moves to `stdlib-v0.64.4` at the pin
-commit (pending the stdlib tag per REL-20261011-1812-compiler).
+pulse startup AV, Float32 slot stores) + m272-m275 (fn-value ABI
+regressions found by this gate's full-suite run, the wave-2 bindings
+verdicts, and the stdlib archive-battery bounce; m273 lock update). Pin:
+moves to `stdlib-v0.64.4` at the pin commit (pending the stdlib tag per
+REL-20261011-1812-compiler).
 
 ## Preconditions (before the tag)
 
@@ -41,6 +42,13 @@ State: `c44d9fae` (m273). All runs WITHOUT `XIOM_STDLIB` (vendored tree).
       release-notes 6; pkg 79; `cargo check --workspace --all-targets`
       clean; encoding guard clean; nine-tool release build + v0.64.4
       reports (unchanged by m274).
+- [x] full e2e RE-RUN at `4c42fc0a` (after the wave-3 `m275` As-cast env
+      gate): 2480 passed / 0 failed / 4 ignored (1051 s); feature-reg
+      549/549 (477 s); stdlib_tests 40/40 + stdlib_execution 85/85
+      (+2 ignored) + api_freeze 2/2. The stdlib repros gt_coop / trim_d /
+      p_wave102_shapes / p_wave91_shapes all rc 0; `ffi_fnptr_abi` + the
+      12-lock e2e set green (the m263 fixture now carries the collision
+      arm).
 - [x] feature-reg 549/549 (`m273`, `c44d9fae`, updates the m219 IR-shape
       lock to the m263 fn-pointer spelling `i64 ()**` + bitcast; runtime
       unchanged, e2e m219 green before and after).
@@ -81,7 +89,21 @@ State: `c44d9fae` (m273). All runs WITHOUT `XIOM_STDLIB` (vendored tree).
   m263 honors declared return widths, so the i8 read truncates 16384
   (0x4000) to 0. Same build with `fn(Int) -> UInt32` prints the v0.64.3
   contract (`elapsed=100 init=1 w_all=16384`); one-line package-side fix
-  suggested to bindings. No open v0.64.4 regressions remain known.
+  suggested to bindings.
+
+- Release-gate round 3 (stdlib archive battery, 2026-10-11T20:45Z):
+  the v0.64.4 dry-run archive battery bounced one wave regression
+  (REL-20261011-2045-stdlib): any cross-module call passing a fn value to
+  a module fn with a fn-typed param (game_theory, fuzzy, bench) died at
+  clang with `inttoptr i64` on a `float` (corpus 953/954, probes 286/288).
+  Root cause: m263's As-cast env unwrap keyed on the name-leaked
+  `closure_locals` (`cooperative_game(v: fn(...))` vs
+  `Float32.to_float(v)`). Fixed `m275` (`4c42fc0a`): the unwrap requires
+  the i64 env slot type. gt_coop/trim_d/p_wave102/p_wave91 all rc 0
+  post-fix; collision lock in the m263 CLI fixture. Pushed; stdlib
+  re-runs the corpus on the refreshed archive and tags on green (954/954
+  + 288/288 expected).
+- No open v0.64.4 regressions remain known.
 - The v0.64.3 m247/m250/m251 gaps remain open (unchanged; not part of this
   scope).
 - m247-m262 are already on origin; `b1ee2f4f..c44d9fae` (+ this record)
