@@ -15392,6 +15392,47 @@ lock (`ffi_fnptr_abi`) stays green, as do the batch's m264/m265/m130/m131
 locks. LOCKS: the six tests are now in the ci.yml e2e list; the m81 and
 m272 fixes are independent (each fixes a disjoint subset).
 
+---
+
+## 2026-10-11 -- FIXED (m274): bare fn NAME to an extern fn-typed param must pass the code address (B-18, REL-20261011-1549-bindings-2)
+
+fde5548e's B-13 machinery registered fn-typed EXTERN params so the call-site
+wrap/unwrap runs for C callees like for XIOM fns -- but it wrapped a BARE
+top-level fn NAME argument into a closure ENV. C calls the value as a
+function: it executed the heap env's data, the unsafe-block trampoline
+caught the fault, and the ENCLOSING function returned early with 0 --
+silently (probe8_name_fnparam.xi: `after=42`, `callee-after=42` and
+`main-after r=7` never printed; main returned 0, exit 0). This was the one
+pre-fix-working name shape (it had been the B-13 control).
+
+FIX (call.rs): the four call-site WRAP paths are now gated by
+`callee_is_extern` -- an extern callee receives the bare name's raw code
+address (exactly what C calls); internal XIOM callees still get the closure
+ENV wrap. The m272 unwrap gate is unchanged (env-valued args still hand
+over field 0 at C boundaries).
+
+EVIDENCE: probe8 pre -> `before` / `main-before` / `callee-before` /
+`main-after r=0`; post -> full expected output (`after=42`,
+`callee-after=42`, `main-after r=7`). probe3 `fnparam=42` and probe6
+`reg_double=42 reg_triple=63` restored; every B-13 shape (probe2
+`relay=42`; probe4 42/42/42; probe5 42/42/42) stays green. LOCK: the m263
+CLI fixture (`tests/regression/m263_fn_value_c_abi/`) gained the bare-name
+arm (`xt_cb_int(cb_double, 21)`), exercised by `ffi_fnptr_abi` with the
+real C host; the m272 six + m81 + m130/m131/m264/m265 + m271 e2e locks
+stay green.
+
+B-19 (same source commit; REL-20261011-1549-bindings-3) is NOT a compiler
+regression: SDL_Init receives its arg (`call i8 %f(i64 16385)`; init=1),
+and the "initializes nothing" reading comes from the package declaring
+SDL_WasInit -- a `Uint32`-returning C function -- as `fn(Int) -> UInt8`
+(`sdl3.xi` sdl3_was_init). v0.64.3 ignored the declared return width (read
+rax); m263 honors real signatures, so the i8 return reads al: 16384
+(0x4000) truncates to 0. Same build, `fn(Int) -> UInt32` instead:
+`elapsed=100 init=1 w_all=16384` (the v0.64.3 contract). One-line
+package-side fix; the compiler keeps honoring declared signatures (the
+1904 Float64-register fix depends on it).
+
+
 
 
 

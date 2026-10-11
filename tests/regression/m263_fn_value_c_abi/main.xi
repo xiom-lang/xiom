@@ -63,6 +63,14 @@ fn relay_cast(f: fn(Int32) -> Int32) -> Int
 
 fn main() -> Int {
   unsafe {
+    // B-18 (m274): a BARE top-level fn NAME handed to an extern fn-typed
+    // param must pass the raw code address C calls -- NOT be wrapped into a
+    // closure env. Pre-m274 the wrap handed C a heap env; C called it as
+    // code, the unsafe-block trampoline caught the fault and the enclosing
+    // function returned 0 early (probe8_name_fnparam.xi).
+    if xt_cb_int(cb_double, 21) as Int != 42 {
+      return 6;
+    }
     if relay(cb_double) != 42 {
       return 1;
     }

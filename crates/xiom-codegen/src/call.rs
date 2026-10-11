@@ -5388,12 +5388,20 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                 // pointer as a code pointer).
                                                 && !self.local.closure_locals.contains(&id.name));
                                         if is_fn_ref {
-                                            let (ref_name, ref_params) = match ae {
-                                                Expr::Ident(id) => self.resolve_fn_ref_arg(id),
-                                                _ => (String::new(), Vec::new()),
-                                            };
-                                            if !ref_name.is_empty() {
-                                                coerced = self.wrap_fn_ref_env(&ref_name, &coerced, &ret_xiom, ref_params);
+                                            // m274 (B-18): an EXTERN callee
+                                            // needs the raw code address C
+                                            // calls; the bare name already
+                                            // compiled to exactly that. Only
+                                            // internal XIOM callees take
+                                            // closure ENVs -> wrap for those.
+                                            if !self.callee_is_extern(&fn_name) {
+                                                let (ref_name, ref_params) = match ae {
+                                                    Expr::Ident(id) => self.resolve_fn_ref_arg(id),
+                                                    _ => (String::new(), Vec::new()),
+                                                };
+                                                if !ref_name.is_empty() {
+                                                    coerced = self.wrap_fn_ref_env(&ref_name, &coerced, &ret_xiom, ref_params);
+                                                }
                                             }
                                         } else if self.callee_is_extern(&fn_name) {
                                             // B-13 (2026-10-11, m272 gate):
@@ -5755,12 +5763,20 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                     || self.types.functions.keys().into_iter().any(|k| k.ends_with(&format!(".{}", id.name)))
                                                     || self.mono.emitted_fns.contains(&id.name));
                                             if is_fn_ref {
-                                                let (ref_name, ref_params) = match ae {
-                                                    Expr::Ident(id) => self.resolve_fn_ref_arg(id),
-                                                    _ => (String::new(), Vec::new()),
-                                                };
-                                                if !ref_name.is_empty() {
-                                                    coerced = self.wrap_fn_ref_env(&ref_name, &coerced, &ret_xiom, ref_params);
+                                                // m274 (B-18): an EXTERN callee
+                                                // needs the raw code address C
+                                                // calls; the bare name already
+                                                // compiled to exactly that.
+                                                // Internal XIOM callees take
+                                                // closure ENVs -> wrap.
+                                                if !self.callee_is_extern(&resolved_fn_key) {
+                                                    let (ref_name, ref_params) = match ae {
+                                                        Expr::Ident(id) => self.resolve_fn_ref_arg(id),
+                                                        _ => (String::new(), Vec::new()),
+                                                    };
+                                                    if !ref_name.is_empty() {
+                                                        coerced = self.wrap_fn_ref_env(&ref_name, &coerced, &ret_xiom, ref_params);
+                                                    }
                                                 }
                                             } else if self.callee_is_extern(&resolved_fn_key) {
                                                 // B-13 (2026-10-11, m272 gate):
@@ -5806,12 +5822,20 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                     || self.types.functions.keys().into_iter().any(|k| k.ends_with(&format!(".{}", id.name)))
                                                     || self.mono.emitted_fns.contains(&id.name));
                                             if is_fn_ref {
-                                                let (ref_name, ref_params) = match ae {
-                                                    Expr::Ident(id) => self.resolve_fn_ref_arg(id),
-                                                    _ => (String::new(), Vec::new()),
-                                                };
-                                                if !ref_name.is_empty() {
-                                                    coerced = self.wrap_fn_ref_env(&ref_name, &coerced, &ret_xiom, ref_params);
+                                                // m274 (B-18): an EXTERN callee
+                                                // needs the raw code address C
+                                                // calls; the bare name already
+                                                // compiled to exactly that.
+                                                // Internal XIOM callees take
+                                                // closure ENVs -> wrap.
+                                                if !self.callee_is_extern(&resolved_fn_key) {
+                                                    let (ref_name, ref_params) = match ae {
+                                                        Expr::Ident(id) => self.resolve_fn_ref_arg(id),
+                                                        _ => (String::new(), Vec::new()),
+                                                    };
+                                                    if !ref_name.is_empty() {
+                                                        coerced = self.wrap_fn_ref_env(&ref_name, &coerced, &ret_xiom, ref_params);
+                                                    }
                                                 }
                                             } else if self.callee_is_extern(&resolved_fn_key) {
                                                 // B-13 (2026-10-11, m272 gate):
@@ -5924,12 +5948,20 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                 // pointer as a code pointer).
                                                 && !self.local.closure_locals.contains(&id.name));
                                             if is_fn_ref {
-                                                let (ref_name, ref_params) = match ae {
-                                                    Expr::Ident(id) => self.resolve_fn_ref_arg(id),
-                                                    _ => (String::new(), Vec::new()),
-                                                };
-                                                if !ref_name.is_empty() {
-                                                    coerced = self.wrap_fn_ref_env(&ref_name, &coerced, &ret_xiom, ref_params);
+                                                // m274 (B-18): an EXTERN callee
+                                                // needs the raw code address C
+                                                // calls; the bare name already
+                                                // compiled to exactly that.
+                                                // Internal XIOM callees take
+                                                // closure ENVs -> wrap.
+                                                if !self.callee_is_extern(&resolved_fn_key) {
+                                                    let (ref_name, ref_params) = match ae {
+                                                        Expr::Ident(id) => self.resolve_fn_ref_arg(id),
+                                                        _ => (String::new(), Vec::new()),
+                                                    };
+                                                    if !ref_name.is_empty() {
+                                                        coerced = self.wrap_fn_ref_env(&ref_name, &coerced, &ret_xiom, ref_params);
+                                                    }
                                                 }
                                             } else if self.callee_is_extern(&resolved_fn_key) {
                                                 // B-13 (2026-10-11, m272 gate):
