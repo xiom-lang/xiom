@@ -5,21 +5,24 @@ m254-m271 (resolver/isolation, fn-value ABI, imports/patterns, home/paths,
 pulse startup AV, Float32 slot stores) + m272-m275 (fn-value ABI
 regressions found by this gate's full-suite run, the wave-2 bindings
 verdicts, and the stdlib archive-battery bounce; m273 lock update). Pin:
-moves to `stdlib-v0.64.4` at the pin commit (pending the stdlib tag per
-REL-20261011-1812-compiler).
+`stdlib-v0.64.4` (commit `3df0843`; stdlib witness + full battery green on
+the refreshed archive, run 38177738188 -- REL-20261011-1812-compiler
+filed fixed at 22:11Z).
 
 ## Preconditions (before the tag)
 
 - [x] Workspace version 0.64.4 (`Cargo.toml`) and `selfhost/src/codegen.xi`
       `SELFHOST_VERSION` = 0.64.4 (`b1ee2f4f`).
-- [ ] `STDLIB_VERSION` = <stdlib-v0.64.4 ref>; repo-local `stdlib/`
-      refreshed to that ref; stdlib suites green on it. Pending: the stdlib
-      lane runs the wave-106 metro revert on the new archive, lands it,
-      re-verifies the numeric witnesses, then tags.
-- [ ] `release-notes/v0.64.4.json` committed; convert+verify green. Dry run
-      against the stdlib main fragment: 6 highlights (4 compiler + 2
-      stdlib), 0 breaking, 2 docs. The JSON is generated at the pin from a
-      clean checkout of the tag ref.
+- [x] `STDLIB_VERSION` = `3df0843b2c384f9768867d96cfd4a611bed3034b`
+      (stdlib-v0.64.4); repo-local `stdlib/` refreshed to that ref (a
+      worktree pinned at the tag). Stdlib evidence: witness green on the
+      v0.64.4 archive from the 87c6ca3c push, metro revert landed
+      (`4e8b696`), m275 verified on the refreshed archive (run
+      38177738188): corpus 954/954, probes 288/288, modules 509/509,
+      barename 0/509, ratchets OK.
+- [x] `release-notes/v0.64.4.json` committed; convert+verify green from the
+      clean tag checkout: 6 highlights (4 compiler + 2 stdlib), 0
+      breaking, 2 docs.
 - [x] VSIX: toolchain-only release -- `editors/vscode/package.json` stays
       0.12.2 (marketplace publish skips cleanly); README pin text ->
       v0.64.4 (`b1ee2f4f`).
@@ -111,6 +114,8 @@ State: `c44d9fae` (m273). All runs WITHOUT `XIOM_STDLIB` (vendored tree).
 
 ## Gate D -- tag + publish
 
-- [ ] pending: pin commit (STDLIB_VERSION + vendored refresh + notes JSON)
-      -> doorbell push -> tag v0.64.4 on the release commit -> release run
-      -> assets + notes live.
+- [x] pin commit (`STDLIB_VERSION` + vendored refresh + notes JSON + this
+      record) -> pushed to origin main (`4c42fc0a..<pin>`).
+- [ ] tag `v0.64.4` on the pin commit -> `git push origin v0.64.4` ->
+      release run -> assets + notes live; then this record completes with
+      the run id and asset list.
