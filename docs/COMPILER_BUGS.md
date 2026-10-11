@@ -15025,7 +15025,7 @@ Continue from `repro_enum_tuple.xi` in the orbitdb bundle.
 
 ---
 
-## 2026-10-10 -- OPEN (diagnosed): pulse site-mode test dies at startup on the v0.64.3 program side (REL-20261010-1854-pulse)
+## 2026-10-10 -- FIXED (m270, 2026-10-11): pulse site-mode startup AV -- bare-call hijack of a module-local struct-returning helper (REL-20261010-1854-pulse, REL-20261010-2122-pulse)
 
 Symptom: `xiom --run tests/test_app.xi` on xiom-pulse feat/site-mode @
 51760b1 compiles, then the PROGRAM dies with AV 0xC0000005 (exit
@@ -15062,6 +15062,35 @@ NEXT: root-cause the two malformed TLS accesses and the emission cascade
 (compare emitted IR green vs crashing around the guard emission; why an
 unused fn adds ~1.6 MB and yields TLS-offset-as-address loads at scale).
 Pulse reverted main; work preserved at feat/site-mode 51760b1.
+
+ROOT CAUSE (m270, found while verifying the batch program; the fix itself
+landed in m261/677d65a7):
+- Bisect on the pinned stdlib: pre-batch main (d6dcce63) dies with
+  0xC0000005; 677d65a7 onward is green; toggling ONLY m261's
+  `resolve_caller_module_def` off re-breaks it, toggling m262 off does not.
+- The one semantic IR difference (helpers suite, `--emit-ir` off vs on):
+    off: `%tmp780 = call i8* @out_text(i64 200, i8* %tmp779)`
+         `%tmp781 = load %struct.HandlerOut, i8* %tmp780`
+    on : `%tmp780 = call %struct.HandlerOut @pulse.app.out_text(i64 200, i8* %tmp779)`
+  The pre-m261 BARE slot bound `pulse.app.handle_route`'s call to its own
+  struct-returning `out_text` to a foreign same-named Str-returning
+  `out_text`: the struct was passed as `i64 200`, the result loaded from
+  `i8*` as `%struct.HandlerOut`. clang lowered that type-mismatched call
+  into the startup AV (the "malformed TLS-offset loads" were downstream
+  symptoms of this emission, not an independent TLS bug).
+- The perceived emission cascade does not reproduce in the current era:
+  helper vs control debug exes are both ~1.96 MB (1,963,008 vs 1,962,496;
+  pre-fix 1,963,520), and the two IRs are 148,376 vs 148,375 lines -- one
+  line differs, the call+load pair above.
+
+RESOLUTION EVIDENCE: fresh-tree runs of the archived pulse suite
+(`git archive 01dcd1b` + the unused helper) are GREEN on current main and
+AV on d6dcce63, with the SAME tree (no a.exe) and the pinned stdlib. NOTE
+for pulse: an `a.exe` left in the tree by a crashed run makes 8
+resource-serving tests fail on ANY compiler (their own run.ps1 deletes it);
+fresh extracts are clean. LOCK: e2e_m270_struct_return_local_call +
+tests/regression/m270_struct_return_local_call/ (fails with m261 off:
+struct round-trip returns wrong code; green with it on).
 
 ---
 

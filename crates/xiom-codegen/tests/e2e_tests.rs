@@ -6474,6 +6474,19 @@ fn e2e_safety_probe() {
     );
 }
 
+// m270 (REL-20261010-1854-pulse, site-mode AV root cause): a module's OWN
+// struct-returning helper called unqualified from the same module must bind
+// the module's definition -- with a foreign same-named Str fn present, the
+// pre-m261 bare slot hijacked the call (`call i8* @out_text` + struct load
+// from i8*), the class that crashed pulse at startup.
+#[test] fn e2e_m270_struct_return_local_call() {
+    assert_eq!(
+        compile_and_run("tests/regression/m270_struct_return_local_call/main.xi"),
+        Some(0),
+        "module-local struct-returning call must bind the caller module (m270)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

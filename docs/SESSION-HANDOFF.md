@@ -77,7 +77,7 @@ metrohash64(empty,0) == 1424585646250073642, wrong today
 - Ops rule (replayed from REL-20261011-1134-ops): shared toolchain homes
   are read-only; no destructive install/uninstall tests; announce any
   destructive window to: all first.
-- m-numbering: m261-m269 LANDED (2026-10-11, batch 1-4 commits); next free is **m270**.
+- m-numbering: m261-m270 LANDED (2026-10-11, batch 1-5 commits); next free is **m271**.
 
 ## 5. CONTINUATION PROMPT (paste into a fresh session)
 
