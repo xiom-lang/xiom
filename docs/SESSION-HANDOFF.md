@@ -44,17 +44,19 @@ later commits are staged for the doorbell push -- NEVER push yourself):
   SDL_WasInit (see COMPILER_BUGS m274; probe/package evidence).
 - this commit: `docs/RELEASE_GATE_v0.64.4.md` + this handoff refresh.
 
-Local vs origin at this docs commit: ahead 13 (`fde5548e`..HEAD); the
-release wave is staged for the doorbell push. Wave verdicts so far: pulse
-1854/2122 + 0317 verified/closed; bindings B-13/1904/B-14/B-15 verified
-fixed, B-18 fixed (m274), B-19 wontfix (package-side); no open v0.64.4
-regressions remain known. Gate record: `docs/RELEASE_GATE_v0.64.4.md`.
+Local vs origin: ahead 0 -- the PUSH LANDED 2026-10-11T20:21Z
+(owner-authorized): origin/main = `87c6ca3c` (m254-m274). Wave verdicts so
+far: pulse 1854/2122 + 0317 verified/closed; bindings B-13/1904/B-14/B-15
+verified fixed, B-18 fixed (m274), B-19 wontfix (package-side); no open
+v0.64.4 regressions remain known. Gate record:
+`docs/RELEASE_GATE_v0.64.4.md`.
 
 ## 1b. Release wave state (next actions)
 
-- PIN PENDING: stdlib owns the wave-106 revert on the new archive + the
-  `stdlib-v0.64.4` tag (decision filed: REL-20261011-1812-compiler; relay
-  `d940720`). When their tag + ref land:
+- PIN PENDING: the push is DONE (origin = `87c6ca3c`); stdlib is cleared
+  (REL-20261011-2014-stdlib filed fixed) to run the wave-106 revert on the
+  new archive + tag `stdlib-v0.64.4` (decision: REL-20261011-1812-compiler;
+  relay `d940720`). When their tag + ref land:
   1) vendor refresh: re-point `E:\xiom-lang\xiom\stdlib` at the tag (the
      current dir is an untracked pinned checkout; gitignored);
   2) `STDLIB_VERSION` -> the tag ref;
