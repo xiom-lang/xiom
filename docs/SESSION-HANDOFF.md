@@ -8,10 +8,10 @@ fresh session. Read this FIRST, then `docs/RUSTC-STUDY.md` + the relevant
 (sparse blob-less clone @ `7211ea594`; READ-ONLY -- never run git writes
 there; non-materialized files via `git show HEAD:<path>`).
 
-## 1. Status: batches 1-5 CLOSED, batch 6 remaining
+## 1. Status: all six batches LANDED (m261-m271); verdicts pending
 
 Landed (local main; origin/main = `677d65a7` after the doorbell push; the
-four later commits are staged for the next-batch push -- NEVER push yourself):
+six later commits are staged for the next-batch push -- NEVER push yourself):
 
 - `677d65a7` m261/m262 module-local call precedence + module-private const
   identity. Closes REL-20261011-1124-orbitdb, REL-20261011-1052-stdlib.
@@ -27,21 +27,30 @@ four later commits are staged for the next-batch push -- NEVER push yourself):
 - `0219c5e3` m270 pulse site-mode AV root-caused to the m261-class bare-call
   hijack of a module-local struct-returning helper; lock e2e m270 + fixture;
   the 1854 COMPILER_BUGS section flipped to FIXED. Closes 1854 + 2122-pulse.
+- `f69b542e` m271 float Vec slot stores narrow numeric sources (XVC-C-15):
+  closes REL-20261011-1134-xvector. Lock e2e m271 + fixture; IR witness
+  (fptrunc/sitofp); relay item filed `fixed`, release-check row appended.
 
-Local vs origin at checkpoint: ahead 4 (`fde5548e`..`0219c5e3`).
+Local vs origin at the m271 checkpoint: ahead 6 (`fde5548e`..`f69b542e`);
+the docs commit carrying this line rides on top.
 
-## 2. Batch 6 (LAST) -- FLOAT32 SLOT STORES
+## 2. Batch 6 (LAST) -- FLOAT32 SLOT STORES -- DONE (m271)
 
-- Item: `REL-20261010-1134-xvector`; gate in `REL-20261011-1342-compiler`:
-  literal stores into `Vec[Float32]` slots must narrow (`a[1] = 7.0` stores
-  7.0f; `b[1] = 7` matches the `as Float32` control); the READ sibling was
-  fixed in m260.
-- Repro: xvector `docs/repro/xv-f32-slot-literal-write/probe.xi` (read it
-  first; the item body has the exact expectations/outputs).
-- Discipline: failing fixture first (`tests/regression/m271_f32_slot_store/`),
-  e2e fn + ci.yml list entry, fix in xiom-codegen, verify with section 5,
-  ONE commit (m271) + COMPILER_BUGS section, relay `fix` the item with
-  evidence.
+- Fix (`f69b542e`): `stmt.rs` Vec indexed/field store converts numeric
+  sources to the element float width before the bit-level elem store
+  (float sources via coerce_value -- fptrunc/fpext; Int via val_to_i64 +
+  sitofp); the same branch widens Int literal stores into Vec[Float64].
+- Witnesses: pre-fix exit 3 (A `a[1]=0`, B `b[1]=9.80908925027372e-45`,
+  E `e.data[1]=0`; C/F/G green) -> post-fix exit 0; IR `fptrunc double 7.0`
+  at the A site, `sitofp i64 7` at the B site. The xvector probe needs the
+  lane-local `Vector` type; the local-struct matrix reproduces the same
+  values (scratch recipe: `%TEMP%\kilo\m271\repro.xi`).
+- Lock: `e2e_m271_f32_slot_store` + `tests/regression/m271_f32_slot_store/`
+  (fails Some(4) pre-fix), ci.yml group 2.
+- Relay: `REL-20261011-1134-xvector` acked -> fixed with evidence; to-all
+  status item updated; release-check row `m271 | f69b542e` appended
+  (relay commits `a3e9508` + `6386301`). Remaining gate: reporters re-run
+  their probes at the archive and set `verified` or bounce.
 
 ## 3. Selfhost track (parallel)
 
@@ -57,48 +66,21 @@ Local vs origin at checkpoint: ahead 4 (`fde5548e`..`0219c5e3`).
   `docs/checklists/selfhost-phase6.md`, rebase onto the newest LOCAL main
   before full parity runs, sole writer, same commit/doc/relay discipline.
 
-## 4. RELEASE COORDINATION (was IN FLIGHT -- finish FIRST)
+## 4. RELEASE COORDINATION -- DONE
 
-The user asked to "update relay and coordinate with stdlib for the release".
-Steps prepared but NOT yet filed (body files at
-`%TEMP%\kilo\batch5\relay-status-body.txt` and `relay-stdlib-body.txt`; if
-gone, recreate from the text below):
+Filed and pushed from the relay clone (`E:\xiom-lang\xiom-relays`):
 
-1) File to ALL (kind info): "compiler: six-batch v0.64.4 status -- batches
-   1-5 closed (m261-m270); batch 6 in flight; stack staged" with the commit
-   list above + the ask that reporters re-verify their open v0.64.3
-   release-check rows at the next archive.
-2) File to STDLIB (kind info): "v0.64.4 release coordination" asking:
-   - PIN: publish the v0.64.4 stdlib candidate (tag/branch + sha) per the
-     candidate-tag pin protocol (REL-20261010-1559-stdlib); compiler sets
-     STDLIB_VERSION and re-runs convert/verify (v0.64.3 shipped with
-     ab894b47 -- same shape).
-   - FRAGMENT: draft release-notes/v0.64.4.md cleanly (v0.64.3 lesson: the
-     validator rejects markdown/HTML '>' and '&' in highlight text; '->'
-     trips it -- REL-20261010-1630/1658 are satisfied per the release-check
-     rows for 1652/1701 and safe for stdlib to close).
-   - WAVE-106 REVERT: m262 shipped -> metro.xi can return to the natural
-     `_K0.._K3` names; re-verify the numeric witness (metrohash64(empty,0)
-     == 1424585646250073642, farm64 == 0). The m262 fixture is
-     rename-proof and pins value + per-module tag constants.
-   - RE-VERIFY AT THE NEXT ARCHIVE: stdlib's own reporter rows our stack
-     targets (m254 -> REL-20261010-1548-stdlib-2; fn-value/pattern/import
-     fixes -> the 1549-stdlib-3/4/6/7-class rows; m266/m267 -> the
-     phantom-import/twin pair).
-3) Append a NEXT-BATCH fix-refs section to
-   `release-checks/compiler-compiler-v0.64.3.md` mapping stack commits to
-   the open rows: m254 -> 1548-stdlib-2; m258 -> 1548-bindings-7 +
-   1549-packages-6; m266/m267 -> 1549-packages-4 (+ 1802-orbitdb); m261/m262
-   -> the stdlib/const + resolver families; m263-m265 -> bindings B-13/1904
-   + 1121; m268/m269 -> 2100/2102; m270 -> 1854/2122. Note batch 6 pending.
-4) `python tools\relay.py commit --lane compiler -m "compiler: v0.64.4
-   batch status + stdlib release coordination + next-batch fix refs"
-   <id1> <id2> --path release-checks/compiler-compiler-v0.64.3.md`
+- `REL-20261011-1731-compiler` (to all): six-batch status. Updated at m271:
+  batches 1-6 complete, stack staged for the doorbell push.
+- `REL-20261011-1731-compiler-2` (to stdlib): v0.64.4 coordination -- pin
+  candidate per the candidate-tag protocol, clean `release-notes/v0.64.4.md`
+  fragment (v0.64.3 '>'-/'&'/'->' validator lessons), wave-106 `_METRO_K*`
+  revert with the numeric witness re-verify, and their reporter rows.
+- `release-checks/compiler-compiler-v0.64.3.md`: NEXT-BATCH fix refs,
+  including the m271 row; all six batches listed.
 
-v0.64.3 context: already shipped; its release-check (`release-checks/
-compiler-compiler-v0.64.3.md`) is the post-release verification vehicle --
-reporters verify their rows at the archive; the compiler lane records fix
-refs (step 3).
+Relay commits: `a3e9508` (filing) + `6386301` (m271 fix + status update).
+Nothing pending here; watch for reporter verdicts/bounces at the archive.
 
 ## 5. Verification command set (copy/paste)
 
@@ -144,7 +126,7 @@ refs (step 3).
 
 ## 7. m-numbering
 
-- m261-m270 LANDED; **next free is m271** (batch 6).
+- m261-m271 LANDED; **next free is m272**.
 
 ## 8. CONTINUATION PROMPT (paste into a fresh session)
 
@@ -155,29 +137,21 @@ release-coordination steps, verification commands and ops rules); consult
 docs/RUSTC-STUDY.md + docs/rustc-study/ for reference patterns; rustc source
 is E:\repos\rust (READ-ONLY; no git writes there).
 
-STATE: batches 1-5 landed (m261-m270; local main ahead 4 of origin -- the
-doorbell pushes, NEVER push). Batch 6 (Float32 slot stores) is the only
-remaining batch.
+STATE: all six batches landed (m261-m271; local main ahead 6 at the m271
+checkpoint -- the doorbell pushes, NEVER push). The v0.64.4 release
+coordination is filed (relay a3e9508 + 6386301); the v0.64.3 release-check
+rows await reporter verdicts at the archive. Nothing is in flight on the
+compiler side.
 
-FIRST -- finish the release coordination that was in flight (the user's ask
-"update relay and coordinate with stdlib for the release"): follow handoff
-section 4 step by step: file the two relay items (bodies at
-%TEMP%\kilo\batch5\relay-status-body.txt and relay-stdlib-body.txt, or
-recreate from section 4), append the NEXT-BATCH fix-refs section to
-release-checks/compiler-compiler-v0.64.3.md, then relay-commit both items
-together with --path release-checks/compiler-compiler-v0.64.3.md.
-
-THEN BATCH 6 -- FLOAT32 SLOT STORES (REL-20261010-1134-xvector; gate in
-REL-20261011-1342-compiler): read the item + xvector
-docs/repro/xv-f32-slot-literal-write/probe.xi; reproduce on the current
-build (literal stores into Vec[Float32] slots must narrow: a[1] = 7.0
-stores 7.0f; b[1] = 7 matches the as-Float32 control; the read sibling was
-fixed m260); failing fixture first (tests/regression/m271_f32_slot_store/)
-+ e2e fn + ci.yml entry; fix in xiom-codegen; verify with the command set
-in handoff section 5 (full e2e groups + front-end locks + the crate unit
-suites; corpus gate must stay green); ONE commit (m271) + COMPILER_BUGS.md
-section; relay: fix the item with evidence (numeric/bit witnesses) and the
-commit ref; keep the stack unpushed.
+NEXT: stand by for the doorbell/archive wave. When reporters file verdicts
+or bounces on the release-check rows: reproduce a bounce from its evidence,
+fix it as a new m-batch (ONE commit: fix + fixtures + docs; relay fix-note
+with numeric/IR witnesses and the commit ref), keep the stack unpushed for
+the doorbell, and update the m-numbering line here. The v0.64.4 stdlib pin
+(candidate-tag protocol) is with the stdlib lane -- watch
+REL-20261011-1731-compiler-2 responses. The xvector F32-slot row
+(REL-20261011-1134) is filed `fixed` at m271; xvector re-runs their probe
+at the archive.
 
 PARALLEL SELFHOST: phase 6 in .kilo/worktrees/selfhost-phase-4-codegen
 (session ses_eded8c4d8ffeMNzBsYzBYIgAO8, T6 4/64, all gates green). Check
