@@ -15197,6 +15197,60 @@ assignment and the ginit already store). Reassignment was already correct.
 EVIDENCE: fixture exits 0; LOCK: e2e_m265_module_scope_fnptr +
 tests/regression/m265_module_scope_fnptr/.
 
+---
+
+## 2026-10-11 -- FIXED (m266): unresolved imports are hard, single errors (REL-20261010-2124-xvector + 1802 gate)
+
+`use xiom.vectorss;` / `use xiom.vector.types.nonexistent_zzz;` compiled with
+NO diagnostic (import ignored; symbols surfaced later as undefined-variable
+cascades). `use xiom.core.error;` (the orbitdb phantom) was worse: the
+catalog's short-leaf fallback matched `xiom.error` (unique `.error` within
+the `xiom` root) and the R49-1 rewrite silently retargeted the import to it.
+
+FIX (xiom-check):
+- `process_use`'s FOUR silent exits (first-segment load fail, submodule walk
+  fail, single-segment item miss, full-path miss) now call
+  `report_unresolved_import` -- one `error[T001]` per import line, deduped
+  per (span, dotted path); checking continues under recovery.
+- `ModuleCatalog::index_lookup` no longer leaf-matches when the requested
+  PATH'S PARENT is itself a declared module: `xiom.core.error`'s parent
+  `xiom.core` is real, so the last segment can only mean an item/submodule
+  INSIDE it. Short-path (`use xiom.slice`) and R49-1 moved-module
+  (`xiom.crypto.legacy.md5` -> `xiom.crypto.md5`) fallbacks stay.
+
+EVIDENCE: both typo imports error at 3:5/4:5; `xiom.core.error` errors at
+19:5; `with_twin`/`alone` each produce EXACTLY ONE error. LOCK:
+checker_locks::m266_unresolved_import_one_clear_error +
+tests/regression/m266_unresolved_import/.
+
+---
+
+## 2026-10-11 -- FIXED (m267): bare pattern variants prefer the scrutinee's enum (REL-20261010-1802-orbitdb twin half)
+
+With a foreign same-named enum in the program (twin `CoreError` vs local
+`DbError`), `match e { NotFound => .., Corruption(_) => .. }` over a
+`&CoreError` scrutinee failed "match pattern 'Corruption' belongs to
+'DbError', not 'CoreError'" -- `resolve_enum_variant` used the bare
+first-wins key (DbError) instead of the SCRUTINEE's enum. The isolated
+phantom also emitted bogus W004 unreachable-arm warnings because an
+unresolvable scrutinee type fed the lint an empty variant set (every bare
+variant pattern read as a binding catch-all).
+
+FIX (xiom-check):
+- `validate_pattern_for_type` suppresses the cross-enum mismatch when
+  `enum_declares_variant(scrutinee-leaf, variant)` -- the orbitdb core ask
+  ("prefer the scrutinee's enum for bare pattern variants").
+- The W004 lint is gated on `variant_domain_known(scrutinee)` (m259
+  extension: never guess a variant set for an undeclared type).
+
+EVIDENCE: `with_twin` now emits exactly the import error (m266) and no
+T001/W004; the runnable twin fixture compiles and dispatches on the
+scrutinee's tags (exit 0); `alone` emits the import error with no W004.
+LOCK: e2e_m267_twin_scrutinee_enum +
+tests/regression/m267_twin_scrutinee_enum/ (twin.xi + main.xi), plus the
+no-"belongs to"/no-W004 asserts in the m266 lock.
+
+
 
 
 

@@ -175,6 +175,9 @@ pub struct Checker {
     /// R62: leaf names the peeked modules must keep (see the field of the
     /// same name on the main struct).
     peeked_leaves: HashSet<String>,
+    /// 2124/1802: dedup for unresolved-import diagnostics (one clear error
+    /// per import line -- see report_unresolved_import).
+    unresolved_import_reported: HashSet<String>,
     /// Checker-only local module name -> FULL dotted path (recorded for every
     /// `use`, not just aliases) so the qualified-call walk can map the first
     /// segment to its catalog path when descending submodule segments.
@@ -411,6 +414,7 @@ impl Checker {
             submodule_aliases: HashMap::new(),
             peeked_resolved: HashSet::new(),
             peeked_leaves: HashSet::new(),
+            unresolved_import_reported: HashSet::new(),
             local_module_paths: HashMap::new(),
             module_import_paths: HashMap::new(),
             pending_catalog_bodies: Vec::new(),
@@ -1357,9 +1361,16 @@ impl Checker {
                 if let CheckedType::Named(n) = scrutinee {
                     let b = base(n);
                     let hb = leaf(&b).split("__").next().unwrap_or("").to_string();
+                    // 1802 (REL-20261010-1802-orbitdb, phantom twin): BARE
+                    // pattern variants belong to the SCRUTINEE's enum when
+                    // that enum declares them. resolve_enum_variant's bare
+                    // hit (a local module's same-named enum) used to outvote
+                    // the scrutinee: `Corruption` reported as belonging to
+                    // DbError while the scrutinee was the foreign CoreError.
+                    let scrutinee_declares = self.enum_declares_variant(&hb, &name.name);
                     if let Some(parent) = self.resolve_enum_variant(&name.name) {
                         let hp = leaf(&parent).split("__").next().unwrap_or("").to_string();
-                        if hp != hb && known_concrete {
+                        if hp != hb && known_concrete && !scrutinee_declares {
                             self.error(
                                 format!(
                                     "match pattern '{}' belongs to '{}', not '{}'",
@@ -1368,7 +1379,7 @@ impl Checker {
                                 *sp,
                             );
                         }
-                    } else if known_concrete && !self.enum_variants.contains_key(&hb) {
+                    } else if known_concrete && !self.enum_variants.contains_key(&hb) && !scrutinee_declares {
                         self.error(
                             format!("match pattern '{}' cannot match '{}'", name.name, b),
                             *sp,
@@ -1683,6 +1694,24 @@ impl Checker {
             }
         }
         None
+    }
+
+    /// 2124 (REL-20261010-2124-xvector) + the 1802 phantom gate: an
+    /// unresolved `use` must produce EXACTLY ONE clear error at the import
+    /// line and never continue silently. A missing module used to surface
+    /// later as undefined-variable cascades (xvector) or phantom-type
+    /// W004/T001 symptoms (orbitdb twin); a missing ITEM import was
+    /// equally silent. Deduped per (span, dotted path).
+    fn report_unresolved_import(&mut self, ud: &UseDecl, effective_path: &[Ident]) {
+        let dotted = effective_path.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(".");
+        if std::env::var_os("XIOM_TRACE_IMPORT").is_some() {
+            eprintln!("[imp] REPORT unresolved {dotted} at {}:{}", ud.span.line, ud.span.col);
+        }
+        let key = format!("{}:{}:{}", ud.span.line, ud.span.col, dotted);
+        if !self.unresolved_import_reported.insert(key) {
+            return;
+        }
+        self.error(format!("unresolved import '{dotted}'"), ud.span);
     }
 
     /// m181: does type `ty` declare an enum variant with this leaf name?
@@ -4479,6 +4508,11 @@ impl Checker {
     }
 
     fn process_use(&mut self, ud: &UseDecl) {
+        if std::env::var_os("XIOM_TRACE_IMPORT").is_some() {
+            eprintln!("[imp] use {} at {}:{}",
+                ud.path.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join("."),
+                ud.span.line, ud.span.col);
+        }
         if ud.path.is_empty() {
             return;
         }
@@ -4554,14 +4588,15 @@ impl Checker {
                     for item in &cached.program.items {
                         self.register_fn_signature(item);
                     }
-                    let sub_exports = self.module_exports_with_submodules(&cached);
-                    let mut parent = HashMap::new();
-                    // Extract the short submodule name from the last path segment
-                    let short = effective_path.last().map(|p| p.name.clone()).unwrap_or_default();
-                    parent.insert(short, ModuleExport::SubModule(sub_exports));
-                    self.modules.insert(module_name.clone(), parent.clone());
-                    parent
+                let sub_exports = self.module_exports_with_submodules(&cached);
+                let mut parent = HashMap::new();
+                // Extract the short submodule name from the last path segment
+                let short = effective_path.last().map(|p| p.name.clone()).unwrap_or_default();
+                parent.insert(short, ModuleExport::SubModule(sub_exports));
+                self.modules.insert(module_name.clone(), parent.clone());
+                parent
                 } else {
+                    self.report_unresolved_import(ud, &effective_path);
                     return;
                 }
             }
@@ -4648,7 +4683,10 @@ impl Checker {
                             current = sub_exports;
                             i = j + 1;
                         }
-                        None => return,
+                        None => {
+                            self.report_unresolved_import(ud, &effective_path);
+                            return;
+                        },
                     }
                 }
             }
@@ -4675,6 +4713,13 @@ impl Checker {
         } else {
             // `use module.item;` or `use module.item as alias;`
             let item_name = &effective_path.last().unwrap().name;
+            if std::env::var_os("XIOM_TRACE_IMPORT").is_some() {
+                let parent_dotted = effective_path[0..effective_path.len() - 1]
+                    .iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(".");
+                eprintln!("[imp]   item lookup '{}' in {parent_dotted} -> found={} subs={:?}",
+                    item_name, current.contains_key(item_name),
+                    self.catalog.submodule_names(&parent_dotted));
+            }
             let mut export = match current.get(item_name) {
                 Some(e) => e.clone(),
                 None => {
@@ -4691,6 +4736,7 @@ impl Checker {
                         if let Some(sub_exports) = self.modules.get(item_name).cloned() {
                             ModuleExport::SubModule(sub_exports)
                         } else {
+                            self.report_unresolved_import(ud, &effective_path);
                             return;
                         }
                     } else {
@@ -4730,6 +4776,7 @@ impl Checker {
                         self.imported_items.insert(local_name, export);
                         return; // Already fully handled
                     }
+                    self.report_unresolved_import(ud, &effective_path);
                     return;
                     }
                 }
@@ -5932,6 +5979,29 @@ impl Checker {
         Self::pattern_is_catch_all_v(pattern, &[])
     }
 
+    /// 1802/m259 extension: is the scrutinee's variant domain KNOWABLE?
+    /// An undeclared type name (the phantom `CoreError` before the import
+    /// error) has no registered enum and no declared fields -- the W004
+    /// unreachable-arm lint must not run there (it classified every bare
+    /// variant pattern as a binding catch-all). Structs, known enums,
+    /// Option/Result and scalars keep the lint.
+    fn variant_domain_known(&self, ty: &CheckedType) -> bool {
+        match ty {
+            CheckedType::Str | CheckedType::Bool | CheckedType::Char => true,
+            CheckedType::Named(n) => {
+                let base = n.split('[').next().unwrap_or(n);
+                let leaf = base.rsplit('.').next().unwrap_or(base);
+                matches!(leaf, "Option" | "Result")
+                    || self.contains_type(base)
+                    || self.contains_type(leaf)
+                    || self.enum_variants.values().any(|p| {
+                        p == base || p.ends_with(&format!(".{}", base))
+                    })
+            }
+            _ => ty.is_numeric(),
+        }
+    }
+
     /// XVC-C-03 (m220): with the scrutinee's variant base names, a bare
     /// `Ident` naming a variant is NOT a catch-all; without them (divergence
     /// heuristics) every bare Ident stays a binding.
@@ -6717,9 +6787,15 @@ impl Checker {
                 // m259 (REL-20261010-1900, rustc check_match gating): never on
                 // an error-poisoned body or a poisoned scrutinee -- the lint
                 // must not guess a variant set it could not resolve.
+                // 1802 extension: also skip when the scrutinee's variant
+                // DOMAIN is unknown (undeclared type name -- the phantom
+                // `CoreError`): every bare variant pattern was classified as
+                // a binding catch-all and the rest of the match warned
+                // unreachable on top of the import error.
                 if !self.checking_catalog
                     && matched_ty != CheckedType::Error
                     && !self.body_is_tainted()
+                    && self.variant_domain_known(&matched_ty)
                 {
                     let variants = self.match_variant_names(&matched_ty);
                     self.lint_w004_unreachable_arms(arms, &variants);

@@ -453,6 +453,20 @@ impl ModuleCatalog {
             return self.parse_file(file_path, path_segments);
         }
         if let Some(last) = path_segments.last() {
+            // 1802 (REL-20261010-1802-orbitdb, phantom import): the short-leaf
+            // fallback must NOT rebind a path whose PARENT is itself a
+            // DECLARED module. `use xiom.core.error;` (no such module) leaf-
+            // matched `xiom.error` and the R49-1 rewrite silently retargeted
+            // the import; the parent `xiom.core` is real, so the last segment
+            // can only mean an item/submodule INSIDE it. The fallback stays
+            // for short paths (`use xiom.slice`) and R49-1 moved modules
+            // (parent undeclared, e.g. xiom.crypto.legacy.md5 -> xiom.crypto.md5).
+            if path_segments.len() >= 2 {
+                let parent = path_segments[..path_segments.len() - 1].join(".");
+                if self.module_index.contains_key(&parent) {
+                    return None;
+                }
+            }
             // Short-leaf / submodule resolution:
             //  - single-segment `use types.run_all` binds the UNIQUE module
             //    whose declared path ends with `.types` (benchmark.types);

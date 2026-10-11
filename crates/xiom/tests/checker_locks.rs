@@ -83,6 +83,38 @@ fn m259_w004_suppressed_on_error_tainted_body() {
     );
 }
 
+/// m266 (REL-20261010-2124-xvector + REL-20261010-1802 gate): an unresolved
+/// `use` is a hard, SINGLE error at the import line. Pre-fix the phantom
+/// import was ignored and the program either PASSED with bogus W004
+/// unreachable-arm warnings or failed with a cross-module T001 ("pattern
+/// 'Corruption' belongs to 'DbError'") once a same-named twin existed.
+#[test]
+fn m266_unresolved_import_one_clear_error() {
+    let (stderr, code) = check_on("m266_unresolved_import");
+    assert_ne!(
+        code,
+        Some(0),
+        "the unresolved import must fail the check. stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("unresolved import 'xiom.core.error'"),
+        "the import line must carry the error. stderr:\n{stderr}"
+    );
+    let t001 = stderr.matches("error[T001]").count();
+    assert_eq!(
+        t001, 1,
+        "exactly ONE clear error expected (no cascades). stderr:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("belongs to"),
+        "no phantom cross-module pattern error. stderr:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("W004"),
+        "no phantom W004 unreachable-arm warnings. stderr:\n{stderr}"
+    );
+}
+
 #[test]
 fn m141_mixed_brackets_lax_then_strict() {
     // LAX default (held for v0.62.0: the pin carries 3 stdlib mixed sites;

@@ -6462,6 +6462,18 @@ fn e2e_safety_probe() {
     );
 }
 
+// m267 (REL-20261010-1802-orbitdb twin half): a BARE pattern variant belongs
+// to the SCRUTINEE's enum when that enum declares it -- a foreign same-named
+// enum (twin) must not force the "belongs to 'DbError'" T001; the program
+// compiles and the match dispatches on the scrutinee's tags.
+#[test] fn e2e_m267_twin_scrutinee_enum() {
+    assert_eq!(
+        compile_and_run("tests/regression/m267_twin_scrutinee_enum/main.xi"),
+        Some(0),
+        "bare pattern variants must resolve against the scrutinee's enum (m267)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {
