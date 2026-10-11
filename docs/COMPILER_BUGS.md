@@ -14973,6 +14973,35 @@ jolt unblocks once the packages side threads the flag into its build.
 
 ---
 
+## 2026-10-10 -- FIXED (m259): W004 must not cascade after resolution errors (REL-20261010-1900)
+
+Engine's relay: an unresolved module + a bare-variant match on the
+unresolved enum produced bogus `W004 unreachable match arm` warnings
+before/around the real T001s. Mechanism (verified in code): for a
+poisoned/unresolved scrutinee `match_variant_names` returns an empty set and
+`pattern_is_catch_all_v` then treats a bare variant Ident as a binding
+catch-all, so every later arm is "unreachable".
+
+FIX (m259 -- rustc study 04 slice 1, the `check_match` gating pattern):
+the checker tracks a per-body error taint (`body_tainted:
+Option<xiom_ast::ErrorGuaranteed>`, reset in `check_fn_decl`, set in
+`error_with_cause`), and both W004 call sites (`Stmt::Match`, `Expr::Match`)
+run only when the scrutinee is not `CheckedType::Error` AND the body is not
+tainted. Legit W004s unchanged (m154 literal/catch-all cases still warn
+5/5; m220 bare all-unit-enum matches stay 0), because the lint still runs
+for genuine non-enum scrutinees with empty variant sets.
+
+EVIDENCE: composite repro (undefined name + bare-variant match over the
+unresolved enum) 5xW004 + 2xT001 -> 0xW004 + 2xT001; lock
+`m259_w004_suppressed_on_error_tainted_body` (checker_locks.rs, CI-listed)
+over tests/regression/m259_w004_no_cascade/. DEFERRED (study 04/05 slice 2):
+`CheckedType::Error(ErrorGuaranteed)` carrying the token; the
+`match_variant_names` None-vs-empty split. NOTE: the pure-phantom case (no
+hard error yet) still shows the C-ORBIT-06 silent acceptance and its W004
+symptom until phantom imports produce a real error (v0.64.4 batch).
+
+---
+
 ## 2026-10-10 -- OPEN (diagnosed): pulse site-mode test dies at startup on the v0.64.3 program side (REL-20261010-1854-pulse)
 
 Symptom: `xiom --run tests/test_app.xi` on xiom-pulse feat/site-mode @

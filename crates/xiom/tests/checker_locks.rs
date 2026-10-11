@@ -59,6 +59,30 @@ fn check_on(name: &str) -> (String, Option<i32>) {
     )
 }
 
+/// m259 (REL-20261010-1900): a body whose resolution already failed (T001
+/// undefined variable) must not get W004 reachability cascades from a
+/// bare-variant match over an unresolved enum scrutinee -- rustc gates
+/// `check_match` behind `Result<(), ErrorGuaranteed>`; we gate on body error
+/// taint + an error-typed scrutinee (checked in `check_fn_decl` /
+/// `error_with_cause` / both W004 call sites).
+#[test]
+fn m259_w004_suppressed_on_error_tainted_body() {
+    let (stderr, code) = check_on("m259_w004_no_cascade");
+    assert_ne!(
+        code,
+        Some(0),
+        "the resolution error must fail the check. stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("T001"),
+        "the real T001 resolution error must still be reported. stderr:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("W004"),
+        "an error-tainted body must not emit W004 cascades. stderr:\n{stderr}"
+    );
+}
+
 #[test]
 fn m141_mixed_brackets_lax_then_strict() {
     // LAX default (held for v0.62.0: the pin carries 3 stdlib mixed sites;

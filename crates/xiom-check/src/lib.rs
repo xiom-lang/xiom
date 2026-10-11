@@ -235,6 +235,11 @@ pub struct Checker {
     /// 5c-R: Counter for emitted errors -- enables `has_errors()` gate for
     /// "stop on first error" discipline (rustc lesson: ErrorGuaranteed).
     error_count: usize,
+    /// m259 (REL-20261010-1900, rustc `TypeckResults::tainted_by_errors`):
+    /// set when the CURRENT body emitted a hard error; diagnostics that
+    /// depend on successful resolution (the W004 reachability lint) must
+    /// not guess on a poisoned body. Reset per body in `check_fn_decl`.
+    body_tainted: Option<xiom_ast::ErrorGuaranteed>,
     /// ITEM A (Stage 3): true while checking EXTERNAL catalog fn bodies --
     /// findings route to warnings (staged rollout).
     pub checking_catalog: bool,
@@ -419,6 +424,7 @@ impl Checker {
             current_receiver: None,
             current_generic_bounds: HashMap::new(),
             error_count: 0,
+        body_tainted: None,
             // ITEM A (Stage 3): catalog-body checking rollout flag. When
             // true, type errors found while checking EXTERNAL catalog
             // function bodies are routed to WARNINGS instead of hard
@@ -1798,8 +1804,21 @@ impl Checker {
             };
             self.errors.push(CheckError { message, span, cause, guaranteed: _proof, code: None });
             self.error_count += 1;
+            self.taint_body();
         }
         CheckedType::Error
+    }
+
+    /// m259: mark the current body as error-poisoned (see `body_tainted`).
+    fn taint_body(&mut self) {
+        if self.body_tainted.is_none() {
+            self.body_tainted = Some(xiom_ast::ErrorGuaranteed::new());
+        }
+    }
+
+    /// m259: true when the current body already emitted a hard error.
+    fn body_is_tainted(&self) -> bool {
+        self.body_tainted.is_some()
     }
 
     /// S2: Emit a warning -- adds to the error list but does NOT increment
@@ -5336,6 +5355,10 @@ impl Checker {
     // ========================================================================
 
     fn check_fn_decl(&mut self, fd: &FnDecl) {
+        // m259 (REL-20261010-1900): per-body taint reset -- rustc gates per
+        // body/query, not per file: a match in a clean body still lints even
+        // when another function errored.
+        self.body_tainted = None;
         self.push_scope();
 
         // R20: owner key for recorded catalog call targets (see field docs).
@@ -6673,7 +6696,13 @@ impl Checker {
             Stmt::Match(expr, arms, span) => {
                 let matched_ty = self.check_expr(expr);
                 // Stage 6 W004: unreachable match arms (user program only).
-                if !self.checking_catalog {
+                // m259 (REL-20261010-1900, rustc check_match gating): never on
+                // an error-poisoned body or a poisoned scrutinee -- the lint
+                // must not guess a variant set it could not resolve.
+                if !self.checking_catalog
+                    && matched_ty != CheckedType::Error
+                    && !self.body_is_tainted()
+                {
                     let variants = self.match_variant_names(&matched_ty);
                     self.lint_w004_unreachable_arms(arms, &variants);
                 }
@@ -9502,7 +9531,12 @@ impl Checker {
             Expr::Match(scrutinee, arms, span) => {
                 let scr_ty = self.check_expr(scrutinee);
                 // Stage 6 W004: unreachable match arms (user program only).
-                if !self.checking_catalog {
+                // m259 (REL-20261010-1900, rustc check_match gating): never on
+                // an error-poisoned body or a poisoned scrutinee.
+                if !self.checking_catalog
+                    && scr_ty != CheckedType::Error
+                    && !self.body_is_tainted()
+                {
                     let variants = self.match_variant_names(&scr_ty);
                     self.lint_w004_unreachable_arms(arms, &variants);
                 }
