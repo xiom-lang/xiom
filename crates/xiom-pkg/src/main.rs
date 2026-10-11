@@ -995,6 +995,13 @@ fn install_package_files(src_dir: &Path, pkg_name: &str) {
     // the compiler resolved the existing canonical `~/.local/share/xiom`, so
     // `xiom pkg` output was invisible to dependency lookup.
     let xiom_home = xiom_graph::paths::xiom_home();
+    // CRB-4 (REL-20261010-2100): refuse mangled/relative install targets
+    // instead of silently creating a literal directory under the CWD (the
+    // WSL incident: separators-stripped Windows-style XIOM_HOME).
+    if let Err(msg) = xiom_graph::paths::validate_install_home(&xiom_home) {
+        eprintln!("xiom pkg: refusing to install: {msg}");
+        process::exit(1);
+    }
 
     let pkg_version = read_package_version(src_dir).unwrap_or_else(|| "0.1.0".to_string());
     let dest_dir = xiom_home.join("packages").join(format!("{}-{}", pkg_name, pkg_version));

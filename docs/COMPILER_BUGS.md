@@ -15250,6 +15250,56 @@ LOCK: e2e_m267_twin_scrutinee_enum +
 tests/regression/m267_twin_scrutinee_enum/ (twin.xi + main.xi), plus the
 no-"belongs to"/no-W004 asserts in the m266 lock.
 
+---
+
+## 2026-10-11 -- FIXED (m268): install targets validated + deterministic tar (REL-20261010-2100-packages)
+
+The ecosystem/registry install flows wrote to whatever `xiom_home()`
+returned, verbatim. On WSL a mangled Windows-style `XIOM_HOME` (separators
+stripped -> `C:Userslefte/...`) created that literal directory under the
+CWD while the real home stayed empty; builds then failed with unresolved
+package symbols. `extract_tar_gz` also resolved `tar` through PATH, where
+WSL interop can hit a Windows `tar.exe` that interprets `-C` destinations
+differently.
+
+FIX:
+- `xiom_graph::paths::validate_install_home`: refuses empty, NON-ABSOLUTE
+  (the mangled/relative case, on either host), and nothing-rooted values
+  with a clear error; deep missing directories stay allowed (first
+  installs create them). Called BEFORE any write in
+  `xiom-pkg::install_package_files` and `registry::install_verified`.
+- `registry::tar_bin()`: `XIOM_TAR` override, then `/usr/bin/tar` |
+  `/bin/tar` on Unix, then PATH -- used for both the member listing and
+  the extraction.
+
+EVIDENCE: relative-XIOM_HOME smoke exits 1 with "refusing to install:
+XIOM_HOME 'reljunk/pkghome\packages' is not an absolute path" and creates
+NO directory; an absolute XIOM_HOME takes the registry install into that
+home (exit 0, artifact tree present). LOCK:
+paths.rs::crb4_validate_install_home_refuses_relative_and_absent_root.
+
+---
+
+## 2026-10-11 -- FIXED (m269): prefer the packages-bearing home (REL-20261010-2102-registry)
+
+`xiom_home()` picked the FIRST EXISTING candidate; a toolchain-only
+`~/.local/share/xiom` (no `packages/`) outranked the legacy store at
+`~/xiom/packages`, so the compiler found no dependency roots and every
+installed-package use failed (PULSE probe_pkg_kv: 23x T001 undefined
+kv_*; the C-PULSE-13 symlink made it green).
+
+FIX: `xiom_graph::paths::pick_existing_home` -- prefer a candidate whose
+`packages/` store exists, then the first existing candidate, then the
+canonical default. Shared by `xiom_home()` and the registry's
+`resolve_package_cache_dir` so installer and compiler always agree on ONE
+home. On Windows hosts there is a single (LOCALAPPDATA) candidate and the
+preference is a no-op.
+
+EVIDENCE: unit lock with real temp trees (toolchain-only candidate +
+store-bearing candidate -> store wins; none with a store -> first existing).
+LOCK: paths.rs::crb4_pick_existing_home_prefers_packages_store.
+
+
 
 
 

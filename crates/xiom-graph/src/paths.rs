@@ -177,8 +177,9 @@ pub fn xiom_home_candidates_impl(
 
 /// CRB-3c: the installed XIOM home for the RUNNING process.
 ///
-/// `XIOM_HOME` wins when set (declared install location). Otherwise the first
-/// EXISTING candidate wins, canonical installer layout first; when nothing
+/// `XIOM_HOME` wins when set (declared install location). Otherwise the
+/// candidate whose `packages/` store exists wins (CRB-4), then the first
+/// EXISTING candidate (canonical installer layout first); when nothing
 /// exists the canonical default is returned so diagnostics point at the
 /// expected location instead of a guessed `~/xiom`.
 pub fn xiom_home() -> PathBuf {
@@ -187,10 +188,48 @@ pub fn xiom_home() -> PathBuf {
             return PathBuf::from(h.trim());
         }
     }
-    xiom_home_candidates()
-        .into_iter()
-        .find(|p| p.is_dir())
-        .unwrap_or_else(canonical_xiom_home)
+    let candidates = xiom_home_candidates();
+    pick_existing_home(&candidates).unwrap_or_else(canonical_xiom_home)
+}
+
+/// CRB-4 (REL-20261010-2102): pick the home from a candidate list, PREFERRING
+/// a candidate whose `packages/` store exists. A toolchain-only home (no
+/// store) used to win by mere existence and silently stranded every
+/// installed package in a legacy layout (PULSE probe_pkg_kv: 23x T001
+/// undefined kv_*; the C-PULSE-13 symlink made it green).
+pub fn pick_existing_home(candidates: &[PathBuf]) -> Option<PathBuf> {
+    candidates
+        .iter()
+        .find(|p| p.is_dir() && p.join("packages").is_dir())
+        .or_else(|| candidates.iter().find(|p| p.is_dir()))
+        .cloned()
+}
+
+/// CRB-4 (REL-20261010-2100): validate an INSTALL target home before writing.
+/// `XIOM_HOME` is honored verbatim, but a mangled or non-absolute value must
+/// be refused with a clear error instead of silently creating a literal
+/// directory under the CWD (the WSL incident: a Windows-style value with
+/// separators stripped became `C:Userslefte/...` relative to the project).
+/// Deep missing directories stay allowed -- first installs create the chain.
+pub fn validate_install_home(home: &Path) -> Result<(), String> {
+    if home.as_os_str().is_empty() {
+        return Err("XIOM_HOME resolves to an empty path".to_string());
+    }
+    if !home.is_absolute() {
+        return Err(format!(
+            "XIOM_HOME '{}' is not an absolute path; refusing to create a relative install target under the current directory -- set an absolute XIOM_HOME (or unset it)",
+            home.display()
+        ));
+    }
+    let root = home.ancestors().last().unwrap_or(home);
+    if !root.exists() {
+        return Err(format!(
+            "XIOM_HOME '{}' is rooted at '{}', which does not exist",
+            home.display(),
+            root.display()
+        ));
+    }
+    Ok(())
 }
 
 /// CRB-3c: the candidate list for the running process (env-driven).
@@ -493,5 +532,52 @@ mod tests {
         let dup = xiom_home_candidates_impl(Some("/home/dev/.local/share"), Some("/home/dev"), None, false);
         assert_eq!(dup.iter().filter(|p| p.ends_with("share/xiom") || p.ends_with("share\\xiom")).count(), 1,
             "canonical candidate must be deduped: {dup:?}");
+    }
+
+    /// CRB-4 (REL-20261010-2102): a toolchain-only home (no `packages/`) must
+    /// not win over a legacy layout that HAS the store -- that split stranded
+    /// every installed package (PULSE probe_pkg_kv).
+    #[test]
+    fn crb4_pick_existing_home_prefers_packages_store() {
+        let toolchain_only = r31_dir("toolchain_only");
+        let with_store = r31_dir("with_store");
+        std::fs::create_dir_all(with_store.join("packages")).unwrap();
+        let cands = vec![toolchain_only.clone(), with_store.clone()];
+        assert_eq!(pick_existing_home(&cands), Some(with_store.clone()));
+
+        // Neither has a store: first EXISTING candidate wins (canonical order).
+        let legacy = r31_dir("legacy_no_store");
+        let cands2 = vec![toolchain_only.clone(), legacy.clone()];
+        assert_eq!(pick_existing_home(&cands2), Some(toolchain_only.clone()));
+
+        // Nothing exists: the caller falls back to the canonical default.
+        let missing = std::env::temp_dir()
+            .join(format!("xiom_r31_missing_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&missing);
+        assert_eq!(pick_existing_home(&[missing]), None);
+    }
+
+    /// CRB-4 (REL-20261010-2100): install targets that are relative or
+    /// rooted nowhere must be refused before any write. On Unix a mangled
+    /// Windows-style value (`C:Userslefte/...`) is exactly the relative case.
+    #[test]
+    fn crb4_validate_install_home_refuses_relative_and_absent_root() {
+        assert!(
+            validate_install_home(Path::new("C:Userslefte/.local/share/xiom")).is_err(),
+            "a separators-stripped Windows value must be refused (relative on Unix, drive-relative on Windows)"
+        );
+        assert!(validate_install_home(Path::new("relative/xiom")).is_err());
+        assert!(validate_install_home(Path::new("")).is_err());
+
+        let abs = r31_dir("valid_home");
+        assert!(
+            validate_install_home(&abs).is_ok(),
+            "an absolute path with an existing root must pass: {}",
+            abs.display()
+        );
+
+        // Deep missing directories stay allowed (first installs create them).
+        let deep = abs.join("a").join("b").join("xiom");
+        assert!(validate_install_home(&deep).is_ok());
     }
 }

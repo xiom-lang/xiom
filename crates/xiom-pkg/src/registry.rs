@@ -1031,6 +1031,12 @@ fn install_verified(
     // Extract to local package cache (clean first: stale members from an
     // earlier install must not survive).
     let cache_dir = package_cache_dir();
+    // CRB-4 (REL-20261010-2100): refuse mangled/relative install targets
+    // before ANY filesystem write (WSL incident: a separators-stripped
+    // Windows-style XIOM_HOME created a literal CWD-relative directory).
+    if let Err(msg) = xiom_graph::paths::validate_install_home(&cache_dir) {
+        return Err(InstallError::Local(format!("refusing to install: {msg}")));
+    }
     let pkg_dir = cache_dir.join(format!("{}-{}", package.replace('.', "-"), ver));
     if pkg_dir.exists() {
         std::fs::remove_dir_all(&pkg_dir)
@@ -1114,9 +1120,8 @@ fn resolve_package_cache_dir(xiom_home: Option<&str>) -> PathBuf {
     if let Some(home) = xiom_home.map(str::trim).filter(|h| !h.is_empty()) {
         return PathBuf::from(home).join("packages");
     }
-    xiom_graph::paths::xiom_home_candidates()
-        .into_iter()
-        .find(|p| p.is_dir())
+    let candidates = xiom_graph::paths::xiom_home_candidates();
+    xiom_graph::paths::pick_existing_home(&candidates)
         .unwrap_or_else(xiom_graph::paths::canonical_xiom_home)
         .join("packages")
 }
@@ -1130,6 +1135,29 @@ fn resolve_package_cache_dir(xiom_home: Option<&str>) -> PathBuf {
 ///   backslash escapes are rejected (symlink/hardlink members are refused
 ///   outright -- a vetted in-process reader remains future work, logged in
 ///   the readiness plan Stage 5).
+/// CRB-4 (REL-20261010-2100, WSL): resolve `tar` DETERMINISTICALLY. On a
+/// Unix host a bare PATH lookup can hit a Windows `tar.exe` through WSL
+/// interop, which interprets `-C` destinations Windows-style (the incident
+/// wrote outside the requested tree with separators stripped). `XIOM_TAR`
+/// overrides explicitly; otherwise prefer the system binaries on Unix, then
+/// fall back to PATH.
+fn tar_bin() -> String {
+    if let Ok(t) = std::env::var("XIOM_TAR") {
+        let t = t.trim();
+        if !t.is_empty() {
+            return t.to_string();
+        }
+    }
+    if !cfg!(windows) {
+        for cand in ["/usr/bin/tar", "/bin/tar"] {
+            if Path::new(cand).exists() {
+                return cand.to_string();
+            }
+        }
+    }
+    "tar".to_string()
+}
+
 pub(crate) fn extract_tar_gz(data: &[u8], dest: &Path) -> Result<(), String> {
     use std::time::{SystemTime, UNIX_EPOCH};
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH)
@@ -1144,7 +1172,7 @@ pub(crate) fn extract_tar_gz(data: &[u8], dest: &Path) -> Result<(), String> {
     let cleanup = || { let _ = std::fs::remove_file(&tmp); };
 
     // --- Pre-extraction member validation ---
-    let listing = process::Command::new("tar")
+    let listing = process::Command::new(tar_bin())
         .args(["-tzf", &tmp.to_string_lossy()])
         .output();
     if let Ok(out) = &listing {
@@ -1168,7 +1196,7 @@ pub(crate) fn extract_tar_gz(data: &[u8], dest: &Path) -> Result<(), String> {
         // Listing failures fall through to the extract attempt's own error.
     }
 
-    let result = process::Command::new("tar")
+    let result = process::Command::new(tar_bin())
         .args(["-xzf", &tmp.to_string_lossy(), "-C", &dest.to_string_lossy()])
         .status();
 
