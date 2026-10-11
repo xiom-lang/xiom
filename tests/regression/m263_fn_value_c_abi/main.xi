@@ -61,6 +61,19 @@ fn relay_cast(f: fn(Int32) -> Int32) -> Int
   }
 }
 
+// m275 (REL-20261011-2045-stdlib): a fn-typed param named `v` (registered
+// in the name-keyed closure_locals at declaration) must not leak into
+// another function's Float32 `v` in an As-cast (`v as Float64`): pre-m275
+// the env unwrap inttoptr'd the float -> clang "defined with type 'float'
+// but expected 'i64'" (stdlib-2045).
+fn takes_fn_v(v: fn(Int32) -> Int32) -> Int32 {
+  return v(1);
+}
+
+fn float_v(v: Float32) -> Float64 {
+  return v as Float64;
+}
+
 fn main() -> Int {
   unsafe {
     // B-18 (m274): a BARE top-level fn NAME handed to an extern fn-typed
@@ -89,6 +102,12 @@ fn main() -> Int {
     if fp() != 3.5 {
       return 5;
     }
+  }
+  if takes_fn_v(cb_double) != 2 {
+    return 7;
+  }
+  if float_v(2.5) != 2.5 {
+    return 8;
   }
   io.println("m263 ok");
   return 0;

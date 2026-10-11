@@ -5113,8 +5113,16 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // fn param/local/field must yield field 0 (the code address)
                 // so C can call it -- raw name-bound locals already carry the
                 // code address. Pointer-target casts stay untouched.
+                // m275 (REL-20261011-2045-stdlib): the env unwrap must only
+                // fire for values the compiler actually holds as a closure
+                // ENV (the i64 slot). `closure_locals` is name-keyed and NOT
+                // function-scoped, so a fn-typed param of ANOTHER function
+                // (e.g. game_theory.cooperative_game(v: fn(...))) leaks its
+                // name; a plain float param sharing the name (`Float32.
+                // to_float(v) { return v as Float64; }`) then got inttoptr'd
+                // ("%tmp4 defined with type 'float' but expected 'i64'").
                 let target_is_pointer = matches!(ty, Type::Ptr(_) | Type::Ref(_) | Type::MutRef(_));
-                let val = if !target_is_pointer {
+                let val = if !target_is_pointer && val_ty == LLVM_I64 {
                     self.unwrap_fn_env_for_c(inner, val)
                 } else {
                     val

@@ -15432,6 +15432,40 @@ rax); m263 honors real signatures, so the i8 return reads al: 16384
 package-side fix; the compiler keeps honoring declared signatures (the
 1904 Float64-register fix depends on it).
 
+---
+
+## 2026-10-11 -- FIXED (m275): As-cast env unwrap fired on leaked closure names (REL-20261011-2045-stdlib wave regression)
+
+The stdlib battery on the v0.64.4 dry-run archive found the release-wave
+regression: any CROSS-MODULE call passing a fn value (bare name, bound
+local or closure literal) to a module fn with a fn-typed parameter
+(`game_theory.cooperative_game` / `shapley_value`, `fuzzy.fuzzy_set`,
+`bench.run_bench`) died at clang: `'%tmp4' defined with type 'float' but
+expected 'i64' at '%tmp5 = inttoptr i64 %tmp4 to i64*'` -- corpus 953/954,
+probes 286/288; green on v0.64.3.
+
+Root cause: m263's As-cast env unwrap (`f as Int` -> field 0) keyed on
+`closure_locals`, a NAME-keyed set that is not function-scoped and is
+populated at DECLARATION time with every fn-typed param name. In the
+stdlib program `cooperative_game(v: fn(...))` registers "v"; the tower's
+`Float32.to_float(v: Float32) { return v as Float64; }` then matched the
+leaked "v" and emitted the env unwrap (inttoptr + load) on a FLOAT value.
+
+FIX (expr.rs As path): the unwrap now fires only when the COMPILED value
+has the closure ENV slot type (`val_ty == i64`) -- a real env always does;
+a float never does. Same-module shapes were safe pre-fix only by naming
+accident.
+
+EVIDENCE: `gt_coop.xi` (stdlib scratch; `game_theory.cooperative_game(
+v_len, 3)`) pre: clang error `inttoptr i64 %tmp4` (float) at xiominput
+line 5508, exit 1; post: compiles + runs rc 0. `trim_d.xi` (shapley_value;
+trimmed smoke_math_finance), `p_wave102_shapes.xi` (fuzzy_set bare name)
+and `p_wave91_shapes.xi` (bench closure literals) all rc 0 post-fix.
+LOCK: the m263 CLI fixture gained the collision shape (`takes_fn_v(v:
+fn(Int32) -> Int32)` + `float_v(v: Float32) { return v as Float64; }`);
+`ffi_fnptr_abi` green; the 12-test e2e lock set unchanged.
+
+
 
 
 
