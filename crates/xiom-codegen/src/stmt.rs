@@ -1199,7 +1199,33 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     if is_vec {
                         let (idx_raw, idx_ty) = self.compile_expr(index)?;
                         let idx = self.val_to_i64(&idx_raw, &idx_ty);
-                        let store_i64 = self.val_to_i64(&val, &val_ty);
+                        // m271 (XVC-C-15, REL-20261011-1134-xvector): a
+                        // float-element Vec slot must receive the NUMERIC
+                        // value. val_to_i64 extracts raw bits, which is only
+                        // correct when the source already has the element's
+                        // float width (Float32 variable / `as Float32`); an
+                        // f64 literal stored its low 32 bits (7.0 -> 0.0f)
+                        // and an Int literal stored its raw bits as an f32
+                        // pattern (7 -> 9.8e-45). Convert numeric sources to
+                        // the element width first -- the push() path already
+                        // converts at the call boundary. Non-numeric sources
+                        // keep the legacy bit path.
+                        let store_i64 = if let Some(elem_f) = self.vec_elem_float_type(container) {
+                            match val_ty.as_str() {
+                                "float" | "double" | "fp128" => {
+                                    let conv = self.coerce_value(&val, &val_ty, elem_f);
+                                    self.val_to_i64(&conv, elem_f)
+                                }
+                                "i1" | "i8" | "i16" | "i32" | "i64" => {
+                                    let iv = self.val_to_i64(&val, &val_ty);
+                                    let conv = self.coerce_value(&iv, LLVM_I64, elem_f);
+                                    self.val_to_i64(&conv, elem_f)
+                                }
+                                _ => self.val_to_i64(&val, &val_ty),
+                            }
+                        } else {
+                            self.val_to_i64(&val, &val_ty)
+                        };
                         let vslot = self.fresh_tmp();
                         self.emitln(&format!("  {vslot} = alloca %struct.Vec"));
                         self.emit_vec_store_fields(&vec_val, &vslot);

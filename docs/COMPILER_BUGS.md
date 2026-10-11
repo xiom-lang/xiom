@@ -15328,6 +15328,36 @@ EVIDENCE: unit lock with real temp trees (toolchain-only candidate +
 store-bearing candidate -> store wins; none with a store -> first existing).
 LOCK: paths.rs::crb4_pick_existing_home_prefers_packages_store.
 
+---
+
+## 2026-10-11 -- FIXED (m271): literal stores into float Vec slots must narrow (XVC-C-15, REL-20261011-1134-xvector)
+
+An indexed/field store into a `Vec[Float32]` element lowered the RHS through
+`val_to_i64` (raw bits) and let the width-dispatched elem store truncate:
+an f64 literal stored its low 32 bits (`a[1] = 7.0` -> 0.0f) and an Int
+literal stored its bits as the f32 pattern (`b[1] = 7` -> 9.80908925027372e-45).
+Float32 variables and `... as Float32` already stored the right bits, and
+`push()` converts at the call boundary -- the read sibling bit-reinterprets
+float elements correctly. Silent corruption for any float literal written
+into a float vector slot (xvector found it in probe_quantization).
+
+FIX: `stmt.rs` Vec indexed/field store -- when `vec_elem_float_type(container)`
+names the element's float width, numeric sources CONVERT before the
+bit-level elem store: float sources through `coerce_value` (fptrunc/fpext),
+integer sources through `val_to_i64` + `sitofp`; non-numeric sources keep
+the legacy path. Covers local Vecs and struct `Vec[Float32]` fields; the
+same branch widens Int literal stores into `Vec[Float64]` slots
+(`d[1] = 7` was the raw-bits 3.45845952088873e-323).
+
+EVIDENCE: pre-fix shape matrix (A/B/E + C/F/G controls, local struct
+stand-in for the lane-local `Vector`) exits 3 -- A `a[1]=0`,
+B `b[1]=9.80908925027372e-45`, E `e.data[1]=0`; post-fix exit 0 with every
+shape green. IR witness: `fptrunc double 7.0 to float` at the A store site,
+`sitofp i64 7 to float` at the B store site. LOCK:
+`e2e_m271_f32_slot_store` + `tests/regression/m271_f32_slot_store/`
+(fails Some(4) pre-fix; ci.yml e2e list).
+
+
 
 
 

@@ -6487,6 +6487,19 @@ fn e2e_safety_probe() {
     );
 }
 
+// m271 (XVC-C-15, REL-20261011-1134-xvector): literal stores into a
+// Vec[Float32] slot must narrow numerically (f64 literal -> 0.0f and Int
+// literal -> 9.8e-45 before; the write-side sibling of the m260 read fix).
+// Covers local Vecs, a struct Vec[Float32] field and the Vec[Float64]
+// Int-literal widening; variable/push/f64-slot controls stay green.
+#[test] fn e2e_m271_f32_slot_store() {
+    assert_eq!(
+        compile_and_run("tests/regression/m271_f32_slot_store/main.xi"),
+        Some(0),
+        "literal stores into float Vec slots must convert, not store raw bits (m271)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {
