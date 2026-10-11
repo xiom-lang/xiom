@@ -1,6 +1,6 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-# Session Handoff -- 2026-10-11 (compiler lane, v0.64.4 batch program)
+# Session Handoff -- 2026-10-11 (compiler lane, v0.64.4 release wave)
 
 This file captures state for continuing the 2026-10-11 batch program in a
 fresh session. Read this FIRST, then `docs/RUSTC-STUDY.md` + the relevant
@@ -8,10 +8,10 @@ fresh session. Read this FIRST, then `docs/RUSTC-STUDY.md` + the relevant
 (sparse blob-less clone @ `7211ea594`; READ-ONLY -- never run git writes
 there; non-materialized files via `git show HEAD:<path>`).
 
-## 1. Status: all six batches LANDED (m261-m271); verdicts pending
+## 1. Status: six batches + release-gate fixes LANDED; release wave IN FLIGHT
 
 Landed (local main; origin/main = `677d65a7` after the doorbell push; the
-six later commits are staged for the next-batch push -- NEVER push yourself):
+later commits are staged for the doorbell push -- NEVER push yourself):
 
 - `677d65a7` m261/m262 module-local call precedence + module-private const
   identity. Closes REL-20261011-1124-orbitdb, REL-20261011-1052-stdlib.
@@ -30,9 +30,35 @@ six later commits are staged for the next-batch push -- NEVER push yourself):
 - `f69b542e` m271 float Vec slot stores narrow numeric sources (XVC-C-15):
   closes REL-20261011-1134-xvector. Lock e2e m271 + fixture; IR witness
   (fptrunc/sitofp); relay item filed `fixed`, release-check row appended.
+- `b1ee2f4f` chore(release): v0.64.4 prep -- workspace + SELFHOST_VERSION
+  bump, `release-notes/v0.64.4.md` draft (4 compiler highlights; dry-run
+  convert 6 total), VSIX README pin.
+- `745ff47e` m272 fn-value ABI regressions found by the gate's full e2e:
+  C-boundary-only `callee_is_extern` unwrap gate + module-qualified
+  `fn_typed_params` keys; locks = the six tests added to ci.yml.
+- `c44d9fae` m273: m219 IR-shape lock follows the m263 `i64 ()**` spelling.
+- this commit: `docs/RELEASE_GATE_v0.64.4.md` + this handoff refresh.
 
-Local vs origin at the m271 checkpoint: ahead 6 (`fde5548e`..`f69b542e`);
-the docs commit carrying this line rides on top.
+Local vs origin at this docs commit: ahead 11 (`fde5548e`..HEAD); the
+release wave is staged for the doorbell push. The full Gate A battery is
+recorded in `docs/RELEASE_GATE_v0.64.4.md` (2480 e2e / 0 failed, all
+suites green; `diff_check` red is the pre-existing selfhost parity drift).
+
+## 1b. Release wave state (next actions)
+
+- PIN PENDING: stdlib owns the wave-106 revert on the new archive + the
+  `stdlib-v0.64.4` tag (decision filed: REL-20261011-1812-compiler; relay
+  `d940720`). When their tag + ref land:
+  1) vendor refresh: re-point `E:\xiom-lang\xiom\stdlib` at the tag (the
+     current dir is an untracked pinned checkout; gitignored);
+  2) `STDLIB_VERSION` -> the tag ref;
+  3) convert `release-notes/v0.64.4.json` from a CLEAN checkout of the tag
+     (fragment merges; the committed JSON must byte-match CI's verify);
+  4) update the gate record's pin precondition + Gate D;
+  5) ONE commit `chore(release): v0.64.4 pin (...) + notes JSON + gate
+     record`; doorbell pushes; tag `v0.64.4` -> the release run builds.
+- After the archive: reporter verdict wave on the v0.64.3 release-check
+  rows (bounces -> new m-batches) and xvector's F32-slot re-verify.
 
 ## 2. Batch 6 (LAST) -- FLOAT32 SLOT STORES -- DONE (m271)
 
@@ -78,9 +104,13 @@ Filed and pushed from the relay clone (`E:\xiom-lang\xiom-relays`):
   revert with the numeric witness re-verify, and their reporter rows.
 - `release-checks/compiler-compiler-v0.64.3.md`: NEXT-BATCH fix refs,
   including the m271 row; all six batches listed.
+- PIN DECISION (`REL-20261011-1812-compiler`, pushed `d940720`): HOLD the
+  stdlib tag for the batch -- stdlib runs the wave-106 revert on the new
+  archive, lands it, re-verifies the numeric witnesses, then tags
+  `stdlib-v0.64.4`; the compiler pins right after (section 1b).
 
-Relay commits: `a3e9508` (filing) + `6386301` (m271 fix + status update).
-Nothing pending here; watch for reporter verdicts/bounces at the archive.
+Relay commits: `a3e9508` + `6386301` + `d940720`. Nothing pending here
+until the stdlib tag lands; then the pin commit (section 1b).
 
 ## 5. Verification command set (copy/paste)
 
@@ -88,7 +118,7 @@ Nothing pending here; watch for reporter verdicts/bounces at the archive.
 - e2e groups from ci.yml (PowerShell; the `-split` matters):
   `$l1=(Get-Content ".github\workflows\ci.yml")[152]; $fa1=($l1.Substring($l1.IndexOf('-- ')+3)) -split '\s+'; cargo test -p xiom-codegen --test e2e_tests -- $fa1`
   `$l2=(Get-Content ".github\workflows\ci.yml")[153]; $fa2=($l2.Substring($l2.IndexOf('-- ')+3)) -split '\s+'; cargo test -p xiom-codegen --test e2e_tests -- $fa2`
-  (currently 16 + 161 green)
+  (currently 16 + 167 green; the m272 six joined group 2)
 - front-end locks: `cargo test -p xiom --test doctor_cli --test borrow_e001 --test checker_locks --test run_script_cli --test cxx_standard_cli --test ffi_fnptr_abi`
 - units: `cargo test -p xiom-check --lib` (199, incl. full catalog corpus
   gate), `-p xiom-codegen --lib` (12), `-p xiom-graph --lib` (36),
@@ -126,7 +156,7 @@ Nothing pending here; watch for reporter verdicts/bounces at the archive.
 
 ## 7. m-numbering
 
-- m261-m271 LANDED; **next free is m272**.
+- m261-m273 LANDED; **next free is m274**.
 
 ## 8. CONTINUATION PROMPT (paste into a fresh session)
 
@@ -137,21 +167,23 @@ release-coordination steps, verification commands and ops rules); consult
 docs/RUSTC-STUDY.md + docs/rustc-study/ for reference patterns; rustc source
 is E:\repos\rust (READ-ONLY; no git writes there).
 
-STATE: all six batches landed (m261-m271; local main ahead 6 at the m271
-checkpoint -- the doorbell pushes, NEVER push). The v0.64.4 release
-coordination is filed (relay a3e9508 + 6386301); the v0.64.3 release-check
-rows await reporter verdicts at the archive. Nothing is in flight on the
-compiler side.
+STATE: the v0.64.4 release wave is in flight. Six batches + release-gate
+fixes are landed (m254-m273; local main ahead 11 at this docs commit --
+the doorbell pushes, NEVER push). Gate A is fully green and recorded in
+docs/RELEASE_GATE_v0.64.4.md. The stdlib lane owns the wave-106 revert +
+the stdlib-v0.64.4 tag (hold decision: REL-20261011-1812-compiler, relay
+d940720); the compiler PIN COMMIT is pending that tag (section 1b: vendor
+refresh -> STDLIB_VERSION -> notes JSON from a clean tag checkout -> gate
+record -> ONE chore(release) commit).
 
-NEXT: stand by for the doorbell/archive wave. When reporters file verdicts
-or bounces on the release-check rows: reproduce a bounce from its evidence,
-fix it as a new m-batch (ONE commit: fix + fixtures + docs; relay fix-note
-with numeric/IR witnesses and the commit ref), keep the stack unpushed for
-the doorbell, and update the m-numbering line here. The v0.64.4 stdlib pin
-(candidate-tag protocol) is with the stdlib lane -- watch
-REL-20261011-1731-compiler-2 responses. The xvector F32-slot row
-(REL-20261011-1134) is filed `fixed` at m271; xvector re-runs their probe
-at the archive.
+NEXT: (1) when the stdlib tag+ref land, do the pin commit per section 1b;
+(2) watch the bus for stdlib/other-lane responses and the doorbell push;
+(3) after the archive: the reporter verdict wave on the v0.64.3
+release-check rows (bounces -> new m-batches: reproduce from evidence,
+ONE commit each with fix + fixtures + docs + relay fix-note carrying
+numeric/IR witnesses); xvector re-runs the F32-slot probe (row filed
+`fixed` at m271). Keep the stack unpushed for the doorbell and update the
+m-numbering line here.
 
 PARALLEL SELFHOST: phase 6 in .kilo/worktrees/selfhost-phase-4-codegen
 (session ses_eded8c4d8ffeMNzBsYzBYIgAO8, T6 4/64, all gates green). Check
