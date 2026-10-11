@@ -7437,9 +7437,12 @@ fn main() -> Int {
 }
 
 // m219 (XVC-C-01): `&fn() -> T` parameter call shapes -- `f()` must bitcast
-// the i64* slot to the fn pointer (inttoptr with a pointer operand is invalid
-// IR), `(*f)()` must not fall into the 1-arg closure signature, and `*f` in a
-// binding must yield the code address (ptrtoint), not load code bytes.
+// the loaded fn-address pointer to the fn pointer, `(*f)()` must not fall
+// into the 1-arg closure signature, and `*f` in a binding must yield the
+// code address (ptrtoint), not load code bytes.
+// m273 note: since m263 `type_from_ast(Fn)` keeps the real fn-pointer type,
+// so `&fn` smuggles the code address as `i64 ()**` (was the old `i64*`
+// spelling); the bitcast + call shape is unchanged.
 #[test]
 fn regress_m219_fnptr_ref_call() {
     let source = r#"
@@ -7468,8 +7471,8 @@ fn main() -> Int {
     };
     let direct = body("define i64 @call_direct(");
     assert!(
-        direct.contains("bitcast i64*") && direct.contains("i64 ()*"),
-        "m219: f() must bitcast the i64* slot to the fn pointer; got:\n{ir}"
+        direct.contains("bitcast i64 ()**") && direct.contains("to i64 ()*"),
+        "m219: f() must bitcast the fn-address pointer to the fn pointer; got:\n{ir}"
     );
     assert!(
         !direct.contains("inttoptr i64*"),
