@@ -705,8 +705,9 @@ impl crate::IrEmitter {
                     }
                     // Const-ident size: resolve from `self.local.constants` (module-level
                     // `const N: Int = 32;` declared before the type is used).
-                    if let Some(cval) = self.local.constants.get(n_str) {
-                        if let Expr::Int(n, _) = cval {
+                    // m262: caller-module-qualified lookup first.
+                    if let Some(cval) = self.lookup_const(n_str) {
+                        if let Expr::Int(n, _) = &cval {
                             let n = *n as u64;
                             return Ok(format!("[{n} x {elem_llvm}]"));
                         }

@@ -6407,6 +6407,38 @@ fn e2e_safety_probe() {
     );
 }
 
+// m261 (REL-20261011-1124, C-ORBIT-07): a bare call inside a module must bind
+// the CALLER module's own definition -- including module-PRIVATE fns -- ahead
+// of the keep-first bare slot. The orbitdb consumer-fn-hijack shape: a
+// consumer's arm(Str,Str,Str) must not receive mod_svc.ping()'s zero-arg call.
+#[test] fn e2e_m261_module_local_precedence() {
+    assert_eq!(
+        compile_and_run("tests/regression/m261_module_local_precedence/main.xi"),
+        Some(0),
+        "the caller module's own private fn must win the bare call (m261)"
+    );
+}
+
+// m262 (REL-20261011-1052): module-private module-level consts are isolated
+// per module -- the numeric farm+metro pin (metrohash64(empty,0) must be
+// 0x13C52518F4DB1E2A), in BOTH import orders. The const_tag pins catch the
+// reverse order (each module must see its OWN constants).
+#[test] fn e2e_m262_private_symbol_isolation_farm_first() {
+    assert_eq!(
+        compile_and_run("tests/regression/m262_private_symbol_isolation/main_farm_first.xi"),
+        Some(0),
+        "farm-first order: metro must hash with its OWN constants (m262)"
+    );
+}
+
+#[test] fn e2e_m262_private_symbol_isolation_metro_first() {
+    assert_eq!(
+        compile_and_run("tests/regression/m262_private_symbol_isolation/main_metro_first.xi"),
+        Some(0),
+        "metro-first order: metro must hash with its OWN constants (m262)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

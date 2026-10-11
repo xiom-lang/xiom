@@ -363,7 +363,7 @@ impl IrEmitter {
 
             // Const variable reference -- substitute from self.local.constants
             Expr::Ident(ident) => {
-                if let Some(val) = self.local.constants.get(&ident.name) {
+                if let Some(val) = self.lookup_const(&ident.name) {
                     // Cycle detection: prevent infinite recursion on `const A = B; const B = A;`
                     // by tracking which constants are currently being evaluated.
                     // Re-entering a constant we're already resolving means a cycle -- bail out.
@@ -371,7 +371,7 @@ impl IrEmitter {
                         return expr.clone();
                     }
                     self.local.const_eval_stack.borrow_mut().insert(ident.name.clone());
-                    let result = self.evaluate_const_init(val);
+                    let result = self.evaluate_const_init(&val);
                     self.local.const_eval_stack.borrow_mut().remove(&ident.name);
                     return result;
                 }
@@ -987,7 +987,9 @@ impl IrEmitter {
                     }
                     // A bare reference to a module/global constant: substitute its
                     // literal value (constants aren't materialized as globals).
-                    if let Some(cval) = self.local.constants.get(&ident.name).cloned() {
+                    // m262: caller-module-qualified first (two modules' private
+                    // same-named consts must not collapse onto the bare slot).
+                    if let Some(cval) = self.lookup_const(&ident.name) {
                         return self.compile_expr(&cval);
                     }
                     // Bare `null` in an expression is the NULL POINTER (0), not a
@@ -3104,7 +3106,7 @@ impl IrEmitter {
                 // fix removes).
                 if let Expr::Ident(ident) = container.as_ref() {
                     if let Some((symbol, arr_ty, elem_ty, elem_xiom)) =
-                        self.local.const_array_globals.get(&ident.name).cloned()
+                        self.lookup_const_array_global(&ident.name)
                     {
                         let (idx_raw, idx_ty) = self.compile_expr(index)?;
                         let idx = self.val_to_i64(&idx_raw, &idx_ty);
@@ -3196,7 +3198,7 @@ impl IrEmitter {
                             // in array_locals -- without this, `_AES_SBOX[i]`
                             // read the LENGTH slot (buf[0]) as the first element
                             // and the whole AES S-box lookup returned garbage.
-                            || self.local.constants.get(&ident.name).map_or(false, |v| matches!(v, Expr::Array(..)))
+                            || self.lookup_const(&ident.name).map_or(false, |v| matches!(v, Expr::Array(..)))
                     } else { false })
                 );
                 if is_array_buf {
@@ -6220,8 +6222,8 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     // `SCHEMA_VERSION.to_str()` on a `const ... : Int` was
                     // classified as a module path, the receiver was dropped and
                     // the call lowered to an erased `@to_str()` stub (W005,
-                    // empty render / abort).
-                    || self.local.constants.contains_key(&ident.name)
+                    // empty render / abort). m262: qualified lookup first.
+                    || self.lookup_const(&ident.name).is_some()
             }
             // `a.b`: instance iff its base chain is rooted in a value (local/self),
             // e.g. `obj.field`. A module path like `xiom.char` is rooted in `xiom`

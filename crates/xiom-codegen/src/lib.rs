@@ -748,15 +748,70 @@ impl IrEmitter {
     }
 
 
+    /// m261/m262 (2026-10-11): the MODULE context of the fn currently being
+    /// compiled. Injected decls carry their module path in the fn NAME
+    /// (`hash.metro.metrohash64`); fns inside a `module` block keep a bare
+    /// leaf name and are covered by `local.current_module` (the parallel
+    /// per-fn emitters set it from the fn's prefix). Method keys
+    /// (`Type.method`) yield the receiver name, which simply misses every
+    /// module-qualified lookup and falls back to the bare entry.
+    fn current_module_prefix(&self) -> Option<String> {
+        if let Some(k) = self.fctx.current_fn.as_ref() {
+            if let Some((m, _)) = k.rsplit_once('.') {
+                if !m.is_empty() {
+                    return Some(m.to_string());
+                }
+            }
+        }
+        self.local.current_module.clone()
+    }
+
+    /// m262 (REL-20261011-1052): caller-module-qualified constant lookup with
+    /// the bare slot as fallback. Two co-imported modules can declare the same
+    /// PRIVATE module-level const (`_K0` in xiom.hash.farm AND
+    /// xiom.hash.metro); the bare slot is registration-order dependent, so a
+    /// module body must read its OWN entry first. Without this, metro's digest
+    /// substituted farm's constants (`metrohash64(empty,0)` returned
+    /// 0xD61B291421481536 instead of 0x13C52518F4DB1E2A).
+    pub(crate) fn lookup_const(&self, name: &str) -> Option<Expr> {
+        if let Some(prefix) = self.current_module_prefix() {
+            if let Some(v) = self.local.constants.get(&format!("{prefix}.{name}")) {
+                return Some(v.clone());
+            }
+        }
+        self.local.constants.get(name).cloned()
+    }
+
+    /// m262: const-ARRAY sibling of `lookup_const` for `const_array_globals`
+    /// (module-level const tables read through `internal constant` globals).
+    pub(crate) fn lookup_const_array_global(&self, name: &str) -> Option<(String, String, String, String)> {
+        if let Some(prefix) = self.current_module_prefix() {
+            if let Some(v) = self.local.const_array_globals.get(&format!("{prefix}.{name}")) {
+                return Some(v.clone());
+            }
+        }
+        self.local.const_array_globals.get(name).cloned()
+    }
+
     /// 5e.7f: Evaluate all registered constants in-place. Run after
     /// register_functions so cross-references between consts resolve.
     /// v0.54: uses evaluate_const_init (full CTFE with builtins, comparison,
     /// boolean ops, if/else folding) instead of the limited const_eval.
+    /// m262: each key is re-evaluated under its OWN module prefix so a
+    /// same-named private const from another module cannot leak into this
+    /// module's expression (registration-time evaluation already scopes).
     fn evaluate_all_consts(&mut self) {
         let keys: Vec<String> = self.local.constants.keys().cloned().collect();
         for name in keys {
             if let Some(expr) = self.local.constants.get(&name).cloned() {
+                let saved_module = self.local.current_module.clone();
+                if let Some((prefix, _)) = name.rsplit_once('.') {
+                    if !prefix.is_empty() {
+                        self.local.current_module = Some(prefix.to_string());
+                    }
+                }
                 let evaluated = self.evaluate_const_init(&expr);
+                self.local.current_module = saved_module;
                 self.local.constants.insert(name, evaluated);
             }
         }
@@ -4078,8 +4133,9 @@ impl IrEmitter {
                     }
                     // Const-ident size: resolve from `self.local.constants` (module-level
                     // `const N: Int = 32;` declared before the type is used).
-                    if let Some(cval) = self.local.constants.get(n_str) {
-                        if let Expr::Int(n, _) = cval {
+                    // m262: caller-module-qualified lookup first.
+                    if let Some(cval) = self.lookup_const(n_str) {
+                        if let Expr::Int(n, _) = &cval {
                             let n = *n as u64;
                             return Ok(format!("[{n} x {elem_llvm}]"));
                         }
@@ -4791,7 +4847,8 @@ impl IrEmitter {
     /// fell straight to the wildcard arm for every input. They must be
     /// checked (value comparison) instead.
     fn match_ident_is_const(&self, name: &str) -> bool {
-        if self.local.constants.contains_key(name) {
+        // m262: caller-module-qualified lookup first.
+        if self.lookup_const(name).is_some() {
             return true;
         }
         let leaf = name.rsplit('.').next().unwrap_or(name);

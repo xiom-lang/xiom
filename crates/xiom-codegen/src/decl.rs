@@ -514,6 +514,13 @@ impl IrEmitter {
         }
         let entry = (symbol.clone(), llvm_ty, elem_llvm, elem_xiom);
         self.local.const_array_globals.insert(cd.name.name.clone(), entry.clone());
+        // m262: keep the bare LEAF readable when the name is module-qualified
+        // (injected consts) -- user code references stdlib const tables by
+        // leaf. Keep-first so a program-level const keeps the slot.
+        let arr_leaf = cd.name.name.rsplit('.').next().unwrap_or(&cd.name.name).to_string();
+        if arr_leaf != cd.name.name {
+            self.local.const_array_globals.entry(arr_leaf).or_insert_with(|| entry.clone());
+        }
         self.local.const_array_globals.insert(symbol, entry);
     }
 
@@ -600,8 +607,7 @@ impl IrEmitter {
                 }
             } else {
                 // Record module/global constants so a bare reference can be substituted
-                // with its literal value (constants are not emitted as globals). Last
-                // definition wins; both bare and module-qualified names are keyed.
+                // with its literal value (constants are not emitted as globals).
                 // M33/CTFE: evaluate the init expression at compile time and store
                 // the literal result instead of the raw expression tree.
                 let evaluated = self.evaluate_const_init(&cd.value);
@@ -613,14 +619,38 @@ impl IrEmitter {
                 // (bare + module-qualified) so method dispatch on a const
                 // receiver sees its concrete type (`const V: Int = 41;
                 // V.to_str()`) instead of the erased i64 default. Mirrors the
-                // mutable-global pass above (BUG 29).
+                // mutable-global pass above (BUG 29). m262: injected decls
+                // carry a module-qualified name, so the bare LEAF entry is
+                // kept too (keep-first) for bare receiver dispatch.
                 if let Some(xiom_ty) = Self::type_from_ast_with_args_opt(&cd.ty) {
                     self.local.global_xiom_types.insert(cd.name.name.clone(), xiom_ty.clone());
                     if let Some(ref m) = self.local.current_module {
-                        self.local.global_xiom_types.insert(format!("{m}.{}", cd.name.name), xiom_ty);
+                        self.local.global_xiom_types.insert(format!("{m}.{}", cd.name.name), xiom_ty.clone());
+                    }
+                    let g_leaf = cd.name.name.rsplit('.').next().unwrap_or(&cd.name.name).to_string();
+                    if g_leaf != cd.name.name {
+                        self.local.global_xiom_types.entry(g_leaf).or_insert(xiom_ty);
                     }
                 }
-                self.local.constants.insert(cd.name.name.clone(), evaluated);
+                // m262 (REL-20261011-1052): module-private symbol identity.
+                // The EXACT name (`hash.metro._K0` for injected decls) is
+                // registered unconditionally; consts declared inside a
+                // `module` block also get their qualified key. The bare LEAF
+                // slot stays keep-first so a program-level const keeps owning
+                // its bare name -- the old bare-only, last-wins slot let
+                // farm's `_K0` overwrite metro's, and every body substituted
+                // the survivor's value. Reads resolve caller-module-qualified
+                // first via `lookup_const`.
+                self.local.constants.insert(cd.name.name.clone(), evaluated.clone());
+                if let Some(ref m) = self.local.current_module {
+                    if !cd.name.name.contains('.') {
+                        self.local.constants.insert(format!("{m}.{}", cd.name.name), evaluated.clone());
+                    }
+                }
+                let leaf = cd.name.name.rsplit('.').next().unwrap_or(&cd.name.name).to_string();
+                if leaf != cd.name.name {
+                    self.local.constants.entry(leaf).or_insert(evaluated);
+                }
             }
         }
         if let TopDecl::Fn(fd) = item {

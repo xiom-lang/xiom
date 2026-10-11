@@ -385,6 +385,61 @@ impl IrEmitter {
         }
     }
 
+    /// m261 (REL-20261011-1124, C-ORBIT-07): module-local call precedence.
+    /// An unqualified call inside a module must bind the CALLER module's own
+    /// definition -- including module-PRIVATE fns -- ahead of the keep-first
+    /// BARE slot. The bare slot is program/registration-order dependent: the
+    /// orbitdb consumer program defined `arm(Str,Str,Str)` while the imported
+    /// service module's private `arm()` was called by `ping()`, and the bare
+    /// symbol (the consumer's) received the zero-arg call with empty args.
+    ///
+    /// The caller module is derived exactly like the existing caller-module
+    /// fallback: the current fn key's module part (`hash.metro.metrohash64`
+    /// -> `hash.metro`, injected decls carry their module path in the name)
+    /// or, for fns inside a `module` block (`current_fn` = bare leaf), the
+    /// live `local.current_module`.
+    ///
+    /// The qualified key is only usable when a DEFINITION is emittable under
+    /// it -- a pre-assigned symbol, an already-emitted definition, or a
+    /// generic decl. Leaf-qualified keys that exist only as RESOLUTION ALIASES
+    /// (no definition emitted under them) keep the bare path; binding them
+    /// would hit emit_undefined_symbol_stubs (zero-param stub -> ABI crash,
+    /// see the BUG 16/18 note at the call site).
+    pub(crate) fn resolve_caller_module_def(&self, fn_name: &str) -> Option<String> {
+        let caller_module = self.fctx.current_fn.as_ref()
+            .and_then(|k| k.rsplit_once('.'))
+            .map(|(m, _)| m.to_string())
+            .or_else(|| self.local.current_module.clone())?;
+        let qualified = format!("{caller_module}.{fn_name}");
+        // SELF-exclusion: a thin stdlib wrapper over a same-named runtime
+        // intrinsic (`pub fn sqrt(x) { sqrt(x) }` in xiom.math) must keep
+        // binding the BARE slot (the extern declare); binding the module's
+        // own key made the wrapper call ITSELF -> infinite recursion
+        // (m170 curve_length via math.sqrt).
+        if self.fctx.current_fn.as_deref() == Some(qualified.as_str()) {
+            return None;
+        }
+        // A REAL module-qualified definition key maps to ITSELF in the
+        // preassigned symbol map (`preassign_fn_symbols` qualifies every
+        // cross-module / name-colliding definition). An entry mapping to a
+        // DIFFERENT symbol is a resolution ALIAS over a bare definition
+        // (single-module fns register `{m}.{key}` -> bare `key`); binding the
+        // alias key breaks every key-keyed registry (e.g.
+        // `mono.fn_typed_params`, keyed by the fn's registered name) and
+        // would strip fn-typed-param env wrapping (m170). Alias-only keys
+        // keep the bare path.
+        let defined = match self.mono.fn_symbol_map.get(&qualified) {
+            Some(sym) => sym == &qualified,
+            None => self.mono.emitted_fns.contains(&qualified)
+                || self.mono.generic_fn_decls.iter().any(|(k, _)| k == &qualified),
+        };
+        if defined {
+            Some(qualified)
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn compile_call(&mut self, func: &Expr, args: &[Expr]) -> Result<(String, String), String> {
         // R52 (playground L5-43): tolerate a REDUNDANT explicit receiver
         // argument (`s.push(&mut s, "Alice")`). The method call already passes
@@ -3882,6 +3937,15 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     // The lz4 probe bound the Result wrapper while the checker
                     // accepted the Vec fn, so `.len()` read aggregate garbage.
                     if let Some(qualified) = self.resolve_program_bare_target(&fn_key, func.span()) {
+                        qualified
+                    } else if let Some(qualified) = self.resolve_caller_module_def(&fn_key) {
+                        // m261 (REL-20261011-1124): the CALLER module's own
+                        // definition -- incl. module-PRIVATE fns -- shadows
+                        // the keep-first bare slot. This is the BUG 16/18
+                        // direction extended: previously the caller-module
+                        // preference only ran when NO bare definition existed,
+                        // so a consumer's same-named fn (the bare slot owner)
+                        // hijacked a service module's private helper.
                         qualified
                     } else if self.types.functions.contains_key(&fn_key) || self.mono.emitted_fns.contains(&fn_key) {
                     // BUG 16/18 fix (2026-08-11): a bare call must prefer the

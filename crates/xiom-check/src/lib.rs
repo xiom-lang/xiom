@@ -3802,9 +3802,27 @@ impl Checker {
                             // Inject external modules' `const` declarations so codegen
                             // can substitute constant references (e.g. `SIMD_SSE`) with
                             // their literal values. Deduplicated by name.
-                            if !existing.contains(&cd.name.name) {
-                                existing.insert(cd.name.name.clone());
-                                out.push(TopDecl::Const(cd.clone()));
+                            // m262 (REL-20261011-1052): qualify the injected name by
+                            // the (xiom-stripped) module path -- same rule as free fns
+                            // above. Without it, two modules' same-named PRIVATE consts
+                            // (`_K0` in xiom.hash.farm AND xiom.hash.metro) deduped to
+                            // ONE bare injection and every body substituted the
+                            // survivor's value (metro's digest used farm's constants).
+                            // IMMUTABLE consts only: a module-level `pub var` is a
+                            // ConstDecl too, but its NAME is its emitted LLVM global
+                            // symbol and its lookups are leaf-keyed (`module_globals`),
+                            // so qualifying it renamed the symbol and unregistered the
+                            // leaf (m227 module-global Vec `stores.push` broke).
+                            let mut cd2 = cd.clone();
+                            if !cd.is_mut && !module_name.is_empty() {
+                                let stripped = module_name.strip_prefix("xiom.").unwrap_or(module_name);
+                                if !stripped.is_empty() {
+                                    cd2.name.name = format!("{}.{}", stripped, cd2.name.name);
+                                }
+                            }
+                            if !existing.contains(&cd2.name.name) {
+                                existing.insert(cd2.name.name.clone());
+                                out.push(TopDecl::Const(cd2));
                                 // BUG 29 (repro_fn_storage): a module-level
                                 // `var g = FnBox{...}` injects the CONST but not
                                 // the (possibly private) struct type it

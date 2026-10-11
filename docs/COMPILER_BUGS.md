@@ -15063,6 +15063,69 @@ NEXT: root-cause the two malformed TLS accesses and the emission cascade
 unused fn adds ~1.6 MB and yields TLS-offset-as-address loads at scale).
 Pulse reverted main; work preserved at feat/site-mode 51760b1.
 
+---
+
+## 2026-10-11 -- FIXED (m261): module-local call precedence (REL-20261011-1124-orbitdb)
+
+Orbitdb consumer-fn-hijack: module `mod_svc`'s own PRIVATE zero-arg `arm()`
+called unqualified from its pub `ping()`; a same-named consumer
+`arm(Str,Str,Str)` owned the registration-order BARE symbol, and codegen's
+bare-call path preferred the bare slot whenever a bare definition existed --
+`ping()` ran the consumer's arm with empty args (`probe: consumer
+arm(a=[] b=[] c=[])`), exit 0, no diagnostic. The CHECKER side already
+resolved scope-first (prefixed `{module}.{leaf}` key); the loss was
+codegen-only.
+
+FIX (call.rs): the bare path now binds the CALLER module's own DEFINITION
+ahead of the bare slot (`resolve_caller_module_def`). Caller module = the
+current fn's name prefix for injected decls (`hash.metro.metrohash64`) or
+`local.current_module` for `module` blocks. Alias-only `{m}.{fn}` keys
+(symbol-map value != key) are skipped -- they strip key-keyed registries
+(fn_typed_params env wrapping, m170). Self-calls keep the bare slot so thin
+stdlib wrappers (`math.sqrt` -> bare intrinsic `@sqrt`) do not recurse into
+themselves (m170 curve_length).
+
+EVIDENCE: hijack bundle prints `svc: private arm() ran`; fixture exits 0
+(was 1). LOCK: `e2e_m261_module_local_precedence` +
+tests/regression/m261_module_local_precedence/ (mod_svc.xi + main.xi).
+REGRESSIONS guarded: e2e m225/m227/m170/m246/m248/m249/m254/m256/m260 all
+green; CI e2e list 157/157 + p-group 16/16; front-end locks 47/47.
+
+---
+
+## 2026-10-11 -- FIXED (m262): module-private module-level const identity (REL-20261011-1052-stdlib)
+
+Co-importing `xiom.hash.farm` + `xiom.hash.metro`: `metrohash64(empty,0)`
+returned FARM's-constant value `0xD61B291421481536`
+(15427970114922222902) instead of the contract value `0x13C52518F4DB1E2A`
+(1424585646250073642) -- reproduced in BOTH import orders.
+
+ROOT: `collect_pub_decls` injected catalog consts UNQUALIFIED and deduped
+by bare name (metro's `_K0` was dropped entirely); codegen's `constants`
+map was bare-keyed last-wins, so every body substituted the survivor's
+value.
+
+FIX: injected IMMUTABLE consts are module-qualified at injection (same rule
+as free fns; mutable `pub var` ConstDecls are EXCLUDED -- a var's name is
+its emitted global symbol and leaf-keyed `module_globals` registration,
+which m227's `stores.push` depends on). Codegen registers exact +
+module-qualified + keep-first leaf keys; reads resolve
+caller-module-qualified first (`lookup_const` /
+`lookup_const_array_global`; const-array leaf keys kept for bare readers);
+`evaluate_all_consts` re-evaluates each key under its own module prefix.
+
+EVIDENCE: probe both orders `metro64 = 1424585646250073642`, `farm64 = 0`;
+fixtures exit 0 (nonzero pre-fix). LOCK:
+`e2e_m262_private_symbol_isolation_farm_first` / `_metro_first` +
+tests/regression/m262_private_symbol_isolation/ (pinned farm/metro copies
+with natural `_K0.._K3` names, the numeric pin + per-module `*_tag` pins so
+both collision directions fail pre-fix).
+
+WAVE-106 NOTE: the stdlib `_METRO_K*` rename only MASKS this class; the
+fixture is rename-proof, and the pin should be re-verified with the natural
+names restored once the registry carries them (per REL-20261011-1342).
+
+
 
 
 
