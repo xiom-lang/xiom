@@ -84,8 +84,10 @@ path (and, where useful, the line) in commit messages and bus notes.
 ### 5. Layout of enums and tuples
 - `compiler/rustc_abi/src/lib.rs:2032` -- `pub enum Variants<FieldIdx,
   VariantIdx>` (Empty / Single / Multiple { tag, tag_encoding, tag_field, ... }).
-- `compiler/rustc_abi/src/layout.rs` -- `LayoutS` and friends; layout is
-  computed, fields are indexed per variant.
+- `compiler/rustc_abi/src/layout/ty.rs:76` (`TyAndLayout`) /
+  `rustc_abi/src/lib.rs:2223` (`LayoutData`) -- layout is computed, fields
+  are indexed per variant. (The historical `LayoutS` name does not exist in
+  the 2026-10-11 clone; study 05 verified the successors.)
 - `compiler/rustc_public/src/abi.rs` -- stable `LayoutShape`/`VariantsShape`
   shapes (a useful model for any published metadata).
 - Adopt for: replacing name-string typing (`Tuple__Int__Vec`) with computed

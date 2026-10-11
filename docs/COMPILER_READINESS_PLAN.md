@@ -209,6 +209,29 @@ hello+matrix workload, cold/warm run latency).
 
 THEN: docs/REPO_SPLIT.md split, then registry + package testing (repo public by then).
 
+### Rustc-study proposed additions (2026-10-11)
+
+Seven worktree studies (branches `study/rustc-*`) compared rustc @7211ea594
+against XIOM; consolidated intake: `docs/RUSTC-STUDY.md`, per-area detail:
+`docs/rustc-study/`. Proposed additions (accept/reject/defer at the next
+planning pass; none are committed scope yet):
+
+- Stage 6: tracked read-graph incremental engine (dep fingerprints, value
+  fingerprints, promoted roots, session-generation cache dirs); structural
+  interface hash as slice 1; canonical-order + serial-equivalence parallel
+  discipline with CGU-style bounded work items and jobserver tokens; hard
+  IR-verification gate + type-derived optimization attributes; layout
+  memoization; IR-volume baselines recorded.
+- Stage 7: error-token/body-taint gating (the REL-20261010-1900 class);
+  phantom-import single-error + placeholder binding; typed `LocalTypeTable`
+  (structurally fixes REL-20261010-1904 + the m250/254/256 family); check
+  placement at place formation + rustc profile semantics (O0 traps, bounds
+  always on); selfhost seed pin, ICE report pipeline, `--bless` goldens,
+  -O0/-O2/-O3 x clang/gcc differential suite, fuzz promotion policy.
+- Stages 8-9: scripted self1==self2 gate; cross-artifact determinism
+  (xiom.exe vs self1 vs self2); session-independent identity for
+  package-level caching; mono-instance-keyed typed cache.
+
 ---
 
 ## Standing defaults (unless overridden by the user)

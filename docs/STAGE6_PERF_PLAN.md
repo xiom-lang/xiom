@@ -564,3 +564,33 @@ no code at all; that relay answer should land before re-prioritising.
       same closure (dev loops, `--no-cache` reruns, LSP); across DIFFERENT
       programs the closure-dependent entries miss by design. The
       precompiled-stdlib half remains the structural cold lever.
+
+---
+
+## Rustc-study intake (2026-10-11)
+
+Consolidated Stage 6 additions from the seven-area rustc study
+(docs/RUSTC-STUDY.md; per-area detail docs/rustc-study/). None committed;
+intake for the benchmark / incremental / parallel lanes.
+
+- Incremental engine: tracked read-graph per task; node identity
+  (kind, stable hash); recursive green marking + forced recompute; value
+  fingerprints (benign edits stay green); promoted-root re-serialization;
+  per-query cache opt-ins; session-generation cache dirs; structural
+  interface hash as slice 1 (replaces hash(module_path+deps) at
+  crates/xiom-graph/src/cache.rs:294-297). [study 01]
+- Parallel discipline: canonical order BEFORE parallel; first-task-inline +
+  reverse spawn; CGU-style bounded, cost-sorted work items (~16 default);
+  split frontend/backend/linker job limits; jobserver tokens for the clang
+  pool. [study 02]
+- IR quality: IR verification as a hard gate (warn-only today; skipped on
+  --emit-ir); type-derived optimization attributes (none emitted today:
+  noalias/readonly/noundef/nonnull/dereferenceable/align); reachability-only
+  emission + internal linkage; cold panic paths. [study 03]
+- Measured IR baselines: 16-line program 375 KB / 147 defines (87% forced
+  alwaysinline); t2-queue 592 KB / 287 defines (90%); per-fn TLS counter
+  pair appears 667 / 1,175 times. [study 03]
+- Layout memoization: interned type id + per-mono-instance layout cache
+  (string round-trips removed, zero IR-byte change). [study 05]
+- Bootstrap-chain budgets: T3 suite 6-13 min uncached; O2 targets (<60 s
+  self-compile, within 2x xiom.exe) currently unmeasured. [study 07]
