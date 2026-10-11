@@ -740,6 +740,19 @@ impl IrEmitter {
                 .map(|xiom_ty| Self::is_signed_xiom_type(&xiom_ty))
                 .unwrap_or(true),
             Expr::Paren(e, _) => self.as_source_is_signed(e),
+            // m260 (C-ORBIT-08 B): a fixed-array element read `b[i] as Int`
+            // must consult the array's element type -- previously every
+            // Index fell through to the signed default, so [8]UInt8 reads
+            // sign-extended (0xF8 -> -8) while Vec[UInt8] was correct.
+            Expr::Index(base, _, _) => match base.as_ref() {
+                Expr::Ident(id) => self
+                    .local
+                    .local_array_elem_xiom
+                    .get(&id.name)
+                    .map(|xiom_ty| Self::is_signed_xiom_type(xiom_ty))
+                    .unwrap_or(true),
+                _ => true,
+            },
             _ => true,
         }
     }
@@ -3470,6 +3483,23 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     // Float64 let-array lock). Mirrors the Vec float path.
                     if matches!(inner_ty.as_str(), "float" | "double" | "fp128") {
                         return Ok((elem, inner_ty.to_string()));
+                    }
+                    // m260 (C-ORBIT-08 B): widen with the array's ELEMENT
+                    // signedness -- [8]UInt8 elements must ZERO-extend
+                    // (0xF8 -> 248; val_to_i64's signed default gave -8).
+                    if matches!(inner_ty.as_str(), "i1" | "i8" | "i16" | "i32") {
+                        let elem_signed = if let Expr::Ident(id) = &**container {
+                            self.local
+                                .local_array_elem_xiom
+                                .get(&id.name)
+                                .map(|t| Self::is_signed_xiom_type(t))
+                                .unwrap_or(true)
+                        } else {
+                            true
+                        };
+                        let wide = self.widen_to_i64_signed(&elem, &inner_ty, elem_signed);
+                        self.local.reg_signed.insert(wide.clone(), elem_signed);
+                        return Ok((wide, LLVM_I64.to_string()));
                     }
                     let result = self.val_to_i64(&elem, &inner_ty);
                     return Ok((result, LLVM_I64.to_string()));

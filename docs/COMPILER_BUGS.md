@@ -15002,6 +15002,29 @@ symptom until phantom imports produce a real error (v0.64.4 batch).
 
 ---
 
+## 2026-10-11 -- FIXED (m260, part B): [N]UInt8 element reads sign-extended (REL-20261011-1219-orbitdb)
+
+`var b: [8]UInt8;` (annotation-only local, no initializer) recorded no
+element type, and the fixed-array GEP read path widened with the signed
+default (`val_to_i64`), so `b[6] as Int` returned -8 for 0xF8 while
+`Vec[UInt8]` correctly returned 248. FIX: annotation-only array locals
+register their element XIOM type (`local_array_elem_xiom`, Var/Let arms),
+and the fixed-array element widen consults it
+(`widen_to_i64_signed` + `reg_signed` marking); `[N]Int8` keeps sext.
+EVIDENCE: orbitdb repro B now `array cast = 248`; fixture 1.5-bit-pattern
+checks both signs. LOCK: `e2e_m260_u8_array_elem_cast` (ci.yml line);
+array regression set 14/14 green (m138/m67/m69 x2/m109/m238/m243 x2/m20/
+m58/m60/m164/m96/m34).
+
+PART A (enum-in-tuple inside `Result`: nondeterministic STATUS_BREAKPOINT
+0x80000003 / silently skipped match arms) stays OPEN: minimal repro is
+`Result[(Color, Int), Int]` with a payload enum; a PLAIN `(Color, Int)`
+tuple (let-bound, .0/.1 + match) is green on HEAD, and the same minimal
+file has run green once and crashed once (UB-grade nondeterminism).
+Continue from `repro_enum_tuple.xi` in the orbitdb bundle.
+
+---
+
 ## 2026-10-10 -- OPEN (diagnosed): pulse site-mode test dies at startup on the v0.64.3 program side (REL-20261010-1854-pulse)
 
 Symptom: `xiom --run tests/test_app.xi` on xiom-pulse feat/site-mode @

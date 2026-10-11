@@ -6396,6 +6396,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// m260 (C-ORBIT-08 B): [N]UInt8 element `as Int` must zero-extend (0xF8 ->
+// 248); the annotation-only fixed-array path sign-extended through the
+// signed default while [N]Int8 keeps sext.
+#[test] fn e2e_m260_u8_array_elem_cast() {
+    assert_eq!(
+        compile_and_run("tests/regression/m260_u8_array_elem_cast/main.xi"),
+        Some(0),
+        "fixed-array element widening must follow the element signedness (m260)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

@@ -688,6 +688,19 @@ impl IrEmitter {
                 }
             }
             Stmt::Var(name, _ty, value, _) => {
+                // m260 (C-ORBIT-08 B): an ANNOTATION-ONLY array local
+                // (`var b: [8]UInt8;`, no initializer) recorded no element
+                // info, so `b[i] as Int` sign-extended UInt8 elements
+                // (0xF8 -> -8). Record the annotated element type; the
+                // array-literal path below records from the elements.
+                if !matches!(value, Expr::Array(..)) {
+                    if let Some(Type::Array(_, elem)) = _ty.as_ref().map(|t| &**t) {
+                        let elem_xiom = Self::type_from_ast(elem);
+                        if !elem_xiom.is_empty() {
+                            self.local.local_array_elem_xiom.insert(name.name.clone(), elem_xiom);
+                        }
+                    }
+                }
                 // M20-A1: Track closure bindings (also through parens)
                 // B-007: plus locals bound from fn-typed container ELEMENTS
                 // (`var t = tw.tasks[i]; t();` -- Vec[fn()] holds closure envs).
