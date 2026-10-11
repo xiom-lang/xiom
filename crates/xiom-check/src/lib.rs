@@ -9138,11 +9138,17 @@ impl Checker {
                     // Vec[Int]; a SECOND index strips the next level (nested
                     // reads recurse through the nested Expr::Index).
                     CheckedType::Named(name) if crate::structural::is_container_base(name, "Vec") => {
-                        // Stage 2c slice 2: the shared structural parser owns
-                        // the bracket extraction (canonical arg rendering).
-                        let inner = crate::structural::container_parts(name)
-                            .and_then(|(_, args)| args.into_iter().next())
-                            .unwrap_or_else(|| name.name().to_string());
+                        // B-15 (REL-20261011-1121): take EVERYTHING between the
+                        // OUTER brackets -- a comma inside the element type
+                        // (`fn(Int, Int) -> Bool`) must not be comma-split into
+                        // multiple "args" (the 2-parameter element then parsed
+                        // as Named("fn(Int") and `h(a, b)` typed as `()`).
+                        // One level per index (nested reads recurse).
+                        let full = name.name();
+                        let inner = full.strip_prefix("Vec[")
+                            .and_then(|r| r.strip_suffix(']'))
+                            .map(|s| s.trim().to_string())
+                            .unwrap_or_else(|| full.to_string());
                         // BUG 51 (2026-08-18) + C1: fn-typed elements
                         // (Vec[fn() -> Int]) must parse into a REAL Fn
                         // CheckedType -- see CheckedType::from_marker.
@@ -9153,9 +9159,11 @@ impl Checker {
                     // it so `zipped[0].0` resolves the tuple fields. A bare
                     // "Array" (legacy erasure) stays permissive.
                     CheckedType::Named(name) if crate::structural::is_container_base(name, "Array") => {
-                        crate::structural::container_parts(name)
-                            .and_then(|(_, args)| args.into_iter().next())
-                            .map(|a| CheckedType::from_str(&a))
+                        // B-15: outer-bracket extraction (see the Vec arm).
+                        let full = name.name();
+                        full.strip_prefix("Array[")
+                            .and_then(|r| r.strip_suffix(']'))
+                            .map(|a| CheckedType::from_str(a.trim()))
                             .unwrap_or(CheckedType::Int)
                     }
                     // BUG 29 (repro_opt_vec): wildcard receiver (`v` from
@@ -9824,6 +9832,11 @@ impl Checker {
             // Wildcard placeholder type is compatible with everything
             (CheckedType::Named(n), _) if n == "_" => true,
             (_, CheckedType::Named(n)) if n == "_" => true,
+            // B-14 (REL-20261011-1121): the bare `return;` literal types as
+            // CheckedType::Unit (name "()") while an explicit `-> Unit`
+            // annotation parses to Named("Unit"); the two are the same type.
+            (CheckedType::Unit, CheckedType::Named(n)) if n == "Unit" || n == "()" => true,
+            (CheckedType::Named(n), CheckedType::Unit) if n == "Unit" || n == "()" => true,
             // Function pointer compatibility: Named("fn") is compatible with any Fn type
             (CheckedType::Named(n), CheckedType::Fn(..)) if n == "fn" => true,
             (CheckedType::Fn(..), CheckedType::Named(n)) if n == "fn" => true,

@@ -6439,6 +6439,29 @@ fn e2e_safety_probe() {
     );
 }
 
+// m264 (REL-20261011-1121 B-14/B-15): a Vec[fn] ELEMENT call with >= 2
+// arguments types the fn's declared return (`if h(a, b)` / `let got = h(a,b)`
+// were `()`); a bare `return;` unifies with an explicit `-> Unit`; pushing a
+// bare fn NAME into a MODULE-GLOBAL Vec[fn] stores the closure env the
+// element-call path expects (raw code address -> 0xC0000005).
+#[test] fn e2e_m264_element_arity_and_unit() {
+    assert_eq!(
+        compile_and_run("tests/regression/m264_element_arity_and_unit/main.xi"),
+        Some(0),
+        "Vec[fn] element calls of any arity + unit returns + global push (m264)"
+    );
+}
+
+// m265 (REL-20261011-0317 pulse-7): a module-scope fn-pointer `var` is
+// callable and reassignable (the test-harness swap-the-runner shape).
+#[test] fn e2e_m265_module_scope_fnptr() {
+    assert_eq!(
+        compile_and_run("tests/regression/m265_module_scope_fnptr/main.xi"),
+        Some(0),
+        "module-scope fn-pointer storage must call + reassign (m265)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

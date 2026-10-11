@@ -2103,6 +2103,12 @@ impl IrEmitter {
                     .collect();
                 format!("_Anon__{}", parts.join("__"))
             }
+            // 1904 (fn-value ABI, 2026-10-11): a `fn(...) -> R` annotation or
+            // cast target must keep its MARKER -- erasing to "Int" lost the
+            // return class (Float64 returns through cast fn-pointers read the
+            // integer register) and the fn-ness for binding classification.
+            // `llvm_type_for` still erases the marker to a fn-ptr ABI (i64).
+            Type::Fn(_, _) => Self::type_from_ast_with_args(ty),
             _ => "Int".to_string(),
         }
     }
@@ -2397,6 +2403,11 @@ impl IrEmitter {
     /// (see coerce_arg_for_param).
     fn param_llvm_type(&mut self, ty: &Type) -> String {
         match ty {
+            // B-007/env ABI (1904 follow-up): fn-typed params carry the
+            // closure ENV pointer (i64). `type_from_ast` now keeps the
+            // "fn(...) -> R" marker, so the raw fn-ptr lowering must not
+            // leak into signatures (`i32 (i32)*` vs the i64 env slot).
+            Type::Fn(_, _) => "i64".to_string(),
             Type::Tuple(_) => {
                 let concrete = self.concrete_type_for(ty);
                 self.llvm_type_for(&concrete).unwrap_or_else(|_| "i64".to_string())
@@ -2835,6 +2846,80 @@ impl IrEmitter {
             }
         }
         found
+    }
+
+    /// B-13/1904 (2026-10-11 fn-value ABI): record a fn-typed local's
+    /// signature and its env/raw provenance at binding time.
+    ///
+    /// * Signature record (the "recorded at binding, derived at call"
+    ///   design): `let f = sym as fn(P) -> R;` (cast target) or
+    ///   `let f: fn(P) -> R = ...;` (annotation) -> `fn_ptr_return_types`
+    ///   (LLVM return class) + `fn_local_returns` (XIOM return).
+    /// * Env provenance: copying an env-valued source (fn-typed
+    ///   param/closure/environment local) keeps the ENV representation --
+    ///   without this `let g = f; g(x)` inttoptr'd the env as code and
+    ///   `g as Int` handed C the env pointer. The sets are program-wide
+    ///   (never cleared per fn), so a same-named RAW source re-marks the
+    ///   name raw.
+    fn track_fn_value_binding(&mut self, name: &str, value: &Expr, ty: Option<&Type>) {
+        let sig_ty: Option<&Type> = match ty {
+            Some(t @ Type::Fn(..)) => Some(t),
+            _ => match value {
+                Expr::As(_, t, _) if matches!(t, Type::Fn(..)) => Some(t as &Type),
+                _ => None,
+            },
+        };
+        if let Some(Type::Fn(_, ret)) = sig_ty {
+            let ret_xiom = Self::type_string_full(ret);
+            let ret_llvm = self.llvm_type_for_fallback(&Self::type_from_ast(ret));
+            self.types.fn_ptr_return_types.insert(name.to_string(), ret_llvm);
+            self.local.fn_local_returns.insert(name.to_string(), ret_xiom);
+        }
+        let env_src = match value {
+            Expr::Ident(id) => self.local.closure_locals.contains(&id.name),
+            // Vec[fn] element read: the m130 element convention stores an
+            // ENV, so the copy is env-valued too (`let h = v[i]; h(a, b)`
+            // must load field 0 -- direct-calling the env was an AV).
+            Expr::Index(container, _, _) => self.resolve_vec_container_elem_xiom(container)
+                .map_or(false, |x| x.starts_with("fn(")),
+            _ => false,
+        };
+        if env_src {
+            self.local.closure_locals.insert(name.to_string());
+            if let Expr::Index(container, _, _) = value {
+                // Record the element's signature (return class) so the call
+                // site types the result like any other fn value.
+                if let Some(marker) = self.resolve_vec_container_elem_xiom(container) {
+                    if let Some((_, ret)) = marker.rsplit_once("->") {
+                        let ret_xiom = ret.trim().to_string();
+                        let ret_llvm = self.llvm_type_for_fallback(&ret_xiom);
+                        self.types.fn_ptr_return_types.insert(name.to_string(), ret_llvm);
+                        self.local.fn_local_returns.insert(name.to_string(), ret_xiom);
+                    }
+                }
+            }
+            if let Expr::Ident(id) = value {
+                if !self.local.fn_local_returns.contains_key(name) {
+                    if let Some(r) = self.local.fn_local_returns.get(&id.name).cloned() {
+                        self.local.fn_local_returns.insert(name.to_string(), r);
+                    }
+                }
+                if !self.types.fn_ptr_return_types.contains_key(&name.to_string()) {
+                    if let Some(rl) = self.types.fn_ptr_return_types.get(&id.name) {
+                        self.types.fn_ptr_return_types.insert(name.to_string(), rl);
+                    }
+                }
+            }
+        } else if sig_ty.is_some()
+            || matches!(value, Expr::Ident(id) if
+                self.types.functions.contains_key(&id.name)
+                || self.types.functions.keys().into_iter().any(|k| k.ends_with(&format!(".{}", id.name)))
+                || self.mono.emitted_fns.contains(&id.name))
+        {
+            // Raw source (an As-cast address or a top-level fn name): the
+            // slot carries the code address, not an env.
+            self.local.closure_locals.remove(name);
+        }
     }
 
     /// 5c.30: Track boxed-struct payload flow for a `let`/`var` binding.

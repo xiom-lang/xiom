@@ -362,6 +362,9 @@ impl IrEmitter {
                 if is_closure(value) {
                     self.local.closure_locals.insert(name.name.clone());
                 }
+                // B-13/1904 (fn-value ABI): fn-typed bindings record their
+                // signature (As target / annotation) and env provenance.
+                self.track_fn_value_binding(&name.name, value, _ty.as_deref());
                 self.track_boxed_payload_binding(&name.name, value);
                 // Track Option/Result payload types from the type annotation
                 // so nested match dispatch works.
@@ -713,6 +716,9 @@ impl IrEmitter {
                 {
                     self.local.closure_locals.insert(name.name.clone());
                 }
+                // B-13/1904 (fn-value ABI): fn-typed bindings record their
+                // signature (As target / annotation) and env provenance.
+                self.track_fn_value_binding(&name.name, value, _ty.as_deref());
                 // Track array-literal bindings for Expr::Index dispatch
                 if matches!(value, Expr::Array(..)) {
                     self.local.array_locals.insert(name.name.clone());

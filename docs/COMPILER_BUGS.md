@@ -15125,6 +15125,79 @@ WAVE-106 NOTE: the stdlib `_METRO_K*` rename only MASKS this class; the
 fixture is rename-proof, and the pin should be re-verified with the natural
 names restored once the registry carries them (per REL-20261011-1342).
 
+---
+
+## 2026-10-11 -- FIXED (m263): fn-VALUE C-boundary ABI (REL-20261011-1055 B-13 + REL-20261010-1904)
+
+Two representations coexisted for fn values: a NAME binding stored the RAW
+code address (`ptrtoint @fn`), while a fn-typed ARG/param carried the heap
+closure ENV (B-007). The exit-to-C paths (extern fn-typed args, `f as Int`)
+passed the value RAW, so an env-valued PARAM handed C the env pointer as
+the callback (`relay=0`, `param_to_fnparam=0`, `param_to_box=0`); and
+`let f = sym as fn() -> Float64; f()` derived the return class from the i64
+fallback, reading the integer register for a double (glfwGetTime garbage).
+
+FIX:
+- `type_from_ast(Type::Fn)` keeps the `fn(...) -> R` MARKER (was erased to
+  "Int"); `param_llvm_type` still lowers fn params to the i64 env slot.
+- Binding-time signature record: `let f = X as fn(P) -> R` / annotations
+  fill `fn_ptr_return_types` (LLVM ret) + `fn_local_returns`; the call path
+  derives `ret_ty` from the record and the fn-ptr call path accepts the
+  recorded class (`callee_is_fn_ptr` no longer forces i64).
+- Env provenance: `track_fn_value_binding` marks locals copied from
+  env-valued sources (params, closure family, Vec[fn] element reads) in
+  `closure_locals`; same-named RAW sources re-mark raw.
+- Exit-to-C unwrap (`unwrap_fn_env_for_c`): env-valued Idents and fn-typed
+  struct FIELD reads hand over field 0 (the code address). Applied at all
+  four call-arg wrap sites, the As-cast path, and the Vec.push wrap gate.
+- Extern fn-typed params register into `fn_typed_params` so the same
+  machinery fires for C callees.
+
+EVIDENCE: bindings cb-abi probes 2/4/5 all 42 (were relay/near-zero);
+`cast_fp=3.5`; LOCK: tests/regression/m263_fn_value_c_abi + CLI test
+`ffi_fnptr_abi::m263_fn_value_c_abi` (cargo test -p xiom --test ffi_fnptr_abi).
+
+---
+
+## 2026-10-11 -- FIXED (m264): Vec[fn] element calls + unit returns (REL-20261011-1121 B-14/B-15)
+
+`Vec[fn(Int, Int) -> Bool]` element calls with >= 2 args typed their result
+as `()` (`if h(a, b)` / `let got = h(a, b)` were T001) while 1-arg calls
+worked; `return;` in an explicit `-> Unit` fn failed "expected Unit, found
+()". A third leg surfaced once the checker allowed the shape: pushing a bare
+fn NAME into a MODULE-GLOBAL `Vec[fn]` stored the RAW code address while the
+element-call path loads env field 0 -> 0xC0000005.
+
+FIX:
+- Index element extraction takes EVERYTHING between the OUTER brackets of
+  `Vec[..]`/`Array[..]` -- the structural arg splitter comma-split
+  `fn(Int, Int) -> Bool` into "fn(Int" + "Int) -> Bool".
+- `types_compatible` unifies `CheckedType::Unit` with `Named("Unit")`/`Named("()")`.
+- The Vec.push fn-ref wrap gate now resolves the element marker through
+  `resolve_vec_container_elem_xiom` (module-global Vecs via global_vec_elem),
+  not only `local_vec_elem`.
+
+EVIDENCE: probe7 compiles clean + exits 1 (boolean checks pass; was 2xT001);
+LOCK: e2e_m264_element_arity_and_unit +
+tests/regression/m264_element_arity_and_unit/.
+
+---
+
+## 2026-10-11 -- FIXED (m265): module-scope fn-pointer storage (REL-20261011-0317 pulse-7)
+
+`var handler: fn(Int) -> Int = f0; handler = f1; handler(0)` failed codegen:
+the bare callee resolved as a missing FUNCTION ("unresolved function symbol
+'handler'"). The test-harness swap-the-runner shape was unsupported.
+
+FIX (call.rs): a bare callee Ident that is not a local/closure but IS a
+module global whose recorded XIOM type is a fn marker loads the global slot
+and calls through it directly (the slot holds the raw code address that
+assignment and the ginit already store). Reassignment was already correct.
+
+EVIDENCE: fixture exits 0; LOCK: e2e_m265_module_scope_fnptr +
+tests/regression/m265_module_scope_fnptr/.
+
+
 
 
 

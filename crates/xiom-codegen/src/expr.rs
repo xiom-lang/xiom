@@ -5109,6 +5109,16 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // a Char (i8) actually sign-extends i8->i64 rather than emitting an
                 // untyped/mis-typed value.
                 let (val, val_ty) = self.compile_expr(inner)?;
+                // B-13 (2026-10-11 fn-value ABI): `f as Int` on an env-valued
+                // fn param/local/field must yield field 0 (the code address)
+                // so C can call it -- raw name-bound locals already carry the
+                // code address. Pointer-target casts stay untouched.
+                let target_is_pointer = matches!(ty, Type::Ptr(_) | Type::Ref(_) | Type::MutRef(_));
+                let val = if !target_is_pointer {
+                    self.unwrap_fn_env_for_c(inner, val)
+                } else {
+                    val
+                };
                 let mut inner_llvm_ty = if !val_ty.is_empty() && val_ty != "void" {
                     val_ty.clone()
                 } else {

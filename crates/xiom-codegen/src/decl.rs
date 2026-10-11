@@ -936,6 +936,19 @@ impl IrEmitter {
                     .map(|t| self.extern_type_to_llvm(t))
                     .unwrap_or_else(|| "void".to_string());
                 self.types.functions.insert(fd.name.name.clone(), (param_types, ret_type));
+                // B-13 (2026-10-11): register fn-typed extern params so the
+                // call-site B-007 machinery fires for extern callees exactly
+                // like XIOM fns -- bare fn-NAME args wrap into an env; an
+                // env-valued param hands over field 0. Without this a
+                // wrapper-shaped relay passed the heap env pointer to C
+                // (`param_to_fnparam=0`, `param_to_box=0`).
+                let fn_param_indices: Vec<(usize, String)> = fd.params.iter().enumerate()
+                    .filter(|(_, p)| matches!(&p.ty, Type::Fn(..)))
+                    .map(|(i, p)| (i, match &p.ty { Type::Fn(_, ret) => Self::type_from_ast(ret), _ => "Int".to_string() }))
+                    .collect();
+                if !fn_param_indices.is_empty() {
+                    self.mono.fn_typed_params.insert(fd.name.name.clone(), fn_param_indices);
+                }
                 if let Some(rt) = &fd.return_type {
                     // R16: record the XIOM return type of externs too. Raw
                     // pointers (malloc -> *UInt8) must resolve so an

@@ -440,6 +440,46 @@ impl IrEmitter {
         }
     }
 
+    /// B-13 (REL-20261011-1055, 2026-10-11 fn-value ABI): exit-to-C for a
+    /// fn-typed value. A closure ENV value (fn-typed param/local per
+    /// `closure_locals`) hands over field 0 -- the code address C can call;
+    /// a raw name-bound address passes through unchanged. Without this a
+    /// wrapper-shaped relay passed the heap env pointer to C (`relay=0`,
+    /// `param_to_fnparam=0`).
+    pub(crate) fn unwrap_fn_env_for_c(&mut self, ae: &Expr, val: String) -> String {
+        let is_env = match ae {
+            Expr::Ident(id) => self.local.closure_locals.contains(&id.name),
+            // A fn-typed STRUCT FIELD (`CbBox.cb`) is env-valued by
+            // convention (the m29 field-call path loads field 0); a
+            // param-sourced box holds the param's env verbatim.
+            Expr::Field(obj, fname, _) => {
+                let struct_name = match obj.as_ref() {
+                    Expr::Ident(oid) => self.lookup_local(&oid.name)
+                        .map(|(_, t)| Self::xiom_type_name_from_llvm(t)),
+                    _ => None,
+                };
+                match struct_name {
+                    Some(sn) => {
+                        let idx = self.types.types.get(&sn)
+                            .and_then(|fields| fields.iter().position(|f| f == &fname.name));
+                        idx.and_then(|i| self.field_xiom_type(&sn, i))
+                            .map_or(false, |fty| fty.starts_with("fn("))
+                    }
+                    None => false,
+                }
+            }
+            _ => false,
+        };
+        if is_env {
+            let env = self.fresh_tmp();
+            self.emitln(&format!("  {env} = inttoptr i64 {val} to i64*"));
+            let code = self.fresh_tmp();
+            self.emitln(&format!("  {code} = load i64, i64* {env}"));
+            return code;
+        }
+        val
+    }
+
     pub(crate) fn compile_call(&mut self, func: &Expr, args: &[Expr]) -> Result<(String, String), String> {
         // R52 (playground L5-43): tolerate a REDUNDANT explicit receiver
         // argument (`s.push(&mut s, "Alice")`). The method call already passes
@@ -941,6 +981,58 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             let tmp = self.fresh_tmp();
                             self.emitln(&format!("  {tmp} = call i8* @{module}.{leaf}(i8* {arg0})"));
                             return Ok((tmp, "i8*".to_string()));
+                        }
+                    }
+                }
+                // pulse-0317 (2026-10-11): a MODULE-SCOPE fn-typed `var`
+                // (`var handler: fn(Int) -> Int = f0; handler = f1;`) holds a
+                // raw code address and is callable. Without this the bare
+                // callee resolved as a missing FUNCTION and the strong
+                // validator aborted with "unresolved function symbol
+                // 'handler'". Env-valued locals are handled by M20-A1 above;
+                // this covers the module-global slot.
+                if receiver_expr.is_none() {
+                    if let Some(ref name) = fn_name_opt {
+                        if self.lookup_local(name).is_none()
+                            && !self.local.closure_locals.contains(name)
+                            && self.types.functions.get(name).is_none()
+                            && self.local.module_globals.get(name).is_some()
+                        {
+                            if let Some(marker) = self.local.global_xiom_types.get(name).cloned() {
+                                if Self::is_fn_marker(&marker) {
+                                    let (slot_sym, slot_ty) = self.local.module_globals.get(name)
+                                        .cloned().expect("module global checked above");
+                                    let ret_xiom = Self::fn_type_return_xiom(&marker)
+                                        .unwrap_or_else(|| "Int".to_string());
+                                    let ret_llvm = self.llvm_type_for_fallback(&ret_xiom);
+                                    let compiled_args: Vec<(String, String)> = args.iter()
+                                        .map(|a| self.compile_expr(a).map(|(v, t)| (v, t)))
+                                        .collect::<Result<Vec<_>, _>>()?;
+                                    let loaded = self.fresh_tmp();
+                                    self.emitln(&format!("  {loaded} = load {slot_ty}, {slot_ty}* @{slot_sym}"));
+                                    let param_types: Vec<String> = compiled_args.iter()
+                                        .map(|(_, t)| t.clone()).collect();
+                                    let fn_ptr_ty = format!("{ret_llvm} ({})*", param_types.join(", "));
+                                    let fptr = self.fresh_tmp();
+                                    let cast_op = if slot_ty.ends_with('*') || slot_ty.starts_with('%') {
+                                        "bitcast"
+                                    } else {
+                                        "inttoptr"
+                                    };
+                                    self.emitln(&format!("  {fptr} = {cast_op} {slot_ty} {loaded} to {fn_ptr_ty}"));
+                                    let args_str = compiled_args.iter()
+                                        .map(|(v, t)| format!("{t} {v}"))
+                                        .collect::<Vec<_>>()
+                                        .join(", ");
+                                    if ret_llvm == "void" {
+                                        self.emitln(&format!("  call void {fptr}({args_str})"));
+                                        return Ok((String::new(), "void".to_string()));
+                                    }
+                                    let tmp = self.fresh_tmp();
+                                    self.emitln(&format!("  {tmp} = call {ret_llvm} {fptr}({args_str})"));
+                                    return Ok((tmp, ret_llvm));
+                                }
+                            }
                         }
                     }
                 }
@@ -1800,11 +1892,15 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // via the M20-A1 / index-call paths -- a raw code address
                         // would be deref'd as an env struct).
                         {
-                            let elem_xiom = match &**receiver {
-                                Expr::Ident(id) => self.local.local_vec_elem.get(&id.name).cloned(),
-                                Expr::Field(..) => self.resolve_vec_container_elem_xiom(receiver),
-                                _ => None,
-                            };
+                            // B-15 follow-up (2026-10-11): resolve the element
+                            // marker for EVERY receiver shape -- the old Ident
+                            // arm only knew `local_vec_elem`, so pushing into a
+                            // MODULE-GLOBAL `Vec[fn(Int, Int) -> Bool]` stored
+                            // the RAW code address while the element-call path
+                            // loads env field 0 -> AV (probe7). The shared
+                            // resolver also covers global Vecs via
+                            // global_vec_elem.
+                            let elem_xiom = self.resolve_vec_container_elem_xiom(receiver);
                             let mut wrapped = None;
                             if elem_xiom.as_deref().map_or(false, Self::is_fn_marker) {
                                 if let Some(ae) = args.first() {
@@ -5284,6 +5380,12 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                             if !ref_name.is_empty() {
                                                 coerced = self.wrap_fn_ref_env(&ref_name, &coerced, &ret_xiom, ref_params);
                                             }
+                                        } else {
+                                            // B-13 (2026-10-11): an env-valued fn
+                                            // param/local exiting to a C fn-typed
+                                            // param hands over field 0 (the code
+                                            // address), not the env pointer.
+                                            coerced = self.unwrap_fn_env_for_c(ae, coerced);
                                         }
                                     }
                                 }
@@ -5644,6 +5746,10 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                 if !ref_name.is_empty() {
                                                     coerced = self.wrap_fn_ref_env(&ref_name, &coerced, &ret_xiom, ref_params);
                                                 }
+                                            } else {
+                                                // B-13 (2026-10-11): env-valued fn
+                                                // param/local -> field 0 for C.
+                                                coerced = self.unwrap_fn_env_for_c(ae, coerced);
                                             }
                                         }
                                     }
@@ -5688,6 +5794,10 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                 if !ref_name.is_empty() {
                                                     coerced = self.wrap_fn_ref_env(&ref_name, &coerced, &ret_xiom, ref_params);
                                                 }
+                                            } else {
+                                                // B-13 (2026-10-11): env-valued fn
+                                                // param/local -> field 0 for C.
+                                                coerced = self.unwrap_fn_env_for_c(ae, coerced);
                                             }
                                         }
                                     }
@@ -5791,19 +5901,23 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                 // M20-A1 read field 0 = the inner env
                                                 // pointer as a code pointer).
                                                 && !self.local.closure_locals.contains(&id.name));
-                                        if is_fn_ref {
-                                            let (ref_name, ref_params) = match ae {
-                                                Expr::Ident(id) => self.resolve_fn_ref_arg(id),
-                                                _ => (String::new(), Vec::new()),
-                                            };
-                                            if !ref_name.is_empty() {
-                                                coerced = self.wrap_fn_ref_env(&ref_name, &coerced, &ret_xiom, ref_params);
+                                            if is_fn_ref {
+                                                let (ref_name, ref_params) = match ae {
+                                                    Expr::Ident(id) => self.resolve_fn_ref_arg(id),
+                                                    _ => (String::new(), Vec::new()),
+                                                };
+                                                if !ref_name.is_empty() {
+                                                    coerced = self.wrap_fn_ref_env(&ref_name, &coerced, &ret_xiom, ref_params);
+                                                }
+                                            } else {
+                                                // B-13 (2026-10-11): env-valued fn
+                                                // param/local -> field 0 for C.
+                                                coerced = self.unwrap_fn_env_for_c(ae, coerced);
                                             }
                                         }
                                     }
+                                    parts.push(format!("{pty} {coerced}"));
                                 }
-                                parts.push(format!("{pty} {coerced}"));
-                            }
                             parts.join(", ")
                         } else {
                             for (arg_val, arg_ty) in compiled_args.iter() {
@@ -5813,7 +5927,14 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         }
                     };
                     let tmp = self.fresh_tmp();
-                    let ret_ty = if let Some((_, rt)) = self.types.functions.get(&resolved_fn_key) {
+                    // 1904 (fn-value ABI, 2026-10-11): a fn-pointer LOCAL/param
+                    // with a recorded signature (as-cast binding, annotation)
+                    // drives the return class -- `let f = sym as fn() -> Float64;
+                    // f()` must read xmm0, not rax (the i64 fallback returned
+                    // the integer register's bits as a huge int).
+                    let ret_ty = if let Some(rt) = self.types.fn_ptr_return_types.get(&resolved_fn_key) {
+                        rt.clone()
+                    } else if let Some((_, rt)) = self.types.functions.get(&resolved_fn_key) {
                         rt.clone()
                     } else {
                         // Fallback: try current-module qualified name
@@ -5957,7 +6078,10 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         && (is_fn_typed_param
                             || self.local.closure_locals.contains(&fn_name)
                             || self.types.functions.get(&resolved_fn_key).is_none())
-                        && ret_ty == "i64";
+                        // 1904: a recorded signature (as-cast local / annotated
+                        // fn local) admits non-i64 return classes through this
+                        // path; un-recorded locals keep the legacy i64 gate.
+                        && (ret_ty == "i64" || self.types.fn_ptr_return_types.contains_key(&fn_name));
                     // BUG 29 (repro_fn_storage): call through a FN-TYPED FIELD of
                     // a MODULE-GLOBAL struct (`g.f(x)` where `g: FnBox` is a
                     // module-level `var`). The method dispatch resolves
