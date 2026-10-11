@@ -58,18 +58,20 @@ known. Gate record: `docs/RELEASE_GATE_v0.64.4.md`.
 
 ## 1b. Release wave state (next actions)
 
-- PIN PENDING: the push is DONE (origin = `87c6ca3c`); stdlib is cleared
-  (REL-20261011-2014-stdlib filed fixed) to run the wave-106 revert on the
-  new archive + tag `stdlib-v0.64.4` (decision: REL-20261011-1812-compiler;
-  relay `d940720`). When their tag + ref land:
-  1) vendor refresh: re-point `E:\xiom-lang\xiom\stdlib` at the tag (the
-     current dir is an untracked pinned checkout; gitignored);
-  2) `STDLIB_VERSION` -> the tag ref;
-  3) convert `release-notes/v0.64.4.json` from a CLEAN checkout of the tag
-     (fragment merges; the committed JSON must byte-match CI's verify);
-  4) update the gate record's pin precondition + Gate D;
-  5) ONE commit `chore(release): v0.64.4 pin (...) + notes JSON + gate
-     record`; doorbell pushes; tag `v0.64.4` -> the release run builds.
+- PIN DONE (2026-10-11T22:38Z): stdlib tagged `stdlib-v0.64.4` = `3df0843`
+  and verified (witness green on the v0.64.4 archive from the `87c6ca3c`
+  push; metro revert `4e8b696`; refresh run 38177738188: corpus 954/954,
+  probes 288/288, modules 509/509, barename 0/509;
+  REL-20261011-1812-compiler verified + closed).
+  - `STDLIB_VERSION` = `3df0843b2c384f9768867d96cfd4a611bed3034b`; vendored
+    `E:\xiom-lang\xiom\stdlib` is a worktree pinned at the tag;
+  - `release-notes/v0.64.4.json` converted + verified from the clean tag
+    checkout (6 highlights = 4 compiler + 2 stdlib, 0 breaking, 2 docs);
+  - origin/main = `df493530` (the release commit; do NOT push again until
+    the tag run settles).
+- LAST STEP (owner): tag `v0.64.4` on `df493530`:
+  `git tag v0.64.4` + `git push origin v0.64.4` -> the release run builds
+  assets; then complete the gate record (Gate D: run id + assets).
 - After the archive: reporter verdict wave on the v0.64.3 release-check
   rows (bounces -> new m-batches) and xvector's F32-slot re-verify.
 
