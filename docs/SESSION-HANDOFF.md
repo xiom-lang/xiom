@@ -1,17 +1,23 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-# Session Handoff -- 2026-10-11 (compiler lane, v0.64.4 release wave)
+# Session Handoff -- 2026-10-12 (compiler lane; v0.64.4 SHIPPED; v0.64.5 planned)
 
-This file captures state for continuing the 2026-10-11 batch program in a
-fresh session. Read this FIRST, then `docs/RUSTC-STUDY.md` + the relevant
+This file captures state for continuing the compiler lane in a fresh
+session. Read this FIRST, then `docs/RUSTC-STUDY.md` + the relevant
 `docs/rustc-study/*` area doc. rustc reference source: `E:\repos\rust`
 (sparse blob-less clone @ `7211ea594`; READ-ONLY -- never run git writes
 there; non-materialized files via `git show HEAD:<path>`).
 
-## 1. Status: six batches + release-gate fixes LANDED; release wave IN FLIGHT
+## 1. Status: v0.64.4 RELEASED; stack caught up; v0.64.5 plan in section 1c
 
-Landed (local main; origin/main = `677d65a7` after the doorbell push; the
-later commits are staged for the doorbell push -- NEVER push yourself):
+v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
+`38256358845` GREEN; assets live). The commit map that produced it
+(m254-m275; all pushed) is kept below for reference:
+
+Landed (origin/main = `91860f11` at this refresh; local main has ONE docs
+commit on top (`633ee65b`, this plan) -- do NOT push without the owner's
+authorization; the v0.64.4 pushes were owner-authorized, and the doorbell
+cron may also push staged work -- check origin first):
 
 - `677d65a7` m261/m262 module-local call precedence + module-private const
   identity. Closes REL-20261011-1124-orbitdb, REL-20261011-1052-stdlib.
@@ -46,15 +52,10 @@ later commits are staged for the doorbell push -- NEVER push yourself):
   the As-cast env unwrap now requires the compiled value to be the i64 env
   slot, so a fn-typed param name leaked into closure_locals can no longer
   hijack a float's cast (`Float32.to_float(v) { return v as Float64; }`);
-  collision lock added to the m263 CLI fixture. Pushed.
-- this commit: `docs/RELEASE_GATE_v0.64.4.md` + this handoff refresh.
-
-Local vs origin: ahead 0 -- pushed twice (owner-authorized): 20:21Z
-`87c6ca3c` (m254-m274) and 21:10Z `4c42fc0a` (m275). Wave verdicts:
-pulse 1854/2122 + 0317 verified/closed; bindings B-13/1904/B-14/B-15
-verified fixed, B-18 fixed (m274), B-19 wontfix (package-side); stdlib
-wave regression 2045 fixed (m275); no open v0.64.4 regressions remain
-known. Gate record: `docs/RELEASE_GATE_v0.64.4.md`.
+  collision lock added to the m263 CLI fixture.
+- `df493530` chore(release): v0.64.4 pin + notes JSON + gate record (the
+  release commit); `91860f11` released-record docs. Gate record:
+  `docs/RELEASE_GATE_v0.64.4.md`.
 
 ## 1b. Release wave state (next actions)
 
@@ -72,11 +73,12 @@ known. Gate record: `docs/RELEASE_GATE_v0.64.4.md`.
 - RELEASED (2026-10-12T13:37Z): tag `v0.64.4` on `df493530`; release run
   `38256358845` GREEN; assets live (linux-x64, macos-x64/arm64,
   windows-x64, VSIX 0.12.2, wasm bundle, SHA256SUMS).
-- After the archive: reporter verdict wave on the v0.64.3 release-check
-  rows (bounces -> new m-batches; the to-all item 1731 closes when the
-  wave settles) and xvector's F32-slot re-verify. Next free m-number:
-  m276 (overnight doorbell acks queued post-release items: module-root
-  rename AV, Vec.with_len overflow, B-21, SDK100 wave-1).
+- WAVE LANDED (2026-10-12 evening): `release-checks/compiler-compiler-v0.64.4.md`
+  (created 15:01Z) carries the reporter verdicts -- bindings, packages,
+  orbitdb, playground, stdlib filed; successes and the ~35 still-red rows
+  are distilled in section 1c. The to-all item `REL-20261011-1731-compiler`
+  stays open until every row has a verdict (no compiler action needed for
+  that bookkeeping).
 
 ## 1c. Next program (v0.64.5) -- plan from the v0.64.4 release-check
 
@@ -144,34 +146,24 @@ THEMED BATCHES (m-numbering assigned as they land; one commit per batch):
 - Worktree: `.kilo/worktrees/selfhost-phase-4-codegen` (branch
   `selfhost-phase-4-codegen`); session `ses_eded8c4d8ffeMNzBsYzBYIgAO8`;
   sibling session `ses_ef8e3a27cffeKY1Sz63tGGas2t` must stay IDLE.
-- State: phase 6 at **T6 4/64** (P0-P1e + P5a landed; all five gates re-run
-  green). Remaining: P1 remainder (method receivers: self alloca + field
-  GEPs + `x.method()` calls) -> P2 tuples / P5 stack arrays -> phase-6
-  meter flip (4 of 11).
+- State (last confirmed 2026-10-11 ~19:40Z; re-check with agent_manager
+  before relying on it): phase 6 at **T6 4/64** (P0-P1e + P5a landed; all
+  five gates re-run green; the relay item `REL-20261011-1525-selfhost`
+  records P1a/P1b/P1c/P5a + T3 meter 3/64). Remaining: P1 remainder
+  (method receivers: self alloca + field GEPs + `x.method()` calls) ->
+  P2 tuples / P5 stack arrays -> phase-6 meter flip (4 of 11).
 - Cadence: the session works a chunk then idles. Check with agent_manager
   `list`; if idle, prompt: continue the next unchecked stage per
   `docs/checklists/selfhost-phase6.md`, rebase onto the newest LOCAL main
   before full parity runs, sole writer, same commit/doc/relay discipline.
 
-## 4. RELEASE COORDINATION -- DONE
+## 4. Release coordination -- DONE (historical)
 
-Filed and pushed from the relay clone (`E:\xiom-lang\xiom-relays`):
-
-- `REL-20261011-1731-compiler` (to all): six-batch status. Updated at m271:
-  batches 1-6 complete, stack staged for the doorbell push.
-- `REL-20261011-1731-compiler-2` (to stdlib): v0.64.4 coordination -- pin
-  candidate per the candidate-tag protocol, clean `release-notes/v0.64.4.md`
-  fragment (v0.64.3 '>'-/'&'/'->' validator lessons), wave-106 `_METRO_K*`
-  revert with the numeric witness re-verify, and their reporter rows.
-- `release-checks/compiler-compiler-v0.64.3.md`: NEXT-BATCH fix refs,
-  including the m271 row; all six batches listed.
-- PIN DECISION (`REL-20261011-1812-compiler`, pushed `d940720`): HOLD the
-  stdlib tag for the batch -- stdlib runs the wave-106 revert on the new
-  archive, lands it, re-verifies the numeric witnesses, then tags
-  `stdlib-v0.64.4`; the compiler pins right after (section 1b).
-
-Relay commits: `a3e9508` + `6386301` + `d940720`. Nothing pending here
-until the stdlib tag lands; then the pin commit (section 1b).
+v0.64.4 coordination complete: `REL-20261011-1731-compiler` (to all;
+status + updates 1-6), `1731-compiler-2` (to stdlib), `1812` (pin
+decision; verified + closed), `2014` (push nudge; fixed). The only
+follow-up is bookkeeping: close `1731` once every release-check row has a
+verdict (the check file is the source of truth). Nothing else pending.
 
 ## 5. Verification command set (copy/paste)
 
@@ -214,6 +206,24 @@ until the stdlib tag lands; then the pin commit (section 1b).
   a release-check) changed too.
 - Diagnostics for unresolved imports: env `XIOM_TRACE_IMPORT` prints
   `[imp]` traces (kept in-tree, env-gated).
+- `gh` CLI IS available: `gh run list -L 8`, `gh run view <id>`, `gh run
+  watch <id> --exit-status`, `gh release view v0.64.4 --json assets`.
+- The vendored stdlib is now a proper git WORKTREE pinned at `3df0843`
+  (not the old stale checkout). To re-pin later: `git -C
+  E:\xiom-lang\stdlib worktree prune`; rename the old dir aside; `git -C
+  E:\xiom-lang\stdlib worktree add --detach E:\xiom-lang\xiom\stdlib
+  <sha>`; delete the old dir after verifying.
+- Push regime: NEVER push without the owner's authorization. The v0.64.4
+  pushes (20:21Z, 21:10Z, tag, release-record) were owner-authorized; the
+  doorbell cron may also push staged work -- ALWAYS `git fetch` and check
+  `origin/main` first.
+- The scheduled "XIOM Heavy Suites" workflow is PRE-EXISTING broken
+  (rustup/cargo-fuzz setup; ~45s failure on every run since 2026-09-21) --
+  ignore it for release purposes.
+- Lesson from m275/2045: `local.closure_locals` (and the other
+  name-keyed maps) are NOT function-scoped -- when adding a new consumer,
+  gate on the compiled LLVM type where possible (an env is always the
+  `i64` slot) instead of trusting the name set.
 
 ## 7. m-numbering
 
@@ -222,41 +232,50 @@ until the stdlib tag lands; then the pin commit (section 1b).
 ## 8. CONTINUATION PROMPT (paste into a fresh session)
 
 ```
-Session: XIOM compiler lane (E:\xiom-lang\xiom), continuing the 2026-10-11
-v0.64.4 batch program. Read docs/SESSION-HANDOFF.md FIRST (it has the status,
-release-coordination steps, verification commands and ops rules); consult
-docs/RUSTC-STUDY.md + docs/rustc-study/ for reference patterns; rustc source
-is E:\repos\rust (READ-ONLY; no git writes there).
+Session: XIOM compiler lane (E:\xiom-lang\xiom), starting the v0.64.5
+program after the v0.64.4 release. Read docs/SESSION-HANDOFF.md FIRST
+(state, the v0.64.5 plan in section 1c, verification commands, ops rules);
+consult docs/RUSTC-STUDY.md + docs/rustc-study/ for reference patterns;
+rustc source is E:\repos\rust (READ-ONLY; no git writes there).
 
-STATE: the v0.64.4 release wave is in flight. Six batches + release-gate
-fixes are landed (m254-m273; local main ahead 11 at this docs commit --
-the doorbell pushes, NEVER push). Gate A is fully green and recorded in
-docs/RELEASE_GATE_v0.64.4.md. The stdlib lane owns the wave-106 revert +
-the stdlib-v0.64.4 tag (hold decision: REL-20261011-1812-compiler, relay
-d940720); the compiler PIN COMMIT is pending that tag (section 1b: vendor
-refresh -> STDLIB_VERSION -> notes JSON from a clean tag checkout -> gate
-record -> ONE chore(release) commit).
+STATE: v0.64.4 is RELEASED (tag v0.64.4 on df493530; release run
+38256358845 GREEN; assets live) and the verdict wave landed
+(release-checks/compiler-compiler-v0.64.4.md in E:\xiom-lang\xiom-relays;
+~35 rows still open). Git: origin/main = 91860f11; local main has ONE docs
+commit on top (633ee65b, the v0.64.5 plan). Do NOT push without the
+owner's authorization; fetch and check origin first (the doorbell cron
+may push staged work).
 
-NEXT: (1) when the stdlib tag+ref land, do the pin commit per section 1b;
-(2) watch the bus for stdlib/other-lane responses and the doorbell push;
-(3) after the archive: the reporter verdict wave on the v0.64.3
-release-check rows (bounces -> new m-batches: reproduce from evidence,
-ONE commit each with fix + fixtures + docs + relay fix-note carrying
-numeric/IR witnesses); xvector re-runs the F32-slot probe (row filed
-`fixed` at m271). Keep the stack unpushed for the doorbell and update the
-m-numbering line here.
+NEXT -- v0.64.5 per handoff section 1c. TRIAGE FIRST:
+T1 REL-20261012-1418-pulse: kv-mode PULSE exits 0 silently on v0.64.4
+(jsonl fine; v0.64.3 control green; repro docs/repro/kv-hang-0644/ in
+E:\xiom-projects\xiom-pulse) -- treat as a wave regression, bisect the
+diff if needed;
+T2 REL-20261012-1630-bindings B-22: fn-typed PARAM at a cast-call
+argument position marshals to 0 -- fire the env->code unwrap at cast-call
+arg positions + parse nested fn types (REL-20261012-1403-packages);
+unblocks the glfw 0.6.0 direct handoff; completes the B-13 family;
+T3 REL-20261011-2137-engine: module-root rename AV (rt/ zz/ runtime/
+Runtime/ crash; engine/ passes) -- name-dependent codegen.
+Then the themed batches (section 1c): FFI pointer; thread/spawn runtime;
+allocator/runtime; borrow/codegen; resolver/checker; contracts/clauses;
+tooling/registry; macOS typed-memset. Number from m276; ONE commit per
+batch (fix + fixtures + docs + COMPILER_BUGS section) + a relay fix-note
+with numeric/IR witnesses; reproduce from the item's witness before
+touching code; run the full battery for gate-class changes.
 
 PARALLEL SELFHOST: phase 6 in .kilo/worktrees/selfhost-phase-4-codegen
-(session ses_eded8c4d8ffeMNzBsYzBYIgAO8, T6 4/64, all gates green). Check
-with agent_manager list; if idle, prompt it to continue the next unchecked
-stage (P1 remainder -> P2 tuples / P5 stack arrays -> meter flip), rebase
-onto the newest LOCAL main before full parity runs; it is the sole writer
-of that worktree.
+(session ses_eded8c4d8ffeMNzBsYzBYIgAO8; last known T6 4/64, P1 remainder
+next). Check with agent_manager list; if idle, prompt it to continue per
+docs/checklists/selfhost-phase6.md, rebase onto the newest LOCAL main
+before full parity runs; it is the sole writer of that worktree (sibling
+ses_ef8e3a27cffeKY1Sz63tGGas2t stays idle).
 
 RULES: workarounds stay until each fix ships and is re-verified from its
-witness; ONE commit per batch (fix + fixtures + docs); keep the stack
-unpushed for the doorbell; house voice; ASCII only; no destructive
-toolchain tests; compiler output -> capture to a file, never pipe into
-Select-Object -First; use the PINNED stdlib for A/B; filtered test runs
-only (the local lib-suite spin is a known box condition).
+witness; ONE commit per batch; never push without owner authorization;
+house voice; ASCII only; no destructive toolchain tests; compiler output
+-> capture to a file, never pipe into Select-Object -First; A/B with the
+PINNED stdlib (E:\xiom-lang\xiom\stdlib, a git worktree pinned at 3df0843;
+unset XIOM_STDLIB); gh CLI is available for run/release inspection; the
+heavy-suites scheduled workflow is pre-existing broken (ignore it).
 ```
