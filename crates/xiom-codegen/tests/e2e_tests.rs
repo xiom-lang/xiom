@@ -6500,6 +6500,20 @@ fn e2e_safety_probe() {
     );
 }
 
+// m276 (REL-20261012-1418-pulse): a fn-typed param's name leaks into the
+// program-wide closure_locals set; a plain same-named UInt32 param doing
+// `v as Int` must NOT be env-unwrapped -- pre-fix it compiled to
+// inttoptr(zext(v)) + load and AV'd on the empty-store kv segment create
+// (the stdlib write_u16_le/write_u32_le shape behind the PULSE kv-mode
+// regression). The fn-param control keeps the B-007 env wrap green.
+#[test] fn e2e_m276_env_name_leak_cast() {
+    assert_eq!(
+        compile_and_run("tests/regression/m276_env_name_leak_cast/main.xi"),
+        Some(0),
+        "a leaked closure-local name must not hijack a plain int As-cast (m276)"
+    );
+}
+
 // m165 (packages backlog): a Vec[UInt8] byte buffer must grow past the old
 // 2^24-element ceiling (16 MB); the growth guard now allows 2^32 elements.
 #[test] fn e2e_m165_vec_byte_buffer_gt_16mb() {

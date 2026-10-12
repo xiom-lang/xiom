@@ -14,10 +14,11 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
-Landed (origin/main = `91860f11` at this refresh; local main has ONE docs
-commit on top (`633ee65b`, this plan) -- do NOT push without the owner's
-authorization; the v0.64.4 pushes were owner-authorized, and the doorbell
-cron may also push staged work -- check origin first):
+Landed (origin/main = `91860f11` at this refresh; local main is AHEAD by
+the v0.64.5 docs commits (`633ee65b` plan + `dc3a0102` refresh) and the
+m276 fix -- do NOT push without the owner's authorization; the v0.64.4
+pushes were owner-authorized, and the doorbell cron may also push staged
+work -- check origin first):
 
 - `677d65a7` m261/m262 module-local call precedence + module-private const
   identity. Closes REL-20261011-1124-orbitdb, REL-20261011-1052-stdlib.
@@ -89,9 +90,14 @@ PART B; C-ORBIT-06/07; 2100-pkg WSL paths; 1548-stdlib-2/5; packages -4/-6;
 open: ~35 rows. Plan:
 
 TRIAGE FIRST (P0):
-- T1 `REL-20261012-1418-pulse`: kv-mode PULSE exits 0 silently on v0.64.4
-  (jsonl fine; v0.64.3 control green; repro `docs/repro/kv-hang-0644/` in
-  the pulse repo) -- possible v0.64.4 wave regression; bisect + fix.
+- T1 `REL-20261012-1418-pulse`: DONE (m276, this commit). Not a v0.64.4
+  wave regression but the m263 env-unwrap class on the EMPTY-store path:
+  kv_open -> _create_segment -> stdlib write_u32_le's `var x = v as Int`
+  unwrapped a leaked closure name (`v`); m275's i64 gate missed the
+  zext'ed UInt32. Fix = type veto in `unwrap_fn_env_for_c`. Witness:
+  tests/regression/m276_env_name_leak_cast (pre-fix 0xC0000005, post-fix
+  exit 0) + PULSE empty-store serves + creates seg-1. (The reporter's
+  "exit 0" was a %ERRORLEVEL% parse-time artifact; it AVs at 0xC0000005.)
 - T2 `REL-20261012-1630-bindings` B-22: fn-typed PARAM at a cast-call
   argument position marshals to 0 -- fire the env->code unwrap there +
   parse nested fn types (`REL-20261012-1403-packages`); unblocks the glfw
@@ -227,7 +233,7 @@ verdict (the check file is the source of truth). Nothing else pending.
 
 ## 7. m-numbering
 
-- m261-m275 LANDED; **next free is m276**.
+- m261-m276 LANDED; **next free is m277**.
 
 ## 8. CONTINUATION PROMPT (paste into a fresh session)
 

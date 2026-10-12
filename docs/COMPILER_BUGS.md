@@ -15465,6 +15465,50 @@ LOCK: the m263 CLI fixture gained the collision shape (`takes_fn_v(v:
 fn(Int32) -> Int32)` + `float_v(v: Float32) { return v as Float64; }`);
 `ffi_fnptr_abi` green; the 12-test e2e lock set unchanged.
 
+---
+
+## 2026-10-12 -- FIXED (m276): As-cast env unwrap still fired on leaked closure names whose plain param is i64-typed (T1, REL-20261012-1418-pulse kv-mode regression)
+
+T1 of the v0.64.5 triage. PULSE on v0.64.4: a PULSE binary built with the
+release AVs immediately (0xC0000005, no output) when
+PULSE_STORE_BACKEND=kv and the store directory is EMPTY (no segment file);
+jsonl mode and populated stores are fine; v0.64.3 control green. The
+reporter's "exit 0" reading was a %ERRORLEVEL% parse-time artifact of the
+cmd wrapper they used.
+
+Bisect (compiler rebuilt per commit, PULSE server.xi rebuilt with each,
+empty pulse-kv before every run): v0.64.3 GREEN, m261 677d65a7 GREEN,
+m263-m265 fde5548e CRASH, every later commit (m266..m275) crashes -- the
+m275 gate did NOT cover this instance. File-marker instrumentation on a
+scratch copy localized the crash to kv_open's empty-store
+`!scanned -> _create_segment` path, inside stdlib
+`serialize.endian.write_u32_le` (called from kv's `_header_bytes`).
+
+IR diff (full PULSE program, --emit-ir; m261 vs m266 and vs HEAD): only
+write_u32_le, write_u16_le and math.primitives.fract differ. Both endian
+writers' entry blocks carried `zext i32 %v to i64` / `inttoptr i64 ... to
+i64*` / `load` -- the As-cast env unwrap fired on `var x = v as Int` where
+`v: UInt32`. m275's `val_ty == i64` gate misses this shape: the UInt32 is
+eagerly zext'ed to i64 BEFORE the gate, so the unwrap still dereferenced
+the integer value as an env pointer.
+
+FIX (call.rs `unwrap_fn_env_for_c`, Ident arm): veto the unwrap when the
+name has a concrete NON-fn XIOM type in `local_xiom_types`. That map is
+(re)written by the compiling function's own param/binding registration, so
+during a body it holds THIS function's type for the names it declares: a
+leaked name concretely typed UInt32/Float64/... no longer unwraps; a
+fn-typed binding carries its `fn(...)` marker; an unknown type keeps the
+legacy behavior.
+
+EVIDENCE: fixture `tests/regression/m276_env_name_leak_cast/` (a
+`consume(v: fn(Int) -> Int)` leak source plus `write_u32_like(out, v:
+UInt32)` doing `var x = v as Int`): pre-fix (HEAD compiler) exits
+-1073741819 (0xC0000005); post-fix exits 0 with "0 corrupted shapes". The
+fixed compiler's IR restores write_u32_le/write_u16_le/fract to the m261
+emission. PULSE acceptance: server.xi rebuilt with the fixed compiler and
+an EMPTY pulse-kv serves /health 200 and creates evt-seg-0000000001.kv.
+LOCK: `e2e_m276_env_name_leak_cast` (ci.yml e2e group 2, appended).
+
 
 
 

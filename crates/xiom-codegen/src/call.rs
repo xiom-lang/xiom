@@ -448,7 +448,27 @@ impl IrEmitter {
     /// `param_to_fnparam=0`).
     pub(crate) fn unwrap_fn_env_for_c(&mut self, ae: &Expr, val: String) -> String {
         let is_env = match ae {
-            Expr::Ident(id) => self.local.closure_locals.contains(&id.name),
+            // m276 (REL-20261012-1418-pulse): `closure_locals` is program-wide
+            // and name-keyed, so a fn-typed param of ANOTHER function leaks its
+            // name into every later function body. The m275 `val_ty == i64`
+            // gate does NOT catch a plain integer param sharing the name:
+            // `UInt32` is eagerly zext'ed to i64 before the As-cast site, so
+            // `write_u32_le(out, v: UInt32) { var x = v as Int; }` compiled to
+            // `inttoptr(zext(v))` -> `load` and AV'd on the empty-store segment
+            // create. Veto the unwrap when the name has a concrete NON-fn XIOM
+            // type: `local_xiom_types` is (re)written by the compiling
+            // function's own param/binding registration, so during a body it
+            // holds THIS function's type for the names it declares -- a leaked
+            // name concretely typed UInt32/Float64/... is rejected, a fn-typed
+            // binding carries a `fn(...)` marker, and an unknown type keeps the
+            // legacy behavior.
+            Expr::Ident(id) => {
+                self.local.closure_locals.contains(&id.name)
+                    && !matches!(
+                        self.local.local_xiom_types.get(&id.name),
+                        Some(t) if !Self::is_fn_marker(t)
+                    )
+            }
             // A fn-typed STRUCT FIELD (`CbBox.cb`) is env-valued by
             // convention (the m29 field-call path loads field 0); a
             // param-sourced box holds the param's env verbatim.
