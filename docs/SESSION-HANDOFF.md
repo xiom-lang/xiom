@@ -78,6 +78,49 @@ known. Gate record: `docs/RELEASE_GATE_v0.64.4.md`.
   m276 (overnight doorbell acks queued post-release items: module-root
   rename AV, Vec.with_len overflow, B-21, SDK100 wave-1).
 
+## 1c. Next program (v0.64.5) -- plan from the v0.64.4 release-check
+
+The v0.64.4 verdict wave is landing (`release-checks/compiler-compiler-v0.64.4.md`,
+created 15:01Z). Wave closed: B-13/1904/B-14/B-15/B-18/B-19; m260 casts
+PART B; C-ORBIT-06/07; 2100-pkg WSL paths; 1548-stdlib-2/5; packages -4/-6;
+1900-engine + 1803-selfhost (fixed in the wave); 2045 (m275). Still red /
+open: ~35 rows. Plan:
+
+TRIAGE FIRST (P0):
+- T1 `REL-20261012-1418-pulse`: kv-mode PULSE exits 0 silently on v0.64.4
+  (jsonl fine; v0.64.3 control green; repro `docs/repro/kv-hang-0644/` in
+  the pulse repo) -- possible v0.64.4 wave regression; bisect + fix.
+- T2 `REL-20261012-1630-bindings` B-22: fn-typed PARAM at a cast-call
+  argument position marshals to 0 -- fire the env->code unwrap there +
+  parse nested fn types (`REL-20261012-1403-packages`); unblocks the glfw
+  0.6.0 direct handoff. Completes the B-13 family.
+- T3 `REL-20261011-2137-engine`: module-root rename AV (rt/, zz/,
+  runtime/, Runtime/ crash; engine/ passes) -- name-dependent codegen.
+
+THEMED BATCHES (m-numbering assigned as they land; one commit per batch):
+- FFI pointer: B-16/B-17 (raw ptr arithmetic), B-11/0304/1548-bindings-2
+  (out-param recycling / foreign buffer), 2230 (Int->ptr across return,
+  Vec[Str] temp).
+- Thread/spawn runtime: 1627/1402-xvector + 2053-engine (fn-value runtime
+  entrypoint AV; marshal half fixed at v0.64.4).
+- Allocator/runtime: 2032-engine (Vec drop leak), 2320#1 (with_len HBO,
+  ASAN), 1548-bindings-5 (confined alloc/free spin).
+- Borrow/codegen: B-21 (undefined IR temp on &mut of struct-returning
+  call), 1659-orbitdb (copy elem-assign aliasing), 1549-packages-9 (bare
+  &mut Int reads pointer).
+- Resolver/checker: 1548-bindings-4, 1457-engine (bare sqrt), 2320#3
+  (4-segment const), 1548-stdlib-6, 1550-orbitdb-2 + 1358-orbitdb
+  (--check T001 + Linux rc), 1709-xvector, XVC-C-13, 1053/1456 (hash /
+  Mutex shadow), 1626.
+- Contracts/clauses: 1549-packages-8 (recursion AV), 1549-packages-3
+  (unsafe return cast null), 1549-packages-2, 1411-engine, 1548-stdlib-4/7,
+  1549-stdlib-2..7 (payload reads, polyhedra, cross-type callbacks,
+  shape-mismatch silent).
+- Tooling/registry: registry B1/B2/trust/resolve, 1549-packages-5/7,
+  1500-benchmark cache ask, website-7/8/9, benchmark trampoline row, pulse
+  RSS, playground rows (coercion/buffering/drvfs).
+- macOS leg: 1549-pulse/1609-pulse typed `@llvm.memset.p0i8.i64` emission.
+
 ## 2. Batch 6 (LAST) -- FLOAT32 SLOT STORES -- DONE (m271)
 
 - Fix (`f69b542e`): `stmt.rs` Vec indexed/field store converts numeric
