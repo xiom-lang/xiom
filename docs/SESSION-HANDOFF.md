@@ -98,10 +98,19 @@ TRIAGE FIRST (P0):
   tests/regression/m276_env_name_leak_cast (pre-fix 0xC0000005, post-fix
   exit 0) + PULSE empty-store serves + creates seg-1. (The reporter's
   "exit 0" was a %ERRORLEVEL% parse-time artifact; it AVs at 0xC0000005.)
-- T2 `REL-20261012-1630-bindings` B-22: fn-typed PARAM at a cast-call
-  argument position marshals to 0 -- fire the env->code unwrap there +
-  parse nested fn types (`REL-20261012-1403-packages`); unblocks the glfw
-  0.6.0 direct handoff. Completes the B-13 family.
+- T2 `REL-20261012-1630-bindings` B-22: DONE (m277, this commit). Root
+  causes: (a) nested fn-type markers split at `find(") -> ")` +
+  `split(',')` (the `unknown type 'Int32, Int32) -> Int32'` family,
+  1403-packages) -- now depth-aware `split_fn_marker_body`/
+  `split_top_level_type_params`; (b) cast-call fn-typed args kept the
+  closure env, and the env field 0 is the env-first THUNK (handing it to
+  C shifts every arg) -- `wrap_fn_ref_env` envs are now two words
+  (0 = thunk, 1 = RAW code) and every C boundary (`f as Int`, extern
+  fn-typed params, cast-call args) loads field 1. Witness:
+  tests/regression/m263_fn_value_c_abi gained via_cast_param /
+  via_cast2_param; probe9 cb-abi green (42/42/42); pre-fix exit 9 + the
+  warning, post-fix exit 0, no warnings. Closure-to-C stays on the
+  workaround APIs (closures were never C-callable).
 - T3 `REL-20261011-2137-engine`: module-root rename AV (rt/, zz/,
   runtime/, Runtime/ crash; engine/ passes) -- name-dependent codegen.
 
@@ -233,7 +242,7 @@ verdict (the check file is the source of truth). Nothing else pending.
 
 ## 7. m-numbering
 
-- m261-m276 LANDED; **next free is m277**.
+- m261-m277 LANDED; **next free is m278**.
 
 ## 8. CONTINUATION PROMPT (paste into a fresh session)
 

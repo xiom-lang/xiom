@@ -491,10 +491,19 @@ impl IrEmitter {
             _ => false,
         };
         if is_env {
+            // m277 (REL-20261012-1630-bindings B-22): the C boundary hands
+            // over a PLAIN code address -- field 1 of a raw-fn wrap holds
+            // the raw function pointer (`fn_addr`); field 0 is the
+            // env-first forwarding thunk whose signature shifted every
+            // C-provided argument by one register (the glfw 5-arg callback
+            // read win=65, key=30, ...). Internal env-first consumers
+            // still load field 0.
             let env = self.fresh_tmp();
             self.emitln(&format!("  {env} = inttoptr i64 {val} to i64*"));
+            let raw_slot = self.fresh_tmp();
+            self.emitln(&format!("  {raw_slot} = getelementptr i64, i64* {env}, i64 1"));
             let code = self.fresh_tmp();
-            self.emitln(&format!("  {code} = load i64, i64* {env}"));
+            self.emitln(&format!("  {code} = load i64, i64* {raw_slot}"));
             return code;
         }
         val
@@ -5996,12 +6005,37 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     parts.push(format!("{pty} {coerced}"));
                                 }
                             parts.join(", ")
-                        } else {
-                            for (arg_val, arg_ty) in compiled_args.iter() {
-                                parts.push(format!("{arg_ty} {arg_val}"));
+                    } else {
+                        // m277 (REL-20261012-1630-bindings B-22): a call
+                        // through a fn-POINTER local (the cast-call /
+                        // dynamic-loader setter shape) is a C-boundary
+                        // convention: an env-valued fn argument must hand
+                        // over field 0 -- the code address C calls -- exactly
+                        // like the extern-declared param sites above. The
+                        // m263/m272 unwrap fired only for extern callees, so
+                        // a fn-typed PARAM argument passed to a cast callee
+                        // still delivered the closure ENV (C then consumed
+                        // its first argument as the hidden env; probe9
+                        // `via_param_arg=0`).
+                        let fn_ptr_call = receiver_expr.is_none()
+                            && self.lookup_local(&fn_name).is_some()
+                            && (self.types.fn_ptr_return_types.contains_key(&fn_name)
+                                || self.local.closure_locals.contains(&fn_name)
+                                || self.types.functions.get(&resolved_fn_key).is_none());
+                        for (i, (arg_val, arg_ty)) in compiled_args.iter().enumerate() {
+                            let mut val = arg_val.clone();
+                            if fn_ptr_call && arg_ty == LLVM_I64 {
+                                // Env slots are i64; unwrap_fn_env_for_c is a
+                                // no-op for raw names/locals and for names with
+                                // a concrete non-fn type (m276 veto).
+                                if let Some(ae) = args.get(i) {
+                                    val = self.unwrap_fn_env_for_c(ae, val);
+                                }
                             }
-                            parts.join(", ")
+                            parts.push(format!("{arg_ty} {val}"));
                         }
+                        parts.join(", ")
+                    }
                     };
                     let tmp = self.fresh_tmp();
                     // 1904 (fn-value ABI, 2026-10-11): a fn-pointer LOCAL/param

@@ -4348,15 +4348,19 @@ impl IrEmitter {
                 // f "i64 (i64)*". Parse the signature and lower each part.
                 if type_name.starts_with("fn(") {
                     if let Some(sig) = type_name.strip_prefix("fn(") {
-                        if let Some(arrow_pos) = sig.find(") -> ") {
-                            let params_str = &sig[..arrow_pos];
-                            let ret_str = &sig[arrow_pos + 5..];
+                        // m277 (REL-20261012-1630-bindings B-22): split at the
+                        // TOP-LEVEL arrow / commas only -- the old
+                        // `find(") -> ")` matched a NESTED param's arrow and
+                        // `split(',')` chopped nested param lists, so
+                        // `fn(fn(Int32) -> Int32, Int32) -> Int32` warned
+                        // "unknown type 'Int32, Int32) -> Int32' -- defaulting
+                        // to i64" (REL-20261012-1403-packages).
+                        if let Some((params_str, ret_str)) = Self::split_fn_marker_body(sig) {
                             let param_llvm: Vec<String> = if params_str.is_empty() {
                                 Vec::new()
                             } else {
-                                params_str.split(',')
-                                    .map(|p| p.trim())
-                                    .filter(|p| !p.is_empty())
+                                Self::split_top_level_type_params(params_str)
+                                    .iter()
                                     .map(|p| self.llvm_type_for(p).unwrap_or_else(|_| "i64".to_string()))
                                     .collect()
                             };

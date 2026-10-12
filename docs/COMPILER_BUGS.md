@@ -15509,6 +15509,56 @@ emission. PULSE acceptance: server.xi rebuilt with the fixed compiler and
 an EMPTY pulse-kv serves /health 200 and creates evt-seg-0000000001.kv.
 LOCK: `e2e_m276_env_name_leak_cast` (ci.yml e2e group 2, appended).
 
+---
+
+## 2026-10-12 -- FIXED (m277): cast-call fn-typed args crossed as the env-first thunk + nested fn-type marker parsing (T2, REL-20261012-1630-bindings B-22 + REL-20261012-1403-packages)
+
+T2 of the v0.64.5 triage. The bindings pilot probe9 (cb-abi) on v0.64.4:
+`fp(p, 21)` through a cast fn-pointer -- `let fp = dl_sym(...) as
+fn(fn(Int32) -> Int32, Int32) -> Int32` -- gave via_param_arg=0 while the
+bare-name and local variants gave 42. The bindings lane also reported the
+nested fn-type warning family (`unknown type 'UInt8, Int) -> Unit' --
+defaulting to i64`, 1403-packages).
+
+ROOT CAUSES (two):
+1. Nested fn-type markers: `llvm_type_for`'s fn arm split at the FIRST
+   `) -> ` (`find`) and `split(',')`, so
+   `fn(fn(Int32) -> Int32, Int32) -> Int32` became params `fn(Int32` /
+   ret `Int32, Int32) -> Int32` -> the warning + i64 default.
+   `fn_type_return_xiom` used `find("->")` (the inner arrow) likewise.
+2. Cast-call arg crossing: the m263/m272 env->code unwrap fired only for
+   extern callees and the As-cast; a fn-typed PARAM passed to a cast
+   callee kept the closure ENV. Worse, the env's field 0 is the
+   env-first FORWARDING THUNK, so even unwrapping to it (for C) shifted
+   every C argument by one register -- the glfw key-callback family
+   (win=65, key=30, ...).
+
+FIX:
+- call.rs: cast-call (`callee_is_fn_ptr`) argument positions now fire the
+  env->code unwrap for env-valued i64 fn args (registered-param branches
+  unchanged).
+- vec_abi.rs `wrap_fn_ref_env`: the raw-fn env is now TWO words --
+  field 0 = the env-first forwarding thunk (internal convention
+  unchanged), field 1 = the RAW function address (`fn_addr`, previously
+  discarded via `let _ = fn_addr`).
+- call.rs `unwrap_fn_env_for_c`: C boundaries (extern fn-typed params,
+  `f as Int`, cast-call args) now load FIELD 1 -- the plain function
+  pointer C can call with the native arity. True closure envs (layout
+  `{i64 code, captures...}`) were never C-callable (env-first signature);
+  the closure-to-C workaround APIs remain the supported path.
+- vec_abi.rs `split_fn_marker_body` + `split_top_level_type_params`:
+  depth-aware arrow/comma splitting, used by `llvm_type_for` and
+  `fn_type_return_xiom`.
+
+EVIDENCE: fixture `tests/regression/m263_fn_value_c_abi/` gained
+`via_cast_param` / `via_cast2_param` (nested single- and two-param fn
+types) + host.c `xt_cb_int_fn_addr`/`xt_cb2_int_fn_addr`; pre-fix
+compiler: exit 9 + 2x `unknown type 'Int32, Int32) -> Int32'`; post-fix:
+exit 0 + "m263 ok", no warnings (asserted by the ffi_fnptr_abi lock).
+probe9 green (42/42/42). The internal env-first consumers (Vec[fn]
+element calls, struct-field calls, closure calls) still load field 0 and
+are covered by the e2e fn-value suite.
+
 
 
 

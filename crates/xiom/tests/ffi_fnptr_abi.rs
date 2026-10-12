@@ -42,6 +42,14 @@ fn m263_fn_value_c_abi() {
         out.status.code(),
         String::from_utf8_lossy(&out.stderr)
     );
+    // m277 (REL-20261012-1630-bindings B-22 / REL-20261012-1403-packages):
+    // nested fn types in casts must lower without the
+    // "unknown type ... defaulting to i64" warning family.
+    let compile_stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !compile_stderr.contains("unknown type"),
+        "nested fn types must lower without the defaulting warning (m277); stderr:\n{compile_stderr}"
+    );
     let run = Command::new(&out_bin)
         .output()
         .unwrap_or_else(|e| panic!("failed to run {}: {e}", out_bin.display()));

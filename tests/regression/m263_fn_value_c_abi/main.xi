@@ -19,6 +19,8 @@ extern "C" {
   fn xt_cb_int(cb: fn(Int32) -> Int32, x: Int32) -> Int32;
   fn xt_cb_int_fn(cb: fn(Int32) -> Int32, x: Int32) -> Int32;
   fn xt_fp_pi_addr() -> Int;
+  fn xt_cb_int_fn_addr() -> Int;
+  fn xt_cb2_int_fn_addr() -> Int;
 }
 
 type CbBox = { cb: fn(Int32) -> Int32; }
@@ -74,6 +76,37 @@ fn float_v(v: Float32) -> Float64 {
   return v as Float64;
 }
 
+// m277 (REL-20261012-1630-bindings B-22): the CAST-CALL argument shape.
+// A fn-typed PARAM handed to a cast callee must exit to C as the raw code
+// address; pre-fix the closure ENV crossed and C consumed its first
+// argument as the hidden env (probe9 `via_param_arg=0`). The nested fn
+// types in the cast also lock REL-20261012-1403-packages: pre-fix the
+// lowering warned `unknown type 'Int32, Int32) -> Int32' -- defaulting to
+// i64` (the `find(") -> ")` + `split(',')` marker parsing).
+fn via_cast_param(p: fn(Int32) -> Int32) -> Int
+  requires: true
+{
+  unsafe {
+    let a = xt_cb_int_fn_addr();
+    let fp = a as fn(fn(Int32) -> Int32, Int32) -> Int32;
+    return fp(p, 21) as Int;
+  }
+}
+
+fn cb_add(x: Int32, y: Int32) -> Int32 {
+  return x + y;
+}
+
+fn via_cast2_param(p: fn(Int32, Int32) -> Int32) -> Int
+  requires: true
+{
+  unsafe {
+    let a = xt_cb2_int_fn_addr();
+    let fp = a as fn(fn(Int32, Int32) -> Int32, Int32) -> Int32;
+    return fp(p, 21) as Int;
+  }
+}
+
 fn main() -> Int {
   unsafe {
     // B-18 (m274): a BARE top-level fn NAME handed to an extern fn-typed
@@ -101,6 +134,14 @@ fn main() -> Int {
     let fp = addr as fn() -> Float64;
     if fp() != 3.5 {
       return 5;
+    }
+    // m277 (B-22): fn-typed PARAM through a CAST-CALL argument position.
+    if via_cast_param(cb_double) != 42 {
+      return 9;
+    }
+    // m277: nested TWO-param fn type in the cast (comma split).
+    if via_cast2_param(cb_add) != 42 {
+      return 10;
     }
   }
   if takes_fn_v(cb_double) != 2 {

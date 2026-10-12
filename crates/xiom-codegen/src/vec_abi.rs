@@ -549,9 +549,65 @@ impl IrEmitter {
         if !t.starts_with("fn") {
             return None;
         }
-        let idx = t.find("->")?;
-        let ret = t[idx + 2..].trim();
+        // m277 (REL-20261012-1630-bindings B-22): top-level arrow only --
+        // `find("->")` grabbed a NESTED param's arrow for markers like
+        // "fn(fn(Int32) -> Int32, Int32) -> Int32" and returned the
+        // fragment "Int32, Int32) -> Int32" as the return class.
+        let sig = t.strip_prefix("fn(")?;
+        let (_, ret) = Self::split_fn_marker_body(sig)?;
+        let ret = ret.trim();
         if ret.is_empty() { None } else { Some(ret.to_string()) }
+    }
+
+    /// m277 (REL-20261012-1630-bindings B-22): split a fn-marker body (the
+    /// part after `fn(`) at the TOP-LEVEL `) -> ` only. `str::find` matched a
+    /// NESTED param's arrow (`fn(fn(Int32) -> Int32, Int32) -> Int32` split
+    /// into params `fn(Int32` / ret `Int32, Int32) -> Int32` -- the
+    /// "unknown type ... defaulting to i64" warning family,
+    /// REL-20261012-1403-packages).
+    pub(crate) fn split_fn_marker_body(sig: &str) -> Option<(&str, &str)> {
+        let mut depth: i32 = 0;
+        for (i, ch) in sig.char_indices() {
+            match ch {
+                '(' => depth += 1,
+                ')' => {
+                    if depth == 0 {
+                        if sig[i..].starts_with(") -> ") {
+                            return Some((&sig[..i], &sig[i + 5..]));
+                        }
+                    } else {
+                        depth -= 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    /// m277 (B-22): split a fn-marker parameter list on TOP-LEVEL commas
+    /// only -- a nested `fn(Int32, Int32) -> Unit` or `Map[Str, Int]` param
+    /// must stay whole for its own recursive lowering (the old naive
+    /// `split(',')` chopped them mid-type).
+    pub(crate) fn split_top_level_type_params(s: &str) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        let mut depth: i32 = 0;
+        let mut cur = String::new();
+        for ch in s.chars() {
+            match ch {
+                '(' | '[' => { depth += 1; cur.push(ch); }
+                ')' | ']' => { depth -= 1; cur.push(ch); }
+                ',' if depth <= 0 => {
+                    let t = cur.trim();
+                    if !t.is_empty() { out.push(t.to_string()); }
+                    cur.clear();
+                }
+                _ => cur.push(ch),
+            }
+        }
+        let t = cur.trim();
+        if !t.is_empty() { out.push(t.to_string()); }
+        out
     }
 
     /// C1: an fn-typed marker spelling -- either the full "fn(...) -> R" or
@@ -872,15 +928,24 @@ impl IrEmitter {
         let thunk_ir = std::mem::take(&mut self.output);
         self.local.deferred_closure_defs.push(thunk_ir);
         self.output = saved_output;
-        // Build the env in the current body: { fn_ptr = @thunk }.
+        // Build the env in the current body: { 0 = thunk, 1 = raw code }.
+        // m277 (REL-20261012-1630-bindings B-22): a C-boundary exit (`f as
+        // Int`, extern fn-typed params, cast-call fn-typed args) must hand C
+        // a PLAIN function pointer. The field-0 thunk has the env-first
+        // closure signature, so handing it to C shifted EVERY argument by
+        // one register (the glfw key callback read win=65, key=30, ...);
+        // the raw address is stored at field 1 for those exits. Internal
+        // env-first consumers keep loading field 0 (the thunk).
         let env = self.fresh_tmp();
-        self.emitln(&format!("  {env} = call i8* @malloc(i64 8)"));
+        self.emitln(&format!("  {env} = call i8* @malloc(i64 16)"));
         let slot = self.fresh_tmp();
         self.emitln(&format!("  {slot} = bitcast i8* {env} to i64*"));
         let thunk_addr = self.fresh_tmp();
         self.emitln(&format!("  {thunk_addr} = ptrtoint {ret_llvm} (i64{types_str})* @{thunk} to i64"));
         self.emitln(&format!("  store i64 {thunk_addr}, i64* {slot}"));
-        let _ = fn_addr;
+        let raw_slot = self.fresh_tmp();
+        self.emitln(&format!("  {raw_slot} = getelementptr i64, i64* {slot}, i64 1"));
+        self.emitln(&format!("  store i64 {fn_addr}, i64* {raw_slot}"));
         let env_i64 = self.fresh_tmp();
         self.emitln(&format!("  {env_i64} = ptrtoint i8* {env} to i64"));
         env_i64
