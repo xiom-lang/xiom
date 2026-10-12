@@ -1,5 +1,9 @@
 # Release gate -- v0.64.4
 
+RELEASED 2026-10-12T13:37Z: tag `v0.64.4` on `df493530`; release run
+`38256358845` GREEN (guard + VSIX + linux-x64 + macos-x64 + macos-arm64 +
+windows-x64 + publish).
+
 Six-batch correctness release + release-gate regression fixes. Scope:
 m254-m271 (resolver/isolation, fn-value ABI, imports/patterns, home/paths,
 pulse startup AV, Float32 slot stores) + m272-m275 (fn-value ABI
@@ -115,7 +119,13 @@ State: `c44d9fae` (m273). All runs WITHOUT `XIOM_STDLIB` (vendored tree).
 ## Gate D -- tag + publish
 
 - [x] pin commit (`STDLIB_VERSION` + vendored refresh + notes JSON + this
-      record) -> pushed to origin main (`4c42fc0a..<pin>`).
-- [ ] tag `v0.64.4` on the pin commit -> `git push origin v0.64.4` ->
-      release run -> assets + notes live; then this record completes with
-      the run id and asset list.
+      record) -> pushed to origin main (`4c42fc0a..df493530`).
+- [x] tag `v0.64.4` on `df493530` pushed 2026-10-12T13:32Z -> release run
+      `38256358845` GREEN (~5 min; every job).
+- [x] assets live (not draft): `xiom-0.64.4-linux-x64.tar.gz`,
+      `xiom-0.64.4-macos-x64.tar.gz`, `xiom-0.64.4-macos-arm64.tar.gz`,
+      `xiom-0.64.4-windows-x64.zip`, `xiom-vscode-0.12.2.vsix`,
+      `xiom-wasm-0.64.4.wasm` + `xiom-wasm.js` / `xiom-wasm.d.ts` /
+      `xiom-wasm_bg.wasm`, `SHA256SUMS`.
+- [ ] post-release: reporter verdict wave on the v0.64.3 release-check
+      rows (bounces -> new m-batches).

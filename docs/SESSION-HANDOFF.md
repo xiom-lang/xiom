@@ -69,11 +69,14 @@ known. Gate record: `docs/RELEASE_GATE_v0.64.4.md`.
     checkout (6 highlights = 4 compiler + 2 stdlib, 0 breaking, 2 docs);
   - origin/main = `df493530` (the release commit; do NOT push again until
     the tag run settles).
-- LAST STEP (owner): tag `v0.64.4` on `df493530`:
-  `git tag v0.64.4` + `git push origin v0.64.4` -> the release run builds
-  assets; then complete the gate record (Gate D: run id + assets).
+- RELEASED (2026-10-12T13:37Z): tag `v0.64.4` on `df493530`; release run
+  `38256358845` GREEN; assets live (linux-x64, macos-x64/arm64,
+  windows-x64, VSIX 0.12.2, wasm bundle, SHA256SUMS).
 - After the archive: reporter verdict wave on the v0.64.3 release-check
-  rows (bounces -> new m-batches) and xvector's F32-slot re-verify.
+  rows (bounces -> new m-batches; the to-all item 1731 closes when the
+  wave settles) and xvector's F32-slot re-verify. Next free m-number:
+  m276 (overnight doorbell acks queued post-release items: module-root
+  rename AV, Vec.with_len overflow, B-21, SDK100 wave-1).
 
 ## 2. Batch 6 (LAST) -- FLOAT32 SLOT STORES -- DONE (m271)
 
