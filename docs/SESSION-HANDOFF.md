@@ -58,8 +58,30 @@ CURRENT STATE (2026-10-13T16:40Z; read this before anything below):
     bus). Commit d6690868; relay `40e3c40`.
   Do NOT push without owner authorization; the doorbell cron may push
   staged work -- check origin first.
+- Allocator/runtime batch (this session, after m282): REL-20261011-2032
+  (Vec churn) triaged as a memory-model gap -- XIOM has NO drop glue
+  (`mem.drop` is a no-op; `Rc` frees only via explicit `Rc.drop(self)`;
+  builtin Vec has no deinit; IR shows no free at scope exit). Needs an
+  owner-level decision; recorded in COMPILER_BUGS. REL-20261010-1548-
+  bindings-5 (alloc-guard-spin): root-caused (confined `ffi.alloc` ->
+  xiom_guard_alloc vs `ffi.free` -> libc free on a VirtualAlloc slab ->
+  heap corruption + trampoline retry loop). Fix (arena-aware
+  xiom_guard_free + ffi.free route) verified in a scratch tree and filed
+  to the stdlib lane as REL-20261013-1445-compiler with the exact diff;
+  applies at the next stdlib pin.
+- ENVIRONMENT HAZARD (record before any ad-hoc probe): this box has
+  multiple stdlib trees (pinned `E:\xiom-lang\xiom\stdlib`; live
+  `E:\xiom-lang\stdlib` one level above the repo). For
+  `target/debug/xiom.exe` the exe-ancestor candidate order picks the
+  LIVE tree, and duplicate module declarations across 29 scanned copies
+  can mix function bodies across trees (observed: probe's inlined
+  `ffi.free` used the live body while standalone `@ffi.free` used the
+  pinned body; W001 `using ...` named the pinned file). ALWAYS set
+  `XIOM_STDLIB=E:\xiom-lang\xiom\stdlib` for manual probes; wave
+  batteries/tests were unaffected. Details: COMPILER_BUGS 2026-10-13
+  OPEN (environment) section.
 - Relay bus SHAs since the refresh: 82151ff (B-17/B-16), 0fd83fc (2230),
-  `438b714` (m281 fixes + rows), `40e3c40` (m282 fixes + stdlib item);
+  `438b714` (m281), `40e3c40` (m282), `9b4ec0d` (allocator batch);
   NEXT-BATCH FIX REFS rows + history bullets in
   release-checks/compiler-compiler-v0.64.4.md are current.
 - Triage T1-T3 CLOSED (section 1c bullets carry the root causes).
