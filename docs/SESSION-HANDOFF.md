@@ -17,14 +17,14 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
 
 - origin/main = `91860f11` (fetch before trusting -- the doorbell may push
-  staged work). Local main = the latest commit (see git log), AHEAD by ~42
+  staged work). Local main = the latest commit (see git log), AHEAD by ~44
   unpushed commits (exact: `git rev-list --count origin/main..HEAD`):
-  `633ee65b`+`dc3a0102` (v0.64.5 plan/refresh docs) + m276..m292 + m295 +
-  m298 + handoff follow-ups + 2 attempt logs (stdlib-6 leg b m291 reverted, see
+  `633ee65b`+`dc3a0102` (v0.64.5 plan/refresh docs) + m276..m292 + m293 +
+  m295 + m298 + handoff follow-ups + 2 attempt logs (stdlib-6 leg b m291 reverted, see
   docs/failed_attempts.md; the bindings-4 m288 attempt is superseded by
   m292, and the stdlib-6 leg-b m295 attempt supersedes its failed entry).
   Do NOT push without the owner's authorization.
-- v0.64.5 batches m276-m292 + m295 + m298 (commit -> scope; all relayed):
+- v0.64.5 batches m276-m292 + m293 + m295 + m298 (commit -> scope; all relayed):
   - `0268c7d9` m276 env-unwrap veto on concretely-typed names (T1 kv AV).
   - `29e35ef8` m277 cast-call C handoff keeps the RAW fn code (two-word
     env: 0=thunk, 1=raw) + nested fn-type markers parse (T2 B-22 + 1403).
@@ -149,6 +149,17 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
     negative twins on a rebuilt pre-fix binary). NOTE: the orbitdb probe
     needs the stdlib LANE tree for its byte-IO primitives (bundle dev-env);
     the vendored pin dies earlier on unrelated T001s.
+  - `2914cb15` m293 Map/Set deep `==` for by-value fields (packages-11):
+    `is_deep_eq_container` excluded Map/Set, so `m1 == m2` hit the
+    struct-equality cascade and emitted `icmp eq %struct.Vec` (clang
+    reject). deep_eq.rs now gates Map/Set/BTreeMap/BTreeSet (concrete
+    K/V/T args, strcmp for Str keys) + legacy non-generic HashSet;
+    expr.rs recursion for by-value container fields without `.eq`.
+    Locks `e2e_m293_mapset_eq`. CAVEATS recorded (COMPILER_BUGS m293):
+    same-order layout semantics (permuted lookup follow-up), HashMap[K,V]
+    Str keys unverified, and a latent pre-existing m239 gap: `Vec[Bool]`
+    compares with an i64 stride (legacy mapch.HashMap == can
+    false-negative).
 - CLOSED / awaiting reporter re-verify at the next archive (compiler work
   done; items are `fixed` on the bus): T1-T3, B-17+B-16, B-23+B-24
   (2051-bindings-2), B-11+B-20 readback family (0304-bindings +
@@ -156,7 +167,7 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
   arg is now a call-site T001), 1549-stdlib-7 (cross-type generic
   callbacks), 1548-stdlib-3 (tostring import no longer hijacks adapter
   closure fields), 1548-bindings-4 (leaf-colliding nested module + stdlib
-  import -- m292), 1548-stdlib-6 (leg a m290 alias type paths + leg b m295
+  import -- m292), 1549-packages-11 (Map/Set == -- m293), 1548-stdlib-6 (leg a m290 alias type paths + leg b m295
   by-value UFCS), 1956-orbitdb + 1709-xvector (same-named types keep
   module identity -- m298), 1548-stdlib-4 (@pre on &mut param fields snapshots the
   entry value -- REAL fix m291 Paren arm; the m288 green was masked), 1548-stdlib-7
@@ -187,19 +198,17 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
     owner-level.
 - REMAINING CANDIDATE QUEUE (reds; the bus + the check file are the
   record). Priority order for the next session:
-  1. borrow/codegen: 1548-bindings-4 DONE (m292); 1548-stdlib-6 leg b DONE
-     (m295 -- item fully fixed). IN FLIGHT in fixer worktrees (Agent
-     Manager): 1549-packages-11 (m293), 1549-packages-9 HIGH (m294),
-     2320-bindings #1 HIGH (m296), 1615-stdlib HIGH (m297), 1956-orbitdb +
-     1709-xvector (m298). Then: 1549-packages-12, 1549-stdlib-2/3/4.
-     (1549-packages-10 is a wave stale-green close.)
+  1. borrow/codegen: 1548-bindings-4 (m292), 1548-stdlib-6 (m295),
+     1549-packages-11 (m293) DONE. IN FLIGHT: 1549-packages-12 (m299),
+     1549-stdlib-2 + 1549-stdlib-3 (m300). Then: 1549-stdlib-4,
+     1549-packages-2. (1549-packages-10 is a wave stale-green close.)
   2. resolver/checker: 1549-packages-9 HIGH (in flight m294),
      1550-orbitdb-2; 1956-orbitdb + 1709-xvector DONE (m298).
-  3. allocator/runtime: 2320-bindings #1 HIGH (Vec[UInt8].with_len HBO),
-     2320 #2/#3, 2032 (owner).
+  3. allocator/runtime: 2320-bindings #1 HIGH (Vec[UInt8].with_len HBO;
+     in flight m296), 2320 #2/#3, 2032 (owner).
   4. contracts/clauses: 1549-packages-2 (fs_read false contract),
      1549-stdlib-4 (clause-index Float64 reads), 1548-stdlib-7.
-  5. runtime/misc: 1615-stdlib HIGH (SIGILL), 1659-orbitdb (Vec copy
+  5. runtime/misc: 1615-stdlib HIGH (SIGILL; in flight m297), 1659-orbitdb (Vec copy
      alias), 1219-orbitdb PART A, 1324-selfhost, 1553-playground-2,
      1554-playground (stdout flush), 1554-benchmark (t3 trampoline).
   6. tooling/registry: 1548-registry-2, 1549-registry/2/3,
@@ -529,9 +538,10 @@ NEW (2026-10-13, v0.64.5 triage + FFI batches):
 
 ## 7. m-numbering
 
-- m261-m292 + m295 + m298 LANDED; m293/m294/m296/m297 are reserved by the
-  in-flight fixer worktrees (packages-11, packages-9, 2320-bindings #1,
-  1615-stdlib); **next free after those is m299**.
+- m261-m292 + m293 + m295 + m298 LANDED; m294/m296/m297/m299/m300 are
+  reserved by the in-flight fixer worktrees (packages-9, 2320-bindings #1,
+  1615-stdlib, packages-12, stdlib-2/3); **next free after those is
+  m301**.
 
 ## 8. CONTINUATION PROMPT (paste into a fresh session)
 
@@ -544,8 +554,8 @@ docs/rustc-study/ for reference patterns; rustc source is E:\repos\rust
 (READ-ONLY; no git writes there).
 
 STATE: v0.64.4 released (df493530) and verified. Git: origin/main =
-91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~42 unpushed
-commits (m276-m292 + m295 + m298 + docs + attempt logs); do NOT push
+91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~44 unpushed
+commits (m276-m292 + m293 + m295 + m298 + docs + attempt logs); do NOT push
 without the owner's authorization. Relay bus: latest compiler commits
 d5e84f8/170cdd9/9712942/4ac2e39 + the m292/m295 fix notes; the check
 file release-checks/compiler-compiler-v0.64.4.md is the candidate record.
@@ -564,13 +574,12 @@ diagnosed).
 
 NEXT -- work the remaining queue in this order (witness-first triage for
 each; see the check file + the bus for details):
-1. borrow/codegen: 1548-bindings-4 FIXED (m292); 1548-stdlib-6 leg b FIXED
-   (m295 -- item fully done). IN FLIGHT (Agent Manager fixer worktrees):
-   1549-packages-11 (m293), 1549-packages-9 HIGH (m294), 2320-bindings #1
-   HIGH (m296), 1615-stdlib HIGH (m297), 1956-orbitdb + 1709-xvector
-   (m298). Cherry-pick serially (ONE commit per batch, battery) as they
-   report; then 1549-packages-12, 1549-stdlib-2/3/4 (1549-packages-10 is
-   a wave stale-green close).
+1. borrow/codegen: 1548-bindings-4 (m292), 1548-stdlib-6 (m295),
+   1549-packages-11 (m293), 1956-orbitdb + 1709-xvector (m298) FIXED.
+   IN FLIGHT: 1549-packages-9 HIGH (m294), 2320-bindings #1 HIGH (m296),
+   1615-stdlib HIGH (m297), 1549-packages-12 (m299), 1549-stdlib-2 +
+   1549-stdlib-3 (m300). Cherry-pick serially as they report; then
+   1549-stdlib-4, 1549-packages-2 (1549-packages-10 stale-green close).
 2. resolver/checker: 1549-packages-9 (HIGH, in flight m294), 1550-orbitdb-2;
    1956-orbitdb + 1709-xvector DONE (m298).
 3. allocator/runtime: 2320-bindings #1 (HIGH, Vec[UInt8].with_len HBO),
@@ -591,8 +600,8 @@ filed with diffs): REL-20261013-1423-compiler (spawn buffer arena escape
 xiom_guard_free -> alloc-guard-spin 1548-bindings-5). Verify when the
 stdlib pin carries them.
 
-Number from m299 (m293-m298 reserved by the in-flight fixer worktrees);
-ONE commit per batch (fix + fixtures + docs +
+Number from m301 (m294/m296/m297/m299/m300 reserved by the in-flight
+fixer worktrees); ONE commit per batch (fix + fixtures + docs +
 COMPILER_BUGS section) + a relay fix-note with numeric/IR witnesses + a
 check-file row.
 
