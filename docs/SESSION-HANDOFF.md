@@ -105,10 +105,12 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
     owner-level.
 - REMAINING CANDIDATE QUEUE (reds; the bus + the check file are the
   record). Priority order for the next session:
-  1. borrow/codegen: 1548-bindings-4 (TRIAGED on the bus 2026-10-13:
-     module-leaf collision shadows `use xiom.ffi;` -- `probe.ffx` control
-     green, qualified `ffi.c_strlen` also fails; repro is single-file, fix
-     next), 1548-stdlib-4/5/6/7, 1549-packages-10/11/12, 1549-stdlib-2/3/4.
+  1. borrow/codegen: 1548-bindings-4 (m288 ATTEMPT REVERTED -- see
+     docs/failed_attempts.md 2026-10-13 + the bus: the collision routes the
+     import through the direct-load branch and `use xiom.ffi.c` never
+     registers `xiom.ffi.c.c_strlen`; needs a submodule-registration route
+     decision; repro is single-file), 1548-stdlib-4/5/6/7,
+     1549-packages-10/11/12, 1549-stdlib-2/3/4.
   2. resolver/checker: 1549-packages-9 HIGH (bare `&mut Int`), 1956-
      orbitdb (same-named types -- m278-class), 1550-orbitdb-2,
      1709-xvector.
@@ -472,9 +474,10 @@ diagnosed).
 
 NEXT -- work the remaining queue in this order (witness-first triage for
 each; see the check file + the bus for details):
-1. borrow/codegen: 1548-bindings-4 (TRIAGED: module-leaf collision shadows
-   `use xiom.ffi;` -- see the bus/check file), 1548-stdlib-4/5/6/7,
-   1549-packages-10/11/12, 1549-stdlib-2/3/4.
+1. borrow/codegen: 1548-bindings-4 (m288 ATTEMPT REVERTED: collision routes
+   the import through the direct-load branch, `use xiom.ffi.c` never
+   registers `xiom.ffi.c.c_strlen` -- see docs/failed_attempts.md + the
+   bus), 1548-stdlib-4/5/6/7, 1549-packages-10/11/12, 1549-stdlib-2/3/4.
 2. resolver/checker: 1549-packages-9 (HIGH, bare &mut Int), 1956-orbitdb
    (same-named types, m278-class), 1550-orbitdb-2, 1709-xvector.
 3. allocator/runtime: 2320-bindings #1 (HIGH, Vec[UInt8].with_len HBO),

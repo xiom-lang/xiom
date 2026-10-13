@@ -55,3 +55,48 @@ pass (touches Map/Vec/Option container ABI), not a surgical fix.
 Escalation: needs an architecture decision on the single element
 representation for container-typed Vec elements (inline vs handle), then a
 coordinated change with the full e2e as the gate.
+
+---
+
+## 2026-10-13 -- m288 `REL-20261010-1548-bindings-4` module-leaf alias collision (checker import resolution)
+
+Four fix attempts on the checker's import registration, all reverted (the
+tree is clean at m287; no m288 batch landed):
+
+1. Attached the direct-load branch's module under its PARENT surface
+   (`modules["xiom"]["ffi"]`) so `module_exports_for_alias` would not fall
+   back to the leaf map. No effect on the repro.
+2. Ran the G-32 bare-item injection loop in the direct-load branch.
+   `imported_has_c_strlen` stayed false: `c_strlen` is declared in the
+   SUBMODULE `xiom.ffi.c` (file `stdlib/xiom/ffi/c.xi`,
+   `module xiom.ffi.c` parses as nested x{ffi{c}}), so the `xiom.ffi`
+   surface only carries a "c" SubModule entry; a top-level iteration never
+   sees the fn.
+3. Registered `cached.program.items` signatures in the direct-load branch.
+   `functions` still had no `xiom.ffi.c.c_strlen` -- the registration did
+   not persist from that branch.
+4. Dropped the parent attach again and re-ran: unchanged. The
+   `use xiom.ffi.c` processing takes a NON-registering route in the broken
+   run regardless.
+
+Current precise state (traces env-gated `XIOM_TRACE_IMPORT`, scratch in
+`%TEMP%\kilo\m288`; builds kept local, all reverted):
+- Repro: `module probe.ffi` + `use xiom.ffi;` + `c_strlen(1)` -> T001
+  undefined variable (8:10). Control with module `probe.ffx`: compiles 0.
+  `ffi.c.c_strlen` (the correct qualified spelling) compiles 0 with
+  attempt 3 applied.
+- Divergence point: at the first use, `modules["xiom"]` has **7 keys, ffi
+  absent** in the failing run vs **12 keys, ffi present** in the control;
+  the failing run takes the direct-load branch, and the later
+  `use xiom.ffi.c` never registers c.xi's fns. In the control,
+  `register_fn_signature` fires with `module_path='xiom.ffi.c'` =>
+  `key='xiom.ffi.c.c_strlen'` (catalog=false) exactly once; in the failing
+  run it never fires.
+- `value_member_resolves("ffi")` false; the error surfaces from the call
+  fallback, so resolution never reaches the loaded module's signatures.
+
+Escalation: needs a decision on WHERE submodule signatures get registered
+for a directory module (the normal walk's found-path does not register;
+only direct loads do), or a pre-registration of the full nested module
+tree when a collision routes an import through the direct-load branch.
+Not a surgical fix -- start from the `use xiom.ffi.c` route divergence.
