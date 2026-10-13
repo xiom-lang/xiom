@@ -16144,6 +16144,43 @@ front-locks, serial libs 199/12/36/79.
 
 ---
 
+## 2026-10-13 -- FIXED (m295): by-value struct receiver UFCS binds the registered free fn (REL-20261010-1548-stdlib-6 leg b)
+
+Witness: `v.json_get_path(&path)` on a by-value `JsonValue` local compiled
+rc 1 with `error[C001]: unresolved symbol 'JsonValue.json_get_path'` while
+the qualified `sjson.json_get_path(v, &path)` compiled rc 0 (leg a's m290
+fix made the alias-qualified TYPE path resolve; this is the call).
+
+Root cause: `ufcs_registered_fn_for_receiver` (xiom-codegen/src/call.rs)
+required a pointer-like receiver AND a param-0 LLVM pointer. A by-value
+struct receiver's registered fn takes param 0 BY VALUE
+(`%struct.JsonValue`), so the UFCS candidate search never matched; the
+receiver-derived alias key `JsonValue.json_get_path` then survived the
+same-leaf suffix scan (two candidates exist: `serialize.json_get_path`
+(i8*, i8*) and `serialize.json.json_get_path`) and died in validation.
+The checker already resolves this via its own UFCS param-0 search
+(xiom-check/src/lib.rs ~8786); codegen now mirrors it: for a bound
+`Ident` receiver with a `%struct.X` LLVM type, accept candidates with a
+leaf-name match, arity `nargs + 1`, and param 0 exactly `%struct.X`
+(unique candidate preferred, bare leaf first). The m291 trace claim "no
+.json_get_path key exists" was wrong -- both same-leaf keys are
+registered; the reroute had a target but bound before the receiver shape
+was considered.
+
+Evidence: pre rc 1 C001 -> post rc 0 compile+run; post-fix IR emits
+`call %struct.Option__JsonValue @serialize.json.json_get_path(%struct.JsonValue ..., %struct.Vec* ...)`
+exactly like the qualified form; qualified control rc 0 before and after.
+LOCK: tests/regression/m295_foreign_method_call/ (runtime payload check:
+parse `{"a":{"b":42}}`, navigate, stringify == "42"; plus the null +
+empty-path method form and the qualified form) + `e2e_m295_foreign_method_
+call` (ci.yml e2e group 2). Caveat: the by-value arm covers bound `Ident`
+locals; chained by-value temporaries keep the old path (none evidenced).
+Battery green: fixer worktree e2e 16+183 + codegen 12 + check 199 at
+`02ab0759`; integration batch e2e 16+185 (incl. m292/m295 locks) + codegen
+12.
+
+---
+
 ## 2026-10-13 -- FIXED (m289): annotated `Slice[Int]` locals allocated an i64 slot holding the data pointer (REL-20261010-1548-stdlib-5)
 
 The item's two filed witness FILES were already green on the archived

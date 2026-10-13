@@ -7303,6 +7303,18 @@ fn e2e_safety_probe() {
     );
 }
 
+// m295 (REL-20261010-1548-stdlib-6 leg b): a method-style call of a free fn
+// on a BY-VALUE struct/enum receiver (`v.json_get_path(&path)` on a JsonValue
+// local) must bind the registered free fn (param 0 typed by value) instead of
+// emitting the receiver-qualified alias `JsonValue.json_get_path` (C001).
+#[test] fn e2e_m295_foreign_method_call() {
+    assert_eq!(
+        compile_and_run("tests/regression/m295_foreign_method_call/main.xi"),
+        Some(0),
+        "by-value receiver UFCS must bind the registered free fn (m295)"
+    );
+}
+
 
 
 

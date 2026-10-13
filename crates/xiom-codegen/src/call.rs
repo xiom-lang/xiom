@@ -6688,13 +6688,32 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
     /// exactly `nargs + 1` LLVM params with a pointer first parameter (the
     /// receiver is param 0). Unique candidate, bare leaf preferred; the
     /// method path prepends the receiver via its instance handling.
+    ///
+    /// m295 (REL-20261010-1548-stdlib-6 leg b): a by-value struct/enum
+    /// receiver (`v.json_get_path(&path)` on a `JsonValue` local) registers
+    /// its first parameter BY VALUE (`%struct.JsonValue`), so the
+    /// pointer-shape filter above never matched and the receiver-qualified
+    /// alias key had no definition (C001 unresolved symbol). Mirror the
+    /// checker's UFCS param-0 search: for a bound local receiver, accept
+    /// candidates whose param 0 is exactly the receiver's LLVM struct type.
     fn ufcs_registered_fn_for_receiver(
         &self,
         receiver: &Expr,
         fn_name: &str,
         nargs: usize,
     ) -> Option<String> {
-        if !self.receiver_pointer_like(receiver) {
+        let pointer_like = self.receiver_pointer_like(receiver);
+        let by_value_recv_ty = if pointer_like {
+            None
+        } else {
+            match receiver {
+                Expr::Ident(id) => self.lookup_local(&id.name)
+                    .map(|(_, t)| t.clone())
+                    .filter(|t| t.starts_with("%struct.") && !t.ends_with('*')),
+                _ => None,
+            }
+        };
+        if !pointer_like && by_value_recv_ty.is_none() {
             return None;
         }
         let mut hits: Vec<String> = self.types.functions.keys().into_iter()
@@ -6707,7 +6726,14 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     && !k.starts_with("Result__")
                     && self.types.functions.get(k).map_or(false, |(pts, _)| {
                         pts.len() == nargs + 1
-                            && pts.first().map_or(false, |p| p.ends_with('*'))
+                            && if pointer_like {
+                                pts.first().map_or(false, |p| p.ends_with('*'))
+                            } else {
+                                match &by_value_recv_ty {
+                                    Some(t) => pts.first().map_or(false, |p| p == t),
+                                    None => false,
+                                }
+                            }
                     })
             })
             .collect();
