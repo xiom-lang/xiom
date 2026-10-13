@@ -135,8 +135,10 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
      docs/failed_attempts.md 2026-10-13 + the bus: the collision routes the
      import through the direct-load branch and `use xiom.ffi.c` never
      registers `xiom.ffi.c.c_strlen`; needs a submodule-registration route
-     decision; repro is single-file), 1548-stdlib-6 leg b (by-value struct
-     UFCS; leg a fixed in m290), 1548-stdlib-7,
+     decision; repro is single-file), 1548-stdlib-6 leg b (m291 attempt
+     reverted: checker->codegen binding gap for user-program UFCS -- see
+     docs/failed_attempts.md 2026-10-13; leg a fixed in m290),
+     1548-stdlib-7,
      1549-packages-10/11/12, 1549-stdlib-2/3/4.
   2. resolver/checker: 1549-packages-9 HIGH (bare `&mut Int`), 1956-
      orbitdb (same-named types -- m278-class), 1550-orbitdb-2,
@@ -186,7 +188,8 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
   diagnosis), `5a2f5d2` (m285 fix + row), `deb173d` (m286 fix + row),
   `b8caee2` (m287 fix + row), `ce5f2b4` (bindings-4 attempt triage),
   `76869eb` (stdlib-4 fix + lock row), `bb30a68` (stdlib-5 fix + row),
-  `d5e84f8` (stdlib-6 part-a fix + leg-b triage).
+  `d5e84f8` (stdlib-6 part-a fix + leg-b triage), `170cdd9` (leg-b
+  attempt-2 triage).
   NEXT-BATCH FIX REFS rows + history bullets current.
 - Selfhost: phase-4 worktree (ses_eded8c4d8ffe, sole writer) idle after its
   13:00Z prompt; sibling ses_ef8e3a27cffe idle. Rebases/tests will pick up
@@ -508,7 +511,8 @@ each; see the check file + the bus for details):
 1. borrow/codegen: 1548-bindings-4 (m288 ATTEMPT REVERTED: collision routes
    the import through the direct-load branch, `use xiom.ffi.c` never
    registers `xiom.ffi.c.c_strlen` -- see docs/failed_attempts.md + the
-   bus), 1548-stdlib-6 leg b (by-value struct UFCS -- leg a fixed in m290),
+   bus), 1548-stdlib-6 leg b (m291 attempt reverted: checker->codegen
+   binding gap for user-program UFCS; see docs/failed_attempts.md),
    1548-stdlib-7, 1549-packages-10/11/12, 1549-stdlib-2/3/4.
 2. resolver/checker: 1549-packages-9 (HIGH, bare &mut Int), 1956-orbitdb
    (same-named types, m278-class), 1550-orbitdb-2, 1709-xvector.

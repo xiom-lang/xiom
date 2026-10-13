@@ -100,3 +100,40 @@ for a directory module (the normal walk's found-path does not register;
 only direct loads do), or a pre-registration of the full nested module
 tree when a collision routes an import through the direct-load branch.
 Not a surgical fix -- start from the `use xiom.ffi.c` route divergence.
+
+---
+
+## 2026-10-13 -- m291 `REL-20261010-1548-stdlib-6` leg b by-value struct UFCS (codegen call resolution)
+
+One fix attempt on the codegen call resolution, reverted (tree clean at
+m290; leg a is already fixed in m290/bc716bca):
+
+1. At the instance-receiver resolution in call.rs, added a reroute: when
+   the receiver-derived key ("JsonValue.json_get_path") has no symbol and
+   exactly one same-leaf key HAS one, bind that key. No effect -- tracing
+   showed `types.functions.contains_key("JsonValue.json_get_path")` is
+   FALSE and there is NO key ending ".json_get_path" at all in codegen's
+   function map for this program (`sameleaf=[]`).
+
+Findings that matter for the next attempt (traces env-gated
+XIOM_TRACE_FMC, scratch `%TEMP%\kilo\m290`):
+- The qualified call `sjson.json_get_path(v, &path)` works through the
+  MODULE-receiver path (a free-fn/module surface + the m142 canonical
+  direct-emit for module-qualified stdlib calls, call.rs ~1005), NOT
+  through `types.functions` -- the emitted call resolves without any
+  "*.json_get_path" key existing.
+- `catalog_resolved_calls` (the checker->codegen handoff) is recorded
+  ONLY when `checking_catalog` (catalog bodies); a USER-program
+  method-style call has no recorded target, and `resolve_catalog_call`
+  also validates the receiver TEXT against the target module, which an
+  instance receiver ("v") can never satisfy.
+- `program_bare_targets` covers BARE calls only.
+- The checker accepts the call (it resolves the free fn in its own
+  registry), so the gap is purely the checker->codegen binding for
+  method-style calls on by-value struct receivers.
+
+Next: either extend the checker's resolved-call recording to user-program
+method-style calls resolved via UFCS (hand codegen a target it can bind
+without receiver-text validation), or teach codegen the same param0-type
+UFCS candidate search the checker uses. Not surgical yet -- needs the
+handoff decision.
