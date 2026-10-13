@@ -3242,9 +3242,16 @@ impl Checker {
             if self.cached_loaded.contains(&dotted) {
                 continue;
             }
-            // Only try catalog if the leaf segment isn't already in self.modules.
+            // Only try catalog if a SINGLE-segment prefix's leaf is already a
+            // top-level program-local module. Multi-segment prefixes must stay
+            // catalog-loadable by their full dotted path even when a nested
+            // program module shares the leaf: `module probe.ffi` +
+            // `use xiom.ffi;` used to skip the catalog pre-load of xiom.ffi
+            // (flatten_submodules had inserted the bare "ffi" key), so the use
+            // bound the program's own probe.ffi and the stdlib exports never
+            // registered -- T001 undefined variable (1548-bindings-4).
             let leaf = prefix.last().unwrap();
-            if self.modules.contains_key(leaf.as_str()) {
+            if prefix.len() == 1 && self.modules.contains_key(leaf.as_str()) {
                 continue;
             }
             if let Some(cached) = self.catalog.find_owned(&prefix) {

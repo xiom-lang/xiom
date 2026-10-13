@@ -7292,6 +7292,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// m292 (REL-20261010-1548-bindings-4): `module ...ffi` + `use xiom.ffi;` --
+// the flattened program-local leaf used to block the catalog pre-load, so
+// bare stdlib submodule fns (xiom.ffi.c) never resolved (T001).
+#[test] fn e2e_m292_ffi_alias_shadow() {
+    assert_eq!(
+        compile_and_run("tests/regression/m292_ffi_alias_shadow/main.xi"),
+        Some(0),
+        "leaf-colliding nested module must not shadow the xiom.ffi import (m292)"
+    );
+}
+
 
 
 

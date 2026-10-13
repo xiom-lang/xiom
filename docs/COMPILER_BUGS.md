@@ -16110,6 +16110,40 @@ Battery green: e2e 16+183, front-locks (35 checker locks), serial libs
 
 ---
 
+## 2026-10-13 -- FIXED (m292): leaf-colliding nested module shadowed the stdlib import during catalog pre-load (REL-20261010-1548-bindings-4)
+
+Witness: `module probe.ffi` + `use xiom.ffi;` + bare `c_strlen(1)` -- T001
+`undefined variable 'c_strlen'` plus the `cannot compare () with Int`
+cascade; the control (`module probe.ffx`, same body) compiled rc 0. Filed
+red on the v0.64.4 archive wave (2x T001) and still red on HEAD pre-fix;
+the qualified `ffi.c_strlen(1)` also failed because the receiver bound the
+program's own module.
+
+Root cause (pinned by the 2026-10-13 parallel-triage wave):
+`flatten_submodules` (xiom-check/src/lib.rs) registers NESTED program
+modules under their BARE leaf key, so `module probe.ffi` put a "ffi" entry
+into `self.modules`. The catalog pre-load worklist in `resolve_imports`
+(xiom-check/src/lib.rs) skipped any prefix whose LEAF was already in
+`self.modules`, so `[xiom, ffi]` never catalog-loaded the real `xiom.ffi`;
+`use xiom.ffi;` bound the program's own (empty) probe.ffi surface and the
+stdlib submodule exports (c_strlen et al. live in `xiom.ffi.c`) never
+registered -- this is also why the m288 registration patches on the
+direct-load branch had nothing persistent to attach to.
+
+Fix: the skip guard now applies only to SINGLE-segment prefixes
+(`prefix.len() == 1 && self.modules.contains_key(leaf)`), so a
+multi-segment use path stays catalog-loadable by its full dotted path even
+when a nested program module shares the leaf.
+
+Evidence: filed witness rc 1 -> 0 (`--check`, pinned stdlib); runnable twin
+(`c_abs(-7) == 7`, same `xiom.ffi.c` submodule) also rc 1 -> 0, with the
+pre-fix binary rebuilt for the negative A/B (T001 `undefined variable
+'c_abs'` at 6:13). LOCK: tests/regression/m292_ffi_alias_shadow/ +
+`e2e_m292_ffi_alias_shadow` (ci.yml e2e group 2). Battery green: e2e 16+184,
+front-locks, serial libs 199/12/36/79.
+
+---
+
 ## 2026-10-13 -- FIXED (m289): annotated `Slice[Int]` locals allocated an i64 slot holding the data pointer (REL-20261010-1548-stdlib-5)
 
 The item's two filed witness FILES were already green on the archived
