@@ -15799,6 +15799,66 @@ Copy-Out for escaped raw pointers, which needs allocation-size tracking
 and is not part of this batch). Filed to the stdlib lane via relay with
 the exact proposed diff; the thread gate item stays open until then.
 
+---
+
+## 2026-10-13 -- TRIAGE (allocator/runtime batch): Vec churn is a memory-model gap (no drop glue); alloc-guard-spin root-caused with the fix relayed to stdlib (REL-20261011-2032-engine + REL-20261010-1548-bindings-5)
+
+1. Vec alloc+drop churn (2032-engine) is NOT a mechanical codegen bug:
+   XIOM has no drop glue. `mem.drop` is a no-op (`stdlib/xiom/mem/mem.xi`),
+   `Rc` frees only through the explicit `Rc.drop(self)`, and builtin Vec has
+   no deinit. IR witness: `alloc_one() { var v = Vec[Float64].new(); ...
+   return v.len(); }` allocates 128 B + ~8 MB via malloc/realloc and its
+   function body contains NO `free` at any scope exit; the buffer pointer is
+   simply dropped on the stack. `alloc.alloc` outside a block is plain
+   malloc; nothing calls `free` for a scope-dropped Vec, so the engine's
+   15.9 GB/10 s measurement is expected behavior of the current model, not
+   a regression. A fix (scope-exit free for owned locals / deinit / arena
+   reset) is a language memory-model decision -- needs the owner's call
+   before any codegen work. Recorded here so it is not chased as a bug.
+
+2. alloc-guard-spin (1548-bindings-5) ROOT-CAUSED + fix verified at the
+   runtime level and relayed to the stdlib lane
+   (`REL-20261013-1445-compiler`). Mechanism: `ffi.alloc(8)` inside an
+   unsafe block lowers to `@xiom_guard_alloc` (VirtualAlloc slab) but
+   `ffi.free(slot)` lowers to libc `@free` on that slab pointer; the
+   Windows heap manager corrupts/spins, the VEH trampoline catches the
+   fault and RE-RUNS the block, which re-allocates -> endless
+   alloc/fault/retry loop at 100% CPU with flat memory (`[galloc] size=8
+   active=1` thousands of times/second under the watchdog). The design doc
+   (UNSAFE_CONFINEMENT_PLAN S2) intended malloc/realloc/free to all pair on
+   the guard arena; only malloc was routed. Fix (stdlib-side, verified in a
+   scratch tree): add `xiom_guard_free` (arena-membership check -> no-op for
+   arena pointers, libc free otherwise, placed after
+   `xiom_guard_arena_contains`) and route `ffi.free` through it. Acceptance
+   = the bindings alloc-guard-spin probe completes.
+
+3. ENVIRONMENT HAZARD (recorded; see the 2026-10-13 note below): ad-hoc
+   probes on this box can resolve stdlib function bodies from a DIFFERENT
+   tree than the `using ...` winner (two bodies for one module in one
+   compilation; 29 duplicate `xiom.ffi` copies scanned from `%TEMP%\kilo`).
+   Always set `XIOM_STDLIB` explicitly for manual probes; wave-battery
+   fixtures are unaffected.
+
+## 2026-10-13 -- OPEN (environment): duplicate stdlib trees + cross-tree function-body mixing in ad-hoc compiles
+
+While verifying the guard-free fix: with the pinned
+`E:\xiom-lang\xiom\stdlib` edited and the separate live checkout
+`E:\xiom-lang\stdlib` unedited, a probe calling `ffi.free` compiled with
+`target/debug/xiom.exe` produced IR where the inlined call site used the
+LIVE body (`call void @free`) while the standalone `@ffi.free` definition
+used the PINNED body (`call void @xiom_guard_free`) -- two bodies for one
+module in one compilation. W001 reports `using
+'E:\xiom-lang\xiom\stdlib\xiom\ffi\ffi.xi'`; the inlined body ignored the
+winner. Swapping the live file did not change the inlined body, so it
+comes from one of the 29 scanned duplicates (`%TEMP%\kilo\candidate-*`,
+`release-*`, `stdlib_ws\v0.6*`). Related: exe-ancestor stdlib candidates
+are searched before CWD/baked-repo, so `E:\xiom-lang\stdlib` (one level
+above the compiler repo) is the natural stdlib for `target/debug/xiom.exe`
+ad-hoc runs. Directions: dedupe module registration by canonical root (or
+never register losing copies), and prefer explicit/CWD roots for dev
+checkouts. Not yet root-caused in code.
+
+
 
 
 
