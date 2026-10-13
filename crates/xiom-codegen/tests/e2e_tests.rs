@@ -7191,6 +7191,48 @@ fn e2e_safety_probe() {
 // ============================================================================
 #[test] fn e2e_m49_round15_fnfloat_constarrays() { assert_eq!(compile_and_run("tests/regression//m49_round15_fnfloat_constarrays.xi"), Some(0)); }
 
+// ----------------------------------------------------------------------------
+// m286 (REL-20261010-1549-stdlib-7): cross-type generic callbacks.
+// ----------------------------------------------------------------------------
+
+// m286: cross-type generic callback -- the binding must keep the substituted
+// "Vec[Str]" (inferred and explicit bracket spellings); pre-fix the element
+// read crossed as a scalar and the Str handle byte-materialized.
+#[test] fn e2e_m286_cross_type_callback_bind() {
+    assert_eq!(
+        compile_and_run("tests/regression/m286_cross_type_callback_bind/main.xi"),
+        Some(0),
+        "a cross-type generic callback result must keep its element type (m286)"
+    );
+}
+
+// m286: Option[Int].map[Str] match payload -- the Some(s) binding must be Str.
+#[test] fn e2e_m286_core_map_match_payload() {
+    assert_eq!(
+        compile_and_run("tests/regression/m286_core_map_match_payload/main.xi"),
+        Some(0),
+        "a cross-type map scrutinee must bind its match payload concretely (m286)"
+    );
+}
+
+// m286: stdlib sort_by_key[Int, Str] must sort lexicographically.
+#[test] fn e2e_m286_sort_by_key_cross_type() {
+    assert_eq!(
+        compile_and_run("tests/regression/m286_sort_by_key_cross_type/main.xi"),
+        Some(0),
+        "sort_by_key with Str keys must order lexicographically (m286)"
+    );
+}
+
+// m286: Str relational operators are content ordering (multi-char/prefix).
+#[test] fn e2e_m286_str_lexicographic_compare() {
+    assert_eq!(
+        compile_and_run("tests/regression/m286_str_lexicographic_compare/main.xi"),
+        Some(0),
+        "Str <,>,<=,>= must compare content, not first bytes (m286)"
+    );
+}
+
 
 
 

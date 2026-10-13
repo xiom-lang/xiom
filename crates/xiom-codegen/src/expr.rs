@@ -1852,6 +1852,45 @@ impl IrEmitter {
                 // `i64*`); when compared to an integer, load through the pointer so the
                 // comparison is on the pointed-to scalar, not the pointer address.
                 if matches!(op, BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge) {
+                    // m286 (1549-stdlib-7): `a < b` on Str operands lowered
+                    // through the pointer auto-deref below -- `i8*` ends
+                    // with '*' so the code loaded the FIRST BYTE of each
+                    // string ("1" vs "10" -> '1' vs '1' -> equal -> 0;
+                    // Ord[Str].compare returned 0 for equal first bytes, so
+                    // sort_by_key mis-sorted). Str ordering is CONTENT
+                    // ordering: strcmp(a,b) </>/<=/>= 0 (mirrors the
+                    // Eq/Neq content path above).
+                    let l_str = match &**left {
+                        Expr::Ident(id) => self.local.local_xiom_types.get(&id.name)
+                            .map_or(false, |t| t == "Str"),
+                        _ => Self::infer_value_xiom_type(left).as_deref() == Some("Str"),
+                    };
+                    let r_str = match &**right {
+                        Expr::Ident(id) => self.local.local_xiom_types.get(&id.name)
+                            .map_or(false, |t| t == "Str"),
+                        _ => Self::infer_value_xiom_type(right).as_deref() == Some("Str"),
+                    };
+                    if l_str && r_str && l != "0" && r != "0" {
+                        // A ref-typed operand (&Str) holds the slot ADDRESS;
+                        // deref before strcmp so the content is compared.
+                        let (l3, lt3) = self.auto_deref_ref(left, &l, &lt);
+                        let (r3, rt3) = self.auto_deref_ref(right, &r, &rt);
+                        let lp = self.val_to_i8ptr(&l3, &lt3);
+                        let rp = self.val_to_i8ptr(&r3, &rt3);
+                        let cmp = self.fresh_tmp();
+                        self.emitln(&format!("  {cmp} = call i32 @strcmp(i8* {lp}, i8* {rp})"));
+                        let cc = match op {
+                            BinOp::Lt => "slt",
+                            BinOp::Gt => "sgt",
+                            BinOp::Le => "sle",
+                            _ => "sge",
+                        };
+                        let b = self.fresh_tmp();
+                        self.emitln(&format!("  {b} = icmp {cc} i32 {cmp}, 0"));
+                        let ext = self.fresh_tmp();
+                        self.emitln(&format!("  {ext} = zext i1 {b} to i64"));
+                        return Ok((ext, LLVM_I64.to_string()));
+                    }
                     if lt.ends_with('*') {
                         let inner = lt.trim_end_matches('*');
                         let deref_l = self.fresh_tmp();

@@ -15966,3 +15966,51 @@ tests/regression/m285_vec_shape_arg_mismatch/ + the matched-shape control
 tests/regression/m285_vec_shape_arg_matched/ (both in checker_locks.rs).
 Battery green: e2e 16+174, front-locks (34 checker locks incl. the pair),
 serial libs 199/36/79.
+
+---
+
+## 2026-10-13 -- FIXED (m286): cross-type generic callback results lost their type (REL-20261010-1549-stdlib-7)
+
+Four call-site inference holes let a generic call whose type argument is
+only visible in a fn-typed ARGUMENT stay unresolved, so Str results
+crossed as scalars and were byte-materialized at the consumer. All three
+filed repros are green: `p_generic_typechanging_map` (was compile 0 /
+run 41), `p_generic_typechanging_core_map` (41), `p_generic_typechanging_
+sortbykey` (1, silent mis-sort); the fnptr leg was already green and stays
+green.
+
+1. Bare generic-call bindings (`let ws = mapv(&v, to_s)`): the declared
+   return "Vec[U]" was dropped by the placeholder guard (binding untyped)
+   and the 5c.39 element inheritance seeded the ELEM as the raw "U" from
+   `callee_return_xiom` (the `resolve_vec_elem_xiom` lookup then preferred
+   "U" over the correct local type). `infer_call_return_xiom` now
+   substitutes through a new `bare_generic_call_return_xiom`: per-CALL-SITE
+   concrete args recorded by call.rs under the callee span
+   (`generic_instantiations` is per-FUNCTION and a first-match scan can
+   bind a DIFFERENT site's types -- the R52/L5-31 Box.get_value lesson),
+   explicit bracket args read directly, a unique instantiation as the last
+   resort; the element inheritance UPGRADES a placeholder elem once the
+   concrete xiom type is recorded.
+2. Match scrutinee payloads (`match o.map(to_s)`): `scrutinee_payload_xiom`
+   read the RAW "Option[U]" -> payload "U" (the Some arm bound a scalar and
+   the Str handle byte-materialized in the arm comparison). It now filters
+   placeholder payloads and falls back to the substituted call return
+   ("Option[Str]").
+3. Method arg inference paired `fd.params` (which INCLUDE the receiver,
+   `Self` first) with the call args (which EXCLUDE it), so a fn-typed param
+   (`f: fn(T) -> U`) was never examined and U fell to the "first arg"
+   fallback, pushing the raw "U" -- the recorded instantiation literally
+   said ["Int", "U"]. The param zip now skips a leading `Self` param when
+   the call has a receiver, and the C1 fn-signature binding resolves
+   U=Str (the monomorph name also becomes `sort..._Int_Str`).
+4. Str RELATIONAL operators (`a < b`) hit the pointer auto-deref (`i8*`
+   ends with '*' so it loaded the FIRST BYTE of each string); `"1"` vs
+   `"10"` compared equal, `Ord[Str].compare` returned 0 for equal first
+   bytes, and `sort_by_key` silently mis-sorted. Str-typed relational
+   operands now lower to `strcmp(a,b) </>/<=/>= 0` (content ordering,
+   mirroring the Eq/Neq strcmp path).
+
+LOCK: e2e_m286_cross_type_callback_bind, e2e_m286_core_map_match_payload,
+e2e_m286_sort_by_key_cross_type, e2e_m286_str_lexicographic_compare
+(tests/regression/m286_*/main.xi; ci.yml e2e group 2). Battery green: e2e
+16+178, front-locks, serial libs 199/12/36/79.

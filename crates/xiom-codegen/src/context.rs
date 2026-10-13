@@ -378,6 +378,15 @@ pub struct MonoContext {
     /// here so emission picks the right monomorphisation instead of the `0`
     /// fallback.
     pub prepass_call_types: HashMap<(u32, u32), Vec<String>>,
+    /// m286 (REL-20261010-1549-stdlib-7): per-CALL-SITE concrete generic
+    /// args recorded at emission, keyed by the CALLEE expression span.
+    /// `generic_instantiations` is per-FUNCTION and a first-match scan can
+    /// bind a DIFFERENT call's instantiation (R52/L5-31: Box.get_value
+    /// picked the Int site for a Str call). Binding inference for
+    /// `let ws = mapv(&v, to_s)` needs THIS site's [Int, Str] to
+    /// substitute the declared "Vec[U]" return (the binding otherwise
+    /// stayed untyped and Str pointers crossed as scalars downstream).
+    pub call_site_generic_types: HashMap<(u32, u32), Vec<String>>,
     /// Const-generic value map: monomorphised_fn_name -> {const_param_name -> value}
     pub const_value_map: HashMap<String, HashMap<String, i64>>,
     /// Specialized monomorphised function names already emitted

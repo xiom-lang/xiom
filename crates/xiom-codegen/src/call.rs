@@ -4311,6 +4311,22 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     // Find the generic function declaration
                     if let Some((_, fd)) = self.find_generic_decl(&fn_key) {
                         let fd = fd.clone();
+                        // m286 (1549-stdlib-7): an INSTANCE method's decl
+                        // params include the receiver (`Self` first) while the
+                        // call args exclude it -- the old zip paired args[0]
+                        // with `Self`, so a fn-typed param (`f: fn(T) -> U`,
+                        // `Option.map`) was never examined and U fell to the
+                        // "first arg" fallback, pushing the raw "U". That
+                        // placeholder then flowed into every downstream
+                        // substitution (match payload "U" -> Str handles
+                        // byte-materialized). Offset the param pairing by a
+                        // leading receiver when the call has a receiver
+                        // expression.
+                        let recv_offset = if receiver_expr.is_some() {
+                            fd.params.iter()
+                                .take_while(|p| Self::type_from_ast(&p.ty) == "Self")
+                                .count().min(1)
+                        } else { 0 };
                         for gp in &fd.generics {
                             // D1: explicit type args win over inference.
                             // Sources: `fn[T](...)` GenericCall types, or the
@@ -4480,7 +4496,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // Keep scanning; the historical "Int" default is
                             // applied below when nothing else resolves.
                             let mut container_fallback = false;
-                            for (param, arg_expr) in fd.params.iter().zip(args.iter()) {
+                            for (param, arg_expr) in fd.params.iter().skip(recv_offset).zip(args.iter()) {
                                 let param_type = Self::type_from_ast(&param.ty);
                                 // m249 (stdlib slice-bound C001): `&Slice[T]` /
                                 // `&Vec[T]` / `Slice[T]` params -- type_from_ast
@@ -4868,6 +4884,18 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             if let Some(pre) = self.mono.prepass_call_types.get(&(sp.byte_start, sp.byte_end)) {
                                 concrete_types = pre.clone();
                             }
+                        }
+                    }
+                    // m286 (1549-stdlib-7): per-call-site concrete args for
+                    // binding inference. `generic_instantiations` is
+                    // per-FUNCTION (a first-match scan can bind a DIFFERENT
+                    // call's instantiation), so infer_call_return_xiom reads
+                    // THIS call site's types from the callee span.
+                    if !concrete_types.is_empty() {
+                        let csp = func.span();
+                        if csp.byte_start != 0 || csp.byte_end != 0 {
+                            self.mono.call_site_generic_types
+                                .insert((csp.byte_start, csp.byte_end), concrete_types.clone());
                         }
                     }
                     if !concrete_types.is_empty() {

@@ -3802,7 +3802,28 @@ impl IrEmitter {
                     } else {
                         self.option_result_payload_alias(&full)
                     }
-                });
+                }).filter(|t| !Self::is_generic_placeholder_name(t));
+                // m286 (1549-stdlib-7): a cross-type generic METHOD scrutinee
+                // (`match o.map(to_s) { Some(s) => ... }`, Option[Int].map[U]
+                // with U=Str) resolved the RAW declared "Option[U]" -> payload
+                // "U", which consumers then treated as a scalar (the Str
+                // handle byte-materialized in the arm's comparisons). The
+                // substituted return ("Option[Str]") resolves through
+                // infer_call_return_xiom's method evidence (receiver type
+                // args + recorded instantiations). Prefer it when the raw
+                // payload is missing or a placeholder.
+                if payload.is_none() {
+                    if let Some(full) = self.infer_call_return_xiom(expr_match) {
+                        let sub_payload = if field_idx == 2 {
+                            self.option_result_err_payload_alias(&full)
+                        } else {
+                            self.option_result_payload_alias(&full)
+                        };
+                        if let Some(sp) = sub_payload.filter(|t| !Self::is_generic_placeholder_name(t)) {
+                            return Some(sp);
+                        }
+                    }
+                }
                 // round-13 (tuple payloads): the GENERIC Vec.get/pop decl
                 // returns "Option[T]" -- the payload resolves to the bare
                 // generic param ("T") which can't map to a struct. Derive it

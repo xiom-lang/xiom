@@ -263,6 +263,73 @@ impl IrEmitter {
         }
     }
 
+    /// m286 (REL-20261010-1549-stdlib-7): substituted return type for a BARE
+    /// generic call (`let ws = mapv(&v, to_s)`) or its explicit bracket
+    /// spelling (`mapv[Int, Str](&v, to_s)`, parsed as Call(Index(..), ..)).
+    /// The declared return ("Vec[U]") carries the unresolved U and the
+    /// placeholder guard below dropped the binding type entirely: element
+    /// reads of the result then crossed Str pointers as scalars (the
+    /// comparison byte-materialized the pointer; cross-type sort keys were
+    /// compared as addresses). Evidence order:
+    ///   1. the per-CALL-SITE concrete args recorded at emission (call.rs,
+    ///      keyed by the callee span) -- precise even when the same fn is
+    ///      instantiated differently elsewhere;
+    ///   2. the explicit bracket args for the Index spelling;
+    ///   3. the per-FUNCTION `generic_instantiations`, ONLY when exactly one
+    ///      instantiation of this key exists (a first-match scan can bind a
+    ///      DIFFERENT call's types -- R52/L5-31's Box.get_value lesson).
+    /// Returns None unless the declared return actually carries a placeholder
+    /// AND the substitution resolves it completely, so every other path keeps
+    /// the historical `callee_return_xiom` behavior.
+    fn bare_generic_call_return_xiom(&self, func: &Expr) -> Option<String> {
+        let (decl_probe, explicit): (&Expr, Option<Vec<String>>) = match func {
+            Expr::Ident(_) => (func, None),
+            Expr::Index(base, idx, _) => {
+                let cts: Vec<String> = match idx.as_ref() {
+                    Expr::Tuple(items, _) => items.iter().filter_map(Self::type_arg_expr_name).collect(),
+                    other => Self::type_arg_expr_name(other).into_iter().collect(),
+                };
+                if cts.is_empty() { return None; }
+                (base.as_ref(), Some(cts))
+            }
+            _ => return None,
+        };
+        let (gkey, fd) = self.prepass_resolve_generic(decl_probe)?;
+        let ret = fd.return_type.as_ref()?;
+        let raw = Self::type_string_full(ret);
+        if !Self::has_unresolved_generic_token(&raw) {
+            return None; // no placeholder: the normal flow already types it
+        }
+        let cts = explicit.or_else(|| {
+            let sp = func.span();
+            if sp.byte_start != 0 || sp.byte_end != 0 {
+                self.mono.call_site_generic_types.get(&(sp.byte_start, sp.byte_end)).cloned()
+            } else {
+                None
+            }
+        }).or_else(|| {
+            let mut it = self.mono.generic_instantiations.iter().filter(|(k, _)| k == &gkey);
+            match (it.next(), it.next()) {
+                (Some((_, c)), None) => Some(c.clone()),
+                _ => None,
+            }
+        })?;
+        let mut type_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        for (gp, ct) in fd.generics.iter().zip(cts.iter()) {
+            if !gp.is_const { type_map.insert(gp.name.name.clone(), ct.clone()); }
+        }
+        let subst = Self::substitute_type(ret, ret, &type_map);
+        let name = match &subst {
+            Type::Named(id, args) if !args.is_empty() => {
+                let parts: Vec<String> = args.iter().map(Self::type_from_ast).collect();
+                format!("{}[{}]", id.name, parts.join(", "))
+            }
+            other => Self::type_string_full(other),
+        };
+        if Self::has_unresolved_generic_token(&name) { return None; }
+        Some(name)
+    }
+
     /// BUG 52 (2026-08-18): when a let/var binding is initialized with a
     /// FUNCTION CALL (`var m = make_map()`), record the callee's declared
     /// return XIOM type ("Map[Str, MyVal]") so generic METHOD calls on the
@@ -291,6 +358,16 @@ impl IrEmitter {
             Expr::Paren(inner, _) => return self.infer_call_return_xiom(inner),
             _ => return None,
         };
+        // m286 (1549-stdlib-7): a bare/explicit-bracket GENERIC call bound to
+        // a local must keep the SUBSTITUTED return type ("Vec[Str]" for
+        // `let ws = mapv(&v, to_s)`, whose declared "Vec[U]" the placeholder
+        // guard below would otherwise drop). Without it the binding stayed
+        // untyped and element reads of the result crossed Str pointers as
+        // scalars (comparison byte-materialization; cross-type sort keys
+        // compared as addresses).
+        if let Some(name) = self.bare_generic_call_return_xiom(func) {
+            return Some(name);
+        }
         // m279 (B-17): mirror the Vec/Slice `as_ptr`/`as_mut_ptr` BUILTIN
         // (call.rs): its value is the data pointer, but no decl exists for
         // the registry lookups, so bindings stayed untyped and `base + N`

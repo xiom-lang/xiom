@@ -603,7 +603,18 @@ impl IrEmitter {
                 // and get() loaded the first 8 bytes of the 16-byte tuple slot).
                 if let Some(xiom_ty) = self.local.local_xiom_types.get(&name.name) {
                     if let Some(elem) = xiom_ty.strip_prefix("Vec[").and_then(|r| r.strip_suffix(']')) {
-                        self.local.local_vec_elem.entry(name.name.clone()).or_insert_with(|| elem.to_string());
+                        // m286 (1549-stdlib-7): a placeholder elem seeded from
+                        // a generic call's RAW declared return ("Vec[U]" ->
+                        // "U", see the 5c.39 inheritance block) must be
+                        // UPGRADED by the concrete recorded type once the
+                        // call-site substitution resolves it ("Str"); an
+                        // unresolved generic body keeps the placeholder (no
+                        // concrete xiom type is recorded there).
+                        let placeholder_seeded = self.local.local_vec_elem.get(&name.name)
+                            .map_or(false, |e| Self::has_unresolved_generic_token(e));
+                        if !self.local.local_vec_elem.contains_key(&name.name) || placeholder_seeded {
+                            self.local.local_vec_elem.insert(name.name.clone(), elem.to_string());
+                        }
                     }
                 }
                 // BUG 44: `var p = &s` / `var p: &Str = ...` -- track ref-locals
@@ -959,7 +970,18 @@ impl IrEmitter {
                 // and get() loaded the first 8 bytes of the 16-byte tuple slot).
                 if let Some(xiom_ty) = self.local.local_xiom_types.get(&name.name) {
                     if let Some(elem) = xiom_ty.strip_prefix("Vec[").and_then(|r| r.strip_suffix(']')) {
-                        self.local.local_vec_elem.entry(name.name.clone()).or_insert_with(|| elem.to_string());
+                        // m286 (1549-stdlib-7): a placeholder elem seeded from
+                        // a generic call's RAW declared return ("Vec[U]" ->
+                        // "U", see the 5c.39 inheritance block) must be
+                        // UPGRADED by the concrete recorded type once the
+                        // call-site substitution resolves it ("Str"); an
+                        // unresolved generic body keeps the placeholder (no
+                        // concrete xiom type is recorded there).
+                        let placeholder_seeded = self.local.local_vec_elem.get(&name.name)
+                            .map_or(false, |e| Self::has_unresolved_generic_token(e));
+                        if !self.local.local_vec_elem.contains_key(&name.name) || placeholder_seeded {
+                            self.local.local_vec_elem.insert(name.name.clone(), elem.to_string());
+                        }
                     }
                 }
                 // BUG 44: `var p = &s` / `var p: &Str = ...` -- track ref-locals
