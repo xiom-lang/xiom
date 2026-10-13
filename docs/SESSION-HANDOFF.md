@@ -17,10 +17,12 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
 
 - origin/main = `91860f11` (fetch before trusting -- the doorbell may push
-  staged work). Local main = the latest commit (see git log), AHEAD by ~31
+  staged work). Local main = the latest commit (see git log), AHEAD by ~34
   unpushed commits (exact: `git rev-list --count origin/main..HEAD`):
   `633ee65b`+`dc3a0102` (v0.64.5 plan/refresh docs) + m276..m290 + handoff
-  follow-ups. Do NOT push without the owner's authorization.
+  follow-ups + 2 attempt logs (bindings-4 m288, stdlib-6 leg b m291; both
+  reverted, see docs/failed_attempts.md). Do NOT push without the owner's
+  authorization.
 - v0.64.5 batches m276-m290 (commit -> scope; all relayed):
   - `0268c7d9` m276 env-unwrap veto on concretely-typed names (T1 kv AV).
   - `29e35ef8` m277 cast-call C handoff keeps the RAW fn code (two-word
@@ -490,11 +492,12 @@ docs/rustc-study/ for reference patterns; rustc source is E:\repos\rust
 (READ-ONLY; no git writes there).
 
 STATE: v0.64.4 released (df493530) and verified. Git: origin/main =
-91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~31 unpushed
-commits (m276-m290 + docs); do NOT push
+91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~34 unpushed
+commits (m276-m290 + docs + 2 attempt logs; the m291 slot is FREE -- the
+leg-b attempt was reverted, see docs/failed_attempts.md); do NOT push
 without the owner's authorization. Relay bus: latest compiler commits
-fbda2a7/7aa7bfa/da3160b/61dfda8; the check file
-release-checks/compiler-compiler-v0.64.4.md is the candidate record.
+5a2f5d2/deb173d/b8caee2/ce5f2b4/76869eb/bb30a68/d5e84f8/170cdd9; the check
+file release-checks/compiler-compiler-v0.64.4.md is the candidate record.
 
 CLOSED this program (reporter re-verify at the next archive): T1-T3,
 B-17+B-16, B-23+B-24, B-11+B-20 readback family, 1549-packages-3,
@@ -554,6 +557,19 @@ produce whole-file diffs -- verify git show --numstat before committing);
 WSL checks run the Windows compiler with Windows-style paths and link
 Linux binaries; do not gate on xiom-dbg (DAP adapter, exits 0); house
 voice; ASCII; never push without owner authorization.
+
+HYBRID RECON (2026-10-13, owner-directed): fan out READ-ONLY triage to
+subagents to compress the queue. Pattern that works: 3-4 parallel `general`
+subagents (Task tool), one per item -- each reads its relay item + witness,
+reproduces with the PINNED stdlib (`XIOM_STDLIB=E:\xiom-lang\xiom\stdlib`)
+using the already-built `target/debug/xiom.exe`, and returns a concise
+report: repro rc, root cause with file:line, minimal fix proposal, blast
+radius, and a suggested lock. HARD LIMITS for subagents: NO file edits, NO
+cargo builds (the main lane owns the target dir), scratch only under
+%TEMP%\kilo\; the main session applies and verifies every fix serially (ONE
+commit per batch, full battery). Integrate the topmost tractable diagnosis
+first; the two decision items (1548-stdlib-6 leg b, 1548-bindings-4) each
+have a precise attempt log in docs/failed_attempts.md.
 
 PARALLEL SELFHOST: phase-4 worktree (ses_eded8c4d8ffe) is idle and the
 sole writer there; sibling ses_ef8e3a27cffe stays idle. Prompt it only if
