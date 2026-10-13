@@ -4064,30 +4064,51 @@ impl Checker {
                 owners.entry(leaf).or_default().insert(module.to_string(), shape);
             }
         }
-        let colliding: HashMap<String, BTreeSet<String>> = owners
-            .into_iter()
-            .filter(|(_, by_module)| {
-                if by_module.len() < 2 {
-                    return false;
-                }
-                // R44: groups whose owners are ALL catalog modules follow the
-                // stdlib audit standard -- only SHAPE-CONFLICTING
-                // declarations qualify; facade duplicates with identical
-                // layouts keep the legacy single key. Groups with any
-                // project owner keep the R39/R46 rule unchanged (non-generic
-                // project collisions always qualify, generic ones only when
-                // shapes differ), so user-program emission is untouched.
-                let shapes: BTreeSet<&String> = by_module.values().map(|(s, _)| s).collect();
-                let shape_differs = shapes.len() > 1;
-                let all_stdlib = by_module.keys().all(|m| m.starts_with("xiom."));
-                if all_stdlib {
-                    return shape_differs;
-                }
-                let any_generic = by_module.values().any(|(_, g)| *g);
-                if any_generic { shape_differs } else { true }
-            })
-            .map(|(leaf, by_module)| (leaf, by_module.into_keys().collect()))
-            .collect();
+        let colliding: HashMap<String, BTreeSet<String>> = {
+            // m298 (REL-20261012-1956-orbitdb): a leaf declared by >=2
+            // modules cannot be assumed a facade duplicate when any
+            // declaration's shape REFERENCES another multi-owner leaf. The
+            // referenced leaf keeps module identity after the rename, so two
+            // string-identical shapes stop denoting the same layout (package
+            // BTree.store vs engine BTree.store reference two differently
+            // laid-out same-leaf NodeStores). Without this the engine's own
+            // BTree was dropped (first-wins bare key) and its bodies compiled
+            // against the package's BTree meta, whose store field had been
+            // rewritten to the package's NodeStore -- the engine's
+            // `child.payloads.pop()` then resolved against the package's
+            // BTreeNode (no payloads field) -> C001 'xiom.btree.BTreeNode.pop'.
+            let multi_owner_leaves: BTreeSet<String> = owners.iter()
+                .filter(|(_, by_module)| by_module.len() >= 2)
+                .map(|(leaf, _)| leaf.clone())
+                .collect();
+            owners
+                .into_iter()
+                .filter(|(leaf, by_module)| {
+                    if by_module.len() < 2 {
+                        return false;
+                    }
+                    // R44: groups whose owners are ALL catalog modules follow the
+                    // stdlib audit standard -- only SHAPE-CONFLICTING
+                    // declarations qualify; facade duplicates with identical
+                    // layouts keep the legacy single key. Groups with any
+                    // project owner keep the R39/R46 rule unchanged (non-generic
+                    // project collisions always qualify, generic ones only when
+                    // shapes differ), so user-program emission is untouched.
+                    let shapes: BTreeSet<&String> = by_module.values().map(|(s, _)| s).collect();
+                    let shape_differs = shapes.len() > 1;
+                    let nested_owner = shapes.iter().any(|s| {
+                        crate::type_qualify::shape_mentions_leaves(s, &multi_owner_leaves, leaf)
+                    });
+                    let all_stdlib = by_module.keys().all(|m| m.starts_with("xiom."));
+                    if all_stdlib {
+                        return shape_differs || nested_owner;
+                    }
+                    let any_generic = by_module.values().any(|(_, g)| *g);
+                    if any_generic { shape_differs || nested_owner } else { true }
+                })
+                .map(|(leaf, by_module)| (leaf, by_module.into_keys().collect()))
+                .collect()
+        };
         // m278 (REL-20261011-2137-engine): the SAME triage drives the
         // injection-side rename. Colliding leaves (shape-conflict triage
         // included) keep module identity when injected, so codegen registers

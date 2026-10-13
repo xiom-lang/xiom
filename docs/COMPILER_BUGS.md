@@ -16181,6 +16181,48 @@ Battery green: fixer worktree e2e 16+183 + codegen 12 + check 199 at
 
 ---
 
+## 2026-10-13 -- FIXED (m298): same-named types keep module identity in two more paths (REL-20261012-1956-orbitdb + REL-20261010-1709-xvector)
+
+Both items reproduced RED on HEAD -- m278's collision machinery covered
+only the catalog-injection bare-name dedupe, not these two paths.
+
+1. 1956-orbitdb (HIGH): `xiom.btree` package + `xiom.db.engine` composed
+   -> C001 `'xiom.btree.BTreeNode.pop'/'push'` (the engine's
+   `payloads.push/pop` bound the package's same-named node type). Root:
+   the R44 all-catalog facade exemption compared shape STRINGS; the
+   engine's `BTree` was string-identical to the package's, so it stayed on
+   the bare key and the engine's own declaration was dropped first-wins;
+   its `store` refs had been rewritten to the package's `NodeStore`, so
+   `tree.store.nodes[i]` read out the package's `BTreeNode` (no
+   `payloads`). Fix (xiom-check/src/lib.rs triage + type_qualify.rs
+   `shape_mentions_leaves`): a group is conflicting when any declaration
+   shape references ANOTHER multi-owner leaf (those keep module identity
+   after the rename); the facade exemption is unchanged for shapes without
+   such refs (AtomicInt class). Witness: probe_compose_collision prints
+   `compose ok` rc 0 (run in the bundle's lane stdlib/runtime env).
+
+2. 1709-xvector: a bare `Counter` struct-field ref under
+   `use xiom.metrics;` with another same-leaf `Counter` in the program ->
+   clang store mismatch (`'%struct.xiom.metrics.Counter = {i64}'` vs
+   `'%struct.repro.shim.Counter = {ptr, i64}'`). Root:
+   `build_renames`/`walk_uses` rewrote only dotted/aliased spellings, so
+   the bare ref stayed bare and the decl-block suffix pick took the
+   shortest key (the shim). Fix (type_qualify.rs): a bare ref binds the
+   UNIQUE imported owner at injection; ambiguous ownership or a
+   module-local decl keeps legacy behavior. Witness prints
+   `shim counter=1 tally hits=1` rc 0.
+
+Evidence: A/B with a rebuilt pre-fix binary -- fixture 1 C001
+`'xiom.aa.btree.BTreeNode.push/pop'`, fixture 2 the clang store mismatch.
+LOCKS: tests/regression/m298_orbitdb_compose/ +
+tests/regression/m298_xvector_counter_shadow/ + `e2e_m298_orbitdb_compose`
+/ `e2e_m298_xvector_counter_shadow` (ci.yml e2e group 2). Battery green:
+fixer worktree at `2d295d3c` e2e 16+184, codegen 12, check 199;
+integration batch e2e 16+187 (incl. m292/m295/m298 locks), codegen 12,
+check 199.
+
+---
+
 ## 2026-10-13 -- FIXED (m289): annotated `Slice[Int]` locals allocated an i64 slot holding the data pointer (REL-20261010-1548-stdlib-5)
 
 The item's two filed witness FILES were already green on the archived

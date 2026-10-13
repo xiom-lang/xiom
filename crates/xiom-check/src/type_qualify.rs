@@ -102,6 +102,30 @@ pub(crate) fn type_decl_shape(td: &TypeDecl) -> String {
     format!("{{generics:{};fields:{}}}", td.generics.len(), fields.join(";"))
 }
 
+/// m298 (REL-20261012-1956-orbitdb): does a declaration shape reference any
+/// of `leaves` (excluding its own, `self_leaf`)? Used by the collision
+/// triage: a shape that references a MULTI-OWNER leaf is not a safe facade
+/// duplicate, because the referenced leaf stays module-qualified after the
+/// rename, so the merged layout would point the loser's module at the
+/// winner's referenced type (package BTree.store -> package NodeStore while
+/// the engine's own BTree must store the engine's NodeStore).
+pub(crate) fn shape_mentions_leaves(shape: &str, leaves: &BTreeSet<String>, self_leaf: &str) -> bool {
+    let mut tok = String::new();
+    let mut check = |tok: &mut String| -> bool {
+        let hit = !tok.is_empty() && tok != self_leaf && leaves.contains(tok.as_str());
+        tok.clear();
+        hit
+    };
+    for c in shape.chars() {
+        if c.is_ascii_alphanumeric() || c == '_' {
+            tok.push(c);
+        } else if check(&mut tok) {
+            return true;
+        }
+    }
+    check(&mut tok)
+}
+
 /// Layout-ish shape of an enum declaration.
 pub(crate) fn enum_decl_shape(ed: &EnumDecl) -> String {
     let variants: Vec<String> = ed
@@ -265,6 +289,7 @@ pub(crate) fn build_renames(
         items: &[TopDecl],
         plan: &mut TypeRenames,
         colliding: &HashMap<String, BTreeSet<String>>,
+        imported_owners: &mut HashMap<String, BTreeSet<String>>,
     ) {
         for item in items {
             match item {
@@ -279,6 +304,7 @@ pub(crate) fn build_renames(
                             let bound = alias.clone().unwrap_or_else(|| last.clone());
                             plan.add_exact(&bound, &target);
                             plan.add_leaf(&last, &target);
+                            imported_owners.entry(last.clone()).or_default().insert(owner);
                         }
                     }
                     // Module import (`use a.b as ab;` or `use a.b;`): the
@@ -290,16 +316,36 @@ pub(crate) fn build_renames(
                         for (leaf, owners) in colliding {
                             if owners.contains(&full) {
                                 plan.add_leaf(leaf, &format!("{full}.{leaf}"));
+                                imported_owners.entry(leaf.clone()).or_default().insert(full.clone());
                             }
                         }
                     }
                 }
-                TopDecl::Module(md) => walk_uses(&md.items, plan, colliding),
+                TopDecl::Module(md) => walk_uses(&md.items, plan, colliding, imported_owners),
                 _ => {}
             }
         }
     }
-    walk_uses(items, &mut plan, colliding);
+    let mut imported_owners: HashMap<String, BTreeSet<String>> = HashMap::new();
+    walk_uses(items, &mut plan, colliding, &mut imported_owners);
+    // m298 (REL-20261010-1709-xvector): a BARE reference to a colliding leaf
+    // that exactly ONE imported module owns binds to that module's qualified
+    // type in this module's scope. Before, only dotted/aliased spellings
+    // were rewritten; `hits: Counter` in a module with `use xiom.metrics;`
+    // stayed bare and codegen's deterministic suffix pick took the first
+    // same-leaf key (shim layout stored into a metrics-typed slot -> clang
+    // store mismatch). Ambiguous ownership (2+ imported owners) or a
+    // module-local declaration keeps the legacy first-wins spelling.
+    for (leaf, owners) in imported_owners {
+        if owners.len() != 1 || own.contains(&leaf) || excluded.contains(&leaf) {
+            continue;
+        }
+        if plan.exact.contains_key(&leaf) {
+            continue;
+        }
+        let owner = owners.into_iter().next().unwrap();
+        plan.add_exact(&leaf, &format!("{owner}.{leaf}"));
+    }
 
     plan
 }

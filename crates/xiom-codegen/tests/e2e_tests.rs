@@ -7315,6 +7315,35 @@ fn e2e_safety_probe() {
     );
 }
 
+// m298 (REL-20261010-1709-xvector): two modules each declare a Counter; a
+// consuming module importing exactly one of them uses a BARE `Counter` as a
+// struct-field type. Pre-fix the injection left the bare reference alone and
+// codegen's same-leaf suffix pick chose the shorter key (the shim), so the
+// package Counter value was stored into a shim-typed field slot -> clang
+// '%tmp defined with type ...' store mismatch (the xv-counter-type-shadow
+// witness). The unique imported owner must bind the bare reference.
+#[test] fn e2e_m298_xvector_counter_shadow() {
+    assert_eq!(
+        compile_and_run("tests/regression/m298_xvector_counter_shadow/main.xi"),
+        Some(0),
+        "bare same-leaf field types must bind the unique import owner (m298)"
+    );
+}
+
+// m298 (REL-20261012-1956-orbitdb): two co-imported modules declare the
+// same public type triad (BTree/NodeStore/BTreeNode); the second module's
+// BTree is shape-identical to the first's, so pre-fix the facade exemption
+// dropped it and the module's bodies compiled against the first module's
+// field metadata -- `child.payloads.push/pop` on a node read out of
+// `tree.store.nodes` became C001 'xiom.aa.btree.BTreeNode.push/pop' (the
+// xiom.btree + xiom.db.engine compose collision in miniature).
+#[test] fn e2e_m298_orbitdb_compose() {
+    assert_eq!(
+        compile_and_run("tests/regression/m298_orbitdb_compose/main.xi"),
+        Some(0),
+        "same-named type triads from co-imported modules must keep module identity (m298)"
+    );
+}
 
 
 
