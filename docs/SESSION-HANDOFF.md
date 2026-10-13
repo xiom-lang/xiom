@@ -17,11 +17,11 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
 
 - origin/main = `91860f11` (fetch before trusting -- the doorbell may push
-  staged work). Local main = the latest commit (see git log), AHEAD by ~21
+  staged work). Local main = the latest commit (see git log), AHEAD by ~22
   unpushed commits (exact: `git rev-list --count origin/main..HEAD`):
-  `633ee65b`+`dc3a0102` (v0.64.5 plan/refresh docs) + m276..m286 + handoff
+  `633ee65b`+`dc3a0102` (v0.64.5 plan/refresh docs) + m276..m287 + handoff
   follow-ups. Do NOT push without the owner's authorization.
-- v0.64.5 batches m276-m286 (commit -> scope; all relayed):
+- v0.64.5 batches m276-m287 (commit -> scope; all relayed):
   - `0268c7d9` m276 env-unwrap veto on concretely-typed names (T1 kv AV).
   - `29e35ef8` m277 cast-call C handoff keeps the RAW fn code (two-word
     env: 0=thunk, 1=raw) + nested fn-type markers parse (T2 B-22 + 1403).
@@ -66,12 +66,20 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
     1->0; fnptr stays green). Locks `e2e_m286_cross_type_callback_bind` /
     `_core_map_match_payload` / `_sort_by_key_cross_type` /
     `_str_lexicographic_compare` (ci group 2).
+  - `1f01e812` m287 `use xiom.convert.tostring` pulled
+    `math.mathematical_logic` in; the adapter closure-FIELD call
+    `self.predicate(&v)` (FilterIter/TakeWhileIter.next) was hijacked by the
+    same-leaf free fn via the UFCS/suffix scans (a DIRECT call bypassing the
+    closure env; predicates never saw values). Instance fn-typed fields now
+    skip those scans so the env-first closure call wins (1548-stdlib-3 HIGH).
+    Lock `e2e_m287_tostring_import_adapters` (ci group 2).
 - CLOSED / awaiting reporter re-verify at the next archive (compiler work
   done; items are `fixed` on the bus): T1-T3, B-17+B-16, B-23+B-24
   (2051-bindings-2), B-11+B-20 readback family (0304-bindings +
   1548-bindings-2), 1549-packages-3, 1549-stdlib-5 (shape-mismatched &Vec
   arg is now a call-site T001), 1549-stdlib-7 (cross-type generic
-  callbacks), B-25 (1309-bindings, re-probe GREEN),
+  callbacks), 1548-stdlib-3 (tostring import no longer hijacks adapter
+  closure fields), B-25 (1309-bindings, re-probe GREEN),
   B-26 (1524-bindings-2), B-21 (2140-bindings), 1549-packages-8 (contract
   cycles), 1549-stdlib-6 (VERIFIED FIXED cross-platform: clause re-added in
   a scratch tree, stdlib repro + family probe + smoke suite green on
@@ -97,8 +105,7 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
     owner-level.
 - REMAINING CANDIDATE QUEUE (reds; the bus + the check file are the
   record). Priority order for the next session:
-  1. borrow/codegen: 1548-stdlib-3 HIGH (`tostring` corrupts closure
-     dispatch), 1548-bindings-4, 1548-stdlib-4/5/6/7,
+  1. borrow/codegen: 1548-bindings-4, 1548-stdlib-4/5/6/7,
      1549-packages-10/11/12, 1549-stdlib-2/3/4.
   2. resolver/checker: 1549-packages-9 HIGH (bare `&mut Int`), 1956-
      orbitdb (same-named types -- m278-class), 1550-orbitdb-2,
@@ -145,7 +152,8 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
 - Relay bus SHAs: ... `438b714` (m281), `40e3c40` (m282), `9b4ec0d`
   (allocator triage), `fbda2a7` + `7aa7bfa` (m283/m284 closers + B-21),
   `da3160b` (stdlib-6 cross-platform verify), `61dfda8` (orbitdb-1358
-  diagnosis), `5a2f5d2` (m285 fix + row), `deb173d` (m286 fix + row).
+  diagnosis), `5a2f5d2` (m285 fix + row), `deb173d` (m286 fix + row),
+  `b8caee2` (m287 fix + row).
   NEXT-BATCH FIX REFS rows + history bullets current.
 - Selfhost: phase-4 worktree (ses_eded8c4d8ffe, sole writer) idle after its
   13:00Z prompt; sibling ses_ef8e3a27cffe idle. Rebases/tests will pick up
@@ -433,7 +441,7 @@ NEW (2026-10-13, v0.64.5 triage + FFI batches):
 
 ## 7. m-numbering
 
-- m261-m286 LANDED; **next free is m287**.
+- m261-m287 LANDED; **next free is m288**.
 
 ## 8. CONTINUATION PROMPT (paste into a fresh session)
 
@@ -446,24 +454,24 @@ docs/rustc-study/ for reference patterns; rustc source is E:\repos\rust
 (READ-ONLY; no git writes there).
 
 STATE: v0.64.4 released (df493530) and verified. Git: origin/main =
-91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~21 unpushed
-commits (m276-m286 + docs); do NOT push
+91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~22 unpushed
+commits (m276-m287 + docs); do NOT push
 without the owner's authorization. Relay bus: latest compiler commits
 fbda2a7/7aa7bfa/da3160b/61dfda8; the check file
 release-checks/compiler-compiler-v0.64.4.md is the candidate record.
 
 CLOSED this program (reporter re-verify at the next archive): T1-T3,
 B-17+B-16, B-23+B-24, B-11+B-20 readback family, 1549-packages-3,
-1549-stdlib-5, 1549-stdlib-7 (cross-type generic callbacks), B-25, B-26,
+1549-stdlib-5, 1549-stdlib-7 (cross-type generic callbacks), 1548-stdlib-3
+(tostring import no longer hijacks adapter closure fields), B-25, B-26,
 B-21, 1549-packages-8 (contract cycles), 1549-stdlib-6 (cross-platform
 verified), 1358-orbitdb (not a compiler bug -- xiom-dbg binary confusion
 diagnosed).
 
 NEXT -- work the remaining queue in this order (witness-first triage for
 each; see the check file + the bus for details):
-1. borrow/codegen: 1548-stdlib-3 HIGH (tostring poisons closure dispatch),
-   1548-bindings-4, 1548-stdlib-4/5/6/7, 1549-packages-10/11/12,
-   1549-stdlib-2/3/4.
+1. borrow/codegen: 1548-bindings-4, 1548-stdlib-4/5/6/7,
+   1549-packages-10/11/12, 1549-stdlib-2/3/4.
 2. resolver/checker: 1549-packages-9 (HIGH, bare &mut Int), 1956-orbitdb
    (same-named types, m278-class), 1550-orbitdb-2, 1709-xvector.
 3. allocator/runtime: 2320-bindings #1 (HIGH, Vec[UInt8].with_len HBO),
@@ -484,7 +492,7 @@ filed with diffs): REL-20261013-1423-compiler (spawn buffer arena escape
 xiom_guard_free -> alloc-guard-spin 1548-bindings-5). Verify when the
 stdlib pin carries them.
 
-Number from m287; ONE commit per batch (fix + fixtures + docs +
+Number from m288; ONE commit per batch (fix + fixtures + docs +
 COMPILER_BUGS section) + a relay fix-note with numeric/IR witnesses + a
 check-file row.
 
