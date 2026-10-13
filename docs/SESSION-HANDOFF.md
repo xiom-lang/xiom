@@ -17,14 +17,14 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
 
 - origin/main = `91860f11` (fetch before trusting -- the doorbell may push
-  staged work). Local main = the latest commit (see git log), AHEAD by ~40
+  staged work). Local main = the latest commit (see git log), AHEAD by ~42
   unpushed commits (exact: `git rev-list --count origin/main..HEAD`):
   `633ee65b`+`dc3a0102` (v0.64.5 plan/refresh docs) + m276..m292 + m295 +
-  handoff follow-ups + 2 attempt logs (stdlib-6 leg b m291 reverted, see
+  m298 + handoff follow-ups + 2 attempt logs (stdlib-6 leg b m291 reverted, see
   docs/failed_attempts.md; the bindings-4 m288 attempt is superseded by
   m292, and the stdlib-6 leg-b m295 attempt supersedes its failed entry).
   Do NOT push without the owner's authorization.
-- v0.64.5 batches m276-m292 + m295 (commit -> scope; all relayed):
+- v0.64.5 batches m276-m292 + m295 + m298 (commit -> scope; all relayed):
   - `0268c7d9` m276 env-unwrap veto on concretely-typed names (T1 kv AV).
   - `29e35ef8` m277 cast-call C handoff keeps the RAW fn code (two-word
     env: 0=thunk, 1=raw) + nested fn-type markers parse (T2 B-22 + 1403).
@@ -135,6 +135,20 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
     leg-a stays green. NOTE: the m291 "no .json_get_path key" trace claim
     was wrong (both same-leaf keys are registered) -- corrected in
     COMPILER_BUGS m295.
+  - `c18e550e` m298 same-named types keep module identity in two more
+    paths (1956-orbitdb HIGH + 1709-xvector): (a) the R44 all-catalog
+    facade exemption compared shape STRINGS, so the engine's BTree stayed
+    on the bare key while its `store` refs had been rewritten to the
+    package's NodeStore -> `payloads.push/pop` C001; the triage now marks a
+    group conflicting when any shape references ANOTHER multi-owner leaf
+    (`shape_mentions_leaves`). (b) `build_renames` rewrote only
+    dotted/aliased spellings, so a bare same-leaf field ref stayed bare and
+    the suffix pick took the shortest key; a bare ref now binds the UNIQUE
+    imported owner (ambiguous/local keeps legacy). Locks
+    `e2e_m298_orbitdb_compose` + `e2e_m298_xvector_counter_shadow` (A/B
+    negative twins on a rebuilt pre-fix binary). NOTE: the orbitdb probe
+    needs the stdlib LANE tree for its byte-IO primitives (bundle dev-env);
+    the vendored pin dies earlier on unrelated T001s.
 - CLOSED / awaiting reporter re-verify at the next archive (compiler work
   done; items are `fixed` on the bus): T1-T3, B-17+B-16, B-23+B-24
   (2051-bindings-2), B-11+B-20 readback family (0304-bindings +
@@ -143,7 +157,8 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
   callbacks), 1548-stdlib-3 (tostring import no longer hijacks adapter
   closure fields), 1548-bindings-4 (leaf-colliding nested module + stdlib
   import -- m292), 1548-stdlib-6 (leg a m290 alias type paths + leg b m295
-  by-value UFCS), 1548-stdlib-4 (@pre on &mut param fields snapshots the
+  by-value UFCS), 1956-orbitdb + 1709-xvector (same-named types keep
+  module identity -- m298), 1548-stdlib-4 (@pre on &mut param fields snapshots the
   entry value -- REAL fix m291 Paren arm; the m288 green was masked), 1548-stdlib-7
   (guard-form ensures + enforcement restored), 1548-stdlib-5 (annotated
   Slice locals), B-25 (1309-bindings, re-probe GREEN),
@@ -178,9 +193,8 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
      2320-bindings #1 HIGH (m296), 1615-stdlib HIGH (m297), 1956-orbitdb +
      1709-xvector (m298). Then: 1549-packages-12, 1549-stdlib-2/3/4.
      (1549-packages-10 is a wave stale-green close.)
-  2. resolver/checker: 1549-packages-9 HIGH (bare `&mut Int`), 1956-
-     orbitdb (same-named types -- m278-class), 1550-orbitdb-2,
-     1709-xvector.
+  2. resolver/checker: 1549-packages-9 HIGH (in flight m294),
+     1550-orbitdb-2; 1956-orbitdb + 1709-xvector DONE (m298).
   3. allocator/runtime: 2320-bindings #1 HIGH (Vec[UInt8].with_len HBO),
      2320 #2/#3, 2032 (owner).
   4. contracts/clauses: 1549-packages-2 (fs_read false contract),
@@ -515,10 +529,9 @@ NEW (2026-10-13, v0.64.5 triage + FFI batches):
 
 ## 7. m-numbering
 
-- m261-m292 + m295 LANDED; m293/m294/m296/m297/m298 are reserved by the
+- m261-m292 + m295 + m298 LANDED; m293/m294/m296/m297 are reserved by the
   in-flight fixer worktrees (packages-11, packages-9, 2320-bindings #1,
-  1615-stdlib, 1956-orbitdb + 1709-xvector); **next free after those is
-  m299**.
+  1615-stdlib); **next free after those is m299**.
 
 ## 8. CONTINUATION PROMPT (paste into a fresh session)
 
@@ -531,8 +544,8 @@ docs/rustc-study/ for reference patterns; rustc source is E:\repos\rust
 (READ-ONLY; no git writes there).
 
 STATE: v0.64.4 released (df493530) and verified. Git: origin/main =
-91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~40 unpushed
-commits (m276-m292 + m295 + docs + attempt logs); do NOT push
+91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~42 unpushed
+commits (m276-m292 + m295 + m298 + docs + attempt logs); do NOT push
 without the owner's authorization. Relay bus: latest compiler commits
 d5e84f8/170cdd9/9712942/4ac2e39 + the m292/m295 fix notes; the check
 file release-checks/compiler-compiler-v0.64.4.md is the candidate record.
@@ -558,8 +571,8 @@ each; see the check file + the bus for details):
    (m298). Cherry-pick serially (ONE commit per batch, battery) as they
    report; then 1549-packages-12, 1549-stdlib-2/3/4 (1549-packages-10 is
    a wave stale-green close).
-2. resolver/checker: 1549-packages-9 (HIGH, bare &mut Int), 1956-orbitdb
-   (same-named types, m278-class), 1550-orbitdb-2, 1709-xvector.
+2. resolver/checker: 1549-packages-9 (HIGH, in flight m294), 1550-orbitdb-2;
+   1956-orbitdb + 1709-xvector DONE (m298).
 3. allocator/runtime: 2320-bindings #1 (HIGH, Vec[UInt8].with_len HBO),
    2320 #2/#3; 2032 is a memory-model owner decision (no code work).
   4. contracts/clauses: 1549-packages-2 (fs_read false contract),
