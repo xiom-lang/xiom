@@ -16079,3 +16079,33 @@ all four slice helpers + the option/result query matrix) rc 1/AV -> rc 0.
 LOCK: tests/regression/m289_slice_annotated_local/ +
 `e2e_m289_slice_annotated_local` (ci.yml e2e group 2). Battery green: e2e
 16+181, front-locks, serial libs 199/12/36/79.
+
+---
+
+## 2026-10-13 -- PARTIAL FIX (m290): alias-qualified type paths expand (REL-20261010-1548-stdlib-6 leg a; leg b open)
+
+Leg a FIXED: with `use xiom.serialize as ser;` the struct literal
+`ser.SerializeError{..}` reported T001 "unknown type 'ser.SerializeError'"
+(the bare name compiled all along). `get_type` resolved the bare name and
+the current-module prefix but never expanded the alias segment; it now
+expands a dotted name's FIRST segment through `use_alias_paths` /
+`local_module_paths` when the expanded key exists in `types` -- only
+ADDING resolutions that reference an actually imported module. Witness
+rc 1 -> rc 0. LOCK: tests/regression/m290_alias_type_path/ +
+`e2e_m290_alias_type_path` (ci.yml e2e group 2).
+
+Leg b OPEN: `v.json_get_path(&path)` on a `JsonValue` receiver (a struct
+by VALUE) still fails C001 "unresolved function symbol(s) ... 
+'JsonValue.json_get_path'"; the qualified `sjson.json_get_path(v, &path)`
+works. The stdlib declares a plain module fn
+(`pub fn json_get_path(v: JsonValue, path: &Vec[Str]) -> Option[JsonValue]`,
+json.xi:607), so the method-style call should UFCS to that symbol; instead
+the emitted name is the receiver-qualified alias. Note
+`ufcs_registered_fn_for_receiver` requires a POINTER-LIKE receiver, so a
+by-value struct receiver is never considered there; the resolved key comes
+from the receiver-type-prefixed key path ("{Type}.{fn}") and lands on a
+registration alias with no definition. Next step: trace `resolved_fn_key`
+for `v.json_get_path` (call.rs) and either extend the UFCS candidate set
+to by-value struct receivers (param0 typed `JsonValue` by value, not
+pointer) or make the alias key resolve to the module fn's real symbol.
+Battery green: e2e 16+182, front-locks, serial libs 199/12/36/79.

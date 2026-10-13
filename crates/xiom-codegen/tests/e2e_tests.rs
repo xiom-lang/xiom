@@ -7268,6 +7268,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// m290 (REL-20261010-1548-stdlib-6 leg a): an alias-qualified struct literal
+// (`ser.SerializeError{..}` after `use xiom.serialize as ser;`) must resolve
+// through the alias to the module type (was T001 unknown type).
+#[test] fn e2e_m290_alias_type_path() {
+    assert_eq!(
+        compile_and_run("tests/regression/m290_alias_type_path/main.xi"),
+        Some(0),
+        "alias-qualified type paths must resolve (m290)"
+    );
+}
+
 
 
 

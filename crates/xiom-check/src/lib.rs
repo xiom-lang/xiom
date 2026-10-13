@@ -1250,6 +1250,26 @@ impl Checker {
     }
 
     fn get_type(&self, name: &str) -> Option<&HashMap<String, CheckedType>> {
+        // m290 (REL-20261010-1548-stdlib-6 leg a): expand an ALIAS-qualified
+        // path's FIRST segment before lookup. With `use xiom.serialize as
+        // ser;` the struct literal `ser.SerializeError{..}` reported T001
+        // "unknown type 'ser.SerializeError'" (the bare name compiled, and
+        // the alias import is supposed to bring types in under both spellings).
+        // The expansion is a no-op unless the first segment is a registered
+        // use-alias / used-module local AND the expanded key exists, so it can
+        // only ADD resolutions that reference an actually imported module.
+        if let Some((first, rest)) = name.split_once('.') {
+            if !rest.is_empty() {
+                let expanded = self.use_alias_paths.get(first)
+                    .or_else(|| self.local_module_paths.get(first));
+                if let Some(full) = expanded {
+                    let key = self.intern_type_name(&format!("{}.{}", full, rest));
+                    if let Some(fields) = self.types.get(&key) {
+                        return Some(fields);
+                    }
+                }
+            }
+        }
         // Stage 2c: registry keys are interned `TypeId`s, so every lookup is
         // spelling-insensitive by construction (canonical structural form).
         let key = self.intern_type_name(name);
