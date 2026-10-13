@@ -155,8 +155,17 @@ impl IrEmitter {
     fn compile_binop_fold(&mut self, l: &str, lt: &str, r: &str, rt: &str, op: &BinOp, l_expr: &Expr, r_expr: &Expr) -> Result<(String, String), String> {
         // C-PULSE-04: bare reference operands read the pointee before any
         // arithmetic dispatch (the write side already stores through them).
-        let (l, lt) = self.autoderef_ref_value(l_expr, l.to_string(), lt.to_string());
-        let (r, rt) = self.autoderef_ref_value(r_expr, r.to_string(), rt.to_string());
+        // m294: Eq/Neq are excluded -- the equality path applies its own
+        // round-8 auto_deref_ref; dereferencing in both places loaded
+        // through the pointee a SECOND time (`p == 41` with p: &mut Int
+        // inttoptr'd the already-loaded value -> 0xC0000005).
+        let (l, lt, r, rt) = if matches!(op, BinOp::Eq | BinOp::Neq) {
+            (l.to_string(), lt.to_string(), r.to_string(), rt.to_string())
+        } else {
+            let (l2, lt2) = self.autoderef_ref_value(l_expr, l.to_string(), lt.to_string());
+            let (r2, rt2) = self.autoderef_ref_value(r_expr, r.to_string(), rt.to_string());
+            (l2, lt2, r2, rt2)
+        };
         let (l, lt, r, rt) = (l.as_str(), lt.as_str(), r.as_str(), rt.as_str());
         // String concatenation: Add with i8* operands must call xiom_str_concat,
         // not emit `add i64` on pointer values. The normal BinOp path checks this
@@ -1306,6 +1315,14 @@ impl IrEmitter {
                     }
                 }
                 let (val, inner_ty) = self.compile_expr(inner)?;
+                // m294 (REL-20261010-1549-packages-9): a bare reference-typed
+                // operand of a numeric/boolean unary op reads the POINTEE
+                // (`-p`, `!p`); Ref/MutRef/Deref keep their address handling.
+                let (val, inner_ty) = if matches!(op, UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot) {
+                    self.autoderef_ref_value(inner, val, inner_ty)
+                } else {
+                    (val, inner_ty)
+                };
                 let tmp = self.fresh_tmp();
                 match op {
                     UnaryOp::Neg => {
@@ -1557,8 +1574,17 @@ impl IrEmitter {
                 // callee was resolved to a fallback i64 signature.
                 // C-PULSE-04: bare reference operands read the pointee before
                 // any arithmetic dispatch (the write side stores through them).
-                let (mut l, mut lt) = self.autoderef_ref_value(left, l, lt);
-                let (mut r, mut rt) = self.autoderef_ref_value(right, r, rt);
+                // m294: Eq/Neq skip this -- the equality path's round-8
+                // auto_deref_ref below derefs the same operand again (double
+                // load: `p == 41` with p: &mut Int AV'd on the address bits).
+                if !matches!(op, BinOp::Eq | BinOp::Neq) {
+                    let (l2, lt2) = self.autoderef_ref_value(left, l, lt);
+                    let (r2, rt2) = self.autoderef_ref_value(right, r, rt);
+                    l = l2;
+                    lt = lt2;
+                    r = r2;
+                    rt = rt2;
+                }
                 // round-7 (ve2): a *UInt8 byte buffer is ALSO i8* at the ABI but
                 // must stay POINTER arithmetic -- expr_is_pointer gates it out
                 // (only when the other operand is an integer; Str+Str and
@@ -3235,8 +3261,7 @@ impl IrEmitter {
                     if let Some((symbol, arr_ty, elem_ty, elem_xiom)) =
                         self.lookup_const_array_global(&ident.name)
                     {
-                        let (idx_raw, idx_ty) = self.compile_expr(index)?;
-                        let idx = self.val_to_i64(&idx_raw, &idx_ty);
+                        let idx = self.compile_index_i64(index)?;
                         let elem_ptr = self.fresh_tmp();
                         self.emitln(&format!(
                             "  {elem_ptr} = getelementptr {arr_ty}, {arr_ty}* @{symbol}, i64 0, i64 {idx}"
@@ -3268,8 +3293,7 @@ impl IrEmitter {
                     Some(addr) => addr,
                     None => self.compile_expr(container)?,
                 };
-                let (idx_raw, idx_ty) = self.compile_expr(index)?;
-                let idx = self.val_to_i64(&idx_raw, &idx_ty);
+                let idx = self.compile_index_i64(index)?;
                 // round-15 (&[N]T mono params): the mono param lowers to a
                 // bare ELEMENT pointer -- "i8*" for [N]Int8. i8* is ambiguous
                 // with Str, so check the recorded array-param element type
@@ -4012,8 +4036,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         || vec_ty.contains("struct.Vec")
                         || vec_ty == "%struct.Slice" || vec_ty.contains("struct.Slice");
                     if is_vec {
-                        let (idx_raw, idx_ty) = self.compile_expr(index)?;
-                        let idx = self.val_to_i64(&idx_raw, &idx_ty);
+                        let idx = self.compile_index_i64(index)?;
                         let vslot = self.fresh_tmp();
                         self.emitln(&format!("  {vslot} = alloca %struct.Vec"));
                         self.emitln(&format!("  {vslot}_i8 = bitcast %struct.Vec* {vslot} to i8*"));
@@ -4047,8 +4070,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     if let Expr::Ident(id) = container.as_ref() {
                         if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
                             if slot_ty.starts_with('[') && !slot_ty.ends_with('*') {
-                                let (idx_raw, idx_ty) = self.compile_expr(index)?;
-                                let idx = self.val_to_i64(&idx_raw, &idx_ty);
+                                let idx = self.compile_index_i64(index)?;
                                 let gep = self.fresh_tmp();
                                 self.emitln(&format!(
                                     "  {gep} = getelementptr {slot_ty}, {slot_ty}* {slot}, i64 0, i64 {idx}"
@@ -4082,8 +4104,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                 && (slot_ty.ends_with('*') || slot_ty == "i64")
                             {
                                 if let Some(elem_llvm) = self.local.local_array_elem.get(&id.name).cloned() {
-                                    let (idx_raw, idx_ty) = self.compile_expr(index)?;
-                                    let idx = self.val_to_i64(&idx_raw, &idx_ty);
+                                    let idx = self.compile_index_i64(index)?;
                                     let base = if slot_ty.ends_with('*') {
                                         let b = self.fresh_tmp();
                                         self.emitln(&format!("  {b} = load {slot_ty}, {slot_ty}* {slot}"));
@@ -5312,6 +5333,14 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     self.unwrap_fn_env_for_c(inner, val)
                 } else {
                     val
+                };
+                // m294 (REL-20261010-1549-packages-9): `p as Int` on a bare
+                // `&mut Int` reads the POINTEE (the checker erases the
+                // reference); pointer-target casts above keep the address.
+                let (val, val_ty) = if target_is_pointer {
+                    (val, val_ty)
+                } else {
+                    self.autoderef_ref_value(inner, val, val_ty)
                 };
                 let mut inner_llvm_ty = if !val_ty.is_empty() && val_ty != "void" {
                     val_ty.clone()

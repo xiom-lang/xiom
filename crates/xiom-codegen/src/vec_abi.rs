@@ -530,7 +530,7 @@ impl IrEmitter {
         self.emitln(&format!("  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {slot}, i32 0, i32 0"));
         self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_gep}"));
         // Compute element offset
-        let (idx_val, _) = self.compile_expr(idx).ok()?;
+        let idx_val = self.compile_index_i64(idx).ok()?;
         let byte_off = self.fresh_tmp();
         self.emitln(&format!("  {byte_off} = mul i64 {idx_val}, {esz}"));
         let elem_ptr = self.fresh_tmp();

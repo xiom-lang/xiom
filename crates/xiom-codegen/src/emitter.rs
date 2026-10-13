@@ -1049,8 +1049,7 @@ impl IrEmitter {
             // Vec/Slice data buffer so field mutations (e.g. `items[0].x = v`)
             // can store through the resulting lvalue pointer.
             Expr::Index(container, index, _) => {
-                let (idx_val, idx_ty) = self.compile_expr(index).ok()?;
-                let idx_i64 = self.val_to_i64(&idx_val, &idx_ty);
+                let idx_i64 = self.compile_index_i64(index).ok()?;
                 let vty = "%struct.Vec";
                 // M33: For compound containers (field access through &mut),
                 // resolve the container to an lvalue first so the Vec data

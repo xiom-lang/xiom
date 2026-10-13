@@ -1362,6 +1362,17 @@ impl IrEmitter {
         (loaded, pointee)
     }
 
+    /// m294 (REL-20261010-1549-packages-9): compile an INDEX operand to an
+    /// i64 offset. A bare reference-typed ident (`p: &mut Int` used as
+    /// `v[p]`) must read the POINTEE -- the checker erases `&T`/`&mut T` to
+    /// the pointee, so the address bits must never reach the GEP offset
+    /// (wild index / 0xC0000005).
+    pub(crate) fn compile_index_i64(&mut self, index: &Expr) -> Result<String, String> {
+        let (raw, ty) = self.compile_expr(index)?;
+        let (raw, ty) = self.autoderef_ref_value(index, raw, ty);
+        Ok(self.val_to_i64(&raw, &ty))
+    }
+
     /// round-7 (ve2 follow-up): XIOM-level verdict -- is this expression a
     /// POINTER (raw `*T`, `&T`, `&mut T`), not a Str? The Str-concat intercept
     /// fires on ANY i8* operand at the LLVM level, but a `*UInt8` byte buffer

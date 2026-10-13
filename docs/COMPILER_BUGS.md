@@ -16259,6 +16259,40 @@ params use default-Int elements (m239-class).
 
 ---
 
+## 2026-10-13 -- FIXED (m294): bare reads of `&mut`/`&` params load the pointee in every value sink (REL-20261010-1549-packages-9)
+
+The checker erases `&T`/`&mut T` to the pointee, so codegen must load
+through the pointer at every VALUE sink. m197 (`9c8f4235`) wired
+`autoderef_ref_value` (coerce.rs) into scalar `return` + binary arithmetic
+only; every other sink loaded the raw pointer from the param slot.
+Residual reds at HEAD: let/var bindings (`let y = p` returned the stack
+address 478783995312), typed bindings, assignment RHS, `*q = p`
+store-through, Vec index read/write operands (`v[p]` AV 0xC0000005),
+`p as Int`, `-p`; plus a latent Eq/Neq DOUBLE-deref (m197's binop
+autoderef and the round-8 equality-path auto_deref_ref both fired ->
+`inttoptr` of the already-loaded value -> 0xC0000005 with no output).
+
+Fix: `autoderef_ref_value` at the let/var + assign/deref-store sinks
+(stmt.rs); Unary Neg/Not/BitNot and scalar-target `As` (expr.rs); a new
+`compile_index_i64` used by all 12 index-operand sites (coerce.rs,
+stmt.rs, expr.rs, emitter.rs, vec_abi.rs); Eq/Neq excluded from the m197
+binop deref in both binop paths (the equality path's single deref runs).
+Ref/MutRef-annotated bindings and pointer-target casts keep address
+semantics.
+
+Evidence: probe_mut_bare rc 1 (`bind_bare=478783995312`) -> 0
+(`bind_bare=41`); shapes2 rc 4 (deref_write/vec_index_assign/as_cast
+pointer bits, negate = -pointer) -> 0; fixture rc -1073741819 (AV before
+any output) -> 0 (`m294 failures=0`). LOCK:
+tests/regression/m294_mut_int_bare/ + `e2e_m294_mut_int_bare` (ci.yml e2e
+group 2); the m197/m284 locks stay green. Battery green: fixer e2e 16+183,
+borrow_e001 2, checker_locks 35, check 199; integration batch e2e 16+189,
+front-locks, codegen 12, check 199. Caveat: bare reads of `&T`/`&Str`
+i64-address params stay outside the pointer-typed autoderef gate
+(unchanged).
+
+---
+
 ## 2026-10-13 -- FIXED (m289): annotated `Slice[Int]` locals allocated an i64 slot holding the data pointer (REL-20261010-1548-stdlib-5)
 
 The item's two filed witness FILES were already green on the archived

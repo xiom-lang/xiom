@@ -7358,6 +7358,19 @@ fn e2e_safety_probe() {
     );
 }
 
+// m294 (REL-20261010-1549-packages-9): a bare `&mut Int` read must yield the
+// POINTEE in every value sink -- m197 covered `return p` + arithmetic; this
+// lock covers untyped/typed bindings, plain assignment, `*q = p`
+// store-through, Vec index read/write operands, scalar cast, unary
+// negation, and the Eq/Neq double-deref exposed by the comparison case.
+#[test] fn e2e_m294_mut_int_bare() {
+    assert_eq!(
+        compile_and_run("tests/regression/m294_mut_int_bare/main.xi"),
+        Some(0),
+        "bare &mut Int reads must yield the pointee in all value sinks (m294)"
+    );
+}
+
 
 
 

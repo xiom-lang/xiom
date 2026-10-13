@@ -518,6 +518,20 @@ impl IrEmitter {
                 } else {
                     self.compile_expr(value)?
                 };
+                // m294 (REL-20261010-1549-packages-9): a BARE `&T`/`&mut T`
+                // read in a binding must bind the pointee VALUE -- the checker
+                // erases references, so `let y = p` (p: &mut Int) is an Int
+                // read; the address bits were bound instead (silent wrong
+                // values downstream). Ref-typed annotations keep the
+                // address-bearing binding.
+                let (val, val_llvm_ty) = if matches!(
+                    _ty.as_deref(),
+                    Some(Type::Ref(_)) | Some(Type::MutRef(_))
+                ) {
+                    (val, val_llvm_ty)
+                } else {
+                    self.autoderef_ref_value(value, val, val_llvm_ty)
+                };
                 let declared_llvm_ty: Option<String> = _ty.as_ref().map(|t| {
                     // M65 R7 (2026-09-10): an ANNOTATED local slot must use the
                     // CONCRETE container type -- `var found: Option[JsonValue];`
@@ -1047,6 +1061,16 @@ impl IrEmitter {
                 } else {
                     self.compile_expr(value)?
                 };
+                // m294 (REL-20261010-1549-packages-9): see the let-binding
+                // arm -- a bare `&mut T` read binds the pointee value.
+                let (val, val_llvm_ty) = if matches!(
+                    _ty.as_deref(),
+                    Some(Type::Ref(_)) | Some(Type::MutRef(_))
+                ) {
+                    (val, val_llvm_ty)
+                } else {
+                    self.autoderef_ref_value(value, val, val_llvm_ty)
+                };
                 let orig_val_ty = val_llvm_ty.clone();
                 // M17: Use declared type for alloca width when present, falling back
                 // to value type. Special cases preserved for zero-init and float->double.
@@ -1132,6 +1156,9 @@ impl IrEmitter {
                         // BUG 44 in the deref-load path.
                         let pointee = ptr_ty.strip_suffix('*').unwrap_or(&ptr_ty).to_string();
                         let (val, val_ty) = self.compile_expr(value)?;
+                        // m294 (REL-20261010-1549-packages-9): `*q = p` stores
+                        // the POINTEE of p, mirroring the read side.
+                        let (val, val_ty) = self.autoderef_ref_value(value, val, val_ty);
                         let store_val = self.coerce_value(&val, &val_ty, &pointee);
                         // m244: raw deref-store null guard (--overflow-checks).
                         self.emit_null_deref_guard(&ptr_val, &ptr_ty);
@@ -1154,6 +1181,9 @@ impl IrEmitter {
                         } else { None };
                         let pointee = pointee_llvm.unwrap_or_else(|| LLVM_I64.to_string());
                         let (val, val_ty) = self.compile_expr(value)?;
+                        // m294 (REL-20261010-1549-packages-9): see the
+                        // pointer-typed deref-write arm above.
+                        let (val, val_ty) = self.autoderef_ref_value(value, val, val_ty);
                         // m244: null guard for the i64-held address store.
                         self.emit_null_deref_guard(&ptr_val, "i64");
                         let real_ptr = self.fresh_tmp();
@@ -1164,6 +1194,10 @@ impl IrEmitter {
                     }
                 }
                 let (val, val_ty) = self.compile_expr(value)?;
+                // m294 (REL-20261010-1549-packages-9): a bare `&mut T` read on
+                // the RHS of an assignment feeds the POINTEE value into the
+                // coerced store (`w = p`); the address bits were stored.
+                let (val, val_ty) = self.autoderef_ref_value(value, val, val_ty);
                 if let Expr::Ident(ident) = place {
                     // m168: assigning to a `&mut T` PARAM writes THROUGH the
                     // address it carries. The local slot holds the pointer
@@ -1219,8 +1253,7 @@ impl IrEmitter {
 let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
 || Self::is_llvm_struct_named(&vec_ty, "Slice");
                     if is_vec {
-                        let (idx_raw, idx_ty) = self.compile_expr(index)?;
-                        let idx = self.val_to_i64(&idx_raw, &idx_ty);
+                        let idx = self.compile_index_i64(index)?;
                         // m271 (XVC-C-15, REL-20261011-1134-xvector): a
                         // float-element Vec slot must receive the NUMERIC
                         // value. val_to_i64 extracts raw bits, which is only
@@ -1335,8 +1368,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             self.emit_elem_store(&store_i64, &elem_ptr, &esz_val);
                         }
                     } else if cont_ty.starts_with('[') && cont_ty.contains(" x ") {
-                        let (idx_raw, idx_ty) = self.compile_expr(index)?;
-                        let idx = self.val_to_i64(&idx_raw, &idx_ty);
+                        let idx = self.compile_index_i64(index)?;
                         // m243: fixed-array WRITE bounds guard (the m241 Vec
                         // write guard's fixed-array sibling).
                         if let Some(n) = Self::extract_array_len(&cont_ty) {
@@ -1385,8 +1417,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         // old code had no branch for these -- the write was
                         // DROPPED (array.sort/sort_by silently no-oped, and
                         // `set_first(&mut a, 99)` left the array unchanged).
-                        let (idx_raw, idx_ty) = self.compile_expr(index)?;
-                        let idx = self.val_to_i64(&idx_raw, &idx_ty);
+                        let idx = self.compile_index_i64(index)?;
                         let inner_ty = cont_ty.trim_end_matches('*');
                         let elem_ptr = self.fresh_tmp();
                         self.emitln(&format!("  {elem_ptr} = getelementptr {inner_ty}, {cont_ty} {cont_val}, i64 {idx}"));
@@ -1398,8 +1429,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         // this, `buf[i] = ...` silently emitted nothing (the store was
                         // dropped), leaving heap buffers uninitialized -> crashes in
                         // str_concat/str_upper/str_slice and other manual builders.
-                        let (idx_raw, idx_ty) = self.compile_expr(index)?;
-                        let idx = self.val_to_i64(&idx_raw, &idx_ty);
+                        let idx = self.compile_index_i64(index)?;
                         let store_i8 = self.coerce_value(&val, &val_ty, "i8");
                         let elem_ptr = self.fresh_tmp();
                         self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {cont_val}, i64 {idx}"));
@@ -1407,8 +1437,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     } else if cont_ty == "i64" && self.is_ptr_local_expr(container) {
                         // Raw byte-buffer store where the pointer is held in an i64
                         // (a `*T` param lowered to i64): inttoptr then store the byte.
-                        let (idx_raw, idx_ty) = self.compile_expr(index)?;
-                        let idx = self.val_to_i64(&idx_raw, &idx_ty);
+                        let idx = self.compile_index_i64(index)?;
                         let store_i8 = self.coerce_value(&val, &val_ty, "i8");
                         let base_ptr = self.fresh_tmp();
                         self.emitln(&format!("  {base_ptr} = inttoptr i64 {cont_val} to i8*"));
