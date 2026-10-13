@@ -1,6 +1,6 @@
 <!-- Copyright (c) 2026 Eleftherios Notas and The XIOM Authors -->
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-# Session Handoff -- 2026-10-12 (compiler lane; v0.64.4 SHIPPED; v0.64.5 planned)
+# Session Handoff -- 2026-10-13 (compiler lane; v0.64.4 SHIPPED; v0.64.5 batches m276-m280 landed)
 
 This file captures state for continuing the compiler lane in a fresh
 session. Read this FIRST, then `docs/RUSTC-STUDY.md` + the relevant
@@ -14,11 +14,43 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
-Landed (origin/main = `91860f11` at this refresh; local main is AHEAD by
-the v0.64.5 docs commits (`633ee65b` plan + `dc3a0102` refresh) and the
-m276 fix -- do NOT push without the owner's authorization; the v0.64.4
-pushes were owner-authorized, and the doorbell cron may also push staged
-work -- check origin first):
+CURRENT STATE (2026-10-13T13:00Z; read this before anything below):
+
+- origin/main = `91860f11` (no doorbell push as of this refresh; fetch
+  before trusting). Local main = `e1207485`, AHEAD by 7:
+  `633ee65b`+`dc3a0102` (v0.64.5 plan/refresh docs) + the five v0.64.5
+  batch commits m276-m280:
+  - `0268c7d9` m276 env-unwrap veto on concretely-typed names (T1: kv
+    empty-store startup AV; REL-20261012-1418-pulse FIXED+relayed).
+  - `29e35ef8` m277 cast-call C handoff keeps the RAW fn code (two-word
+    env: 0=thunk, 1=raw) + nested fn-type markers parse (T2: B-22 +
+    REL-20261012-1403-packages FIXED+relayed).
+  - `484d9f21` m278 same-named types keep module identity (T3: engine
+    module-root AV; REL-20261011-2137-engine FIXED+relayed; the R39/R44
+    `colliding` triage drives the injection rename).
+  - `1a8141fb` m279 as_ptr/as_mut_ptr inference -- `*T + Int` was Str
+    concat (B-17 + B-16 FIXED+relayed; lock `ffi_ptr_arith`).
+  - `e1207485` m280 unsafe Copy-Out pointer gate + temporary Vec[Str]
+    element concat (REL-20261011-2230-bindings FIXED+relayed; lock
+    `e2e_m280_unsafe_ptr_temp_str`).
+  Do NOT push without owner authorization; the doorbell cron may push
+  staged work -- check origin first.
+- Relay bus SHAs since the refresh: 82151ff (B-17/B-16), 0fd83fc (2230);
+  NEXT-BATCH FIX REFS rows + history bullets in
+  release-checks/compiler-compiler-v0.64.4.md are current.
+- Triage T1-T3 CLOSED (section 1c bullets carry the root causes).
+- FFI-pointer batch (m279/m280) remaining: B-11/0304-bindings +
+  1548-bindings-2 out-param recycling (not yet triaged), B-23/B-24
+  (REL-20261012-2051-bindings-2). REL-20261010-1549-packages-3 flagged
+  same-class with m280 (re-probe at the next archive).
+- Selfhost: phase-4 worktree (ses_eded8c4d8ffe, sole writer) prompted
+  2026-10-13T13:00Z to rebase on e1207485 + continue
+  docs/checklists/selfhost-phase6.md; sibling ses_ef8e3a27cffe stays idle.
+- Verification: the full battery = e2e g1/g2 filters (ci.yml lines 153/154)
+  + the front-locks CLI list (now incl. `ffi_ptr_arith`) + xiom-check/
+  xiom-codegen/xiom-graph libs + xiom-pkg; capture compiler output to files.
+
+Landed in the m254-m275 release wave (historical, already pushed):
 
 - `677d65a7` m261/m262 module-local call precedence + module-private const
   identity. Closes REL-20261011-1124-orbitdb, REL-20261011-1052-stdlib.
@@ -254,6 +286,42 @@ verdict (the check file is the source of truth). Nothing else pending.
   name-keyed maps) are NOT function-scoped -- when adding a new consumer,
   gate on the compiled LLVM type where possible (an env is always the
   `i64` slot) instead of trusting the name set.
+
+NEW (2026-10-13, v0.64.5 triage + FFI batches):
+
+- Reporter "exit 0" from `cmd /c "... & echo EXIT=%ERRORLEVEL%"` is a
+  PARSE-TIME artifact (expands before the app runs); capture exit codes
+  with `cmd /v /c "... & echo EXITCODE=!ERRORLEVEL!"` or PowerShell
+  `$LASTEXITCODE`. T1's "silent exit 0" was really 0xC0000005; WER can
+  hold the process so a short watchdog misses it -- check the Application
+  Error event log.
+- Control the PRECONDITION state in repros (T1: the kv AV only fired on
+  an EMPTY store dir; once one run created seg-1 every later build
+  served, silently invalidating a whole bisect round).
+- The loader has TWO module paths: EAGER nested Module decls (small
+  single-file/dir fixtures -> qualified type keys) vs the LAZY catalog
+  injection (`collect_external_decls` -> flat, bare-deduped). A
+  single-file fixture often CANNOT reproduce injection-path bugs; use a
+  real project tree A/B (the engine scratch copies) as the witness.
+- xiom-check's R39/R44 `colliding` triage (shape rules; identical-layout
+  facade duplicates like the two stdlib AtomicInt decls stay bare) is THE
+  collision authority -- derive new injection-side logic from that map; a
+  hand-rolled bare-name pre-scan broke t2-queue (AtomicInt).
+- Builtins (as_ptr/as_mut_ptr, null, ...) need an INFERENCE counterpart:
+  call.rs lowers them, but bindings stay untyped unless
+  infer_call_return_xiom mirrors them -- and `i8*` is ambiguous (Str vs
+  *UInt8), so gate operator lowering on AST-level pointer-ness
+  (`expr_is_pointer`), never on the LLVM type alone (Copy-Out Str-copied
+  a *UInt8 return; `base + N` became str_concat).
+- relay.py notes: PowerShell passes argv to python; EMBEDDED DOUBLE
+  QUOTES break the argument (the note split at `->`). Use quote-free
+  notes.
+- cargo from the wrong cwd fails: use
+  `cargo build --manifest-path E:\xiom-lang\xiom\Cargo.toml -p xiom`
+  when the probe shell sits in another repo.
+- Fixture conventions: pure-XIOM checks -> e2e fixture + ci e2e group 2
+  filter; anything needing `--c-source` -> CLI test under
+  crates/xiom/tests/ (ffi_fnptr_abi.rs pattern) + the front-locks list.
 
 ## 7. m-numbering
 
