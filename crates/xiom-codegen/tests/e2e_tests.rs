@@ -7233,6 +7233,18 @@ fn e2e_safety_probe() {
     );
 }
 
+// m287 (REL-20261010-1548-stdlib-3): importing xiom.convert.tostring pulls
+// math.mathematical_logic in; the adapter's `self.predicate(&v)` closure
+// FIELD call must not be hijacked by the same-leaf free fn (a direct call
+// bypassed the closure env and filter/take_while returned None).
+#[test] fn e2e_m287_tostring_import_adapters() {
+    assert_eq!(
+        compile_and_run("tests/regression/m287_tostring_import_adapters/main.xi"),
+        Some(0),
+        "adapter closure fields must win over same-leaf free fns (m287)"
+    );
+}
+
 
 
 

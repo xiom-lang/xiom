@@ -16014,3 +16014,27 @@ LOCK: e2e_m286_cross_type_callback_bind, e2e_m286_core_map_match_payload,
 e2e_m286_sort_by_key_cross_type, e2e_m286_str_lexicographic_compare
 (tests/regression/m286_*/main.xi; ci.yml e2e group 2). Battery green: e2e
 16+178, front-locks, serial libs 199/12/36/79.
+
+---
+
+## 2026-10-13 -- FIXED (m287): tostring import hijacked adapter closure-field calls (REL-20261010-1548-stdlib-3)
+
+`use xiom.convert.tostring` transitively pulls `math.mathematical_logic`
+into the injected module set; inside the mono'd `FilterIter[Int].next` /
+`TakeWhileIter[Int].next` bodies, the closure-FIELD call
+`self.predicate(&v)` resolved through the free-fn leaf scans (UFCS +
+`.predicate` suffix search over `types.functions`) to the unrelated
+`math.mathematical_logic.predicate` and emitted a DIRECT call
+`predicate(%FilterIter* self, %Vec* &v)` -- the closure env was never
+loaded (the correct control IR loads the struct field, then env[0], and
+makes the env-first indirect call). The predicate never saw the values:
+`filter` returned None immediately, `take_while` marked done; the
+identical program without the import was correct, and step_by (no
+predicate) was unaffected. Fix: when the receiver is an INSTANCE whose
+struct `type_meta` declares a fn-typed FIELD with the callee's name, the
+UFCS/suffix free-fn scans are skipped and `resolved_fn_key` stays
+"{Struct}.{field}", so the instance-fn-field path emits the env-first
+closure call. Witness rc 1 -> 0. LOCK:
+tests/regression/m287_tostring_import_adapters/ +
+`e2e_m287_tostring_import_adapters` (ci.yml e2e group 2). Battery green:
+e2e 16+179, front-locks, serial libs 199/12/36/79.

@@ -5555,6 +5555,35 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     // when the receiver type is i64 (not a named struct), so the bare-call
                     // skip must NOT apply.
                     if !self.types.functions.contains_key(&resolved_fn_key) {
+                        // m287 (1549-stdlib-3): an INSTANCE closure-FIELD call
+                        // (`self.predicate(&v)` in FilterIter.next) must win
+                        // over the free-fn leaf matches below. When an
+                        // unrelated import pulls in a stdlib module with a
+                        // same-leaf free fn (math.mathematical_logic.
+                        // predicate, via `use xiom.convert.tostring`), the
+                        // UFCS/suffix scans rewrote resolved_fn_key to it --
+                        // the emitted DIRECT call bypassed the closure env
+                        // (the predicate ran on (self, &v) and filter
+                        // returned None immediately). Keep "{Struct}.{field}"
+                        // so the instance-fn-field path below emits the env
+                        // call.
+                        let instance_fn_field_here = receiver_expr
+                            .and_then(|r| match r.as_ref() {
+                                Expr::Ident(id) if self.lookup_local(&id.name).is_some()
+                                    || id.name == "self" => {
+                                    self.infer_struct_type_name(r).map(|st| (st, id.name.clone()))
+                                }
+                                _ => None,
+                            })
+                            .and_then(|(st, _)| {
+                                self.types.type_meta.get(&st).map(|tm| {
+                                    tm.fields.iter().any(|(fname, fty)| {
+                                        fname == &fn_name && fty.trim_start().starts_with("fn(")
+                                    })
+                                })
+                            })
+                            .unwrap_or(false);
+                        if !instance_fn_field_here {
                         // m142 (stdlib relay): pointer-receiver UFCS must win
                         // over the same-leaf module alias scan below. The
                         // suffix search bound `ptr.is_null()` to the module
@@ -5613,6 +5642,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         }
                         if !found.is_empty() {
                             resolved_fn_key = found;
+                        }
                         }
                         }
                     }
