@@ -4296,6 +4296,58 @@ impl IrEmitter {
         // 5c.37: Strip generic type arguments (Vec[Int] -> Vec) before lookup.
         // type_from_ast_with_args preserves them for element type resolution,
         // but llvm_type_for needs the base struct name.
+        //
+        // m283 (REL-20261013-1524-bindings-2 B-26): NESTED container payloads
+        // (`Option[Bag]`, `Result[Option[Bag], Str]`) resolve to the CONCRETE
+        // monomorph (`%struct.Option__Bag`) when it is registered -- the
+        // constructor/call paths build the concrete container, and a payload
+        // read that used the base `%struct.Option` (`{ i64, i64 }`) loaded 16
+        // bytes of the heap box as an inline struct (tag = pointer bits,
+        // `items.len()` read heap garbage 9/pointer-sized). Bare base names
+        // still resolve to the generic shape when no monomorph exists.
+        if let Some(bracket) = type_name.find('[') {
+            if let Some(close) = type_name.rfind(']') {
+                if close > bracket {
+                    let base = type_name[..bracket].trim();
+                    let arg_text = &type_name[bracket + 1..close];
+                    if base == "Option" {
+                        let concrete = format!("Option__{}", Self::sanitize_container_arg(arg_text));
+                        if self.types.type_meta.contains_key(&concrete)
+                            || self.types.types.contains_key(&concrete)
+                        {
+                            return Ok(format!("%struct.{concrete}"));
+                        }
+                    } else if base == "Result" {
+                        // Split top-level comma of the arg text ("Option[Bag],
+                        // Str") without depending on other modules.
+                        let mut depth = 0i32;
+                        let mut split_at: Option<usize> = None;
+                        for (idx, ch) in arg_text.char_indices() {
+                            match ch {
+                                '[' | '(' | '{' | '<' => depth += 1,
+                                ']' | ')' | '}' | '>' => depth -= 1,
+                                ',' if depth == 0 => { split_at = Some(idx); break; }
+                                _ => {}
+                            }
+                        }
+                        if let Some(idx) = split_at {
+                            let ok = arg_text[..idx].trim();
+                            let err = arg_text[idx + 1..].trim();
+                            let concrete = format!(
+                                "Result__{}__{}",
+                                Self::sanitize_container_arg(ok),
+                                Self::sanitize_container_arg(err)
+                            );
+                            if self.types.type_meta.contains_key(&concrete)
+                                || self.types.types.contains_key(&concrete)
+                            {
+                                return Ok(format!("%struct.{concrete}"));
+                            }
+                        }
+                    }
+                }
+            }
+        }
         let clean_name = if let Some(bracket) = type_name.find('[') {
             &type_name[..bracket]
         } else {
@@ -5387,6 +5439,11 @@ impl IrEmitter {
         // before any function text.
         self.splice_deferred_type_defs();
 
+        // m283: flush contract re-entrancy guard counters registered while the
+        // main function bodies were compiled (declarations must precede the
+        // late-emitted builtin/mono bodies below in textual order).
+        self.flush_contract_counter_decls();
+
         // Emit monomorphised generic function bodies
         self.compile_generic_monomorphisations()?;
 
@@ -5483,7 +5540,28 @@ impl IrEmitter {
         // emitted above reference these ids; LLVM resolves forward refs).
         self.flush_debug_locations();
 
+        // m283: contract re-entrancy guard counters (REL-20261010-1549-
+        // packages-8) are buffered at first use and flushed here at module
+        // level (a mid-function emit would corrupt the IR).
+        self.flush_contract_counter_decls();
+
         Ok(Self::hoist_static_allocas(&self.output))
+    }
+
+    /// m283: emit any not-yet-emitted `@__xiom_ctype_*` global declarations at
+    /// module level. Idempotent (a flushed-count marker prevents duplicates).
+    fn flush_contract_counter_decls(&mut self) {
+        let flushed = self.local.contract_counter_flushed;
+        let total = self.local.pending_contract_counter_decls.len();
+        if total <= flushed {
+            return;
+        }
+        let pending: Vec<String> = self.local.pending_contract_counter_decls[flushed..].to_vec();
+        self.emitln("");
+        for d in &pending {
+            self.emitln(d);
+        }
+        self.local.contract_counter_flushed = total;
     }
 
     /// m235 (C-ORBIT-05): move every STATIC `alloca` instruction to its
@@ -7819,6 +7897,16 @@ impl IrEmitter {
             params_str.extend(explicit_params_str);
 
             self.flush_deferred_types();
+            // m283: declare the contract guard counter before the define line
+            // (globals cannot appear mid-body). The mono path bypasses
+            // decl.rs's pre-scan, so check the fd clauses directly.
+            if self.config.check_contracts && !fd.contracts.is_empty() {
+                if let Some(counter) = self.contract_counter_name() {
+                    if self.local.contract_eval_counters.insert(counter.clone()) {
+                        self.emitln(&format!("@{counter} = internal thread_local global i64 0"));
+                    }
+                }
+            }
             self.emitln(&format!("define {specialized_ret_type} @{specialized_name}({}) {{", params_str.join(", ")));
             let entry_block = self.fresh_block("entry");
             self.emitln(&format!("{entry_block}:"));
@@ -8355,6 +8443,8 @@ impl IrEmitter {
                         let new_depth = self.fresh_tmp();
                         self.emitln(&format!("  {new_depth} = sub i64 {depth_dec}, 1"));
                         self.emitln(&format!("  store i64 {new_depth}, i64* @xiom_recursion_counter"));
+                        // m283: contract re-entrancy guard leave (tail-return)
+                        self.emit_contract_guard_leave();
                         self.emitln(&format!("  ret {ret_ty} {loaded}"));
                         last_result = Some(loaded);
                     } else if is_last && is_expression && matches!(stmt, Stmt::If(..)) {
@@ -8397,6 +8487,8 @@ impl IrEmitter {
                             let new_depth = self.fresh_tmp();
                             self.emitln(&format!("  {new_depth} = sub i64 {depth_dec}, 1"));
                             self.emitln(&format!("  store i64 {new_depth}, i64* @xiom_recursion_counter"));
+                            // m283: contract re-entrancy guard leave (tail-return)
+                            self.emit_contract_guard_leave();
                             self.emitln(&format!("  ret {ret_ty} {loaded}"));
                             last_result = Some(loaded);
                         }
@@ -8456,6 +8548,8 @@ impl IrEmitter {
                             let new_depth = self.fresh_tmp();
                             self.emitln(&format!("  {new_depth} = sub i64 {depth_dec}, 1"));
                             self.emitln(&format!("  store i64 {new_depth}, i64* @xiom_recursion_counter"));
+                            // m283: contract re-entrancy guard leave (tail-return)
+                            self.emit_contract_guard_leave();
                             self.emitln(&format!("  ret {ret_ty} {ret_val}"));
                         }
                     }

@@ -310,6 +310,9 @@ pub struct FunctionContext {
     pub current_param_llvm_types: Vec<String>,
     /// Current function's ensures clauses
     pub current_ensures: Vec<Expr>,
+    /// m283: true when the current function declares ANY requires/ensures
+    /// clause (the contract re-entrancy guard is emitted only for those).
+    pub current_contract_clauses: Vec<Expr>,
     /// Current method's receiver TYPE NAME
     pub current_receiver: Option<String>,
     /// Local variables: name -> (alloca_register, llvm_type) -- scope stack
@@ -453,6 +456,20 @@ pub struct LocalContext {
     pub hoisted_allocas: Vec<(String, String)>,
     /// Local Vec bindings' declared element type name
     pub local_vec_elem: HashMap<String, String>,
+    /// m283 (REL-20261010-1549-packages-8): contract-clause re-entrancy guard
+    /// depth counters emitted for functions with requires/ensures. Contracts
+    /// containing CALLS can recurse through postcondition cycles (f's ensures
+    /// calls g whose contract calls f...) -- the old evaluator followed the
+    /// cycle into the depth-500 trap (0xC000001D, no diagnostic). The counter
+    /// is incremented at function entry and decremented at every return; a
+    /// clause check under `depth > 0` skips evaluation (the cycle-breaking
+    /// re-entrant check) while the outermost check still runs.
+    pub contract_eval_counters: HashSet<String>,
+    /// m283: buffered `@__xiom_ctype_*` global declarations (flushed at module
+    /// level by the driver; a mid-function emit would corrupt the IR).
+    pub pending_contract_counter_decls: Vec<String>,
+    /// m283: how many of `pending_contract_counter_decls` were already emitted.
+    pub contract_counter_flushed: usize,
     /// Option locals whose payload is a heap-boxed STRUCT pointer
     pub local_opt_payload: HashMap<String, String>,
     /// BUG 22 #4 fix: the SCALAR XIOM payload type of a Some/Ok/Err binding

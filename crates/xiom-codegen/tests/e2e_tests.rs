@@ -6504,6 +6504,35 @@ fn e2e_safety_probe() {
     );
 }
 
+// m283 (REL-20261013-1524-bindings-2 B-26): a nested enum payload
+// (`Result[Option[Bag], Str]` with a Vec-carrying struct) must read back the
+// CONCRETE payload monomorph. `llvm_type_for("Option[Bag]")` stripped the
+// generic args and returned the erased `%struct.Option` (`{ i64, i64 }`),
+// so the payload read loaded 16 bytes of the heap box as an inline struct:
+// the tag picked up pointer bits and `items.len()` read garbage (9), and
+// using the corrupt Vec AV'd. Flat `Result[BagOutcome, Str]` and
+// single-level `Option[Bag]` controls were green.
+#[test] fn e2e_m283_nested_payload_read() {
+    assert_eq!(
+        compile_and_run("tests/regression/m283_nested_payload_read/main.xi"),
+        Some(0),
+        "nested Result[Option[Bag]] payload must read the concrete monomorph (m283)"
+    );
+}
+
+// m283 (REL-20261010-1549-packages-8): a postcondition call-cycle
+// (`f`'s ensures calls `g` whose contract calls `f`) must not recurse into
+// the depth-500 trap (0xC000001D). The per-function re-entrancy counter
+// skips the nested clause check; the outer checks still run (add1/clamp
+// prove the guard did not swallow normal requires/ensures).
+#[test] fn e2e_m283_contract_cycle() {
+    assert_eq!(
+        compile_and_run("tests/regression/m283_contract_cycle/main.xi"),
+        Some(0),
+        "postcondition call-cycles must not trap; normal contracts still check (m283)"
+    );
+}
+
 // m278 (REL-20261011-2137-engine): two modules declare a same-named type
 // (`Mesh`) with different layouts; the entry file's imports must decide
 // which one its bare references use. Stands in for the engine module-root

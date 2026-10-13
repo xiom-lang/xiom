@@ -1604,6 +1604,8 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     let new_depth_dec = self.fresh_tmp();
                     self.emitln(&format!("  {new_depth_dec} = sub i64 {depth_dec}, 1"));
                     self.emitln(&format!("  store i64 {new_depth_dec}, i64* @xiom_recursion_counter"));
+                    // m283: contract re-entrancy guard leave
+                    self.emit_contract_guard_leave();
                     self.emitln(&format!("  ret {ret_ty} {val}"));
                 } else {
                     if !self.fctx.current_ensures.is_empty() {
@@ -1617,6 +1619,8 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     let new_depth_dec = self.fresh_tmp();
                     self.emitln(&format!("  {new_depth_dec} = sub i64 {depth_dec}, 1"));
                     self.emitln(&format!("  store i64 {new_depth_dec}, i64* @xiom_recursion_counter"));
+                    // m283: contract re-entrancy guard leave (void return)
+                    self.emit_contract_guard_leave();
                     // M16: `return;` in a void-typed function emits `ret void`,
                     // but `main` is always lowered to `i64` so the process exit
                     // code is well-defined.

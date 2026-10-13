@@ -5,17 +5,102 @@ use std::collections::HashMap;
 use xiom_ast::*;
 
 impl super::IrEmitter {
+    /// m283 (REL-20261010-1549-packages-8): name of the current function's
+    /// contract re-entrancy depth counter.
+    pub(crate) fn contract_counter_name(&self) -> Option<String> {
+        let fn_name = self.fctx.current_fn.clone()?;
+        let mut sanitized: String = fn_name
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+            .collect();
+        if sanitized.is_empty() || sanitized.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+            sanitized = format!("f_{sanitized}");
+        }
+        Some(format!("__xiom_ctype_{sanitized}"))
+    }
+
+    /// True when the current function has any requires/ensures clause (the
+    /// guard machinery is only emitted for those).
+    pub(crate) fn fn_has_contract_clauses(&self) -> bool {
+        !self.fctx.current_contract_clauses.is_empty()
+    }
+
+    /// Emit the function-entry increment for the contract re-entrancy guard.
+    pub(crate) fn emit_contract_guard_enter(&mut self) {
+        let Some(counter) = self.contract_counter_name() else { return };
+        self.declare_contract_counter(&counter);
+        let d = self.fresh_tmp();
+        self.emitln(&format!("  {d} = load i64, i64* @{counter}"));
+        let d1 = self.fresh_tmp();
+        self.emitln(&format!("  {d1} = add i64 {d}, 1"));
+        self.emitln(&format!("  store i64 {d1}, i64* @{counter}"));
+    }
+
+    /// Declare the guard counter at first use. Emitted into THIS function's
+    /// output buffer, before its first instruction (the parallel-codegen path
+    /// compiles functions into per-function buffers, so a module-level flush
+    /// would land in the wrong buffer -- `use of undefined value` for
+    /// late/parallel functions). LLVM hoists a leading global declaration.
+    fn declare_contract_counter(&mut self, counter: &str) {
+        if self.local.contract_eval_counters.insert(counter.to_string()) {
+            self.emitln(&format!("@{counter} = internal thread_local global i64 0"));
+        }
+    }
+
+    /// Emit the return-path decrement for the contract re-entrancy guard.
+    /// Gated EXACTLY like `emit_contract_guard_enter` (function-decl extent
+    /// clauses), so enter/leave stay balanced per function.
+    pub(crate) fn emit_contract_guard_leave(&mut self) {
+        if !self.config.check_contracts || !self.fn_has_contract_clauses() {
+            return;
+        }
+        let Some(counter) = self.contract_counter_name() else { return };
+        let d = self.fresh_tmp();
+        self.emitln(&format!("  {d} = load i64, i64* @{counter}"));
+        let d1 = self.fresh_tmp();
+        self.emitln(&format!("  {d1} = sub i64 {d}, 1"));
+        self.emitln(&format!("  store i64 {d1}, i64* @{counter}"));
+    }
+
     /// Emit a runtime check for a single boolean contract expression.
     /// If the expression evaluates to false (i64 0), emit a panic and trap.
+    ///
+    /// m283 (REL-20261010-1549-packages-8): re-entrancy guard. When the current
+    /// function's contract-evaluation depth is already > 0, this clause is
+    /// being evaluated from INSIDE one of the function's own contract checks
+    /// (a postcondition call-cycle: `f`'s ensures calls `g` whose contract
+    /// calls `f`...). Evaluating it again recursed to the depth-500 trap
+    /// (0xC000001D, no diagnostic). A re-entrant clause check is SKIPPED -- the
+    /// outermost check still runs -- while the bounded call recursion inside
+    /// the clause remains the ordinary recursion counter's job.
     pub(crate) fn compile_contract_check(&mut self, expr: &Expr, clause_type: &str) {
         // Phase 5d: Emit contract expression as IR comment for debuggers
         let expr_str = format!("{:?}", expr).chars().take(80).collect::<String>();
         self.emitln(&format!("; contract: {clause_type}: {expr_str}"));
+        let guarded = self.config.check_contracts && self.fn_has_contract_clauses();
+        let ok_label = self.fresh_block("contract_ok");
+        if guarded {
+            // Branch to the ok (completion) label when re-entered. The re-entry
+            // test runs at the CLAUSE SITE, so it preserves the block structure:
+            // skip -> ok -> continue; not-nested -> check -> ok -> continue.
+            if let Some(counter) = self.contract_counter_name() {
+                self.declare_contract_counter(&counter);
+                let d = self.fresh_tmp();
+                self.emitln(&format!("  {d} = load i64, i64* @{counter}"));
+                let nested = self.fresh_tmp();
+                self.emitln(&format!("  {nested} = icmp sgt i64 {d}, 0"));
+                let skip_label = self.fresh_block("contract_reentry_skip");
+                let go_label = self.fresh_block("contract_reentry_go");
+                self.emitln(&format!("  br i1 {nested}, label %{skip_label}, label %{go_label}"));
+                self.emitln(&format!("\n{skip_label}:"));
+                self.emitln(&format!("  br label %{ok_label}"));
+                self.emitln(&format!("\n{go_label}:"));
+            }
+        }
         let (cond_val, expr_ty) = match self.compile_expr(expr) {
             Ok(v) => v,
             Err(_) => return,
         };
-        let ok_label = self.fresh_block("contract_ok");
         let fail_label = self.fresh_block("contract_fail");
         // Ensure we have an i1 for the branch -- some expressions (or/and) return i64.
         // `expr_ty` is the value's real LLVM type as returned by compile_expr.

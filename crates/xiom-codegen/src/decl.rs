@@ -1453,10 +1453,14 @@ impl IrEmitter {
 
         // Store ensures clauses for return point checking
         self.fctx.current_ensures = Vec::new();
+        self.fctx.current_contract_clauses = Vec::new();
         if self.config.check_contracts {
             for clause in &fd.contracts {
                 if let ContractClause::Ensures(e, _) = clause {
                     self.fctx.current_ensures.push(e.clone());
+                }
+                if let ContractClause::Requires(e, _) | ContractClause::Ensures(e, _) = clause {
+                    self.fctx.current_contract_clauses.push(e.clone());
                 }
             }
         }
@@ -1626,6 +1630,17 @@ impl IrEmitter {
         // attachments, so `!dbg !N` must follow `alwaysinline` -- the old
         // `){dbg}{attrs} {` order made clang reject honest -g builds
         // ("expected '{' in function body" at the define line).
+        // m283: declare this function's contract re-entrancy guard counter
+        // BEFORE the define line (globals cannot appear mid-body; the
+        // declaration must live in the same output buffer as the body for
+        // parallel codegen).
+        if self.config.check_contracts && self.fn_has_contract_clauses() {
+            if let Some(counter) = self.contract_counter_name() {
+                if self.local.contract_eval_counters.insert(counter.clone()) {
+                    self.emitln(&format!("@{counter} = internal thread_local global i64 0"));
+                }
+            }
+        }
         self.emitln(&format!("define {ret_llvm} @{emit_symbol}({}){inline_attr}{} {{", main_sig, dbg_attach));
 
         // Recursion depth check
@@ -1949,6 +1964,11 @@ impl IrEmitter {
 
         // Emit requires checks at function entry
         if self.config.check_contracts {
+            // m283: contract re-entrancy guard -- increment before the first
+            // clause check; every return path decrements.
+            if self.fn_has_contract_clauses() {
+                self.emit_contract_guard_enter();
+            }
             for clause in &fd.contracts {
                 if let ContractClause::Requires(expr, _span) = clause {
                     self.compile_contract_check(expr, "requires");
@@ -2093,6 +2113,7 @@ impl IrEmitter {
         self.fctx.current_fn = None;
         self.fctx.current_receiver = None;
         self.fctx.current_ensures.clear();
+        self.fctx.current_contract_clauses.clear();
         self.fctx.result_ptr = None;
         // Stage 5: leave the function's DWARF scope (deferred closures etc.
         // must not attach locations to the enclosing subprogram).

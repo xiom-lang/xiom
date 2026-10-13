@@ -15858,6 +15858,52 @@ ad-hoc runs. Directions: dedupe module registration by canonical root (or
 never register losing copies), and prefer explicit/CWD roots for dev
 checkouts. Not yet root-caused in code.
 
+---
+
+## 2026-10-13 -- FIXED (m283): contract re-entrancy guard + nested enum payloads resolve the concrete monomorph (REL-20261010-1549-packages-8 + REL-20261013-1524-bindings-2 B-26)
+
+Two candidate-closing fixes in one batch.
+
+1. Postcondition call-cycles (REL-20261010-1549-packages-8) aborted with
+   `0xC000001D` (the depth-500 trap) when a clause transitively called the
+   function under contract: `f`'s `ensures: f(g(x)) == 1` -> `g` -> `g`'s
+   ensures -> `f` -> ... Fix: a per-function contract re-entrancy depth
+   counter (`@__xiom_ctype_<fn>`, thread-local i64). The counter is
+   incremented at function entry before the first clause check and
+   decremented on EVERY return path; a clause check that runs while its
+   counter is already > 0 is RE-ENTRANT and is SKIPPED (the outermost check
+   still enforces; bounded recursion inside a clause remains the ordinary
+   recursion counter's job). The counter global is declared before the
+   define in both the normal and mono paths (parallel codegen requires the
+   declaration in the same buffer as the body). Witness: `cycle_probe`
+   `before / after v=1` exit 0 (was 0xC000001D); `contract_matrix`
+   (normal requires/ensures + cycle) exit 0. LOCK:
+   tests/regression/m283_contract_cycle/ + `e2e_m283_contract_cycle`
+   (ci.yml e2e group 2).
+   NEW SEPARATE FINDING (not fixed here, recorded for the next batch): at
+   -O2 clang PRUNES contract checks whose condition constant-folds --
+   `requires: x != x` and `ensures: result == x + 999999` on a constant
+   input are eliminated entirely (the check fires at -O0, gone at O2, with
+   or without `--runtime-contracts`). Contract enforcement is therefore dead
+   for constant-provable conditions on optimized builds; keeping the
+   condition opaque (no-fold barrier) is the likely fix.
+
+2. Nested enum payloads (B-26) corrupted struct-with-Vec values:
+   `Result[Option[Bag], Str]` extraction read `items.len()=9` (heap garbage)
+   and using the value AV'd. Root cause: the payload read resolved the
+   payload type via `llvm_type_for("Option[Bag]")`, which STRIPPED the
+   generic args and returned the erased base `%struct.Option`
+   (`{ i64, i64 }`); the boxed-payload arm then inttoptr'd the heap handle
+   and loaded 16 box bytes as an inline Option (tag = pointer bits). Fix:
+   `llvm_type_for` now resolves `Option[<T>]` / `Result[<T>, <E>]` to the
+   registered concrete monomorph (`%struct.Option__Bag` /
+   `%struct.Result__...`) when it exists, falling back to the base name
+   otherwise. Witness: bindings `nested-payload` probe `items.len=2` in all
+   three shapes, exit 0 (was `nested 9 / flat 2 / opt 2`, exit 1).
+   LOCK: tests/regression/m283_nested_payload_read/ + `e2e_m283_nested_payload_read`
+   (ci.yml e2e group 2). Also re-probed REL-20261013-1309-bindings (B-25):
+   `cast path: FIDELITY OK` -- cleared by the m280/m281/m283 Copy-Out gates.
+
 
 
 
