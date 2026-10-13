@@ -17,9 +17,9 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 CURRENT STATE (2026-10-13T16:40Z; read this before anything below):
 
 - origin/main = `91860f11` (no doorbell push as of this refresh; fetch
-  before trusting). Local main = `e1207485`, AHEAD by 8:
+  before trusting). Local main = the m281 handoff commit (this file), AHEAD by 10:
   `633ee65b`+`dc3a0102` (v0.64.5 plan/refresh docs) + the six v0.64.5
-  batch commits m276-m281:
+  batch commits m276-m281 + the m281 handoff follow-up:
   - `0268c7d9` m276 env-unwrap veto on concretely-typed names (T1: kv
     empty-store startup AV; REL-20261012-1418-pulse FIXED+relayed).
   - `29e35ef8` m277 cast-call C handoff keeps the RAW fn code (two-word
@@ -33,19 +33,22 @@ CURRENT STATE (2026-10-13T16:40Z; read this before anything below):
   - `e1207485` m280 unsafe Copy-Out pointer gate + temporary Vec[Str]
     element concat (REL-20261011-2230-bindings FIXED+relayed; lock
     `e2e_m280_unsafe_ptr_temp_str`).
-  - m281 (this session) FFI-pointer batch remainder: raw `p[i]` was
-    lowered to the UTF-8 `xiom_char_at` decoder (B-24 stale-zero reads
-    at low-byte-0x00 rounds; B-20 zeros) -> scalar-pointee pointer-index
-    path; bare `null` materialized as a stack byte at pointer params
-    (B-23) -> `*T` pointer-valued; `base + off` confined tails
-    Str-copied (B-20 helper) -> `binary_ptr_arith` gate on all three
-    Copy-Out sites. Locks `ffi_ptr_slot_readback` +
-    `null_literal_marshal` (ci.yml front-locks). Also confirmed
-    REL-20261010-1549-packages-3 is GREEN (m280 fixed it; re-probe
-    `whole=77 stmt=88`).
+  - `77827766` m281 raw `p[i]` was the UTF-8 `xiom_char_at` decoder
+    (B-24 stale-zero reads at low-byte-0x00 rounds; B-20/B-11 readback
+    zeros) -> scalar-pointee pointer-index path; bare `null` at a
+    pointer arg materialized as a stack byte (B-23) -> `inttoptr i64 0`;
+    `base + off` confined tails Str-copied (B-20 helper) ->
+    `binary_ptr_arith` gate on all three Copy-Out sites. Locks
+    `ffi_ptr_slot_readback` + `null_literal_marshal` (ci.yml
+    front-locks) + fixtures. Also re-probed
+    REL-20261010-1549-packages-3 GREEN (m280 fixed it; `whole=77
+    stmt=88`). Relay: item fixes 2051-bindings-2 / 0304-bindings /
+    1548-bindings-2 / 1549-packages-3 + check rows (relay commit
+    `438b714`).
   Do NOT push without owner authorization; the doorbell cron may push
   staged work -- check origin first.
-- Relay bus SHAs since the refresh: 82151ff (B-17/B-16), 0fd83fc (2230);
+- Relay bus SHAs since the refresh: 82151ff (B-17/B-16), 0fd83fc (2230),
+  `438b714` (m281 fixes + rows);
   NEXT-BATCH FIX REFS rows + history bullets in
   release-checks/compiler-compiler-v0.64.4.md are current.
 - Triage T1-T3 CLOSED (section 1c bullets carry the root causes).
