@@ -17,13 +17,13 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
 
 - origin/main = `91860f11` (fetch before trusting -- the doorbell may push
-  staged work). Local main = the latest commit (see git log), AHEAD by ~36
+  staged work). Local main = the latest commit (see git log), AHEAD by ~38
   unpushed commits (exact: `git rev-list --count origin/main..HEAD`):
-  `633ee65b`+`dc3a0102` (v0.64.5 plan/refresh docs) + m276..m291 + handoff
-  follow-ups + 2 attempt logs (bindings-4 m288, stdlib-6 leg b m291; both
-  reverted, see docs/failed_attempts.md). Do NOT push without the owner's
-  authorization.
-- v0.64.5 batches m276-m291 (commit -> scope; all relayed):
+  `633ee65b`+`dc3a0102` (v0.64.5 plan/refresh docs) + m276..m292 + handoff
+  follow-ups + 2 attempt logs (stdlib-6 leg b m291 reverted, see
+  docs/failed_attempts.md; the bindings-4 m288 attempt is superseded by
+  m292). Do NOT push without the owner's authorization.
+- v0.64.5 batches m276-m292 (commit -> scope; all relayed):
   - `0268c7d9` m276 env-unwrap veto on concretely-typed names (T1 kv AV).
   - `29e35ef8` m277 cast-call C handoff keeps the RAW fn code (two-word
     env: 0=thunk, 1=raw) + nested fn-type markers parse (T2 B-22 + 1403).
@@ -112,13 +112,24 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
     `m291_contract_enforcement_live` (negative twin); `e2e_m288_mut_param_
     field_pre` now passes for real. LESSON: any item closed by a green
     contract BEFORE m291 must be re-trusted only with enforcement live.
+  - `c5fe4d80` m292 1548-bindings-4 FIXED: the catalog pre-load worklist
+    skipped `[xiom,ffi]` whenever the BARE leaf "ffi" was already in
+    `self.modules`; `flatten_submodules` registers nested program modules
+    under their leaf, so `module probe.ffi` + `use xiom.ffi;` bound the
+    program's own module and the stdlib submodule fns (xiom.ffi.c) never
+    registered (T001 undefined variable; this is why m288's direct-load
+    registration patches had nothing persistent to attach to). Guard is
+    now single-segment-only (`prefix.len() == 1 && ...`). Locks
+    `e2e_m292_ffi_alias_shadow` + fixture (negative A/B via a rebuilt
+    pre-fix binary).
 - CLOSED / awaiting reporter re-verify at the next archive (compiler work
   done; items are `fixed` on the bus): T1-T3, B-17+B-16, B-23+B-24
   (2051-bindings-2), B-11+B-20 readback family (0304-bindings +
   1548-bindings-2), 1549-packages-3, 1549-stdlib-5 (shape-mismatched &Vec
   arg is now a call-site T001), 1549-stdlib-7 (cross-type generic
   callbacks), 1548-stdlib-3 (tostring import no longer hijacks adapter
-  closure fields), 1548-stdlib-4 (@pre on &mut param fields snapshots the
+  closure fields), 1548-bindings-4 (leaf-colliding nested module + stdlib
+  import -- m292), 1548-stdlib-4 (@pre on &mut param fields snapshots the
   entry value -- REAL fix m291 Paren arm; the m288 green was masked), 1548-stdlib-7
   (guard-form ensures + enforcement restored), 1548-stdlib-5 (annotated
   Slice locals), B-25 (1309-bindings, re-probe GREEN),
@@ -147,14 +158,13 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
     owner-level.
 - REMAINING CANDIDATE QUEUE (reds; the bus + the check file are the
   record). Priority order for the next session:
-  1. borrow/codegen: 1548-bindings-4 (m288 ATTEMPT REVERTED -- see
-     docs/failed_attempts.md 2026-10-13 + the bus: the collision routes the
-     import through the direct-load branch and `use xiom.ffi.c` never
-     registers `xiom.ffi.c.c_strlen`; needs a submodule-registration route
-     decision; repro is single-file), 1548-stdlib-6 leg b (m291 attempt
-     reverted: checker->codegen binding gap for user-program UFCS -- see
-     docs/failed_attempts.md 2026-10-13; leg a fixed in m290),
-     1549-packages-10/11/12, 1549-stdlib-2/3/4.
+  1. borrow/codegen: 1548-bindings-4 DONE (m292). IN FLIGHT in fixer
+     worktrees (Agent Manager, m293-m295 branch seeds): 1549-packages-11
+     (Map/Set ==; fix plan in the check row), 1549-packages-9 HIGH (bare
+     &mut Int; resolver), 1548-stdlib-6 leg b (checker->codegen binding
+     gap for user-program UFCS -- see docs/failed_attempts.md 2026-10-13;
+     leg a fixed in m290). Also 1549-packages-10 (stale-green, closed by
+     the wave), 1549-packages-12, 1549-stdlib-2/3/4.
   2. resolver/checker: 1549-packages-9 HIGH (bare `&mut Int`), 1956-
      orbitdb (same-named types -- m278-class), 1550-orbitdb-2,
      1709-xvector.
@@ -492,7 +502,9 @@ NEW (2026-10-13, v0.64.5 triage + FFI batches):
 
 ## 7. m-numbering
 
-- m261-m291 LANDED; **next free is m292**.
+- m261-m292 LANDED; m293-m295 are reserved by the in-flight fixer
+  worktrees (packages-11, packages-9, stdlib-6 leg b); **next free after
+  those is m296**.
 
 ## 8. CONTINUATION PROMPT (paste into a fresh session)
 
@@ -505,16 +517,17 @@ docs/rustc-study/ for reference patterns; rustc source is E:\repos\rust
 (READ-ONLY; no git writes there).
 
 STATE: v0.64.4 released (df493530) and verified. Git: origin/main =
-91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~36 unpushed
-commits (m276-m291 + docs + 2 attempt logs); do NOT push
+91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~38 unpushed
+commits (m276-m292 + docs + attempt logs); do NOT push
 without the owner's authorization. Relay bus: latest compiler commits
-5a2f5d2/deb173d/b8caee2/ce5f2b4/76869eb/bb30a68/d5e84f8/170cdd9; the check
+d5e84f8/170cdd9/9712942/4ac2e39 + the m292 fix note; the check
 file release-checks/compiler-compiler-v0.64.4.md is the candidate record.
 
 CLOSED this program (reporter re-verify at the next archive): T1-T3,
 B-17+B-16, B-23+B-24, B-11+B-20 readback family, 1549-packages-3,
 1549-stdlib-5, 1549-stdlib-7 (cross-type generic callbacks), 1548-stdlib-3
-(tostring import no longer hijacks adapter closure fields), 1548-stdlib-4
+(tostring import no longer hijacks adapter closure fields), 1548-bindings-4
+(m292 worklist guard), 1548-stdlib-4
 (@pre on &mut param fields -- real fix m291), 1548-stdlib-7 (guard-form
 ensures + enforcement restored), 1548-stdlib-5 (annotated Slice locals),
 B-25, B-26,
@@ -524,12 +537,13 @@ diagnosed).
 
 NEXT -- work the remaining queue in this order (witness-first triage for
 each; see the check file + the bus for details):
-1. borrow/codegen: 1548-bindings-4 (m288 ATTEMPT REVERTED: collision routes
-   the import through the direct-load branch, `use xiom.ffi.c` never
-   registers `xiom.ffi.c.c_strlen` -- see docs/failed_attempts.md + the
-   bus), 1548-stdlib-6 leg b (m291 attempt reverted: checker->codegen
-   binding gap for user-program UFCS; see docs/failed_attempts.md),
-   1549-packages-10/11/12, 1549-stdlib-2/3/4.
+1. borrow/codegen: 1548-bindings-4 FIXED (m292). IN FLIGHT (Agent Manager
+   fixer worktrees, branch seeds m293/m294/m295): 1549-packages-11 (Map/Set
+   ==; fix plan in the check row), 1549-packages-9 HIGH (bare &mut Int),
+   1548-stdlib-6 leg b (checker->codegen UFCS binding). Cherry-pick their
+   commits serially (ONE commit per batch, full battery) as they report;
+   then 1549-packages-12, 1549-stdlib-2/3/4 (1549-packages-10 is a wave
+   stale-green close).
 2. resolver/checker: 1549-packages-9 (HIGH, bare &mut Int), 1956-orbitdb
    (same-named types, m278-class), 1550-orbitdb-2, 1709-xvector.
 3. allocator/runtime: 2320-bindings #1 (HIGH, Vec[UInt8].with_len HBO),
@@ -550,7 +564,8 @@ filed with diffs): REL-20261013-1423-compiler (spawn buffer arena escape
 xiom_guard_free -> alloc-guard-spin 1548-bindings-5). Verify when the
 stdlib pin carries them.
 
-Number from m292; ONE commit per batch (fix + fixtures + docs +
+Number from m296 (m293-m295 reserved by the in-flight fixer worktrees);
+ONE commit per batch (fix + fixtures + docs +
 COMPILER_BUGS section) + a relay fix-note with numeric/IR witnesses + a
 check-file row.
 
@@ -583,6 +598,11 @@ cargo builds (the main lane owns the target dir), scratch only under
 commit per batch, full battery). Integrate the topmost tractable diagnosis
 first; the two decision items (1548-stdlib-6 leg b, 1548-bindings-4) each
 have a precise attempt log in docs/failed_attempts.md.
+FIX WAVE (2026-10-13, owner-directed): fixers now run in isolated Agent
+Manager WORKTREES (m293-m295 branch seeds: packages-11, packages-9,
+stdlib-6 leg b) -- each fixes + tests in its own worktree and commits
+source+tests only; the main lane cherry-picks serially and owns
+docs/relay/CI rows + the final full battery.
 
 PARALLEL SELFHOST: phase-4 worktree (ses_eded8c4d8ffe) is idle and the
 sole writer there; sibling ses_ef8e3a27cffe stays idle. Prompt it only if
