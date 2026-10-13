@@ -15753,6 +15753,52 @@ RE-PROBE: REL-20261010-1549-packages-3 (whole-body unsafe return cast:
 both this build and m280 (e1207485) -- `whole=77 stmt=88`; the m280
 Copy-Out gate fixed it. Reporter can verify + close.
 
+---
+
+## 2026-10-13 -- FIXED (m282): fn-typed VALUE cast to a raw pointer handed over the closure ENV handle, not the raw code (thread/spawn batch: REL-20261011-2053-engine + REL-20261011-1627/1402-xvector)
+
+`xiom.thread.spawn[T]`: `let raw_fn = f as *UInt8;` then
+`xiom_thread_spawn_with_result(raw_fn, buf)`. Pre-fix the cast's
+pointer-target branch skipped the m277 env unwrap (it fired only for
+`f as Int`; `!target_is_pointer` gated it), so the cast inttoptr'd the
+two-word closure ENV handle. The runtime trampoline called the heap env
+address -> 0xC0000005 in the worker entry before the worker body ran
+(marks: "M2: spawn returned"; the same AV on v0.64.3 and v0.64.4).
+
+Proof chain on a current build: with the runtime trampoline instrumented,
+`[spawnwr] fn=` printed the malloc'd env handle; `fn[0]/fn[1]` read
+FP/register garbage; the worker never entered. After the fix the
+trampoline receives the raw `@work` code address (`fn[1]`) and the
+worker executes (`[trmpl] fn returned 42`).
+
+Fix: in the `Expr::As` pointer-target branch, an i64 slot that is
+XIOM-level fn/env-valued (`unwrap_fn_env_for_c`, m276's concrete-typed
+name veto included) now loads env field 1 before inttoptr -- same
+two-word layout as m277's C-boundary unpack. Plain Int-held pointer bits
+(`var h = buf as Int; h as *UInt8`) keep the BUG-32 inttoptr.
+
+EVIDENCE: fixture `tests/regression/m282_fn_env_raw_ptr/` (C `call6`
+invokes the pointer): pre-fix exit 2 (both param and local forms), post-fix
+exit 0; IR witness `getelementptr i64, i64* %env, i64 1` + `load i64` +
+`inttoptr` at both cast sites. LOCK: `ffi_fn_env_cast` CLI test (also
+asserts the field-1 load in IR; ci.yml front-locks).
+
+REMAINING BLOCKER for the full thread gate (filed separately): the
+worker now runs, but `xiom.thread.spawn` allocates its result buffer with
+`alloc.alloc` INSIDE the confined block, so it is guard-arena memory;
+the block exits (arena freed wholesale) before `join`, and the worker's
+write into the freed slab AVs / reads back garbage. Minimal witness:
+`get_ptr() { unsafe { let p = alloc.alloc(16); return p; } }` then a
+write through `p` after the block -- the slab is freed at block exit
+(`[gexit] freeing slab ... at ...`) and the later write is a UAF. The
+supported pattern is main-heap allocation outside the block
+(`escape_probe3`: `let p = alloc.alloc(16);` at top level survives
+confined-block exits; readback exact). The stdlib `spawn`/`join` need the
+buffer allocated outside the confined block (or a compiler-side
+Copy-Out for escaped raw pointers, which needs allocation-size tracking
+and is not part of this batch). Filed to the stdlib lane via relay with
+the exact proposed diff; the thread gate item stays open until then.
+
 
 
 

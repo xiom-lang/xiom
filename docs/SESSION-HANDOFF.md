@@ -45,6 +45,17 @@ CURRENT STATE (2026-10-13T16:40Z; read this before anything below):
     stmt=88`). Relay: item fixes 2051-bindings-2 / 0304-bindings /
     1548-bindings-2 / 1549-packages-3 + check rows (relay commit
     `438b714`).
+  - m282 (this session, thread/spawn batch) fn-typed VALUE cast to a
+    raw pointer (`f as *UInt8`, the `xiom.thread.spawn` line) handed
+    over the closure ENV handle instead of raw code -> worker-entry AV.
+    Fixed in the `Expr::As` pointer-target branch (env field-1 load;
+    m276 veto kept). Lock `ffi_fn_env_cast` + fixture
+    `m282_fn_env_raw_ptr` (pre-fix exit 2). New relay item filed for
+    the stdlib `spawn`/`join` guard-arena escape (buffer allocated
+    inside the confined block; the block frees the arena before join
+    -> UAF); the thread gate stays OPEN until the stdlib buffer moves
+    to main-heap allocation outside the block (proposed diff on the
+    bus).
   Do NOT push without owner authorization; the doorbell cron may push
   staged work -- check origin first.
 - Relay bus SHAs since the refresh: 82151ff (B-17/B-16), 0fd83fc (2230),

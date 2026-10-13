@@ -5141,7 +5141,22 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                 // q[0] read stack bytes).
                                 let loaded = self.fresh_tmp();
                                 self.emitln(&format!("  {loaded} = load {slot_ty}, {slot_ty}* {slot}"));
-                                self.emitln(&format!("  {ptr_reg} = inttoptr {slot_ty} {loaded} to {target_llvm_ty}"));
+                                // m282 (REL-20261011-2053-engine / 1627/1402-
+                                // xvector): a CLOSURE-ENV slot (`f: fn() -> T`)
+                                // cast to a raw pointer (`f as *UInt8`) must hand
+                                // over the RAW CODE, not the env handle -- the
+                                // runtime thread trampoline called the heap
+                                // env address and AV'd (0xC0000005). Same
+                                // two-word env as m277: field 1 = raw code.
+                                // m276's concrete-typing guard inside
+                                // unwrap_fn_env_for_c keeps plain pointer bits
+                                // (Int-held addresses) untouched.
+                                let loaded_src = if slot_ty == LLVM_I64 {
+                                    self.unwrap_fn_env_for_c(inner, loaded.clone())
+                                } else {
+                                    loaded.clone()
+                                };
+                                self.emitln(&format!("  {ptr_reg} = inttoptr {slot_ty} {loaded_src} to {target_llvm_ty}"));
                             }
                             return Ok((ptr_reg, target_llvm_ty.clone()));
                         }
