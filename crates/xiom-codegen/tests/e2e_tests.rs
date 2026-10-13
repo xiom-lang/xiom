@@ -7245,6 +7245,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// m288 (REL-20261010-1548-stdlib-4): `x.a@pre` on a &mut struct parameter
+// must read the ENTRY snapshot (the v0.64.4 archive aliased the
+// post-mutation value); enforcement verified live via a +5 mutated body.
+#[test] fn e2e_m288_mut_param_field_pre() {
+    assert_eq!(
+        compile_and_run("tests/regression/m288_mut_param_field_pre/main.xi"),
+        Some(0),
+        "&mut parameter field @pre must snapshot the entry value (m288)"
+    );
+}
+
 
 
 

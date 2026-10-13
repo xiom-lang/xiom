@@ -16038,3 +16038,21 @@ closure call. Witness rc 1 -> 0. LOCK:
 tests/regression/m287_tostring_import_adapters/ +
 `e2e_m287_tostring_import_adapters` (ci.yml e2e group 2). Battery green:
 e2e 16+179, front-locks, serial libs 199/12/36/79.
+
+---
+
+## 2026-10-13 -- LOCKED (m288): `@pre` on a `&mut` parameter's scalar field snapshots the entry value (REL-20261010-1548-stdlib-4)
+
+The filed witness reproduces RED on the archived v0.64.4 binary
+(`contract violated: ensures at 23:12`, rc 1 -- `x.a@pre` aliased the
+post-mutation field) and is GREEN at HEAD: the entry-snapshot behavior for
+`&mut`-parameter fields was fixed within the unpushed m276-m287 batch range
+(clause/entry-snapshot machinery; no single batch section claims it, so the
+fix rode along with a nearby change). Enforcement is verified LIVE at HEAD:
+mutating the body to `x.a = x.a + 5` still violates the clause at runtime
+(rc 1), so the green is NOT the m283-noted -O2 constant-fold pruning
+artifact (that finding remains open for constant-provable conditions).
+Self-field `@pre` on method receivers was already correct (R49/R51 work).
+LOCK: tests/regression/m288_mut_param_field_pre/ +
+`e2e_m288_mut_param_field_pre` (ci.yml e2e group 2). Battery green: e2e
+16+180, front-locks, serial libs 199/12/36/79.
