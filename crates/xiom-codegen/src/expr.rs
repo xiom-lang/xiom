@@ -106,8 +106,9 @@ impl IrEmitter {
     fn compile_empty_vec_for_field(&mut self, type_name: &str, field_idx: usize) -> Result<(String, String), String> {
         let elem_size: i64 = self.resolve_vec_field_elem_size(type_name, field_idx).unwrap_or(8);
         let initial_cap: i64 = 16;
+        // m296: floor the slot at 8 bytes (see vec_slot_size).
         let data_ptr = self.fresh_tmp();
-        self.emitln(&format!("  {data_ptr} = call i8* @malloc(i64 {})", initial_cap * elem_size));
+        self.emitln(&format!("  {data_ptr} = call i8* @malloc(i64 {})", initial_cap * Self::vec_slot_size(elem_size)));
         let ok = self.fresh_block("empty_vec_ok");
         let tr = self.fresh_block("empty_vec_trap");
         let nc = self.fresh_tmp();

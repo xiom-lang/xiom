@@ -1785,7 +1785,9 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 }
                             } else { 8 };
                             let initial_cap: i64 = 16;
-                            let alloc_size = initial_cap * elem_size;
+                            // m296: floor the slot at 8 bytes -- with_len's
+                            // zero-fill sizes by n * 8 (see vec_slot_size).
+                            let alloc_size = initial_cap * Self::vec_slot_size(elem_size);
                             let struct_alloca = self.fresh_tmp();
                             self.emitln(&format!("  {struct_alloca} = alloca %struct.Vec"));
                             let data_ptr = self.emit_alloc(&format!("{alloc_size}"));
@@ -1862,10 +1864,12 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     _ => self.vec_elem_storage_size(&type_name),
                                 }
                             } else { 8 };
+                            // m296: same 8-byte slot floor as Vec.new.
+                            let slot_size = Self::vec_slot_size(elem_size);
                             let struct_alloca = self.fresh_tmp();
                             self.emitln(&format!("  {struct_alloca} = alloca %struct.Vec"));
                             let alloc_size = self.fresh_tmp();
-                            self.emitln(&format!("  {alloc_size} = mul i64 {elem_size}, {cap_i64}"));
+                            self.emitln(&format!("  {alloc_size} = mul i64 {slot_size}, {cap_i64}"));
                             let data_ptr = self.emit_alloc(&alloc_size);
                             let null_check = self.fresh_tmp();
                             let ok_block = self.fresh_block("vec_wc_ok");

@@ -16293,6 +16293,31 @@ i64-address params stay outside the pointer-typed autoderef gate
 
 ---
 
+## 2026-10-13 -- FIXED (m296): Vec construction slots floor at 8 bytes -- with_len no longer overflows its sized buffer (REL-20261011-2320-bindings part 1)
+
+`Vec[UInt8].with_len(16)` zero-filled n * 8 = 128 bytes (the documented
+8-bytes-per-slot Vec contract), but every Vec construction site sized the
+buffer by cap * elem_size (16 x 1 = 16 bytes): ASAN reported WRITE of size
+128 at 0 bytes after a 16-byte region allocated by Vec.with_len_UInt8 --
+the STATUS_HEAP_CORRUPTION flakiness class the bindings lane hit in
+xiom.shaderc (pre-fix exit 1; post-fix exit 0, no report).
+
+Fix: Vec.new / with_capacity and the literal / field / array-bridge
+constructors now allocate `cap * max(elem_size, 8)` through the shared
+`vec_slot_size` helper; elements > 8 bytes keep their real size (m195);
+push growth stays element-sized (no *8-sized writer targets a push-grown
+buffer).
+
+IR witness: pre-fix `malloc(i64 16)` inside with_len_UInt8, post-fix
+`malloc(i64 128)`; the lock's IR twin asserts both directions. LOCK:
+tests/regression/m296_vec_with_len/ + `e2e_m296_vec_with_len` (ci.yml e2e
+group 2). Battery (fixer worktree): e2e 16+184, codegen 12,
+feature_regression 549, integration 130. Parts 2/3 of the item remain
+open (confined-call machinery vs foreign C++ exceptions; 4-segment const
+imports).
+
+---
+
 ## 2026-10-13 -- FIXED (m289): annotated `Slice[Int]` locals allocated an i64 slot holding the data pointer (REL-20261010-1548-stdlib-5)
 
 The item's two filed witness FILES were already green on the archived

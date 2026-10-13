@@ -399,7 +399,8 @@ impl IrEmitter {
                         })
                         .unwrap_or(8);
                     let initial_cap: i64 = 16;
-                    let alloc_size = initial_cap * elem_size;
+                    // m296: floor the slot at 8 bytes (see vec_slot_size).
+                    let alloc_size = initial_cap * Self::vec_slot_size(elem_size);
                     let struct_alloca = self.fresh_tmp();
                     self.emitln(&format!("  {struct_alloca} = alloca %struct.Vec"));
                     let data_ptr = self.fresh_tmp();
@@ -874,7 +875,7 @@ impl IrEmitter {
                     let struct_alloca = self.fresh_tmp();
                     self.emitln(&format!("  {struct_alloca} = alloca %struct.Vec"));
                     let data_ptr = self.fresh_tmp();
-                    self.emitln(&format!("  {data_ptr} = call i8* @malloc(i64 {})", initial_cap * elem_size));
+                    self.emitln(&format!("  {data_ptr} = call i8* @malloc(i64 {})", initial_cap * Self::vec_slot_size(elem_size)));
                     let null_check = self.fresh_tmp();
                     let ok_block = self.fresh_block("vec_var_ok");
                     let trap_block = self.fresh_block("vec_var_trap");

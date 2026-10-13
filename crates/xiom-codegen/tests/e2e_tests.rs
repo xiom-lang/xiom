@@ -7371,6 +7371,33 @@ fn e2e_safety_probe() {
     );
 }
 
+// m296 (REL-20261011-2320-bindings #1 HIGH): Vec[UInt8].with_len(n) is a
+// sized buffer under the documented 8-bytes-per-slot Vec contract -- the
+// stdlib zero-fill writes n * 8 bytes. The constructor used to allocate
+// cap * elem_size (16 bytes for Vec[UInt8]), so with_len(16) zero-filled
+// 128 bytes into a 16-byte region (ASAN: WRITE of size 128 past a 16-byte
+// region allocated by Vec.with_len_UInt8; the STATUS_HEAP_CORRUPTION
+// class). Construction buffers now floor the slot at 8 bytes
+// (vec_slot_size); the IR twin pins the slot-sized ctor deterministically
+// (pre-fix: malloc(i64 16), post-fix: malloc(i64 128)).
+#[test] fn e2e_m296_vec_with_len() {
+    assert_eq!(
+        compile_and_run("tests/regression/m296_vec_with_len/main.xi"),
+        Some(0),
+        "with_len sized buffers must be slot-sized and boundary-safe (m296)"
+    );
+    let ir = compile_ir("tests/regression/m296_vec_with_len/main.xi")
+        .expect("m296: fixture must emit IR");
+    assert!(
+        ir.contains("call i8* @malloc(i64 128)"),
+        "m296: the sized-buffer ctor must allocate 16 x 8-byte slots; got:\n{ir}"
+    );
+    assert!(
+        !ir.contains("@malloc(i64 16)"),
+        "m296: the raw element-size allocation must not appear; got:\n{ir}"
+    );
+}
+
 
 
 

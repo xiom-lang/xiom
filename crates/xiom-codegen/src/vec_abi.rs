@@ -643,7 +643,8 @@ impl IrEmitter {
             }
         };
         let initial_cap = n.max(16);
-        let alloc_size = initial_cap * elem_size;
+        // m296: floor the slot at 8 bytes (see vec_slot_size).
+        let alloc_size = initial_cap * Self::vec_slot_size(elem_size);
         // Allocate Vec struct on stack
         let vec_alloca = self.fresh_tmp();
         self.emitln(&format!("  {vec_alloca} = alloca %struct.Vec"));

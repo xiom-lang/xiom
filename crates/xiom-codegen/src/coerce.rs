@@ -443,7 +443,8 @@ impl IrEmitter {
         let src = self.fresh_tmp();
         self.emitln(&format!("  {src} = bitcast {elem_llvm}* {base} to i8*"));
         let data = self.fresh_tmp();
-        self.emitln(&format!("  {data} = call i8* @malloc(i64 {})", cap * elem_size));
+        // m296: floor the slot at 8 bytes (see vec_slot_size).
+        self.emitln(&format!("  {data} = call i8* @malloc(i64 {})", cap * Self::vec_slot_size(elem_size)));
         let null_check = self.fresh_tmp();
         let ok_block = self.fresh_block("arr2vec_ok");
         let trap_block = self.fresh_block("arr2vec_trap");
