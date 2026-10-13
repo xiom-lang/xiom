@@ -1116,6 +1116,15 @@ impl IrEmitter {
             Expr::Field(obj, _, _) | Expr::Ref(obj, _) => {
                 self.collect_ident_names(obj, out);
             }
+            // m284 (B-21 REL-20261011-2140-bindings): `&mut ident` was MISSING
+            // from this walk, so a confined block mutating an enclosing local
+            // (`set_pair(&mut q, ...)`) never captured `q`: the ctx struct was
+            // empty, the trampoline got `i8* null`, and the block fn emitted a
+            // FREE reference to the enclosing fn's driver temp (`use of
+            // undefined value '%tmp4'` at the struct load; clang exit 1).
+            Expr::MutRef(obj, _) => {
+                self.collect_ident_names(obj, out);
+            }
             Expr::Index(obj, index, _) => {
                 self.collect_ident_names(obj, out);
                 self.collect_ident_names(index, out);

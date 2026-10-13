@@ -7169,13 +7169,15 @@ BASELINE identically (B-007 closure layer -- unchanged).
 ### Round-6 findings (2026-08-19) -- compress validation + Result field reads
 
 - gzip_decompress([0,1,2]) returns Ok -- the validation reads (data.len() < 18, data[0] magic, trailer slices) miscompile for small inputs through the catalog (probe bi4: Err never fires; roundtrips of valid data pass). The bad-input smoke is correct (match-based) and blocked on this.
-- Generic Result/Option first-field reads (esult.is_ok) return the wrong slot through the catalog while match works (bi3) -- a field-read-on-erased-container shape for the compiler session.
+- Generic Result/Option first-field reads (
+esult.is_ok) return the wrong slot through the catalog while match works (bi3) -- a field-read-on-erased-container shape for the compiler session.
 ### Round-6 final finding (2026-08-19) -- Option[Str] payload construction
 
 - Path.file_name returns an EMPTY name: the loop logic is verified correct (user-space replicas pass), parent (Option[Path] struct payload) works after its prose-ensure removal, but the Some(str_slice(...)) Option[Str] POINTER-payload construction through the catalog mangles the payload. The ensure is NOT the cause (removal doesn't change it). A remaining Option[Str]/pointer-payload shape for the compiler session -- file_name/file_stem/extension families blocked.
 ### Round-7 findings (2026-08-19) -- inlined Vec.pop + match Option slot
 
-- Vec.pop on an EMPTY vec returns Some at runtime while the IR is fully correct (probe ve2: len==0 -> vec_pop_empty8 -> Option{tag=0,payload=0}; the match still takes the Some arm). pop on non-empty works; bare eturn None fns work; Vec.get's None works. The inlined-pop Option slot is misread by the subsequent match -- a slot-lifetime shape (single pop in the fn, probe ve2).
+- Vec.pop on an EMPTY vec returns Some at runtime while the IR is fully correct (probe ve2: len==0 -> vec_pop_empty8 -> Option{tag=0,payload=0}; the match still takes the Some arm). pop on non-empty works; bare 
+eturn None fns work; Vec.get's None works. The inlined-pop Option slot is misread by the subsequent match -- a slot-lifetime shape (single pop in the fn, probe ve2).
 - Also logged: the char smoke failures were NOT multi-match slot reuse -- they were to_digit's redundant requires trapping (fixed stdlib-side, commit above).
 ### Round-11 findings FIXED (2026-08-20) -- B-007 closures (fn-typed params)
 
@@ -8064,7 +8066,8 @@ the stdlib iter API -- planned feature gap).
 - **Impact:** the closure-based iter adapters (stdlib build) are blocked until the env naming dedups (reuse the first definition) or keys by site.
 ### Round-13 follow-ups (2026-08-21) -- closure-env mutation + cmp_by residual
 
-- The closure-based iter adapters' Range.count/fold HANG (smoke_iter_count/smoke_iter_fold): the next-closure captures the Range by value; .next() inside the closure does NOT advance the env's copy (the implicit-self mutation doesn't wire through the closure env) -> infinite loop. Map/filter crash 0xC000001D + take/chain/pipeline fail at the env-struct redefinition (previous note) -- the whole env-in-catalog family.
+- The closure-based iter adapters' Range.count/fold HANG (smoke_iter_count/smoke_iter_fold): the next-closure captures the Range by value; 
+.next() inside the closure does NOT advance the env's copy (the implicit-self mutation doesn't wire through the closure env) -> infinite loop. Map/filter crash 0xC000001D + take/chain/pipeline fail at the env-struct redefinition (previous note) -- the whole env-in-catalog family.
 - cmp_by STILL exits 1 here despite the round-12 battery claim (fn(&T,&T) -> Ordering closure returns the wrong Ordering; cb2 probe) -- the enum-variant receiver fix covered cmp.Less.reverse() but not the comparator closure's Ordering return through min_by.
 ### BUG 53 - &[N]T param element access emits invalid GEP -- read FIXED (9757e864) + WRITE facet FIXED (round-3 commit)
 
@@ -15917,3 +15920,22 @@ Two candidate-closing fixes in one batch.
 
 
 
+
+---
+
+## 2026-10-13 -- FIXED (m284): `&mut local` inside a confined block was not captured (B-21 REL-20261011-2140-bindings)
+
+`var q = make_pair(); unsafe { set_pair(&mut q, 7, 9); }` aborted clang
+with `use of undefined value '%tmp4'` at the struct load. Root cause:
+`collect_ident_names` (the unsafe-block free-variable walk) handled `Ref`
+but had NO `Expr::MutRef` arm, so `&mut q` never contributed `q` to the
+capture set -- the ctx struct stayed empty, the trampoline got `i8* null`,
+and the block fn referenced the ENCLOSING fn's driver temp (`%tmp4` is
+`q`'s alloca in `main`; block temps restart at `unsafe_id*1000`, so the
+name was free). Bisect from the item held: literal init green (the alloca
+is bound in the block? no -- it also captures, but the name resolved),
+struct-return init and `r.value` payload extraction both red. Fix: add
+`Expr::MutRef` to the walk. Witness: `q=7,9 lit=5,6 failures=0`, exit 0
+(was clang exit 1). LOCK: tests/regression/m284_mut_of_struct_return/ +
+`e2e_m284_mut_of_struct_return` (ci.yml e2e group 2). Battery green: e2e
+16+174, front-locks, serial libs 199/36/79.

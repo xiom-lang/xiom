@@ -6533,6 +6533,20 @@ fn e2e_safety_probe() {
     );
 }
 
+// m284 (REL-20261011-2140-bindings B-21): `&mut` of a var initialized from a
+// struct-returning call (direct or Result-payload extraction) crashed codegen
+// with `use of undefined value '%tmp4'` -- `collect_ident_names` had no
+// `Expr::MutRef` arm, so the confined block never captured the local and the
+// block fn referenced the enclosing fn's driver temp. Literal-init control
+// and the payload-extraction variant both lock here.
+#[test] fn e2e_m284_mut_of_struct_return() {
+    assert_eq!(
+        compile_and_run("tests/regression/m284_mut_of_struct_return/main.xi"),
+        Some(0),
+        "&mut of a struct-returning call init must capture the local (m284)"
+    );
+}
+
 // m278 (REL-20261011-2137-engine): two modules declare a same-named type
 // (`Mesh`) with different layouts; the entry file's imports must decide
 // which one its bare references use. Stands in for the engine module-root
