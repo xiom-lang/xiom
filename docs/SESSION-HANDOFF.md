@@ -2,82 +2,6 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
 # Session Handoff -- 2026-10-13 (compiler lane; v0.64.4 SHIPPED; v0.64.5 batches m276-m284 landed)
 
-## 0. Continuation prompt (paste into a fresh session)
-
-```
-Session: XIOM compiler lane (E:\xiom-lang\xiom), continuing the v0.64.5
-program after the candidate-closing batches m276-m284. Read
-docs/SESSION-HANDOFF.md FIRST (CURRENT STATE block at the top, the ops
-lessons, and the remaining-queue list); consult docs/RUSTC-STUDY.md +
-docs/rustc-study/ for reference patterns; rustc source is E:\repos\rust
-(READ-ONLY; no git writes there).
-
-STATE: v0.64.4 released (df493530) and verified. Git: origin/main =
-91860f11 (fetch first -- the doorbell may push staged work). Local main =
-c7df463f, AHEAD by 17 unpushed commits (m276-m284 + docs); do NOT push
-without the owner's authorization. Relay bus: latest compiler commits
-fbda2a7/7aa7bfa/da3160b/61dfda8; the check file
-release-checks/compiler-compiler-v0.64.4.md is the candidate record.
-
-CLOSED this program (reporter re-verify at the next archive): T1-T3,
-B-17+B-16, B-23+B-24, B-11+B-20 readback family, 1549-packages-3, B-25,
-B-26, B-21, 1549-packages-8 (contract cycles), 1549-stdlib-6 (cross-
-platform verified), 1358-orbitdb (not a compiler bug -- xiom-dbg binary
-confusion diagnosed).
-
-NEXT -- work the remaining queue in this order (witness-first triage for
-each; see the check file + the bus for details):
-1. borrow/codegen: 1549-stdlib-5 (HIGH, &Vec shape mismatch), 1549-stdlib-7
-   (HIGH, cross-type generic callback), 1548-stdlib-3 (HIGH, tostring
-   poisons closure dispatch), 1548-bindings-4, 1548-stdlib-4/5/6/7,
-   1549-packages-10/11/12, 1549-stdlib-2/3/4.
-2. resolver/checker: 1549-packages-9 (HIGH, bare &mut Int), 1956-orbitdb
-   (same-named types, m278-class), 1550-orbitdb-2, 1709-xvector.
-3. allocator/runtime: 2320-bindings #1 (HIGH, Vec[UInt8].with_len HBO),
-   2320 #2/#3; 2032 is a memory-model owner decision (no code work).
-4. contracts/clauses: 1549-packages-2 (fs_read false contract),
-   1549-stdlib-4 (clause-index Float64 reads), 1548-stdlib-7; the -O2
-   constant-fold pruning finding needs a no-fold barrier.
-5. runtime/misc: 1615-stdlib (HIGH SIGILL), 1659-orbitdb (Vec copy alias),
-   1219-orbitdb PART A, 1324-selfhost, 1553-playground-2, 1554-playground.
-6. tooling/registry: 1548-registry-2, 1549-registry/2/3, 1549-packages-5/7.
-7. macOS typed-memset (1549-pulse + 1609-pulse) needs a NEW archive first.
-Also: sweep stale check-file rows (items fixed in m276-m284 still show
-acked/red) when convenient.
-
-Also pending from the compiler side (blocked on the stdlib lane; items
-filed with diffs): REL-20261013-1423-compiler (spawn buffer arena escape
--> thread gate 2053/1627/1402) and REL-20261013-1445-compiler (arena-aware
-xiom_guard_free -> alloc-guard-spin 1548-bindings-5). Verify when the
-stdlib pin carries them.
-
-Number from m285; ONE commit per batch (fix + fixtures + docs +
-COMPILER_BUGS section) + a relay fix-note with numeric/IR witnesses + a
-check-file row.
-
-RULES: reproduce from the item's witness before touching code; battery =
-e2e g1/g2 filters at ci.yml lines 152/153 + the front-locks CLI list
-(incl. ffi_ptr_arith/ffi_ptr_slot_readback/null_literal_marshal/
-ffi_fn_env_cast) + xiom-check --lib -- --test-threads=1 + xiom-codegen +
-xiom-graph + xiom-pkg; A/B with the PINNED stdlib by setting
-XIOM_STDLIB=E:\xiom-lang\xiom\stdlib explicitly (exe-ancestor order
-otherwise picks the live tree and can mix module bodies across trees);
-capture compiler output to files; relay notes must be quote-free
-(PS->python argv); use cargo --manifest-path when the shell sits outside
-the repo; fixture convention = pure-XIOM -> e2e fixture + ci group 2,
---c-source shapes -> crates/xiom/tests CLI test; edit markdown with the
-edit tool or Python (PowerShell text appends convert line endings and
-produce whole-file diffs -- verify git show --numstat before committing);
-WSL checks run the Windows compiler with Windows-style paths and link
-Linux binaries; do not gate on xiom-dbg (DAP adapter, exits 0); house
-voice; ASCII; never push without owner authorization.
-
-PARALLEL SELFHOST: phase-4 worktree (ses_eded8c4d8ffe) is idle and the
-sole writer there; sibling ses_ef8e3a27cffe stays idle. Prompt it only if
-it needs to continue docs/checklists/selfhost-phase6.md on the current
-main (post-m284).
-```
-
 This file captures state for continuing the compiler lane in a fresh
 session. Read this FIRST, then `docs/RUSTC-STUDY.md` + the relevant
 `docs/rustc-study/*` area doc. rustc reference source: `E:\repos\rust`
@@ -93,7 +17,8 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
 
 - origin/main = `91860f11` (fetch before trusting -- the doorbell may push
-  staged work). Local main = `c7df463f`, **AHEAD by 17 unpushed commits**:
+  staged work). Local main = the latest commit (see git log), AHEAD by ~19
+  unpushed commits (exact: `git rev-list --count origin/main..HEAD`):
   `633ee65b`+`dc3a0102` (v0.64.5 plan/refresh docs) + m276..m284 + handoff
   follow-ups. Do NOT push without the owner's authorization.
 - v0.64.5 batches m276-m284 (commit -> scope; all relayed):
@@ -485,55 +410,80 @@ NEW (2026-10-13, v0.64.5 triage + FFI batches):
 
 ## 7. m-numbering
 
-- m261-m281 LANDED; **next free is m282**.
+- m261-m284 LANDED; **next free is m285**.
 
 ## 8. CONTINUATION PROMPT (paste into a fresh session)
 
 ```
-Session: XIOM compiler lane (E:\xiom-lang\xiom), starting the v0.64.5
-program after the v0.64.4 release. Read docs/SESSION-HANDOFF.md FIRST
-(state, the v0.64.5 plan in section 1c, verification commands, ops rules);
-consult docs/RUSTC-STUDY.md + docs/rustc-study/ for reference patterns;
-rustc source is E:\repos\rust (READ-ONLY; no git writes there).
+Session: XIOM compiler lane (E:\xiom-lang\xiom), continuing the v0.64.5
+program after the candidate-closing batches m276-m284. Read
+docs/SESSION-HANDOFF.md FIRST (CURRENT STATE block at the top, the ops
+lessons, and the remaining-queue list); consult docs/RUSTC-STUDY.md +
+docs/rustc-study/ for reference patterns; rustc source is E:\repos\rust
+(READ-ONLY; no git writes there).
 
-STATE: v0.64.4 is RELEASED (tag v0.64.4 on df493530; release run
-38256358845 GREEN; assets live) and the verdict wave landed
-(release-checks/compiler-compiler-v0.64.4.md in E:\xiom-lang\xiom-relays;
-~35 rows still open). Git: origin/main = 91860f11; local main has ONE docs
-commit on top (633ee65b, the v0.64.5 plan). Do NOT push without the
-owner's authorization; fetch and check origin first (the doorbell cron
-may push staged work).
+STATE: v0.64.4 released (df493530) and verified. Git: origin/main =
+91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~19 unpushed
+commits (m276-m284 + docs); do NOT push
+without the owner's authorization. Relay bus: latest compiler commits
+fbda2a7/7aa7bfa/da3160b/61dfda8; the check file
+release-checks/compiler-compiler-v0.64.4.md is the candidate record.
 
-NEXT -- v0.64.5 per handoff section 1c. TRIAGE FIRST:
-T1 REL-20261012-1418-pulse: kv-mode PULSE exits 0 silently on v0.64.4
-(jsonl fine; v0.64.3 control green; repro docs/repro/kv-hang-0644/ in
-E:\xiom-projects\xiom-pulse) -- treat as a wave regression, bisect the
-diff if needed;
-T2 REL-20261012-1630-bindings B-22: fn-typed PARAM at a cast-call
-argument position marshals to 0 -- fire the env->code unwrap at cast-call
-arg positions + parse nested fn types (REL-20261012-1403-packages);
-unblocks the glfw 0.6.0 direct handoff; completes the B-13 family;
-T3 REL-20261011-2137-engine: module-root rename AV (rt/ zz/ runtime/
-Runtime/ crash; engine/ passes) -- name-dependent codegen.
-Then the themed batches (section 1c): FFI pointer; thread/spawn runtime;
-allocator/runtime; borrow/codegen; resolver/checker; contracts/clauses;
-tooling/registry; macOS typed-memset. Number from m276; ONE commit per
-batch (fix + fixtures + docs + COMPILER_BUGS section) + a relay fix-note
-with numeric/IR witnesses; reproduce from the item's witness before
-touching code; run the full battery for gate-class changes.
+CLOSED this program (reporter re-verify at the next archive): T1-T3,
+B-17+B-16, B-23+B-24, B-11+B-20 readback family, 1549-packages-3, B-25,
+B-26, B-21, 1549-packages-8 (contract cycles), 1549-stdlib-6 (cross-
+platform verified), 1358-orbitdb (not a compiler bug -- xiom-dbg binary
+confusion diagnosed).
 
-PARALLEL SELFHOST: phase 6 in .kilo/worktrees/selfhost-phase-4-codegen
-(session ses_eded8c4d8ffeMNzBsYzBYIgAO8; last known T6 4/64, P1 remainder
-next). Check with agent_manager list; if idle, prompt it to continue per
-docs/checklists/selfhost-phase6.md, rebase onto the newest LOCAL main
-before full parity runs; it is the sole writer of that worktree (sibling
-ses_ef8e3a27cffeKY1Sz63tGGas2t stays idle).
+NEXT -- work the remaining queue in this order (witness-first triage for
+each; see the check file + the bus for details):
+1. borrow/codegen: 1549-stdlib-5 (HIGH, &Vec shape mismatch), 1549-stdlib-7
+   (HIGH, cross-type generic callback), 1548-stdlib-3 (HIGH, tostring
+   poisons closure dispatch), 1548-bindings-4, 1548-stdlib-4/5/6/7,
+   1549-packages-10/11/12, 1549-stdlib-2/3/4.
+2. resolver/checker: 1549-packages-9 (HIGH, bare &mut Int), 1956-orbitdb
+   (same-named types, m278-class), 1550-orbitdb-2, 1709-xvector.
+3. allocator/runtime: 2320-bindings #1 (HIGH, Vec[UInt8].with_len HBO),
+   2320 #2/#3; 2032 is a memory-model owner decision (no code work).
+4. contracts/clauses: 1549-packages-2 (fs_read false contract),
+   1549-stdlib-4 (clause-index Float64 reads), 1548-stdlib-7; the -O2
+   constant-fold pruning finding needs a no-fold barrier.
+5. runtime/misc: 1615-stdlib (HIGH SIGILL), 1659-orbitdb (Vec copy alias),
+   1219-orbitdb PART A, 1324-selfhost, 1553-playground-2, 1554-playground.
+6. tooling/registry: 1548-registry-2, 1549-registry/2/3, 1549-packages-5/7.
+7. macOS typed-memset (1549-pulse + 1609-pulse) needs a NEW archive first.
+Also: sweep stale check-file rows (items fixed in m276-m284 still show
+acked/red) when convenient.
 
-RULES: workarounds stay until each fix ships and is re-verified from its
-witness; ONE commit per batch; never push without owner authorization;
-house voice; ASCII only; no destructive toolchain tests; compiler output
--> capture to a file, never pipe into Select-Object -First; A/B with the
-PINNED stdlib (E:\xiom-lang\xiom\stdlib, a git worktree pinned at 3df0843;
-unset XIOM_STDLIB); gh CLI is available for run/release inspection; the
-heavy-suites scheduled workflow is pre-existing broken (ignore it).
+Also pending from the compiler side (blocked on the stdlib lane; items
+filed with diffs): REL-20261013-1423-compiler (spawn buffer arena escape
+-> thread gate 2053/1627/1402) and REL-20261013-1445-compiler (arena-aware
+xiom_guard_free -> alloc-guard-spin 1548-bindings-5). Verify when the
+stdlib pin carries them.
+
+Number from m285; ONE commit per batch (fix + fixtures + docs +
+COMPILER_BUGS section) + a relay fix-note with numeric/IR witnesses + a
+check-file row.
+
+RULES: reproduce from the item's witness before touching code; battery =
+e2e g1/g2 filters at ci.yml lines 152/153 + the front-locks CLI list
+(incl. ffi_ptr_arith/ffi_ptr_slot_readback/null_literal_marshal/
+ffi_fn_env_cast) + xiom-check --lib -- --test-threads=1 + xiom-codegen +
+xiom-graph + xiom-pkg; A/B with the PINNED stdlib by setting
+XIOM_STDLIB=E:\xiom-lang\xiom\stdlib explicitly (exe-ancestor order
+otherwise picks the live tree and can mix module bodies across trees);
+capture compiler output to files; relay notes must be quote-free
+(PS->python argv); use cargo --manifest-path when the shell sits outside
+the repo; fixture convention = pure-XIOM -> e2e fixture + ci group 2,
+--c-source shapes -> crates/xiom/tests CLI test; edit markdown with the
+edit tool or Python (PowerShell text appends convert line endings and
+produce whole-file diffs -- verify git show --numstat before committing);
+WSL checks run the Windows compiler with Windows-style paths and link
+Linux binaries; do not gate on xiom-dbg (DAP adapter, exits 0); house
+voice; ASCII; never push without owner authorization.
+
+PARALLEL SELFHOST: phase-4 worktree (ses_eded8c4d8ffe) is idle and the
+sole writer there; sibling ses_ef8e3a27cffe stays idle. Prompt it only if
+it needs to continue docs/checklists/selfhost-phase6.md on the current
+main (post-m284).
 ```
