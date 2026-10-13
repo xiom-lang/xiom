@@ -6492,6 +6492,18 @@ fn e2e_safety_probe() {
 // literal -> 9.8e-45 before; the write-side sibling of the m260 read fix).
 // Covers local Vecs, a struct Vec[Float32] field and the Vec[Float64]
 // Int-literal widening; variable/push/f64-slot controls stay green.
+// m280 (REL-20261011-2230-bindings): an outbound Int->ptr cast across a
+// whole-body unsafe return must keep the pointer (the Copy-Out Str-copied
+// the *UInt8 tail), and a Vec[Str] element read off a temporary must
+// concatenate as a string (the concat verdict printed the raw pointer).
+#[test] fn e2e_m280_unsafe_ptr_temp_str() {
+    assert_eq!(
+        compile_and_run("tests/regression/m280_unsafe_ptr_temp_str/main.xi"),
+        Some(0),
+        "unsafe ptr return + temporary Vec[Str] element (m280)"
+    );
+}
+
 // m278 (REL-20261011-2137-engine): two modules declare a same-named type
 // (`Mesh`) with different layouts; the entry file's imports must decide
 // which one its bare references use. Stands in for the engine module-root

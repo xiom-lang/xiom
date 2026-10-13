@@ -1137,6 +1137,18 @@ impl IrEmitter {
                 let inner_vt = self.vec_value_xiom_type(inner)?;
                 Self::element_of_container_type(&inner_vt)
             }
+            // m280 (REL-20261011-2230-bindings): an element read off a
+            // TEMPORARY (`tmp_vec()[1]`) -- resolve the call's return type so
+            // the concat verdict sees the element class (Str), instead of the
+            // i64 scalar fallback that formatted the raw pointer as digits.
+            Expr::Call(..) | Expr::GenericCall(..) => {
+                let rt = self.infer_call_return_xiom(e)?;
+                if rt.starts_with("Vec[") || rt.starts_with("Slice[") || rt.starts_with("Array[") {
+                    Some(rt)
+                } else {
+                    None
+                }
+            }
             _ => None,
         }
     }

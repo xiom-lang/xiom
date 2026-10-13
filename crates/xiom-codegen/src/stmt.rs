@@ -1535,7 +1535,13 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     // + disarm the stack guard page -- the block-exit emission
                     // after the tail loop is skipped for early returns.
                     if self.guard_heap_depth > 0 {
-                        if val_ty == LLVM_STR_PTR {
+                        // m280 (REL-20261011-2230-bindings): a RAW POINTER tail
+                        // (`a as *UInt8`) is also i8* at the ABI but must NOT
+                        // be Str-copied -- copy_str returned a fresh buffer,
+                        // so the caller saw a wild address (the outbound
+                        // Int->ptr-across-return finding; same class as
+                        // REL-20261010-1549-packages-3's null).
+                        if val_ty == LLVM_STR_PTR && !self.expr_is_pointer(e) {
                             let copy_tmp = self.fresh_tmp();
                             self.emitln(&format!("  {copy_tmp} = call i8* @xiom_guard_copy_str(i8* {val})"));
                             let not_null = self.fresh_tmp();

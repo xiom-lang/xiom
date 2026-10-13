@@ -5405,19 +5405,20 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     self.in_unsafe_block_fn = false;
                     let mut last = String::new();
                     let mut last_ty = String::new();
+                    let mut last_expr: Option<&xiom_ast::Expr> = None;
                     let n = block.stmts.len();
                     for (i, item) in block.stmts.iter().enumerate() {
                         let is_last = i + 1 == n;
                         match item {
                             xiom_ast::StmtOrExpr::Expr(e) => {
                                 let (v, vt) = self.compile_expr(e)?;
-                                if is_last { last = v; last_ty = vt; }
+                                if is_last { last = v; last_ty = vt; last_expr = Some(e); }
                             }
                             xiom_ast::StmtOrExpr::Stmt(s) => {
                                 if is_last {
                                     if let Stmt::Expr(e, ..) = s {
                                         let (v, vt) = self.compile_expr(e)?;
-                                        last = v; last_ty = vt;
+                                        last = v; last_ty = vt; last_expr = Some(e);
                                     } else {
                                         self.compile_stmt(s)?;
                                     }
@@ -5434,8 +5435,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     }
                     self.guard_heap_depth -= 1;
                     // Copy-Out a Str tail (the outer block's arena reset would
-                    // otherwise UAF it).
-                    if last_ty == LLVM_STR_PTR {
+                    // otherwise UAF it). m280: a raw pointer tail is also i8*
+                    // but must pass through untouched.
+                    if last_ty == LLVM_STR_PTR && !last_expr.map_or(false, |e| self.expr_is_pointer(e)) {
                         let copy_tmp = self.fresh_tmp();
                         self.emitln(&format!("  {copy_tmp} = call i8* @xiom_guard_copy_str(i8* {last})"));
                         let not_null = self.fresh_tmp();
@@ -5561,6 +5563,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // Compile every statement; the block's value is its tail.
                 let mut last = String::new();
                 let mut last_ty = String::new();
+                let mut last_expr: Option<&xiom_ast::Expr> = None;
                 let mut block_ends_in_return = false;
                 let n = block.stmts.len();
                 for (i, item) in block.stmts.iter().enumerate() {
@@ -5571,6 +5574,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             if is_last {
                                 last = v;
                                 last_ty = vt;
+                                last_expr = Some(e);
                             }
                         }
                         xiom_ast::StmtOrExpr::Stmt(s) => {
@@ -5579,6 +5583,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                     let (v, vt) = self.compile_expr(e)?;
                                     last = v;
                                     last_ty = vt;
+                                    last_expr = Some(e);
                                 } else {
                                     if matches!(s, Stmt::Return(..)) { block_ends_in_return = true; }
                                     self.compile_stmt(s)?;
@@ -5607,8 +5612,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // ABI). Do NOT emit a second dead tail here.
                 if !self.current_block_terminated() {
                     // Copy-Out (requirement i, UAF fix): promote a Str tail to
-                    // the main heap BEFORE the arena resets.
-                    if last_ty == LLVM_STR_PTR {
+                    // the main heap BEFORE the arena resets. m280: a raw
+                    // pointer tail (also i8*) must pass through untouched.
+                    if last_ty == LLVM_STR_PTR && !last_expr.map_or(false, |e| self.expr_is_pointer(e)) {
                         let copy_tmp = self.fresh_tmp();
                         self.emitln(&format!("  {copy_tmp} = call i8* @xiom_guard_copy_str(i8* {last})"));
                         let not_null = self.fresh_tmp();

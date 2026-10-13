@@ -126,13 +126,13 @@ TRIAGE FIRST (P0):
   `tests/regression/m278_type_name_collision/`.
 
 THEMED BATCHES (m-numbering assigned as they land; one commit per batch):
-- FFI pointer: B-16/B-17 DONE (m279: the as_ptr/as_mut_ptr builtin had no
-  type inference -- `*T + Int` lowered as Str concat; inference + a
-  call-arm in expr_is_pointer + a generic-method return resolver; witness
-  ptr-arith deltas exact + ptr_write_sum=66; lock ffi_ptr_arith). Remaining
-  in this batch: 2230 (Int->ptr across a fn return; Vec[Str] temporary
-  element -- both reproduced 2026-10-13, queued), B-11/0304/1548-bindings-2
-  (out-param recycling / foreign buffer -- not yet triaged).
+- FFI pointer: B-16/B-17 DONE (m279) and 2230 DONE (m280: unsafe Copy-Out
+  Str-copied raw-pointer returns -> gated on !expr_is_pointer at all three
+  sites; temporary Vec[Str] element concat -> vec_value_xiom_type Call arm;
+  lock e2e_m280_unsafe_ptr_temp_str). Remaining in this batch:
+  B-11/0304/1548-bindings-2 (out-param recycling / foreign buffer -- not yet
+  triaged) and B-23/B-24 (REL-20261012-2051-bindings-2: null literal to C;
+  ffi out-slot reads after a C write).
 - Thread/spawn runtime: 1627/1402-xvector + 2053-engine (fn-value runtime
   entrypoint AV; marshal half fixed at v0.64.4).
 - Allocator/runtime: 2032-engine (Vec drop leak), 2320#1 (with_len HBO,
@@ -257,7 +257,7 @@ verdict (the check file is the source of truth). Nothing else pending.
 
 ## 7. m-numbering
 
-- m261-m279 LANDED; **next free is m280**.
+- m261-m280 LANDED; **next free is m281**.
 
 ## 8. CONTINUATION PROMPT (paste into a fresh session)
 

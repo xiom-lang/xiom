@@ -15655,6 +15655,35 @@ fails=7 / ptr_write_sum=11; post-fix exit 0). 2230 (Int->ptr across a fn
 return; Vec[Str] temporary element) reproduced on both builds and queued
 as the next batch; B-11/0304 out-param recycling still to triage.
 
+---
+
+## 2026-10-13 -- FIXED (m280): unsafe Copy-Out Str-copied raw pointer returns + temporary Vec[Str] element formatted as an int (REL-20261011-2230-bindings)
+
+Second batch of the FFI-pointer work (the SDK100 wave-1 candidates).
+
+1. Outbound Int->ptr across a whole-body unsafe return: `fn f(a: Int) ->
+   *UInt8 { unsafe { return a as *UInt8; } }` returned a WILD address
+   (callers saw `p - a` in the millions; the C side rejected it). IR
+   witness: the return emitted `xiom_guard_copy_str(inttoptr a)` and
+   returned the FRESH buffer -- the confined-block Copy-Out guards gated
+   on `val_ty == LLVM_STR_PTR` alone, and a `*UInt8` is also i8*. Fixed
+   at all three Copy-Out sites (stmt.rs return-inside-block; expr.rs
+   nested unsafe tail; expr.rs block-fn tail): the Str-copy now also
+   requires `!expr_is_pointer(tail)`.
+
+2. `Vec[Str]` element read off a TEMPORARY concatenated as the raw
+   pointer: `tmp_vec()[1] + "!"` printed `1406...069!`. The concat
+   verdict's `vec_value_xiom_type` had no Call arm, so the element class
+   fell to the i64 scalar fallback and `xiom_int_to_string` formatted the
+   pointer bits. Fixed: resolve the call's return type through
+   `infer_call_return_xiom` (Vec/Slice/Array containers).
+
+EVIDENCE: probe -> returned_delta=0 (was wild) and tmp_elem=beta! (was
+pointer digits). LOCK: tests/regression/m280_unsafe_ptr_temp_str/ +
+`e2e_m280_unsafe_ptr_temp_str` (pre-fix fails=2; post-fix exit 0;
+ci.yml e2e group 2). Same-class follow-up to re-probe:
+REL-20261010-1549-packages-3 (whole-body unsafe return cast to null).
+
 
 
 
