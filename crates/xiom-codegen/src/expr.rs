@@ -2353,6 +2353,79 @@ impl IrEmitter {
                 self.local.in_imply_lhs = true;
                 let (l, lt) = self.compile_expr(left)?;
                 self.local.in_imply_lhs = saved_imply_lhs;
+                // m291 (REL-20261010-1548-stdlib-7): the GUARD form
+                // `(result.is_ok == true) => result.len() == ...` must rebind
+                // `result` to the Ok/SOME payload exactly like the canonical
+                // `result is Ok => ...` form (the Is-path bare rebind below).
+                // Without it the consequence's `result.len()` compiled against
+                // the unbound Result (a stubbed `@Result.len` returning 0,
+                // W005) and the clause aborted at runtime on structurally-true
+                // ensures. Detect the guard shape and emit the same hoisted
+                // payload rebind (idx 1 for is_ok/is_some, 2 for is_err).
+                {
+                    let mut lw: &Expr = left;
+                    while let Expr::Paren(inner, _) = lw { lw = inner; }
+                    let guard = match lw {
+                        Expr::Binary(bl, bop, br, _) if *bop == BinOp::Eq => {
+                            let rhs_true = matches!(br.as_ref(), Expr::Bool(true, _));
+                            let lhs_true = matches!(bl.as_ref(), Expr::Bool(true, _));
+                            let field = if rhs_true {
+                                Some(bl.as_ref())
+                            } else if lhs_true {
+                                Some(br.as_ref())
+                            } else {
+                                None
+                            };
+                            field.and_then(|f| {
+                                let mut fw: &Expr = f;
+                                while let Expr::Paren(inner, _) = fw { fw = inner; }
+                                if let Expr::Field(obj, fname, _) = fw {
+                                    match fname.name.as_str() {
+                                        "is_ok" | "is_err" | "is_some" => Some((obj.as_ref(), fname.name.as_str())),
+                                        _ => None,
+                                    }
+                                } else {
+                                    None
+                                }
+                            })
+                        }
+                        _ => None,
+                    };
+                    if let Some((obj, kind)) = guard {
+                        let mut ow: &Expr = obj;
+                        while let Expr::Paren(inner, _) = ow { ow = inner; }
+                        if let Expr::Ident(sid) = ow {
+                            if let Ok((val, ty)) = self.compile_expr(obj) {
+                                if ty.starts_with("%struct.") {
+                                    let alloca = self.fresh_tmp();
+                                    self.emitln(&format!("  {alloca} = alloca {ty}"));
+                                    self.emitln(&format!("  store {ty} {val}, {ty}* {alloca}"));
+                                    let payload_idx = if kind == "is_err" { 2 } else { 1 };
+                                    let payload_gep = self.fresh_tmp();
+                                    self.emitln(&format!("  {payload_gep} = getelementptr {ty}, {ty}* {alloca}, i32 0, i32 {payload_idx}"));
+                                    let payload_loaded = self.fresh_tmp();
+                                    self.emitln(&format!("  {payload_loaded} = load i64, i64* {payload_gep}"));
+                                    let inner_alloca = self.fresh_tmp();
+                                    // BUG 30: hoist -- the guard and the
+                                    // consequence may be in different blocks.
+                                    self.local.hoisted_allocas.push((inner_alloca.clone(), "i64".to_string()));
+                                    self.emitln(&format!("  store i64 {payload_loaded}, i64* {inner_alloca}"));
+                                    let sid_clone = sid.clone();
+                                    self.add_local(&sid.name, inner_alloca, "i64");
+                                    let sp = sid_clone.span.clone();
+                                    let pat = if kind == "is_err" {
+                                        xiom_ast::Pattern::Err(Box::new(xiom_ast::Pattern::Wildcard(sp)), sid_clone.span.clone())
+                                    } else if kind == "is_some" {
+                                        xiom_ast::Pattern::Some(Box::new(xiom_ast::Pattern::Wildcard(sid_clone.span.clone())), sid_clone.span.clone())
+                                    } else {
+                                        xiom_ast::Pattern::Ok(Box::new(xiom_ast::Pattern::Wildcard(sid_clone.span.clone())), sid_clone.span.clone())
+                                    };
+                                    self.bind_is_payload_xiom(ow, &pat, &sid_clone);
+                                }
+                            }
+                        }
+                    }
+                }
                 // bi4 fix (2026-08-19): SHORT-CIRCUIT the consequence.
                 // The old code compiled the right side unconditionally and
                 // masked it with `or (!l, r)` -- for an Err result the

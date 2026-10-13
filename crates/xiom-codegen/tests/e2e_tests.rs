@@ -7279,6 +7279,19 @@ fn e2e_safety_probe() {
     );
 }
 
+// m291 (REL-20261010-1548-stdlib-7): the guard-form implication
+// `(result.is_ok == true) => result.len() == ...` must rebind the payload
+// like `result is Ok =>`; also the contract re-entrancy guard must not skip
+// the outermost check (enforcement live -- the negative twin is the
+// checker_locks m291_contract_enforcement_live test).
+#[test] fn e2e_m291_ensures_isok_guard() {
+    assert_eq!(
+        compile_and_run("tests/regression/m291_ensures_isok_guard/main.xi"),
+        Some(0),
+        "guard-form ensures payload reads must behave like the canonical form (m291)"
+    );
+}
+
 
 
 

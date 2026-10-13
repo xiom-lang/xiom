@@ -2233,7 +2233,16 @@ impl IrEmitter {
             // and every other implication-wrapped size clause).
             Expr::Imply(l, r, _) => { Self::collect_atpre_vars(l, vars); Self::collect_atpre_vars(r, vars); }
             Expr::Is(e, _, _) => Self::collect_atpre_vars(e, vars),
-            Expr::Unary(_, e, _) => Self::collect_atpre_vars(e, vars),
+            // m291 (REL-20261010-1548-stdlib-4): the witness clause
+            // `(x.a@pre < 100) => (x.a == x.a@pre + 1)` wraps BOTH implication
+            // sides in explicit Parens. Without a Paren arm the walk stopped
+            // at the top, `pre_snapshot_vars` stayed EMPTY, no `__x_pre`
+            // entry snapshot was emitted, and the compound-AtPre fallback
+            // (expr.rs, rebind path gated on non-empty snapshot vars) compiled
+            // `x.a` against the LIVE &mut param -- post-mutation aliasing
+            // (the v0.64.4 failure mode; enforcement-side, it was masked on
+            // HEAD until the m291 contract-guard fix made it visible again).
+            Expr::Unary(_, e, _) | Expr::Paren(e, _) => Self::collect_atpre_vars(e, vars),
             Expr::Call(f, args, _) | Expr::GenericCall(f, _, args, _) => {
                 // A BARE callee ident is a function/method NAME, not a
                 // variable (`len()@pre` collected "len", so the rebind loop

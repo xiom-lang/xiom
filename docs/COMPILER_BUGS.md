@@ -16057,6 +16057,57 @@ LOCK: tests/regression/m288_mut_param_field_pre/ +
 `e2e_m288_mut_param_field_pre` (ci.yml e2e group 2). Battery green: e2e
 16+180, front-locks, serial libs 199/12/36/79.
 
+CORRECTION (m291): the "fixed within the m276-m287 range" and "enforcement
+verified LIVE at HEAD" claims above were WRONG. The m283 contract
+re-entrancy guard (skip test `depth > 0`, fixed in m291) had made runtime
+contract enforcement DEAD, so this witness's green was masked -- no clause
+was ever evaluated. The real fix is the m291 paren-snapshot arm; see the
+m291 section below.
+
+---
+
+## 2026-10-13 -- FIXED (m291): contract enforcement restored + guard-form payloads + Paren @pre snapshots (REL-20261010-1548-stdlib-7 + 1548-stdlib-4)
+
+Three defects, found/confirmed by parallel read-only triage (this batch is
+the enforcement gate's integrity fix):
+
+1. m283's contract re-entrancy guard skipped EVERY clause check. The
+   counter is incremented at function ENTRY (`emit_contract_guard_enter`,
+   called from decl.rs), so at the function's own clause sites the depth is
+   already 1 -- and the skip test was `icmp sgt d, 0`. Runtime
+   requires/ensures enforcement was silently DEAD for every clause-bearing
+   function: a violated `requires: x > 0` called with 0 returned cleanly on
+   HEAD and aborted on v0.64.4. Fix: skip only a RE-ENTRANT evaluation
+   (`icmp sgt d, 1`). LOCK: checker_locks `m291_contract_enforcement_live`
+   (compiles a violated-requires program and asserts a nonzero run exit +
+   the violation message).
+
+2. `(result.is_ok == true) => result.len() == ...` (the item's guard form)
+   never rebound `result` to the Ok payload -- the consequence's
+   `result.len()` compiled against the unbound Result (a W005-stubbed
+   `@Result.len` returning 0) and the clause aborted at runtime on
+   structurally-true ensures. The Imply arm now detects the
+   `field.is_ok/is_err/is_some == true` guard and emits the same hoisted
+   payload rebind the canonical `result is Ok =>` path uses (expr.rs).
+
+3. 1548-stdlib-4 CORRECTION: the m288 claim was a MASKED FALSE GREEN --
+   with enforcement dead (defect 1), ANY clause passed, so the witness
+   returned 0 without its @pre ever being checked. The real defect:
+   `collect_atpre_vars` had no `Expr::Paren` arm, so the witness clause
+   `(x.a@pre < 100) => (x.a == x.a@pre + 1)` (both sides parenthesized)
+   collected NO snapshot vars -- `pre_snapshot_vars` stayed empty,
+   `__x_pre` was never emitted, and the compound-AtPre fallback compiled
+   `x.a` against the LIVE `&mut` param (post-mutation aliasing). Fix:
+   recurse through Paren in collect_atpre_vars (decl.rs). Witness rc 1 ->
+   0 WITH enforcement live.
+
+LOCK: tests/regression/m291_ensures_isok_guard/ +
+`e2e_m291_ensures_isok_guard` (ci.yml e2e group 2);
+tests/regression/m291_contract_enforcement/ + the checker_locks negative
+twin; the existing `e2e_m288_mut_param_field_pre` now passes for real.
+Battery green: e2e 16+183, front-locks (35 checker locks), serial libs
+199/12/36/79.
+
 ---
 
 ## 2026-10-13 -- FIXED (m289): annotated `Slice[Int]` locals allocated an i64 slot holding the data pointer (REL-20261010-1548-stdlib-5)

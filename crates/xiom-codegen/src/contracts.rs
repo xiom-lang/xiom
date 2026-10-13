@@ -66,13 +66,16 @@ impl super::IrEmitter {
     /// If the expression evaluates to false (i64 0), emit a panic and trap.
     ///
     /// m283 (REL-20261010-1549-packages-8): re-entrancy guard. When the current
-    /// function's contract-evaluation depth is already > 0, this clause is
-    /// being evaluated from INSIDE one of the function's own contract checks
+    /// function is already invoked higher on the stack (depth > 1), this clause
+    /// is being evaluated from INSIDE one of the function's own contract checks
     /// (a postcondition call-cycle: `f`'s ensures calls `g` whose contract
     /// calls `f`...). Evaluating it again recursed to the depth-500 trap
     /// (0xC000001D, no diagnostic). A re-entrant clause check is SKIPPED -- the
-    /// outermost check still runs -- while the bounded call recursion inside
-    /// the clause remains the ordinary recursion counter's job.
+    /// outermost invocation (depth == 1) still runs -- while the bounded call
+    /// recursion inside the clause remains the ordinary recursion counter's job.
+    /// m291 fix: the m283 skip test was `depth > 0`, which skipped the
+    /// outermost check too (depth is 1 at the first clause site); the test is
+    /// now `depth > 1` (see the nested-tmp comment below).
     pub(crate) fn compile_contract_check(&mut self, expr: &Expr, clause_type: &str) {
         // Phase 5d: Emit contract expression as IR comment for debuggers
         let expr_str = format!("{:?}", expr).chars().take(80).collect::<String>();
@@ -88,7 +91,18 @@ impl super::IrEmitter {
                 let d = self.fresh_tmp();
                 self.emitln(&format!("  {d} = load i64, i64* @{counter}"));
                 let nested = self.fresh_tmp();
-                self.emitln(&format!("  {nested} = icmp sgt i64 {d}, 0"));
+                // m291 (REL-20261010-1548-stdlib-7): the counter counts
+                // INVOCATIONS of this function on the stack (incremented at
+                // entry, decremented on every return path). At the function's
+                // own clause sites the OUTERMOST invocation has d == 1 and
+                // must RUN; only a RE-ENTRANT evaluation (d > 1 -- the clause
+                // called back into this function) skips. The m283 test was
+                // `sgt d, 0`, which skipped EVERY check (d is already 1 at the
+                // first clause): runtime requires/ensures enforcement was
+                // silently dead for all clause-bearing functions (a violated
+                // `requires: x > 0` with x=0 returned cleanly on HEAD and
+                // aborted on v0.64.4).
+                self.emitln(&format!("  {nested} = icmp sgt i64 {d}, 1"));
                 let skip_label = self.fresh_block("contract_reentry_skip");
                 let go_label = self.fresh_block("contract_reentry_go");
                 self.emitln(&format!("  br i1 {nested}, label %{skip_label}, label %{go_label}"));

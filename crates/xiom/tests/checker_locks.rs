@@ -773,3 +773,31 @@ fn m285_vec_shape_arg_matched_still_runs() {
         String::from_utf8_lossy(&run.stdout)
     );
 }
+
+/// m291 (REL-20261010-1548-stdlib-7 enforcement half): a directly violated
+/// `requires` must abort at RUNTIME. The m283 contract re-entrancy guard
+/// skipped EVERY clause check (skip test `d > 0` while the counter is
+/// incremented at function entry, so d == 1 at the first clause site):
+/// enforcement was silently dead and this program returned 0. The guard now
+/// skips only re-entrant evaluations (d > 1).
+#[test]
+fn m291_contract_enforcement_live() {
+    let (stderr, code, exe) = run_on("m291_contract_enforcement");
+    assert_eq!(
+        code,
+        Some(0),
+        "the program must COMPILE -- the violation is runtime-only. stderr:\n{stderr}"
+    );
+    let run = Command::new(&exe).output().expect("run m291_contract_enforcement");
+    let _ = std::fs::remove_file(&exe);
+    assert_ne!(
+        run.status.code(),
+        Some(0),
+        "a violated requires must abort at runtime (m291 guard regression would let it return 0)"
+    );
+    let out = String::from_utf8_lossy(&run.stdout);
+    assert!(
+        out.contains("contract violated: requires"),
+        "expected the violation message, got:\n{out}"
+    );
+}
