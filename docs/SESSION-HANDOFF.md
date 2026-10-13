@@ -17,11 +17,11 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
 
 - origin/main = `91860f11` (fetch before trusting -- the doorbell may push
-  staged work). Local main = the latest commit (see git log), AHEAD by ~28
+  staged work). Local main = the latest commit (see git log), AHEAD by ~30
   unpushed commits (exact: `git rev-list --count origin/main..HEAD`):
-  `633ee65b`+`dc3a0102` (v0.64.5 plan/refresh docs) + m276..m288 + handoff
+  `633ee65b`+`dc3a0102` (v0.64.5 plan/refresh docs) + m276..m289 + handoff
   follow-ups. Do NOT push without the owner's authorization.
-- v0.64.5 batches m276-m288 (commit -> scope; all relayed):
+- v0.64.5 batches m276-m289 (commit -> scope; all relayed):
   - `0268c7d9` m276 env-unwrap veto on concretely-typed names (T1 kv AV).
   - `29e35ef8` m277 cast-call C handoff keeps the RAW fn code (two-word
     env: 0=thunk, 1=raw) + nested fn-type markers parse (T2 B-22 + 1403).
@@ -80,7 +80,15 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
     violates). Lock `e2e_m288_mut_param_field_pre` (ci group 2).
   - NOTE: 1548-bindings-4 has NO m288 fix (attempt reverted; see
     docs/failed_attempts.md 2026-10-13 and the bus) -- next free batch is
-    m289.
+    m290.
+  - `b33a8439` m289 annotated `Slice[Int]` locals allocated an i64 slot
+    holding field 0 (the data pointer): `concrete_type_for` fell through to
+    `type_from_ast`, which strips Slice to its element ("Int" -> i64).
+    `.len()` then strlen'd the data buffer (1 instead of 3) and the slice
+    helpers AV'd. Now maps `Type::Slice(_)` to "Slice" -> canonical
+    `%struct.Slice` (1548-stdlib-5; its two filed witness FILES were stale
+    green on v0.64.4 -- the extended list was the live part). Lock
+    `e2e_m289_slice_annotated_local` (ci group 2).
 - CLOSED / awaiting reporter re-verify at the next archive (compiler work
   done; items are `fixed` on the bus): T1-T3, B-17+B-16, B-23+B-24
   (2051-bindings-2), B-11+B-20 readback family (0304-bindings +
@@ -88,8 +96,9 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
   arg is now a call-site T001), 1549-stdlib-7 (cross-type generic
   callbacks), 1548-stdlib-3 (tostring import no longer hijacks adapter
   closure fields), 1548-stdlib-4 (@pre on &mut param fields snapshots the
-  entry value; fixed in the m276-m287 range), B-25 (1309-bindings, re-probe
-  GREEN),
+  entry value; fixed in the m276-m287 range), 1548-stdlib-5 (annotated
+  Slice locals use the canonical slot; the extended symptom list), B-25
+  (1309-bindings, re-probe GREEN),
   B-26 (1524-bindings-2), B-21 (2140-bindings), 1549-packages-8 (contract
   cycles), 1549-stdlib-6 (VERIFIED FIXED cross-platform: clause re-added in
   a scratch tree, stdlib repro + family probe + smoke suite green on
@@ -119,7 +128,7 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
      docs/failed_attempts.md 2026-10-13 + the bus: the collision routes the
      import through the direct-load branch and `use xiom.ffi.c` never
      registers `xiom.ffi.c.c_strlen`; needs a submodule-registration route
-     decision; repro is single-file), 1548-stdlib-5/6/7,
+     decision; repro is single-file), 1548-stdlib-6/7,
      1549-packages-10/11/12, 1549-stdlib-2/3/4.
   2. resolver/checker: 1549-packages-9 HIGH (bare `&mut Int`), 1956-
      orbitdb (same-named types -- m278-class), 1550-orbitdb-2,
@@ -168,7 +177,7 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
   `da3160b` (stdlib-6 cross-platform verify), `61dfda8` (orbitdb-1358
   diagnosis), `5a2f5d2` (m285 fix + row), `deb173d` (m286 fix + row),
   `b8caee2` (m287 fix + row), `ce5f2b4` (bindings-4 attempt triage),
-  `76869eb` (stdlib-4 fix + lock row).
+  `76869eb` (stdlib-4 fix + lock row), `bb30a68` (stdlib-5 fix + row).
   NEXT-BATCH FIX REFS rows + history bullets current.
 - Selfhost: phase-4 worktree (ses_eded8c4d8ffe, sole writer) idle after its
   13:00Z prompt; sibling ses_ef8e3a27cffe idle. Rebases/tests will pick up
@@ -456,7 +465,7 @@ NEW (2026-10-13, v0.64.5 triage + FFI batches):
 
 ## 7. m-numbering
 
-- m261-m288 LANDED; **next free is m289**.
+- m261-m289 LANDED; **next free is m290**.
 
 ## 8. CONTINUATION PROMPT (paste into a fresh session)
 
@@ -469,8 +478,8 @@ docs/rustc-study/ for reference patterns; rustc source is E:\repos\rust
 (READ-ONLY; no git writes there).
 
 STATE: v0.64.4 released (df493530) and verified. Git: origin/main =
-91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~28 unpushed
-commits (m276-m288 + docs); do NOT push
+91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~30 unpushed
+commits (m276-m289 + docs); do NOT push
 without the owner's authorization. Relay bus: latest compiler commits
 fbda2a7/7aa7bfa/da3160b/61dfda8; the check file
 release-checks/compiler-compiler-v0.64.4.md is the candidate record.
@@ -479,7 +488,8 @@ CLOSED this program (reporter re-verify at the next archive): T1-T3,
 B-17+B-16, B-23+B-24, B-11+B-20 readback family, 1549-packages-3,
 1549-stdlib-5, 1549-stdlib-7 (cross-type generic callbacks), 1548-stdlib-3
 (tostring import no longer hijacks adapter closure fields), 1548-stdlib-4
-(@pre on &mut param fields), B-25, B-26,
+(@pre on &mut param fields), 1548-stdlib-5 (annotated Slice locals),
+B-25, B-26,
 B-21, 1549-packages-8 (contract cycles), 1549-stdlib-6 (cross-platform
 verified), 1358-orbitdb (not a compiler bug -- xiom-dbg binary confusion
 diagnosed).
@@ -489,7 +499,7 @@ each; see the check file + the bus for details):
 1. borrow/codegen: 1548-bindings-4 (m288 ATTEMPT REVERTED: collision routes
    the import through the direct-load branch, `use xiom.ffi.c` never
    registers `xiom.ffi.c.c_strlen` -- see docs/failed_attempts.md + the
-   bus), 1548-stdlib-5/6/7, 1549-packages-10/11/12, 1549-stdlib-2/3/4.
+   bus), 1548-stdlib-6/7, 1549-packages-10/11/12, 1549-stdlib-2/3/4.
 2. resolver/checker: 1549-packages-9 (HIGH, bare &mut Int), 1956-orbitdb
    (same-named types, m278-class), 1550-orbitdb-2, 1709-xvector.
 3. allocator/runtime: 2320-bindings #1 (HIGH, Vec[UInt8].with_len HBO),
@@ -510,7 +520,7 @@ filed with diffs): REL-20261013-1423-compiler (spawn buffer arena escape
 xiom_guard_free -> alloc-guard-spin 1548-bindings-5). Verify when the
 stdlib pin carries them.
 
-Number from m289; ONE commit per batch (fix + fixtures + docs +
+Number from m290; ONE commit per batch (fix + fixtures + docs +
 COMPILER_BUGS section) + a relay fix-note with numeric/IR witnesses + a
 check-file row.
 
