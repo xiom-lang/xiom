@@ -16056,3 +16056,26 @@ Self-field `@pre` on method receivers was already correct (R49/R51 work).
 LOCK: tests/regression/m288_mut_param_field_pre/ +
 `e2e_m288_mut_param_field_pre` (ci.yml e2e group 2). Battery green: e2e
 16+180, front-locks, serial libs 199/12/36/79.
+
+---
+
+## 2026-10-13 -- FIXED (m289): annotated `Slice[Int]` locals allocated an i64 slot holding the data pointer (REL-20261010-1548-stdlib-5)
+
+The item's two filed witness FILES were already green on the archived
+v0.64.4 binary (stale rows; fixed before the release), but the item's
+extended symptom list was real on BOTH v0.64.4 and HEAD: an annotated
+`let s: Slice[Int] = array.as_slice(&arr)` allocated an **i64** slot.
+`concrete_type_for` fell through to `type_from_ast`, which STRIPS
+`Slice[Int]` to its ELEMENT ("Int" -> i64), so the annotated binding stored
+the coerced field 0 (the data pointer) and registered the local as i64.
+Consumers then degraded: `s.len()` took the i64 -> Str.len path and
+strlen'd the data buffer ([1,2,3] printed 1; the unannotated control
+printed 3), and `slice_len`/`slice_first`/`slice_get`/`slice_to_vec` on the
+annotated local AV'd (0xC0000005). Fix: `concrete_type_for` maps
+`Type::Slice(_)` to "Slice" so the declared slot uses the canonical
+`%struct.Slice` (mirrors `llvm_type_for`'s Type::Slice arm). Witness
+evidence: annotated `.len()` 1 -> 3; the extended probe (annotated local +
+all four slice helpers + the option/result query matrix) rc 1/AV -> rc 0.
+LOCK: tests/regression/m289_slice_annotated_local/ +
+`e2e_m289_slice_annotated_local` (ci.yml e2e group 2). Battery green: e2e
+16+181, front-locks, serial libs 199/12/36/79.

@@ -2542,6 +2542,16 @@ impl IrEmitter {
                 }
                 name
             }
+            // m289 (REL-20261010-1548-stdlib-5): an ANNOTATED
+            // `let s: Slice[Int] = array.as_slice(&arr)` must allocate the
+            // canonical `%struct.Slice` slot. The fallback `type_from_ast`
+            // STRIPS Slice to its ELEMENT ("Int" -> i64), so the binding
+            // landed in an i64 slot holding field 0 (the data pointer):
+            // `s.len()` then took the i64 -> Str.len path and strlen'd the
+            // data buffer (printed 1 for [1,2,3]; slice_first/get/to_vec on
+            // the annotated local AV'd). Mirrors llvm_type_for's Type::Slice
+            // arm (`%struct.Slice`, the canonical 2-field {data, len}).
+            Type::Slice(_) => "Slice".to_string(),
             other => Self::type_from_ast(other),
         }
     }

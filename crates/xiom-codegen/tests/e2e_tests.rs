@@ -7256,6 +7256,18 @@ fn e2e_safety_probe() {
     );
 }
 
+// m289 (REL-20261010-1548-stdlib-5): annotated Slice[Int] locals must use
+// the canonical %struct.Slice slot (was an i64 holding the data pointer --
+// .len() strlen'd the buffer, helpers AV'd); plus the by-ref option/result
+// query matrix.
+#[test] fn e2e_m289_slice_annotated_local() {
+    assert_eq!(
+        compile_and_run("tests/regression/m289_slice_annotated_local/main.xi"),
+        Some(0),
+        "annotated Slice locals and by-ref queries must read correctly (m289)"
+    );
+}
+
 
 
 
