@@ -171,6 +171,98 @@ impl IrEmitter {
         }
     }
 
+    /// m279 (B-17): declared return type of a GENERIC method on a tracked
+    /// receiver -- `slot.as_mut_ptr()` with `slot: Vec[UInt8]` -> "*UInt8".
+    /// The concrete registry has no entry for generic methods, so the usual
+    /// callee_return_xiom lookup misses; without this the binding stayed
+    /// untyped and `base + N` fell into the Str-concat path (wild
+    /// addresses, B-17/B-16).
+    pub(crate) fn generic_method_return_xiom(&self, recv: &Expr, method: &str, span: xiom_ast::Span) -> Option<String> {
+        let Expr::Ident(bid) = recv else {
+            return None;
+        };
+        let decl = self.local.local_xiom_types.get(&bid.name)?;
+        let (base_name, args) = Self::parse_generic_type_string(decl);
+        let leaf = base_name.rsplit('.').next().unwrap_or(base_name.as_str()).to_string();
+        if args.is_empty() {
+            return None;
+        }
+        let key = format!("{leaf}.{method}");
+        // The CALL path resolves these methods through the checker catalog
+        // (they are not in the pre-registered generic_fn_decls); reuse that
+        // resolution so the declared return can be substituted.
+        let catalog_key = self.resolve_catalog_call(recv, method, span);
+        let mut found: Option<(String, xiom_ast::FnDecl)> = None;
+        if let Some(ck) = catalog_key.as_deref() {
+            found = self.find_generic_decl(ck);
+        }
+        if found.is_none() {
+            found = self.find_generic_decl(&key);
+        }
+        let (decl_key, fd) = match found {
+            Some(x) => x,
+            None => {
+                let hit = self.mono.generic_fn_decls.iter()
+                    .find(|(k, _)| {
+                        k.rsplit_once('.').map_or(false, |(recv_p, m)| {
+                            m == method
+                                && recv_p.rsplit('.').next().unwrap_or(recv_p).split('[').next() == Some(leaf.as_str())
+                        })
+                    })
+                    .map(|(k, f)| (k.clone(), f.clone()));
+                match hit {
+                    Some(x) => x,
+                    None => return None,
+                }
+            }
+        };
+        // Param names come from the TYPE'd registry when present; otherwise
+        // from the method's own captured receiver generics (BUG 38b).
+        let mut type_map: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        if let Some(params) = self.types.generic_type_params.get(&leaf) {
+            for (p, a) in params.iter().zip(args.iter()) {
+                type_map.insert(p.clone(), a.clone());
+            }
+        }
+        if type_map.is_empty() {
+            for (gp, a) in fd.generics.iter().zip(args.iter()) {
+                if !gp.is_const {
+                    type_map.insert(gp.name.name.clone(), a.clone());
+                }
+            }
+        }
+        if type_map.is_empty() {
+            // Receiver captures ("Vec[T]" -> ["T"]) from the decl key.
+            if let Some((recv_part, _)) = decl_key.rsplit_once('.') {
+                if let Some(inner) = recv_part.split('[').nth(1).and_then(|s| s.strip_suffix(']')) {
+                    let names: Vec<String> = inner
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    for (p, a) in names.iter().zip(args.iter()) {
+                        type_map.insert(p.clone(), a.clone());
+                    }
+                }
+            }
+        }
+        if type_map.is_empty() {
+            return None;
+        }
+        let ret = fd.return_type.as_ref()?;
+        let subst = Self::substitute_type(ret, ret, &type_map);
+        let name = Self::type_string_full(&subst);
+        let still_placeholder = name
+            .split(|c: char| !c.is_ascii_alphanumeric())
+            .any(|t| t.len() == 1 && t.chars().next().map_or(false, |c| c.is_ascii_uppercase()));
+        if still_placeholder {
+            None
+        } else {
+            Some(name)
+        }
+    }
+
     /// BUG 52 (2026-08-18): when a let/var binding is initialized with a
     /// FUNCTION CALL (`var m = make_map()`), record the callee's declared
     /// return XIOM type ("Map[Str, MyVal]") so generic METHOD calls on the
@@ -199,6 +291,24 @@ impl IrEmitter {
             Expr::Paren(inner, _) => return self.infer_call_return_xiom(inner),
             _ => return None,
         };
+        // m279 (B-17): mirror the Vec/Slice `as_ptr`/`as_mut_ptr` BUILTIN
+        // (call.rs): its value is the data pointer, but no decl exists for
+        // the registry lookups, so bindings stayed untyped and `base + N`
+        // lowered as Str concatenation (wild addresses; B-16/B-17). Record
+        // "*<elem>" from the receiver's tracked XIOM type so pointer
+        // arithmetic GEP-scales by the right element.
+        if let Expr::Field(recv, f, _) = func {
+            if args.is_empty() && matches!(f.name.as_str(), "as_ptr" | "as_mut_ptr") {
+                if let Expr::Ident(bid) = recv.as_ref() {
+                    if let Some(decl) = self.local.local_xiom_types.get(&bid.name) {
+                        let (_, targs) = Self::parse_generic_type_string(decl);
+                        if let Some(elem) = targs.first() {
+                            return Some(format!("*{elem}"));
+                        }
+                    }
+                }
+            }
+        }
         // R52 (playground L3-02): an unannotated Option/Result built by a ctor
         // (`let p = Some("DragonSlayer")`) must record "Option[Str]" so
         // `p.unwrap_or(x).to_str()` keeps the Str representation instead of
@@ -315,7 +425,22 @@ impl IrEmitter {
                 }
             }
         }
-        let rt = self.callee_return_xiom(func)?;
+        let rt = self.callee_return_xiom(func);
+        // m279 (B-17): a GENERIC method (`slot.as_mut_ptr()` with `slot:
+        // Vec[UInt8]`) has no concrete registry entry, so callee_return_xiom
+        // misses and the old `?` bailed BEFORE the substitution machinery --
+        // the binding stayed untyped and `base + N` compiled as Str
+        // concatenation (wild addresses). Resolve from the receiver's
+        // tracked type args first.
+        if rt.is_none() {
+            if let Expr::Field(recv, f, sp) = func {
+                if let Some(name) = self.generic_method_return_xiom(recv, &f.name, *sp) {
+                    return Some(name);
+                }
+            }
+            return None;
+        }
+        let rt = rt.unwrap();
         // Skip unresolved generic placeholders ("Map[K, V]", "Option[T]").
         for token in rt.split(|c: char| !c.is_ascii_alphanumeric()) {
             if token.len() == 1
@@ -353,6 +478,20 @@ impl IrEmitter {
                     let fn_key = self.infer_struct_type_name(recv)
                         .map(|r| format!("{r}.{}", f.name))
                         .unwrap_or_else(|| f.name.clone());
+                    // m279 (B-17): a GENERIC-CONTAINER receiver
+                    // (`slot: Vec[UInt8]`) is not a struct, so the method's
+                    // qualified key degraded to the bare leaf and the "*T"
+                    // return never substituted -- the binding stayed untyped
+                    // and `base + N` fell into the Str-concat path (wild
+                    // addresses). Recover the receiver's declared base name.
+                    let recv_key: Option<String> = match recv.as_ref() {
+                        Expr::Ident(bid) => self.local.local_xiom_types.get(&bid.name).map(|decl| {
+                            let (base_name, _) = Self::parse_generic_type_string(decl);
+                            let leaf = base_name.rsplit('.').next().unwrap_or(base_name.as_str()).to_string();
+                            format!("{leaf}.{}", f.name)
+                        }),
+                        _ => None,
+                    };
                     // R52 (playground L5-31): resolve from the RECEIVER's tracked
                     // concrete type args FIRST (`str_box: Box[Str]` -> T=Str).
                     // The generic_instantiations lookup is not per-call-site:
@@ -370,7 +509,9 @@ impl IrEmitter {
                                     for (p, a) in params.iter().zip(args.iter()) {
                                         type_map.insert(p.clone(), a.clone());
                                     }
-                                    if let Some((_, fd)) = self.find_generic_decl(&fn_key) {
+                                    if let Some((_, fd)) = self.find_generic_decl(&fn_key)
+                                        .or_else(|| recv_key.as_deref().and_then(|k| self.find_generic_decl(k)))
+                                    {
                                         if let Some(ret) = fd.return_type.as_ref() {
                                             let subst = Self::substitute_type(ret, ret, &type_map);
                                             let name = Self::type_string_full(&subst);
@@ -385,9 +526,12 @@ impl IrEmitter {
                             }
                         }
                     }
-                    if let Some((_, cts)) = self.mono.generic_instantiations.iter()
+                    let inst = self.mono.generic_instantiations.iter()
                         .find(|(k, _)| k == &fn_key)
-                    {
+                        .or_else(|| recv_key.as_deref().and_then(|rk| {
+                            self.mono.generic_instantiations.iter().find(|(k, _)| k == rk)
+                        }));
+                    if let Some((_, cts)) = inst {
                         if let Some((_, fd)) = self.find_generic_decl(&fn_key) {
                             let mut type_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
                             for (gp, ct) in fd.generics.iter().zip(cts.iter()) {

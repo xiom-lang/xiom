@@ -15615,6 +15615,46 @@ same-named `Mesh`, entry-import resolution). The engine A/B is the
 pre/post witness for the injection-order path (its lazy-catalog
 loader trigger is not reachable from a single-file fixture).
 
+---
+
+## 2026-10-13 -- FIXED (m279): Vec.as_ptr/as_mut_ptr builtin had no type inference -- `*T + Int` lowered as Str concatenation (FFI pointer batch; B-17 REL-20261011-1512-bindings-2 + B-16 REL-20261011-1437-bindings-3)
+
+First batch of the v0.64.5 FFI-pointer work. B-17: `buf.as_mut_ptr() + N`
+yielded WILD addresses (even `+0`); the Int-typed control math was exact.
+B-16 is the same bug at call-argument position: `ffi.ptr_write_*` at
+base+4/+8 "lost" writes (ptr_write_sum=11 vs byte_index_sum=66) and a wild
+dst pointer caused nondeterministic STATUS_HEAP_CORRUPTION in xiom.sdl3
+0.13.0.
+
+ROOT CAUSE: `as_ptr`/`as_mut_ptr` are BUILTINS (call.rs returns the Vec
+data pointer as i8*) with no registry entry and no inference counterpart,
+so a binding like `let base = slot.as_mut_ptr();` recorded NO XIOM type;
+`expr_is_pointer` then fell back to the slot type (i8* -- "possibly Str"),
+the Str-concat intercept in the Add lowering fired, and `base + N`
+compiled to `xiom_str_concat(base, int_to_string(N))` -- a fresh concat
+buffer (the wild "addresses", varying per process/allocation).
+
+FIX:
+- emitter.rs `infer_call_return_xiom`: mirror the as_ptr/as_mut_ptr
+  builtin -- record `*<elem>` from the receiver's tracked XIOM type
+  (`slot: Vec[UInt8]` -> "*UInt8") so pointer arithmetic GEP-scales by
+  the right element.
+- emitter.rs `generic_method_return_xiom` (new): generic methods are not
+  in the concrete registry; resolve the declared return via the catalog
+  key + find_generic_decl + receiver-arg substitution (bare, bracket,
+  and fd.generics param-name sources).
+- coerce.rs `expr_is_pointer`: new Call/GenericCall arm consulting the
+  same inference -- `p + N` in CALL-ARGUMENT position (the B-16 shape)
+  previously stayed concat even with the binding fix.
+
+EVIDENCE: B-17 probe docs/repro/bindings-pilot/ptr-arith/ -> all deltas
+exact (d0=0 .. d100=100, second allocation 12); B-16 probe
+ptr-slot-write/ -> ptr_write_sum=66 (was 11), byte_index_sum=66. LOCK:
+tests/regression/m279_ffi_ptr_arith/ + `ffi_ptr_arith` CLI test (pre-fix
+fails=7 / ptr_write_sum=11; post-fix exit 0). 2230 (Int->ptr across a fn
+return; Vec[Str] temporary element) reproduced on both builds and queued
+as the next batch; B-11/0304 out-param recycling still to triage.
+
 
 
 

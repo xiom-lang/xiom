@@ -1387,6 +1387,15 @@ impl IrEmitter {
                 let n = Self::type_from_ast(ty);
                 n.starts_with('*') || n.starts_with('&')
             }
+            // m279 (B-17/B-16): a POINTER-returning call at an operator
+            // position (`a.as_mut_ptr() + 4` as a call argument) must lower
+            // to pointer arithmetic -- the Ident/Field-only path left these
+            // to the Str-concat intercept and the "+4/+8" writes went to a
+            // concatenation buffer (B-16 ptr_write_sum=11).
+            Expr::Call(..) | Expr::GenericCall(..) => self
+                .infer_call_return_xiom(e)
+                .map(|t| t.starts_with('*') || t.starts_with('&'))
+                .unwrap_or(false),
             _ => false,
         }
     }
