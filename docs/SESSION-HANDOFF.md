@@ -17,13 +17,13 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
 
 - origin/main = `91860f11` (fetch before trusting -- the doorbell may push
-  staged work). Local main = the latest commit (see git log), AHEAD by ~34
+  staged work). Local main = the latest commit (see git log), AHEAD by ~36
   unpushed commits (exact: `git rev-list --count origin/main..HEAD`):
-  `633ee65b`+`dc3a0102` (v0.64.5 plan/refresh docs) + m276..m290 + handoff
+  `633ee65b`+`dc3a0102` (v0.64.5 plan/refresh docs) + m276..m291 + handoff
   follow-ups + 2 attempt logs (bindings-4 m288, stdlib-6 leg b m291; both
   reverted, see docs/failed_attempts.md). Do NOT push without the owner's
   authorization.
-- v0.64.5 batches m276-m290 (commit -> scope; all relayed):
+- v0.64.5 batches m276-m291 (commit -> scope; all relayed):
   - `0268c7d9` m276 env-unwrap veto on concretely-typed names (T1 kv AV).
   - `29e35ef8` m277 cast-call C handoff keeps the RAW fn code (two-word
     env: 0=thunk, 1=raw) + nested fn-type markers parse (T2 B-22 + 1403).
@@ -98,6 +98,20 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
     JsonValue still C001 `'JsonValue.json_get_path'`; the UFCS candidate
     helper requires a pointer-like receiver (see COMPILER_BUGS m290).
     Lock `e2e_m290_alias_type_path` (ci group 2).
+  - `a6bfe1e1` m291 **ENFORCEMENT GATE FIX + two items**: (1) m283's
+    contract re-entrancy guard had made runtime requires/ensures
+    enforcement SILENTLY DEAD (skip test `d > 0` with the depth counter
+    incremented at function entry, d==1 at the first clause site); test is
+    now `d > 1` (only re-entrant evaluations skip). (2) the guard form
+    `(result.is_ok == true) => ...` now rebinds the payload like
+    `result is Ok =>` (1548-stdlib-7). (3) 1548-stdlib-4 CORRECTION: its
+    m288 green was MASKED by (1); the real fix is the Paren arm in
+    `collect_atpre_vars` (`(x.a@pre < 100) => ...` collected no snapshot
+    vars). Witness rcs 1->0 with enforcement LIVE. Locks
+    `e2e_m291_ensures_isok_guard` + checker_locks
+    `m291_contract_enforcement_live` (negative twin); `e2e_m288_mut_param_
+    field_pre` now passes for real. LESSON: any item closed by a green
+    contract BEFORE m291 must be re-trusted only with enforcement live.
 - CLOSED / awaiting reporter re-verify at the next archive (compiler work
   done; items are `fixed` on the bus): T1-T3, B-17+B-16, B-23+B-24
   (2051-bindings-2), B-11+B-20 readback family (0304-bindings +
@@ -105,9 +119,9 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
   arg is now a call-site T001), 1549-stdlib-7 (cross-type generic
   callbacks), 1548-stdlib-3 (tostring import no longer hijacks adapter
   closure fields), 1548-stdlib-4 (@pre on &mut param fields snapshots the
-  entry value; fixed in the m276-m287 range), 1548-stdlib-5 (annotated
-  Slice locals use the canonical slot; the extended symptom list), B-25
-  (1309-bindings, re-probe GREEN),
+  entry value -- REAL fix m291 Paren arm; the m288 green was masked), 1548-stdlib-7
+  (guard-form ensures + enforcement restored), 1548-stdlib-5 (annotated
+  Slice locals), B-25 (1309-bindings, re-probe GREEN),
   B-26 (1524-bindings-2), B-21 (2140-bindings), 1549-packages-8 (contract
   cycles), 1549-stdlib-6 (VERIFIED FIXED cross-platform: clause re-added in
   a scratch tree, stdlib repro + family probe + smoke suite green on
@@ -140,7 +154,6 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
      decision; repro is single-file), 1548-stdlib-6 leg b (m291 attempt
      reverted: checker->codegen binding gap for user-program UFCS -- see
      docs/failed_attempts.md 2026-10-13; leg a fixed in m290),
-     1548-stdlib-7,
      1549-packages-10/11/12, 1549-stdlib-2/3/4.
   2. resolver/checker: 1549-packages-9 HIGH (bare `&mut Int`), 1956-
      orbitdb (same-named types -- m278-class), 1550-orbitdb-2,
@@ -191,7 +204,7 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
   `b8caee2` (m287 fix + row), `ce5f2b4` (bindings-4 attempt triage),
   `76869eb` (stdlib-4 fix + lock row), `bb30a68` (stdlib-5 fix + row),
   `d5e84f8` (stdlib-6 part-a fix + leg-b triage), `170cdd9` (leg-b
-  attempt-2 triage).
+  attempt-2 triage), `9712942` (m291 enforcement + stdlib-7/4 correction).
   NEXT-BATCH FIX REFS rows + history bullets current.
 - Selfhost: phase-4 worktree (ses_eded8c4d8ffe, sole writer) idle after its
   13:00Z prompt; sibling ses_ef8e3a27cffe idle. Rebases/tests will pick up
@@ -479,7 +492,7 @@ NEW (2026-10-13, v0.64.5 triage + FFI batches):
 
 ## 7. m-numbering
 
-- m261-m290 LANDED; **next free is m291**.
+- m261-m291 LANDED; **next free is m292**.
 
 ## 8. CONTINUATION PROMPT (paste into a fresh session)
 
@@ -492,9 +505,8 @@ docs/rustc-study/ for reference patterns; rustc source is E:\repos\rust
 (READ-ONLY; no git writes there).
 
 STATE: v0.64.4 released (df493530) and verified. Git: origin/main =
-91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~34 unpushed
-commits (m276-m290 + docs + 2 attempt logs; the m291 slot is FREE -- the
-leg-b attempt was reverted, see docs/failed_attempts.md); do NOT push
+91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~36 unpushed
+commits (m276-m291 + docs + 2 attempt logs); do NOT push
 without the owner's authorization. Relay bus: latest compiler commits
 5a2f5d2/deb173d/b8caee2/ce5f2b4/76869eb/bb30a68/d5e84f8/170cdd9; the check
 file release-checks/compiler-compiler-v0.64.4.md is the candidate record.
@@ -503,7 +515,8 @@ CLOSED this program (reporter re-verify at the next archive): T1-T3,
 B-17+B-16, B-23+B-24, B-11+B-20 readback family, 1549-packages-3,
 1549-stdlib-5, 1549-stdlib-7 (cross-type generic callbacks), 1548-stdlib-3
 (tostring import no longer hijacks adapter closure fields), 1548-stdlib-4
-(@pre on &mut param fields), 1548-stdlib-5 (annotated Slice locals),
+(@pre on &mut param fields -- real fix m291), 1548-stdlib-7 (guard-form
+ensures + enforcement restored), 1548-stdlib-5 (annotated Slice locals),
 B-25, B-26,
 B-21, 1549-packages-8 (contract cycles), 1549-stdlib-6 (cross-platform
 verified), 1358-orbitdb (not a compiler bug -- xiom-dbg binary confusion
@@ -516,14 +529,14 @@ each; see the check file + the bus for details):
    registers `xiom.ffi.c.c_strlen` -- see docs/failed_attempts.md + the
    bus), 1548-stdlib-6 leg b (m291 attempt reverted: checker->codegen
    binding gap for user-program UFCS; see docs/failed_attempts.md),
-   1548-stdlib-7, 1549-packages-10/11/12, 1549-stdlib-2/3/4.
+   1549-packages-10/11/12, 1549-stdlib-2/3/4.
 2. resolver/checker: 1549-packages-9 (HIGH, bare &mut Int), 1956-orbitdb
    (same-named types, m278-class), 1550-orbitdb-2, 1709-xvector.
 3. allocator/runtime: 2320-bindings #1 (HIGH, Vec[UInt8].with_len HBO),
    2320 #2/#3; 2032 is a memory-model owner decision (no code work).
-4. contracts/clauses: 1549-packages-2 (fs_read false contract),
-   1549-stdlib-4 (clause-index Float64 reads), 1548-stdlib-7; the -O2
-   constant-fold pruning finding needs a no-fold barrier.
+  4. contracts/clauses: 1549-packages-2 (fs_read false contract),
+     1549-stdlib-4 (clause-index Float64 reads); the -O2
+     constant-fold pruning finding needs a no-fold barrier.
 5. runtime/misc: 1615-stdlib (HIGH SIGILL), 1659-orbitdb (Vec copy alias),
    1219-orbitdb PART A, 1324-selfhost, 1553-playground-2, 1554-playground.
 6. tooling/registry: 1548-registry-2, 1549-registry/2/3, 1549-packages-5/7.
@@ -537,7 +550,7 @@ filed with diffs): REL-20261013-1423-compiler (spawn buffer arena escape
 xiom_guard_free -> alloc-guard-spin 1548-bindings-5). Verify when the
 stdlib pin carries them.
 
-Number from m291; ONE commit per batch (fix + fixtures + docs +
+Number from m292; ONE commit per batch (fix + fixtures + docs +
 COMPILER_BUGS section) + a relay fix-note with numeric/IR witnesses + a
 check-file row.
 
