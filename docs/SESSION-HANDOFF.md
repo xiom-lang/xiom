@@ -14,12 +14,38 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
-CURRENT STATE (2026-10-13T16:40Z; read this before anything below):
+CURRENT STATE (2026-10-13T19:40Z; read this before anything below):
 
+- Candidate-closing session (m283/m284, local main): `3ef4d6a9` m283 --
+  postcondition call-cycles (REL-20261010-1549-packages-8: per-function
+  contract re-entrancy counters; cycle probe exit 0 was 0xC000001D; lock
+  `e2e_m283_contract_cycle`) + nested enum payloads (REL-20261013-1524-
+  bindings-2 B-26: `llvm_type_for` resolves `Option[<T>]`/`Result[<T>,<E>]`
+  to the concrete monomorph; `items.len=9` -> 2; lock
+  `e2e_m283_nested_payload_read`); `186edb3a` m284 -- B-21
+  (REL-20261011-2140-bindings: `collect_ident_names` had no `Expr::MutRef`
+  arm, so `&mut q` inside a confined block was never captured and the block
+  referenced the enclosing driver temp; fix = 1 arm; lock
+  `e2e_m284_mut_of_struct_return`). B-25 (REL-20261013-1309-bindings)
+  re-probed GREEN (cast path FIDELITY OK). Relay `fbda2a7` + `7aa7bfa`.
+- NEW open finding (recorded in COMPILER_BUGS m283 section): -O2 prunes
+  constant-folding contract checks (`requires: x != x` fires at -O0, gone at
+  O2 with or without `--runtime-contracts`) -- enforcement follow-up needed.
+- LINE-ENDING HAZARD (cost a bad commit this session): `core.autocrlf=true`
+  and COMPILER_BUGS.md is stored CRLF; PowerShell text appends (`Set-Content`,
+  `-replace`) silently convert the whole file to LF/CRLF and produce a
+  whole-file diff. Use `[System.IO.File]::ReadAllText/WriteAllText` with
+  explicit `` `r`n `` or `git cat-file` blobs; verify with
+  `git show --numstat` before committing. Fixed via `git update-index
+  --cacheinfo` of the raw blob.
+- HOST NOTE: a runaway `dbg125p.exe` process (94 GB) twice caused cargo/CLR
+  allocation failures; `taskkill /F /IM dbg125p.exe` clears it. `xiom-check
+  --lib` also needs `--test-threads=1` under memory pressure (parallel run
+  spiked to a malloc failure; serial 199/199).
 - origin/main = `91860f11` (no doorbell push as of this refresh; fetch
-  before trusting). Local main = the m281 handoff commit (this file), AHEAD by 10:
+  before trusting). Local main = the m284 commit, AHEAD by 12:
   `633ee65b`+`dc3a0102` (v0.64.5 plan/refresh docs) + the six v0.64.5
-  batch commits m276-m281 + the m281 handoff follow-up:
+  batch commits m276-m284 + handoff follow-ups:
   - `0268c7d9` m276 env-unwrap veto on concretely-typed names (T1: kv
     empty-store startup AV; REL-20261012-1418-pulse FIXED+relayed).
   - `29e35ef8` m277 cast-call C handoff keeps the RAW fn code (two-word
