@@ -128,6 +128,13 @@ pub struct CodegenConfig {
     /// codegen). The codegen resolves each path to its registered fn key at
     /// preassign time so bare calls through the alias work.
     pub use_alias_paths: HashMap<String, String>,
+    /// m278 (REL-20261011-2137-engine): the ENTRY file's `use` paths, in
+    /// order. A bare type reference at top level (no module context) must
+    /// prefer a candidate declared by one of the file's imports -- two
+    /// qualified same-leaf types (`xiom.engine.render.mesh.Mesh` vs
+    /// `xiom.geom.geometry_3d.Mesh`) were otherwise picked by key length,
+    /// so which one won flipped with the project root name.
+    pub primary_imports: Vec<String>,
     /// R22: MODULE bindings only (local name -> full dotted module path) for
     /// every `use` whose target is a module (alias or plain item import).
     /// `resolve_module_call` expands single-segment receivers through this.
@@ -194,6 +201,7 @@ impl Default for CodegenConfig {
             enable_unsafe_direct: false,
             unsafe_direct_cap: 64,
             use_alias_paths: HashMap::new(),
+            primary_imports: Vec::new(),
             module_receiver_paths: HashMap::new(),
             enum_module_hints: Vec::new(),
             catalog_call_targets: HashMap::new(),

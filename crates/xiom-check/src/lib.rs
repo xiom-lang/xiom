@@ -3460,6 +3460,12 @@ impl Checker {
 
         let mut decls: Vec<TopDecl> = Vec::new();
 
+        // m278 (REL-20261011-2137-engine): the injection-side collision set is
+        // derived AFTER the R39/R44 shape triage below (see
+        // `collision_type_names`) -- it must share that triage so identical-
+        // layout facade duplicates (e.g. the two stdlib AtomicInt decls) stay
+        // on the legacy bare key.
+
         // Collect the names of ALL generic types (pub or not) across cached modules.
         // Methods on generic types must be monomorphised from the defining module;
         // injecting their un-monomorphised bodies produces malformed concrete IR
@@ -3501,6 +3507,7 @@ impl Checker {
                 existing: &mut HashSet<String>,
                 primitives: &[&str],
                 generic_types: &HashSet<String>,
+                collision_types: &HashSet<String>,
                 module_name: &str,
                 out: &mut Vec<TopDecl>,
                 enum_modules: &mut Vec<(String, String)>,
@@ -3622,8 +3629,21 @@ impl Checker {
                             if (td.is_pub || !td.generics.is_empty())
                                 && !existing.contains(&td.name.name)
                                 && !primitives.contains(&td.name.name.as_str()) {
-                                existing.insert(td.name.name.clone());
-                                out.push(TopDecl::Type(td.clone()));
+                                // m278: a colliding non-generic type injects
+                                // module-qualified (see the pre-scan above);
+                                // single-declaration types keep the bare key.
+                                if collision_types.contains(&td.name.name)
+                                    && td.generics.is_empty()
+                                    && !module_name.is_empty()
+                                {
+                                    let mut td2 = td.clone();
+                                    td2.name.name = format!("{}.{}", module_name, td.name.name);
+                                    existing.insert(td2.name.name.clone());
+                                    out.push(TopDecl::Type(td2));
+                                } else {
+                                    existing.insert(td.name.name.clone());
+                                    out.push(TopDecl::Type(td.clone()));
+                                }
                             }
                         }
                         TopDecl::Enum(ed) => {
@@ -3748,14 +3768,34 @@ impl Checker {
                                 // their FIELDS reference (nested private structs).
                                 let mut worklist = sig_types;
                                 while let Some(ty_name) = worklist.pop() {
-                                    if existing.contains(&ty_name) || primitives.contains(&ty_name.as_str()) {
+                                    // m278 (REL-20261011-2137-engine): a colliding
+                                    // referenced type injects module-qualified
+                                    // (mirrors the Type arm) -- the first module's
+                                    // private Mesh previously claimed the bare key
+                                    // and every later same-name type was skipped,
+                                    // so the engine's mesh compiled against the
+                                    // stdlib geometry Mesh layout.
+                                    let collision = collision_types.contains(&ty_name)
+                                        && !module_name.is_empty();
+                                    let dedup = if collision {
+                                        format!("{}.{}", module_name, ty_name)
+                                    } else {
+                                        ty_name.clone()
+                                    };
+                                    if existing.contains(&dedup) || primitives.contains(&ty_name.as_str()) {
                                         continue;
                                     }
                                     for item in items {
                                         match item {
                                             TopDecl::Type(td) if td.name.name == ty_name => {
-                                                existing.insert(ty_name.clone());
-                                                out.push(TopDecl::Type(td.clone()));
+                                                existing.insert(dedup.clone());
+                                                if collision && td.generics.is_empty() {
+                                                    let mut td2 = td.clone();
+                                                    td2.name.name = dedup.clone();
+                                                    out.push(TopDecl::Type(td2));
+                                                } else {
+                                                    out.push(TopDecl::Type(td.clone()));
+                                                }
                                                 for f in &td.fields {
                                                     if let Some(n) = first_named(&f.ty) {
                                                         worklist.push(n);
@@ -3764,14 +3804,20 @@ impl Checker {
                                                 break;
                                             }
                                             TopDecl::Enum(ed) if ed.name.name == ty_name => {
-                                                existing.insert(ty_name.clone());
+                                                existing.insert(dedup.clone());
                                                 // m225 (C-ORBIT-04): record the
                                                 // declaring module for scoped
                                                 // bare-variant resolution.
                                                 if !module_name.is_empty() {
-                                                    enum_modules.push((ed.name.name.clone(), module_name.to_string()));
+                                                    enum_modules.push((dedup.clone(), module_name.to_string()));
                                                 }
-                                                out.push(TopDecl::Enum(ed.clone()));
+                                                if collision && ed.generics.is_empty() {
+                                                    let mut ed2 = ed.clone();
+                                                    ed2.name.name = dedup.clone();
+                                                    out.push(TopDecl::Enum(ed2));
+                                                } else {
+                                                    out.push(TopDecl::Enum(ed.clone()));
+                                                }
                                                 break;
                                             }
                                             _ => {}
@@ -3817,7 +3863,7 @@ impl Checker {
                             // external-decl injection, so wrapped decls would never
                             // reach codegen. Module context is preserved instead by
                             // leaf-qualifying free fn names above.
-                            collect_pub_decls(&md.items, existing, primitives, generic_types, module_name, out, enum_modules);
+                            collect_pub_decls(&md.items, existing, primitives, generic_types, collision_types, module_name, out, enum_modules);
                         }
                         TopDecl::Extern(eb) => {
                             // Inject external modules' `extern "C"` blocks so their
@@ -4015,6 +4061,17 @@ impl Checker {
             })
             .map(|(leaf, by_module)| (leaf, by_module.into_keys().collect()))
             .collect();
+        // m278 (REL-20261011-2137-engine): the SAME triage drives the
+        // injection-side rename. Colliding leaves (shape-conflict triage
+        // included) keep module identity when injected, so codegen registers
+        // distinct keys and resolution scores module proximity / entry
+        // imports; identical-layout facade duplicates (e.g. the two stdlib
+        // AtomicInt decls) stay on the legacy bare key. This deliberately
+        // INCLUDES leaves the user program references -- the engine AV was a
+        // program-referenced `Mesh` racing two injected layouts on the bare
+        // key (the old `excluded` first-wins path).
+        let collision_type_names: std::collections::HashSet<String> =
+            colliding.keys().cloned().collect();
         let mut excluded = BTreeSet::new();
         crate::type_qualify::declared_type_leaves(&program.items, &mut excluded);
         excluded.extend(crate::type_qualify::referenced_type_names(&program.items));
@@ -4041,7 +4098,7 @@ impl Checker {
             })
             .collect();
         for (cached_module_name, items) in &prepared {
-            collect_pub_decls(items, &mut existing, PRIMITIVES, &generic_type_names, cached_module_name, &mut decls, &mut enum_modules);
+            collect_pub_decls(items, &mut existing, PRIMITIVES, &generic_type_names, &collision_type_names, cached_module_name, &mut decls, &mut enum_modules);
         }
         // m225 (C-ORBIT-04): expose the (enum, module) hints to the driver so
         // codegen can scope bare-variant resolution to the declaring module.

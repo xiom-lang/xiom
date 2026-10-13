@@ -111,8 +111,19 @@ TRIAGE FIRST (P0):
   via_cast2_param; probe9 cb-abi green (42/42/42); pre-fix exit 9 + the
   warning, post-fix exit 0, no warnings. Closure-to-C stays on the
   workaround APIs (closures were never C-callable).
-- T3 `REL-20261011-2137-engine`: module-root rename AV (rt/, zz/,
-  runtime/, Runtime/ crash; engine/ passes) -- name-dependent codegen.
+- T3 `REL-20261011-2137-engine`: DONE (m278, this commit). Not symbol
+  mangling but TYPE identity: the catalog injection deduped same-named
+  types by BARE name, so `xiom.<root>.render.mesh.Mesh` vs stdlib
+  `xiom.geom.geometry_3d.Mesh` were decided by ASCII module order
+  (`Runtime` < `geom` < `runtime`/`rt` < `zz`) -- the loser compiled
+  against the winner's layout (field 2 vs 0) -> AV. Fix: collision
+  pre-scan + module-qualified injection of colliding types,
+  `pick_deterministic` proximity (current module, then entry `use`
+  imports via the new `primary_imports`), and injected flat fns derive
+  module context from their leaf-qualified names. Witness: engine
+  scratch `engine` and `zz` roots both exit 0 (zz was 0xC0000005);
+  lock `e2e_m278_type_name_collision` + fixture
+  `tests/regression/m278_type_name_collision/`.
 
 THEMED BATCHES (m-numbering assigned as they land; one commit per batch):
 - FFI pointer: B-16/B-17 (raw ptr arithmetic), B-11/0304/1548-bindings-2
@@ -242,7 +253,7 @@ verdict (the check file is the source of truth). Nothing else pending.
 
 ## 7. m-numbering
 
-- m261-m277 LANDED; **next free is m278**.
+- m261-m278 LANDED; **next free is m279**.
 
 ## 8. CONTINUATION PROMPT (paste into a fresh session)
 

@@ -1259,7 +1259,25 @@ impl IrEmitter {
                         if self.config.hot_reload && fd.is_pub {
                             self.config.pub_functions.insert(fn_name.clone());
                         }
-                        self.compile_fn(fd)?;
+                        // m278 (REL-20261011-2137-engine): injected catalog
+                        // free fns arrive FLAT with leaf-qualified names
+                        // ("zz.render.mesh.mesh_to_vertex_bytes") and no
+                        // Module wrapper; derive the module context from the
+                        // dotted name (prefix must itself contain a dot, so
+                        // expanded impl names like "Int.to_float" stay out)
+                        // so type resolution inside the body scores module
+                        // proximity against two qualified same-leaf types.
+                        let saved_module = self.local.current_module.clone();
+                        if self.local.current_module.is_none() && fd.receiver.is_none() {
+                            if let Some((prefix, _)) = fd.name.name.rsplit_once('.') {
+                                if prefix.contains('.') {
+                                    self.local.current_module = Some(prefix.to_string());
+                                }
+                            }
+                        }
+                        let compiled = self.compile_fn(fd);
+                        self.local.current_module = saved_module;
+                        compiled?;
                     }
                 }
                 Ok(())

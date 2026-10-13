@@ -751,6 +751,21 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
     // BUG 25 #2 fix: surface the checker's use-alias bindings (`use X.f as
     // alias`) to the codegen -- the driver strips UseDecls before codegen.
     emitter.set_use_alias_paths(checker.use_alias_paths.clone());
+    // m278 (REL-20261011-2137-engine): the ENTRY file's `use` paths, so a
+    // top-level bare type reference prefers a type declared by an imported
+    // module over a same-leaf type from elsewhere (root-name AV).
+    {
+        let mut primary_imports: Vec<String> = Vec::new();
+        for item in &program.items {
+            if let xiom_ast::TopDecl::Use(u) = item {
+                let p = u.path.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join(".");
+                if !p.is_empty() {
+                    primary_imports.push(p);
+                }
+            }
+        }
+        emitter.set_primary_imports(primary_imports);
+    }
     emitter.set_catalog_call_targets(checker.catalog_resolved_calls.clone());
     emitter.set_program_bare_targets(checker.program_bare_targets.clone());
     emitter.set_module_receiver_paths(checker.module_receiver_paths.clone());
@@ -1259,6 +1274,21 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     // BUG 25 #2 fix: surface the checker's use-alias bindings (`use X.f as
     // alias`) to the codegen -- the driver strips UseDecls before codegen.
     emitter.set_use_alias_paths(checker.use_alias_paths.clone());
+    // m278 (REL-20261011-2137-engine): the ENTRY file's `use` paths, so a
+    // top-level bare type reference prefers a type declared by an imported
+    // module over a same-leaf type from elsewhere (root-name AV).
+    {
+        let mut primary_imports: Vec<String> = Vec::new();
+        for item in &program.items {
+            if let xiom_ast::TopDecl::Use(u) = item {
+                let p = u.path.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join(".");
+                if !p.is_empty() {
+                    primary_imports.push(p);
+                }
+            }
+        }
+        emitter.set_primary_imports(primary_imports);
+    }
     emitter.set_catalog_call_targets(checker.catalog_resolved_calls.clone());
     emitter.set_program_bare_targets(checker.program_bare_targets.clone());
     emitter.set_module_receiver_paths(checker.module_receiver_paths.clone());

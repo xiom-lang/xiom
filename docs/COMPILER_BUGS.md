@@ -15559,6 +15559,62 @@ probe9 green (42/42/42). The internal env-first consumers (Vec[fn]
 element calls, struct-field calls, closure calls) still load field 0 and
 are covered by the e2e fn-value suite.
 
+---
+
+## 2026-10-12 -- FIXED (m278): same-named types across modules resolved by the injected bare-name winner; engine module-root AV (T3, REL-20261011-2137-engine)
+
+T3 of the v0.64.5 triage. The engine kit builds one tree under several
+module roots: `engine/` (and `engineA/`) serve; `rt/`, `zz/`,
+`runtime/` and `Runtime/` died with 0xC0000005 inside
+`mesh_to_vertex_bytes` (a `m.vertices` read against the wrong layout);
+on v0.64.4 only the capital `Runtime` spelling was green. Reproduced in
+scratch copies: `engine` root exit 0 vs renamed `zz` root
+-1073741819, log stopping right after "device" (the vertex-encode
+call).
+
+ROOT CAUSE: `collect_external_decls` (xiom-check) injects lazily-loaded
+catalog modules' decls FLAT, deduped by BARE name (the Type arm and the
+transitive fn-signature walker). The engine's
+`xiom.<root>.render.mesh.Mesh` (`{ok,error,vertices,indices}`) and the
+stdlib `xiom.geom.geometry_3d.Mesh` (`{vertices,indices}`) raced for
+ONE bare `Mesh` key; the winner is the first module in
+`catalog.all_cached()` order = dotted-name sorted, so the ASCII order
+of the project ROOT picked the layout (`Runtime` < `geom` <
+`runtime`/`rt` < `zz`; `engine`/`engineA` < `geom`). IR witness: base
+`%struct.Mesh = {i64,i64,Vec,Vec}` vs zz `%struct.Mesh = {Vec,Vec}` in
+the same function; a temporary trace showed exactly one bare-key
+registration per build. The loser's own code compiled against the
+winner's meta -> field index 2 vs 0 -> AV.
+
+FIX:
+- xiom-check: a pre-scan collects the collision set of non-generic
+  type bare names across the program AND all cached modules; every
+  colliding INJECTED type (both the Type arm and the transitive
+  fn-signature walker) is injected under its module-qualified name
+  (mirroring the leaf-qualified fn convention), so codegen registers
+  distinct keys. Single-declaration types keep the bare key (zero
+  behavior change).
+- codegen `pick_deterministic`: two new tiebreaks before the
+  shortest/lexicographic fallback -- shared dotted prefix with the
+  CURRENT module, and (for entry-file-level references, no module
+  context) the longest match against the ENTRY file's `use` paths
+  (new `primary_imports` config, collected by the driver).
+- codegen `compile_top_decl`: injected flat free fns derive their
+  module context from the leaf-qualified name (prefix must itself
+  contain a dot), so body-level type resolution scores module
+  proximity.
+
+EVIDENCE: engine scratch A/B programs -- `engine` root exit 0,
+`zz` root exit 0 (was -1073741819); both IRs now use
+`%struct.xiom.<root>.render.mesh.Mesh` with field index 2 and
+`%struct.MeshVertex` elements; mini nested-project control green;
+single-declaration programs keep the bare-key behavior. LOCK:
+`e2e_m278_type_name_collision` (ci.yml e2e group 2) + the fixture
+`tests/regression/m278_type_name_collision/` (two modules with
+same-named `Mesh`, entry-import resolution). The engine A/B is the
+pre/post witness for the injection-order path (its lazy-catalog
+loader trigger is not reachable from a single-file fixture).
+
 
 
 

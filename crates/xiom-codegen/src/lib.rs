@@ -201,6 +201,12 @@ impl IrEmitter {
         self.config.use_alias_paths = paths;
     }
 
+    /// m278 (REL-20261011-2137-engine): the entry file's `use` paths (the
+    /// driver reads them before codegen; UseDecls are otherwise ignored).
+    pub fn set_primary_imports(&mut self, imports: Vec<String>) {
+        self.config.primary_imports = imports;
+    }
+
     /// R15: hand the checker's catalog-body resolved call targets to codegen.
     pub fn set_catalog_call_targets(&mut self, targets: std::collections::HashMap<String, String>) {
         self.config.catalog_call_targets = targets;
@@ -3565,11 +3571,43 @@ impl IrEmitter {
     /// `type_meta` (HashMaps) picked a different parent per run, so the same
     /// source emitted `%struct.Message` vs `%struct.BST` allocas and the
     /// emitted IR was not byte-identical. Order: current module first, then
-    /// shortest key, then lexicographic.
+    /// module-proximal (shared dotted prefix), then shortest key, then
+    /// lexicographic.
     fn pick_deterministic(&self, mut candidates: Vec<String>) -> Option<String> {
+        // m278 (REL-20261011-2137-engine): with two same-leaf candidates
+        // (`xiom.geom.geometry_3d.Mesh` vs `xiom.zz.render.mesh.Mesh`) the
+        // engine's own-module type must win inside `xiom.zz.render.*` even
+        // when the stdlib one is shorter or sorts first.
+        let share = |k: &str| -> usize {
+            match self.local.current_module.as_deref() {
+                Some(m) => {
+                    let m = m.strip_prefix("xiom.").unwrap_or(m);
+                    let k = k.strip_prefix("xiom.").unwrap_or(k);
+                    let ms: Vec<&str> = m.split('.').collect();
+                    let ks: Vec<&str> = k.split('.').collect();
+                    ms.iter().zip(ks.iter()).take_while(|(a, b)| a == b).count()
+                }
+                None => 0,
+            }
+        };
+        // m278: an entry-file-level reference (no module context) prefers a
+        // candidate from one of the file's imports -- longest import prefix
+        // wins.
+        let import_score = |k: &str| -> usize {
+            let k = k.strip_prefix("xiom.").unwrap_or(k);
+            self.config.primary_imports.iter()
+                .map(|imp| {
+                    let imp = imp.strip_prefix("xiom.").unwrap_or(imp);
+                    if k == imp || k.starts_with(&format!("{imp}.")) { imp.split('.').count() } else { 0 }
+                })
+                .max()
+                .unwrap_or(0)
+        };
         candidates.sort_by(|a, b| {
             self.module_pref_for(b)
                 .cmp(&self.module_pref_for(a))
+                .then_with(|| share(b).cmp(&share(a)))
+                .then_with(|| import_score(b).cmp(&import_score(a)))
                 .then_with(|| a.len().cmp(&b.len()))
                 .then_with(|| a.cmp(b))
         });
