@@ -16223,6 +16223,42 @@ check 199.
 
 ---
 
+## 2026-10-13 -- FIXED (m293): Map/Set deep `==` compares content for by-value fields (REL-20261010-1549-packages-11)
+
+Witness: `m1 == m2` on Map/Set compiled rc 1 with clang `error: icmp
+requires integer operands` (`--emit-ir` rc 0). Root: `is_deep_eq_container`
+excluded Map/Set (deep_eq.rs), so the comparison fell into the
+struct-equality cascade (expr.rs ~1686-1757) which emitted the invalid
+`icmp eq %struct.Vec` for the by-value keys/values fields without a
+registered `.eq` (expr.rs:1715).
+
+Fix: (a) deep_eq.rs -- the gate/matcher/dispatch engage
+Map/Set/BTreeMap/BTreeSet (concrete-arg shapes via a new
+`emit_deep_mapset_eq`) plus the legacy non-generic `HashSet`; non-generic/
+erased spellings use the structural field walk. (b) expr.rs -- the cascade
+field branch recurses via `emit_deep_eq_operands` for by-value container
+fields without `.eq`, guarded against unresolved generic tokens.
+
+Evidence: pre-fix map_eq/set_eq rc 1 (`icmp eq %struct.Vec` at .ll:563/
+:574); post-fix all rc 0/exit 0 -- Map[Int,Int], Map[Str,Int] (strcmp
+through distinct buffers: IR shows 8x `call i32 @strcmp`, 0x `icmp eq
+%struct` for the Str-keyed Map), Set[Int]/Set[Str] (incl. the triage
+permuted witness), a clause site, BTreeMap/BTreeSet, legacy HashSet, and
+collections HashMap[Int,Int]. LOCK: tests/regression/m293_mapset_eq/ +
+`e2e_m293_mapset_eq` (ci.yml e2e group 2). Battery green: fixer e2e 16+183
++ codegen 12; integration batch e2e 16+188, codegen 12.
+
+CAVEATS recorded for follow-up: (1) SAME-ORDER layout semantics --
+permuted insertion that changes open-addressing layout can compare false
+(lookup-based set/map semantics are a follow-up). (2) Generic
+`HashMap[K,V]`: Int keys verified green via the cascade; Str keys
+unverified. (3) Latent m239 gap discovered (pre-existing, out of scope):
+`Vec[Bool]` elements compare with an i64 stride, so the legacy
+`mapch.HashMap ==` can false-negative on equal maps. (4) Erased container
+params use default-Int elements (m239-class).
+
+---
+
 ## 2026-10-13 -- FIXED (m289): annotated `Slice[Int]` locals allocated an i64 slot holding the data pointer (REL-20261010-1548-stdlib-5)
 
 The item's two filed witness FILES were already green on the archived

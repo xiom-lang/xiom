@@ -7345,6 +7345,19 @@ fn e2e_safety_probe() {
     );
 }
 
+// m293 (REL-20261010-1549-packages-11): Map/Set `==` must compare CONTENT
+// (keys/values/items Vecs with the concrete K/V/T args), not emit the
+// invalid `icmp eq %struct.Vec` for the by-value fields. Covers Map[Int,Int],
+// Map[Str,Int] (strcmp through distinct buffers), Set[Int]/Set[Str], a
+// clause site, BTreeMap/BTreeSet, and the legacy non-generic HashSet.
+#[test] fn e2e_m293_mapset_eq() {
+    assert_eq!(
+        compile_and_run("tests/regression/m293_mapset_eq/main.xi"),
+        Some(0),
+        "Map/Set deep == must compile and compare content (m293)"
+    );
+}
+
 
 
 

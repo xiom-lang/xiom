@@ -1697,7 +1697,7 @@ impl IrEmitter {
                             self.emitln(&format!("  store {rt} {r}, {rt}* {r_a}"));
                             let mut acc: Option<String> = None;
                             if let Some(meta) = self.types.type_meta.get(&struct_name.to_string()) {
-                                for (i, (_fname, _)) in meta.fields.iter().enumerate() {
+                                for (i, (_fname, fxiom)) in meta.fields.iter().enumerate() {
                                     let field_llvm = self.field_llvm_type(struct_name, i);
                                     let lg = self.fresh_tmp(); let lv = self.fresh_tmp();
                                     let rg = self.fresh_tmp(); let rv = self.fresh_tmp();
@@ -1710,6 +1710,21 @@ impl IrEmitter {
                                         let eq_fn = format!("{}.eq", &field_llvm[8..]);
                                         if self.types.functions.contains_key(&eq_fn) {
                                             self.emitln(&format!("  {cmp} = call i64 @{eq_fn}({field_llvm} {lv}, {field_llvm} {rv})"));
+                                        } else if !Self::has_unresolved_generic_token(fxiom)
+                                            && Self::is_deep_eq_container(fxiom)
+                                            && Self::deep_eq_llvm_compatible(fxiom, &field_llvm)
+                                        {
+                                            // m293 (REL-20261010-1549-packages-11): a by-value
+                                            // CONTAINER field without a derived .eq (e.g. the
+                                            // Map/Set keys/values/items Vecs) must recurse
+                                            // through the m239 deep comparator -- the old
+                                            // fallback emitted the invalid `icmp eq %struct.Vec`
+                                            // (clang: "icmp requires integer operands"). Mirror
+                                            // of the aggregate walk in deep_eq.rs. Unresolved
+                                            // generic tokens ("Vec[HashMapBucket[K, V]]" inside a
+                                            // generic template) keep the old path -- a deep walk
+                                            // would silently compare the erased placeholders.
+                                            cmp = self.emit_deep_eq_operands(fxiom, &lv, &field_llvm, &rv, &field_llvm);
                                         } else {
                                             let pi = self.fresh_tmp();
                                             self.emitln(&format!("  {pi} = icmp eq {field_llvm} {lv}, {rv}"));

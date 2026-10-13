@@ -18,10 +18,20 @@
 //! - User structs reached as elements/payloads: derived `.eq` when
 //!   registered, else field-by-field recursion over `type_meta`.
 //!
-//! Map/Set are deliberately NOT engaged (lookup-based equality needs its
-//! own design pass -- COMPILER_BUGS 2026-10-09 queue item 20). Recursive
-//! payload types (linked lists / trees) hit a repetition guard at the
-//! boundary and fall back to handle identity instead of looping forever.
+//! Map/Set are engaged by m293 (REL-20261010-1549-packages-11) with
+//! SAME-ORDER semantics: `Map[K,V]`/`BTreeMap[K,V]` compare their `keys`/
+//! `values` Vec fields, `Set[T]`/`BTreeSet[T]` their `items` Vec, using the
+//! operand's concrete K/V/T args; a non-generic spelling (the legacy
+//! `xiom.collect` shells, erased container params) goes through the
+//! structural field walk over the declared `type_meta` fields. The generic
+//! `HashMap[K,V]` shell is deliberately NOT gated here (its `data:
+//! Vec[HashMapBucket[K,V]]` elements carry unsubstituted template params);
+//! its comparison flows through the struct-equality cascade instead.
+//! Insertion-order-dependent layouts (open addressing with probe collisions)
+//! can compare false for equal contents; lookup-based semantics are a
+//! separate design pass. Recursive payload types (linked lists / trees)
+//! hit a repetition guard at the boundary and fall back to handle identity
+//! instead of looping forever.
 
 use super::IrEmitter;
 use xiom_ast::Expr;
@@ -42,11 +52,24 @@ impl IrEmitter {
         }
     }
 
-    /// m239: is `ty` a container whose `==` must compare CONTENT? Map/Set
-    /// are excluded by design (lookup-based, design pending).
+    /// m239: is `ty` a container whose `==` must compare CONTENT? m293 adds
+    /// the Map/Set spellings (same-order semantics; see the module docs).
     pub(crate) fn is_deep_eq_container(ty: &str) -> bool {
-        let (base, _) = Self::deep_split_type(ty);
-        matches!(base.as_str(), "Vec" | "Option" | "Result")
+        let (base, args) = Self::deep_split_type(ty);
+        if matches!(base.as_str(), "Vec" | "Option" | "Result") {
+            return true;
+        }
+        match Self::deep_leaf_name(&base) {
+            "Map" | "Set" | "BTreeMap" | "BTreeSet" => true,
+            // m293: the generic `HashMap[K,V]` shell embeds
+            // `HashMapBucket[K,V]` elements whose template fields cannot be
+            // substituted yet -- it stays ungated (its compare flows through
+            // the struct-equality cascade, whose by-value container fields
+            // recurse here per field). The non-generic legacy `HashSet`
+            // shell (no args, concrete fields) engages directly.
+            "HashSet" => args.is_empty(),
+            _ => false,
+        }
     }
 
     /// m239: the operand's LLVM value must be the matching by-value struct
@@ -57,13 +80,25 @@ impl IrEmitter {
         if !llvm.starts_with("%struct.") || llvm.ends_with('*') {
             return false;
         }
-        let (base, _) = Self::deep_split_type(ty);
-        match base.as_str() {
-            "Vec" => llvm == "%struct.Vec" || llvm.contains("Vec"),
-            "Option" => llvm.contains("Option"),
-            "Result" => llvm.contains("Result"),
+        let (base, args) = Self::deep_split_type(ty);
+        if matches!(base.as_str(), "Vec" | "Option" | "Result") {
+            return match base.as_str() {
+                "Vec" => llvm == "%struct.Vec" || llvm.contains("Vec"),
+                "Option" => llvm.contains("Option"),
+                _ => llvm.contains("Result"),
+            };
+        }
+        match Self::deep_leaf_name(&base) {
+            "Map" | "BTreeMap" => llvm.contains("Map"),
+            "Set" | "BTreeSet" => llvm.contains("Set"),
+            "HashSet" => args.is_empty() && llvm.contains("HashSet"),
             _ => false,
         }
+    }
+
+    /// m293: leaf segment of a (possibly module-qualified) type base name.
+    fn deep_leaf_name(base: &str) -> &str {
+        base.rsplit('.').next().unwrap_or(base)
     }
 
     /// m239: emit a content comparison for two values of `ty`, returning an
@@ -136,7 +171,13 @@ impl IrEmitter {
         }
         let (base, args) = Self::deep_split_type(ty);
         visited.push(ty.to_string());
-        let out = match base.as_str() {
+        let out = if matches!(
+            Self::deep_leaf_name(&base),
+            "Map" | "Set" | "BTreeMap" | "BTreeSet" | "HashMap" | "HashSet"
+        ) {
+            self.emit_deep_mapset_eq(&base, &args, l_val, l_llvm, r_val, r_llvm, visited, depth)
+        } else {
+            match base.as_str() {
             "Vec" => self.emit_deep_vec_eq(
                 args.first().map(String::as_str).unwrap_or("Int"),
                 l_val,
@@ -175,9 +216,98 @@ impl IrEmitter {
                 }
             }
             _ => self.emit_deep_aggregate_eq(l_val, l_llvm, r_val, r_llvm, visited, depth),
+            }
         };
         visited.pop();
         out
+    }
+
+    /// m293 (REL-20261010-1549-packages-11): deep equality for the Map/Set
+    /// shells. Generic spellings (`Map[K,V]`, `BTreeMap[K,V]`, `Set[T]`,
+    /// `BTreeSet[T]`) compare their Vec fields with the operand's CONCRETE
+    /// K/V/T args -- `keys`/`values` for maps, `items` for sets -- after
+    /// validating the actual struct layout (a same-named type with a
+    /// different shape falls through to the structural walk). Spellings
+    /// without concrete args (legacy non-generic shells from `xiom.collect`,
+    /// erased params) use the structural field walk, which recurses into any
+    /// Vec field through its declared element type.
+    ///
+    /// SAME-ORDER semantics: the compare is layout-based, so equal contents
+    /// inserted in a different order can compare false when probe collisions
+    /// reorder the backing Vecs. Lookup-based equality is a separate design
+    /// pass (documented caveat; same-order lock).
+    fn emit_deep_mapset_eq(
+        &mut self,
+        base: &str,
+        args: &[String],
+        l_val: &str,
+        l_llvm: &str,
+        r_val: &str,
+        r_llvm: &str,
+        visited: &mut Vec<String>,
+        depth: u32,
+    ) -> String {
+        if !l_llvm.starts_with("%struct.") || l_llvm.ends_with('*') || l_llvm != r_llvm {
+            return self.emit_scalar_eq(l_val, l_llvm, r_val, r_llvm);
+        }
+        let sname = l_llvm.trim_start_matches("%struct.").to_string();
+        let leaf = Self::deep_leaf_name(base).to_string();
+        // Concrete-arg shapes: Map/BTreeMap[K,V] -> (keys, values);
+        // Set/BTreeSet[T] -> (items).
+        let field_xioms: Option<Vec<String>> = match (leaf.as_str(), args.len()) {
+            ("Map", 2) | ("BTreeMap", 2) => Some(vec![
+                format!("Vec[{}]", args[0]),
+                format!("Vec[{}]", args[1]),
+            ]),
+            ("Set", 1) | ("BTreeSet", 1) => Some(vec![format!("Vec[{}]", args[0])]),
+            _ => None,
+        };
+        let Some(field_xioms) = field_xioms else {
+            // No concrete args (legacy non-generic shells, erased params) or
+            // a spelling whose shape is not keys/values/items: structural walk.
+            return self.emit_deep_aggregate_eq(l_val, l_llvm, r_val, r_llvm, visited, depth);
+        };
+        // Validate the ACTUAL declared layout -- a user type merely NAMED
+        // Map/Set with different fields must not take this path.
+        for (i, _) in field_xioms.iter().enumerate() {
+            if self.field_llvm_type(&sname, i) != "%struct.Vec" {
+                return self.emit_deep_aggregate_eq(l_val, l_llvm, r_val, r_llvm, visited, depth);
+            }
+        }
+        let l_a = self.fresh_tmp();
+        self.emitln(&format!("  {l_a} = alloca {l_llvm}"));
+        self.emitln(&format!("  store {l_llvm} {l_val}, {l_llvm}* {l_a}"));
+        let r_a = self.fresh_tmp();
+        self.emitln(&format!("  {r_a} = alloca {r_llvm}"));
+        self.emitln(&format!("  store {r_llvm} {r_val}, {r_llvm}* {r_a}"));
+        let mut acc: Option<String> = None;
+        for (i, fxiom) in field_xioms.iter().enumerate() {
+            let lg = self.fresh_tmp();
+            self.emitln(&format!("  {lg} = getelementptr {l_llvm}, {l_llvm}* {l_a}, i32 0, i32 {i}"));
+            let lv = self.fresh_tmp();
+            self.emitln(&format!("  {lv} = load %struct.Vec, %struct.Vec* {lg}"));
+            let rg = self.fresh_tmp();
+            self.emitln(&format!("  {rg} = getelementptr {r_llvm}, {r_llvm}* {r_a}, i32 0, i32 {i}"));
+            let rv = self.fresh_tmp();
+            self.emitln(&format!("  {rv} = load %struct.Vec, %struct.Vec* {rg}"));
+            let cmp = self.emit_deep_eq(fxiom, &lv, "%struct.Vec", &rv, "%struct.Vec", visited, depth + 1);
+            acc = Some(match acc {
+                None => cmp,
+                Some(prev) => {
+                    let and = self.fresh_tmp();
+                    self.emitln(&format!("  {and} = and i64 {prev}, {cmp}"));
+                    and
+                }
+            });
+        }
+        match acc {
+            Some(a) => a,
+            None => {
+                let one = self.fresh_tmp();
+                self.emitln(&format!("  {one} = add i64 0, 1"));
+                one
+            }
+        }
     }
 
     /// Str content equality via strcmp (parity with the scalar `==` path).
@@ -596,6 +726,10 @@ impl IrEmitter {
             self.emitln(&format!("  {rv} = load {fllvm}, {fllvm}* {rg}"));
             let (fbase, _) = Self::deep_split_type(fxiom);
             let cmp = if matches!(fbase.as_str(), "Vec" | "Str" | "Option" | "Result")
+                || matches!(
+                    Self::deep_leaf_name(&fbase),
+                    "Map" | "Set" | "BTreeMap" | "BTreeSet" | "HashMap" | "HashSet"
+                )
                 || (fllvm.starts_with("%struct.") && !fllvm.ends_with('*'))
             {
                 self.emit_deep_eq(fxiom, &lv, &fllvm, &rv, &fllvm, visited, depth + 1)
