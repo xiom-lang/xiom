@@ -1540,8 +1540,14 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         // be Str-copied -- copy_str returned a fresh buffer,
                         // so the caller saw a wild address (the outbound
                         // Int->ptr-across-return finding; same class as
-                        // REL-20261010-1549-packages-3's null).
-                        if val_ty == LLVM_STR_PTR && !self.expr_is_pointer(e) {
+                        // REL-20261010-1549-packages-3's null). m281 (B-20
+                        // helper): `base + off` pointer arithmetic is equally
+                        // a raw pointer -- the strlen-based copy on a binary
+                        // foreign buffer returned recycled bytes.
+                        if val_ty == LLVM_STR_PTR
+                            && !self.expr_is_pointer(e)
+                            && !self.binary_ptr_arith(e)
+                        {
                             let copy_tmp = self.fresh_tmp();
                             self.emitln(&format!("  {copy_tmp} = call i8* @xiom_guard_copy_str(i8* {val})"));
                             let not_null = self.fresh_tmp();

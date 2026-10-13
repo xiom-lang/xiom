@@ -320,7 +320,18 @@ impl IrEmitter {
                     // param type, not materialize a single-element temp
                     // (smoke_serialize yaml sequence; smoke_ptr is_null).
                     let arg_xiom = if let Expr::Ident(id) = arg_expr {
-                        self.xiom_type_of_local(&id.name)
+                        // m281 (B-23): the bare `null` literal is the NULL
+                        // POINTER (an Ident, so xiom_type_of_local -- the arm
+                        // this used to take alone -- has no binding for it and
+                        // the i64 0 was materialized as a stack BYTE whose
+                        // ADDRESS crossed to C; dx12 CreateCommittedResource
+                        // got a garbage non-null pOptimizedClearValue).
+                        if id.name == "null" {
+                            Some("*T".to_string())
+                        } else {
+                            self.xiom_type_of_local(&id.name)
+                                .or_else(|| Self::infer_value_xiom_type(arg_expr))
+                        }
                     } else {
                         // Stack-cookie family (2026-09-10): a CALL returning a
                         // raw pointer carries POINTER BITS in i64 form, but
@@ -1407,6 +1418,55 @@ impl IrEmitter {
             Expr::Call(..) | Expr::GenericCall(..) => self
                 .infer_call_return_xiom(e)
                 .map(|t| t.starts_with('*') || t.starts_with('&'))
+                .unwrap_or(false),
+            _ => false,
+        }
+    }
+
+    /// m281 (B-20 helper shape): `base + off` / `base - off` where base is
+    /// XIOM-level pointer-valued IS a pointer -- a confined-block tail
+    /// `return base + off;` was otherwise treated as a Str and went through
+    /// the strlen-based Copy-Out (xiom_guard_copy_str on a binary foreign
+    /// buffer), returning recycled/garbage addresses. Deliberately SEPARATE
+    /// from `expr_is_pointer`: adding a Binary arm there changed every
+    /// caller (Str-concat intercept, fn-value detection, ...) and regressed
+    /// ten e2e locks (Str `+` shapes among them). Both sides must resolve:
+    /// one provably pointer-valued, the other provably NOT pointer-valued
+    /// (so `"a" + b` Str concat and `ptr - ptr` Int differences can never
+    /// match, and unknown combinations stay conservative).
+    pub(crate) fn binary_ptr_arith(&self, e: &Expr) -> bool {
+        match e {
+            Expr::Paren(inner, _) => self.binary_ptr_arith(inner),
+            Expr::Binary(l, op, r, _) if matches!(op, BinOp::Add | BinOp::Sub) => {
+                (self.expr_is_pointer(l) && self.is_non_pointer_expr(r))
+                    || (matches!(op, BinOp::Add)
+                        && self.expr_is_pointer(r)
+                        && self.is_non_pointer_expr(l))
+            }
+            _ => false,
+        }
+    }
+
+    /// m281 (B-20 helper shape): a provably NON-pointer expression (literal
+    /// Int, bool literal, or a local whose registered XIOM type is a scalar
+    /// Int/bool). Conservative: unknown idents/calls are NOT non-pointers,
+    /// so `ptr - ptr` (Int difference) can never be misread as a pointer.
+    fn is_non_pointer_expr(&self, e: &Expr) -> bool {
+        match e {
+            Expr::Int(..) | Expr::Bool(..) | Expr::Char(..) | Expr::Float(..) => true,
+            Expr::Paren(inner, _) => self.is_non_pointer_expr(inner),
+            Expr::Binary(l, _, r, _) => {
+                self.is_non_pointer_expr(l) && self.is_non_pointer_expr(r)
+            }
+            Expr::Ident(id) => self
+                .local
+                .local_xiom_types
+                .get(&id.name)
+                .map(|t| {
+                    !t.starts_with('*')
+                        && !t.starts_with('&')
+                        && !matches!(t.as_str(), "Str" | "Vec" | "Slice" | "Map" | "Set")
+                })
                 .unwrap_or(false),
             _ => false,
         }

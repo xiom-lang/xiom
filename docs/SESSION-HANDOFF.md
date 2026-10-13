@@ -14,12 +14,12 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
-CURRENT STATE (2026-10-13T13:00Z; read this before anything below):
+CURRENT STATE (2026-10-13T16:40Z; read this before anything below):
 
 - origin/main = `91860f11` (no doorbell push as of this refresh; fetch
-  before trusting). Local main = `e1207485`, AHEAD by 7:
-  `633ee65b`+`dc3a0102` (v0.64.5 plan/refresh docs) + the five v0.64.5
-  batch commits m276-m280:
+  before trusting). Local main = `e1207485`, AHEAD by 8:
+  `633ee65b`+`dc3a0102` (v0.64.5 plan/refresh docs) + the six v0.64.5
+  batch commits m276-m281:
   - `0268c7d9` m276 env-unwrap veto on concretely-typed names (T1: kv
     empty-store startup AV; REL-20261012-1418-pulse FIXED+relayed).
   - `29e35ef8` m277 cast-call C handoff keeps the RAW fn code (two-word
@@ -33,22 +33,37 @@ CURRENT STATE (2026-10-13T13:00Z; read this before anything below):
   - `e1207485` m280 unsafe Copy-Out pointer gate + temporary Vec[Str]
     element concat (REL-20261011-2230-bindings FIXED+relayed; lock
     `e2e_m280_unsafe_ptr_temp_str`).
+  - m281 (this session) FFI-pointer batch remainder: raw `p[i]` was
+    lowered to the UTF-8 `xiom_char_at` decoder (B-24 stale-zero reads
+    at low-byte-0x00 rounds; B-20 zeros) -> scalar-pointee pointer-index
+    path; bare `null` materialized as a stack byte at pointer params
+    (B-23) -> `*T` pointer-valued; `base + off` confined tails
+    Str-copied (B-20 helper) -> `binary_ptr_arith` gate on all three
+    Copy-Out sites. Locks `ffi_ptr_slot_readback` +
+    `null_literal_marshal` (ci.yml front-locks). Also confirmed
+    REL-20261010-1549-packages-3 is GREEN (m280 fixed it; re-probe
+    `whole=77 stmt=88`).
   Do NOT push without owner authorization; the doorbell cron may push
   staged work -- check origin first.
 - Relay bus SHAs since the refresh: 82151ff (B-17/B-16), 0fd83fc (2230);
   NEXT-BATCH FIX REFS rows + history bullets in
   release-checks/compiler-compiler-v0.64.4.md are current.
 - Triage T1-T3 CLOSED (section 1c bullets carry the root causes).
-- FFI-pointer batch (m279/m280) remaining: B-11/0304-bindings +
-  1548-bindings-2 out-param recycling (not yet triaged), B-23/B-24
-  (REL-20261012-2051-bindings-2). REL-20261010-1549-packages-3 flagged
-  same-class with m280 (re-probe at the next archive).
+- FFI-pointer batch: DONE (m279/m280/m281). B-11/0304-bindings +
+  1548-bindings-2: the out-param recycling double-read (u32 vs byte)
+  is the B-24/B-20 `p[i]` char_at family -- fix shipped m281; the
+  SDL3 addendum shape reproduces as a readback through the same path
+  (locked in `ffi_ptr_slot_readback`); reporters re-verify at the next
+  archive. B-23/B-24 REL-20261012-2051-bindings-2 FIXED+relayed.
 - Selfhost: phase-4 worktree (ses_eded8c4d8ffe, sole writer) prompted
   2026-10-13T13:00Z to rebase on e1207485 + continue
   docs/checklists/selfhost-phase6.md; sibling ses_ef8e3a27cffe stays idle.
 - Verification: the full battery = e2e g1/g2 filters (ci.yml lines 153/154)
-  + the front-locks CLI list (now incl. `ffi_ptr_arith`) + xiom-check/
+  + the front-locks CLI list (now incl. `ffi_ptr_arith`,
+  `ffi_ptr_slot_readback`, `null_literal_marshal`) + xiom-check/
   xiom-codegen/xiom-graph libs + xiom-pkg; capture compiler output to files.
+  m281 battery: e2e 16 + 171 green, front-locks green, libs 199/12/36,
+  xiom-pkg 79.
 
 Landed in the m254-m275 release wave (historical, already pushed):
 
@@ -325,7 +340,7 @@ NEW (2026-10-13, v0.64.5 triage + FFI batches):
 
 ## 7. m-numbering
 
-- m261-m280 LANDED; **next free is m281**.
+- m261-m281 LANDED; **next free is m282**.
 
 ## 8. CONTINUATION PROMPT (paste into a fresh session)
 

@@ -15684,6 +15684,76 @@ pointer digits). LOCK: tests/regression/m280_unsafe_ptr_temp_str/ +
 ci.yml e2e group 2). Same-class follow-up to re-probe:
 REL-20261010-1549-packages-3 (whole-body unsafe return cast to null).
 
+---
+
+## 2026-10-13 -- FIXED (m281): FFI-pointer batch remainder -- binary slot reads decoded as UTF-8, `null` literal materialized as a stack byte, `base + off` tails Str-copied (B-24 + B-23 REL-20261012-2051-bindings-2; B-20/B-11 double read REL-20261011-0304-bindings + REL-20261010-1548-bindings-2)
+
+Three codegen defects at the raw-pointer boundary, all found by
+reproducing the bindings-lane witnesses on a current build.
+
+1. `p[i]` on a raw pointer lowered to `xiom_char_at` -- the UTF-8
+   CODEPOINT decoder, which clamps with `strnlen`. Any binary buffer
+   whose byte 0 is 0x00 (a little-endian 1024 slot; foreign float/mesh
+   buffers) made EVERY `p[i]` return 0, so `ffi.ptr_read_*` (built from
+   `p[i]` in stdlib ffi.xi) read stale zeros: B-24's probe failed at
+   exactly rounds 24/280 (values 1024/1280, low byte 0x00) while
+   byte-indexed Vec reads and C-side peeks through the SAME pointer saw
+   the value; B-20's foreign pointer re-derived through the loader idiom
+   read zeros. Root cause: the raw-pointer index branch was gated
+   `cont_ty == "i64" && is_ptr_local_expr` -- pointer PARAMS and fields
+   lower to a real LLVM pointer (`i8*` for `*UInt8`), so they fell to
+   the Str arm. Fixed in `Expr::Index`: the gate now accepts
+   XIOM-level pointer-valued containers (`expr_is_pointer`, m279's
+   sniffing) with a SCALAR pointee (`&Vec[T]` params are also real
+   pointers and keep Vec element indexing), loads the pointee width
+   from the registered XIOM type (`*UInt8` -> i8 zext, `*Int` -> i64),
+   and handles direct call-expression indices (`slot.as_mut_ptr()[1]`).
+   IR witness: `%tmp = getelementptr i8, i8* %data, i64 1` + `load i8`,
+   no `call @xiom_char_at`.
+
+2. The bare `null` pointer literal crossed to C as the ADDRESS OF A
+   STACK BYTE. `xs_ptr_val(null)` emitted `alloca i8; trunc/store 0;
+   call ...(i8* %tmp)` -- C saw a varying stack address (B-23 observed
+   951536580863 / 54924409823; dx12 CreateCommittedResource
+   pOptimizedClearValue=null -> E_INVALIDARG). Root cause: in
+   `coerce_arg_for_param` the Ident arg took `xiom_type_of_local` only,
+   which has no binding for `null`, so the arg classified as
+   not-pointer-valued and the materialization path fired. Fixed: the
+   `null` ident reports pointer-valued (`infer_value_xiom_type` arm +
+   the Ident arm), so `inttoptr i64 0` passes true NULL. IR witness:
+   `%tmp = inttoptr i64 0 to i8*`.
+
+3. A confined-block `return base + off;` (raw-pointer arithmetic) was
+   treated as a Str tail and went through the strlen-based Copy-Out
+   (`xiom_guard_copy_str` on a binary foreign buffer), returning
+   recycled/garbage addresses (the helper form read the same garbage at
+   offset 0 and 4 while the inline `(base as Int + off) as *UInt8` form
+   worked). Fixed: a new `binary_ptr_arith` verdict (one side provably
+   pointer-valued, the other provably not -- so `"a" + b` concat and
+   `ptr - ptr` differences can never match) gates all three Copy-Out
+   sites alongside m280's `expr_is_pointer`. Deliberately SEPARATE from
+   `expr_is_pointer`: adding the Binary arm there changed every caller
+   and regressed ten e2e locks (m234 `&Vec[T]` element indexing among
+   them) -- the index gate now also requires a scalar pointee.
+
+EVIDENCE (all pre-fix red -> post-fix green): stale probe
+`ptr_read_stale: ffi_bad=2 byte_bad=0 of 400` at rounds 24/280 ->
+`ffi_bad=0 byte_bad=0` in 5/5 runs; byte probe `p[1]=0` ->
+`p[1]=4, u32=1024, u64=1024`; foreign read `XIOM u32[0]=0 u32[1]=0` ->
+`1065353216 / 1073741824` (matches C); null probe
+`direct=189809031391 via_fn=189809031616` -> all four paths 0; helper
+ptr arith `a0=a1` garbage -> correct 1065353216/1073741824.
+LOCKS: tests/regression/m281_ffi_ptr_slot_readback/ +
+`ffi_ptr_slot_readback` and tests/regression/m281_null_literal_to_c/ +
+`null_literal_marshal` CLI tests (both in the ci.yml front-locks list;
+the null lock also asserts the `inttoptr i64 0` IR shape).
+
+RE-PROBE: REL-20261010-1549-packages-3 (whole-body unsafe return cast:
+`fn f(v: Int) -> *UInt8 { unsafe { return v as *UInt8; } }`) is GREEN on
+both this build and m280 (e1207485) -- `whole=77 stmt=88`; the m280
+Copy-Out gate fixed it. Reporter can verify + close.
+
+
 
 
 

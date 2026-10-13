@@ -3218,17 +3218,61 @@ impl IrEmitter {
                     self.emitln(&format!("  {elem} = load {arr_elem_ty}, {arr_elem_ty}* {elem_ptr}"));
                     return Ok((elem, arr_elem_ty));
                 }
-                // Raw `*T` pointer held in an i64 (a pointer param): inttoptr and read
-                // one byte. Checked before the Str path since these lower to i64.
-                if cont_ty == "i64" && self.is_ptr_local_expr(container) {
-                    let base_ptr = self.fresh_tmp();
-                    self.emitln(&format!("  {base_ptr} = inttoptr i64 {cont_val} to i8*"));
+                // m281 (B-24/B-20): raw `*T` pointer byte/element access. The
+                // old guard `cont_ty == "i64" && is_ptr_local_expr` only fired
+                // for locals; pointer PARAMS/fields lower to a real LLVM
+                // pointer (i8* for `*UInt8`) and fell through to the Str path
+                // below -- every `p[i]` became `xiom_char_at(p, i)`, a UTF-8
+                // CODEPOINT decoder that clamps with strnlen. A binary buffer
+                // whose first byte is 0x00 (e.g. a little-endian 1024 slot)
+                // then made EVERY read return 0 (B-24: ffi reads read 0 while
+                // byte-indexed Vec reads and C-side peeks saw the value; B-20:
+                // foreign buffers read zeros). Sniff XIOM-level pointer-ness
+                // (m279 expr_is_pointer) since i8* is ambiguous with Str, and
+                // require a SCALAR pointee: `&Vec[T]`/`&mut Vec[T]` params
+                // also lower to a real pointer (%struct.Vec*) but must keep
+                // Vec element indexing (m234 pad-off).
+                let ptr_scalar = cont_ty.ends_with('*') && {
+                    let pointee = cont_ty.trim_end_matches('*');
+                    matches!(pointee, "i1" | "i8" | "i16" | "i32" | "i64" | "i128" | "float" | "double" | "fp128")
+                };
+                let ptr_idx_gate = (self.is_ptr_local_expr(container) || self.expr_is_pointer(container))
+                    && (cont_ty == "i64" || ptr_scalar);
+                if ptr_idx_gate {
+                    let base_ptr = if cont_ty.ends_with('*') {
+                        cont_val.clone()
+                    } else {
+                        let bp = self.fresh_tmp();
+                        self.emitln(&format!("  {bp} = inttoptr i64 {cont_val} to i8*"));
+                        bp
+                    };
+                    // Pointee width from the registered XIOM type name
+                    // (`*UInt8` -> i8 ze, `*Int` -> i64) -- absent/unresolved
+                    // metadata keeps the historical byte-read behavior.
+                    let pointee_llvm = match container.as_ref() {
+                        Expr::Ident(id) => self
+                            .local
+                            .local_xiom_types
+                            .get(&id.name)
+                            .and_then(|t| t.strip_prefix('*').map(str::to_string))
+                            .and_then(|inner| (inner != "UInt8" && inner != "Int8").then_some(inner))
+                            .and_then(|inner| self.llvm_type_for(&inner).ok()),
+                        _ => self
+                            .infer_call_return_xiom(container)
+                            .and_then(|t| t.strip_prefix('*').map(str::to_string))
+                            .and_then(|inner| (inner != "UInt8" && inner != "Int8").then_some(inner))
+                            .and_then(|inner| self.llvm_type_for(&inner).ok()),
+                    };
+                    let elem_llvm = pointee_llvm.unwrap_or_else(|| "i8".to_string());
                     let elem_ptr = self.fresh_tmp();
-                    self.emitln(&format!("  {elem_ptr} = getelementptr i8, i8* {base_ptr}, i64 {idx}"));
+                    self.emitln(&format!("  {elem_ptr} = getelementptr {elem_llvm}, {elem_llvm}* {base_ptr}, i64 {idx}"));
                     let ch = self.fresh_tmp();
-                    self.emitln(&format!("  {ch} = load i8, i8* {elem_ptr}"));
+                    self.emitln(&format!("  {ch} = load {elem_llvm}, {elem_llvm}* {elem_ptr}"));
+                    if elem_llvm == LLVM_I64 {
+                        return Ok((ch, LLVM_I64.to_string()));
+                    }
                     let ext = self.fresh_tmp();
-                    self.emitln(&format!("  {ext} = zext i8 {ch} to i64"));
+                    self.emitln(&format!("  {ext} = zext {elem_llvm} {ch} to i64"));
                     return Ok((ext, LLVM_I64.to_string()));
                 }
                 // Str: char access via the raw runtime accessor, returned as i64.
@@ -5436,8 +5480,13 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     self.guard_heap_depth -= 1;
                     // Copy-Out a Str tail (the outer block's arena reset would
                     // otherwise UAF it). m280: a raw pointer tail is also i8*
-                    // but must pass through untouched.
-                    if last_ty == LLVM_STR_PTR && !last_expr.map_or(false, |e| self.expr_is_pointer(e)) {
+                    // but must pass through untouched. m281 (B-20 helper):
+                    // `base + off` pointer arithmetic is equally a raw pointer
+                    // (the strlen-based copy on a binary foreign buffer read
+                    // recycled bytes / returned garbage).
+                    if last_ty == LLVM_STR_PTR
+                        && !last_expr.map_or(false, |e| self.expr_is_pointer(e) || self.binary_ptr_arith(e))
+                    {
                         let copy_tmp = self.fresh_tmp();
                         self.emitln(&format!("  {copy_tmp} = call i8* @xiom_guard_copy_str(i8* {last})"));
                         let not_null = self.fresh_tmp();
@@ -5614,7 +5663,12 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     // Copy-Out (requirement i, UAF fix): promote a Str tail to
                     // the main heap BEFORE the arena resets. m280: a raw
                     // pointer tail (also i8*) must pass through untouched.
-                    if last_ty == LLVM_STR_PTR && !last_expr.map_or(false, |e| self.expr_is_pointer(e)) {
+                    // m281 (B-20 helper): `base + off` pointer arithmetic is
+                    // equally a raw pointer (strlen-based Copy-Out on a
+                    // binary foreign buffer read recycled bytes).
+                    if last_ty == LLVM_STR_PTR
+                        && !last_expr.map_or(false, |e| self.expr_is_pointer(e) || self.binary_ptr_arith(e))
+                    {
                         let copy_tmp = self.fresh_tmp();
                         self.emitln(&format!("  {copy_tmp} = call i8* @xiom_guard_copy_str(i8* {last})"));
                         let not_null = self.fresh_tmp();

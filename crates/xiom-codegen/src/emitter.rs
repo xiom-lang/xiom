@@ -589,6 +589,14 @@ impl IrEmitter {
             Expr::As(_, ty, _) => Some(Self::type_from_ast(ty)),
             Expr::Paren(inner, _) => Self::infer_value_xiom_type(inner),
             Expr::Binary(l, BinOp::Shl | BinOp::Shr, _, _) => Self::infer_value_xiom_type(l),
+            // m281 (B-23): the bare `null` literal is the NULL POINTER, not an
+            // Int. Without an arm here, the pointer-param materialization
+            // check (coerce_arg_for_param: arg_is_ptr_valued) saw no type and
+            // forced the i64 0 through `alloca i8 + store` -- the callee
+            // received the ADDRESS OF A STACK BYTE instead of null (dx12
+            // CreateCommittedResource E_INVALIDARG; null-literal probe:
+            // xs_ptr_val(null) read a varying stack address).
+            Expr::Ident(id) if id.name == "null" => Some("*T".to_string()),
             // BUG 31: literal bindings must register their XIOM type so method
             // dispatch on the local resolves (`var v = 0.0; v.to_str()` -> the
             // Float64.to_str method; previously the bare `@to_str` stub -> AV).
