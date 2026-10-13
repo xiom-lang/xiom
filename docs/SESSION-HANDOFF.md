@@ -55,11 +55,11 @@ CURRENT STATE (2026-10-13T16:40Z; read this before anything below):
     inside the confined block; the block frees the arena before join
     -> UAF); the thread gate stays OPEN until the stdlib buffer moves
     to main-heap allocation outside the block (proposed diff on the
-    bus).
+    bus). Commit d6690868; relay `40e3c40`.
   Do NOT push without owner authorization; the doorbell cron may push
   staged work -- check origin first.
 - Relay bus SHAs since the refresh: 82151ff (B-17/B-16), 0fd83fc (2230),
-  `438b714` (m281 fixes + rows);
+  `438b714` (m281 fixes + rows), `40e3c40` (m282 fixes + stdlib item);
   NEXT-BATCH FIX REFS rows + history bullets in
   release-checks/compiler-compiler-v0.64.4.md are current.
 - Triage T1-T3 CLOSED (section 1c bullets carry the root causes).
