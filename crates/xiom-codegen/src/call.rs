@@ -4109,8 +4109,17 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             .and_then(|k| k.rsplit_once('.'))
                             .map(|(m, _)| m.to_string())
                             .or_else(|| self.local.current_module.clone());
+                        // m297 (REL-20261010-1615-stdlib): the same SELF-exclusion
+                        // resolve_caller_module_def already carries -- a stdlib
+                        // METHOD whose bare call shares its own leaf
+                        // (`pub fn Path.is_dir(self) { return is_dir(self.inner); }`)
+                        // derived the caller "module" from the TYPE prefix
+                        // ("Path") and bound the call to ITSELF: infinite
+                        // recursion down to the depth-500 llvm.trap
+                        // (0xC000001D illegal instruction) before any output.
                         let in_caller_module = caller_module
                             .map(|m| format!("{m}.{fn_key}"))
+                            .filter(|k| Some(k.as_str()) != self.fctx.current_fn.as_deref())
                             .filter(|k| self.types.functions.contains_key(k) || self.mono.emitted_fns.contains(k));
                         if let Some(qualified) = in_caller_module {
                             qualified
@@ -5947,11 +5956,30 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // 5c.30: G-10 implicit-self -- override the fn key so
                         // bare `greet("Hi")` resolves to `Greeter.greet`.
                         // Self IS injected: sibling method calls (bare `name()`
-                        // inside `Doctor.formal`) must receive the receiver.
+                        // inside `Doctor.formal`) must receive the receiver --
+                        // also when the standard resolution already bound the
+                        // SAME sibling key (the override's real job there is
+                        // the self-arg injection below, not the rename).
+                        // m297 (REL-20261010-1615-stdlib): skip ONLY when the
+                        // standard resolution already bound a DIFFERENT real
+                        // function. A stdlib method whose bare call shares its
+                        // own leaf (`Path.is_dir` -> `is_dir(self.inner)`)
+                        // resolved to the free fn (io.is_dir) and was then
+                        // re-hijacked here onto the sibling method -- which is
+                        // the same key as the enclosing fn, so the call went
+                        // to ITSELF: infinite recursion down to the depth-500
+                        // llvm.trap (0xC000001D illegal instruction) before any
+                        // output.
                         if receiver_expr.is_none() {
                             if let Some(isk) = self.resolve_implicit_self_call(&fn_name) {
-                                resolved_fn_key = isk;
-                                implicit_self_resolved = true;
+                                let bound_elsewhere = resolved_fn_key != isk
+                                    && (self.types.functions.contains_key(&resolved_fn_key)
+                                        || self.mono.emitted_fns.contains(&resolved_fn_key)
+                                        || self.mono.generic_fn_decls.iter().any(|(k, _)| k == &resolved_fn_key));
+                                if !bound_elsewhere {
+                                    resolved_fn_key = isk;
+                                    implicit_self_resolved = true;
+                                }
                             }
                         }
                         // Build args_str. When implicit-self resolved, prepend the

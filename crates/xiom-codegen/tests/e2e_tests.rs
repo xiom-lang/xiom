@@ -7398,6 +7398,20 @@ fn e2e_safety_probe() {
     );
 }
 
+// m297 (REL-20261010-1615-stdlib): `Path.is_dir` -- a stdlib METHOD whose
+// body bare-calls the same-leaf free fn `is_dir(self.inner)` -- self-bound:
+// the G-10 implicit-self override re-bound the already-resolved io.is_dir
+// to the sibling method @Path.is_dir itself, recursed to the depth-500
+// llvm.trap and died with 0xC000001D before any output. Witness shape:
+// io import + trailing printlns (p_path_println_context_crash.xi).
+#[test] fn e2e_m297_path_println_context() {
+    assert_eq!(
+        compile_and_run("tests/regression/m297_path_println_context/main.xi"),
+        Some(0),
+        "Path.is_dir must bind the io.is_dir free fn, not recurse into itself (m297)"
+    );
+}
+
 
 
 

@@ -16318,6 +16318,32 @@ imports).
 
 ---
 
+## 2026-10-13 -- FIXED (m297): stdlib method same-leaf bare calls no longer self-bind (REL-20261010-1615-stdlib)
+
+`Path.is_dir` -- a stdlib method whose body bare-calls the same-leaf free
+fn `is_dir(self.inner)` -- self-bound through two resolvers: the legacy
+`in_caller_module` fallback derived the caller "module" from the TYPE
+prefix ("Path") and bound the call to the enclosing fn, and the G-10
+implicit-self override then re-hijacked the already-resolved `io.is_dir`
+onto the sibling method. The call went to `@Path.is_dir` itself, recursing
+to the depth-500 `llvm.trap`: exit 0xC000001D (SIGILL) before any output
+for any program touching `Path.is_dir` (witness
+tools/known_failures/p_path_println_context_crash.xi; the filed
+statement-sequence sensitivity was the io-import + print shape reaching
+that path).
+
+Fix: mirror the m261 self-exclusion in the `in_caller_module` fallback,
+and make the G-10 override skip only when the standard resolution bound a
+DIFFERENT real function (the same-key case keeps the self-arg injection
+G-10 exists for; a broader first attempt regressed
+e2e_i2_parallel_codegen / t3-hot-reload by dropping the receiver). LOCK:
+tests/regression/m297_path_println_context/ +
+`e2e_m297_path_println_context` (ci.yml e2e group 2; Path.exists +
+Path.is_dir + trailing printlns, positive control
+`Path.new(".").is_dir() == true`).
+
+---
+
 ## 2026-10-13 -- FIXED (m289): annotated `Slice[Int]` locals allocated an i64 slot holding the data pointer (REL-20261010-1548-stdlib-5)
 
 The item's two filed witness FILES were already green on the archived
