@@ -9818,7 +9818,23 @@ impl Checker {
                 return x.base() == y.base()
                     && Self::type_arg_list_compatible(x.args(), y.args());
             }
-            return true;
+            // Exactly one side is a parameterized container. The legacy
+            // bare-vs-parameterized leniency is ONLY for erased forms of the
+            // SAME base (bare `Result` vs `Result[Int, Int]`) plus genuine
+            // placeholders (wildcard `_`, generic `T`/`*T`, empty/unit
+            // payloads). A concrete scalar is NOT an erased container:
+            // `Float64` vs `Vec[Float64]` must fail (1549-stdlib-5 -- the
+            // shape-mismatched &Vec arg compiled silently and AVed), and
+            // concrete pointers/tuples no longer cross-match containers
+            // (stricter variant; structural identity, not layout identity).
+            let other = if x.is_container() { y } else { x };
+            let container = if x.is_container() { x } else { y };
+            if other.is_wildcard() || other.is_generic_param()
+                || other.is_empty() || other.is_unit()
+            {
+                return true;
+            }
+            return other.base() == container.base();
         }
         // Wildcard inner args: Option[_] is context-adaptable.
         if x.is_wildcard() || y.is_wildcard() { return true; }

@@ -734,3 +734,42 @@ fn m252_body_check_cache_parity_and_invalidate() {
 
     let _ = std::fs::remove_dir_all(&root);
 }
+
+// ---------------------------------------------------------------------------
+// m285 (REL-20261010-1549-stdlib-5): shape-mismatched &Vec argument.
+// ---------------------------------------------------------------------------
+
+/// m285: passing a flat &Vec[Float64] where &Vec[Vec[Float64]] is declared
+/// used to pass the checker -- `type_arg_compatible`'s one-container branch
+/// returned true for ANY non-container vs container (the scalar `Float64`
+/// counted as an erased `Vec[Float64]`) -- and the callee's nested element
+/// read AVed at runtime (0xC0000005). Must now be a call-site T001.
+#[test]
+fn m285_vec_shape_arg_mismatch_rejected() {
+    let (stderr, code) = check_on("m285_vec_shape_arg_mismatch");
+    assert_ne!(
+        code,
+        Some(0),
+        "the shape-mismatched &Vec argument must fail the check. stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("argument 2 type mismatch: expected Vec[Vec[Float64]], found Vec[Float64]"),
+        "expected the call-site argument mismatch, got:\n{stderr}"
+    );
+}
+
+/// m285 positive control: the MATCHED shape (both arguments
+/// &Vec[Vec[Float64]]) must keep compiling and running.
+#[test]
+fn m285_vec_shape_arg_matched_still_runs() {
+    let (stderr, code, exe) = run_on("m285_vec_shape_arg_matched");
+    assert_eq!(code, Some(0), "the matched shape must compile. stderr:\n{stderr}");
+    let run = Command::new(&exe).output().expect("run m285_vec_shape_arg_matched");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(run.status.code(), Some(0), "the matched shape must run cleanly");
+    assert!(
+        String::from_utf8_lossy(&run.stdout).contains("ok"),
+        "the 1x2 * 2x1 product must be [[11.0]], got:\n{}",
+        String::from_utf8_lossy(&run.stdout)
+    );
+}

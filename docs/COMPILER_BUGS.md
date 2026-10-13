@@ -15939,3 +15939,30 @@ struct-return init and `r.value` payload extraction both red. Fix: add
 (was clang exit 1). LOCK: tests/regression/m284_mut_of_struct_return/ +
 `e2e_m284_mut_of_struct_return` (ci.yml e2e group 2). Battery green: e2e
 16+174, front-locks, serial libs 199/36/79.
+
+---
+
+## 2026-10-13 -- FIXED (m285): shape-mismatched `&Vec` argument compiled silently and AVed (REL-20261010-1549-stdlib-5)
+
+`math.matrices.mat_mul(&matrix, &flat)` with `matrix: Vec[Vec[Float64]]`
+and `flat: Vec[Float64]` (parameter `b: &Vec[Vec[Float64]]`) compiled with
+rc 0 and AVed (0xC0000005) in the callee's nested element read. Root cause
+is checker-side, not codegen: `types_compatible`'s structural rule recurses
+into `type_arg_compatible`, whose "exactly one side is a container" branch
+returned true UNCONDITIONALLY (the bare-vs-parameterized erasure leniency).
+The inner comparison `Float64` vs `Vec[Float64]` therefore passed -- the
+scalar counted as an ERASED `Vec[Float64]` -- and the flat `*hdr` was handed
+to a nested `Vec[Vec[...]]` reader. Trace witness (env-gated, temporary):
+`[compat] math.matrices.mat_mul arg 2: expected=Vec[Vec[Float64]]
+found=Vec[Float64] compatible=true` via `one-container leniency: x=Float64
+y=Vec[Float64] -> true`. Fix: the leniency now applies only to genuine
+placeholders (wildcard `_`, generic `T`/`*T`, empty/unit payloads) or when
+the non-container side's base MATCHES the container's base (bare `Result`
+vs `Result[Int, Int]` stays legal); concrete scalars/pointers/tuples no
+longer cross-match containers (stricter variant). Post-fix witness:
+`error[T001]: 26:13: argument 2 type mismatch: expected Vec[Vec[Float64]],
+found Vec[Float64]`, rc 1. LOCK:
+tests/regression/m285_vec_shape_arg_mismatch/ + the matched-shape control
+tests/regression/m285_vec_shape_arg_matched/ (both in checker_locks.rs).
+Battery green: e2e 16+174, front-locks (34 checker locks incl. the pair),
+serial libs 199/36/79.
