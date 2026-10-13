@@ -16344,6 +16344,26 @@ Path.is_dir + trailing printlns, positive control
 
 ---
 
+## 2026-10-13 -- FIXED (m299): tuple-element reference destructuring binds value copies (REL-20261010-1549-packages-12)
+
+`let (k, v) = &vec[i];` bound each component ADDRESS as an `&T`-annotated
+i64 ref (the m209 arm). Value uses leaked the address (prints showed
+decimal addresses: `ak=1887325935856`) and the Str concat path
+dereferenced through a byte load (0xC0000005, no output). The arm now
+LOADS each component value from the GEP element: identical semantics to
+the bind-then-destructure workaround and the by-value struct path; the
+m209 `k == &key` content compare still works.
+
+Evidence: probe pre-fix exit -1073741819 (AV, no output) -> post-fix exit
+0 (`A ak=7 av=9`, `C ck=grpc-timeout cv=5s`); fixture pre-fix exit 100 ->
+0. LOCK: tests/regression/m299_tuple_ref_destructure/ +
+`e2e_m299_tuple_ref_destructure` (ci.yml e2e group 2); the
+`regress_m209_tuple_ref_destructure` feature-regression test was updated
+to the value-copy IR shape (the ref-binding mechanism it pinned is
+superseded).
+
+---
+
 ## 2026-10-13 -- FIXED (m289): annotated `Slice[Int]` locals allocated an i64 slot holding the data pointer (REL-20261010-1548-stdlib-5)
 
 The item's two filed witness FILES were already green on the archived

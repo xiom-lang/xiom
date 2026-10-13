@@ -7412,6 +7412,21 @@ fn e2e_safety_probe() {
     );
 }
 
+// m299 (REL-20261010-1549-packages-12): destructuring a REFERENCE to a tuple
+// element (`let (k, v) = &vec[i]`) must bind VALUE COPIES. The m209 ref
+// binding leaked component addresses into value uses (prints showed decimal
+// addresses; the Str concat path deref'd through a byte load -> AV); the
+// workaround was bind-then-destructure. The fixture gates the copied values
+// through compares and string concat, and keeps the m209 `k == &key` compare
+// plus the by-value/workaround controls green.
+#[test] fn e2e_m299_tuple_ref_destructure() {
+    assert_eq!(
+        compile_and_run("tests/regression/m299_tuple_ref_destructure/main.xi"),
+        Some(0),
+        "destructuring a tuple-element reference must bind value copies (m299)"
+    );
+}
+
 
 
 

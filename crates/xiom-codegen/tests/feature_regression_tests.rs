@@ -7201,11 +7201,12 @@ fn main() -> Int {
     );
 }
 
-// m209 (packages relay): `let (k, v) = &vec[i]` binds component references
-// (GEP per component, i64 slot = component ADDRESS) and `k == &key`
-// content-compares with BOTH operands deref'd through their slots
-// (`inttoptr ... to i8**` + load + strcmp). Pre-fix both names got the same
-// element address and the comparison was an i64 address check (no derefs).
+// m209 (packages relay): `let (k, v) = &vec[i]` -- pre-fix both names got
+// the same element address and the comparison was an i64 address check.
+// m209 bound component refs; m299 (REL-20261010-1549-packages-12) superseded
+// that with VALUE copies: the destructure loads each component from the
+// element struct (no address binding), and `k == &key` still content-compares
+// via strcmp where only the `&key` operand derefs its slot.
 #[test]
 fn regress_m209_tuple_ref_destructure() {
     let source = r#"
@@ -7235,10 +7236,16 @@ fn main() -> Int {
         ir.contains("@strcmp"),
         "m209: the ref-vs-ref compare must content-compare via strcmp; got:\n{ir}"
     );
+    // m299: components are LOADED as values (copies), not bound as addresses.
+    let comp_loads = ir.matches("load i8*, i8**").count();
+    assert!(
+        comp_loads >= 2,
+        "m209/m299: the destructured components must be LOADED from the tuple element; got {comp_loads} in:\n{ir}"
+    );
     let derefs = ir.matches("to i8**").count();
     assert!(
-        derefs >= 2,
-        "m209: BOTH ref operands must deref their slots (inttoptr to i8**); got {derefs} in:\n{ir}"
+        derefs >= 1,
+        "m209/m299: the `&key` operand must deref its slot (inttoptr to i8**); got {derefs} in:\n{ir}"
     );
 }
 
