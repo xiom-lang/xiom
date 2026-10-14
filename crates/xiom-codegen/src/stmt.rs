@@ -685,6 +685,15 @@ impl IrEmitter {
                     return Ok(());
                 }
                 let store_val = self.coerce_value(&val, &val_llvm_ty, &llvm_ty);
+                // m302 (REL-20261011-1659-orbitdb): `var b = a;` must OWN its
+                // storage -- an aliased Vec RHS gets a deep-copied buffer (see
+                // vec_abi::emit_vec_value_deep_copy), else `b[0] = x` writes
+                // through to `a`.
+                let store_val = if Self::vec_store_needs_owned_copy(&llvm_ty, value) {
+                    self.emit_vec_value_deep_copy(&store_val, &llvm_ty)
+                } else {
+                    store_val
+                };
                 let store_val = self.zero_val_for(&store_val, &llvm_ty);
                 let alloca = self.fresh_tmp();
                 // D1: i128/fp128 allocas need 16-byte alignment on x86-64.
@@ -1115,7 +1124,15 @@ impl IrEmitter {
                     self.add_local(&name.name, alloca, "i64");
                     return Ok(());
                 }
-                let store_val = self.zero_val_for(&val, &llvm_ty);
+                // m302 (REL-20261011-1659-orbitdb): see the let-binding arm --
+                // an aliased Vec RHS is deep-copied so the new binding owns
+                // its storage (element writes must not reach the source).
+                let store_val = if Self::vec_store_needs_owned_copy(&llvm_ty, value) {
+                    self.emit_vec_value_deep_copy(&val, &llvm_ty)
+                } else {
+                    val.clone()
+                };
+                let store_val = self.zero_val_for(&store_val, &llvm_ty);
                 let alloca = self.fresh_tmp();
                 // D1: i128/fp128 allocas need 16-byte alignment on x86-64.
                 // BUG 22 #6: loop-body binding allocas hoist to fn entry.
@@ -1220,6 +1237,14 @@ impl IrEmitter {
                         // value's REAL type from compile_expr (e.g. an i8 char
                         // value assigned into an i64 slot).
                         let store_val = self.coerce_value(&val, &val_ty, &llvm_ty);
+                        // m302 (REL-20261011-1659-orbitdb): `b = a;` on an
+                        // aliased Vec RHS takes the owned deep copy (the
+                        // assignment form of the `var b = a;` bug).
+                        let store_val = if Self::vec_store_needs_owned_copy(&llvm_ty, value) {
+                            self.emit_vec_value_deep_copy(&store_val, &llvm_ty)
+                        } else {
+                            store_val
+                        };
                         self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {ptr}"));
                     } else if let Some((symbol, llvm_ty)) = self.local.module_globals.get(&ident.name).cloned() {
                         // Assignment to a mutable module-level `var`: store into the
@@ -1227,6 +1252,12 @@ impl IrEmitter {
                         // BEFORE the unknown-target path so it is never silently
                         // dropped.
                         let store_val = self.coerce_value(&val, &val_ty, &llvm_ty);
+                        // m302: module-global Vec targets take the owned copy too.
+                        let store_val = if Self::vec_store_needs_owned_copy(&llvm_ty, value) {
+                            self.emit_vec_value_deep_copy(&store_val, &llvm_ty)
+                        } else {
+                            store_val
+                        };
                         self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* @{symbol}"));
                     }
                 }

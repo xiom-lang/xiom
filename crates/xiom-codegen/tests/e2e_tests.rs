@@ -7471,5 +7471,20 @@ fn e2e_safety_probe() {
     );
 }
 
+// m302 (REL-20261011-1659-orbitdb): a Vec bound from an ALIASING RHS (local
+// ident, Vec element, struct field, or assignment target) must own its
+// storage -- element assignment through the copy used to write through to
+// the source buffer while push/pop only looked like copy-on-write. The
+// fixture gates flat copy (`src[0]` stays 1, `src.len` stays 2), the
+// Vec-of-Vec handle and struct-field extract shapes, the `b = a` form, and
+// keeps the push/pop + owned-rebuild controls.
+#[test] fn e2e_m302_vec_copy_alias() {
+    assert_eq!(
+        compile_and_run("tests/regression/m302_vec_copy_alias/main.xi"),
+        Some(0),
+        "Vec bindings from aliasing RHS must deep-copy the buffer (m302)"
+    );
+}
+
 
 

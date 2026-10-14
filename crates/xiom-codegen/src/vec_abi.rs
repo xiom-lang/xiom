@@ -538,6 +538,83 @@ impl IrEmitter {
         Some(elem_ptr)
     }
 
+    /// m302 (REL-20261011-1659-orbitdb): a Vec binding RHS ALIASES a live
+    /// handle when it reads an existing place -- a local/param/global
+    /// (`var b = a`), a Vec element (`var w = arena[i]`), or a struct field
+    /// (`var k = s.keys`). Fresh values (`Vec.new()`, `.clone()`, call
+    /// returns, array literals) are uniquely owned and skip the copy.
+    pub(crate) fn vec_binding_rhs_aliases(value: &Expr) -> bool {
+        match value {
+            Expr::Ident(_) | Expr::Index(..) | Expr::Field(..) => true,
+            Expr::Paren(inner, _) => Self::vec_binding_rhs_aliases(inner),
+            _ => false,
+        }
+    }
+
+    /// m302 (REL-20261011-1659-orbitdb): deep-copy a `%struct.Vec` value's
+    /// payload into a fresh buffer and return a header that OWNS it
+    /// ({newbuf, len, len, elem_size}) -- the Vec.clone() shape (G-36).
+    /// Binding a Vec from an ALIASING RHS used to store the SAME handle
+    /// bitwise, so `var b = a; b[0] = 99;` wrote through to `a`'s buffer.
+    /// push/pop only LOOK like copy-on-write (per-handle len + realloc on
+    /// growth); the element store has no sharing check and the container ABI
+    /// carries no refcount, so the copy must be taken at the binding.
+    pub(crate) fn emit_vec_value_deep_copy(&mut self, vec_val: &str, vec_ty: &str) -> String {
+        let slot = self.fresh_tmp();
+        self.emitln(&format!("  {slot} = alloca {vec_ty}"));
+        self.emitln(&format!("  store {vec_ty} {vec_val}, {vec_ty}* {slot}"));
+        let data_gep = self.fresh_tmp();
+        let data = self.fresh_tmp();
+        self.emitln(&format!("  {data_gep} = getelementptr {vec_ty}, {vec_ty}* {slot}, i32 0, i32 0"));
+        self.emitln(&format!("  {data} = load i8*, i8** {data_gep}"));
+        let len_gep = self.fresh_tmp();
+        let len = self.fresh_tmp();
+        self.emitln(&format!("  {len_gep} = getelementptr {vec_ty}, {vec_ty}* {slot}, i32 0, i32 1"));
+        self.emitln(&format!("  {len} = load i64, i64* {len_gep}"));
+        let es_gep = self.fresh_tmp();
+        let es = self.fresh_tmp();
+        self.emitln(&format!("  {es_gep} = getelementptr {vec_ty}, {vec_ty}* {slot}, i32 0, i32 3"));
+        self.emitln(&format!("  {es} = load i64, i64* {es_gep}"));
+        let es_zero = self.fresh_tmp();
+        self.emitln(&format!("  {es_zero} = icmp eq i64 {es}, 0"));
+        let es_fixed = self.fresh_tmp();
+        self.emitln(&format!("  {es_fixed} = select i1 {es_zero}, i64 8, i64 {es}"));
+        let bytes = self.fresh_tmp();
+        self.emitln(&format!("  {bytes} = mul i64 {len}, {es_fixed}"));
+        // cap = max(len, 1): an EMPTY copy must not carry cap=0 -- the next
+        // push computes new_cap = cap*2 = 0 and realloc(p, 0) returns NULL
+        // (the grow trap), and a bare 1-byte alloc would be too small for the
+        // first element slot. Allocate cap*esz so an empty copy still owns a
+        // valid one-element buffer (Set.insert/Map internals extract-push-
+        // storeback on empty containers).
+        let cap_zero = self.fresh_tmp();
+        self.emitln(&format!("  {cap_zero} = icmp eq i64 {len}, 0"));
+        let cap = self.fresh_tmp();
+        self.emitln(&format!("  {cap} = select i1 {cap_zero}, i64 1, i64 {len}"));
+        let alloc_bytes = self.fresh_tmp();
+        self.emitln(&format!("  {alloc_bytes} = mul i64 {cap}, {es_fixed}"));
+        let newbuf = self.emit_alloc(&alloc_bytes);
+        self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {newbuf}, i8* {data}, i64 {bytes}, i1 false)"));
+        let s0 = self.fresh_tmp();
+        self.emitln(&format!("  {s0} = insertvalue {vec_ty} undef, i8* {newbuf}, 0"));
+        let s1 = self.fresh_tmp();
+        self.emitln(&format!("  {s1} = insertvalue {vec_ty} {s0}, i64 {len}, 1"));
+        let s2 = self.fresh_tmp();
+        self.emitln(&format!("  {s2} = insertvalue {vec_ty} {s1}, i64 {cap}, 2"));
+        let s3 = self.fresh_tmp();
+        self.emitln(&format!("  {s3} = insertvalue {vec_ty} {s2}, i64 {es_fixed}, 3"));
+        s3
+    }
+
+    /// m302 (REL-20261011-1659-orbitdb): true when a binding/assignment store
+    /// of a Vec VALUE must take the deep copy -- the destination slot type is
+    /// a `%struct.Vec` (never a pointer form) and the RHS aliases.
+    pub(crate) fn vec_store_needs_owned_copy(llvm_ty: &str, value: &Expr) -> bool {
+        !llvm_ty.ends_with('*')
+            && Self::is_llvm_struct_named(llvm_ty, "Vec")
+            && Self::vec_binding_rhs_aliases(value)
+    }
+
     /// Compile an array literal `[e1, e2, ...]` into a proper `%struct.Vec`
     /// value, handling malloc + per-element copy. Used when an array literal
     /// appears in a context that expects a Vec (e.g., `Some([1,2,3])`).

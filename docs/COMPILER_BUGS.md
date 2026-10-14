@@ -16473,3 +16473,41 @@ for `v.json_get_path` (call.rs) and either extend the UFCS candidate set
 to by-value struct receivers (param0 typed `JsonValue` by value, not
 pointer) or make the alias key resolve to the module fn's real symbol.
 Battery green: e2e 16+182, front-locks, serial libs 199/12/36/79.
+
+---
+
+## 2026-10-14 -- FIXED (m302): Vec bindings from an aliasing RHS deep-copy the buffer (REL-20261011-1659-orbitdb)
+
+Element assignment through a copied Vec handle wrote through to the SOURCE
+buffer (`var b = a; b[0] = 99;` -> `a[0]` read 99) while push/pop only
+LOOKED like copy-on-write: the container ABI (`%struct.Vec` =
+{data,len,cap,esz}) carries no refcount, `push` never checks sharing
+(growth reallocs when len==cap; the per-handle len is what hid the
+aliasing), and the element-store path (stmt.rs indexed assignment) computes
+`data + idx*esz` and stores with no ownership check at all. Fix: a Vec
+VALUE bound or assigned from an aliasing RHS -- Ident/Index/Field reads
+(`var b = a;`, `var w = arena[i];`, `var k = s.keys;`, `b = a;`) -- is
+deep-copied at the binding (`vec_abi::emit_vec_value_deep_copy`, the
+Vec.clone() shape: fresh buffer, memcpy len*esz, header
+{buf, len, cap=max(len,1), esz}); fresh values (Vec.new()/clone()/call
+returns/array literals) stay uncopied and push/pop are unchanged. The
+cap=max(len,1) arm matters: cap=0 on an empty copy made the next push
+compute new_cap = cap*2 = 0 and `realloc(p, 0)` -> NULL trap -- hit by the
+stdlib extract-push-storeback idiom (`var it = items; it.push(v);
+items = it;` in Set.insert/Map internals; m143/m293 fixtures).
+
+Witness: orbitdb bundle `docs/repro/vec-copy-alias` (probe_alias.xi) on
+HEAD-pre-fix `src[0]=99 copy[0]=99` flat + arena -> post-fix
+`src[0]=1 copy[0]=99` flat, arena `src[0]=1`; the push/pop lines are
+unchanged (`flat push: src.len=2 copy.len=3`; `arena pop: src.len=2
+store-copy.len=2 local.len=1`). Fixture pre-fix exit 4 (four [ALIAS]
+checks: flat / Vec-of-Vec handle / struct field / `b = a`) -> post-fix
+exit 0 (`0 failing checks`).
+
+LOCK: tests/regression/m302_vec_copy_alias/ + `e2e_m302_vec_copy_alias`
+(ci.yml e2e group 2). Battery green: e2e 16+190, codegen --lib 12.
+Caveats (same aliasing class, outside this item's shapes): by-value call
+arguments, `push()` arguments, for-loop element bindings, and whole-struct
+copies (`var s2 = s1;` with Vec FIELDS) still share buffers; the
+generic-boxed container-field handle (i64) binding shape is also outside
+the copy predicate.
