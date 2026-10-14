@@ -392,16 +392,17 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
    the spawn e2e without it); m311 fix/m311-o2-no-fold-barrier LANDED on
    main `066bc253` (fixer commit 3237aaa1 + doc/ci tokens; contract no-fold
    barrier via volatile round-trip; lock 4/4 + battery green). ALL THREE
-   INTEGRATED + relayed (bus 071f5aa/8dbc424/d7c26ba). ENGINE WAVE
-   LAUNCHED 2026-10-14T15:34Z (Agent Manager worktrees): m314
-   fix/m314-int128-uint64-family (2042 + 2042-2 + 2227;
-   ses_ec4f35adbffe0NkzMzXsmHF5mu), m315
-   fix/m315-2139-enum-geom-collision (2139), m316
-   fix/m316-1158-spawn-fn-shadow (1158), m317 fix/m317-const-surface-family
-   (2256 + 2324-2 + 2324-3) -- session IDs for m315-m317 confirmed via
-   agent_manager list at creation; integrate each as it commits (same flow
-   as m311-m313). Queued next: 2215 + 2215-2, 2238 x3 (CLI lane), 1819,
-   2035, 2119 + 1213. Next free m318.
+   INTEGRATED + relayed (bus 071f5aa/8dbc424/d7c26ba). ENGINE WAVE m314-m317
+   ALL LANDED on main + relayed (bus c036f0a/6f88343): m314 `b7ed15b1`
+   (2042 + -2042-engine-2 + 2227: Int128/UInt128 16-byte slots/align-16,
+   16-byte memcpy stores/typed loads, zext widening, icmp u*/udiv/urem),
+   m315 `32923053` (2139: current-module variant precedence + struct-fit
+   literal), m316 `f4583fb1` (1158: parser soft-keyword struct-literal
+   lookahead -- NOT a catalog shadow), m317 `af3d6460` (2256 + 2324-2 +
+   2324-3: const-substitution cycle guard/hang, cross-module const + export
+   surfaces, pub-use consts, pub var). WAVE 2 launched 2026-10-14T16:45Z:
+   m318 (2215 + 2215-2), m319 (2238 x3 CLI lane), m320 (1819 + 2035);
+   remaining queue: 2119 + 1213. Next free m321.
   Row-sweep note: several check-file rows still show `acked`/red for items
   fixed in m276-m284 (e.g. 1437/1512 -> m279; 2230/2053/2137/1402/1403/
   1418 -> m276-m282) -- sweep rows when convenient.
