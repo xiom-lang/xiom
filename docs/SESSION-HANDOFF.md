@@ -365,8 +365,19 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
       DONE (m308).
   6. tooling/registry: 1548-registry-2 + 1549-registry/2/3 DONE (m306);
      1549-packages-5/7 DONE (m310).
-  7. macOS: 1549-pulse + 1609-pulse (typed `@llvm.memset`) -- needs a NEW
-     archive to verify.
+   7. macOS: 1549-pulse + 1609-pulse (typed `@llvm.memset`) -- needs a NEW
+      archive to verify.
+   8. ENGINE RELAY BATCH -- 17 items queued into the candidate record on
+      2026-10-14 (rows added; no triage yet): 1819 (Int ptr arg, B-16
+      class), 2035 (&Str param spelling), 2042 + 2042-2 (Int128/UInt128
+      miscompile HIGH; UInt64 bit-63), 2119 (large-main startup AV, low),
+      2139 (enum-variant/geom name collision), 2215 + 2215-2 (Vec push in
+      match arm; move-semantics pin), 2227 (UInt64 div/mod sign), 2238 x3
+      (CLI lane: vecvecstr / fnvalue_records / meshencoder), 2256 (const
+      shadowing hang + pub use drops consts), 2324-2 (var fn export drop),
+      2324-3 (diamond pub const), 1158 (ident named spawn drops fn),
+      1213 (layout-sensitive probe AV, low). These are the next fixer-wave
+      candidates after m311-m313 land.
   Row-sweep note: several check-file rows still show `acked`/red for items
   fixed in m276-m284 (e.g. 1437/1512 -> m279; 2230/2053/2137/1402/1403/
   1418 -> m276-m282) -- sweep rows when convenient.
@@ -751,6 +762,10 @@ each; see the check file + the bus for details):
 6. tooling/registry: 1548-registry-2 + 1549-registry/2/3 DONE (m306);
    1549-packages-5/7 DONE (m310).
 7. macOS typed-memset (1549-pulse + 1609-pulse) needs a NEW archive first.
+   8. ENGINE RELAY BATCH (17 items, rows added 2026-10-14, untriaged):
+      1819, 2035, 2042 + 2042-2, 2119, 2139, 2215 + 2215-2, 2227, 2238 x3,
+      2256, 2324-2, 2324-3, 1158, 1213 -- next fixer-wave candidates after
+      m311-m313.
 Also: sweep stale check-file rows (items fixed in m276-m284 still show
 acked/red) when convenient.
 
