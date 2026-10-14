@@ -17,14 +17,14 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
 
 - origin/main = `91860f11` (fetch before trusting -- the doorbell may push
-  staged work). Local main = the latest commit (see git log), AHEAD by ~52
+  staged work). Local main = the latest commit (see git log), AHEAD by ~55
   unpushed commits (exact: `git rev-list --count origin/main..HEAD`):
   `633ee65b`+`dc3a0102` (v0.64.5 plan/refresh docs) + m276..m292 + m293 +
-  m294 + m295 + m296 + m297 + m298 + m299 + m301 + handoff follow-ups + 2 attempt logs (stdlib-6 leg b m291 reverted, see
+  m294 + m295 + m296 + m297 + m298 + m299 + m301 + m302 + m303 + handoff follow-ups + 2 attempt logs (stdlib-6 leg b m291 reverted, see
   docs/failed_attempts.md; the bindings-4 m288 attempt is superseded by
   m292, and the stdlib-6 leg-b m295 attempt supersedes its failed entry).
   Do NOT push without the owner's authorization.
-- v0.64.5 batches m276-m292 + m293 + m294 + m295 + m296 + m297 + m298 + m299 + m301 (commit -> scope; all relayed):
+- v0.64.5 batches m276-m292 + m293 + m294 + m295 + m296 + m297 + m298 + m299 + m301 + m302 + m303 (commit -> scope; all relayed):
   - `0268c7d9` m276 env-unwrap veto on concretely-typed names (T1 kv AV).
   - `29e35ef8` m277 cast-call C handoff keeps the RAW fn code (two-word
     env: 0=thunk, 1=raw) + nested fn-type markers parse (T2 B-22 + 1403).
@@ -207,6 +207,30 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
     stdlib smoke_io2) all green with enforcement LIVE; item stays open
     pending a faithful repro (original nondeterminism was v0.64.0/2-era
     clause machinery that m291 rewrote).
+  - `f67adcea` m303 stdlib-2 + stdlib-3 FIXED (one batch for the m300
+    fixer's two items): (a) `geometry_3d.Box{..}` T001 unknown-type and
+    the spelling-compare param check made aabb_contains/
+    aabb_intersection uncallable -- xiom-check now resolves
+    module-qualified catalog type spellings in signatures+calls, codegen
+    carries them through construction/param matching; (b)
+    `var l2 = lu.0;` on an un-annotated nested Vec[Vec[Float64]] result
+    lost a level (`type_string_full` erased tuple element containers to
+    "Vec" -> scalar elem path, row len 0) -- container args kept in tuple
+    types + tuple-field vec reads. Evidence re-run here:
+    p_geom_box_unnameable v0.64.4 compile rc 1 (T001 at 31:11) -> rc 0 +
+    run rc 0; p_geom_matrix_result_infer v0.64.4 run rc 4 -> rc 0. Locks
+    e2e_m300_geom_box_unnameable + e2e_m300_geom_matrix_result_infer.
+  - `8c298c91` m302 1659-orbitdb FIXED: a Vec bound/assigned from an
+    ALIASING RHS (`var b = a;`, `var w = arena[i];`, `var k = s.keys;`,
+    `b = a;`) now deep-copies the buffer at the binding
+    (`emit_vec_value_deep_copy`, cap=max(len,1) to dodge the
+    realloc(p,0) NULL trap in the stdlib extract-push-storeback idiom);
+    fresh values stay uncopied; push/pop unchanged. Witness
+    `src[0]=99 copy[0]=99` -> `src[0]=1 copy[0]=99`; fixture pre-fix exit
+    4 -> 0. CAVEATS (recorded): by-value call args, `push()` args,
+    for-loop element bindings, and whole-struct copies with Vec FIELDS
+    still share buffers; generic-boxed container-field handles outside
+    the predicate.
 - CLOSED / awaiting reporter re-verify at the next archive (compiler work
   done; items are `fixed` on the bus): T1-T3, B-17+B-16, B-23+B-24
   (2051-bindings-2), B-11+B-20 readback family (0304-bindings +
@@ -218,6 +242,8 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
   (bare &mut/& value sinks -- m294), 1615-stdlib (Path.is_dir self-bind
   SIGILL -- m297), 1549-packages-12 (tuple-ref destructure value copies --
   m299), 1549-stdlib-4 (clause result[i] element binding -- m301),
+  1549-stdlib-2 + 1549-stdlib-3 (module-qualified type spellings + tuple
+  container args -- m303), 1659-orbitdb (Vec copy-alias deep copy -- m302),
   1548-stdlib-6 (leg a m290 alias type paths + leg b m295
   by-value UFCS), 1956-orbitdb + 1709-xvector (same-named types keep
   module identity -- m298), 1548-stdlib-4 (@pre on &mut param fields snapshots the
@@ -250,10 +276,10 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
 - REMAINING CANDIDATE QUEUE (reds; the bus + the check file are the
   record). Priority order for the next session:
   1. borrow/codegen: 1548-bindings-4 (m292), 1548-stdlib-6 (m295),
-     1549-packages-11 (m293), 1549-packages-12 (m299), 1549-stdlib-4
-     (m301) DONE. IN FLIGHT: 1549-stdlib-2 + 1549-stdlib-3 (m300).
-     OPEN: 1549-packages-2 -- NO-REPRO m301 (73 runs / 7 multi-module
-     shapes green with enforcement live; needs a faithful repro).
+     1549-packages-11 (m293), 1549-packages-12 (m299), 1549-stdlib-2 +
+     1549-stdlib-3 (m303), 1549-stdlib-4 (m301) DONE. OPEN:
+     1549-packages-2 -- NO-REPRO m301 (73 runs / 7 multi-module shapes
+     green with enforcement live; needs a faithful repro).
      (1549-packages-10 is a wave stale-green close.)
   2. resolver/checker: 1549-packages-9 DONE (m294), 1550-orbitdb-2;
      1956-orbitdb + 1709-xvector DONE (m298).
@@ -261,8 +287,9 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
      open, 2032 (owner).
   4. contracts/clauses: 1549-stdlib-4 DONE (m301); 1549-packages-2
      NO-REPRO on HEAD (m301, stays open); 1548-stdlib-7.
-  5. runtime/misc: 1615-stdlib DONE (m297); 1659-orbitdb (Vec copy alias;
-     in flight m302), 1219-orbitdb PART A, 1324-selfhost,
+  5. runtime/misc: 1615-stdlib DONE (m297); 1659-orbitdb DONE (m302;
+     call-arg/struct-copy shapes remain shared -- see COMPILER_BUGS
+     m302), 1219-orbitdb PART A, 1324-selfhost,
      1553-playground-2, 1554-playground (stdout flush), 1554-benchmark
      (t3 trampoline).
   6. tooling/registry: 1548-registry-2, 1549-registry/2/3,
@@ -592,10 +619,9 @@ NEW (2026-10-13, v0.64.5 triage + FFI batches):
 
 ## 7. m-numbering
 
-- m261-m292 + m293 + m294 + m295 + m296 + m297 + m298 + m299 + m301
-  LANDED; m300/m302 are reserved by the in-flight fixer worktrees
-  (stdlib-2/3, 1659-orbitdb); **next free after those is
-  m303**.
+- m261-m292 + m293-m299 + m301 + m302 + m303 LANDED (the m300 fixer's
+  two items landed as ONE batch, m303); no reservations remain;
+  **next free is m304**.
 
 ## 8. CONTINUATION PROMPT (paste into a fresh session)
 
@@ -608,8 +634,8 @@ docs/rustc-study/ for reference patterns; rustc source is E:\repos\rust
 (READ-ONLY; no git writes there).
 
 STATE: v0.64.4 released (df493530) and verified. Git: origin/main =
-91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~52 unpushed
-commits (m276-m292 + m293 + m294 + m295 + m296 + m297 + m298 + m299 + m301 + docs + attempt logs); do NOT push
+91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~55 unpushed
+commits (m276-m292 + m293..m299 + m301 + m302 + m303 + docs + attempt logs); do NOT push
 without the owner's authorization. Relay bus: latest compiler commits
 d5e84f8/170cdd9/9712942/4ac2e39 + the m292/m295 fix notes; the check
 file release-checks/compiler-compiler-v0.64.4.md is the candidate record.
@@ -631,10 +657,11 @@ each; see the check file + the bus for details):
 1. borrow/codegen: 1548-bindings-4 (m292), 1548-stdlib-6 (m295),
    1549-packages-11 (m293), 1549-packages-9 (m294), 2320-bindings #1
    (m296 part 1), 1615-stdlib (m297), 1956-orbitdb + 1709-xvector (m298),
-   1549-packages-12 (m299), 1549-stdlib-4 (m301) FIXED. IN FLIGHT:
-   1549-stdlib-2 + 1549-stdlib-3 (m300), 1659-orbitdb (m302). OPEN:
-   1549-packages-2 (NO-REPRO m301). Cherry-pick serially as they report;
-   then the registry/playground items.
+   1549-packages-12 (m299), 1549-stdlib-2 + 1549-stdlib-3 (m303),
+   1549-stdlib-4 (m301), 1659-orbitdb (m302) FIXED. OPEN:
+   1549-packages-2 (NO-REPRO m301). Next wave candidates: 1550-orbitdb-2,
+   1219-orbitdb PART A, 1324-selfhost, 1553-playground-2, 1554-playground,
+   1554-benchmark, registry items, 2320 parts 2/3, -O2 no-fold barrier.
 2. resolver/checker: 1550-orbitdb-2; 1549-packages-9 (m294),
    1956-orbitdb + 1709-xvector (m298) DONE.
 3. allocator/runtime: 2320-bindings #1 DONE (m296 part 1); 2320 #2/#3;
@@ -642,7 +669,7 @@ each; see the check file + the bus for details):
    4. contracts/clauses: 1549-stdlib-4 DONE (m301); 1549-packages-2
       NO-REPRO on HEAD (m301, stays open); the -O2 constant-fold pruning
       finding needs a no-fold barrier.
-5. runtime/misc: 1615-stdlib DONE (m297); 1659-orbitdb (in flight m302),
+5. runtime/misc: 1615-stdlib DONE (m297); 1659-orbitdb DONE (m302);
    1219-orbitdb PART A, 1324-selfhost, 1553-playground-2, 1554-playground.
 6. tooling/registry: 1548-registry-2, 1549-registry/2/3, 1549-packages-5/7.
 7. macOS typed-memset (1549-pulse + 1609-pulse) needs a NEW archive first.
