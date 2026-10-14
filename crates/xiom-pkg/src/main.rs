@@ -5,6 +5,7 @@
 // M14.1: registry functions -> registry.rs
 
 mod lockfile;
+mod pack;
 mod registry;
 mod signing;
 mod tarball;
@@ -127,6 +128,8 @@ fn main() {
             return;
         }
         if cmd == "lock" { generate_lockfile(); return; }
+        if cmd == "yank" { yank_command(&args); return; }
+        if cmd == "resolve" { resolve_query_command(&args); return; }
     }
 
     let mut list_mode = false;
@@ -187,6 +190,107 @@ fn main() {
 
     if !list_mode && !resolve_mode {
         println!("{} v{}", pkg.name, pkg.version);
+    }
+}
+
+/// REL-20261010-1549-registry: `xiom pkg yank <package>@<version>
+/// [--reason <text>] [--registry <URL>]`.
+///
+/// POSTs to the live contract `POST /packages/{name}/{version}/yank` with a
+/// Bearer token from `XIOM_REGISTRY_TOKEN` (OIDC-minted tokens work: they
+/// arrive through the same variable). The artifact and index entry stay;
+/// pinned installs keep resolving while `latest` skips the yanked version.
+/// The server confirms with `{ok,package,version,yanked,latest,message}`.
+fn yank_command(args: &[String]) {
+    let spec = args.get(2).cloned().unwrap_or_default();
+    let (package, version) = match spec.find('@') {
+        Some(at) if at > 0 && at + 1 < spec.len() => (&spec[..at], &spec[at + 1..]),
+        _ => {
+            eprintln!(
+                "Usage: xiom pkg yank <package>@<version> [--reason <text>] [--registry <URL>]"
+            );
+            process::exit(1);
+        }
+    };
+    let get = |flag: &str| args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1));
+    let reason = get("--reason").cloned();
+    let registry = get("--registry").cloned().unwrap_or_else(registry_url);
+    let registry = crate::registry::canonicalize_registry_url(&registry);
+    let url = crate::registry::yank_url(&registry, package, version);
+    match crate::registry::http_post_json(&url, &crate::registry::yank_body(reason.as_deref())) {
+        Ok(body) => match crate::registry::parse_yank_response(&body) {
+            Ok(line) => println!("{line}"),
+            Err(e) => {
+                eprintln!("xiom pkg yank: {e}");
+                process::exit(1);
+            }
+        },
+        Err(e) => {
+            eprintln!("xiom pkg yank: {e}");
+            process::exit(1);
+        }
+    }
+}
+
+/// REL-20261010-1549-registry-3: `xiom pkg resolve <name>[@<spec>]
+/// [--registry <URL>] [--json]`.
+///
+/// Resolves against the registry index with NO manifest and no auth -- the
+/// shape package authors use outside a compiler workspace (the bare
+/// `xiom pkg --resolve` flag still needs package.xi at --root and is
+/// unchanged). Specs are the usual constraint lists (`1.2.3`, `^1.0`,
+/// `>=1.0,<2.0`); a missing `@<spec>` means latest.
+fn resolve_query_command(args: &[String]) {
+    let spec_arg = args.get(2).cloned().unwrap_or_default();
+    let usage = || {
+        eprintln!("Usage: xiom pkg resolve <name>[@<spec>] [--registry <URL>] [--json]");
+        process::exit(1);
+    };
+    if spec_arg.is_empty() || spec_arg.starts_with("--") {
+        usage();
+    }
+    let (name, spec) = match spec_arg.find('@') {
+        Some(at) if at > 0 => (&spec_arg[..at], &spec_arg[at + 1..]),
+        Some(_) => usage(),
+        None => (spec_arg.as_str(), "*"),
+    };
+
+    let get = |flag: &str| args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1));
+    let registry = get("--registry").cloned().unwrap_or_else(registry_url);
+    let registry = crate::registry::canonicalize_registry_url(&registry);
+    let json = args.iter().any(|a| a == "--json");
+
+    let index = match crate::registry::fetch_registry_index(&registry) {
+        Ok(index) => index,
+        Err(e) => {
+            eprintln!("xiom pkg resolve: {e}");
+            process::exit(1);
+        }
+    };
+    match crate::registry::resolve_query_closure(&index, name, spec) {
+        Ok(closure) => {
+            if json {
+                let out = crate::registry::resolve_query_json(&registry, name, spec, &closure);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&out).unwrap_or_else(|_| "{}".to_string())
+                );
+                return;
+            }
+            println!("Resolved {}@{} from {}:", name, spec, registry);
+            for entry in &closure {
+                let digest = if entry.sha256.is_empty() {
+                    "(no digest)".to_string()
+                } else {
+                    format!("sha256:{}", entry.sha256)
+                };
+                println!("  {} {} {}", entry.name, entry.version, digest);
+            }
+        }
+        Err(e) => {
+            eprintln!("xiom pkg resolve: {e}");
+            process::exit(1);
+        }
     }
 }
 
@@ -579,7 +683,7 @@ fn keygen_command(args: &[String]) {
     println!("Public key: {}", public);
     println!("Fingerprint: {}", signing::fingerprint(&public));
     println!("Note: this is the PUBLISHER signing key; release pipelines generate one per run.");
-    println!("Consumers pin the REGISTRY key instead: xiom pkg trust --registry <URL> --key <registry-key>");
+    println!("Consumers pin the REGISTRY index key instead: xiom pkg trust --registry <URL> --index-key <registry-index-key>");
 }
 
 /// `xiom pkg trust --registry URL --key HEX`          -- pin a registry's artifact signing key.
@@ -755,9 +859,30 @@ fn publish_package(args: &[String]) {
 
     println!("Packaging {} v{}...", pkg.name, pkg.version);
     if tmp_tarball {
-        if let Err(e) = create_tarball(pkg_dir, &tarball_path) {
-            eprintln!("xiom pkg: cannot create tarball: {e}");
-            process::exit(1);
+        // REL-20261010-1548-registry-2: the pack guard refuses build/artifact
+        // entries by default (PUBLISHING.md list), honors .xiomignore, keeps
+        // entries declared in package.xi, and `--force` overrides refusals.
+        // --tarball promotion packs nothing, so the guard does not apply to
+        // externally built bytes.
+        let force = args.iter().any(|a| a == "--force");
+        let policy = pack::PackPolicy::for_package(pkg_dir, &pkg.modules, force);
+        match create_tarball(pkg_dir, &tarball_path, &policy) {
+            Ok(outcome) => {
+                if !outcome.forced.is_empty() {
+                    eprintln!(
+                        "  pack guard: --force kept {} build/artifact entr{}:",
+                        outcome.forced.len(),
+                        if outcome.forced.len() == 1 { "y" } else { "ies" }
+                    );
+                    for entry in outcome.forced.iter().take(8) {
+                        eprintln!("    {entry}");
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("xiom pkg: {e}");
+                process::exit(1);
+            }
         }
     }
     let tarball_size = fs::metadata(&tarball_path).map(|m| m.len()).unwrap_or(0);
@@ -898,8 +1023,12 @@ fn load_signing_key() -> Option<signing::KeyPair> {
 /// to the in-repo deterministic writer (`tarball.rs`): sorted entries, ustar
 /// headers with `SOURCE_DATE_EPOCH` mtime (default 0), fixed modes/ownership,
 /// gzip MTIME 0. Identical trees -> identical bytes.
-fn create_tarball(dir: &std::path::Path, output: &str) -> Result<(), String> {
-    tarball::write_tar_gz(dir, std::path::Path::new(output))
+fn create_tarball(
+    dir: &std::path::Path,
+    output: &str,
+    policy: &pack::PackPolicy,
+) -> Result<tarball::PackOutcome, String> {
+    tarball::write_tar_gz_filtered(dir, std::path::Path::new(output), policy)
 }
 
 /// Install without the registry: the local `packages/index.json` channel
@@ -1216,13 +1345,15 @@ fn print_command_usage(cmd: &str) {
         "install" => eprintln!("Usage: xiom pkg install <package>[@version]"),
         "search" => eprintln!("Usage: xiom pkg search [query] [--category <c>] [--json]"),
         "info" => eprintln!("Usage: xiom pkg info <package>[@version] [--json]"),
-        "publish" => eprintln!("Usage: xiom pkg publish [--token <TOKEN>] [--tarball <PATH>] [--compiler <tag>] [--dry-run]"),
+        "publish" => eprintln!("Usage: xiom pkg publish [--token <TOKEN>] [--tarball <PATH>] [--compiler <tag>] [--dry-run] [--force]"),
         "keygen" => eprintln!("Usage: xiom pkg keygen [--out <PATH>]"),
         "trust" => eprintln!("Usage: xiom pkg trust --registry <URL> (--key <hex> | --index-key <hex>)"),
         "trusted" => eprintln!("Usage: xiom pkg trusted"),
         "sign" => eprintln!("Usage: xiom pkg sign <file> [--key PATH]"),
         "verify" => eprintln!("Usage: xiom pkg verify <file> <signature-file> [--key HEX]"),
         "lock" => eprintln!("Usage: xiom pkg lock"),
+        "yank" => eprintln!("Usage: xiom pkg yank <package>@<version> [--reason <text>] [--registry <URL>]"),
+        "resolve" => eprintln!("Usage: xiom pkg resolve <name>[@<spec>] [--registry <URL>] [--json]"),
         _ => eprintln!("Usage: xiom pkg {cmd} [OPTIONS] (see 'xiom pkg --help')"),
     }
 }
@@ -1242,7 +1373,13 @@ fn print_usage() {
     eprintln!("                   [--compiler <tag>] Records the toolchain tag this release was");
     eprintln!("                                     built with (vX.Y.Z; also read from the");
     eprintln!("                                     package.xi `compiler:` field)");
+    eprintln!("                   [--force]          Keep build/artifact entries the pack guard");
+    eprintln!("                                     refuses by default (rare, intentional cases)");
     eprintln!("  xiom pkg lock                      Generate xiom.lock from package.xi");
+    eprintln!("  xiom pkg yank <pkg>@<ver>          Retire a published version (artifact and index");
+    eprintln!("                                     entry stay; pinned installs keep resolving)");
+    eprintln!("  xiom pkg resolve <pkg>[@<spec>]    Resolve a registry closure without a manifest");
+    eprintln!("                                     (--registry <URL>, --json)");
     eprintln!("  xiom pkg list                       List installed packages");
     eprintln!();
     eprintln!("Install locations:");
@@ -1527,7 +1664,8 @@ version: "0.1.0";
         ).expect("write lib.xi");
 
         let tarball = std::env::temp_dir().join("xiom_test_publish.tar.gz");
-        let result = create_tarball(&tmp_dir, &tarball.to_string_lossy());
+        let policy = pack::PackPolicy::for_package(&tmp_dir, &[], false);
+        let result = create_tarball(&tmp_dir, &tarball.to_string_lossy(), &policy);
         // tar may not be available in all test environments -- don't fail
         if result.is_ok() {
             assert!(tarball.exists(), "tarball should exist");

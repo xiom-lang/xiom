@@ -23,8 +23,17 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::pack::{PackPolicy, Verdict};
+
 /// Block size of the tar format.
 const BLOCK: usize = 512;
+
+/// Result of a filtered pack: which entries only landed because `--force`
+/// overrode the default refusal list.
+#[derive(Debug, Default)]
+pub struct PackOutcome {
+    pub forced: Vec<String>,
+}
 
 /// Read the deterministic mtime: `SOURCE_DATE_EPOCH` seconds when set and
 /// valid, otherwise 0 (the reproducible-builds default).
@@ -39,12 +48,37 @@ pub fn deterministic_mtime() -> u64 {
 ///
 /// The archive contains the directory itself (as `dir_name/`) followed by its
 /// entries, mirroring `tar -C <parent> <dir_name>`.
+#[cfg(test)]
 pub fn write_tar_gz(dir: &Path, output: &Path) -> Result<(), String> {
-    write_tar_gz_with_mtime(dir, output, deterministic_mtime())
+    write_pack(dir, output, deterministic_mtime(), None).map(|_| ())
 }
 
 /// Same as [`write_tar_gz`] with an explicit mtime (used by tests).
+#[cfg(test)]
 pub fn write_tar_gz_with_mtime(dir: &Path, output: &Path, mtime: u64) -> Result<(), String> {
+    write_pack(dir, output, mtime, None).map(|_| ())
+}
+
+/// REL-20261010-1548-registry-2: the guarded pack used by `xiom pkg publish`.
+/// Applies the [`PackPolicy`] while walking: default build/artifact entries
+/// fail the pack (unless `--force`), `.xiomignore` entries are skipped, and
+/// entries declared in package.xi are kept. Nothing is written when the
+/// guard refuses.
+pub fn write_tar_gz_filtered(
+    dir: &Path,
+    output: &Path,
+    policy: &PackPolicy,
+) -> Result<PackOutcome, String> {
+    let outcome = write_pack(dir, output, deterministic_mtime(), Some(policy))?;
+    Ok(outcome.unwrap_or_default())
+}
+
+fn write_pack(
+    dir: &Path,
+    output: &Path,
+    mtime: u64,
+    policy: Option<&PackPolicy>,
+) -> Result<Option<PackOutcome>, String> {
     let dir_name = dir
         .file_name()
         .ok_or_else(|| format!("package directory {} has no name", dir.display()))?
@@ -52,7 +86,12 @@ pub fn write_tar_gz_with_mtime(dir: &Path, output: &Path, mtime: u64) -> Result<
         .to_string();
 
     let mut entries: Vec<Entry> = Vec::new();
-    collect_entries(dir, &dir_name, &mut entries)?;
+    let mut refused: Vec<String> = Vec::new();
+    let mut forced: Vec<String> = Vec::new();
+    collect_entries(dir, &dir_name, "", policy, &mut entries, &mut refused, &mut forced)?;
+    if !refused.is_empty() {
+        return Err(crate::pack::refusal_message(&refused));
+    }
     // Deterministic order: byte-wise path sort (dirs before their contents
     // naturally, since "a" < "a/b").
     entries.sort_by(|a, b| a.archive_path.as_bytes().cmp(b.archive_path.as_bytes()));
@@ -71,7 +110,7 @@ pub fn write_tar_gz_with_mtime(dir: &Path, output: &Path, mtime: u64) -> Result<
 
     let gz = gzip_stored(&tar);
     fs::write(output, &gz).map_err(|e| format!("cannot write {}: {e}", output.display()))?;
-    Ok(())
+    Ok(policy.map(|_| PackOutcome { forced }))
 }
 
 struct Entry {
@@ -80,7 +119,15 @@ struct Entry {
     data: Option<Vec<u8>>,
 }
 
-fn collect_entries(root: &Path, prefix: &str, out: &mut Vec<Entry>) -> Result<(), String> {
+fn collect_entries(
+    root: &Path,
+    prefix: &str,
+    rel_base: &str,
+    policy: Option<&PackPolicy>,
+    out: &mut Vec<Entry>,
+    refused: &mut Vec<String>,
+    forced: &mut Vec<String>,
+) -> Result<(), String> {
     let mut children: Vec<PathBuf> = fs::read_dir(root)
         .map_err(|e| format!("cannot read {}: {e}", root.display()))?
         .map(|r| r.map(|e| e.path()).map_err(|e| e.to_string()))
@@ -99,6 +146,11 @@ fn collect_entries(root: &Path, prefix: &str, out: &mut Vec<Entry>) -> Result<()
             .to_string_lossy()
             .to_string();
         let archive_path = format!("{prefix}/{name}");
+        let rel = if rel_base.is_empty() {
+            name.clone()
+        } else {
+            format!("{rel_base}/{name}")
+        };
         let meta = fs::symlink_metadata(&child)
             .map_err(|e| format!("cannot stat {}: {e}", child.display()))?;
         if meta.file_type().is_symlink() {
@@ -108,8 +160,34 @@ fn collect_entries(root: &Path, prefix: &str, out: &mut Vec<Entry>) -> Result<()
             ));
         }
         if meta.is_dir() {
-            collect_entries(&child, &archive_path, out)?;
+            if let Some(policy) = policy {
+                match policy.verdict(&rel, true) {
+                    Verdict::Skip => continue,
+                    Verdict::Refuse => {
+                        refused.push(format!("{rel}/"));
+                        continue;
+                    }
+                    Verdict::Keep => {}
+                }
+                if policy.is_forced() && crate::pack::default_refused(&rel, true) {
+                    forced.push(format!("{rel}/"));
+                }
+            }
+            collect_entries(&child, &archive_path, &rel, policy, out, refused, forced)?;
         } else if meta.is_file() {
+            if let Some(policy) = policy {
+                match policy.verdict(&rel, false) {
+                    Verdict::Skip => continue,
+                    Verdict::Refuse => {
+                        refused.push(rel.clone());
+                        continue;
+                    }
+                    Verdict::Keep => {}
+                }
+                if policy.is_forced() && crate::pack::default_refused(&rel, false) {
+                    forced.push(rel.clone());
+                }
+            }
             let data = fs::read(&child)
                 .map_err(|e| format!("cannot read {}: {e}", child.display()))?;
             out.push(Entry { archive_path, is_dir: false, data: Some(data) });
@@ -343,6 +421,90 @@ mod tests {
         }
         let sum: u64 = copy.iter().map(|&b| b as u64).sum();
         assert_eq!(parsed, sum, "header checksum must verify");
+    }
+
+    /// List the ustar member names of a written archive (test helper).
+    fn archive_names(path: &Path) -> Vec<String> {
+        let tar = gunzip_stored(&fs::read(path).unwrap());
+        let mut names = Vec::new();
+        let mut off = 0usize;
+        while off + BLOCK <= tar.len() {
+            if tar[off..off + BLOCK].iter().all(|&b| b == 0) {
+                break;
+            }
+            let name = String::from_utf8_lossy(&tar[off..off + 100])
+                .trim_end_matches('\0')
+                .to_string();
+            let size_str = String::from_utf8_lossy(&tar[off + 124..off + 136])
+                .trim_end_matches('\0')
+                .trim()
+                .to_string();
+            let size = usize::from_str_radix(&size_str, 8).unwrap_or(0);
+            names.push(name);
+            off += BLOCK + size.div_ceil(BLOCK) * BLOCK;
+        }
+        names
+    }
+
+    // REL-20261010-1548-registry-2: the guarded pack refuses build/artifact
+    // entries and writes NOTHING on refusal.
+    #[test]
+    fn m306_filtered_pack_refuses_build_entries() {
+        let root = temp_dir("guard_refuse");
+        let pkg = root.join("demo");
+        test_tree(&pkg);
+        fs::create_dir_all(pkg.join("target").join("debug")).unwrap();
+        fs::write(pkg.join("target").join("debug").join("junk.o"), b"junk").unwrap();
+        fs::write(pkg.join("app.exe"), b"bin").unwrap();
+
+        let policy = PackPolicy::for_package(&pkg, &[], false);
+        let out = root.join("a.tar.gz");
+        let err = write_tar_gz_filtered(&pkg, &out, &policy).unwrap_err();
+        assert!(err.contains("refusing to pack"), "{err}");
+        assert!(err.contains("target/"), "{err}");
+        assert!(err.contains("app.exe"), "{err}");
+        assert!(!out.exists(), "nothing is written when the guard refuses");
+    }
+
+    // .xiomignore skips, declared modules are kept, --force packs the rest
+    // (and reports what it forced).
+    #[test]
+    fn m306_filtered_pack_honors_xiomignore_keeps_declared_and_force() {
+        let root = temp_dir("guard_keep");
+        let pkg = root.join("demo");
+        test_tree(&pkg);
+        fs::write(pkg.join("notes.tmp"), b"tmp").unwrap();
+        fs::write(pkg.join(".xiomignore"), b"*.tmp\n").unwrap();
+
+        let out = root.join("a.tar.gz");
+        let policy = PackPolicy::for_package(&pkg, &[], false);
+        let outcome = write_tar_gz_filtered(&pkg, &out, &policy).expect("pack");
+        assert!(outcome.forced.is_empty(), "no force -> no forced entries");
+        let names = archive_names(&out);
+        assert!(names.iter().all(|n| !n.contains("notes.tmp")), "{names:?}");
+        assert!(names.iter().any(|n| n == "demo/package.xi"), "{names:?}");
+        assert!(names.iter().any(|n| n == "demo/sub/mod.xi"), "{names:?}");
+
+        // A module declared in package.xi escapes the refusal list.
+        fs::create_dir_all(pkg.join("dist")).unwrap();
+        fs::write(pkg.join("dist").join("extra.xi"), b"module extra").unwrap();
+        let declared = vec!["dist/extra.xi".to_string()];
+        let policy = PackPolicy::for_package(&pkg, &declared, false);
+        let out2 = root.join("b.tar.gz");
+        write_tar_gz_filtered(&pkg, &out2, &policy).expect("declared pack");
+        let names = archive_names(&out2);
+        assert!(names.iter().any(|n| n == "demo/dist/extra.xi"), "{names:?}");
+
+        // --force packs refused entries (reported) but .xiomignore stays.
+        fs::create_dir_all(pkg.join("target")).unwrap();
+        fs::write(pkg.join("target").join("junk.o"), b"junk").unwrap();
+        let forced = PackPolicy::for_package(&pkg, &[], true);
+        let out3 = root.join("c.tar.gz");
+        let outcome = write_tar_gz_filtered(&pkg, &out3, &forced).expect("forced pack");
+        assert!(!outcome.forced.is_empty(), "forced entries are reported");
+        let names = archive_names(&out3);
+        assert!(names.iter().any(|n| n == "demo/target/junk.o"), "{names:?}");
+        assert!(names.iter().all(|n| !n.contains("notes.tmp")), "{names:?}");
     }
 
     /// Minimal stored-deflate decoder for tests only.

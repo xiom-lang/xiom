@@ -307,6 +307,10 @@ curl http://localhost:8080/index.json
 xiom pkg install xiom-http
 ```
 
+Refuse unsigned artifacts by pinning the registry index key:
+`xiom pkg trust --registry <registry-url> --index-key <hex>`; list pins with
+`xiom pkg trusted`.
+
 ## Project Structure
 
 ```

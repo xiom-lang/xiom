@@ -16543,3 +16543,38 @@ by the parent enum key, mirroring the variant-REF path. LOCK:
 tests/regression/m305_enum_ctor_tuple/ + `e2e_m305_enum_ctor_tuple`
 (ci.yml e2e group 2; also gates the constant-variant arms, the Err arm, a
 plain let-bound (Color, Int) tuple, and the enum-alone workaround shape).
+
+---
+
+## 2026-10-14 -- FIXED (m306): registry/pkg cluster -- four tooling items (REL-20261010-1548-registry-2 + REL-20261010-1549-registry + -2 + -3)
+
+1. 1549-registry-2 (trust hint): the untrusted-registry hint told
+   consumers to pin the artifact PUBLISHER key; first-party releases sign
+   with ephemeral per-run OIDC keys so that pin can never match.
+   `trust_hint()` now points at the registry INDEX key (--index-key, C5
+   signed index digest) for both the unsigned and signed-but-unpinned
+   arms; the keygen note + README registry section carry the corrected
+   line.
+2. 1549-registry (yank): new `xiom pkg yank <pkg>@<ver>` -- POST
+   {registry}/packages/{name}/{version}/yank with Bearer
+   XIOM_REGISTRY_TOKEN and the optional {"reason"} body; requires the
+   contract 200 body {ok,package,version,yanked,latest,message} to confirm
+   (2xx without ok=true is an error); non-2xx surfaces the registry error
+   JSON; --registry overrides for staging. Tests:
+   m306_yank_url_and_body_match_the_registry_contract +
+   m306_yank_response_contract.
+3. 1549-registry-3 (resolve): new `xiom pkg resolve <name>@<spec>` outside
+   a workspace -- no package.xi, no auth; queries {registry}/index.json;
+   constraint specs incl. bare-name latest; prints the root-first closure
+   (+ --json wire shape); unknown/unsatisfiable specs list available
+   versions. Tests: m306_resolve_query_closure_from_index_only +
+   m306_resolve_query_json_shape.
+4. 1548-registry-2 (pack guard): new pack.rs refuses build/artifact
+   entries by default (target/, build/, dist/, out/, .git/, node_modules/
+   ...; *.exe/*.o/*.a/*.dll/...), implements a gitignore-syntax
+   .xiomignore (comments, ! negation, trailing-slash dirs, anchoring,
+   *?/**; last match wins) and the declared-modules keep set; refuse =>
+   the pack fails and writes NOTHING (message lists entries + escapes);
+   --force packs refused entries and reports them. Tests: pack guard set.
+
+Battery green: cargo test -p xiom-pkg 92/92.

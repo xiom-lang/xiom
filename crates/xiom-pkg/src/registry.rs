@@ -164,6 +164,37 @@ pub(crate) fn http_post_multipart(
     Ok(text)
 }
 
+/// Small JSON-body POST (ureq-only, Bearer-authenticated) for protocol calls
+/// that are neither multipart uploads nor GETs -- currently the yank API
+/// (`POST /packages/{name}/{version}/yank`, REL-20261010-1549-registry).
+/// The token comes from `XIOM_REGISTRY_TOKEN` (never the URL); a missing
+/// token is a hard error: the registry rejects anonymous writes with 401 and
+/// a request without credentials cannot succeed, so fail before the round
+/// trip with a message that names the variable.
+pub(crate) fn http_post_json(url: &str, body: &str) -> Result<String, String> {
+    ensure_https(url)?;
+    let token = std::env::var("XIOM_REGISTRY_TOKEN").unwrap_or_default();
+    let token = token.trim();
+    if token.is_empty() {
+        return Err(
+            "XIOM_REGISTRY_TOKEN is not set -- this call needs a Bearer token \
+             scoped to the package (the registry rejects anonymous writes)"
+                .to_string(),
+        );
+    }
+    let resp = ureq::post(url)
+        .set("Content-Type", "application/json")
+        .set("Authorization", &format!("Bearer {token}"))
+        .timeout(std::time::Duration::from_secs(30))
+        .send_string(body)
+        .map_err(|e| describe_http_error("POST", url, e))?;
+    let mut text = String::new();
+    use std::io::Read;
+    resp.into_reader().take(1024 * 1024).read_to_string(&mut text)
+        .map_err(|e| format!("read: {e}"))?;
+    Ok(text)
+}
+
 /// Boundary derived from pid + nanos (unique per process invocation without a
 /// RNG dependency); checked not to occur in the payload by construction.
 pub(crate) fn multipart_boundary() -> String {
@@ -548,6 +579,50 @@ pub(crate) fn package_info(name: &str, version: Option<&str>, registry: &str, js
     Ok(())
 }
 
+// ============================================================================
+// REL-20261010-1549-registry: `xiom pkg yank <package>@<version>`
+// ============================================================================
+
+/// URL of the yank endpoint: `POST {registry}/packages/{name}/{version}/yank`.
+pub(crate) fn yank_url(registry: &str, package: &str, version: &str) -> String {
+    format!("{registry}/packages/{package}/{version}/yank")
+}
+
+/// Request body: the contract's optional `reason` field; `{}` when no reason
+/// was given (the field is optional on the wire).
+pub(crate) fn yank_body(reason: Option<&str>) -> String {
+    match reason.map(str::trim).filter(|r| !r.is_empty()) {
+        Some(r) => serde_json::json!({ "reason": r }).to_string(),
+        None => "{}".to_string(),
+    }
+}
+
+/// Interpret the 200 response: `{ok,package,version,yanked,latest,message}`.
+/// Returns the human line to print; any other shape is an error (a 2xx that
+/// does not confirm the yank must not be reported as success).
+pub(crate) fn parse_yank_response(body: &str) -> Result<String, String> {
+    let value: serde_json::Value = serde_json::from_str(body.trim())
+        .map_err(|e| format!("invalid yank response ({e}): {}", body.trim()))?;
+    if value.get("ok").and_then(|o| o.as_bool()) != Some(true) {
+        return Err(format!("yank was not confirmed by the registry: {}", body.trim()));
+    }
+    let package = value.get("package").and_then(|v| v.as_str()).unwrap_or("?");
+    let version = value.get("version").and_then(|v| v.as_str()).unwrap_or("?");
+    let latest = value.get("latest").and_then(|v| v.as_str()).unwrap_or("");
+    let message = value.get("message").and_then(|v| v.as_str()).unwrap_or("");
+    let mut out = if message.is_empty() {
+        format!("Yanked {package}@{version}; pinned installs still work")
+    } else {
+        message.to_string()
+    };
+    if latest.is_empty() {
+        out.push_str("\n  note: no installable (non-yanked) version remains");
+    } else {
+        out.push_str(&format!("\n  latest: {latest}"));
+    }
+    Ok(out)
+}
+
 /// Errors from `install_from_registry`.
 ///
 /// Only "we could not obtain it" classes may trigger a local fallback.
@@ -902,6 +977,47 @@ pub(crate) fn lock_closure(
     resolve_closure(index, resolved_roots, &deps_of)
 }
 
+/// REL-20261010-1549-registry-3: resolve `<name>@<spec>` against a fetched
+/// index with NO manifest and no artifact download (the `xiom pkg resolve`
+/// subcommand; /index.json needs no auth). Alias-aware (xiom.std), and the
+/// closure's dependency specs come from index metadata via `lock_closure`.
+pub(crate) fn resolve_query_closure(
+    index: &RegistryIndex,
+    name: &str,
+    spec: &str,
+) -> Result<Vec<ClosureEntry>, String> {
+    let (resolved_name, pkg_info) = find_index_package(index, name)
+        .ok_or_else(|| format!("package '{name}' not found in the registry"))?;
+    if select_version(pkg_info, spec).is_none() {
+        let mut versions: Vec<&str> = pkg_info.versions.iter().map(|v| v.version.as_str()).collect();
+        versions.sort_unstable();
+        return Err(format!(
+            "no version of '{resolved_name}' satisfies '{spec}'. Available: {}",
+            versions.join(", ")
+        ));
+    }
+    lock_closure(index, &[(resolved_name.clone(), spec.to_string())]).map_err(|e| e.to_string())
+}
+
+/// The `--json` shape of a resolved query closure (wire-style field names).
+pub(crate) fn resolve_query_json(
+    registry: &str,
+    name: &str,
+    spec: &str,
+    closure: &[ClosureEntry],
+) -> serde_json::Value {
+    let packages: Vec<serde_json::Value> = closure
+        .iter()
+        .map(|e| serde_json::json!({ "name": e.name, "version": e.version, "sha256": e.sha256 }))
+        .collect();
+    serde_json::json!({
+        "registry": registry,
+        "name": name,
+        "spec": spec,
+        "packages": packages,
+    })
+}
+
 /// Read the dependency list from an installed package's OWN manifest
 /// (`package.xi`): the authoritative source, because those bytes were
 /// verified. None when no manifest is present (caller falls back to index
@@ -914,6 +1030,28 @@ fn installed_manifest_deps(dir: &Path) -> Option<Vec<(String, String)>> {
     let text = std::fs::read_to_string(&path).ok()?;
     let pkg = crate::parse_manifest(&text);
     Some(pkg.deps.into_iter().collect())
+}
+
+/// REL-20261010-1549-registry-2: the untrusted-registry install hint must
+/// point at the REGISTRY INDEX key (`trust --index-key`), never at the
+/// artifact's publisher key. First-party releases sign with ephemeral
+/// per-run OIDC keys, so `--key <publisher key>` is unusable (the key is
+/// gone the next release) and the trust claim it suggests is wrong: `trust`
+/// pins the registry, not the publisher. With an index pin the signed
+/// /index-digest.json is verified on every fetch (C5), which is what makes
+/// "refuse unsigned artifacts" enforceable.
+pub(crate) fn trust_hint(registry: &str, signed_fp: Option<&str>) -> String {
+    match signed_fp {
+        Some(fp) => format!(
+            "Note: this artifact is signed with an ephemeral publisher key (fp {fp}); \
+             to refuse unsigned artifacts, pin your registry index key: \
+             `xiom pkg trust --registry {registry} --index-key <registry-index-public-key>`"
+        ),
+        None => format!(
+            "Note: this artifact is unsigned. To refuse unsigned artifacts, pin your registry \
+             index key: `xiom pkg trust --registry {registry} --index-key <registry-index-public-key>`"
+        ),
+    }
 }
 
 /// Download, verify (sha256 + signature + lockfile) and extract ONE registry
@@ -982,7 +1120,7 @@ fn install_verified(
     // artifacts -- an unsigned or mis-signed one is REFUSED (fail closed);
     // the index digest and the artifact can otherwise be swapped together by
     // a compromised registry. Untrusted registries keep the sha256 +
-    // lockfile checks and get a hint to pin the signer.
+    // lockfile checks and get a hint to pin the registry INDEX key.
     let trusted_key = crate::signing::TrustStore::load().get(registry).cloned();
     match (trusted_key.as_ref(), ver_meta.signature.as_str()) {
         (Some(key), sig) if !sig.is_empty() => {
@@ -999,10 +1137,14 @@ fn install_verified(
             )));
         }
         (None, sig) if !sig.is_empty() => {
-            println!("  artifact is signed (fp {}); pin it with `xiom pkg trust --registry {registry} --key {}` to enforce",
-                crate::signing::fingerprint(&ver_meta.public_key), ver_meta.public_key);
+            println!(
+                "  {}",
+                trust_hint(registry, Some(&crate::signing::fingerprint(&ver_meta.public_key)))
+            );
         }
-        (None, _) => {}
+        (None, _) => {
+            println!("  {}", trust_hint(registry, None));
+        }
     }
 
     // Stage 5: LOCKFILE v2 ENFORCEMENT. When a xiom.lock is found walking up
@@ -1236,6 +1378,105 @@ mod tests {
         let b = multipart_boundary();
         assert_ne!(a, b);
         assert!(a.starts_with("----XIOMBoundary"), "{a}");
+    }
+
+    // REL-20261010-1549-registry: `xiom pkg yank` speaks the live contract
+    // (POST /packages/{name}/{version}/yank + the ok/package/version/latest
+    // response).
+    #[test]
+    fn m306_yank_url_and_body_match_the_registry_contract() {
+        assert_eq!(
+            yank_url("https://registry.example", "my-lib", "1.0.0"),
+            "https://registry.example/packages/my-lib/1.0.0/yank"
+        );
+        assert_eq!(yank_body(None), "{}");
+        assert_eq!(yank_body(Some("   ")), "{}");
+        let with = yank_body(Some("broken dependency in 0.1.0"));
+        assert!(with.contains("\"reason\":\"broken dependency in 0.1.0\""), "{with}");
+    }
+
+    #[test]
+    fn m306_yank_response_contract() {
+        let ok = parse_yank_response(
+            r#"{"ok":true,"package":"my-lib","version":"1.0.0","yanked":true,"latest":"0.9.0","message":"Yanked my-lib@1.0.0; pinned installs still work"}"#,
+        )
+        .expect("well-formed 200 confirms the yank");
+        assert!(ok.contains("Yanked my-lib@1.0.0"), "{ok}");
+        assert!(ok.contains("latest: 0.9.0"), "{ok}");
+
+        let all_yanked = parse_yank_response(
+            r#"{"ok":true,"package":"p","version":"1.0.0","yanked":true,"latest":""}"#,
+        )
+        .expect("empty latest is a valid 200");
+        assert!(all_yanked.contains("no installable"), "{all_yanked}");
+
+        let err = parse_yank_response(r#"{"error":"version_not_found"}"#).unwrap_err();
+        assert!(err.contains("not confirmed"), "{err}");
+    }
+
+    // REL-20261010-1549-registry-2: the hint must pin the registry index key
+    // (`--index-key`), never the ephemeral publisher key (`--key`).
+    // REL-20261010-1549-registry-3: resolve <name>@<spec> against the index
+    // alone (no manifest, no artifact download, no auth).
+    #[test]
+    fn m306_resolve_query_closure_from_index_only() {
+        let index = index_with(&[
+            ("app", "", vec![
+                version("1.0.0", &[("util", "^1.0")], false),
+                version("1.1.0", &[("util", "^1.0")], false),
+            ]),
+            ("util", "", vec![version("1.2.0", &[], false), version("1.3.0", &[], false)]),
+        ]);
+        // Bare name -> latest; closure carries root first, then deps.
+        let closure = resolve_query_closure(&index, "app", "*").expect("resolves");
+        let names: Vec<(&str, &str)> = closure.iter().map(|e| (e.name.as_str(), e.version.as_str())).collect();
+        assert_eq!(names, vec![("app", "1.1.0"), ("util", "1.3.0")]);
+        assert_eq!(closure[0].sha256, "1.1.0-digest");
+
+        // An explicit range picks the highest satisfying version.
+        let closure = resolve_query_closure(&index, "app", "=1.0.0").expect("pins 1.0.0");
+        assert_eq!(closure[0].version, "1.0.0");
+
+        // Unknown package / unsatisfiable spec are hard errors with context.
+        let err = resolve_query_closure(&index, "nope", "*").unwrap_err();
+        assert!(err.contains("not found"), "{err}");
+        let err = resolve_query_closure(&index, "util", ">=2.0").unwrap_err();
+        assert!(err.contains("no version of 'util' satisfies '>=2.0'"), "{err}");
+        assert!(err.contains("Available: 1.2.0, 1.3.0"), "{err}");
+    }
+
+    #[test]
+    fn m306_resolve_query_json_shape() {
+        let closure = vec![
+            ClosureEntry { name: "app".into(), version: "1.1.0".into(), sha256: "aa".into() },
+            ClosureEntry { name: "util".into(), version: "1.3.0".into(), sha256: "bb".into() },
+        ];
+        let out = resolve_query_json("https://registry.test", "app", "^1.0", &closure);
+        assert_eq!(out["registry"], "https://registry.test");
+        assert_eq!(out["name"], "app");
+        assert_eq!(out["spec"], "^1.0");
+        assert_eq!(out["packages"][0]["name"], "app");
+        assert_eq!(out["packages"][1]["version"], "1.3.0");
+        assert_eq!(out["packages"][1]["sha256"], "bb");
+    }
+
+    #[test]
+    fn m306_trust_hint_pins_registry_index_key_not_publisher() {
+        let unsigned = trust_hint("https://registry.example", None);
+        assert!(unsigned.contains("Note: this artifact is unsigned."), "{unsigned}");
+        assert!(unsigned.contains("pin your registry index key"), "{unsigned}");
+        assert!(
+            unsigned.contains("--index-key <registry-index-public-key>"),
+            "{unsigned}"
+        );
+        assert!(!unsigned.contains("--key <"), "publisher pin advice is gone: {unsigned}");
+        assert!(!unsigned.contains("pin it with"), "{unsigned}");
+
+        let signed = trust_hint("https://registry.example", Some("aa:bb:cc"));
+        assert!(signed.contains("fp aa:bb:cc"), "{signed}");
+        assert!(signed.contains("--index-key <registry-index-public-key>"), "{signed}");
+        assert!(!signed.contains("--key <"), "publisher pin advice is gone: {signed}");
+        assert!(!signed.contains("to enforce`"), "{signed}");
     }
 
     // --- R33/R34: registry URL canonicalization -----------------------------
