@@ -400,9 +400,23 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
    literal), m316 `f4583fb1` (1158: parser soft-keyword struct-literal
    lookahead -- NOT a catalog shadow), m317 `af3d6460` (2256 + 2324-2 +
    2324-3: const-substitution cycle guard/hang, cross-module const + export
-   surfaces, pub-use consts, pub var). WAVE 2 launched 2026-10-14T16:45Z:
-   m318 (2215 + 2215-2), m319 (2238 x3 CLI lane), m320 (1819 + 2035);
-   remaining queue: 2119 + 1213. Next free m321.
+   surfaces, pub-use consts, pub var). WAVE 2: m318 (2215 + 2215-2) and
+   m319 (2238 x3 CLI lane) still in flight; m320 `b672a19f` LANDED
+   (1819 `ptr as Int` at named-call boundaries + 2035 `&Str` param
+   spelling; locks x4; relay 0817396). m321 (2119 + 1213) IN FLIGHT:
+   2119's bisect_88 crash is a WRONG-EXPECTATION reduction (chord cannot
+   fire -> unguarded events[0] on an empty Vec; identical on the pinned
+   v0.64.4 toolchain; the real engine probe is 22/22) PLUS a real gap --
+   no Vec read-path bounds lock (default silent UB read, --overflow-checks
+   traps) -- being pinned; 1213 REPRODUCES (compile rc 0, run 0xC0000005,
+   crash at line 381, strcmp-on-garbage class) and is being localized.
+   THREAD GATE GREEN pre-pin: stdlib main `ae9c963` (wave 139,
+   long->long-long trampoline) -- dbg131s/dbgworker x5/5 `joined 42`
+   (independent re-run 2026-10-14T17:33Z). PIN REQUEST (prep) filed to
+   stdlib: REL-20261014-1739-compiler (bus af92693) -- freeze a sha
+   carrying wave 139, tag stdlib-v0.64.5 on my signal. OWNER GO for
+   v0.64.5 release received (no supervision; pushes authorized for the
+   release leg). Next free m322.
   Row-sweep note: several check-file rows still show `acked`/red for items
   fixed in m276-m284 (e.g. 1437/1512 -> m279; 2230/2053/2137/1402/1403/
   1418 -> m276-m282) -- sweep rows when convenient.
