@@ -7833,5 +7833,66 @@ fn e2e_safety_probe() {
     let _ = std::fs::remove_file(&exe);
 }
 
+// m309 (REL-20261011-2320-bindings part 3): unqualified cross-module `const`
+// imports with 4-SEGMENT module paths must resolve every imported module's
+// bare constants. register_external_module merged the per-file export maps
+// one nesting level deep (`existing_sub.entry(sk).or_insert(sv)`), so with
+// `module xiom.m309seg.fam.alpha` + `xiom.m309seg.fam.beta` the second
+// file's subtree under the shared `foo.bar`-style path was DROPPED -- only
+// the module the LIFO worklist registered first stayed visible. The losing
+// module's constants reported T001 undefined variable; which module lost
+// flipped with the import order. Post-fix the merge recurses; both bare and
+// module-qualified spellings resolve in either order. Red pre-fix
+// (T001 'ALPHA' for this order, T001 'BETA' for main_flip.xi), green after.
+#[test] fn e2e_m309_four_segment_const_import() {
+    assert_eq!(
+        compile_and_run("tests/regression/m309_four_segment_const_import/main.xi"),
+        Some(0),
+        "both 4-segment modules' bare constants must resolve (alpha-first) (m309)"
+    );
+    assert_eq!(
+        compile_and_run("tests/regression/m309_four_segment_const_import/main_flip.xi"),
+        Some(0),
+        "both 4-segment modules' bare constants must resolve (beta-first) (m309)"
+    );
+}
+
+// m309 (REL-20261011-2320-bindings part 2): a Vec built INSIDE a confined
+// (trampolined) unsafe block and escaping through the block tail (or a
+// `return` inside the block) carried its arena-backed data pointer past the
+// block exit -- xiom_guard_heap_exit releases the arena wholesale, so the
+// caller's first element read faulted (STATUS_ACCESS_VIOLATION 0xC0000005;
+// the bindings trampolined-wrapper crash class, which the packages worked
+// around with #[unsafe_direct]). The fix promotes the Vec payload to the
+// main heap before the arena resets (plan S2.11 Copy-Out v1) on BOTH
+// lowering paths. Red pre-fix (0xC0000005 on the first escaped read), green
+// after; the non-confined control arm must stay green on both.
+#[test] fn e2e_m309_confined_vec_copy_out() {
+    assert_eq!(
+        compile_and_run("tests/regression/m309_confined_vec_copy_out/main.xi"),
+        Some(0),
+        "a Vec escaping a confined block must be Copy-Out'd to the main heap (m309)"
+    );
+    let ir = compile_ir("tests/regression/m309_confined_vec_copy_out/main.xi")
+        .expect("m309: fixture must emit IR");
+    // IR twin: each escaping block fn (0 = return-inside, 1 = block tail)
+    // must allocate the promoted copy with plain @malloc and run the memcpy
+    // copy BEFORE xiom_guard_heap_exit releases the arena.
+    for name in ["define i64 @__unsafe_block_0", "define i64 @__unsafe_block_1"] {
+        let start = ir.find(name)
+            .unwrap_or_else(|| panic!("m309: {name} must be defined; got:\n{ir}"));
+        let rest = &ir[start..];
+        let end = rest[1..].find("\ndefine ").map(|i| i + 1).unwrap_or(rest.len());
+        let body = &rest[..end];
+        let malloc_at = body.find("call i8* @malloc")
+            .unwrap_or_else(|| panic!("m309: {name} must Copy-Out with @malloc; got:\n{body}"));
+        let exit_at = body.find("xiom_guard_heap_exit")
+            .unwrap_or_else(|| panic!("m309: {name} must exit the arena; got:\n{body}"));
+        assert!(
+            malloc_at < exit_at,
+            "m309: {name} must copy the Vec payload BEFORE the arena reset; got:\n{body}"
+        );
+    }
+}
 
 

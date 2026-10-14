@@ -16647,3 +16647,36 @@ swap 7 -> 23 plus the selfhost cross-variant shape) +
    symbol: m310_helper_bump`). Lock `e2e_m310_port_args_dep`.
 
 Battery green: e2e m310 locks 2/2; pkg 95/95 + 1/1; graph 40/40.
+
+---
+
+## 2026-10-14 -- FIXED (m309): confined-block Vec Copy-Out + 4-segment const imports (REL-20261011-2320-bindings parts 2 + 3; part 1 was m296 -- item fully fixed)
+
+PART 2 (confined-call machinery vs foreign C++ exceptions): a Vec built
+inside a confined (trampolined) unsafe block routes its data buffer to the
+guard arena; when it escaped through the block tail or a return inside the
+block, `xiom_guard_heap_exit` released the arena and the caller's first
+element read faulted (0xC0000005; heap-corruption class under reuse -- the
+xiom.shaderc trampolined-wrapper crash previously worked around with
+`#[unsafe_direct]`). Fix: plan S2.11 Copy-Out v1 for `%struct.Vec` tails on
+BOTH lowering paths (stmt.rs return-inside-block, expr.rs block tail):
+promote the buffer with plain `@malloc` (the arena is still active at the
+copy site) + memcpy BEFORE the arena reset. Str copy-out and the
+m280/m281 raw-pointer guards untouched; pointer-to-Vec handles not copied.
+Evidence: pure-XIOM Vec escape pre-fix 0xC0000005 x5 -> green; the real
+xiom.shaderc suite with ALL 50 `#[unsafe_direct]` markers stripped
+(trampolined) passes 17/17 x10 against the Vulkan SDK DLL (was 0xC0000005
+x10); the v0.64.3 pin crashes the same witness (pre-existing). LOCK:
+tests/regression/m309_confined_vec_copy_out/ (fixture + IR twin asserting
+the malloc copy precedes `xiom_guard_heap_exit` in both block fns).
+
+PART 3 (4-segment const imports): `register_external_module` merged
+per-file export maps one nesting level deep (`entry(sk).or_insert(sv)`),
+so with `module xiom.foo.bar.alpha` + `xiom.foo.bar.beta` the second
+file's subtree under the shared parent path was dropped -- only the module
+the LIFO worklist registered first (the LAST use) stayed visible; the
+losing module's bare constants T001'd and the flip followed import order.
+Fix: SubModule/SubModule collisions recurse via
+`merge_module_exports_first_wins` (first-wins leaves, pre-m309 policy).
+LOCK: tests/regression/m309_four_segment_const_import/ (main + main_flip,
+red pre-fix T001 ALPHA/BETA). xiom-check lib 199/199 green.

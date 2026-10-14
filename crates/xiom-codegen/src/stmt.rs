@@ -1639,6 +1639,19 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             self.emitln(&format!("  {sel} = select i1 {not_null}, i8* {copy_tmp}, i8* {val}"));
                             val = sel;
                         }
+                        // m309 (REL-20261011-2320-bindings part 2): a `%struct.Vec`
+                        // tail built inside the block is arena-backed (Vec.new /
+                        // push growth route to the guard arena via guard_heap_depth).
+                        // The exit below releases the arena wholesale, so the
+                        // returned Vec's data pointer dangled (use-after-free:
+                        // STATUS_ACCESS_VIOLATION 0xC0000005 / heap corruption;
+                        // the bindings trampolined-wrapper crash class). Promote
+                        // the payload to the main heap before the arena resets
+                        // (plan S2.11 Copy-Out v1). Pointer-to-Vec forms are
+                        // handles, not owned values -- left alone.
+                        else if !val_ty.ends_with('*') && Self::is_llvm_struct_named(&val_ty, "Vec") {
+                            val = self.emit_vec_copy_out_main_heap(&val, &val_ty);
+                        }
                         // D2.1 (Phase 5): inside an unsafe-block fn, a `return`
                         // must signal the call site to return from the ENCLOSING
                         // fn (not just from the block fn), so the block value is

@@ -550,23 +550,10 @@ impl Checker {
                 let exports = self.build_module_map_inner(&md.items, &md.name.name);
                 // Merge into existing module instead of replacing (in case the
                 // same parent name is used by in-program and external modules).
-                self.modules.entry(md.name.name.clone())
-                    .and_modify(|existing| {
-                        for (k, v) in &exports {
-                            match existing.get_mut(k) {
-                                Some(ModuleExport::SubModule(existing_sub)) => {
-                                    if let ModuleExport::SubModule(new_sub) = v {
-                                        for (sk, sv) in new_sub {
-                                            existing_sub.entry(sk.clone()).or_insert(sv.clone());
-                                        }
-                                    }
-                                }
-                                Some(_) => {} // non-SubModule entry already present, keep it
-                                None => { existing.insert(k.clone(), v.clone()); }
-                            }
-                        }
-                    })
-                    .or_insert(exports);
+                match self.modules.get_mut(&md.name.name) {
+                    Some(existing) => Self::merge_module_exports_first_wins(existing, &exports),
+                    None => { self.modules.insert(md.name.name.clone(), exports); }
+                }
             }
         }
         // Stage 3 Item A: catalog `impl Trait[Args] for Type` blocks were
@@ -3253,6 +3240,33 @@ impl Checker {
                 (_, v) => {
                     dst.insert(k, v);
                 }
+            }
+        }
+    }
+
+    /// m309 (REL-20261011-2320-bindings part 3): first-wins DEEP merge of two
+    /// export maps. [`register_external_module`] used to merge one nesting
+    /// level only (`existing_sub.entry(sk).or_insert(sv)`): with
+    /// `module xiom.foo.bar.alpha` + `xiom.foo.bar.beta`, the second file's
+    /// subtree under the shared `foo.bar` key was dropped, so only the module
+    /// whose file the LIFO worklist happened to register first stayed visible
+    /// -- an unqualified `use xiom.foo.bar.alpha;` bound alpha only while the
+    /// last-used module's constants resolved and the earlier module's became
+    /// T001 (order-dependent). SubModule/SubModule collisions now recurse;
+    /// every other collision keeps the EXISTING entry (first-wins leaves, the
+    /// pre-m309 policy -- unlike `merge_module_exports`, which prefers the
+    /// new entry for in-program chains).
+    fn merge_module_exports_first_wins(
+        dst: &mut HashMap<String, ModuleExport>,
+        new: &HashMap<String, ModuleExport>,
+    ) {
+        for (k, v) in new {
+            match (dst.get_mut(k), v) {
+                (Some(ModuleExport::SubModule(existing_sub)), ModuleExport::SubModule(new_sub)) => {
+                    Self::merge_module_exports_first_wins(existing_sub, new_sub);
+                }
+                (Some(_), _) => {} // existing leaf entry stays (first-wins)
+                (None, _) => { dst.insert(k.clone(), v.clone()); }
             }
         }
     }

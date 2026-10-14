@@ -5877,6 +5877,17 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         self.emitln(&format!("  {sel} = select i1 {not_null}, i8* {copy_tmp}, i8* {last}"));
                         last = sel;
                     }
+                    // m309 (REL-20261011-2320-bindings part 2): the same
+                    // arena-owned `%struct.Vec` tail promotion as the
+                    // `return`-inside-block path (stmt.rs) -- a Vec tail of a
+                    // confined block is arena-backed (Vec.new / push growth)
+                    // and must be copied to the main heap before the exit
+                    // below releases the arena (plan S2.11 Copy-Out v1;
+                    // pointer-to-Vec handles are not owned values and stay
+                    // untouched).
+                    else if !last_ty.ends_with('*') && Self::is_llvm_struct_named(&last_ty, "Vec") {
+                        last = self.emit_vec_copy_out_main_heap(&last, &last_ty);
+                    }
                     self.emitln("  call void @xiom_guard_heap_exit()");
                     self.emitln(&format!("  call void @xiom_guard_page_disarm(){GUARD_PAGE_MARK}"));
                     // Return the block's value as i64 (the trampoline ABI is

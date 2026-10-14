@@ -560,6 +560,25 @@ impl IrEmitter {
     /// growth); the element store has no sharing check and the container ABI
     /// carries no refcount, so the copy must be taken at the binding.
     pub(crate) fn emit_vec_value_deep_copy(&mut self, vec_val: &str, vec_ty: &str) -> String {
+        self.emit_vec_value_deep_copy_alloc(vec_val, vec_ty, false)
+    }
+
+    /// m309 (REL-20261011-2320-bindings part 2): confined-block Copy-Out for a
+    /// `%struct.Vec` tail (plan S2.11 v1, "Vec[T] -> allocate a new main-heap
+    /// buffer, memcpy the elements, swap the data pointer into the returned
+    /// Vec"). A Vec built INSIDE an unsafe block (`return buf;` in the
+    /// shaderc wrappers' `shaderc_result_copy_bytes`) has its data buffer on
+    /// the guard arena; the block exit releases the arena, so the returned
+    /// Vec dangled (use-after-free -> STATUS_ACCESS_VIOLATION 0xC0000005 /
+    /// heap-corruption class). The copy MUST be allocated with plain @malloc:
+    /// the arena is still ACTIVE at the copy-out site (`xiom_guard_heap_exit`
+    /// runs just after), and `emit_alloc` would route the fresh buffer back
+    /// into the arena that is about to be released.
+    pub(crate) fn emit_vec_copy_out_main_heap(&mut self, vec_val: &str, vec_ty: &str) -> String {
+        self.emit_vec_value_deep_copy_alloc(vec_val, vec_ty, true)
+    }
+
+    fn emit_vec_value_deep_copy_alloc(&mut self, vec_val: &str, vec_ty: &str, main_heap: bool) -> String {
         let slot = self.fresh_tmp();
         self.emitln(&format!("  {slot} = alloca {vec_ty}"));
         self.emitln(&format!("  store {vec_ty} {vec_val}, {vec_ty}* {slot}"));
@@ -593,7 +612,13 @@ impl IrEmitter {
         self.emitln(&format!("  {cap} = select i1 {cap_zero}, i64 1, i64 {len}"));
         let alloc_bytes = self.fresh_tmp();
         self.emitln(&format!("  {alloc_bytes} = mul i64 {cap}, {es_fixed}"));
-        let newbuf = self.emit_alloc(&alloc_bytes);
+        let newbuf = if main_heap {
+            let tmp = self.fresh_tmp();
+            self.emitln(&format!("  {tmp} = call i8* @malloc(i64 {alloc_bytes})"));
+            tmp
+        } else {
+            self.emit_alloc(&alloc_bytes)
+        };
         self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {newbuf}, i8* {data}, i64 {bytes}, i1 false)"));
         let s0 = self.fresh_tmp();
         self.emitln(&format!("  {s0} = insertvalue {vec_ty} undef, i8* {newbuf}, 0"));
