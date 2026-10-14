@@ -7486,5 +7486,22 @@ fn e2e_safety_probe() {
     );
 }
 
+// m304 (REL-20261010-1550-orbitdb-2): standalone --check of a
+// self-referential module failed T001 "expected Engine, found module" at
+// the orbitdb facade (`engine_insert(&mut db.engine, ...)`), while the same
+// file compiled clean as an imported module. The declared chain's segments
+// are flattened into the module map (`module xiom.db.engine` registers "db"
+// with the "engine" submodule export), and check_module_field_access tried
+// module-qualified resolution BEFORE local-scope lookup -- so `db.engine` on
+// a `db` parameter resolved to the module. Locals now shadow module aliases
+// in expression position.
+#[test] fn e2e_m304_module_local_shadow() {
+    assert_eq!(
+        compile_and_run("tests/regression/m304_module_local_shadow/main.xi"),
+        Some(0),
+        "a local binding must shadow a same-named module chain segment (m304)"
+    );
+}
+
 
 

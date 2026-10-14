@@ -5515,6 +5515,17 @@ impl Checker {
             return None;
         }
 
+        // m304 (REL-20261010-1550-orbitdb-2): a LOCAL binding shadows a
+        // module alias of the same name in expression position. Standalone
+        // module check registers the declared chain's segments as modules
+        // (`module xiom.db.engine` flattens "db" with the "engine" submodule
+        // export), so `db.engine` on a `db: &mut Database` parameter must be
+        // a FIELD access, not a module-qualified lookup. Mirrors the Ident
+        // arm's locals-first precedence (check_expr Expr::Ident).
+        if self.lookup_local(&path[0]).is_some() {
+            return None;
+        }
+
         let module_name = &path[0];
         // Resolve the alias through its recorded FULL dotted path so leaf
         // collisions cannot bind it to another module's surface.

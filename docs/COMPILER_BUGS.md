@@ -16511,3 +16511,19 @@ arguments, `push()` arguments, for-loop element bindings, and whole-struct
 copies (`var s2 = s1;` with Vec FIELDS) still share buffers; the
 generic-boxed container-field handle (i64) binding shape is also outside
 the copy predicate.
+
+---
+
+## 2026-10-14 -- FIXED (m304): locals shadow same-named module chain segments in field access (REL-20261010-1550-orbitdb-2)
+
+Standalone `--check` of a self-referential module failed T001
+`expected Engine, found module` at the orbitdb facade
+(`engine_insert(&mut db.engine, ...)`), while the same file compiled clean
+as an IMPORTED module. The declared chain's segments are flattened into
+the module map (`module xiom.db.engine` registers "db" with the "engine"
+submodule export), and `check_module_field_access` tried module-qualified
+resolution BEFORE local-scope lookup -- so `db.engine` on a `db` parameter
+resolved to the module. Fix: locals shadow module aliases in expression
+position, mirroring the Ident arm's locals-first precedence. LOCK:
+tests/regression/m304_module_local_shadow/ +
+`e2e_m304_module_local_shadow` (ci.yml e2e group 2).
