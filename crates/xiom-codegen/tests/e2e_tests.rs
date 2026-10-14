@@ -7503,5 +7503,23 @@ fn e2e_safety_probe() {
     );
 }
 
+// m305 (REL-20261011-1219-orbitdb; C-ORBIT-08 PART A): a tuple built from an
+// enum CONSTRUCTOR call (`Ok((Color.Custom(n), n + 3))`) fell back to the
+// i64-erased element type in both tuple-element namers and built a 16-byte
+// Tuple__Int__Int -- the enum TAG in slot 0, the payload dropped -- while the
+// signature/read side used the 24-byte Tuple__Color__Int: silent wrong values
+// (2/8 instead of 8/5), and the fixture crashes (0xC000001D) on the ub-grade
+// read past the box pre-fix. The fix names enum ctor-call elements by the
+// parent enum key, mirroring the variant-REF path. The fixture also gates the
+// constant-variant arms, the Err arm, a plain let-bound (Color, Int) tuple,
+// and the enum-alone workaround shape.
+#[test] fn e2e_m305_enum_ctor_tuple() {
+    assert_eq!(
+        compile_and_run("tests/regression/m305_enum_ctor_tuple/main.xi"),
+        Some(0),
+        "enum ctor-call elements in tuples must keep the 24-byte shape (m305)"
+    );
+}
+
 
 

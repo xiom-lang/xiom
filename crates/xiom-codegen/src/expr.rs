@@ -1160,6 +1160,26 @@ impl IrEmitter {
                             if let Expr::As(_, ty, _) = i {
                                 return Self::type_from_ast(ty);
                             }
+                            // m305 (REL-20261011-1219-orbitdb; C-ORBIT-08
+                            // PART A): an enum CONSTRUCTOR call element
+                            // (`Color.Custom(n)` in `Ok((Color.Custom(n), n+3))`)
+                            // erases to i64 in infer_llvm_type, so the element
+                            // was named "Int" and the tuple built
+                            // Tuple__Int__Int (16B): the enum TAG landed in
+                            // slot 0 and the payload was dropped, while the
+                            // signature/read side used Tuple__Color__Int (24B)
+                            // -- silent wrong values. Name the element by the
+                            // parent enum key, exactly like the variant-REF
+                            // path (`Color.Red` -> %struct.<key> below) and
+                            // infer_llvm_type's tuple arm; the three namers
+                            // must agree (R45).
+                            if let Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) = i {
+                                if let Expr::Field(obj, f, _) = func.as_ref() {
+                                    if let Some(enum_key) = self.resolve_enum_for_variant(obj, &f.name) {
+                                        return enum_key;
+                                    }
+                                }
+                            }
                             // R60 (stdlib p_ref_tuple_mangle): a container CTOR
                             // call element ("Vec[UInt8].new()") is erased to
                             // i64 by infer_llvm_type -- name it by the container

@@ -9641,6 +9641,20 @@ impl IrEmitter {
                         if let Expr::As(_, ty, _) = i {
                             return Self::type_from_ast(ty);
                         }
+                        // m305 (REL-20261011-1219-orbitdb; C-ORBIT-08 PART A):
+                        // an enum CONSTRUCTOR call element (`Color.Custom(n)`)
+                        // erases to i64 -- name it by the parent enum key so
+                        // the inferred tuple shape matches the expr.rs literal
+                        // path (24B {enum, i64}) instead of the 16B
+                        // Tuple__Int__Int fallback that dropped the payload.
+                        // Mirror of the expr.rs literal-path branch.
+                        if let Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) = i {
+                            if let Expr::Field(obj, f, _) = func.as_ref() {
+                                if let Some(enum_key) = self.resolve_enum_for_variant(obj, &f.name) {
+                                    return enum_key;
+                                }
+                            }
+                        }
                         // R60: a container CTOR call element ("Vec[UInt8].new()")
                         // is erased to i64 by infer_llvm_type -- name it by the
                         // container base so the construction matches the

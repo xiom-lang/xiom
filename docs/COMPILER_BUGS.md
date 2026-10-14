@@ -16527,3 +16527,19 @@ resolved to the module. Fix: locals shadow module aliases in expression
 position, mirroring the Ident arm's locals-first precedence. LOCK:
 tests/regression/m304_module_local_shadow/ +
 `e2e_m304_module_local_shadow` (ci.yml e2e group 2).
+
+---
+
+## 2026-10-14 -- FIXED (m305): enum ctor-call tuple elements keep the enum shape (REL-20261011-1219-orbitdb C-ORBIT-08 PART A)
+
+A tuple built from an enum CONSTRUCTOR call (`Ok((Color.Custom(n), n + 3))`)
+fell back to the i64-erased element type in BOTH tuple-element namers
+(expr.rs literal path + `infer_llvm_type` tuple arm) and built a 16-byte
+`Tuple__Int__Int` -- the enum TAG in slot 0, the payload dropped -- while
+the signature/read side used the 24-byte `Tuple__Color__Int`: silent wrong
+values (2/8 instead of 8/5), and the fixture crashes 0xC000001D on the
+ub-grade read past the box pre-fix. Fix: enum ctor-call elements are named
+by the parent enum key, mirroring the variant-REF path. LOCK:
+tests/regression/m305_enum_ctor_tuple/ + `e2e_m305_enum_ctor_tuple`
+(ci.yml e2e group 2; also gates the constant-variant arms, the Err arm, a
+plain let-bound (Color, Int) tuple, and the enum-alone workaround shape).
