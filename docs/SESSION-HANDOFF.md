@@ -417,6 +417,27 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
    carrying wave 139, tag stdlib-v0.64.5 on my signal. OWNER GO for
    v0.64.5 release received (no supervision; pushes authorized for the
    release leg). Next free m322.
+   RELEASE v0.64.5 PUNCH LIST (prepared 2026-10-14T18:35Z):
+   - freeze = m321 resolved + stdlib tag reply on REL-20261014-1739-compiler
+     (tag on my signal after the release-wave push; also ask them to keep
+     their release-notes/v0.64.5.md fragment in the tag for the converter).
+   - version: Cargo.toml `[workspace.package]` 0.64.4 -> 0.64.5;
+     selfhost/src/codegen.xi `SELFHOST_VERSION` -> 0.64.5; README pin text.
+   - pin: `STDLIB_VERSION` (repo root, read by crates/xiom/build.rs) -> tag
+     sha; vendored `stdlib/` worktree refreshed to the tag
+     (scripts/fetch-stdlib.ps1).
+   - notes: release-notes/v0.64.5.md (Summary + Highlights `kind:` lines;
+     max 6 merged with the stdlib fragment) then
+     `xiom-release-notes convert --tag v0.64.5` (converts + validates sync).
+   - record: docs/RELEASE_GATE_v0.64.5.md modeled on v0.64.4 (preconditions
+     / Gate A suites / blockers / Gate D tag+publish).
+   - battery: full e2e (whole ci.yml list), feature-reg 549, check 199 /
+     parser / codegen 12 / graph 36 / verify / pkg / release-notes 6 /
+     stdlib_tests, front-locks, nine-tool release build (all report
+     v0.64.5), ascii guard, doctor; thread acceptance at the PIN.
+   - publish: push main -> tag `v0.64.5` (guard: tag == workspace version,
+     tag on main) -> release.yml; verify assets + SHA256SUMS; VSIX is
+     toolchain-only (editors/vscode/package.json stays 0.12.2).
   Row-sweep note: several check-file rows still show `acked`/red for items
   fixed in m276-m284 (e.g. 1437/1512 -> m279; 2230/2053/2137/1402/1403/
   1418 -> m276-m282) -- sweep rows when convenient.
