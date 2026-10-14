@@ -7521,5 +7521,40 @@ fn e2e_safety_probe() {
     );
 }
 
+// m307 (REL-20261013-1324-selfhost; correction REL-20261013-1732): a
+// variant-pattern binding must read the CANONICAL field at its POSITION.
+// The binding NAME used to win the direct name lookup, so a binding named
+// like another variant's field (or a later field of the same variant) read
+// the wrong slot: the selfhost's `NkExprField(recv, name_node)` loaded slot
+// 461 for a parsed 23 because NkFn.recv sits before NkExprField.inner in
+// the enum field list. Red on v0.64.4 and pre-fix HEAD.
+#[test] fn e2e_m307_variant_binding_shadow() {
+    assert_eq!(
+        compile_and_run("tests/regression/m307_variant_binding_shadow/main.xi"),
+        Some(0),
+        "variant-pattern bindings must read the canonical slot, not a name collision (m307)"
+    );
+}
+
+// m307 IR lock: `read_renamed` must GEP the canonical "inner" slot (index 2
+// for Kind { discriminant, recv, inner, name }), never Wrap.recv (index 1).
+#[test] fn e2e_m307_variant_binding_shadow_ir() {
+    let ir = compile_ir("tests/regression/m307_variant_binding_shadow/main.xi")
+        .expect("m307 fixture must compile to IR");
+    let start = ir.find("define i64 @read_renamed")
+        .expect("m307: the renamed-binding reader must be defined");
+    let rest = &ir[start..];
+    let end = rest[1..].find("\ndefine ").map(|i| i + 1).unwrap_or(rest.len());
+    let body = &rest[..end];
+    assert!(
+        body.contains(", i32 0, i32 2"),
+        "m307: the renamed binding must load the canonical inner slot"
+    );
+    assert!(
+        !body.contains(", i32 0, i32 1"),
+        "m307: the renamed binding must not load Wrap.recv's slot"
+    );
+}
+
 
 

@@ -2737,19 +2737,24 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                 let type_name_clone = type_name.clone();
                                 let variants_opt = self.types.enum_variants.get(&type_name.to_string());
                                 for (fi, field_ident) in fields.iter().enumerate() {
-                                    // First try direct name match
-                                    let field_idx_opt = field_names.iter().position(|f| f == &field_ident.name);
-                                    // Fallback: use variant field position to find canonical field name.
                                     // 5c.30: qualified variant patterns (`JsonValue.Array(x)`)
                                     // must match on the LEAF variant name.
                                     let leaf_variant = variant_ident.name.rsplit('.').next().unwrap_or(&variant_ident.name).to_string();
-                                    let field_idx_opt = field_idx_opt.or_else(|| {
-                                        variants_opt.as_ref().and_then(|variants| {
-                                            variants.iter().find(|(vn, _)| vn == &leaf_variant || vn == &variant_ident.name)
-                                                .and_then(|(_, vfields)| vfields.get(fi))
-                                                .and_then(|canonical| field_names.iter().position(|f| f == canonical))
-                                        })
-                                    });
+                                    // m307 (REL-20261013-1324-selfhost): the CANONICAL
+                                    // variant field at position fi wins. The pattern
+                                    // binding NAME is a local, not a field key -- a
+                                    // binding that collides with another variant's
+                                    // field name (e.g. `recv`, `base`) used to win the
+                                    // direct lookup and read the wrong slot (461 for a
+                                    // parsed 23).
+                                    let field_idx_opt = variants_opt.as_ref().and_then(|variants| {
+                                        variants.iter().find(|(vn, _)| vn == &leaf_variant || vn == &variant_ident.name)
+                                            .and_then(|(_, vfields)| vfields.get(fi))
+                                            .and_then(|canonical| field_names.iter().position(|f| f == canonical))
+                                    })
+                                    // Fallback: direct name match (variants metadata
+                                    // unavailable, e.g. non-registered variant sets).
+                                    .or_else(|| field_names.iter().position(|f| f == &field_ident.name));
                                     if let Some(field_idx) = field_idx_opt {
                                         let gep = self.fresh_tmp();
                                         self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {field_idx}"));

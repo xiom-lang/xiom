@@ -16578,3 +16578,22 @@ plain let-bound (Color, Int) tuple, and the enum-alone workaround shape).
    --force packs refused entries and reports them. Tests: pack guard set.
 
 Battery green: cargo test -p xiom-pkg 92/92.
+
+---
+
+## 2026-10-14 -- FIXED (m307): variant-pattern bindings read the canonical field at their position (REL-20261013-1324-selfhost)
+
+The pattern binding NAME won the direct field-name lookup before the
+variant's canonical field at position fi was consulted, so a binding named
+like another variant's field (or a later field of the same variant) read
+the wrong slot: the selfhost's `NkExprField(recv, name_node)` read slot 0
+= 461 for a parsed 23 because NkFn.recv is registered before
+NkExprField.inner in the enum field list, while canonical accessors read
+23. Same class as the 2026-10-02 large-dispatch finding. The canonical
+variant field at fi now wins; the direct name match is only a fallback
+when variant metadata is unavailable. Red on the archived v0.64.4
+(read_renamed GEPs slot 1) and pre-fix HEAD. LOCKS:
+`e2e_m307_variant_binding_shadow` (runtime: deterministic same-variant
+swap 7 -> 23 plus the selfhost cross-variant shape) +
+`e2e_m307_variant_binding_shadow_ir` (IR: `read_renamed` must GEP
+`, i32 0, i32 2`, never `, i32 0, i32 1`).
