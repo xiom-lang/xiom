@@ -17,15 +17,14 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
 
 - origin/main = `91860f11` (fetch before trusting -- the doorbell may push
-  staged work). Local main = the latest commit (see git log), AHEAD by ~58
+  staged work). Local main = the latest commit (see git log), AHEAD by ~62
   unpushed commits (exact: `git rev-list --count origin/main..HEAD`):
   `633ee65b`+`dc3a0102` (v0.64.5 plan/refresh docs) + m276..m292 + m293 +
-  m294 + m295 + m296 + m297 + m298 + m299 + m301 + m302 + m303 + m304 +
-  m305 + handoff follow-ups + 2 attempt logs (stdlib-6 leg b m291 reverted, see
+  m294 + m295 + m296 + m297 + m298 + m299 + m301..m307 + handoff follow-ups + 2 attempt logs (stdlib-6 leg b m291 reverted, see
   docs/failed_attempts.md; the bindings-4 m288 attempt is superseded by
   m292, and the stdlib-6 leg-b m295 attempt supersedes its failed entry).
   Do NOT push without the owner's authorization.
-- v0.64.5 batches m276-m292 + m293 + m294 + m295 + m296 + m297 + m298 + m299 + m301 + m302 + m303 + m304 + m305 (commit -> scope; all relayed):
+- v0.64.5 batches m276-m292 + m293..m299 + m301..m307 (commit -> scope; all relayed):
   - `0268c7d9` m276 env-unwrap veto on concretely-typed names (T1 kv AV).
   - `29e35ef8` m277 cast-call C handoff keeps the RAW fn code (two-word
     env: 0=thunk, 1=raw) + nested fn-type markers parse (T2 B-22 + 1403).
@@ -248,6 +247,23 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
     silent wrong values + 0xC000001D on the ub-grade read. Enum ctor-call
     elements are now named by the parent enum key (expr.rs literal path +
     `infer_llvm_type` tuple arm). Lock `e2e_m305_enum_ctor_tuple`.
+  - `06860b27` m306 registry/pkg cluster FIXED (four tooling items):
+    (a) 1549-registry-2 trust hint now pins the registry INDEX key
+    (--index-key, C5 signed index digest) instead of the ephemeral OIDC
+    publisher key; (b) 1549-registry `xiom pkg yank <pkg>@<ver>` against
+    the live contract (Bearer token, optional reason, ok=true required,
+    error JSON surfaced); (c) 1549-registry-3 `xiom pkg resolve
+    <name>@<spec>` outside a workspace (index.json, no auth, closure +
+    --json); (d) 1548-registry-2 publish pack guard (build/artifact
+    refusal list + gitignore-syntax .xiomignore + declared-modules keep
+    set; refuse writes NOTHING; --force reports). pkg suite 92/92.
+  - `7822f4b6` m307 1324-selfhost FIXED: a variant-pattern binding NAME
+    won the direct field lookup before the canonical field at position fi
+    (NkExprField(recv, name_node) read slot 0 = 461 for a parsed 23;
+    same class as the 2026-10-02 large-dispatch finding). Canonical field
+    at fi now wins; name match is fallback only. Red on v0.64.4 too.
+    Locks `e2e_m307_variant_binding_shadow` (+ `_ir` twin: read_renamed
+    must GEP `, i32 0, i32 2`, never `, i32 0, i32 1`).
 - CLOSED / awaiting reporter re-verify at the next archive (compiler work
   done; items are `fixed` on the bus): T1-T3, B-17+B-16, B-23+B-24
   (2051-bindings-2), B-11+B-20 readback family (0304-bindings +
@@ -263,6 +279,8 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
   container args -- m303), 1659-orbitdb (Vec copy-alias deep copy -- m302),
   1550-orbitdb-2 (locals shadow module chain segments -- m304),
   1219-orbitdb (enum ctor-call tuple shape -- m305 PART A + m260 PART B),
+  1548-registry-2 + 1549-registry/2/3 (registry cluster -- m306),
+  1324-selfhost (variant-pattern canonical field -- m307),
   1548-stdlib-6 (leg a m290 alias type paths + leg b m295
   by-value UFCS), 1956-orbitdb + 1709-xvector (same-named types keep
   module identity -- m298), 1548-stdlib-4 (@pre on &mut param fields snapshots the
@@ -309,10 +327,10 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
    5. runtime/misc: 1615-stdlib DONE (m297); 1659-orbitdb DONE (m302;
       call-arg/struct-copy shapes remain shared -- see COMPILER_BUGS
       m302), 1219-orbitdb DONE (PART A m305 + PART B m260), 1324-selfhost
-      (in flight m307), 1553-playground-2 + 1554-playground (in flight
-      m308), 1554-benchmark (m308 wave).
-  6. tooling/registry: 1548-registry-2, 1549-registry/2/3,
-     1549-packages-5/7.
+      DONE (m307), 1553-playground-2 + 1554-playground + 1554-benchmark
+      (all in flight m308).
+  6. tooling/registry: 1548-registry-2 + 1549-registry/2/3 DONE (m306);
+     1549-packages-5/7 open.
   7. macOS: 1549-pulse + 1609-pulse (typed `@llvm.memset`) -- needs a NEW
      archive to verify.
   Row-sweep note: several check-file rows still show `acked`/red for items
@@ -638,10 +656,8 @@ NEW (2026-10-13, v0.64.5 triage + FFI batches):
 
 ## 7. m-numbering
 
-- m261-m292 + m293-m299 + m301 + m302 + m303 + m304 + m305 LANDED;
-  m306/m307/m308 are reserved by the in-flight fixers (registry cluster,
-  1324-selfhost, playground/benchmark cluster); **next free is
-  m309**.
+- m261-m292 + m293-m299 + m301-m307 LANDED; m308 is reserved by the
+  in-flight playground/benchmark cluster fixer; **next free is m309**.
 
 ## 8. CONTINUATION PROMPT (paste into a fresh session)
 
@@ -654,8 +670,8 @@ docs/rustc-study/ for reference patterns; rustc source is E:\repos\rust
 (READ-ONLY; no git writes there).
 
 STATE: v0.64.4 released (df493530) and verified. Git: origin/main =
-91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~58 unpushed
-commits (m276-m292 + m293..m299 + m301..m305 + docs + attempt logs); do NOT push
+91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~62 unpushed
+commits (m276-m292 + m293..m299 + m301..m307 + docs + attempt logs); do NOT push
 without the owner's authorization. Relay bus: latest compiler commits
 d5e84f8/170cdd9/9712942/4ac2e39 + the m292/m295 fix notes; the check
 file release-checks/compiler-compiler-v0.64.4.md is the candidate record.
@@ -691,9 +707,10 @@ each; see the check file + the bus for details):
       NO-REPRO on HEAD (m301, stays open); the -O2 constant-fold pruning
       finding needs a no-fold barrier.
 5. runtime/misc: 1615-stdlib DONE (m297); 1659-orbitdb DONE (m302);
-   1219-orbitdb DONE (m305 + m260); 1324-selfhost (m307), 1553-playground-2
-   + 1554-playground + 1554-benchmark (m308) in flight.
-6. tooling/registry: 1548-registry-2, 1549-registry/2/3, 1549-packages-5/7.
+   1219-orbitdb DONE (m305 + m260); 1324-selfhost DONE (m307),
+   1553-playground-2 + 1554-playground + 1554-benchmark (m308) in flight.
+6. tooling/registry: 1548-registry-2 + 1549-registry/2/3 DONE (m306);
+   1549-packages-5/7 open.
 7. macOS typed-memset (1549-pulse + 1609-pulse) needs a NEW archive first.
 Also: sweep stale check-file rows (items fixed in m276-m284 still show
 acked/red) when convenient.
