@@ -17,7 +17,7 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
 
 - origin/main = `91860f11` (fetch before trusting -- the doorbell may push
-  staged work). Local main = the latest commit (see git log), AHEAD by ~69
+  staged work). Local main = the latest commit (see git log), AHEAD by ~68
   unpushed commits (exact: `git rev-list --count origin/main..HEAD`):
   `633ee65b`+`dc3a0102` (v0.64.5 plan/refresh docs) + m276..m292 + m293 +
   m294 + m295 + m296 + m297 + m298 + m299 + m301..m309 + m310 + handoff follow-ups + 2 attempt logs (stdlib-6 leg b m291 reverted, see
@@ -716,11 +716,12 @@ docs/rustc-study/ for reference patterns; rustc source is E:\repos\rust
 (READ-ONLY; no git writes there).
 
 STATE: v0.64.4 released (df493530) and verified. Git: origin/main =
-91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~69 unpushed
+91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~68 unpushed
 commits (m276-m292 + m293..m299 + m301..m309 + m310 + docs + attempt logs); do NOT push
 without the owner's authorization. Relay bus: latest compiler commits
-d5e84f8/170cdd9/9712942/4ac2e39 + the m292/m295 fix notes; the check
-file release-checks/compiler-compiler-v0.64.4.md is the candidate record.
+97e524e/3554774/ec470bb (+ the m292..m310 fix notes); the check
+file release-checks/compiler-compiler-v0.64.4.md is the candidate record
+(the 17-item engine batch was queued into it on 2026-10-14).
 
 CLOSED this program (reporter re-verify at the next archive): T1-T3,
 B-17+B-16, B-23+B-24, B-11+B-20 readback family, 1549-packages-3,
@@ -734,51 +735,53 @@ B-21, 1549-packages-8 (contract cycles), 1549-stdlib-6 (cross-platform
 verified), 1358-orbitdb (not a compiler bug -- xiom-dbg binary confusion
 diagnosed).
 
-NEXT -- work the remaining queue in this order (witness-first triage for
-each; see the check file + the bus for details):
-1. borrow/codegen: 1548-bindings-4 (m292), 1548-stdlib-6 (m295),
-   1549-packages-11 (m293), 1549-packages-9 (m294), 2320-bindings #1
-   (m296 part 1), 1615-stdlib (m297), 1956-orbitdb + 1709-xvector (m298),
-   1549-packages-12 (m299), 1549-stdlib-2 + 1549-stdlib-3 (m303),
-   1549-stdlib-4 (m301), 1659-orbitdb (m302), 1550-orbitdb-2 (m304),
-   1219-orbitdb (m305 PART A + m260 PART B) FIXED. OPEN:
-   1549-packages-2 (NO-REPRO m301). In flight: m306 registry cluster,
-   m307 1324-selfhost, m308 playground/benchmark. Remaining after those:
-   2320 parts 2/3, the -O2 no-fold barrier, 1549-packages-5/7, 1554 set.
-2. resolver/checker: 1550-orbitdb-2 DONE (m304); 1549-packages-9 (m294),
-   1956-orbitdb + 1709-xvector (m298) DONE.
-3. allocator/runtime: 2320-bindings DONE (m296 + m309); 2032 is a
-   memory-model owner decision (no code work). IN FLIGHT: m311 the -O2
-   contract no-fold barrier; m312 thread spawn readback (stdlib-main
-   check: hang gone, readback garbage); m313 ffi.free call-site lowering
-   (alloc-guard-spin still repros on stdlib main). Thread gate
-   2053/1627/1402 stays OPEN until m312/m313 land + re-probe.
-   4. contracts/clauses: 1549-stdlib-4 DONE (m301); 1549-packages-2
-      NO-REPRO on HEAD (m301, stays open); the -O2 constant-fold pruning
-      finding needs a no-fold barrier.
-5. runtime/misc: 1615-stdlib DONE (m297); 1659-orbitdb DONE (m302);
-   1219-orbitdb DONE (m305 + m260); 1324-selfhost DONE (m307),
-   1553-playground-2 + 1554-playground + 1554-benchmark DONE (m308).
-6. tooling/registry: 1548-registry-2 + 1549-registry/2/3 DONE (m306);
-   1549-packages-5/7 DONE (m310).
-7. macOS typed-memset (1549-pulse + 1609-pulse) needs a NEW archive first.
-   8. ENGINE RELAY BATCH (17 items, rows added 2026-10-14, untriaged):
-      1819, 2035, 2042 + 2042-2, 2119, 2139, 2215 + 2215-2, 2227, 2238 x3,
-      2256, 2324-2, 2324-3, 1158, 1213 -- next fixer-wave candidates after
-      m311-m313.
-Also: sweep stale check-file rows (items fixed in m276-m284 still show
-acked/red) when convenient.
+NEXT -- first INTEGRATE the pending fixer results, then start the engine wave
+(witness-first triage; see the check file + the bus for details):
+0. PENDING INTEGRATION (Agent Manager fixer worktrees; check `agent_manager
+   list` + `git log --oneline main..fix/<branch>`):
+   a. m313 fix/m313-ffi-free-guard (ses_ec537c634ffej3MZekLVoymbeR): COMMITTED
+      32626879 -- ffi.free call sites lower through the arena-aware wrapper
+      (the compiler half of REL-20261013-1445). Integrate first: cherry-pick -n,
+      ci.yml token(s), COMPILER_BUGS section, build, battery, ONE batch commit;
+      then ACCEPTANCE: compile %TEMP%\kilo\threadcheck\spincheck.xi with
+      XIOM_STDLIB='E:\xiom-lang\stdlib' --force --no-cache, run with a 15s
+      watchdog; must print v=7 fast. If green, append a compiler note to
+      REL-20261013-1445-compiler (compiler half landed + acceptance green;
+      alloc/free workarounds retirable at the next pin) + check-file bullet +
+      relay.py commit --path.
+   b. m312 fix/m312-thread-spawn-readback (ses_ec5377b3effeDu3aCdH56UcotP):
+      no commits yet at 14:55Z. On idle+commit: integrate; then re-run
+      dbg131s.xi/dbgworker.xi vs stdlib main (expect `joined 42` stable x5;
+      probes in %TEMP%\kilo\threadcheck\; rawspawn/rawgeneric/structret are
+      the isolation set). If green: phase-2 note on REL-20261013-1423-compiler
+      (compiler half green; thread gate 2053/1627/1402 re-runnable at the next
+      pin) + bullet + relay commit.
+   c. m311 fix/m311-o2-no-fold-barrier (ses_ec54222e7ffeO1IOB0h3cLS72X): no
+      commits yet. The -O2 contract constant-fold pruning finding
+      (COMPILER_BUGS ~15886); no bus item -- fold into COMPILER_BUGS +
+      handoff + a check-file history bullet.
+1. ENGINE RELAY BATCH (17 items queued into the check file 2026-10-14,
+   untriaged -- the next fixer-wave candidates, natural clusters):
+   2042 + 2042-2 + 2227 (UInt64 bit-63 + Int128/UInt128; 2042 is HIGH),
+   1158 (ident named spawn drops fn -- m292 catalog leaf-shadow class),
+   2139 (enum-variant/geom name collision -- m298 class), 2256 + 2324-2 +
+   2324-3 (constant surface: shadow hang, var fn export drop, diamond const),
+   2215 + 2215-2 (Vec push in match arm; move-semantics pin), 2238 x3
+   (CLI lane: vecvecstr / fnvalue_records / meshencoder), 1819 (Int ptr arg
+   B-16 class), 2035 (&Str param spelling), 2119 + 1213 (observational/low).
+   Keep 3-4 fixers in flight.
+2. Everything else (m276-m310) is DONE and relayed; remaining non-code
+   gates: owner push authorization (~68 unpushed commits), a pin carrying
+   stdlib main + this tree, the archive reporter re-verification wave
+   (incl. thread gate + spin acceptance), 2032 owner decision, macOS pair
+   (needs a new archive), 1549-packages-2 faithful repro, release-gate record.
+   The stdlib-lane verification notes for 1423/1445 are ALREADY on the bus
+   (97e524e: 1423 hang gone/readback localized; 1445 spin + call-site
+   finding) -- only the phase-2 green notes remain.
 
-Also pending from the compiler side (blocked on the stdlib lane; items
-filed with diffs): REL-20261013-1423-compiler (spawn buffer arena escape
--> thread gate 2053/1627/1402) and REL-20261013-1445-compiler (arena-aware
-xiom_guard_free -> alloc-guard-spin 1548-bindings-5). Verify when the
-stdlib pin carries them.
-
-Number from m301 (m294/m296/m297/m299/m300 reserved by the in-flight
-fixer worktrees); ONE commit per batch (fix + fixtures + docs +
-COMPILER_BUGS section) + a relay fix-note with numeric/IR witnesses + a
-check-file row.
+Number from m314 (m311/m312/m313 reserved); ONE commit per batch (fix +
+fixtures + docs + COMPILER_BUGS section) + a relay fix-note with numeric/IR
+witnesses + a check-file row.
 
 RULES: reproduce from the item's witness before touching code; battery =
 e2e g1/g2 filters at ci.yml lines 152/153 + the front-locks CLI list
