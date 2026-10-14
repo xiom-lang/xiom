@@ -438,6 +438,18 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
    - publish: push main -> tag `v0.64.5` (guard: tag == workspace version,
      tag on main) -> release.yml; verify assets + SHA256SUMS; VSIX is
      toolchain-only (editors/vscode/package.json stays 0.12.2).
+   RELEASE LEG STATUS (2026-10-14T19:50Z): ALL queue items resolved
+   (wave 2 + m321 landed; engine batch fully closed). Release-wave PUSHED
+   to origin at `1e4a444e` (90 commits from 91860f11; workspace + selfhost
+   bumped to v0.64.5; VSIX README pin). Dry-run archive run 38626737822 on
+   that sha (in progress). Tag signal sent to stdlib (bus 06d0a7c) --
+   waiting for the annotated stdlib-v0.64.5 tag ref + sha reply on
+   REL-20261014-1739-compiler (frozen candidate db2fbe8; asked to drop the
+   now-stale alloc/free known-issue line). NEXT: pin commit (STDLIB_VERSION
+   + vendored refresh + notes JSON convert + gate record) + full battery
+   incl. thread acceptance at the pin -> push -> tag v0.64.5 -> release
+   run -> verify assets -> record. Origin CI (ci.yml) also running on the
+   push.
   Row-sweep note: several check-file rows still show `acked`/red for items
   fixed in m276-m284 (e.g. 1437/1512 -> m279; 2230/2053/2137/1402/1403/
   1418 -> m276-m282) -- sweep rows when convenient.
