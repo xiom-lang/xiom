@@ -502,6 +502,14 @@ pub struct LocalContext {
     /// are currently being resolved. Prevents infinite recursion on cycles
     /// like `const A = B; const B = A;`.
     pub const_eval_stack: RefCell<HashSet<String>>,
+    /// m317: cycle guard for COMPILE-TIME const SUBSTITUTION (the body-compile
+    /// path). A const whose stored expression (after evaluation) still
+    /// references itself -- `const V = V;`, `const A = B+1; const B = A+1;`,
+    /// or a file-scope const shadowing an imported name whose initializer
+    /// reads the imported value -- recursed through `compile_expr` until the
+    /// stack overflowed (0xC00000FD, no diagnostic). Holds the resolved
+    /// `constants` KEY currently being substituted.
+    pub const_subst_stack: RefCell<HashSet<String>>,
     /// Current const-evaluation recursion depth (security review 2026-08-13):
     /// a hostile or pathological const expression must not be able to hang
     /// the compiler via unbounded CTFE recursion. `evaluate_const_init` bails

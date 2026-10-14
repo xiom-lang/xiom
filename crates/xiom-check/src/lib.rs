@@ -235,6 +235,10 @@ pub struct Checker {
     /// Stage 6 catalog-flush: per-body counter of `use` declarations skipped
     /// as unreferenced (XIOM_TIMINGS diagnostics only).
     catalog_uses_skipped: usize,
+    /// m317 (REL-20261013-2256-engine 2256 item 3): dotted paths of the
+    /// `pub use` re-export chain currently being merged into an export map.
+    /// Breaks cycles (`pub use b;` in a and `pub use a;` in b).
+    reexport_stack: Vec<String>,
     /// 5c-R: Counter for emitted errors -- enables `has_errors()` gate for
     /// "stop on first error" discipline (rustc lesson: ErrorGuaranteed).
     error_count: usize,
@@ -425,6 +429,7 @@ impl Checker {
             catalog_body_refs: HashSet::new(),
             catalog_body_skip_allowed: false,
             catalog_uses_skipped: 0,
+            reexport_stack: Vec::new(),
             current_receiver: None,
             current_generic_bounds: HashMap::new(),
             error_count: 0,
@@ -862,6 +867,7 @@ impl Checker {
                 path,
                 alias: None,
                 glob: false,
+                is_pub: false,
                 span: Span::new(0, 0),
             }));
         }
@@ -4564,7 +4570,7 @@ impl Checker {
         result
     }
 
-    fn build_module_map(&self, items: &[TopDecl]) -> HashMap<String, ModuleExport> {
+    fn build_module_map(&mut self, items: &[TopDecl]) -> HashMap<String, ModuleExport> {
         let mut m = self.build_module_map_inner(items, "");
         // The parser nests dotted file modules (`module xiom.io` becomes
         // Module(xiom){ Module(io){ ... } }), so build_module_map_inner returns a
@@ -4583,7 +4589,7 @@ impl Checker {
         }
     }
 
-    fn build_module_map_inner(&self, items: &[TopDecl], prefix: &str) -> HashMap<String, ModuleExport> {
+    fn build_module_map_inner(&mut self, items: &[TopDecl], prefix: &str) -> HashMap<String, ModuleExport> {
         let mut map = HashMap::new();
         for item in items {
             match item {
@@ -4655,10 +4661,121 @@ impl Checker {
                         map.insert(fd.name.name.clone(), ModuleExport::Function { sig, is_pub: true });
                     }
                 }
+                // m317 (REL-20261013-2256-engine 2256 item 3 + 2324-3): a
+                // `pub use <module>;` facade re-exports the target module's
+                // public surface -- functions, types AND constants. Before
+                // m317 the parser dropped the `pub`, the export map ignored
+                // Use entirely, and consumers could not see anything through
+                // a facade (constants were the loudest gap: bare `C_ALPHA`
+                // via the facade was a hard T001 while bare fns still
+                // resolved through the global registry -- the engine's
+                // finding). The facade's OWN declarations keep priority;
+                // among re-exports the first in declaration order wins.
+                TopDecl::Use(ud) if ud.is_pub && !ud.glob && !ud.path.is_empty() => {
+                    let segs: Vec<String> = ud.path.iter().map(|p| p.name.clone()).collect();
+                    if let Some(target) = self.pub_use_target_exports(ud, &segs) {
+                        for (name, export) in target {
+                            let is_pub = match &export {
+                                ModuleExport::Type { is_pub, .. }
+                                | ModuleExport::Function { is_pub, .. }
+                                | ModuleExport::Const { is_pub, .. } => *is_pub,
+                                ModuleExport::SubModule(_) => true,
+                            };
+                            if is_pub {
+                                map.entry(name).or_insert(export);
+                            }
+                        }
+                    }
+                }
                 _ => {}
             }
         }
         map
+    }
+
+    /// m317: resolved export surface of a `pub use` target. Resolution order:
+    /// (1) the already-registered `self.modules` surface (walk the path
+    /// segments through SubModule entries; a final non-SubModule entry is a
+    /// single-ITEM re-export); (2) a NON-caching catalog peek of the FULL
+    /// path as a file-backed module (the common facade shape
+    /// `pub use xiom.engine.save.core;`), built recursively through
+    /// [`Self::module_exports_with_submodules`] so chains
+    /// (facade -> sub-facade -> module) resolve; (3) the parent path as a
+    /// module surface, then the leaf as an item of it. `reexport_stack`
+    /// breaks cyclic re-export graphs.
+    fn pub_use_target_exports(
+        &mut self,
+        ud: &UseDecl,
+        segs: &[String],
+    ) -> Option<HashMap<String, ModuleExport>> {
+        let dotted = segs.join(".");
+        let registered = (|| -> Option<HashMap<String, ModuleExport>> {
+            let first = segs.first()?;
+            let mut cur = self.modules.get(first)?.clone();
+            for (idx, seg) in segs[1..].iter().enumerate() {
+                match cur.get(seg) {
+                    Some(ModuleExport::SubModule(sub)) => cur = sub.clone(),
+                    Some(other) if idx + 2 == segs.len() => {
+                        let mut single = HashMap::new();
+                        single.insert(seg.clone(), other.clone());
+                        return Some(single);
+                    }
+                    _ => return None,
+                }
+            }
+            Some(cur)
+        })();
+        if let Some(m) = registered {
+            return Some(m);
+        }
+        if self.reexport_stack.iter().any(|d| d == &dotted) {
+            return None;
+        }
+        // (2) the full path as a file-backed module.
+        if let Some(m) = self.pub_use_module_surface(segs) {
+            return Some(m);
+        }
+        // (3) single-ITEM re-export from the parent module's surface.
+        if segs.len() >= 2 {
+            let parent: Vec<String> = segs[..segs.len() - 1].to_vec();
+            let parent_map = self.pub_use_module_surface(&parent).or_else(|| {
+                let first = parent.first()?;
+                let mut cur = self.modules.get(first)?.clone();
+                for seg in &parent[1..] {
+                    match cur.get(seg) {
+                        Some(ModuleExport::SubModule(sub)) => cur = sub.clone(),
+                        _ => return None,
+                    }
+                }
+                Some(cur)
+            });
+            if let Some(parent_map) = parent_map {
+                let item_name = ud.alias.as_ref()
+                    .map(|a| a.name.clone())
+                    .unwrap_or_else(|| segs.last().unwrap().clone());
+                if let Some(export) = parent_map.get(&item_name) {
+                    let mut m = HashMap::new();
+                    m.insert(item_name, export.clone());
+                    return Some(m);
+                }
+            }
+        }
+        None
+    }
+
+    /// m317: the export surface of module `segs` from the catalog (peek, no
+    /// caching -- mirrors the qualified-call walk's use of `peek_owned` so a
+    /// facade's re-export does not inject the target into the program).
+    fn pub_use_module_surface(&mut self, segs: &[String]) -> Option<HashMap<String, ModuleExport>> {
+        let dotted = segs.join(".");
+        if self.reexport_stack.iter().any(|d| d == &dotted) {
+            return None;
+        }
+        let cached = self.catalog.peek_owned(segs)?;
+        self.reexport_stack.push(dotted);
+        let map = self.module_exports_with_submodules(&cached);
+        self.reexport_stack.pop();
+        Some(map)
     }
 
         /// Build the export map for a catalog module and AUGMENT it with the
@@ -4694,6 +4811,10 @@ impl Checker {
     /// root, so a use another use depends on as a prefix stays). Globs always
     /// run -- their imported surface is not name-bounded. Bodies whose bare
     /// type surface is not self-contained never skip (see the field docs).
+    /// m317 (REL-20261013-2256-engine): a skipped use also hides the target
+    /// module's imported CONSTANTS (a bare const read never spells the module
+    /// name, so the bound-name check alone is unsound) -- keep the use when
+    /// the target declares any `pub const`/`pub var` (cheap text probe).
     fn catalog_use_referenced(&self, ud: &UseDecl) -> bool {
         if !self.catalog_body_skip_allowed || ud.glob || ud.path.is_empty() {
             return true;
@@ -4701,7 +4822,14 @@ impl Checker {
         let bound = ud.alias.as_ref()
             .map(|a| a.name.as_str())
             .unwrap_or_else(|| ud.path.last().unwrap().name.as_str());
-        self.catalog_body_refs.contains(bound)
+        if self.catalog_body_refs.contains(bound) {
+            return true;
+        }
+        let dotted: String = ud.path.iter()
+            .map(|p| p.name.clone())
+            .collect::<Vec<_>>()
+            .join(".");
+        self.catalog.module_declares_pub_consts(&dotted)
     }
 
     /// Scalar/builtin type names always available inside a catalog body.
@@ -4839,9 +4967,19 @@ impl Checker {
         }
 
         // Walk through intermediate path segments (submodules)
+        // m317 (REL-20261013-2256-engine): for a GLOB path the last segment is
+        // part of the MODULE path (`use a.b.c.*;` imports c's items), so the
+        // walk must descend through it too -- the old `len() - 1` bound left
+        // `current` on the PARENT map and the glob imported nothing (multi-
+        // segment glob imports silently bound no constants).
         let mut current = exports;
         let mut i = 1;
-        while i < effective_path.len() - 1 {
+        let walk_end = if ud.glob {
+            effective_path.len()
+        } else {
+            effective_path.len().saturating_sub(1)
+        };
+        while i < walk_end {
             let seg = &effective_path[i].name;
             match current.get(seg) {
                 Some(ModuleExport::SubModule(sub)) => {
@@ -5221,7 +5359,45 @@ impl Checker {
         }
 
         // Clone the relevant export data to avoid borrow conflicts
-        let (sig, resolved_key) = self.resolve_module_function(&path)?;
+        let resolved = self.resolve_module_function(&path);
+        let (sig, resolved_key) = match resolved {
+            Some(t) => t,
+            None => {
+                // m317 (REL-20261013-2324-engine-2): a FN-TYPED CONST export
+                // (`pub var handler: fn(Int) -> Int = ...;`, or a fn-typed
+                // `pub const`) is callable through the module surface.
+                // check_module_field_access types the qualified read; when it
+                // yields a real Fn type, check the args against it and use its
+                // return type. (The export map drops nothing now that var
+                // decls keep their `pub`.)
+                if let Some(CheckedType::Fn(params, ret)) =
+                    self.check_module_field_access(obj, method)
+                {
+                    if args.len() != params.len() {
+                        self.error(
+                            format!("{} expects {} argument(s), found {}",
+                                path.join("."), params.len(), args.len()),
+                            span,
+                        );
+                    }
+                    for (i, arg) in args.iter().enumerate() {
+                        let arg_ty = self.check_expr(arg);
+                        if i < params.len()
+                            && !self.types_compatible(&arg_ty, &params[i])
+                            && arg_ty != CheckedType::Error
+                        {
+                            self.error(
+                                format!("argument {} type mismatch: expected {}, found {}",
+                                    i + 1, params[i].name(), arg_ty.name()),
+                                span,
+                            );
+                        }
+                    }
+                    return Some(*ret);
+                }
+                return None;
+            }
+        };
         // R15: record the CHECKER's resolved fully-dotted key for this call
         // site while checking a catalog body. The codegen cannot see the
         // module's own `use` aliases (isolated context), so the driver hands

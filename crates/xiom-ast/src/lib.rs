@@ -665,6 +665,11 @@ pub struct UseDecl {
     pub path: Vec<Ident>,
     pub alias: Option<Ident>,
     pub glob: bool, // use math.vector.*
+    /// m317 (REL-20261013-2256-engine): `pub use <module>;` re-exports the
+    /// target module's public surface (functions, types AND constants) from
+    /// the enclosing module. Before m317 the parser dropped the `pub` token
+    /// silently and facades re-exported nothing through the export maps.
+    pub is_pub: bool,
     pub span: Span,
 }
 

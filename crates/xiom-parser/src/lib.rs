@@ -418,7 +418,7 @@ impl Parser {
         let is_pub = self.skip(TokenKind::Pub);
         match self.peek_kind() {
             TokenKind::Module => self.parse_module(is_pub),
-            TokenKind::Use => self.parse_use_decl(),
+            TokenKind::Use => self.parse_use_decl(is_pub),
             TokenKind::Type => self.parse_type_decl(is_pub),
             TokenKind::Enum => self.parse_enum_decl(is_pub),
             TokenKind::Interface => self.parse_interface_decl(is_pub),
@@ -427,7 +427,7 @@ impl Parser {
             TokenKind::Const => {
                 self.parse_const_decl(is_pub)
             }
-            TokenKind::Var => self.parse_module_var(),
+            TokenKind::Var => self.parse_module_var(is_pub),
             TokenKind::Extern => self.parse_extern_block(),
             TokenKind::Spawn => {
                 // Module-level `spawn { ... }` statement (M21). Parse as a
@@ -496,7 +496,7 @@ impl Parser {
         Ok(Self::build_file_module_result(path, items, start))
     }
 
-    fn parse_use_decl(&mut self) -> Result<TopDecl, ParseError> {
+    fn parse_use_decl(&mut self, is_pub: bool) -> Result<TopDecl, ParseError> {
         self.advance();
         let start = self.peek().span;
         let mut path = vec![self.parse_ident()?];
@@ -504,13 +504,13 @@ impl Parser {
             if self.check(|k| matches!(k, TokenKind::Star)) {
                 self.advance();
                 self.expect_kind(TokenKind::Semicolon, "';'")?;
-                return Ok(TopDecl::Use(UseDecl { path, alias: None, glob: true, span: start }));
+                return Ok(TopDecl::Use(UseDecl { path, alias: None, glob: true, is_pub, span: start }));
             }
             path.push(self.parse_ident()?);
         }
         let alias = if self.skip(TokenKind::As) { Some(self.parse_ident()?) } else { None };
         self.expect_kind(TokenKind::Semicolon, "';'")?;
-        Ok(TopDecl::Use(UseDecl { path, alias, glob: false, span: start }))
+        Ok(TopDecl::Use(UseDecl { path, alias, glob: false, is_pub, span: start }))
     }
 
     fn parse_type_decl(&mut self, is_pub: bool) -> Result<TopDecl, ParseError> {
@@ -931,7 +931,7 @@ impl Parser {
         Ok(TopDecl::Const(ConstDecl { name, ty, value, is_mut: false, is_pub, span: start }))
     }
 
-    fn parse_module_var(&mut self) -> Result<TopDecl, ParseError> {
+    fn parse_module_var(&mut self, is_pub: bool) -> Result<TopDecl, ParseError> {
         self.advance(); // consume 'var'
         let span = self.peek().span;
         let name = self.parse_ident()?;
@@ -948,7 +948,7 @@ impl Parser {
             ty: ty.unwrap_or(Type::Named(Ident::new("_", span), vec![])),
             value,
             is_mut: true,
-            is_pub: false,
+            is_pub,
             span,
         }))
     }

@@ -999,8 +999,16 @@ impl IrEmitter {
                     // literal value (constants aren't materialized as globals).
                     // m262: caller-module-qualified first (two modules' private
                     // same-named consts must not collapse onto the bare slot).
-                    if let Some(cval) = self.lookup_const(&ident.name) {
-                        return self.compile_expr(&cval);
+                    // m317: guarded by const_subst_stack -- an unevaluated
+                    // self/cyclic reference left in the map (`const A = A;`)
+                    // recursed here until the stack overflowed.
+                    if let Some((key, cval)) = self.lookup_const_keyed(&ident.name) {
+                        if !self.local.const_subst_stack.borrow().contains(&key) {
+                            self.local.const_subst_stack.borrow_mut().insert(key.clone());
+                            let resolved = self.compile_expr(&cval);
+                            self.local.const_subst_stack.borrow_mut().remove(&key);
+                            return resolved;
+                        }
                     }
                     // Bare `null` in an expression is the NULL POINTER (0), not a
                     // function reference. Without this, the suffix search below
@@ -2788,8 +2796,68 @@ impl IrEmitter {
                             }
                         }
                     }
+                    // m317 (REL-20261013-2256-engine): the legacy bare-leaf
+                    // lookup made a file-scope const SHADOW a same-named
+                    // imported constant for every qualified read
+                    // (`lib.VALUE` returned the local 22, not the module's
+                    // 11), and a file-scope const whose initializer reads the
+                    // shadowed qualified name recursed through this arm until
+                    // the compiler stack-overflowed (no diagnostic -- the
+                    // engine's "hangs" finding). Resolve the receiver's module
+                    // path (alias-expanded, both the full and xiom-stripped
+                    // spellings) and try the QUALIFIED keys first; the bare
+                    // leaf stays as the fallback for receivers that do not
+                    // identify a module. The cycle guard breaks any residual
+                    // self-reference (`const V = V;`).
+                    if let Some(segs) = Self::qualified_receiver_segments(obj) {
+                        for key in self.module_const_candidate_keys(&segs, &field.name) {
+                            if let Some(cval) = self.local.constants.get(&key).cloned() {
+                                if self.local.const_subst_stack.borrow().contains(&key) {
+                                    break;
+                                }
+                                self.local.const_subst_stack.borrow_mut().insert(key.clone());
+                                let resolved = self.compile_expr(&cval);
+                                self.local.const_subst_stack.borrow_mut().remove(&key);
+                                return resolved;
+                            }
+                        }
+                        // m317 (REL-20261013-2324-engine-2): a qualified read
+                        // of a module-level VAR global (`cnt.counter`) loads
+                        // from the emitted global, mirroring the const
+                        // substitution above. Without this the read fell into
+                        // the field-access path and produced a wrong value.
+                        // Injected vars keep their BARE name as the emitted
+                        // symbol (m227), so the qualified candidates usually
+                        // miss and the bare key below resolves.
+                        for key in self.module_const_candidate_keys(&segs, &field.name) {
+                            if let Some((symbol, llvm_ty)) =
+                                self.local.module_globals.get(&key).cloned()
+                            {
+                                let tmp = self.fresh_tmp();
+                                self.emitln(&format!(
+                                    "  {tmp} = load {llvm_ty}, {llvm_ty}* @{symbol}"
+                                ));
+                                return Ok((tmp, llvm_ty));
+                            }
+                        }
+                        if let Some((symbol, llvm_ty)) =
+                            self.local.module_globals.get(&field.name).cloned()
+                        {
+                            let tmp = self.fresh_tmp();
+                            self.emitln(&format!(
+                                "  {tmp} = load {llvm_ty}, {llvm_ty}* @{symbol}"
+                            ));
+                            return Ok((tmp, llvm_ty));
+                        }
+                    }
                     if let Some(cval) = self.local.constants.get(&field.name).cloned() {
-                        return self.compile_expr(&cval);
+                        let key = field.name.clone();
+                        if !self.local.const_subst_stack.borrow().contains(&key) {
+                            self.local.const_subst_stack.borrow_mut().insert(key.clone());
+                            let resolved = self.compile_expr(&cval);
+                            self.local.const_subst_stack.borrow_mut().remove(&key);
+                            return resolved;
+                        }
                     }
                 }
                 // `(*p).field` on a raw pointer to a struct: GEP directly into the
@@ -6767,6 +6835,73 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
         let key = self.types.types.keys().into_iter().find(|k| k.ends_with(&sfx))
             .or_else(|| self.types.type_meta.keys().into_iter().find(|k| k.ends_with(&sfx)));
         key.map(|k| format!("%struct.{k}"))
+    }
+
+    /// m317 (REL-20261013-2256-engine): the dotted SEGMENTS of a
+    /// module-qualified receiver chain (`lib` / `xiom.m317a.lib` /
+    /// `a.b.c`), or None when the receiver is not a plain path (a call,
+    /// index, literal, ... -- those can never name a module).
+    pub(crate) fn qualified_receiver_segments(obj: &Expr) -> Option<Vec<String>> {
+        let mut segs: Vec<String> = Vec::new();
+        let mut cur: &Expr = obj;
+        loop {
+            match cur {
+                Expr::Ident(id) => {
+                    segs.push(id.name.clone());
+                    break;
+                }
+                Expr::Field(inner, f, _) => {
+                    segs.push(f.name.clone());
+                    cur = inner.as_ref();
+                }
+                Expr::Paren(inner, _) => {
+                    cur = inner.as_ref();
+                }
+                _ => return None,
+            }
+        }
+        segs.reverse();
+        if segs.is_empty() { None } else { Some(segs) }
+    }
+
+    /// m317: candidate `constants` keys for a qualified const read
+    /// `<receiver path>.<field>`. The receiver's first segment is expanded
+    /// through the codegen alias maps (`use X as a;`) and the checker's
+    /// module-receiver map (plain `use X;`), then both the FULL and the
+    /// xiom-STRIPPED spellings are offered -- injected catalog decls carry
+    /// xiom-stripped qualified names ("hash.metro._K0"), module-file decls
+    /// carry the declared module path.
+    pub(crate) fn module_const_candidate_keys(
+        &self,
+        segs: &[String],
+        field: &str,
+    ) -> Vec<String> {
+        let mut path: Vec<String> = segs.to_vec();
+        if let Some(first) = segs.first() {
+            let target = self
+                .mono
+                .use_alias_map
+                .get(first)
+                .or_else(|| self.config.module_receiver_paths.get(first));
+            if let Some(target) = target {
+                if !target.is_empty() && target != first {
+                    let mut expanded: Vec<String> = target.split('.').map(|s| s.to_string()).collect();
+                    expanded.extend_from_slice(&segs[1..]);
+                    path = expanded;
+                }
+            }
+        }
+        let joined = path.join(".");
+        let mut out: Vec<String> = Vec::new();
+        let stripped = joined.strip_prefix("xiom.").unwrap_or(&joined).to_string();
+        out.push(format!("{joined}.{field}"));
+        if stripped != joined {
+            out.push(format!("{stripped}.{field}"));
+        }
+        if !joined.starts_with("xiom.") {
+            out.push(format!("xiom.{joined}.{field}"));
+        }
+        out
     }
 
 }

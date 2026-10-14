@@ -780,12 +780,23 @@ impl IrEmitter {
     /// substituted farm's constants (`metrohash64(empty,0)` returned
     /// 0xD61B291421481536 instead of 0x13C52518F4DB1E2A).
     pub(crate) fn lookup_const(&self, name: &str) -> Option<Expr> {
+        self.lookup_const_keyed(name).map(|(_, v)| v)
+    }
+
+    /// m317: `lookup_const` that also reports WHICH key resolved (the exact
+    /// module-qualified key or the bare slot). The body-compile substitution
+    /// path uses the key for the `const_subst_stack` cycle guard.
+    pub(crate) fn lookup_const_keyed(&self, name: &str) -> Option<(String, Expr)> {
         if let Some(prefix) = self.current_module_prefix() {
-            if let Some(v) = self.local.constants.get(&format!("{prefix}.{name}")) {
-                return Some(v.clone());
+            let key = format!("{prefix}.{name}");
+            if let Some(v) = self.local.constants.get(&key) {
+                return Some((key, v.clone()));
             }
         }
-        self.local.constants.get(name).cloned()
+        self.local
+            .constants
+            .get(name)
+            .map(|v| (name.to_string(), v.clone()))
     }
 
     /// m262: const-ARRAY sibling of `lookup_const` for `const_array_globals`

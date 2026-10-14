@@ -16869,3 +16869,38 @@ the `Ship{ spawn, x: n }` shorthand covered. Locks:
 `e2e_m316_spawn_name_shadow` + parser unit
 `test_m316_struct_literal_first_field_soft_keyword`. Battery: parser lib
 109, parser lock 1/1, e2e g1 16 + g2 218, codegen lib 12.
+
+---
+
+## 2026-10-14 -- FIXED (m317): constant-surface family -- shadow hang + cross-module qualification + pub-use constants + pub var exports (REL-20261013-2256-engine + -2324-engine-2 + -2324-engine-3)
+
+Three items, four shapes:
+1. 2256 (hang): a file-scope `const` shadowing an imported constant name
+   whose initializer reads the QUALIFIED import made the codegen
+   bare-leaf const substitution recurse forever with no diagnostic (the
+   engine saw a HANG; on Windows debug builds it exits immediately with
+   a 0xC00000FD stack overflow). Fix: a compile-time const-substitution
+   cycle guard (`const_subst_stack`); the shadowing const no longer
+   hijacks qualified reads.
+2. 2256 (qualification): cross-module constants must resolve when read
+   bare inside a module file (multi-use / glob / aliased imports were
+   dropped by the catalog-body use-skip) -- the importing file's export
+   surface now feeds the const lookup, and a skipped `use` also hides
+   its target.
+3. 2256 (`pub use`): re-exports covered functions and types but NOT
+   constants -- the parser dropped the `pub` token on `use` and the
+   export map + surface resolution ignored constants; both fixed
+   (dotted paths and fn-typed consts included).
+4. 2324-2: a top-level `pub var` (incl. a fn-valued var) silently
+   dropped the enclosing module export -- qualified reads of fn-typed
+   consts now bind the export; the 2324-3 diamond `pub const` re-export
+   shape resolves through the same surface.
+
+Evidence: one fixture tree (tests/regression/m317_const_surface_family/,
+main + 8 modules) with distinct exit codes per shape (1-3 shadow /
+qualified reads, 4-6 `pub use` re-export, 7-8 diamond, 9-11 bare
+imports, 12-14 pub var + fn-valued var); lock
+`e2e_m317_const_surface_family` (shape 1 doubles as the hang lock: the
+un-timed compile_and_run fails fast on the debug stack-overflow exit
+instead of blocking). Battery: lock 1/1, e2e g1 16 + g2 219, codegen
+lib 12, parser lib 109, xiom-check lib serial 199.

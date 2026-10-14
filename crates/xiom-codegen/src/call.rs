@@ -1102,6 +1102,68 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         }
                     }
                 }
+                // m317 (REL-20261013-2324-engine-2): the QUALIFIED twin of the
+                // block above -- a fn-valued module global called through a
+                // module path (`mod.handler(3)` where the module declares
+                // `pub var handler: fn(...) = ...;`). The export map keeps the
+                // fn-typed var now that var decls keep their `pub`; the call
+                // must load the emitted global and call through it instead of
+                // emitting a bare `@handler` call that is not a function.
+                if let Some(recv) = receiver_expr {
+                    if !self.receiver_is_instance(recv) {
+                        if let Some(name) = fn_name_opt.clone() {
+                            if let Some(segs) = Self::qualified_receiver_segments(recv) {
+                                let mut hit: Option<(String, String)> = None;
+                                for key in self.module_const_candidate_keys(&segs, &name) {
+                                    if let Some(g) = self.local.module_globals.get(&key).cloned() {
+                                        hit = Some(g);
+                                        break;
+                                    }
+                                }
+                                if hit.is_none() {
+                                    hit = self.local.module_globals.get(&name).cloned();
+                                }
+                                if let Some((slot_sym, slot_ty)) = hit {
+                                    let marker = self.local.global_xiom_types.get(&slot_sym).cloned()
+                                        .or_else(|| self.local.global_xiom_types.get(&name).cloned());
+                                    if let Some(marker) = marker {
+                                        if Self::is_fn_marker(&marker) {
+                                            let ret_xiom = Self::fn_type_return_xiom(&marker)
+                                                .unwrap_or_else(|| "Int".to_string());
+                                            let ret_llvm = self.llvm_type_for_fallback(&ret_xiom);
+                                            let compiled_args: Vec<(String, String)> = args.iter()
+                                                .map(|a| self.compile_expr(a).map(|(v, t)| (v, t)))
+                                                .collect::<Result<Vec<_>, _>>()?;
+                                            let loaded = self.fresh_tmp();
+                                            self.emitln(&format!("  {loaded} = load {slot_ty}, {slot_ty}* @{slot_sym}"));
+                                            let param_types: Vec<String> = compiled_args.iter()
+                                                .map(|(_, t)| t.clone()).collect();
+                                            let fn_ptr_ty = format!("{ret_llvm} ({})*", param_types.join(", "));
+                                            let fptr = self.fresh_tmp();
+                                            let cast_op = if slot_ty.ends_with('*') || slot_ty.starts_with('%') {
+                                                "bitcast"
+                                            } else {
+                                                "inttoptr"
+                                            };
+                                            self.emitln(&format!("  {fptr} = {cast_op} {slot_ty} {loaded} to {fn_ptr_ty}"));
+                                            let args_str = compiled_args.iter()
+                                                .map(|(v, t)| format!("{t} {v}"))
+                                                .collect::<Vec<_>>()
+                                                .join(", ");
+                                            if ret_llvm == "void" {
+                                                self.emitln(&format!("  call void {fptr}({args_str})"));
+                                                return Ok((String::new(), "void".to_string()));
+                                            }
+                                            let tmp = self.fresh_tmp();
+                                            self.emitln(&format!("  {tmp} = call {ret_llvm} {fptr}({args_str})"));
+                                            return Ok((tmp, ret_llvm));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 let fn_name = match fn_name_opt {
                     Some(ref n) => {
                         n.clone()

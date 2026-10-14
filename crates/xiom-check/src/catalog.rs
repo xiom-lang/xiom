@@ -6,6 +6,7 @@ use crate::types::{CheckedType, FnSig};
 use xiom_ast::*;
 use xiom_lexer::Lexer;
 use xiom_parser::Parser;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -141,6 +142,10 @@ pub struct ModuleCatalog {
     /// based, like the index cache itself; a module's own check-cache entry
     /// additionally carries its content hash.
     index_tree_files: std::collections::BTreeSet<(String, u128, u64)>,
+    /// m317 (REL-20261013-2256-engine): memo for
+    /// [`Self::module_declares_pub_consts`] -- the per-module text probe runs
+    /// once per compile instead of once per skipped-use decision.
+    const_surface_cache: RefCell<HashMap<String, bool>>,
 }
 
 /// Stage 6: persistent cache entry for one indexed `.xi` path.
@@ -169,6 +174,7 @@ impl ModuleCatalog {
             index_cache_hits: 0,
             index_cache_misses: 0,
             index_tree_files: std::collections::BTreeSet::new(),
+            const_surface_cache: RefCell::new(HashMap::new()),
         }
     }
 
@@ -606,6 +612,39 @@ impl ModuleCatalog {
         let mut names: Vec<String> = self.module_index.keys().cloned().collect();
         names.sort();
         names
+    }
+
+    /// m317 (REL-20261013-2256-engine): does the module declared as `dotted`
+    /// declare any `pub const` / `pub var`? A cheap TEXT probe (no parse, no
+    /// registration) used by the catalog-body use-skip heuristic: a skipped
+    /// use drops the module's imported CONSTANTS from the body's scope -- a
+    /// bare const read never spells the module name, so the bound-name check
+    /// alone is unsound for const-bearing targets. Conservative in the safe
+    /// direction: a comment containing `pub const` false-positives (the use
+    /// is simply processed, as before m252); a real one-line declaration can
+    /// never false-negative. Unknown/unindexed names report false (no
+    /// importable surface anyway).
+    pub fn module_declares_pub_consts(&self, dotted: &str) -> bool {
+        if let Some(hit) = self.const_surface_cache.borrow().get(dotted) {
+            return *hit;
+        }
+        let hit = (|| -> Option<bool> {
+            let path = self.module_index.get(dotted)?;
+            let text = std::fs::read_to_string(path).ok()?;
+            let mut prev = "";
+            for tok in text.split_whitespace() {
+                if prev == "pub" && (tok == "const" || tok == "var") {
+                    return Some(true);
+                }
+                prev = tok;
+            }
+            Some(false)
+        })()
+        .unwrap_or(false);
+        self.const_surface_cache
+            .borrow_mut()
+            .insert(dotted.to_string(), hit);
+        hit
     }
 
     /// Returns all cached modules as owned clones (for snapshot iteration).

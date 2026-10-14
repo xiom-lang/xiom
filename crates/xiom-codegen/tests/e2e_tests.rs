@@ -8091,3 +8091,25 @@ fn e2e_safety_probe() {
          (struct literal -> geom struct, bare value -> variant) (m315)"
     );
 }
+
+// m317 (REL-20261013-2256-engine + REL-20261013-2324-engine-2 +
+// REL-20261013-2324-engine-3): the constant-surface family. One fixture,
+// every shape with a distinct exit code (1-3 shadow/qualified const reads,
+// 4-6 `pub use` facade re-export incl. constants, 7-8 diamond re-export,
+// 9-11 bare imported constants inside module files (multi-use/glob/aliased
+// imports that the catalog-body use-skip used to drop), 12-14 module-level
+// `pub var` export + fn-valued var call through the module path).
+//
+// Shape (a) doubles as the hang lock: the file-scope const shadows the
+// imported constant name and its initializer reads the QUALIFIED import.
+// Pre-fix the codegen bare-leaf substitution recursed until the compiler
+// stack-overflowed with no diagnostic (the engine observed it as a HANG;
+// on Windows debug builds it is an immediate 0xC00000FD exit, so the
+// un-timed spawn below fails fast rather than blocking).
+#[test] fn e2e_m317_const_surface_family() {
+    assert_eq!(
+        compile_and_run("tests/regression/m317_const_surface_family/main.xi"),
+        Some(0),
+        "m317: constant-surface family -- shadowing const must not hijack qualified reads or loop; pub use must re-export constants; bare module-file const imports must resolve; pub var must stay exported"
+    );
+}
