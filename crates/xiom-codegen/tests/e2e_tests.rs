@@ -7345,6 +7345,32 @@ fn e2e_safety_probe() {
     );
 }
 
+// m300 (REL-20261010-1549-stdlib-2): xiom.geom.geometry_3d's `Box` (shadowed
+// by xiom.core's private Box[T]) must be nameable cross-module --
+// `geometry_3d.Box{..}` resolved T001 unknown-type and the call-site param
+// check compared SPELLINGS (expected bare `Box` vs found `geometry_3d.Box`)
+// so aabb_contains/aabb_intersection were uncallable.
+#[test] fn e2e_m300_geom_box_unnameable() {
+    assert_eq!(
+        compile_and_run("tests/regression/m300_geom_box_unnameable/main.xi"),
+        Some(0),
+        "geometry_3d.Box must be constructible and passable cross-module (m300)"
+    );
+}
+
+// m300 (REL-20261010-1549-stdlib-3): un-annotated nested Vec[Vec[Float64]]
+// results must keep the full nesting -- the tuple-element binding
+// `var l2 = lu.0;` lost a level (type_string_full erased tuple element
+// containers to "Vec") and the row read went through the scalar elem path
+// (row len 0).
+#[test] fn e2e_m300_geom_matrix_result_infer() {
+    assert_eq!(
+        compile_and_run("tests/regression/m300_geom_matrix_result_infer/main.xi"),
+        Some(0),
+        "un-annotated nested matrix results and tuple elements must infer fully (m300)"
+    );
+}
+
 // m293 (REL-20261010-1549-packages-11): Map/Set `==` must compare CONTENT
 // (keys/values/items Vecs with the concrete K/V/T args), not emit the
 // invalid `icmp eq %struct.Vec` for the by-value fields. Covers Map[Int,Int],

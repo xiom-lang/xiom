@@ -2179,6 +2179,17 @@ impl IrEmitter {
                 ident.name,
                 args.iter().map(Self::type_string_full).collect::<Vec<_>>().join(", ")
             ),
+            // m300 (REL-20261010-1549-stdlib-3): tuple elements recurse
+            // through type_string_full, not type_from_ast -- the latter
+            // ERASES container args (`Vec[Float64]` -> "Vec"), so
+            // `lu_decompose -> (Vec[Vec[Float64]], Vec[Vec[Float64]])`
+            // recorded "Tuple__Vec__Vec" and the un-annotated binding
+            // `var l2 = lu.0;` lost a nesting level (the row read went
+            // through the scalar elem path). Mirrors the types.rs copy.
+            Type::Tuple(elems) => {
+                let parts: Vec<String> = elems.iter().map(Self::type_string_full).collect();
+                format!("Tuple__{}", parts.join("__"))
+            }
             other => Self::type_from_ast(other),
         }
     }
@@ -3912,6 +3923,16 @@ impl IrEmitter {
         args.last().cloned().filter(|a| !a.is_empty())
     }
 
+    /// m300: numeric tuple-field index of a parser-generated synthetic field
+    /// name (`_0`, `_1`, ...). None for named fields.
+    pub(crate) fn tuple_field_index(field_name: &str) -> Option<usize> {
+        let digits = field_name.strip_prefix('_').unwrap_or(field_name);
+        if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        digits.parse::<usize>().ok()
+    }
+
     /// round-13 (tuple payloads): normalize a tuple XIOM name ("(Int, Int)") to
     /// the registered struct key ("Tuple__Int__Int") so the boxed-payload deref
     /// can resolve the LLVM type. Non-tuple names pass through unchanged.
@@ -3937,6 +3958,26 @@ impl IrEmitter {
     /// then the receiver's registered declared type ("Result[Vec[UInt8], Str]"
     /// from params/annotated locals) parsed via the bracket-aware extractors.
     fn field_payload_xiom(&self, obj: &Expr, field_name: &str) -> Option<String> {
+        // m300 (REL-20261010-1549-stdlib-3): TUPLE fields -- `t.0` / `t.1`
+        // on a local whose recorded XIOM type is a tuple keep the ELEMENT
+        // type. Without this the un-annotated binding (`var l2 = lu.0;`,
+        // lu from matrix.lu_decompose) stayed untyped, local_vec_elem missed
+        // its element, and `l2[0].len()` lowered through the scalar
+        // elem_load (i64) -> `.len()` read through an inttoptr'd row
+        // pointer -> 0 instead of the real row length. The annotated
+        // control worked because the annotation itself records the type.
+        // Accepts both the legacy "Tuple__A__B" key and "(A, B)".
+        if let Expr::Ident(sid) = obj {
+            if let Some(idx) = Self::tuple_field_index(field_name) {
+                if let Some(decl) = self.local.local_xiom_types.get(&sid.name) {
+                    if let Some(elems) = xiom_ast::structural::tuple_elem_names(decl) {
+                        if let Some(elem) = elems.get(idx) {
+                            return Some(elem.clone());
+                        }
+                    }
+                }
+            }
+        }
         let is_err_field = field_name == "error";
         let is_value_field = field_name == "value";
         if !is_err_field && !is_value_field {
@@ -4060,6 +4101,26 @@ impl IrEmitter {
                 });
         }
         if let Expr::Field(base, field_expr, _) = container {
+            // m300 (REL-20261010-1549-stdlib-3): TUPLE-field containers --
+            // `lu.0[i]` where lu's recorded XIOM type is a tuple. Resolve the
+            // element type of the tuple's i-th (Vec-typed) element so the
+            // index read takes the struct path. Mirrors the binding-level
+            // tuple arm in field_payload_xiom.
+            if let Expr::Ident(sid) = base.as_ref() {
+                if let Some(idx) = Self::tuple_field_index(&field_expr.name) {
+                    if let Some(decl) = self.local.local_xiom_types.get(&sid.name) {
+                        if let Some(elems) = xiom_ast::structural::tuple_elem_names(decl) {
+                            if let Some(elem) = elems.get(idx) {
+                                if let Some(inner) = elem.strip_prefix("Vec[")
+                                    .and_then(|r| r.strip_suffix(']'))
+                                {
+                                    return Some(inner.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             // M65 Part 2 (json heap layer): resolve fields of GENERIC
             // instantiations with their concrete args -- `entries.values` on
             // `entries: Map[Str, JsonValue]` whose declared field type is
@@ -4390,6 +4451,19 @@ impl IrEmitter {
             if self.types.types.contains_key(&qualified) || self.types.type_meta.contains_key(&qualified) {
                 return Ok(format!("%struct.{qualified}"));
             }
+            // m300 (REL-20261010-1549-stdlib-2): the injected-module context
+            // is the xiom-STRIPPED path ("geom.geometry_3d") while colliding
+            // catalog types register under the FULL dotted name
+            // ("xiom.geom.geometry_3d.Box"). Probe the xiom-prefixed key
+            // before the bare fallback so the module's own type beats a
+            // same-leaf bare registration (core's Box[T] { ptr } hijacked
+            // `aabb_contains(b: Box, ...)` -> clang struct mismatch).
+            if !module.starts_with("xiom.") {
+                let prefixed = format!("xiom.{}.{}", module, clean_name);
+                if self.types.types.contains_key(&prefixed) || self.types.type_meta.contains_key(&prefixed) {
+                    return Ok(format!("%struct.{prefixed}"));
+                }
+            }
         }
         // Try exact match
         if self.types.types.contains_key(&clean_name.to_string()) || self.types.type_meta.contains_key(&clean_name.to_string()) {
@@ -4497,6 +4571,26 @@ impl IrEmitter {
                     let resolved = self.resolve_alias_name(type_name);
                     if resolved != type_name {
                         return self.llvm_type_for(&resolved);
+                    }
+                }
+                // m300 (REL-20261010-1549-stdlib-2): a use-alias TYPE
+                // spelling (`use xiom.geom.geometry_3d.Box as GBox;`) resolves
+                // through its aliased registered target BEFORE the
+                // i64-with-warning fallback -- otherwise the harmless probe
+                // path (resolve_named_type's struct-key retry) still printed
+                // "unknown type 'GBox' -- defaulting to i64" noise.
+                if let Some(target) = self.mono.use_alias_map.get(type_name) {
+                    let known = |k: &str| {
+                        self.types.types.contains_key(&k.to_string())
+                            || self.types.type_meta.contains_key(&k.to_string())
+                            || self.types.enum_variants.contains_key(&k.to_string())
+                    };
+                    if known(target) {
+                        return Ok(format!("%struct.{target}"));
+                    }
+                    let resolved = self.resolve_type_key(target);
+                    if known(&resolved) {
+                        return Ok(format!("%struct.{resolved}"));
                     }
                 }
                 // Final fallback: use xiom_to_llvm_type which maps unknown types

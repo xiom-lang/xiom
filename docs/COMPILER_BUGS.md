@@ -16393,6 +16393,36 @@ batch below.
 
 ---
 
+## 2026-10-14 -- FIXED (m303): module-qualified catalog type spellings + tuple container args (REL-20261010-1549-stdlib-2 + REL-20261010-1549-stdlib-3)
+
+Both items were live on HEAD (m300 fixer worktree; baselines re-verified
+here against the v0.64.4 archive).
+
+1. stdlib-2 (Box unnameable): `geometry_3d.Box{..}` resolved T001
+   `unknown type 'geometry_3d.Box'` (witness 31:11), and even when spelled
+   through the module the call-site param check compared SPELLINGS
+   (expected bare `Box` vs found `geometry_3d.Box`), so
+   aabb_contains/aabb_intersection were uncallable from consumers. Fix:
+   xiom-check resolves module-qualified catalog type spellings in
+   signatures and calls (lib.rs); codegen decl/expr/lib/types carry the
+   spelling through construction and param matching.
+2. stdlib-3 (matrix result infer): `var l2 = lu.0;` on an un-annotated
+   nested Vec[Vec[Float64]] result lost a level -- `type_string_full`
+   erased tuple element containers to "Vec", so the row read went through
+   the scalar elem path (row len 0; program rc 4). Fix: container args are
+   kept in tuple types and tuple-field vec reads (lib.rs + types.rs).
+
+Evidence: `p_geom_box_unnameable.xi` v0.64.4 compile rc 1 (`error[T001]
+... unknown type 'geometry_3d.Box'`) -> rc 0 + run rc 0;
+`p_geom_matrix_result_infer.xi` v0.64.4 compile rc 0 / RUN rc 4 -> rc
+0/0. LOCKS: tests/regression/m300_geom_box_unnameable/ +
+tests/regression/m300_geom_matrix_result_infer/ +
+`e2e_m300_geom_box_unnameable` / `e2e_m300_geom_matrix_result_infer`
+(ci.yml e2e group 2). Battery green: e2e 16+195, codegen 12, check 199
+serial.
+
+---
+
 ## 2026-10-13 -- FIXED (m289): annotated `Slice[Int]` locals allocated an i64 slot holding the data pointer (REL-20261010-1548-stdlib-5)
 
 The item's two filed witness FILES were already green on the archived

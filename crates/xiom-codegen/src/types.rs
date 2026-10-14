@@ -503,6 +503,17 @@ impl crate::IrEmitter {
             Type::Vec(inner) => format!("Vec[{}]", Self::type_string_full(inner)),
             Type::Map(k, v) => format!("Map[{},{}]", Self::type_string_full(k), Self::type_string_full(v)),
             Type::Set(inner) => format!("Set[{}]", Self::type_string_full(inner)),
+            // m300 (REL-20261010-1549-stdlib-3): tuple elements recurse
+            // through type_string_full, not type_from_ast -- the latter
+            // ERASES container args (`Vec[Float64]` -> "Vec"), so
+            // `lu_decompose -> (Vec[Vec[Float64]], Vec[Vec[Float64]])`
+            // recorded "Tuple__Vec__Vec" and the un-annotated binding
+            // `var l2 = lu.0;` lost a nesting level (the row read went
+            // through the scalar elem path). Mirrors the lib.rs copy.
+            Type::Tuple(elems) => {
+                let parts: Vec<String> = elems.iter().map(Self::type_string_full).collect();
+                format!("Tuple__{}", parts.join("__"))
+            }
             other => Self::type_from_ast(other),
         }
     }
@@ -747,6 +758,16 @@ impl crate::IrEmitter {
             let qualified = format!("{}.{}", module, type_name);
             if self.types.types.contains_key(&qualified) || self.types.type_meta.contains_key(&qualified) {
                 return Ok(format!("%struct.{qualified}"));
+            }
+            // m300 (REL-20261010-1549-stdlib-2): injected-module context is
+            // xiom-STRIPPED while colliding catalog types register FULL --
+            // probe the xiom-prefixed key before the bare fallback (mirrors
+            // the IrEmitter copy; see lib.rs).
+            if !module.starts_with("xiom.") {
+                let prefixed = format!("xiom.{}.{}", module, type_name);
+                if self.types.types.contains_key(&prefixed) || self.types.type_meta.contains_key(&prefixed) {
+                    return Ok(format!("%struct.{prefixed}"));
+                }
             }
         }
         // Try exact match

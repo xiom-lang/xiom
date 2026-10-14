@@ -6634,6 +6634,22 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 || self.types.type_meta.contains_key(&k.to_string())
                 || self.types.enum_variants.contains_key(&k.to_string())
         };
+        // m300 (REL-20261010-1549-stdlib-2): an ITEM alias of a TYPE
+        // (`use xiom.geom.geometry_3d.Box as GBox;`) binds the spelling to
+        // the type's full dotted path; resolve it before the registry probes
+        // when the target is a known type (module aliases and fn aliases
+        // fall through unchanged). The codegen alias map carries the
+        // xiom-STRIPPED form ("geom.geometry_3d.Box") while colliding catalog
+        // types register FULL -- resolve the stripped form by dotted suffix.
+        let alias_target: Option<String> = self.mono.use_alias_map.get(name).and_then(|full| {
+            if known(full) {
+                Some(full.clone())
+            } else {
+                let resolved = self.resolve_type_key(full);
+                if known(&resolved) { Some(resolved) } else { None }
+            }
+        });
+        let name: &str = alias_target.as_deref().unwrap_or(name);
         if known(name) {
             return Some(format!("%struct.{name}"));
         }

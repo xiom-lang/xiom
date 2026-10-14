@@ -1270,6 +1270,20 @@ impl Checker {
                 }
             }
         }
+        // m300 (REL-20261010-1549-stdlib-2): an ITEM alias of a TYPE
+        // (`use xiom.geom.geometry_3d.Box as GBox;`) binds GBox to the
+        // type's FULL dotted path; resolve the bare alias here (was T001
+        // "unknown type 'GBox'" -- no other lookup consults the alias).
+        if !name.contains('.') {
+            if let Some(full) = self.use_alias_paths.get(name) {
+                if !full.is_empty() {
+                    let key = self.intern_type_name(full);
+                    if let Some(fields) = self.types.get(&key) {
+                        return Some(fields);
+                    }
+                }
+            }
+        }
         // Stage 2c: registry keys are interned `TypeId`s, so every lookup is
         // spelling-insensitive by construction (canonical structural form).
         let key = self.intern_type_name(name);
@@ -1314,6 +1328,82 @@ impl Checker {
             }
         }
         self.types.contains_key(&key)
+    }
+
+    /// m300 (REL-20261010-1549-stdlib-2): the registry ENTRY a Named spelling
+    /// denotes, mirroring [`get_type`]'s resolution order exactly --
+    /// dotted/alias first-segment expansion, current-module prefix, unique
+    /// owner among the current module's imports, then the bare fallback.
+    /// None when no registry entry matches. `types_compatible` uses this to
+    /// treat two SPELLINGS of one registered type as the same type (the
+    /// caller's `geometry_3d.Box` literal vs the callee-side bare `Box`
+    /// param, which resolves to the registered xiom.geom.geometry_3d.Box):
+    /// names that resolve to DIFFERENT entries (or not at all) keep the
+    /// strict textual mismatch, so same-leaf collisions stay rejected.
+    fn resolve_type_id(&self, name: &str) -> Option<TypeId> {
+        if let Some((first, rest)) = name.split_once('.') {
+            if !rest.is_empty() {
+                let expanded = self.use_alias_paths.get(first)
+                    .or_else(|| self.local_module_paths.get(first));
+                if let Some(full) = expanded {
+                    let key = self.intern_type_name(&format!("{}.{}", full, rest));
+                    if self.types.contains_key(&key) {
+                        return Some(key);
+                    }
+                }
+            }
+        }
+        // m300: bare ITEM alias of a TYPE (`use mod.Box as GBox;`) resolves
+        // to the aliased full path's registry entry (mirrors get_type).
+        if !name.contains('.') {
+            if let Some(full) = self.use_alias_paths.get(name) {
+                if !full.is_empty() {
+                    let key = self.intern_type_name(full);
+                    if self.types.contains_key(&key) {
+                        return Some(key);
+                    }
+                }
+            }
+        }
+        let key = self.intern_type_name(name);
+        if let Some(ref module) = self.current_module {
+            let prefixed = self.intern_type_name(&format!("{}.{}", module, name));
+            if self.types.contains_key(&prefixed) {
+                return Some(prefixed);
+            }
+        }
+        let mkey = self.current_module.clone().unwrap_or_default();
+        // Program-root uses are processed GLOBALLY before the declaring
+        // module's context is set (resolve_imports), so a program module's
+        // own uses live under the "" key. Mirror get_type's unique-import
+        // rule for the module key first; when that set is SILENT, retry the
+        // program-root set (ambiguous stays unresolved, as before).
+        let mut hits = self.import_path_hits(&mkey, name);
+        if hits.is_empty() && !mkey.is_empty() {
+            hits = self.import_path_hits("", name);
+        }
+        hits.sort();
+        hits.dedup();
+        if hits.len() == 1 {
+            return Some(hits[0]);
+        }
+        if self.types.contains_key(&key) {
+            Some(key)
+        } else {
+            None
+        }
+    }
+
+    /// m300: registry ids matched by `{path}.{name}` over one module-import
+    /// path set (see [`resolve_type_id`]).
+    fn import_path_hits(&self, mkey: &str, name: &str) -> Vec<TypeId> {
+        let Some(paths) = self.module_import_paths.get(mkey) else {
+            return Vec::new();
+        };
+        paths.iter()
+            .map(|full| self.intern_type_name(&format!("{}.{}", full, name)))
+            .filter(|id| self.types.contains_key(id))
+            .collect()
     }
 
     /// Wave-57 (stdlib relay): a Result/Option/variant pattern must match the
@@ -10025,6 +10115,19 @@ impl Checker {
                 if (a.starts_with("Array") || a.starts_with("Slice") || a.starts_with("Vec")) &&
                    (b.starts_with("Array") || b.starts_with("Slice") || b.starts_with("Vec")) &&
                    a != b => true,
+            // m300 (REL-20261010-1549-stdlib-2): SPELLING-INSENSITIVE
+            // NAMED-TYPE IDENTITY. Two Named spellings that resolve through
+            // the registry's own paths (see `resolve_type_id`) to the SAME
+            // interned TypeId denote the same registered type
+            // ("geometry_3d.Box" == the callee-side bare "Box" that resolves
+            // to xiom.geom.geometry_3d.Box). Unresolvable names and names
+            // resolving to DIFFERENT entries keep the strict mismatch below.
+            (CheckedType::Named(a), CheckedType::Named(b))
+                if {
+                    let ia = self.resolve_type_id(a.name());
+                    let ib = self.resolve_type_id(b.name());
+                    ia.is_some() && ia == ib
+                } => true,
             (CheckedType::Named(_), CheckedType::Named(_)) => false,
             // Wildcard placeholder type is compatible with everything
             (CheckedType::Named(n), _) if n == "_" => true,

@@ -747,6 +747,26 @@ impl IrEmitter {
             } else if has_recv {
                 Some("self".to_string())
             } else { None };
+            // m300 (REL-20261010-1549-stdlib-2): injected catalog free fns
+            // arrive FLAT with leaf-qualified names ("geom.geometry_3d.
+            // aabb_contains"); resolve the SIGNATURE types below in the fn's
+            // own module context (mirrors the m278 derivation at EMISSION) so
+            // a bare same-leaf param name ("Box") binds the registered
+            // module-qualified type (xiom.geom.geometry_3d.Box) instead of a
+            // bare/global registration (core's Box[T], which registered
+            // %struct.Box { ptr } and made the call ABI disagree with the
+            // define). SCOPED to the signature-type resolution only: the
+            // surrounding registrations (qualified/leaf keys, fn_return_xiom
+            // slots) keep their pre-m300 behavior. Expanded impl names
+            // ("Int.to_float") keep no context (prefix has no dot).
+            let sig_module = self.local.current_module.clone();
+            if sig_module.is_none() && fd.receiver.is_none() {
+                if let Some((prefix, _)) = fd.name.name.rsplit_once('.') {
+                    if prefix.contains('.') {
+                        self.local.current_module = Some(prefix.to_string());
+                    }
+                }
+            }
             let explicit_params: Vec<String> = fd.params.iter()
                 .filter(|p| !(has_recv && !is_first_param_self && p.name.name == "self"))
                 .map(|p| self.param_llvm_type(&p.ty))
@@ -759,6 +779,7 @@ impl IrEmitter {
                     self.llvm_type_for(&concrete).unwrap_or_else(|_| "i64".to_string())
                 })
                 .unwrap_or_else(|| "void".to_string());
+            self.local.current_module = sig_module;
             let key = self.fn_key(fd);
             self.types.functions.insert(key.clone(), (param_types.clone(), ret_type.clone()));
             // R52: track visibility for bare-call ranking (imported pub >
