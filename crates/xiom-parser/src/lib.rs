@@ -2396,6 +2396,35 @@ impl Parser {
         Ok(())
     }
 
+    /// m316 (REL-20261014-1158): tokens that may START a name in identifier
+    /// positions -- a plain `Ident` plus every SOFT keyword token that
+    /// `parse_ident` accepts (spawn/await/comptime/asm/defer/move/derive and
+    /// the variant names Some/None/Ok/Err/self). The struct-literal
+    /// lookaheads below must use this instead of a bare `Ident(_)` test:
+    /// with an Ident-only test, a literal whose FIRST field is named `spawn`
+    /// (`Ship{ spawn: on; x: 7 }`) was not recognized as a struct literal --
+    /// it mis-parsed (`expected ';', found '{'`), the enclosing fn was
+    /// dropped from the module AST, and consumers silently lost the export
+    /// (the engine's renamed-field witness).
+    fn token_is_name_start(k: &TokenKind) -> bool {
+        matches!(
+            k,
+            TokenKind::Ident(_)
+                | TokenKind::Self_
+                | TokenKind::Comptime
+                | TokenKind::Derive
+                | TokenKind::Spawn
+                | TokenKind::Await
+                | TokenKind::Asm
+                | TokenKind::Defer
+                | TokenKind::Move
+                | TokenKind::Some
+                | TokenKind::None
+                | TokenKind::Ok_
+                | TokenKind::Err_
+        )
+    }
+
     fn parse_primary(&mut self) -> Result<Expr, ParseError> {
         let span = self.peek().span;
         match self.peek_kind().clone() {
@@ -2424,7 +2453,7 @@ impl Parser {
                 let after_brace = self.peek_ahead(1);
                 let looks_like_struct = match after_brace {
                     Some(TokenKind::RBrace) => true,
-                    Some(TokenKind::Ident(_)) => {
+                    Some(k) if Self::token_is_name_start(k) => {
                         let third = self.peek_ahead(2);
                         matches!(third, Some(TokenKind::Colon) | Some(TokenKind::Comma)
                             | Some(TokenKind::Semicolon) | Some(TokenKind::RBrace))
@@ -2501,7 +2530,7 @@ impl Parser {
                 let name = self.parse_ident()?;
                 if !self.restrict_struct && self.check(|k| matches!(k, TokenKind::LBrace)) {
                     let after_brace = self.peek_ahead(1);
-                    let looks_like_struct = match after_brace { Some(TokenKind::RBrace) => true, Some(TokenKind::Ident(_)) => { let third = self.peek_ahead(2); matches!(third, Some(TokenKind::Colon) | Some(TokenKind::Comma) | Some(TokenKind::Semicolon) | Some(TokenKind::RBrace)) } Some(TokenKind::Dot) => { self.peek_ahead(2) == Some(&TokenKind::Dot) } _ => false };
+                    let looks_like_struct = match after_brace { Some(TokenKind::RBrace) => true, Some(k) if Self::token_is_name_start(k) => { let third = self.peek_ahead(2); matches!(third, Some(TokenKind::Colon) | Some(TokenKind::Comma) | Some(TokenKind::Semicolon) | Some(TokenKind::RBrace)) } Some(TokenKind::Dot) => { self.peek_ahead(2) == Some(&TokenKind::Dot) } _ => false };
                     if looks_like_struct { self.expect_kind(TokenKind::LBrace, "'{'")?; let mut fields = Vec::new(); while !self.check(|k| matches!(k, TokenKind::RBrace | TokenKind::Dot | TokenKind::Eof)) { let fname = self.parse_ident()?; if self.skip(TokenKind::Colon) { let fval = self.parse_expr()?; fields.push((fname, fval)); } else { fields.push((fname.clone(), Expr::Ident(fname))); } self.skip(TokenKind::Comma); self.skip(TokenKind::Semicolon); } let spread = if self.skip(TokenKind::Dot) { self.expect_kind(TokenKind::Dot, "'.' for spread")?; let s = self.parse_expr()?; Some(Box::new(s)) } else { None }; self.expect_kind(TokenKind::RBrace, "'}'")?; Ok(Expr::Struct(name, fields, spread, span)) } else { Ok(Expr::Ident(name)) }
                 } else { Ok(Expr::Ident(name)) }
             }
@@ -3082,6 +3111,33 @@ mod tests {
         // stdlib depends on these in ident positions (Executor.spawn etc.).
         let (_, errors) = parse_with_errors("module m\nfn main() { var spawn = 1; var defer = 2; spawn = defer; }");
         assert!(errors.is_empty(), "soft keywords must remain usable: {:?}", errors);
+    }
+
+    #[test]
+    fn test_m316_struct_literal_first_field_soft_keyword() {
+        // REL-20261014-1158: a struct literal whose FIRST field is named
+        // `spawn` (`Ship{ spawn: on; x: 7 }`) must be recognized as a struct
+        // literal. The lookahead tested only `TokenKind::Ident(_)`, but
+        // `spawn` lexes as its own soft-keyword token, so the literal
+        // mis-parsed ("expected ';', found '{'") and the enclosing fn was
+        // dropped -- consumers silently lost the module export.
+        let src = "module m\ntype Ship = { spawn: Bool; x: Int; }\n\
+                   fn make(on: Bool) -> Int { let s = Ship{ spawn: on; x: 7 }; if s.spawn { return s.x; }; return 0; }\n\
+                   fn twin(on: Bool) -> Int { let s = Ship{ x: 9; spawn: on }; return s.x; }";
+        let (result, errors) = parse_with_errors(src);
+        assert!(errors.is_empty(), "spawn-first struct literal must parse clean: {:?}", errors);
+        let program = result.expect("program must parse");
+        let module = program
+            .items
+            .iter()
+            .find_map(|it| match it { TopDecl::Module(md) => Some(md), _ => None })
+            .expect("file module must exist");
+        for name in ["make", "twin"] {
+            assert!(
+                module.items.iter().any(|it| matches!(it, TopDecl::Fn(fd) if fd.name.name == name)),
+                "fn '{name}' must survive the spawn-first struct literal"
+            );
+        }
     }
 
     #[test]

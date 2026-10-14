@@ -8008,6 +8008,24 @@ fn e2e_safety_probe() {
         "Int128/UInt128 aggregate payloads + UInt64 bit-63 semantics must be exact (m314)"
     );
 }
+// m316 (REL-20261014-1158-engine): an identifier named `spawn` must never
+// drop the enclosing fn from the module catalog. `Ship{ spawn: on; x: 7 }`
+// -- a struct literal whose FIRST field is named `spawn` -- was not
+// recognized as a struct literal (the lookahead tested only
+// TokenKind::Ident, while `spawn` lexes as a soft-keyword token), so the
+// literal mis-parsed, the enclosing fn vanished from the module AST, and
+// consumers silently lost the export ("cannot call 'ship_ready' on this
+// expression"; the engine's rename-to-spawn_pos workaround). The fixture
+// also pins the negative twin (plain `spawn_pos` field) and the
+// `Ship{ spawn, x: n }` shorthand form. Pre-fix compile_and_run returns
+// None (the consumer's calls are unresolved).
+#[test] fn e2e_m316_spawn_name_shadow() {
+    assert_eq!(
+        compile_and_run("tests/regression/m316_1158_spawn_shadow/main.xi"),
+        Some(0),
+        "a spawn-named field (literal first position or shorthand) must not drop the module export (m316)"
+    );
+}
 
 // m314 IR twin: the fixed lowering is visible as unsigned compares and
 // div/mod, zero-extending i64->i128 widening, 16-byte 128-bit element loads,

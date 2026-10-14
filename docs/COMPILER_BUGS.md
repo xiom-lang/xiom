@@ -16844,3 +16844,28 @@ expected Vec3, found TrackKind` in camera.cam_new); post-fix compile+run
 exact (variant tag 2, geom doubles 1/2/3, vec3_length sqrt 14, tl_vec
 components). Lock `e2e_m315_enum_geom_collision`. Battery: lock 1/1, e2e
 g1 16 + g2 217, codegen lib 12, xiom-check lib serial 199.
+
+---
+
+## 2026-10-14 -- FIXED (m316): a `spawn`-named struct-literal field must not drop the module export (REL-20261014-1158-engine)
+
+`Ship{ spawn: on; x: 7 }` -- a struct literal whose FIRST field is named
+`spawn` -- was not recognized as a literal: the two struct-literal
+lookaheads in `parse_primary` tested the first field token with
+`TokenKind::Ident(_)` only, but `spawn` lexes as a soft-keyword token.
+The literal mis-parsed at the `{` (P001 expected ';', found '{'), error
+recovery dropped the enclosing fn from the module AST, and consumers
+silently lost the export (`T001 cannot call 'ship_ready' on this
+expression`) -- the engine's rename-to-`spawn_pos` workaround. Fix:
+`token_is_name_start` mirrors `parse_ident`'s soft-keyword acceptance
+(Ident + spawn/await/comptime/asm/defer/move/derive + Some/None/Ok/Err/
+self) and drives both lookaheads (named literal + the bare `{ fields }`
+form).
+
+Evidence: two-file fixture tests/regression/m316_1158_spawn_shadow/
+(main + veh): pre-fix consumer compile rc 1 (8 type errors) -> post-fix
+compile rc 0 + run rc 0; negative twin (`spawn_pos`) green pre and post;
+the `Ship{ spawn, x: n }` shorthand covered. Locks:
+`e2e_m316_spawn_name_shadow` + parser unit
+`test_m316_struct_literal_first_field_soft_keyword`. Battery: parser lib
+109, parser lock 1/1, e2e g1 16 + g2 218, codegen lib 12.
