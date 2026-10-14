@@ -1922,15 +1922,23 @@ impl IrEmitter {
                     // sort_by_key mis-sorted). Str ordering is CONTENT
                     // ordering: strcmp(a,b) </>/<=/>= 0 (mirrors the
                     // Eq/Neq content path above).
+                    // m308 (1553-playground-2 follow-up): a by-ref Str param
+                    // (`a: &Str`) is tracked as "&Str"/"&mut Str" in
+                    // local_xiom_types (ref-preserving names), so the plain
+                    // "Str" test missed it and the comparison fell to the
+                    // first-byte pointer auto-deref below. Str ordering is
+                    // CONTENT ordering for reference-typed operands too:
+                    // auto_deref_ref loads the slot address first.
+                    let strish = |t: &str| t == "Str" || t == "&Str" || t == "&mut Str";
                     let l_str = match &**left {
                         Expr::Ident(id) => self.local.local_xiom_types.get(&id.name)
-                            .map_or(false, |t| t == "Str"),
-                        _ => Self::infer_value_xiom_type(left).as_deref() == Some("Str"),
+                            .map_or(false, |t| strish(t)),
+                        _ => Self::infer_value_xiom_type(left).map_or(false, |t| strish(&t)),
                     };
                     let r_str = match &**right {
                         Expr::Ident(id) => self.local.local_xiom_types.get(&id.name)
-                            .map_or(false, |t| t == "Str"),
-                        _ => Self::infer_value_xiom_type(right).as_deref() == Some("Str"),
+                            .map_or(false, |t| strish(t)),
+                        _ => Self::infer_value_xiom_type(right).map_or(false, |t| strish(&t)),
                     };
                     if l_str && r_str && l != "0" && r != "0" {
                         // A ref-typed operand (&Str) holds the slot ADDRESS;
@@ -5629,7 +5637,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     // the outer block already entered; nested re-enter bumps depth,
                     // re-exit decrements -- so the arena stays active throughout).
                     self.emitln("  call void @xiom_guard_heap_enter()");
-                    self.emitln("  call void @xiom_guard_page_arm()");
+                    self.emitln(&format!("  call void @xiom_guard_page_arm(){GUARD_PAGE_MARK}"));
                     self.guard_heap_depth += 1;
                     // A `return` inside a nested unsafe block must NOT signal a
                     // return-from-the-enclosing-fn (that is the OUTER block fn's
@@ -5688,7 +5696,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         last = sel;
                     }
                     self.emitln("  call void @xiom_guard_heap_exit()");
-                    self.emitln("  call void @xiom_guard_page_disarm()");
+                    self.emitln(&format!("  call void @xiom_guard_page_disarm(){GUARD_PAGE_MARK}"));
                     return Ok((last, last_ty));
                 }
                 // D2.1 (Phase 7): `#[unsafe_direct]` -- trusted escape hatch.
@@ -5799,7 +5807,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 }
                 // Guard heap + guard page inside the confined block fn.
                 self.emitln("  call void @xiom_guard_heap_enter()");
-                self.emitln("  call void @xiom_guard_page_arm()");
+                self.emitln(&format!("  call void @xiom_guard_page_arm(){GUARD_PAGE_MARK}"));
                 self.guard_heap_depth += 1;
                 // Compile every statement; the block's value is its tail.
                 let mut last = String::new();
@@ -5870,7 +5878,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         last = sel;
                     }
                     self.emitln("  call void @xiom_guard_heap_exit()");
-                    self.emitln("  call void @xiom_guard_page_disarm()");
+                    self.emitln(&format!("  call void @xiom_guard_page_disarm(){GUARD_PAGE_MARK}"));
                     // Return the block's value as i64 (the trampoline ABI is
                     // int64_t (*)(uint8_t*)); the trampoline stores it in the
                     // TLS result slot on success.
@@ -5884,6 +5892,33 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 self.pop_scope();
 
                 let block_ir = std::mem::take(&mut self.output);
+                // m308 (REL-20261010-1554-benchmark, t3 trampoline floor): the
+                // guard-PAGE arm/disarm pair costs one VirtualProtect (Windows)
+                // or mprotect (POSIX) syscall PER BLOCK ENTRY -- measured
+                // ~1.3 us/entry (100k confined entries: ~130 ms -> ~2 ms with
+                // the syscall removed). Generated code never touches the page;
+                // it only guards the guard-ARENA boundary. A block fn that
+                // never allocates from the arena (no @xiom_guard_alloc /
+                // @xiom_guard_realloc anywhere in it, incl. inlined stdlib
+                // bodies) therefore drops the marked arm/disarm calls: the
+                // SEH/sigsetjmp trampoline + guard-heap depth (fault
+                // containment) are unchanged. Arena-crossing blocks keep the
+                // full pair.
+                let block_ir = if block_ir.contains("@xiom_guard_alloc")
+                    || block_ir.contains("@xiom_guard_realloc")
+                {
+                    block_ir
+                } else {
+                    let mut filtered = String::with_capacity(block_ir.len());
+                    for line in block_ir.lines() {
+                        if line.contains(GUARD_PAGE_MARK) {
+                            continue;
+                        }
+                        filtered.push_str(line);
+                        filtered.push('\n');
+                    }
+                    filtered
+                };
                 self.local.deferred_closure_defs.push(block_ir);
                 self.output = saved_output;
                 self.tmp_counter = saved_tmp;

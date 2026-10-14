@@ -35,3 +35,11 @@ pub const LLVM_STRUCT: &str = "%struct.";
 /// clang 22.1.8 X86 ISel crashes on huge aggregate values
 /// (p_sweep_single_param: alloca [65536 x i8] + store zeroinitializer / load).
 pub const LARGE_ARRAY_MIN_BYTES: i64 = 16384;
+
+/// m308 (REL-20261010-1554-benchmark): comment tag appended to the emitted
+/// `xiom_guard_page_arm()`/`xiom_guard_page_disarm()` calls so a confined
+/// block fn that never allocates from the guard arena can drop the pair
+/// after its body is assembled (the page is a per-entry VirtualProtect /
+/// mprotect syscall and is never touched by generated code; its only role
+/// is the guard-arena boundary). See the Expr::Unsafe lowering in expr.rs.
+pub const GUARD_PAGE_MARK: &str = " ; m308-guard-page";

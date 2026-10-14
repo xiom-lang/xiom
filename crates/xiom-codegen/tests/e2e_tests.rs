@@ -7556,5 +7556,243 @@ fn e2e_safety_probe() {
     );
 }
 
+// m308 (REL-20261010-1553-playground-2 follow-up): a by-ref Str comparator
+// param must compare CONTENT. Pre-fix `a < b` on `&Str` params compared the
+// first byte of each char pointer (the m286 strcmp branch only matched plain
+// "Str" locals), so find_min on ["pear","cherry","apple"] returned 0.
+#[test] fn e2e_m308_ref_str_cmp() {
+    assert_eq!(
+        compile_and_run("tests/regression/m308_ref_str_cmp/main.xi"),
+        Some(0),
+        "by-ref Str comparator params must compare string content (m308)"
+    );
+}
+
+// m308 IR lock: the `&Str` comparator body must lower `<` to strcmp, not a
+// byte load.
+#[test] fn e2e_m308_ref_str_cmp_ir() {
+    let ir = compile_ir("tests/regression/m308_ref_str_cmp/main.xi")
+        .expect("m308 ref-str-cmp fixture must compile to IR");
+    let start = ir.find("define i64 @less_impl")
+        .expect("m308: less_impl must be defined");
+    let rest = &ir[start..];
+    let end = rest[1..].find("\ndefine ").map(|i| i + 1).unwrap_or(rest.len());
+    let body = &rest[..end];
+    assert!(
+        body.contains("@strcmp("),
+        "m308: `a < b` on &Str params must strcmp the content; body:\n{body}"
+    );
+    assert!(
+        !body.contains("load i8,"),
+        "m308: the first-byte pointer compare must be gone; body:\n{body}"
+    );
+}
+
+// m308 (REL-20261010-1554-playground): the prompt must reach a PIPE reader
+// BEFORE the blocking io.read_line() -- pre-fix stdout block-buffered and the
+// bytes surfaced only at exit. This spawns the binary with piped stdin and
+// waits for "PROMPT>" WITHOUT writing any input first; only then writes the
+// line (which must be echoed).
+#[test] fn e2e_m308_stdout_flush_before_read() {
+    use std::io::{Read, Write};
+    let src = "tests/regression/m308_stdout_flush/main.xi";
+    let exe_name = format!(
+        "e2e_m308_flush_{}{}",
+        std::process::id(),
+        if cfg!(windows) { ".exe" } else { "" }
+    );
+    let exe_path = project_root().join(&exe_name);
+    let _ = std::fs::remove_file(&exe_path);
+    let compile = Command::new(xiom_path())
+        .args(["-o", exe_name.as_str(), src])
+        .current_dir(project_root())
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn '{}': {e}", xiom_path()));
+    assert!(
+        compile.status.success(),
+        "m308 flush fixture must compile: {}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let mut child = Command::new(&exe_path)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn m308 flush binary");
+    let mut stdout_pipe = child.stdout.take().expect("stdout pipe");
+    let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    let reader = std::thread::spawn(move || {
+        let mut buf = [0u8; 256];
+        loop {
+            match stdout_pipe.read(&mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    if tx.send(buf[..n].to_vec()).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+    let first = match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+        Ok(v) => v,
+        Err(e) => {
+            let _ = child.kill();
+            panic!(
+                "m308: the prompt must be flushed before the blocking read \
+                 (no output arrived for 10s while stdin was silent): {e}"
+            );
+        }
+    };
+    let mut text = String::from_utf8_lossy(&first).to_string();
+    assert!(
+        text.contains("PROMPT>"),
+        "m308: the first bytes must be the flushed prompt; got {text:?}"
+    );
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(b"Ada\n")
+        .expect("write stdin");
+    while !text.contains("GOT:Ada") {
+        match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+            Ok(chunk) => text.push_str(&String::from_utf8_lossy(&chunk)),
+            Err(_) => break,
+        }
+    }
+    let _ = child.stdin.take();
+    let status = child.wait().expect("wait m308 flush binary");
+    let _ = reader.join();
+    let _ = std::fs::remove_file(&exe_path);
+    assert!(
+        text.contains("GOT:Ada"),
+        "m308: read_line must echo the piped line; got {text:?}"
+    );
+    assert!(status.success(), "m308: the flush fixture must exit 0");
+}
+
+// m308 IR lock: the blocking fgets read must be directly preceded by an
+// fflush(NULL) so pending prompt bytes leave the stdio buffer first.
+#[test] fn e2e_m308_stdout_flush_ir() {
+    let ir = compile_ir("tests/regression/m308_stdout_flush/main.xi")
+        .expect("m308 flush fixture must compile to IR");
+    let lines: Vec<&str> = ir.lines().collect();
+    let idx = lines
+        .iter()
+        .position(|l| l.contains("call i8* @fgets("))
+        .expect("m308: the fgets call must be in the IR");
+    let window_start = idx.saturating_sub(2);
+    assert!(
+        lines[window_start..idx].iter().any(|l| l.contains("@fflush(i8* null)")),
+        "m308: fgets must be preceded by fflush(NULL); before line {idx}: {:?}",
+        &lines[window_start..idx]
+    );
+}
+
+// m308 (REL-20261010-1554-benchmark, t3 floor): arena-free confined blocks
+// run end to end after the guard-page arm/disarm elision: the 20k-entry
+// arena-free hot loop, an arena-free `return`-tail block, and a guard-arena
+// block (Vec inside unsafe + Copy-Out) all produce their expected values.
+#[test] fn e2e_m308_guard_page_elide() {
+    assert_eq!(
+        compile_and_run("tests/regression/m308_guard_page_elide/main.xi"),
+        Some(0),
+        "arena-free and arena-crossing confined blocks must both run (m308)"
+    );
+}
+
+// m308 IR lock: every confined block fn emits the guard-PAGE arm/disarm pair
+// IFF it allocates from the guard arena. Pre-fix every block did (one
+// VirtualProtect per entry -- the t3 floor); post-fix the t3-shaped block fn
+// keeps enter/exit + the trampoline but drops the page pair.
+#[test] fn e2e_m308_guard_page_elide_ir() {
+    let ir = compile_ir("tests/regression/m308_guard_page_elide/main.xi")
+        .expect("m308 guard-page fixture must compile to IR");
+    let mut checked = 0usize;
+    let mut elided = 0usize;
+    let mut kept = 0usize;
+    for (i, part) in ir.split("define i64 @__unsafe_block_").enumerate() {
+        if i == 0 {
+            continue;
+        }
+        let end = part.find("\ndefine ").unwrap_or(part.len());
+        let body = &part[..end];
+        let has_alloc =
+            body.contains("@xiom_guard_alloc") || body.contains("@xiom_guard_realloc");
+        let has_arm = body.contains("@xiom_guard_page_arm()");
+        let has_disarm = body.contains("@xiom_guard_page_disarm()");
+        assert_eq!(
+            has_alloc, has_arm,
+            "m308: arm must match guard-arena use; block body:\n{body}"
+        );
+        assert_eq!(
+            has_alloc, has_disarm,
+            "m308: disarm must match guard-arena use; block body:\n{body}"
+        );
+        assert!(
+            body.contains("@xiom_guard_heap_enter()"),
+            "m308: guard-heap depth must stay in every confined block; body:\n{body}"
+        );
+        if has_alloc {
+            kept += 1;
+        } else {
+            elided += 1;
+        }
+        checked += 1;
+    }
+    assert!(
+        checked >= 3,
+        "m308: expected at least three confined block fns, got {checked}"
+    );
+    assert!(
+        elided >= 2,
+        "m308: the arena-free blocks must drop the page pair, elided={elided}"
+    );
+    assert!(
+        kept >= 1,
+        "m308: the arena-crossing block must keep the page pair, kept={kept}"
+    );
+}
+
+// m308 fault-containment control: an ARENA-FREE confined block still runs
+// through the SEH/sigsetjmp trampoline after the page elision -- a real
+// hardware fault inside it must still be contained (trace + exit 0).
+#[test] fn e2e_m308_guard_page_elide_fault_contained() {
+    let exe_name = format!(
+        "m308_guard_fault_{}{}",
+        std::process::id(),
+        if cfg!(windows) { ".exe" } else { "" }
+    );
+    let exe = project_root().join(&exe_name);
+    let _ = std::fs::remove_file(&exe);
+    let compile = Command::new(xiom_path())
+        .args(["tests/regression/m308_guard_page_elide_fault/main.xi", "-o"])
+        .arg(&exe)
+        .current_dir(project_root())
+        .output()
+        .expect("compile m308 fault fixture");
+    assert!(
+        compile.status.success(),
+        "m308 fault fixture must compile: {}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe)
+        .env("XIOM_TRACE_FAULT", "1")
+        .output()
+        .expect("run m308 fault fixture");
+    let _ = std::fs::remove_file(&exe);
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert!(
+        stderr.contains("[trampoline] fault"),
+        "m308: an arena-free confined block must still report the contained fault; stderr:\n{stderr}"
+    );
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "m308: the confined fault must be contained (exit 0)"
+    );
+}
+
 
 

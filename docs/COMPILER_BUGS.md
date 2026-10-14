@@ -16597,3 +16597,34 @@ when variant metadata is unavailable. Red on the archived v0.64.4
 swap 7 -> 23 plus the selfhost cross-variant shape) +
 `e2e_m307_variant_binding_shadow_ir` (IR: `read_renamed` must GEP
 `, i32 0, i32 2`, never `, i32 0, i32 1`).
+
+---
+
+## 2026-10-14 -- FIXED (m308): playground/benchmark cluster -- three codegen items (REL-20261010-1553-playground-2 + REL-20261010-1554-playground + REL-20261010-1554-benchmark)
+
+1. 1553-playground-2: a confined by-ref comparator param
+   (`less: fn(&Str, &Str) -> Bool`) using `a < b` compared the FIRST BYTE
+   of each char pointer -- the m286 Str content-compare branch keyed on a
+   plain "Str" `local_xiom_types` entry but decl.rs stores reference-typed
+   params ref-preserving ("&Str"/"&mut Str"), so the relational lowering
+   fell to the generic pointer auto-deref. find_min over
+   ["pear","cherry","apple"] returned index 0 instead of 2, silently. The
+   m286 branch now recognizes the ref spellings; auto_deref_ref loads the
+   slot address first so strcmp(content) drives the ordering. Locks
+   `e2e_m308_ref_str_cmp` + `_ir`.
+2. 1554-playground: a compiled program block-buffers stdout when it is a
+   pipe, so a prompt printed before `io.read_line()` reached the reader
+   only at exit (playwright probe measured 3002/3004 ms). The final direct
+   call site now emits `fflush(NULL)` immediately before calls to the C
+   text-stdio readers (fgets/fgetc/getchar/getc/gets/getline/scanf/fscanf);
+   binary fread and raw fd loops keep their cost profile. Locks
+   `e2e_m308_stdout_flush_before_read` + `_ir`.
+3. 1554-benchmark: the per-entry confined-unsafe trampoline cost of the
+   t3-hot-reload sample (~220 ms floor) was the guard-PAGE arm/disarm pair
+   -- one VirtualProtect/mprotect syscall PER BLOCK ENTRY for a page the
+   generated code never touches. Blocks are emitted with a GUARD_PAGE_MARK
+   tag on the arm/disarm calls (expr.rs prologue/tail + nested path,
+   stmt.rs Return path); after a block, the disarm is elided for
+   arena-free blocks (flag-only disarm; ablation 130 ms -> 2 ms on the
+   100k-entry probe). Locks `e2e_m308_guard_page_elide` + `_ir` +
+   `e2e_m308_guard_page_elide_fault_contained` (fault containment kept).

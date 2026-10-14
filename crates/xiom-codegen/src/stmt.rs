@@ -1647,7 +1647,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             self.emitln("  call void @xiom_trampoline_set_returned()");
                         }
                         self.emitln("  call void @xiom_guard_heap_exit()");
-                        self.emitln("  call void @xiom_guard_page_disarm()");
+                        self.emitln(&format!("  call void @xiom_guard_page_disarm(){GUARD_PAGE_MARK}"));
                         self.emitln("  call void @xiom_trap_leave()");
                     }
                     // Coerce the returned value to the function's declared return

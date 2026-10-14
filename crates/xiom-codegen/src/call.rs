@@ -524,6 +524,28 @@ impl IrEmitter {
                     .any(|e| key.ends_with(&format!(".{}", e))))
     }
 
+    /// m308 (REL-20261010-1554-playground): a prompt printed with io.println
+    /// block-buffers when stdout is a pipe, so a blocking stdio read delivered
+    /// it only at exit (strace: read(0) blocked and the whole output arrived
+    /// as one write after EOF). Emit an `fflush(NULL)` immediately before a
+    /// call to a C stdio READER so any pending prompt bytes reach the reader
+    /// BEFORE the process blocks. Restricted to the text-stdio reader family
+    /// (fgets/fgetc/...): binary fread (and raw fd read) loops keep their
+    /// existing cost profile.
+    fn emit_stdout_flush_before_blocking_read(&mut self, resolved_key: &str, call_symbol: &str) {
+        if !self.callee_is_extern(resolved_key) {
+            return;
+        }
+        let leaf = call_symbol.rsplit('.').next().unwrap_or(call_symbol);
+        if matches!(
+            leaf,
+            "fgets" | "fgetc" | "getchar" | "getc" | "gets" | "getline" | "scanf" | "fscanf"
+        ) {
+            let tmp = self.fresh_tmp();
+            self.emitln(&format!("  {tmp} = call i32 @fflush(i8* null)"));
+        }
+    }
+
     pub(crate) fn compile_call(&mut self, func: &Expr, args: &[Expr]) -> Result<(String, String), String> {
         // R52 (playground L5-43): tolerate a REDUNDANT explicit receiver
         // argument (`s.push(&mut s, "Alice")`). The method call already passes
@@ -6516,9 +6538,11 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         Ok((tmp, ret_ty.clone()))
                     }
                     } else if ret_ty == "void" {
+                        self.emit_stdout_flush_before_blocking_read(&resolved_fn_key, &call_symbol);
                         self.emitln(&format!("  call void @{call_symbol}({args_str})"));
                         Ok((String::new(), "void".to_string()))
                     } else {
+                        self.emit_stdout_flush_before_blocking_read(&resolved_fn_key, &call_symbol);
                         self.emitln(&format!("  {tmp} = call {ret_ty} @{call_symbol}({args_str})"));
                         Ok((tmp, ret_ty.clone()))
                     }
