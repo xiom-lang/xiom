@@ -17,14 +17,14 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
 
 - origin/main = `91860f11` (fetch before trusting -- the doorbell may push
-  staged work). Local main = the latest commit (see git log), AHEAD by ~66
+  staged work). Local main = the latest commit (see git log), AHEAD by ~69
   unpushed commits (exact: `git rev-list --count origin/main..HEAD`):
   `633ee65b`+`dc3a0102` (v0.64.5 plan/refresh docs) + m276..m292 + m293 +
-  m294 + m295 + m296 + m297 + m298 + m299 + m301..m308 + m310 + handoff follow-ups + 2 attempt logs (stdlib-6 leg b m291 reverted, see
+  m294 + m295 + m296 + m297 + m298 + m299 + m301..m309 + m310 + handoff follow-ups + 2 attempt logs (stdlib-6 leg b m291 reverted, see
   docs/failed_attempts.md; the bindings-4 m288 attempt is superseded by
   m292, and the stdlib-6 leg-b m295 attempt supersedes its failed entry).
   Do NOT push without the owner's authorization.
-- v0.64.5 batches m276-m292 + m293..m299 + m301..m308 + m310 (commit -> scope; all relayed):
+- v0.64.5 batches m276-m292 + m293..m299 + m301..m309 + m310 (commit -> scope; all relayed):
   - `0268c7d9` m276 env-unwrap veto on concretely-typed names (T1 kv AV).
   - `29e35ef8` m277 cast-call C handoff keeps the RAW fn code (two-word
     env: 0=thunk, 1=raw) + nested fn-type markers parse (T2 B-22 + 1403).
@@ -281,6 +281,20 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
     dependency's shipped port.args.json (${PACKAGE_DIR}) applies at
     CONSUMER build time (no manual --c-source; was `undefined symbol`
     on v0.64.4). Battery: pkg 95 + 1, graph 40, e2e g2 209.
+  - `d1eab753` m309 2320-bindings parts 2 + 3 FIXED (item fully fixed with
+    part 1 m296): (a) confined-block Vec Copy-Out v1 -- a Vec built inside
+    a confined block routed its buffer to the guard arena and faulted the
+    caller after `xiom_guard_heap_exit` (0xC0000005; the xiom.shaderc
+    trampolined crash class); `%struct.Vec` tails on BOTH lowering paths
+    (stmt.rs return-inside-block + expr.rs block tail) now malloc+memcpy
+    to the main heap before the arena reset; shaderc passes 17/17 x10 with
+    all 50 `#[unsafe_direct]` markers stripped; (b) `register_external_
+    module` merged export maps one level deep so 4-segment sibling modules
+    dropped each other's subtree (LIFO last-use won, import-order flip);
+    SubModule collisions now recurse via
+    `merge_module_exports_first_wins`. Locks
+    `e2e_m309_confined_vec_copy_out` (+IR twin) +
+    `e2e_m309_four_segment_const_import` (both orders).
 - CLOSED / awaiting reporter re-verify at the next archive (compiler work
   done; items are `fixed` on the bus): T1-T3, B-17+B-16, B-23+B-24
   (2051-bindings-2), B-11+B-20 readback family (0304-bindings +
@@ -340,8 +354,8 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
      (1549-packages-10 is a wave stale-green close.)
    2. resolver/checker: 1549-packages-9 DONE (m294), 1550-orbitdb-2 DONE
       (m304); 1956-orbitdb + 1709-xvector DONE (m298).
-  3. allocator/runtime: 2320-bindings #1 DONE (m296 part 1); 2320 #2/#3
-     open, 2032 (owner).
+  3. allocator/runtime: 2320-bindings DONE (part 1 m296 + parts 2/3 m309);
+     2032 (owner).
   4. contracts/clauses: 1549-stdlib-4 DONE (m301); 1549-packages-2
      NO-REPRO on HEAD (m301, stays open); 1548-stdlib-7.
    5. runtime/misc: 1615-stdlib DONE (m297); 1659-orbitdb DONE (m302;
@@ -676,8 +690,9 @@ NEW (2026-10-13, v0.64.5 triage + FFI batches):
 
 ## 7. m-numbering
 
-- m261-m292 + m293-m299 + m301-m308 + m310 LANDED; m309 is reserved by
-  the in-flight 2320 parts 2/3 fixer; **next free is m311**.
+- m261-m292 + m293-m299 + m301-m309 + m310 LANDED; m311/m312/m313 are
+  reserved by the in-flight fixers (O2 contract barrier, spawn readback,
+  ffi.free guard lowering); **next free is m314**.
 
 ## 8. CONTINUATION PROMPT (paste into a fresh session)
 
@@ -690,8 +705,8 @@ docs/rustc-study/ for reference patterns; rustc source is E:\repos\rust
 (READ-ONLY; no git writes there).
 
 STATE: v0.64.4 released (df493530) and verified. Git: origin/main =
-91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~66 unpushed
-commits (m276-m292 + m293..m299 + m301..m308 + m310 + docs + attempt logs); do NOT push
+91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~69 unpushed
+commits (m276-m292 + m293..m299 + m301..m309 + m310 + docs + attempt logs); do NOT push
 without the owner's authorization. Relay bus: latest compiler commits
 d5e84f8/170cdd9/9712942/4ac2e39 + the m292/m295 fix notes; the check
 file release-checks/compiler-compiler-v0.64.4.md is the candidate record.
@@ -721,8 +736,12 @@ each; see the check file + the bus for details):
    2320 parts 2/3, the -O2 no-fold barrier, 1549-packages-5/7, 1554 set.
 2. resolver/checker: 1550-orbitdb-2 DONE (m304); 1549-packages-9 (m294),
    1956-orbitdb + 1709-xvector (m298) DONE.
-3. allocator/runtime: 2320-bindings #1 DONE (m296 part 1); 2320 #2/#3;
-   2032 is a memory-model owner decision (no code work).
+3. allocator/runtime: 2320-bindings DONE (m296 + m309); 2032 is a
+   memory-model owner decision (no code work). IN FLIGHT: m311 the -O2
+   contract no-fold barrier; m312 thread spawn readback (stdlib-main
+   check: hang gone, readback garbage); m313 ffi.free call-site lowering
+   (alloc-guard-spin still repros on stdlib main). Thread gate
+   2053/1627/1402 stays OPEN until m312/m313 land + re-probe.
    4. contracts/clauses: 1549-stdlib-4 DONE (m301); 1549-packages-2
       NO-REPRO on HEAD (m301, stays open); the -O2 constant-fold pruning
       finding needs a no-fold barrier.
