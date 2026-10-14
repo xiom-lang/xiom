@@ -7639,6 +7639,17 @@ impl Checker {
                     && !self.fn_owner_module.contains_key(&ident.name)
                 {
                     CheckedType::Named("fn".into())
+                } else if let Some(parent) = self.current_module.as_ref()
+                    .and_then(|m| self.enum_variants.get(&format!("{}.{}", m, ident.name)))
+                {
+                    // m315 (REL-20261013-2139-engine): a variant of an enum
+                    // declared in THIS module outranks a same-named imported
+                    // type. geom's facade `Vec3` struct is registered bare, so
+                    // `return Vec3;` inside the enum's own module used to be
+                    // typed as the STRUCT and failed the enclosing return
+                    // (or silently mis-built on older machinery). Mirrors
+                    // `resolve_enum_variant`'s module-scoped first branch.
+                    CheckedType::named(parent.clone())
                 } else if self.contains_type(&ident.name) {
                     CheckedType::named(ident.name.clone())
                 } else if let Some(parent_enum) = self.resolve_enum_variant(&ident.name) {
@@ -9523,6 +9534,22 @@ impl Checker {
                     None
                 };
                 let is_struct_type = struct_fields.is_some();
+                // m315 (REL-20261013-2139-engine): a bare struct literal whose
+                // field set fits a REGISTERED struct stays the STRUCT even
+                // when an enum variant shares the leaf name. geom's
+                // `Vec3{ x; y; z; }` in a module that also loads an enum with
+                // a `Vec3` variant was typed as the enum (parent TrackKind)
+                // by the variant preference below, so the literal's inner
+                // fields validated against the struct while the OUTER
+                // field/return saw TrackKind -> T001 (or a corrupt build on
+                // older machinery). Mirrors codegen's struct-vs-variant
+                // precedence (expr.rs struct literal arm): the struct wins
+                // when the literal fits its field set; the variant still
+                // wins when it does not (m89 `Node(value,left,right)`).
+                let struct_fields_fit = struct_fields.as_ref().map_or(false, |sf| {
+                    sf.len() == fields.len()
+                        && sf.keys().all(|f| fields.iter().any(|(n, _)| &n.name == f))
+                });
                 let expected_fields = struct_fields.or(variant_fields_map);
                 // For struct types with registered fields, validate; for enum variants
                 // or unknown types, skip field validation (typecheck at match time)
@@ -9612,7 +9639,12 @@ impl Checker {
                 } else {
                     is_struct_type
                 };
-                if is_local_struct {
+                // m315: a literal that fits a registered struct is the
+                // struct -- the variant preference below must not re-type it
+                // (see struct_fields_fit above). The m89 variant-literal
+                // shape (fields do NOT fit the same-leaf struct) keeps the
+                // variant resolution.
+                if is_local_struct || (is_struct_type && struct_fields_fit) {
                     CheckedType::named(name.name.clone())
                 } else if let Some(parent) = self.resolve_enum_variant(&name.name) {
                     CheckedType::named(parent.clone())

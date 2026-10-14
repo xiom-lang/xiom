@@ -16819,3 +16819,28 @@ bit-63 ordering/widening/div/mod, exact exit-code gating). Locks
 `e2e_m314_int128_uint64_family` + `_ir` twin (16-byte typed loads /
 memcpys, zext, icmp u* in the emitted IR). Battery: locks 2/2, e2e
 g1 16 + g2 216, codegen lib 12.
+
+---
+
+## 2026-10-14 -- FIXED (m315): enum-variant names colliding with xiom.geom type names (REL-20261013-2139-engine)
+
+Once a co-loaded module pulled `xiom.geom` in, a consumer enum variant
+sharing a geom type leaf name corrupted compilation with no diagnostic
+(the engine's TrackKind{Scalar,Vec2,Vec3,Vec4} was renamed to
+Float2/Float3/Float4 as a workaround). Two checker paths:
+1. bare `return Vec3;` inside the enum's OWN module was typed as the
+   imported struct (geom's facade `Vec3` is registered bare) instead of
+   the current module's variant -- now a variant declared in THIS module
+   outranks a same-named imported type (mirrors resolve_enum_variant's
+   module-scoped first branch);
+2. a bare struct literal `Vec3{ x; y; z; }` that fits a registered
+   struct was re-typed as the enum (parent TrackKind) by the variant
+   preference -- now a literal whose field set fits a registered struct
+   stays the STRUCT; the variant still wins when the field set does not
+   fit (the m89 `Node(value,left,right)` shape).
+Evidence: 3-file fixture tests/regression/m315_2139_enum_geom_collision/
+(main + camera + timeline; pre-fix T001 `field 'pos' type mismatch:
+expected Vec3, found TrackKind` in camera.cam_new); post-fix compile+run
+exact (variant tag 2, geom doubles 1/2/3, vec3_length sqrt 14, tl_vec
+components). Lock `e2e_m315_enum_geom_collision`. Battery: lock 1/1, e2e
+g1 16 + g2 217, codegen lib 12, xiom-check lib serial 199.

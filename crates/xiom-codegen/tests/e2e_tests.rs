@@ -8055,3 +8055,21 @@ fn e2e_safety_probe() {
 }
 
 
+// m315 (REL-20261013-2139-engine): enum variant names colliding with
+// xiom.geom type names corrupted consumer compilation (the engine's
+// TrackKind{Scalar,Vec2,Vec3,Vec4} renamed to Float2/Float3/Float4 to
+// work around it). Pre-fix, once a co-loaded module pulled xiom.geom in:
+// (a) the checker typed the geom struct literal `Vec3{...}` as the enum
+// variant's parent (T001 "field 'pos' type mismatch: expected Vec3, found
+// TrackKind" in camera.cam_new) and (b) `return Vec3;` inside the enum's own
+// module bound the imported STRUCT instead of the variant. Post-fix both
+// resolve by context and the values are exact (variant tag 2, geom doubles
+// 1/2/3, vec3_length(sqrt 14), tl_vec components).
+#[test] fn e2e_m315_enum_geom_collision() {
+    assert_eq!(
+        compile_and_run("tests/regression/m315_2139_enum_geom_collision/main.xi"),
+        Some(0),
+        "an enum variant named after a xiom.geom type must resolve by context \
+         (struct literal -> geom struct, bare value -> variant) (m315)"
+    );
+}
