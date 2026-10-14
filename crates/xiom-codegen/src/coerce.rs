@@ -354,7 +354,7 @@ impl IrEmitter {
                     };
                     let arg_is_ptr_valued = arg_xiom.as_deref().map_or(false, |t| {
                         t == "Str" || t.starts_with('*')
-                    });
+                    }) || (pre_ty == "i64" && self.as_int_cast_of_pointer(arg_expr));
                     if !arg_is_ptr_valued {
                         let tmp = self.fresh_tmp();
                         self.emitln(&format!("  {tmp} = alloca {pointee}"));
@@ -535,9 +535,24 @@ impl IrEmitter {
                 // across fn/unsafe-block boundaries; the payload-corruption
                 // family root). The auto-deref applies ONLY to `&T` ref-locals
                 // whose recorded type is the bare pointee ("Int"/"Str").
-                let pointee_xiom = self.local.local_xiom_types.get(&id.name)?;
+                //
+                // m320 (REL-20261013-2035-engine): since rw1 the tracked name
+                // keeps the REF spelling ("&Str"/"&mut Str", decl.rs
+                // ref_preserving_name); llvm_type_for("&Str") fell to the
+                // unknown-type i64 warning and never matched the by-value
+                // "i8*" param, so `str_slice(s, ..)` on `s: &Str` bitcast the
+                // SLOT ADDRESS to i8* (the callee strcmp'd stack bytes -> heap
+                // garbage for copy_ref). Strip the ref spelling before the
+                // lookup (mirrors the &mut arm above); the '*' guard for raw
+                // pointers runs on the stripped name.
+                let local_ty = self.local.local_xiom_types.get(&id.name)?;
+                let pointee_xiom = local_ty
+                    .strip_prefix("&mut ")
+                    .or_else(|| local_ty.strip_prefix('&'))
+                    .map(|s| s.trim_start().to_string())
+                    .unwrap_or_else(|| local_ty.clone());
                 if pointee_xiom.starts_with('*') { return None; }
-                let pointee = self.llvm_type_for(pointee_xiom).ok()?;
+                let pointee = self.llvm_type_for(&pointee_xiom).ok()?;
                 if pointee != param_ty { return None; }
                 if let Ok((addr, addr_ty)) = self.compile_expr(arg_expr) {
                     let ptr = if addr_ty == "i64" {
@@ -1454,6 +1469,29 @@ impl IrEmitter {
                 .infer_call_return_xiom(e)
                 .map(|t| t.starts_with('*') || t.starts_with('&'))
                 .unwrap_or(false),
+            _ => false,
+        }
+    }
+
+    /// m320 (REL-20261013-1819-engine): `ptr-expr as <numeric>` launders a
+    /// pointer into an i64 register (the engine's legacy `pc.as_mut_ptr() as
+    /// Int` dance at a named-call boundary). infer_value_xiom_type reports
+    /// the cast TARGET ("Int"), so the B-31 value-arg materialization stored
+    /// the truncated bits in a temp and passed the temp ADDRESS to the
+    /// pointer param (the witness callee read the low byte of the stack
+    /// slot: 208 instead of the buffer bytes). Classify through the INNER
+    /// expression's pointer-ness so the arg inttoptrs like the C24
+    /// call-return shape. Pointer-target casts (`as *UInt8`) keep their own
+    /// paths -- only numeric targets reach this verdict.
+    fn as_int_cast_of_pointer(&self, e: &Expr) -> bool {
+        match e {
+            Expr::Paren(inner, _) => self.as_int_cast_of_pointer(inner),
+            Expr::As(inner, ty, _) => {
+                let target = Self::type_from_ast(ty);
+                !target.starts_with('*')
+                    && !target.starts_with('&')
+                    && self.expr_is_pointer(inner)
+            }
             _ => false,
         }
     }

@@ -16904,3 +16904,39 @@ imports, 12-14 pub var + fn-valued var); lock
 un-timed compile_and_run fails fast on the debug stack-overflow exit
 instead of blocking). Battery: lock 1/1, e2e g1 16 + g2 219, codegen
 lib 12, parser lib 109, xiom-check lib serial 199.
+
+---
+
+## 2026-10-14 -- FIXED (m320): Int-typed pointer arg at named-call boundaries + `&Str` param spelling (REL-20261013-1819-engine + REL-20261013-2035-engine)
+
+1. 1819 (B-16/B-31 class): `ptr-expr as Int` at a named-call boundary
+   launders a pointer into an i64 register (the engine's legacy
+   `pc.as_mut_ptr() as Int` dance). `infer_value_xiom_type` reported the
+   cast TARGET ("Int"), so value-arg materialization stored the truncated
+   bits in a temp and passed the temp ADDRESS to the pointer param (the
+   witness callee read the low byte of the stack slot: 208 instead of the
+   buffer bytes). Fix: `as_int_cast_of_pointer` classifies through the
+   INNER expression's pointer-ness (numeric targets only; `as *UInt8`
+   keeps its own paths), so the arg inttoptrs like the C24 call-return
+   shape.
+2. 2035: `&Str`/`&mut Str` param spelling -- since rw1 the tracked local
+   name keeps the ref spelling (`ref_preserving_name`), so
+   `llvm_type_for("&Str")` fell to the unknown-type i64 warning and never
+   matched the by-value `i8*` param: `str_slice(s, ..)` on `s: &Str`
+   bitcast the SLOT ADDRESS to i8*, and the callee strcmp'd stack bytes
+   (heap garbage for copy_ref). Fix: strip the ref prefix before the
+   pointee lookup in the auto-deref arm (mirrors the `&mut` arm); the `*`
+   guard for raw pointers runs on the stripped name.
+
+Evidence: fixtures tests/regression/m320_int_ptr_arg/ +
+tests/regression/m320_ref_str_param/ + IR twins (`e2e_m320_int_ptr_arg`,
+`e2e_m320_int_ptr_arg_ir`, `e2e_m320_ref_str_param`,
+`e2e_m320_ref_str_param_ir`). Battery: locks 4/4, e2e g1 16 + g2 223,
+codegen lib 12.
+
+THREAD GATE (same integration window): with stdlib main carrying the
+wave-139 runtime half (`ae9c963`, i64 stores in `xiom_task_trampoline`),
+an independent re-run of the acceptance -- dbg131s.xi + dbgworker.xi
+compiled against `E:\xiom-lang\stdlib`, 15 s watchdog -- prints
+`joined 42` (dbg131s 5/5; dbgworker 5/5 `val=42 done=1`). The v0.64.5
+thread gate is GREEN at stdlib main; re-verify at the pin.

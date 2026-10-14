@@ -8113,3 +8113,90 @@ fn e2e_safety_probe() {
         "m317: constant-surface family -- shadowing const must not hijack qualified reads or loop; pub use must re-export constants; bare module-file const imports must resolve; pub var must stay exported"
     );
 }
+
+// m320 (REL-20261013-2035-engine): the `&Str` PARAMETER spelling must resolve
+// like plain Str. Pre-fix the compiler warned `unknown type '&Str' --
+// defaulting to i64` and the value-use path bitcast the slot ADDRESS (i8**)
+// to i8*, so str_slice read stack bytes (copy_ref printed heap garbage while
+// the by-value control printed `hell`). The fixture returns distinct exit
+// codes per shape (1 copy_ref, 2 copy_val control, 3 &mut Str, 4-5 chained
+// &Str -> Str-param calls); green = 0.
+#[test] fn e2e_m320_ref_str_param() {
+    assert_eq!(
+        compile_and_run("tests/regression/m320_ref_str_param/main.xi"),
+        Some(0),
+        "an `&Str` parameter must auto-deref to the Str handle at value uses (m320/2035)"
+    );
+}
+
+// m320 IR twin (2035): the str_slice argument in @copy_ref must be a
+// LOADED handle (`load i8*, i8**`), never the bitcast slot address.
+#[test] fn e2e_m320_ref_str_param_ir() {
+    let ir = compile_ir("tests/regression/m320_ref_str_param/main.xi")
+        .expect("m320 ref-str-param fixture must compile to IR");
+    let start = ir.find("define i8* @copy_ref")
+        .expect("m320: @copy_ref must be defined");
+    let rest = &ir[start..];
+    let end = rest[1..].find("\ndefine ").map(|i| i + 1).unwrap_or(rest.len());
+    let body = &rest[..end];
+    let call = body.lines()
+        .find(|l| l.contains("@string.str_slice(i8* "))
+        .unwrap_or_else(|| panic!("m320: copy_ref must call str_slice; body:\n{body}"));
+    let arg = call
+        .split("@string.str_slice(i8* ")
+        .nth(1)
+        .and_then(|s| s.split(',').next())
+        .expect("m320: str_slice arg must parse")
+        .trim();
+    assert!(
+        body.contains(&format!("{arg} = load i8*, i8**")),
+        "m320: the &Str param value must load the handle ({arg}); body:\n{body}"
+    );
+    assert!(
+        !body.contains("bitcast i8**"),
+        "m320: the slot-address bitcast must be gone; body:\n{body}"
+    );
+}
+
+// m320 (REL-20261013-1819-engine): an Int-typed pointer value at a named-call
+// boundary (`takes8(v.as_mut_ptr() as Int)`, the engine's legacy idiom) was
+// materialized as a truncated 1-byte stack temp and the slot ADDRESS was
+// passed (the callee read 208 = the low byte of the stack address). Pointer
+// bits must inttoptr. Distinct exit codes per shape (1 plain / 2 inline
+// `as Int` / 3 Int binding cast back / 4-5 indirect fn-pointer calls).
+#[test] fn e2e_m320_int_ptr_arg() {
+    assert_eq!(
+        compile_and_run("tests/regression/m320_int_ptr_arg/main.xi"),
+        Some(0),
+        "an Int-typed pointer value at a *UInt8 call boundary must inttoptr, not pass a temp address (m320/1819)"
+    );
+}
+
+// m320 IR twin (1819): every direct takes8 call's pointer argument must be
+// the buffer pointer or an inttoptr of pointer bits -- never an i8 alloca
+// (the pre-fix materialization stored `trunc i64 ... to i8` in a stack byte
+// and passed its address).
+#[test] fn e2e_m320_int_ptr_arg_ir() {
+    let ir = compile_ir("tests/regression/m320_int_ptr_arg/main.xi")
+        .expect("m320 int-ptr-arg fixture must compile to IR");
+    let mut checked = 0;
+    for line in ir.lines() {
+        let Some(pos) = line.find("call i64 @takes8(i8* ") else { continue };
+        let arg = line[pos + "call i64 @takes8(i8* ".len()..]
+            .split(',')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .trim_end_matches(')');
+        checked += 1;
+        assert!(
+            ir.contains(&format!("{arg} = load i8*,")) || ir.contains(&format!("{arg} = inttoptr i64")),
+            "m320: takes8 arg {arg} must be a loaded pointer or inttoptr; line:\n{line}"
+        );
+        assert!(
+            !ir.contains(&format!("{arg} = alloca i8 ")) && !ir.contains(&format!("{arg} = alloca i8\n")),
+            "m320: takes8 arg {arg} must not be a stack-byte temp; line:\n{line}"
+        );
+    }
+    assert_eq!(checked, 3, "m320: fixture must exercise the 3 direct takes8 shapes; IR:\n{ir}");
+}
