@@ -20,6 +20,7 @@ pub mod hash;
 pub mod manifest;
 pub mod paths;
 mod sort;
+pub mod version;
 
 pub use cache::{make_cache_entry, CacheDb, CacheEntry, CacheTiers};
 pub use discover::{discover_modules, discover_sources, ModuleDiscovery};

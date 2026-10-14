@@ -1142,11 +1142,23 @@ fn install_package_files(src_dir: &Path, pkg_name: &str) {
         return;
     }
 
-    let _ = std::fs::create_dir_all(&dest_dir);
+    // REL-20261010-1549-packages-7: a failed target creation used to be
+    // swallowed (`let _ =`), so the copy below reported "(N files)" while
+    // landing nothing. Fail loudly instead.
+    if let Err(e) = std::fs::create_dir_all(&dest_dir) {
+        eprintln!("xiom pkg: cannot create {}: {e}", dest_dir.display());
+        process::exit(1);
+    }
 
     // Copy package files
     let mut copied = 0usize;
-    copy_dir_contents(src_dir, &dest_dir, &mut copied);
+    let mut failed = 0usize;
+    copy_dir_contents(src_dir, &dest_dir, &mut copied, &mut failed);
+    if failed > 0 {
+        eprintln!("xiom pkg: {failed} entr{} failed to copy -> {}",
+            if failed == 1 { "y" } else { "ies" }, dest_dir.display());
+        process::exit(1);
+    }
 
     println!("xiom pkg: installed {} v{} -> {} ({} files)",
         pkg_name, pkg_version, dest_dir.display(), copied);
@@ -1156,21 +1168,28 @@ fn install_package_files(src_dir: &Path, pkg_name: &str) {
     println!("  }}");
 }
 
-/// Read the version from a package.xi or Cargo.toml in the source directory.
+/// Read the version from a package.xi in the source directory.
+///
+/// REL-20261010-1549-packages-7: the old reader trimmed the quote and the
+/// semicolon in two separate passes, so `version: "0.1.1";` yielded
+/// `0.1.1"` -- an invalid destination directory and a silent no-op install.
+/// Reuse the canonical field extractor (`extract_field`), which strips the
+/// trailing `;` before the quotes.
 fn read_package_version(dir: &Path) -> Option<String> {
     // Try package.xi first
     if let Ok(content) = std::fs::read_to_string(dir.join("package.xi")) {
         for line in content.lines() {
-            if let Some(v) = line.trim().strip_prefix("version:") {
-                return Some(v.trim().trim_matches('"').trim_matches(';').to_string());
+            if let Some(v) = extract_field(line.trim(), "version:") {
+                return Some(v);
             }
         }
     }
     None
 }
 
-/// Recursively copy directory contents.
-fn copy_dir_contents(src: &Path, dest: &Path, count: &mut usize) {
+/// Recursively copy directory contents. `copied` counts successful copies;
+/// `failed` counts entries that could not be created/copied (never silent).
+fn copy_dir_contents(src: &Path, dest: &Path, copied: &mut usize, failed: &mut usize) {
     if let Ok(entries) = std::fs::read_dir(src) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -1182,11 +1201,17 @@ fn copy_dir_contents(src: &Path, dest: &Path, count: &mut usize) {
                 if name.to_str().map_or(false, |n| n.starts_with('.') || n == "target" || n == "build") {
                     continue;
                 }
-                let _ = std::fs::create_dir_all(&dest_path);
-                copy_dir_contents(&path, &dest_path, count);
+                if std::fs::create_dir_all(&dest_path).is_ok() {
+                    copy_dir_contents(&path, &dest_path, copied, failed);
+                } else {
+                    *failed += 1;
+                }
             } else {
-                let _ = std::fs::copy(&path, &dest_path);
-                *count += 1;
+                if std::fs::copy(&path, &dest_path).is_ok() {
+                    *copied += 1;
+                } else {
+                    *failed += 1;
+                }
             }
         }
     }
@@ -1984,5 +2009,34 @@ keywords: ["graphics", "vulkan", "rendering"];
         let pkg = parse_manifest(&manifest);
         // Large manifests with extra content should not crash
         assert!(pkg.name == "big" || pkg.name == "");
+    }
+
+    // REL-20261010-1549-packages-7: the semicolon form `version: "0.1.1";`
+    // must yield exactly `0.1.1` -- the old reader kept the closing quote
+    // (`0.1.1"`), producing an invalid install dir and a silent no-op.
+    #[test] fn test_read_package_version_semicolon_quoted() {
+        let dir = std::env::temp_dir().join(format!("xiom_pkgver_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("package.xi"),
+            "package x {\n  name: \"xiom.btree\";\n  version: \"0.1.1\";\n}\n").unwrap();
+        assert_eq!(read_package_version(&dir).as_deref(), Some("0.1.1"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test] fn test_read_package_version_plain_quoted() {
+        let dir = std::env::temp_dir().join(format!("xiom_pkgverp_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("package.xi"),
+            "name: \"xiom.wal\";\nversion: \"0.4.2\"\n").unwrap();
+        assert_eq!(read_package_version(&dir).as_deref(), Some("0.4.2"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test] fn test_read_package_version_missing() {
+        let dir = std::env::temp_dir().join(format!("xiom_pkgverm_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("package.xi"), "name: \"xiom.x\";\n").unwrap();
+        assert_eq!(read_package_version(&dir), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

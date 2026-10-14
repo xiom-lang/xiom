@@ -1,0 +1,6 @@
+[project]
+name = "m310_range_app"
+version = "0.1.0"
+
+[dependencies]
+xiom.rate = ">=0.2.0"

@@ -703,97 +703,12 @@ fn resolve_version<'a>(
 // Stage 5: version-range matching + transitive dependency closure
 // ============================================================================
 
-/// Parse a dotted version: numeric core segments plus an optional
-/// pre-release/build tail kept verbatim ("1.2.3-rc1" -> ([1,2,3], "-rc1")).
-fn parse_version(v: &str) -> (Vec<u64>, String) {
-    let v = v.trim();
-    let (core, tail) = match v.find(['-', '+']) {
-        Some(i) => (&v[..i], &v[i..]),
-        None => (v, ""),
-    };
-    let nums = core
-        .split('.')
-        .map(|s| s.trim().parse::<u64>().unwrap_or(0))
-        .collect();
-    (nums, tail.to_string())
-}
-
-/// Numeric-aware version ordering: missing segments are 0 and a release sorts
-/// ABOVE its pre-releases (`1.0.0-rc1 < 1.0.0`).
-pub(crate) fn version_cmp(a: &str, b: &str) -> std::cmp::Ordering {
-    use std::cmp::Ordering;
-    let (an, at) = parse_version(a);
-    let (bn, bt) = parse_version(b);
-    for i in 0..an.len().max(bn.len()) {
-        let x = an.get(i).copied().unwrap_or(0);
-        let y = bn.get(i).copied().unwrap_or(0);
-        match x.cmp(&y) {
-            Ordering::Equal => {}
-            other => return other,
-        }
-    }
-    match (at.is_empty(), bt.is_empty()) {
-        (true, true) => Ordering::Equal,
-        (true, false) => Ordering::Greater,
-        (false, true) => Ordering::Less,
-        (false, false) => at.cmp(&bt),
-    }
-}
-
-/// True when `version` satisfies a comma-separated constraint list.
-/// Operators: `=` (or bare), `>=`, `<=`, `>`, `<`, `^`, `~`; `*`/empty = any.
-pub(crate) fn version_satisfies(version: &str, req: &str) -> bool {
-    use std::cmp::Ordering;
-    let req = req.trim();
-    if req.is_empty() || req == "*" {
-        return true;
-    }
-    for part in req.split(',') {
-        let p = part.trim();
-        if p.is_empty() {
-            continue;
-        }
-        let (op, rest) = if let Some(r) = p.strip_prefix(">=") {
-            (">=", r)
-        } else if let Some(r) = p.strip_prefix("<=") {
-            ("<=", r)
-        } else if let Some(r) = p.strip_prefix('>') {
-            (">", r)
-        } else if let Some(r) = p.strip_prefix('<') {
-            ("<", r)
-        } else if let Some(r) = p.strip_prefix('=') {
-            ("=", r)
-        } else if let Some(r) = p.strip_prefix('^') {
-            ("^", r)
-        } else if let Some(r) = p.strip_prefix('~') {
-            ("~", r)
-        } else {
-            ("=", p)
-        };
-        let rest = rest.trim();
-        let (vn, _) = parse_version(version);
-        let (rn, _) = parse_version(rest);
-        let ord = version_cmp(version, rest);
-        let ok = match op {
-            ">=" => ord != Ordering::Less,
-            "<=" => ord != Ordering::Greater,
-            ">" => ord == Ordering::Greater,
-            "<" => ord == Ordering::Less,
-            "=" => ord == Ordering::Equal,
-            "^" => vn.first() == rn.first() && ord != Ordering::Less,
-            "~" => {
-                vn.first() == rn.first()
-                    && vn.get(1).copied().unwrap_or(0) == rn.get(1).copied().unwrap_or(0)
-                    && ord != Ordering::Less
-            }
-            _ => false,
-        };
-        if !ok {
-            return false;
-        }
-    }
-    true
-}
+// REL-20261010-1549-packages-7: the version parser/ordering/constraint
+// matcher moved to `xiom_graph::version` so the dependency source-root
+// resolver applies the same semantics to INSTALLED packages (range specs
+// used to fail there). The `pub(crate)` names keep the registry call sites
+// and tests unchanged.
+pub(crate) use xiom_graph::version::{version_cmp, version_satisfies};
 
 /// An EXACT spec ("1.2.3" / "=1.2.3") still resolves a yanked version --
 /// yanked releases stay installable by pin; ranges skip them.

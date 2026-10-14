@@ -1,0 +1,6 @@
+[project]
+name = "m310_port_args_dep"
+version = "0.1.0"
+
+[dependencies]
+m310_port_args_helper = { path = "helper" }

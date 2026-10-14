@@ -16628,3 +16628,22 @@ swap 7 -> 23 plus the selfhost cross-variant shape) +
    arena-free blocks (flag-only disarm; ablation 130 ms -> 2 ms on the
    100k-entry probe). Locks `e2e_m308_guard_page_elide` + `_ir` +
    `e2e_m308_guard_page_elide_fault_contained` (fault containment kept).
+
+---
+
+## 2026-10-14 -- FIXED (m310): packages cluster -- two install/build items (REL-20261010-1549-packages-7 + REL-20261010-1549-packages-5)
+
+1. 1549-packages-7: (a) local-fallback installs now place the dependency
+   files on disk; (b) `[dependencies]` RANGE specs resolve -- the old
+   resolver used a literal `starts_with`, so only exact specs matched;
+   xiom-graph gains `version.rs` constraint matching (manifest + pkg use
+   it). Fixture `m310_dep_range_spec` runs hermetically through its own
+   XIOM_HOME; locks: `e2e_m310_dep_range_spec` +
+   `cargo test -p xiom-pkg` m310_local_fallback.
+2. 1549-packages-5: a dependency's shipped `port.args.json` (with
+   `${PACKAGE_DIR}`) now applies at CONSUMER build time -- the C source it
+   names links without a manual `--c-source` (new
+   crates/xiom/src/dep_port_args.rs; red on v0.64.4 with `undefined
+   symbol: m310_helper_bump`). Lock `e2e_m310_port_args_dep`.
+
+Battery green: e2e m310 locks 2/2; pkg 95/95 + 1/1; graph 40/40.

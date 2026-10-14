@@ -7794,5 +7794,44 @@ fn e2e_safety_probe() {
     );
 }
 
+// m310 (REL-20261010-1549-packages-5): a dependency's shipped port.args.json
+// must be applied at CONSUMER build time -- the C source it names (with
+// ${PACKAGE_DIR}) links without a manual --c-source. Red on v0.64.4 and
+// pre-fix HEAD (`undefined symbol: m310_helper_bump`).
+#[test] fn e2e_m310_port_args_dep() {
+    assert_eq!(
+        compile_and_run("tests/regression/m310_port_args_dep/main.xi"),
+        Some(0),
+        "a dependency's port.args.json --c-source must apply at consumer build time (m310)"
+    );
+}
+
+// m310 (REL-20261010-1549-packages-7): a range spec (`>=0.2.0`) in
+// xiom.toml [dependencies] must resolve the installed package dir; the old
+// resolver used a literal starts_with and only exact specs resolved. The
+// fixture is hermetic through its own XIOM_HOME (install-home layout).
+#[test] fn e2e_m310_dep_range_spec() {
+    let root = project_root()
+        .join("tests").join("regression").join("m310_dep_range_spec");
+    let exe = project_root().join("target").join("m310_dep_range_spec.exe");
+    let _ = std::fs::remove_file(&exe);
+    let compile = Command::new(xiom_path())
+        .arg("-o")
+        .arg(&exe)
+        .arg("tests/regression/m310_dep_range_spec/app/main.xi")
+        .env("XIOM_HOME", root.join("home"))
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the m310 range fixture");
+    assert!(
+        compile.status.success(),
+        "a `>=0.2.0` dep spec must resolve the installed dep (m310); stderr:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe).output().expect("run the m310 range fixture");
+    assert_eq!(run.status.code(), Some(0), "range fixture program must exit 0 (m310)");
+    let _ = std::fs::remove_file(&exe);
+}
+
 
 

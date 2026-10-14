@@ -5,6 +5,7 @@
 // -----------------------------------------------------------------------
 
 pub mod ai;
+pub mod dep_port_args;
 pub mod doctor;
 pub mod graph_viz;
 pub mod implicit_main;

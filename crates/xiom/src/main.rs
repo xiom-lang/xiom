@@ -2208,6 +2208,14 @@ fn real_main() {
                 eprintln!("[config] manifest applied: release={} incremental={} max_depth={:?}",
                     config.release, config.incremental, cc.max_depth);
             }
+            // REL-20261010-1549-packages-5: a dependency's shipped
+            // port.args.json (vendored-C packages: `--c-source ...`) is
+            // applied to the CONSUMER build; consumers no longer need the
+            // manual --c-source recipe.
+            let n = xiom::dep_port_args::apply_dependency_port_args(&mut config, &manifest);
+            if n > 0 && std::env::var("XIOM_VERBOSE_CONFIG").as_deref() == Ok("1") {
+                eprintln!("[config] dependency port.args.json: {n} flag(s) applied");
+            }
         }
     }
     config

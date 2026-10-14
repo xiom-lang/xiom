@@ -401,70 +401,96 @@ fn extract_deps_legacy(content: &str) -> Vec<DependencySpec> {
 ///   dependencies off the catalog path entirely, so `use xiom.rate;`
 ///   type-checked against nothing unless the project hard-coded the
 ///   directory in `source-roots` (the Pulse workaround).
+///
+/// REL-20261010-1549-packages-7: registry specs go through the shared
+/// version-constraint matcher (`>=0.3.0`, `^0.3`, `~0.3.0`, comma lists)
+/// instead of a literal prefix test, which resolved only exact specs.
 fn dependency_roots_under(
     manifest: &ProjectManifest,
     manifest_dir: &Path,
     xiom_home: &Path,
 ) -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = Vec::new();
-    for dep in &manifest.dependencies {
-        let mut candidates: Vec<PathBuf> = Vec::new();
-        if let Some(ref p) = dep.path {
-            let base = manifest_dir.join(p);
-            candidates.push(base.clone());
-            candidates.push(base.join("src"));
-        } else {
-            let packages = xiom_home.join("packages");
-            // C-PULSE-08: registry dirs use DASHES (`xiom-rate-0.2.0`) while
-            // the canonical manifest key may be dotted (`xiom.rate`), so match
-            // on the dash-normalized name as well as the verbatim name.
-            let dashed = dep.name.replace('.', "-");
-            let prefixes = [format!("{dashed}-"), format!("{}-", dep.name)];
-            let requested = if dep.version.trim().is_empty() || dep.version.trim() == "*" {
-                None
-            } else {
-                Some(dep.version.trim())
-            };
-            let mut matches: Vec<PathBuf> = Vec::new();
-            if let Ok(entries) = std::fs::read_dir(&packages) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if !path.is_dir() || matches.contains(&path) {
-                        continue;
-                    }
-                    let dir_name = entry.file_name().to_string_lossy().to_string();
-                    let Some(ver) = prefixes
-                        .iter()
-                        .find_map(|p| dir_name.strip_prefix(p.as_str()))
-                    else {
-                        continue;
-                    };
-                    if let Some(req) = requested {
-                        if !ver.starts_with(req) {
-                            continue;
-                        }
-                    }
-                    matches.push(path);
-                }
-            }
-            // Deterministic "newest": lexicographic max of the version dirs.
-            matches.sort();
-            if let Some(latest) = matches.pop() {
-                // The installer names the package dir after the DASH form.
-                let named = latest.join(&dashed);
-                let named = if named.is_dir() { named } else { latest.join(&dep.name) };
-                let base = if named.is_dir() { named } else { latest };
-                candidates.push(base.clone());
-                candidates.push(base.join("src"));
-            }
+    for base in dependency_base_dirs(manifest, manifest_dir, xiom_home) {
+        if base.is_dir() && !roots.contains(&base) {
+            roots.push(base.clone());
         }
-        for c in candidates {
-            if c.is_dir() && !roots.contains(&c) {
-                roots.push(c);
-            }
+        let src = base.join("src");
+        if src.is_dir() && !roots.contains(&src) {
+            roots.push(src);
         }
     }
     roots
+}
+
+/// Base package directories of `[dependencies]` entries: the `path = "..."`
+/// directory verbatim, or the newest INSTALLED version dir under
+/// `<xiom_home>/packages` for registry specs (dash- or dot-named keys).
+fn dependency_base_dirs(
+    manifest: &ProjectManifest,
+    manifest_dir: &Path,
+    xiom_home: &Path,
+) -> Vec<PathBuf> {
+    let mut bases: Vec<PathBuf> = Vec::new();
+    for dep in &manifest.dependencies {
+        if let Some(ref p) = dep.path {
+            let base = manifest_dir.join(p);
+            if !bases.contains(&base) {
+                bases.push(base);
+            }
+            continue;
+        }
+        let packages = xiom_home.join("packages");
+        // C-PULSE-08: registry dirs use DASHES (`xiom-rate-0.2.0`) while
+        // the canonical manifest key may be dotted (`xiom.rate`), so match
+        // on the dash-normalized name as well as the verbatim name.
+        let dashed = dep.name.replace('.', "-");
+        let prefixes = [format!("{dashed}-"), format!("{}-", dep.name)];
+        let requested = dep.version.trim();
+        let mut matches: Vec<(String, PathBuf)> = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&packages) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_dir() || matches.iter().any(|(_, m)| *m == path) {
+                    continue;
+                }
+                let dir_name = entry.file_name().to_string_lossy().to_string();
+                let Some(ver) = prefixes
+                    .iter()
+                    .find_map(|p| dir_name.strip_prefix(p.as_str()))
+                else {
+                    continue;
+                };
+                if !crate::version::version_satisfies(ver, requested) {
+                    continue;
+                }
+                matches.push((ver.to_string(), path));
+            }
+        }
+        // Deterministic "newest": numeric version order (0.10.0 > 0.9.0).
+        matches.sort_by(|(a, _), (b, _)| crate::version::version_cmp(a, b));
+        if let Some((_, latest)) = matches.pop() {
+            // The installer names the package dir after the DASH form.
+            let named = latest.join(&dashed);
+            let named = if named.is_dir() { named } else { latest.join(&dep.name) };
+            let base = if named.is_dir() { named } else { latest };
+            if !bases.contains(&base) {
+                bases.push(base);
+            }
+        }
+    }
+    bases
+}
+
+/// REL-20261010-1549-packages-5: the on-disk package dirs a project's
+/// `[dependencies]` resolve to (the `path = "..."` dir, or the newest
+/// installed registry version). This is where a dependency's shipped
+/// `port.args.json` build args live.
+pub fn dependency_package_dirs(manifest: &ProjectManifest) -> Vec<PathBuf> {
+    dependency_base_dirs(manifest, &manifest.manifest_dir, &crate::paths::xiom_home())
+        .into_iter()
+        .filter(|b| b.is_dir())
+        .collect()
 }
 
 /// Resolve source root directories from a manifest.
@@ -674,6 +700,62 @@ xiom.rate = "0.2.0"
         let roots = dependency_roots_under(&manifest, &dir, &home);
         assert!(roots.contains(&pkg), "dotted key must find the dash dir: {roots:?}");
         assert!(roots.contains(&pkg.join("src")), "dotted key src root: {roots:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // REL-20261010-1549-packages-7: a RANGE spec must resolve the installed
+    // dependency the same way the registry matcher does (red pre-fix: the
+    // literal `starts_with` test never matched `>=0.2.0`).
+    #[test]
+    fn range_spec_matches_installed_dep() {
+        let dir = std::env::temp_dir().join(format!("xiom_m310r_{}", std::process::id()));
+        let home = dir.join("home");
+        let pkg = home.join("packages").join("xiom-rate-0.2.0").join("xiom-rate");
+        std::fs::create_dir_all(pkg.join("src")).unwrap();
+        let manifest = ProjectManifest {
+            project: ProjectMeta { name: "app".into(), ..Default::default() },
+            dependencies: vec![DependencySpec {
+                name: "xiom.rate".into(),
+                version: ">=0.2.0".into(),
+                path: None,
+                git: None,
+            }],
+            compiler: CompilerConfig::default(),
+            manifest_dir: dir.clone(),
+        };
+        let roots = dependency_roots_under(&manifest, &dir, &home);
+        assert!(roots.contains(&pkg), "range spec must resolve: {roots:?}");
+        assert!(roots.contains(&pkg.join("src")), "range spec src root: {roots:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // REL-20261010-1549-packages-7: the newest installed version wins by
+    // NUMERIC version order, not directory-name lexicographic order
+    // (0.10.0 must beat 0.9.0).
+    #[test]
+    fn newest_installed_version_wins_numerically() {
+        let dir = std::env::temp_dir().join(format!("xiom_m310n_{}", std::process::id()));
+        let home = dir.join("home");
+        let new_pkg = home.join("packages").join("xiom-rate-0.10.0").join("xiom-rate");
+        std::fs::create_dir_all(new_pkg.join("src")).unwrap();
+        std::fs::create_dir_all(home.join("packages/xiom-rate-0.9.0/xiom-rate/src")).unwrap();
+        let manifest = ProjectManifest {
+            project: ProjectMeta { name: "app".into(), ..Default::default() },
+            dependencies: vec![DependencySpec {
+                name: "xiom.rate".into(),
+                version: ">=0.9.0".into(),
+                path: None,
+                git: None,
+            }],
+            compiler: CompilerConfig::default(),
+            manifest_dir: dir.clone(),
+        };
+        let roots = dependency_roots_under(&manifest, &dir, &home);
+        assert!(roots.contains(&new_pkg), "0.10.0 must beat 0.9.0: {roots:?}");
+        assert!(
+            !roots.iter().any(|r| r.to_string_lossy().replace('\\', "/").contains("xiom-rate-0.9.0")),
+            "the older 0.9.0 dir must lose: {roots:?}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
