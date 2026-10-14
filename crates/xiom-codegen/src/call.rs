@@ -1676,7 +1676,31 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 // B-10 fix (same class as `alloc` above): a LOCAL fn-pointer
                 // named `free` must not be hijacked by the C free() builtin.
                 let user_shadowed_free = self.lookup_local(&fn_name).is_some();
-                if fn_name == "free" && !user_shadowed_free {
+                // m313 (REL-20261013-1445 compiler half): a MODULE-QUALIFIED
+                // `free` call that resolves to a real module definition (the
+                // stdlib `ffi.free` wrapper) must lower THROUGH that definition
+                // instead of the C builtin. Since stdlib wave 124 the wrapper
+                // body is arena-aware (`xiom_guard_free`: guard-arena pointers
+                // are no-ops, main-heap pointers reach libc free); the builtin
+                // below emits bare `@free` on the raw pointer, and inside a
+                // confined block the allocation sits in the guard arena
+                // (`alloc` routes there via emit_alloc) -- libc free on a
+                // VirtualAlloc slab corrupted/spun the process
+                // (1548-bindings-5 alloc-guard-spin). Bare `free(p)` (no
+                // module receiver) and receivers with no resolvable module
+                // definition keep the builtin unchanged.
+                let module_free_def = receiver_expr
+                    .filter(|r| !self.receiver_is_instance(r))
+                    .map(|r| self.resolve_module_call(r, &fn_name))
+                    .filter(|key| {
+                        key != &fn_name
+                            && (self.types.functions.contains_key(key)
+                                || self.mono.emitted_fns.contains(key)
+                                || self.mono.fn_symbol_map.contains_key(key)
+                                || self.mono.generic_fn_decls.iter().any(|(k, _)| k == key))
+                    })
+                    .is_some();
+                if fn_name == "free" && !user_shadowed_free && !module_free_def {
                     if let Some(ptr_arg) = args.first() {
                         let (ptr_val, ptr_ty) = self.compile_expr(ptr_arg)?;
                         // Coerce the freed pointer to i8* (it may be typed i64 or a

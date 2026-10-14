@@ -16680,3 +16680,33 @@ Fix: SubModule/SubModule collisions recurse via
 `merge_module_exports_first_wins` (first-wins leaves, pre-m309 policy).
 LOCK: tests/regression/m309_four_segment_const_import/ (main + main_flip,
 red pre-fix T001 ALPHA/BETA). xiom-check lib 199/199 green.
+
+---
+
+## 2026-10-14 -- FIXED (m313): `ffi.free` call sites lower through the arena-aware wrapper (REL-20261013-1445 compiler half; 1548-bindings-5 alloc-guard-spin)
+
+The codegen `free` builtin hijacked EVERY `free` leaf call (the B-10 gate
+only excluded local fn-pointer shadows) and emitted bare libc `@free`. The
+stdlib `ffi.free` wrapper has been arena-aware since wave 124
+(`xiom_guard_free`: guard-arena pointers no-op, main-heap pointers reach
+libc free), and confined `ffi.alloc` routes to `@xiom_guard_alloc`, so
+inside a confined block the free hit a guard-arena pointer with libc free
+-- Windows heap corruption / VEH retry loop at 100% CPU, no output
+(1548-bindings-5 alloc-guard-spin). Fix: a `free` call whose RECEIVER
+resolves to a real module definition (module-qualified `ffi.free` via
+`resolve_module_call`; instance receivers excluded) now lowers THROUGH
+that definition; bare `free(p)` and no-resolution receivers keep the
+builtin unchanged (B-10 local-shadow veto preserved).
+
+Evidence: IR twin `e2e_m313_ffi_free_guard_ir` -- pre-fix both @main and
+the confined block read `call void @free(`; post-fix both read
+`call void @ffi.free(`. Runtime watchdog lock
+`crates/xiom/tests/ffi_alloc_guard_free.rs` (15 s bound; alloc + write +
+read + free in ONE confined block; skips loudly when the selected stdlib
+root lacks the wave-124 runtime) -- main-heap roundtrip m=9 + confined
+roundtrip v=7. ACCEPTANCE (compiler half + stdlib main): spincheck.xi
+compiled with XIOM_STDLIB=E:\xiom-lang\stdlib --force --no-cache; 3/3
+runs `v=7`, exit 0, <=263 ms (was the 100%-CPU spin repro). Battery:
+e2e g1 16/16 + g2 212/212 (incl. the new lock), codegen lib 12/12,
+front-locks (11 CLI tests incl. ffi_alloc_guard_free) green. The
+stdlib-lane workarounds become retirable at the next pin.

@@ -7894,5 +7894,46 @@ fn e2e_safety_probe() {
         );
     }
 }
+// m313 (REL-20261013-1445 compiler half): `ffi.free` call sites must lower
+// through the stdlib wrapper (`@ffi.free`, arena-aware since stdlib wave 124:
+// its body calls @xiom_guard_free) -- NOT the bare libc `@free` the codegen
+// `free` builtin emitted for every `free` leaf call. Inside a confined block
+// the matching `ffi.alloc` sits in the guard arena (the compiler routes
+// confined alloc to @xiom_guard_alloc), so libc free on that pointer
+// corrupted/spun the process (1548-bindings-5 alloc-guard-spin). Pre-fix
+// this test fails: both the @main (main-heap roundtrip) and the confined
+// block call sites read `call void @free(`. Compile-only lock: bounded and
+// stdlib-pin independent (the runtime-symbol half is exercised end-to-end by
+// the crates/xiom/tests/ffi_alloc_guard_free.rs watchdog).
+#[test] fn e2e_m313_ffi_free_guard_ir() {
+    let ir = compile_ir("tests/regression/m313_alloc_guard_free/main.xi")
+        .expect("m313 ffi-free fixture must compile to IR");
+    // The user confined block fn: carries the write call AND the guard-heap
+    // entry (the stdlib wrapper bodies never write a u64 through ffi).
+    let block = ir.split("\ndefine ")
+        .find(|part| part.contains("@ffi.ptr_write_u64_le") && part.contains("@xiom_guard_heap_enter"))
+        .expect("m313: the user confined block fn must exist");
+    assert!(
+        block.contains("call void @ffi.free("),
+        "m313: the confined ffi.free call site must lower through the wrapper; block:\n{block}"
+    );
+    assert!(
+        !block.contains("call void @free("),
+        "m313: the confined ffi.free call site must NOT lower to bare libc @free; block:\n{block}"
+    );
+    // Main-heap roundtrip OUTSIDE confinement: same wrapper requirement (the
+    // wrapper is arena-aware and reaches libc free off the arena).
+    let main_fn = ir.split("\ndefine ")
+        .find(|part| part.starts_with("i64 @main("))
+        .expect("m313: @main must exist");
+    assert!(
+        main_fn.contains("call void @ffi.free("),
+        "m313: the main-heap ffi.free call site must lower through the wrapper; @main:\n{main_fn}"
+    );
+    assert!(
+        !main_fn.contains("call void @free("),
+        "m313: the main-heap ffi.free call site must NOT lower to bare libc @free; @main:\n{main_fn}"
+    );
+}
 
 
