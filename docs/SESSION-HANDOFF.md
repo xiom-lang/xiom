@@ -17,14 +17,14 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
 
 - origin/main = `91860f11` (fetch before trusting -- the doorbell may push
-  staged work). Local main = the latest commit (see git log), AHEAD by ~49
+  staged work). Local main = the latest commit (see git log), AHEAD by ~52
   unpushed commits (exact: `git rev-list --count origin/main..HEAD`):
   `633ee65b`+`dc3a0102` (v0.64.5 plan/refresh docs) + m276..m292 + m293 +
-  m294 + m295 + m296 + m297 + m298 + m299 + handoff follow-ups + 2 attempt logs (stdlib-6 leg b m291 reverted, see
+  m294 + m295 + m296 + m297 + m298 + m299 + m301 + handoff follow-ups + 2 attempt logs (stdlib-6 leg b m291 reverted, see
   docs/failed_attempts.md; the bindings-4 m288 attempt is superseded by
   m292, and the stdlib-6 leg-b m295 attempt supersedes its failed entry).
   Do NOT push without the owner's authorization.
-- v0.64.5 batches m276-m292 + m293 + m294 + m295 + m296 + m297 + m298 + m299 (commit -> scope; all relayed):
+- v0.64.5 batches m276-m292 + m293 + m294 + m295 + m296 + m297 + m298 + m299 + m301 (commit -> scope; all relayed):
   - `0268c7d9` m276 env-unwrap veto on concretely-typed names (T1 kv AV).
   - `29e35ef8` m277 cast-call C handoff keeps the RAW fn code (two-word
     env: 0=thunk, 1=raw) + nested fn-type markers parse (T2 B-22 + 1403).
@@ -192,6 +192,21 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
     copies (m209 `k == &key` compare still works); the
     `regress_m209_tuple_ref_destructure` test was updated to the
     value-copy shape. Lock `e2e_m299_tuple_ref_destructure`.
+  - `1b78d20f` m301 1549-stdlib-4 FIXED: clause-position `result[i]` never
+    registered the synthetic `result` in `local_vec_elem`, so it fell to
+    the scalar `emit_elem_load` fallback -- `Vec[Float64]` f64 bits were
+    sitofp'd (1.0 -> 4.6e18 -> false `contract violated: ensures`) and
+    `Vec[Vec[T]]` read the inner data pointer as a Vec header. The
+    witness's [1,2] Int control passed only by COINCIDENCE (the [7,9] row
+    violates pre-fix). contracts.rs now registers the return Vec element
+    per clause + snapshots the vec maps. Lock
+    `e2e_m301_clause_float_vec_index` (FAILS Some(1) on a pre-fix binary).
+    ALSO m301: 1549-packages-2 (io fs_read ensures) = NO-REPRO on HEAD --
+    73 runs over 7 multi-module shapes (sibling/chain/permuted imports,
+    --parallel-codegen, package-catalog kv shape, heavy append loops,
+    stdlib smoke_io2) all green with enforcement LIVE; item stays open
+    pending a faithful repro (original nondeterminism was v0.64.0/2-era
+    clause machinery that m291 rewrote).
 - CLOSED / awaiting reporter re-verify at the next archive (compiler work
   done; items are `fixed` on the bus): T1-T3, B-17+B-16, B-23+B-24
   (2051-bindings-2), B-11+B-20 readback family (0304-bindings +
@@ -202,7 +217,8 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
   import -- m292), 1549-packages-11 (Map/Set == -- m293), 1549-packages-9
   (bare &mut/& value sinks -- m294), 1615-stdlib (Path.is_dir self-bind
   SIGILL -- m297), 1549-packages-12 (tuple-ref destructure value copies --
-  m299), 1548-stdlib-6 (leg a m290 alias type paths + leg b m295
+  m299), 1549-stdlib-4 (clause result[i] element binding -- m301),
+  1548-stdlib-6 (leg a m290 alias type paths + leg b m295
   by-value UFCS), 1956-orbitdb + 1709-xvector (same-named types keep
   module identity -- m298), 1548-stdlib-4 (@pre on &mut param fields snapshots the
   entry value -- REAL fix m291 Paren arm; the m288 green was masked), 1548-stdlib-7
@@ -234,16 +250,17 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
 - REMAINING CANDIDATE QUEUE (reds; the bus + the check file are the
   record). Priority order for the next session:
   1. borrow/codegen: 1548-bindings-4 (m292), 1548-stdlib-6 (m295),
-     1549-packages-11 (m293), 1549-packages-12 (m299) DONE. IN FLIGHT:
-     1549-stdlib-2 + 1549-stdlib-3 (m300). Then: 1549-stdlib-4 +
-     1549-packages-2 (m301, clauses). (1549-packages-10 is a wave
-     stale-green close.)
+     1549-packages-11 (m293), 1549-packages-12 (m299), 1549-stdlib-4
+     (m301) DONE. IN FLIGHT: 1549-stdlib-2 + 1549-stdlib-3 (m300).
+     OPEN: 1549-packages-2 -- NO-REPRO m301 (73 runs / 7 multi-module
+     shapes green with enforcement live; needs a faithful repro).
+     (1549-packages-10 is a wave stale-green close.)
   2. resolver/checker: 1549-packages-9 DONE (m294), 1550-orbitdb-2;
      1956-orbitdb + 1709-xvector DONE (m298).
   3. allocator/runtime: 2320-bindings #1 DONE (m296 part 1); 2320 #2/#3
      open, 2032 (owner).
-  4. contracts/clauses: 1549-packages-2 + 1549-stdlib-4 (in flight m301);
-     1548-stdlib-7.
+  4. contracts/clauses: 1549-stdlib-4 DONE (m301); 1549-packages-2
+     NO-REPRO on HEAD (m301, stays open); 1548-stdlib-7.
   5. runtime/misc: 1615-stdlib DONE (m297); 1659-orbitdb (Vec copy alias;
      in flight m302), 1219-orbitdb PART A, 1324-selfhost,
      1553-playground-2, 1554-playground (stdout flush), 1554-benchmark
@@ -575,9 +592,9 @@ NEW (2026-10-13, v0.64.5 triage + FFI batches):
 
 ## 7. m-numbering
 
-- m261-m292 + m293 + m294 + m295 + m296 + m297 + m298 + m299 LANDED;
-  m300/m301/m302 are reserved by the in-flight fixer worktrees (stdlib-2/3,
-  stdlib-4 + packages-2, 1659-orbitdb); **next free after those is
+- m261-m292 + m293 + m294 + m295 + m296 + m297 + m298 + m299 + m301
+  LANDED; m300/m302 are reserved by the in-flight fixer worktrees
+  (stdlib-2/3, 1659-orbitdb); **next free after those is
   m303**.
 
 ## 8. CONTINUATION PROMPT (paste into a fresh session)
@@ -591,8 +608,8 @@ docs/rustc-study/ for reference patterns; rustc source is E:\repos\rust
 (READ-ONLY; no git writes there).
 
 STATE: v0.64.4 released (df493530) and verified. Git: origin/main =
-91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~49 unpushed
-commits (m276-m292 + m293 + m294 + m295 + m296 + m297 + m298 + m299 + docs + attempt logs); do NOT push
+91860f11 (fetch first -- the doorbell may push staged work). Local main = the latest commit (see git log), AHEAD by ~52 unpushed
+commits (m276-m292 + m293 + m294 + m295 + m296 + m297 + m298 + m299 + m301 + docs + attempt logs); do NOT push
 without the owner's authorization. Relay bus: latest compiler commits
 d5e84f8/170cdd9/9712942/4ac2e39 + the m292/m295 fix notes; the check
 file release-checks/compiler-compiler-v0.64.4.md is the candidate record.
@@ -614,15 +631,17 @@ each; see the check file + the bus for details):
 1. borrow/codegen: 1548-bindings-4 (m292), 1548-stdlib-6 (m295),
    1549-packages-11 (m293), 1549-packages-9 (m294), 2320-bindings #1
    (m296 part 1), 1615-stdlib (m297), 1956-orbitdb + 1709-xvector (m298),
-   1549-packages-12 (m299) FIXED. IN FLIGHT: 1549-stdlib-2 + 1549-stdlib-3
-   (m300), 1549-stdlib-4 + 1549-packages-2 (m301), 1659-orbitdb (m302).
-   Cherry-pick serially as they report; then the registry/playground items.
+   1549-packages-12 (m299), 1549-stdlib-4 (m301) FIXED. IN FLIGHT:
+   1549-stdlib-2 + 1549-stdlib-3 (m300), 1659-orbitdb (m302). OPEN:
+   1549-packages-2 (NO-REPRO m301). Cherry-pick serially as they report;
+   then the registry/playground items.
 2. resolver/checker: 1550-orbitdb-2; 1549-packages-9 (m294),
    1956-orbitdb + 1709-xvector (m298) DONE.
 3. allocator/runtime: 2320-bindings #1 DONE (m296 part 1); 2320 #2/#3;
    2032 is a memory-model owner decision (no code work).
-   4. contracts/clauses: 1549-packages-2 + 1549-stdlib-4 (in flight m301);
-      the -O2 constant-fold pruning finding needs a no-fold barrier.
+   4. contracts/clauses: 1549-stdlib-4 DONE (m301); 1549-packages-2
+      NO-REPRO on HEAD (m301, stays open); the -O2 constant-fold pruning
+      finding needs a no-fold barrier.
 5. runtime/misc: 1615-stdlib DONE (m297); 1659-orbitdb (in flight m302),
    1219-orbitdb PART A, 1324-selfhost, 1553-playground-2, 1554-playground.
 6. tooling/registry: 1548-registry-2, 1549-registry/2/3, 1549-packages-5/7.
