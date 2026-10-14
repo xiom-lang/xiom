@@ -1374,6 +1374,29 @@ impl IrEmitter {
         Ok(self.val_to_i64(&raw, &ty))
     }
 
+    /// m312 (REL-20261013-1423 thread readback): declared XIOM type of a
+    /// struct-FIELD access when the field is a RAW POINTER (`h.result_buf`
+    /// -> "*UInt8"). Feeds the let/var binding inference so a bound pointer
+    /// field keeps its pointer-ness: the i8* LLVM slot alone is ambiguous
+    /// with Str and `buf + 8` fell into the Str-concat intercept
+    /// (xiom_str_concat(buf, "8")) -- `JoinHandle.join` read the thread
+    /// result through a decimal-digit string and returned garbage. Mirrors
+    /// the resolution used by the `expr_is_pointer` Field arm.
+    pub(crate) fn infer_field_ptr_xiom(&self, value: &Expr) -> Option<String> {
+        let Expr::Field(obj, field, _) = value else {
+            return None;
+        };
+        let struct_name = self.infer_struct_type_name(obj)?;
+        let idx = self
+            .types
+            .types
+            .get(&struct_name)?
+            .iter()
+            .position(|f| f == &field.name)?;
+        let ft = self.field_xiom_type(&struct_name, idx)?;
+        if ft.starts_with('*') { Some(ft) } else { None }
+    }
+
     /// round-7 (ve2 follow-up): XIOM-level verdict -- is this expression a
     /// POINTER (raw `*T`, `&T`, `&mut T`), not a Str? The Str-concat intercept
     /// fires on ANY i8* operand at the LLVM level, but a `*UInt8` byte buffer

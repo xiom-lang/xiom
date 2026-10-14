@@ -7935,5 +7935,58 @@ fn e2e_safety_probe() {
         "m313: the main-heap ffi.free call site must NOT lower to bare libc @free; @main:\n{main_fn}"
     );
 }
+// m312 (REL-20261013-1423 thread readback): a `*T` struct FIELD bound to a
+// local (`let q = c.buf;`) or used as a method receiver field (`buf` in
+// `Cell.at8`) must lower `+ Int` to pointer arithmetic. The i8* LLVM slot
+// alone is ambiguous with Str, so pre-fix `q + 8` became
+// xiom_str_concat(q, "8") and the read went through a decimal-digit string
+// -- JoinHandle.join's `result_buf + 8` read GARBAGE while the spawned
+// worker had written the correct result.
+#[test] fn e2e_m312_ptr_field_arith() {
+    assert_eq!(
+        compile_and_run("tests/regression/m312_ptr_field_arith/main.xi"),
+        Some(0),
+        "a pointer-typed field (+ let binding / receiver field) must GEP in `+`, not Str-concat (m312)"
+    );
+}
+
+// m312 IR lock: every `+ 8` on the pointer field must be
+// `getelementptr i8, i8*` byte arithmetic and no xiom_str_concat CALL may
+// appear (the fixture is string-free; the decl is unconditional). The
+// confined block fns carry the arithmetic: __unsafe_block_0 = Cell.at8's
+// block (receiver field `buf + 8`), __unsafe_block_1 = main's block (the
+// field, the let-bound copy and the write).
+#[test] fn e2e_m312_ptr_field_arith_ir() {
+    let ir = compile_ir("tests/regression/m312_ptr_field_arith/main.xi")
+        .expect("m312 fixture must compile to IR");
+    let block_body = |id: usize| -> String {
+        let marker = format!("define i64 @__unsafe_block_{id}(");
+        let start = ir
+            .find(&marker)
+            .unwrap_or_else(|| panic!("m312: {marker} must be defined"));
+        let rest = &ir[start..];
+        let end = rest[1..].find("\ndefine ").map(|i| i + 1).unwrap_or(rest.len());
+        rest[..end].to_string()
+    };
+    let at8_block = block_body(0);
+    assert!(
+        at8_block.contains("getelementptr i8, i8*"),
+        "m312: the method receiver field `buf + 8` must be byte GEP; block:\n{at8_block}"
+    );
+    assert!(
+        !at8_block.contains("xiom_str_concat"),
+        "m312: the method receiver field `buf + 8` must not Str-concat; block:\n{at8_block}"
+    );
+    let main_block = block_body(1);
+    let gep_sites = main_block.matches("getelementptr i8, i8*").count();
+    assert!(
+        gep_sites >= 3,
+        "m312: c.buf/q pointer arithmetic needs >= 3 byte GEPs in main's block, got {gep_sites}; block:\n{main_block}"
+    );
+    assert!(
+        !ir.contains("call i8* @xiom_str_concat("),
+        "m312: no `*T + Int` site may lower to a Str-concat call"
+    );
+}
 
 

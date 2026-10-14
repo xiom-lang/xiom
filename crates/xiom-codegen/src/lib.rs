@@ -8087,6 +8087,19 @@ impl IrEmitter {
                             let gep = self.fresh_tmp();
                             self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {loaded_ptr}, i32 0, i32 {idx}"));
                             self.add_local(field_name, gep, &field_llvm_ty);
+                            // m312 (REL-20261013-1423 thread readback): bind the
+                            // field's declared RAW-POINTER type as a bare-name
+                            // local (mirrors decl.rs) -- without it `result_buf
+                            // + 8` in a mono'd method hits the Str-concat
+                            // intercept and join() reads a decimal-digit string.
+                            // Inserted BEFORE the Vec.data round-7 override below
+                            // so Vec keeps its elem-substituted "*T".
+                            if let Some(ft) = self.field_xiom_type(&type_key, idx) {
+                                if ft.starts_with('*') {
+                                    self.local.local_xiom_types.insert(field_name.clone(), ft.clone());
+                                    self.local.ptr_locals.insert(field_name.clone());
+                                }
+                            }
                             self.record_field_vec_elem(field_name, &type_key, &recv_type_name.to_string(), &type_map);
                             // round-7 (ve2): record the Vec.data field's XIOM type
                             // ("*Int" for Vec[Int], "*UInt8" for Vec[UInt8]) so the
@@ -8128,6 +8141,15 @@ impl IrEmitter {
                             let gep = self.fresh_tmp();
                             self.emitln(&format!("  {gep} = getelementptr {st}, {st}* {self_alloca}, i32 0, i32 {idx}"));
                             self.add_local(field_name, gep, &field_llvm_ty);
+                            // m312 (REL-20261013-1423 thread readback): same
+                            // raw-pointer field typing as the pointer-receiver
+                            // branch above (JoinHandle.result_buf: *UInt8).
+                            if let Some(ft) = self.field_xiom_type(&type_key, idx) {
+                                if ft.starts_with('*') {
+                                    self.local.local_xiom_types.insert(field_name.clone(), ft.clone());
+                                    self.local.ptr_locals.insert(field_name.clone());
+                                }
+                            }
                             self.record_field_vec_elem(field_name, &type_key, &recv_type_name.to_string(), &type_map);
                             if field_name == "data" && (type_key == "Vec" || recv_type_name == "Vec") {
                                 if let Some(elem) = type_map.values().next() {

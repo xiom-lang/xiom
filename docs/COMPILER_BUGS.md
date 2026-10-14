@@ -16710,3 +16710,47 @@ runs `v=7`, exit 0, <=263 ms (was the 100%-CPU spin repro). Battery:
 e2e g1 16/16 + g2 212/212 (incl. the new lock), codegen lib 12/12,
 front-locks (11 CLI tests incl. ffi_alloc_guard_free) green. The
 stdlib-lane workarounds become retirable at the next pin.
+
+---
+
+## 2026-10-14 -- FIXED (m312): pointer-typed struct FIELDS keep pointer arithmetic in `+` (REL-20261013-1423 compiler half: thread readback str-concat hijack)
+
+A `*T` struct field bound to a local (`let q = h.result_buf;`) or read as
+a method-receiver field (`buf + 8` in `Cell.at8` / `JoinHandle.join`)
+lost its declared pointer type: the bare `i8*` LLVM slot is ambiguous
+with Str, so `+ Int` lowered to the Str-concat intercept
+(`xiom_str_concat(buf, "8")`) and the read went through a decimal-digit
+string. Fix: `infer_field_ptr_xiom` resolves a Field's declared XIOM type
+when it starts with `*`; let/var inference records it in
+`local_xiom_types` + `ptr_locals`; the destructuring/field-setup paths
+(`decl.rs` pointer-receiver + struct-literal, `lib.rs` mono'd method
+receiver) insert the field's raw-pointer type as a bare-name local
+(before the Vec.data round-7 override so Vec keeps its `*T`).
+
+Evidence: fixture `tests/regression/m312_ptr_field_arith/` -- field
+write/read roundtrip, let-bound copy, method-receiver field; exit 1/2/3
+pinpoint the failing site; pre-fix exit 1, post-fix 0. IR twin
+`e2e_m312_ptr_field_arith_ir`: every `+ 8` is `getelementptr i8, i8*`,
+>= 3 byte GEPs in main's block, no `xiom_str_concat`. Battery: e2e
+g1 16 + g2 214 + codegen lib 12; locks 2/2. Post-fix IR confirms the
+read path: `JoinHandle.join_Int` reads `(result_buf + 8)` as a byte GEP.
+
+THREAD GATE STILL RED -- the residual is STDLIB-RUNTIME, not compiler:
+acceptance (dbg131s/dbgworker vs stdlib main c209e58, compiler through
+m312) shows `joined`/`val` garbage; the low 32 bits of every garbage
+value are EXACTLY the worker result (42; a two-thread probe reads
+low32=42/7 across samples), the upper 32 bits are malloc junk. Root
+cause: `runtime/xiom_runtime.c` `xiom_task_trampoline` stores the result
+as C `long` (`*(long*)(payload->result_buf + 8) = result;`) -- on
+Windows (x86_64-pc-windows-msvc ABI) sizeof(long) == 4, so only 4 of the
+8 i64 bytes land at +8; the reader loads 8 and sees junk. Fresh zero
+pages explain the intermittent 42s (3/5 greens observed). Demo (clang
+22.1.8, same toolchain): sizeof(long)=4; a dirty buffer reads back
+0xABABABAB0000002A after a 42 store. Fix (stdlib lane): use
+`long long`/int64_t for the payload `fn` type, `result`, and both stores
+in the trampoline plus the spawn fn cast. Handed to the stdlib lane via
+REL-20261013-1423-compiler; end-to-end scratch verification here was
+blocked by the known duplicate-stdlib-tree mixing (a copied tree loses
+the module pick across the 29 scanned trees), so the next stdlib pin
+should re-run dbg131s/dbgworker x5 (`joined 42`). Do NOT flip the
+thread e2e at a pin until BOTH the runtime half and this gate pass.

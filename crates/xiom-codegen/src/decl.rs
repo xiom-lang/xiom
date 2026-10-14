@@ -1727,6 +1727,19 @@ impl IrEmitter {
                         let gep = self.fresh_tmp();
                         self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {loaded_ptr}, i32 0, i32 {idx}"));
                         self.add_local(field_name, gep, &field_llvm_ty);
+                        // m312 (REL-20261013-1423 thread readback): bind the
+                        // field's declared RAW-POINTER type ("*UInt8") as a
+                        // bare-name local too -- the i8* LLVM slot alone is
+                        // ambiguous with Str, so `result_buf + 8` in a method
+                        // (or its confined block fns) hit the Str-concat
+                        // intercept and join() read the result through a
+                        // decimal-digit string.
+                        if let Some(ft) = self.field_xiom_type(&recv.name, idx) {
+                            if ft.starts_with('*') {
+                                self.local.local_xiom_types.insert(field_name.clone(), ft.clone());
+                                self.local.ptr_locals.insert(field_name.clone());
+                            }
+                        }
                     }
                     // m163: register field Vec element types (Str-handle loads,
                     // concat classification) exactly like local Vecs.
@@ -1754,6 +1767,15 @@ impl IrEmitter {
                         let gep = self.fresh_tmp();
                         self.emitln(&format!("  {gep} = getelementptr {st}, {st}* {alloca_ref}, i32 0, i32 {idx}"));
                         self.add_local(field_name, gep, &field_llvm_ty);
+                        // m312 (REL-20261013-1423 thread readback): same
+                        // raw-pointer field typing as the pointer-receiver
+                        // branch above.
+                        if let Some(ft) = self.field_xiom_type(&recv.name, idx) {
+                            if ft.starts_with('*') {
+                                self.local.local_xiom_types.insert(field_name.clone(), ft.clone());
+                                self.local.ptr_locals.insert(field_name.clone());
+                            }
+                        }
                     }
                     // m163: register field Vec element types (Str-handle loads,
                     // concat classification) exactly like local Vecs.

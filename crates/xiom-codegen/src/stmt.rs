@@ -595,6 +595,15 @@ impl IrEmitter {
                     // work (was untyped -> degraded to Str/i64 -> AV).
                     self.local.local_xiom_types.insert(name.name.clone(), px.clone());
                     self.track_local_signedness(&name.name, &px);
+                } else if let Some(pt) = self.infer_field_ptr_xiom(value) {
+                    // m312 (REL-20261013-1423 thread readback): `let buf =
+                    // h.result_buf;` -- a binding from a field DECLARED as a
+                    // raw pointer (*T) keeps that type, so `buf + 8` lowers to
+                    // GEP byte arithmetic instead of the Str-concat intercept
+                    // (an i8* slot alone is ambiguous with Str; join() then
+                    // read the result through a decimal-digit string).
+                    self.local.local_xiom_types.insert(name.name.clone(), pt.clone());
+                    self.local.ptr_locals.insert(name.name.clone());
                 } else if let Some(rt) = self.infer_call_return_xiom(value) {
                     // BUG 52: `var m = make_map()` -- a local bound to a fn
                     // call keeps the callee's declared return type ("Map[Str,
@@ -971,6 +980,15 @@ impl IrEmitter {
                     // work (was untyped -> degraded to Str/i64 -> AV).
                     self.local.local_xiom_types.insert(name.name.clone(), px.clone());
                     self.track_local_signedness(&name.name, &px);
+                } else if let Some(pt) = self.infer_field_ptr_xiom(value) {
+                    // m312 (REL-20261013-1423 thread readback): `let buf =
+                    // h.result_buf;` -- a binding from a field DECLARED as a
+                    // raw pointer (*T) keeps that type, so `buf + 8` lowers to
+                    // GEP byte arithmetic instead of the Str-concat intercept
+                    // (an i8* slot alone is ambiguous with Str; join() then
+                    // read the result through a decimal-digit string).
+                    self.local.local_xiom_types.insert(name.name.clone(), pt.clone());
+                    self.local.ptr_locals.insert(name.name.clone());
                 } else if let Some(rt) = self.infer_call_return_xiom(value) {
                     // BUG 52: `var m = make_map()` -- a local bound to a fn
                     // call keeps the callee's declared return type ("Map[Str,
