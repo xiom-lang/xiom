@@ -131,7 +131,27 @@ impl super::IrEmitter {
             self.emitln(&format!("  {tmp} = icmp ne i64 {ext}, 0"));
             tmp
         };
-        self.emitln(&format!("  br i1 {cond_i1}, label %{ok_label}, label %{fail_label}"));
+        // m311 (O2 no-fold barrier; COMPILER_BUGS m283 finding): clang -O2
+        // constant-folds clause conditions whose operands become constant
+        // after inlining (`requires: x != x`, `ensures: result == x + C` on a
+        // constant input) and can then prune the check's violated-clause path
+        // out of the optimized build -- enforcement dies only on optimized
+        // builds. Route the final i1 through a volatile round-trip: LLVM must
+        // not fold or elide volatile accesses, so `cond_opaque` stays
+        // runtime-decided at every opt level and on every target (no
+        // inline-asm dependency). The alloca sits at the clause site; a clause
+        // check executes at most once per invocation (entry requires / return
+        // ensures), so the slot cannot accumulate stack.
+        let barrier_slot = self.fresh_tmp();
+        self.emitln(&format!("  {barrier_slot} = alloca i8"));
+        let barrier_w = self.fresh_tmp();
+        self.emitln(&format!("  {barrier_w} = zext i1 {cond_i1} to i8"));
+        self.emitln(&format!("  store volatile i8 {barrier_w}, i8* {barrier_slot}"));
+        let barrier_r = self.fresh_tmp();
+        self.emitln(&format!("  {barrier_r} = load volatile i8, i8* {barrier_slot}"));
+        let cond_opaque = self.fresh_tmp();
+        self.emitln(&format!("  {cond_opaque} = icmp ne i8 {barrier_r}, 0"));
+        self.emitln(&format!("  br i1 {cond_opaque}, label %{ok_label}, label %{fail_label}"));
         self.emitln(&format!("\n{fail_label}:"));
         let msg_ptr = self.fresh_tmp();
         let msg = format!("contract violated: {clause_type} at {}", expr.span());

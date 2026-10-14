@@ -16754,3 +16754,37 @@ blocked by the known duplicate-stdlib-tree mixing (a copied tree loses
 the module pick across the 29 scanned trees), so the next stdlib pin
 should re-run dbg131s/dbgworker x5 (`joined 42`). Do NOT flip the
 thread e2e at a pin until BOTH the runtime half and this gate pass.
+
+---
+
+## 2026-10-14 -- FIXED (m311): contract no-fold barrier -- clause checks stay runtime-decided on optimized builds (the m283 -O2 constant-fold finding)
+
+Recorded finding (m283 section, still in the OPEN FINDINGS list of the
+handoff): clang -O2 constant-folds clause conditions whose operands
+become constant after inlining (`requires: x != x`; `ensures: result ==
+x + C` on a constant input) and can then prune the check's
+violated-clause path out of the optimized build -- enforcement dies only
+on optimized builds. Fix: `compile_contract_check` routes the final
+branch i1 through a volatile i8 stack round-trip (alloca / volatile
+store / volatile load / `icmp ne i8 .., 0`): LLVM must not fold or elide
+volatile accesses, so the branch stays runtime-decided at -O0/-O1/-O2/-O3
+on every target (no inline-asm dependency, no runtime helper). The alloca
+sits at the clause site, and a clause check executes at most once per
+invocation (entry requires / return ensures), so no stack accumulation.
+
+Evidence: handcrafted-IR A/B at -O2 (clang 22.1.8) -- a satisfied check
+WITHOUT the barrier folds and its fail/panic block disappears from the
+optimized function; WITH the barrier the volatile round-trip, branch and
+fail block survive. Runtime probes: violated constant-foldable
+requires/ensures abort at --opt-level 0 and 2 and at
+-O3/--release --runtime-contracts; the satisfied control is green at
+both. NOTE: the recorded pre-fix behavior (abort at -O0, exit 0 at -O2)
+does NOT reproduce on this base -- m291 had already restored global
+enforcement (the m283-era re-entrancy skip made it dead then), so this
+lands as the recorded finding's enforcement-hardening half. Lock:
+`crates/xiom/tests/o2_contract_barrier_cli.rs` (4 tests: folded requires
+aborts at o0+o2, folded ensures aborts at o2, control green, the emitted
+IR carries the barrier) + fixtures
+tests/regression/m311_o2_contract_barrier/{main,ens,control}.xi; the
+front-locks list gained the test. Battery: lock 4/4, e2e g1 16 + g2 214,
+codegen lib 12.
