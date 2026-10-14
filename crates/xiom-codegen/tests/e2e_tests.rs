@@ -8289,3 +8289,49 @@ fn e2e_safety_probe() {
         );
     }
 }
+
+// m319 (REL-20261013-2238-engine, vecvecstr): a Vec[Vec[Str]] element read
+// returned the string HANDLE as an untyped i64 through bound inner vecs,
+// bound Str elements, Str params and call-returned nested Vecs (decimal
+// pointer digits / mojibake / empty). Pre-fix the fixture exits 4 (v0.64.4
+// also exits 4); the fix records the index read's XIOM value type on the
+// binding and resolves chained/call-return containers at the index site.
+#[test] fn e2e_m319_vecvecstr_nested() {
+    assert_eq!(
+        compile_and_run("tests/regression/m319_vecvecstr_nested/main.xi"),
+        Some(0),
+        "m319: nested Vec[Vec[Str]] element reads must keep the Str class through bound inner vecs, bound Str elements, Str params and returned nested Vecs"
+    );
+}
+
+// m319 (REL-20261013-2238-engine-2, fnvalue_records): a cross-module
+// provider struct with a fn-typed field carrying by-value Vec params +
+// struct return emitted `%struct.CaptureProvider` BEFORE `%struct.Vec`
+// (alphabetical type emission), and clang rejects a not-yet-defined struct
+// in a function-type argument position ("invalid type for function
+// argument" -- no binary). The fix emits referenced struct bodies before
+// their users (dependency DFS). Pre-fix the compile FAILS (None); the
+// v0.64.4 pin fails the same way.
+#[test] fn e2e_m319_fnvalue_records() {
+    assert_eq!(
+        compile_and_run("tests/regression/m319_fnvalue_records/main.xi"),
+        Some(0),
+        "m319: fn-value fields with by-value Vec/record parameters must emit dependencies-before-users so clang accepts the function type"
+    );
+}
+
+// m319 (REL-20261013-2238-engine-3, meshencoder): the engine's Mesh type
+// collided with stdlib xiom.geom.geometry_3d.Mesh once the CLI chain pulled
+// xiom.geom in -- engine-shaped mesh encoders called from an IMPORTED
+// module read through the wrong layout (9216 bytes for a 384-byte quad +
+// AV). Fixed in the m278 same-named-type identity work; this fixture pins
+// the whole composition (entry builder, module builder, entry-built &Mesh
+// through a module wrapper, byte-exact compares). Red on the v0.64.4 pin
+// (0xC0000005), green at HEAD.
+#[test] fn e2e_m319_meshencoder_collision() {
+    assert_eq!(
+        compile_and_run("tests/regression/m319_meshencoder_collision/main.xi"),
+        Some(0),
+        "m319: a same-named Mesh (engine-shaped) vs xiom.geom.geometry_3d.Mesh must keep module identity across the composed CLI chain"
+    );
+}

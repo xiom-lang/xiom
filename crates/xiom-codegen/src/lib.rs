@@ -5482,18 +5482,91 @@ impl IrEmitter {
         // 0xC0000005, eco suites -- all flaky across builds until sorted).
         let mut type_meta_entries = self.types.type_meta.entries();
         type_meta_entries.sort_by(|a, b| a.0.cmp(&b.0));
-        for (name, meta) in type_meta_entries {
-            let struct_ref = format!("%struct.{name}");
-            let field_types: Vec<String> = meta.fields.iter()
-                .map(|(_, ty_name)| {
-                    let t = self.llvm_type_for(ty_name).unwrap_or_else(|_| "i64".to_string());
-                    if t == struct_ref { format!("{t}*") } else { t }
-                })
-                .collect();
-            self.emitln(&format!("%struct.{name} = type {{ {} }}", field_types.join(", ")));
-            // M65 R7: remember which definitions the decl pass emitted so the
-            // trailing body-time flush never duplicates them.
-            self.types.emitted_type_defs.insert(name.clone());
+        // m319 (REL-20261013-2238-engine-2): the alphabetical order alone
+        // emitted `%struct.CaptureProvider` before `%struct.Vec` ("C" < "V"),
+        // and clang's parser rejects a struct whose body has not been seen
+        // yet when it appears in a FUNCTION-TYPE ARGUMENT position --
+        // `%struct.CaptureProvider = type { i8*, %struct.CaptureRun (i8*,
+        // i64, %struct.Vec, ...)* }` failed with "invalid type for function
+        // argument". Plain field positions tolerate forward references; fn
+        // argument lists do not, so emit every referenced struct body BEFORE
+        // its users. Deterministic DFS over field-type references (roots and
+        // deps alphabetical), cycle-tolerant (a reference that is already on
+        // the DFS stack keeps the legacy forward-reference behavior).
+        let struct_fields: Vec<(String, Vec<String>)> = type_meta_entries
+            .iter()
+            .map(|(name, meta)| {
+                let struct_ref = format!("%struct.{name}");
+                let field_types: Vec<String> = meta.fields.iter()
+                    .map(|(_, ty_name)| {
+                        let t = self.llvm_type_for(ty_name).unwrap_or_else(|_| "i64".to_string());
+                        if t == struct_ref { format!("{t}*") } else { t }
+                    })
+                    .collect();
+                (name.clone(), field_types)
+            })
+            .collect();
+        // Referenced `%struct.<name>` deps per entry (names may be
+        // module-qualified, so take the full dotted token).
+        let known: HashSet<&str> = struct_fields.iter().map(|(n, _)| n.as_str()).collect();
+        let mut deps_idx: Vec<Vec<usize>> = Vec::with_capacity(struct_fields.len());
+        let index_of: HashMap<&str, usize> = struct_fields.iter()
+            .enumerate()
+            .map(|(i, (n, _))| (n.as_str(), i))
+            .collect();
+        for (i, (name, field_types)) in struct_fields.iter().enumerate() {
+            let mut deps: Vec<usize> = Vec::new();
+            for ft in field_types {
+                let mut rest = ft.as_str();
+                while let Some(pos) = rest.find("%struct.") {
+                    let tail = &rest[pos + "%struct.".len()..];
+                    let end = tail.find(|c: char| !(c.is_ascii_alphanumeric() || c == '.' || c == '_'))
+                        .unwrap_or(tail.len());
+                    let ref_name = &tail[..end];
+                    if ref_name != name.as_str() && known.contains(ref_name) {
+                        if let Some(&d) = index_of.get(ref_name) {
+                            if d != i && !deps.contains(&d) {
+                                deps.push(d);
+                            }
+                        }
+                    }
+                    rest = &tail[end..];
+                }
+            }
+            deps.sort_by(|a, b| struct_fields[*a].0.cmp(&struct_fields[*b].0));
+            deps_idx.push(deps);
+        }
+        let mut emit_state = vec![0u8; struct_fields.len()];
+        for root in 0..struct_fields.len() {
+            if emit_state[root] != 0 {
+                continue;
+            }
+            emit_state[root] = 1;
+            let mut stack: Vec<(usize, usize)> = vec![(root, 0)];
+            loop {
+                let (node, dep_pos) = match stack.last() {
+                    Some(&top) => top,
+                    None => break,
+                };
+                if dep_pos < deps_idx[node].len() {
+                    let d = deps_idx[node][dep_pos];
+                    if let Some(top) = stack.last_mut() {
+                        top.1 += 1;
+                    }
+                    if emit_state[d] == 0 {
+                        emit_state[d] = 1;
+                        stack.push((d, 0));
+                    }
+                } else {
+                    let (name, field_types) = &struct_fields[node];
+                    self.emitln(&format!("%struct.{name} = type {{ {} }}", field_types.join(", ")));
+                    // M65 R7: remember which definitions the decl pass emitted so the
+                    // trailing body-time flush never duplicates them.
+                    self.types.emitted_type_defs.insert(name.clone());
+                    emit_state[node] = 2;
+                    stack.pop();
+                }
+            }
         }
         if !self.types.types.len() == 0 {
             self.emitln("");

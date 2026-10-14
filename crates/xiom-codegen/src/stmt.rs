@@ -577,6 +577,16 @@ impl IrEmitter {
                     } else {
                         self.local.signed_locals.remove(&name.name);
                     }
+                } else if let Some(ixv) = self.infer_index_value_xiom(value) {
+                    // m319 (REL-20261013-2238-engine, vecvecstr): a binding
+                    // from a Vec ELEMENT read keeps the element's XIOM type
+                    // (`let s = outer[0][1]` of Vec[Vec[Str]] -> "Str";
+                    // `var inner = outer[0]` -> "Vec[Str]", which the block
+                    // below turns into local_vec_elem["inner"] = "Str"). The
+                    // untyped binding made `s + "!"` format the string
+                    // HANDLE as decimal digits.
+                    self.local.local_xiom_types.insert(name.name.clone(), ixv.clone());
+                    self.track_local_signedness(&name.name, &ixv);
                 } else if let Some(ix) = self.infer_if_xiom_type(value) {
                     // gzip fix (2026-08-19): `let v = if c { f() } else { g() };`
                     // -- the binding keeps the arm tail's XIOM type ("Vec[UInt8]").
@@ -962,6 +972,16 @@ impl IrEmitter {
                     } else {
                         self.local.signed_locals.remove(&name.name);
                     }
+                } else if let Some(ixv) = self.infer_index_value_xiom(value) {
+                    // m319 (REL-20261013-2238-engine, vecvecstr): a binding
+                    // from a Vec ELEMENT read keeps the element's XIOM type
+                    // (`let s = outer[0][1]` of Vec[Vec[Str]] -> "Str";
+                    // `var inner = outer[0]` -> "Vec[Str]", which the block
+                    // below turns into local_vec_elem["inner"] = "Str"). The
+                    // untyped binding made `s + "!"` format the string
+                    // HANDLE as decimal digits.
+                    self.local.local_xiom_types.insert(name.name.clone(), ixv.clone());
+                    self.track_local_signedness(&name.name, &ixv);
                 } else if let Some(ix) = self.infer_if_xiom_type(value) {
                     // gzip fix (2026-08-19): `let v = if c { f() } else { g() };`
                     // -- the binding keeps the arm tail's XIOM type ("Vec[UInt8]").

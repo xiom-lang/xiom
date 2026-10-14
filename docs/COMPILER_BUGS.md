@@ -16974,3 +16974,34 @@ post-return push proving the promoted buffer is live main-heap memory)
 and m318_move_by_value_pin/. Locks: `e2e_m318_vec_match_arm_confined`
 (+ `_ir` twin: promotion before arena reset + insertvalue), borrow_e001.
 Battery: locks 2/2, borrow_e001 3/3, e2e g1 16 + g2 225, codegen lib 12.
+
+---
+
+## 2026-10-14 -- FIXED (m319): nested Vec[Str] element classes + fn-value aggregate signature type order + the Mesh/Mesh collision lock (REL-20261013-2238-engine + -2238-engine-2 + -2238-engine-3)
+
+1. vecvecstr: a `Vec[Vec[Str]]` element read returned the string HANDLE
+   as an untyped i64 through bound inner Vecs, bound Str elements, Str
+   params and call-returned nested Vecs (decimal pointer digits /
+   mojibake / empty). The index site now resolves chained Index /
+   call-return containers (`vec_value_xiom_type` +
+   `element_of_container_type`, restricted to struct-layout names) and
+   let/var bindings record the index read's XIOM value type
+   (`infer_index_value_xiom`), so `inner[i]` takes the Str-handle path
+   and `s + x` concats as a string. Pre-fix
+   `e2e_m319_vecvecstr_nested` exits 4 (same on the v0.64.4 pin).
+2. fnvalue_records: the cross-module CaptureProvider shape (fn-typed
+   field carrying by-value Vec params + struct return) emitted
+   `%struct.CaptureProvider` before `%struct.Vec` (alphabetical
+   type_meta order); clang rejects a not-yet-defined struct in a
+   function-type ARGUMENT list (`invalid type for function argument`, no
+   binary). Type definitions now emit in dependency order (deterministic,
+   cycle-tolerant DFS over field-type `%struct` refs). Red on v0.64.4.
+3. meshencoder: RED on the v0.64.4 pin (0xC0000005 for the composed
+   entry/module/geom chain) and on m276/m277; green from m278 (484d9f21)
+   -- root cause = the engine Mesh vs `xiom.geom.geometry_3d.Mesh`
+   same-named type identity collision. The fixture pins the composition
+   (+ a no-geom A/B control that is green even on v0.64.4).
+
+Locks: `e2e_m319_vecvecstr_nested`, `e2e_m319_fnvalue_records`,
+`e2e_m319_meshencoder_collision`. Battery: locks 3/3, e2e g1 16 + g2
+228, codegen lib 12.

@@ -830,6 +830,23 @@ impl IrEmitter {
         None
     }
 
+    /// m319 (REL-20261013-2238-engine, vecvecstr): the XIOM VALUE type of an
+    /// INDEX read (`let s = outer[0][1];` of Vec[Vec[Str]] -> "Str";
+    /// `var inner = outer[0];` -> "Vec[Str]"). Without it the binding stayed
+    /// untyped and downstream consumers (Str concat, Str params) fell back to
+    /// the i64 slot verdict -- the string HANDLE was formatted as decimal
+    /// digits (the engine's "nested element reads return garbage"). The
+    /// container's Vec type resolves through `vec_value_xiom_type` (AST-based:
+    /// local/global element records + chained Index + call returns), then one
+    /// Vec layer is stripped.
+    pub(crate) fn infer_index_value_xiom(&self, value: &Expr) -> Option<String> {
+        let Expr::Index(container, _, _) = value else {
+            return None;
+        };
+        let vt = self.vec_value_xiom_type(container)?;
+        Self::element_of_container_type(&vt)
+    }
+
     /// Round-6 fix (2026-08-19): `let name = io.file_name(p)?;` -- the `?`
     /// (Try) binding keeps the payload XIOM type ("Str") so method dispatch
     /// on the binding (`name.byte_at(i)`, `name.substr(...)`) coerces the

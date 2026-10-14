@@ -1153,7 +1153,7 @@ impl IrEmitter {
     ///   Index(inner, i) -> element of the inner value's type
     /// This is what lets `rows[0][0]` (Vec[Vec[Str]]) resolve to "Str"
     /// instead of falling through to the concat LLVM-type fallback.
-    fn vec_value_xiom_type(&self, e: &Expr) -> Option<String> {
+    pub(crate) fn vec_value_xiom_type(&self, e: &Expr) -> Option<String> {
         match e {
             Expr::Ident(id) => self.local.local_vec_elem.get(&id.name)
                 .map(|el| format!("Vec[{el}]"))
@@ -1181,7 +1181,7 @@ impl IrEmitter {
     }
 
     /// "Vec[Str]" -> "Str" (also Slice/Array/Map-key containers).
-    fn element_of_container_type(vt: &str) -> Option<String> {
+    pub(crate) fn element_of_container_type(vt: &str) -> Option<String> {
         for prefix in ["Vec[", "Slice[", "Array["] {
             if let Some(rest) = vt.strip_prefix(prefix) {
                 if let Some(inner) = rest.strip_suffix(']') {
@@ -1190,6 +1190,23 @@ impl IrEmitter {
             }
         }
         None
+    }
+
+    /// m319 (REL-20261013-2238-engine, vecvecstr): true when a Vec element
+    /// XIOM type name can be lowered through the struct-memcpy element path
+    /// (the container brackets that path maps explicitly, or a registered
+    /// struct/enum key). fn markers, scalars, unknown names -- and names the
+    /// path would spell as `%struct.<name>` without a definition -- keep
+    /// their existing loading paths (m127: `%struct.fn() -> Int` alloca).
+    pub(crate) fn elem_uses_struct_layout(&self, elem: &str) -> bool {
+        if elem.starts_with("Vec[") || elem.starts_with("Map[") || elem.starts_with("Set[")
+            || elem.starts_with("Option[") || elem.starts_with("Result[")
+        {
+            return true;
+        }
+        let suffix = format!(".{elem}");
+        self.types.types.keys().into_iter().any(|k| k.as_str() == elem || k.ends_with(&suffix))
+            || self.types.enum_variants.keys().into_iter().any(|k| k.as_str() == elem || k.ends_with(&suffix))
     }
 
     /// True when the indexed element's XIOM type is a CONCRETE non-integer

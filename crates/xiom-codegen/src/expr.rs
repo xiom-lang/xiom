@@ -3603,13 +3603,26 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                 None
                             }
                         });
+                    // m319 (REL-20261013-2238-engine, vecvecstr): resolve the
+                    // container's Vec type through the AST walker (local/global
+                    // element records + chained Index + call returns) so a
+                    // NESTED container (`var inner = outer[0]` / `outer[0][1]`
+                    // / `mk()[0][0]` of Vec[Vec[Str]]) takes the Str-handle /
+                    // typed-element paths instead of the i64 scalar fallback
+                    // that returned the string HANDLE as decimal digits.
+                    let cont_elem_xiom = self.vec_value_xiom_type(container)
+                        .as_deref()
+                        .and_then(Self::element_of_container_type);
                     // BUG 37/36 follow-up: Vec[Str] elements are STRING
                     // HANDLES (i8* in 8-byte slots). Load the handle and
                     // inttoptr it back to i8* -- the generic scalar path
                     // returned a bare i64 which downstream Str consumers
                     // (println, Str params) mis-coerced into a single-byte
                     // temp (smoke_serialize yaml_emit_sequence garbage).
-                    if self.vec_elem_is_str(container) {
+                    if self.vec_elem_is_str(container)
+                        || cont_elem_xiom.as_deref() == Some("Str")
+                        || mapped_elem.as_deref() == Some("Str")
+                    {
                         let signed = self.vec_elem_signed(container);
                         let elem = self.emit_elem_load(&elem_ptr, &esz_val, signed);
                         let sp = self.fresh_tmp();
@@ -3619,8 +3632,16 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     // For struct elements with a known element type, load the
                     // struct directly from Vec data via memcpy, bypassing the
                     // ptrtoint/inttoptr chain of emit_elem_load+val_to_struct.
+                    // m319: `cont_elem_xiom` extends the same resolution to
+                    // chained/call containers (`outer[0]` -> "Vec[Str]") --
+                    // only names the struct path can lower (container
+                    // brackets / registered types); fn markers, scalars and
+                    // unknown names keep their existing loading paths.
                     let resolved_elem = self.resolve_vec_elem_type(container)
-                        .or_else(|| mapped_elem.clone());
+                        .or_else(|| mapped_elem.clone())
+                        .or_else(|| cont_elem_xiom.clone()
+                            .map(|e| Self::tuple_xiom_to_struct_name(&e))
+                            .filter(|e| self.elem_uses_struct_layout(e)));
                     if let Some(elem_type_name) = resolved_elem {
                         // Record for CHAINED indexes: this Index expression
                         // yields elements of type elem_type_name.
@@ -3645,10 +3666,15 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         // PRIMITIVE elements keep the scalar loader below --
                         // the struct-memcpy path must only fire for real
                         // struct/nested-Vec elements (alloca %struct.Int was
-                        // an unsized-type compile error).
+                        // an unsized-type compile error). m319: 128-bit
+                        // payloads join the list -- the m314 typed-load block
+                        // below handles them (a nested `Vec[Vec[Int128]]`
+                        // element falling in here would have emitted
+                        // `alloca %struct.Int128`).
                         let is_primitive_elem = matches!(elem_type_name.as_str(),
                             "Int" | "Bool" | "Str" | "UInt8" | "Int8" | "Int16"
-                            | "Int32" | "UInt16" | "UInt32" | "Char");
+                            | "Int32" | "UInt16" | "UInt32" | "Char"
+                            | "Int128" | "UInt128" | "Float128");
                         if !is_primitive_elem {
                         // BUG 23 #2 fix: NESTED Vec[Vec[T]] -- the element IS a
                         // generic %struct.Vec (32 bytes); memcpy it like any
