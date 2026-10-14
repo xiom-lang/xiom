@@ -8335,3 +8335,56 @@ fn e2e_safety_probe() {
         "m319: a same-named Mesh (engine-shaped) vs xiom.geom.geometry_3d.Mesh must keep module identity across the composed CLI chain"
     );
 }
+
+// m321 (REL-20261013-2119-engine + REL-20261014-1213-engine): the
+// empty-Vec element READ class. The engine bisect artifacts (bisect_88 /
+// bisect_95c) AV'd inside strcmp with ZERO output: their check 20 read
+// `events[0]` on an empty Vec[Str] -- the tick-5 chord can never fire (its
+// first member was RELEASED before the second member's press, so no tick
+// has all members down), and the resident heap bytes were dereferenced as
+// a Str pointer (-1073741819). bisect_75 "ran" only because it omits that
+// check: there is no main-size threshold. The engine's real
+// probe_input_map battery is 22/22 green and the pinned v0.64.4 toolchain
+// behaves identically -> not a compiler regression; the finding is that
+// this read class had no e2e lock (reads on EMPTY Vecs, len == 0).
+//
+// Documented contract: default builds keep the historical unchecked
+// element read (out-of-bounds reads are UB -- the witness dereferenced the
+// garbage); --overflow-checks turns it into a deterministic llvm.trap via
+// the read-path bounds guard (expr.rs `bounds_trap`).
+#[test] fn e2e_m321_empty_vec_read_contract() {
+    let code = compile_and_run_with_flags(
+        "tests/regression/m321_empty_vec_read/main.xi",
+        &["--overflow-checks"],
+    );
+    assert!(
+        code.is_some() && code != Some(0),
+        "empty Vec element read must trap under --overflow-checks (m321), got {code:?}"
+    );
+}
+
+// m321 IR twin: the read-path bounds guard is emitted under
+// --overflow-checks and stays out of default builds -- the same
+// presence/absence split m241 pins for writes. Default builds must keep
+// the historical unchecked element read.
+#[test] fn e2e_m321_empty_vec_read_contract_ir() {
+    let emit = |extra: &[&str]| -> String {
+        let output = Command::new(xiom_path())
+            .args(extra)
+            .args(["--emit-ir", "tests/regression/m321_empty_vec_read/main.xi"])
+            .current_dir(project_root())
+            .output()
+            .expect("emit-ir");
+        String::from_utf8_lossy(&output.stdout).to_string()
+    };
+    let checked = emit(&["--overflow-checks"]);
+    assert!(
+        checked.contains("bounds_trap"),
+        "the Vec read-path bounds trap must be emitted under --overflow-checks (m321)"
+    );
+    let default = emit(&[]);
+    assert!(
+        !default.contains("bounds_trap"),
+        "default builds must keep the historical unchecked read path (m321)"
+    );
+}

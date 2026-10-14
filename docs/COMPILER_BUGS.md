@@ -17005,3 +17005,36 @@ Battery: locks 2/2, borrow_e001 3/3, e2e g1 16 + g2 225, codegen lib 12.
 Locks: `e2e_m319_vecvecstr_nested`, `e2e_m319_fnvalue_records`,
 `e2e_m319_meshencoder_collision`. Battery: locks 3/3, e2e g1 16 + g2
 228, codegen lib 12.
+
+---
+
+## 2026-10-14 -- TRIAGED (m321): the 2119/1213 "startup AV" family is probe-side UB on unguarded empty-Vec reads; the Vec read-bounds contract is now locked
+
+Both engine-lane observationals reduce to the same class: a probe reads
+element 0 of an EMPTY Vec without a guard, the resident heap bytes are
+dereferenced as a Str pointer, and the process AVs before its first real
+flush (stdout block-buffering into the harness pipe makes it look like
+"AV before any output"; `io.flush_stdout` is a documented no-op).
+- 2119: `bisect_88`/`bisect_95c` crash at check 20's
+  `if ee2x.events[0] != "salute"` (EV2X-N marker replay) -- the tick-5
+  chord can never fire (its first member was RELEASED before the second
+  member's press, so all_down never holds) -> empty Vec. `bisect_75`
+  simply omits the check; there is no main-size threshold. Identical on
+  the pinned v0.64.4 toolchain; the engine's real probe_input_map.xi is
+  22/22 PASS.
+- 1213: the pre-alignment probe (`31c0a1f^` = `c9dc9cb`) against the
+  `c9dc9cb` tree crashes at check 18
+  `if my18[0].source != i218[0].source` (MY18-1 I218-N): the grown I2
+  bindtable uses per-action slot ordinals (fire.0), so the probe's fire.1
+  row is never produced, i218 (in_bind_conflicts) is empty, and strcmp
+  dereferences the garbage. `31c0a1f`'s aligned rewrite removes it --
+  same class.
+
+NO compiler defect. The real gap: the Vec read-path bounds guard had no
+e2e lock (m241 pins writes, m243 fixed arrays). Lock:
+tests/regression/m321_empty_vec_read/ + `e2e_m321_empty_vec_read_contract`
+and its IR twin -- under `--overflow-checks` an empty-Vec element read
+traps deterministically (llvm.trap via expr.rs bounds_trap); default
+builds keep the documented unchecked read (no bounds_trap). Repro inputs
+archived (%TEMP%\kilo\m321\1213repro; engine repo untouched). Battery:
+locks 2/2, e2e g1 16 + g2 230, codegen lib 12.
