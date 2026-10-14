@@ -733,7 +733,11 @@ impl IrEmitter {
         };
         let elem_size: i64 = if elem_llvm_ty.starts_with("%struct.") {
             let struct_name = &elem_llvm_ty[8..]; // strip "%struct." prefix (8 chars)
-            self.struct_byte_size(struct_name) as i64
+            // m314: this `elem_size` IS the Vec slot stride -- use the same
+            // layout authority as the Vec ctor/push (vec_elem_storage_size,
+            // which models i128 fields/padding); struct_byte_size under-sized
+            // structs with 128-bit fields ({ i128, i64 } as 16 instead of 32).
+            self.vec_elem_storage_size(struct_name)
         } else {
             // Scalar types: i64=8, double=8, float=4, i32=4, i16=2, i8=1
             match elem_llvm_ty.as_str() {
@@ -741,6 +745,8 @@ impl IrEmitter {
                 "float" | "i32" => 4,
                 "i16" => 2,
                 "i8" | "i1" => 1,
+                // m314: native 128-bit element payloads are 16-byte slots.
+                "i128" | "fp128" => 16,
                 _ => 8,
             }
         };
@@ -798,7 +804,10 @@ impl IrEmitter {
             self.emitln(&format!("  {dest} = getelementptr i8, i8* {data_ptr}, i64 {offset}"));
             // 5c.39: For struct elements, memcpy the full struct value.
             // For scalar elements, store as i64 via val_to_i64.
-            if elem_llvm_ty.starts_with("%struct.") {
+            // m314: native 128-bit scalars are WIDE elements -- memcpy the
+            // full 16 bytes (the i64 store path would reject `store i64
+            // <i128-temp>` in clang).
+            if elem_llvm_ty.starts_with("%struct.") || elem_llvm_ty == "i128" || elem_llvm_ty == "fp128" {
                 let dest_typed = self.fresh_tmp();
                 self.emitln(&format!("  {dest_typed} = bitcast i8* {dest} to {elem_llvm_ty}*"));
                 let store_val = self.coerce_value(&ev, &ety, &elem_llvm_ty);

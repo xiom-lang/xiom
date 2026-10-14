@@ -867,9 +867,32 @@ impl IrEmitter {
                 let tn = Self::type_from_ast(ty);
                 is_unsigned_name(&tn) || self.expr_is_unsigned(inner)
             }
-            Expr::Binary(bl, op2, _, _) => matches!(op2, BinOp::Shl | BinOp::Shr)
-                && self.expr_is_unsigned(bl),
+            // m314: arithmetic/bitwise ops on unsigned operands stay
+            // unsigned (usual-conversion style). The engine's two-limb id
+            // assembly hit the sext widening through `(u + 0) as Int128`;
+            // shifts still inherit the LEFT operand only.
+            Expr::Binary(bl, op2, br, _) => match op2 {
+                BinOp::Shl | BinOp::Shr => self.expr_is_unsigned(bl),
+                BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem
+                | BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor => {
+                    self.expr_is_unsigned(bl) || self.expr_is_unsigned(br)
+                }
+                _ => false,
+            },
             Expr::Paren(inner, _) => self.expr_is_unsigned(inner),
+            // m314: an element READ inherits the element's unsignedness --
+            // `v[0] as Int128` on a Vec[UInt64]/[N]UInt64 must zext.
+            Expr::Index(base, _, _) => {
+                if let Some(elem) = self.resolve_vec_elem_xiom(base) {
+                    return is_unsigned_name(&elem);
+                }
+                match base.as_ref() {
+                    Expr::Ident(id) => self.local.local_array_elem_xiom.get(&id.name)
+                        .map(|t| is_unsigned_name(t))
+                        .unwrap_or(false),
+                    _ => false,
+                }
+            }
             Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
                 // m186: see expr_int_signedness -- deep inference fallback
                 // for module-qualified callees.

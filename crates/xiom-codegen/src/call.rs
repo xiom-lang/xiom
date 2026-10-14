@@ -2074,12 +2074,21 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         } // OPT-R5 end: skip redundant extractvalue+store for in-place alloca
                         // Load elem_size early -- needed to decide struct vs scalar path
                         let esz_gep = self.fresh_tmp();
+                        // m314: native 128-bit scalars (Int128/UInt128/Float128)
+                        // are WIDE elements: the i128/fp128 value must be stored
+                        // with a full 16-byte memcpy. The old scalar path ran
+                        // val_to_i64 (no i128 arm -> name passthrough) and then
+                        // emit_elem_store's `store i64 <i128-temp>` -- clang
+                        // abort: '%tmp' defined with type 'i128' but expected
+                        // 'i64'. They take the struct-element store shape with a
+                        // constant 16-byte size persisted into Vec field 3.
+                        let is_wide_scalar = val_ty == "i128" || val_ty == "fp128";
                         let esz_val = {
                             let tn = val_ty.trim_start_matches("%struct.").trim_end_matches('*');
                             // BUG 42: enum elements (Vec[JsonValue]) are
                             // struct-likes too -- enum_variants, not types.
-                            let is_struct_elem_here = val_ty.starts_with('%') && !val_ty.ends_with('*')
-                                && self.is_struct_or_enum_type(&tn);
+                            let is_struct_elem_here = is_wide_scalar || (val_ty.starts_with('%') && !val_ty.ends_with('*')
+                                && self.is_struct_or_enum_type(&tn));
                             if is_struct_elem_here {
                                 // BUG 34 (nested Vec[Vec[T]]): a STRUCT element
                                 // (e.g. a Vec pushed into a Vec whose ctor
@@ -2095,7 +2104,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 // vec_elem_storage_size knows the enum
                                 // { i64 tag, i64 x slots } layout, container
                                 // fields (Vec 32, Map/Set 64) and arrays.
-                                let struct_size = self.vec_elem_storage_size(&tn);
+                                let struct_size = if is_wide_scalar { 16 } else { self.vec_elem_storage_size(&tn) };
                                 let sz_tmp = self.fresh_tmp();
                                 self.emitln(&format!("  {sz_tmp} = alloca i64"));
                                 self.emitln(&format!("  store i64 {struct_size}, i64* {sz_tmp}"));
@@ -2110,10 +2119,11 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         };
                         // For struct elements >8 bytes, skip val_to_i64 (which would
                         // heap-allocate) and use memcpy to store the struct inline.
-                        let is_struct_elem = val_ty.starts_with('%') && {
+                        // m314: wide scalars take the same memcpy shape.
+                        let is_struct_elem = is_wide_scalar || (val_ty.starts_with('%') && {
                             let tn = val_ty.trim_start_matches("%struct.").trim_end_matches('*');
                             self.is_struct_or_enum_type(&tn)
-                        };
+                        });
                         let val = if !is_struct_elem {
                             self.val_to_i64(&val_raw, &val_ty)
                         } else {
@@ -2242,7 +2252,10 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // struct element into a %struct.Vec slot and field
                         // reads returned garbage (m21_vec_edge_012/027,
                         // m37_nested_vec, vec_of_struct, eco suites).
-                        if is_struct_elem {
+                        // m314: wide scalars (i128/fp128) are not nested-Vec
+                        // elements -- the recording below would mislabel an
+                        // unrecorded receiver's element as "Vec[Int]".
+                        if is_struct_elem && !is_wide_scalar {
                             if let Expr::Ident(rid) = receiver.as_ref() {
                                 let recv_elem = self.local.local_vec_elem.get(&rid.name).cloned();
                                 // Record when the receiver's elem is a nested

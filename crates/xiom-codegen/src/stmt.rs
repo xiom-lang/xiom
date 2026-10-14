@@ -1414,6 +1414,20 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                 }
                             }
                         }
+                        // m314: native 128-bit payloads (`v[0] = x` with
+                        // x: Int128/UInt128/Float128) must memcpy the full
+                        // 16 bytes -- the scalar emit_elem_store below takes
+                        // an i64 and clang rejects `store i64 <i128-temp>`
+                        // ('%tmp' defined with type 'i128' but expected 'i64').
+                        if !stored_struct && (val_ty == "i128" || val_ty == "fp128") {
+                            let tmp = self.fresh_tmp();
+                            self.emitln(&format!("  {tmp} = alloca {val_ty}"));
+                            self.emitln(&format!("  store {val_ty} {val}, {val_ty}* {tmp}"));
+                            let tmp_i8 = self.fresh_tmp();
+                            self.emitln(&format!("  {tmp_i8} = bitcast {val_ty}* {tmp} to i8*"));
+                            self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {elem_ptr}, i8* {tmp_i8}, i64 {esz_val}, i1 false)"));
+                            stored_struct = true;
+                        }
                         if !stored_struct {
                             self.emit_elem_store(&store_i64, &elem_ptr, &esz_val);
                         }

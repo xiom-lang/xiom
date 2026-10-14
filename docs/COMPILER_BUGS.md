@@ -16788,3 +16788,34 @@ IR carries the barrier) + fixtures
 tests/regression/m311_o2_contract_barrier/{main,ens,control}.xi; the
 front-locks list gained the test. Battery: lock 4/4, e2e g1 16 + g2 214,
 codegen lib 12.
+
+---
+
+## 2026-10-14 -- FIXED (m314): Int128/UInt128 aggregate payloads + UInt64 bit-63 ordering/widening/div-mod (REL-20261013-2042-engine + -2042-engine-2 + -2227-engine)
+
+Wide-int family, three items:
+1. 2042 (HIGH) -- native 128-bit payloads inside aggregates: (a) a
+   `Vec[Int128]`/`Vec[UInt128]` element slot was sized 8 bytes and the
+   store emitted `store i64 <i128-temp>` -> clang abort `'%tmp' defined
+   with type 'i128' but expected 'i64'`; (b) a struct with an Int128
+   field was sized 8 bytes short of the LLVM layout (size + alignment),
+   so a Vec-stored struct's SIBLING field read garbage with no
+   diagnostic (the silent shape). Fix: Int128/UInt128/Float128 = 16-byte
+   slots with align 16 in all size/align tables (lib.rs), wide scalar
+   Vec stores take the struct-element 16-byte memcpy shape with constant
+   elem size 16 (call.rs), wide Vec element reads do a typed 16-byte
+   load at align 16 (expr.rs), wide assignment stores memcpy (stmt.rs).
+2. 2042-2 -- UInt64 ordering was sign-blind and UInt64 -> Int128
+   widening sign-extended (unconditional sext: 0x8000000000000000 ->
+   -2^63); the binop lowerer also hardcoded slt/sgt/sle/sge + sdiv/srem.
+   Fix: `expr_is_unsigned` now covers arithmetic/bitwise binary ops
+   (either operand) and element reads (Vec elem type / array elem type);
+   unsigned operands zext on widening and select icmp u*/udiv/urem.
+3. 2227 -- the same unsigned lowering covers UInt64 div/mod at bit-63.
+
+Evidence: fixture tests/regression/m314_int128_uint64_family/ (Int128 +
+UInt128 in Vec elements and stored structs, sibling-field check, UInt64
+bit-63 ordering/widening/div/mod, exact exit-code gating). Locks
+`e2e_m314_int128_uint64_family` + `_ir` twin (16-byte typed loads /
+memcpys, zext, icmp u* in the emitted IR). Battery: locks 2/2, e2e
+g1 16 + g2 216, codegen lib 12.

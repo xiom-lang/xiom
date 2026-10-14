@@ -4746,6 +4746,11 @@ impl IrEmitter {
             "UInt8" | "Int8" | "Char" => 1,
             "Int16" | "UInt16" => 2,
             "Int32" | "UInt32" | "Float32" => 4,
+            // m314: 128-bit payloads align to 16 (LLVM i128/fp128 on x86-64).
+            // The old 8-alignment under-sized structs with an Int128 field
+            // ({ i128, i64 } sized 16 instead of 32 -> Vec slots overlapped,
+            // the sibling field read garbage).
+            "Int128" | "UInt128" | "Float128" => 16,
             "Str" => 8,
             _ => {
                 if t.starts_with("Vec[") || t.starts_with("Map[") || t.starts_with("Set[")
@@ -4802,6 +4807,12 @@ impl IrEmitter {
             "Bool" => 1,
             "Int16" | "UInt16" => 2,
             "Int32" | "UInt32" | "Float32" => 4,
+            // m314: native 128-bit scalars occupy 16-byte element slots.
+            // Without this a Vec[Int128]/Vec[UInt128] slot was 8 bytes (the
+            // i128 store then emitted `store i128 <i128>, i64*` -- clang
+            // abort -- and any struct containing an Int128 field was sized
+            // 8 bytes short of the LLVM layout).
+            "Int128" | "UInt128" | "Float128" => 16,
             _ => {
                 if type_name.starts_with("Vec[") && type_name.ends_with(']') { return 32; }
                 if (type_name.starts_with("Map[") || type_name.starts_with("Set[")) && type_name.ends_with(']') { return 64; }
@@ -4977,6 +4988,9 @@ impl IrEmitter {
             if llvm.starts_with("%struct.") && !llvm.ends_with('*') {
                 let inner = llvm[8..].to_string();
                 total += self.struct_byte_size_depth(&inner, depth + 1);
+            } else if llvm == "i128" || llvm == "fp128" {
+                // m314: a native 128-bit field occupies 16 bytes, not 8.
+                total += 16;
             } else {
                 total += 8;
             }
@@ -4994,6 +5008,8 @@ impl IrEmitter {
             "Int8" | "UInt8" | "Bool" => 1,
             "Float64" | "Str" => 8,
             "Char" => 4,
+            // m314: 128-bit scalars align to 16 (LLVM i128/fp128).
+            "Int128" | "UInt128" | "Float128" => 16,
             _ => {
                 // For struct types, alignment = max field alignment
                 if let Some(meta) = self.types.type_meta.get(&type_name.to_string()) {
@@ -5060,6 +5076,8 @@ impl IrEmitter {
             "Int16" | "UInt16" => 2,
             "Int8" | "UInt8" | "Bool" => 1,
             "Str" => 8,
+            // m314: 128-bit scalars occupy 16 bytes.
+            "Int128" | "UInt128" | "Float128" => 16,
             _ => {
                 if let Some(_meta) = self.types.type_meta.get(&type_name.to_string()) {
                     self.struct_byte_size(type_name) as u64

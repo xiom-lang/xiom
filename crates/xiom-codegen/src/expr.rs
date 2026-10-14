@@ -1998,16 +1998,20 @@ impl IrEmitter {
                     if int128_ty == "i128" {
                         // Widen narrow operands UP to i128 (sext/zext) so both
                         // sides share the i128 type for the op.
+                        // m314: an UNSIGNED operand (UInt64 with bit 63 set)
+                        // must ZERO-extend -- the old unconditional sext turned
+                        // 0x8000000000000000 into -2^63 in every mixed i128 op
+                        // (REL-20261013-2042-engine-2 widening).
                         if lt != "i128" {
                             let ext = self.fresh_tmp();
-                            let extop = if lt == "i8" || lt == "i1" { "zext" } else { "sext" };
+                            let extop = if lt == "i8" || lt == "i1" || self.expr_is_unsigned(left) { "zext" } else { "sext" };
                             self.emitln(&format!("  {ext} = {extop} {lt} {l} to i128"));
                             l = ext;
                             lt = "i128".to_string();
                         }
                         if rt != "i128" {
                             let ext = self.fresh_tmp();
-                            let extop = if rt == "i8" || rt == "i1" { "zext" } else { "sext" };
+                            let extop = if rt == "i8" || rt == "i1" || self.expr_is_unsigned(right) { "zext" } else { "sext" };
                             self.emitln(&format!("  {ext} = {extop} {rt} {r} to i128"));
                             r = ext;
                             rt = "i128".to_string();
@@ -2023,12 +2027,20 @@ impl IrEmitter {
                     }
                 }
                 let int_ty = if int128_ty == "i128" { "i128" } else { "i64" };
+                // m314 (REL-20261013-2042-engine-2/2227): UInt64/UInt128
+                // operands must use UNSIGNED ordering and division/modulo.
+                // The old lowering hardcoded slt/sgt/sle/sge and sdiv/srem,
+                // so bit-63 (64-bit) / bit-127 (128-bit) values behaved
+                // signed -- 0x8000000000000000 compared as negative and
+                // `a / 2` yielded a negative quotient.
+                let unsigned_op = !is_float
+                    && (self.expr_is_unsigned(left) || self.expr_is_unsigned(right));
                 let (ty, inst) = match op {
                     BinOp::Add => (if is_float { float_ty } else { int_ty }, if is_float { "fadd" } else { "add" }),
                     BinOp::Sub => (if is_float { float_ty } else { int_ty }, if is_float { "fsub" } else { "sub" }),
                     BinOp::Mul => (if is_float { float_ty } else { int_ty }, if is_float { "fmul" } else { "mul" }),
-                    BinOp::Div => (if is_float { float_ty } else { int_ty }, if is_float { "fdiv" } else { "sdiv" }),
-                    BinOp::Rem => (if is_float { float_ty } else { int_ty }, if is_float { "frem" } else { "srem" }),
+                    BinOp::Div => (if is_float { float_ty } else { int_ty }, if is_float { "fdiv" } else if unsigned_op { "udiv" } else { "sdiv" }),
+                    BinOp::Rem => (if is_float { float_ty } else { int_ty }, if is_float { "frem" } else if unsigned_op { "urem" } else { "srem" }),
                     BinOp::BitXor => (int_ty, "xor"),
                     BinOp::BitAnd => (int_ty, "and"),
                     BinOp::BitOr => (int_ty, "or"),
@@ -2046,10 +2058,10 @@ impl IrEmitter {
                     // is FALSE, so `x != x` returned false and is_nan was impossible;
                     // IEEE requires NaN != NaN to be TRUE (`une`).
                     BinOp::Neq => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp une" } else { "icmp ne" }),
-                    BinOp::Lt => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp olt" } else { "icmp slt" }),
-                    BinOp::Gt => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp ogt" } else { "icmp sgt" }),
-                    BinOp::Le => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp ole" } else { "icmp sle" }),
-                    BinOp::Ge => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp oge" } else { "icmp sge" }),
+                    BinOp::Lt => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp olt" } else if unsigned_op { "icmp ult" } else { "icmp slt" }),
+                    BinOp::Gt => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp ogt" } else if unsigned_op { "icmp ugt" } else { "icmp sgt" }),
+                    BinOp::Le => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp ole" } else if unsigned_op { "icmp ule" } else { "icmp sle" }),
+                    BinOp::Ge => (if is_float { float_ty } else { int_ty }, if is_float { "fcmp oge" } else if unsigned_op { "icmp uge" } else { "icmp sge" }),
                     BinOp::Assign => {
                         // Compile the RHS value first
                         let (r_val, r_ty) = (r.clone(), rt.clone());
@@ -3616,6 +3628,27 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         let loaded = self.fresh_tmp();
                         self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {struct_alloca}"));
                         return Ok((loaded, struct_ty));
+                        }
+                    }
+                    // m314: native 128-bit element payloads must load the full
+                    // 16 bytes -- emit_elem_load's widest slot is 8 (i64), so a
+                    // Vec[Int128]/Vec[UInt128] read returned the low half and
+                    // downstream i128 consumers saw garbage. Typed load at
+                    // align 16 (the slot stride is a multiple of 16).
+                    if let Some(elem_xiom) = self.resolve_vec_elem_xiom(container) {
+                        let wide_llvm = match elem_xiom.as_str() {
+                            "Int128" | "UInt128" => Some("i128"),
+                            "Float128" => Some("fp128"),
+                            _ => None,
+                        };
+                        if let Some(wl) = wide_llvm {
+                            self.indexed_elem_types
+                                .insert(Self::expr_key(expr), elem_xiom.clone());
+                            let wp = self.fresh_tmp();
+                            self.emitln(&format!("  {wp} = bitcast i8* {elem_ptr} to {wl}*"));
+                            let wv = self.fresh_tmp();
+                            self.emitln(&format!("  {wv} = load {wl}, {wl}* {wp}, align 16"));
+                            return Ok((wv, wl.to_string()));
                         }
                     }
                     // Fallback: use emit_elem_load for unknown element types.
@@ -5584,7 +5617,14 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             // widening (UInt64->UInt128, UInt8->Int128). The
                             // SOURCE signedness helper also covers parser-
                             // desugared suffixed literals (`239u8 as Int`).
-                            let src_signed = self.as_source_is_signed(inner);
+                            // m314: the expression-level unsigned verdict is
+                            // checked FIRST -- a BINARY source (`(u + 0) as
+                            // Int128` / `(hi << 32 | lo) as Int128`) fell to
+                            // as_source_is_signed's sext default and sign-
+                            // extended bit-63-set limbs (REL-20261013-2042-
+                            // engine-2 widening hole).
+                            let src_signed = !self.expr_is_unsigned(inner)
+                                && self.as_source_is_signed(inner);
                             let extop = if src_signed { "sext" } else { "zext" };
                             self.emitln(&format!("  {tmp} = {extop} {a} {val} to {b}"));
                         }

@@ -7989,4 +7989,69 @@ fn e2e_safety_probe() {
     );
 }
 
+// m314 (REL-20261013-2042-engine HIGH + -2042-engine-2 + -2227-engine):
+// native 128-bit payloads in Vec elements / stored structs plus the UInt64
+// bit-63 family. Pre-fix: `Vec[Int128].push(x)` / `v[i] = x` aborted clang
+// ("'%tmp' defined with type 'i128' but expected 'i64'"); a struct
+// { id: Int128; tag: Int } was sized 16 instead of the 32-byte LLVM layout,
+// so the Vec slot stride truncated the sibling `tag` field (uninitialized-
+// stack garbage, no diagnostic); every UInt64 `<`/`<=`/`>`/`>=` lowered to
+// signed icmp and `/`/`%` to sdiv/srem (bit-63-set values behaved signed);
+// UInt64 -> Int128 widening sign-extended through binary-source `as` and
+// mixed-i128 operand widening. The fixture returns DISTINCT exit codes per
+// shape (1-7 128-bit aggregate round-trips, 8-14 ordering, 15-17 div/mod,
+// 18-22 widening, 23-25 stored-struct control); green = 0.
+#[test] fn e2e_m314_int128_uint64_family() {
+    assert_eq!(
+        compile_and_run("tests/regression/m314_int128_uint64_family/main.xi"),
+        Some(0),
+        "Int128/UInt128 aggregate payloads + UInt64 bit-63 semantics must be exact (m314)"
+    );
+}
+
+// m314 IR twin: the fixed lowering is visible as unsigned compares and
+// div/mod, zero-extending i64->i128 widening, 16-byte 128-bit element loads,
+// and the 16-/32-byte Vec slot allocations.
+#[test] fn e2e_m314_int128_uint64_family_ir() {
+    let ir = compile_ir("tests/regression/m314_int128_uint64_family/main.xi")
+        .expect("m314 fixture must compile to IR");
+    let main = ir.split("\ndefine ")
+        .find(|part| part.starts_with("i64 @main("))
+        .unwrap_or_else(|| panic!("m314: @main must be defined; got:\n{ir}"));
+    for op in ["icmp ult i64", "icmp ugt i64", "icmp ule i64", "icmp uge i64"] {
+        assert!(
+            main.contains(op),
+            "m314: UInt64 ordering must lower to {op}; @main:\n{main}"
+        );
+    }
+    assert!(
+        main.contains("udiv i64"),
+        "m314: UInt64 `/` must lower to udiv; @main:\n{main}"
+    );
+    assert!(
+        main.contains("urem i64"),
+        "m314: UInt64 `%` must lower to urem; @main:\n{main}"
+    );
+    assert!(
+        !main.contains("sdiv i64") && !main.contains("srem i64"),
+        "m314: no signed div/mod may remain in @main; @main:\n{main}"
+    );
+    assert!(
+        main.contains("zext i64") && main.contains("to i128"),
+        "m314: UInt64 -> Int128 widening must zero-extend; @main:\n{main}"
+    );
+    assert!(
+        main.contains("load i128"),
+        "m314: a Vec[Int128] element read must load a full i128; @main:\n{main}"
+    );
+    assert!(
+        main.contains("call i8* @malloc(i64 256)"),
+        "m314: Vec[Int128] slots are 16 bytes (16 slots x 16 = 256); @main:\n{main}"
+    );
+    assert!(
+        main.contains("call i8* @malloc(i64 512)"),
+        "m314: {{ id: Int128; tag: Int }} slots are 32 bytes (16 slots x 32 = 512); @main:\n{main}"
+    );
+}
+
 
