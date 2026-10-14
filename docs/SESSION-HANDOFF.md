@@ -382,12 +382,17 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
    details in section 8 item 0): m313 fix/m313-ffi-free-guard LANDED on main
    `56234edf` (ffi.free call-site lowering; acceptance GREEN on stdlib main
    -- spincheck 3/3 `v=7` exit 0 <=263 ms; compiler note filed on
-   REL-20261013-1445-compiler); m312 fix/m312-thread-spawn-readback
-   COMMITTED `49b4535b` (ptr-typed struct-field arith; session was still
-   busy at 18:00Z -- integrate once idle, re-run dbg131s/dbgworker vs
-   stdlib main, then phase-2 note to REL-20261013-1423-compiler); m311
-   fix/m311-o2-no-fold-barrier (no commits yet; COMPILER_BUGS finding).
-   Session IDs in section 8. Next free m314.
+   REL-20261013-1445-compiler); m312 fix/m312-thread-spawn-readback LANDED
+   on main `bc1d821b` (ptr-typed struct-field READ PATH; locks + IR twin
+   green) -- acceptance vs stdlib main NOT green: residual root-caused to
+   the RUNTIME (xiom_task_trampoline stores the i64 result as C `long` = 4
+   bytes on Windows; low32 == 42 in every garbage readback; fix =
+   long long/int64_t in the trampoline ~5962-5977, filed on
+   REL-20261013-1423; thread gate 2053/1627/1402 stays OPEN, do NOT flip
+   the spawn e2e without it); m311 fix/m311-o2-no-fold-barrier COMMITTED
+   `3237aaa1` (contract no-fold barrier via volatile round-trip; integrate:
+   ci.yml token + COMPILER_BUGS + battery). Session IDs in section 8. Next
+   free m314.
   Row-sweep note: several check-file rows still show `acked`/red for items
   fixed in m276-m284 (e.g. 1437/1512 -> m279; 2230/2053/2137/1402/1403/
   1418 -> m276-m282) -- sweep rows when convenient.
