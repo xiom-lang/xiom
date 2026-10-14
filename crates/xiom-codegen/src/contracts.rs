@@ -186,16 +186,37 @@ impl super::IrEmitter {
             // type, and restore afterwards.
             let saved_xiom_types = self.local.local_xiom_types.clone();
             let saved_payload_rebinds = self.local.is_payload_rebind.clone();
+            let saved_vec_elem = self.local.local_vec_elem.clone();
+            let saved_vec_handle = self.local.local_vec_handle.clone();
             if let (Some(ptr), Some(ty)) = (self.fctx.result_ptr.clone(), self.fctx.result_llvm_ty.clone()) {
                 self.add_local("result", ptr, &ty);
                 if let Some(rt) = self.fctx.result_xiom_ty.clone() {
-                    self.local.local_xiom_types.insert("result".to_string(), rt);
+                    self.local.local_xiom_types.insert("result".to_string(), rt.clone());
                     self.local.is_payload_rebind.remove("result");
+                    // m301 (REL-20261010-1549-stdlib-4): record the return Vec's
+                    // ELEMENT type for the synthetic `result` binding, exactly as
+                    // a `var v = <call>` binding does (stmt.rs inheritance from
+                    // `callee_return_xiom`). Without it, `result[0]` in clause
+                    // position could not resolve the element and fell to the
+                    // scalar `emit_elem_load` fallback, which loads the raw i64
+                    // slot: for Vec[Float64] the f64 BIT PATTERN was sitofp'd
+                    // (1.0 -> 4.6e18 -> false `contract violated`); for
+                    // Vec[Vec[T]] the inner Vec's data pointer was loaded and
+                    // inttoptr'd as a Vec header, so `result[0].len()` read the
+                    // inner ARRAY as the row (the Int control only passed when
+                    // the row's second element happened to equal the expected
+                    // length). The ensures check restores this flat map after
+                    // every clause like local_xiom_types.
+                    if let Some(elem) = rt.strip_prefix("Vec[").and_then(|r| r.strip_suffix(']')) {
+                        self.local.local_vec_elem.insert("result".to_string(), elem.to_string());
+                    }
                 }
             }
             self.compile_contract_check(expr, "ensures");
             self.local.local_xiom_types = saved_xiom_types;
             self.local.is_payload_rebind = saved_payload_rebinds;
+            self.local.local_vec_elem = saved_vec_elem;
+            self.local.local_vec_handle = saved_vec_handle;
             self.pop_scope();
         }
     }

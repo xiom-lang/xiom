@@ -7427,6 +7427,23 @@ fn e2e_safety_probe() {
     );
 }
 
+// m301 (REL-20261010-1549-stdlib-4): clause-position `result[i]` must resolve
+// the return Vec's element type like a `var` binding (m301 records it in
+// local_vec_elem for the synthetic result local). Pre-fix the index fell to
+// the scalar elem_load fallback: Vec[Float64]'s f64 bits were sitofp'd
+// (1.0 -> 4.6e18 -> false `contract violated: ensures`) and Vec[Vec[T]]'s
+// row read inttoptr'd the inline first field (the inner data pointer) as a
+// %struct.Vec header, so `result[0].len()` read the inner array -- the
+// witness's [1,2] Int control passed only by coincidence. Lock matrix:
+// Float64/Float32 scalar, nested Float64 with chained result[0][0], a
+// non-coincidence Int [7,9] row, and Vec[Str]. Enforcement is LIVE (m291).
+#[test] fn e2e_m301_clause_float_vec_index() {
+    assert_eq!(
+        compile_and_run("tests/regression/m301_clause_float_vec_index/main.xi"),
+        Some(0),
+        "clause-position result[i] must read the stored elements (m301)"
+    );
+}
 
 
 

@@ -16364,6 +16364,35 @@ superseded).
 
 ---
 
+## 2026-10-13 -- FIXED (m301): clause-position `result[i]` resolves the return Vec element on the synthetic result binding (REL-20261010-1549-stdlib-4)
+
+Witness: `p_clause_float_vec_index.xi` rc 1 (`contract violated: ensures at
+39:12`, the `bug_f64` clause) after the Int controls pass; body-position
+`fv[0]` reads are fine -- the bug is clause-specific.
+
+Root cause: `compile_ensures_checks` bound the synthetic `result` into
+`local_xiom_types` but never into `local_vec_elem`, so clause-position
+`result[0]` could not resolve the element type and fell to the scalar
+`emit_elem_load` fallback (expr.rs:3592-3614): `Vec[Float64]` loaded f64
+bits as i64 and `sitofp`'d them (1.0 -> 4.6e18 -> false violation);
+`Vec[Vec[T]]` (esz 32) read the inline first field (the inner data
+pointer) as a `%struct.Vec` header, so `result[0].len()` read the inner
+array. The witness's [1,2] Int control passed only by COINCIDENCE (the
+`[7,9]` variant violates; proven pre-fix).
+
+Fix: contracts.rs -- register `result`'s Vec element in `local_vec_elem`
+per clause (mirroring `var v = <call>` binding inheritance) and
+snapshot/restore `local_vec_elem`/`local_vec_handle` alongside the
+existing flat-map hygiene. IR witness: `bitcast i64 ... to double` (was
+`sitofp`) at the scalar site; struct memcpy at the nested site. LOCK:
+tests/regression/m301_clause_float_vec_index/ (Float64/Float32 scalar,
+chained nested Float64, non-coincidence Int [7,9], Vec[Str]) +
+`e2e_m301_clause_float_vec_index` (ci.yml e2e group 2; FAILS Some(1) on a
+pre-fix binary). Battery: fixer e2e 16+189 + codegen 12; integration
+batch below.
+
+---
+
 ## 2026-10-13 -- FIXED (m289): annotated `Slice[Int]` locals allocated an i64 slot holding the data pointer (REL-20261010-1548-stdlib-5)
 
 The item's two filed witness FILES were already green on the archived
