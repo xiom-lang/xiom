@@ -337,9 +337,9 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
     `ffi.free` route (alloc-guard-spin 1548-bindings-5). Verified in a
     scratch tree; applies at the next stdlib pin.
 - OPEN FINDINGS recorded (no fix yet; in COMPILER_BUGS):
-  - -O2 clang PRUNES constant-folding contract checks (`requires: x != x`
-    fires at -O0, gone at O2 with or without `--runtime-contracts`) --
-    enforcement needs a no-fold barrier.
+  - (-O2 constant-fold pruning of contract checks: FIXED m311 `3237aaa1`
+    -- volatile i8 round-trip barrier in `compile_contract_check`; lock
+    `o2_contract_barrier_cli` 4/4.)
   - Duplicate stdlib trees + cross-tree function-body mixing in ad-hoc
     compiles (dedupe module registration by canonical root).
   - Vec has no drop glue (2032-engine) -- language memory-model decision,
@@ -389,9 +389,10 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
    bytes on Windows; low32 == 42 in every garbage readback; fix =
    long long/int64_t in the trampoline ~5962-5977, filed on
    REL-20261013-1423; thread gate 2053/1627/1402 stays OPEN, do NOT flip
-   the spawn e2e without it); m311 fix/m311-o2-no-fold-barrier COMMITTED
-   `3237aaa1` (contract no-fold barrier via volatile round-trip; integrate:
-   ci.yml token + COMPILER_BUGS + battery). Session IDs in section 8. Next
+   the spawn e2e without it); m311 fix/m311-o2-no-fold-barrier LANDED on
+   main `066bc253` (fixer commit 3237aaa1 + doc/ci tokens; contract no-fold
+   barrier via volatile round-trip; lock 4/4 + battery green). ALL THREE
+   INTEGRATED. NEXT: launch the engine relay wave (17 items; m314+). Next
    free m314.
   Row-sweep note: several check-file rows still show `acked`/red for items
   fixed in m276-m284 (e.g. 1437/1512 -> m279; 2230/2053/2137/1402/1403/
