@@ -1684,12 +1684,27 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         else if !val_ty.ends_with('*') && Self::is_llvm_struct_named(&val_ty, "Vec") {
                             val = self.emit_vec_copy_out_main_heap(&val, &val_ty);
                         }
+                        // m318 (REL-20261013-2215-engine): an AGGREGATE tail
+                        // (struct-returning fn) escapes with its inline Vec
+                        // fields' data pointers still on the guard arena -- the
+                        // exit below releases them and the caller reads silent
+                        // garbage / 0xC0000005 (the engine state-machine
+                        // shape). Promote every inline Vec field first.
+                        else if val_ty.starts_with("%struct.") && !val_ty.ends_with('*') {
+                            val = self.emit_aggregate_vec_fields_copy_out(&val, &val_ty, 0);
+                        }
                         // D2.1 (Phase 5): inside an unsafe-block fn, a `return`
                         // must signal the call site to return from the ENCLOSING
                         // fn (not just from the block fn), so the block value is
                         // propagated out.
                         if self.in_unsafe_block_fn {
                             self.emitln("  call void @xiom_trampoline_set_returned()");
+                            // m318: remember that this block fn can actually
+                            // return -- the block site gates its was_returned
+                            // branch on this flag (a return-free block's
+                            // branch reconstructed the value with the block
+                            // TAIL type and mis-typed the `ret`).
+                            self.local.confined_return_seen = true;
                         }
                         self.emitln("  call void @xiom_guard_heap_exit()");
                         self.emitln(&format!("  call void @xiom_guard_page_disarm(){GUARD_PAGE_MARK}"));

@@ -16940,3 +16940,37 @@ an independent re-run of the acceptance -- dbg131s.xi + dbgworker.xi
 compiled against `E:\xiom-lang\stdlib`, 15 s watchdog -- prints
 `joined 42` (dbg131s 5/5; dbgworker 5/5 `val=42 done=1`). The v0.64.5
 thread gate is GREEN at stdlib main; re-verify at the pin.
+
+---
+
+## 2026-10-14 -- FIXED (m318): confined-aggregate Vec copy-out + push-tail return-path gating; by-value move semantic pinned (REL-20261013-2215-engine + -2215-engine-2)
+
+2215: a struct-returning fn whose body is a confined (whole-body
+`unsafe`) block and whose match arms push onto a Vec returned an
+aggregate whose INLINE Vec fields still pointed at the guard arena;
+`xiom_guard_heap_exit` released the arena at block exit, so the caller's
+first element read was silent garbage / 0xC0000005 with NO diagnostic
+(the engine's world/state.xi machine; workaround shipped engine-side).
+m309's Copy-Out promoted only a DIRECT `%struct.Vec` tail -- aggregate
+tails were left dangling. Fix: the block Copy-Out now promotes an
+aggregate tail's inline Vec fields to main-heap memory BEFORE the arena
+reset and inserts them back into the aggregate. A second face of the
+same area: `vec.push(...)` as the TAIL of a confined statement block in
+a match arm -- the block's value is a `%struct.Vec` while the fn returns
+an aggregate, and the block site emitted a DEAD `was_returned` branch
+that reconstructed the value with the block-tail type, so clang rejected
+the module (`defined with type %struct.Vec but expected
+%struct.World`); the branch is now emitted only when the block fn can
+actually return (tracked during emission).
+
+2215-2 (semantic pin): the by-value move semantics are locked in
+`crates/xiom/tests/borrow_e001.rs`
+(`m318_by_value_struct_move_semantics_pinned`): by-value struct args,
+reuse, and `--strict` all agree (x=3 y=3 a=6 b=6 c=7 d=7 e=22).
+
+Evidence: fixtures tests/regression/m318_vec_match_arm_confined/ (shapes
+A-D fault pre-fix, shape G fails the clang build; exact values + a
+post-return push proving the promoted buffer is live main-heap memory)
+and m318_move_by_value_pin/. Locks: `e2e_m318_vec_match_arm_confined`
+(+ `_ir` twin: promotion before arena reset + insertvalue), borrow_e001.
+Battery: locks 2/2, borrow_e001 3/3, e2e g1 16 + g2 225, codegen lib 12.

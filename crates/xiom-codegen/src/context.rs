@@ -550,6 +550,15 @@ pub struct LocalContext {
     pub pending_module_type_defs: Vec<String>,
     /// Scrutinee info for match arm field extraction
     pub scrutinee_info: Option<(String, String)>,
+    /// m318 (REL-20261013-2215-engine): set while compiling a confined
+    /// (unsafe) block fn when a direct `return` targeting the enclosing fn is
+    /// emitted (`xiom_trampoline_set_returned`). The block SITE uses it to
+    /// decide whether the trampoline's was_returned branch is reachable: with
+    /// no return in the block the branch was dead code whose reconstruction
+    /// used the block TAIL type (`ret %struct.Fn as %struct.Tail` -> clang
+    /// "defined with type X but expected Y" for any tail type != the fn
+    /// return type, e.g. a Vec push tail in a struct-returning fn).
+    pub confined_return_seen: bool,
     /// M20-A1: Deferred closure function definitions (emitted after current fn)
     pub deferred_closure_defs: Vec<String>,
     /// M20-A1: Deferred env struct type definitions (emitted before fn body)

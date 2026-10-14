@@ -8200,3 +8200,92 @@ fn e2e_safety_probe() {
     }
     assert_eq!(checked, 3, "m320: fixture must exercise the 3 direct takes8 shapes; IR:\n{ir}");
 }
+
+// m318 (REL-20261013-2215-engine): a struct-returning fn whose body is a
+// confined (whole-body `unsafe`) block and whose match arms push onto a Vec
+// returned an aggregate whose inline Vec fields still pointed at the guard
+// arena. `xiom_guard_heap_exit` released the arena at block exit, so the
+// caller's first element read was silent garbage / STATUS_ACCESS_VIOLATION
+// 0xC0000005 with NO diagnostic (the engine's world/state.xi state machine --
+// workaround shipped engine-side). m309's Copy-Out promoted only a DIRECT
+// `%struct.Vec` tail; aggregate tails were left dangling. A second face of
+// the same area: `vec.push(...)` as the TAIL of a confined statement block in
+// a match arm -- the block's value is a %struct.Vec while the fn returns an
+// aggregate, and the block site emitted a DEAD was_returned branch that
+// reconstructed the value with the block tail type, so clang rejected the
+// module ("defined with type %struct.Vec but expected %struct.World").
+// The fixture exercises every lowering path with exact values + a
+// post-return push proving the promoted buffer is live main-heap memory,
+// plus an i64-only aggregate and a non-confined control. Pre-fix: shapes
+// A-D fault (0xC0000005), shape G fails the clang build. Green after.
+#[test] fn e2e_m318_vec_match_arm_confined() {
+    assert_eq!(
+        compile_and_run("tests/regression/m318_vec_match_arm_confined/main.xi"),
+        Some(0),
+        "m318: a struct escaping a confined block must Copy-Out its inline Vec fields before the arena reset; a push-tail confined arm must not emit an ill-typed return path"
+    );
+}
+
+// m318 IR twin: (a) each escaping aggregate block fn (0=return-inside,
+// 1=block tail, 2=local Ident tail, 3=depth-2 nested Grid) must promote its
+// inline Vec field(s) with a plain @malloc + memcpy BEFORE
+// `xiom_guard_heap_exit` -- incl. the nested Grid insertvalue chain for the
+// depth-2 shape; (b) the was_returned branch must be emitted only when the
+// block fn can actually return: @step_return carries it (return inside the
+// block), @step_tail and @step_push_arm must NOT.
+#[test] fn e2e_m318_vec_match_arm_confined_ir() {
+    let ir = compile_ir("tests/regression/m318_vec_match_arm_confined/main.xi")
+        .expect("m318 fixture must emit IR");
+    let fn_body = |name: &str| -> String {
+        let start = ir
+            .find(name)
+            .unwrap_or_else(|| panic!("m318: {name} must be defined; got:\n{ir}"));
+        let rest = &ir[start..];
+        let end = rest[1..].find("\ndefine ").map(|i| i + 1).unwrap_or(rest.len());
+        rest[..end].to_string()
+    };
+    for id in 0..4 {
+        let name = format!("define i64 @__unsafe_block_{id}");
+        let body = fn_body(&name);
+        let malloc_at = body
+            .find("call i8* @malloc")
+            .unwrap_or_else(|| panic!("m318: {name} must Copy-Out the inline Vec field with @malloc; got:\n{body}"));
+        let exit_at = body
+            .find("xiom_guard_heap_exit")
+            .unwrap_or_else(|| panic!("m318: {name} must exit the arena; got:\n{body}"));
+        assert!(
+            malloc_at < exit_at,
+            "m318: {name} must promote the Vec field BEFORE the arena reset; got:\n{body}"
+        );
+        assert!(
+            body.contains("insertvalue %struct.m318_vec_match_arm_confined.World")
+                || body.contains("insertvalue %struct.m318_vec_match_arm_confined.Layered"),
+            "m318: {name} must insert the promoted Vec back into the aggregate; got:\n{body}"
+        );
+    }
+    // Depth-2: the nested Grid field is promoted through its own extract/
+    // insert chain before the Layered insertvalue.
+    let layered_block = fn_body("define i64 @__unsafe_block_3");
+    assert!(
+        layered_block.contains("insertvalue %struct.m318_vec_match_arm_confined.Grid")
+            && layered_block.contains("insertvalue %struct.m318_vec_match_arm_confined.Layered"),
+        "m318: the depth-2 nested Vec must be promoted through Grid into Layered; got:\n{layered_block}"
+    );
+    // Return-path gating: only a block with a direct `return` may carry the
+    // was_returned branch.
+    let step_return = fn_body("define %struct.m318_vec_match_arm_confined.World @step_return");
+    assert!(
+        step_return.contains("xiom_trampoline_was_returned"),
+        "m318: @step_return has a return inside its confined block -- the was_returned branch must stay; got:\n{step_return}"
+    );
+    for name in [
+        "define %struct.m318_vec_match_arm_confined.World @step_tail",
+        "define %struct.m318_vec_match_arm_confined.World @step_push_arm",
+    ] {
+        let body = fn_body(name);
+        assert!(
+            !body.contains("xiom_trampoline_was_returned"),
+            "m318: {name} has no return in its confined block -- the was_returned branch must not be emitted; got:\n{body}"
+        );
+    }
+}

@@ -578,6 +578,63 @@ impl IrEmitter {
         self.emit_vec_value_deep_copy_alloc(vec_val, vec_ty, true)
     }
 
+    /// m318 (REL-20261013-2215-engine): confined-block Copy-Out for an
+    /// AGGREGATE tail/return value that holds inline `%struct.Vec` fields.
+    /// m309 promoted only a DIRECT `%struct.Vec` tail; a struct-returning fn
+    /// (the engine's world/state.xi state machine -- `vec.push(...)` inside a
+    /// match arm) escaped with its Vec data pointers still on the guard arena,
+    /// so `xiom_guard_heap_exit` released them and the caller's first element
+    /// read was silent garbage / STATUS_ACCESS_VIOLATION 0xC0000005 -- with
+    /// no diagnostic at all. Rewrites the aggregate value so every inline Vec
+    /// field (recursively through registered struct fields, depth-bounded)
+    /// owns a fresh main-heap buffer before the exit.
+    pub(crate) fn emit_aggregate_vec_fields_copy_out(&mut self, val: &str, ty: &str, depth: usize) -> String {
+        if depth > 4 || !ty.starts_with("%struct.") || ty.ends_with('*') {
+            return val.to_string();
+        }
+        let leaf = &ty["%struct.".len()..];
+        let key = match self.types.type_meta.get(&leaf.to_string()) {
+            Some(_) => leaf.to_string(),
+            None => {
+                let suffix = format!(".{leaf}");
+                match self.types.type_meta.keys().into_iter().find(|k| k.ends_with(&suffix)) {
+                    Some(k) => k.to_string(),
+                    None => return val.to_string(),
+                }
+            }
+        };
+        let field_count = match self.types.type_meta.get(&key) {
+            Some(m) => m.fields.len(),
+            None => return val.to_string(),
+        };
+        let mut cur = val.to_string();
+        for fi in 0..field_count {
+            let fty = self.field_llvm_type(&key, fi);
+            if fty == "%struct.Vec" {
+                let ext = self.fresh_tmp();
+                self.emitln(&format!("  {ext} = extractvalue {ty} {cur}, {fi}"));
+                let copied = self.emit_vec_copy_out_main_heap(&ext, &fty);
+                let ins = self.fresh_tmp();
+                self.emitln(&format!("  {ins} = insertvalue {ty} {cur}, %struct.Vec {copied}, {fi}"));
+                cur = ins;
+            } else if depth < 4 && fty.starts_with("%struct.") && !fty.ends_with('*') {
+                // Nested aggregate (a struct field that itself holds Vecs):
+                // recurse so depth-2 shapes (World { grid: Grid { cells: Vec } })
+                // are promoted too. A field with no Vec anywhere returns its
+                // input unchanged and no insertvalue is emitted.
+                let ext = self.fresh_tmp();
+                self.emitln(&format!("  {ext} = extractvalue {ty} {cur}, {fi}"));
+                let rec = self.emit_aggregate_vec_fields_copy_out(&ext, &fty, depth + 1);
+                if rec != ext {
+                    let ins = self.fresh_tmp();
+                    self.emitln(&format!("  {ins} = insertvalue {ty} {cur}, {fty} {rec}, {fi}"));
+                    cur = ins;
+                }
+            }
+        }
+        cur
+    }
+
     fn emit_vec_value_deep_copy_alloc(&mut self, vec_val: &str, vec_ty: &str, main_heap: bool) -> String {
         let slot = self.fresh_tmp();
         self.emitln(&format!("  {slot} = alloca {vec_ty}"));

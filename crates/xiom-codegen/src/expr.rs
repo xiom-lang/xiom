@@ -5892,6 +5892,16 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 self.in_unsafe_block_fn = true;
                 self.tmp_counter = unsafe_id * 1000;
                 self.block_counter = unsafe_id * 1000;
+                // m318: track direct `return`s emitted while compiling THIS
+                // block fn (stmt.rs sets the flag when it emits
+                // xiom_trampoline_set_returned). Without a return the block
+                // site's was_returned branch is dead code -- and dead or not,
+                // it reconstructed the trampoline result with the block TAIL
+                // type, so a non-matching fn return type made the branch
+                // ill-typed (`ret %struct.Fn` of a `%struct.Vec` value) and
+                // clang rejected the whole module.
+                let saved_confined_ret = self.local.confined_return_seen;
+                self.local.confined_return_seen = false;
                 // BUG 55: keep the ENCLOSING fn's declared return type for the
                 // Some/None/Ok/Err ctor decision (concrete Option__Rc) -- the
                 // block-fn ABI stays i64 via current_return_type below.
@@ -5996,6 +6006,14 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     else if !last_ty.ends_with('*') && Self::is_llvm_struct_named(&last_ty, "Vec") {
                         last = self.emit_vec_copy_out_main_heap(&last, &last_ty);
                     }
+                    // m318 (REL-20261013-2215-engine): an AGGREGATE block tail
+                    // carries its inline Vec fields' data pointers on the guard
+                    // arena; promote them before the exit below releases it
+                    // (struct-returning state-machine fn shape -- silent
+                    // garbage / 0xC0000005 at the caller's first read).
+                    else if last_ty.starts_with("%struct.") && !last_ty.ends_with('*') {
+                        last = self.emit_aggregate_vec_fields_copy_out(&last, &last_ty, 0);
+                    }
                     self.emitln("  call void @xiom_guard_heap_exit()");
                     self.emitln(&format!("  call void @xiom_guard_page_disarm(){GUARD_PAGE_MARK}"));
                     // Return the block's value as i64 (the trampoline ABI is
@@ -6005,6 +6023,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     self.emitln(&format!("  ret i64 {ret_i64}"));
                 }
                 self.emitln("}");
+                // m318: capture whether THIS block fn can return before the
+                // per-fn bookkeeping is restored below.
+                let block_has_return = self.local.confined_return_seen;
                 // BUG 22 #6: splice loop-body-hoisted allocas into the block
                 // fn's entry block (before the buffer is taken).
                 self.finish_hoisted_allocas();
@@ -6049,6 +6070,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 self.fctx.current_ensures = saved_ensures;
                 self.in_unsafe_block_fn = saved_in_block_fn;
                 self.local.hoisted_allocas = saved_hoisted;
+                self.local.confined_return_seen = saved_confined_ret;
                 // BUG 55: the block fn is done -- the enclosing return type
                 // context is no longer needed.
                 self.fctx.enclosing_return_type = None;
@@ -6143,39 +6165,60 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // value must be RETURNED from the ENCLOSING fn (the block was
                 // not used as an expression value). Emit the enclosing return
                 // with the block's value.
-                let was_returned = self.fresh_tmp();
-                self.emitln(&format!("  {was_returned} = call i64 @xiom_trampoline_was_returned()"));
-                let returned_cond = self.fresh_tmp();
-                self.emitln(&format!("  {returned_cond} = icmp ne i64 {was_returned}, 0"));
+                //
+                // m318 (REL-20261013-2215-engine): only emit this branch when
+                // the block fn can actually return (block_has_return -- the
+                // flag set at the xiom_trampoline_set_returned emission site).
+                // With no return in the block the branch was dead code, but it
+                // still had to be WELL-TYPED, and it reconstructed the
+                // trampoline result with the block TAIL type: a Vec push tail
+                // in a struct-returning fn produced `ret %struct.State
+                // %<loaded %struct.Vec>` -- clang rejected the module
+                // ("defined with type X but expected Y"). The reconstruction
+                // now also uses the ENCLOSING fn's return type for the return
+                // path (the returned expression was boxed with its own type,
+                // which IS the enclosing return type in valid programs).
                 let normal_tail = self.fresh_block("confined_value");
-                let ret_from_enclosing = self.fresh_block("confined_return");
-                self.emitln(&format!("  br i1 {returned_cond}, label %{ret_from_enclosing}, label %{normal_tail}"));
-                self.emitln(&format!("\n{ret_from_enclosing}:"));
-                let enc_ret_ty = self.fctx.current_return_type.clone();
-                if enc_ret_ty.is_empty() || enc_ret_ty == "void" {
-                    self.emitln("  ret void");
-                } else {
-                    // Use a SEPARATE register for the enclosing-fn coercion: the
-                    // block's `last` value must stay untouched for the normal_tail
-                    // path below (e.g. a pointer tail stays a pointer -- coercing
-                    // it to the enclosing fn's i64 here previously leaked the
-                    // i64 into `icmp eq ptr, i64` at the block's use site).
-                    let coerced_last = self.coerce_value(&last, &last_ty, &enc_ret_ty);
-                    if let Some(res_ptr) = self.fctx.result_ptr.as_ref() {
-                        let enc_ret_ty = self.fctx.current_return_type.clone();
-                        self.emitln(&format!("  store {enc_ret_ty} {coerced_last}, {enc_ret_ty}* {res_ptr}"));
+                if block_has_return {
+                    let was_returned = self.fresh_tmp();
+                    self.emitln(&format!("  {was_returned} = call i64 @xiom_trampoline_was_returned()"));
+                    let returned_cond = self.fresh_tmp();
+                    self.emitln(&format!("  {returned_cond} = icmp ne i64 {was_returned}, 0"));
+                    let ret_from_enclosing = self.fresh_block("confined_return");
+                    self.emitln(&format!("  br i1 {returned_cond}, label %{ret_from_enclosing}, label %{normal_tail}"));
+                    self.emitln(&format!("\n{ret_from_enclosing}:"));
+                    let enc_ret_ty = self.fctx.current_return_type.clone();
+                    if enc_ret_ty.is_empty() || enc_ret_ty == "void" {
+                        self.emitln("  ret void");
+                    } else {
+                        // Use a SEPARATE register for the enclosing-fn coercion:
+                        // the block's `last` value must stay untouched for the
+                        // normal_tail path below (e.g. a pointer tail stays a
+                        // pointer -- coercing it to the enclosing fn's i64 here
+                        // previously leaked the i64 into `icmp eq ptr, i64` at
+                        // the block's use site).
+                        let (enc_last, enc_last_ty) = if last_ty == enc_ret_ty {
+                            (last.clone(), last_ty.clone())
+                        } else {
+                            self.unsafe_result_i64_to_val(&res_i64, &enc_ret_ty)
+                        };
+                        let coerced_last = self.coerce_value(&enc_last, &enc_last_ty, &enc_ret_ty);
+                        if let Some(res_ptr) = self.fctx.result_ptr.as_ref() {
+                            let enc_ret_ty = self.fctx.current_return_type.clone();
+                            self.emitln(&format!("  store {enc_ret_ty} {coerced_last}, {enc_ret_ty}* {res_ptr}"));
+                        }
+                        if !self.fctx.current_ensures.is_empty() {
+                            self.compile_ensures_checks();
+                        }
+                        let depth_dec = self.fresh_tmp();
+                        self.emitln(&format!("  {depth_dec} = load i64, i64* @xiom_recursion_counter"));
+                        let new_depth = self.fresh_tmp();
+                        self.emitln(&format!("  {new_depth} = sub i64 {depth_dec}, 1"));
+                        self.emitln(&format!("  store i64 {new_depth}, i64* @xiom_recursion_counter"));
+                        self.emitln(&format!("  ret {enc_ret_ty} {coerced_last}"));
                     }
-                    if !self.fctx.current_ensures.is_empty() {
-                        self.compile_ensures_checks();
-                    }
-                    let depth_dec = self.fresh_tmp();
-                    self.emitln(&format!("  {depth_dec} = load i64, i64* @xiom_recursion_counter"));
-                    let new_depth = self.fresh_tmp();
-                    self.emitln(&format!("  {new_depth} = sub i64 {depth_dec}, 1"));
-                    self.emitln(&format!("  store i64 {new_depth}, i64* @xiom_recursion_counter"));
-                    self.emitln(&format!("  ret {enc_ret_ty} {coerced_last}"));
+                    self.emitln(&format!("\n{normal_tail}:"));
                 }
-                self.emitln(&format!("\n{normal_tail}:"));
                 Ok((last, last_ty))
             }
             Expr::BlockExpr(block, _) => {
