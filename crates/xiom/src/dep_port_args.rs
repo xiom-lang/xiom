@@ -173,7 +173,14 @@ mod tests {
 
     #[test]
     fn expands_package_dir_and_resolves_relative() {
+        // m330 (pin CI hygiene): a `C:/...` path is NOT absolute on POSIX,
+        // so `resolve_path`'s relative re-join double-prefixed the dir there.
+        // Use a POSIX-absolute dir on unix; the windows-only separator
+        // assertions below stay under cfg(windows).
+        #[cfg(windows)]
         let dir = Path::new("C:/home/packages/xiom-sqlite-0.4.1/xiom-sqlite");
+        #[cfg(not(windows))]
+        let dir = Path::new("/home/packages/xiom-sqlite-0.4.1/xiom-sqlite");
         let norm = |p: &Path| {
             p.components()
                 .collect::<PathBuf>()
