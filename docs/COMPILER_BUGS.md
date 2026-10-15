@@ -17197,3 +17197,27 @@ pins the i1 spelling) -- 113,323 -> 107,728; the budget is recalibrated
 (fmt_peek 107,728 in 779 ms), o2_contract_barrier_cli 4/4, e2e
 m283/m288/m291 4/4, g1 16 + g2 241, codegen lib 12. Includes m331's
 +49-byte preamble declare; still under the new budget.
+
+---
+
+## 2026-10-15 -- FIXED (m329, pin gate): stdlib API-freeze violations -- wave-105 re-spellings canonicalized + wave-98 snapshot repair
+
+The pin PR CI flagged `stdlib_api_freeze_no_removals` with 30 missing
+frozen signatures. Two distinct causes, both PRE-DATING m276 (the freeze
+step had not run in CI since 2026-09-28):
+1. SEVEN signatures were pure RE-SPELLINGS: the stdlib's canonical
+   bracket migration (wave 105, 6d41307) rewrote `Vec<Str>` -> `Vec[Str]`
+   in os/env.xi. `canonical_sig()` now canonicalizes legacy angle
+   type-arguments to brackets on BOTH sides of the comparison -- pure
+   re-spelling is not an API change; renames, receiver changes and
+   removals are still flagged.
+2. TWENTY-THREE were a REAL surface change: the intentional wave-98 M7
+   closure rewrite (2e55b13, 2026-10-09) replaced the generic
+   `Iterator[T].step_by/take_while/skip_while/inspect` adapters with
+   Int-specialized `Range.*` methods (predicates `fn(&Int) -> Bool`;
+   StepByIter[Int] / TakeWhileIter[Int] / SkipWhileIter[Int] /
+   InspectIter[Int]). Both waves ship in the v0.64.4 pin 3df0843
+   (env.xi/iter.xi byte-identical to the v0.64.5 re-cut 092dfa0), so the
+   SNAPSHOT was stale, not the stdlib. Snapshot repaired in place 1:1
+   per the m125/v0.64.3 precedent (documented in the FROZEN header).
+Locks: stdlib_api_freeze_tests 3/3; codegen lib 12, e2e g1 16.

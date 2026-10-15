@@ -52,6 +52,16 @@ fn project_root() -> &'static Path {
 /// spellings now use the canonical bracket syntax. Repaired here (same
 /// policy as the m125 note above) so the freeze keeps guarding against real
 /// removals.
+/// 2026-10-15 (m329, v0.64.5 pin sync, stdlib 092dfa0): the 23 missing
+/// entries were the INTENTIONAL wave-98 "M7 closure rewrite" (stdlib
+/// 2e55b13, 2026-10-09): the generic `Iterator[T].step_by`/`take_while`/
+/// `skip_while`/`inspect` adapters were reworked into Int-specialized
+/// `Range.*` methods in iter/iter.xi (predicates `fn(&Int) -> Bool`,
+/// results `StepByIter[Int]` / `TakeWhileIter[Int]` / `SkipWhileIter[Int]`
+/// / `InspectIter[Int]`); already present in the v0.64.4 pin. Replaced in
+/// place 1:1 here (same policy as the m125 note above). Legacy
+/// angle-bracket spellings elsewhere in this list (e.g. the env.*
+/// returns) need no edit: the scan matches them canonically.
 const FROZEN: &[&str] = &[
         "aes :: pub fn aes_sbox(b: Int) -> Int",
         "aes :: pub fn aes_inv_sbox(b: Int) -> Int",
@@ -426,25 +436,25 @@ const FROZEN: &[&str] = &[
         "iter :: pub fn Range.sum(self) -> Int",
         "iter :: pub fn Range.product(self) -> Int",
         "iter :: pub fn RangeInclusive.next(self) -> Option[Int]",
-        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
-        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
-        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
-        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
-        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
-        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
-        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
-        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
-        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
-        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
-        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
-        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
-        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
-        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
-        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
-        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
-        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
-        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
-        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
+        "iter :: pub fn Range.step_by(self, step: Int) -> StepByIter[Int]",
+        "iter :: pub fn Range.step_by(self, step: Int) -> StepByIter[Int]",
+        "iter :: pub fn Range.step_by(self, step: Int) -> StepByIter[Int]",
+        "iter :: pub fn Range.step_by(self, step: Int) -> StepByIter[Int]",
+        "iter :: pub fn Range.step_by(self, step: Int) -> StepByIter[Int]",
+        "iter :: pub fn Range.step_by(self, step: Int) -> StepByIter[Int]",
+        "iter :: pub fn Range.step_by(self, step: Int) -> StepByIter[Int]",
+        "iter :: pub fn Range.step_by(self, step: Int) -> StepByIter[Int]",
+        "iter :: pub fn Range.step_by(self, step: Int) -> StepByIter[Int]",
+        "iter :: pub fn Range.step_by(self, step: Int) -> StepByIter[Int]",
+        "iter :: pub fn Range.step_by(self, step: Int) -> StepByIter[Int]",
+        "iter :: pub fn Range.step_by(self, step: Int) -> StepByIter[Int]",
+        "iter :: pub fn Range.step_by(self, step: Int) -> StepByIter[Int]",
+        "iter :: pub fn Range.step_by(self, step: Int) -> StepByIter[Int]",
+        "iter :: pub fn Range.step_by(self, step: Int) -> StepByIter[Int]",
+        "iter :: pub fn Range.step_by(self, step: Int) -> StepByIter[Int]",
+        "iter :: pub fn Range.step_by(self, step: Int) -> StepByIter[Int]",
+        "iter :: pub fn Range.step_by(self, step: Int) -> StepByIter[Int]",
+        "iter :: pub fn Range.step_by(self, step: Int) -> StepByIter[Int]",
         "iter :: pub fn MapIter[T, U].next(self) -> Option[U]",
         "iter :: pub fn FilterIter[T].next(self) -> Option[T]",
         "iter :: pub fn EnumerateIter[T].next(self) -> Option[(Int, T)]",
@@ -452,13 +462,13 @@ const FROZEN: &[&str] = &[
         "iter :: pub fn SkipIter[T].next(self) -> Option[T]",
         "iter :: pub fn ChainIter[T, U].next(self) -> Option[T]",
         "iter :: pub fn ZipIter[T, U].next(self) -> Option[(T, U)]",
-        "iter :: pub fn Iterator[T].step_by(self, step: Int) -> StepByIter[T]",
+        "iter :: pub fn Range.step_by(self, step: Int) -> StepByIter[Int]",
         "iter :: pub fn StepByIter[T].next(self) -> Option[T]",
-        "iter :: pub fn Iterator[T].take_while(self, predicate: fn(&T) -> Bool) -> TakeWhileIter[T]",
+        "iter :: pub fn Range.take_while(self, predicate: fn(&Int) -> Bool) -> TakeWhileIter[Int]",
         "iter :: pub fn TakeWhileIter[T].next(self) -> Option[T]",
-        "iter :: pub fn Iterator[T].skip_while(self, predicate: fn(&T) -> Bool) -> SkipWhileIter[T]",
+        "iter :: pub fn Range.skip_while(self, predicate: fn(&Int) -> Bool) -> SkipWhileIter[Int]",
         "iter :: pub fn SkipWhileIter[T].next(self) -> Option[T]",
-        "iter :: pub fn Iterator[T].inspect(self, f: fn(&T)) -> InspectIter[T]",
+        "iter :: pub fn Range.inspect(self, f: fn(&Int)) -> InspectIter[Int]",
         "iter :: pub fn InspectIter[T].next(self) -> Option[T]",
         "log :: pub fn trace(msg: Str)",
         "log :: pub fn debug(msg: Str)",
@@ -1135,6 +1145,79 @@ fn stdlib_header_index(base: &Path) -> &'static std::collections::HashMap<String
     })
 }
 
+/// Canonicalize one signature for freeze comparison: legacy angle-bracket
+/// type arguments (`Vec<Str>`, `Result<Str, Str>`, `Option<&T>`) become the
+/// canonical bracket spelling (`Vec[Str]`, ...). The stdlib migrates
+/// signatures to bracket syntax wave by wave (env.xi wave 105 re-spelled
+/// the seven `args`/`current_exe`/`*_dir` returns); a pure re-spelling is
+/// not an API change, so the freeze must see through it while still
+/// flagging renames, receiver changes, and removals. `->` arrows and any
+/// unbalanced `<` stay literal.
+fn canonical_sig(sig: &str) -> String {
+    let chars: Vec<char> = sig.chars().collect();
+    let mut out = String::with_capacity(sig.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        let opens_type_args = c == '<'
+            && i > 0
+            && (chars[i - 1].is_alphanumeric() || chars[i - 1] == '_' || chars[i - 1] == ']');
+        if opens_type_args {
+            let mut depth = 1usize;
+            let mut j = i + 1;
+            while j < chars.len() {
+                match chars[j] {
+                    '<' => depth += 1,
+                    '>' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+                j += 1;
+            }
+            if depth == 0 {
+                let inner: String = chars[i + 1..j].iter().collect();
+                out.push('[');
+                out.push_str(&canonical_sig(&inner));
+                out.push(']');
+                i = j + 1;
+                continue;
+            }
+        }
+        out.push(c);
+        i += 1;
+    }
+    out
+}
+
+#[test]
+fn api_freeze_canonical_sig_angle_to_bracket() {
+    assert_eq!(
+        canonical_sig("pub fn args() -> Vec<Str>"),
+        "pub fn args() -> Vec[Str]"
+    );
+    assert_eq!(
+        canonical_sig("pub fn current_exe() -> Result<Str, Str>"),
+        "pub fn current_exe() -> Result[Str, Str]"
+    );
+    assert_eq!(
+        canonical_sig("pub fn f(a: Map<Str, Vec<Str>>, b: fn(&T) -> Bool) -> Option<&T>"),
+        "pub fn f(a: Map[Str, Vec[Str]], b: fn(&T) -> Bool) -> Option[&T]"
+    );
+    // Already-canonical text is unchanged; `->` and stray '<' stay literal.
+    assert_eq!(
+        canonical_sig("pub fn g(x: Vec[Str]) -> Int"),
+        "pub fn g(x: Vec[Str]) -> Int"
+    );
+    assert_eq!(
+        canonical_sig("pub fn h(a: Int) -> Int"),
+        "pub fn h(a: Int) -> Int"
+    );
+}
+
 #[test]
 fn stdlib_api_freeze_no_removals() {
     // R31: loud SKIP without a stdlib checkout; hard FAIL in CI.
@@ -1151,7 +1234,8 @@ fn stdlib_api_freeze_no_removals() {
             continue;
         };
         let signatures = extract_signatures(&path);
-        if !signatures.iter().any(|s| s == sig) {
+        let want = canonical_sig(sig);
+        if !signatures.iter().any(|s| canonical_sig(s) == want) {
             missing.push(format!("{module} :: {sig}"));
         }
     }
