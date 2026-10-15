@@ -521,6 +521,16 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
    _13f5c8479001l23yrQp4W3MQxd); ON GREEN: fetch + push main (~13
    commits) -> fresh dry-run -> signal stdlib (REL-20261014-1739-compiler)
    -> candidate battery -> tag -> pin -> publish. m327 note filed (relay).
+   UPDATE 2026-10-15T12:00Z: FULL E2E GREEN 2550 passed / 0 failed / 4
+   ignored -- stack FROZEN and PUSHED (`1e4a444e..13081238`). Fresh
+   dry-run `38731274663` on `13081238` (in progress). Archive signal sent
+   to stdlib (bus c836588): candidate battery re-run on the new archive;
+   cut stdlib-v0.64.5 on c8d713a (or newer) + reply ref+sha on green.
+   NEXT: tag reply -> pin commit (STDLIB_VERSION -> tag sha + vendored
+   refresh + notes JSON convert + gate record finalize) + full battery
+   incl. thread acceptance AT THE PIN -> push -> tag `v0.64.5` + push tag
+   -> release run -> verify assets + SHA256SUMS -> record in the
+   candidate record + handoff.
   Row-sweep note: several check-file rows still show `acked`/red for items
   fixed in m276-m284 (e.g. 1437/1512 -> m279; 2230/2053/2137/1402/1403/
   1418 -> m276-m282) -- sweep rows when convenient.
