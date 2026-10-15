@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "tag": "v0.64.5",
+  "summary": "A correctness release: the thread gateway closes with byte-exact joins, 128-bit and unsigned integer semantics land, aggregates escaping confined blocks stay valid, and a broad resolution sweep removes name, constant and import hazards.",
+  "highlights": [
+    {
+      "kind": "fix",
+      "title": "Spawned threads return their exact results",
+      "text": "Joining a spawned worker returns its value exactly: pointer-holding struct fields keep byte-pointer arithmetic through locals and method receivers, so the result read is correct, and confined allocation rounds become ordinary main-memory pointers instead of spinning."
+    },
+    {
+      "kind": "compiler",
+      "title": "Wide integers and unsigned ordering",
+      "text": "Native 128-bit values now live correctly inside vectors and structs, and unsigned 64-bit values compare, widen, divide and take remainders with full-width semantics: values with the top bit set order, widen and divide exactly instead of behaving signed."
+    },
+    {
+      "kind": "fix",
+      "title": "Aggregates escaping confined blocks",
+      "text": "A struct or vector returned from a confined block is copied to ordinary memory before the guard arena resets: inline vector fields stay valid, a push-tail arm no longer mis-arms the return path, and callers read live data instead of released arena bytes."
+    },
+    {
+      "kind": "compiler",
+      "title": "Names, constants and imports resolve exactly",
+      "text": "A broad resolution sweep: enum variants no longer collide with geometry names, soft-keyword field names parse, constants re-export through public use, shadowing constants no longer hang the build, pointer spellings resolve at call sites, and checks stay enforced on optimized builds."
+    },
+    {
+      "kind": "stdlib",
+      "title": "Byte and string paths go linear across the tree",
+      "text": "The strnlen and concatenate-per-item sweep converts the string, escaping, encoding, hashing, parser and file-IO families to cached single-pass reads and buffer builders. Hot loops use bounds-guaranteed slices, large payloads scale linearly, and every wave is locked by a probe."
+    },
+    {
+      "kind": "fix",
+      "title": "Thread spawn results are byte-exact",
+      "text": "The spawn result buffer is main-heap and the runtime trampoline stores the full 64-bit result and done flag, so join readbacks return the exact worker value on every ABI. Acceptance: single and two-thread spawns print the exact results across repeated runs."
+    }
+  ],
+  "breaking": [],
+  "known_issues": [
+    "Comparing containers with equality operators is pointer identity: two equal vectors compare unequal, and equal results containing vectors compare unequal; deep container equality is queued."
+  ],
+  "docs": [
+    {
+      "title": "Contracts guide",
+      "url": "https://docs.xiom-lang.org/latest/contracts/"
+    },
+    {
+      "title": "Language guide",
+      "url": "https://docs.xiom-lang.org/latest/"
+    }
+  ],
+  "full_changelog": "https://github.com/xiom-lang/xiom/releases/tag/v0.64.5"
+}
