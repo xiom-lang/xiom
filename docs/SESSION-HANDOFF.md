@@ -531,6 +531,33 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
    incl. thread acceptance AT THE PIN -> push -> tag `v0.64.5` + push tag
    -> release run -> verify assets + SHA256SUMS -> record in the
    candidate record + handoff.
+   UPDATE 2026-10-15T17:15Z (recovery after the loop stalled post-12:44Z,
+   plus the pin-PR CI findings):
+   - stdlib RE-CUT the tag: stdlib-v0.64.5 = tag obj 1667b3a8 -> commit
+     `092dfa0` (old e082623 WITHDRAWN; their smoke_os_sync tripped the
+     m296 pin-era Vec-ctor class; stdlib test fix only). xiom-std 0.64.5
+     registry publish RESOLVED. Local STDLIB_VERSION now `092dfa0` +
+     vendored worktree at the re-cut tag.
+   - Pin PR xiom#6 (chore/pin-stdlib-v0.64.5, owner-opened; branch =
+     main@13081238 + STDLIB_VERSION) CI found FOUR blockers:
+     1) perf_budget_fmt_peek (windows leg): IR 113323 > 95000 --
+        compiler-side (repros with BOTH pins); fixer m328
+        (`ses_ebf5a8d7cffeqaPfwUpkg1JKnz`) running.
+     2) stdlib_api_freeze_no_removals (ubuntu): 30 signatures missing --
+        extractor regression, NOT stdlib content (repros with old pin);
+        fixer m329 (`ses_ebf5a2ab9ffenEU0bfTVy7OH9c`) running; do NOT
+        update the snapshot.
+     3) ubuntu `dep_port_args` test: `C:/` is not absolute on POSIX ->
+        double-prefixed dir; FIXED m330 `7628fbc0`.
+     4) cargo-deny advisories RUSTSEC-2026-0346..0349 (rustls 0.23.45 ->
+        `>=0.23.46`); FIXED in m330 (rustls 0.23.46).
+     m330 pushed to main (`13081238..7628fbc0`).
+   - Local uncommitted pin set (rides the PR branch): STDLIB_VERSION +
+     notes JSON (6 highlights; convert+verify green) + gate record;
+     thread acceptance at the pin 5/5+5/5; pin e2e 2550/0/4.
+   - NEXT: m328+m329 land -> push main -> rebuild the PR branch
+     (main + pin set) -> PR CI green -> merge xiom#6 -> tag v0.64.5 ->
+     release run -> verify assets -> record -> goal_report complete.
   Row-sweep note: several check-file rows still show `acked`/red for items
   fixed in m276-m284 (e.g. 1437/1512 -> m279; 2230/2053/2137/1402/1403/
   1418 -> m276-m282) -- sweep rows when convenient.
