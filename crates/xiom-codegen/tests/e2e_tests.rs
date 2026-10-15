@@ -8451,3 +8451,21 @@ fn e2e_safety_probe() {
         "Cell[Int8] set/get readback must compile and run (m323)"
     );
 }
+
+// m324 (REL-20261014-2123-stdlib): a function returning
+// `Result<(Vec[UInt8], Vec[UInt8]), Str>` with `Ok((a, b))` must read back the
+// tuple Vec lengths/elements correctly at the CALLER. `type_string_full` (m303)
+// records tuple elements WITH container args ("Tuple__Vec[UInt8]__Vec[UInt8]")
+// while the registered struct key erases them ("Tuple__Vec__Vec"), so the
+// Ok-pair payload binding missed `llvm_type_for` ("unknown type ... defaulting
+// to i64") and bound the raw box handle: `pair.0.len()` fell to the literal-0
+// fallback -> Str.len read 0xFFFFFFFF (rc 3) and the decrypt roundtrip AV'd
+// (0xC0000005) in the stdlib aes-gcm smoke. The fixture checks both lengths
+// plus first/last elements (rc 3/4/5/6 on the broken paths; green = 0).
+#[test] fn e2e_m324_aead_pair_len() {
+    assert_eq!(
+        compile_and_run("tests/regression/m324_aead_pair_len/main.xi"),
+        Some(0),
+        "Result Ok-pair Vec lengths must read back through the boxed tuple (m324)"
+    );
+}

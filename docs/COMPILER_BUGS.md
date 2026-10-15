@@ -17082,3 +17082,22 @@ pairing explicit args (`fd.params.iter().filter(|p| p.name.name != "self")`
 when the receiver is an instance). Witnesses: p_v065_cell_int8_set_readback
 rc 2 -> 0; smoke_cell_narrow exit 2 -> 0. Lock
 `e2e_m323_cell_int8_set_readback`.
+
+---
+
+## 2026-10-15 -- FIXED (m324): Result Ok-pair Vec lengths readback (REL-20261014-2123-stdlib; v0.64.5 candidate battery)
+
+A function returning `Result<(Vec[UInt8], Vec[UInt8]), Str>` whose caller
+binds `Ok(pair)` read `pair.0.len()` as 0xFFFFFFFF and AV'd on the
+decrypt roundtrip (rc 3 + 0xC0000005 on the dry-run archive; green on
+v0.64.4). Root cause: `type_string_full` (m303) records tuple ELEMENT
+types WITH their container args ("Tuple__Vec[UInt8]__Vec[UInt8]"), but
+the registered struct key erases them ("Tuple__Vec__Vec", the
+type_from_ast shape), so `tuple_xiom_to_struct_name` returned a
+non-canonical key; the Ok-pair payload binding missed `llvm_type_for`
+("unknown type ... defaulting to i64") and bound the raw box handle --
+`pair.0.len()` fell to the literal-0 fallback (Str.len -> 0xFFFFFFFF).
+Fix: canonicalize every tuple part at its first bracket (the canonical
+key never keeps container args). Witnesses: p_v065_aesgcm_tuple_len rc
+3 -> 0; p_wave107 exit 20 -> 0; p_wave108 exit 32 -> 0;
+smoke_stress_crypto_aes_gcm AV -> 0. Lock `e2e_m324_aead_pair_len`.

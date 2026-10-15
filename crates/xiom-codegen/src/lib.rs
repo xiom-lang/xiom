@@ -3947,15 +3947,42 @@ impl IrEmitter {
     /// round-13 (tuple payloads): normalize a tuple XIOM name ("(Int, Int)") to
     /// the registered struct key ("Tuple__Int__Int") so the boxed-payload deref
     /// can resolve the LLVM type. Non-tuple names pass through unchanged.
-    pub(crate) fn tuple_xiom_to_struct_name(decl: &str) -> String {        let trimmed = decl.trim();
-        if trimmed.starts_with('(') && trimmed.ends_with(')') {
+    ///
+    /// m324 (REL-20261014-2123-stdlib): `type_string_full` (m303) records
+    /// tuple ELEMENT types WITH their container args
+    /// ("Tuple__Vec[UInt8]__Vec[UInt8]") -- correct for element-type consumers,
+    /// but the registered struct key erases the args per element
+    /// ("Tuple__Vec__Vec", the type_from_ast shape), so struct-key lookups
+    /// (`llvm_type_for` / `types` / `local_boxed_struct`) missed and a Result
+    /// Ok-pair payload bound as a raw i64: `pair.0.len()` fell to the
+    /// literal-0 fallback -> Str.len -> 0xFFFFFFFF readback / AV (aes-gcm
+    /// smoke). Canonicalize every part at its first bracket -- the canonical
+    /// key never keeps args.
+    pub(crate) fn tuple_xiom_to_struct_name(decl: &str) -> String {
+        let trimmed = decl.trim();
+        let parts_joined: Option<String> = if trimmed.starts_with('(') && trimmed.ends_with(')') {
             let inner = &trimmed[1..trimmed.len() - 1];
             let parts: Vec<&str> = inner.split(',').map(|p| p.trim()).collect();
             if !parts.is_empty() && parts.iter().all(|p| !p.is_empty()) {
-                return format!("Tuple__{}", parts.join("__"));
+                Some(parts.join("__"))
+            } else {
+                None
             }
+        } else {
+            trimmed.strip_prefix("Tuple__").map(|rest| rest.to_string())
+        };
+        match parts_joined {
+            Some(rest) if rest.contains('[') => {
+                let canonical = rest
+                    .split("__")
+                    .map(|p| p.split('[').next().unwrap_or(p).trim())
+                    .collect::<Vec<_>>()
+                    .join("__");
+                format!("Tuple__{canonical}")
+            }
+            Some(rest) => format!("Tuple__{rest}"),
+            None => decl.to_string(),
         }
-        decl.to_string()
     }
 
     /// gzip-DECOMPRESS fix (2026-08-19): resolve the declared payload XIOM type
