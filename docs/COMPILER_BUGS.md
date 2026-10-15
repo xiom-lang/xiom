@@ -17101,3 +17101,19 @@ Fix: canonicalize every tuple part at its first bracket (the canonical
 key never keeps container args). Witnesses: p_v065_aesgcm_tuple_len rc
 3 -> 0; p_wave107 exit 20 -> 0; p_wave108 exit 32 -> 0;
 smoke_stress_crypto_aes_gcm AV -> 0. Lock `e2e_m324_aead_pair_len`.
+
+---
+
+## 2026-10-15 -- FIXED (m325): float operands must not take integer extensions (REL-20261014-2123-stdlib; v0.64.5 candidate battery)
+
+`p_sweep_single_param` was a compilefail on the dry-run archive (clang:
+`invalid cast opcode for cast from 'float' to 'i64'`; pin-green on
+v0.64.4). Root cause: the raw-pointer element-read path (m281 gate)
+unconditionally `zext`ed any non-i64 pointee to the i64 value model, so
+a float pointee (`*Float32` -> `float`) emitted `zext float %v to i64`
+in xiom.simd.vec4.f32x4_load / vec8.f32x8_load -- invalid IR. Fix: only
+narrow INTEGER pointees (i1/i8/i16/i32) widen; float/FP, wide-int and
+aggregate pointees keep their loaded type (consumers coerce at the sink,
+the m182 const-array convention). Witness: p_sweep_single_param compile
+rc != 0 -> 0 and runs green. Locks `e2e_m325_zext_float_cast` (+ `_ir`:
+no `zext float` in the module).

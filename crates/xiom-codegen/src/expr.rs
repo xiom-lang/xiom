@@ -3548,9 +3548,22 @@ impl IrEmitter {
                     if elem_llvm == LLVM_I64 {
                         return Ok((ch, LLVM_I64.to_string()));
                     }
-                    let ext = self.fresh_tmp();
-                    self.emitln(&format!("  {ext} = zext {elem_llvm} {ch} to i64"));
-                    return Ok((ext, LLVM_I64.to_string()));
+                    // m325 (REL-20261014-2123-stdlib): ONLY narrow INTEGER
+                    // pointees widen to the i64 value model. A float pointee
+                    // (`*Float32` -> `float`) reached the previously
+                    // unconditional zext here and emitted `zext float %v to
+                    // i64` -- invalid IR (`invalid cast opcode for cast from
+                    // 'float' to 'i64'`) that rejected the p_sweep_single_param
+                    // clang build in xiom.simd.vec4.f32x4_load /
+                    // xiom.simd.vec8.f32x8_load. Float/FP, wide-int and
+                    // aggregate pointees keep their loaded type; consumers
+                    // coerce at the sink (the m182 const-array convention).
+                    if matches!(elem_llvm.as_str(), "i1" | "i8" | "i16" | "i32") {
+                        let ext = self.fresh_tmp();
+                        self.emitln(&format!("  {ext} = zext {elem_llvm} {ch} to i64"));
+                        return Ok((ext, LLVM_I64.to_string()));
+                    }
+                    return Ok((ch, elem_llvm));
                 }
                 // Str: char access via the raw runtime accessor, returned as i64.
                 if cont_ty == "i8*" {

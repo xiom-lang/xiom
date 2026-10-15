@@ -8469,3 +8469,33 @@ fn e2e_safety_probe() {
         "Result Ok-pair Vec lengths must read back through the boxed tuple (m324)"
     );
 }
+
+// m325 (REL-20261014-2123-stdlib): float-typed pointer element reads must NOT
+// take integer extensions. Pre-fix `let p = ptr as *Float32; p[i]` inside an
+// unsafe block emitted `zext float %v to i64` (invalid IR -- clang "invalid
+// cast opcode for cast from 'float' to 'i64'"), rejecting the
+// p_sweep_single_param probe build inside xiom.simd.vec4.f32x4_load /
+// xiom.simd.vec8.f32x8_load. The fixture mirrors that single-param sweep
+// shape and checks the read values at runtime.
+#[test] fn e2e_m325_zext_float_cast() {
+    assert_eq!(
+        compile_and_run("tests/regression/m325_zext_float_cast/main.xi"),
+        Some(0),
+        "float pointer element reads must lower without integer extensions"
+    );
+}
+
+// m325 IR twin: the pointer-index read keeps the loaded `float` (stored
+// directly into the struct field); no `zext float ... to i64` may appear.
+#[test] fn e2e_m325_zext_float_cast_ir() {
+    let ir = compile_ir("tests/regression/m325_zext_float_cast/main.xi")
+        .expect("m325: fixture must emit IR");
+    assert!(
+        ir.contains("load float"),
+        "m325: the fixture must exercise float element loads; got:\n{ir}"
+    );
+    assert!(
+        !ir.contains("zext float"),
+        "m325: float elements must not take integer extensions; got:\n{ir}"
+    );
+}
