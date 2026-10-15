@@ -513,6 +513,14 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
    m327 batch (second commit on fix/m326...; cherry-pick the follow-up
    only), then FULL e2e again, then the push -> fresh dry-run -> stdlib
    archive signal. NOTHING pushes until bug55 is green.
+   UPDATE 2026-10-15T11:40Z: m326 follow-up LANDED + integrated as m327
+   `7a574f9c` (struct_field_names_for: types exact/leaf + type_meta
+   exact/suffix; direct gep+store kept on the qualified struct path).
+   bug55 0/0; m326 locks + p_wave7/8 probes 0/0; g1 16 + g2 241, codegen
+   12, check serial 199. FULL e2e re-gate RUNNING (bgp
+   _13f5c8479001l23yrQp4W3MQxd); ON GREEN: fetch + push main (~13
+   commits) -> fresh dry-run -> signal stdlib (REL-20261014-1739-compiler)
+   -> candidate battery -> tag -> pin -> publish. m327 note filed (relay).
   Row-sweep note: several check-file rows still show `acked`/red for items
   fixed in m276-m284 (e.g. 1437/1512 -> m279; 2230/2053/2137/1402/1403/
   1418 -> m276-m282) -- sweep rows when convenient.
