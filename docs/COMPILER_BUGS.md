@@ -17281,3 +17281,51 @@ the Err arm). Battery green (fixer worktree, windows): locks 2/2, e2e g1
 stdlib_execution 85 (+2 ignored), integration 130; probe red on the
 archive (exit 1) / green on the fixed build (exit 0).
 Fix commit: b5b97427 (branch fix/m334-tuple-name-collision, unpushed).
+
+---
+
+## 2026-10-16 -- TRIAGED (m335): B-29 "big-int bitops wrong for values >= 2^31" is a decimal-conversion error in the bundle probe -- the ops are exact (REL-20261014-1208-bindings-2)
+
+The bindings bundle's `bigint-bitops` probe expects `3132620800 >> 20` =
+2989, `3132620800 & 4293918720` = 3132620800 and `3132620800 / 1048576` =
+2989, and reports the observed 2987 / 3132096512 / 2987 as a compiler
+defect. The literal is the problem: **3132620800 = 0xBAB80000, NOT
+0xBAD00000** (the real NVSDK_NGX_Result failure base is 3134193664 =
+0xBAD00000). For the literal as written the observed values are exactly
+correct -- `0xBAB80000 >> 20` = 0xBAB = 2987, `& 0xFFF00000` = 0xBAB00000 =
+3132096512, `/ 2^20` = 2987 -- and no semantics of a correct shift/and/div
+can produce the probe's "expected" values from it. (The finding's own hex
+labels are off the same way: observed 3132096512 was written "0xBAC00000";
+it is 0xBAB00000, and its stated "want" values are exactly the results of
+the true 0xBAD00000 constant.)
+
+Re-verified empirically on the official v0.64.5 archive AND on main
+(d4fdd7e7), every shape of the class: constant-folded expressions, hex
+`0xBAD00000`, runtime module-global reads, function-parameter calls,
+UInt32->Int (zext) and Int32->Int (sext) provenance through the masked
+compare, a runtime shift sweep (`v >> s == v / (1 << s)`, s in 0..40), the
+reporter's sub-2^31 controls, and the full upstream classification loop
+(`(rc & 0xFFF00000) == 0xBAD00000` over `0xBAD00000 | N`, N in 0..18: all
+19 failure codes classified, 1 and 0 rejected). `--emit-ir` shows the
+suspected "32-bit path truncating before widening" does not exist: the
+fixture lowers to `ashr i64` / `and i64` / `sdiv i64` / `or i64` with
+`i64 3134193664` and `i64 3132620800` initializers, and no i32-width
+shift/and/div/or anywhere.
+
+NO compiler defect. LOCK (green-first by design -- a triage lock, not a
+red-first fix): tests/regression/m335_bigint_bitops/ +
+`e2e_m335_bigint_bitops` and its IR twin (asserts the i64 op widths and
+both big i64 constants), wired into the ci.yml e2e group-2 list. The lock
+reports 0 failing checks on BOTH the v0.64.5 archive and the fixer build,
+so there is no red arm; it pins the correct semantics and the true NGX
+constant so the false positive cannot silently flip into a real
+regression.
+
+Bindings-lane follow-ups (NOT compiler work): the shipped `xiom.dlss`
+constant `NVSDK_NGX_RESULT_FAIL = 3132620800` (comment "0xBAD00000") is
+0xBAB80000, so `dlss_failed(rc) = (rc - 3132620800) in [0, 18]`
+classifies every real NGX failure code (0xBAD00000|N) as success; the
+package suite's equivalence pin uses the same wrong constant and cannot
+catch it. The bundle `probe.xi`, the B-29 ledger row and the package
+constant need the 3134193664 correction before the boundary-arithmetic
+workaround can be retired. No compiler change in this round.

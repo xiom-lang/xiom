@@ -8597,3 +8597,52 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
         "m334: the inline producer tuple must not collapse to Tuple__Int__Int; got:\n{body}"
     );
 }
+
+// m335 (REL-20261014-1208-bindings-2, B-29 triage): the "big-int bitops are
+// wrong for values >= 2^31" report is arithmetically mis-grounded -- the
+// bundle probe's literal 3132620800 is 0xBAB80000, NOT 0xBAD00000
+// (0xBAD00000 = 3134193664), so its "expected" values are impossible for
+// the literal as written while the values it reports as wrong are exactly
+// correct for it. Re-verified on the official v0.64.5 archive AND on main:
+// no 32-bit truncation path exists (Int shift/and/div/or lower as i64) and
+// the true NGX 0xBAD00000 result-code class (0xBAD00000|N, N in 0..18)
+// classifies correctly in every shape -- constant-folded, hex, runtime
+// globals, fn-param calls, and UInt32->Int / Int32->Int provenance. The
+// lock pins the correct semantics plus the true decimal constant; it is
+// green-first by design (a triage lock has no red arm).
+#[test] fn e2e_m335_bigint_bitops() {
+    assert_eq!(
+        compile_and_run("tests/regression/m335_bigint_bitops/main.xi"),
+        Some(0),
+        "big-int shift/and/div/classify semantics must stay exact for values >= 2^31 (m335)"
+    );
+}
+
+// m335 IR twin: the fixture's runtime big-int ops must lower wide --
+// `ashr i64` / `and i64` / `sdiv i64` / `or i64` -- with both big constants
+// as i64 initializers; any 32-bit truncation path would surface as i32-width
+// ops or narrowed constants.
+#[test] fn e2e_m335_bigint_bitops_ir() {
+    let ir = compile_ir("tests/regression/m335_bigint_bitops/main.xi")
+        .expect("m335 fixture must compile to IR");
+    for op in ["ashr i64", "and i64", "sdiv i64", "or i64"] {
+        assert!(
+            ir.contains(op),
+            "m335: big-int ops must lower wide ({op} missing)"
+        );
+    }
+    for bad in ["ashr i32", "and i32", "sdiv i32", "or i32"] {
+        assert!(
+            !ir.contains(bad),
+            "m335: no 32-bit-width op may appear ({bad} found)"
+        );
+    }
+    assert!(
+        ir.contains("i64 3134193664"),
+        "m335: the true 0xBAD00000 constant must be an i64 initializer"
+    );
+    assert!(
+        ir.contains("i64 3132620800"),
+        "m335: the probe's literal must be an i64 initializer"
+    );
+}
