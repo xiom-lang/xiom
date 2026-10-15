@@ -555,6 +555,13 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
    - Local uncommitted pin set (rides the PR branch): STDLIB_VERSION +
      notes JSON (6 highlights; convert+verify green) + gate record;
      thread acceptance at the pin 5/5+5/5; pin e2e 2550/0/4.
+   - m331 `b6cf620d` LANDED + pushed (owner-approved quick Darwin fix):
+     `@llvm.memset.p0i8.i64` declared in the builtin preamble (4 sites)
+     + `hardcoded_declare_names`; PULSE 1549/1609 items acked-updated
+     (bus 4152229); proper darwin work queued v0.64.6. NOTE: the declare
+     adds ~49 bytes to every module's preamble -- when m328's budget
+     lands, re-run perf_budget_tests after BOTH are on main (m328 was
+     calibrated without the declare).
    - NEXT: m328+m329 land -> push main -> rebuild the PR branch
      (main + pin set) -> PR CI green -> merge xiom#6 -> tag v0.64.5 ->
      release run -> verify assets -> record -> goal_report complete.
