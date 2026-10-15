@@ -2176,23 +2176,38 @@ impl IrEmitter {
     /// point the snapshot header at it. Shallow per face: nested container
     /// elements inside the cloned buffer are still aliased (documented limit).
     fn snapshot_deep_copy_vec_fields(&mut self, var_name: &str, pre_alloca: &str, struct_llvm_ty: &str) {
-        let raw_name = match self.local.local_xiom_types.get(var_name) {
-            Some(t) => t.clone(),
-            None => return,
-        };
-        let struct_name = raw_name
-            .trim_start_matches('&')
-            .trim_start_matches("mut ")
-            .trim()
+        // m326 (REL-20261014-2123-stdlib): the snapshot's LLVM struct type is
+        // the LAYOUT AUTHORITY -- key the meta lookup off it first. The raw
+        // xiom spelling can resolve to a same-leaf collision sibling (bare
+        // `LinkedList` -> the collections 1-field decl while the snapshot
+        // holds the 6-field list), whose Vec field list then GEP'd the wrong
+        // offsets (head/tail/size read as a Vec header -> preclone
+        // malloc(huge) NULL -> llvm.trap).
+        let llvm_key = struct_llvm_ty
+            .trim_start_matches("%struct.")
+            .trim_end_matches('*')
             .to_string();
-        let struct_name = struct_name.split('[').next().unwrap_or(&struct_name).to_string();
-        let key = match self.types.type_meta.get(&struct_name) {
-            Some(_) => struct_name.clone(),
-            None => {
-                let suffix = format!(".{struct_name}");
-                match self.types.type_meta.keys().into_iter().find(|k| k.ends_with(&suffix)) {
-                    Some(k) => k.to_string(),
-                    None => return,
+        let key = if self.types.type_meta.contains_key(&llvm_key) {
+            llvm_key
+        } else {
+            let raw_name = match self.local.local_xiom_types.get(var_name) {
+                Some(t) => t.clone(),
+                None => return,
+            };
+            let struct_name = raw_name
+                .trim_start_matches('&')
+                .trim_start_matches("mut ")
+                .trim()
+                .to_string();
+            let struct_name = struct_name.split('[').next().unwrap_or(&struct_name).to_string();
+            match self.types.type_meta.get(&struct_name) {
+                Some(_) => struct_name.clone(),
+                None => {
+                    let suffix = format!(".{struct_name}");
+                    match self.types.type_meta.keys().into_iter().find(|k| k.ends_with(&suffix)) {
+                        Some(k) => k.to_string(),
+                        None => return,
+                    }
                 }
             }
         };

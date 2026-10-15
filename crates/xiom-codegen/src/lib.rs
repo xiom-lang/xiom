@@ -207,6 +207,14 @@ impl IrEmitter {
         self.config.primary_imports = imports;
     }
 
+    /// m326 (REL-20261014-2123-stdlib): names declared by the tabled user
+    /// program (the driver's pre-injection `existing_names`). `llvm_type_for`
+    /// keeps legacy exact-match resolution for these; other bare names may
+    /// defer to an imported same-leaf candidate.
+    pub fn set_user_declared_type_names(&mut self, names: std::collections::HashSet<String>) {
+        self.config.user_declared_type_names = names;
+    }
+
     /// R15: hand the checker's catalog-body resolved call targets to codegen.
     pub fn set_catalog_call_targets(&mut self, targets: std::collections::HashMap<String, String>) {
         self.config.catalog_call_targets = targets;
@@ -4505,6 +4513,38 @@ impl IrEmitter {
         }
         // Try exact match
         if self.types.types.contains_key(&clean_name.to_string()) || self.types.type_meta.contains_key(&clean_name.to_string()) {
+            // m326 (REL-20261014-2123-stdlib): a bare exact key can belong to a
+            // different owner than the type the user actually imported -- the
+            // GENERIC member of a shape-conflicting same-leaf group keeps the
+            // bare key (its non-generic sibling injects module-qualified), so
+            // `l: &mut LinkedList` under `use xiom.collect.list;` bound the
+            // collections `LinkedList[T]` layout: wrong-size @pre snapshot
+            // copies, the preclone read the 6-field list's head/tail/size as a
+            // Vec header -> malloc(huge) NULL -> llvm.trap (0xC000001D), and
+            // the invariant helper was called with a foreign layout. Offer the
+            // exact key PLUS qualified same-leaf candidates to the standard
+            // deterministic scorer (m278 import/module proximity). The scorer
+            // only returns a candidate on a STRICT score win -- ties fall to
+            // the shortest key (the bare exact one) -- so names no import or
+            // module context prefers keep the legacy key. Names the user
+            // program itself declares stay fully legacy (locals first).
+            if !self.config.user_declared_type_names.contains(clean_name) {
+                let mut cand: Vec<String> = vec![clean_name.to_string()];
+                cand.extend(self.types.type_meta.keys().into_iter().filter(|key| {
+                    key.ends_with(&format!(".{clean_name}"))
+                        && !key.contains("Tuple__")
+                        && !key.starts_with("Option__")
+                        && !key.starts_with("Result__")
+                        && !key.starts_with("_Anon__")
+                }));
+                if cand.len() > 1 {
+                    if let Some(best) = self.pick_deterministic(cand) {
+                        if best != clean_name {
+                            return Ok(format!("%struct.{best}"));
+                        }
+                    }
+                }
+            }
             return Ok(format!("%struct.{clean_name}"));
         }
         // Search for any module-qualified variant ending with .clean_name.

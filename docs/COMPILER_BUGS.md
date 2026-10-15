@@ -17117,3 +17117,29 @@ aggregate pointees keep their loaded type (consumers coerce at the sink,
 the m182 const-array convention). Witness: p_sweep_single_param compile
 rc != 0 -> 0 and runs green. Locks `e2e_m325_zext_float_cast` (+ `_ir`:
 no `zext float` in the module).
+
+---
+
+## 2026-10-15 -- FIXED (m326): duplicate clause-helper emission + imported-owner bare-key resolution (REL-20261014-2123-stdlib part 4; v0.64.5 candidate battery)
+
+p_wave7/p_wave8 were compilefails on the dry-run archive (clang:
+`invalid redefinition of function 'LinkedList.invariant_check'`), from
+two defects on the colliding LinkedList leaf (xiom.collect.list
+non-generic vs xiom.collections generic LinkedList[T]): (1) the
+fn-signature injection walk deduped on the QUALIFIED collision key while
+the Type arm keyed the generic decl BARE, so the same decl node was
+pushed twice; (2) `compile_invariant_check` (unlike every other derived
+emitter) had no emit-once guard. Also fixed the same bare-key claim
+mis-typing user params: `llvm_type_for`'s exact-match branch offers
+qualified same-leaf candidates to pick_deterministic for names the user
+program does not declare (import/module proximity, strict wins only);
+the driver import harvest recurses into module-wrapped entry files; the
+entry-file pre-injection declared-name set rides to codegen as the
+locals-first guard; struct-literal invariant checks look up the RESOLVED
+struct name; and the @pre snapshot deep-copy keys the Vec-field walk off
+the actual LLVM struct type (pre-fix the preclone read the 6-field
+list's head/tail/size as a Vec header -> malloc(huge) NULL -> llvm.trap
+0xC000001D -- the p_wave8 runtime trap). Witnesses: p_wave7/p_wave8
+compile rc 0 + run 0. Locks `e2e_m326_dup_invariant_helper` (+`_ir`:
+exactly one define). Battery: locks 2/2, g1 16 + g2 241, codegen 12,
+check serial 199, front-locks green.

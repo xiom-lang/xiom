@@ -257,6 +257,16 @@ impl super::IrEmitter {
         };
         let struct_ty = format!("%struct.{type_name}");
         let fn_name = format!("{type_name}.invariant_check");
+        // m326 (REL-20261014-2123-stdlib): emit-once guard, mirroring every
+        // other derived-impl emitter (compile_eq_impl/clone/display/hash/...).
+        // Without it a program carrying two TypeDecl nodes for the same type
+        // (e.g. an injected external decl pushed twice) emitted the helper as
+        // a duplicate symbol and clang rejected the module ("invalid
+        // redefinition of function 'LinkedList.invariant_check'").
+        if self.mono.emitted_fns.contains(&fn_name) {
+            return Ok(());
+        }
+        self.mono.emitted_fns.insert(fn_name.clone());
         self.emitln(&format!("define void @{fn_name}({struct_ty} %__obj) {{"));
         // Store the struct value in an alloca for field access
         let alloca = self.fresh_tmp();

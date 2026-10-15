@@ -3905,6 +3905,9 @@ impl Checker {
                                 // their FIELDS reference (nested private structs).
                                 let mut worklist = sig_types;
                                 while let Some(ty_name) = worklist.pop() {
+                                    if primitives.contains(&ty_name.as_str()) {
+                                        continue;
+                                    }
                                     // m278 (REL-20261011-2137-engine): a colliding
                                     // referenced type injects module-qualified
                                     // (mirrors the Type arm) -- the first module's
@@ -3914,19 +3917,33 @@ impl Checker {
                                     // stdlib geometry Mesh layout.
                                     let collision = collision_types.contains(&ty_name)
                                         && !module_name.is_empty();
-                                    let dedup = if collision {
-                                        format!("{}.{}", module_name, ty_name)
-                                    } else {
-                                        ty_name.clone()
-                                    };
-                                    if existing.contains(&dedup) || primitives.contains(&ty_name.as_str()) {
-                                        continue;
-                                    }
                                     for item in items {
                                         match item {
                                             TopDecl::Type(td) if td.name.name == ty_name => {
+                                                // m326 (REL-20261014-2123-stdlib): dedup
+                                                // on the SAME key the Type arm actually
+                                                // injected. The collision rename applies
+                                                // only to NON-generic decls; a generic
+                                                // colliding decl keeps the bare key. The
+                                                // old unconditional qualified `dedup`
+                                                // key never matched the bare key the Type
+                                                // arm recorded for `LinkedList[T]`, so the
+                                                // same decl was pushed TWICE and codegen
+                                                // emitted its invariant helper as a
+                                                // duplicate symbol (clang: invalid
+                                                // redefinition of function
+                                                // 'LinkedList.invariant_check').
+                                                let renamed = collision && td.generics.is_empty();
+                                                let dedup = if renamed {
+                                                    format!("{}.{}", module_name, ty_name)
+                                                } else {
+                                                    ty_name.clone()
+                                                };
+                                                if existing.contains(&dedup) {
+                                                    break;
+                                                }
                                                 existing.insert(dedup.clone());
-                                                if collision && td.generics.is_empty() {
+                                                if renamed {
                                                     let mut td2 = td.clone();
                                                     td2.name.name = dedup.clone();
                                                     out.push(TopDecl::Type(td2));
@@ -3941,6 +3958,17 @@ impl Checker {
                                                 break;
                                             }
                                             TopDecl::Enum(ed) if ed.name.name == ty_name => {
+                                                // m326: same key rule as the Type arm
+                                                // (rename only non-generic decls).
+                                                let renamed = collision && ed.generics.is_empty();
+                                                let dedup = if renamed {
+                                                    format!("{}.{}", module_name, ty_name)
+                                                } else {
+                                                    ty_name.clone()
+                                                };
+                                                if existing.contains(&dedup) {
+                                                    break;
+                                                }
                                                 existing.insert(dedup.clone());
                                                 // m225 (C-ORBIT-04): record the
                                                 // declaring module for scoped
@@ -3948,7 +3976,7 @@ impl Checker {
                                                 if !module_name.is_empty() {
                                                     enum_modules.push((dedup.clone(), module_name.to_string()));
                                                 }
-                                                if collision && ed.generics.is_empty() {
+                                                if renamed {
                                                     let mut ed2 = ed.clone();
                                                     ed2.name.name = dedup.clone();
                                                     out.push(TopDecl::Enum(ed2));

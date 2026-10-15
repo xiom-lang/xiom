@@ -756,15 +756,24 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
     // top-level bare type reference prefers a type declared by an imported
     // module over a same-leaf type from elsewhere (root-name AV).
     {
-        let mut primary_imports: Vec<String> = Vec::new();
-        for item in &program.items {
-            if let xiom_ast::TopDecl::Use(u) = item {
-                let p = u.path.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join(".");
-                if !p.is_empty() {
-                    primary_imports.push(p);
+        // m326 (REL-20261014-2123-stdlib): recurse into Module decls -- the
+        // `module name` file form wraps every decl (uses included).
+        fn collect_use_paths(items: &[xiom_ast::TopDecl], out: &mut Vec<String>) {
+            for item in items {
+                match item {
+                    xiom_ast::TopDecl::Use(u) => {
+                        let p = u.path.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join(".");
+                        if !p.is_empty() {
+                            out.push(p);
+                        }
+                    }
+                    xiom_ast::TopDecl::Module(md) => collect_use_paths(&md.items, out),
+                    _ => {}
                 }
             }
         }
+        let mut primary_imports: Vec<String> = Vec::new();
+        collect_use_paths(&program.items, &mut primary_imports);
         emitter.set_primary_imports(primary_imports);
     }
     emitter.set_catalog_call_targets(checker.catalog_resolved_calls.clone());
@@ -1191,6 +1200,11 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     // Stage 4.5: Inject external module declarations
         let mut injected_fn_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
         let external_decls = checker.collect_external_decls(&program);
+        // m326 (REL-20261014-2123-stdlib): the pre-injection declared-name set
+        // tells codegen which bare spellings are the USER's own (legacy
+        // locals-first resolution). Everything else may defer to an imported
+        // same-leaf candidate over a collision sibling's bare key.
+        let mut user_declared_names: std::collections::HashSet<String> = std::collections::HashSet::new();
         if !external_decls.is_empty() {
         fn fn_dedup_key(fd: &xiom_ast::FnDecl) -> String {
             if fd.is_method() {
@@ -1234,6 +1248,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             }
         }
         collect_existing(&program.items, "", &mut existing_names);
+        user_declared_names = existing_names.clone();
         for decl in external_decls {
             let name = match &decl {
                 xiom_ast::TopDecl::Type(td) => td.name.name.clone(),
@@ -1279,17 +1294,30 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     // top-level bare type reference prefers a type declared by an imported
     // module over a same-leaf type from elsewhere (root-name AV).
     {
-        let mut primary_imports: Vec<String> = Vec::new();
-        for item in &program.items {
-            if let xiom_ast::TopDecl::Use(u) = item {
-                let p = u.path.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join(".");
-                if !p.is_empty() {
-                    primary_imports.push(p);
+        // m326 (REL-20261014-2123-stdlib): recurse into Module decls -- the
+        // `module name` file form wraps every decl (uses included), so the
+        // old top-level-only scan harvested NOTHING for it and the import
+        // signal pick_deterministic relies on was always empty for wrapped
+        // entry files.
+        fn collect_use_paths(items: &[xiom_ast::TopDecl], out: &mut Vec<String>) {
+            for item in items {
+                match item {
+                    xiom_ast::TopDecl::Use(u) => {
+                        let p = u.path.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join(".");
+                        if !p.is_empty() {
+                            out.push(p);
+                        }
+                    }
+                    xiom_ast::TopDecl::Module(md) => collect_use_paths(&md.items, out),
+                    _ => {}
                 }
             }
         }
+        let mut primary_imports: Vec<String> = Vec::new();
+        collect_use_paths(&program.items, &mut primary_imports);
         emitter.set_primary_imports(primary_imports);
     }
+    emitter.set_user_declared_type_names(user_declared_names);
     emitter.set_catalog_call_targets(checker.catalog_resolved_calls.clone());
     emitter.set_program_bare_targets(checker.program_bare_targets.clone());
     emitter.set_module_receiver_paths(checker.module_receiver_paths.clone());

@@ -135,6 +135,14 @@ pub struct CodegenConfig {
     /// `xiom.geom.geometry_3d.Mesh`) were otherwise picked by key length,
     /// so which one won flipped with the project root name.
     pub primary_imports: Vec<String>,
+    /// m326 (REL-20261014-2123-stdlib): type/fn names DECLARED by the tabled
+    /// user program (the driver's pre-injection `existing_names` set). Used by
+    /// `llvm_type_for`'s exact-match branch: a bare exact key that belongs to a
+    /// same-leaf collision sibling (the generic member of a shape-conflicting
+    /// catalog group keeps the bare key) must not shadow a candidate the user
+    /// actually imported -- but a name the user program itself declares always
+    /// keeps legacy locals-first resolution.
+    pub user_declared_type_names: std::collections::HashSet<String>,
     /// R22: MODULE bindings only (local name -> full dotted module path) for
     /// every `use` whose target is a module (alias or plain item import).
     /// `resolve_module_call` expands single-segment receivers through this.
@@ -202,6 +210,7 @@ impl Default for CodegenConfig {
             unsafe_direct_cap: 64,
             use_alias_paths: HashMap::new(),
             primary_imports: Vec::new(),
+            user_declared_type_names: std::collections::HashSet::new(),
             module_receiver_paths: HashMap::new(),
             enum_module_hints: Vec::new(),
             catalog_call_targets: HashMap::new(),

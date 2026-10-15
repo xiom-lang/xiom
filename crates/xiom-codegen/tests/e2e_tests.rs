@@ -8499,3 +8499,41 @@ fn e2e_safety_probe() {
         "m325: float elements must not take integer extensions; got:\n{ir}"
     );
 }
+
+// m326 (REL-20261014-2123-stdlib part 4): the colliding `LinkedList` leaf --
+// xiom.collections' GENERIC `LinkedList[T]` (invariant-bearing) kept the bare
+// key while xiom.collect.list's non-generic `LinkedList` injected
+// module-qualified. The fn-signature injection walk deduped on the QUALIFIED
+// key, so the collections decl was pushed TWICE; codegen emitted
+// `LinkedList.invariant_check` twice and clang rejected the module ("invalid
+// redefinition of function 'LinkedList.invariant_check'"). The same bare-key
+// claim typed a user `&mut LinkedList` param as the collections 1-field
+// layout: the @pre snapshot preclone read the 6-field list's head/tail/size
+// as a Vec header -> malloc(huge) NULL -> llvm.trap (0xC000001D). Pre-fix:
+// compile rc 1 (redefinition) on current main; v0.64.4 pin green. The
+// fixture (trimmed from p_wave7/p_wave8) compiles rc 0 and runs 0.
+#[test] fn e2e_m326_dup_invariant_helper() {
+    assert_eq!(
+        compile_and_run("tests/regression/m326_dup_invariant_helper/main.xi"),
+        Some(0),
+        "m326: the LinkedList invariant helper must emit once and the @pre snapshot must use the imported list layout"
+    );
+}
+
+// m326 IR twin: the compiler-generated invariant helper for the colliding
+// `LinkedList` leaf appears exactly ONCE (pre-fix: two identical defines,
+// same symbol, clang-rejected).
+#[test] fn e2e_m326_dup_invariant_helper_ir() {
+    let output = Command::new(xiom_path())
+        .args(["--force", "--no-cache", "--emit-ir",
+               "tests/regression/m326_dup_invariant_helper/main.xi"])
+        .current_dir(project_root())
+        .output()
+        .expect("emit-ir");
+    let ir = String::from_utf8_lossy(&output.stdout).to_string();
+    let defines = ir.matches("define void @LinkedList.invariant_check").count();
+    assert_eq!(
+        defines, 1,
+        "m326: exactly one LinkedList.invariant_check definition must be emitted (got {defines})"
+    );
+}

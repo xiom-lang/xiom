@@ -4950,9 +4950,18 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {alloca}"));
                 // Emit invariant check after struct creation
                 if self.config.check_contracts {
-                    if let Some(meta) = self.types.type_meta.get(&name.name) {
+                    // m326 (REL-20261014-2123-stdlib): look the invariant meta up
+                    // under the RESOLVED struct name -- the literal's AST name can
+                    // be a bare spelling whose meta belongs to a same-leaf
+                    // sibling (bare `LinkedList` in an injected body resolved to
+                    // the generic collections decl while the value was
+                    // %struct.xiom.collect.list.LinkedList), which emitted a
+                    // helper call typed for the wrong layout (clang: '%tmp69'
+                    // defined with type X but expected Y).
+                    let resolved_name = struct_ty.strip_prefix("%struct.").unwrap_or(struct_ty.as_str()).to_string();
+                    if let Some(meta) = self.types.type_meta.get(&resolved_name) {
                         if !meta.invariants.is_empty() {
-                            self.compile_invariant_call(&name.name, &loaded);
+                            self.compile_invariant_call(&resolved_name, &loaded);
                         }
                     }
                 }
