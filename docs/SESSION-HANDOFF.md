@@ -598,9 +598,19 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
    (ubuntu + windows + hygiene). PR #6 MERGED via rebase-merge (repo
    disallows merge commits) -- origin main = `84f761c5` (the pin commit).
    TAG `v0.64.5` (annotated) PUSHED on `84f761c5`; RELEASE RUN
-   `38792051847` in progress. ON GREEN: verify assets + SHA256SUMS +
-   non-draft release -> record in the candidate record + handoff ->
-   goal_report complete.
+   `38792051847` in progress.
+   *** RELEASED 2026-10-15T19:20Z ***: release run FULLY GREEN (guard +
+   linux-x64 + windows-x64 + macos-x64 + macos-arm64 + VSIX + publish).
+   GitHub Release `v0.64.5` live + non-draft: SHA256SUMS, the four
+   platform archives, VSIX 0.12.2, wasm bundle + typings. Pin:
+   STDLIB_VERSION = stdlib-v0.64.5 sha `092dfa0` (tag obj 1667b3a8) +
+   notes JSON (6 highlights) + gate record; pin-gate fix round m328-m333
+   shipped in the tag. stdlib side: xiom-std 0.64.5 published. v0.64.6
+   headline queue: general Darwin work (declare landed m331; runtime tf
+   x64 / _SC_AVPHYS_PAGES / arm64 fp128 asm + engine macOS build/run
+   evidence) + POSIX fault-trace parity (m244/m308 markers). Post-release
+   wave: archive reporter re-verification (bindings/orbitdb/playground/
+   engine/stdlib rows) per the candidate record.
   Row-sweep note: several check-file rows still show `acked`/red for items
   fixed in m276-m284 (e.g. 1437/1512 -> m279; 2230/2053/2137/1402/1403/
   1418 -> m276-m282) -- sweep rows when convenient.
