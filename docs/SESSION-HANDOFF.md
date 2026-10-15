@@ -583,6 +583,17 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
    `-lstdc++`/`-lc++` on non-Windows; + rustls vet exemption 0.23.46 for
    cargo-vet). Pin branch REBASED (`0ff49434`) + force-pushed; PR CI
    ROUND 3 = run `38787764451` (queued). Same next-steps on green.
+   UPDATE 2026-10-15T19:00Z: round 3 -- windows + hygiene GREEN (vet +
+   advisories fixed); ubuntu red on FIVE g2 fault locks (first ubuntu
+   exposure: llvm.trap signal-terminates on unix -> `code()` None; the
+   m244/m308 "[trampoline] fault" marker is Windows-VEH-only). FIXED m333
+   `81e98099` (platform-aware trap locks: unix None accepted, Windows
+   strict; marker asserts cfg(windows), containment exit-0 asserted
+   everywhere). Pin branch rebased (`247b0f14`) + force-pushed; PR CI
+   ROUND 4 = run `38790060894`. v0.64.6 QUEUE ADDED: POSIX fault-trace
+   marker + cross-OS fault-containment observables (stdlib runtime).
+   ON GREEN (round 4): merge xiom#6 -> tag v0.64.5 -> release run ->
+   verify assets -> record -> goal_report complete.
   Row-sweep note: several check-file rows still show `acked`/red for items
   fixed in m276-m284 (e.g. 1437/1512 -> m279; 2230/2053/2137/1402/1403/
   1418 -> m276-m282) -- sweep rows when convenient.
