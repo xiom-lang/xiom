@@ -468,6 +468,20 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
    tag signal -> pin commit (STDLIB_VERSION -> tag sha) + notes JSON +
    gate record + full battery incl. thread acceptance at the pin ->
    push -> tag v0.64.5 -> release run -> verify assets -> record.
+   UPDATE 2026-10-15T10:05Z: THREE OF FOUR classes landed on main --
+   m323 `0cde8579` (Cell[Int8] set/get: skip the self slot pairing generic
+   method decl params; witness rc 2->0), m324 `9914c2ed` (Ok-pair Vec
+   lengths: tuple struct keys canonicalized at the first bracket;
+   witnesses rc 3->0, p_wave107 20->0, p_wave108 32->0, aes-gcm AV->0),
+   m325 `6caf7a16` (float operands never take integer extensions; witness
+   p_sweep_single_param compilefail->green); all with locks + ci tokens;
+   battery g1 16 + g2 239 + codegen 12 green over the stack; relay note
+   filed. m326 (duplicate LinkedList.invariant_check) IN FLIGHT: checker
+   worklist dedupe + codegen emit-once guard implemented, p_wave7 green,
+   p_wave8 compiles but traps at run (being localized; files touched
+   include xiom-check/lib.rs, codegen context/contracts/decl/expr/lib,
+   xiom/src/lib.rs). ON m326 LANDING: full e2e (2544+ baseline) -> push ->
+   fresh dry-run -> stdlib candidate re-run -> tag signal.
   Row-sweep note: several check-file rows still show `acked`/red for items
   fixed in m276-m284 (e.g. 1437/1512 -> m279; 2230/2053/2137/1402/1403/
   1418 -> m276-m282) -- sweep rows when convenient.
