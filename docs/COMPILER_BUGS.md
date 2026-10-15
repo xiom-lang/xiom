@@ -17280,3 +17280,4 @@ the Err arm). Battery green (fixer worktree, windows): locks 2/2, e2e g1
 16 + g2 243 (x2), codegen lib 12, feature_regression 549,
 stdlib_execution 85 (+2 ignored), integration 130; probe red on the
 archive (exit 1) / green on the fixed build (exit 0).
+Fix commit: b5b97427 (branch fix/m334-tuple-name-collision, unpushed).
