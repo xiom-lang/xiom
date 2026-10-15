@@ -577,6 +577,12 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
    sha `092dfa0` + notes JSON (6) + gate record); PR CI RUN `38786292404`
    in progress. ON GREEN: merge xiom#6 -> tag v0.64.5 on the merged main
    -> release run -> verify assets + SHA256SUMS -> record + goal_report.
+   UPDATE 2026-10-15T18:45Z: PR CI round 2 (`38786292404`) -- windows
+   GREEN; two leftovers FIXED on main: m332 `6aa7dc4f` (ubuntu
+   `cxx_standard_applies_to_c_source_cpp`: C++ --c-source link now adds
+   `-lstdc++`/`-lc++` on non-Windows; + rustls vet exemption 0.23.46 for
+   cargo-vet). Pin branch REBASED (`0ff49434`) + force-pushed; PR CI
+   ROUND 3 = run `38787764451` (queued). Same next-steps on green.
   Row-sweep note: several check-file rows still show `acked`/red for items
   fixed in m276-m284 (e.g. 1437/1512 -> m279; 2230/2053/2137/1402/1403/
   1418 -> m276-m282) -- sweep rows when convenient.
