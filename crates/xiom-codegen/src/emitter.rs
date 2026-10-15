@@ -1557,6 +1557,11 @@ impl IrEmitter {
         self.emitln("declare void @free(i8*)");
         self.emitln("declare void @llvm.memcpy.p0i8.p0i8.i64(i8*, i8*, i64, i1)");
         self.emitln("declare void @llvm.memmove.p0i8.p0i8.i64(i8*, i8*, i64, i1)");
+        // m331 (v0.64.5 quick fix, owner-approved): the four memset emission
+        // sites called `@llvm.memset.p0i8.i64` WITHOUT a declaration -- it
+        // warns under llvm-16 on Linux and blocks the macOS legs at IR
+        // verify (PULSE 1549/1609). Declare it like memcpy/memmove.
+        self.emitln("declare void @llvm.memset.p0i8.i64(i8*, i8, i64, i1)");
         self.emitln("declare i64 @xiom_is_sorted(i8*)");
         self.emitln("declare i64 @xiom_all(i8*, i64, i8*)");
         self.emitln("declare i64 @xiom_none(i8*, i64, i8*)");
@@ -2250,6 +2255,7 @@ impl IrEmitter {
         s.insert("realloc".to_string());
         s.insert("free".to_string());
         s.insert("llvm.memcpy.p0i8.p0i8.i64".to_string());
+  s.insert("llvm.memset.p0i8.i64".to_string());
         s.insert("xiom_is_sorted".to_string());
         s.insert("xiom_all".to_string());
         s.insert("xiom_none".to_string());

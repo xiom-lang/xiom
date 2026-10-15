@@ -17158,3 +17158,19 @@ exact/leaf + `type_meta` exact/suffix; the four deref-field/auto-deref
 read/write sites keep the direct gep+store lowering for qualified keys.
 bug55 0/0; m326 locks + p_wave7/p_wave8 probes green; g1 16 + g2 241,
 codegen 12, check serial 199.
+
+---
+
+## 2026-10-15 -- FIXED (m331): `@llvm.memset.p0i8.i64` declared in the builtin preamble (PULSE 1549-pulse + 1609-pulse; owner-approved quick fix)
+
+Four emission sites called the typed memset intrinsic with no
+declaration (emitter.rs Vec-op fallback 32-byte fill, expr.rs slot zero,
+stmt.rs zeros x2): warns under llvm-16 on Linux and BLOCKS the macOS legs
+at IR verify (`use of undefined value '@llvm.memset.p0i8.i64'`). The
+builtin preamble already declared memcpy/memmove; memset is now declared
+alongside (and added to `hardcoded_declare_names` so user externs never
+duplicate it). The proper Darwin work (runtime tf x64 symbols,
+`_SC_AVPHYS_PAGES`, arm64 fp128 asm + engine macOS build/run evidence)
+stays queued for v0.64.6. Verified: declare + call coexist in emitted
+IR; a memset-using probe compiles + runs rc 0; e2e g1 16 + g2 241 +
+codegen 12.
