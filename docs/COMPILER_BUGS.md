@@ -17064,3 +17064,21 @@ Locks: `e2e_m322_ptr_field_index` (+IR twin: `getelementptr i64, i64*`,
 no `load i8`); the three regressed tests are ADDED TO the ci.yml e2e
 list (they were never in a filtered battery). Full e2e: 2544 passed /
 0 failed / 4 ignored.
+
+---
+
+## 2026-10-15 -- FIXED (m323): Cell[Int8] set/get readback (REL-20261014-2123-stdlib; v0.64.5 candidate battery)
+
+`cell.Cell[Int8].set(127 as Int8)` then `get()` returned pointer-shaped
+garbage (rc 2 on the v0.64.5 dry-run archive, 5/5 deterministic; green on
+v0.64.4). Root cause: the generic method-call declared-param pairing used
+`fd.params.get(i)` blindly, so on an INSTANCE method call the receiver
+`self` slot consumed args[0] -- the value arg was typed from the self
+param (Named "Self" fell back to the arg's own LLVM type), and a narrow
+arg (`127 as Int8`) stayed i8 while the monomorphized def takes the
+widened i64 payload slot; the callee stored the register's garbage high
+bits and get read them back. Fix: skip the receiver parameter when
+pairing explicit args (`fd.params.iter().filter(|p| p.name.name != "self")`
+when the receiver is an instance). Witnesses: p_v065_cell_int8_set_readback
+rc 2 -> 0; smoke_cell_narrow exit 2 -> 0. Lock
+`e2e_m323_cell_int8_set_readback`.

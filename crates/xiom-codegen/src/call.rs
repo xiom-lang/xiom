@@ -5056,9 +5056,27 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // registers i64* (data ptr) while `&Vec[T]` registers
                             // %struct.Vec (by value) -- both arrive as &array_local.
                             let generic_fd = self.find_generic_decl(&fn_key);
+                            // m323 (REL-20261014-2123-stdlib): pair each explicit
+                            // arg with its DECLARED param, skipping the receiver
+                            // `self` slot when the receiver is an INSTANCE passed
+                            // separately (its ABI is prepended below). The old
+                            // blind `fd.params.get(i)` paired args[0] with `self`
+                            // on every method call -- the value arg was then
+                            // typed from the self param (Named "Self" fell to
+                            // infer_llvm_type(arg), the arg's OWN LLVM type): a
+                            // narrow arg (`127 as Int8`) stayed i8 while the mono
+                            // def takes the widened i64 payload slot, so the
+                            // callee stored the register's garbage high bits and
+                            // Cell[Int8].get() read pointer-shaped garbage.
+                            let skip_recv = receiver_expr.map_or(false, |r| self.receiver_is_instance(r));
                             for (i, a) in args.iter().enumerate() {
                                 let t = if let Some((_, fd)) = generic_fd.as_ref() {
-                                    if let Some(p) = fd.params.get(i) {
+                                    let matched = if skip_recv {
+                                        fd.params.iter().filter(|p| p.name.name != "self").nth(i)
+                                    } else {
+                                        fd.params.get(i)
+                                    };
+                                    if let Some(p) = matched {
                                         match &p.ty {
                                             // &mut T / *T -> real pointer to the value type
                                             Type::MutRef(inner) | Type::Ptr(inner) => {

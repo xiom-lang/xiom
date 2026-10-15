@@ -8423,3 +8423,31 @@ fn e2e_safety_probe() {
         "m322: @at must not read a single byte per element; got:\n{body}"
     );
 }
+
+// m323 (REL-20261014-2123-stdlib): Cell[Int8].set() followed by get() read
+// pointer-shaped garbage on the v0.64.5 candidate (filed witness rc 2;
+// v0.64.4 archive rc 0). The call-site generic fallback paired args[0] with
+// the receiver `self` param slot, so the VALUE arg was typed from the self
+// param (Named "Self" -> the arg's OWN LLVM type): a narrow arg
+// (`127 as Int8`) stayed i8 while the mono def takes the widened i64 payload
+// slot, and the callee stored the register's garbage high bits. Pre-fix the
+// fixture exits 2; the fix skips the receiver slot when pairing args.
+// Locks the Cell[Int8] witness + Int16/Int32 siblings + a user generic
+// struct method leg (same shifted-pairing class). Needs the stdlib checkout
+// (xiom/cell/cell.xi).
+#[test] fn e2e_m323_cell_int8_set_readback() {
+    let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
+    if !stdlib_root.join("xiom").join("cell").join("cell.xi").exists() {
+        let msg = "SKIP: stdlib checkout has no xiom/cell/cell.xi";
+        if xiom_graph::paths::require_stdlib() {
+            panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
+        }
+        eprintln!("{msg}");
+        return;
+    }
+    assert_eq!(
+        compile_and_run("tests/regression/m323_cell_int8_set_readback/main.xi"),
+        Some(0),
+        "Cell[Int8] set/get readback must compile and run (m323)"
+    );
+}
