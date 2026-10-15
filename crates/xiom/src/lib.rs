@@ -1801,6 +1801,17 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                     }
                 }
             }
+            // m332 (pin CI): C++ objects need the C++ runtime at LINK time --
+            // `__clang_call_terminate` and friends go unresolved without it
+            // (ubuntu front-locks caught it; Windows links the CRT with the
+            // C objects already). Gate like the link-args block below.
+            if !cxx_sources.is_empty()
+                && !cfg!(target_os = "windows")
+                && config.target != Target::Wasm
+                && config.target != Target::Wasi
+            {
+                cmd.arg(if cfg!(target_os = "macos") { "-lc++" } else { "-lstdc++" });
+            }
             if config.target != Target::Wasm && config.target != Target::Wasi {
                 for lp in &config.link_paths {
                     cmd.arg(&format!("-L{lp}"));

@@ -17221,3 +17221,16 @@ step had not run in CI since 2026-09-28):
    SNAPSHOT was stale, not the stdlib. Snapshot repaired in place 1:1
    per the m125/v0.64.3 precedent (documented in the FROZEN header).
 Locks: stdlib_api_freeze_tests 3/3; codegen lib 12, e2e g1 16.
+
+---
+
+## 2026-10-15 -- FIXED (m332, pin gate): C++ --c-source links the C++ runtime; rustls vet exemption refreshed
+
+Pin PR CI round 2: ubuntu `cxx_standard_applies_to_c_source_cpp` failed at
+link (`__clang_call_terminate` unresolved -- C++ objects were added to the
+clang link WITHOUT the C++ runtime; only the ubuntu job exercises this
+shape, Windows links the CRT with the C objects already). Fix: when C++
+sources are present, the native link adds `-lstdc++` (Linux) / `-lc++`
+(macOS); wasm/wasi and Windows untouched. Also `supply-chain/config.toml`:
+the rustls exemption moves 0.23.45 -> 0.23.46 (m330's advisory bump;
+cargo-vet flagged the new version). Verified: cxx_standard_cli 2/2.
