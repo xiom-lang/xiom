@@ -17143,3 +17143,18 @@ list's head/tail/size as a Vec header -> malloc(huge) NULL -> llvm.trap
 compile rc 0 + run 0. Locks `e2e_m326_dup_invariant_helper` (+`_ir`:
 exactly one define). Battery: locks 2/2, g1 16 + g2 241, codegen 12,
 check serial 199, front-locks green.
+
+m326 follow-up (m327, 2026-10-15): the full e2e found ONE regression from
+this batch -- `e2e_m37_bug55_unsafe_ptr_capture` (compile 0 / run 2:
+`Weak.upgrade` re-acquired a freed box). Root: the `llvm_type_for` change
+legitimately resolves the stdlib rc body's RcInner to the qualified key
+`%struct.xiom.rc.RcInner`, but `types` keys it BARE while `type_meta`
+(the builtin registrations) keys it QUALIFIED; the deref-field read/write
+sites consulted only `types`, missed the key, and fell to the by-value
+struct materialization path -- the strong-count bump computed into an
+alloca copy and the destination store was dropped. Fix:
+`struct_field_names_for` resolves field-name lists across `types`
+exact/leaf + `type_meta` exact/suffix; the four deref-field/auto-deref
+read/write sites keep the direct gep+store lowering for qualified keys.
+bug55 0/0; m326 locks + p_wave7/p_wave8 probes green; g1 16 + g2 241,
+codegen 12, check serial 199.

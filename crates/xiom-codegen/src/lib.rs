@@ -5166,6 +5166,36 @@ impl IrEmitter {
         }
     }
 
+    /// m326 follow-up (bug55, REL-20261014-2123-stdlib part 4): resolve a
+    /// struct's declared FIELD-NAME list for a possibly module-qualified type
+    /// key. The registries can key the same struct differently -- builtin
+    /// registrations such as `xiom.rc.RcInner` and `xiom.alloc.Layout` write
+    /// the qualified key into `type_meta` but the bare one into `types` -- so
+    /// deref-field read/write paths that only consulted `types` missed the
+    /// qualified key and fell to the by-value materialization path (the store
+    /// to the destination pointer was silently dropped: bug55's strong-count
+    /// bump never landed). Try the exact key, the leaf key, then the
+    /// `type_meta` field lists (exact, then suffix).
+    pub(crate) fn struct_field_names_for(&self, type_name: &str) -> Option<Vec<String>> {
+        if let Some(f) = self.types.types.get(&type_name.to_string()) {
+            return Some(f.clone());
+        }
+        let leaf = type_name.rsplit('.').next().unwrap_or(type_name);
+        if leaf != type_name {
+            if let Some(f) = self.types.types.get(&leaf.to_string()) {
+                return Some(f.clone());
+            }
+        }
+        if let Some(meta) = self.types.type_meta.get(&type_name.to_string()) {
+            return Some(meta.fields.iter().map(|(n, _)| n.clone()).collect());
+        }
+        let suffix = format!(".{leaf}");
+        self.types.type_meta.keys().into_iter()
+            .find(|k| k.ends_with(&suffix))
+            .and_then(|k| self.types.type_meta.get(&k))
+            .map(|meta| meta.fields.iter().map(|(n, _)| n.clone()).collect())
+    }
+
     fn field_llvm_type(&self, struct_name: &str, field_idx: usize) -> String {
         let meta = self.types.type_meta.get(&struct_name.to_string())
             .or_else(|| {

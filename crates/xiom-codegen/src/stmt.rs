@@ -1550,13 +1550,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                 let pointee = ptr_ty.trim_end_matches('*').to_string();
                                 if pointee.starts_with("%struct.") {
                                     let type_name = &pointee[8..];
-                        if let Some(field_names) = self.types.types.get(&type_name.to_string())
-                            .or_else(|| {
-                                let suffix = format!(".{type_name}");
-                                self.types.types.keys().into_iter().find(|k| k.ends_with(&suffix) || k.ends_with(type_name))
-                                    .and_then(|k|self.types.types.get(&k))
-                            })
-                            
+                        if let Some(field_names) = self.struct_field_names_for(type_name)
                         {
                                         if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
                                             let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
@@ -1591,13 +1585,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                     obj_ptr.clone()
                                 };
                                 // GEP to field and store (with qualified-name fallback)
-                                if let Some(field_names) = self.types.types.get(&type_name)
-                                    .or_else(|| {
-                                        let suffix = format!(".{type_name}");
-                                        self.types.types.keys().into_iter().find(|k| k.ends_with(&suffix))
-                                            .and_then(|k|self.types.types.get(&k))
-                                    })
-                                    
+                                if let Some(field_names) = self.struct_field_names_for(&type_name)
                                 {
                                     if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
                                         let field_llvm_ty = self.field_llvm_type(&type_name, field_idx);
