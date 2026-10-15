@@ -6155,6 +6155,17 @@ fn e2e_safety_probe() {
     );
 }
 
+// m333 (pin CI): llvm.trap signal-terminates on unix (`code()` is None)
+// while Windows reports an exit code -- both are "trapped under
+// --overflow-checks". Windows keeps the strict Some(nonzero) contract.
+fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
+    if cfg!(windows) {
+        code.is_some() && code != Some(0)
+    } else {
+        code != Some(0)
+    }
+}
+
 // m241 (honest containment, t8 arena): an out-of-bounds Vec index WRITE
 // must trap under --overflow-checks like the read path already does. The
 // fixture writes buf[100] on a 4-element Vec: pre-fix it exited 0 silently
@@ -6165,7 +6176,7 @@ fn e2e_safety_probe() {
         &["--overflow-checks"],
     );
     assert!(
-        code.is_some() && code != Some(0),
+        trapped_under_bounds_checks(code),
         "OOB Vec write must trap under --overflow-checks (m241), got {code:?}"
     );
 }
@@ -6225,7 +6236,7 @@ fn e2e_safety_probe() {
         &["--overflow-checks"],
     );
     assert!(
-        code.is_some() && code != Some(0),
+        trapped_under_bounds_checks(code),
         "OOB fixed-array access must trap under --overflow-checks (m243), got {code:?}"
     );
 }
@@ -6314,10 +6325,15 @@ fn e2e_safety_probe() {
         .output()
         .expect("run m244 fixture");
     let stderr = String::from_utf8_lossy(&run.stderr);
+    // m333: the trace marker is emitted by the Windows VEH path only; the
+    // POSIX containment (sigsetjmp) prints no marker, so the marker check is
+    // Windows-only. Containment itself (exit 0) is asserted everywhere.
+    #[cfg(windows)]
     assert!(
         stderr.contains("[trampoline] fault"),
         "the confined null deref must report a deterministic fault; stderr:\n{stderr}"
     );
+    let _ = &stderr;
     assert_eq!(run.status.code(), Some(0), "fault must be contained");
 }
 
@@ -7783,10 +7799,14 @@ fn e2e_safety_probe() {
         .expect("run m308 fault fixture");
     let _ = std::fs::remove_file(&exe);
     let stderr = String::from_utf8_lossy(&run.stderr);
+    // m333: marker is Windows-VEH-only (see the m244 note); containment
+    // (exit 0) is asserted on every platform below.
+    #[cfg(windows)]
     assert!(
         stderr.contains("[trampoline] fault"),
         "m308: an arena-free confined block must still report the contained fault; stderr:\n{stderr}"
     );
+    let _ = &stderr;
     assert_eq!(
         run.status.code(),
         Some(0),
@@ -8358,7 +8378,7 @@ fn e2e_safety_probe() {
         &["--overflow-checks"],
     );
     assert!(
-        code.is_some() && code != Some(0),
+        trapped_under_bounds_checks(code),
         "empty Vec element read must trap under --overflow-checks (m321), got {code:?}"
     );
 }

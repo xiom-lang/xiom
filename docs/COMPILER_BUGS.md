@@ -17234,3 +17234,22 @@ sources are present, the native link adds `-lstdc++` (Linux) / `-lc++`
 (macOS); wasm/wasi and Windows untouched. Also `supply-chain/config.toml`:
 the rustls exemption moves 0.23.45 -> 0.23.46 (m330's advisory bump;
 cargo-vet flagged the new version). Verified: cxx_standard_cli 2/2.
+
+---
+
+## 2026-10-15 -- FIXED (m333, pin gate): guard/trap e2e locks are platform-aware (first ubuntu exposure)
+
+Pin PR CI round 3: five g2 fault locks (m241 vec write bounds, m243
+fixed-array bounds, m244 null-deref guard trace, m308 guard-page elide
+fault containment, m321 empty-vec read contract) failed on ubuntu with
+`got None`: `llvm.trap` SIGNAL-terminates on unix (`Status::code()` is
+None) while Windows reports an exit code. The m244/m308 trace marker
+("[trampoline] fault") is emitted by the Windows VEH branch only
+(`XIOM_TRACE_FAULT` has a single _WIN32 site; the runtime is the pinned
+stdlib tag -- marker parity on POSIX is a v0.64.6 stdlib item). Fix:
+`trapped_under_bounds_checks` accepts signal termination on unix and
+keeps the strict `Some(nonzero)` on Windows; the marker asserts are
+`#[cfg(windows)]` with containment (exit 0) asserted everywhere.
+Verified on windows: the five locks 6/6. QUEUED (v0.64.6): POSIX
+fault-trace marker + cross-OS fault-containment observables (stdlib
+runtime).
