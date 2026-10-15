@@ -491,6 +491,16 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
    _13f333cf6001X2XAgtJuKKWNsd); ON GREEN: push -> fresh dry-run ->
    archive signal to stdlib (REL-20261014-1739-compiler) -> candidate
    re-run -> tag -> pin -> publish.
+   NEXT-CANDIDATE QUEUE (owner decision 2026-10-15T11:26Z): GENERAL
+   Darwin/macOS support -- emit the matching declare for the typed
+   `@llvm.memset.p0i8.i64` (sites emitter.rs:1153, expr.rs:4229,
+   stmt.rs:737/1190; or switch to the untyped form) + the darwin runtime
+   items (tf x64 symbols, `_SC_AVPHYS_PAGES`, fp128 arm64 asm; stdlib
+   runtime, cross-filed) -- so the ENGINE lane can build and run macOS
+   games. v0.64.5 DOES NOT wait for it (owner: hurry the release; lots of
+   relays depend on it); pulse items REL-20261010-1549-pulse +
+   REL-20261010-1609-pulse stay acked with the decision noted (bus
+   39bfb97); v0.64.5 still produces + job-verifies both macOS legs.
    UPDATE 2026-10-15T11:30Z: FULL E2E = 2549 passed / 1 FAILED / 4
    ignored: e2e_m37_bug55_unsafe_ptr_capture. Bisect: green at m322/m323/
    m324/m325, RED at m326 (`1f7c1c22`) -- your m326 llvm_type_for
