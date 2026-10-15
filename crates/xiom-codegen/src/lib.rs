@@ -9760,6 +9760,28 @@ impl IrEmitter {
                 if let Some(ref name) = fn_name {
                     if name == "xiom_read_file" { return "i64".to_string(); }
                     if name == "xiom_char_at" || name == "xiom_str_len" { return "i64".to_string(); }
+                    // m334 (REL-20261015-1941-packages): the builtin Str
+                    // producers (`Str::from_utf8` / `from_c_str` and siblings
+                    // -- call.rs's intercept block behind the same
+                    // "no registered fn" rule) compile to i8* but have NO
+                    // fn-registry entry, so every lookup below missed and the
+                    // call fell through to i64. The tuple-element namers
+                    // (expr.rs literal path + this tuple arm) read this
+                    // function, so an INLINE `(Str::from_utf8(out), 1)` Ok
+                    // payload element was named "Int" and built a 16-byte
+                    // Tuple__Int__Int against the signature's Tuple__Str__Int
+                    // (clang "'%tmp' defined with type '%struct.Tuple__Int__Int'
+                    // but expected '%struct.Tuple__Str__Int'"). Binding the
+                    // call to a local first hid the bug via local_xiom_types.
+                    // Mirror the call.rs guard exactly (name-free + non-empty
+                    // args) so the inferred type matches the emitted value.
+                    if matches!(name.as_str(), "from_cstring" | "from_c_str" | "from_utf8" | "from_bytes")
+                        && !call_args_empty
+                        && !self.types.functions.contains_key(name)
+                        && !self.types.functions.entries().iter().any(|(k, _)| k.ends_with(&format!(".{name}")))
+                    {
+                        return crate::llvm_consts::LLVM_STR_PTR.to_string();
+                    }
                     if let Some((_, ret_ty)) = self.types.functions.get(name) {
                         if ret_ty == "double" { return "double".to_string(); }
                         return ret_ty.clone();

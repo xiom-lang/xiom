@@ -8557,3 +8557,43 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
         "m326: exactly one LinkedList.invariant_check definition must be emitted (got {defines})"
     );
 }
+
+// m334 (REL-20261015-1941-packages): an INLINE `Str::from_utf8(...)` call as
+// the first component of a tuple RESULT mis-named the tuple element -- both
+// tuple-element namers derive the element name through infer_llvm_type,
+// which reported i64 for the builtin Str intercepts (they compile to i8* but
+// have no fn-registry entry), so the Ok payload built a 16-byte
+// Tuple__Int__Int ({i64,i64}) against the signature's Tuple__Str__Int
+// ({ptr,i64}) and clang rejected the store. The fixture's red arm is
+// Ok((Str::from_utf8(out), 1)) plus a direct tuple return; its controls are
+// the let-bound form (which hid the bug via local_xiom_types) and the Err
+// arm. The fix reports the intercept's true ABI type (i8*) from
+// infer_llvm_type's call arm, mirroring the call.rs guard.
+#[test] fn e2e_m334_from_utf8_tuple() {
+    assert_eq!(
+        compile_and_run("tests/regression/m334_from_utf8_tuple/main.xi"),
+        Some(0),
+        "inline Str::from_utf8 tuple components must keep the signature's Tuple__Str__Int shape (m334)"
+    );
+}
+
+// m334 IR twin: the `pair_inline` body must build the {ptr,i64}
+// Tuple__Str__Int literal -- never a Tuple__Int__Int (pre-fix: the alloca
+// and load used the 16-byte Int shape and the Ok store mismatched).
+#[test] fn e2e_m334_from_utf8_tuple_ir() {
+    let ir = compile_ir("tests/regression/m334_from_utf8_tuple/main.xi")
+        .expect("m334 fixture must compile to IR");
+    let start = ir.find("define %struct.Result__Tuple__Str__Int__PgError @pair_inline")
+        .expect("m334: pair_inline must be defined");
+    let rest = &ir[start..];
+    let end = rest[1..].find("\ndefine ").map(|i| i + 1).unwrap_or(rest.len());
+    let body = &rest[..end];
+    assert!(
+        body.contains("alloca %struct.Tuple__Str__Int"),
+        "m334: the inline producer tuple must allocate the Str shape; got:\n{body}"
+    );
+    assert!(
+        !body.contains("Tuple__Int__Int"),
+        "m334: the inline producer tuple must not collapse to Tuple__Int__Int; got:\n{body}"
+    );
+}

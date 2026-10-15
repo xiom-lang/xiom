@@ -17253,3 +17253,30 @@ keeps the strict `Some(nonzero)` on Windows; the marker asserts are
 Verified on windows: the five locks 6/6. QUEUED (v0.64.6): POSIX
 fault-trace marker + cross-OS fault-containment observables (stdlib
 runtime).
+
+---
+
+## 2026-10-15 -- FIXED (m334): inline Str-producer tuple elements keep the signature's Tuple__Str__Int shape (REL-20261015-1941-packages)
+
+An INLINE `Str::from_utf8(...)` call as the FIRST component of a tuple
+RESULT mis-named the tuple element: both tuple-element namers (expr.rs
+literal path + `infer_llvm_type` tuple arm) derive the element name through
+`infer_llvm_type`, whose call arm reported i64 for the builtin Str
+producers (they compile to i8* but have no fn-registry entry), so the
+literal built a 16-byte `Tuple__Int__Int` ({i64,i64}) while the fn
+signature used `Tuple__Str__Int` ({ptr,i64}) -> clang "'%tmp' defined with
+type '%struct.Tuple__Int__Int' but expected '%struct.Tuple__Str__Int'."
+Red on the official v0.64.5 archive AND on main pre-fix (same message;
+also red for a direct non-Result tuple return, via `ret`). Binding the
+call to a local first hid the bug via local_xiom_types; plain-Str error
+types and the caller shape are irrelevant. Fix: `infer_llvm_type`'s call
+arm reports the intercept's true ABI type (i8*) for
+`from_utf8`/`from_c_str`/`from_cstring`/`from_bytes`, mirroring the
+call.rs builtin-intercept guard (name-free + non-empty args), so both
+namers agree with the signature side. LOCK:
+tests/regression/m334_from_utf8_tuple/ + `e2e_m334_from_utf8_tuple`
+(+ `_ir` twin) (ci.yml e2e group 2; also gates the let-bound control and
+the Err arm). Battery green (fixer worktree, windows): locks 2/2, e2e g1
+16 + g2 243 (x2), codegen lib 12, feature_regression 549,
+stdlib_execution 85 (+2 ignored), integration 130; probe red on the
+archive (exit 1) / green on the fixed build (exit 0).
