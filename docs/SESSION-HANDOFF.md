@@ -491,6 +491,18 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
    _13f333cf6001X2XAgtJuKKWNsd); ON GREEN: push -> fresh dry-run ->
    archive signal to stdlib (REL-20261014-1739-compiler) -> candidate
    re-run -> tag -> pin -> publish.
+   UPDATE 2026-10-15T11:30Z: FULL E2E = 2549 passed / 1 FAILED / 4
+   ignored: e2e_m37_bug55_unsafe_ptr_capture. Bisect: green at m322/m323/
+   m324/m325, RED at m326 (`1f7c1c22`) -- your m326 llvm_type_for
+   qualification reroutes an xiom.rc field write into the struct-value
+   alloca path and DROPS the store-back (IR A/B on @__unsafe_block_3:
+   m325 stores `+1` to field1; m326 computes it, discards it + a dead
+   load) -> the strong-count bump never lands -> upgraded Rc reads a
+   freed box -> `up.get() != 100` (rc 2). Follow-up fix requested from
+   the m326 session (ses_ec12801c2ffepB5lk7uSZ6UxEv); fix lands as an
+   m327 batch (second commit on fix/m326...; cherry-pick the follow-up
+   only), then FULL e2e again, then the push -> fresh dry-run -> stdlib
+   archive signal. NOTHING pushes until bug55 is green.
   Row-sweep note: several check-file rows still show `acked`/red for items
   fixed in m276-m284 (e.g. 1437/1512 -> m279; 2230/2053/2137/1402/1403/
   1418 -> m276-m282) -- sweep rows when convenient.
