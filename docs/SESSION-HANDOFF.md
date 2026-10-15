@@ -166,6 +166,32 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
 - OPS: battery recipe = section 5; ops lessons = section 6; the whole
   m311-m333 fight log is in the RELEASE LEG STATUS block + section 8.
   ALWAYS: fetch `origin` AND the relays before trusting anything.
+- 2026-10-16 m335 (B-29 leg of `REL-20261014-1208-bindings-2`) DONE --
+  TRIAGED, NO compiler defect. The bindings bundle's bigint-bitops probe
+  mis-converts its own literal: 3132620800 = 0xBAB80000, NOT 0xBAD00000
+  (the real NVSDK_NGX_Result base 0xBAD00000 = 3134193664), so the values
+  it reports as wrong (2987 / 3132096512 / 2987) are the arithmetically
+  correct ones for the literal as written and its "want" values are
+  impossible. Re-verified on the v0.64.5 archive AND on main across
+  const-folded/hex/runtime-global/fn-param shapes, UInt32->Int zext +
+  Int32->Int sext provenance, a runtime shift sweep, and the NGX
+  `(rc & 0xFFF00000) == 0xBAD00000` loop over `0xBAD00000|N` (N 0..18);
+  `--emit-ir` shows `ashr/and/sdiv/or i64` only -- no 32-bit path. Branch
+  `m335-bigint-bitops` (UNPUSHED; stacked on the m334 tip 5784c7c3):
+  d234d792 (green-first triage lock tests/regression/m335_bigint_bitops +
+  `e2e_m335_bigint_bitops` + `_ir` twin + ci.yml g2 token + COMPILER_BUGS
+  entry) and 63d3dd48 (doc: lock sha). Battery all green: locks 2/2, e2e
+  g1 16 + g2 245 (x2), codegen lib 12, feature_regression 549, integration
+  130; the lock reports 0 failing checks on the archive too (there is no
+  red arm -- the finding was never a defect). REAL defect is package-side:
+  `xiom.dlss` `NVSDK_NGX_RESULT_FAIL = 3132620800` (comment "0xBAD00000"),
+  so `dlss_failed(rc) = (rc - 3132620800) in [0, 18]` reads every real
+  NGX failure as success (its suite's equivalence pin shares the wrong
+  constant and cannot catch it); the bundle probe.xi + the B-29 ledger row
+  need the 3134193664 correction before the workaround can be retired.
+  The requester's Agent Manager session closed before the reply landed --
+  this block + the COMPILER_BUGS entry + the commit messages carry the
+  full report.
 
 
 - origin/main = `91860f11` (fetch before trusting -- the doorbell may push
