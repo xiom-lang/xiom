@@ -565,6 +565,18 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
    - NEXT: m328+m329 land -> push main -> rebuild the PR branch
      (main + pin set) -> PR CI green -> merge xiom#6 -> tag v0.64.5 ->
      release run -> verify assets -> record -> goal_report complete.
+   UPDATE 2026-10-15T18:35Z: ALL pin-CI blockers cleared on main --
+   m328 `738e7158` (perf: leaner guards + 95k->112k + rationale),
+   m329 `989c1bc9` (freeze: wave-105 canonicalization + wave-98 M7
+   snapshot repair), m330 `7628fbc0` (POSIX test + rustls 0.23.46),
+   m331 `b6cf620d` (memset declare). Pin-gate suites at the pin state:
+   e2e 2550/0/4, feature-reg 549, workspace libs, fuzz 24, robustness 63,
+   perf 3/3, freeze 3/3, stdlib 40 + execution 85, front-locks, ascii,
+   thread acceptance 5/5+5/5. Pin branch `chore/pin-stdlib-v0.64.5`
+   FORCE-PUSHED with the full pin set (`858d2e8d` = main + STDLIB_VERSION
+   sha `092dfa0` + notes JSON (6) + gate record); PR CI RUN `38786292404`
+   in progress. ON GREEN: merge xiom#6 -> tag v0.64.5 on the merged main
+   -> release run -> verify assets + SHA256SUMS -> record + goal_report.
   Row-sweep note: several check-file rows still show `acked`/red for items
   fixed in m276-m284 (e.g. 1437/1512 -> m279; 2230/2053/2137/1402/1403/
   1418 -> m276-m282) -- sweep rows when convenient.
