@@ -14,6 +14,50 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** v0.64.6 DARWIN STREAM COMPLETE 2026-10-15T23:40Z -- READ THIS FIRST ***
+- Scope (owner decision per relay 1549/1609-pulse; this session's goal): the
+  general-Darwin workstream. ALL THREE NAMED RUNTIME GAPS FIXED; the engine
+  ask is relayed and acked. Nothing else in flight from this stream.
+- stdlib fixes (on stdlib main unless noted):
+  * 2bc064e -- fp128 darwin ABI: the whole f128 libcall family defined for
+    __APPLE__ x86_64+arm64 with 16-byte-vector C signatures (Apple clang has
+    no f128 C type; the asm shims never materialized -> macos-x64 linked the
+    tf3 family UNDEFINED; REL-20261010-1609-pulse-2). mach host_statistics64
+    free-memory fallback in xiom_runtime.c (the 1549-pulse-7 follow-up; the
+    -1 sentinel is gone). PRE-EXISTING fp128 opposite-sign addsub + zero
+    fast-path corrections (all platforms; shift-UB + exponent-term sign;
+    0.0-a returned +a).
+  * 9d6a4d5 -- ELF x64 takes the same vector wrappers (the old Win64 shims
+    were being selected on linux and were mis-ABI: first runtime-valued
+    exercise SIGSEGV'd).
+  * e72288f (WITNESS BRANCH ONLY -- stdlib lane to merge at the next wave) --
+    win64 fp128 convention split: clang >= 21 pointer shims; clang <= 20
+    (GH runner images ship LLVM 20.1.8) XMM-convention shims. Root cause of
+    the windows AV: the win64 f128 libcall lowering changed at clang 21
+    (probed with real 20.1.8/21.1.8/22.1.8 toolchains; the dev box
+    reproduced the runner AV exactly under 20.1.8).
+- Locks: tests/smoke/smoke_darwin_runtime.xi + smoke_diag_f128_l0..l5
+  (corpus 955 -> 962; runtime-valued fp128 libcalls; macOS free-memory
+  contract). All green on every leg.
+- CI EVIDENCE (heavy run 38819521229 on witness/darwin-runtime-v0.64.6,
+  compiler_ref=v0.64.5): windows-latest 962/962 GREEN; ubuntu-latest
+  962/962 GREEN; macos-14 957/962 -- the remaining five are OUT of this
+  stream (guard_fault = the POSIX fault-trace item, section 2 below;
+  platform / ffi2 / simd compilefail / stress_crypto_aes_roundtrip =
+  stdlib-lane items). The darwin lock passes on macos arm64 end-to-end.
+- Records: relay REL-20261015-2011-compiler (fixes + verdicts; includes the
+  lane action to merge e72288f); engine ask REL-20261015-2013-compiler
+  (engine lane ACKED -- upstream gate cleared + macOS assessment recipe;
+  their macOS run is the engine-side step, not ours).
+- OPEN FINDING (recorded, not fixed): runtime `Float128 as Int128` links
+  __fixdfti (double -> i128) on win64 -- the runtime does not ship it.
+- Local fp128 toolchains: LLVM 20.1.8 + 21.1.8 extracted under
+  %TEMP%\kilo\llvm20\ / llvm21\ (PATH-prepend + XIOM_RUNTIME_DIR overlay
+  reproduces the full runner clang matrix locally).
+- Companion lanes: selfhost Phase 6 session running (AM worktree
+  selfhost-phase-4-codegen); fixers m334 (DONE: b5b97427 + 5784c7c3) and
+  m335 (B-29 big-int bitops, running). The stdlib lane owns stdlib main.
+
 CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
 
 *** v0.64.5 RELEASED 2026-10-15T19:20Z -- READ THIS FIRST ***
