@@ -17329,3 +17329,5 @@ package suite's equivalence pin uses the same wrong constant and cannot
 catch it. The bundle `probe.xi`, the B-29 ledger row and the package
 constant need the 3134193664 correction before the boundary-arithmetic
 workaround can be retired. No compiler change in this round.
+Lock commit: d234d792 (branch m335-bigint-bitops, stacked on the m334 tip
+5784c7c3; unpushed).
