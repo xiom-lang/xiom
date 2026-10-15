@@ -925,6 +925,32 @@ impl IrEmitter {
         }
     }
 
+    /// m322 (release gate): unsignedness at a USE SITE where the value is
+    /// compared AS ITS FINAL TYPE. `expr_is_unsigned` deliberately leaks the
+    /// SOURCE's unsignedness through a cast (`u as Int128` must zext on
+    /// widening), but that leak made the m314 either-operand rule pick
+    /// `icmp ult` for `b as Int8` (b: UInt8) -- mixed-sign fixtures
+    /// (m32_int_0194/0195) regressed. A cast to a KNOWN signed integer
+    /// target is signed at the use site; unsigned targets are unsigned;
+    /// other targets fall through to the ordinary classifier.
+    pub(crate) fn expr_unsigned_at_use(&self, e: &Expr) -> bool {
+        match e {
+            Expr::As(inner, ty, _) => {
+                let tn = Self::type_from_ast(ty);
+                let base = tn.split('[').next().unwrap_or(&tn).trim();
+                if base.starts_with("UInt") || base == "UInt" {
+                    true
+                } else if base.starts_with("Int") || base == "Int" {
+                    false
+                } else {
+                    self.expr_is_unsigned(inner)
+                }
+            }
+            Expr::Paren(inner, _) => self.expr_unsigned_at_use(inner),
+            _ => self.expr_is_unsigned(e),
+        }
+    }
+
     /// Best-effort SIGNEDNESS of an integer expression used for operand
     /// widening: `Some(true)` for a known signed narrow type, `Some(false)`
     /// for a known unsigned one, `None` when unknown (the caller then uses

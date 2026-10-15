@@ -8388,3 +8388,38 @@ fn e2e_safety_probe() {
         "default builds must keep the historical unchecked read path (m321)"
     );
 }
+
+// m322 (release gate): a FIXED struct field holding a scalar pointer must
+// index by ELEMENT width with a RUNTIME index. Pre-fix the m281 pointer gate
+// resolved the pointee width only for ident/call containers, so `buf.data[i]`
+// on a ref-param field fell to a byte-stride i8 GEP + i8 load (sums read one
+// byte per element; the m37_bug45 lock regressed). Guard twins for the
+// compare half of m322: the m32_int_0194/0195 tokens are pinned in the ci.yml
+// e2e list (mixed-sign cast compares must stay icmp slt).
+#[test] fn e2e_m322_ptr_field_index() {
+    assert_eq!(
+        compile_and_run("tests/regression/m322_ptr_field_index/main.xi"),
+        Some(0),
+        "a *Int field read through a ref param must use the i64 element stride"
+    );
+}
+
+// m322 IR twin: @at must index the field pointer as `getelementptr i64,
+// i64*` and load a full i64 (no byte read).
+#[test] fn e2e_m322_ptr_field_index_ir() {
+    let ir = compile_ir("tests/regression/m322_ptr_field_index/main.xi")
+        .expect("m322: fixture must emit IR");
+    let start = ir.find("define i64 @at(")
+        .unwrap_or_else(|| panic!("m322: @at must be defined; got:\n{ir}"));
+    let rest = &ir[start..];
+    let end = rest[1..].find("\ndefine ").map(|i| i + 1).unwrap_or(rest.len());
+    let body = &rest[..end];
+    assert!(
+        body.contains("getelementptr i64, i64*"),
+        "m322: @at must GEP the field pointer by i64 elements; got:\n{body}"
+    );
+    assert!(
+        !body.contains("load i8,"),
+        "m322: @at must not read a single byte per element; got:\n{body}"
+    );
+}

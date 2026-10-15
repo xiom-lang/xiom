@@ -2041,8 +2041,12 @@ impl IrEmitter {
                 // so bit-63 (64-bit) / bit-127 (128-bit) values behaved
                 // signed -- 0x8000000000000000 compared as negative and
                 // `a / 2` yielded a negative quotient.
+                // m322 (release gate): classify by the value's FINAL type --
+                // a signed cast target must not inherit the source's
+                // unsignedness here (m32_int_0194/0195: `b as Int8` on a
+                // UInt8 selected icmp ult between sign-extended i64s).
                 let unsigned_op = !is_float
-                    && (self.expr_is_unsigned(left) || self.expr_is_unsigned(right));
+                    && (self.expr_unsigned_at_use(left) || self.expr_unsigned_at_use(right));
                 let (ty, inst) = match op {
                     BinOp::Add => (if is_float { float_ty } else { int_ty }, if is_float { "fadd" } else { "add" }),
                     BinOp::Sub => (if is_float { float_ty } else { int_ty }, if is_float { "fsub" } else { "sub" }),
@@ -3523,7 +3527,20 @@ impl IrEmitter {
                             .and_then(|inner| (inner != "UInt8" && inner != "Int8").then_some(inner))
                             .and_then(|inner| self.llvm_type_for(&inner).ok()),
                     };
-                    let elem_llvm = pointee_llvm.unwrap_or_else(|| "i8".to_string());
+                    let elem_llvm = pointee_llvm.unwrap_or_else(|| {
+                        // m322 (release gate): a SCALAR LLVM pointee IS the
+                        // element width -- field/index/call containers
+                        // (`items.data` loads as `i64*`) missed the
+                        // name-based resolution above and fell to the i8
+                        // fallback, so `buf.data[i]` read ONE BYTE per
+                        // element (m37_bug45_iface_method_generic regressed
+                        // via m281's gate).
+                        if ptr_scalar {
+                            cont_ty.trim_end_matches('*').to_string()
+                        } else {
+                            "i8".to_string()
+                        }
+                    });
                     let elem_ptr = self.fresh_tmp();
                     self.emitln(&format!("  {elem_ptr} = getelementptr {elem_llvm}, {elem_llvm}* {base_ptr}, i64 {idx}"));
                     let ch = self.fresh_tmp();

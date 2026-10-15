@@ -17038,3 +17038,29 @@ traps deterministically (llvm.trap via expr.rs bounds_trap); default
 builds keep the documented unchecked read (no bounds_trap). Repro inputs
 archived (%TEMP%\kilo\m321\1213repro; engine repo untouched). Battery:
 locks 2/2, e2e g1 16 + g2 230, codegen lib 12.
+
+---
+
+## 2026-10-15 -- FIXED (m322, release gate): full-suite regressions -- mixed-sign cast compares + scalar-pointee field indexing
+
+The v0.64.5 gate's FULL e2e run (the filtered ci lists never ran these;
+2539/2542 passed) surfaced three latent regressions:
+1. m32_int_0194/0195: `b as Int8` (b: UInt8) in a compare selected
+   `icmp ult` -- `expr_is_unsigned` leaks the SOURCE's unsignedness
+   through a cast (needed for `u as Int128` zext widening), and m314's
+   either-operand rule consumed the leak at the compare. Fix:
+   `expr_unsigned_at_use` classifies by the value's FINAL type (a cast to
+   a known signed integer target is signed at the use site); used for
+   `unsigned_op`. Widening paths keep the leak (m314 intact).
+2. m37_bug45_iface_method_generic: `items.data[i]` (field holding `*Int`,
+   runtime index) lowered to a byte-stride i8 GEP + i8 load -- m281's
+   pointer-index gate resolved the pointee width only for ident/call
+   containers, and the Field fallback kept the historical byte read
+   (only element 0's low byte happened to look right). Fix: the scalar
+   LLVM pointee from the container type (`i64*` -> i64) is the width
+   floor when name-based resolution is absent.
+
+Locks: `e2e_m322_ptr_field_index` (+IR twin: `getelementptr i64, i64*`,
+no `load i8`); the three regressed tests are ADDED TO the ci.yml e2e
+list (they were never in a filtered battery). Full e2e: 2544 passed /
+0 failed / 4 ignored.
