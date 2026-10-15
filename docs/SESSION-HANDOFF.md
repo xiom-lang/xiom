@@ -594,6 +594,13 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
    marker + cross-OS fault-containment observables (stdlib runtime).
    ON GREEN (round 4): merge xiom#6 -> tag v0.64.5 -> release run ->
    verify assets -> record -> goal_report complete.
+   UPDATE 2026-10-15T19:13Z: PR CI ROUND 4 `38790060894` ALL GREEN
+   (ubuntu + windows + hygiene). PR #6 MERGED via rebase-merge (repo
+   disallows merge commits) -- origin main = `84f761c5` (the pin commit).
+   TAG `v0.64.5` (annotated) PUSHED on `84f761c5`; RELEASE RUN
+   `38792051847` in progress. ON GREEN: verify assets + SHA256SUMS +
+   non-draft release -> record in the candidate record + handoff ->
+   goal_report complete.
   Row-sweep note: several check-file rows still show `acked`/red for items
   fixed in m276-m284 (e.g. 1437/1512 -> m279; 2230/2053/2137/1402/1403/
   1418 -> m276-m282) -- sweep rows when convenient.
