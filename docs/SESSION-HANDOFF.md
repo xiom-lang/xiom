@@ -16,6 +16,48 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 
 CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
 
+*** v0.64.5 RELEASED 2026-10-15T19:20Z -- READ THIS FIRST ***
+- RELEASE: tag `v0.64.5` (annotated) on merged main `84f761c5` (pin
+  commit: STDLIB_VERSION = stdlib-v0.64.5 sha `092dfa0` (tag obj
+  1667b3a8) + release-notes/v0.64.5.json (6 highlights) + gate record).
+  Pin PR xiom#6 rebase-merged after PR CI round 4 all green (ubuntu +
+  windows + workspace hygiene); tag release run `38792051847` FULLY
+  GREEN incl. the publish job; GitHub Release v0.64.5 LIVE + non-draft
+  (SHA256SUMS + xiom-0.64.5-{linux-x64,windows-x64,macos-x64,macos-arm64}
+  + VSIX 0.12.2 + wasm bundle). stdlib side: stdlib-v0.64.5 (092dfa0) +
+  xiom-std 0.64.5 published. Pin-gate fix round m328-m333 (perf budget,
+  api-freeze snapshot, rustls/vet, C++ runtime link, trap-lock
+  platform-awareness) shipped in the tag. Records: candidate record
+  (bus `4b73d3f` + `fdaee6c`) + this file.
+- LOCAL STATE: main fully pushed (local == origin; only untracked
+  `m211_listdir_probe/` scratch). All Agent Manager fixer sessions idle
+  (m311-m333 worktrees kept for reference). No pending wakeups needed;
+  the goal completed with the release.
+- NEXT SESSION WORK (v0.64.6):
+  1. HEADLINE: general Darwin/macOS -- stdlib runtime items (tf x64
+     symbols, `_SC_AVPHYS_PAGES`, arm64 fp128 asm) + ENGINE macOS
+     build/run evidence (games); the `@llvm.memset` declare already
+     shipped (m331). PULSE 1549/1609 items acked with the archive-verify
+     pending on v0.64.5.
+  2. POSIX fault-trace parity (m244/m308 markers are Windows-VEH-only;
+     stdlib runtime) + any Linux semantics gaps the platform-aware m333
+     locks now separate out.
+  3. Queued acked items for triage: `REL-20261014-1208-bindings-2`
+     (wide-int/confine witnesses re-run on the v0.64.5 archive),
+     `1504-registry` (pkg guard / .xiomignore), `1509-engine` (repeated
+     scalar flags in port.args), `1510-engine-2` (ordering adopted),
+     `1109-bindings` (android cross-target scoping; owner priority),
+     `1358/1538-engine` (editor W1/W2 toolchain).
+  4. POST-RELEASE WAVE: archive reporter re-verification of the v0.64.5
+     artifacts across lanes (bindings/orbitdb/playground/engine/stdlib
+     rows per the candidate record; the 27-repro sweep expectations).
+  5. Older queue: 2032 owner decision, macOS pair archive re-verify,
+     1549-packages-2 faithful repro, release-gate record wrap.
+- OPS: battery recipe = section 5; ops lessons = section 6; the whole
+  m311-m333 fight log is in the RELEASE LEG STATUS block + section 8.
+  ALWAYS: fetch `origin` AND the relays before trusting anything.
+
+
 - origin/main = `91860f11` (fetch before trusting -- the doorbell may push
   staged work). Local main = the latest commit (see git log), AHEAD by ~68
   unpushed commits (exact: `git rev-list --count origin/main..HEAD`):
