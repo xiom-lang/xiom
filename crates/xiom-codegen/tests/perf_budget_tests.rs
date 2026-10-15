@@ -95,14 +95,35 @@ fn perf_budget_emitted_ir_bytes() {
 /// The documented fix (reachable-function-only peek) is deferred to the
 /// Stage 6 catalog-index work; until then this locks the emitted IR and a
 /// generous per-case ceiling so the shape cannot disappear from the gate.
+///
+/// m328 recalibration (budget 95,000 -> 112,000): the 95,000 ceiling predates
+/// the v0.64.5 stdlib pin content AND the contract-enforcement machinery.
+/// Bisected over m276-m327 (gate red at HEAD): the v0.64.4 tree already
+/// measures 100,358 bytes with the v0.64.4 pin (97,778 with the current pin),
+/// so it was over 95,000 before m276; then two single-commit steps:
+///   * m283 (`3ef4d6a9`) +11,312: per-function contract re-entrancy depth
+///     counters + per-clause re-entry guards (the REL-20261010-1549-packages-8
+///     call-cycle fix; enforcement restored in m291);
+///   * m311 (`066bc253`) +4,452: the volatile no-fold barrier keeping clause
+///     checks runtime-decided under clang -O2 (constant-fold pruning of
+///     `requires: x != x`).
+/// Both are inherent contract-enforcement cost -- not dup emission or dead
+/// code (the defined-function and declare sets are byte-identical to the
+/// v0.64.4 IR; the growth is inside the clause-bearing bodies). m328
+/// reshaped both to the leanest IR-text form that preserves the guarantees:
+/// the re-entry test is computed ONCE at function entry (the entry load `d`
+/// is reused; the per-site `load + icmp` pair and the extra skip label are
+/// gone) and the barrier round-trips `i1` directly instead of zext-i8.
+/// Measured at the m328 fix: 107,728 bytes (was 113,323); the recalibrated
+/// ceiling keeps ~4% slack.
 #[test]
 fn perf_budget_fmt_peek_shape() {
     let (ir, ms) = emit_ir("tests/perf/fmt_peek.xi");
     let bytes = ir.len() as u64;
-    println!("[perf] tests/perf/fmt_peek.xi: {bytes} bytes IR in {ms} ms (budget 95,000)");
+    println!("[perf] tests/perf/fmt_peek.xi: {bytes} bytes IR in {ms} ms (budget 112,000)");
     assert!(
-        bytes <= 95_000,
-        "tests/perf/fmt_peek.xi: emitted IR regressed: {bytes} bytes > budget 95000"
+        bytes <= 112_000,
+        "tests/perf/fmt_peek.xi: emitted IR regressed: {bytes} bytes > budget 112000"
     );
     // Debug-profile timeout only; the byte budget is the deterministic signal.
     assert!(

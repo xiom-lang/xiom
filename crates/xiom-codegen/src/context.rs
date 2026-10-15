@@ -322,6 +322,11 @@ pub struct FunctionContext {
     /// m283: true when the current function declares ANY requires/ensures
     /// clause (the contract re-entrancy guard is emitted only for those).
     pub current_contract_clauses: Vec<Expr>,
+    /// m328: the function-entry re-entrancy test (`entry depth > 0`) as an
+    /// SSA i1, computed once by `emit_contract_guard_enter`; clause sites
+    /// branch on this value instead of re-loading the counter. `None` when
+    /// the current function has no contract-clause guard.
+    pub contract_nested_tmp: Option<String>,
     /// Current method's receiver TYPE NAME
     pub current_receiver: Option<String>,
     /// Local variables: name -> (alloca_register, llvm_type) -- scope stack

@@ -1475,6 +1475,8 @@ impl IrEmitter {
         // Store ensures clauses for return point checking
         self.fctx.current_ensures = Vec::new();
         self.fctx.current_contract_clauses = Vec::new();
+        // m328: the re-entrancy test is recomputed per function at entry.
+        self.fctx.contract_nested_tmp = None;
         if self.config.check_contracts {
             for clause in &fd.contracts {
                 if let ContractClause::Ensures(e, _) = clause {
@@ -2157,6 +2159,7 @@ impl IrEmitter {
         self.fctx.current_receiver = None;
         self.fctx.current_ensures.clear();
         self.fctx.current_contract_clauses.clear();
+        self.fctx.contract_nested_tmp = None;
         self.fctx.result_ptr = None;
         // Stage 5: leave the function's DWARF scope (deferred closures etc.
         // must not attach locations to the enclosing subprogram).

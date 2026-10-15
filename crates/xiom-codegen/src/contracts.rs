@@ -26,6 +26,15 @@ impl super::IrEmitter {
     }
 
     /// Emit the function-entry increment for the contract re-entrancy guard.
+    ///
+    /// m328: the entry load is ALSO the re-entrancy test every clause site
+    /// branches on. `d` is the depth BEFORE this invocation increments (0 for
+    /// the outermost invocation, >= 1 for a re-entrant one). This
+    /// invocation's clause sites always observe `d + 1` -- only this function
+    /// writes its own thread-local counter and nested invocations rebalance --
+    /// so `d > 0` is exactly the m291 site test `counter > 1`. Computing it
+    /// ONCE here removes the per-clause-site load+icmp pair from every check
+    /// (half of the m328 fmt_peek IR budget regression).
     pub(crate) fn emit_contract_guard_enter(&mut self) {
         let Some(counter) = self.contract_counter_name() else { return };
         self.declare_contract_counter(&counter);
@@ -34,6 +43,9 @@ impl super::IrEmitter {
         let d1 = self.fresh_tmp();
         self.emitln(&format!("  {d1} = add i64 {d}, 1"));
         self.emitln(&format!("  store i64 {d1}, i64* @{counter}"));
+        let nested = self.fresh_tmp();
+        self.emitln(&format!("  {nested} = icmp sgt i64 {d}, 0"));
+        self.fctx.contract_nested_tmp = Some(nested);
     }
 
     /// Declare the guard counter at first use. Emitted into THIS function's
@@ -83,10 +95,17 @@ impl super::IrEmitter {
         let guarded = self.config.check_contracts && self.fn_has_contract_clauses();
         let ok_label = self.fresh_block("contract_ok");
         if guarded {
-            // Branch to the ok (completion) label when re-entered. The re-entry
-            // test runs at the CLAUSE SITE, so it preserves the block structure:
-            // skip -> ok -> continue; not-nested -> check -> ok -> continue.
-            if let Some(counter) = self.contract_counter_name() {
+            // Branch to the ok (completion) label when re-entered. The
+            // re-entry test is the function-entry `entry depth > 0` icmp
+            // (m328: computed once by `emit_contract_guard_enter`); skip ->
+            // ok -> continue; not-nested -> check -> ok -> continue. The
+            // fallback keeps the per-site load+icmp shape for any clause
+            // compiled without the entry emission.
+            if let Some(nested) = self.fctx.contract_nested_tmp.clone() {
+                let go_label = self.fresh_block("contract_reentry_go");
+                self.emitln(&format!("  br i1 {nested}, label %{ok_label}, label %{go_label}"));
+                self.emitln(&format!("\n{go_label}:"));
+            } else if let Some(counter) = self.contract_counter_name() {
                 self.declare_contract_counter(&counter);
                 let d = self.fresh_tmp();
                 self.emitln(&format!("  {d} = load i64, i64* @{counter}"));
@@ -137,21 +156,21 @@ impl super::IrEmitter {
         // constant input) and can then prune the check's violated-clause path
         // out of the optimized build -- enforcement dies only on optimized
         // builds. Route the final i1 through a volatile round-trip: LLVM must
-        // not fold or elide volatile accesses, so `cond_opaque` stays
+        // not fold or elide volatile accesses, so the value stays
         // runtime-decided at every opt level and on every target (no
-        // inline-asm dependency). The alloca sits at the clause site; a clause
+        // inline-asm dependency). m328: the round-trip is a direct i1
+        // store/load through a per-site alloca (one byte in memory); the old
+        // i8 spelling needed a zext + icmp pair at every clause site and was
+        // the second half of the fmt_peek IR budget regression -- the volatile
+        // guarantee is identical. The alloca sits at the clause site; a clause
         // check executes at most once per invocation (entry requires / return
         // ensures), so the slot cannot accumulate stack.
         let barrier_slot = self.fresh_tmp();
-        self.emitln(&format!("  {barrier_slot} = alloca i8"));
-        let barrier_w = self.fresh_tmp();
-        self.emitln(&format!("  {barrier_w} = zext i1 {cond_i1} to i8"));
-        self.emitln(&format!("  store volatile i8 {barrier_w}, i8* {barrier_slot}"));
+        self.emitln(&format!("  {barrier_slot} = alloca i1"));
+        self.emitln(&format!("  store volatile i1 {cond_i1}, i1* {barrier_slot}"));
         let barrier_r = self.fresh_tmp();
-        self.emitln(&format!("  {barrier_r} = load volatile i8, i8* {barrier_slot}"));
-        let cond_opaque = self.fresh_tmp();
-        self.emitln(&format!("  {cond_opaque} = icmp ne i8 {barrier_r}, 0"));
-        self.emitln(&format!("  br i1 {cond_opaque}, label %{ok_label}, label %{fail_label}"));
+        self.emitln(&format!("  {barrier_r} = load volatile i1, i1* {barrier_slot}"));
+        self.emitln(&format!("  br i1 {barrier_r}, label %{ok_label}, label %{fail_label}"));
         self.emitln(&format!("\n{fail_label}:"));
         let msg_ptr = self.fresh_tmp();
         let msg = format!("contract violated: {clause_type} at {}", expr.span());

@@ -7,7 +7,9 @@
 // This lock compiles the fixtures with `--opt-level`:
 //   * violated fixtures must abort (exit 1 + `contract violated`) at 0 AND 2;
 //   * the satisfied-clause control must stay green at 0 and 2;
-//   * the emitted IR must carry the barrier (store/load volatile i8).
+//   * the emitted IR must carry the barrier (store/load volatile i1; m328
+//     switched the round-trip from i8 to the direct i1 spelling, same
+//     volatile guarantee, fewer IR bytes -- see contracts.rs).
 // Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
@@ -142,7 +144,7 @@ fn m311_o2_folded_control_green_at_o0_and_o2() {
 }
 
 /// Mechanism lock: the emitted IR must carry the no-fold barrier around the
-/// clause branch (store/load volatile i8). Without it, clang -O2 is free to
+/// clause branch (store/load volatile i1; m328 shape). Without it, clang -O2 is free to
 /// fold the branch condition for constant-provable clauses.
 #[test]
 fn m311_o2_barrier_in_emitted_ir() {
@@ -159,8 +161,9 @@ fn m311_o2_barrier_in_emitted_ir() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(
-        ir.contains("store volatile i8") && ir.contains("load volatile i8"),
-        "the contract no-fold barrier (volatile i8 round-trip) must appear in the emitted IR \
+        ir.contains("store volatile i1") && ir.contains("load volatile i1"),
+        "the contract no-fold barrier (volatile i1 round-trip; m328 shape) must appear in the \
+         emitted IR \
          (m311); IR head:\n{}",
         ir.chars().take(2000).collect::<String>()
     );

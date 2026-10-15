@@ -17174,3 +17174,26 @@ duplicate it). The proper Darwin work (runtime tf x64 symbols,
 stays queued for v0.64.6. Verified: declare + call coexist in emitted
 IR; a memset-using probe compiles + runs rc 0; e2e g1 16 + g2 241 +
 codegen 12.
+
+---
+
+## 2026-10-15 -- FIXED (m328, pin gate): fmt_peek IR budget regression -- leaner contract guards + documented budget recalibration
+
+The pin PR CI (first full CI since m310) flagged perf_budget_fmt_peek_shape:
+tests/perf/fmt_peek.xi 113,323 bytes > 95,000. Bisect (vendored pin):
+the budget was ALREADY over before m276 (df493530 + current pin 97,778);
+m283's per-function re-entrancy counters + per-clause re-entry guards
+added +11,312 (the 1549-packages-8 enforcement fix) and m311's volatile
+no-fold barrier +4,452 -- both INHERENT enforcement costs (the
+defined-function / declare sets are byte-identical to the v0.64.4 IR;
+growth sits inside the 26 clause checks of the 8 clause-bearing stdlib
+bodies). Fix: leanest IR-text form for both mechanisms -- the entry
+depth load doubles as the re-entry test (one icmp per function vs the
+per-site load+icmp+skip label) and the barrier uses a direct volatile i1
+store/load (same no-fold guarantee; the o2_contract_barrier_cli lock now
+pins the i1 spelling) -- 113,323 -> 107,728; the budget is recalibrated
+95k -> 112k with the bisect + rationale documented at the test (fresh
+~4% slack; the byte budget stays the regression lock). Battery: perf 3/3
+(fmt_peek 107,728 in 779 ms), o2_contract_barrier_cli 4/4, e2e
+m283/m288/m291 4/4, g1 16 + g2 241, codegen lib 12. Includes m331's
++49-byte preamble declare; still under the new budget.
