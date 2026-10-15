@@ -19,6 +19,13 @@ triaged to probe-side UB with the read-bounds contract locked (m321).
       `xiom --version` reports v0.64.5.
 - [x] Dry-run archive: release run `38626737822` on `1e4a444e` GREEN
       (19:48-19:52Z).
+- [x] FRESH release wave: origin main `13081238` (m322 release-gate
+      full-suite fixes + m323-m326 all four 2123 classes + m327 the m326
+      follow-up regression fix); full e2e on that sha 2550 passed / 0
+      failed / 4 ignored.
+- [x] Fresh dry-run archive: release run `38731274663` on `13081238`
+      GREEN -- all legs success (linux-x64, windows-x64, macos-x64,
+      macos-arm64, VSIX, guard).
 - [ ] `STDLIB_VERSION` = <TBD: stdlib-v0.64.5 tag sha>; repo-local
       `stdlib/` refreshed to that ref; stdlib candidate checks on the
       archive + tag cut (their reply).
