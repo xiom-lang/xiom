@@ -450,6 +450,24 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
    incl. thread acceptance at the pin -> push -> tag v0.64.5 -> release
    run -> verify assets -> record. Origin CI (ci.yml) also running on the
    push.
+   RELEASE LEG STATUS (2026-10-15T09:20Z): NOT released yet; stdlib tag
+   HELD pending the candidate battery. (a) m322 `eb256cf3` LANDED: the
+   gate's full-suite run found + fixed three latent regressions (signed
+   cast targets decide compares -- m32_int_0194/0195; scalar-pointee
+   field indexing -- m37_bug45; full e2e 2544 passed / 0 failed / 4
+   ignored; the three tests now in the ci.yml e2e list). (b) stdlib's
+   candidate checks bounced FOUR classes on the dry-run archive
+   (REL-20261014-2123-stdlib, acked): Cell[Int8] set/get readback (m323),
+   Result Ok-pair Vec lengths 0xFFFFFFFF + p_wave107/108 (m324),
+   zext-float cast p_sweep_single_param (m325), duplicate
+   LinkedList.invariant_check p_wave7/8 (m326) -- all four REPRODUCED on
+   current main; fixers m323-m326 in flight. Stdlib tag target is now
+   `c8d713a` (their notes-cleanup commit; no other waves ride).
+   NEXT: integrate m323-m326 (standard flow), push, dispatch a FRESH
+   dry-run archive, stdlib re-runs the candidate battery -> on green:
+   tag signal -> pin commit (STDLIB_VERSION -> tag sha) + notes JSON +
+   gate record + full battery incl. thread acceptance at the pin ->
+   push -> tag v0.64.5 -> release run -> verify assets -> record.
   Row-sweep note: several check-file rows still show `acked`/red for items
   fixed in m276-m284 (e.g. 1437/1512 -> m279; 2230/2053/2137/1402/1403/
   1418 -> m276-m282) -- sweep rows when convenient.
