@@ -482,6 +482,15 @@ CURRENT STATE (2026-10-13T20:30Z; read this before anything below):
    include xiom-check/lib.rs, codegen context/contracts/decl/expr/lib,
    xiom/src/lib.rs). ON m326 LANDING: full e2e (2544+ baseline) -> push ->
    fresh dry-run -> stdlib candidate re-run -> tag signal.
+   UPDATE 2026-10-15T10:50Z: m326 LANDED `1f7c1c22` -- ALL FOUR classes
+   integrated (m323 `0cde8579`, m324 `9914c2ed`, m325 `6caf7a16`, m326
+   `1f7c1c22`; the wave8 trap was the @pre snapshot deep-copy reading the
+   6-field list as a Vec header -> malloc(huge) -> trap). p_wave7/8 probes
+   compile+run 0/0; stack battery green (g1 16, g2 241, codegen 12, check
+   serial 199, front-locks). 2123 relayed fixed. FULL E2E RUNNING (bgp
+   _13f333cf6001X2XAgtJuKKWNsd); ON GREEN: push -> fresh dry-run ->
+   archive signal to stdlib (REL-20261014-1739-compiler) -> candidate
+   re-run -> tag -> pin -> publish.
   Row-sweep note: several check-file rows still show `acked`/red for items
   fixed in m276-m284 (e.g. 1437/1512 -> m279; 2230/2053/2137/1402/1403/
   1418 -> m276-m282) -- sweep rows when convenient.
