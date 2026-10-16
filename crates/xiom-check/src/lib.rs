@@ -10640,6 +10640,17 @@ pub struct BorrowChecker {
     /// Consulted BEFORE the ScopeBorrow stack; if a Place conflict is found,
     /// an error is emitted and the loan is rejected.
     active_loans: crate::borrow::LoanSet,
+    /// m344 (REL-20261011-1046): declared fn return types collected from the
+    /// program AST so bindings are no longer type-blind. Values are spelled
+    /// type names ("S", "Vec[UInt8]", "Result[Vec[UInt8],IOError]"); keys are
+    /// the bare name, the module-qualified name, and `Receiver.method`.
+    fn_return_types: HashMap<String, String>,
+    /// m344: declared struct field types (struct base name -> field -> type).
+    struct_field_types: HashMap<String, HashMap<String, String>>,
+    /// m344: moved field/index PROJECTION places ("a.f", "v[0]"), one set per
+    /// scope. The bare-local move state stays in `ownership`; this is the
+    /// place-granular overlay for Expr::Field/Expr::Index chains.
+    moved_places: Vec<HashSet<String>>,
 }
 
 impl BorrowChecker {
@@ -10650,12 +10661,16 @@ impl BorrowChecker {
             errors: Vec::new(),
             param_names: HashSet::new(),
             active_loans: crate::borrow::LoanSet::new(),
+            fn_return_types: HashMap::new(),
+            struct_field_types: HashMap::new(),
+            moved_places: vec![HashSet::new()],
         }
     }
 
     fn push_scope(&mut self) {
         self.ownership.push(HashMap::new());
         self.borrow_stack.push(Vec::new());
+        self.moved_places.push(HashSet::new());
     }
 
     fn pop_scope(&mut self) {
@@ -10666,6 +10681,7 @@ impl BorrowChecker {
             }
         }
         self.ownership.pop();
+        self.moved_places.pop();
         // 5c-R: release all active Place-level loans when scope exits
         self.active_loans.release_all();
     }
@@ -10721,10 +10737,32 @@ impl BorrowChecker {
         }
     }
 
+    /// m344: normalize a tracked type spelling to its base name: strip
+    /// leading references, generic arguments and any module path. The base is
+    /// what the copy classification and the struct-field lookup key off.
+    fn base_type_name(xiom_type: &str) -> &str {
+        let mut s = xiom_type.trim();
+        loop {
+            if let Some(rest) = s.strip_prefix("&mut ") {
+                s = rest;
+            } else if let Some(rest) = s.strip_prefix('&') {
+                s = rest;
+            } else {
+                break;
+            }
+        }
+        let base = s.split(['[', '<']).next().unwrap_or(s).trim();
+        base.rsplit('.').next().unwrap_or(base)
+    }
+
+    /// The copy-type exemption is kept for genuine scalars (and for pointer /
+    /// fn values, which the tracker always failed to distinguish from Int).
+    /// Everything else -- structs, Vecs, enums, tuples, containers -- is
+    /// move-only, matching the m318 semantic pin.
     fn is_copy_type(xiom_type: &str) -> bool {
-        matches!(xiom_type,
+        matches!(Self::base_type_name(xiom_type),
             "Int" | "Int8" | "Int16" | "Int32" | "Int64" | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
-            | "Bool" | "Char" | "Str" | "Float32" | "Float64"
+            | "Bool" | "Char" | "Str" | "Float32" | "Float64" | "Ptr" | "Fn"
         )
     }
 
@@ -10737,14 +10775,250 @@ impl BorrowChecker {
         }
     }
 
-    fn infer_type_from_expr(expr: &Expr) -> &'static str {
+    /// m344: spelled type name for the borrow-pass tables, preserving generic
+    /// arguments so index places can resolve their element type
+    /// ("Vec[UInt8]" -> "UInt8"; "Map[Str,Int]" -> "Int").
+    fn table_type_name(ty: &xiom_ast::Type) -> String {
+        fn spell_args(args: &[xiom_ast::Type]) -> String {
+            args.iter().map(BorrowChecker::table_type_name).collect::<Vec<_>>().join(",")
+        }
+        match ty {
+            xiom_ast::Type::Named(ident, args) if args.is_empty() => ident.name.clone(),
+            xiom_ast::Type::Named(ident, args) => {
+                format!("{}[{}]", ident.name, spell_args(args))
+            }
+            xiom_ast::Type::Ref(inner) => format!("&{}", Self::table_type_name(inner)),
+            xiom_ast::Type::MutRef(inner) => format!("&mut {}", Self::table_type_name(inner)),
+            xiom_ast::Type::Ptr(inner) => format!("Ptr[{}]", Self::table_type_name(inner)),
+            xiom_ast::Type::Fn(_, _) => "Fn".to_string(),
+            xiom_ast::Type::Option(inner) => format!("Option[{}]", Self::table_type_name(inner)),
+            xiom_ast::Type::Result(a, b) => {
+                format!("Result[{},{}]", Self::table_type_name(a), Self::table_type_name(b))
+            }
+            xiom_ast::Type::Vec(inner) => format!("Vec[{}]", Self::table_type_name(inner)),
+            xiom_ast::Type::Slice(inner) => format!("Slice[{}]", Self::table_type_name(inner)),
+            xiom_ast::Type::Map(k, v) => {
+                format!("Map[{},{}]", Self::table_type_name(k), Self::table_type_name(v))
+            }
+            xiom_ast::Type::Set(inner) => format!("Set[{}]", Self::table_type_name(inner)),
+            xiom_ast::Type::Tuple(items) => format!("Tuple[{}]", spell_args(items)),
+            xiom_ast::Type::Array(_, inner) => format!("Array[{}]", Self::table_type_name(inner)),
+            xiom_ast::Type::AnonStruct(_) => "AnonStruct".to_string(),
+            xiom_ast::Type::ImplTrait(_) => "ImplTrait".to_string(),
+            xiom_ast::Type::Never => "Never".to_string(),
+        }
+    }
+
+    /// m344: element type of an indexed container, from the spelled name.
+    fn element_type_of(spelled: &str) -> Option<String> {
+        let s = spelled.trim();
+        let inner = s
+            .strip_prefix("Vec[")
+            .or_else(|| s.strip_prefix("Slice["))
+            .or_else(|| s.strip_prefix("Array["))?;
+        let inner = inner.strip_suffix(']')?;
+        if inner.is_empty() { None } else { Some(inner.to_string()) }
+    }
+
+    /// m344: resolved field type for a container/struct spelling. Lookup is
+    /// base-name first, then the base leaf (module-qualified spellings).
+    fn field_type_of(&self, type_name: &str, field: &str) -> Option<String> {
+        let base = Self::base_type_name(type_name);
+        self.struct_field_types
+            .get(base)
+            .and_then(|fields| fields.get(field))
+            .cloned()
+    }
+
+    /// m344: resolve the tracked XIOM type of an expression from the declared
+    /// facts collected off the AST. `None` keeps the conservative copy
+    /// fallback (no new move diagnostics).
+    fn infer_expr_type(&self, expr: &Expr) -> Option<String> {
         match expr {
-            Expr::Str(..) => "Str",
-            Expr::Bool(..) => "Bool",
-            Expr::Float(..) => "Float64",
-            Expr::Char(..) => "Char",
-            Expr::Struct(..) => "Struct",
-            _ => "Int",
+            Expr::Ident(id) => self.find_var(&id.name).map(|info| info.xiom_type.clone()),
+            Expr::Paren(inner, _) => self.infer_expr_type(inner),
+            Expr::Struct(name, _, _, _) => Some(name.name.clone()),
+            Expr::Field(obj, field, _) => {
+                let obj_ty = self
+                    .infer_expr_type(obj)
+                    .or_else(|| Self::dotted_path(obj))?;
+                self.field_type_of(&obj_ty, &field.name)
+            }
+            Expr::Index(arr, _, _) => {
+                let arr_ty = self.infer_expr_type(arr).or_else(|| Self::dotted_path(arr))?;
+                Self::element_type_of(&arr_ty)
+            }
+            Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
+                self.callee_return_type(func)
+            }
+            _ => None,
+        }
+    }
+
+    /// m344: declared return type of a callee expression: bare fn, UFCS /
+    /// module-qualified spelling, or `local.method` / `Type.method`.
+    fn callee_return_type(&self, callee: &Expr) -> Option<String> {
+        match callee {
+            Expr::Ident(id) => self.fn_return_types.get(&id.name).cloned(),
+            Expr::Paren(inner, _) => self.callee_return_type(inner),
+            Expr::Field(obj, name, _) => {
+                let recv = self.infer_expr_type(obj).or_else(|| Self::dotted_path(obj))?;
+                let key = format!("{recv}.{}", name.name);
+                if let Some(ret) = self.fn_return_types.get(&key) {
+                    return Some(ret.clone());
+                }
+                let leaf = Self::base_type_name(&recv).to_string();
+                self.fn_return_types.get(&format!("{leaf}.{}", name.name)).cloned()
+            }
+            _ => None,
+        }
+    }
+
+    /// m344: the dotted spelling of an ident/field chain -- module paths and
+    /// type names, never locals (locals resolve through `infer_expr_type`
+    /// first, preserving locals-first precedence).
+    fn dotted_path(expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Ident(id) => Some(id.name.clone()),
+            Expr::Paren(inner, _) => Self::dotted_path(inner),
+            Expr::Field(obj, field, _) => {
+                Self::dotted_path(obj).map(|p| format!("{p}.{}", field.name))
+            }
+            _ => None,
+        }
+    }
+
+    /// m344: collect the declared facts the old pass had no access to. First
+    /// declaration wins so a later shadow cannot flip an earlier binding's
+    /// copy/move classification.
+    fn collect_decl_facts(&mut self, items: &[TopDecl], prefix: &str) {
+        for item in items {
+            match item {
+                TopDecl::Fn(fd) => {
+                    if let Some(ret) = &fd.return_type {
+                        let ret_name = Self::table_type_name(ret);
+                        if let Some(recv) = &fd.receiver {
+                            self.fn_return_types
+                                .entry(format!("{}.{}", recv.name, fd.name.name))
+                                .or_insert_with(|| ret_name.clone());
+                        }
+                        if !prefix.is_empty() {
+                            self.fn_return_types
+                                .entry(format!("{prefix}.{}", fd.name.name))
+                                .or_insert_with(|| ret_name.clone());
+                        }
+                        self.fn_return_types.entry(fd.name.name.clone()).or_insert(ret_name);
+                    }
+                }
+                TopDecl::Type(td) => {
+                    let fields: HashMap<String, String> = td
+                        .fields
+                        .iter()
+                        .map(|f| (f.name.name.clone(), Self::table_type_name(&f.ty)))
+                        .collect();
+                    self.struct_field_types
+                        .entry(td.name.name.clone())
+                        .or_insert(fields);
+                }
+                TopDecl::Impl(imp) => {
+                    for member in &imp.members {
+                        if let xiom_ast::ImplItem::Fn(fd) = member {
+                            if let Some(ret) = &fd.return_type {
+                                self.fn_return_types
+                                    .entry(format!("{}.{}", imp.type_name.name, fd.name.name))
+                                    .or_insert_with(|| Self::table_type_name(ret));
+                            }
+                        }
+                    }
+                }
+                TopDecl::Module(md) => {
+                    let p = if prefix.is_empty() {
+                        md.name.name.clone()
+                    } else {
+                        format!("{}.{}", prefix, md.name.name)
+                    };
+                    self.collect_decl_facts(&md.items, &p);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// m344: tracked type for a binding, from the annotation or the resolved
+    /// expression type. Unknown shapes keep the "Int" (copy) fallback.
+    fn infer_type_from_expr(&self, expr: &Expr) -> String {
+        match expr {
+            Expr::Str(..) => "Str".to_string(),
+            Expr::Bool(..) => "Bool".to_string(),
+            Expr::Float(..) => "Float64".to_string(),
+            Expr::Char(..) => "Char".to_string(),
+            // The struct's real name replaces the old "Struct" marker so
+            // field lookups work on literal-initialized locals too (still
+            // non-copy, so the move behavior is unchanged).
+            Expr::Struct(name, _, _, _) => name.name.clone(),
+            _ => self.infer_expr_type(expr).unwrap_or_else(|| "Int".to_string()),
+        }
+    }
+
+    /// m344: path key for a projection place ("a.f", "v[0]", "v[_]").
+    fn place_path(expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Ident(id) => Some(id.name.clone()),
+            Expr::Paren(inner, _) => Self::place_path(inner),
+            Expr::Field(obj, field, _) => {
+                Self::place_path(obj).map(|p| format!("{p}.{}", field.name))
+            }
+            Expr::Index(obj, idx, _) => Self::place_path(obj).map(|p| match &**idx {
+                Expr::Int(n, _) => format!("{p}[{n}]"),
+                _ => format!("{p}[_]"),
+            }),
+            _ => None,
+        }
+    }
+
+    /// m344: report use of an already-moved projection place. Bare locals are
+    /// handled by `check_use` (their whole-variable state).
+    fn check_place_moved(&mut self, expr: &Expr, span: Span) {
+        if let Some(path) = Self::place_path(expr) {
+            if path.contains('.') || path.contains('[') {
+                if self.moved_places.iter().any(|scope| scope.contains(&path)) {
+                    self.error(format!("use of moved value '{path}'"), span);
+                }
+            }
+        }
+    }
+
+    /// m344: consume a projected place (`a.f`, `v[0]`) when its type is
+    /// move-only. Projections rooted at a parameter keep the read-borrow
+    /// convention (no move), mirroring bare identifiers.
+    fn move_projection(&mut self, expr: &Expr, span: Span) {
+        let Some(path) = Self::place_path(expr) else { return };
+        if !path.contains('.') && !path.contains('[') {
+            return;
+        }
+        let root_end = path.find(['.', '[']).unwrap_or(path.len());
+        let root = &path[..root_end];
+        if self.param_names.contains(root) {
+            return;
+        }
+        // Unknown projections stay conservative: no move, no diagnostic.
+        let Some(ty) = self.infer_expr_type(expr) else { return };
+        if Self::is_copy_type(&ty) {
+            return;
+        }
+        let Some(scope_idx) = self
+            .ownership
+            .iter()
+            .rposition(|scope| scope.contains_key(root))
+        else {
+            return;
+        };
+        if self.moved_places.iter().any(|scope| scope.contains(&path)) {
+            self.error(format!("use of moved value '{path}'"), span);
+            return;
+        }
+        if let Some(scope) = self.moved_places.get_mut(scope_idx) {
+            scope.insert(path);
         }
     }
 
@@ -10920,6 +11194,11 @@ impl BorrowChecker {
     }
 
     pub fn check_program(&mut self, program: &Program) -> Result<(), Vec<BorrowError>> {
+        // m344 (REL-20261011-1046): the pass used to run on the raw AST with
+        // no type knowledge, so every non-literal binding carried the "Int"
+        // (copy) fallback and was silently immovable. Collect the declared
+        // return/field types first.
+        self.collect_decl_facts(&program.items, "");
         for item in &program.items {
             self.check_top_decl(item);
         }
@@ -11043,14 +11322,18 @@ impl BorrowChecker {
                     } else {
                         self.move_var(&ident.name, ident.span);
                     }
+                } else if matches!(value, Expr::Field(..) | Expr::Index(..)) {
+                    // m344: binding a field/index projection consumes it
+                    // ("var i = a.f;" -- move-only projections only).
+                    self.move_projection(value, value.span());
                 }
                 let xiom_type = match type_ann.as_ref() {
                     // AUDIT #6 FIX: `_` wildcard INFERS from the value in
                     // the borrow checker's local tracking too.
                     Some(t) if match &**t { Type::Named(n, _) => n.name == "_", _ => false } =>
-                        Self::infer_type_from_expr(value).to_string(),
-                    Some(t) => Self::param_type_name(t),
-                    None => Self::infer_type_from_expr(value).to_string(),
+                        self.infer_type_from_expr(value),
+                    Some(t) => Self::table_type_name(t),
+                    None => self.infer_type_from_expr(value),
                 };
                 self.add_local(&name.name, false, &xiom_type);
             }
@@ -11062,12 +11345,14 @@ impl BorrowChecker {
                     } else {
                         self.move_var(&ident.name, ident.span);
                     }
+                } else if matches!(value, Expr::Field(..) | Expr::Index(..)) {
+                    self.move_projection(value, value.span());
                 }
                 let xiom_type = match type_ann.as_ref() {
                     Some(t) if match &**t { Type::Named(n, _) => n.name == "_", _ => false } =>
-                        Self::infer_type_from_expr(value).to_string(),
-                    Some(t) => Self::param_type_name(t),
-                    None => Self::infer_type_from_expr(value).to_string(),
+                        self.infer_type_from_expr(value),
+                    Some(t) => Self::table_type_name(t),
+                    None => self.infer_type_from_expr(value),
                 };
                 self.add_local(&name.name, true, &xiom_type);
             }
@@ -11075,6 +11360,8 @@ impl BorrowChecker {
                 let _ = self.check_expr(value);
                 if let Expr::Ident(ident) = value {
                     self.move_var(&ident.name, ident.span);
+                } else if matches!(value, Expr::Field(..) | Expr::Index(..)) {
+                    self.move_projection(value, value.span());
                 }
                 self.check_expr(place);
             }
@@ -11212,7 +11499,11 @@ impl BorrowChecker {
                 ExprResult::Value
             }
             Expr::Field(obj, _, _) => {
-                self.check_expr(obj)
+                let result = self.check_expr(obj);
+                // m344: using a MOVED projection ("a.f" after a consuming
+                // pass) is a use of a moved value.
+                self.check_place_moved(expr, expr.span());
+                result
             }
             Expr::GenericCall(func, _ty, args, span) => {
                 self.check_call(func, args, *span)
@@ -11223,6 +11514,7 @@ impl BorrowChecker {
             Expr::Index(arr, idx, _) => {
                 self.check_expr(arr);
                 self.check_expr(idx);
+                self.check_place_moved(expr, expr.span());
                 ExprResult::Value
             }
             Expr::AtPre(inner, _) => self.check_expr(inner),
@@ -11335,6 +11627,15 @@ impl BorrowChecker {
                     } else {
                         self.move_var(&ident.name, ident.span);
                     }
+                }
+            } else if matches!(arg, Expr::Field(..) | Expr::Index(..)) {
+                // m344 (REL-20261011-1046): a projected place passed BY VALUE
+                // consumes the projection (the callee owns the value), same
+                // contract as the bare-identifier arm above. Move-only
+                // projections only; scalars and param-rooted places stay
+                // clean, mirroring the read-borrow convention.
+                if arg_result != ExprResult::ReadRef && arg_result != ExprResult::WriteRef {
+                    self.move_projection(arg, arg.span());
                 }
             }
         }
@@ -11670,6 +11971,62 @@ fn f(x: Int) -> Int
         assert!(result.is_err(), "expected use-after-move after function call");
         let errs = result.err().unwrap();
         assert!(errs.iter().any(|e| e.message.contains("use of moved value")));
+    }
+
+    // m344 (REL-20261011-1046): the call-init mirror of test_function_call_moves.
+    // Pre-fix the callee's declared return type was never recorded, every
+    // non-literal binding carried the "Int" copy fallback, and the reuse was
+    // silently accepted.
+    #[test]
+    fn test_function_call_moves_call_init() {
+        let result = check_borrow("type S = { v: Int; } fn make() -> S { return S { v: 42; }; } fn foo(x: S) -> Int { return x.v; } fn main() { var a = make(); foo(a); let b = a; }");
+        assert!(result.is_err(), "expected use-after-move after a call-init move");
+        let errs = result.err().unwrap();
+        assert!(errs.iter().any(|e| e.message.contains("use of moved value")));
+    }
+
+    // m344: annotated/unannotated parity for the call-init shape.
+    #[test]
+    fn test_function_call_moves_call_init_annotated_parity() {
+        let result = check_borrow("type S = { v: Int; } fn make() -> S { return S { v: 42; }; } fn foo(x: S) -> Int { return x.v; } fn main() { var a: S = make(); foo(a); let b = a; }");
+        assert!(result.is_err(), "annotated call-init move must stay an error");
+        let errs = result.err().unwrap();
+        assert!(errs.iter().any(|e| e.message.contains("use of moved value")));
+    }
+
+    // m344 (REL-20261011-1046): a field projection passed by value consumes
+    // the projection; reusing it is a use-after-move.
+    #[test]
+    fn test_field_projection_move_coverage() {
+        let result = check_borrow("type Inner = { x: Int; } type S = { f: Inner; } fn take(i: Inner) -> Int { return i.x; } fn main() { var a = S { f: Inner { x: 1 } }; let r1 = take(a.f); let r2 = take(a.f); }");
+        assert!(result.is_err(), "expected use-after-move on the field projection");
+        let errs = result.err().unwrap();
+        assert!(
+            errs.iter().any(|e| e.message.contains("use of moved value 'a.f'")),
+            "the diagnostic must name the projection: {:?}", errs
+        );
+    }
+
+    // m344 negative lock: a scalar (Int) field stays Copy -- reuse is clean.
+    #[test]
+    fn test_scalar_field_projection_stays_clean() {
+        let result = check_borrow("type S = { n: Int; } fn take(n: Int) -> Int { return n; } fn main() { var a = S { n: 1 }; let r1 = take(a.n); let r2 = take(a.n); }");
+        assert!(result.is_ok(), "scalar field reuse must stay clean: {:?}", result.err());
+    }
+
+    // m344 negative lock: a genuine scalar call-init local stays Copy.
+    #[test]
+    fn test_scalar_call_init_stays_clean() {
+        let result = check_borrow("fn count() -> Int { return 7; } fn take(n: Int) -> Int { return n; } fn main() { var n = count(); let r1 = take(n); let r2 = take(n); }");
+        assert!(result.is_ok(), "scalar call-init reuse must stay clean: {:?}", result.err());
+    }
+
+    // m344: a projection off a PARAM keeps the read-borrow convention (the
+    // bare-identifier param arm) -- no move, no diagnostic.
+    #[test]
+    fn test_param_field_projection_not_moved() {
+        let result = check_borrow("type Inner = { x: Int; } type S = { f: Inner; } fn take(i: Inner) -> Int { return i.x; } fn twice(p: S) -> Int { return take(p.f) + take(p.f); }");
+        assert!(result.is_ok(), "param field projections must not move: {:?}", result.err());
     }
 
     #[test]

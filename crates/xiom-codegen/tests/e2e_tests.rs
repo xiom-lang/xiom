@@ -223,6 +223,23 @@ fn compile_ir(source_path: &str) -> Option<String> {
     Some(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
+/// m344: compile capturing BOTH streams (borrow diagnostics print to stderr;
+/// `--emit-ir` writes IR to stdout). Returns (success, combined output).
+fn compile_capture(source_path: &str, extra_args: &[&str]) -> (bool, String) {
+    let output = Command::new(xiom_path())
+        .args(extra_args)
+        .arg(source_path)
+        .current_dir(project_root())
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn compiler for {source_path}: {e}"));
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    (output.status.success(), combined)
+}
+
 // ============================================================================
 // E2E: Native Compilation + Exit Code Verification
 // ============================================================================
@@ -9197,5 +9214,111 @@ fn collect_files_with_ext(dir: &Path, ext: &str, out: &mut Vec<std::path::PathBu
         compile_and_run("tests/regression/m342_varfn_parse_surface/control_main.xi"),
         Some(0),
         "a parse-clean imported sibling module must stay green (m342)"
+    );
+}
+
+// m344 (REL-20261011-1046-engine): the borrow pass is no longer type-blind --
+// a local bound to a CALL RESULT (S make()) is move-only, so reusing it as a
+// bare argument warns E001. Pre-fix: ZERO diagnostics and --strict rc 0 (the
+// "Int" copy fallback); the annotated twin warned pre-fix -- parity is locked
+// here. Default mode stays a warning (the program must still compile + run).
+#[test] fn e2e_m344_callinit_move_e001() {
+    assert_eq!(
+        compile_and_run("tests/regression/m344_callinit_move/main.xi"),
+        Some(0),
+        "m344: call-init move diagnostics are warnings by default; the program must still run"
+    );
+    let (ok, out) = compile_capture(
+        "tests/regression/m344_callinit_move/main.xi",
+        &["--force", "--no-cache", "--emit-ir"],
+    );
+    assert!(ok, "m344: default mode must compile (E001 is a warning); output:\n{out}");
+    assert!(
+        out.contains("warning[E001]"),
+        "m344: the call-init reuse must warn E001; output:\n{out}"
+    );
+    assert!(
+        out.contains("use of moved value 'a'"),
+        "m344: the UNANNOTATED call-init reuse must be named (pre-fix: silent); output:\n{out}"
+    );
+    assert!(
+        out.contains("use of moved value 'b'"),
+        "m344: annotated/unannotated parity -- 'b' must warn too; output:\n{out}"
+    );
+    let (ok_strict, out_strict) = compile_capture(
+        "tests/regression/m344_callinit_move/main.xi",
+        &["--force", "--no-cache", "--strict", "--emit-ir"],
+    );
+    assert!(
+        !ok_strict,
+        "m344: --strict must abort on the call-init reuse; output:\n{out_strict}"
+    );
+    assert!(
+        out_strict.contains("aborting compilation"),
+        "m344: --strict must abort compilation; output:\n{out_strict}"
+    );
+}
+
+// m344 (REL-20261011-1046-engine): a field projection passed by value
+// consumes the projected place. Pre-fix both shapes (struct field + the
+// engine's Vec[UInt8] field) compiled with ZERO diagnostics.
+#[test] fn e2e_m344_fieldproj_move_e001() {
+    assert_eq!(
+        compile_and_run("tests/regression/m344_fieldproj_move/main.xi"),
+        Some(0),
+        "m344: field-projection move diagnostics are warnings by default; the program must still run"
+    );
+    let (ok, out) = compile_capture(
+        "tests/regression/m344_fieldproj_move/main.xi",
+        &["--force", "--no-cache", "--emit-ir"],
+    );
+    assert!(ok, "m344: default mode must compile (E001 is a warning); output:\n{out}");
+    assert!(
+        out.contains("use of moved value 'a.f'"),
+        "m344: the struct-field projection reuse must warn on 'a.f' (pre-fix: silent); output:\n{out}"
+    );
+    assert!(
+        out.contains("use of moved value 'dev.fb'"),
+        "m344: the engine-shape Vec-field projection must warn on 'dev.fb' (pre-fix: silent); output:\n{out}"
+    );
+    let (ok_strict, out_strict) = compile_capture(
+        "tests/regression/m344_fieldproj_move/main.xi",
+        &["--force", "--no-cache", "--strict", "--emit-ir"],
+    );
+    assert!(
+        !ok_strict,
+        "m344: --strict must abort on the projection reuse; output:\n{out_strict}"
+    );
+    assert!(
+        out_strict.contains("aborting compilation"),
+        "m344: --strict must abort compilation; output:\n{out_strict}"
+    );
+}
+
+// m344 negative lock (REL-20261011-1046-engine): genuine scalars keep the
+// copy exemption -- a scalar field projection and a scalar call-init local
+// reuse stay clean in BOTH modes (no E001, --strict rc 0).
+#[test] fn e2e_m344_scalar_field_clean() {
+    assert_eq!(
+        compile_and_run("tests/regression/m344_scalar_field_clean/main.xi"),
+        Some(0),
+        "m344: scalar reuse fixture must run"
+    );
+    let (ok, out) = compile_capture(
+        "tests/regression/m344_scalar_field_clean/main.xi",
+        &["--force", "--no-cache", "--emit-ir"],
+    );
+    assert!(ok, "m344: scalar-only fixture must compile; output:\n{out}");
+    assert!(
+        !out.contains("E001"),
+        "m344: scalar field/call-init reuse must stay clean; output:\n{out}"
+    );
+    let (ok_strict, out_strict) = compile_capture(
+        "tests/regression/m344_scalar_field_clean/main.xi",
+        &["--force", "--no-cache", "--strict", "--emit-ir"],
+    );
+    assert!(
+        ok_strict,
+        "m344: scalar reuse must stay clean under --strict; output:\n{out_strict}"
     );
 }

@@ -17761,3 +17761,59 @@ parse diagnostics that drop only a stray token (nothing semantic) now also
 fail the build -- intended (they are parse errors), verified against the
 repo corpus via the battery + the full unfiltered e2e suite.
 Fix commit: f1aac752 (branch fix/m342-varfn-parse-surface, unpushed).
+
+## 2026-10-16 -- FIXED (m344): E001 borrow pass is no longer type-blind -- call-init and field-projection moves (REL-20261011-1046-engine)
+
+The borrow pass ran on the raw AST with no type environment: every
+non-literal binding carried the "Int" copy fallback, so a local bound to
+a CALL RESULT or a FIELD ACCESS was silently immovable --
+`var a = make(); take(a); take(a);` compiled with ZERO diagnostics (and
+`--strict` rc 0) while the literal-init control and the annotated twin
+(`var a: S = make()`) warned; field projections were unwired as moves
+entirely (`take(a.f); take(a.f);` silent; the engine's `take(dev.fb)`
+shape silent).
+
+Fix (crates/xiom-check/src/lib.rs, BorrowChecker): declared facts are now
+collected off the program AST before the walk -- fn return types
+(bare / module-qualified / `Receiver.method`) and struct field types
+(spelled with generic args) -- and bindings resolve their tracked type
+through them: call RHS -> the callee's declared return type; field RHS ->
+the receiver's tracked type + declared field type; struct literals keep
+their real name (was the "Struct" marker; still non-copy). The copy
+exemption is now kept only for genuine scalars (plus pointer/fn values):
+the classifier works on the BASE name after stripping refs, generic
+arguments and module paths. Move coverage extends to projection places
+("a.f", "v[0]", per-scope set): Field/Index call args consume the
+projection and Let/Var/Assign with a Field/Index RHS mark it moved; use
+of a moved projection reports `use of moved value 'a.f'`. Preserved
+deliberately: bare params and PARAM-ROOTED projections keep the
+read_borrow convention (no move, no false positives); unknown
+callees/fields keep the conservative copy fallback; the annotation path
+now spells containers, so `Vec[Int]`/`Option[Int]` annotate move-only
+too (annotated/unannotated parity). Sibling diag: reuse of a moved bare
+ident still warns twice (check_use + move_var) -- locks use `contains`.
+
+Diagnostics-only change (codegen untouched): default mode keeps E001 a
+warning (the ABI still passes a copy, so a "moved" local still reads its
+value); `--strict` stays the hard gate. Vec write-through note: the
+item's original write-through characterization is stale on main -- m302
+deep-copies alias Vec bindings (`var d = a.v;` no longer shares the
+buffer); the moved-value rule tracks OWNERSHIP, not aliasing.
+
+Witnesses (scratch %TEMP%\kilo\recon-1046-1411, A/B on rebuilt
+binaries): p1_callinit 0 -> 2x E001 (`use of moved value 'a'`) and
+--strict rc 0 -> rc 1; p1b_annotated unchanged (2x E001); p3b struct
+field projection 0 -> 2x `use of moved value 'a.f'`; p3c engine-shape
+Vec field 0 -> 2x `use of moved value 'dev.fb'`; p0 literal control
+unchanged. Locks: unit `test_function_call_moves_call_init` (+ annotated
+parity, `test_field_projection_move_coverage`, negative
+`test_scalar_field_projection_stays_clean` +
+`test_scalar_call_init_stays_clean`, param-projection negative
+`test_param_field_projection_not_moved`); fixtures
+tests/regression/m344_callinit_move/ + m344_fieldproj_move/ + negative
+m344_scalar_field_clean/ with `e2e_m344_callinit_move_e001`,
+`e2e_m344_fieldproj_move_e001`, `e2e_m344_scalar_field_clean` (ci.yml
+e2e group 2; default warning AND --strict abort asserted). Battery:
+locks 3/3, xiom-check lib 205, borrow_e001 3/3 (m318 pin intact), e2e
+g1 16 + g2 244 (x2), codegen lib 12, feature_regression 549,
+stdlib_execution 85 (+2 ignored), integration 130, front-locks 62.
