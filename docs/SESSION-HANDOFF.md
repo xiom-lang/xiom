@@ -14,6 +14,49 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-16T23:25Z (compiler lane; POST-v0.64.6, release-protocol correction) -- READ FIRST ***
+- OWNER PROTOCOL CORRECTION (23:12Z): do NOT cut/release a compiler candidate
+  unless the stdlib is on the SAME TRACK -- the stdlib release for the same
+  version must be prepared AND approved/published first (version markers bumped,
+  tag on the released rev). v0.64.6's archive pinned stdlib b81430ba whose
+  package.xi still said version "0.64.5", so installs packed a 0.64.5-labeled
+  stdlib; the stdlib lane is now releasing 0.64.6 to match (block 223: prep
+  8d95815, tag MOVED to 8d95815, release run 38979638226, publish 38979638142
+  awaiting owner approval). HARD RULE for v0.64.7: cut only after (a) the
+  stdlib v0.64.7 release is prepared to the same version with markers bumped,
+  (b) its publish is approved, (c) STDLIB_VERSION references that released rev.
+- STATE: v0.64.6 RELEASED 20:33Z (release run 38962236697 green; assets
+  verified). Upstream closures: orbitdb 2022 CLOSED (verified on v0.64.6);
+  xvector Windows legs green (C-17 7/7, C-18 green; C-16 WSL leg deferred by
+  environment + owner WSL pause); stdlib 2100 W2-W4 fixed on v0.64.6 (W1
+  residual -> m357, medium); benchmark absorbed (green, pin 6d2c142);
+  packages 1941/1304 closed. Wave 2 integrated: m347 (platform consts
+  register the TARGET value + seed poison removed), m348 (fn-ptr return ABI
+  flow for call-valued/Ident-copy bindings), m349 (Array catalog injection +
+  reserved-name diagnostic) -- commits d266a080..5cb7515c; wave e2e locks
+  39/39 + checker 1/1 + ffi 2/2. Relay record f15c01c.
+- IN FLIGHT: m350 (Result-ref field read crash; recon %TEMP%\kilo\m350-recon-report.md),
+  m359 (CLI duplicate --timeout/--jobs panic -> closes 1128 class 4),
+  m352 (arch-aware native triple + toolchain_cmd linux-arm64; RETRY spawn --
+  first request silently failed), m351 recon (B-33 confined-call silent
+  exit-0; report %TEMP%\kilo\recon-b33), selfhost Phase 6 (rebased onto
+  release main; advancing; T6 meter report pending).
+- ARM64 (REL-20261016-1917): release leg MERGED (19eb7218) + arm64 z3 pin
+  (4.13.4 glibc-2.34, sha verified); dry-run 38967096669 GREEN incl.
+  package linux-arm64; artifact aarch64-verified; functional on-runner
+  native-compile gate + m352 remain; ships in v0.64.7 (owner call);
+  packages Pi smoke x2 = acceptance.
+- OWNER-DECISION QUEUE: engine-2134 finding 5 (consume-vs-copy rule; runtime
+  ABI copies -- only the diagnostic is live), m252 cold-lane (2100-benchmark),
+  the 5 compiler->owner items from Oct 10, B-33 severity flow (m351),
+  registry 1504 re-queue (slotted for v0.64.7), playground rows still red
+  (backlog wave), WSL pause (C-16/C-17-WSL close-gates).
+- WATCH: a */15 cron "Post-cut wave + relay watch" is ACTIVE
+  (wku_1467905dc001BkHXug14AsOM2W) -- relay sweeps + fixer harvest + arm64
+  follow-ups; re-arm in a fresh session if this one ends.
+- PROCESS unchanged otherwise: fixers commit on their branches, the main lane
+  cherry-picks + owns relay rows; main pushes are normal now (release path).
+
 *** SESSION UPDATE 2026-10-16T11:55Z (same compiler session as the wrap below; owner directive + wave A started) ***
 - OWNER DIRECTIVE (11:44Z): ALL incoming relay intake from pulse, engine,
   orbitdb and xvector is to be addressed to 100% coverage in the next waves;
