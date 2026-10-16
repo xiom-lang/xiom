@@ -17418,3 +17418,9 @@ LOCKS: `e2e_m338_catalog_str_variant_shadow` (module form, runtime byte
 assert) + `e2e_m338_entry_variant_str_shadow` (entry form) -- both RED
 pre-fix, green post; wired into the ci.yml e2e group-2 list. The m315 lock
 (`e2e_m315_enum_geom_collision`) stays green.
+Battery green (fixer worktree, windows): locks 2/2, e2e g1 16 + g2 243
+(x2; 241 baseline + 2 new), xiom-check lib 199 (catalog corpus gate),
+codegen lib 12, feature_regression 549, stdlib_execution 85 (+2 ignored),
+integration 130; repro scratch (minG/minF2/proj2) red -> green with exact
+runtime bytes, minE/minI controls green throughout.
+Fix commit: f4d1a08f (branch fix/m338-catalog-str-variant-shadow, unpushed).
