@@ -14481,9 +14481,9 @@ above.
 | C-PULSE-09 | PULSE | cross-module `Vec[SessionStore]` bridge crash (Windows 0xC0000005) | FIXED m227 in 35ed820e (v0.64.2); lane closed wrap 9 | tests/probes/probe_adopt_smoke.xi |
 | C-PULSE-10 | PULSE | `kv_get` returned address-like decimal Str after `kv_put` | FIXED m217 (fd6ea4c6, v0.64.1+) | docs/repro/kv-get-str-corruption/ |
 | C-PULSE-11 | PULSE | `pub type Store = SessionStore` unknown cross-module; silent i64 default | FIXED m216 (0c5337e0, v0.64.1+) | session-adoption build log + repro |
-| C-PULSE-12 | PULSE | module last segment shadows a stdlib import alias (`server.` vs `xiom.net.server`) | REPORTED, NEEDS REPRO (minimal shape did not reproduce; lane renamed module) | delta 2026-10-08 in COMPILER-FINDINGS-PULSE.md |
+| C-PULSE-12 | PULSE | module last segment shadows a stdlib import alias (`server.` vs `xiom.net.server`) | FIXED m292 (c5fe4d80, v0.64.5+); recon A/B 4 shapes green 2026-10-16 -- pulse rename-back verify pending | recon %TEMP%\kilo\recon1549 |
 | C-PULSE-13 | PULSE | xiom-pkg install home split from the compiler XIOM home (Unix) | FIXED m232 (4c1a672c, v0.64.2); lane closed | PACKAGE-WISHLIST-PULSE.md row C-PULSE-13 |
-| C-PULSE-14 | PULSE | request-path RSS retention ~48-87 KB/req on Linux (Windows flat on v0.64.2) | OPEN (runtime/allocator; lane-measured) | scripts/rss_probe.{ps1,sh}; probe-logs/soak-http* |
+| C-PULSE-14 | PULSE | request-path RSS retention ~50-60 KB/req (cross-platform; Windows-flat premise stale) | OPEN (heap growth, no drop glue; stdlib buffer reuse + owner drop-glue decision; recon 2026-10-16) | scripts/rss_probe.{ps1,sh}; recon %TEMP%\kilo\recon1549 |
 | C-PULSE-16 | PULSE | `socket_bind` wildcard-only; PULSE_BIND ignored | OPEN (runtime/stdlib ask, not compiler codegen) | delta wrap 8 in COMPILER-FINDINGS-PULSE.md |
 | C-ORBIT-01 | ORBITDB | cross-module generic Result alias payload lost its type | FIXED m223 (35ed820e batch, v0.64.2) | docs/repro/ok-method-receiver/ |
 | C-ORBIT-02 | ORBITDB | `Vec[Option[T]]` element assignment poisoned the slot | FIXED m226 (35ed820e batch, v0.64.2) | docs/repro/option-vec-assign/ |
