@@ -17424,3 +17424,57 @@ codegen lib 12, feature_regression 549, stdlib_execution 85 (+2 ignored),
 integration 130; repro scratch (minG/minF2/proj2) red -> green with exact
 runtime bytes, minE/minI controls green throughout.
 Fix commit: f4d1a08f (branch fix/m338-catalog-str-variant-shadow, unpushed).
+
+## 2026-10-16 -- FIXED (m336): enum-in-tuple + enum ERROR type had two names for one tuple struct (REL-20261015-2022-orbitdb / C-ORBIT-12)
+
+`Result[(T8Val, Int), T8Err]` with BOTH payloads enums failed at clang on
+v0.64.5, local main and the m334 branch: `%tmpN defined with type
+'%struct.Tuple__<mod>.T8Val__Int' but expected
+'%struct.Tuple__T8Val__Int'` at the Ok store. The tuple literal and its
+surrounding Result were named by two different namers that disagreed on
+the enum element spelling: the construction namers (expr.rs tuple-literal
+path + `infer_llvm_type` tuple arm, m305) build the module-qualified key
+via `resolve_enum_for_variant` (`Tuple__<mod>.T8Val__Int`), while
+`concrete_type_for`'s Result arm lowered the payload via `type_from_ast`
+-- a BARE `Tuple__T8Val__Int`. With an enum ERROR type the concrete
+3-field Result is created (`is_struct_type_in_registry(err_name)`), so
+the Ok lowering stored the qualified value into the bare-named field and
+clang hard-failed. With an INT error neither payload concretizes, the
+generic `%struct.Result` boxes the tuple, and the split stays invisible
+(green by ABI accident -- the control). Silent mode in larger programs:
+`unknown type 'Tuple__TValue__Int' -- defaulting to i64` + misdecode
+(ORBITDB `DbResult[(TValue, Int)]`).
+
+FIX: `concrete_type_for`'s Result/Option arms name payloads through the
+new `canonical_payload_name` (tuple payloads recurse through the Tuple
+arm, which qualifies elements via `resolve_type_key`), so
+`ensure_concrete_result` registers the SAME key the construction namers
+use; the generic-return string feed in call.rs renders the canonical
+names too; the tuple arm defers its `%struct` def (SIZED at parse time).
+`ensure_tuple_type_registered` now registers the CANONICAL tuple key
+(the decl-pass scan used to leave a second, structurally identical bare
+`%struct.Tuple__Val__Int` next to the qualified one), and the remaining
+string-fed tuple readers (match payloads, vec element resolution,
+boxed-tuple field access, `llvm_type_for`/`field_llvm_type`) resolve a
+bare key to its registered canonical twin
+(`canonical_registered_tuple_key`, per-segment leaf match, deterministic
+pick) so the single spelling is safe everywhere. Do NOT strip
+qualifiers in the m305 namers (that would trade this bug for the BUG 1
+tuple-shape one).
+
+Evidence: orbitdb `repro_enum_tuple_enum_error.xi` pre-fix rc=1
+(clang xiominput.ll:778 type mismatch), post-fix rc=0 `repro C: sum=110
+(expected 110)`; `repro_enum_tuple.xi` control green pre/post (n=8
+custom=5 done). IR now emits ONE spelling of the enum tuple
+(`Tuple__<mod>.T8Val__Int`) -- bare `Tuple__T8Val__Int` no longer
+appears anywhere -- with zero `unknown type` warnings. LOCK:
+tests/regression/m336_enum_tuple_enum_error/ + `e2e_m336_enum_tuple_enum_error`
+(+ `_ir` twin asserting the single spelling and no unknown-type
+fallback) (ci.yml e2e group 2; fixture gates the enum-error arm, the
+Int-error control and the Err arm). Battery green (fixer worktree,
+windows): locks 2/2 (m305 lock + m334 fixture cross-check with b5b97427
+applied), e2e g1 16 + g2 243 (x2), codegen lib 12, feature_regression
+549, stdlib_execution 85 (+2 ignored), integration 130. 2309 probes
+report-only: `probe_d_mixed3`/`probe_b_4field` green, `probe_d3_result_value`/
+`probe_d4_main` STILL RED (`Tuple__Vec[UInt8]__Str__Int` bracket-encoding
+family -- separate fixer, per recon).
