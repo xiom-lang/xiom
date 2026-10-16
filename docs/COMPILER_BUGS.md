@@ -17386,3 +17386,35 @@ same-leaf user types still hit the checker's unqualified-return edge
 (`assignment type mismatch: ga.Widget = Widget`, T001 -- pre-existing,
 reproduced pre-fix; not part of this defect).
 Fix commit: 94e69fd7 (branch fix/m337-xvc-c17-imported-global-var-type, unpushed).
+
+## 2026-10-16 -- FIXED (m338): scalar-named enum variant shadowed builtin Str at the ident position (catalog-body T001 on `Str::from_utf8`)
+
+REL-20261016-1128-engine class 1 (the engine v0.64.5 pin blocker). A module
+that declares an ENUM VARIANT named `Str` made every `Str::from_utf8(...)`
+call in that module fail: `error[T001]: catalog body
+[xiom.engine.editor.layout.json_lite] 196:41: cannot call 'from_utf8' on
+this expression` (the engine editor's json_lite.xi; green at 0.64.4, red at
+0.64.5 and at local HEAD/m334). Introduced by m315 (commit 32923053).
+
+ROOT CAUSE: the m315 ident-resolution branch in xiom-check (lib.rs, "a
+variant of an enum declared in THIS module outranks a same-named imported
+type") matched `{current_module}.Str` in `enum_variants` BEFORE
+`contains_type`, so the `Str` qualifier of the assoc call typed as the
+parent enum (JLValue) instead of the builtin. The builtin Str-assoc table
+(`from_utf8` -> Str) was never reached and the call fell to the
+unknown-method fallback (the T001 site).
+
+FIX: gate the m315 branch on non-scalar leaves (`Option::filter` with
+`is_scalar_type_name`). Builtin/scalar names (`Str`, `Int`, ...) keep their
+builtin meaning at the ident/qualifier position; non-scalar variant/type
+collisions (geom's `Vec3`) keep m315's current-module precedence. The
+`is_scalar_type_name` helper also gains the three registered primitives it
+was missing (Int128/UInt128/Float128). Repro (delivered as minG single
+module, proj2 verbatim json_lite copy + entry, minF2 entry-module form;
+controls minE/minI): red -> green, `from_utf8` bytes exact at runtime
+("A", `{"a":1}`).
+
+LOCKS: `e2e_m338_catalog_str_variant_shadow` (module form, runtime byte
+assert) + `e2e_m338_entry_variant_str_shadow` (entry form) -- both RED
+pre-fix, green post; wired into the ci.yml e2e group-2 list. The m315 lock
+(`e2e_m315_enum_geom_collision`) stays green.

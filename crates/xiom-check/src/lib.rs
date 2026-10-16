@@ -4861,12 +4861,15 @@ impl Checker {
     }
 
     /// Scalar/builtin type names always available inside a catalog body.
+    /// m338: Int128/UInt128/Float128 were missing from this list even though
+    /// `register_builtins` seeds all three into `self.types`; include them so
+    /// the m315 ident gate treats every registered primitive as builtin.
     fn is_scalar_type_name(name: &str) -> bool {
         matches!(
             name,
-            "Int" | "Int8" | "Int16" | "Int32" | "Int64"
-                | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64"
-                | "USize" | "ISize" | "Float32" | "Float64"
+            "Int" | "Int8" | "Int16" | "Int32" | "Int64" | "Int128"
+                | "UInt" | "UInt8" | "UInt16" | "UInt32" | "UInt64" | "UInt128"
+                | "USize" | "ISize" | "Float32" | "Float64" | "Float128"
                 | "Bool" | "Str" | "Char" | "Byte" | "Void" | "Never" | "Unit"
                 | "Self" | "self" | "this" | "_"
         )
@@ -7845,6 +7848,18 @@ impl Checker {
                     CheckedType::Named("fn".into())
                 } else if let Some(parent) = self.current_module.as_ref()
                     .and_then(|m| self.enum_variants.get(&format!("{}.{}", m, ident.name)))
+                    // m338 (REL-20261016-1128-engine class 1): a BUILTIN/scalar
+                    // leaf must keep its builtin meaning at the ident/qualifier
+                    // position even when THIS module declares a same-named enum
+                    // variant. json_lite's `JLValue.Str` made `Str::from_utf8`
+                    // type its qualifier as the enum parent, so the builtin
+                    // Str-assoc table below was unreachable and the call fell
+                    // to the unknown-method fallback (T001 "cannot call
+                    // 'from_utf8'"). The m315 precedence is for NON-builtin
+                    // leaves (geom's `Vec3`) and stays intact; the
+                    // `contains_type` branch just below still resolves the
+                    // scalar (register_builtins seeds `self.types`).
+                    .filter(|_| !Self::is_scalar_type_name(&ident.name))
                 {
                     // m315 (REL-20261013-2139-engine): a variant of an enum
                     // declared in THIS module outranks a same-named imported

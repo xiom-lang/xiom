@@ -8112,6 +8112,36 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     );
 }
 
+// m338 (REL-20261016-1128-engine class 1): the m315 current-module variant
+// branch (lib.rs ident resolution) outranked BUILTIN type names, so an enum
+// variant named `Str` made every `Str::from_utf8(...)` in that module type
+// its qualifier as the parent enum -- the builtin Str-assoc table was never
+// reached and the call fell to the unknown-method fallback (T001 "cannot
+// call 'from_utf8' on this expression", the engine json_lite.xi:196 shape;
+// green at 0.64.4, red at 0.64.5 and at m334). The fix gates the m315 branch
+// on non-scalar leaves; the fixture pins the module form (variant `Str` +
+// from_utf8 inside a struct literal in an IMPORTED module) with a runtime
+// byte assert. Pre-fix compile_and_run returns None.
+#[test] fn e2e_m338_catalog_str_variant_shadow() {
+    assert_eq!(
+        compile_and_run("tests/regression/m338_catalog_str_variant_shadow/main.xi"),
+        Some(0),
+        "a scalar-named enum variant must not hijack builtin assoc calls in the \
+         same module (Str::from_utf8); bytes must be exact (m338)"
+    );
+}
+
+// m338 entry-module twin: the ENTRY module itself declares the enum with a
+// variant named `Str` (the minF2 shape). Same gate, no catalog wrapper.
+#[test] fn e2e_m338_entry_variant_str_shadow() {
+    assert_eq!(
+        compile_and_run("tests/regression/m338_entry_variant_str_shadow.xi"),
+        Some(0),
+        "the entry module's own Str-named variant must not block builtin \
+         Str::from_utf8 (m338 entry form)"
+    );
+}
+
 // m317 (REL-20261013-2256-engine + REL-20261013-2324-engine-2 +
 // REL-20261013-2324-engine-3): the constant-surface family. One fixture,
 // every shape with a distinct exit code (1-3 shadow/qualified const reads,
