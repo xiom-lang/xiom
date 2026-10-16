@@ -18052,3 +18052,82 @@ stdlib_execution 85 (+2 ignored), integration 130.
 Fix commit: 5bed1dde (branch fix/m348-fn-ptr-signature-flow, unpushed).
 
 ---
+
+## 2026-10-17 -- FIXED (m349): a catalog/package type named `Array` was silently erased by the injection PRIMITIVES filter (REL-20261016-2004-packages, XARROW-ARRAYNAME)
+
+An imported C struct named `Array` collided with the built-in `Array`
+"type": a source-dir catalog module (the installed-package model, e.g. an
+installed package's `xiom/` tree) declaring `pub type Array` had its
+declaration silently DROPPED by `collect_external_decls`' PRIMITIVES
+filter (xiom-check lib.rs), so codegen had no layout for the bare name --
+every use fell to `xiom: warning: unknown type 'Array' -- defaulting to
+i64` and the values read zero (the arrow lane's C struct; their workaround
+renamed the high-level type Array -> DataArray). Same-module declarations,
+user-program multi-file imports, `use mod.Array` item imports and
+Result/Vec payloads were all fine -- only the catalog injection path lost
+the type.
+
+Root cause: the PRIMITIVES entry existed for the legacy bare-`Array`
+erasure, but the compiler has NO builtin Array layout anywhere: fixed
+arrays parse as `Type::Array` and type as `Array[<elem>]` (the bracketed
+container spelling -- never the bare name), exactly the rationale that
+removed `Set` earlier. `Ptr`/`Tuple`/`Tuple2` were audited and STAY: they
+are live erasure-marker spellings compared throughout the checker and
+codegen (`n == "Ptr"` pointer-like tests, `Tuple__`/`Tuple` prefixes), so
+letting a user struct inject under those names would get it mis-classified
+as a pointer/tuple; they are guarded loudly instead (below).
+
+Fix (branch fix/m349-guarded-type-injection):
+1. `Array` removed from PRIMITIVES -- a catalog `pub type Array` now
+   injects like any struct and flows through the normal collision triage
+   (single owner -> bare key; multi-owner -> the m278 module-qualified
+   route).
+2. Safety net for the arrow ask: when a catalog declaration is skipped
+   because it shadows a compiler-reserved name AND is non-generic (the
+   stdlib's guarded GENERIC facades `type Vec[T]` / `type Option[T]` stay
+   silent), a loud diagnostic is emitted: `xiom: warning: type 'X' in
+   module 'M' collides with the compiler-reserved builtin type name 'X';
+   the catalog declaration is IGNORED -- rename the type ...`. A probe with
+   a catalog `pub type Str` confirmed the warning fires once and the build
+   still succeeds.
+3. The permissive bare-`Array` checker fallbacks are gated on `Array`
+   NOT being a registered user/package type: the builtin method table
+   (len/is_empty/is_sorted/all/none/contains/as_ptr -- pre-fix `a.len()` on
+   a user struct named `Array` type-checked as the builtin Int) and the
+   Index wildcard arm. Fixed arrays (`Array[<elem>]`) keep their own
+   container arms and are unaffected.
+
+Evidence (worktree fix-m349, windows, pinned stdlib):
+- recon shape (catalog `xiom/r2004c/def.xi` `pub type Array`, rc 31 +
+  8x unknown-type + `n=0 m=0 sum=0`) -> post-fix rc 0, exact
+  `n=7 m=14 sum=21`, IR `%struct.Array = type { i64, i64 }`.
+- lock fixture `tests/regression/m349_catalog_guarded_type_names/`:
+  pre-fix rc 255 (all eight fail bits, 20x unknown-type); post-fix rc 0
+  (by-value return, &ref param, struct literal, registered method, nested
+  struct field, Vec element all exact) + `_ir` twin (no unknown-type
+  stderr; `%struct.Array`/`%struct.Holder` layouts; `define %struct.Array
+  @m349x.def.mk_arr`). ci g2 tokens.
+- checker lock `m349_array_builtin_method_gate` (`--check` of a user
+  `Array` + `.len()`): pre-fix rc 0 (builtin capture) -> post-fix T001
+  "cannot call 'len' on this expression".
+
+Residual (recorded, not fixed):
+- MULTI-OWNER ambiguity: two catalog modules declaring DIFFERENT `Array`
+  structs both imported by one user program still fail at CHECK time with
+  T001 ("type 'Array' has no field 'n'") -- the checker's bare-name type
+  registry is first-wins/first-registered (pre-existing m298-class
+  ambiguity; identical pre-fix and post-fix, so not a regression). The
+  single-owner package shape (the arrow case) is the one fixed; a
+  bare-reference disambiguation for ambiguous multi-owner leaves remains
+  its own item.
+- The bracketed `Array[<elem>]` container arm stays unconditional: a
+  registered GENERIC user type `Array[T]` shares that spelling with fixed
+  arrays, so indexing a generic user `Array[T]` resolves as a fixed-array
+  element read (element type) rather than the user's own surface.
+
+Battery green (fixer worktree, windows; logs in %TEMP%\kilo\m349\):
+e2e g1 16 (x2), e2e g2 274 (x2, incl. the two new tokens), front-locks
+all green (checker_locks 37 incl. the new gate lock), codegen lib 12,
+feature_regression 549, stdlib_execution 85 (+2 ignored), integration 130.
+
+Fix commit: see branch fix/m349-guarded-type-injection (unpushed).
