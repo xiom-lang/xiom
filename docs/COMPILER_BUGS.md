@@ -17331,3 +17331,57 @@ constant need the 3134193664 correction before the boundary-arithmetic
 workaround can be retired. No compiler change in this round.
 Lock commit: d234d792 (branch m335-bigint-bitops, stacked on the m334 tip
 5784c7c3; unpushed).
+
+## 2026-10-16 -- FIXED (m337): imported-type module-level `var` spellings resolve the registered key (XVC-C-17, REL-20261015-2216-xvector)
+
+Site: `crates/xiom-codegen/src/decl.rs` (module-var global gate) +
+`crates/xiom-codegen/src/lib.rs` (`llvm_type_for` dotted-name fallback).
+
+Construct: `var G_M: mutex.SyncMutex = mutex.SyncMutex{ locked: null };`
+then `G_M = mutex.mutex_new();` (XVC-C-17 probe; also the full-path
+spelling `xiom.sync.mutex.SyncMutex`). The reporter's checks A/B failed
+on v0.64.5 (Windows + WSL): `GA.locked` read null after the store, so
+the G-1 global-lock pattern was silently unguarded (stdlib `requires`
+aborts where checks fire).
+
+Root cause (two coupled defects): (A) the module-var pass gated global
+emission on `self.llvm_type_for(&ty_name)` with the QUALIFIED spelling
+-- the stdlib registry key for the type is the bare leaf `SyncMutex`,
+and the exact/suffix probes searched the WHOLE dotted clean_name
+(`.mutex.SyncMutex`), so it reached the final fallback
+`Ok(xiom_to_llvm_type(..))` = `Ok("i64")` + `unknown type
+'mutex.SyncMutex' -- defaulting to i64` (5 warnings per probe). The
+global was emitted as `@GA = internal global i64 0` while literals and
+stores used `%struct.SyncMutex`. (B) reads of fields on that global
+then had llvm type i64 (the i64->struct recovery exists only for
+Vec-index receivers) and fell to the literal-0 fallback; whole-struct
+stores coerced the struct to field 0 (`stmt.rs`), silently discarding
+every field beyond field 0 (multi-field imported structs lost data).
+
+Fix: `resolve_dotted_registered_key` (lib.rs) deterministically maps a
+dotted spelling to its registered KEY -- exact dotted key, then keys
+ending with the dotted spelling (mirrors llvm_type_for's suffix probe
+so qualified same-leaf spellings keep their OWN owner; m278/m326
+`pick_deterministic` when several owners carry the spelling), then the
+bare leaf, then same-leaf scorer candidates. `llvm_type_for`'s final
+fallback consults it for dotted names before degrading (genuine markers
+without a registration keep the legacy warning + i64 fallback), and the
+decl.rs gate normalizes the registered key before emitting the global.
+The gate, store and read paths then all use `%struct.SyncMutex`; a
+same-leaf collision pair (`ga.Widget{alpha}` vs `gb.Widget{beta;gamma}`)
+keeps its own layout per qualifying spelling.
+
+Evidence (worktree build): xvector probe rc 1 -> 0 (A/B PASS; 5
+unknown-type warnings -> 0); spelling matrix full-path + bare green;
+`mutex.SyncMutex` slot IR `internal global i64 0` -> `internal global
+%struct.SyncMutex zeroinitializer`; multi-field imported struct keeps
+all fields (count/max 0/0 -> 7/9). Locks:
+`tests/regression/m337_imported_global_qualified_type/main.xi` (rc 13
+pre-fix, 12 warnings) + `main_stdlib.xi` (rc 10 pre-fix, 5 warnings) +
+`e2e_m337_*` x3 (ci e2e group 2). Battery green on the fixer worktree
+(windows): locks 3/3, e2e g1 16 + g2 244 (x2), codegen lib 12,
+feature_regression 549, stdlib_execution 85 (+2 ignored), integration
+130. Residual: cross-module `&param`/return spellings of COLLIDING
+same-leaf user types still hit the checker's unqualified-return edge
+(`assignment type mismatch: ga.Widget = Widget`, T001 -- pre-existing,
+reproduced pre-fix; not part of this defect).

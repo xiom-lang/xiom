@@ -8645,4 +8645,80 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
         ir.contains("i64 3132620800"),
         "m335: the probe's literal must be an i64 initializer"
     );
+// m337 (XVC-C-17, REL-20261015-2216-xvector): an imported-type module-level
+// `var` whose declared spelling is module-qualified (`mutex.SyncMutex` or
+// the full `xiom.sync.mutex.SyncMutex`) misregistered as i64 -- the global
+// gate's llvm_type_for scored the WHOLE dotted spelling while the registry
+// key is the bare leaf, fell back to Ok("i64") + an unknown-type warning,
+// and emitted `global i64`: whole-struct stores kept field 0 only and every
+// field read returned 0/null (guarded locks silently unguarded -- the G-1
+// global-lock pattern). The hermetic fixture locks the qualified-alias +
+// full-path spellings, whole-struct assignment (literal + cross-module
+// constructor), read-back of every field, the INITIAL-value read, and the
+// same-leaf collision variant (XVC-C-14 class: ga.Widget{alpha} vs
+// gb.Widget{beta;gamma}) where the qualified spelling must keep its own
+// layout. Pre-fix: rc 13 (12 unknown-type warnings); green = rc 0.
+#[test] fn e2e_m337_imported_global_qualified_type() {
+    assert_eq!(
+        compile_and_run("tests/regression/m337_imported_global_qualified_type/main.xi"),
+        Some(0),
+        "m337: imported-type module-level vars must keep their struct layout \
+         (qualified + full-path spellings, all fields, initial-value read, \
+         same-leaf collision owners)"
+    );
+}
+
+// m337 stdlib leg: the reporter's real shape -- `use xiom.sync.mutex;` +
+// module-level `var G_M: mutex.SyncMutex` + `G_M = mutex.mutex_new()`.
+// Pre-fix: rc 10, 5x "unknown type 'mutex.SyncMutex'" -- the lock handle
+// read back null everywhere. Needs the stdlib checkout (xiom/sync/mutex.xi).
+#[test] fn e2e_m337_imported_global_stdlib_mutex() {
+    let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
+    if !stdlib_root.join("xiom").join("sync").join("mutex.xi").exists() {
+        let msg = "SKIP: stdlib checkout has no xiom/sync/mutex.xi";
+        if xiom_graph::paths::require_stdlib() {
+            panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
+        }
+        eprintln!("{msg}");
+        return;
+    }
+    assert_eq!(
+        compile_and_run("tests/regression/m337_imported_global_qualified_type/main_stdlib.xi"),
+        Some(0),
+        "m337: `mutex.SyncMutex` module-level var stores must survive \
+         (whole-struct assign + field readback; XVC-C-17)"
+    );
+}
+
+// m337 IR twin: every module-level var slot of an imported type must be a
+// %struct global (pre-fix: `internal global i64 0` -- field-0-only stores,
+// zero reads). The collision pair (GW/GV) must keep its own registered key.
+#[test] fn e2e_m337_imported_global_qualified_type_ir() {
+    let output = Command::new(xiom_path())
+        .args(["--force", "--no-cache", "--emit-ir",
+               "tests/regression/m337_imported_global_qualified_type/main.xi"])
+        .current_dir(project_root())
+        .output()
+        .expect("emit-ir");
+    let ir = String::from_utf8_lossy(&output.stdout).to_string();
+    let m = "m337_imported_global_qualified_type.main";
+    for (sym, want) in [
+        ("GA", "%struct.SyncMutex"),
+        ("GB", "%struct.SyncMutex"),
+        ("GC", "%struct.SyncMutex"),
+        ("GD", "%struct.SyncMutex"),
+        ("GE", "%struct.Guarded"),
+        ("GW", "%struct.xiom.m337sync.gb.Widget"),
+        ("GV", "%struct.xiom.m337sync.ga.Widget"),
+    ] {
+        assert!(
+            ir.contains(&format!("@{m}.{sym} = internal global {want}")),
+            "m337: @{m}.{sym} must be emitted as {want}; got:\n{}",
+            ir.lines().filter(|l| l.contains(&format!("@{m}.{sym} ="))).collect::<Vec<_>>().join("\n")
+        );
+        assert!(
+            !ir.contains(&format!("@{m}.{sym} = internal global i64")),
+            "m337: @{m}.{sym} must not degrade to an i64 global"
+        );
+    }
 }

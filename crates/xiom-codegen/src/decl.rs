@@ -557,11 +557,27 @@ impl IrEmitter {
                 // expression (struct literal -> its type name) when the declared
                 // type is elided.
                 let declared_ty = Self::type_from_ast(&cd.ty);
-                let ty_name = if declared_ty == "_" || declared_ty == "()" || declared_ty.is_empty() {
+                let mut ty_name = if declared_ty == "_" || declared_ty == "()" || declared_ty.is_empty() {
                     self.struct_type_from_expr(&cd.value).unwrap_or(declared_ty)
                 } else {
                     declared_ty
                 };
+                // m337 (XVC-C-17, REL-20261015-2216-xvector): the declared
+                // spelling of an imported type is commonly module-qualified
+                // (`mutex.SyncMutex`) or injected full-path
+                // (`xiom.sync.mutex.SyncMutex`) while the registry key is the
+                // bare LEAF. The gate below used to miss the dotted spelling
+                // (llvm_type_for scored the WHOLE name) and fell back to
+                // Ok("i64") + a spurious unknown-type warning: the global slot
+                // was emitted as i64 while the literal/store paths used
+                // %struct.SyncMutex -- whole-struct stores kept field 0 only
+                // and every field read returned 0/null (guarded locks became
+                // unguarded). Normalize the registered key here; builtin /
+                // pointer / array / genuine-marker spellings keep the legacy
+                // path (including the i64 fallback).
+                if let Some(key) = self.resolve_dotted_registered_key(&ty_name) {
+                    ty_name = key;
+                }
                 if let Ok(llvm_ty) = self.llvm_type_for(&ty_name) {
                     let symbol = if let Some(ref m) = self.local.current_module {
                         format!("{}.{}", m, cd.name.name)

@@ -4671,12 +4671,89 @@ impl IrEmitter {
                         return Ok(format!("%struct.{resolved}"));
                     }
                 }
+                // m337 (XVC-C-17, REL-20261015-2216-xvector): a DOTTED
+                // spelling whose registry key is the bare LEAF
+                // (`mutex.SyncMutex`, injected `xiom.sync.mutex.SyncMutex`)
+                // missed every probe above (exact/suffix searched the WHOLE
+                // dotted clean_name) and produced Ok("i64") + an unknown-type
+                // warning. A module-level `var GA: mutex.SyncMutex` was then
+                // emitted as `global i64` while its literals/stores used
+                // %struct.SyncMutex: whole-struct stores kept field 0 only
+                // and every field read returned 0/null (guarded locks became
+                // unguarded). Resolve the registered key deterministically
+                // before degrading; genuine markers without a matching
+                // registration keep the legacy warning + i64 fallback.
+                if let Some(key) = self.resolve_dotted_registered_key(clean_name) {
+                    return Ok(format!("%struct.{key}"));
+                }
                 // Final fallback: use xiom_to_llvm_type which maps unknown types
                 // to i64 with a warning. This prevents compilation failures for
                 // PhantomData, GenericParam, and other marker/forward-declared types.
                 Ok(Self::xiom_to_llvm_type(type_name).to_string())
             }
         }
+    }
+
+    /// m337 (XVC-C-17, REL-20261015-2216-xvector): deterministic registered
+    /// KEY for a DOTTED type spelling whose registry entry lives under a
+    /// different key (`mutex.SyncMutex` -> bare `SyncMutex`;
+    /// `gb.Widget` -> `xiom.m337c.gb.Widget`). Order:
+    /// 1. exact dotted key (colliding catalog types register FULL);
+    /// 2. keys ENDING WITH the dotted spelling (".gb.Widget") --
+    ///    mirrors `llvm_type_for`'s suffix probe so the gate here binds
+    ///    the same owner as the literal path, scored by
+    ///    `pick_deterministic` when several owners carry the spelling;
+    /// 3. the bare LEAF (`SyncMutex` registered bare);
+    /// 4. same-leaf candidates scored by the m278/m326 import/module
+    ///    proximity scorer (`pick_deterministic`; ties: shortest key,
+    ///    then lexicographic -- never HashMap order).
+    /// Returns None for non-dotted / pointer / array spellings and when no
+    /// registration matches (genuine markers keep the legacy i64 fallback
+    /// + warning). Used by `llvm_type_for`'s dotted-name retry and by the
+    /// module-var global gate (decl.rs).
+    pub(crate) fn resolve_dotted_registered_key(&self, name: &str) -> Option<String> {
+        if !name.contains('.') || name.starts_with('*') || name.starts_with('[') {
+            return None;
+        }
+        let known = |k: &str| -> bool {
+            self.types.types.contains_key(&k.to_string())
+                || self.types.type_meta.contains_key(&k.to_string())
+                || self.types.enum_variants.contains_key(&k.to_string())
+        };
+        if known(name) {
+            return Some(name.to_string());
+        }
+        let is_generated = |k: &str| {
+            k.contains("Tuple__")
+                || k.starts_with("_Anon__")
+                || k.starts_with("Option__")
+                || k.starts_with("Result__")
+        };
+        // 2. keys ending with the dotted SPELLING (llvm_type_for's suffix
+        //    probe semantics; deterministic even with several owners).
+        let spelling_suffix = format!(".{name}");
+        let spelling_candidates: Vec<String> = self.types.type_meta.keys().into_iter()
+            .filter(|key| key.ends_with(&spelling_suffix) && !is_generated(key.as_str()))
+            .collect();
+        if let Some(key) = self.pick_deterministic(spelling_candidates) {
+            return Some(key);
+        }
+        let leaf = name.rsplit('.').next().unwrap_or(name);
+        if leaf.is_empty() {
+            return None;
+        }
+        // 3. the bare leaf.
+        if known(leaf) {
+            return Some(leaf.to_string());
+        }
+        // 4. same-leaf registry candidates, scorer-picked.
+        let leaf_suffix = format!(".{leaf}");
+        let leaf_candidates: Vec<String> = self.types.type_meta.keys().into_iter()
+            .chain(self.types.types.keys().into_iter())
+            .chain(self.types.enum_variants.keys().into_iter())
+            .filter(|k| k.ends_with(&leaf_suffix) && !is_generated(k.as_str()))
+            .collect();
+        self.pick_deterministic(leaf_candidates)
     }
 
     /// Resolve type name to LLVM type, with suffix-search fallback for module-qualified types.
