@@ -2982,6 +2982,25 @@ impl IrEmitter {
             self.types.fn_ptr_return_types.insert(name.to_string(), ret_llvm);
             self.local.fn_local_returns.insert(name.to_string(), ret_xiom);
         }
+        // m348 (REL-20261016-2002-packages, 2026-10-16): a binding whose RHS
+        // is a CALL with a declared fn(...) return (`extern fn get_cos() ->
+        // fn(Float64) -> Float64` -- the C-typedef getter / dlsym-loader
+        // shape) hands back a raw code address. Pre-fix no record was
+        // written, the call site fell back to i64 (read rax while the callee
+        // returns xmm0 -> garbage Float64/Str/pointer returns; `call i64` +
+        // sitofp in the IR). Resolve the callee's declared return marker and
+        // parse it exactly like the cast/annotation path (top-level ")" ->
+        // split per m277, vec_abi.rs).
+        if sig_ty.is_none() {
+            if let Some(ret_xiom) = Self::call_rhs_callee(value)
+                .and_then(|callee| self.callee_return_xiom(callee))
+                .and_then(|marker| Self::fn_type_return_xiom(&marker))
+            {
+                let ret_llvm = self.llvm_type_for_fallback(&ret_xiom);
+                self.types.fn_ptr_return_types.insert(name.to_string(), ret_llvm);
+                self.local.fn_local_returns.insert(name.to_string(), ret_xiom);
+            }
+        }
         let env_src = match value {
             Expr::Ident(id) => self.local.closure_locals.contains(&id.name),
             // Vec[fn] element read: the m130 element convention stores an
@@ -3005,18 +3024,6 @@ impl IrEmitter {
                     }
                 }
             }
-            if let Expr::Ident(id) = value {
-                if !self.local.fn_local_returns.contains_key(name) {
-                    if let Some(r) = self.local.fn_local_returns.get(&id.name).cloned() {
-                        self.local.fn_local_returns.insert(name.to_string(), r);
-                    }
-                }
-                if !self.types.fn_ptr_return_types.contains_key(&name.to_string()) {
-                    if let Some(rl) = self.types.fn_ptr_return_types.get(&id.name) {
-                        self.types.fn_ptr_return_types.insert(name.to_string(), rl);
-                    }
-                }
-            }
         } else if sig_ty.is_some()
             || matches!(value, Expr::Ident(id) if
                 self.types.functions.contains_key(&id.name)
@@ -3026,6 +3033,39 @@ impl IrEmitter {
             // Raw source (an As-cast address or a top-level fn name): the
             // slot carries the code address, not an env.
             self.local.closure_locals.remove(name);
+        }
+        // m348: signature records propagate through plain Ident copies
+        // REGARDLESS of env/raw provenance. A copy of a RAW fn local
+        // (`let b = a;` where `a` holds a bare code address from a typed
+        // getter) lost the record pre-fix because this branch sat under
+        // `env_src`; the call then fell back to i64 and read rax.
+        if let Expr::Ident(id) = value {
+            if !self.local.fn_local_returns.contains_key(name) {
+                if let Some(r) = self.local.fn_local_returns.get(&id.name).cloned() {
+                    self.local.fn_local_returns.insert(name.to_string(), r);
+                }
+            }
+            if !self.types.fn_ptr_return_types.contains_key(&name.to_string()) {
+                if let Some(rl) = self.types.fn_ptr_return_types.get(&id.name) {
+                    self.types.fn_ptr_return_types.insert(name.to_string(), rl);
+                }
+            }
+        }
+    }
+
+    /// m348: unwrap transparent wrappers (parens, unsafe/block bodies) to
+    /// find a call-valued RHS's CALLEE -- `let f = unsafe { get_cos_fn() };`
+    /// binds the call, not the Unsafe block. Returns None for anything that
+    /// is not (wrapping) a direct Call/GenericCall.
+    fn call_rhs_callee(value: &Expr) -> Option<&Expr> {
+        match value {
+            Expr::Paren(inner, _) => Self::call_rhs_callee(inner),
+            Expr::Call(callee, _, _) | Expr::GenericCall(callee, _, _, _) => Some(callee),
+            Expr::Unsafe(block, _) | Expr::BlockExpr(block, _) => match block.stmts.last() {
+                Some(StmtOrExpr::Expr(e)) => Self::call_rhs_callee(e),
+                _ => None,
+            },
+            _ => None,
         }
     }
 

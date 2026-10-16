@@ -9643,3 +9643,38 @@ fn m347_runtime_guard() -> Option<std::path::PathBuf> {
     }
     Some(stdlib_root)
 }
+
+// m348 (REL-20261016-2002-packages, 2026-10-16): pure-XIOM companion of the
+// C typed-getter lock (m348_fn_ptr_signature_flow, host.c). A fn pointer
+// bound from a CALL whose DECLARED return is fn(..) must record the return
+// class at the binding (`let f = make_fit();`), and a plain Ident copy
+// (`let g = f;`) must keep it. Pre-fix the call site read `call i64` while
+// the callee returns xmm0: P1 printed the 3.0 raw bits and rc was 3.
+#[test] fn e2e_m348_fn_ptr_signature_flow_pure() {
+    assert_eq!(
+        compile_and_run("tests/regression/m348_fn_ptr_signature_flow_pure/main.xi"),
+        Some(0),
+        "m348: a call-valued fn-pointer binding (and its Ident copy) must keep the declared return class"
+    );
+}
+
+// m348 IR twin: both indirect calls in main are classified `call double`
+// (pre-fix: `call i64 %tmpN(double 1.50000000000000000e0)` + a garbage
+// integer-class read of the xmm0 result).
+#[test] fn e2e_m348_fn_ptr_signature_flow_pure_ir() {
+    let ir = compile_ir("tests/regression/m348_fn_ptr_signature_flow_pure/main.xi")
+        .expect("m348: fixture must emit IR");
+    let start = ir.find("define i64 @main")
+        .expect("m348: main must be emitted");
+    let rest = &ir[start..];
+    let end = rest.find("\n}").map(|i| i + 2).unwrap_or(rest.len());
+    let body = &rest[..end];
+    assert!(
+        body.contains("call double %tmp"),
+        "m348: the indirect fn-pointer call must be double-classified (xmm0); got:\n{body}"
+    );
+    assert!(
+        !body.contains("call i64 %tmp"),
+        "m348: no indirect i64-classified fn-pointer call may remain in main; got:\n{body}"
+    );
+}
