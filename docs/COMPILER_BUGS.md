@@ -17998,3 +17998,57 @@ CLI-reachable today; pre-existing).
 Fix commit: f6e36137 (branch fix/m347-env-platform-bare-refs, unpushed).
 
 ---
+
+## 2026-10-16 -- FIXED (m348): fn pointer bound from a CALL whose declared return is fn(..) reads the wrong return ABI (REL-20261016-2002-packages)
+
+Runtime-loader packages (openblas real-lib leg) saw silent garbage from
+dlsym'd function pointers: `cos(0.0)` through the resolved pointer
+returned 4.486e+18 instead of 1 while a direct `extern` call returned 1;
+`add(1.5, 2.25)` returned 16. Trigger: a fn pointer bound from a CALL
+whose DECLARED return is fn(..) -- the natural C-typedef getter shape
+(`extern fn get_cos() -> fn(Float64) -> Float64;`), no `as` cast at the
+binding. Annotated locals and the m263/1904 `addr as fn(..)` recorded
+path worked; a plain Ident copy of a raw fn local lost its record too.
+
+Root cause: `track_fn_value_binding` (codegen lib.rs) recorded the
+signature only from an annotation or an `Expr::As` cast target; a
+Call-valued RHS never recorded one. `call.rs` ret_ty then fell back to
+LLVM_I64 and `callee_is_fn_ptr` admitted the call, so emission produced
+`inttoptr i64 %p to i64 (double)*` + `call i64 %p(double 0.0)` +
+`sitofp i64` while the real callee returns in xmm0 (garbage rax ->
+~4.5e18 class). The Ident-copy record propagation branch was nested
+under the env-provenance (`env_src`) branch, so RAW fn locals (code
+addresses) never inherited a copied signature.
+
+Fix (codegen): `track_fn_value_binding` resolves a Call/GenericCall RHS
+(through transparent Paren/Unsafe/BlockExpr wrappers) via
+`callee_return_xiom` + `fn_type_return_xiom` (the m277 top-level
+`split_fn_marker_body`) and fills `fn_ptr_return_types` +
+`fn_local_returns` when the marker starts with `fn(`; annotation/cast
+keeps precedence. The Ident-copy record propagation moved OUT of
+`env_src` -- all Ident copies inherit an existing record.
+
+Locks: `tests/regression/m348_fn_ptr_signature_flow/` (typed getters
+E1/E3 + copies F1/F2 + Str getter E5/F3 + annotated/Int-addr/direct
+controls) driven from `crates/xiom/tests/ffi_fnptr_abi.rs` (rc 0 +
+`m348 ok` + no-unknown-type stderr asserts; the m263/1904 recorded path
+stays green in the same binary) + pure-XIOM companion
+`m348_fn_ptr_signature_flow_pure` with e2e group-2 tokens
+(e2e_m348_fn_ptr_signature_flow_pure + `_ir`: only `call double %tmp`
+indirect calls in main, `call i64 %tmp` forbidden; pre-fix rc 3 with
+P1 = 4613937818241073152).
+
+Red-pre (v0.64.5 pin, same fixture): E1 0, E3 16, F1 0, F2/F3/E5
+pointer-decimal; fail_bits 29, rc 29. Post-fix: all green, rc 0.
+IR: `call i64 %tmp11(double 0.0)` -> `inttoptr i64 %tmp10 to
+double (double)*` + `call double %tmp11(double 0.0)` (matches the
+annotated twin). r2002b recon repro rc 13 -> 0 (E1 0 -> 1, E3 16 -> 3,
+E4 pointer -> 3).
+
+Battery green (fixer worktree, windows): front locks 54, e2e g1 16 (x2),
+e2e g2 274 (x2), codegen lib 12, feature_regression 549,
+stdlib_execution 85 (+2 ignored), integration 130.
+
+Fix commit: 5bed1dde (branch fix/m348-fn-ptr-signature-flow, unpushed).
+
+---
