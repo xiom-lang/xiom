@@ -9322,3 +9322,74 @@ fn collect_files_with_ext(dir: &Path, ext: &str, out: &mut Vec<std::path::PathBu
         "m344: scalar reuse must stay clean under --strict; output:\n{out_strict}"
     );
 }
+
+// m345 (REL-20261011-1411-engine): the contract clause payload rebind
+// (`result is Ok` / `result is Some`) hard-coded an i64-HANDLE load of the
+// payload field. The concrete monomorphs carry the payload INLINE
+// (%struct.Result__Vec__IOError = { i64, %struct.Vec, ... }), so the i64
+// load grabbed the Vec DATA POINTER; the `.len()` consequence inttoptr'd it
+// to %struct.Vec* and read the payload's own bytes as the length -- for the
+// fixture's hermetic file payload (bytes 8..15 carry bit 63) the length
+// evaluated NEGATIVE and the correct tautology `result.len() >= 0` aborted:
+// the engine grid.ppm report (io.xi:947). Arm A = the file-read clause,
+// arm B = the `.value`-reader consequence (field read 3338-3350), arm C =
+// the concrete Option payload field read, arm D = the BASE Option handle
+// layout control, E/F = positive-bytes + Err-vacuous controls. Pre-fix:
+// rc 1 `contract violated: ensures`; post-fix rc 0.
+#[test] fn e2e_m345_clause_inline_payload_rebind() {
+    assert_eq!(
+        compile_and_run("tests/regression/m345_clause_inline_payload_rebind/main.xi"),
+        Some(0),
+        "the concrete clause payload rebind must lower against the INLINE struct (pre-fix contract violation at arm A)"
+    );
+}
+
+// m345 IR twin: the clause payload rebind of the concrete
+// Result__Vec__IOError container must load the payload with its ACTUAL
+// LLVM type (`load %struct.Vec, %struct.Vec*`) and the len consequence must
+// GEP into the INLINE struct -- never inttoptr a field-1 load to
+// %struct.Vec* (the pre-fix shape inttoptr'd the Vec data pointer and the
+// payload bytes 8..15 became the length). Checked on the file-read fn (A),
+// the `.value`-reader fn (B) and the concrete Option fn (C) -- the clause
+// window is sliced from the `; contract: ensures:` marker so the confined
+// trampoline's own inttoptr (`to %struct.Result__Vec__IOError*`) is out of
+// scope.
+#[test] fn e2e_m345_clause_inline_payload_rebind_ir() {
+    let ir = compile_ir("tests/regression/m345_clause_inline_payload_rebind/main.xi")
+        .expect("m345 fixture must compile to IR");
+    // Premise: the concrete monomorph carries the Vec payload INLINE.
+    assert!(
+        ir.contains("%struct.Result__Vec__IOError = type { i64, %struct.Vec,"),
+        "m345: the concrete Result must carry the Vec payload inline"
+    );
+    assert!(
+        ir.contains("%struct.Option__Blob = type { i64, %struct.m345_clause_inline_payload_rebind.Blob }"),
+        "m345: the concrete Option must carry the Blob payload inline"
+    );
+    for (def, marker) in [
+        ("define %struct.Result__Vec__IOError @own_read_file_bytes(", "load %struct.Vec, %struct.Vec*"),
+        ("define %struct.Result__Vec__IOError @own_read_file_bytes_value(", "load %struct.Vec, %struct.Vec*"),
+        ("define %struct.Option__Blob @pick_blob(", "load %struct.m345_clause_inline_payload_rebind.Blob, %struct.m345_clause_inline_payload_rebind.Blob*"),
+    ] {
+        let start = ir.find(def)
+            .unwrap_or_else(|| panic!("m345: `{def}` must be defined"));
+        let rest = &ir[start..];
+        let end = rest[1..].find("\ndefine ").map(|i| i + 1).unwrap_or(rest.len());
+        let body = &rest[..end];
+        let cstart = body.find("; contract: ensures")
+            .unwrap_or_else(|| panic!("m345: `{def}` must carry a contract clause marker"));
+        let clause = &body[cstart..];
+        assert!(
+            clause.contains(marker),
+            "m345: the rebind must load the payload with its ACTUAL LLVM type; got:\n{clause}"
+        );
+        assert!(
+            clause.contains("getelementptr %struct.Vec, %struct.Vec*"),
+            "m345: the consequence must GEP into the INLINE Vec; got:\n{clause}"
+        );
+        assert!(
+            !clause.contains("inttoptr"),
+            "m345: the clause must never inttoptr a field-1 load as a %struct.Vec* handle; got:\n{clause}"
+        );
+    }
+}

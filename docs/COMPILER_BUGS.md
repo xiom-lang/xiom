@@ -17818,3 +17818,50 @@ locks 3/3, xiom-check lib 205, borrow_e001 3/3 (m318 pin intact), e2e
 g1 16 + g2 244 (x2), codegen lib 12, feature_regression 549,
 stdlib_execution 85 (+2 ignored), integration 130, front-locks 62.
 Fix commit: 965f5bb7 (branch fix/m344-borrow-e001-move-coverage, unpushed).
+
+---
+
+## 2026-10-16 -- FIXED (m345): the contract clause payload rebind hard-coded i64-handle loads for concrete monomorphs (REL-20261011-1411-engine)
+
+`read_file_bytes` (io.xi:947, `ensures: result is Ok => result.len() >= 0`)
+aborted `contract violated: ensures at 947:12` on some externally-written
+files (engine grid.ppm, 12301 B; also a 204-byte sibling) while the clause
+is a correct tautology -- the generated evaluation was wrong. The stdlib
+workaround dd352f6 masked the symptom, not the bug: `ensure_concrete_result`
+/ `ensure_concrete_option` (crates/xiom-codegen/src/lib.rs:2356/2370) emit
+concrete monomorphs with the payload fields INLINE
+(`%struct.Result__Vec__IOError = { i64, %struct.Vec, %struct.IOError }`);
+only the BASE `%struct.Result`/`%struct.Option` carry i64 handles. Both
+`is Ok`/`is Some` payload rebinds (expr.rs registered-variant + generic
+branches) and the `.value`/`.error` reader (via `unbox_payload_slot`)
+unconditionally did `gep i32 0, i32 1` + `load i64`, so for an inline
+aggregate the load grabbed the Vec DATA POINTER; the `.len()` consequence
+then inttoptr'd it to `%struct.Vec*` and read offset+8 -- the payload's
+own first bytes -- as the length. grid.ppm byte 0xC8 made that length
+negative -> spurious `result.len() >= 0` violation. `Result[Vec[UInt8],
+Str]` (base handle layout) and pure wraps were green only by layout
+accident. FIX: layout-aware rebind -- new `emitted_field_llvm_ty` resolves
+the concrete field's ACTUAL emitted LLVM type (mirrors the
+ensure_*/deferred-def emission: registered key through `llvm_type_for`,
+container spellings through their base name, self-reference as pointer);
+new `emit_payload_rebind` loads an INLINE aggregate with its real type and
+binds the VALUE in its own slot (base layouts and unresolvable types keep
+the historical i64-handle slot unchanged); the `.value`/`.error` reader
+returns the bound inline value. The clause now GEPs into the inline
+struct; no inttoptr-as-handle remains. LOCK:
+tests/regression/m345_clause_inline_payload_rebind/ (hermetic runtime-
+written file whose bytes 8..15 carry bit 63; arm A file-read clause, arm B
+`.value`-reader consequence, arm C concrete Option field read -- all red
+pre-fix; arm D base-layout control; E/F positive-bytes + Err-vacuous
+controls) + `e2e_m345_clause_inline_payload_rebind` + `_ir` twin (ci.yml
+e2e group 2; the IR twin asserts the inline `load %struct.Vec,
+%struct.Vec*` / Blob load + GEP and forbids inttoptr in each clause
+window). Red pre-fix on main 0ae41ddb (`contract violated: ensures at
+45:12`, rc 1; the pre-fix compiler also tripped the `.value` reader arm
+alone and evaluated the Option arm to a literal-0 consequence), green
+post-fix rc 0.
+Battery green (fixer worktree, windows): locks 2/2, e2e g1 16 (x2), e2e
+g2 263 (x2), codegen lib 12, feature_regression 549, stdlib_execution 85
+(+2 ignored), integration 130. NOTE: the stdlib may restore the canonical
+clause now that the compiler is fixed; the engine re-verifies grid.ppm at
+the next pin.

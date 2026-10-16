@@ -2604,16 +2604,9 @@ impl IrEmitter {
                                     // R18: Result's Err payload lives in field 2
                                     // (tag, value, error); Some/Ok use field 1.
                                     let payload_idx = if matches!(pattern, xiom_ast::Pattern::Err(..)) { 2 } else { 1 };
-                                    let payload_gep = self.fresh_tmp();
-                                    self.emitln(&format!("  {payload_gep} = getelementptr {ty}, {ty}* {alloca}, i32 0, i32 {payload_idx}"));
-                                    let payload_loaded = self.fresh_tmp();
-                                    self.emitln(&format!("  {payload_loaded} = load i64, i64* {payload_gep}"));
-                                    let inner_alloca = self.fresh_tmp();
-                                    // BUG 30: hoist -- `&&` guard chains bind in
-                                    // one block, read in a later one (dominance).
-                                    self.local.hoisted_allocas.push((inner_alloca.clone(), "i64".to_string()));
-                                    self.emitln(&format!("  store i64 {payload_loaded}, i64* {inner_alloca}"));
-                                    self.add_local(&id.name, inner_alloca, "i64");
+                                    // m345 (REL-20261011-1411): layout-aware
+                                    // payload rebind (see emit_payload_rebind).
+                                    self.emit_payload_rebind(&ty, &alloca, payload_idx, &id.name);
                                     // BUG 29: record the payload's XIOM type so
                                     // method calls on the bound var dispatch
                                     // correctly (`result is Some => result.len()`
@@ -2669,18 +2662,9 @@ impl IrEmitter {
                             if let Some(bname) = bind_name {
                                 // R18: Result's Err payload lives in field 2.
                                 let payload_idx = if matches!(pat, xiom_ast::Pattern::Err(..)) { 2 } else { 1 };
-                                let payload_gep = emitter.fresh_tmp();
-                                emitter.emitln(&format!("  {payload_gep} = getelementptr {struct_ty}, {struct_ty}* {struct_alloca}, i32 0, i32 {payload_idx}"));
-                                let payload_loaded = emitter.fresh_tmp();
-                                emitter.emitln(&format!("  {payload_loaded} = load i64, i64* {payload_gep}"));
-                                let inner_alloca = emitter.fresh_tmp();
-                                // BUG 29: hoist the payload slot to fn entry so
-                                // contract-expression uses in LATER blocks
-                                // dominate (the `is` check branches before the
-                                // consequence reads the payload).
-                                emitter.local.hoisted_allocas.push((inner_alloca.clone(), "i64".to_string()));
-                                emitter.emitln(&format!("  store i64 {payload_loaded}, i64* {inner_alloca}"));
-                                emitter.add_local(&bname, inner_alloca, "i64");
+                                // m345 (REL-20261011-1411): layout-aware
+                                // payload rebind (see emit_payload_rebind).
+                                emitter.emit_payload_rebind(struct_ty, struct_alloca, payload_idx, &bname);
                                 // BUG 29: record the payload's XIOM type for
                                 // correct method dispatch on the bound var.
                                 emitter.bind_is_payload_xiom(expr, pat, &Ident { name: bname.clone(), span: xiom_ast::Span::new(0, 0) });
@@ -3333,8 +3317,8 @@ impl IrEmitter {
                 // without this the field read fell through to the literal-0
                 // fallback and `result.value.len() <= s.len()` evaluated
                 // `xiom_str_len(NULL)` (-1) against the param -- a spurious
-                // contract violation. Only fires for i64 slots explicitly
-                // marked as bare `is` rebinds.
+                // contract violation. Only fires for slots explicitly marked
+                // as bare `is` rebinds.
                 if let Expr::Ident(id) = &**obj {
                     if (field.name == "value" || field.name == "error")
                         && self.local.is_payload_rebind.contains(&id.name)
@@ -3344,6 +3328,18 @@ impl IrEmitter {
                                 if let Some(px) = self.local.local_xiom_types.get(&id.name).cloned() {
                                     return Ok(self.unbox_payload_slot(&slot, &px));
                                 }
+                            }
+                            // m345 (REL-20261011-1411): an INLINE-aggregate
+                            // rebind (concrete monomorph payload) holds the
+                            // payload VALUE of its real LLVM type -- `.value`
+                            // / `.error` is the identity here (the pre-fix
+                            // path unboxed the raw field-1 bits as a boxed
+                            // handle and read the payload's own bytes as a
+                            // Vec header).
+                            if slot_ty.starts_with("%struct.") && !slot_ty.ends_with('*') {
+                                let loaded = self.fresh_tmp();
+                                self.emitln(&format!("  {loaded} = load {slot_ty}, {slot_ty}* {slot}"));
+                                return Ok((loaded, slot_ty));
                             }
                         }
                     }
@@ -6513,6 +6509,50 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 self.emitln(&format!("  {loaded} = load {result_ty}, {result_ty}* {result_alloca}"));
                 Ok((loaded, result_ty))
             }
+        }
+    }
+
+    /// m345 (REL-20261011-1411-engine): bind the payload of an `is`
+    /// Ok/Some/Err pattern to `bname`, LAYOUT-AWARE. The base
+    /// Result/Option layout stores i64 HANDLES (`{i64, i64, i64}`), but a
+    /// concrete monomorph (`%struct.Result__Vec__IOError` /
+    /// `%struct.Option__T`) stores the payload field INLINE
+    /// (`{ i64, %struct.Vec, %struct.IOError }`). The old unconditional
+    /// `load i64` of field 1 grabbed the first 8 bytes of the inline struct
+    /// -- for a `Vec` payload that is the DATA POINTER -- and every later
+    /// read treated it as a boxed handle: inttoptr'd to `%struct.Vec*` and
+    /// read at offset+8, so the payload's first bytes became the length
+    /// (grid.ppm byte 0xC8 -> negative -> spurious `result.len() >= 0`
+    /// ensures violation). Layout-aware: when the concrete field's actual
+    /// LLVM type is an inline aggregate, load it with its REAL type and
+    /// bind the VALUE in its own slot; downstream method calls
+    /// (`result.len()`, `result.value`) then lower against the inline
+    /// struct. Base layouts (and unresolvable types) keep the i64-handle
+    /// slot unchanged.
+    fn emit_payload_rebind(&mut self, struct_llvm_ty: &str, struct_alloca: &str, payload_idx: usize, bname: &str) {
+        // BUG 30: hoist the payload slot -- `&&` guard chains bind in one
+        // block and read in a later one (dominance).
+        let payload_gep = self.fresh_tmp();
+        self.emitln(&format!("  {payload_gep} = getelementptr {struct_llvm_ty}, {struct_llvm_ty}* {struct_alloca}, i32 0, i32 {payload_idx}"));
+        let inline_aggregate = self.emitted_field_llvm_ty(struct_llvm_ty, payload_idx)
+            .filter(|t| t.starts_with("%struct.") && !t.ends_with('*'));
+        if let Some(field_ty) = inline_aggregate {
+            // Concrete-monomorph INLINE payload: bind the aggregate VALUE.
+            let payload_loaded = self.fresh_tmp();
+            self.emitln(&format!("  {payload_loaded} = load {field_ty}, {field_ty}* {payload_gep}"));
+            let inner_alloca = self.fresh_tmp();
+            self.local.hoisted_allocas.push((inner_alloca.clone(), field_ty.clone()));
+            self.emitln(&format!("  store {field_ty} {payload_loaded}, {field_ty}* {inner_alloca}"));
+            self.add_local(bname, inner_alloca, &field_ty);
+        } else {
+            // Base layout (or unresolvable concrete): the historical
+            // i64-handle slot consumed by unbox_payload_slot / Vec.len.
+            let payload_loaded = self.fresh_tmp();
+            self.emitln(&format!("  {payload_loaded} = load i64, i64* {payload_gep}"));
+            let inner_alloca = self.fresh_tmp();
+            self.local.hoisted_allocas.push((inner_alloca.clone(), "i64".to_string()));
+            self.emitln(&format!("  store i64 {payload_loaded}, i64* {inner_alloca}"));
+            self.add_local(bname, inner_alloca, "i64");
         }
     }
 

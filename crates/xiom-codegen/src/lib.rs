@@ -5428,6 +5428,44 @@ impl IrEmitter {
         "i64".to_string()
     }
 
+    /// m345 (REL-20261011-1411-engine): the ACTUAL LLVM type of field
+    /// `field_idx` in the EMITTED definition of a concrete container
+    /// monomorph (`%struct.Result__A__B` / `%struct.Option__A`). Mirrors
+    /// `ensure_concrete_result`/`ensure_concrete_option` +
+    /// `defer_concrete_def_if_in_body` (the same field-type resolution:
+    /// registered key through `llvm_type_for`, container spellings through
+    /// their base name, self-reference emitted as a pointer). Returns `None`
+    /// when the type is not registered -- callers then keep the historical
+    /// i64-handle lowering (the base `%struct.Result`/`%struct.Option`
+    /// layout, whose fields genuinely are i64 handles).
+    pub(crate) fn emitted_field_llvm_ty(&self, struct_llvm_ty: &str, field_idx: usize) -> Option<String> {
+        let key = struct_llvm_ty.strip_prefix("%struct.")?;
+        let meta = self.types.type_meta.get(&key.to_string())
+            .or_else(|| {
+                self.local.current_module.as_ref()
+                    .and_then(|m| self.types.type_meta.get(&format!("{m}.{key}")))
+            })
+            .or_else(|| {
+                self.types.type_meta.keys().into_iter()
+                    .find(|k| k.ends_with(&format!(".{key}")))
+                    .and_then(|k| self.types.type_meta.get(&k))
+            })?;
+        let (_, ty_name) = meta.fields.get(field_idx)?;
+        // Container spellings (`Vec[UInt8]`) lower through their base name,
+        // exactly like `field_llvm_type` and the struct-def emission.
+        let t = if ty_name.contains('[') {
+            self.llvm_type_for(ty_name.split('[').next().unwrap_or(ty_name))
+        } else {
+            self.llvm_type_for(ty_name)
+        }
+        .unwrap_or_else(|_| "i64".to_string());
+        if t == struct_llvm_ty {
+            Some(format!("{t}*"))
+        } else {
+            Some(t)
+        }
+    }
+
     /// 5e.1 G-18: byte size of a struct from type_meta field list.
     /// Sums LLVM type widths: i8=1, i16=2, i32=4, i64=8, etc.
     /// Returns 0 for unknown types. Used for C FFI malloc/offsetof.
