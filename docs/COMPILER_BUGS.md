@@ -17760,4 +17760,4 @@ submodule walks) are not surfaced -- they reach the cache only through
 parse diagnostics that drop only a stray token (nothing semantic) now also
 fail the build -- intended (they are parse errors), verified against the
 repo corpus via the battery + the full unfiltered e2e suite.
-Fix commit: SHA_PENDING (branch fix/m342-varfn-parse-surface, unpushed).
+Fix commit: f1aac752 (branch fix/m342-varfn-parse-surface, unpushed).
