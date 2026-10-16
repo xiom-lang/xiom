@@ -28,6 +28,14 @@
       "target": "bin/z3",
       "bundle": []
     },
+    "linux-arm64": {
+      "url": "https://github.com/Z3Prover/z3/releases/download/z3-4.13.4/z3-4.13.4-arm64-glibc-2.34.zip",
+      "sha256": "37533e7a06f82ac28d9dfe9c10dc143013afbca2515dc236cce35b952808b2b9",
+      "glibc_floor": "2.34",
+      "bin": "z3-4.13.4-arm64-glibc-2.34/bin/z3",
+      "target": "bin/z3",
+      "bundle": []
+    },
     "macos-x64": {
       "url": "https://github.com/Z3Prover/z3/releases/download/z3-4.13.4/z3-4.13.4-x64-osx-13.7.1.zip",
       "sha256": "7598c2be3129429e83fb5082b92ae973f41a6a289873b4ea33180d9072067e80",
