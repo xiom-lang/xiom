@@ -3755,6 +3755,35 @@ impl IrEmitter {
         if matches_import(&best) { Some(best) } else { None }
     }
 
+    /// m341 (b) (REL-20261015-1358-engine W1.1): deterministic resolution for
+    /// a bare call whose keep-first alias (`bare_fn_aliases`) is ambiguous --
+    /// two or more registered owners for the same leaf with DIFFERENT
+    /// LLVM signatures, and no checker record covering this call site. The
+    /// keep-first alias is registration-order luck in that window (the
+    /// parent module's `json_string` -> Str bound a call the checker had
+    /// typed against the submodule's `json_string` -> JsonValue). Pick via
+    /// `pick_deterministic` (current-module proximity, then shortest key,
+    /// then lexicographic -- the m278/m326 precedent). None when the leaf is
+    /// unambiguous (the alias stands) so ordinary calls are untouched.
+    fn resolve_ambiguous_bare_leaf(&self, leaf: &str, alias: &str) -> Option<String> {
+        let alias_sig = self.types.functions.get(&alias.to_string())?;
+        let suffix = format!(".{leaf}");
+        let candidates: Vec<String> = self.types.functions.keys().into_iter()
+            .filter(|k| k.ends_with(&suffix)
+                && !k.starts_with("Tuple__") && !k.starts_with("Option__") && !k.starts_with("Result__"))
+            .collect();
+        if candidates.len() < 2 {
+            return None;
+        }
+        let has_other_sig = candidates.iter().any(|k| {
+            self.types.functions.get(k).map_or(false, |s| s != alias_sig)
+        });
+        if !has_other_sig {
+            return None;
+        }
+        self.pick_deterministic(candidates)
+    }
+
     /// Scope prefixes for bare-variant resolution, most specific first:
     /// the explicit module context when present, then the enclosing function
     /// name's dotted prefixes (`benchmark.generics_hard.test_x` ->

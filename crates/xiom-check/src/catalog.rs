@@ -625,10 +625,33 @@ impl ModuleCatalog {
     /// never false-negative. Unknown/unindexed names report false (no
     /// importable surface anyway).
     pub fn module_declares_pub_consts(&self, dotted: &str) -> bool {
+        let mut visited = std::collections::HashSet::new();
+        self.module_reaches_pub_consts(dotted, &mut visited)
+    }
+
+    /// m341 (W2.1, REL-20261015-1538-engine): the m317 probe above missed
+    /// consts reached through a `pub use` RE-EXPORT chain. The engine's
+    /// rc.property2 does `use rc.reexp;` and reads a bare const; rc.reexp
+    /// declares NOTHING itself -- its text carries only `pub use
+    /// rc.reflect;` -- so the probe said "no consts", the m252 skip dropped
+    /// the use, the re-exported const never reached the body's surface and
+    /// the bare read was a T001. Walk the module's own `pub use` targets
+    /// (chain-aware, cycle-safe) with the same cheap text probe. Item
+    /// re-exports (`pub use a.b.CONST;`) have no module behind the full
+    /// path; probe the parent module instead -- conservative in the safe
+    /// direction (a false keep simply processes the use, as before m252).
+    fn module_reaches_pub_consts(
+        &self,
+        dotted: &str,
+        visited: &mut std::collections::HashSet<String>,
+    ) -> bool {
+        if !visited.insert(dotted.to_string()) {
+            return false;
+        }
         if let Some(hit) = self.const_surface_cache.borrow().get(dotted) {
             return *hit;
         }
-        let hit = (|| -> Option<bool> {
+        let mut hit = (|| -> Option<bool> {
             let path = self.module_index.get(dotted)?;
             let text = std::fs::read_to_string(path).ok()?;
             let mut prev = "";
@@ -641,10 +664,65 @@ impl ModuleCatalog {
             Some(false)
         })()
         .unwrap_or(false);
+        if !hit {
+            for target in self.module_pub_use_targets(dotted) {
+                let probe = if self.module_index.contains_key(&target) {
+                    Some(target.as_str())
+                } else {
+                    let glob = target.strip_suffix(".*").unwrap_or(&target);
+                    if self.module_index.contains_key(glob) {
+                        Some(glob)
+                    } else {
+                        // Item re-export: fall back to the parent module.
+                        glob.rsplit_once('.').map(|(parent, _)| parent)
+                    }
+                };
+                if let Some(probe) = probe {
+                    if self.module_reaches_pub_consts(probe, visited) {
+                        hit = true;
+                        break;
+                    }
+                }
+            }
+        }
         self.const_surface_cache
             .borrow_mut()
             .insert(dotted.to_string(), hit);
         hit
+    }
+
+    /// m341: the dotted targets of a module's own `pub use` declarations
+    /// (text scan -- the probe above must stay parse-free). Handles
+    /// `pub use a.b.c;`, `pub use a.b.c as alias;` (the alias does not
+    /// change the target module) and globs `pub use a.b.*;`.
+    fn module_pub_use_targets(&self, dotted: &str) -> Vec<String> {
+        let Some(path) = self.module_index.get(dotted) else { return Vec::new(); };
+        let Ok(text) = std::fs::read_to_string(path) else { return Vec::new(); };
+        let mut targets = Vec::new();
+        let mut toks = text.split_whitespace().peekable();
+        let mut prev = "";
+        while let Some(tok) = toks.next() {
+            if prev == "pub" && tok == "use" {
+                let mut path_tok = String::new();
+                for next in toks.by_ref() {
+                    if next == "as" {
+                        break;
+                    }
+                    path_tok.push_str(next);
+                    if next.ends_with(';') {
+                        break;
+                    }
+                }
+                let cleaned = path_tok.trim_end_matches(';').to_string();
+                if !cleaned.is_empty() {
+                    targets.push(cleaned);
+                }
+                prev = "";
+                continue;
+            }
+            prev = tok;
+        }
+        targets
     }
 
     /// Returns all cached modules as owned clones (for snapshot iteration).

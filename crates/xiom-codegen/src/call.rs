@@ -4259,6 +4259,15 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // pair on Windows.
                             if !self.types.pub_fns.contains_key(qualified) {
                                 self.pick_imported_bare(&fn_key).unwrap_or_else(|| qualified.clone())
+                            } else if let Some(det) = self.resolve_ambiguous_bare_leaf(&fn_key, qualified) {
+                                // m341 (b): the keep-first alias is
+                                // registration-order luck when two same-leaf
+                                // owners with DIFFERENT signatures exist and
+                                // no checker record covers this call site
+                                // (the records above bind first when
+                                // present). Deterministic scorer instead of
+                                // a silent coin flip (m278/m326 precedent).
+                                det
                             } else {
                                 qualified.clone()
                             }

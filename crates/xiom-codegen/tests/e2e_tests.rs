@@ -9000,3 +9000,104 @@ fn collect_files_with_ext(dir: &Path, ext: &str, out: &mut Vec<std::path::PathBu
         "m336: the enum-element tuple must have exactly one spelling (mixing bare/qualified names was the bug)"
     );
 }
+
+// m341 (REL-20261015-1358-engine W1.1): a SECONDARY module's bare call to an
+// imported submodule's same-leaf fn bound the PARENT module's fn instead.
+// jm.mod_json does `use xiom.serialize.json;` and calls bare
+// json_string/json_number; pre-fix the emitted call was
+// `i8* @serialize.json_string` (the parent's Str helper) while the checker
+// had typed the imported `serialize.json.json_string` (JsonValue), so
+// json_stringify loaded a JsonValue struct from a Str buffer and the
+// process crashed (0xC0000409 / 0xC0000005) with no output. The entry-module
+// control in the same fixture was green pre-fix; distinct exit codes per
+// shape.
+#[test] fn e2e_m341_catalog_call_binding() {
+    assert_eq!(
+        compile_and_run("tests/regression/m341_catalog_call_binding/main.xi"),
+        Some(0),
+        "m341: json_string/json_number/json_stringify from a secondary module must bind the imported submodule fns (pre-fix 0xC0000409 crash)"
+    );
+}
+
+// m341 IR twin: the secondary module's bodies must call the imported
+// `serialize.json.json_string` / `serialize.json.json_number` (JsonValue
+// producers) and never the parent's `serialize.json_string` /
+// `serialize.json_number` (Str helpers).
+#[test] fn e2e_m341_catalog_call_binding_ir() {
+    let ir = compile_ir("tests/regression/m341_catalog_call_binding/main.xi")
+        .expect("m341 fixture must compile to IR");
+    for (fnname, good, bad) in [
+        ("jm.mod_json.s_str", "call %struct.JsonValue @serialize.json.json_string(", "call i8* @serialize.json_string("),
+        ("jm.mod_json.s_bound", "call %struct.JsonValue @serialize.json.json_string(", "call i8* @serialize.json_string("),
+        ("jm.mod_json.s_int", "call %struct.JsonValue @serialize.json.json_number(", "call i8* @serialize.json_number("),
+    ] {
+        let start = ir.find(&format!("define i8* @{fnname}()"))
+            .unwrap_or_else(|| panic!("m341: {fnname} must be defined"));
+        let rest = &ir[start..];
+        let end = rest[1..].find("\ndefine ").map(|i| i + 1).unwrap_or(rest.len());
+        let body = &rest[..end];
+        assert!(
+            body.contains(good),
+            "m341: {fnname} must call the imported submodule fn ({good}); got:\n{body}"
+        );
+        assert!(
+            !body.contains(bad),
+            "m341: {fnname} must never bind the parent same-leaf fn ({bad}); got:\n{body}"
+        );
+    }
+}
+
+// m341 (REL-20261015-1538-engine W2.1): a const reached through a `pub use`
+// RE-EXPORT chain, read bare inside a secondary module. The m252 catalog-body
+// use-skip probe (m317) only looked at the target module's OWN text for
+// `pub const`, so the pure facade m341o.reexp (`pub use m341o.reflect;` and
+// nothing else) was classified const-free, the use was skipped, the
+// re-exported RFL_OK never reached the body's surface and
+// m341o.property2.f2 was error[T001] undefined variable 'RFL_OK' in catalog
+// body [m341o.property2]. Entry-level re-export and direct-use controls
+// green pre-fix.
+#[test] fn e2e_m341_const_reexport() {
+    assert_eq!(
+        compile_and_run("tests/regression/m341_const_reexport/main.xi"),
+        Some(0),
+        "m341: a const reached via a pub-use re-export chain must resolve bare inside a secondary module (pre-fix T001)"
+    );
+}
+
+// m341 entry twin for the re-export const: the secondary module's f2 body
+// must read the const (substituted literal 1 / entry-level re-export read
+// both stay green) -- assert the define exists and returns the const value
+// rather than the undefined-name T001 path.
+#[test] fn e2e_m341_const_reexport_ir() {
+    let ir = compile_ir("tests/regression/m341_const_reexport/main.xi")
+        .expect("m341 const fixture must compile to IR");
+    let start = ir.find("define i64 @m341o.property2.f2()")
+        .or_else(|| ir.find("define i64 @m341o.property2.f2("))
+        .expect("m341: m341o.property2.f2 must be defined (pre-fix T001 undefined variable)");
+    let rest = &ir[start..];
+    let end = rest[1..].find("\ndefine ").map(|i| i + 1).unwrap_or(rest.len());
+    let body = &rest[..end];
+    assert!(
+        body.contains("ret i64 1"),
+        "m341: f2 must return the re-exported const value; got:\n{body}"
+    );
+}
+
+// m341 import-order twins (W2.2): the cons-before-reflect and
+// reflect-before-cons orderings of the entry's uses must BOTH stay green
+// (m317 fixed the original order sensitivity; this pins both directions).
+#[test] fn e2e_m341_const_import_order_a() {
+    assert_eq!(
+        compile_and_run("tests/regression/m341_const_reexport/order_a.xi"),
+        Some(0),
+        "m341: cons-before-reflect import order must stay green"
+    );
+}
+
+#[test] fn e2e_m341_const_import_order_b() {
+    assert_eq!(
+        compile_and_run("tests/regression/m341_const_reexport/order_b.xi"),
+        Some(0),
+        "m341: reflect-before-cons import order must stay green"
+    );
+}

@@ -7682,6 +7682,50 @@ impl Checker {
         matching.cloned()
     }
 
+    /// m341 (W1.1, REL-20261015-1358-engine): the resolved-target record for
+    /// an ambiguous bare call inside a catalog / secondary-module body. The
+    /// m162 record only fires for an explicit ITEM import
+    /// (`use xiom.string.char_at;` -- `local_module_paths` then carries the
+    /// item name); a SUBMODULE surface import (`use xiom.serialize.json;`)
+    /// records the module alias instead (`json` -> `xiom.serialize.json`),
+    /// and when the m252 use-skip heuristic drops the use there is no
+    /// local record at all -- so no target was emitted and codegen's
+    /// keep-first bare alias bound the PARENT same-leaf fn
+    /// (`serialize.json_string`, Str) while the checker had accepted the
+    /// submodule's (`serialize.json.json_string`, JsonValue) -> the emitted
+    /// call read a Str buffer as a JsonValue -> 0xC0000409 at runtime.
+    ///
+    /// Owner resolution, deterministic:
+    /// (1) when the body's own import surface is present, consult the
+    ///     ITEM'S OWNER MODULE -- a body-local module alias whose G-32
+    ///     export map declares `item` as a pub fn with the resolved
+    ///     signature (shortest dotted path, then lexicographic);
+    /// (2) otherwise fall back to the unique dotted registration whose
+    ///     signature equals the checker's resolved one (the exact rule the
+    ///     program-scope `ambiguous_bare_fn_target` already uses).
+    /// None for unambiguous leaves (legacy bare path stays).
+    fn catalog_body_bare_target(&self, item: &str, sig: &FnSig) -> Option<String> {
+        // (1) G-32-injected submodule surface: local alias -> SubModule
+        // export map holding the item as a pub fn.
+        let mut owners: Vec<String> = Vec::new();
+        for (local, dotted) in self.local_module_paths.iter() {
+            if let Some(ModuleExport::SubModule(map)) = self.imported_items.get(local) {
+                if let Some(ModuleExport::Function { sig: esig, is_pub: true }) = map.get(item) {
+                    if Self::fn_sig_types_equal(esig, sig) {
+                        owners.push(format!("{dotted}.{item}"));
+                    }
+                }
+            }
+        }
+        owners.sort_by(|a, b| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));
+        if let Some(target) = owners.into_iter().next() {
+            return Some(target);
+        }
+        // (2) no body-local surface (the use was skipped): the unique
+        // dotted owner with the resolved signature.
+        self.ambiguous_bare_fn_target(item, sig)
+    }
+
     /// Type-level FnSig equality (names/spans may differ between the full
     /// and leaf-qualified registrations of the same function).
     fn fn_sig_types_equal(a: &FnSig, b: &FnSig) -> bool {
@@ -9426,6 +9470,30 @@ impl Checker {
                                     );
                                 }
                                 self.program_bare_targets.insert(
+                                    format!("{}:{}", span.line, span.col),
+                                    target,
+                                );
+                            }
+                        } else if self.fn_owner_module.get(&name.name)
+                            .map_or(false, |owners| owners.len() > 1)
+                        {
+                            // m341 (W1.1): catalog / secondary-module bodies
+                            // record the checker's resolved target for a
+                            // MULTI-OWNER leaf too -- codegen's bare slot is
+                            // registration-order keep-first and independently
+                            // built, so without the record the emitted call
+                            // could bind a same-leaf fn with a DIFFERENT
+                            // signature (json_string: parent Str vs imported
+                            // JsonValue -> garbage at runtime). The gate
+                            // above keeps the scan off unambiguous leaves.
+                            if let Some(target) = self.catalog_body_bare_target(&name.name, &sig) {
+                                if let Some(owner) = self.current_fn_qual.clone() {
+                                    self.catalog_resolved_calls.insert(
+                                        format!("{owner}#{}:{}", span.line, span.col),
+                                        target.clone(),
+                                    );
+                                }
+                                self.catalog_resolved_calls.insert(
                                     format!("{}:{}", span.line, span.col),
                                     target,
                                 );
