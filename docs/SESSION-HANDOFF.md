@@ -14,6 +14,41 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION PAUSED 2026-10-16T23:22Z (owner away; resumes 2026-10-17) -- READ FIRST ON RESUME ***
+- Watch DISARMED (the */15 cron deleted). In-flight Agent Manager fixer
+  sessions continue on their own in their worktrees: m350
+  (fix/m350-result-ref-field-read; recon %TEMP%\kilo\m350-recon-report.md) and
+  m359 (fix/m359-cli-clap-duplicate-flags; closes 1128 class 4) were mid-battery
+  at pause -- their commits wait on their branches for harvest. m352
+  (fix/m352-arch-native-triple) had NO worktree at pause -- RE-REQUEST on
+  resume (its first two spawn requests silently failed; check the AM list).
+  m351 recon (B-33) was running in-session; its report lands under
+  %TEMP%\kilo\recon-b33 when done.
+- RESUME CHECKLIST (next session):
+  1) Harvest m350/m359/m352 (+ m351 recon verdict) with the standard pattern:
+     verify, cherry-pick (ci.yml / COMPILER_BUGS / e2e_tests union + brace care
+     at joins), lock suite, relay notes + plan rows, commit.
+  2) Stdlib pin PR watch: release.yml auto-files STDLIB_VERSION -> stdlib-v0.64.6
+     (8d95815) -- merge per the 1559 protocol + run the archive-level verify
+     (item REL-20261016-2330-stdlib).
+  3) arm64: after m352 lands, add the on-runner native-compile gate to the
+     release.yml linux-arm64 leg + dispatch a dry-run; record on
+     REL-20261016-1917.
+  4) Queued fixer slots: m358 (B-32 in-situ residual), m360 (i128 division AV),
+     m353 (builtin-shadow sweep 1053+1456), m354 (1626), m355 (2343),
+     m356 (2328 recon), m357 (2100 W1).
+  5) RELEASE RULE (owner): NO v0.64.7 candidate until the stdlib v0.64.7
+     release is prepared with markers bumped AND approved/published, with
+     STDLIB_VERSION referencing that released rev.
+  6) Relay watch: re-arm a cron (the v2 prompt is in the session history) or
+     sweep manually; zero open compiler items at pause.
+  7) Owner-decision queue: engine-2134 finding 5 (consume-vs-copy), m252
+     cold-lane, the 5 compiler->owner items (Oct 10), B-33 severity flow,
+     1504 re-queue, playground rows, WSL pause (C-16/WSL close-gates).
+- State at pause: v0.64.6 released + verified; wave m347/m348/m349 integrated
+  (locks 39/39 + checker 1/1 + ffi 2/2); compiler main pushed (ee62e817-era);
+  relay pushed (9ebc3a5-era); stdlib-sync gate recorded in three places.
+
 *** SESSION UPDATE 2026-10-16T23:25Z (compiler lane; POST-v0.64.6, release-protocol correction) -- READ FIRST ***
 - OWNER PROTOCOL CORRECTION (23:12Z): do NOT cut/release a compiler candidate
   unless the stdlib is on the SAME TRACK -- the stdlib release for the same
