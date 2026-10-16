@@ -486,6 +486,38 @@ impl IrEmitter {
         )
     }
 
+    /// m347 (REL-20261016-2000-stdlib): the injected `xiom.env.OS/ARCH/
+    /// FAMILY` declarations carry the stdlib's LITERAL initializers
+    /// ("windows"/"x86_64"), yet the constants are compile-time TARGET
+    /// facts. Qualified reference sites are rewritten to the target (the
+    /// R65 arm in expr.rs), but a BARE in-module reference resolves the
+    /// REGISTERED value through `lookup_const_keyed`'s module-qualified key
+    /// (`env.FAMILY`) -- the literal -- so on Linux every bare-family
+    /// branch inside xiom.os.env took the Windows path. Register the
+    /// target values for exactly these declarations instead (the injection-
+    /// time spellings `env.X`, the eager module-block form under
+    /// `xiom.env`, and the full `xiom.env.X`); user consts named
+    /// OS/ARCH/FAMILY keep their own values.
+    fn platform_env_const_value(&self, name: &str) -> Option<String> {
+        let leaf = match name {
+            "env.OS" | "xiom.env.OS" => "OS",
+            "env.ARCH" | "xiom.env.ARCH" => "ARCH",
+            "env.FAMILY" | "xiom.env.FAMILY" => "FAMILY",
+            "OS" | "ARCH" | "FAMILY"
+                if self.local.current_module.as_deref() == Some("xiom.env") =>
+            {
+                name
+            }
+            _ => return None,
+        };
+        let (os, arch, family) = self.target_platform_constants();
+        Some(match leaf {
+            "OS" => os,
+            "ARCH" => arch,
+            _ => family,
+        })
+    }
+
     /// m164 (2026-09-29): module-level const table materialization.
     ///
     /// An immutable `const NAME: [N]T = [...]` used to substitute its array
@@ -639,6 +671,14 @@ impl IrEmitter {
                 // M33/CTFE: evaluate the init expression at compile time and store
                 // the literal result instead of the raw expression tree.
                 let evaluated = self.evaluate_const_init(&cd.value);
+                // m347 (REL-20261016-2000-stdlib): the injected platform env
+                // consts register the TARGET value instead of the stdlib's
+                // literal initializer, so bare in-module refs agree with the
+                // qualified site rewrite (see platform_env_const_value).
+                let evaluated = match self.platform_env_const_value(&cd.name.name) {
+                    Some(v) => Expr::Str(v, cd.value.span()),
+                    None => evaluated,
+                };
                 // m164: materialize all-literal integer const arrays as a real
                 // `internal constant` global (one per module) instead of
                 // re-materializing the table at every read site.

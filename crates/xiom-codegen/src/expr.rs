@@ -2777,9 +2777,15 @@ impl IrEmitter {
                                     _ => family,
                                 };
                                 let lit = Expr::Str(v, *span);
-                                // Seed the leaf so later bare references use the
-                                // corrected value too.
-                                self.local.constants.insert(field.name.clone(), lit.clone());
+                                // m347 (REL-20261016-2000-stdlib): NO bare-leaf
+                                // seed here. The injected declaration itself is
+                                // registered with the target value
+                                // (decl.rs platform_env_const_value), so bare
+                                // refs resolve correctly without this write --
+                                // and the unscoped seed CLOBBERED a user
+                                // program-level `const FAMILY` at the first
+                                // qualified read (silent miscompile: bare reads
+                                // after the site returned the platform value).
                                 return self.compile_expr(&lit);
                             }
                         }

@@ -17920,3 +17920,80 @@ local_xiom_types has 100+ consumers, several comparing the erased
 spelling, so it needs its own battery rather than riding this fix.
 
 ---
+
+## 2026-10-16 -- FIXED (m347): bare in-module refs to a module's own platform constants keep the literal + the unscoped seed clobbers a user `const FAMILY` (REL-20261016-2000-stdlib)
+
+`xiom.os.env` declares `pub const OS/ARCH/FAMILY` with literal initializers
+("windows"/"x86_64") that the toolchain rewrites per target. The R65
+rewrite was SITE-DRIVEN and RECEIVER-KEYED only: the `Expr::Field` arm
+(expr.rs, `is_env` on the receiver segments `["xiom","env"]`/`["env"]`)
+returns `target_platform_constants()` for qualified reads, while a BARE
+in-module `FAMILY` is `Expr::Ident` -> `lookup_const_keyed` (lib.rs),
+which tries `{current_module}.NAME` FIRST -- and the injected env consts
+were REGISTERED under that exact module-qualified key WITH THE LITERAL
+(decl.rs const registration; injected names are leaf-qualified `env.X`
+by `collect_pub_decls`). So on Linux every bare-FAMILY branch inside
+`xiom.os.env` took the Windows path (`env.path_separator()` "\\",
+`join_paths("a","b")` "a\\b", data/cache/config dirs pointing at
+`AppData/...` under a unix home) while `env.FAMILY` from outside read
+"unix" -- silent platform misbehavior for any module branching on its
+OWN platform constant (stdlib side worked around in wave 164 with the
+`host_is_windows()` runtime probe; probe lock
+`tools/probes/p_wave164_shapes.xi`).
+
+SECOND DEFECT (Windows-observable, independent): the R65 site rewrite
+SEEDED the bare leaf (`self.local.constants.insert("FAMILY", <platform
+value>)`) on the first qualified read. `constants` is GLOBAL and NOT
+function-scoped, so the seed clobbered a user program-level
+`const FAMILY` for every LATER bare read -- `const FAMILY="mine";
+a=FAMILY; q=env.FAMILY; b=FAMILY` read `b` as the platform value
+(poison probe rc 3 on Windows native AND WSL). Violates the keep-first
+bare-slot rule; a live silent-miscompile class.
+
+FIX (registration-driven, order-free; kills both): when the const
+registration (decl.rs `register_functions`) sees exactly the injected
+env spellings -- `env.OS/ARCH/FAMILY`, `xiom.env.OS/ARCH/FAMILY`, or the
+bare `OS/ARCH/FAMILY` under the eager `xiom.env` module block -- it
+registers `target_platform_constants()` as the VALUE instead of the
+literal (`platform_env_const_value`), so bare in-module refs resolve the
+target value through the same qualified key they always used; the seed
+at the R65 site is DELETED. Qualified refs unchanged (site rewrite
+still returns the target value). User consts named OS/ARCH/FAMILY keep
+their own values (the override matches only the env module's
+declarations; a user's own `module env` block is never matched).
+
+Evidence (fixer worktree, windows): pre-fix `--target arm --emit-ir` on
+the fixture emitted `@env.probe_bare_family -> c"windows\00"` and
+`@env.probe_bare_os -> c"windows\00"` while the qualified probes emitted
+`c"unix\00"`; post-fix the bare bodies emit `c"unix\00"`/`c"linux\00"`.
+Poison fixture (top-level `const FAMILY="mine"` + qualified read
+between two bare reads): rc 3 pre-fix -> rc 0 post-fix (Windows-observable).
+The native run leg (bare == qualified == host; pre-fix red on non-Windows
+hosts, exit 22) plus the `--target arm` IR twin carry the WSL-observable
+class on Windows CI (recon recorded the official-pin WSL red:
+qualified=unix bare=windows, rc 22).
+
+Locks: `tests/regression/m347_env_bare_refs/` (hermetic mini XIOM_STDLIB
+`mini_std/xiom/os/env.xi` = the xiom.env copy under test; main asserts
+bare/self-qualified/cross-qualified agreement + host values) +
+`e2e_m347_env_bare_refs`, `e2e_m347_env_bare_refs_ir` (--target arm IR:
+bare bodies must emit `unix`/`linux`, never the literal),
+`e2e_m347_env_poison` (`tests/regression/m347_env_poison/`, pre-fix rc 3)
+-- wired into the ci.yml e2e group-2 token list. Battery green (fixer
+worktree, windows): locks 3/3, e2e g1 16 (x2), e2e g2 275 (x2), codegen
+lib 12, feature_regression 549, stdlib_execution 85 (+2 ignored),
+integration 130.
+
+Residual (documented, accepted): (a) the override keys on the env module
+IDENTITY spellings -- a user package module whose stripped name is
+exactly `env` (or a user `module xiom.env`) declaring OS/ARCH/FAMILY
+would also register target values; that identity was already claimed by
+the R65 site rewrite (qualified `env.FAMILY` reads are rewritten today),
+so this adds no new ambiguity; (b) if a future loader changes the
+injected spelling (e.g. no `xiom.` strip) the override misses and bare
+refs silently revert to the literal -- the `_ir` lock pins the current
+spelling; (c) `target_platform_constants` falls back to the HOST
+OS/arch for triples other than wasm32/64, aarch64, riscv64 (not
+CLI-reachable today; pre-existing).
+
+---

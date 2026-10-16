@@ -9438,3 +9438,208 @@ fn collect_files_with_ext(dir: &Path, ext: &str, out: &mut Vec<std::path::PathBu
         "m346: the key must never be formatted as an Int (no @xiom_int_to_string in the scan body); got:\n{body}"
     );
 }
+
+// m347 (REL-20261016-2000-stdlib): a BARE in-module reference to the
+// declaring module's own platform constant kept the stdlib LITERAL
+// initializer while qualified cross-module refs rewrote to the target. The
+// injected env consts registered the literal under the module-qualified key
+// (`env.FAMILY`) that `lookup_const_keyed` consults FIRST for an in-module
+// bare ref, so on Linux every bare-FAMILY branch inside xiom.os.env took
+// the Windows path (`env.path_separator()` "\\", join "a\\b", AppData/*
+// dirs) while `env.FAMILY` from outside read "unix" (stdlib wave-164 relay).
+// The fix registers the TARGET value for exactly the injected env spellings
+// (decl.rs platform_env_const_value) and drops the old bare-leaf seed, so
+// bare and qualified refs agree. The fixture is hermetic: its own mini
+// XIOM_STDLIB (tests/regression/m347_env_bare_refs/mini_std) carries the
+// xiom.env copy under test. The run leg asserts bare == qualified == host
+// (red pre-fix on non-Windows hosts, exit 22); the Windows-observable lock
+// is the `_ir` twin below.
+#[test] fn e2e_m347_env_bare_refs() {
+    let Some(_runtime_root) = m347_runtime_guard() else { return; };
+    let (mini, src) = m347_fixture_paths("m347_env_bare_refs");
+    let exe = project_root().join("target").join("m347_env_bare_refs.exe");
+    let _ = std::fs::remove_file(&exe);
+    let compile = Command::new(xiom_path())
+        .arg("-o")
+        .arg(&exe)
+        .arg(&src)
+        .env("XIOM_STDLIB", &mini)
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the m347 run fixture");
+    assert!(
+        compile.status.success(),
+        "m347 fixture must compile with its mini stdlib; stderr:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe).output().expect("run the m347 fixture");
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "m347: bare in-module platform-const refs must agree with the qualified reads (pre-fix on Linux: exit 22; Windows natively green -- the _ir leg is the observable lock)"
+    );
+    let _ = std::fs::remove_file(&exe);
+}
+
+// m347 IR twin (Windows-observable): `--target arm` (aarch64-linux) must
+// rewrite the TARGET values into the bare in-module refs. Pre-fix the
+// emitted @env.probe_bare_family body loaded the "windows" literal and
+// @env.probe_bare_os the "x86_64"/"windows" literal; post-fix they load
+// "unix" and "linux" (the self-qualified probe and main's cross-module
+// qualified read already emitted "unix" pre-fix via the R65 site rewrite --
+// kept asserted against regression).
+#[test] fn e2e_m347_env_bare_refs_ir() {
+    let (mini, src) = m347_fixture_paths("m347_env_bare_refs");
+    let output = Command::new(xiom_path())
+        .args(["--target", "arm", "--emit-ir"])
+        .arg(&src)
+        .env("XIOM_STDLIB", &mini)
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom --target arm --emit-ir for m347");
+    assert!(
+        output.status.success(),
+        "m347 IR leg must compile to IR; stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let ir = String::from_utf8_lossy(&output.stdout).to_string();
+
+    // String-constant table: @.strN -> the literal payload (without \00).
+    let mut strs: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for line in ir.lines() {
+        let t = line.trim_start();
+        let Some(rest) = t.strip_prefix("@.str") else { continue };
+        let Some((num, val)) = rest.split_once(" = private unnamed_addr constant") else { continue };
+        let Some(start) = val.find("c\"") else { continue };
+        let tail = &val[start + 2..];
+        let Some(end) = tail.find("\\00\"") else { continue };
+        strs.insert(format!("@.str{num}"), tail[..end].to_string());
+    }
+
+    let body_of = |sym: &str| -> String {
+        let def = format!("define i8* @{sym}()");
+        let start = ir.find(&def)
+            .unwrap_or_else(|| panic!("m347: `{sym}` must be emitted (called from the fixture main)"));
+        let rest = &ir[start..];
+        let end = rest.find("\n}").map(|i| i + 2).unwrap_or(rest.len());
+        rest[..end].to_string()
+    };
+    let literal_in = |sym: &str| -> String {
+        let body = body_of(sym);
+        for r in m347_str_refs(&body) {
+            if let Some(v) = strs.get(&r) {
+                return v.clone();
+            }
+        }
+        panic!("m347: `{sym}` must reference a string literal; body:\n{body}");
+    };
+
+    assert_eq!(
+        literal_in("env.probe_bare_family"),
+        "unix",
+        "m347: the bare in-module FAMILY ref must emit the --target arm value, not the \"windows\" literal"
+    );
+    assert_eq!(
+        literal_in("env.probe_bare_os"),
+        "linux",
+        "m347: the bare in-module OS ref must emit the --target arm value, not the \"windows\" literal"
+    );
+    assert_eq!(
+        literal_in("env.probe_qualified_family"),
+        "unix",
+        "m347: the self-qualified in-module ref keeps emitting the target value (R65 site rewrite)"
+    );
+    // main's cross-module qualified read (`env.FAMILY`): the site rewrite
+    // must keep emitting the target value too.
+    let start = ir.find("define i64 @main(").expect("m347: main must be emitted");
+    let rest = &ir[start..];
+    let end = rest.find("\n}").map(|i| i + 2).unwrap_or(rest.len());
+    let main_body = &rest[..end];
+    assert!(
+        m347_str_refs(main_body).iter().any(|r| strs.get(r).map_or(false, |v| v == "unix")),
+        "m347: the qualified `env.FAMILY` read in main must keep emitting the target value (\"unix\"); body:\n{main_body}"
+    );
+    assert!(
+        !m347_str_refs(&body_of("env.probe_bare_family"))
+            .iter()
+            .any(|r| strs.get(r).map_or(false, |v| v == "windows")),
+        "m347: the \"windows\" literal must never survive in the bare family ref"
+    );
+}
+
+/// m347: the `@.strN` references in an IR body fragment.
+fn m347_str_refs(body: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut idx = 0;
+    while let Some(p) = body[idx..].find("@.str") {
+        let at = idx + p;
+        let tail = &body[at..];
+        let after = &tail[5..];
+        let dlen = after.find(|c: char| !c.is_ascii_digit()).unwrap_or(after.len());
+        let name = tail[..5 + dlen].to_string();
+        if !out.contains(&name) {
+            out.push(name);
+        }
+        idx = at + 5 + dlen;
+    }
+    out
+}
+
+// m347 poison lock (REL-20261016-2000 second defect -- Windows-observable):
+// the old R65 site rewrite seeded the BARE leaf (`FAMILY` -> platform
+// value) on the first qualified env.FAMILY read, clobbering a user
+// program-level `const FAMILY` for every LATER bare read (pre-fix this
+// fixture exits 3 on Windows AND WSL). The seed is deleted; the user const
+// stays untouched (exit 0). Hermetic via the m347 mini stdlib (the
+// qualified read must come from the real env shape).
+#[test] fn e2e_m347_env_poison() {
+    let Some(_runtime_root) = m347_runtime_guard() else { return; };
+    let (mini, _) = m347_fixture_paths("m347_env_bare_refs");
+    let src = project_root()
+        .join("tests").join("regression").join("m347_env_poison").join("main.xi");
+    let exe = project_root().join("target").join("m347_env_poison.exe");
+    let _ = std::fs::remove_file(&exe);
+    let compile = Command::new(xiom_path())
+        .arg("-o")
+        .arg(&exe)
+        .arg(&src)
+        .env("XIOM_STDLIB", &mini)
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the m347 poison fixture");
+    assert!(
+        compile.status.success(),
+        "m347 poison fixture must compile with its mini stdlib; stderr:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe).output().expect("run the m347 poison fixture");
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "m347: a qualified env.FAMILY read must not clobber a user program-level `const FAMILY` (pre-fix: exit 3)"
+    );
+    let _ = std::fs::remove_file(&exe);
+}
+
+/// m347 fixture roots: (mini stdlib dir, fixture main.xi).
+fn m347_fixture_paths(fixture: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+    let base = project_root().join("tests").join("regression").join(fixture);
+    (base.join("mini_std"), base.join("main.xi"))
+}
+
+/// m347: the run legs link the ambient C runtime (the mini stdlib carries
+/// modules only, no runtime/) -- skip loudly without a usable checkout and
+/// hard-fail under XIOM_REQUIRE_STDLIB=1, mirroring the stdlib-guarded
+/// tests (the IR twin needs no runtime and does not guard).
+fn m347_runtime_guard() -> Option<std::path::PathBuf> {
+    let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return None; };
+    if !stdlib_root.join("runtime").join("xiom_runtime.c").is_file() {
+        let msg = "SKIP: runtime/xiom_runtime.c missing in the stdlib checkout";
+        if xiom_graph::paths::require_stdlib() {
+            panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
+        }
+        eprintln!("{msg}");
+        return None;
+    }
+    Some(stdlib_root)
+}
