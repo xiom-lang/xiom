@@ -17618,3 +17618,4 @@ codegen lib 12, feature_regression 549 (the suite's in-process
 incremental test is slow when the shared %TEMP% tree is huge -- launched
 with an isolated clean TMP/TEMP; same binary), stdlib_execution 85
 (+2 ignored), integration 130.
+Fix commit: 65eee165 (branch fix/m340-engine-dep-csources-cache, unpushed).
