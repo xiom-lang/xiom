@@ -9745,3 +9745,99 @@ fn m347_runtime_guard() -> Option<std::path::PathBuf> {
         "m349: no i64-erased call to the catalog constructor may remain"
     );
 }
+
+// m350 (REL-20261016-2016-packages): reading `r.value` / `r.error` behind a
+// `&Result[..]` / `&Option[..]` parameter crashed 0xC0000005 when the payload
+// is a user struct/enum: the param ABI erases to the BASE `%struct.Result*`
+// (i64 handle slots) while every VALUE of a struct/enum-payload container is
+// the concrete monomorph with the payload INLINE (the caller bitcasts
+// monomorph -> base), so the pointer-to-struct field reader loaded field 1 as
+// an i64 HANDLE (.error at base offset 16) and the i64->struct coercion
+// inttoptr'd the payload's first word -> AV. Arm A struct payload `.value`,
+// B `&mut` twin, C the jev-exact `&Result[Q, ScratchErr]` (`.error` match +
+// `.value`), D `&Option[P]` `.value`, E `&Result[Str, ScratchErr]` `.error`
+// bound + matched -- all red pre-fix; F..N are the base-layout / by-value /
+// local / tag-predicate / Err-vacuous controls (green in both states).
+#[test] fn e2e_m350_result_ref_field_read() {
+    assert_eq!(
+        compile_and_run("tests/regression/m350_result_ref_field_read/main.xi"),
+        Some(0),
+        "m350: payload reads behind &Result/&Option must lower against the concrete monomorph (pre-fix: 0xC0000005 / silent misread)"
+    );
+}
+
+// m350 IR twin: every payload read behind a `&Result`/`&Option` receiver must
+// BITCAST the base-erased pointer to the concrete monomorph and GEP/load the
+// inline payload field -- never `load i64` + `inttoptr` the payload's first
+// word as a handle. The scalar-payload control (`&Result[Int, Int]`) must stay
+// on the base `%struct.Result` layout (no bogus monomorph creation).
+#[test] fn e2e_m350_result_ref_field_read_ir() {
+    let ir = compile_ir("tests/regression/m350_result_ref_field_read/main.xi")
+        .expect("m350 fixture must compile to IR");
+    // Premise: the concrete monomorphs carry the payloads INLINE.
+    assert!(
+        ir.contains("%struct.Result__P__Str = type { i64, %struct.m350_result_ref_field_read.P, i8* }"),
+        "m350: Result[P, Str] must carry the P payload inline"
+    );
+    assert!(
+        ir.contains("%struct.Result__Q__ScratchErr = type { i64, %struct.m350_result_ref_field_read.Q, %struct.m350_result_ref_field_read.ScratchErr }"),
+        "m350: Result[Q, ScratchErr] must carry both payloads inline"
+    );
+    assert!(
+        ir.contains("%struct.Option__P = type { i64, %struct.m350_result_ref_field_read.P }"),
+        "m350: Option[P] must carry the P payload inline"
+    );
+    let body_of = |def: &str| -> String {
+        let start = ir
+            .find(def)
+            .unwrap_or_else(|| panic!("m350: `{def}` must be defined"));
+        let rest = &ir[start..];
+        let end = rest[1..].find("\ndefine ").map(|i| i + 1).unwrap_or(rest.len());
+        rest[..end].to_string()
+    };
+    for (def, marker) in [
+        ("define i64 @get_a(%struct.Result* %param0)", "to %struct.Result__P__Str*"),
+        ("define i64 @get_a_mut(%struct.Result* %param0)", "to %struct.Result__P__Str*"),
+        ("define i64 @bump(%struct.Result* %param0)", "to %struct.Result__Q__ScratchErr*"),
+        ("define i64 @opt_a(%struct.Option* %param0)", "to %struct.Option__P*"),
+        ("define i64 @str_err_len(%struct.Result* %param0)", "to %struct.Result__Str__ScratchErr*"),
+    ] {
+        let body = body_of(def);
+        assert!(
+            body.contains("bitcast %struct.") && body.contains(marker),
+            "m350: `{def}` must bitcast the base pointer to the concrete monomorph (`{marker}`); got:\n{body}"
+        );
+        assert!(
+            !body.contains("inttoptr"),
+            "m350: `{def}` must never inttoptr a field load as a payload handle; got:\n{body}"
+        );
+    }
+    // The struct payload read loads the FULL inline aggregate (field 1 of
+    // Result__P__Str), not the i64 first word.
+    let get_a = body_of("define i64 @get_a(%struct.Result* %param0)");
+    assert!(
+        get_a.contains("getelementptr %struct.Result__P__Str, %struct.Result__P__Str*")
+            && get_a.contains("i32 0, i32 1")
+            && get_a.contains("load %struct.m350_result_ref_field_read.P, %struct.m350_result_ref_field_read.P*"),
+        "m350: get_a must GEP/load the INLINE P payload; got:\n{get_a}"
+    );
+    // The enum error read (field 2) loads the inline enum value.
+    let bump = body_of("define i64 @bump(%struct.Result* %param0)");
+    assert!(
+        bump.contains("getelementptr %struct.Result__Q__ScratchErr, %struct.Result__Q__ScratchErr*")
+            && bump.contains("i32 0, i32 2")
+            && bump.contains("load %struct.m350_result_ref_field_read.ScratchErr, %struct.m350_result_ref_field_read.ScratchErr*"),
+        "m350: bump must GEP/load the INLINE ScratchErr error payload; got:\n{bump}"
+    );
+    // Control: the scalar-payload receiver keeps the BASE erased layout.
+    let int_val = body_of("define i64 @int_val(%struct.Result* %param0)");
+    assert!(
+        int_val.contains("getelementptr %struct.Result, %struct.Result*")
+            && !int_val.contains("bitcast %struct.Result*"),
+        "m350: scalar payloads must stay on the base %struct.Result layout; got:\n{int_val}"
+    );
+    assert!(
+        !ir.contains("%struct.Result__Int__Int"),
+        "m350: no monomorph may be created for a scalar-payload Result"
+    );
+}

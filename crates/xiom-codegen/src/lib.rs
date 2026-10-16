@@ -5510,6 +5510,135 @@ impl IrEmitter {
         }
     }
 
+    /// m350: the payload SPELLING `concrete_type_for` would name for a parsed
+    /// generic argument string -- containers erase to their base
+    /// (`type_from_ast`), tuples resolve their elements to the qualified
+    /// `Tuple__` key (`canonical_payload_name` -> the Tuple arm), and
+    /// fn-marker/anonymous/unparseable spellings return `None` (never
+    /// concrete). Keeps the reader-side monomorph name identical to the
+    /// construction side.
+    fn monomorph_payload_spelling(&self, arg: &str) -> Option<String> {
+        let a = arg.trim();
+        if a.is_empty() {
+            return None;
+        }
+        if let Some(inner) = a.strip_prefix('(').and_then(|r| r.strip_suffix(')')) {
+            // Tuple payload: split TOP-LEVEL commas and resolve each element
+            // exactly like `concrete_type_for`'s Tuple arm (module-qualified
+            // keys); land on the registered canonical twin when one exists.
+            let mut depth = 0i32;
+            let mut parts: Vec<String> = Vec::new();
+            let mut current = String::new();
+            for c in inner.chars() {
+                match c {
+                    '[' => { depth += 1; current.push(c); }
+                    ']' => { depth -= 1; current.push(c); }
+                    ',' if depth == 0 => {
+                        parts.push(current.trim().to_string());
+                        current.clear();
+                    }
+                    _ => current.push(c),
+                }
+            }
+            if !current.trim().is_empty() {
+                parts.push(current.trim().to_string());
+            }
+            if parts.is_empty() {
+                return None;
+            }
+            let mut elems: Vec<String> = Vec::new();
+            for p in &parts {
+                if p.contains('(') || p.contains(')') || p.contains('[') || p.contains(']') {
+                    return None;
+                }
+                elems.push(self.resolve_type_key(p));
+            }
+            let name = format!("Tuple__{}", elems.join("__"));
+            return Some(self.canonical_registered_tuple_key(&name).unwrap_or(name));
+        }
+        if a.contains('(') || a.contains(')') {
+            return None;
+        }
+        if let Some(bracket) = a.find('[') {
+            return Some(a[..bracket].trim().to_string());
+        }
+        Some(a.to_string())
+    }
+
+    /// m350 (REL-20261016-2016-packages): the concrete monomorph LLVM
+    /// POINTEE name for a reference receiver's declared XIOM type string
+    /// ("&Result[P, Str]" / "&mut Option[P]"). `param_llvm_type`'s Ref arm
+    /// lowers every `&Result[..]`/`&Option[..]` to the BASE erased
+    /// `%struct.Result*`/`%struct.Option*` (i64 handle slots), but every
+    /// VALUE of a struct/enum-payload container is materialized with the
+    /// concrete monomorph (`concrete_type_for` -> `ensure_concrete_result`/
+    /// `ensure_concrete_option`), whose payload fields are INLINE -- the
+    /// caller bitcasts the monomorph pointer to the base one, so a field
+    /// read through the receiver must re-resolve the pointee to the
+    /// monomorph. Mirrors `concrete_type_for` exactly for the monomorph
+    /// NAME; an already-registered variant (e.g. a qualified payload
+    /// spelling the construction side adopted) wins over creation. Returns
+    /// `None` -- keep the base erased layout -- for scalar/Str/Vec payloads
+    /// (no monomorph exists), non-Result/Option receivers and unparseable
+    /// spellings.
+    fn ref_receiver_concrete_pointee(&mut self, declared: &str) -> Option<String> {
+        let s = declared.trim();
+        let s = s
+            .strip_prefix("&mut ")
+            .or_else(|| s.strip_prefix('&'))
+            .unwrap_or(s)
+            .trim();
+        let s = s.strip_prefix('*').unwrap_or(s);
+        let expanded = self.expand_alias_application_xiom(s);
+        let (base, args) = Self::parse_generic_type_string(&expanded);
+        let leaf = base.rsplit('.').next().unwrap_or(base.as_str()).to_string();
+        let (ok_spelling, err_spelling) = match (leaf.as_str(), args.len()) {
+            ("Result", 2) => (args[0].clone(), Some(args[1].clone())),
+            ("Option", 1) => (args[0].clone(), None),
+            _ => return None,
+        };
+        let ok_name = self.monomorph_payload_spelling(&ok_spelling)?;
+        let err_name = match err_spelling {
+            Some(ref e) => Some(self.monomorph_payload_spelling(e)?),
+            None => None,
+        };
+        let ok_struct = self.is_struct_type_in_registry(&self.resolve_type_key(&ok_name));
+        let err_struct = err_name
+            .as_ref()
+            .map_or(false, |e| self.is_struct_type_in_registry(&self.resolve_type_key(e)));
+        if !ok_struct && !err_struct {
+            return None;
+        }
+        let direct = match &err_name {
+            Some(e) => format!(
+                "Result__{}__{}",
+                Self::sanitize_container_arg(&ok_name),
+                Self::sanitize_container_arg(e)
+            ),
+            None => format!("Option__{}", Self::sanitize_container_arg(&ok_name)),
+        };
+        if self.types.type_meta.contains_key(&direct) || self.types.types.contains_key(&direct) {
+            return Some(direct);
+        }
+        let resolved_ok = self.resolve_type_key(&ok_name);
+        let resolved = match &err_name {
+            Some(e) => format!(
+                "Result__{}__{}",
+                Self::sanitize_container_arg(&resolved_ok),
+                Self::sanitize_container_arg(&self.resolve_type_key(e))
+            ),
+            None => format!("Option__{}", Self::sanitize_container_arg(&resolved_ok)),
+        };
+        if self.types.type_meta.contains_key(&resolved) || self.types.types.contains_key(&resolved) {
+            return Some(resolved);
+        }
+        match &err_name {
+            Some(e) => self.ensure_concrete_result(&ok_name, e),
+            None => self.ensure_concrete_option(&ok_name),
+        }
+        Some(direct)
+    }
+
     /// 5e.1 G-18: byte size of a struct from type_meta field list.
     /// Sums LLVM type widths: i8=1, i16=2, i32=4, i64=8, etc.
     /// Returns 0 for unknown types. Used for C FFI malloc/offsetof.

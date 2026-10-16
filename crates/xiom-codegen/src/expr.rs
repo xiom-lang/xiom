@@ -2938,15 +2938,71 @@ impl IrEmitter {
                         if llvm_ty.ends_with('*') && llvm_ty.starts_with("%struct.") {
                             let pointee = llvm_ty.trim_end_matches('*').to_string();
                             let type_name = &pointee[8..];
-                            if let Some(field_names) = self.struct_field_names_for(type_name)
+                            // m350 (REL-20261016-2016-packages): reading a
+                            // PAYLOAD field (`r.value` / `r.error`) behind a
+                            // `&Result[..]` / `&Option[..]` receiver. The
+                            // param ABI erases to the BASE `%struct.Result*`/
+                            // `%struct.Option*` (i64 handle slots), but when a
+                            // payload is a user struct/enum every VALUE of the
+                            // container is the concrete monomorph with the
+                            // payload INLINE (the caller bitcasts monomorph ->
+                            // base). Re-resolve the receiver's declared XIOM
+                            // type and read through a bitcast to the monomorph
+                            // so the payload field lands at its real
+                            // offset/type (pre-fix: field 1 loaded as an i64
+                            // HANDLE and the i64->struct coercion inttoptr'd
+                            // the payload's first word -> 0xC0000005; .error at
+                            // base offset 16 read mid-payload). Base layouts
+                            // (scalar/Str/Vec payloads -- no monomorph) and
+                            // already-concrete pointers keep the historical
+                            // lowering.
+                            let (read_pointee, read_type_name, read_ptr_ty) = {
+                                let mut rp = pointee.clone();
+                                let mut rt = type_name.to_string();
+                                let mut rpt = llvm_ty.clone();
+                                if !rt.contains("__")
+                                    && (rt == "Result"
+                                        || rt == "Option"
+                                        || rt.ends_with(".Result")
+                                        || rt.ends_with(".Option"))
+                                {
+                                    if let Some(declared) =
+                                        self.local.local_xiom_types.get(&obj_ident.name).cloned()
+                                    {
+                                        if let Some(concrete) =
+                                            self.ref_receiver_concrete_pointee(&declared)
+                                        {
+                                            if concrete != rt {
+                                                rp = format!("%struct.{concrete}");
+                                                rt = concrete;
+                                                rpt = format!("{rp}*");
+                                            }
+                                        }
+                                    }
+                                }
+                                (rp, rt, rpt)
+                            };
+                            if let Some(field_names) = self.struct_field_names_for(&read_type_name)
                                  {
                                 if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
-                                    let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
-                                    let ptr_val = self.fresh_tmp();
-                                    self.emitln(&format!("  {ptr_val} = load {llvm_ty}, {llvm_ty}* {ptr}"));
+                                    let field_llvm_ty = if read_pointee != pointee {
+                                        self.emitted_field_llvm_ty(&read_pointee, field_idx)
+                                    } else {
+                                        None
+                                    }
+                                    .unwrap_or_else(|| self.field_llvm_type(&read_type_name, field_idx));
+                                    let raw = self.fresh_tmp();
+                                    self.emitln(&format!("  {raw} = load {llvm_ty}, {llvm_ty}* {ptr}"));
+                                    let ptr_val = if read_ptr_ty != llvm_ty {
+                                        let bc = self.fresh_tmp();
+                                        self.emitln(&format!("  {bc} = bitcast {llvm_ty} {raw} to {read_ptr_ty}"));
+                                        bc
+                                    } else {
+                                        raw
+                                    };
                                     let gep = self.fresh_tmp();
                                     let loaded = self.fresh_tmp();
-                                    self.emitln(&format!("  {gep} = getelementptr {pointee}, {llvm_ty} {ptr_val}, i32 0, i32 {field_idx}"));
+                                    self.emitln(&format!("  {gep} = getelementptr {read_pointee}, {read_ptr_ty} {ptr_val}, i32 0, i32 {field_idx}"));
                                     self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
                                     return Ok((loaded, field_llvm_ty));
                                 }
