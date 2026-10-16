@@ -8675,6 +8675,8 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
         ir.contains("i64 3132620800"),
         "m335: the probe's literal must be an i64 initializer"
     );
+}
+
 // m337 (XVC-C-17, REL-20261015-2216-xvector): an imported-type module-level
 // `var` whose declared spelling is module-qualified (`mutex.SyncMutex` or
 // the full `xiom.sync.mutex.SyncMutex`) misregistered as i64 -- the global
