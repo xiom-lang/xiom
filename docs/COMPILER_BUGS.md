@@ -17995,5 +17995,6 @@ refs silently revert to the literal -- the `_ir` lock pins the current
 spelling; (c) `target_platform_constants` falls back to the HOST
 OS/arch for triples other than wasm32/64, aarch64, riscv64 (not
 CLI-reachable today; pre-existing).
+Fix commit: f6e36137 (branch fix/m347-env-platform-bare-refs, unpushed).
 
 ---
