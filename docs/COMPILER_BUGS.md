@@ -17865,3 +17865,4 @@ g2 263 (x2), codegen lib 12, feature_regression 549, stdlib_execution 85
 (+2 ignored), integration 130. NOTE: the stdlib may restore the canonical
 clause now that the compiler is fixed; the engine re-verifies grid.ppm at
 the next pin.
+Fix commit: dc21b534 (branch fix/m345-clause-inline-payload-rebind, unpushed).
