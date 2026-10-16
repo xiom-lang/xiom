@@ -17619,3 +17619,67 @@ incremental test is slow when the shared %TEMP% tree is huge -- launched
 with an isolated clean TMP/TEMP; same binary), stdlib_execution 85
 (+2 ignored), integration 130.
 Fix commit: 65eee165 (branch fix/m340-engine-dep-csources-cache, unpushed).
+
+## 2026-10-16 -- FIXED (m341): catalog-body bare calls bound the wrong same-leaf owner + `pub use` re-export consts invisible to the use-skip probe (REL-20261015-1358-engine W1.1 / REL-20261015-1538-engine W2.1)
+
+W1.1: from a secondary module with `use xiom.serialize.json;`, a bare
+`json_string("x")` / `json_number(42.0)` bound the PARENT same-leaf fn
+`xiom.serialize.json_string` (Str) instead of the imported
+`serialize.json.json_string` (JsonValue), so `json_stringify` loaded a
+JsonValue struct from a Str buffer and the program crashed at runtime
+(rc 0xC0000409 / 0xC0000005, no output; same on the 0.64.4 archive --
+not a regression). Root cause: a source-dir secondary module is checked
+as a CATALOG body (isolated import context); the m162 resolved-target
+record only fires when `local_module_paths` carries the ITEM name (an
+explicit `use mod.item;`), while a SUBMODULE surface import records the
+module alias (`json` -> `xiom.serialize.json`) -- and when the m252
+use-skip heuristic drops the use (the bound alias never appears in the
+body) there is no local record at all. `resolve_catalog_call_bare`
+returned None and codegen's keep-first `bare_fn_aliases` entry
+(registration order, independently built from the checker's) bound the
+parent fn while the checker had typed the submodule's -- a silent
+checker/codegen divergence.
+
+FIX (a) `Checker::catalog_body_bare_target`: a catalog body now records
+`catalog_resolved_calls` for EVERY multi-owner bare leaf (fn_owner_module
+gate): (1) when the body's own import surface survived the skip, consult
+the ITEM'S OWNER MODULE (body-local alias -> G-32 SubModule export map
+declaring the item as a pub fn with the resolved signature; shortest
+dotted path, then lexicographic); (2) otherwise fall back to the unique
+dotted registration whose signature equals the checker's resolved one
+(the `ambiguous_bare_fn_target` rule the program scope already used).
+FIX (b) codegen `resolve_ambiguous_bare_leaf`: inside the
+`bare_fn_aliases` arm, when two or more registered owners share a leaf
+with DIFFERENT LLVM signatures and no checker record covers the call
+site, resolve via `pick_deterministic` (m278/m326 precedent) instead of
+a silent registration-order coin flip.
+FIX (c) the m317 const-surface probe now follows `pub use` RE-EXPORT
+chains (`module_reaches_pub_consts` + `module_pub_use_targets`,
+cycle-safe text scan): the W2.1 residual facade declares nothing itself
+(`pub use rc.reflect;`), so the probe said "no consts", the skip dropped
+the import inside the reader's catalog body and the bare read was
+`error[T001] undefined variable 'RFL_OK'` (catalog body [rc.property2]).
+
+Evidence (scratch, red -> green on the same shapes as the locks):
+- a1/a2 (`json_stringify(json_string("x"))` / `json_number(42.0)` from a
+  secondary module): rc 0xC0000005 / 0xC0000409 -> rc 0; entry control
+  c1 green throughout; IR twin: `%tmp4 = call %struct.JsonValue
+  @serialize.json.json_string(i8* %tmp3)` (pre-fix `call i8*
+  @serialize.json_string` + `load %struct.JsonValue`).
+- main_reexp (`use rc.reexp;` re-export chain read bare in a secondary
+  module): compile rc 1, `error[T001]: catalog body [rc.property2] 5:29:
+  undefined variable 'RFL_OK'` -> rc 0, prints the const.
+
+LOCKS: tests/regression/m341_catalog_call_binding/ (two-module json
+runtime bytes + entry control) + `e2e_m341_catalog_call_binding` + IR
+twin (`@...json.json_string` asserted, `@serialize.json_string`
+forbidden); tests/regression/m341_const_reexport/ (`pub use` chain T001
+red-pre; direct-use + entry-re-export controls) + `e2e_m341_const_reexport`
++ IR twin + import-order twins a/b (`e2e_m341_const_import_order_a/_b`,
+the W2.2 pin). All six wired into the ci.yml e2e group-2 list. The
+m162/m292/m317 locks stay green in the same g2 run.
+Battery green (fixer worktree, windows): locks 6/6, e2e g1 16 (x2), e2e
+g2 258 (x2), codegen lib 12, feature_regression 549, stdlib_execution 85
+(+2 ignored), integration 130, xiom-check lib 199 serial (catalog corpus
+gate).
+Fix commit: a37db7dd (branch fix/m341-catalog-call-binding, unpushed).
