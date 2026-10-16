@@ -209,6 +209,9 @@ impl IrEmitter {
         }
         if elem.starts_with('(') || elem.starts_with("Tuple__") {
             let norm = Self::tuple_xiom_to_struct_name(elem);
+            // m336 (C-ORBIT-12): resolve the bare tuple key to its registered
+            // canonical (module-qualified) twin before the registry scan.
+            let norm = self.canonical_registered_tuple_key(&norm).unwrap_or(norm);
             return self.types.types.keys().into_iter().any(|k| k.as_str() == norm || k.ends_with(&format!(".{norm}")));
         }
         if elem.len() == 1 && elem.chars().next().map_or(false, |c| c.is_ascii_uppercase()) {
@@ -1181,7 +1184,10 @@ impl IrEmitter {
             // so the Vec.len() handler must classify via local_boxed_struct:
             // resolve the tuple's field type and check for a container.
             if let Expr::Ident(base_id) = base.as_ref() {
-                if let Some(tn) = self.local.local_boxed_struct.get(&base_id.name).cloned() {
+                let boxed_tn = self.local.local_boxed_struct.get(&base_id.name).cloned()
+                    // m336 (C-ORBIT-12): tolerate the bare/qualified tuple-key split.
+                    .map(|tn| self.canonical_registered_tuple_key(&tn).unwrap_or(tn));
+                if let Some(tn) = boxed_tn {
                     let field_names = self.types.types.get(&tn)
                         .or_else(|| {
                             let suffix = format!(".{tn}");

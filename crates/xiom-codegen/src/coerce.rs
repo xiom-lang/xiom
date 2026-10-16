@@ -1204,6 +1204,16 @@ impl IrEmitter {
         {
             return true;
         }
+        // m336 (C-ORBIT-12): a bare tuple element key resolves to its
+        // registered canonical twin before the registry scan.
+        let elem_owned;
+        let elem = if elem.starts_with('(') || elem.starts_with("Tuple__") {
+            elem_owned = self.canonical_registered_tuple_key(&Self::tuple_xiom_to_struct_name(elem))
+                .unwrap_or_else(|| elem.to_string());
+            elem_owned.as_str()
+        } else {
+            elem
+        };
         let suffix = format!(".{elem}");
         self.types.types.keys().into_iter().any(|k| k.as_str() == elem || k.ends_with(&suffix))
             || self.types.enum_variants.keys().into_iter().any(|k| k.as_str() == elem || k.ends_with(&suffix))

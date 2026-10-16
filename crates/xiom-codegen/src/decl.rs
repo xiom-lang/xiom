@@ -157,19 +157,31 @@ impl IrEmitter {
     pub(crate) fn ensure_tuple_type_registered(&mut self, ty: &Type) {
         match ty {
             Type::Tuple(elems) => {
-                let name = Self::type_from_ast(ty);
-                if self.types.type_meta.contains_key(&name) { return; }
-                let field_names: Vec<String> = (0..elems.len()).map(|i| format!("_{i}")).collect();
-                let field_types: Vec<(String, String)> = elems.iter()
-                    .enumerate()
-                    .map(|(i, t)| (format!("_{i}"), Self::type_from_ast(t)))
+                // m336 (REL-20261015-2022-orbitdb; C-ORBIT-12): register the
+                // CANONICAL tuple key -- the module-qualified element
+                // spelling the construction namers (expr.rs literal path +
+                // infer_llvm_type's tuple arm, m305) and concrete_type_for's
+                // Tuple arm use. The bare `type_from_ast` key left a second,
+                // structurally identical %struct.Tuple__Val__Int next to
+                // %struct.Tuple__<mod>.Val__Int for every enum/struct element
+                // (two names for one tuple struct in the emitted IR).
+                let parts: Vec<String> = elems.iter()
+                    .map(|t| self.resolve_type_key(&Self::type_from_ast(t)))
                     .collect();
-                self.types.types.insert(name.clone(), field_names);
-                self.types.type_meta.insert(name, TypeMeta {
-                    fields: field_types,
-                    derives: vec![],
-                    invariants: vec![],
-                });
+                let name = format!("Tuple__{}", parts.join("__"));
+                if !self.types.type_meta.contains_key(&name) {
+                    let field_names: Vec<String> = (0..elems.len()).map(|i| format!("_{i}")).collect();
+                    let field_types: Vec<(String, String)> = elems.iter()
+                        .enumerate()
+                        .map(|(i, t)| (format!("_{i}"), self.resolve_type_key(&Self::type_from_ast(t))))
+                        .collect();
+                    self.types.types.insert(name.clone(), field_names);
+                    self.types.type_meta.insert(name, TypeMeta {
+                        fields: field_types,
+                        derives: vec![],
+                        invariants: vec![],
+                    });
+                }
                 for elem in elems {
                     self.ensure_tuple_type_registered(elem);
                 }

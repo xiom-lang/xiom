@@ -2328,6 +2328,42 @@ impl IrEmitter {
         short_name.to_string()
     }
 
+    /// m336 (REL-20261015-2022-orbitdb; C-ORBIT-12): resolve a TUPLE struct
+    /// key string to the REGISTERED key, tolerating the bare/qualified
+    /// element-spelling split. The construction namers and the signature-side
+    /// registration agree on the module-qualified spelling
+    /// (`Tuple__<mod>.Val__Int`); strings that still carry the bare spelling
+    /// (`Tuple__Val__Int` -- rendered by type_from_ast / type_string_full for
+    /// user-typed tuples and fed back through match/vec readers) are matched
+    /// to the registered twin by per-segment leaf comparison (deterministic
+    /// pick). Registered names return unchanged; unresolvable names return
+    /// None so callers keep their established fallbacks.
+    fn canonical_registered_tuple_key(&self, name: &str) -> Option<String> {
+        if self.types.types.contains_key(&name.to_string())
+            || self.types.type_meta.contains_key(&name.to_string())
+        {
+            return Some(name.to_string());
+        }
+        let rest = name.strip_prefix("Tuple__")?;
+        if rest.is_empty() {
+            return None;
+        }
+        let segs: Vec<&str> = rest.split("__").collect();
+        let cands: Vec<String> = self.types.type_meta.keys().into_iter()
+            .filter(|k| {
+                let Some(krest) = k.strip_prefix("Tuple__") else { return false };
+                let ksegs: Vec<&str> = krest.split("__").collect();
+                if ksegs.len() != segs.len() {
+                    return false;
+                }
+                ksegs.iter().zip(segs.iter()).all(|(ks, s)| {
+                    ks == s || ks.rsplit('.').next().unwrap_or(ks) == *s
+                })
+            })
+            .collect();
+        self.pick_deterministic(cands)
+    }
+
     /// Create a concrete `Option__T` type in type_meta, duplicating the field
     /// layout of the base `Option` type but substituting the value field with
     /// the full struct type `T` so it is not truncated to 8 bytes.
@@ -2495,10 +2531,31 @@ impl IrEmitter {
         }
     }
 
+    /// m336 (REL-20261015-2022-orbitdb; C-ORBIT-12): canonical payload name
+    /// for the concrete Result/Option keys. A TUPLE payload must be named
+    /// EXACTLY like the construction-side namers (expr.rs tuple-literal path
+    /// + infer_llvm_type's tuple arm; m305): module-qualified element keys
+    /// (Tuple__<mod>.Val__Int). `type_from_ast` builds BARE Tuple__ names,
+    /// so `Result[(T8Val, Int), T8Err]` registered
+    /// Result__Tuple__T8Val__Int__T8Err on the signature side while the
+    /// body's Ok lowering built Tuple__<mod>.T8Val__Int -- two names for one
+    /// tuple struct and a hard clang type error at the Ok store
+    /// (`%tmp17 defined with type ... but expected ...`). Route tuple
+    /// payloads through concrete_type_for's Tuple arm, which qualifies
+    /// elements via resolve_type_key (and registers the canonical key);
+    /// every other payload keeps the established bare spelling the
+    /// concrete-container paths adopt (`Option__Pair` etc.).
+    fn canonical_payload_name(&mut self, ty: &Type) -> String {
+        match ty {
+            Type::Tuple(_) => self.concrete_type_for(ty),
+            _ => Self::type_from_ast(ty),
+        }
+    }
+
     fn concrete_type_for(&mut self, ty: &Type) -> String {
         match ty {
             Type::Option(inner) => {
-                let inner_name = Self::type_from_ast(inner);
+                let inner_name = self.canonical_payload_name(inner);
                 // M18 (removed 2026-09-10, M65 Part 2): ENUM payloads now
                 // concretize too. The old exclusion kept Option[JsonValue]
                 // opaque (8-byte handle ABI), which made the map value read
@@ -2521,8 +2578,8 @@ impl IrEmitter {
                 }
             }
             Type::Result(ok, err) => {
-                let ok_name = Self::type_from_ast(ok);
-                let err_name = Self::type_from_ast(err);
+                let ok_name = self.canonical_payload_name(ok);
+                let err_name = self.canonical_payload_name(err);
                 // M18 removal (2026-09-10): enum Ok/Err payloads concretize
                 // (Result__JsonValue__Str) -- see the Option arm above.
                 let ok_struct = self.is_struct_type_in_registry(&ok_name);
@@ -2570,6 +2627,10 @@ impl IrEmitter {
                     });
                     self.types.types.insert(name.clone(), field_names);
                 }
+                // m336: signature-side registration of the canonical tuple
+                // must carry a SIZED def like the expr.rs literal path does
+                // (m305/m21: a later def after the alloca is clang-rejected).
+                self.defer_concrete_def_if_in_body(&name);
                 name
             }
             // m289 (REL-20261010-1548-stdlib-5): an ANNOTATED
@@ -4139,6 +4200,10 @@ impl IrEmitter {
             // Vec[(Int, Int)] elem lookup failed and get() loaded the first
             // 8 bytes of the 16-byte slot as the Option payload.
             let elem_norm = Self::tuple_xiom_to_struct_name(&elem);
+            // m336 (C-ORBIT-12): resolve the tuple element to its REGISTERED
+            // canonical key (bare strings -> module-qualified twin).
+            let elem_norm = self.canonical_registered_tuple_key(&elem_norm)
+                .unwrap_or(elem_norm);
             return self.types.types.keys().into_iter()
     .find(|k| k.ends_with(&format!(".{}", elem_norm)) || k.as_str() == elem_norm)
                 .or_else(|| {
@@ -4491,6 +4556,18 @@ impl IrEmitter {
         } else {
             type_name
         };
+        // m336 (REL-20261015-2022-orbitdb; C-ORBIT-12): a BARE tuple key
+        // whose canonical module-qualified twin is registered (the only
+        // spelling the decl pass and the construction namers register after
+        // the C-ORBIT-12 fix) resolves to the twin instead of warning
+        // "unknown type ... defaulting to i64". Strings from the remaining
+        // bare-name producers (type_from_ast / type_string_full consumers)
+        // keep working without a second %struct.Tuple__Val__Int definition.
+        if type_name.starts_with("Tuple__") {
+            if let Some(canon) = self.canonical_registered_tuple_key(type_name) {
+                return Ok(format!("%struct.{canon}"));
+            }
+        }
         // Try current module's qualified name first (e.g., "types.Person")
         if let Some(ref module) = self.local.current_module {
             let qualified = format!("{}.{}", module, clean_name);
@@ -5274,6 +5351,17 @@ impl IrEmitter {
     }
 
     fn field_llvm_type(&self, struct_name: &str, field_idx: usize) -> String {
+        // m336 (C-ORBIT-12): resolve a BARE tuple key to its registered
+        // canonical twin before the registry probes (tuple-typed payload
+        // strings from the match/vec readers may still carry bare names).
+        let resolved_tuple;
+        let struct_name = if struct_name.starts_with("Tuple__") {
+            resolved_tuple = self.canonical_registered_tuple_key(struct_name)
+                .unwrap_or_else(|| struct_name.to_string());
+            resolved_tuple.as_str()
+        } else {
+            struct_name
+        };
         let meta = self.types.type_meta.get(&struct_name.to_string())
             .or_else(|| {
                 // Try current module's qualified name first (deterministic)

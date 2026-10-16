@@ -2877,7 +2877,8 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                             // field default: every payload field read as 0
                                             // (graphql conformance 9/10).
                                             ("i64", Some(px)) if !px.starts_with("Vec[") => {
-                                                let norm = Self::tuple_xiom_to_struct_name(px);
+                                                let norm = self.canonical_registered_tuple_key(&Self::tuple_xiom_to_struct_name(px))
+                                                    .unwrap_or_else(|| Self::tuple_xiom_to_struct_name(px));
                                                 let st_opt = self.llvm_type_for(&norm)
                                                     .or_else(|_| self.llvm_type_for(px));
                                                 if let Ok(st) = st_opt {
@@ -3113,7 +3114,10 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                         // raw "(Int, Int)" failed llvm_type_for and
                                         // the binding kept the box pointer -- Vec
                                         // pushes stored 8 bytes into 16-byte slots).
-                                        let norm = Self::tuple_xiom_to_struct_name(decl);
+                                        // m336 (C-ORBIT-12): resolve a bare tuple
+                                        // key to its registered canonical twin.
+                                        let norm = self.canonical_registered_tuple_key(&Self::tuple_xiom_to_struct_name(decl))
+                                            .unwrap_or_else(|| Self::tuple_xiom_to_struct_name(decl));
                                         let s_ty = self.llvm_type_for(&norm)
                                             .or_else(|_| self.llvm_type_for(decl))
                                             .unwrap_or_else(|_| format!("%struct.{norm}"));

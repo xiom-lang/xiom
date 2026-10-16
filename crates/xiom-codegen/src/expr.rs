@@ -2904,7 +2904,11 @@ impl IrEmitter {
                         // `opt.unwrap()` of a Vec-of-struct pop/get): typed
                         // inttoptr + GEP field access on the heap box.
                         if llvm_ty == "i64" {
-                            if let Some(tn) = self.local.local_boxed_struct.get(&obj_ident.name).cloned() {
+                            let boxed_tn = self.local.local_boxed_struct.get(&obj_ident.name).cloned()
+                                // m336 (C-ORBIT-12): tolerate the bare/qualified
+                                // tuple-key split for boxed tuple payloads.
+                                .map(|tn| self.canonical_registered_tuple_key(&tn).unwrap_or(tn));
+                            if let Some(tn) = boxed_tn {
                                 if let Some(field_names) = self.types.types.get(&tn)
                                     .or_else(|| {
                                         let suffix = format!(".{tn}");
@@ -3660,7 +3664,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     let resolved_elem = self.resolve_vec_elem_type(container)
                         .or_else(|| mapped_elem.clone())
                         .or_else(|| cont_elem_xiom.clone()
-                            .map(|e| Self::tuple_xiom_to_struct_name(&e))
+                            // m336 (C-ORBIT-12): canonical tuple keys.
+                            .map(|e| self.canonical_registered_tuple_key(&Self::tuple_xiom_to_struct_name(&e))
+                                .unwrap_or_else(|| Self::tuple_xiom_to_struct_name(&e)))
                             .filter(|e| self.elem_uses_struct_layout(e)));
                     if let Some(elem_type_name) = resolved_elem {
                         // Record for CHAINED indexes: this Index expression

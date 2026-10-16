@@ -5346,14 +5346,22 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         // Type::Result/Option for `Result[..]`
                                         // returns -- render the FULL name;
                                         // type_from_ast drops the payloads.
+                                        // m336 (C-ORBIT-12): payload names go
+                                        // through canonical_payload_name so a
+                                        // TUPLE payload renders the qualified
+                                        // Tuple__<mod>.Val__Int spelling the
+                                        // signature/definition uses; a bare
+                                        // Tuple__Val__Int here made
+                                        // concrete_container_llvm register a
+                                        // second concrete Result key.
                                         Type::Result(ok, err) => format!(
                                             "Result[{}, {}]",
-                                            Self::type_from_ast(ok),
-                                            Self::type_from_ast(err)
+                                            self.canonical_payload_name(ok),
+                                            self.canonical_payload_name(err)
                                         ),
                                         Type::Option(inner) => format!(
                                             "Option[{}]",
-                                            Self::type_from_ast(inner)
+                                            self.canonical_payload_name(inner)
                                         ),
                                         _ => Self::type_from_ast(&subst),
                                     };

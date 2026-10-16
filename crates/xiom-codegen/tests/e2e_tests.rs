@@ -8754,3 +8754,72 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
         );
     }
 }
+
+// m336 (REL-20261015-2022-orbitdb; C-ORBIT-12): a tuple with an ENUM element
+// inside a Result whose ERROR type is ALSO an enum
+// (`Result[(T8Val, Int), T8Err]`) miscompiled on v0.64.5 / main / the m334
+// branch: the Result arm of concrete_type_for named the tuple payload via
+// type_from_ast (BARE `Tuple__T8Val__Int`) while the construction namers
+// built the module-qualified `Tuple__<mod>.T8Val__Int`, so the Ok lowering
+// stored the qualified value into the bare-named Result field and clang
+// hard-failed (`%tmpN defined with type ... but expected ...`). The fixture
+// ports the ORBITDB repro (enum-error red arm) plus the in-file Int-error
+// control (generic %struct.Result, green pre-fix) and the Err arm; both
+// payload sums must decode 110.
+#[test] fn e2e_m336_enum_tuple_enum_error() {
+    assert_eq!(
+        compile_and_run("tests/regression/m336_enum_tuple_enum_error/main.xi"),
+        Some(0),
+        "enum-element tuple inside an enum-error Result must keep ONE tuple spelling (m336)"
+    );
+}
+
+// m336 IR twin: the enum-element tuple must appear under exactly ONE spelling
+// -- the module-qualified `Tuple__m336_enum_tuple_enum_error.T8Val__Int` used
+// by the read_ee define/ret/store/load -- never the bare `Tuple__T8Val__Int`;
+// and --emit-ir must not warn `unknown type ... defaulting to i64` (the
+// silent-degradation mode this split produced in larger programs).
+#[test] fn e2e_m336_enum_tuple_enum_error_ir() {
+    let output = Command::new(xiom_path())
+        .args(["--force", "--no-cache", "--emit-ir",
+               "tests/regression/m336_enum_tuple_enum_error/main.xi"])
+        .current_dir(project_root())
+        .output()
+        .expect("emit-ir");
+    assert!(
+        output.status.success(),
+        "m336: --emit-ir must succeed; stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("unknown type"),
+        "m336: no unknown-type fallback may fire; stderr:\n{stderr}"
+    );
+    let ir = String::from_utf8_lossy(&output.stdout).to_string();
+    assert!(
+        ir.contains("define %struct.Result__Tuple__m336_enum_tuple_enum_error.T8Val__Int__T8Err @read_ee"),
+        "m336: read_ee must use the qualified concrete Result key"
+    );
+    assert!(
+        !ir.contains("Tuple__T8Val__Int"),
+        "m336: the bare Tuple__T8Val__Int spelling must not be emitted"
+    );
+    // Single-spelling scan: every `Tuple__<token>` spelling whose token ends
+    // in `T8Val__Int` must be the ONE qualified spelling.
+    let mut spellings: Vec<String> = Vec::new();
+    for chunk in ir.split("Tuple__").skip(1) {
+        let tok: String = chunk.chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '.')
+            .collect();
+        let sp = format!("Tuple__{tok}");
+        if sp.ends_with("T8Val__Int") && !spellings.contains(&sp) {
+            spellings.push(sp);
+        }
+    }
+    assert_eq!(
+        spellings,
+        vec!["Tuple__m336_enum_tuple_enum_error.T8Val__Int".to_string()],
+        "m336: the enum-element tuple must have exactly one spelling (mixing bare/qualified names was the bug)"
+    );
+}
