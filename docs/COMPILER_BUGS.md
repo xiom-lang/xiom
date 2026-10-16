@@ -18131,3 +18131,84 @@ all green (checker_locks 37 incl. the new gate lock), codegen lib 12,
 feature_regression 549, stdlib_execution 85 (+2 ignored), integration 130.
 
 Fix commit: see branch fix/m349-guarded-type-injection (unpushed).
+
+## 2026-10-16 -- FIXED (m350): payload field reads behind a `&Result[..]` / `&Option[..]` parameter crashed (REL-20261016-2016-packages)
+
+Reading `r.value` / `r.error` behind a `&Result[_, _]` (or `&Option[_]`)
+function parameter crashed 0xC0000005 when the payload is a user
+struct/enum; scalar-error shapes silently misread (`r.error as Str` len
+0xFFFFFFFF, an enum error 0xC000001D). Found by the xiom.jev founding
+build (packages/xiom-jev/**; the package now uses local bindings /
+match-by-value everywhere as a workaround, noted in its SPEC). RED on
+v0.64.5 and v0.64.6 main (375da766); m345 does NOT cover it.
+
+Root cause (two-layout incoherence at the READER site): `param_llvm_type`'s
+Ref arm (crates/xiom-codegen/src/lib.rs, `type_from_ast` erases
+`Result[T, E]` -> "Result") lowers every `&Result[..]` / `&Option[..]` to
+the BASE erased `%struct.Result*` / `%struct.Option*` (i64 handle slots),
+but when a payload is a user struct/enum every VALUE of that type is
+materialized with the concrete monomorph (`concrete_type_for` ->
+`ensure_concrete_result`/`ensure_concrete_option`), whose payload fields
+are INLINE (`%struct.Result__P__Str = { i64, %struct.P, i8* }`); the
+caller bitcasts monomorph -> base with no rebox. The pointer-to-struct
+field reader (expr.rs, `Expr::Field` -> the `%struct.`-pointer ident
+branch) then GEP'd the BASE pointee and read field 1 with
+`field_llvm_type` = i64 (the payload's first word) and `.error` at base
+offset 16 (mid-payload); the i64->struct coercion (coerce.rs)
+inttoptr'd those bits as a boxed handle -> AV. m345 fixed only the clause
+REBIND locals (`emit_payload_rebind`); this reader site was untouched.
+
+FIX (option A, mirrors m345): the reader branch now re-resolves the
+receiver's declared XIOM type (`local_xiom_types`, e.g.
+"&Result[P, Str]" / "&mut Option[P]") through `ref_receiver_concrete_pointee`
+(new; alias-expands, parses, and mirrors `concrete_type_for`'s naming:
+payload spellings verbatim, containers through their base name, tuples
+through the element-resolved `Tuple__` key; an already-registered
+monomorph variant wins, else `ensure_concrete_*` creates the canonical
+one), BITCASTS the receiver pointer to `%struct.Result__T__E*` and
+GEP/loads the field with `emitted_field_llvm_ty` (the ACTUAL emitted
+field type). Base layouts stay for scalar/Str/Vec payloads (no monomorph
+exists) and the tag predicates (`is_ok`/`is_err`/`is_some`/`is_none` on
+a pointer receiver) keep their base field-0 reads, which are
+offset-identical. NOT taken: the wider `param_llvm_type` Ref-arm ABI
+change (option B, generics/&mut blast radius) -- option A proved
+sufficient.
+
+Locks: `tests/regression/m350_result_ref_field_read/` (arms A struct
+payload `.value` behind `&Result[P, Str]`; B `&mut` twin; C the jev
+exact `&Result[Q, ScratchErr]` `.error` match + `.value`; D `&Option[P]`
+`.value`; E `&Result[Str, ScratchErr]` `.error` bound + matched -- all
+RED pre-fix; controls F Int payload, G Vec payload, H Str payload, I
+by-value param, J local `.value`, K enum-err match on a scalar Ok
+payload, L/M tag predicates, N Err-path vacuity) +
+`e2e_m350_result_ref_field_read` + `_ir` twin (ci.yml e2e group 2). The
+IR twin asserts each red-arm body BITCASTS `%struct.Result*`/
+`%struct.Option*` to the concrete monomorph and GEP/loads the INLINE
+payload (never `inttoptr`), and the scalar-payload control stays on the
+base `%struct.Result` layout with no `Result__Int__Int` created.
+
+Evidence (fixer worktree, windows): recon probes pre-fix on this line --
+probe4 rc 0xC0000005, probe2_jev 0xC0000005, probe3b rc 1 silent wrong,
+probe11 0xC000001D, probe6 0xC0000005 (all rc 0 post-fix). Pre-fix
+`get_a` IR: `getelementptr %struct.Result, ... i32 1` + `load i64` +
+`inttoptr i64 %tmp to %struct.P*`; post-fix: `bitcast %struct.Result*
+%tmp to %struct.Result__P__Str*` + `getelementptr %struct.Result__P__Str,
+... i32 0, i32 1` + `load %struct.P`. Fixture rc 0xC0000005 pre-fix ->
+rc 0 (`0 failing checks`) post-fix.
+
+RESIDUAL (same class, DIFFERENT site -- recorded, not fixed): `match o {
+Some(p) => ..., None => ... }` on a `&Option[P]` receiver (recon probe5)
+still materializes the scrutinee with the BASE struct type
+(stmt.rs `Stmt::Match` -> pointer-to-struct scrutinee trim, ~1989-1996):
+`load %struct.Option, %struct.Option* %ptr` reads only tag + 8 bytes of
+the 24-byte `%struct.Option__P`. The match-scrutinee materialization
+needs the same monomorph re-resolution (with a bitcast) in its own
+change -- the match machinery is far broader than the reader site.
+
+Battery green (fixer worktree, windows): e2e g1 16 (x2), e2e g2 274
+(x2), codegen lib 12, feature_regression 549, stdlib_execution 85
+(+2 ignored), integration 130.
+
+Fix commit: fa475ddd (branch fix/m350-result-ref-field-read, unpushed).
+
+---
