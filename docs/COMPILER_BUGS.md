@@ -17683,3 +17683,81 @@ g2 258 (x2), codegen lib 12, feature_regression 549, stdlib_execution 85
 (+2 ignored), integration 130, xiom-check lib 199 serial (catalog corpus
 gate).
 Fix commit: a37db7dd (branch fix/m341-catalog-call-binding, unpushed).
+
+## 2026-10-16 -- FIXED (m342): recoverable parse errors in IMPORTED modules surface as P001, never as a downstream undefined-variable cascade (REL-20261015-1358-engine, W1.3)
+
+Site: `crates/xiom-check/src/lib.rs` (`check_program` escalation) +
+`crates/xiom-check/src/catalog.rs` (`cached_parse_errors` accessor) +
+`crates/xiom/src/lib.rs` (driver rendering).
+
+Construct: a MODULE file whose fn contains a reserved-keyword var name --
+`fn calc(n: Int) -> Int { var fn = n + 1; return fn * 2; }` -- imported by
+an entry program. The parser RECOVERS (records P001 diagnostics, drops the
+enclosing declaration) and `parse_file` keeps the partial AST together with
+`parse_errors`. On the catalog-import path those diagnostics were consumed
+only by the corpus gate (`check_catalog_corpus`), never escalated to the
+user compile: the module loaded with `calc` MISSING from its surface and the
+importing entry failed with `error[T001]: undefined variable 'calc'` (plus
+an argument-mismatch cascade). Compiled ALONE the same module printed the
+P001 -- the inverted-surprise class the engine filed (witness
+out/tmp/sensors_cut.xi:86). ANY reserved keyword as a var/let name
+(`let`, `var`, `const`, `fn`, `return`, `if`, ...) hits the same class.
+
+Root cause: `parse_var_stmt` -> `parse_ident` rejects RESERVED_WORDS
+(parser-side, by design); the dropped-item knowledge lived in
+`CachedModule::parse_errors` and the only consumer was the corpus gate.
+
+Fix: `ModuleCatalog::cached_parse_errors()` exposes the recorded
+diagnostics (no AST clones, dotted-name order); `Checker::check_program`
+escalates them on the NORMAL path (`!corpus_loading`, once per module via
+`surfaced_parse_error_modules`) into hard `CheckError`s tagged
+`catalog parse [<module>]: <parser message>` with `code: Some("P001")`,
+prepended to the error list so the root cause leads. The driver renders
+them as `error[P001]: parse error in imported module [<module>]
+<line>:<col>: <msg>` and -- when any are present -- reports ONLY the module
+parse errors plus a `downstream diagnostic(s) suppressed` note, so a
+dropped item can never masquerade as undefined variable. The corpus gate
+path is untouched (own collection + `is_clean()` gate); valid modules never
+enter the escalation; single-file compiles unaffected.
+
+Evidence (fixer worktree, windows, pinned stdlib): pre-fix entry compile
+rc 1 with ONLY `undefined variable 'calc'`; post-fix rc 1 with 4x
+`error[P001]: parse error in imported module [xiom.m342vf.gen] 13:12: 'fn'
+is a reserved keyword...` + suppression note; the `var let` sibling module
+gets the same surface ([xiom.m342vf.misc]); module-alone `--check` P001
+unchanged; parse-clean sibling control compiles+runs (prints 5/8, rc 0)
+pre and post.
+
+LOCKS: `tests/regression/m342_varfn_parse_surface/` (main.xi +
+main_reserved.xi + control_main.xi + xiom/m342vf/{gen,misc,ok}.xi) with
+`e2e_m342_module_parse_error_surface`, `e2e_m342_module_alone_hard_p001`,
+`e2e_m342_reserved_var_name_surface`, `e2e_m342_sibling_module_control`
+(ci e2e group 2; the poison entries are RED pre-fix -- only
+undefined-variable T001s surface).
+FALLOUT REPAIR (same commit): the new surface exposed latent parse errors
+in an EXISTING landed lock fixture --
+tests/regression/m337_imported_global_qualified_type's three module files
+wrote `pub type X = { ... };` (trailing ';' after a braced body). The braced
+type-alias arm does NOT consume the optional ';' the sibling arms do
+(`type X = enum {...}` ~line 556, tuple structs ~line 563), so each such
+line was itself a recoverable parse error: silent on the import path, a
+hard P001 for an ENTRY file today. The fixture was canonicalized to the
+documented `}` spelling (docs/examples use no trailing ';'); the m337 locks
+stay green (m337_imported_global_qualified_type + _ir + _stdlib re-run).
+NOT a grammar relaxation -- the optional-';' inconsistency in
+parse_type_decl's braced arm is left to an owner decision (accept the
+spelling vs keep strict).
+Battery green (fixer worktree, windows): xiom-check lib 199 (serial; catalog corpus
+gate), codegen lib 12, feature_regression 549, stdlib_execution 85 (+2
+ignored), integration 130, xiom lib 65, checker_locks 35; e2e g1 16 (x2) +
+g2 256 (x2) plus the m337+m342 locks 7/7; full unfiltered e2e 2554 passed /
+11 parallel-load flakes (empty-stderr compile kills under the 2569-test
+parallel run; ALL 11 green on an isolated rerun, and e2e_spawn_basic -- in
+the g1 line -- green in both g1 runs).
+Residual: modules loaded via the NON-caching `peek_owned` (qualified-call
+submodule walks) are not surfaced -- they reach the cache only through
+`use`/worklist loads; their parse errors stay silent until loaded. Recovered
+parse diagnostics that drop only a stray token (nothing semantic) now also
+fail the build -- intended (they are parse errors), verified against the
+repo corpus via the battery + the full unfiltered e2e suite.
+Fix commit: SHA_PENDING (branch fix/m342-varfn-parse-surface, unpushed).

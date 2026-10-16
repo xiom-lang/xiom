@@ -74,6 +74,11 @@ pub struct Checker {
     /// gate passes modules that a real compile rejects (`xiom.os` references
     /// `io` without `use xiom.io;`).
     corpus_loading: bool,
+    /// m342 (REL-20261015-1358-engine W1.3): dotted names of catalog modules
+    /// whose recoverable PARSE diagnostics have already been escalated into
+    /// `errors` on the normal (non-corpus) path -- repeat `check_program`
+    /// calls on one checker instance must not duplicate a module's surface.
+    surfaced_parse_error_modules: HashSet<String>,
     /// R15: catalog-body module-qualified call sites -> fully-dotted resolved
     /// key ("line:col" -> "xiom.encoding.base32.base32_encode"). The driver
     /// hands this to codegen so same-leaf delegations bind the module the
@@ -394,6 +399,7 @@ impl Checker {
             // un-ignored corpus gate is the regression canary.
             strict_catalog_findings: true,
             corpus_loading: false,
+            surfaced_parse_error_modules: HashSet::new(),
             catalog_resolved_calls: HashMap::new(),
             program_bare_targets: HashMap::new(),
             pre_use_module_keys: HashSet::new(),
@@ -2298,6 +2304,39 @@ impl Checker {
         self.collect_signatures(program);
         self.check_all_bodies(program);
         Self::perf_mark("check-bodies");
+
+        // m342 (REL-20261015-1358-engine W1.3): recoverable parse errors in
+        // IMPORTED catalog modules were consumed only by the corpus gate --
+        // a partially-parsed module silently lost the dropped declarations
+        // and the user compile failed with a downstream T001 (a `var fn`
+        // inside the module's fn made `calc` vanish -> undefined variable).
+        // On the normal path, escalate them to hard diagnostics tagged with
+        // the module identity so a dropped item can never masquerade as a
+        // name-resolution bug. The corpus gate (`corpus_loading`) keeps its
+        // own collection in `check_catalog_corpus`.
+        if !self.corpus_loading {
+            let mut escalated: Vec<CheckError> = Vec::new();
+            for (module, parse_errors) in self.catalog.cached_parse_errors() {
+                if !self.surfaced_parse_error_modules.insert(module.clone()) {
+                    continue;
+                }
+                for (message, span) in &parse_errors {
+                    escalated.push(CheckError {
+                        message: format!("catalog parse [{module}]: {message}"),
+                        span: *span,
+                        cause: crate::types::TypeCause::Other,
+                        guaranteed: xiom_ast::ErrorGuaranteed::new(),
+                        code: Some("P001".into()),
+                    });
+                }
+            }
+            if !escalated.is_empty() {
+                // Root cause first: the parse error leads; any downstream
+                // resolution cascade follows (the driver suppresses it).
+                escalated.append(&mut self.errors);
+                self.errors = escalated;
+            }
+        }
 
         // Stage 6 W002: unconditional recursive cycles. User-program scope
         // only; warning-only (never error).

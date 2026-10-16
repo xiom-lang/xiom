@@ -8,7 +8,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 module xiom.m337sync.mutex;
 
-pub type SyncMutex = { locked: *Int; };
+pub type SyncMutex = { locked: *Int; }
 
 pub fn mutex_new() -> SyncMutex {
   var p: *Int = null;
@@ -16,7 +16,7 @@ pub fn mutex_new() -> SyncMutex {
   return SyncMutex{ locked: p; };
 }
 
-pub type Guarded = { p: *Int; v: Int; w: Int; };
+pub type Guarded = { p: *Int; v: Int; w: Int; }
 
 pub fn guarded_new() -> Guarded {
   var p: *Int = null;

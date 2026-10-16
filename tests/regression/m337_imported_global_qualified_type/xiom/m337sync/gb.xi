@@ -6,4 +6,4 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 module xiom.m337sync.gb;
 
-pub type Widget = { beta: Int; gamma: Int; };
+pub type Widget = { beta: Int; gamma: Int; }

@@ -9101,3 +9101,101 @@ fn collect_files_with_ext(dir: &Path, ext: &str, out: &mut Vec<std::path::PathBu
         "m341: reflect-before-cons import order must stay green"
     );
 }
+
+// m342 (REL-20261015-1358-engine, W1.3): a RECOVERABLE parse error inside an
+// IMPORTED module (`var fn` -- `fn` is a reserved keyword) used to be
+// swallowed on the import path: the module loaded into the catalog from its
+// partially-parsed AST (the parser jumps to the next declaration), `calc`
+// vanished from its surface, and the entry compile failed with a downstream
+// `error[T001]: undefined variable 'calc'` -- the dropped item masqueraded as
+// a name-resolution bug. The module's recorded parse diagnostics must now
+// escalate to a hard P001 naming the module path + position, and the
+// downstream cascade must not be the reported failure.
+#[test] fn e2e_m342_module_parse_error_surface() {
+    let output = Command::new(xiom_path())
+        .args(["--emit-ir", "tests/regression/m342_varfn_parse_surface/main.xi"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed to run xiom");
+    assert!(
+        !output.status.success(),
+        "an imported module with a parse error must fail the build (m342); stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("error[P001]"),
+        "the imported module's parse error must surface as P001; got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("reserved keyword"),
+        "the parser's own message must be preserved; got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("xiom.m342vf.gen"),
+        "the diagnostic must name the imported module; got:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("undefined variable 'calc'"),
+        "the downstream T001 cascade must not masquerade as the failure (m342); got:\n{stderr}"
+    );
+}
+
+// m342 module-alone leg: compiling the poisoned module BY ITSELF always
+// reported the P001 (the entry-file parse path); the lock keeps that hard
+// parse error in place at module compile time.
+#[test] fn e2e_m342_module_alone_hard_p001() {
+    let output = Command::new(xiom_path())
+        .args(["--check", "tests/regression/m342_varfn_parse_surface/xiom/m342vf/gen.xi"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed to run xiom");
+    assert!(
+        !output.status.success(),
+        "a module with a reserved-keyword var must not pass --check (m342)"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("P001") && stderr.contains("reserved keyword"),
+        "the module compile must hard-fail with the P001; got:\n{stderr}"
+    );
+}
+
+// m342 sibling case: ANY reserved keyword as a var name (`var let`) is the
+// same recoverable-parse class as `var fn` -- the entry importing that module
+// must get the P001 surface too, never the downstream cascade.
+#[test] fn e2e_m342_reserved_var_name_surface() {
+    let output = Command::new(xiom_path())
+        .args(["--emit-ir", "tests/regression/m342_varfn_parse_surface/main_reserved.xi"])
+        .current_dir(project_root())
+        .output()
+        .expect("failed to run xiom");
+    assert!(
+        !output.status.success(),
+        "an imported module with `var let` must fail the build (m342)"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("error[P001]") && stderr.contains("reserved keyword"),
+        "the `var let` module's P001 must surface; got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("xiom.m342vf.misc"),
+        "the diagnostic must name the module; got:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("undefined variable 'calc_let'"),
+        "no downstream cascade may masquerade as the failure (m342); got:\n{stderr}"
+    );
+}
+
+// m342 control: the same import shape against a parse-clean sibling module
+// stays green (prints 5 then 8, exit 0; self-checked) -- the escalation is
+// inert for valid modules.
+#[test] fn e2e_m342_sibling_module_control() {
+    assert_eq!(
+        compile_and_run("tests/regression/m342_varfn_parse_surface/control_main.xi"),
+        Some(0),
+        "a parse-clean imported sibling module must stay green (m342)"
+    );
+}

@@ -6,7 +6,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 module xiom.m337sync.ga;
 
-pub type Widget = { alpha: Int; };
+pub type Widget = { alpha: Int; }
 
 pub fn make_ga() -> Int {
   return 7;

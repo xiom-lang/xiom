@@ -725,6 +725,21 @@ impl ModuleCatalog {
         targets
     }
 
+    /// m342 (REL-20261015-1358-engine W1.3): dotted name + recoverable parse
+    /// diagnostics for every CACHED module that has any. Lightweight -- no AST
+    /// clones, deterministic order. The checker escalates these into hard
+    /// user-facing diagnostics on the normal build path, so a partially-parsed
+    /// module can never masquerade as a downstream undefined-variable cascade.
+    pub fn cached_parse_errors(&self) -> Vec<(String, Vec<(String, Span)>)> {
+        let mut rows: Vec<(String, Vec<(String, Span)>)> = self.cache
+            .values()
+            .filter(|m| !m.parse_errors.is_empty())
+            .map(|m| (m.dotted_name.clone(), m.parse_errors.clone()))
+            .collect();
+        rows.sort_by(|a, b| a.0.cmp(&b.0));
+        rows
+    }
+
     /// Returns all cached modules as owned clones (for snapshot iteration).
     pub fn all_cached(&self) -> Vec<CachedModule> {        // BUG 23 #5 fix: deterministic ORDER -- the cache is a HashMap, so
         // iteration order is randomized per process. collect_external_decls

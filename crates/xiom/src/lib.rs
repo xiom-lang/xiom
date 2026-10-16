@@ -22,6 +22,7 @@ use xiom_ast::*;
 use xiom_lexer::Lexer;
 use xiom_parser::Parser;
 use xiom_check::{Checker, BorrowChecker};
+use xiom_check::types::CheckError;
 use xiom_codegen::IrEmitter;
 use xiom_verify::SMTGenerator;
 
@@ -695,16 +696,39 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
         warnings.push(w.message.clone());
     }
     if let Err(errors) = check_outcome {
-        for err in &errors {
+        // m342 (REL-20261015-1358-engine W1.3): a recoverable parse error in
+        // an IMPORTED module is the root cause -- report the module's P001s
+        // and drop the downstream resolution cascade (undefined variable,
+        // argument mismatch) that used to masquerade as the failure.
+        let parse_class: Vec<&CheckError> = errors.iter()
+            .filter(|e| split_catalog_parse(&e.message).is_some())
+            .collect();
+        let shown: Vec<&CheckError> = if parse_class.is_empty() {
+            errors.iter().collect()
+        } else {
+            parse_class.clone()
+        };
+        for err in &shown {
             let suggestion = suggest_fix(&err.message);
             let (help, note) = diagnostic_for(&err.message);
-            result.diagnostics.push(Diagnostic {
-                kind: "type_error".into(), code: "T001".into(),
-                message: err.message.clone(),
-                line: err.span.line, col: err.span.col, file: "<unknown>".into(),
-                suggestion: Some(suggestion),
-                help, note,
-            });
+            if let Some((module, msg)) = split_catalog_parse(&err.message) {
+                result.diagnostics.push(Diagnostic {
+                    kind: "parse_error".into(), code: "P001".into(),
+                    message: msg.to_string(),
+                    line: err.span.line, col: err.span.col,
+                    file: format!("catalog:{module}"),
+                    suggestion: Some(suggestion),
+                    help, note,
+                });
+            } else {
+                result.diagnostics.push(Diagnostic {
+                    kind: "type_error".into(), code: "T001".into(),
+                    message: err.message.clone(),
+                    line: err.span.line, col: err.span.col, file: "<unknown>".into(),
+                    suggestion: Some(suggestion),
+                    help, note,
+                });
+            }
         }
         // Collect warnings from stderr-like messages
         for err in &errors {
@@ -1083,6 +1107,19 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         eprintln!("warning[{}]: {l}:{c}: {m}", w.code.as_deref().unwrap_or("W000"), l = w.span.line, c = w.span.col, m = w.message);
     }
     if let Err(errors) = check_outcome {
+        // m342 (REL-20261015-1358-engine W1.3): a recoverable parse error in
+        // an IMPORTED module is the root cause -- report the module's P001s
+        // alone and drop the downstream resolution cascade (undefined
+        // variable, argument mismatch) that used to masquerade as the
+        // failure. Valid modules are unaffected (their list is empty).
+        let parse_class: Vec<&CheckError> = errors.iter()
+            .filter(|e| split_catalog_parse(&e.message).is_some())
+            .collect();
+        let shown: Vec<&CheckError> = if parse_class.is_empty() {
+            errors.iter().collect()
+        } else {
+            parse_class.clone()
+        };
         if config.diagnostics_json {
             // Stage 6: the envelope carries the warning stream (with codes)
             // ahead of the hard errors so CI can match on `code`.
@@ -1093,7 +1130,19 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 file: effective_sources.first().map(|s| s.as_str()).unwrap_or("<unknown>").to_string(),
                 suggestion: None, help: None, note: None,
             }).collect();
-            diags.extend(errors.iter().map(|err| {
+            diags.extend(shown.iter().map(|err| {
+                if let Some((module, msg)) = split_catalog_parse(&err.message) {
+                    // m342: module parse errors keep the P001 identity and a
+                    // module file attribution (the span points into the
+                    // MODULE file, never the user file).
+                    return Diagnostic {
+                        kind: "parse_error".into(), code: "P001".into(),
+                        message: msg.to_string(), line: err.span.line, col: err.span.col,
+                        file: format!("catalog:{module}"),
+                        suggestion: Some(suggest_fix(msg)),
+                        help: None, note: None,
+                    };
+                }
                 // R-5: catalog findings get a real `file` attribution (the
                 // module they come from) instead of a user-file line guess.
                 let file = match split_catalog_finding(&err.message) {
@@ -1110,12 +1159,14 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             }));
             println!("{}", diagnostics_json(&diags));
         } else {
-            for err in &errors {
+            for err in &shown {
                 let (help_msg, note_msg) = diagnostic_for(&err.message);
                 // R-5: catalog finding spans point into the CATALOG file --
                 // tag the module first so `line:col` cannot be mistaken for a
                 // user-file location.
-                if let Some((module, msg)) = split_catalog_finding(&err.message) {
+                if let Some((module, msg)) = split_catalog_parse(&err.message) {
+                    eprintln!("error[P001]: parse error in imported module [{module}] {l}:{c}: {msg}", l = err.span.line, c = err.span.col);
+                } else if let Some((module, msg)) = split_catalog_finding(&err.message) {
                     eprintln!("error[T001]: catalog body [{module}] {l}:{c}: {msg}", l = err.span.line, c = err.span.col);
                 } else {
                     eprintln!("error[T001]: {l}:{c}: {m}", l = err.span.line, c = err.span.col, m = err.message);
@@ -1127,11 +1178,21 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                     eprintln!("  = help: {help}");
                 }
             }
+            if !parse_class.is_empty() {
+                let suppressed = errors.len() - parse_class.len();
+                if suppressed > 0 {
+                    eprintln!("note: {suppressed} downstream diagnostic(s) suppressed -- fix the imported module's parse error first");
+                }
+            }
         }
         if !is_multi_file {
             return Err(vec!["compilation failed".to_string()]);
         }
-        eprintln!("note: {} type errors -- aborting codegen", errors.len());
+        if parse_class.is_empty() {
+            eprintln!("note: {} type errors -- aborting codegen", errors.len());
+        } else {
+            eprintln!("note: {} parse error(s) in imported module(s) -- aborting codegen", parse_class.len());
+        }
         return Err(vec!["compilation failed".to_string()]);
     }
 
@@ -2807,6 +2868,15 @@ pub fn suggest_fix(msg: &str) -> String {
 /// `line:col` that reads as a user-file position.
 pub fn split_catalog_finding(message: &str) -> Option<(&str, &str)> {
     message.strip_prefix("catalog body [")?.split_once("]: ")
+}
+
+/// m342 (REL-20261015-1358-engine W1.3): split a checker diagnostic tagged
+/// `catalog parse [<module>]: <message>` -- recoverable PARSE errors
+/// escalated from an IMPORTED module (the parser recovered by dropping
+/// declarations, so the module's surface is incomplete). Same attribution
+/// rule as `split_catalog_finding`.
+pub fn split_catalog_parse(message: &str) -> Option<(&str, &str)> {
+    message.strip_prefix("catalog parse [")?.split_once("]: ")
 }
 
 pub fn escape_json(s: &str) -> String {
