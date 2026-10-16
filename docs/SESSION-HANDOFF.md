@@ -14,6 +14,43 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION WRAP 2026-10-16T11:30Z (compiler lane; context moving to the next session) -- READ THIS FIRST ***
+- Last session's scope: the v0.64.6 general-Darwin stream (COMPLETE, CI-green; the
+  23:40Z block below carries the fix/evidence detail) + ad-hoc compiler-lane duty:
+  relay intakes, the m334/m335 fixer wave, and the selfhost Phase 6 kick-off.
+- STATE AT WRAP (all verified):
+  * stdlib: 2bc064e + 9d6a4d5 on main; e72288f (win64 fp128 convention split:
+    clang>=21 pointer shims / clang<=20 XMM shims) is on the witness branch
+    witness/darwin-runtime-v0.64.6 and NOT merged -- TOP OPEN LOOP: the stdlib
+    lane should merge e72288f at their next wave (relay 2011 says so); the
+    branch is disposable afterwards. Waves 145/146 (real OS threads) landed on
+    stdlib main overnight.
+  * Compiler repo: local main = 9096c711 + this wrap commit (docs only,
+    UNPUSHED per constraints). Fixer branches done, not merged (the wave
+    process merges): m334 fix/m334-tuple-name-collision (b5b97427 + 5784c7c3;
+    tuple-name collision via the from_utf8 Call-arm type inference), m335
+    m335-bigint-bitops (d234d792 + e50d79dd; B-29 triaged to the bindings
+    probe's own literal mis-conversion -- big-int bitops are EXACT; correction
+    filed on REL-20261014-1208-bindings-2 with a reporter re-run requested).
+  * Relay: zero open+unacked compiler items. Fixer queue (all acked, to
+    schedule): C-ORBIT-12 (REL-20261015-2022; still red on the official
+    artifacts per the orbitdb check), XVC-C-16 (2142; linux /search
+    regression), XVC-C-17 (2216), 1941 (fixed by m334 -- re-test C-ORBIT-12 +
+    2303/2309 against the m334 branch FIRST), 2303 enum-variant defects, 2309
+    mixed-element tuples, 2309-2 bare-assert mis-bind, 2328 stdlib-6 residuals,
+    2343 bare-inline i32 misread, B-32 (2130), plus the older acked set
+    (1504/1509/1358/1538/1109/2032...). Open finding: __fixdfti (Float128 as
+    Int128 links the missing double->i128 helper on win64).
+  * Selfhost: Phase 6 advanced overnight (rebase-drift port, P5b, tuple-name
+    P2a byte-exact; REL-20261013-1732 FIXED + standalone repro filed). Lane
+    home: AM worktree selfhost-phase-4-codegen; check the AM list for its
+    current state.
+  * Watch: the hourly relay-watch cron is session-scoped and dies with this
+    session's goal -- a next session should re-arm a watch if desired.
+- NEXT SESSION: start from this block + the 23:40Z block below; the stdlib lane
+  merge of e72288f and the fixer queue are the two live threads; everything
+  else is recorded on the relay (2011/2013 and the intake items).
+
 *** v0.64.6 DARWIN STREAM COMPLETE 2026-10-15T23:40Z -- READ THIS FIRST ***
 - Scope (owner decision per relay 1549/1609-pulse; this session's goal): the
   general-Darwin workstream. ALL THREE NAMED RUNTIME GAPS FIXED; the engine
