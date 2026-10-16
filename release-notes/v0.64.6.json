@@ -1,47 +1,52 @@
 {
   "schema": 1,
   "tag": "v0.64.6",
-  "summary": "A correctness release over the v0.64.5 waves: tuple naming is canonical in every position, catalog binding and import surfaces resolve exactly, scalar-named enum variants stop shadowing builtins, imported-type globals keep their layouts, the clang-18 linux miscompile is fixed, and the dependency C pipeline compiles through an object cache.",
+  "summary": "Canonical tuple naming, import/catalog resolution, builtin-shadow and imported-global fixes, the clang-18 linux fix, cached dependency C builds, and the borrow/contract batches -- on the stdlib-v0.64.6 pin.",
   "highlights": [
     {
       "kind": "compiler",
       "title": "Tuple names are canonical everywhere",
-      "text": "Inline Str-producer elements and enum-element tuples keep ONE tuple spelling across construction, signatures and reads: the m334/m336 fixes close the C-ORBIT-12 enum-error case and the 1941 inline-from_utf8 case, so no site can build one name while another expects a different one."
+      "text": "Inline Str-producer elements and enum-element tuples keep ONE tuple spelling across construction, signatures and reads: no site can build one name while another expects a different one, closing the enum-in-tuple link failure and the inline-from_utf8 mismatch in the same family."
     },
     {
       "kind": "fix",
-      "title": "Scalar-named enum variants stop shadowing builtins",
-      "text": "A module with a variant named Str (or any scalar name) no longer hijacks the builtin qualifier: Str::from_utf8 and friends resolve as builtins again, while non-scalar variant precedence from m315 stays intact."
-    },
-    {
-      "kind": "fix",
-      "title": "Imported-type globals keep their layouts",
-      "text": "Module-level vars declared with dotted imported-type spellings (module alias or full path) resolve to the registered struct key: multi-field struct globals store and read every field instead of an i64 slot, and the unknown-type defaulting warning is gone."
+      "title": "Builtins stop being shadowed; imported globals keep layout",
+      "text": "A module with an enum variant named Str no longer hijacks the builtin qualifier, so Str::from_utf8 works there again. Module-level vars with dotted imported-type spellings resolve to the registered struct key: multi-field globals store and read every field, without the defaulting warning."
     },
     {
       "kind": "fix",
       "title": "Catalog binding and import surfaces resolve exactly",
-      "text": "Bare calls in secondary modules bind the imported submodule owner instead of a same-leaf parent (with deterministic resolution when owners collide), pub-use re-exported consts reach catalog bodies, and recoverable parse errors in imported modules surface as P001 with a suppression note instead of a downstream undefined-variable cascade."
+      "text": "Bare calls in secondary modules bind the imported submodule owner instead of a same-leaf parent (deterministic on collisions), pub-use re-exported consts reach catalog bodies, and recoverable parse errors in imported modules surface as P001 instead of an undefined-variable cascade."
     },
     {
       "kind": "fix",
       "title": "clang-18 linux miscompile fixed (optimizer stage)",
-      "text": "The linux-x64 /search miscompile was pinned to clang-18's X86 Avoid Store Forwarding Blocks pass interleaving an overlapping copy: native x86_64 builds driven by clang 18 now disable that pass (IR and ABI unchanged; every other toolchain's invocation byte-identical)."
+      "text": "The linux-x64 /search miscompile was pinned to clang-18's X86 Avoid Store Forwarding Blocks pass interleaving an overlapping copy: native x86_64 builds driven by clang 18 now disable that pass (no IR/ABI change; every other toolchain's argv byte-identical)."
     },
     {
       "kind": "compiler",
       "title": "Dependency C builds compile once",
-      "text": "Dependency port.args.json c_sources now compile through an object cache (same key scheme as the runtime object cache) and link from cached objects, and a dependency's declared --timeout floors the watchdog at consumer builds: heavy manifests stop recompiling hundreds of TUs on every probe."
+      "text": "Dependency port.args.json c_sources now compile through an object cache and link from cached objects, and a dependency's declared --timeout floors the watchdog at consumer builds: heavy manifests stop recompiling hundreds of TUs on every probe."
     },
     {
       "kind": "compiler",
-      "title": "E001 move coverage and clause payload rebinds",
-      "text": "The borrow pass now resolves declared types, so call-initialized locals and field projections report use-of-moved-value (annotated/unannotated parity, scalar exemption kept), and contract clause payload rebinds are layout-aware for concrete monomorphs -- inline aggregate payloads read their real fields instead of an inttoptr-as-handle."
+      "title": "Bindings, moves, clauses and field chains",
+      "text": "The borrow pass resolves declared types (call-init and field-projection moves now warn), contract clause payload rebinds are layout-aware for concrete monomorphs, and inferred bindings from generic-substituted field elements keep their element type instead of degrading to a pointer-as-Int slot."
+    }
+  ],
+  "breaking": [],
+  "known_issues": [
+    "Comparing containers with equality operators is pointer identity: two equal vectors compare unequal, and equal results containing vectors compare unequal; deep container equality is queued."
+  ],
+  "docs": [
+    {
+      "title": "Contracts guide",
+      "url": "https://docs.xiom-lang.org/latest/contracts/"
     },
     {
-      "kind": "fix",
-      "title": "Darwin toolchain pair",
-      "text": "The pinned stdlib (stdlib-v0.64.6) carries the win64 fp128 convention split and the darwin fixes verified in the darwin stream; the compiler side ships the memset declare from the same line of work."
+      "title": "Language guide",
+      "url": "https://docs.xiom-lang.org/latest/"
     }
-  ]
+  ],
+  "full_changelog": "https://github.com/xiom-lang/xiom/releases/tag/v0.64.6"
 }
