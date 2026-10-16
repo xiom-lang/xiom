@@ -1566,6 +1566,37 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                     }
                 }
             }
+            // m339 (REL-20261015-2142-xvector, XVC-C-16): clang-18's
+            // X86AvoidStoreForwardingBlocks codegen pass rewrites wide
+            // (XMM/YMM) memcpy load/store pairs into interleaved narrower
+            // copies. The rewrite assumes the load source and store
+            // destination are disjoint -- which holds in the IR (two
+            // distinct allocas), but xiom's temp-arena placement can still
+            // make them overlap by 16 bytes at runtime (the 128-byte
+            // SearchRequest materialization in
+            // vector.api.http_service.search_req_from_json), and the
+            // interleaved order then reads bytes its own earlier partial
+            // stores already clobbered. Observed on linux-x64 / WSL clang
+            // 18.1.3: /search 404s + spurious 400s (probe exit 3 at
+            // -O2/-O3, exit 0 at -O0; Windows clang 22 stays green).
+            // The pass is a store-forwarding-stall performance fixup, not a
+            // correctness requirement; LLVM 18 exposes a hidden disable
+            // flag, passed here for exactly the affected toolchain (clang
+            // 18). Evidence (m339): -mllvm -opt-bisect-limit=98456 green /
+            // 98457 red pins the flip to that single pass instance; with
+            // the flag the repro is rc 0 at -O2 and -O3 on WSL clang 18,
+            // rc 3 without; emitted IR is byte-identical either way.
+            if config.target == Target::Native
+                && cfg!(target_arch = "x86_64")
+                && clang_info
+                    .version
+                    .as_deref()
+                    .map_or(false, |v| clang_major_version(v) == Some(18))
+            {
+                cmd.args(["-mllvm", "-x86-disable-avoid-SFB=true"]);
+                rt_compile_args.push("-mllvm".to_string());
+                rt_compile_args.push("-x86-disable-avoid-SFB=true".to_string());
+            }
             if asm_objects.is_empty() {
                 cmd.arg("-DXIOM_NO_ASM");
                 rt_compile_args.push("-DXIOM_NO_ASM".to_string());
@@ -2379,8 +2410,25 @@ fn normalize_cxx_std(v: &str) -> String {
     if v.starts_with("c++") || v.starts_with("gnu++") {
         v.to_string()
     } else {
-        format!("c++{v}")
+        format!("c++{}", v)
     }
+}
+
+/// Major version from a `clang --version` first line, e.g.
+/// `Ubuntu clang version 18.1.3 (1ubuntu1)` -> 18. m339: gates the
+/// `-mllvm -x86-disable-avoid-SFB=true` workaround (XVC-C-16) to the
+/// affected toolchain, so hosts with older/newer clang (where the hidden
+/// LLVM option may not exist) keep their exact previous invocation.
+fn clang_major_version(version_first_line: &str) -> Option<u32> {
+    let mut tokens = version_first_line.split_whitespace();
+    while let Some(tok) = tokens.next() {
+        if tok == "version" {
+            let v = tokens.next()?;
+            let digits: String = v.chars().take_while(|c| c.is_ascii_digit()).collect();
+            return digits.parse().ok();
+        }
+    }
+    None
 }
 
 /// m214 (--icon): compile a `.ico` into a Windows `.res` via `llvm-rc`
@@ -3134,6 +3182,16 @@ mod tests {
         assert!(!is_cxx_source("x.c"));
         assert!(!is_cxx_source("x.o"));
         assert!(!is_cxx_source("noext"));
+    }
+
+    #[test]
+    fn clang_major_version_gate_m339() {
+        assert_eq!(clang_major_version("Ubuntu clang version 18.1.3 (1ubuntu1)"), Some(18));
+        assert_eq!(clang_major_version("clang version 22.1.0"), Some(22));
+        assert_eq!(clang_major_version("Apple clang version 16.0.0 (clang-1600.0.26.6)"), Some(16));
+        assert_eq!(clang_major_version("clang (version unknown)"), None);
+        assert_eq!(clang_major_version(""), None);
+        assert_eq!(clang_major_version("gcc (Ubuntu 13.3.0-6ubuntu2) 13.3.0"), None);
     }
 
     fn write_temp_file(name: &str, content: &str) -> std::path::PathBuf {

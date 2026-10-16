@@ -17478,3 +17478,51 @@ applied), e2e g1 16 + g2 243 (x2), codegen lib 12, feature_regression
 report-only: `probe_d_mixed3`/`probe_b_4field` green, `probe_d3_result_value`/
 `probe_d4_main` STILL RED (`Tuple__Vec[UInt8]__Str__Int` bracket-encoding
 family -- separate fixer, per recon).
+
+## 2026-10-16 -- FIXED (m339, XVC-C-16): linux clang-18 miscompiles the xvector HTTP /search path (SFB pass)
+
+REL-20261015-2142-xvector (XVC-C-16): v0.64.5 linux-x64 miscompiled the
+HTTP service /search path (WSL battery RED on 6 service gates; committed
+repro docs/repro/xv-http-service-linux exits 3; v0.64.4 linux and
+v0.64.5 windows green).
+
+ROOT CAUSE CHAIN (all on the byte-identical v0.64.5 emitted IR, WSL
+clang 18.1.3):
+
+- -O0 green / -O2 and -O3 red -> optimizer-stage miscompile only.
+- `clang-18 -mllvm -opt-bisect-limit=N` over the emitted IR: N=98456
+  green, N=98457 red. The single added pass instance is
+  `X86 Avoid Store Forwarding Blocks` on
+  `vector.api.http_service.search_req_from_json` (deterministic across
+  reruns).
+- That pass rewrites the 128-byte `SearchRequest` materialization copy
+  (4x32B VMOVUPS pairs) into interleaved 8/4/8/4/8-bit scalar copies.
+  The copy's source and destination overlap by 16 bytes at runtime
+  (xiom temp-arena placement; proven with a ptrace dump of the block
+  entry: src = dst - 0x10), so the interleaved order reads source bytes
+  its own earlier partial stores already clobbered -> corrupted request
+  fields -> 404s and spurious 400s from the service.
+- Binary-patch A/B on the same red build (identical layout/size):
+  replacing just that block with the all-loads-first 32B copy is GREEN
+  (8/8 runs); with the exact pre-pass vmovups bytes also GREEN (8/8,
+  interleaved A/B); equivalent scalar-interleaved copies stay RED.
+
+FIX (crates/xiom/src/lib.rs, driver): x86_64 native builds driven by
+clang major 18 now pass `-mllvm -x86-disable-avoid-SFB=true` on the
+clang invocation (the LLVM-18 hidden disable for that pass, declared in
+X86AvoidStoreForwardingBlocks.cpp). The pass is a store-forwarding-stall
+performance fixup, not a correctness requirement; the flag changes no
+IR, no ABI, and no other toolchain's invocation (older/newer clang keep
+their exact previous argv; gated via `clang_major_version`).
+
+EVIDENCE: with the flag the repro is rc 0 at -O2 AND -O3 on WSL clang
+18.1.3; without it rc 3 (3 failed checks). Windows (clang 22) probe
+still green; emitted IR unchanged (`--emit-ir` before/after
+byte-identical; the fix only alters the clang argv).
+
+QUEUED (follow-up, not part of m339): any RECOMPILE perturbation of the
+module (even adding an inert unused global) re-rolls clang codegen and
+exposes a second layout-sensitive corruption in the create path that is
+NOT the SFB pass (it survives the disable flag; binary diff shows only
+BB order + rip displacements changed). Needs its own bisect; candidate
+family: XVC-C-08/09/14 context-sensitive miscompiles.
