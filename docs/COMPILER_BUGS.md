@@ -17385,3 +17385,4 @@ feature_regression 549, stdlib_execution 85 (+2 ignored), integration
 same-leaf user types still hit the checker's unqualified-return edge
 (`assignment type mismatch: ga.Widget = Widget`, T001 -- pre-existing,
 reproduced pre-fix; not part of this defect).
+Fix commit: 94e69fd7 (branch fix/m337-xvc-c17-imported-global-var-type, unpushed).
