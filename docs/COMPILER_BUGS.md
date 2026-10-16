@@ -17520,6 +17520,29 @@ EVIDENCE: with the flag the repro is rc 0 at -O2 AND -O3 on WSL clang
 still green; emitted IR unchanged (`--emit-ir` before/after
 byte-identical; the fix only alters the clang argv).
 
+BATTERY (fixer worktree, Windows, m334 precedent): e2e g1 16/16 x2,
+e2e g2 241/241 x2 (full ci.yml group-2 line), codegen lib 12/12,
+feature_regression 549/549, stdlib_execution 85/85 (+2 ignored),
+integration 130/130.
+
+RISK NOTE (other clang-18.x builds): the option is registered in LLVM
+release/18.x (`X86AvoidStoreForwardingBlocks.cpp`, `cl::opt`
+"x86-disable-avoid-SFB") and was probed accepted by clang 18.1.3
+(rc 0, silent). An unknown `-mllvm` option is a HARD clang error
+("Unknown command line argument ...", rc 1), never a warning, so an
+18.x build with a renamed/removed option would fail the compile loudly
+instead of silently miscompiling. The major==18 version gate keeps
+every other toolchain's argv byte-identical; probed for reference,
+clang 22.1.8 also still accepts the option, but the gate deliberately
+leaves it unused there so the Windows path stays unchanged. No
+build-time capability probe is performed by design (the clang argv must
+stay deterministic for the runtime-object cache key); if a future 18.x
+point release rejects the flag, remove it from the argv (back to
+pre-fix behavior) and re-run the opt-bisect boundary before re-adding.
+CI: the unit lock `clang_major_version_gate_m339` rides the standard
+`cargo test --workspace --lib` job (ci.yml line 122), so no workflow
+change was needed.
+
 QUEUED (follow-up, not part of m339): any RECOMPILE perturbation of the
 module (even adding an inert unused global) re-rolls clang codegen and
 exposes a second layout-sensitive corruption in the create path that is

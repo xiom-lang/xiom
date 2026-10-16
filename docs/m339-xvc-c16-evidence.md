@@ -37,6 +37,17 @@ runtime-library change.
   it exits 0, 9/9 checks PASS.
 - `--emit-ir` unfixed vs fixed, same env: byte-identical
   (sha256 5C3908D9386C3012EC194F8D0D08BF8BD1188327458A82E1AA9F6ED8349E839E).
+- Battery (Windows fixer worktree, m334 precedent; log
+  `m339-battery.log` in the evidence bundle):
+  e2e g1 16/16 x2; e2e g2 241/241 x2 (full ci.yml group-2 line);
+  codegen lib 12/12; feature_regression 549/549;
+  stdlib_execution 85/85 (+2 ignored); integration 130/130.
+- Risk probe: clang 18.1.3 accepts `-mllvm -x86-disable-avoid-SFB=true`
+  (rc 0, silent); an unknown `-mllvm` option is a hard clang error
+  (rc 1, "Unknown command line argument") -- a build without the option
+  fails loudly, never silently miscompiles; clang 22.1.8 also still
+  accepts the option (unused there: the major==18 gate keeps every other
+  toolchain's argv byte-identical).
 
 ## Queued follow-up (not part of m339)
 
