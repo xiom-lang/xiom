@@ -9678,3 +9678,70 @@ fn m347_runtime_guard() -> Option<std::path::PathBuf> {
         "m348: no indirect i64-classified fn-pointer call may remain in main; got:\n{body}"
     );
 }
+
+// m349 (REL-20261016-2004-packages / XARROW-ARRAYNAME): a source-dir
+// catalog module (the installed-package model) declaring `pub type Array`
+// was silently dropped by the injection PRIMITIVES filter -- codegen had no
+// layout for the bare name, fell back to i64 ("unknown type 'Array' --
+// defaulting to i64") and every field read returned zero (arrow's imported C
+// struct named `Array`; they renamed it to DataArray). The compiler has no
+// builtin `Array` layout at all: fixed arrays parse as `Type::Array` and
+// type as `Array[<elem>]` (bracketed), so a bare `Array` can only be a real
+// user/package type. Post-fix the declaration injects like any struct and
+// the exact values must survive by-value return, &ref param, struct
+// literal, a registered method, a nested struct field and a Vec element.
+// Pre-fix: rc 255 (every fail bit set) + 20 unknown-type warnings.
+#[test] fn e2e_m349_catalog_guarded_type_names() {
+    assert_eq!(
+        compile_and_run("tests/regression/m349_catalog_guarded_type_names/main.xi"),
+        Some(0),
+        "m349: a catalog struct named `Array` must inject and keep its \
+         layout (pre-fix: zeroed i64 fallback, rc 255)"
+    );
+}
+
+// m349 IR twin: the injected catalog struct must reach codegen as a real
+// `%struct.Array` layout -- pre-fix the IR contained NO struct definition
+// for `Array` (every use erased to i64). The single owner injects on the
+// bare key (no collision qualification); the injected free fns keep their
+// module-qualified symbols (`@m349x.def.mk_arr`).
+#[test] fn e2e_m349_catalog_guarded_type_names_ir() {
+    let output = Command::new(xiom_path())
+        .args(["--force", "--no-cache", "--emit-ir",
+               "tests/regression/m349_catalog_guarded_type_names/main.xi"])
+        .current_dir(project_root())
+        .output()
+        .expect("emit-ir");
+    assert!(
+        output.status.success(),
+        "m349: --emit-ir must succeed; stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("unknown type"),
+        "m349: no unknown-type fallback may fire; stderr:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("defaulting to i64"),
+        "m349: the injected struct must not degrade to i64; stderr:\n{stderr}"
+    );
+    let ir = String::from_utf8_lossy(&output.stdout).to_string();
+    assert!(
+        ir.contains("%struct.Array = type { i64, i64 }"),
+        "m349: the catalog struct named `Array` must be registered with its real layout; got:\n{}",
+        ir.lines().filter(|l| l.contains("Array")).take(8).collect::<Vec<_>>().join("\n")
+    );
+    assert!(
+        ir.contains("%struct.Holder = type { %struct.Array, i64 }"),
+        "m349: a nested field of the injected type must keep the struct layout"
+    );
+    assert!(
+        ir.contains("define %struct.Array @m349x.def.mk_arr("),
+        "m349: the by-value return signature must use the struct, not an erased scalar"
+    );
+    assert!(
+        !ir.contains("call i64 @m349x.def.mk_arr("),
+        "m349: no i64-erased call to the catalog constructor may remain"
+    );
+}

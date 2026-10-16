@@ -821,3 +821,24 @@ fn m346_field_chain_elem_binding_check() {
          the inferred binding must resolve). stderr:\n{stderr}"
     );
 }
+
+/// m349 (REL-20261016-2004-packages / XARROW-ARRAYNAME): the legacy
+/// bare-`Array` builtin method fallback captured a REGISTERED user type of
+/// the same name -- `a.len()` on this struct type-checked as the builtin
+/// Int (pre-fix `--check` returned 0) while codegen later miscompiled the
+/// call. The fallback is now gated on `Array` not being a registered
+/// user/package type; the unknown-method diagnostic must surface. Fixed
+/// arrays (`Array[<elem>]`) keep their own arms and are unaffected.
+#[test]
+fn m349_array_builtin_method_gate() {
+    let (stderr, code) = check_on("m349_array_builtin_gate");
+    assert_ne!(
+        code,
+        Some(0),
+        "`.len()` on a user struct named `Array` must fail the check. stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("cannot call 'len' on this expression"),
+        "expected the unknown-method T001, got:\n{stderr}"
+    );
+}

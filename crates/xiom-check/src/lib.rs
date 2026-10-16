@@ -3676,7 +3676,7 @@ impl Checker {
             "UInt", "UInt8", "UInt16", "UInt32", "UInt64",
             "Float32", "Float64", "Char", "Str", "()", "!",
             "Option", "Result", "Vec", "Slice",
-            "Ptr", "Array", "Tuple", "fn", "Tuple2",
+            "Ptr", "Tuple", "fn", "Tuple2",
             // round-9 (Set ABI): "Set" was here -- the compiler has NO builtin
             // Set layout (unlike Vec/Slice/Map, which register %struct layouts
             // in compile_program), so the stdlib's `type Set[T]` must inject
@@ -3684,6 +3684,27 @@ impl Checker {
             // every Set value erased to i64 while the stdlib methods operate
             // on %struct.Set -- `Set[Int].new()` hijacked Reverse.new and
             // Set-typed params/returns/fields compiled as i64.
+            //
+            // m349 (REL-20261016-2004-packages / XARROW-ARRAYNAME): "Array"
+            // was here for the legacy bare-`Array` erasure, but the compiler
+            // has NO builtin Array layout anywhere (fixed arrays parse as
+            // `Type::Array` and type as `Array[<elem>]`, handled by the
+            // container spelling -- never a bare `Array`), so a package /
+            // source-dir catalog module declaring `pub type Array` had its
+            // declaration silently dropped and every use compiled against an
+            // i64 fallback (arrow's C struct named `Array`: zeroed fields,
+            // rc 31; same rationale as the Set removal above). Dropped: a
+            // catalog `Array` now injects like any struct and resolves
+            // through the normal collision triage.
+            //
+            // "Ptr", "Tuple" and "Tuple2" are audited and STAY: unlike Array
+            // they are not merely injection guards -- they are live
+            // erasure-marker SPELLINGS compared throughout the checker and
+            // codegen (`n == "Ptr"` pointer-like tests, `Tuple__`/`Tuple`
+            // prefixes, the legacy `Tuple2` form), so a user struct with
+            // those names would be mis-classified as a raw pointer / tuple.
+            // The safety-net diagnostic below (non-generic shadowing
+            // declarations) makes that collision loud instead of silent.
         ];
 
         let mut decls: Vec<TopDecl> = Vec::new();
@@ -3855,22 +3876,48 @@ impl Checker {
                             // (implementation details; referenced ones are injected
                             // via the fn-signature walk below).
                             if (td.is_pub || !td.generics.is_empty())
-                                && !existing.contains(&td.name.name)
-                                && !primitives.contains(&td.name.name.as_str()) {
-                                // m278: a colliding non-generic type injects
-                                // module-qualified (see the pre-scan above);
-                                // single-declaration types keep the bare key.
-                                if collision_types.contains(&td.name.name)
-                                    && td.generics.is_empty()
-                                    && !module_name.is_empty()
-                                {
-                                    let mut td2 = td.clone();
-                                    td2.name.name = format!("{}.{}", module_name, td.name.name);
-                                    existing.insert(td2.name.name.clone());
-                                    out.push(TopDecl::Type(td2));
+                                && !existing.contains(&td.name.name) {
+                                if primitives.contains(&td.name.name.as_str()) {
+                                    // m349 safety net (XARROW-ARRAYNAME): a
+                                    // declaration that shadows a
+                                    // compiler-reserved name is IGNORED here
+                                    // (the builtin keeps its layout). That
+                                    // used to be completely silent -- a
+                                    // package struct named like a builtin
+                                    // compiled against the builtin shape and
+                                    // read zeros. The guarded GENERIC
+                                    // facades (stdlib `type Vec[T]`,
+                                    // `type Option[T]`, ...) are the intended
+                                    // pattern and stay silent; a NON-generic
+                                    // declaration of a guarded name can only
+                                    // be a genuine collision -- say so.
+                                    if td.generics.is_empty() {
+                                        let module = if module_name.is_empty() {
+                                            String::new()
+                                        } else {
+                                            format!(" in module '{module_name}'")
+                                        };
+                                        eprintln!(
+                                            "xiom: warning: type '{name}'{module} collides with the compiler-reserved builtin type name '{name}'; the catalog declaration is IGNORED -- rename the type to keep it apart from the builtin.",
+                                            name = td.name.name,
+                                        );
+                                    }
                                 } else {
-                                    existing.insert(td.name.name.clone());
-                                    out.push(TopDecl::Type(td.clone()));
+                                    // m278: a colliding non-generic type injects
+                                    // module-qualified (see the pre-scan above);
+                                    // single-declaration types keep the bare key.
+                                    if collision_types.contains(&td.name.name)
+                                        && td.generics.is_empty()
+                                        && !module_name.is_empty()
+                                    {
+                                        let mut td2 = td.clone();
+                                        td2.name.name = format!("{}.{}", module_name, td.name.name);
+                                        existing.insert(td2.name.name.clone());
+                                        out.push(TopDecl::Type(td2));
+                                    } else {
+                                        existing.insert(td.name.name.clone());
+                                        out.push(TopDecl::Type(td.clone()));
+                                    }
                                 }
                             }
                         }
@@ -9015,7 +9062,22 @@ impl Checker {
                         if method_key_base != method_key && self.functions.contains_key(&method_key_base) {
                             return CheckedType::Named("_".into());
                         }
-                        match (base, method.name.as_str()) {
+                        // m349 (REL-20261016-2004-packages / XARROW-ARRAYNAME):
+                        // the legacy bare-`Array` builtin fallback table below
+                        // (len/is_empty/is_sorted/all/none/contains/as_ptr)
+                        // exists for the ERASED fixed-array spelling; fixed
+                        // arrays now type as `Array[<elem>]` (the container arm
+                        // in the Index path), so a BARE `Array` receiver is a
+                        // REGISTERED user/package type -- its method surface
+                        // must be exact. Substituting an unmatchable base for
+                        // the table keeps every other fallback (to_str, clone,
+                        // new, default) intact while the builtin container
+                        // methods stop capturing it (`a.len()` on a user type
+                        // named `Array` used to type-check as the builtin Int
+                        // and miscompile).
+                        let array_is_user = base == "Array" && self.get_type("Array").is_some();
+                        let base_for_builtins: &str = if array_is_user { "" } else { base };
+                        match (base_for_builtins, method.name.as_str()) {
                             ("Vec" | "Slice" | "Array" | "Str" | "Map" | "Set", "len")
                                 => return CheckedType::Int,
                             ("Vec" | "Slice" | "Array" | "Str", "is_empty") => return CheckedType::Bool,
@@ -9845,8 +9907,8 @@ impl Checker {
                     }
                     // smoke_array_zip fix (2026-09-11): fixed arrays keep their
                     // element type ("Array[Tuple__Int__Int]"); indexing yields
-                    // it so `zipped[0].0` resolves the tuple fields. A bare
-                    // "Array" (legacy erasure) stays permissive.
+                    // it so `zipped[0].0` resolves the tuple fields. (The bare
+                    // "Array" erasure leg moved to the gated arm below -- m349.)
                     CheckedType::Named(name) if crate::structural::is_container_base(name, "Array") => {
                         // B-15: outer-bracket extraction (see the Vec arm).
                         let full = name.name();
@@ -9860,7 +9922,15 @@ impl Checker {
                     // DEFER to codegen (return `_`), not degrade to Int --
                     // otherwise `v[0] != "hello"` errors "cannot compare Int
                     // with Str" even though codegen lowers it correctly.
-                    CheckedType::Named(name) if name == "_" || name == "Array" => CheckedType::Named("_".into()),
+                    // m349: the bare-`Array` erasure leg is gated on Array NOT
+                    // being a registered user/package type -- fixed arrays
+                    // spell `Array[<elem>]` (container arm above), so a bare
+                    // `Array` here is a real struct whose indexing must not be
+                    // waved through as a builtin array read.
+                    CheckedType::Named(name)
+                        if name == "_"
+                            || (name == "Array" && self.get_type("Array").is_none())
+                        => CheckedType::Named("_".into()),
                     _ => CheckedType::Int,
                 }
             }
