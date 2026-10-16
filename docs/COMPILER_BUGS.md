@@ -17866,3 +17866,57 @@ g2 263 (x2), codegen lib 12, feature_regression 549, stdlib_execution 85
 clause now that the compiler is fixed; the engine re-verifies grid.ppm at
 the next pin.
 Fix commit: dc21b534 (branch fix/m345-clause-inline-payload-rebind, unpushed).
+
+## 2026-10-16 -- FIXED (m346): inferred binding from a generic-substituted field Vec element loses the element type (REL-20261016-1541-xvector, XVC-C-18)
+
+`router_mapping_load` refused a VALID mapping file: iterating a JSON
+object's Map keys through a `match` enum binding
+(`var name = entries.keys[i]` where `entries: Map[Str, JsonValue]` from
+`Object(entries)`) printed pointer-shaped garbage (`key=[1946864332608]`)
+and `name.len()` was a false error[T001] "cannot call 'len'" while the
+same value still coerced into a Str parameter. Trigger (not
+payload-specific): an INFERRED local bound from `x.field[i]` loses the
+element type whenever the field's element needs GENERIC SUBSTITUTION
+(Map's `keys: Vec[K]`).
+
+Codegen: `vec_value_xiom_type` (coerce.rs) had Ident/Index/Call arms but
+NO `Expr::Field` arm, so the binding fell to the i64 scalar path
+(pre-fix IR: `alloca i64` slot + `call i8* @xiom_int_to_string` on the
+key handle + the slot ADDRESS bitcast into Str consumers). The R7 peer
+`resolve_vec_elem_xiom` already substitutes a receiver's concrete args
+(`substituted_generic_field_vec_elem`); the new Field arm routes through
+it, gated on `has_unresolved_generic_token` so raw generic bodies keep
+today's fallback. `vec_elem_is_str`'s Field arm now routes through the
+same resolver (it compared the RAW declared "Vec[K]"). One arm upgrades
+four consumers (expr.rs element classification, emitter.rs
+`infer_index_value_xiom`, both concat verdicts).
+
+Checker: field access returned the RAW declared field type without
+substituting the receiver's args (`Map[Str, JsonValue]`.keys stayed
+`Vec[K]`), so index extraction yielded the param K and `.len()` fell to
+the unresolved-receiver fallback. `register_type_decl_inner` now records
+struct generic params (parallel to `alias_params`) and the Field arm
+substitutes the receiver's args before returning (`substitute_field_type`;
+reuses `substitute_generic_type`).
+
+Locks: `tests/regression/m346_field_chain_elem_binding/` (arm A payload
+direct chain red-pre -> green; controls: explicit-typed local, payload
+copy-out, `&Vec[Str]` c1, concrete-struct-field c2) +
+`e2e_m346_field_chain_elem_binding` (+`_ir`: i8* slot + `inttoptr i64`
+asserted, `@xiom_int_to_string` forbidden in the scan body) +
+`m346_field_chain_elem_binding_check` (`--check` arm in checker_locks).
+Red-pre on base d4fdd7e7: probe exit 1 with `key=[...pointer digits]`;
+fixture T001 at 47:8 / 64:21. Post-fix: probe exit 0 with
+`key=[docs]`/`key=[logs]`, `.len()==4`.
+
+G2 (open, documented): PARAM-rooted shapes still lower the VALUES
+wrongly -- `decl.rs` records params with ERASED container names ("Map"),
+so the codegen substitution path cannot derive K=Str (direct chain and
+copy-out inside a param fn both still red at runtime). The CHECKER half
+is fixed (the param-rooted arm compiles and `--check` resolves -- the
+fixture keeps that arm compile-only for this reason). A param-spelling
+fix (type_annotation_name-style rendering) was assessed and deferred:
+local_xiom_types has 100+ consumers, several comparing the erased
+spelling, so it needs its own battery rather than riding this fix.
+
+---
