@@ -14,6 +14,35 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-16T11:55Z (same compiler session as the wrap below; owner directive + wave A started) ***
+- OWNER DIRECTIVE (11:44Z): ALL incoming relay intake from pulse, engine,
+  orbitdb and xvector is to be addressed to 100% coverage in the next waves;
+  agents allowed; items added to the next candidate list.
+- DONE THIS SESSION:
+  * Engine intake REL-20261016-1128-engine acked with a four-class triage
+    (relay commit e80e382, pushed).
+  * Candidate list created: relay release-checks/compiler-compiler-v0.64.6.md
+    (check-new compiler-v0.64.6) with a Coverage-plan section assigning every
+    four-lane item to wave A/B (relay commit d4da0ea, pushed). 118 rows total.
+  * m334 re-test round COMPLETE (verdicts committed on the items):
+    1941 GREEN on the rebuilt m334 exe (5784c7c3; probe_tuple + control +
+    module-boundary all green); C-ORBIT-12 (2022) STILL RED (same clang
+    two-name split); 2303 all 16 probe shapes unchanged vs v0.64.5; 2309
+    STILL RED with three clean repros on record: probe_c.xi (socket path),
+    NEW user-level probe_d3_result_value.xi (single-file Result.value
+    destructure) and probe_d4_main.xi (module-boundary) all warn
+    unknown type Tuple__Vec[UInt8]__Str__Int + misdecode (len=6, pointer-like
+    peer/port); the match-arm and plain field-access variants are green, so
+    the trigger is Result.value payload access for tuples with Vec elements.
+    Repro scratch: %TEMP%\kilo\m334-retest\transport\.
+  * Wave A recon IN FLIGHT (4 read-only Task agents): orbitdb-2022 namer root
+    cause; xvector-2216 imported-type ptr-field stores; xvector-2142 linux
+    /search localization; engine-1128 classes 1-4. Round 2 queued: engine
+    1358/1538/1046/1411, pulse 1549-pulse-2/3/4.
+- NEXT: AM fixer sessions per triaged item (m336+ numbering; wave process owns
+  merges); m334/m335 integration into local main still pending -- do NOT
+  integrate while recon builds are running.
+
 *** SESSION WRAP 2026-10-16T11:30Z (compiler lane; context moving to the next session) -- READ THIS FIRST ***
 - Last session's scope: the v0.64.6 general-Darwin stream (COMPLETE, CI-green; the
   23:40Z block below carries the fix/evidence detail) + ad-hoc compiler-lane duty:
