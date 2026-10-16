@@ -17549,3 +17549,72 @@ exposes a second layout-sensitive corruption in the create path that is
 NOT the SFB pass (it survives the disable flag; binary diff shows only
 BB order + rip displacements changed). Needs its own bisect; candidate
 family: XVC-C-08/09/14 context-sensitive miscompiles.
+
+## 2026-10-16 -- FIXED (m340): dependency port.args C sources compile through the object cache + the dependency `--timeout` floors the watchdog (REL-20261016-1128-engine class 3)
+
+m310 shipped dependency `port.args.json` application, but every consumer
+compile merged each dependency's `--c-source` TUs straight into the single
+clang link invocation (no object cache) and dropped `--timeout` with a
+"not applied at consumer build" note. On the engine's tree that meant
+assimp (~125 TUs) recompiled on EVERY probe (7-10 min each vs seconds at
+0.64.4; whole-tree CI ~20 h) and the packages' declared budgets (assimp
+1800, exr 600, harfbuzz 900) never reached the consumer -- only the global
+300 s watchdog default (or ci.ps1's manual `--timeout 900`) applied.
+
+FIX:
+1. Dependency C sources ride a separate `CompileConfig::dependency_c_sources`
+   list (filled by `dep_port_args.rs`) and compile through a new
+   `rtcache::dependency_objects` cache -- same root and key scheme as the
+   runtime object cache (64-bit FNV-1a over clang path, `clang --version`,
+   every compile flag, and the source paths + content hashes; dependency
+   object names additionally embed a hash of the source PATH because
+   vendored trees ship many same-stem files that would collide under the
+   runtime `NN_stem.o` naming). The vendored C builds once; later compiles
+   link the cached objects. Cache root stays the rtcache family
+   (`$HOME/.xiom/rtobj`), now overridable via `XIOM_OBJ_CACHE_DIR`
+   (hermetic e2e locks); `XIOM_TIMINGS=1` prints `dep-cache HIT/MISS`.
+   Any cache failure falls back to the historical single-invocation
+   compile. Dependency C++ sources are cached with EXACTLY the m258
+   invocation args (`-std=`, `-fPIC` under `--shared-lib`) and the m332
+   C++ runtime link gate now also fires for cached objects; on cache
+   failure they fall back to the dedicated per-invocation compile.
+2. `--timeout` in port.args.json is recognized (no longer "ignored"):
+   `dependency_timeout_floor` takes the highest declared value and
+   `resolve_compile_timeout` applies it as a FLOOR when the consumer set
+   none -- explicit `--timeout` still wins, `[compiler] timeout-secs`
+   (consumer intent) wins, otherwise `max(300 default, dep floor)`.
+   `XIOM_VERBOSE_CONFIG=1` prints `[config] compile timeout: Ns (<source>)`.
+3. Dedupe semantics unchanged: a consumer's own `--c-source` (the ci.ps1
+   `@extra` recipe) is consumed first and the dependency copy is skipped by
+   the same canonical-path set; runtime sources keep precedence too.
+   pkg_port_args.ps1 retirement is now UNBLOCKED on the compiler side and
+   is left to the engine/packages lanes (NOT retired here).
+
+EVIDENCE (windows fixer worktree; acceptance repro = a consumer project
+with ONE manifest dep carrying 6 `--c-source` TUs + `--timeout 600`,
+cache redirected to a scratch dir): build 1 rc 0 in 49.5 s with
+`[timings] dep-cache MISS ca8b4543f61d38b9 (built in 14.66 s)`; build 2
+rc 0 in 10.3 s with `dep-cache HIT ca8b4543f61d38b9` (objects on disk:
+`<root>/ca8b4543f61d38b9/000{0..5}_tuN_<pathhash>.o`); editing one TU
+invalidates (`dep-cache MISS 1df013af3645b854`, next build HIT); the
+600 s floor is observable (`compile timeout: 600s (dependency
+port.args.json --timeout floor)` with no consumer flag, `120s (explicit
+--timeout)` with `--timeout 120`); the built program exits 0.
+
+LOCKS: `rtcache::tests::dependency_objects_hit_and_keep_same_stem_sources_apart`
+(build -> hit -> content invalidation + same-stem collision safety);
+dep_port_args unit tests `timeout_floor_parses_both_spellings` +
+`resolve_compile_timeout_precedence` (+ the updated array-form/malformed
+tests); e2e `e2e_m340_dep_csource_cache` (MISS -> HIT + >=3 objects on
+disk; red pre-fix -- the second build recompiles the TUs),
+`e2e_m340_dep_timeout_floor` (floor line + explicit-wins line),
+`e2e_m340_dep_csource_dedupe_manual_flags` (manual `@extra` copies +
+port.args copies link once) -- all three wired into the ci.yml e2e
+group-2 list. m310 locks stay green (`e2e_m310_port_args_dep` +
+`e2e_m310_dep_range_spec`).
+
+Battery green (fixer worktree, windows): e2e g1 16 (x2) + g2 244,
+codegen lib 12, feature_regression 549 (the suite's in-process
+incremental test is slow when the shared %TEMP% tree is huge -- launched
+with an isolated clean TMP/TEMP; same binary), stdlib_execution 85
+(+2 ignored), integration 130.

@@ -1997,21 +1997,29 @@ fn real_main() {
     // manifest ([compiler] timeout-secs) before spawning.
     let source_paths = resolve_source_files(&args);
 
-    let timeout_secs: u64 = args.value("timeout")
-        .and_then(|v| v.parse().ok())
-        .or_else(|| {
-            // AUDIT #18 (completion): xiom.toml [compiler] timeout-secs is a
-            // project default (explicit --timeout wins). Honored now that the
-            // watchdog uses cooperative cancellation instead of a worker
-            // thread process::exit (audit #12).
-            source_paths.first().and_then(|p| {
-                xiom_graph::manifest::find_and_parse_manifest(std::path::Path::new(p))
-                    .ok()
-                    .and_then(|m| m.compiler.timeout_secs)
-                    .map(|t| t as u64)
-            })
-        })
-        .unwrap_or(300);
+    // m340 (REL-20261016-1128-engine class 3): resolve the watchdog budget
+    // BEFORE arming it -- a dependency's port.args.json `--timeout` is a
+    // FLOOR when the consumer set no timeout of its own (the global 300 s
+    // default must not silently cap a package that declares assimp 1800 /
+    // exr 600 / harfbuzz 900). Explicit --timeout wins; the xiom.toml
+    // [compiler] timeout-secs project default (AUDIT #18) also counts as
+    // consumer intent. Precedence is unit-locked in dep_port_args.rs.
+    let timeout_manifest = source_paths.first().and_then(|p| {
+        xiom_graph::manifest::find_and_parse_manifest(std::path::Path::new(p)).ok()
+    });
+    let (timeout_secs, timeout_source) = xiom::dep_port_args::resolve_compile_timeout(
+        args.value("timeout").and_then(|v| v.parse().ok()),
+        timeout_manifest
+            .as_ref()
+            .and_then(|m| m.compiler.timeout_secs)
+            .map(|t| t as u64),
+        timeout_manifest
+            .as_ref()
+            .and_then(xiom::dep_port_args::dependency_timeout_floor),
+    );
+    if std::env::var("XIOM_VERBOSE_CONFIG").as_deref() == Ok("1") {
+        eprintln!("[config] compile timeout: {timeout_secs}s ({timeout_source})");
+    }
 
     let max_recursion_depth: u32 = args.value("max-depth")
         .and_then(|v| v.parse().ok())
@@ -2150,6 +2158,10 @@ fn real_main() {
             link_libs,
             link_paths,
             c_sources,
+            // m340: dependency port.args.json sources ride their own list
+            // (filled by apply_dependency_port_args below) so the link stage
+            // can cache-compile them.
+            dependency_c_sources: Vec::new(),
             icon: args.value("icon"),
             cxx_standard: args.value("cxx-standard"),
         hot_reload: false,  // set to true by hot reload loop below
@@ -2490,6 +2502,7 @@ fn real_main() {
                     link_libs: vec![],
                     link_paths: vec![],
                     c_sources: vec![],
+                    dependency_c_sources: vec![],
                     icon: None,
                     cxx_standard: None,
                     hot_reload: false,
@@ -2548,6 +2561,7 @@ fn real_main() {
                     link_libs: vec![],
                     link_paths: vec![],
                     c_sources: vec![],
+                    dependency_c_sources: vec![],
                     icon: None,
                     cxx_standard: None,
                     hot_reload: false,

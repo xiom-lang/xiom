@@ -7853,6 +7853,183 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     let _ = std::fs::remove_file(&exe);
 }
 
+// m340 (REL-20261016-1128-engine class 3): dependency port.args.json C
+// sources compile ONCE through the rtcache-style object cache -- the second
+// consumer build must reuse the objects (`dep-cache HIT`) instead of
+// recompiling every dependency TU inside the single clang link invocation
+// on EVERY build (the m310 behavior behind the engine's 7-10 min probes /
+// ~20 h whole-tree CI). The cache is redirected to a temp dir through the
+// XIOM_OBJ_CACHE_DIR override so the MISS->HIT sequence is hermetic.
+#[test] fn e2e_m340_dep_csource_cache() {
+    let cache_dir = std::env::temp_dir().join(format!("xiom_m340_cache_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&cache_dir);
+    let exe = project_root().join("target").join("m340_dep_csource_cache.exe");
+
+    let compile = || {
+        let _ = std::fs::remove_file(&exe);
+        Command::new(xiom_path())
+            .arg("-o")
+            .arg(&exe)
+            .arg("tests/regression/m340_dep_csource_cache/main.xi")
+            .env("XIOM_OBJ_CACHE_DIR", &cache_dir)
+            .env("XIOM_TIMINGS", "1")
+            .current_dir(project_root())
+            .output()
+            .expect("spawn xiom for the m340 cache fixture")
+    };
+
+    let first = compile();
+    assert!(
+        first.status.success(),
+        "first m340 compile must succeed; stderr:\n{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let first_err = String::from_utf8_lossy(&first.stderr);
+    assert!(
+        first_err.contains("dep-cache MISS"),
+        "first build must BUILD the dependency objects (m340); stderr:\n{first_err}"
+    );
+
+    let second = compile();
+    assert!(
+        second.status.success(),
+        "second m340 compile must succeed; stderr:\n{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let second_err = String::from_utf8_lossy(&second.stderr);
+    assert!(
+        second_err.contains("dep-cache HIT"),
+        "second build must REUSE the cached dependency objects (m340); stderr:\n{second_err}"
+    );
+    assert!(
+        !second_err.contains("dep-cache MISS"),
+        "an unchanged consumer build must not rebuild the dependency objects (m340); stderr:\n{second_err}"
+    );
+
+    // The cache really holds one object per dependency TU on disk.
+    let mut objects: Vec<std::path::PathBuf> = Vec::new();
+    collect_files_with_ext(&cache_dir, "o", &mut objects);
+    assert!(
+        objects.len() >= 3,
+        "dependency object cache must hold one object per --c-source TU; got {objects:?}"
+    );
+
+    let run = Command::new(&exe).output().expect("run the m340 cache fixture");
+    assert_eq!(run.status.code(), Some(0), "m340 cache fixture program must exit 0");
+    let _ = std::fs::remove_file(&exe);
+    let _ = std::fs::remove_dir_all(&cache_dir);
+}
+
+/// Recursively collect files with a given extension (m340 cache evidence).
+fn collect_files_with_ext(dir: &Path, ext: &str, out: &mut Vec<std::path::PathBuf>) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_files_with_ext(&path, ext, out);
+            } else if path.extension().and_then(|s| s.to_str()) == Some(ext) {
+                out.push(path);
+            }
+        }
+    }
+}
+
+// m340: the dependency's declared `--timeout 600` must FLOOR the compile
+// watchdog when the consumer set none (the global default 300 must not cap
+// it); an explicit consumer --timeout wins. Proven through the verbose
+// resolved-budget line (no real 600 s run needed).
+#[test] fn e2e_m340_dep_timeout_floor() {
+    let cache_dir = std::env::temp_dir().join(format!("xiom_m340_timeout_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&cache_dir);
+    let exe = project_root().join("target").join("m340_dep_timeout_floor.exe");
+
+    let compile = |extra: &[&str]| {
+        let _ = std::fs::remove_file(&exe);
+        Command::new(xiom_path())
+            .arg("-o")
+            .arg(&exe)
+            .args(extra)
+            .arg("tests/regression/m340_dep_csource_cache/main.xi")
+            .env("XIOM_VERBOSE_CONFIG", "1")
+            .env("XIOM_OBJ_CACHE_DIR", &cache_dir)
+            .current_dir(project_root())
+            .output()
+            .expect("spawn xiom for the m340 timeout fixture")
+    };
+
+    let floored = compile(&[]);
+    assert!(
+        floored.status.success(),
+        "m340 timeout fixture must compile; stderr:\n{}",
+        String::from_utf8_lossy(&floored.stderr)
+    );
+    let floored_err = String::from_utf8_lossy(&floored.stderr);
+    assert!(
+        floored_err.contains("compile timeout: 600s (dependency port.args.json --timeout floor)"),
+        "a dependency --timeout of 600 must floor the watchdog budget (m340); stderr:\n{floored_err}"
+    );
+
+    let explicit = compile(&["--timeout", "123"]);
+    assert!(
+        explicit.status.success(),
+        "m340 timeout fixture must compile with explicit --timeout; stderr:\n{}",
+        String::from_utf8_lossy(&explicit.stderr)
+    );
+    let explicit_err = String::from_utf8_lossy(&explicit.stderr);
+    assert!(
+        explicit_err.contains("compile timeout: 123s (explicit --timeout)"),
+        "an explicit consumer --timeout must win over the dependency floor (m340); stderr:\n{explicit_err}"
+    );
+
+    let _ = std::fs::remove_file(&exe);
+    let _ = std::fs::remove_dir_all(&cache_dir);
+}
+
+// m340: ci.ps1's documented `@extra` recipe -- the consumer ALSO passes the
+// dependency's --c-source manually. Dedupe semantics are unchanged: the
+// consumer's copy wins, the dependency copy is skipped (canonical-path
+// dedupe), and the link carries ONE copy of the TU. Pre-fix double
+// application would link `m340_cache_a` twice (duplicate symbol).
+#[test] fn e2e_m340_dep_csource_dedupe_manual_flags() {
+    let cache_dir = std::env::temp_dir().join(format!("xiom_m340_dedupe_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&cache_dir);
+    let exe = project_root().join("target").join("m340_dep_csource_dedupe.exe");
+    let _ = std::fs::remove_file(&exe);
+    let helper_one = project_root()
+        .join("tests").join("regression").join("m340_dep_csource_cache")
+        .join("helper").join("vendor").join("one.c");
+    let helper_two = project_root()
+        .join("tests").join("regression").join("m340_dep_csource_cache")
+        .join("helper").join("vendor").join("two.c");
+
+    let compile = Command::new(xiom_path())
+        .arg("-o")
+        .arg(&exe)
+        // The consumer's manual copies (their own spelling, project-root
+        // relative) of two dependency TUs + the ci.ps1-style --timeout.
+        // Absolute paths: manual --c-source inputs link verbatim from the
+        // link invocation's scratch cwd, so ci.ps1's @extra recipe passes
+        // resolved paths too.
+        .args(["--c-source", helper_one.to_str().unwrap()])
+        .args(["--c-source", helper_two.to_str().unwrap()])
+        .args(["--timeout", "900"])
+        .arg("tests/regression/m340_dep_csource_cache/main.xi")
+        .env("XIOM_OBJ_CACHE_DIR", &cache_dir)
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the m340 dedupe fixture");
+    assert!(
+        compile.status.success(),
+        "manual --c-source + port.args.json copies must dedupe, not double-link (m340); stderr:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+
+    let run = Command::new(&exe).output().expect("run the m340 dedupe fixture");
+    assert_eq!(run.status.code(), Some(0), "m340 dedupe fixture program must exit 0");
+    let _ = std::fs::remove_file(&exe);
+    let _ = std::fs::remove_dir_all(&cache_dir);
+}
+
 // m309 (REL-20261011-2320-bindings part 3): unqualified cross-module `const`
 // imports with 4-SEGMENT module paths must resolve every imported module's
 // bare constants. register_external_module merged the per-file export maps

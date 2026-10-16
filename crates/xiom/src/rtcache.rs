@@ -15,6 +15,13 @@
 //! FNV-1a of the clang path, `clang --version`, every compile flag, and the
 //! content hash of every runtime source. Any failure falls back to the
 //! historical single-invocation C compile (correctness first).
+//!
+//! m340 (REL-20261016-1128-engine class 3): dependency `port.args.json`
+//! C sources use the SAME cache root and key scheme through
+//! [`dependency_objects`]; their object names additionally embed a hash of
+//! the source path because a vendored dependency tree (assimp ~125 TUs)
+//! ships many same-stem files that would collide under the runtime's
+//! `NN_stem.o` naming.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -34,7 +41,15 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 
 /// Default cache root: `$HOME/.xiom/rtobj` (same family as the jit cache,
 /// with the same temp fallback), created on demand.
+///
+/// `XIOM_OBJ_CACHE_DIR` overrides the root (hermetic e2e cache locks point
+/// it at a temp dir; the m340 dependency-object cache shares this root).
 pub fn default_cache_root() -> PathBuf {
+    if let Some(dir) = std::env::var_os("XIOM_OBJ_CACHE_DIR") {
+        if !dir.is_empty() {
+            return PathBuf::from(dir);
+        }
+    }
     jit::jit_cache_dir().join("rtobj")
 }
 
@@ -50,12 +65,25 @@ fn clang_version(clang: &Path) -> String {
     }
 }
 
-fn object_name(index: usize, source: &str) -> String {
+fn runtime_object_name(index: usize, source: &str) -> String {
     let stem = Path::new(source)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("rt");
     format!("{index:02}_{stem}.o")
+}
+
+/// m340: dependency object names embed a hash of the full source PATH.
+/// Vendored dependency trees ship many same-stem files (`codec.c` across
+/// several directories); `runtime_object_name`'s index+stem scheme would
+/// overwrite one with the other inside a single cache key dir.
+fn dependency_object_name(index: usize, source: &str) -> String {
+    let stem = Path::new(source)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("dep");
+    let path_hash = fnv1a(source.as_bytes());
+    format!("{index:04}_{stem}_{path_hash:08x}.o")
 }
 
 /// Return (building when needed) the cached runtime objects for `rt_files`
@@ -71,6 +99,36 @@ pub fn runtime_objects(
     rt_files: &[String],
     compile_args: &[String],
 ) -> Result<Vec<PathBuf>, String> {
+    ensure_objects(cache_root, clang, rt_files, compile_args, "rt-cache", runtime_object_name)
+}
+
+/// m340 (REL-20261016-1128-engine class 3): cached objects for dependency
+/// `port.args.json` C sources.
+///
+/// Same cache root, key scheme and fallback contract as
+/// [`runtime_objects`]; only the object file names differ (path-hashed, see
+/// [`dependency_object_name`]) because dependency trees routinely carry
+/// same-stem sources. `XIOM_TIMINGS=1` prints `dep-cache HIT/MISS` lines.
+pub fn dependency_objects(
+    cache_root: &Path,
+    clang: &Path,
+    dep_files: &[String],
+    compile_args: &[String],
+) -> Result<Vec<PathBuf>, String> {
+    ensure_objects(cache_root, clang, dep_files, compile_args, "dep-cache", dependency_object_name)
+}
+
+/// Shared body of the two caches: key on (clang identity, flags, source
+/// paths + content hashes), build missing objects one clang `-c` per source
+/// into a staging dir, then atomically rename them to their stable names.
+fn ensure_objects(
+    cache_root: &Path,
+    clang: &Path,
+    files: &[String],
+    compile_args: &[String],
+    label: &str,
+    object_name: fn(usize, &str) -> String,
+) -> Result<Vec<PathBuf>, String> {
     // ---- cache key -----------------------------------------------------
     let mut key_input = String::new();
     key_input.push_str(&clang.to_string_lossy());
@@ -81,8 +139,8 @@ pub fn runtime_objects(
         key_input.push_str(a);
         key_input.push('\n');
     }
-    let mut contents: Vec<(String, u64)> = Vec::with_capacity(rt_files.len());
-    for f in rt_files {
+    let mut contents: Vec<(String, u64)> = Vec::with_capacity(files.len());
+    for f in files {
         let bytes = std::fs::read(f).map_err(|e| format!("read {f}: {e}"))?;
         contents.push((f.clone(), fnv1a(&bytes)));
     }
@@ -97,9 +155,9 @@ pub fn runtime_objects(
 
     // ---- hit? -----------------------------------------------------------
     let dir = cache_root.join(&key);
-    let mut objects: Vec<PathBuf> = Vec::with_capacity(rt_files.len());
+    let mut objects: Vec<PathBuf> = Vec::with_capacity(files.len());
     let mut complete = true;
-    for (i, f) in rt_files.iter().enumerate() {
+    for (i, f) in files.iter().enumerate() {
         let obj = dir.join(object_name(i, f));
         if obj.is_file() {
             objects.push(obj);
@@ -110,7 +168,7 @@ pub fn runtime_objects(
     }
     if complete {
         if std::env::var_os("XIOM_TIMINGS").is_some() {
-            eprintln!("[timings] rt-cache HIT {key}");
+            eprintln!("[timings] {label} HIT {key}");
         }
         return Ok(objects);
     }
@@ -127,7 +185,7 @@ pub fn runtime_objects(
     let started = std::time::Instant::now();
     // One clang invocation per source with an explicit `-o` (input basenames
     // can collide across directories; explicit outputs keep names stable).
-    for (i, f) in rt_files.iter().enumerate() {
+    for (i, f) in files.iter().enumerate() {
         let mut cmd = Command::new(clang);
         cmd.args(compile_args);
         cmd.arg("-c");
@@ -141,7 +199,7 @@ pub fn runtime_objects(
         if !out.status.success() {
             let _ = std::fs::remove_dir_all(&staging);
             return Err(format!(
-                "runtime compile failed for {f}: {}",
+                "compile failed for {f}: {}",
                 String::from_utf8_lossy(&out.stderr)
             ));
         }
@@ -149,7 +207,7 @@ pub fn runtime_objects(
 
     // Move the produced objects to their stable names. A concurrent build of
     // the same key writes identical bytes; renames are atomic per file.
-    for (i, f) in rt_files.iter().enumerate() {
+    for (i, f) in files.iter().enumerate() {
         let produced = staging.join(object_name(i, f));
         let target = dir.join(object_name(i, f));
         std::fs::rename(&produced, &target)
@@ -159,12 +217,12 @@ pub fn runtime_objects(
 
     if std::env::var_os("XIOM_TIMINGS").is_some() {
         eprintln!(
-            "[timings] rt-cache MISS {key} (built in {:.2}s)",
+            "[timings] {label} MISS {key} (built in {:.2}s)",
             started.elapsed().as_secs_f64()
         );
     }
     objects.clear();
-    for (i, f) in rt_files.iter().enumerate() {
+    for (i, f) in files.iter().enumerate() {
         objects.push(dir.join(object_name(i, f)));
     }
     Ok(objects)
@@ -209,6 +267,55 @@ mod tests {
         write_file(&c1, "int xiom_test_one(void) { return 42; }\n");
         let third = runtime_objects(&root, &clang, &files, &args).expect("rebuild");
         assert_ne!(first, third, "changed source must produce a new key");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn dependency_objects_hit_and_keep_same_stem_sources_apart() {
+        // m340: a vendored dependency tree ships same-stem files in several
+        // directories (`one/util.c` + `two/util.c`); the dependency cache
+        // must give every source its OWN object (the runtime `NN_stem.o`
+        // scheme would overwrite one with the other in the same key dir).
+        let clang = match crate::toolchain::probe_clang() {
+            Some(info) => PathBuf::from(info.path),
+            None => return,
+        };
+        let root = std::env::temp_dir().join(format!(
+            "xiom-depcache-test-{}-{:x}",
+            std::process::id(),
+            jit::rand_suffix()
+        ));
+        let a_dir = root.join("a");
+        let b_dir = root.join("b");
+        std::fs::create_dir_all(&a_dir).expect("create a");
+        std::fs::create_dir_all(&b_dir).expect("create b");
+        let a = a_dir.join("util.c");
+        let b = b_dir.join("util.c");
+        let c = a_dir.join("extra.c");
+        write_file(&a, "int dep_a(void) { return 1; }\n");
+        write_file(&b, "int dep_b(void) { return 2; }\n");
+        write_file(&c, "int dep_c(void) { return 3; }\n");
+        let files = vec![
+            a.to_string_lossy().to_string(),
+            b.to_string_lossy().to_string(),
+            c.to_string_lossy().to_string(),
+        ];
+        let args: Vec<String> = Vec::new();
+
+        let first = dependency_objects(&root, &clang, &files, &args).expect("first build");
+        assert_eq!(first.len(), 3);
+        assert!(first.iter().all(|p| p.is_file()), "objects must exist after build");
+        let unique: std::collections::HashSet<_> = first.iter().collect();
+        assert_eq!(unique.len(), 3, "same-stem sources must map to distinct objects");
+
+        let second = dependency_objects(&root, &clang, &files, &args).expect("cache hit");
+        assert_eq!(first, second, "second call must reuse the same objects");
+
+        // Content change must invalidate (same contract as the runtime cache).
+        write_file(&a, "int dep_a(void) { return 40; }\n");
+        let third = dependency_objects(&root, &clang, &files, &args).expect("rebuild");
+        assert_ne!(first, third, "changed dependency source must produce a new key");
 
         let _ = std::fs::remove_dir_all(&root);
     }

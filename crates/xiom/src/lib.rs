@@ -109,6 +109,14 @@ pub struct CompileConfig {
     pub link_libs: Vec<String>,
     pub link_paths: Vec<String>,
     pub c_sources: Vec<String>,
+    /// m340 (REL-20261016-1128-engine class 3): `--c-source`s merged from a
+    /// dependency's shipped port.args.json (`dep_port_args.rs`). Kept apart
+    /// from `c_sources` so the link stage can compile them through the
+    /// rtcache object cache (a vendored dependency tree otherwise recompiles
+    /// every TU inside the single clang link invocation on EVERY consumer
+    /// build). Dedupe against the consumer's own `--c-source`s and the
+    /// runtime sources is unchanged.
+    pub dependency_c_sources: Vec<String>,
     /// m214: `--icon <path.ico>` -- embed a Windows icon resource into the
     /// linked executable (native Windows targets only). Generates an .rc,
     /// compiles it with `llvm-rc` (or MSVC `rc`) and adds the .res to the
@@ -177,6 +185,7 @@ impl Default for CompileConfig {
             link_libs: Vec::new(),
             link_paths: Vec::new(),
             c_sources: Vec::new(),
+            dependency_c_sources: Vec::new(),
             script_mode: false,
             icon: None,
             cxx_standard: None,
@@ -1665,6 +1674,10 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             // out for a dedicated clang invocation when --cxx-standard is
             // set (populated in the collection loop below).
             let mut cxx_sources: Vec<String> = Vec::new();
+            // m340: cached C++ dependency objects are linked directly (the
+            // dedicated invocation below only ever runs on cache failure) --
+            // the C++ runtime gate later must still fire for them.
+            let mut dep_cxx_linked = false;
             match config.target {
                 Target::Wasm => {
                     cmd.args(["--target=wasm32-unknown-unknown", "-nostdlib", "-Wl,--no-entry", "-Wl,--export-all"]);
@@ -1757,6 +1770,86 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                         }
                     }
                 }
+                // m340 (REL-20261016-1128-engine class 3): dependency
+                // port.args.json C sources. m310 pushed them into the scan
+                // above, so EVERY consumer build recompiled all of them
+                // inside this single clang invocation (assimp ~125 TUs;
+                // a whole-tree CI at the pin ~20 h). They now compile once
+                // through the rtcache object cache and the link reuses the
+                // objects. Dedupe semantics are unchanged: a source the
+                // consumer ALSO passed manually (the ci.ps1 `@extra`
+                // recipe) was inserted above first and wins here, and a
+                // runtime file can never be shadowed -- both historical
+                // guarantees of the single `seen_c_sources` set.
+                let mut dep_c_sources: Vec<String> = Vec::new();
+                let mut dep_cxx_sources: Vec<String> = Vec::new();
+                for cs in &config.dependency_c_sources {
+                    if !seen_c_sources.insert(canonical_key(cs)) {
+                        continue;
+                    }
+                    if config.cxx_standard.is_some() && is_cxx_source(cs) {
+                        dep_cxx_sources.push(cs.clone());
+                    } else {
+                        dep_c_sources.push(cs.clone());
+                    }
+                }
+                let mut dep_cached = false;
+                if config.target == Target::Native
+                    && !config.static_lib
+                    && !dep_c_sources.is_empty()
+                {
+                    if let Ok(objects) = crate::rtcache::dependency_objects(
+                        &crate::rtcache::default_cache_root(),
+                        std::path::Path::new(&clang_info.path),
+                        &dep_c_sources,
+                        &rt_compile_args,
+                    ) {
+                        for obj in &objects {
+                            cmd.arg(obj);
+                        }
+                        dep_cached = true;
+                    }
+                }
+                if !dep_cached {
+                    for cs in &dep_c_sources {
+                        cmd.arg(cs);
+                    }
+                }
+                // C++ dependency sources keep the m258 invocation flags
+                // (`-std=...`, `-fPIC` under --shared-lib and nothing else);
+                // cache them with EXACTLY those args so the cached objects
+                // are byte-equivalent to the historical ones. Any cache
+                // failure falls back to the per-invocation compile below.
+                if !dep_cxx_sources.is_empty() {
+                    let std_arg = format!(
+                        "-std={}",
+                        normalize_cxx_std(config.cxx_standard.as_deref().unwrap_or("c++17"))
+                    );
+                    let mut cxx_dep_args = vec![std_arg];
+                    if config.shared_lib && !cfg!(windows) {
+                        cxx_dep_args.push("-fPIC".to_string());
+                    }
+                    let mut cxx_dep_cached = false;
+                    if config.target == Target::Native
+                        && !config.static_lib
+                    {
+                        if let Ok(objects) = crate::rtcache::dependency_objects(
+                            &crate::rtcache::default_cache_root(),
+                            std::path::Path::new(&clang_info.path),
+                            &dep_cxx_sources,
+                            &cxx_dep_args,
+                        ) {
+                            for obj in &objects {
+                                cmd.arg(obj);
+                            }
+                            cxx_dep_cached = true;
+                            dep_cxx_linked = true;
+                        }
+                    }
+                    if !cxx_dep_cached {
+                        cxx_sources.extend(dep_cxx_sources.iter().cloned());
+                    }
+                }
             }
             let cwd0 = std::env::current_dir().unwrap_or_default();
             let abs_output = if std::path::Path::new(output).is_absolute() { output.to_string() } else { cwd0.join(output).to_string_lossy().to_string() };
@@ -1836,7 +1929,8 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             // `__clang_call_terminate` and friends go unresolved without it
             // (ubuntu front-locks caught it; Windows links the CRT with the
             // C objects already). Gate like the link-args block below.
-            if !cxx_sources.is_empty()
+            // m340: cached C++ dependency objects count too (`dep_cxx_linked`).
+            if (!cxx_sources.is_empty() || dep_cxx_linked)
                 && !cfg!(target_os = "windows")
                 && config.target != Target::Wasm
                 && config.target != Target::Wasi

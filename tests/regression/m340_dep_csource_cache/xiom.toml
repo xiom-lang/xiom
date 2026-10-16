@@ -1,0 +1,6 @@
+[project]
+name = "m340_dep_csource_cache"
+version = "0.1.0"
+
+[dependencies]
+m340_cache_helper = { path = "helper" }

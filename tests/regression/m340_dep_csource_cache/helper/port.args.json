@@ -1,0 +1,1 @@
+["--c-source", "${PACKAGE_DIR}/vendor/one.c", "--c-source", "${PACKAGE_DIR}/vendor/two.c", "--c-source", "${PACKAGE_DIR}/vendor/three.c", "--timeout", "600"]
