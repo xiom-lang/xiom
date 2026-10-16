@@ -9393,3 +9393,48 @@ fn collect_files_with_ext(dir: &Path, ext: &str, out: &mut Vec<std::path::PathBu
         );
     }
 }
+
+// m346 (REL-20261016-1541-xvector / XVC-C-18): an INFERRED local bound from
+// `x.field[i]` lost the element type whenever the field's element needed
+// GENERIC SUBSTITUTION (Map's `keys: Vec[K]`): the slot degraded to i64 (the
+// key printed as pointer digits; Str consumers received the slot ADDRESS,
+// refusing a VALID mapping file) and `name.len()` was a false T001 (the
+// binding typed as the raw param K). Pre-fix the fixture fails check/codegen
+// with T001 (47:8 param-rooted, 64:21 payload-rooted at base d4fdd7e7);
+// post-fix it compiles and the payload arm, both workaround controls and the
+// c1/c2 controls all assert green. The param-rooted arm is compile-only --
+// its runtime VALUES are G2 (see docs/COMPILER_BUGS.md).
+#[test] fn e2e_m346_field_chain_elem_binding() {
+    assert_eq!(
+        compile_and_run("tests/regression/m346_field_chain_elem_binding/main.xi"),
+        Some(0),
+        "m346: inferred bindings from generic-substituted field Vec elements must keep their element type"
+    );
+}
+
+// m346 IR twin: the `name` binding from `entries.keys[i]` keeps an i8* (Str
+// handle) slot -- the element load inttoptrs the handle back to i8* -- and
+// nothing in the payload scan formats the key through @xiom_int_to_string
+// (pre-fix: `alloca i64` slot + `call i8* @xiom_int_to_string` + the slot
+// ADDRESS bitcast into Str consumers).
+#[test] fn e2e_m346_field_chain_elem_binding_ir() {
+    let ir = compile_ir("tests/regression/m346_field_chain_elem_binding/main.xi")
+        .expect("m346: fixture must emit IR");
+    let start = ir.find("define i64 @scan_payload")
+        .expect("m346: scan_payload must be emitted");
+    let rest = &ir[start..];
+    let end = rest.find("\n}").map(|i| i + 2).unwrap_or(rest.len());
+    let body = &rest[..end];
+    assert!(
+        body.contains("alloca i8*"),
+        "m346: the inferred key binding must keep an i8* (Str handle) slot; got:\n{body}"
+    );
+    assert!(
+        body.contains("inttoptr i64"),
+        "m346: the key element load must inttoptr the handle back to i8*; got:\n{body}"
+    );
+    assert!(
+        !body.contains("@xiom_int_to_string"),
+        "m346: the key must never be formatted as an Int (no @xiom_int_to_string in the scan body); got:\n{body}"
+    );
+}

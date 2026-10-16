@@ -275,6 +275,14 @@ pub struct Checker {
     /// APPLICATION (`DbResult[Row]`) can substitute its arguments into the
     /// alias body before container decomposition (match payload bindings).
     alias_params: HashMap<String, Vec<String>>,
+    /// m346 (XVC-C-18 / REL-20261016-1541-xvector): generic parameter names of
+    /// each STRUCT/type declaration (`Map[K, V]` -> ["K", "V"]), so field
+    /// access on an applied receiver (`entries: Map[Str, JsonValue]`) can
+    /// substitute the receiver's args into the RAW declared field type
+    /// (`keys: Vec[K]` -> `Vec[Str]`) before returning it. Without it the
+    /// bound local degraded to the un-substituted param K (false T001 on
+    /// `name.len()`, silent codegen corruption for Str elements).
+    struct_params: HashMap<String, Vec<String>>,
     /// I1: Set of type names that implement Send + Sync marker interfaces.
     /// Auto-populated for primitives and derived for composite types.
     pub send_sync_types: HashSet<String>,
@@ -449,6 +457,7 @@ impl Checker {
             type_arena: TypeArena::new(),
             aliases: HashMap::new(),
             alias_params: HashMap::new(),
+            struct_params: HashMap::new(),
             send_sync_types: HashSet::new(),
             struct_field_types: HashMap::new(),
             enum_field_types: HashMap::new(),
@@ -1763,6 +1772,38 @@ impl Checker {
         }
     }
 
+    /// m346 (XVC-C-18 / REL-20261016-1541-xvector): substitute an APPLIED
+    /// receiver's type args into a struct field's RAW declared type. Field
+    /// maps register the declaration's spelling verbatim (`Map[K, V]`'s
+    /// `keys: Vec[K]`), so `entries: Map[Str, JsonValue]` returning
+    /// `Vec[K]` typed the bound local as the un-substituted param K --
+    /// a false T001 on `.len()` (and silent codegen corruption) while the
+    /// value still coerced into a Str parameter. Returns the field type
+    /// unchanged when the receiver has no args, no params are registered
+    /// for the base, the arity differs, or nothing changed.
+    fn substitute_field_type(&self, receiver: &str, lookup_base: &str, field_ty: &CheckedType) -> CheckedType {
+        let args = match crate::structural::container_parts(receiver) {
+            Some((_, args)) if !args.is_empty() => args,
+            _ => return field_ty.clone(),
+        };
+        let params = self.struct_params.get(lookup_base).or_else(|| {
+            // Qualified registration (`xiom.collections.Map`): accept any
+            // registered key whose LEAF is the receiver's base.
+            self.struct_params.iter()
+                .find(|(k, _)| k.rsplit('.').next() == Some(lookup_base))
+                .map(|(_, v)| v)
+        });
+        let params = match params {
+            Some(p) if p.len() == args.len() => p,
+            _ => return field_ty.clone(),
+        };
+        let subst: HashMap<String, CheckedType> = params.iter()
+            .zip(args.iter())
+            .map(|(p, a)| (p.clone(), CheckedType::from_str(a)))
+            .collect();
+        Self::substitute_generic_type(field_ty, &subst).unwrap_or_else(|| field_ty.clone())
+    }
+
     fn resolve_enum_variant(&self, name: &str) -> Option<&String> {
         if let Some(ref module) = self.current_module {
             let prefixed = format!("{}.{}", module, name);
@@ -2526,6 +2567,17 @@ impl Checker {
                 // Also register with bare name as fallback (don't overwrite existing)
                 if bare_id != key {
                     self.types.entry(bare_id).or_insert(fields);
+                }
+                // m346 (XVC-C-18): struct generic params, parallel to
+                // alias_params -- field access substitutes an applied
+                // receiver's args ("Map[Str, JsonValue]") into the RAW
+                // declared field type ("Vec[K]" -> "Vec[Str]").
+                if !td.generics.is_empty() {
+                    let params: Vec<String> = td.generics.iter().map(|g| g.name.name.clone()).collect();
+                    self.struct_params.insert(key_name.clone(), params.clone());
+                    if bare_key != key_name {
+                        self.struct_params.entry(bare_key.clone()).or_insert(params);
+                    }
                 }
                 self.visibility.insert(td.name.name.clone(), td.is_pub);
                 // I1: Track struct field types for Send/Sync auto-derivation
@@ -8412,7 +8464,11 @@ impl Checker {
                         let lookup_base = name.split('[').next().unwrap_or(name);
                         if let Some(fields) = self.get_type(lookup_base) {
                             if let Some(field_ty) = fields.get(&field.name) {
-                                field_ty.clone()
+                                // m346 (XVC-C-18): substitute the receiver's
+                                // concrete args into the RAW declared field
+                                // type ("Map[Str, JsonValue]"."keys: Vec[K]"
+                                // -> "Vec[Str]"); see substitute_field_type.
+                                self.substitute_field_type(name, lookup_base, field_ty)
                             } else if !fields.is_empty() {
                                 // Known type with registered fields -- unknown field
                                 self.error(

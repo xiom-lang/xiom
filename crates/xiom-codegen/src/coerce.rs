@@ -1176,6 +1176,17 @@ impl IrEmitter {
                     None
                 }
             }
+            // m346 (XVC-C-18 / REL-20261016-1541-xvector): an element read
+            // off a struct FIELD's Vec (`entries.keys[i]` where Map's
+            // `keys: Vec[K]` needs GENERIC SUBSTITUTION) had no arm here --
+            // the binding fell to the i64 scalar path (pointer-as-Int
+            // garbage for Str elements, and the bound local typed as the raw
+            // param K). resolve_vec_elem_xiom already substitutes the
+            // receiver's concrete args (R7); reuse it, keeping today's None
+            // while any generic token stays unresolved (raw generic bodies).
+            Expr::Field(..) => self.resolve_vec_elem_xiom(e)
+                .filter(|el| !Self::has_unresolved_generic_token(el))
+                .map(|el| format!("Vec[{el}]")),
             _ => None,
         }
     }

@@ -801,3 +801,23 @@ fn m291_contract_enforcement_live() {
         "expected the violation message, got:\n{out}"
     );
 }
+
+/// m346 (REL-20261016-1541-xvector / XVC-C-18): field access on a receiver
+/// with type args returned the RAW declared field type ("Map[Str,
+/// JsonValue]"."keys" stayed "Vec[K]"), so the inferred local bound from
+/// `x.field[i]` typed as the un-substituted param K and `name.len()` was a
+/// false error[T001] ("cannot call 'len' on this expression") while codegen
+/// silently produced pointer-as-Int garbage. The fixture's two arms were red
+/// at base d4fdd7e7 (T001 47:8 param-rooted, 64:21 payload-rooted); the
+/// receiver-arg substitution makes BOTH arms resolve here. The param-rooted
+/// arm's runtime VALUES remain G2 (see docs/COMPILER_BUGS.md).
+#[test]
+fn m346_field_chain_elem_binding_check() {
+    let (stderr, code) = check_on("m346_field_chain_elem_binding");
+    assert_eq!(
+        code,
+        Some(0),
+        "the generic-substituted field chain must type-check (`name.len()` on \
+         the inferred binding must resolve). stderr:\n{stderr}"
+    );
+}

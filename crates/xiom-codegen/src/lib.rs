@@ -3571,11 +3571,15 @@ impl IrEmitter {
                 return elem == "Str";
             }
         }
-        if let Expr::Field(base, field_expr, _) = container {
-            if let Some(base_ty) = self.infer_struct_type_name(base) {
-                return self.declared_field_type(&base_ty, &field_expr.name)
-                    .map_or(false, |ftype| ftype == "Vec[Str]");
-            }
+        if let Expr::Field(..) = container {
+            // m346 (XVC-C-18): route through resolve_vec_elem_xiom -- the
+            // old direct lookup compared the RAW declared field type
+            // ("Vec[K]" != "Vec[Str]"), so a generic-substituted field
+            // (Map's `keys: Vec[K]` with K=Str) never took the Str-handle
+            // load path. resolve_vec_elem_xiom substitutes the receiver's
+            // concrete args first (R7) and falls back to the declared type.
+            return self.resolve_vec_elem_xiom(container)
+                .map_or(false, |el| el == "Str");
         }
         false
     }
