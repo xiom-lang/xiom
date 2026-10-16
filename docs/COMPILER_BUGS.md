@@ -17817,3 +17817,4 @@ e2e group 2; default warning AND --strict abort asserted). Battery:
 locks 3/3, xiom-check lib 205, borrow_e001 3/3 (m318 pin intact), e2e
 g1 16 + g2 244 (x2), codegen lib 12, feature_regression 549,
 stdlib_execution 85 (+2 ignored), integration 130, front-locks 62.
+Fix commit: 965f5bb7 (branch fix/m344-borrow-e001-move-coverage, unpushed).
