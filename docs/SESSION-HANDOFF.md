@@ -14,6 +14,44 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-17T12:45Z (compiler lane; MIDDAY -- pin verify + m352/m359 harvested) -- READ FIRST ***
+- PIN (REL-20261016-2330-stdlib): stdlib-v0.64.6 moved to 8d95815 and PUBLISHED
+  (xiom-std 0.64.6 live; publish 38979638142 SUCCESS 23:57Z). Pin PR
+  **xiom-lang/xiom#7** open; the auto-bot commit lacked DCO sign-off (amended
+  `d65654bd` with the bot sign-off; DCO green). First PR CI run fully GREEN; the
+  re-run hit a **pre-existing all-modules-compile ORDER flake** (the freeze
+  test builds `use xiom.X;` from a HashSet -> random import order; the same
+  test also flaked at the OLD pin b81430ba; reproduced 1/3 old vs 3/3 pass new
+  on clean checkouts). ubuntu job re-running. Pin battery at 8d95815 running on
+  a CLEAN stdlib worktree (E:\xiom-lang\stdlib-verify-8d95815; the shared
+  repo-local `stdlib/` is being edited by the m351 session and must not be
+  used for verification): e2e / feature / integration / stdlib suites /
+  checker, log %TEMP%\kilo\pin-verify-battery.log. Merge PR #7 per the 1559
+  protocol when the rerun is green; record the battery result on 2330.
+- HARVESTED ON MAIN (pushed `883f69bf`): m352 `001570e9` + `7d1a9cd2`
+  (host-arch Target::Native table + toolchain_cmd linux-arm64 arms; unit lock
+  green) and m359 `736f876f` + `883f69bf` (duplicate value flags after the
+  positional -> rc 2, tolerant clap accessors; 2-test lock wired into ci.yml;
+  bin unit 8/8, lock 2/2). m351 (B-33) still in flight (3 commits + uncommitted
+  docs/tests in its worktree): monitor, do not harvest yet.
+- SELFHOST PHASE 6 (parallel, ses_ebeb8f547ffeSvMCBgei6xvota): T6 meter 13/64;
+  P2a/P2b-i tuple-name + tuple-literal parity landed (`aa62a2d1`); lane rebased
+  onto v0.64.6 release main 19eb7218 (36 ahead); continuing the struct/tuple/
+  generic corpus. Status relay: REL-20261017-1245-compiler.
+- RELAY INTAKE (new, triage next): REL-20261017-1223-orbitdb (transient
+  compiler exit -1, no diagnostics, under host load; rerun green -- exit-path/
+  OOM audit + dump recipe), REL-20261017-1223-orbitdb-2 (E001 false positive on
+  borrowed &Vec[Int] reads; pairs the m344 E001 coverage), REL-20261017-1227-
+  packages (HIGH: module-global fn var codegen, adjacent fn struct fields
+  layout, fn-alias callable param AV). Queued slots m353-m360 remain; m352/
+  m359 landing frees two heavy slots.
+- STAGE 6 (perf/lint): benchmark t3 row (~230 ms vs C 25 ms) still awaits a
+  profile; slotted behind the v0.64.7 wave. Worktree cleanup of the integrated
+  m29x-m350 fixer worktrees/branches is in progress (live m351/m352/m359 +
+  selfhost/rustc-study worktrees preserved).
+- Relay status item: REL-20261017-1245-compiler (to: all) -- the website lane
+  reads the bus.
+
 *** SESSION UPDATE 2026-10-17T11:10Z (compiler lane; MORNING RESUME -- context handover) -- READ FIRST ***
 - CONTEXT WINDOW FULL in the previous session (this block supersedes the
   2026-10-16T23:22Z PAUSED block; keep it for reference).
