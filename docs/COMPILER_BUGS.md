@@ -18210,5 +18210,46 @@ Battery green (fixer worktree, windows): e2e g1 16 (x2), e2e g2 274
 (+2 ignored), integration 130.
 
 Fix commit: fa475ddd (branch fix/m350-result-ref-field-read, unpushed).
-
 ---
+
+## 2026-10-17 -- FIXED (m352): Native target triple follows the host architecture (linux-arm64 enabler)
+
+`Target::Native` (crates/xiom/src/lib.rs) and `CodegenConfig::default()`
+(crates/xiom-codegen/src/context.rs) chose the host triple by OS ONLY and
+always returned an x86_64 triple. On an arm64 host (the new
+ubuntu-22.04-arm release leg) the compiler therefore emitted arm64 code
+through clang but declared the module x86_64 -- wrong data layout/ABI, and
+a compile ON arm64 could not be relied on to produce a native aarch64
+binary.
+
+FIX (e9e043fc, branch fix/m352-arch-native-triple):
+- one pure table, `xiom_codegen::native_target_triple(os, arch)`, shared by
+  both sites (re-exported from xiom-codegen): linux+aarch64 ->
+  `aarch64-unknown-linux-gnu`; macos+aarch64 -> `aarch64-apple-darwin`;
+  windows+aarch64 -> `aarch64-pc-windows-msvc`; all x86_64 arms and the
+  unknown-OS fallback are unchanged. The mapping is testable on every host
+  instead of being frozen by `cfg!` at build time.
+- `toolchain_cmd::asset_name`/`sums_name` resolve `linux-arm64`
+  (`xiom-<ver>-linux-arm64.tar.gz` / `SHA256SUMS-linux-arm64`);
+  `platform_id` already returned linux-arm64 on aarch64. macos-arm64 stays
+  None (not a release asset).
+- optional hardening: the NASM runtime-asm path is x86_64-gated
+  (`#[cfg(all(feature = "nasm", target_arch = "x86_64"))]`); the .asm
+  kernels are x86_64 only and must not enter an aarch64 link. `package.sh`
+  derives its dev tar name from `uname -m` instead of hardcoding linux-x64
+  (release.yml owns production naming).
+
+EVIDENCE (windows x86_64 fixer worktree):
+- table tests: codegen `native_target_triple_table_is_arch_aware` +
+  `default_config_triple_matches_host_arch`; driver
+  `native_target_triple_table_m352`; toolchain_cmd units 5/5 incl.
+  linux-arm64 asset/sums.
+- `cargo build --workspace` green; `package.sh` passes `bash -n`.
+- battery: e2e g1 16 (x2), e2e g2 279 (x2), codegen lib 14,
+  feature_regression 549, stdlib_execution 85 (+2 ignored), integration
+  130.
+
+RESIDUAL: the actual on-arm64 compile/binary identity cannot be exercised
+on this Windows host -- the release flow on ubuntu-22.04-arm verifies it.
+windows-aarch64 is mapped for correctness but has no host here; unknown
+arches keep the historical x86_64-linux fallback.
