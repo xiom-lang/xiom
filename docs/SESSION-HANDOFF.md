@@ -14,7 +14,88 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
-*** SESSION PAUSED 2026-10-16T23:22Z (owner away; resumes 2026-10-17) -- READ FIRST ON RESUME ***
+*** SESSION UPDATE 2026-10-17T11:10Z (compiler lane; MORNING RESUME -- context handover) -- READ FIRST ***
+- CONTEXT WINDOW FULL in the previous session (this block supersedes the
+  2026-10-16T23:22Z PAUSED block; keep it for reference).
+- MORNING STATE: v0.64.6 released 2026-10-16T20:33Z (run 38962236697) and is
+  VERIFIED by upstream: orbitdb 2022 CLOSED (verified on v0.64.6); xvector
+  Windows legs green (C-17 7/7, C-18 green; C-16 WSL deferred by env + owner
+  WSL pause); stdlib 2100 W2-W4 fixed (W1 residual -> m357); benchmark absorbed
+  (green); benchmark + packages closures recorded.
+- WAVES INTEGRATED ON MAIN (compiler repo, all pushed): m334-m346 (the v0.64.6
+  wave) + m347 (platform consts target-value + seed poison) + m348 (fn-ptr
+  return ABI flow) + m349 (Array injection + reserved-name diagnostic) +
+  **m350 (Result-ref field reads; just harvested: fa475ddd/1a84767e picked as
+  e4557ce0/9fb10c40; wave locks 8/8 on the integrated tree; full locks 39/39
+  before m350)**. Relay records: f15c01c + a7d349d.
+- LIVE SESSIONS (Agent Manager, may finish while this session ends -- HARVEST
+  THEM FIRST in the next session):
+  * m359 CLI duplicate-flag clap panic -- session ses_eb92e43cbffeiQbgJ9ZYhbCp4e,
+    worktree fix-m359-cli-clap-duplicate-flags-*. Was EMPTY at resume; nudged to
+    begin (11:12Z). Closes REL-20261016-1128-engine class 4. Definition in
+    %TEMP%\kilo\engine-round2-recon-report.md finding 3.
+  * m352 arm64 native triple -- THIRD spawn requested (am-1792235123971-5w1aom)
+    after two silent failures. If no worktree appears: IMPLEMENT DIRECTLY in a
+    manual worktree (git worktree add .kilo/worktrees/m352-manual -b
+    fix/m352-arch-native-triple): arch-aware Target::Native (crates/xiom/src/
+    lib.rs:1400-1411 + ixom-codegen/src/context.rs:186-194; aarch64 linux ->
+    aarch64-unknown-linux-gnu, aarch64 macos -> aarch64-apple-darwin) with a
+    pure (os,arch) table test + toolchain_cmd.rs linux-arm64 asset/sums arms
+    (+unit tests ~286-298) + optional nasm x86_64 gating. Then add the
+    functional on-runner native-compile gate to the release.yml linux-arm64 leg
+    and dispatch a workflow_dispatch dry-run.
+  * B-33 recon RELAUNCHED (ses_eb67663e3ffeCIVFcnlZhPji6N; writes
+    %TEMP%\kilo\recon-b33\REPORT.md; earlier artifacts already there). On
+    REPORT: launch m351 (fix/m351-...) -- confined-call trap recovery for
+    aggregate args; silent exit-0 must become a typed fault.
+  * selfhost Phase 6 (ses_ebeb8f547ffeSvMCBgei6xvota): nudged 11:12Z to rebase
+    onto current main (was 8 behind) and advance; verify parity against m347-m350.
+- STDLIB SYNC (owner rule, HARD): NO v0.64.7 candidate until the stdlib v0.64.7
+  release is prepared with markers bumped AND approved/published, and
+  STDLIB_VERSION references that released rev. Current status: stdlib v0.64.6
+  tag moved to 8d95815 (waves 155-171); stdlib block 224 = PAUSED by the owner;
+  registry publish 38979638142 STILL AWAITING OWNER APPROVAL; the release.yml
+  auto pin PR (STDLIB_VERSION -> 8d95815) has NOT appeared yet (gh pr list
+  empty at 11:05Z). When it appears: merge per the 1559 protocol + run the
+  archive-level verify on the resulting revision; record on REL-20261016-2330.
+- QUEUED FIXER SLOTS (v0.64.7, launch as machine slots free; max 3-4 heavy):
+  m351 (B-33), m352 (arm64 triple), m353 (builtin-shadow sweep: stdlib 1053
+  .hash + 1456 Mutex barrier), m354 (1626 trailing-match T001), m355 (2343 bare
+  inline i32-extern sign), m356 (2328 catalog re-add recon), m357 (2100 W1
+  non-bare field spellings/method dispatch), m358 (B-32 in-situ sqlite; m346
+  extension), m359 (CLI, in flight), m360 (i128 division AV recon), plus the
+  older acked backlog wave (packages 1504 re-queue, playground rows, engine
+  classes 2/4, XVC-C-08/09/14 family).
+- OWNER-DECISION QUEUE: engine-2134 finding 5 (consume-vs-copy rule after the
+  m318 pin), m252 cold-lane, the 5 compiler->owner items (Oct 10), B-33
+  severity flow, WSL pause (C-16/C-17-WSL close-gates).
+- PROCESS CHEATSHEET (hard-won this session):
+  * Cherry-pick conflict pattern: ci.yml -> `git checkout --ours` + append the
+    fixer's e2e tokens at the line end; COMPILER_BUGS.md -> union (remove the 3
+    markers; keep both sides) and insert `    );\n}` + a blank line at joins
+    where a side ends mid-function; e2e_tests.rs -> union with the SAME brace
+    repair (a side ending at an assert message line needs `    );\n}` inserted
+    before the next block). Always run the marker grep + `git diff --cached
+    --check` before `--continue`.
+  * Relay commits: a concurrent lane push can reject ours -> manual `git fetch
+    origin` + `git push origin main` (never stage other lanes' untracked items
+    in the shared clone; never `git add .`).
+  * WSL: default distro lacks bash -- use `wsl -d Ubuntu -e bash -c "..."`; a
+    raw aarch64 binary cannot run on this x64 box (qemu absent) -- `file` is
+    the check.
+  * release.yml: tag-guarded (tag == workspace version, ancestor of main);
+    workflow_dispatch = dry-run artifacts; notes verify limits: 6 highlights,
+    summary 240, title 60, text 320 chars, no internal task ids (m###) in text;
+    required MD sections Summary/Highlights/Breaking changes/Known issues/Docs.
+  * arm64 leg: matrix on ubuntu-22.04-arm + z3 linux-arm64 pin
+    (4.13.4-arm64-glibc-2.34, sha 37533e7a...); wasm gated to linux-x64;
+    per-platform archive naming + SHA256SUMS (commit 19eb7218).
+- WATCH: the */15 cron is DELETED (pause + context handover); re-arm in the
+  next session by re-scheduling the "Post-cut wave + relay watch v2" prompt
+  (in session history) or sweep manually. Zero open compiler items at 11:05Z
+  besides the acked queue; relay head a7d349d.
+
+*** SESSION PAUSED 2026-10-16T23:22Z (owner away; resumes 2026-10-17) -- historical, superseded by the morning block above ***
 - Watch DISARMED (the */15 cron deleted). In-flight Agent Manager fixer
   sessions continue on their own in their worktrees: m350
   (fix/m350-result-ref-field-read; recon %TEMP%\kilo\m350-recon-report.md) and
