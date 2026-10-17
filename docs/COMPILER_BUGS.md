@@ -18791,3 +18791,90 @@ fix/m353-builtin-shadow-sweep, unpushed.
 
 ---
 
+## 2026-10-17 -- FIXED (m364): E001 false positive when a later call argument borrows the same local (REL-20261017-1223-orbitdb, m344-era)
+
+REL-20261017-1223-orbitdb (orbitdb suite, m344-era) reported ONE borrow site
+TWICE: `take(bytes, &bytes)` emitted `warning[E001]: 2:75` at the inner
+identifier and `warning[E001]: 2:74` at the `&` span (exit 0 under
+`--emit-ir`). Under `--strict` the false positive became a hard error.
+
+REPRO (2 lines):
+  fn take(d: Vec[Int], r: &Vec[Int]) -> Int { return r.len(); }
+  fn f() -> Int { let bytes: Vec[Int] = Vec[Int].new(); return take(bytes, &bytes); }
+
+ROOT CAUSE: `BorrowChecker::check_call` (xiom-check/src/lib.rs:11723) walked
+arguments left-to-right and called `move_var` on every bare-identifier
+argument IMMEDIATELY. A later argument borrowing the same local then saw it
+as Moved: `check_use` reported at the inner ident span and
+`borrow_place_read`/`read_borrow` reported again at the `&` span. Trigger = a
+by-value argument followed by a borrow of the same local in a LATER argument
+of the SAME call; callee-signature-blind and shape/order-dependent
+(`take(ck(&bytes), bytes)` and `let c = ck(&bytes); take(bytes, c)` were
+clean; an unannotated `let bytes = Vec[Int].new()` stayed Int/Copy and was
+clean). Codegen evaluates the arguments (nested borrow included) and passes
+Vecs as copies, so there is no runtime use-after-move -- a conservative
+false positive.
+
+RUSTC ANCHOR: rustc evaluates ALL call operands before recording consumption
+-- `as_local_call_operand` per argument
+(rustc_mir_build/src/builder/expr/into.rs:485-515), then
+`record_operands_moved(&args)` at :498, then the Call terminator at :505;
+`as_operand` materializes a by-value place into a temporary at evaluation
+time (builder/expr/as_operand.rs:87-100). Borrowck sees moves as MIR
+dataflow points (MaybeUninitializedPlaces,
+rustc_borrowck/src/dataflow.rs:15-23), and two-phase borrows keep reservation
+and activation as distinct CFG locations
+(rustc_borrowck/src/borrow_set.rs:131-136). A nested borrow in a call's
+argument list is therefore never a premature move.
+
+FIX: `check_call` now queues bare-ident by-value consumption in a pending
+list and commits it only after every argument has been checked and the
+argument-temporary borrow scope has been popped (same-call read borrows are
+evaluated, released, then the move lands). Projections (m344 place overlay)
+defer identically. An argument already Moved is not queued again, so the
+single report stays with `check_use`; a second pending by-value use of the
+same local (`take(a, a)`) trips on commit, and the committed move is visible
+to later statements (`take(bytes); take(bytes);` still warns).
+
+EVIDENCE (windows fixer worktree, branch fix/m364-e001-samecall-borrow):
+- before: exact 2-line repro, `--emit-ir` -> rc 0, stderr exactly
+  `warning[E001]: 2:75: use of moved value 'bytes'` and
+  `warning[E001]: 2:74: use of moved value 'bytes'`.
+- after: same probe -> rc 0, stderr EMPTY (0 bytes); `--strict` -> rc 0,
+  stderr empty.
+- positive controls: `take(bytes); take(bytes);` -> one
+  `warning[E001]: 2:89: use of moved value 'bytes'`; `take(bytes, bytes)` ->
+  one `warning[E001]: 2:74: use of moved value 'bytes'`.
+- fixture m364_e001_samecall_borrow (2-line shape + nested-checksum
+  `take_n(bytes, ck(&bytes))`): default and --strict rc 0, zero E001,
+  executable rc 0.
+- `--check` does not run the borrow pass at all: `check_only` returns before
+  Stage 4 (crates/xiom/src/lib.rs:1238-1246); `xiom --check` prints only
+  "Type check PASSED". RESIDUAL, not this fix.
+
+LOCKS:
+- tests/regression/m364_e001_samecall_borrow/main.xi
+- crates/xiom/tests/borrow_e001.rs `m364_same_call_borrow_stays_clean_e001`
+  (clean/no-E001, rc 0, default + --strict)
+- xiom-check lib (near test_function_call_moves_call_init):
+  `test_same_call_borrow_after_by_value_arg_stays_clean`,
+  `test_same_call_double_by_value_move_still_warns`,
+  `test_cross_call_reuse_still_warns_after_deferral`.
+
+Battery: borrow_e001 4/4 (m132/m133/m318/m364), xiom-check lib 208/208,
+m344 e2e 3/3, feature_regression 549/549 (single-threaded; parallel runs hit
+the known host/cache contention on regress_7b09, which passes alone).
+
+RESIDUALS: (1) `--check` parity -- the check-only driver path skips the
+borrow pass entirely, so E001 behavior under `--check` is unchanged/absent.
+(2) Callee-signature-blind: `take(a, &a)` is accepted for ANY callee
+(including one that might mutate through the borrow) because codegen copies
+the by-value argument; cross-statement reuse is still diagnosed, but
+same-call read/borrow overlap is deliberately not. (3) An unannotated
+`let bytes = Vec[Int].new()` still falls back to Int/Copy in the borrow pass
+(m344 type-table limitation); the annotated shape is the one that used to
+warn and is the lock.
+
+Fix commit: 632e8c3d2 (branch fix/m364-e001-samecall-borrow, unpushed).
+
+---
