@@ -73,9 +73,28 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   re-pin, COMBINED notes verify, run the final locks + battery, cut.
   `release/arm64-gate-check` is a TEMP validation branch -- do not merge it;
   delete it after the final pin.
-- PIN BATTERY v6 is running on main `e367ebbea` with stdlib `d6b562a` in
-  `xiom-pin-verify` (4 threads, log `%TEMP%\kilo\pin-verify-battery6.log`);
-  the stdlib smoke gate is no longer competing.
+- PIN BATTERY v6 ran on main `e367ebbea` with stdlib `d6b562a` (4 threads,
+  log `%TEMP%\kilo\pin-verify-battery6.log`): feature_regression PASS,
+  integration PASS; e2e rc=1 (pre-hash-fix build -- superseded; the final
+  battery must run on the release commit). stdlib_execution was in progress at
+  the handoff.
+- **STDLIB v0.64.7 GATE FAILURE ROOT-CAUSED + FIXED**: the first stdlib
+  release run (39065075427) was 955/956 on BOTH OSes, failing only
+  `smoke_hash_edge` (run=1, reproducible solo). Cause: m353's declared-hash
+  fallthrough emitted a bare `@hash` stub for CAST/NEGATED receivers
+  (`(0 as Int).hash()` -> 0) while the generic `hash[T]` called the declared
+  `Int.hash` (DJB2); the smoke compares them. Fixed on compiler main
+  `81f74c5a6`: `infer_expr_xiom_type_deep` carries `Expr::As` target types and
+  recurses through `Unary(Neg)`, and every declared one-arg `Type.hash` scalar
+  call now goes DIRECTLY through its pre-assigned symbol
+  (`mono.fn_symbol_map`) instead of the ambiguous regular dispatch. Verified:
+  the UNCHANGED stdlib `smoke_hash_edge` exits 0 (cast, negated, bool forms),
+  e2e m353 7/7, e2e hash 4/4, stdlib_execution 85/85, feature_regression
+  549/549. New candidate tag **`candidate-v0.64.7-m351-r2`** (sha
+  `81f74c5a6`, includes the arm64 typed-pointer fix). stdlib asked to set
+  `COMPILER_VERSION` to r2 and re-run the release gates; their `5686029`
+  workaround (`0.hash()`) can stay or be reverted (both pass). Then tag ->
+  re-pin -> final battery -> cut.
 
 *** SESSION UPDATE 2026-10-17T13:20Z (compiler lane; MIDDAY+ -- pin merged, m352/m359/cold-lane landed, cleanup done) -- superseded by 17:55Z ***
 - PIN MERGED: **xiom-lang/xiom#7 REBASE-MERGED** 2026-10-17T12:48Z (`8fdc3292`
