@@ -1,51 +1,36 @@
 {
   "schema": 1,
   "tag": "v0.64.7",
-  "summary": "The Win64 C ABI and typed confined faults, host-arch native targeting (linux-arm64), builtin-shadow and fn-value fixes, the CLI duplicate-flag recovery, the same-call borrow diagnostic fix, and truly cold benchmark lanes -- on the stdlib-v0.64.7 pin.",
+  "summary": "Win64 C ABI aggregates and typed confined faults, host-arch native targeting, builtin-shadow and fn-value fixes, duplicate-flag recovery, same-call borrow accuracy, and truly cold benchmark lanes -- on the stdlib-v0.64.7 pin.",
   "highlights": [
     {
       "kind": "compiler",
       "title": "Win64 C ABI aggregates + typed confined faults",
-      "text": "Externs now lower by-value aggregates and returns with the MSVC C convention on x86_64-pc-windows-msvc (a 16B by-value aggregate passes as a pointer operand, a 16B return uses sret), and raw `Int as fn(..)` casts use the same C-lowered fn-pointer type. SysV/AArch64 keep the internal convention until each is validated. Confined faults are no longer silent: the runtime records the permanent fault, prints an always-on typed diagnostic, and exits 70 unless the program acknowledges via `xiom.error.take_fault()`; retries are restricted to the guard-page transient class, so side effects run once."
+      "text": "On x86_64-pc-windows-msvc, by-value aggregates and returns use the MSVC C convention (pointer operand / sret; raw Int as fn casts share the C fn-pointer type); SysV/AArch64 keep the internal convention. Confined faults surface as typed HardwareFaults; unacknowledged faults exit 70. Only guard-page transients retry."
     },
     {
       "kind": "fix",
       "title": "Host-arch native targeting (linux-arm64 enabler)",
-      "text": "`Target::Native` now follows the host architecture instead of assuming x86_64-linux, and the toolchain resolver carries the linux-arm64 asset names/sums. The arm64 release leg and the packages edge lane can target the host directly."
+      "text": "Target::Native now follows the host architecture instead of assuming x86_64-linux, and the toolchain resolver carries the linux-arm64 asset names/sums. The arm64 release leg and the packages edge lane can target the host directly."
     },
     {
       "kind": "fix",
-      "title": "Builtins stop shadowing declarations",
-      "text": "Scalar `.hash()` and the Mutex barrier no longer shadow user/stdlib declarations: `Int.hash`/`Bool.hash` and `xiom.sync.Mutex[T]` resolve to the declaration in runtime, static, and IR paths."
-    },
-    {
-      "kind": "fix",
-      "title": "fn-value trio on the hook seam",
-      "text": "Module-global fn-typed vars get their thunk emitted at definition, fn-typed struct fields keep the uniform ENV representation (adjacent fn fields no longer overwrite each other), and fn-typed aliases used as callable parameters dispatch through the resolved signature instead of access-violating."
-    },
-    {
-      "kind": "fix",
-      "title": "CLI duplicate value flags recover cleanly",
-      "text": "A duplicated value flag after the positional (`xiom file.xi --timeout 900 --timeout 900`) now exits 2 with a clean diagnostic instead of a clap panic; default-less flag reads never touch the fallback matches."
-    },
-    {
-      "kind": "fix",
-      "title": "Borrow diagnostics: one borrow site, one warning",
-      "text": "E001 no longer reports a false move when a by-value argument is followed by a borrow of the same local in a later argument of the same call. Genuine cross-statement reuse still warns. The `--check` borrow-pass parity gap is recorded as a residual."
+      "title": "Builtin shadow, fn-value, CLI and borrow fixes",
+      "text": "Scalar .hash() and the Mutex barrier stop shadowing declarations; module-global fn vars emit their thunk, fn struct fields keep the uniform ENV layout, and fn aliases dispatch by resolved signature; duplicate value flags exit 2 cleanly; E001 no longer double-reports one borrow site. Genuine reuse still warns."
     },
     {
       "kind": "compiler",
       "title": "Benchmark cold lanes stay cold",
-      "text": "`--no-cache` now disables the persistent catalog index and catalog-body check caches (read and write) in the compile, AOT-run, and in-process JIT paths. A lock proves the control run writes `checkbodies.txt` while cold runs write neither `checkbodies.txt` nor `catidx.txt`."
+      "text": "--no-cache now disables the persistent catalog index and catalog-body check caches (read and write) in the compile, AOT-run, and in-process JIT paths. A lock proves the control run writes checkbodies.txt while cold runs write neither checkbodies.txt nor catidx.txt."
     }
   ],
   "breaking": [],
   "known_issues": [
-    "Int128 division/modulo in a Vec loop can access-violate (m360, in flight).",
-    "A capture-frames probe can hang on the run leg (m366, minimized snippet requested).",
-    "Send/Sync markers are declared and auto-derived but not yet enforced on spawn captures (m363, queued).",
+    "Int128 division and modulo in a Vec loop can still access-violate; the fix is in progress.",
+    "A capture-frames probe can hang on the run leg; a minimized repro is being collected.",
+    "Send/Sync markers are declared and auto-derived but not yet enforced on spawn captures.",
     "Deep container equality remains pointer identity (carried from v0.64.6).",
-    "The dependency-object cache key is consumer-specific, and a HIT does not verify object existence under concurrent builds (m365, queued)."
+    "The dependency-object cache key is consumer-specific, and a cache HIT does not verify object existence under concurrent builds, so concurrent compiles can hit a link failure."
   ],
   "docs": [
     {
