@@ -18532,3 +18532,110 @@ The compiler pin must move to a stdlib rev containing c21ad9f before
 the no-silent-exit/smoke locks run in CI.
 
 ---
+
+## 2026-10-17 -- FIXED (m361): three fn-value defects on the v0.64.6 hook seam -- module-global ginit thunks, struct-field ENV parity, alias-typed callable params (REL-20261017-1227-packages)
+
+The xiom.pulse 0.2 pre_route/after_response hook seam (packages commit
+7a3abdcd) shipped with workarounds for three fn-value defects reproduced on
+the pinned v0.64.6. The item's probes were reconstructed in-repo from the
+packages tree (the pulse repo at 1c4ca62 does not carry them); all citations
+below are the fixer worktree.
+
+A/B on the installed canonical v0.64.6 (genuine release: the m348 lock is
+still RED on it -- P1 = 4613937818241073152, rc 3 -- so it is not a later
+dev build; XIOM_STDLIB = stdlib @ 8d95815):
+- probe_global_registry (global fn field + ginit call-arg wrap): PRE clang
+  `use of undefined value '@__fnwrap_0'` rc 1 -> POST rc 0.
+- probe_fn_global (the item's verbatim minimal probe): PRE serial rc 2
+  (compiles; hook(1) == 2) but `--parallel-codegen` rc 1 C001
+  `unresolved function symbol 'hook'` -> POST rc 2 serial + parallel.
+- probe_two_hooks: PRE rc 10 -> POST rc 0.
+- probe_fn_alias: PRE 0xC0000005 -> POST rc 0.
+
+ROOT CAUSES
+1) ginit thunks never flushed. Module-global initializers compile in
+   synthesized `@__xiom_ginit_N` bodies outside `compile_fn`; a wrap inside
+   one (struct literal fn field, call with a fn-typed arg) defers a
+   `__fnwrap_N` forwarding thunk into `local.deferred_closure_defs`, which
+   only `compile_fn` flushed -> clang undefined value. Fix: flush at module
+   level after the ctor bodies (lib.rs:6353). Parallel facet:
+   `compile_functions_parallel`'s fresh per-function emitters inherited
+   constants but NOT `local.module_globals` / `global_xiom_types`, so a bare
+   module-global fn-var call resolved as a FUNCTION `@hook` (C001); both
+   snapshots are now inherited (lib.rs:6743-6755, 6781-6782).
+2) struct-field ENV parity + field-binding signature. The struct LITERAL
+   path wrapped a bare fn ref into the uniform closure ENV, but
+   `hs.pre = pre_real` stored the RAW code address (regular, deref and
+   compile_lvalue assignment paths), and `let pf = hs.pre;` recorded no
+   return class, so `pf(4).a` compiled `call i64` and the `.a` read folded
+   to 0 (probe exit 10). The module-global struct-field call path also
+   loaded the ENV pointer and inttoptr'd it as CODE. Fix: one shared
+   destination-marker store helper used by the literal and all assignment
+   paths (lib.rs:3012 `fn_marker_store_value`; expr.rs:4930;
+   stmt.rs:1316/1572/1612); field-read bindings resolve the declared field
+   marker and record signature + ENV provenance (lib.rs:3089-3107; global
+   receivers resolve through call.rs:744); global struct-field calls load
+   env[0] and use the field's declared return class (call.rs:6455-6515).
+3) alias-typed fn params. Every fn-value classification matched `Type::Fn`
+   only; `type F = fn(Int) -> Int; fn install(v: &mut Vec[fn(Int) -> Int],
+   f: F)` therefore passed a RAW code address into the callee while the Vec
+   element call path consumes ENV (field 0) -> 0xC0000005 at `f(4)`. Fix:
+   `fn_marker_of_type` resolves the registered alias body (fn-typed aliases
+   now register the FULL marker, return-side container args preserved) and
+   is used by param registration, `fn_typed_params` (call-site wrap) and
+   binding annotations (lib.rs:2962-2986; decl.rs:26/899/1075/1959/1999).
+
+RUSTC REFERENCE: classification is type-derived, never expression-shaped.
+rustc normalizes aliases before reading the callee's signature
+(compiler/rustc_hir_typeck/src/expr.rs:635 `ty.fn_sig(tcx)` after
+`structurally_resolve_type`) and derives the indirect-call ABI from the
+pointee signature (compiler/rustc_ty_utils/src/abi.rs:242
+`FnAbiDesc::for_fn_ptr`, :291 `fn_abi_of_fn_ptr`; ABI consumed at
+compiler/rustc_codegen_ssa/src/mir/block.rs:1209). Rejected alternative:
+special-case the alias spelling at each call site -- the same name-derived
+class the RUSTC-REFERENCE rules (2: derive ABI/layout from types) and study
+05 section 2.4 warn against; resolving through the alias registry, the local
+analogue of normalization, fixes all four consumers at once. Struct layout
+stays index-derived (study 05 section 2.2; rustc_middle/src/ty/layout.rs:848
+`ty_and_layout_field`): the field index was already correct -- the defect
+was representation parity, not offsets.
+
+LOCKS: `tests/regression/m361_fn_value_trio/` (probe_fn_global.xi verbatim;
+probe_global_registry.xi ginit registry shapes + single-letter alias global;
+probe_two_hooks.xi + direct field calls; probe_fn_alias.xi + alias local)
+driven from `crates/xiom-codegen/tests/e2e_tests.rs`
+(e2e_m361_fn_global_registry, _parallel, _probe,
+e2e_m361_adjacent_fn_fields, e2e_m361_fn_alias_param,
+e2e_m361_fn_value_trio_ir -- the IR twin asserts every referenced
+`__fnwrap_N` is DEFINED, the adjacent-field indirect call is
+struct-classified, and the alias call site wraps an env). ci.yml group-2
+tokens added.
+
+BATTERY (fixer worktree, windows): new locks 6/6; e2e group 2 287/287;
+codegen lib 14/14; feature_regression 548/549 in the normal run +
+`regress_7b09_incremental_check_cached` 1/1 with a clean TEMP (it hung
+scanning the machine's multi-GB %TEMP% -- not fn-value code,
+pre-existing/environmental); v0.64.6 A/B above. The stdlib suites were not
+re-run (the clean pin was used for resolution only).
+
+RESIDUALS:
+- The item's verbatim minimal `var hook: fn(Int) -> Int = inc;` SERIAL path
+  already compiled+ran on v0.64.6/HEAD (returns 2); the reported
+  undefined-@__fnwrap class reproduces when the initializer actually WRAPS
+  (the hook-registry shape), now locked. The parallel facet was genuinely
+  red (C001) and is fixed.
+- Checker: a DIRECT call on a module-global struct fn field (`box.f(4)`) is
+  typed Unit (T001); the binding form (`let bf = box.f; bf(4)`) works in
+  both checker and codegen (locked). Not broadened into checker work.
+- Checker: a MULTI-character fn typedef alias used as a callable
+  module-global (`type HookF = fn(Int) -> Int; var h: HookF = inc; h(1)`)
+  is typed Unit; the item's single-letter `F` shape works and is locked.
+  B-34 (Vec[alias]) may share this checker path -- recorded, not changed.
+- A field store whose RHS reaches a RAW fn value through a non-Ident
+  expression (`h.f = g;` with `g` a raw `as Int` local) keeps the raw
+  value: the shared helper only wraps a bare registered fn NAME (it cannot
+  synthesize a forwarding thunk without a resolveable callee symbol). The
+  direct field-call path already assumed ENV before this fix, so the shape
+  is unchanged, not regressed.
+Fix commits: e90c646c7 (fix) + f429902b7 (locks/ci tokens) (branch
+fix/m361-fn-value-trio, unpushed).
