@@ -1304,7 +1304,18 @@ impl IrEmitter {
                 // not simple ident, deref, or index assignments.
                 if matches!(place, Expr::Field(..)) {
                     if let Some((l_ptr, l_ptr_ty, l_elem_ty)) = self.compile_lvalue(place) {
-                        let store_val = self.coerce_value(&val, &val_ty, &l_elem_ty);
+                        // m361 item 2: a fn-typed field DESTINATION stores the
+                        // uniform closure ENV (the same representation the
+                        // struct-literal path installs); the field-call and
+                        // field-binding readers consume env[0]. Pre-fix this
+                        // assignment stored the RAW code address.
+                        let field_xiom = match place {
+                            Expr::Field(obj, field, _) => self.infer_field_xiom_type(obj, &field.name),
+                            _ => None,
+                        };
+                        let (rewrapped, rewrap_ty) = self.fn_marker_store_value(
+                            field_xiom.as_deref(), value, val.clone(), val_ty.clone());
+                        let store_val = self.coerce_value(&rewrapped, &rewrap_ty, &l_elem_ty);
                         self.emitln(&format!("  store {l_elem_ty} {store_val}, {l_ptr_ty} {l_ptr}"));
                         return Ok(());
                     }
@@ -1554,8 +1565,14 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         {
                                         if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
                                             let field_llvm_ty = self.field_llvm_type(type_name, field_idx);
+                                            // m361 item 2: fn-typed destination
+                                            // stores the closure ENV, exactly like
+                                            // the literal/regular-assignment paths.
+                                            let field_xiom = self.field_xiom_type(type_name, field_idx);
+                                            let (rewrapped, rewrap_ty) = self.fn_marker_store_value(
+                                                field_xiom.as_deref(), value, val.clone(), val_ty.clone());
                                             let gep = self.fresh_tmp();
-                                            let store_val = self.coerce_value(&val, &val_ty, &field_llvm_ty);
+                                            let store_val = self.coerce_value(&rewrapped, &rewrap_ty, &field_llvm_ty);
                                             self.emitln(&format!("  {gep} = getelementptr {pointee}, {ptr_ty} {ptr_val}, i32 0, i32 {field_idx}"));
                                             self.emitln(&format!("  store {field_llvm_ty} {store_val}, {field_llvm_ty}* {gep}"));
                                             return Ok(());
@@ -1589,6 +1606,11 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                 {
                                     if let Some(field_idx) = field_names.iter().position(|f| f == &field.name) {
                                         let field_llvm_ty = self.field_llvm_type(&type_name, field_idx);
+                                        let field_xiom = self.field_xiom_type(&type_name, field_idx);
+                                        // m361 item 2: fn-typed destination
+                                        // stores the closure ENV (literal parity).
+                                        let (val, val_ty) = self.fn_marker_store_value(
+                                            field_xiom.as_deref(), value, val, val_ty);
                                         // Generic container fields hold i64 handles:
                                         // box a by-value header before storing.
                                         let store_val = if field_llvm_ty == "i64"

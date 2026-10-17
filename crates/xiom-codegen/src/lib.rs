@@ -3067,6 +3067,87 @@ impl IrEmitter {
         found
     }
 
+    /// m361 (REL-20261017-1227-packages): render a direct `Type::Fn` as the
+    /// canonical "fn(..) -> R" marker, keeping the FULL return spelling so
+    /// container args survive (`type_from_ast` would drop `Vec[Float64]` to
+    /// "Vec" -- the C24-2 record). Static so registration passes can use it.
+    pub(crate) fn fn_marker_rendered(ty: &Type) -> Option<String> {
+        match ty {
+            Type::Fn(params, ret) => Some(format!(
+                "fn({}) -> {}",
+                params.iter().map(Self::type_from_ast).collect::<Vec<_>>().join(", "),
+                Self::type_string_full(ret)
+            )),
+            _ => None,
+        }
+    }
+
+    /// m361 item 3 (+ the B-34 alias path): classify a declared
+    /// param/annotation type as fn-valued. A type ALIAS whose registered body
+    /// is a fn marker (`type F = fn(Int) -> Int; ... f: F`) must classify
+    /// exactly like the direct spelling. Pre-fix every codegen fn-value
+    /// registration matched `Type::Fn` only, so an alias param received a RAW
+    /// code address while the callee/Vec-element call path consumed the
+    /// uniform closure ENV (field 0) -> 0xC0000005.
+    ///
+    /// rustc reference: aliases are normalized before the callee is
+    /// classified and the call ABI comes from the resolved `fn_sig`
+    /// (`compiler/rustc_hir_typeck/src/expr.rs:635` `ty.fn_sig(tcx)` after
+    /// `structurally_resolve_type`; `compiler/rustc_ty_utils/src/abi.rs:242`
+    /// `FnAbiDesc::for_fn_ptr` normalizes the pointee signature).
+    pub(crate) fn fn_marker_of_type(&self, ty: &Type) -> Option<String> {
+        if let Some(m) = Self::fn_marker_rendered(ty) {
+            return Some(m);
+        }
+        match ty {
+            Type::Named(id, args) if args.is_empty() => {
+                let resolved = self.resolve_alias_name(&id.name);
+                Self::is_fn_marker(&resolved).then_some(resolved)
+            }
+            _ => None,
+        }
+    }
+
+    /// m361 item 2 (+ the item-1 ginit shape): the uniform fn-value STORE
+    /// value for a fn-marker struct-field DESTINATION. A
+    /// bare fn REFERENCE is wrapped into a closure ENV (forwarding thunk);
+    /// env-valued locals and every other shape pass through. Pre-fix only the
+    /// struct LITERAL path wrapped; a later `hs.pre = pre_real` stored the
+    /// RAW code address while every reader/call path consumed ENV bits
+    /// (field 0) -> garbage results / 0xC0000005.
+    ///
+    /// rustc reference: the destination/pointee signature drives both the
+    /// stored representation's ABI and the indirect-call ABI
+    /// (`compiler/rustc_ty_utils/src/abi.rs:242` `FnAbiDesc::for_fn_ptr`;
+    /// `compiler/rustc_codegen_ssa/src/mir/block.rs:1209` takes `fn_sig` from
+    /// the callee value's layout) -- never from the RHS expression shape.
+    pub(crate) fn fn_marker_store_value(
+        &mut self,
+        dest_marker: Option<&str>,
+        value: &Expr,
+        val: String,
+        val_ty: String,
+    ) -> (String, String) {
+        let Some(marker) = dest_marker else { return (val, val_ty) };
+        if !Self::is_fn_marker(marker) { return (val, val_ty); }
+        let Expr::Ident(fid) = value else { return (val, val_ty) };
+        let is_bare_fn_ref = (self.types.functions.contains_key(&fid.name)
+            || self.types.functions.keys().into_iter().any(|k| k.ends_with(&format!(".{}", fid.name)))
+            || self.mono.emitted_fns.contains(&fid.name))
+            && !self.local.closure_locals.contains(&fid.name)
+            && self.lookup_local(&fid.name).is_none();
+        if !is_bare_fn_ref { return (val, val_ty); }
+        let params_llvm: Vec<String> = marker.strip_prefix("fn(")
+            .and_then(Self::split_fn_marker_body)
+            .map(|(ps, _)| Self::split_top_level_type_params(ps).iter()
+                .map(|p| self.llvm_type_for(p).unwrap_or_else(|_| "i64".to_string()))
+                .collect())
+            .unwrap_or_default();
+        let ret_xiom = Self::fn_type_return_xiom(marker).unwrap_or_else(|| "Int".to_string());
+        let env = self.wrap_fn_ref_env(&fid.name, &val, &ret_xiom, params_llvm);
+        (env, "i64".to_string())
+    }
+
     /// B-13/1904 (2026-10-11 fn-value ABI): record a fn-typed local's
     /// signature and its env/raw provenance at binding time.
     ///
@@ -3081,36 +3162,41 @@ impl IrEmitter {
     ///   (never cleared per fn), so a same-named RAW source re-marks the
     ///   name raw.
     fn track_fn_value_binding(&mut self, name: &str, value: &Expr, ty: Option<&Type>) {
-        let sig_ty: Option<&Type> = match ty {
-            Some(t @ Type::Fn(..)) => Some(t),
-            _ => match value {
-                Expr::As(_, t, _) if matches!(t, Type::Fn(..)) => Some(t as &Type),
+        // m361 item 3: resolve the annotation/cast target through the type
+        // alias registry -- `let f: F = ...` with `type F = fn(Int) -> Int`
+        // must record the signature like the direct marker spelling.
+        let sig_marker: Option<String> = match ty {
+            Some(t) => self.fn_marker_of_type(t),
+            None => match value {
+                Expr::As(_, t, _) => self.fn_marker_of_type(t),
                 _ => None,
             },
         };
-        if let Some(Type::Fn(_, ret)) = sig_ty {
-            let ret_xiom = Self::type_string_full(ret);
-            let ret_llvm = self.llvm_type_for_fallback(&Self::type_from_ast(ret));
-            self.types.fn_ptr_return_types.insert(name.to_string(), ret_llvm);
-            self.local.fn_local_returns.insert(name.to_string(), ret_xiom);
-            // m351 (B-33): record the FULL marker so the call site can build
-            // the C ABI plan, and classify RAW-C provenance. An `as fn(..)`
-            // cast whose source is not an XIOM fn value (a dlsym Int, a
-            // struct field, an integer local) crosses the C boundary; a cast
-            // of a closure/bare fn name stays on the internal convention.
-            let marker = Self::type_from_ast_with_args(sig_ty.expect("checked Fn"));
-            self.local.fn_ptr_signatures.insert(name.to_string(), marker);
-            let raw_c = match value {
-                Expr::As(inner, t, _) if matches!(t, Type::Fn(..)) => {
-                    !self.is_internal_fn_value_expr(inner)
+        if let Some(marker) = &sig_marker {
+            if let Some(ret_xiom) = Self::fn_type_return_xiom(marker) {
+                let ret_llvm = self.llvm_type_for_fallback(&ret_xiom);
+                self.types.fn_ptr_return_types.insert(name.to_string(), ret_llvm);
+                self.local.fn_local_returns.insert(name.to_string(), ret_xiom);
+                // m351 (B-33): record the FULL marker so the call site can
+                // build the C ABI plan, and classify RAW-C provenance. An
+                // `as fn(..)` cast whose source is not an XIOM fn value (a
+                // dlsym Int, a struct field, an integer local) crosses the C
+                // boundary; a cast of a closure/bare fn name stays on the
+                // internal convention. m361 resolves aliases before this
+                // point, so `type F = fn(..)` records the same full marker.
+                self.local.fn_ptr_signatures.insert(name.to_string(), marker.clone());
+                let raw_c = match value {
+                    Expr::As(inner, t, _) if matches!(t, Type::Fn(..)) => {
+                        !self.is_internal_fn_value_expr(inner)
+                    }
+                    Expr::Int(..) | Expr::Field(..) | Expr::Index(..) => true,
+                    _ => false,
+                };
+                if raw_c {
+                    self.local.c_fn_ptr_locals.insert(name.to_string());
+                } else {
+                    self.local.c_fn_ptr_locals.remove(name);
                 }
-                Expr::Int(..) | Expr::Field(..) | Expr::Index(..) => true,
-                _ => false,
-            };
-            if raw_c {
-                self.local.c_fn_ptr_locals.insert(name.to_string());
-            } else {
-                self.local.c_fn_ptr_locals.remove(name);
             }
         }
         // m348 (REL-20261016-2002-packages, 2026-10-16): a binding whose RHS
@@ -3122,7 +3208,7 @@ impl IrEmitter {
         // sitofp in the IR). Resolve the callee's declared return marker and
         // parse it exactly like the cast/annotation path (top-level ")" ->
         // split per m277, vec_abi.rs).
-        if sig_ty.is_none() {
+        if sig_marker.is_none() {
             if let Some(marker) = Self::call_rhs_callee(value)
                 .and_then(|callee| self.callee_return_xiom(callee))
             {
@@ -3135,6 +3221,25 @@ impl IrEmitter {
                     // marker and cross the C boundary at the call site.
                     self.local.fn_ptr_signatures.insert(name.to_string(), marker);
                     self.local.c_fn_ptr_locals.insert(name.to_string());
+                }
+            }
+        }
+        // m361 item 2: a local bound from a fn-typed STRUCT FIELD
+        // (`let pf = hs.pre;`) must keep the field's declared signature and
+        // ENV provenance. The field stores the uniform closure ENV (the
+        // direct field-call path loads env[0]); without this record the call
+        // fell back to `call i64` and a struct return surfaced as 0.
+        if sig_marker.is_none() {
+            if let Expr::Field(obj, fname, _) = value {
+                if let Some(marker) = self.infer_field_xiom_type(obj, &fname.name) {
+                    if Self::is_fn_marker(&marker) {
+                        if let Some(ret_xiom) = Self::fn_type_return_xiom(&marker) {
+                            let ret_llvm = self.llvm_type_for_fallback(&ret_xiom);
+                            self.types.fn_ptr_return_types.insert(name.to_string(), ret_llvm);
+                            self.local.fn_local_returns.insert(name.to_string(), ret_xiom);
+                        }
+                        self.local.closure_locals.insert(name.to_string());
+                    }
                 }
             }
         }
@@ -3161,7 +3266,7 @@ impl IrEmitter {
                     }
                 }
             }
-        } else if sig_ty.is_some()
+        } else if sig_marker.is_some()
             || matches!(value, Expr::Ident(id) if
                 self.types.functions.contains_key(&id.name)
                 || self.types.functions.keys().into_iter().any(|k| k.ends_with(&format!(".{}", id.name)))
@@ -6406,6 +6511,15 @@ impl IrEmitter {
                 self.fctx.current_fn = None;
                 self.fctx.current_ensures.clear();
             }
+            // m361 item 1: a module-global initializer that stores a bare fn
+            // REFERENCE through a fn-typed destination (`var b: Box =
+            // Box{ f: inc };`, `var seed = apply(inc, 41);`) defers a
+            // __fnwrap_N forwarding thunk exactly like a function body, but
+            // ginit bodies are not compiled through compile_fn -- the
+            // deferred list was never flushed and clang rejected
+            // "use of undefined value '@__fnwrap_N'" (the xiom.pulse hook
+            // registry shape). Flush at module level after the ctors.
+            self.flush_deferred_closures();
             self.emitln("");
             // BUG 29 (m36_r01/r14): ginit bodies compile AFTER the string
             // constants were dumped above, so strings collected while
@@ -6795,6 +6909,13 @@ impl IrEmitter {
         let ctfe_snapshot = Arc::new(self.ctfe.borrow().clone());
         let local_constants = Arc::new(self.local.constants.clone());
         let local_const_arrays = Arc::new(self.local.const_array_globals.clone());
+        // m361 item 1 (parallel-codegen facet): module-global registrations
+        // are built by the main emitter's register_functions pass. A fresh
+        // per-function emitter that does not inherit them resolves a bare
+        // module-global fn var call as an undefined FUNCTION (`@hook`) and
+        // aborts with C001. Serial mode accumulated the state naturally.
+        let local_module_globals = Arc::new(self.local.module_globals.clone());
+        let local_global_xiom_types = Arc::new(self.local.global_xiom_types.clone());
         let outputs: Vec<_> = functions
             .par_iter()
             .zip(assignments)
@@ -6826,6 +6947,8 @@ impl IrEmitter {
                 *emitter.ctfe.borrow_mut() = (*ctfe_snapshot).clone();
                 emitter.local.constants = (*local_constants).clone();
                 emitter.local.const_array_globals = (*local_const_arrays).clone();
+                emitter.local.module_globals = (*local_module_globals).clone();
+                emitter.local.global_xiom_types = (*local_global_xiom_types).clone();
                 emitter.local.current_module = if prefix.is_empty() { None } else { Some(prefix.clone()) };
                 // I2 fix: Prevent global string name collisions across parallel
                 // emitters by offsetting each emitter's str_counter into a unique

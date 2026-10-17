@@ -19,7 +19,12 @@ impl IrEmitter {
             // M36: Register type aliases so codegen can resolve them to concrete types.
             if td.fields.is_empty() {
                 if let Some(ref alias_ty) = td.alias {
-                    let resolved = Self::type_from_ast(alias_ty);
+                    // m361 item 3: a fn-typed alias keeps the FULL
+                    // "fn(..) -> R" marker (container args in R survive);
+                    // every alias-aware fn-value classification resolves
+                    // through this record.
+                    let resolved = Self::fn_marker_rendered(alias_ty)
+                        .unwrap_or_else(|| Self::type_from_ast(alias_ty));
                     // m223 (C-ORBIT-01): keep the FULL body (args included)
                     // and the declared generic params so an APPLIED alias in
                     // a rendered type name expands (`AliasRes[R]` ->
@@ -638,7 +643,17 @@ impl IrEmitter {
                     // global (`_coverage.keys()`) can infer concrete type args
                     // instead of defaulting to Int (wrong monomorphisation
                     // Map.keys_Int_Int + undefined @Map.keys fn-value).
-                    if let Some(xiom_ty) = Self::type_from_ast_with_args_opt(&cd.ty) {
+                    if let Some(mut xiom_ty) = Self::type_from_ast_with_args_opt(&cd.ty) {
+                        // m361 item 1/3: an ALIAS-typed global
+                        // (`var hook: F = inc;`) records the resolved fn
+                        // marker so the module-global call path classifies it
+                        // as a fn value -- pre-fix the bare "F" missed
+                        // is_fn_marker and the call emitted an unresolved
+                        // `@hook`.
+                        if !Self::is_fn_marker(&xiom_ty) {
+                            let resolved = self.resolve_alias_name(&xiom_ty);
+                            if Self::is_fn_marker(&resolved) { xiom_ty = resolved; }
+                        }
                         self.local.global_xiom_types.insert(cd.name.name.clone(), xiom_ty.clone());
                         self.local.global_xiom_types.insert(symbol.clone(), xiom_ty);
                     }
@@ -876,9 +891,14 @@ impl IrEmitter {
             // for the call sites -- the direct path must wrap raw fn-REFERENCE
             // args into closure envs (the erased signature can't tell them
             // apart; the ret type drives the forwarding thunk).
+            // m361 item 3: a fn-typed ALIAS param (`f: F`) is fn-typed for
+            // the call-site env-wrap exactly like the direct marker -- the
+            // pre-fix `matches!(Type::Fn)` filter missed it and raw code
+            // addresses flowed into env-consuming callees (0xC0000005).
             let fn_param_indices: Vec<(usize, String)> = fd.params.iter().enumerate()
-                .filter(|(_, p)| matches!(&p.ty, Type::Fn(..)))
-                .map(|(i, p)| (i, match &p.ty { Type::Fn(_, ret) => Self::type_from_ast(ret), _ => "Int".to_string() }))
+                .filter_map(|(i, p)| self.fn_marker_of_type(&p.ty).map(|m| {
+                    (i, Self::fn_type_return_xiom(&m).unwrap_or_else(|| "Int".to_string()))
+                }))
                 .collect();
             if !fn_param_indices.is_empty() {
                 self.mono.fn_typed_params.insert(key.clone(), fn_param_indices.clone());
@@ -1057,9 +1077,11 @@ impl IrEmitter {
                 // env-valued param hands over field 0. Without this a
                 // wrapper-shaped relay passed the heap env pointer to C
                 // (`param_to_fnparam=0`, `param_to_box=0`).
+                // m361 item 3: alias-typed fn params wrap identically.
                 let fn_param_indices: Vec<(usize, String)> = fd.params.iter().enumerate()
-                    .filter(|(_, p)| matches!(&p.ty, Type::Fn(..)))
-                    .map(|(i, p)| (i, match &p.ty { Type::Fn(_, ret) => Self::type_from_ast(ret), _ => "Int".to_string() }))
+                    .filter_map(|(i, p)| self.fn_marker_of_type(&p.ty).map(|m| {
+                        (i, Self::fn_type_return_xiom(&m).unwrap_or_else(|| "Int".to_string()))
+                    }))
                     .collect();
                 if !fn_param_indices.is_empty() {
                     self.mono.fn_typed_params.insert(fd.name.name.clone(), fn_param_indices);
@@ -1944,13 +1966,17 @@ impl IrEmitter {
             // the fn ptr) -- calling `f(x)` inside the body must go through
             // the M20-A1 closure path (load the fn ptr from the env struct),
             // NOT inttoptr the env pointer as a code pointer (0xC0000005).
-            if let Type::Fn(_, ret) = &param.ty {
+            // m361 item 3: the alias spelling (`type F = fn(Int) -> Int;
+            // ... f: F`) classifies exactly like the direct marker.
+            if let Some(marker) = self.fn_marker_of_type(&param.ty) {
                 self.local.closure_locals.insert(param.name.name.clone());
-                // C24-2: type_string_full PRESERVES generic args
-                // ("Vec[Float64]"); type_from_ast dropped them to "Vec", so a
+                // C24-2: the marker keeps the FULL return spelling
+                // ("Vec[Float64]"); type_from_ast dropped args to "Vec", so a
                 // binding from `var v = samples(t)` recorded "Vec" and the
                 // indexed element read took the scalar i64 path.
-                self.local.fn_local_returns.insert(param.name.name.clone(), Self::type_string_full(ret));
+                if let Some(ret_xiom) = Self::fn_type_return_xiom(&marker) {
+                    self.local.fn_local_returns.insert(param.name.name.clone(), ret_xiom);
+                }
             }
             if Self::is_signed_xiom_type(&xiom_ty_name) {
                 self.local.signed_locals.insert(param.name.name.clone());
@@ -1980,11 +2006,13 @@ impl IrEmitter {
             } else {
                 self.local.ptr_locals.remove(&param.name.name);
             }
-            // Track function pointer return types for function pointer parameters
-            if let Type::Fn(_, ret) = &param.ty {
-                let ret_ty_name = Self::type_from_ast(ret);
-                let ret_llvm = self.llvm_type_for_fallback(&ret_ty_name);
-                self.types.fn_ptr_return_types.insert(param.name.name.clone(), ret_llvm);
+            // Track function pointer return types for function pointer
+            // parameters (direct marker or a fn-typed alias -- m361 item 3).
+            if let Some(marker) = self.fn_marker_of_type(&param.ty) {
+                if let Some(ret_xiom) = Self::fn_type_return_xiom(&marker) {
+                    let ret_llvm = self.llvm_type_for_fallback(&ret_xiom);
+                    self.types.fn_ptr_return_types.insert(param.name.name.clone(), ret_llvm);
+                }
             }
         }
 
