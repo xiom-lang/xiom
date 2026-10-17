@@ -25,10 +25,11 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   reddens warning-sensitive e2e locks (m17 etc.). Correct setup: an isolated
   compiler worktree with its own pinned `stdlib/` and NO XIOM_STDLIB:
   `E:\xiom-lang\xiom-pin-verify` (detached at `007f352dd`, nested stdlib
-  worktree at 8d95815). Battery v3 running there (3 threads): e2e / feature /
-  integration / stdlib suites / api-freeze / checker; log
-  `%TEMP%\kilo\pin-verify-battery3.log`. Record the result on
-  REL-20261016-2330-stdlib when green.
+  worktree at 8d95815). `cargo build --release -p xiom` FIRST -- the e2e
+  harness invokes `target/release/xiom.exe`. Battery v4 running there (3
+  threads): e2e / feature / integration / stdlib suites / api-freeze / checker;
+  log `%TEMP%\kilo\pin-verify-battery4.log`. Delete `xiom-pin-verify` after
+  recording. Record the result on REL-20261016-2330-stdlib when green.
 - LANDED ON MAIN (`eff579c9`, pushed): **m252 follow-up for the benchmark cold
   lanes** (REL-20261011-2100-benchmark, owner option (a)) -- `--no-cache` now
   disables the persistent catalog index cache (`catidx.txt`) and the
