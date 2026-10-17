@@ -6306,18 +6306,18 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     );
 }
 
-// m244: the guarded derefs are CONTAINED by the unsafe-block trampoline --
-// the program completes (the confined blocks fault deterministically and
-// the language-level fault path continues), and the valid reference
-// control still reads correctly.
+// m244: the guarded derefs are CONTAINED by the unsafe-block trampoline
+// (no crash), but m351 makes the language-level fault observable: the
+// confined faults are deterministic and UNACKNOWLEDGED, so the process
+// exits 70 instead of masquerading as a successful exit 0.
 #[test] fn e2e_m244_null_deref_guard_contained() {
     assert_eq!(
         compile_and_run_with_flags(
             "tests/regression/m244_null_deref_guard/main.xi",
             &["--overflow-checks"]
         ),
-        Some(0),
-        "guarded null derefs must be contained, not crash (m244)"
+        Some(70),
+        "guarded null derefs must be contained (no crash) but unacknowledged faults exit 70 (m244/m351)"
     );
 }
 
@@ -6342,16 +6342,23 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
         .output()
         .expect("run m244 fixture");
     let stderr = String::from_utf8_lossy(&run.stderr);
-    // m333: the trace marker is emitted by the Windows VEH path only; the
-    // POSIX containment (sigsetjmp) prints no marker, so the marker check is
-    // Windows-only. Containment itself (exit 0) is asserted everywhere.
+    // m333: the verbose trace marker is emitted by the Windows SEH path only;
+    // the POSIX containment (sigsetjmp) prints no trace marker. m351's
+    // always-on typed `[fault]` diagnostic is asserted on every platform.
     #[cfg(windows)]
     assert!(
         stderr.contains("[trampoline] fault"),
         "the confined null deref must report a deterministic fault; stderr:\n{stderr}"
     );
-    let _ = &stderr;
-    assert_eq!(run.status.code(), Some(0), "fault must be contained");
+    assert!(
+        stderr.contains("[fault] confined block"),
+        "m351: the fault must be manifested with the always-on typed diagnostic; stderr:\n{stderr}"
+    );
+    assert_eq!(
+        run.status.code(),
+        Some(70),
+        "m351: an unacknowledged confined fault exits 70 (no silent exit 0)"
+    );
 }
 
 // m246 (sweep finding B-10): a LOCAL fn-pointer named `alloc`/`free`
@@ -7824,10 +7831,14 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
         "m308: an arena-free confined block must still report the contained fault; stderr:\n{stderr}"
     );
     let _ = &stderr;
+    assert!(
+        stderr.contains("[fault] confined block"),
+        "m351: the m308 confined fault must be manifested with the typed diagnostic; stderr:\n{stderr}"
+    );
     assert_eq!(
         run.status.code(),
-        Some(0),
-        "m308: the confined fault must be contained (exit 0)"
+        Some(70),
+        "m308/m351: contained but unacknowledged confined fault exits 70"
     );
 }
 
@@ -9839,5 +9850,233 @@ fn m347_runtime_guard() -> Option<std::path::PathBuf> {
     assert!(
         !ir.contains("%struct.Result__Int__Int"),
         "m350: no monomorph may be created for a scalar-payload Result"
+    );
+}
+
+// m351 (REL-20261016-2031-bindings-3, B-33): the C-boundary IR on
+// x86_64-pc-windows-msvc must use the C-lowered signature -- by-value
+// aggregates >8B become POINTER operands, >8B returns become `void` with an
+// explicit first sret pointer, and raw `Int as fn(..)` casts use the same
+// C-lowered fn-pointer type. Naked `%struct` operands/returns at these
+// boundaries are the defect (LLVM lowers them differently than MSVC C).
+// The target-dispatch is deliberate: SysV/AArch64 keep the internal
+// convention until each is validated.
+#[test] fn e2e_m351_c_abi_ir() {
+    if !cfg!(windows) {
+        return;
+    }
+    let output = Command::new(xiom_path())
+        .args(["--emit-ir", "tests/regression/m351_c_abi_ir/main.xi"])
+        .current_dir(project_root())
+        .output()
+        .expect("emit-ir m351 fixture");
+    assert!(
+        output.status.success(),
+        "m351 IR fixture must compile to IR; stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let ir = String::from_utf8_lossy(&output.stdout).to_string();
+    assert!(
+        ir.contains("target triple = \"x86_64-pc-windows-msvc\""),
+        "m351 IR lock expects the MSVC x64 target; got:\n{ir}"
+    );
+
+    // Direct extern: 16B by-value param is a pointer; 16B return is void+sret.
+    let sum2_decl = ir.lines()
+        .find(|l| l.trim_start().starts_with("declare i64 @probe_sum2"))
+        .expect("probe_sum2 declare must exist");
+    assert!(
+        sum2_decl.contains("Pair2*") && !sum2_decl.contains("(Pair2,"),
+        "m351: probe_sum2 must take a pointer for the 16B by-value record; got:\n{sum2_decl}"
+    );
+    let make2_decl = ir.lines()
+        .find(|l| l.trim_start().starts_with("declare void @probe_make2"))
+        .expect("probe_make2 must be declared void (sret)");
+    assert!(
+        make2_decl.contains("sret(") && make2_decl.contains("Pair2*"),
+        "m351: probe_make2 must use an explicit first sret pointer; got:\n{make2_decl}"
+    );
+    let mul_decl = ir.lines()
+        .find(|l| l.trim_start().starts_with("declare i64 @probe_mul"))
+        .expect("probe_mul declare must exist");
+    assert_eq!(
+        mul_decl.trim(),
+        "declare i64 @probe_mul(i64, i64)",
+        "m351: scalar signatures must stay direct"
+    );
+    // 8-byte aggregate: C coerces the raw bytes to ONE i64; the declare and
+    // operands must not keep the naked %struct (LLVM would split the fields).
+    let sum2i_decl = ir.lines()
+        .find(|l| l.trim_start().starts_with("declare i64 @probe_sum2i"))
+        .expect("probe_sum2i declare must exist");
+    assert_eq!(
+        sum2i_decl.trim(),
+        "declare i64 @probe_sum2i(i64, i64)",
+        "m351: 8B by-value aggregate must be integer-coerced"
+    );
+    let make2i_decl = ir.lines()
+        .find(|l| l.trim_start().starts_with("declare i64 @probe_make2i"))
+        .expect("probe_make2i must return the coerced integer");
+    assert_eq!(
+        make2i_decl.trim(),
+        "declare i64 @probe_make2i(i64)",
+        "m351: 8B aggregate return must be integer-coerced"
+    );
+    for line in ir.lines() {
+        let t = line.trim();
+        if (t.contains("@probe_sum2i(") || t.contains("@probe_make2i("))
+            && t.starts_with("call ")
+        {
+            assert!(
+                !t.contains("Pair2i"),
+                "m351: 8B aggregate call must not carry the naked struct:\n{t}"
+            );
+        }
+    }
+
+    // No call to the extern may carry a naked %struct operand.
+    for line in ir.lines() {
+        let t = line.trim();
+        if t.contains("@probe_sum2(") && t.starts_with("call ") {
+            assert!(
+                t.contains("Pair2*") && !t.contains("(Pair2,") && !t.contains(", Pair2,"),
+                "m351: naked %struct operand on probe_sum2 call:\n{t}"
+            );
+        }
+        if t.contains("@probe_make2(") && t.starts_with("call ") {
+            assert!(
+                t.starts_with("call void "),
+                "m351: probe_make2 return must be void (sret):\n{t}"
+            );
+            assert!(
+                t.contains("sret(") && t.contains("Pair2*"),
+                "m351: probe_make2 call must pass the explicit sret slot:\n{t}"
+            );
+        }
+    }
+
+    // Raw Int-as-fn cast: at the CALL SITE the value is cast to the
+    // C-lowered fn-pointer type (aggregate parameter = pointer; aggregate
+    // return = void + sret pointer). The cast binding itself keeps the XIOM
+    // value type; that type is not a C boundary anymore.
+    let c2_cast = ir.lines().find(|l| {
+        l.contains("bitcast") && l.contains("to i64 (") && l.contains("Pair2*, i64)*")
+    });
+    assert!(
+        c2_cast.is_some(),
+        "m351: the c2 call must cast to a C-lowered fn-pointer type (pointer param); IR:\n{ir}"
+    );
+    let c3_cast = ir.lines().find(|l| {
+        l.contains("bitcast") && l.contains("to void (") && l.contains("Pair2*, i64)*")
+    });
+    assert!(
+        c3_cast.is_some(),
+        "m351: a returning cast needs the void + sret-pointer fn type; IR:\n{ir}"
+    );
+    let small_cast = ir.lines().find(|l| {
+        l.contains("bitcast") && l.contains("to i64 (i64, i64)*")
+    });
+    assert!(
+        small_cast.is_some(),
+        "m351: the 8B aggregate cast must use the integer-coerced fn type; IR:\n{ir}"
+    );
+    for line in ir.lines() {
+        let t = line.trim();
+        if t.starts_with("call i64 %") && t.contains("Pair2") {
+            assert!(
+                t.contains("Pair2*") && !t.contains("(Pair2,") && !t.contains(", Pair2,"),
+                "m351: naked %struct operand on a cast call:\n{t}"
+            );
+        }
+        if t.starts_with("call void %") && t.contains("Pair2") {
+            assert!(
+                t.contains("Pair2*") && !t.contains("(Pair2,") && !t.contains(", Pair2,"),
+                "m351: naked %struct operand/return on a cast call:\n{t}"
+            );
+        }
+    }
+}
+
+// m351 (B-33): the P1 silent-exit property. A deterministic fault inside a
+// confined block must ALWAYS print the typed [fault] diagnostic (no env var)
+// and exit 70 when unacknowledged; a fixture that calls take_fault() must
+// exit 0 and still print the diagnostic (the fault happened; it was typed).
+#[test] fn e2e_m351_no_silent_exit() {
+    let exe_name = format!(
+        "m351_no_silent_{}{}",
+        std::process::id(),
+        if cfg!(windows) { ".exe" } else { "" }
+    );
+    let exe = project_root().join(&exe_name);
+    let _ = std::fs::remove_file(&exe);
+    let compile = Command::new(xiom_path())
+        .args(["--overflow-checks", "tests/regression/m244_null_deref_guard/main.xi", "-o"])
+        .arg(&exe)
+        .current_dir(project_root())
+        .output()
+        .expect("compile m351 no-silent-exit fixture");
+    assert!(
+        compile.status.success(),
+        "m351 no-silent-exit fixture must compile; stderr:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe)
+        .env_remove("XIOM_TRACE_FAULT")
+        .output()
+        .expect("run m351 no-silent-exit fixture");
+    let _ = std::fs::remove_file(&exe);
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert_eq!(
+        run.status.code(),
+        Some(70),
+        "m351: an unacknowledged confined fault must exit 70, not 0\nstdout:\n{}\nstderr:\n{stderr}",
+        String::from_utf8_lossy(&run.stdout)
+    );
+    assert!(
+        stderr.contains("[fault] confined block"),
+        "m351: the typed fault diagnostic must be ALWAYS on (no XIOM_TRACE_FAULT)\nstderr:\n{stderr}"
+    );
+
+    // Acknowledged fault: exit 0, typed record delivered, diagnostic still on.
+    let exe2 = project_root().join(format!(
+        "m351_take_fault_{}{}",
+        std::process::id(),
+        if cfg!(windows) { ".exe" } else { "" }
+    ));
+    let _ = std::fs::remove_file(&exe2);
+    let compile2 = Command::new(xiom_path())
+        .args(["tests/regression/m351_take_fault/main.xi", "-o"])
+        .arg(&exe2)
+        .current_dir(project_root())
+        .output()
+        .expect("compile m351 take-fault fixture");
+    assert!(
+        compile2.status.success(),
+        "m351 take-fault fixture must compile; stderr:\n{}",
+        String::from_utf8_lossy(&compile2.stderr)
+    );
+    let run2 = Command::new(&exe2)
+        .env_remove("XIOM_TRACE_FAULT")
+        .output()
+        .expect("run m351 take-fault fixture");
+    let _ = std::fs::remove_file(&exe2);
+    let stdout2 = String::from_utf8_lossy(&run2.stdout);
+    let stderr2 = String::from_utf8_lossy(&run2.stderr);
+    assert_eq!(
+        run2.status.code(),
+        Some(0),
+        "m351: take_fault() acknowledging the fault must allow exit 0\nstdout:\n{stdout2}\nstderr:\n{stderr2}"
+    );
+    assert!(
+        stdout2.contains("fault acknowledged: SIGSEGV"),
+        "m351: take_fault() must return the typed HardwareFault (signal); stdout:\n{stdout2}"
+    );
+    assert!(
+        stdout2.contains("TAKE-FAULT-OK"),
+        "m351: take-fault control marker missing; stdout:\n{stdout2}"
+    );
+    assert!(
+        stderr2.contains("[fault] confined block"),
+        "m351: the diagnostic must be printed even when the fault is acknowledged; stderr:\n{stderr2}"
     );
 }
