@@ -55,6 +55,27 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   candidate in `xiom-pin-verify` (own stdlib pin d6b562a, 2 threads, log
   `%TEMP%\kilo\pin-verify-battery5.log`). Remaining: stdlib gate -> released
   tag -> re-pin -> COMBINED notes verify -> final battery -> cut.
+- LINUX-ARM64 RELEASE GATE IS GREEN: dry-run **39062057337** (branch
+  `release/arm64-gate-check`, TEMP pin to stdlib `fix/arm64-crypto-availability`)
+  -- ALL jobs green: windows-x64, linux-x64, linux-arm64, macos-x64/arm64,
+  VSIX. The arm64 leg proves the native IR triple
+  (`aarch64-unknown-linux-gnu`), a clang compile/link of the stdlib runtime,
+  and `examples/diff_test.xi --run` exiting 42 on the arm runner, then packages
+  + attests the archive. Two blockers were fixed en route: (a) compiler
+  `e367ebbea` emits typed pointers in the builtin thread/channel declarations
+  (opaque `ptr` is rejected by the arm runner's clang 14); (b) stdlib branch
+  **`8eb22eb`** (off release/v0.64.7-prep) reports ARMv8 crypto unavailable and
+  stubs the unguarded vaeseq_u8/vaesmcq_u8 block, so software AES/SHA is used
+  -- THIS MUST MERGE INTO release/v0.64.7-prep + main and ride the tag
+  (relayed). Also fixed for the release build: `xiom-mcp` CompileConfig
+  `no_cache` (`f7575ae29`) and the public-stdlib checkout via `github.token`
+  (`fd16d48f9`). Main `d6b562a` pin is unchanged; after stdlib merges/tags,
+  re-pin, COMBINED notes verify, run the final locks + battery, cut.
+  `release/arm64-gate-check` is a TEMP validation branch -- do not merge it;
+  delete it after the final pin.
+- PIN BATTERY v6 is running on main `e367ebbea` with stdlib `d6b562a` in
+  `xiom-pin-verify` (4 threads, log `%TEMP%\kilo\pin-verify-battery6.log`);
+  the stdlib smoke gate is no longer competing.
 
 *** SESSION UPDATE 2026-10-17T13:20Z (compiler lane; MIDDAY+ -- pin merged, m352/m359/cold-lane landed, cleanup done) -- superseded by 17:55Z ***
 - PIN MERGED: **xiom-lang/xiom#7 REBASE-MERGED** 2026-10-17T12:48Z (`8fdc3292`
