@@ -14,7 +14,33 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
-*** SESSION UPDATE 2026-10-17T13:20Z (compiler lane; MIDDAY+ -- pin merged, m352/m359/cold-lane landed, cleanup done) -- READ FIRST ***
+*** SESSION UPDATE 2026-10-17T17:55Z (compiler lane; v0.64.7 CANDIDATE PUBLISHED) -- READ FIRST ***
+- CANDIDATE REF: compiler main `065481eb4` + annotated tag
+  **`candidate-v0.64.7-m351`** pushed; `STDLIB_VERSION` = stdlib main
+  **`d6b562a`** (includes the m351 typed-fault runtime merged at `3cb1138`).
+  This is the ref for stdlib's v0.64.7 release gates
+  (REL-20261017-1444-compiler); the stdlib lane runs its gates, tags/releases
+  stdlib v0.64.7, and replies with the tag/sha.
+- WAVE LANDED + VERIFIED ON THE CANDIDATE: m351 C-ABI/fault (ffi_c_abi 2/2,
+  e2e m351 2/2, m244 3/3, m308 3/3), m361 fn-value trio (6/6), m353 builtin
+  shadow (7/7), m364 E001 same-call borrow (borrow_e001 4/4); `cargo check -p
+  xiom --all-targets` clean; release binary builds. Earlier: m347-m350, m352,
+  m359, cold-lane `--no-cache`.
+- HISTORY SPLIT: the m351 commits were briefly held on local main; before the
+  candidate they were re-landed on main and the docs replayed. A safety branch
+  `hold/m351-typed-fault` is pushed (same content, pre-split); it can be
+  deleted once the candidate is accepted.
+- REMAINING TO CUT v0.64.7 (no compiler code blockers): (1) stdlib v0.64.7
+  release gates on the candidate -> released tag/sha; (2) re-pin
+  STDLIB_VERSION to that tag; (3) full pin battery in the isolated worktree
+  (`E:\xiom-lang\xiom-pin-verify`, own stdlib, release build first, 2-3
+  threads, run ALONE) -- the earlier v4 run died from host memory pressure,
+  not a verdict; (4) notes/checklist verify + close the v0.64.7 check rows.
+  Non-blocking in flight: m360 (i128 div AV), m365 (dep-cache key/lock), m366
+  (capture-frames hang), m363 (Send/Sync enforcement), selfhost Phase 6
+  (parallel lane, T6 13->14/64 path).
+
+*** SESSION UPDATE 2026-10-17T13:20Z (compiler lane; MIDDAY+ -- pin merged, m352/m359/cold-lane landed, cleanup done) -- superseded by 17:55Z ***
 - PIN MERGED: **xiom-lang/xiom#7 REBASE-MERGED** 2026-10-17T12:48Z (`8fdc3292`
   on main: STDLIB_VERSION -> `stdlib-v0.64.6`). CI fully green (ubuntu rerun
   7m19s after the pre-existing all-modules order flake; the flake reproduced at
