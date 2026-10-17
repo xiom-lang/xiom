@@ -96,6 +96,24 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   runtime wave 146 -- engine to re-verify); the remaining compiler-owned piece
   is Send/Sync ENFORCEMENT (THREADING_PLAN Phase B) -> queued **m363**.
   Recorded on REL-20261017-1438-compiler.
+- ENGINE RELAY DELTA (2026-10-17 evening): REL-20261017-0359-engine (cross-
+  module Mesh types) -> FIXED, engine verified v0.64.6 (probe_obj 12/12 rc 0;
+  rename workaround retired). REL-20261016-1128-engine class 4 rc-101 is
+  EXPECTED on the v0.64.6 archive (pre-m359) -- m359 is on main; re-test next
+  candidate. NEW class 2: probe_capture_frames RUN-LEG HANG at v0.64.6 (no
+  stdout, 6-11 MB WS, killed 60/92/180 s; 0.64.4 PASSes 10 checks) -- minimized
+  capture-only snippet requested -> queued **m366**. REL-20261017-1355-engine
+  addendum: m340 dep-object cache HIT does not verify object existence (race ->
+  hard clang link failure) and the key is consumer-specific (139-TU assimp
+  rebuild per target) -> queued **m365** (shared dep key + HIT existence check +
+  per-key build/evict lock; Stage 6 cache). Both queued behind the live wave.
+- RELAY ACKS RECEIVED: benchmark acked REL-20261017-1304 -- re-scores
+  xiom-run-jit/aot on the FIRST release archive carrying eff579c9 (v0.64.7),
+  checks no catidx/checkbodies under --no-cache, one lane at a time. Bindings
+  acked REL-20261017-1245 -- B-33 verdict awaits m351; B-29/W1.4/W2.3/B-34
+  remain queued on their re-verify list. STDLIB has NOT acked
+  REL-20261017-1444-compiler yet (runtime c21ad9f still must ride v0.64.7);
+  the m351 push stays held.
 - The 11:10Z block below retains the morning context; superseded where it
   disagrees.
 
