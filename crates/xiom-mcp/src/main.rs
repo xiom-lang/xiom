@@ -737,6 +737,7 @@ fn tool_compile_and_fix(params: &Value) -> Result<String, String> {
         overflow_checks: false,
         incremental: false,
         force: false,
+        no_cache: false,
         parallel: false,
         jobs: 0,
         script_mode: false,
