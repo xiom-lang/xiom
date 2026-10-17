@@ -10080,3 +10080,122 @@ fn m347_runtime_guard() -> Option<std::path::PathBuf> {
         "m351: the diagnostic must be printed even when the fault is acknowledged; stderr:\n{stderr2}"
     );
 }
+// m361 (REL-20261017-1227-packages, 2026-10-17): the xiom.pulse 0.2 hook-seam
+// fn-VALUE trio. 1) A module-global initializer that wraps a bare fn through a
+// fn-typed destination (`Box{ f: inc_r }`, `apply(inc, 41)`) defers a
+// __fnwrap_N forwarding thunk inside the synthesized ginit body; pre-fix the
+// deferred list was never flushed -> clang "use of undefined value
+// '@__fnwrap_N'". 2) Adjacent fn-typed struct fields: assignment must store
+// the uniform closure ENV (the literal path did, the assignment path stored
+// RAW code) and a field-read binding must record the field's declared return
+// class (pre-fix `pf(4).a` folded to 0 -> exit 10). 3) A fn-typed ALIAS
+// parameter (`f: F`) must classify like the direct marker at the call site,
+// or the callee/Vec element consumes a raw address as an env -> 0xC0000005.
+#[test] fn e2e_m361_fn_global_registry() {
+    assert_eq!(
+        compile_and_run("tests/regression/m361_fn_value_trio/probe_global_registry.xi"),
+        Some(0),
+        "m361: ginit fn-value wraps (global struct field / call arg / alias global) must compile and run"
+    );
+}
+
+// m361 parallel-codegen facet: per-function emitters must inherit the main
+// emitter's module-global registrations; pre-fix a bare module-global fn var
+// call resolved as an undefined FUNCTION (C001 'unresolved function symbol').
+#[test] fn e2e_m361_fn_global_registry_parallel() {
+    assert_eq!(
+        compile_and_run_with_flags(
+            "tests/regression/m361_fn_value_trio/probe_global_registry.xi",
+            &["--parallel-codegen"]
+        ),
+        Some(0),
+        "m361: --parallel-codegen must keep module-global fn vars callable"
+    );
+}
+
+// The item's verbatim minimized probe: `var hook: fn(Int) -> Int = inc;` and
+// `hook(1)` == 2. Serial and parallel codegen must both lower it.
+#[test] fn e2e_m361_fn_global_probe() {
+    let src = "tests/regression/m361_fn_value_trio/probe_fn_global.xi";
+    assert_eq!(
+        compile_and_run(src),
+        Some(2),
+        "m361: the minimized module-global fn-var probe must compile (hook(1) == 2)"
+    );
+    assert_eq!(
+        compile_and_run_with_flags(src, &["--parallel-codegen"]),
+        Some(2),
+        "m361: the minimized module-global fn-var probe must compile with --parallel-codegen"
+    );
+}
+
+#[test] fn e2e_m361_adjacent_fn_fields() {
+    assert_eq!(
+        compile_and_run("tests/regression/m361_fn_value_trio/probe_two_hooks.xi"),
+        Some(0),
+        "m361: assigning the second fn field must not disturb the first; both bound/direct calls must run"
+    );
+}
+
+#[test] fn e2e_m361_fn_alias_param() {
+    assert_eq!(
+        compile_and_run("tests/regression/m361_fn_value_trio/probe_fn_alias.xi"),
+        Some(0),
+        "m361: a fn-typed alias parameter must be passed/called on the closure-ENV convention"
+    );
+}
+
+// IR twin: (a) every referenced __fnwrap_N has a module-level definition (the
+// ginit flush lock), (b) the adjacent-field probe's indirect call is
+// STRUCT-classified (pre-fix `call i64 %tmp` + a constant-folded `.a` read),
+// (c) the alias probe wraps the caller's bare fn into an env before install.
+#[test] fn e2e_m361_fn_value_trio_ir() {
+    fn main_body(ir: &str) -> &str {
+        let start = ir.find("define i64 @main").expect("m361: main must be emitted");
+        let rest = &ir[start..];
+        let end = rest.find("\n}").map(|i| i + 2).unwrap_or(rest.len());
+        &rest[..end]
+    }
+    fn assert_fnwrap_defs(ir: &str, label: &str) {
+        let mut names: Vec<String> = Vec::new();
+        let mut rest = ir;
+        while let Some(pos) = rest.find("@__fnwrap_") {
+            let tail = &rest[pos + "@__fnwrap_".len()..];
+            let digits: String = tail.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if !digits.is_empty() {
+                let name = format!("@__fnwrap_{digits}");
+                if !names.contains(&name) { names.push(name); }
+            }
+            rest = &tail[digits.len()..];
+        }
+        assert!(!names.is_empty(), "{label}: expected a __fnwrap thunk reference");
+        for name in names {
+            let defined = ir.lines().any(|l| {
+                l.starts_with("define ") && l.contains(&format!("{name}("))
+            });
+            assert!(defined, "{label}: {name} is referenced but never DEFINED (ginit flush regression)");
+        }
+    }
+
+    let registry = compile_ir("tests/regression/m361_fn_value_trio/probe_global_registry.xi")
+        .expect("m361: registry fixture must emit IR");
+    assert!(registry.contains("define internal void @__xiom_ginit_"), "m361: ginit bodies must be emitted");
+    assert_fnwrap_defs(&registry, "registry");
+
+    let hooks = compile_ir("tests/regression/m361_fn_value_trio/probe_two_hooks.xi")
+        .expect("m361: two_hooks fixture must emit IR");
+    let hooks_main = main_body(&hooks);
+    assert!(
+        hooks_main.contains("call %struct.probe_two_hooks.R %tmp"),
+        "m361: the indirect fn-field call must be STRUCT-classified (env-first); got:\n{hooks_main}"
+    );
+    assert_fnwrap_defs(&hooks, "two_hooks");
+
+    let alias = compile_ir("tests/regression/m361_fn_value_trio/probe_fn_alias.xi")
+        .expect("m361: alias fixture must emit IR");
+    assert!(
+        alias.contains("ptrtoint i64 (i64, i64)* @__fnwrap_"),
+        "m361: the alias-param call site must wrap the bare fn into a closure ENV; got:\n{alias}"
+    );
+    assert_fnwrap_defs(&alias, "fn_alias");
+}
