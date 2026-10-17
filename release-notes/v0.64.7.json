@@ -22,6 +22,16 @@
       "kind": "compiler",
       "title": "Benchmark cold lanes stay cold",
       "text": "--no-cache now disables the persistent catalog index and catalog-body check caches (read and write) in the compile, AOT-run, and in-process JIT paths. A lock proves the control run writes checkbodies.txt while cold runs write neither checkbodies.txt nor catidx.txt."
+    },
+    {
+      "kind": "fix",
+      "title": "Typed confined faults",
+      "text": "Confined hardware faults are now recorded and surfaced as typed HardwareFault values through xiom.error.faulted and take_fault, with signal, PC, retry and address detail. Transient guard-page faults retry once; an unacknowledged manifested fault exits 70."
+    },
+    {
+      "kind": "stdlib",
+      "title": "Readiness follow-through",
+      "text": "The rand state snapshot API, the HTTP/2 frame and HPACK primitive foundation, systemd LISTEN_FDS adoption, native epoll and WSAPoll readiness, and full contract coverage on the sort surface land together. macOS readiness remains an explicit Err until the kqueue wave."
     }
   ],
   "breaking": [],
