@@ -36,9 +36,16 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   (`E:\xiom-lang\xiom-pin-verify`, own stdlib, release build first, 2-3
   threads, run ALONE) -- the earlier v4 run died from host memory pressure,
   not a verdict; (4) notes/checklist verify + close the v0.64.7 check rows.
-  Non-blocking in flight: m360 (i128 div AV), m365 (dep-cache key/lock), m366
-  (capture-frames hang), m363 (Send/Sync enforcement), selfhost Phase 6
-  (parallel lane, T6 13->14/64 path).
+  Non-blocking in flight: m365 (dep-cache key/lock), m366 (capture-frames
+  hang), m363 (Send/Sync enforcement), selfhost Phase 6 (parallel lane).
+  CORRECTION: the m360 fixer session was never registered (its worktree
+  exists at 007f352dd with no changes) -- relaunch m360 after the pin battery
+  finishes, not in parallel with it.
+- SELFHOST PROGRESS after the checkpoint prompt: P2b-iii-b field chains over
+  tuple/struct values (`e3bc0261b`) + a PHASE 6 STATUS doc (`2f58b18f5`) +
+  P5c Vec.push builtin for local receivers/scalar elements (`d82abf871`),
+  probes byte-exact; P5d is the current WIP. T6 meter still 13/64 (next
+  adoption m37_tuple_struct).
 - CANDIDATE CI GREEN (`065481eb4`). v0.64.7 release notes authored and
   schema-verified: `release-notes/v0.64.7.md` + `.json` (4 highlights, 0
   breaking, user-facing known issues; `xiom-release-notes verify` green,
