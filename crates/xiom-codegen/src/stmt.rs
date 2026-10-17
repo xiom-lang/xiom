@@ -3638,7 +3638,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 if captures.is_empty() {
                     let handle = self.fresh_tmp();
                     self.emitln(&format!(
-                        "  {handle} = call i64 @xiom_thread_spawn(ptr @{fn_name}, ptr null)"
+                        "  {handle} = call i64 @xiom_thread_spawn(i8* bitcast (void (i8*)* @{fn_name} to i8*), i8* null)"
                     ));
                 } else {
                     // Allocate env buffer and store captures
@@ -3678,7 +3678,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     }
                     let handle = self.fresh_tmp();
                     self.emitln(&format!(
-                        "  {handle} = call i64 @xiom_thread_spawn(ptr @{fn_name}, ptr {env_ptr})"
+                        "  {handle} = call i64 @xiom_thread_spawn(i8* bitcast (void (i8*)* @{fn_name} to i8*), i8* {env_ptr})"
                     ));
                 }
             }

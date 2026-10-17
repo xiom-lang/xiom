@@ -6229,17 +6229,20 @@ impl IrEmitter {
         // v0.55: Declare C runtime threading/channel functions (always available).
         // Deferred: emit these AFTER user extern blocks so xiom_thread_spawn
         // doesn't conflict with user declarations (e.g. thread.xi).
-        let spawn_declare = String::from("declare i64 @xiom_thread_spawn(ptr, ptr)");
-        self.emitln("declare ptr @xiom_channel_create()");
+        // Typed pointers (not opaque `ptr`): the linux-arm64 release runner's
+        // clang (LLVM 14, typed-pointer default) rejects `ptr`, which broke the
+        // functional arm64 gate before any user code was compiled.
+        let spawn_declare = String::from("declare i64 @xiom_thread_spawn(i8*, i8*)");
+        self.emitln("declare i8* @xiom_channel_create()");
         // Runtime arg seeding (env.args()) -- declared here so the @main entry
         // can call it regardless of whether io.xi's extern block is loaded.
         self.emitln("declare void @xiom_set_args(i32, i8**)");
-        self.emitln("declare i64 @xiom_channel_send(ptr, i64)");
-        self.emitln("declare i64 @xiom_channel_recv(ptr)");
-        self.emitln("declare i64 @xiom_channel_try_recv(ptr, ptr)");
+        self.emitln("declare i64 @xiom_channel_send(i8*, i64)");
+        self.emitln("declare i64 @xiom_channel_recv(i8*)");
+        self.emitln("declare i64 @xiom_channel_try_recv(i8*, i64*)");
         // v0.56: Thread pool functions
         self.emitln("declare void @xiom_threadpool_init(i64)");
-        self.emitln("declare void @xiom_threadpool_spawn(ptr, ptr)");
+        self.emitln("declare void @xiom_threadpool_spawn(i8*, i8*)");
         self.emitln("");
 
         // Emit builtin struct types FIRST so user types can reference them.
@@ -6376,10 +6379,10 @@ impl IrEmitter {
         if !self.local.global_runtime_inits.is_empty() {
             let n = self.local.global_runtime_inits.len();
             let entries: Vec<String> = (0..n)
-                .map(|i| format!("{{ i32, ptr, ptr }} {{ i32 65535, ptr @__xiom_ginit_{i}, ptr null }}"))
+                .map(|i| format!("{{ i32, void ()*, i8* }} {{ i32 65535, void ()* @__xiom_ginit_{i}, i8* null }}"))
                 .collect();
             self.emitln(&format!(
-                "@llvm.global_ctors = appending global [{n} x {{ i32, ptr, ptr }}] [{}]",
+                "@llvm.global_ctors = appending global [{n} x {{ i32, void ()*, i8* }}] [{}]",
                 entries.join(", ")
             ));
             self.emitln("");
