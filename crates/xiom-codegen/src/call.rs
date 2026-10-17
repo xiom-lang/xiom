@@ -638,6 +638,14 @@ impl IrEmitter {
     pub(crate) fn infer_expr_xiom_type_deep(&self, expr: &Expr) -> Option<String> {
         match expr {
             Expr::Paren(inner, _) => self.infer_expr_xiom_type_deep(inner),
+            // m353 follow-up (smoke_hash_edge): a cast carries the TARGET XIOM
+            // type and a negated numeric literal keeps its operand's type.
+            // Without these arms `(0 as Int).hash()` / `(-1).hash()` missed
+            // the declared Int.hash check and still lowered to the builtin
+            // identity -- disagreeing with the generic `hash[T]` path, which
+            // resolves the declared method.
+            Expr::As(_, ty, _) => Some(Self::type_string_full(ty)),
+            Expr::Unary(UnaryOp::Neg, inner, _) => self.infer_expr_xiom_type_deep(inner),
             // C-PULSE-05: module-level consts/globals carry their declared XIOM
             // type in global_xiom_types; fall back to it so `const V: Int = 41;
             // V.to_str()` (and Str/Float/Bool consts) pick the right conversion.
@@ -1442,15 +1450,37 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             }
                             _ => self.infer_expr_xiom_type_deep(receiver),
                         };
-                        let declared_scalar_hash = recv_xiom_ty.map_or(false, |xiom_ty| {
-                            let base = xiom_ty.rsplit('.').next().unwrap_or(&xiom_ty);
+                        // m353 follow-up: keep the resolved key so cast/negation
+                        // receivers can call the declared method directly (the
+                        // regular dispatch emitted a bare `@hash` stub for
+                        // `(0 as Int).hash()` -> 0).
+                        let declared_hash_key = recv_xiom_ty.as_ref().and_then(|xiom_ty| {
+                            let base = xiom_ty.rsplit('.').next().unwrap_or(xiom_ty);
                             let base = base.split('[').next().unwrap_or(base).trim().to_string();
                             let bare = format!("{base}.hash");
                             let suffix = format!(".{base}.hash");
-                            self.types.functions.entries().iter().any(|(k, (params, _))| {
-                                params.len() == 1 && (k == &bare || k.ends_with(&suffix))
-                            })
+                            self.types.functions.entries().iter()
+                                .find(|(k, (params, _))| {
+                                    params.len() == 1 && (k.as_str() == bare.as_str() || k.ends_with(&suffix))
+                                })
+                                .map(|(k, _)| k.clone())
                         });
+                        let declared_scalar_hash = declared_hash_key.is_some();
+                        // m353 follow-up (smoke_hash_edge): a cast or negated
+                        // literal receiver does not survive the regular method
+                        // dispatch (it emitted the bare `@hash` stub and
+                        // returned 0). Call the declared one-arg method through
+                        // its pre-assigned symbol so the generic hash[T] path
+                        // and `(0 as Int).hash()` agree.
+                        if is_scalar && fn_name == "hash" && args.is_empty() {
+                            if let Some(key) = &declared_hash_key {
+                                let symbol = self.mono.fn_symbol_map.get(key).cloned().unwrap_or_else(|| key.clone());
+                                let (recv_val, recv_ty) = self.compile_expr(receiver)?;
+                                let hash_tmp = self.fresh_tmp();
+                                self.emitln(&format!("  {hash_tmp} = call i64 @{symbol}({recv_ty} {recv_val})"));
+                                return Ok((hash_tmp, LLVM_I64.to_string()));
+                            }
+                        }
                         if is_scalar && !(fn_name == "hash" && args.is_empty() && declared_scalar_hash) {
                             let (recv_val, recv_actual_ty) = self.compile_expr(receiver)?;
                             let is_float = recv_llvm_ty == "double" || recv_llvm_ty == "float";

@@ -18053,6 +18053,37 @@ Fix commit: 5bed1dde (branch fix/m348-fn-ptr-signature-flow, unpushed).
 
 ---
 
+## 2026-10-17 -- FIXED (m353 follow-up): declared scalar `.hash()` is called through its symbol for cast/negated receivers (smoke_hash_edge gate)
+
+The m353 gate made a declared one-arg `Type.hash` outrank the builtin scalar
+identity, but its fallthrough relied on regular method dispatch. For a cast or
+negated literal receiver -- `(0 as Int).hash()`, `(-1).hash()` -- the dispatch
+emitted a bare `@hash` stub (returns 0), while the generic `hash[T]` path called
+the declared `Int.hash` (DJB2). The stdlib v0.64.7 release gate caught it as
+`smoke_hash_edge` run=1 on BOTH ubuntu-latest and windows-latest (956-smoke
+corpus, 955 pass / 1 runfail; the smoke's solo retry reproduced it).
+
+FIX:
+- `infer_expr_xiom_type_deep` now carries a cast's TARGET XIOM type
+  (`Expr::As` -> `type_string_full`) and recurses through `Unary(Neg)`, so the
+  m353 declared-hash check sees `(0 as Int)` / `(-1)` as Int receivers.
+- When a declared one-arg `Type.hash` exists, the builtin-interface block now
+  emits the call DIRECTLY through the pre-assigned symbol
+  (`mono.fn_symbol_map`) with the receiver value, for every scalar receiver
+  shape -- the regular dispatch's bare-`@hash` fallback can no longer
+  disagree with `hash[T]`.
+
+LOCKS (all green): the stdlib `smoke_hash_edge` (now exit 0, both forms),
+e2e m353 7/7, e2e hash 4/4, stdlib_execution 85/85, feature_regression
+549/549. The stdlib lane worked around line 1 by changing it to `0.hash()`
+(commit 5686029); this fix also covers the unchanged `(-1).hash()` line and the
+cast form, so the workaround can stay or be reverted.
+
+Rustc anchor: `rustc_hir_typeck/src/method/probe.rs` pick_method -- the
+resolved method's symbol is the method, never the same-leaf free function.
+
+---
+
 ## 2026-10-17 -- FIXED (m349): a catalog/package type named `Array` was silently erased by the injection PRIMITIVES filter (REL-20261016-2004-packages, XARROW-ARRAYNAME)
 
 An imported C struct named `Array` collided with the built-in `Array`
