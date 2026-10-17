@@ -18256,6 +18256,41 @@ arches keep the historical x86_64-linux fallback.
 
 ---
 
+## 2026-10-17 -- FIXED (m252 follow-up): `--no-cache` now disables the persistent catalog index + body-check caches (REL-20261011-2100-benchmark, owner option (a))
+
+The benchmark cold lanes (`xiom run --jit --no-cache`, `xiom run --no-cache`)
+were only cold for the script/binary caches: `compile()` enabled the Stage 6
+catalog index cache (`catidx.txt`) and the m252 catalog-body check cache
+(`checkbodies.txt`) UNCONDITIONALLY, so from sample 2 on the "cold" lane
+replayed clean catalog bodies from a warm cache.
+
+FIX:
+- `CompileConfig::no_cache` (default false) is the explicit cold-lane switch.
+  `compile()` skips `enable_catalog_index_cache` and
+  `enable_body_check_cache` when it is set -- no cache READ and no cache WRITE;
+  the in-memory catalog index is still built.
+- `jit_execute_with(source, no_cache)` threads the switch through the JIT path
+  (`jit_execute` remains the warm default for library callers/tests).
+- main.rs sets it from the raw `--no-cache` flag for the plain compile config,
+  the AOT `xiom run` config and the in-process JIT path (`--no-cache` is
+  stripped from the effective run argv, so it is read from the clap matches);
+  the hot-reload and JSON-check configs inherit it.
+
+LOCKS: `crates/xiom/tests/bench_no_cache_catalog_caches.rs` (control run must
+write `~/.xiom/checkbodies.txt`; two `--no-cache` runs and an
+`--emit-ir --no-cache` run must write neither `checkbodies.txt` nor
+`catidx.txt`) wired into the ci.yml front-end lock list. Battery on the fix:
+new lock 1/1, m252 parity lock 1/1, run_script_cli 8/8, JIT lib 4/4,
+`cargo check -p xiom --all-targets` clean.
+
+NOTE: the memory-pressure observation during this run (rustc E0786 "paging
+file is too small" and transient child spawn failures under four concurrent
+fixer sessions + the full e2e suite) is the likely mechanism behind
+REL-20261017-1223-orbitdb's transient exit -1 under host load; the benchmark
+re-run should keep the cold lanes one-at-a-time.
+
+---
+
 ## 2026-10-17 -- FIXED (m359): duplicated value flag after the positional panicked inside clap (REL-20261016-1128-engine class 4 / REL-20261016-2134-engine item 3)
 
 `xiom <file> --timeout 900 --timeout 900` died rc 101 before compiling:

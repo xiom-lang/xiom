@@ -10,6 +10,13 @@ use crate::CompileConfig;
 /// JIT-compile XIOM source to a shared library, load it, and call main().
 /// Returns the exit code from main(), or an error message.
 pub fn jit_execute(source: &str) -> Result<i32, String> {
+    jit_execute_with(source, false)
+}
+
+/// JIT-execute with an explicit cold-lane switch. `no_cache` disables the
+/// persistent catalog index/body caches for the in-process compile (m252
+/// follow-up: benchmark cold lanes pass `--no-cache`).
+pub fn jit_execute_with(source: &str, no_cache: bool) -> Result<i32, String> {
     // Unique temp dir per invocation -- parallel JIT calls (e.g. tests) must
     // not collide on a shared _jit.xi/_jit.dll path. Pid alone was not
     // enough: pid reuse plus a stale directory from a crashed run could hit
@@ -38,6 +45,7 @@ pub fn jit_execute(source: &str) -> Result<i32, String> {
     let config = CompileConfig {
         shared_lib: true,
         output_file: Some(tmp_out.to_string_lossy().to_string()),
+        no_cache,
         ..CompileConfig::default()
     };
     crate::compile(&config, &[tmp_src.to_string_lossy().to_string()])

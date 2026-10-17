@@ -1711,7 +1711,9 @@ fn real_main() {
         // (`--jit --cache` is owned by the cache path: hit -> run the cached
         // build; miss -> fall through and AOT-compile+cache below.)
         if use_jit && !jit_reuse {
-            match xiom::jit::jit_execute(&source) {
+            // m252 follow-up: `--no-cache` is the cold-lane switch; it must
+            // also bypass the persistent catalog index/body caches.
+            match xiom::jit::jit_execute_with(&source, no_cache) {
                 Ok(code) => {
                     eprintln!("  JIT exit code: {code}");
                     // m228 (B-08): same mirror rule for the JIT lane.
@@ -1781,6 +1783,8 @@ fn real_main() {
                 .as_deref()
                 .map(run_script_source_dirs)
                 .unwrap_or_default(),
+            // m252 follow-up: cold-lane switch for the AOT run path.
+            no_cache,
             ..CompileConfig::default()
         };
 
@@ -2186,6 +2190,7 @@ fn real_main() {
         strict_exhaustive,
         incremental,
         force: force_recompile,
+        no_cache: args.flag("no-cache"),
         parallel,
         jobs,
         script_mode: false,
@@ -2510,6 +2515,7 @@ fn real_main() {
                     verify_output: config.verify_output.clone(),
                     output_file: None,
                     incremental: false, force: false,
+                    no_cache: config.no_cache,
                     parallel: false, jobs: 0,
                     link_libs: vec![],
                     link_paths: vec![],
@@ -2569,6 +2575,7 @@ fn real_main() {
                     verify_output: config.verify_output.clone(),
                     output_file: None,
                     incremental: false, force: false,
+                    no_cache: config.no_cache,
                     parallel: false, jobs: 0,
                     link_libs: vec![],
                     link_paths: vec![],

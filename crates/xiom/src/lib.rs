@@ -85,6 +85,13 @@ pub struct CompileConfig {
     pub incremental: bool,
     /// 5e.5f: force recompilation -- ignore all caches
     pub force: bool,
+    /// m252 follow-up (benchmark REL-20261011-2100, owner option (a)):
+    /// `--no-cache` also disables the PERSISTENT catalog index cache and the
+    /// catalog-body check cache -- READ AND WRITE -- so scored cold lanes
+    /// (`xiom run --jit --no-cache` / `xiom run --no-cache`) never replay a
+    /// warm catalog body from sample 2 on. The in-memory catalog is still
+    /// built; only its persistence is bypassed.
+    pub no_cache: bool,
     /// 7C: parallel compilation -- use rayon thread pool for lex+parse
     pub parallel: bool,
     /// 7C: maximum number of parallel jobs (0 = num_cpus)
@@ -170,6 +177,7 @@ impl Default for CompileConfig {
             hot_reload_contracts: false,
             incremental: false,
             force: false,
+            no_cache: false,
             parallel: false,
             jobs: 0,
             sanitize: None,
@@ -1063,7 +1071,12 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     }
     // Stage 6 (STAGE6_PERF_PLAN item 1): persistent module-header index
     // cache -- warm runs skip re-reading ~4k stdlib/test `.xi` headers.
-    checker.enable_catalog_index_cache(xiom_check::catalog::default_index_cache_path());
+    // m252 follow-up: `--no-cache` is the cold-lane switch; it bypasses the
+    // persistent index cache (read + write) while still building the
+    // in-memory index below.
+    if !config.no_cache {
+        checker.enable_catalog_index_cache(xiom_check::catalog::default_index_cache_path());
+    }
     checker.build_catalog_index();
     timing_mark("index");
     if std::env::var_os("XIOM_TIMINGS").is_some() {
@@ -1074,8 +1087,11 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     // Stage 6 item 1 (m252): persistent CATALOG-BODY CHECK cache -- warm runs
     // replay clean catalog bodies (the stdlib module graph) instead of
     // re-checking them. Positive-only; the checker saves it at the end of the
-    // catalog-body flush.
-    checker.enable_body_check_cache(xiom_check::checkcache::default_body_cache_path());
+    // catalog-body flush. m252 follow-up: `--no-cache` disables both the read
+    // and the write so the benchmark's cold lanes stay cold.
+    if !config.no_cache {
+        checker.enable_body_check_cache(xiom_check::checkcache::default_body_cache_path());
+    }
     let check_outcome = checker.check_program(&program);
     timing_mark("check");
     // R21d follow-up: ambiguous module declarations are reported, never
