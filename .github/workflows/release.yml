@@ -213,7 +213,7 @@ jobs:
           repository: xiom-lang/stdlib
           ref: ${{ steps.pin.outputs.ref }}
           path: stdlib
-          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN || github.token }}
+          token: ${{ github.token }} # stdlib is public; no cross-repo PAT needed
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
@@ -461,7 +461,7 @@ jobs:
           repository: xiom-lang/stdlib
           ref: ${{ steps.pin.outputs.ref }}
           path: stdlib
-          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN || github.token }}
+          token: ${{ github.token }} # stdlib is public; no cross-repo PAT needed
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
@@ -580,7 +580,7 @@ jobs:
           repository: xiom-lang/stdlib
           ref: ${{ steps.notes_pin.outputs.ref }}
           path: stdlib
-          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN || github.token }}
+          token: ${{ github.token }} # stdlib is public; no cross-repo PAT needed
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
