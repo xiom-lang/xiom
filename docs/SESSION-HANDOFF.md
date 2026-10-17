@@ -56,12 +56,23 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   then pin STDLIB_VERSION, re-run the pin battery, push m351.
 - RELAY INTAKE TRIAGED (all acked + pushed): 1223-orbitdb (transient exit -1
   = host memory pressure evidence: rustc E0786 paging-file + rc -1 spawn
-  failures on this box; capture-a-dump ask), 1223-orbitdb-2 (E001 over-report
-  in the combined suite only; standalone shapes + block.xi are clean ->
-  **m362** recon slot), 1227-packages (HIGH fn-value trio ->
-  **m361 LAUNCHED**, branch fix/m361-fn-value-trio). **m353 LAUNCHED**
-  (branch fix/m353-builtin-shadow-sweep: stdlib 1053 .hash + 1456 Mutex).
-  Heavy slots: m351 (finishing) + selfhost Phase 6 + m361 + m353.
+  failures on this box; capture-a-dump ask), **1223-orbitdb-2 RECON COMPLETE
+  -> m364 LAUNCHED** (exact repro `--emit-ir` on
+  `xiom-orbitdb/tests/test_conformance.xi:4518`; one borrow site
+  double-reported; trigger = by-value arg then borrow of the same local in a
+  later arg of the SAME call; check_call marks bare idents moved eagerly,
+  codegen evaluates args before the call and Vecs pass as copies -> false
+  positive, m344-era; minimal 2-line shape; fix = defer the move until all
+  args are checked with a pending-move set; `--check` skips the borrow pass =
+  parity residual; no orbitdb workaround needed), 1227-packages (HIGH
+  fn-value trio -> **m361 LAUNCHED**, branch fix/m361-fn-value-trio).
+  **m353 LAUNCHED** (builtin shadow), **m360 LAUNCHED** (i128 div AV), m364
+  launched. Heavy slots: selfhost Phase 6 + m361 + m353 + m360 + m364.
+  MEMORY NOTE: five concurrent cargo builds + the e2e battery exhausted the
+  system commit (PowerShell 800705af, rustc E0786); the battery was stopped
+  and its orphan tree killed. Run the pin battery v4 alone (or with <=2
+  fixers) to get a clean signal; the e2e failures seen under exhaustion
+  (m20/m33 etc.) are not verdicts.
 - SELFHOST PHASE 6 advanced: P2b-iii-a tuple field reads (.0) + tuple-typed
   locals, probe byte-exact (`f7e2585d4`), after the RD4 rebase onto the
   morning main; T6 meter continues from 13/64.
