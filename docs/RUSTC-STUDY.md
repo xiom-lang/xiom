@@ -16,6 +16,29 @@ bootstrap). Accept/reject/defer happens in the planning docs
 (`COMPILER_READINESS_PLAN.md`, `STAGE6_PERF_PLAN.md`); nothing here is
 committed scope by itself.
 
+## Protocol -- rustc-first (owner directive 2026-10-17)
+
+Treat `E:\repos\rust` as the battle-tested reference implementation, not a
+suggestion. Before any design, performance/scaling, selfhost-gap, or compiler
+bug fix:
+
+1. Read the matching `docs/rustc-study/0N-*.md` area doc and the anchor map
+   `docs/RUSTC-REFERENCE.md`.
+2. Crawl the actual rustc source at the pinned commit (READ-ONLY sparse clone
+   @ `7211ea594`; non-materialized files via `git show HEAD:<path>`) for the
+   mechanism that already solves the problem: query/cache types, MIR passes,
+   resolver/prelude shadowing rules, incremental read-graph/green marking,
+   jobserver/scheduling, diagnostics recovery, selfhost/bootstrap stages.
+3. Adopt or adapt the battle-tested mechanism; record the rustc anchor
+   (`path:line`/commit) in the fix or decision record. Do not reinvent a
+   weaker variant when the reference exists.
+4. If the study says defer/reject, record why with the same anchor.
+5. Use benchmark-result relays as lessons: turn every metric gap into a study
+   question before proposing a fix.
+
+This is enforced per fixer brief: the brief must name the area doc(s) and
+require the anchor in the COMPILER_BUGS/decision entry.
+
 ## How to use
 
 - Before implementing in an area, read that area's study doc; every adoption
