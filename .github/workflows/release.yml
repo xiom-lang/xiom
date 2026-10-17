@@ -238,6 +238,22 @@ jobs:
             target/release/$t --version >/dev/null || { echo "::error::$t --version failed"; exit 1; }
           done
 
+      - name: Functional native-compile gate (linux-arm64)
+        # m352 + REL-20261016-1917-packages: an aarch64 host must declare the
+        # aarch64 triple in its IR and must compile+link+run natively. This is
+        # the on-runner evidence the Pi/edge acceptance builds on.
+        if: matrix.platform == 'linux-arm64'
+        shell: bash
+        run: |
+          target/release/xiom --emit-ir examples/diff_test.xi > /tmp/arm64_gate.ll
+          grep -q 'target triple = "aarch64-unknown-linux-gnu"' /tmp/arm64_gate.ll \
+            || { echo "::error::native IR triple is not aarch64-unknown-linux-gnu"; grep 'target triple' /tmp/arm64_gate.ll | head -1; exit 1; }
+          set +e
+          target/release/xiom examples/diff_test.xi --run
+          rc=$?
+          set -e
+          [ "$rc" -eq 42 ] || { echo "::error::native arm64 run exited $rc (want 42)"; exit 1; }
+
       - name: Bundle z3 (Windows, pinned + SHA256)
         if: runner.os == 'Windows'
         shell: pwsh
