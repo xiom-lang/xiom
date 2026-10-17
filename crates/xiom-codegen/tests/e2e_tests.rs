@@ -10199,3 +10199,147 @@ fn m347_runtime_guard() -> Option<std::path::PathBuf> {
     );
     assert_fnwrap_defs(&alias, "fn_alias");
 }
+// m353 (REL-20261011-1053-stdlib): a DECLARED concrete `Int.hash` /
+// `Bool.hash` must own the zero-arg method form. Pre-fix this fixture
+// COMPILED but codegen lowered every scalar `.hash()` to the builtin identity
+// before user dispatch (`5.hash()` -> 5; stdlib `false.hash()` -> 0), so the
+// run returned fail bits 1/2/64/128. Post-fix every form calls the
+// declaration; the Float64 bitcast control and the struct receiver keep their
+// existing behavior. The explicit-receiver half is main_static.xi.
+#[test] fn e2e_m353_builtin_hash_shadow() {
+    assert_eq!(
+        compile_and_run("tests/regression/m353_builtin_shadow/main.xi"),
+        Some(0),
+        "m353: declared Int.hash/Bool.hash must outrank the scalar .hash() builtin identity"
+    );
+}
+
+// m353 (REL-20261011-1053-stdlib), explicit-receiver half: `Int.hash(5)` /
+// `Bool.hash(false)` failed T001 pre-fix ("expected Self, found Int") because
+// the declared method's explicit-receiver param spells `Self` and the argument
+// is a primitive. Post-fix both calls dispatch to the declarations.
+#[test] fn e2e_m353_builtin_hash_static() {
+    assert_eq!(
+        compile_and_run("tests/regression/m353_builtin_shadow/main_static.xi"),
+        Some(0),
+        "m353: explicit-receiver Int.hash(5)/Bool.hash(false) must type-check and dispatch"
+    );
+}
+
+// m353 hash IR twin: main/generic mono bodies must CALL the declared
+// @Int.hash / @Bool.hash symbols (pre-fix the scalar `.hash()` calls were
+// absent -- the identity value was used inline) and the Float64 builtin
+// identity must stay reachable for a scalar with no declared hash.
+#[test] fn e2e_m353_builtin_hash_shadow_ir() {
+    let ir = compile_ir("tests/regression/m353_builtin_shadow/main.xi")
+        .expect("m353 hash fixture must compile to IR");
+    assert!(
+        ir.contains("define i64 @Int.hash(i64 %param_self)"),
+        "m353: the declared Int.hash definition must be emitted"
+    );
+    assert!(
+        ir.contains("define i64 @Bool.hash(i64 %param_self)"),
+        "m353: the declared Bool.hash definition must be emitted"
+    );
+    for (needle, what) in [
+        ("call i64 @Widget.hash(", "struct receiver method"),
+        ("call i64 @generic_hash_Int(i64 9)", "generic relay mono (Int)"),
+        ("call i64 @generic_hash_Bool(i64 0)", "generic relay mono (Bool)"),
+    ] {
+        assert!(ir.contains(needle), "m353: IR must contain `{needle}` ({what})");
+    }
+    // Zero-arg method-form calls to the declarations (not the identity). The
+    // `i64 %` receiver distinguishes a CALL from the definition header.
+    assert!(
+        ir.contains("call i64 @Int.hash(i64 %"),
+        "m353: zero-arg `i.hash()` must compile to a call to Int.hash"
+    );
+    assert!(
+        ir.contains("call i64 @Bool.hash(i64 %"),
+        "m353: zero-arg `b.hash()` must compile to a call to Bool.hash"
+    );
+    assert!(
+        ir.contains("bitcast double") && ir.contains("to i64"),
+        "m353: the builtin scalar identity must remain for Float64 (no declared hash)"
+    );
+}
+
+// m353 (REL-20261011-1456-stdlib), hermetic half: the globally registered
+// builtin Mutex barrier (`Mutex.new/lock/unlock/destroy`) must not shadow a
+// module-declared generic `Mutex[T]`. Pre-fix `mutex.Mutex.new(7)` failed T001
+// ("'new' expects 0 argument(s), found 1").
+#[test] fn e2e_m353_builtin_mutex_shadow() {
+    assert_eq!(
+        compile_and_run("tests/regression/m353_builtin_shadow/main_mutex.xi"),
+        Some(0),
+        "m353: a declared generic Mutex[T] must outrank the builtin Mutex barrier"
+    );
+}
+
+// m353 hermetic Mutex IR twin: the call sites bind the monomorphised DECLARED
+// methods (@Mutex.new_Int/get_Int/lock_Int/unlock_Int) and the builtin
+// barrier's @xiom_mutex_init is never reached (no stdlib sync import here).
+#[test] fn e2e_m353_builtin_mutex_shadow_ir() {
+    let ir = compile_ir("tests/regression/m353_builtin_shadow/main_mutex.xi")
+        .expect("m353 mutex fixture must compile to IR");
+    for needle in [
+        "call %struct.Mutex @Mutex.new_Int(i64 7)",
+        "call %struct.Mutex @Mutex.new_Str(i8*",
+        "call i64 @Mutex.get_Int(%struct.Mutex %",
+        "call i64 @Mutex.lock_Int(%struct.Mutex %",
+        "call i64 @Mutex.unlock_Int(%struct.Mutex %",
+    ] {
+        assert!(ir.contains(needle), "m353: IR must contain `{needle}`");
+    }
+    assert!(
+        !ir.contains("@xiom_mutex_init"),
+        "m353: the builtin Mutex barrier must not be reached for a declared Mutex[T]"
+    );
+}
+
+// m353 stdlib half (REL-20261011-1456-stdlib): the documented public
+// `xiom.sync.Mutex[T]` surface must be reachable through module qualification.
+// Pre-fix `sync.Mutex.new(42)` failed T001 (the checker's builtin `Mutex.new`
+// is 0-arg) and no other Mutex method was reachable.
+#[test] fn e2e_m353_builtin_mutex_stdlib() {
+    let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
+    if !stdlib_root.join("xiom").join("sync").join("mutex.xi").exists() {
+        let msg = "SKIP: stdlib checkout has no xiom/sync/mutex.xi";
+        if xiom_graph::paths::require_stdlib() {
+            panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
+        }
+        eprintln!("{msg}");
+        return;
+    }
+    assert_eq!(
+        compile_and_run("tests/regression/m353_builtin_shadow/main_mutex_stdlib.xi"),
+        Some(0),
+        "m353: `sync.Mutex[T]` must be reachable through module qualification"
+    );
+}
+
+// m353 stdlib Mutex IR twin: the call sites bind the stdlib monomorphs and the
+// stdlib method bodies own the barrier FFI (@xiom_mutex_init inside
+// @Mutex.new_Int, not a zero-arg builtin call at the call site).
+#[test] fn e2e_m353_builtin_mutex_stdlib_ir() {
+    let Some(stdlib_root) = xiom_graph::paths::stdlib_or_skip() else { return; };
+    if !stdlib_root.join("xiom").join("sync").join("mutex.xi").exists() {
+        let msg = "SKIP: stdlib checkout has no xiom/sync/mutex.xi";
+        if xiom_graph::paths::require_stdlib() {
+            panic!("{msg} -- XIOM_REQUIRE_STDLIB=1 forbids skipping");
+        }
+        eprintln!("{msg}");
+        return;
+    }
+    let ir = compile_ir("tests/regression/m353_builtin_shadow/main_mutex_stdlib.xi")
+        .expect("m353 stdlib mutex fixture must compile to IR");
+    for needle in [
+        "call %struct.Mutex @Mutex.new_Int(i64 42)",
+        "call %struct.MutexGuard @Mutex.lock_Int(%struct.Mutex %",
+        "call i64 @MutexGuard.get_Int(%struct.MutexGuard %",
+        "call i64 @Mutex.into_inner_Int(%struct.Mutex %",
+        "define %struct.Mutex @Mutex.new_Int(i64 %param0)",
+    ] {
+        assert!(ir.contains(needle), "m353: IR must contain `{needle}`");
+    }
+}
