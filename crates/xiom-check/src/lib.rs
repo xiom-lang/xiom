@@ -323,6 +323,15 @@ pub struct Checker {
     /// `xiom.core.panic`) -- the compiler recognizes these by name the same
     /// way codegen does.
     builtin_fns: HashSet<String>,
+    /// m353 (REL-20261011-1456-stdlib): bare `Type.method` keys of compiler
+    /// builtin METHOD signatures registered in `functions` (the v0.56 I3
+    /// Mutex barrier). Builtins are a FALLBACK in the type namespace, not
+    /// resident declarations (rustc: `compiler/rustc_resolve/src/ident.rs`
+    /// visits ModuleNonGlobs/Globs before StdLibPrelude/BuiltinTypes, and
+    /// `builtin_type_decls` resolve only in `Scope::BuiltinTypes`). A declared
+    /// receiver method therefore outranks an entry in this set; programs that
+    /// never declare `Mutex` keep the builtin behavior.
+    builtin_method_keys: HashSet<String>,
 }
 
 /// Stage 3 Item A: import-resolution state captured around one catalog
@@ -491,6 +500,12 @@ impl Checker {
                 "dbg".to_string(),
                 "todo".to_string(),
                 "unimplemented".to_string(),
+            ].into_iter().collect(),
+            builtin_method_keys: [
+                "Mutex.new".to_string(),
+                "Mutex.lock".to_string(),
+                "Mutex.unlock".to_string(),
+                "Mutex.destroy".to_string(),
             ].into_iter().collect(),
         };
         // Register built-in types
@@ -8677,12 +8692,32 @@ impl Checker {
                             eprintln!("[sum] obj_ty={} key={} in_functions={} methods_keys={:?}", type_name, method_key, self.functions.contains_key(&method_key), self.methods.keys().collect::<Vec<_>>());
                         }
                         // Try module-prefixed key first, then bare key as fallback
-                        let sig = if let Some(ref module) = self.current_module {
-                            let prefixed = format!("{}.{}.{}", module, base_name, method.name);
-                            self.functions.get(&prefixed).or_else(|| self.functions.get(&method_key))
-                        } else {
-                            self.functions.get(&method_key)
-                        }.cloned();
+                        let prefixed_sig = self.current_module.as_ref()
+                            .and_then(|module| {
+                                let prefixed = format!("{}.{}.{}", module, base_name, method.name);
+                                self.functions.get(&prefixed).cloned()
+                            });
+                        let sig = prefixed_sig.or_else(|| {
+                            let bare = self.functions.get(&method_key).cloned();
+                            // m353 (REL-20261011-1456-stdlib): a DECLARED method
+                            // on the receiver type outranks the compiler builtin
+                            // registered under the same bare key (the v0.56 I3
+                            // Mutex barrier). Builtins are a fallback layer, not
+                            // resident declarations -- rustc resolves user items
+                            // before BuiltinTypes (`rustc_resolve/src/ident.rs`
+                            // scope chain) and probes inherent methods before
+                            // extension candidates (`rustc_hir_typeck/src/method/
+                            // probe.rs` pick_method). Programs that never declare
+                            // `Mutex` keep the builtin signature.
+                            if self.builtin_method_keys.contains(&method_key) {
+                                self.methods.get(&base_name)
+                                    .and_then(|m| m.get(&method.name))
+                                    .cloned()
+                                    .or(bare)
+                            } else {
+                                bare
+                            }
+                        });
                         // If not found, try wildcard method lookup (any type with that method).
                         // v0.56: Skip wildcard lookup for 'clone' -- it matches the wrong type's
                         // clone method (e.g., Rc.clone returns Rc[T], not the receiver type).
@@ -10616,6 +10651,15 @@ impl Checker {
             // types to be compatible (e.g., Point = Color passed type checking).
             // Exception: Self is always compatible -- it's an alias for the concrete type.
             (CheckedType::Named(a), CheckedType::Named(b)) if a == "Self" || b == "Self" => true,
+            // m353 (REL-20261011-1053-stdlib): the same alias rule for the
+            // UFCS/static call form `Int.hash(5)` / `Bool.hash(false)`, where
+            // the declared method's explicit-receiver param spells `Self` and
+            // the call-site argument is a PRIMITIVE (`CheckedType::Int`, not
+            // `Named`). Without this the declared concrete `Type.hash` is
+            // unreachable through the explicit-receiver form (T001 "expected
+            // Self, found Int").
+            (_, CheckedType::Named(n)) if n == "Self" => true,
+            (CheckedType::Named(n), _) if n == "Self" => true,
             // Interface/trait names are compatible with their implementor types.
             (CheckedType::Named(a), CheckedType::Named(b))
                 if self.interfaces.contains_key(a.name()) || self.interfaces.contains_key(b.name()) => true,

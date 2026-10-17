@@ -1417,7 +1417,41 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             && !recv_llvm_ty.starts_with("%struct.")
                             && recv_llvm_ty != "i8*"
                             && recv_llvm_ty != "void";
-                        if is_scalar {
+                        // m353 (REL-20261011-1053-stdlib): a DECLARED one-arg
+                        // `Type.hash` (the explicit-receiver `self` param is
+                        // the only param) OUTRANKS the builtin scalar identity.
+                        // Builtins are a fallback layer, not resident
+                        // declarations -- rustc keeps user items above
+                        // BuiltinTypes in the resolve scope chain
+                        // (`compiler/rustc_resolve/src/ident.rs`) and probes
+                        // inherent methods before extension/builtin candidates
+                        // (`rustc_hir_typeck/src/method/probe.rs` pick_method).
+                        // Without this the concrete Int.hash/Bool.hash in
+                        // xiom.hash (and any user-declared Type.hash) is
+                        // unreachable: the zero-arg `.hash()` lowered to the
+                        // identity. The receiver is NOT compiled here -- the
+                        // regular dispatch below compiles it exactly once.
+                        let recv_xiom_ty = match &**receiver {
+                            Expr::Ident(id) if self.local.param_locals.contains(&id.name) => {
+                                // Monomorphised generic body: the local
+                                // registry may still spell the generic param
+                                // ("T"); the concrete binding lives in
+                                // param_concrete_types.
+                                self.mono.param_concrete_types.get(&id.name).cloned()
+                                    .or_else(|| self.infer_expr_xiom_type_deep(receiver))
+                            }
+                            _ => self.infer_expr_xiom_type_deep(receiver),
+                        };
+                        let declared_scalar_hash = recv_xiom_ty.map_or(false, |xiom_ty| {
+                            let base = xiom_ty.rsplit('.').next().unwrap_or(&xiom_ty);
+                            let base = base.split('[').next().unwrap_or(base).trim().to_string();
+                            let bare = format!("{base}.hash");
+                            let suffix = format!(".{base}.hash");
+                            self.types.functions.entries().iter().any(|(k, (params, _))| {
+                                params.len() == 1 && (k == &bare || k.ends_with(&suffix))
+                            })
+                        });
+                        if is_scalar && !(fn_name == "hash" && args.is_empty() && declared_scalar_hash) {
                             let (recv_val, recv_actual_ty) = self.compile_expr(receiver)?;
                             let is_float = recv_llvm_ty == "double" || recv_llvm_ty == "float";
                             match fn_name.as_str() {
