@@ -18757,8 +18757,8 @@ Green post-fix:
 
 Battery green (fixer worktree, windows; logs in %TEMP%\kilo\m353\):
 m353 locks 7/7, codegen lib 14/14, feature_regression 549/549,
-xiom-check lib 205/205, front-end locks 65/65 (checker_locks 37,
-borrow_e001 3, doctor 4, cxx 2, ffi x5, o2 4, run_script 8, m359 2,
+xiom-check lib 205/205, front-end locks 68/68 (checker_locks 37,
+borrow_e001 3, doctor 4, cxx 2, ffi x6, o2 4, run_script 8, m359 2,
 null_literal 1, bench_no_cache 1), stdlib_execution hash/sync 3/3,
 stdlib_tests hash/sync 2/2.
 
