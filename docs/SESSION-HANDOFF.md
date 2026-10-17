@@ -46,8 +46,8 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   e2e m351 2/2, m244 3/3, m308_guard 3/3 (the earlier isolated-target run
   failed only because the e2e harness resolves `target/debug/xiom.exe`; do not
   use CARGO_TARGET_DIR for e2e). **NOT PUSHED**: the runtime half lives in the
-  stdlib repo -- branch `fix/m351-typed-fault` (pushed; HEAD `c21ad9f`, parent
-  8d95815: runtime TLS fault record + always-on diagnostic + exit 70 + typed
+  stdlib repo -- branch `fix/m351-typed-fault` (pushed; HEAD `37603a2`, rebased
+  onto stdlib main `8ce84cc`: runtime TLS fault record + always-on diagnostic + exit 70 + typed
   `xiom.error.take_fault` + retry only for guard-page transients). The released
   pin 8d95815 lacks `xiom_fault_*`, so a compiler pinned there would fail to
   LINK confined-block programs. Coordination item
