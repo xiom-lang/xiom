@@ -73,9 +73,17 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   and its orphan tree killed. Run the pin battery v4 alone (or with <=2
   fixers) to get a clean signal; the e2e failures seen under exhaustion
   (m20/m33 etc.) are not verdicts.
-- SELFHOST PHASE 6 advanced: P2b-iii-a tuple field reads (.0) + tuple-typed
-  locals, probe byte-exact (`f7e2585d4`), after the RD4 rebase onto the
-  morning main; T6 meter continues from 13/64.
+- SELFHOST PHASE 6 (parallel lane; 38 commits ahead of origin/main, 0 behind):
+  RD4d parity is GREEN -- 83-file check-dump corpus + 75 manifest cases, 11
+  non-vacuous diagnostic lines (`tmp/sprintc/phase6/diff_check_rd4d.log`, 32
+  min run). P2b-i tuple literals and P2b-iii-a tuple field reads (.0) +
+  tuple-typed locals landed byte-exact (`7992b124b`, rebased; originally
+  `f7e2585d4`). T6 meter 13/64; next adoption target `m37_tuple_struct` ->
+  14/64. The lane went idle with an UNCOMMITTED P2b-iii-b WIP in
+  `selfhost/src/codegen.xi` (general base-expression field chains like
+  `dm.0.d` + NkExprStruct tuple element names), untested since 15:14Z; it has
+  been prompted to probe/commit-or-revert, append a PHASE 6 STATUS block to
+  docs/SELFHOST_PROGRESS.md, and continue.
 - WORKTREE/BRANCH CLEANUP: 65 -> 14 git worktrees; 54 completed fixer
   branches deleted; stale pin branches (v0.64.5/v0.61.3) deleted; selfhost
   phases 1-3 removed (0 unique commits); disk free on E: 190 GB. Kept: main,
