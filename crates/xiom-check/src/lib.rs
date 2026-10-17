@@ -11783,6 +11783,28 @@ impl BorrowChecker {
 
         self.check_expr(callee);
 
+        // m364 (REL-20261017-1223-orbitdb): defer by-value consumption until
+        // every argument has been evaluated. rustc lowers ALL call operands
+        // first (`as_local_call_operand` per arg), records the operand moves
+        // only afterwards, and lets the Call terminator consume them
+        // (rustc_mir_build/src/builder/expr/into.rs:485-515;
+        // builder/scope.rs:1557 `record_operands_moved`). Borrowck then sees
+        // moves as MIR dataflow points (MaybeUninitializedPlaces,
+        // rustc_borrowck/src/dataflow.rs:15-23) and two-phase borrows keep
+        // reservation and activation distinct (rustc_borrowck/src/
+        // borrow_set.rs:131), never a premature move during a left-to-right
+        // AST walk. Eagerly marking the local Moved here made a LATER
+        // argument's `&bytes` look like a use-after-move and reported the one
+        // borrow site twice (check_use at the inner ident span + read_borrow
+        // at the `&` span). Codegen evaluates the nested borrow and passes
+        // the value as a copy, so this was a conservative false positive.
+        // Queue the moves; a genuine `take(a, a)` still trips when the
+        // pending list is committed (second `move_var` sees Moved), and the
+        // move lands before the next statement, so cross-statement reuse
+        // keeps warning.
+        let mut pending_moves: Vec<(String, Span)> = Vec::new();
+        let mut pending_projections: Vec<(&Expr, Span)> = Vec::new();
+
         for arg in args {
             // Check the argument expression
             let arg_result = self.check_expr(arg);
@@ -11790,12 +11812,19 @@ impl BorrowChecker {
             if let Expr::Ident(ident) = arg {
                 // Only move if the arg was not wrapped in a borrow operator
                 if arg_result != ExprResult::ReadRef && arg_result != ExprResult::WriteRef {
-                    // Re-check: did check_expr already change state?
                     // check_expr for Ident only checks use, doesn't move
                     if self.param_names.contains(&ident.name) {
                         self.read_borrow(&ident.name, ident.span);
                     } else {
-                        self.move_var(&ident.name, ident.span);
+                        // An already-Moved local was reported by check_use at
+                        // this same span; queueing it would double-report.
+                        let already_moved = matches!(
+                            self.find_var(&ident.name).map(|info| info.state),
+                            Some(BorrowState::Moved)
+                        );
+                        if !already_moved {
+                            pending_moves.push((ident.name.clone(), ident.span));
+                        }
                     }
                 }
             } else if matches!(arg, Expr::Field(..) | Expr::Index(..)) {
@@ -11805,12 +11834,30 @@ impl BorrowChecker {
                 // projections only; scalars and param-rooted places stay
                 // clean, mirroring the read-borrow convention.
                 if arg_result != ExprResult::ReadRef && arg_result != ExprResult::WriteRef {
-                    self.move_projection(arg, arg.span());
+                    // Same dedupe: a place already marked moved was reported
+                    // by check_place_moved during check_expr.
+                    let already_moved = Self::place_path(arg)
+                        .map(|path| self.moved_places.iter().any(|scope| scope.contains(&path)))
+                        .unwrap_or(false);
+                    if !already_moved {
+                        pending_projections.push((arg, arg.span()));
+                    }
                 }
             }
         }
 
+        // Argument-temporary borrows die with the call's scope, matching the
+        // statement-temporary release in check_stmt. Committing the moves
+        // afterwards means `take(bytes, &bytes)` is clean, while the move is
+        // still visible to every later statement.
         self.pop_scope();
+
+        for (name, move_span) in pending_moves {
+            self.move_var(&name, move_span);
+        }
+        for (projection, move_span) in pending_projections {
+            self.move_projection(projection, move_span);
+        }
 
         ExprResult::Value
     }
@@ -12162,6 +12209,50 @@ fn f(x: Int) -> Int
         assert!(result.is_err(), "annotated call-init move must stay an error");
         let errs = result.err().unwrap();
         assert!(errs.iter().any(|e| e.message.contains("use of moved value")));
+    }
+
+    // m364 (REL-20261017-1223-orbitdb): a by-value argument followed by a
+    // borrow of the SAME local in a later argument is not a use-after-move.
+    // rustc evaluates every call operand before recording the operand moves
+    // (mir_build/expr/into.rs:485-515), so the nested `&bytes` is checked
+    // against the still-owned place. Codegen passes the Vec as a copy, so no
+    // runtime use-after-move exists either. Pre-fix this reported the single
+    // borrow site twice (check_use + read_borrow).
+    #[test]
+    fn test_same_call_borrow_after_by_value_arg_stays_clean() {
+        let result = check_borrow("fn take(d: Vec[Int], r: &Vec[Int]) -> Int { return r.len(); } fn f() -> Int { let bytes: Vec[Int] = Vec[Int].new(); return take(bytes, &bytes); }");
+        assert!(
+            result.is_ok(),
+            "same-call borrow of a by-value argument must stay clean: {:?}",
+            result.err()
+        );
+    }
+
+    // m364 positive control: deferring the move must not lose the genuine
+    // double by-value move -- `take(a, a)` still consumes `a` twice.
+    #[test]
+    fn test_same_call_double_by_value_move_still_warns() {
+        let result = check_borrow("type S = { v: Int; } fn take(s: S) -> Int { return s.v; } fn main() { var a = S { v: 1 }; let r = take(a, a); }");
+        assert!(result.is_err(), "double by-value move in one call must still warn");
+        let errs = result.err().unwrap();
+        assert!(
+            errs.iter().any(|e| e.message.contains("use of moved value 'a'")),
+            "the second by-value use must be named: {:?}", errs
+        );
+    }
+
+    // m364 positive control (owner): the deferred move lands at the end of
+    // the call, so cross-statement reuse is still a use-after-move --
+    // `take(bytes); take(bytes);` must warn on the second call.
+    #[test]
+    fn test_cross_call_reuse_still_warns_after_deferral() {
+        let result = check_borrow("fn take(d: Vec[Int]) -> Int { return d.len(); } fn f() -> Int { let bytes: Vec[Int] = Vec[Int].new(); let a = take(bytes); let b = take(bytes); return a + b; }");
+        assert!(result.is_err(), "cross-call reuse of a moved Vec must still warn");
+        let errs = result.err().unwrap();
+        assert!(
+            errs.iter().any(|e| e.message.contains("use of moved value 'bytes'")),
+            "the second call must be named: {:?}", errs
+        );
     }
 
     // m344 (REL-20261011-1046): a field projection passed by value consumes

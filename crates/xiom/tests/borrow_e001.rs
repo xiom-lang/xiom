@@ -75,6 +75,40 @@ fn m133_genuine_overlap_still_warns_e001() {
     assert_eq!(run.code(), Some(0), "m133 must exit 0");
 }
 
+// m364 (REL-20261017-1223-orbitdb): a by-value argument followed by a borrow
+// of the same local in a later argument of the SAME call is evaluated before
+// the callee consumes the operands (rustc lowers all call operands first:
+// mir_build/expr/into.rs:485-515). The minimal shape and the nested-checksum
+// shape must emit ZERO E001 diagnostics in default mode, and --strict must
+// not promote a false positive to a hard error. NOTE: both modes share the
+// fixture name, so the assertions live in one test to avoid racing on the
+// temp exe path (the compile helper names it per fixture + pid).
+#[test]
+fn m364_same_call_borrow_stays_clean_e001() {
+    let (stderr, code, exe) = compile("m364_e001_samecall_borrow");
+    assert_eq!(code, Some(0), "compile failed. stderr:\n{stderr}");
+    assert!(
+        !stderr.contains("warning[E001]"),
+        "same-call borrow of a by-value argument must not warn:\n{stderr}"
+    );
+    let run = Command::new(&exe).status().expect("run m364");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(run.code(), Some(0), "m364 must exit 0");
+
+    let (strict_stderr, strict_code, strict_exe) =
+        compile_with_flags("m364_e001_samecall_borrow", &["--strict"]);
+    assert_eq!(
+        strict_code,
+        Some(0),
+        "--strict compile failed. stderr:\n{strict_stderr}"
+    );
+    assert!(
+        !strict_stderr.contains("E001"),
+        "same-call borrow must not be promoted to a --strict error:\n{strict_stderr}"
+    );
+    let _ = std::fs::remove_file(&strict_exe);
+}
+
 // m318 (REL-20261013-2215-engine-2): PIN the by-value move semantic. The
 // borrow checker treats non-Copy types (structs/Vecs/enums/tuples) as
 // move-only: a bare by-value argument consumes the LOCAL, so reuse trips
