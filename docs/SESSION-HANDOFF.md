@@ -19,9 +19,15 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   on main: STDLIB_VERSION -> `stdlib-v0.64.6`). CI fully green (ubuntu rerun
   7m19s after the pre-existing all-modules order flake; the flake reproduced at
   the OLD pin too -- filed as a residual). Pin battery v2 (clean stdlib
-  worktree `E:\xiom-lang\stdlib-verify-8d95815`, 3 test threads) running:
-  e2e / feature / integration / stdlib suites / api-freeze / checker; log
-  `%TEMP%\kilo\pin-verify-battery2.log`. Record the result on
+  worktree `E:\xiom-lang\stdlib-verify-8d95815`) was INVALID -- pointing
+  XIOM_STDLIB at an external stdlib while the repo-local `stdlib/` also exists
+  makes the checker index DUPLICATE stdlib roots (W001 module collisions) and
+  reddens warning-sensitive e2e locks (m17 etc.). Correct setup: an isolated
+  compiler worktree with its own pinned `stdlib/` and NO XIOM_STDLIB:
+  `E:\xiom-lang\xiom-pin-verify` (detached at `007f352dd`, nested stdlib
+  worktree at 8d95815). Battery v3 running there (3 threads): e2e / feature /
+  integration / stdlib suites / api-freeze / checker; log
+  `%TEMP%\kilo\pin-verify-battery3.log`. Record the result on
   REL-20261016-2330-stdlib when green.
 - LANDED ON MAIN (`eff579c9`, pushed): **m252 follow-up for the benchmark cold
   lanes** (REL-20261011-2100-benchmark, owner option (a)) -- `--no-cache` now
@@ -31,11 +37,22 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   `jit_execute_with`). Lock `bench_no_cache_catalog_caches` wired into ci.yml;
   m252 parity 1/1, run_script_cli 8/8, JIT lib 4/4. Benchmark notified
   (REL-20261017-1304-compiler) to re-score xiom-run-jit/aot.
-- M351 IS READY: worktree clean, 3 commits (`45d24ee3` fix: new c_abi.rs +
-  call/expr/decl/emitter/lib, Win64 C-ABI aggregates + typed confined-fault
-  exit-70; `10886289b` tests: in-repo ros2-abi ladder/direct-extern/IR twin/
-  no-silent-exit + e2e locks; `a3ac9a0a3` docs). Session was still busy at
-  13:15Z; HARVEST as soon as it is idle (watch for a 4th commit).
+- M351 HARVESTED LOCALLY, HELD FOR THE STDLIB RUNTIME: 3 commits cherry-picked
+  on local main (`fcb38d7ef` fix: new c_abi.rs + call/expr/decl/emitter/lib,
+  Win64 C-ABI aggregates + typed confined-fault exit-70; `a279d8679` tests:
+  in-repo ros2-abi ladder/direct-extern/IR twin/no-silent-exit + e2e locks;
+  `d745fab38` docs). Locks GREEN with the m351 binary: ffi_c_abi_aggregate 2/2,
+  e2e m351 2/2, m244 3/3, m308_guard 3/3 (the earlier isolated-target run
+  failed only because the e2e harness resolves `target/debug/xiom.exe`; do not
+  use CARGO_TARGET_DIR for e2e). **NOT PUSHED**: the runtime half lives in the
+  stdlib repo -- branch `fix/m351-typed-fault` (pushed; HEAD `c21ad9f`, parent
+  8d95815: runtime TLS fault record + always-on diagnostic + exit 70 + typed
+  `xiom.error.take_fault` + retry only for guard-page transients). The released
+  pin 8d95815 lacks `xiom_fault_*`, so a compiler pinned there would fail to
+  LINK confined-block programs. Coordination item
+  **REL-20261017-1444-compiler** (to stdlib, HIGH): rebase onto stdlib main
+  (waves 172-177), include in the stdlib v0.64.7 release, reply with tag/sha;
+  then pin STDLIB_VERSION, re-run the pin battery, push m351.
 - RELAY INTAKE TRIAGED (all acked + pushed): 1223-orbitdb (transient exit -1
   = host memory pressure evidence: rustc E0786 paging-file + rc -1 spawn
   failures on this box; capture-a-dump ask), 1223-orbitdb-2 (E001 over-report
@@ -54,6 +71,19 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   Six deregistered dirs (m347-m350, m352, m359) are still file-locked by the
   VS Code extension; delete after an extension reload (their branches/registry
   are already gone).
+- STUDY PROTOCOL (owner directive 2026-10-17, now enforced): `E:\repos\rust`
+  (READ-ONLY sparse clone @ 7211ea594) is the battle-tested reference. Every
+  design/perf/scaling/selfhost-gap/bug fix must (1) read the matching
+  `docs/rustc-study/0N-*.md` area doc, (2) crawl the rustc source for the
+  mechanism that already solves it, (3) record the rustc anchor in the
+  COMPILER_BUGS/decision entry, (4) use benchmark relays as study questions.
+  Written into `docs/RUSTC-STUDY.md` ("Protocol -- rustc-first"); both live
+  fixer sessions (m361/m353) received the directive and must cite anchors.
+- THREAD POOL OWNERSHIP (owner question): 1834-engine-6 is stdlib's (pool flip
+  rides 1550-stdlib); the compiler-owned spawn gateway 2053 is FIXED (m282 +
+  runtime wave 146 -- engine to re-verify); the remaining compiler-owned piece
+  is Send/Sync ENFORCEMENT (THREADING_PLAN Phase B) -> queued **m363**.
+  Recorded on REL-20261017-1438-compiler.
 - The 11:10Z block below retains the morning context; superseded where it
   disagrees.
 
