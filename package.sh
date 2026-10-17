@@ -252,8 +252,14 @@ Need dependencies? Install LLVM/clang for native compilation.
 READMEEOF
 echo "    + README.txt"
 
-# Create tar.gz
-TAR_NAME="xiom-v$VERSION-linux-x64.tar.gz"
+# Create tar.gz. The release workflow (release.yml) owns production asset
+# naming; this dev packager derives the host arch so an arm64 run does not
+# produce a mislabelled linux-x64 archive.
+case "$(uname -m)" in
+    aarch64|arm64) HOST_ARCH="arm64" ;;
+    *)             HOST_ARCH="x64" ;;
+esac
+TAR_NAME="xiom-v$VERSION-linux-$HOST_ARCH.tar.gz"
 TAR_PATH="$RELEASE_DIR/$TAR_NAME"
 cd "$RELEASE_DIR"
 tar -czf "$TAR_NAME" "xiom-v$VERSION"

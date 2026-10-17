@@ -31,7 +31,7 @@ pub mod sandbox;
 pub mod stmt;
 pub mod vec_abi;
 
-pub use context::{CodegenConfig, TypeContext, FunctionContext, MonoContext, LocalContext, TypeMeta, SyncRegistry};
+pub use context::{CodegenConfig, TypeContext, FunctionContext, MonoContext, LocalContext, TypeMeta, SyncRegistry, native_target_triple};
 
 // ============================================================================
 // LLVM IR Emitter (M4.1: decomposed from 86-field god object into 5 sub-contexts)

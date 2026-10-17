@@ -1403,10 +1403,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         Target::Arm => "aarch64-unknown-linux-gnu",
         Target::RisCv => "riscv64gc-unknown-linux-gnu",
         Target::Native => {
-            if cfg!(target_os = "windows") { "x86_64-pc-windows-msvc" }
-            else if cfg!(target_os = "linux") { "x86_64-unknown-linux-gnu" }
-            else if cfg!(target_os = "macos") { "x86_64-apple-darwin" }
-            else { "x86_64-unknown-linux-gnu" }
+            xiom_codegen::native_target_triple(std::env::consts::OS, std::env::consts::ARCH)
         },
     });
     let llvm_ir = match emitter.compile_program(&program) {
@@ -1551,7 +1548,10 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
 
     #[allow(unused_mut)]
     let mut asm_objects: Vec<String> = Vec::new();
-    #[cfg(feature = "nasm")]
+    // m352: the .asm runtime kernels (crypto/mem/context_switch) are x86_64
+    // only. On an arm64 host NASM would still emit x86_64 objects and the
+    // aarch64 link would fail or mix ABIs, so keep the whole path x86_64-gated.
+    #[cfg(all(feature = "nasm", target_arch = "x86_64"))]
     {
         let runtime_dir = find_runtime_c().and_then(|p| {
             std::path::Path::new(&p).parent().map(|d| d.to_path_buf())
@@ -3327,6 +3327,28 @@ mod tests {
 
     use super::*;
     use std::io::Write;
+
+    /// m352: the Native arm must describe the HOST architecture, not always
+    /// x86_64. The table lives in xiom-codegen (shared with CodegenConfig's
+    /// default) and is asserted here from the driver's consumer side.
+    #[test]
+    fn native_target_triple_table_m352() {
+        let table = [
+            ("linux", "x86_64", "x86_64-unknown-linux-gnu"),
+            ("linux", "aarch64", "aarch64-unknown-linux-gnu"),
+            ("macos", "x86_64", "x86_64-apple-darwin"),
+            ("macos", "aarch64", "aarch64-apple-darwin"),
+            ("windows", "x86_64", "x86_64-pc-windows-msvc"),
+            ("windows", "aarch64", "aarch64-pc-windows-msvc"),
+        ];
+        for (os, arch, want) in table {
+            assert_eq!(
+                xiom_codegen::native_target_triple(os, arch),
+                want,
+                "{os}/{arch}"
+            );
+        }
+    }
 
     fn default_config() -> CompileConfig {
         CompileConfig::default()

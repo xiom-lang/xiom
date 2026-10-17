@@ -80,6 +80,7 @@ pub fn asset_name(version: &str, platform: &str) -> Option<String> {
     match platform {
         "windows-x64" => Some(format!("xiom-{version}-windows-x64.zip")),
         "linux-x64" => Some(format!("xiom-{version}-linux-x64.tar.gz")),
+        "linux-arm64" => Some(format!("xiom-{version}-linux-arm64.tar.gz")),
         _ => None,
     }
 }
@@ -89,6 +90,7 @@ pub fn sums_name(platform: &str) -> Option<String> {
     match platform {
         "windows-x64" => Some("SHA256SUMS-windows-x64".to_string()),
         "linux-x64" => Some("SHA256SUMS-linux-x64".to_string()),
+        "linux-arm64" => Some("SHA256SUMS-linux-arm64".to_string()),
         _ => None,
     }
 }
@@ -290,12 +292,20 @@ mod tests {
             asset_name("0.62.0", "linux-x64").as_deref(),
             Some("xiom-0.62.0-linux-x64.tar.gz")
         );
+        assert_eq!(
+            asset_name("0.62.0", "linux-arm64").as_deref(),
+            Some("xiom-0.62.0-linux-arm64.tar.gz")
+        );
         assert_eq!(asset_name("0.62.0", "macos-arm64"), None);
         assert_eq!(
             sums_name("windows-x64").as_deref(),
             Some("SHA256SUMS-windows-x64")
         );
         assert_eq!(sums_name("linux-x64").as_deref(), Some("SHA256SUMS-linux-x64"));
+        assert_eq!(
+            sums_name("linux-arm64").as_deref(),
+            Some("SHA256SUMS-linux-arm64")
+        );
     }
 
     #[test]

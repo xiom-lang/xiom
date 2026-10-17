@@ -179,19 +179,30 @@ pub struct CodegenConfig {
     pub catalog_fn_keys: std::collections::HashSet<String>,
 }
 
+/// Native LLVM triple for a `(target_os, target_arch)` pair.
+///
+/// m352: the old host detection keyed only on the OS and always claimed
+/// x86_64, so an aarch64 host compiled aarch64 code but declared an x86_64
+/// module (wrong data layout/ABI). Pure so the (os, arch) table is testable
+/// on every host; x86_64 and the unknown-host fallback are unchanged.
+pub fn native_target_triple(os: &str, arch: &str) -> &'static str {
+    match (os, arch) {
+        ("linux", "aarch64") => "aarch64-unknown-linux-gnu",
+        ("macos", "aarch64") => "aarch64-apple-darwin",
+        ("windows", "aarch64") => "aarch64-pc-windows-msvc",
+        ("windows", _) => "x86_64-pc-windows-msvc",
+        ("macos", _) => "x86_64-apple-darwin",
+        _ => "x86_64-unknown-linux-gnu", // linux/x86_64 + legacy fallback
+    }
+}
+
 impl Default for CodegenConfig {
     fn default() -> Self {
-        // Auto-detect host target triple at runtime so Linux/macOS builds
-        // get the correct default without manual --target-triple overrides.
-        let host_triple = if cfg!(target_os = "windows") {
-            "x86_64-pc-windows-msvc".to_string()
-        } else if cfg!(target_os = "linux") {
-            "x86_64-unknown-linux-gnu".to_string()
-        } else if cfg!(target_os = "macos") {
-            "x86_64-apple-darwin".to_string()
-        } else {
-            "x86_64-unknown-linux-gnu".to_string() // fallback
-        };
+        // Auto-detect host target triple at runtime so Linux/macOS/Windows
+        // builds get the correct default without manual --target-triple
+        // overrides; arm64 hosts must not be labelled x86_64.
+        let host_triple = native_target_triple(std::env::consts::OS, std::env::consts::ARCH)
+            .to_string();
         Self {
             target_triple: host_triple,
             check_contracts: true,
@@ -658,4 +669,36 @@ pub struct TypeMeta {
     pub fields: Vec<(String, String)>,
     pub derives: Vec<DeriveTrait>,
     pub invariants: Vec<Expr>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{native_target_triple, CodegenConfig};
+
+    #[test]
+    fn native_target_triple_table_is_arch_aware() {
+        let table = [
+            ("linux", "x86_64", "x86_64-unknown-linux-gnu"),
+            ("linux", "aarch64", "aarch64-unknown-linux-gnu"),
+            ("macos", "x86_64", "x86_64-apple-darwin"),
+            ("macos", "aarch64", "aarch64-apple-darwin"),
+            ("windows", "x86_64", "x86_64-pc-windows-msvc"),
+            ("windows", "aarch64", "aarch64-pc-windows-msvc"),
+            // Unknown hosts keep the historical x86_64-linux fallback.
+            ("freebsd", "x86_64", "x86_64-unknown-linux-gnu"),
+            ("linux", "riscv64", "x86_64-unknown-linux-gnu"),
+        ];
+        for (os, arch, want) in table {
+            assert_eq!(native_target_triple(os, arch), want, "{os}/{arch}");
+        }
+    }
+
+    #[test]
+    fn default_config_triple_matches_host_arch() {
+        let cfg = CodegenConfig::default();
+        assert_eq!(
+            cfg.target_triple,
+            native_target_triple(std::env::consts::OS, std::env::consts::ARCH)
+        );
+    }
 }
