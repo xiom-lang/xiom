@@ -18639,3 +18639,155 @@ RESIDUALS:
   is unchanged, not regressed.
 Fix commits: e90c646c7 (fix) + f429902b7 (locks/ci tokens) (branch
 fix/m361-fn-value-trio, unpushed).
+## 2026-10-17 -- FIXED (m353): builtin shadows -- scalar `.hash()` identity over declared Int.hash/Bool.hash, and the global Mutex barrier over declared `Mutex[T]` (REL-20261011-1053-stdlib, REL-20261011-1456-stdlib)
+
+Two acked stdlib relays, one defect class: a compiler builtin occupied the
+same bare `Type.method` key as a user/stdlib declaration and won the lookup,
+so the declaration was unreachable (wrong dispatch / T001). Reference/test
+resolution used the clean pin `XIOM_STDLIB=E:\xiom-lang\stdlib-verify-8d95815`.
+
+### Leg 1 -- zero-arg scalar `.hash()` identity (REL-20261011-1053-stdlib)
+
+Root cause: xiom-codegen's primitive-interface fast path intercepted
+zero-arg `.hash()` on every scalar receiver (ints/bools/chars sext to i64,
+floats bitcast to their bits) before any user dispatch. The declared
+`Int.hash` / `Bool.hash` were registered and the checker accepted them, but
+codegen never called them, so `5.hash()` returned 5 and stdlib
+`false.hash()` returned 0 instead of 177573. The explicit-receiver form
+`Bool.hash(false)` additionally failed checker T001 ("argument 1 type
+mismatch: expected Self, found Bool") because the declared method's
+explicit-receiver param spells `Self` and `types_compatible` only aliased
+`Self` when BOTH sides were `Named` (a primitive argument is `CheckedType::Int`).
+
+Fix:
+- `crates/xiom-codegen/src/call.rs:1416-1452` -- before taking the scalar
+  fast path, infer the receiver's XIOM type (param concrete bindings first
+  inside a monomorphised body) and detect a declared one-arg
+  `Type.hash` (`"{T}.hash"`, or a module-qualified `*.{T}.hash`, exactly one
+  LLVM param = the receiver). When present, skip the identity lowering and
+  fall through to regular method dispatch, which calls `@Int.hash` /
+  `@Bool.hash` exactly once (the receiver is not compiled twice). Scalars
+  without a declaration (the Float64 bitcast control) keep the builtin.
+- `crates/xiom-check/src/lib.rs:10651-10662` -- `Self` is compatible with
+  the concrete primitive in the UFCS/static form (`Int.hash(5)`), extending
+  the existing "Self aliases the receiver" arm to non-`Named` arguments.
+
+### Leg 2 -- builtin Mutex barrier over `xiom.sync.Mutex[T]` / user `Mutex[T]` (REL-20261011-1456-stdlib)
+
+Root cause: `Checker::new` (crates/xiom-check/src/lib.rs:1122-1146)
+registered the v0.56 I3 barrier signatures `Mutex.new/lock/unlock/destroy`
+directly in the global `functions` table. A declared `fn Mutex.new[T](...)`
+registers its bare key with `entry().or_insert` (crates/xiom-check/src/lib.rs:
+3106-3115), so the builtin occupied the bare `Mutex.new` slot first and the
+method dispatch's bare-key lookup returned the 0-arg builtin before the
+`methods["Mutex"]` declaration table was ever consulted. `sync.Mutex.new(42)`
+therefore failed T001 "'new' expects 0 argument(s), found 1"; module-
+qualified `mutex.Mutex.new(7)` failed identically.
+
+Fix: builtin method keys are now tracked in `builtin_method_keys`
+(crates/xiom-check/src/lib.rs:326-334, initialized at :504-509) and the
+method dispatch (crates/xiom-check/src/lib.rs:8700-8726) prefers the
+declared `methods[receiver_base][method]` signature over a bare entry in that
+set. Programs that never declare `Mutex` keep the builtin fallback. Codegen's
+barrier block (crates/xiom-codegen/src/call.rs:3441-3485) needs no change: it
+is keyed on the leaf-prefixed `fn_name` and stays a fallback for programs
+without a declaration; the declared monomorphs (`@Mutex.new_Int`,
+`@Mutex.lock_Int`, `@MutexGuard.get_Int`, `@Mutex.into_inner_Int`) own the
+call sites.
+
+### Rustc reference (protocol: adopt the study docs' mechanics, not a new design)
+
+- Adopted: user/stdlib declarations outrank builtins; builtins are a final
+  fallback, never resident declarations. `compiler/rustc_resolve/src/ident.rs`
+  :57-89 (general principle: "Not controlled (user-defined) names should have
+  higher priority than controlled names built into the language or standard
+  library"), :233-240 (TypeNS scope chain ModuleNonGlobs/Globs ->
+  ExternPreludeItems/Flags -> ToolAttributePrelude -> StdLibPrelude ->
+  BuiltinTypes; ValueNS breaks before BuiltinTypes), :768-771
+  (`builtin_type_decls` resolve only in `Scope::BuiltinTypes`), :1143
+  ("Items and single imports are not shadowable").
+- Adopted for method dispatch: type-relative resolution is typeck, not the
+  resolver (`compiler/rustc_resolve/src/lib.rs:5`), and `pick_method` tries
+  inherent candidates before extension candidates
+  (`compiler/rustc_hir_typeck/src/method/probe.rs:1739-1762`). The declared
+  `methods[T]` entry is the local inherent-candidate analogue; the scalar
+  `.hash()` builtin / Mutex barrier are extension-style fallbacks.
+- Rejected: (a) "bless the identity semantics" (the relay's other accepted
+  option) -- it leaves declared `Int.hash`/`Bool.hash` permanently
+  unreachable and contradicts the user-before-builtin rule above; (b)
+  delete/rename the Mutex barrier behind an explicit intrinsic -- larger
+  blast radius for the v0.56 I3 surface, and rustc's model is precedence,
+  not removal; (c) call-site special cases keyed on module names -- fragile
+  versus the generic builtin-vs-declaration precedence gate, the same
+  direction as m349's registered-type gates and m315's current-module
+  precedence.
+
+### Evidence (worktree fix-m353, windows, clean stdlib pin)
+
+Red pre-fix (fix reverted, compiler rebuilt):
+- `tests/regression/m353_builtin_shadow/main.xi` COMPILED but printed
+  `int=5 bool=0 widget=37 float=4609434218613702656`, `m353 hash fail_bits=195`
+  (rc 195; bits 1+2+64+128) -- silent wrong dispatch.
+- `main_static.xi` rc 1: T001 "argument 1 type mismatch: expected Self,
+  found Int" (and Bool), 4 occurrences.
+- `main_mutex.xi` rc 1: T001 "'new' expects 0 argument(s), found 1" plus
+  "cannot call 'get'/'lock'/'unlock' on this expression".
+- `main_mutex_stdlib.xi` rc 1: T001 "'new' expects 0 argument(s), found 1"
+  plus cannot call lock/get/into_inner.
+- All three IR twins failed (hash fixture compiled pre-fix but emitted no
+  `@Int.hash`/`@Bool.hash` calls; the Mutex fixtures did not compile).
+- Clean-pin scratch probes: `sync.Mutex.new(42)` rc 1 (relay
+  `tools/known_failures/p_sync_mutex_builtin_shadow.xi`); stdlib
+  `0.hash()`, `hash(0)`, `hash_value(0)` all 0, `false.hash()` 0.
+
+Green post-fix:
+- m353 locks 7/7 (`e2e_m353_builtin_hash_shadow`,
+  `_hash_static`, `_hash_shadow_ir`, `_mutex_shadow`, `_mutex_shadow_ir`,
+  `_mutex_stdlib`, `_mutex_stdlib_ir`). `main.xi` fail_bits=0 (int=424242,
+  bool=177573, widget=37, float bits preserved); stdlib fixture prints
+  `out=42`, fail_bits=0.
+- Relay repro `p_sync_mutex_builtin_shadow.xi` rc 0.
+- Clean-pin stdlib hash probe: `0.hash()`/`hash(0)`/`hash_value(0)` =
+  7567884774754821 (DJB2, matching the stdlib body), `false.hash()` = 177573.
+- IR: main calls `@Int.hash`/`@Bool.hash`/`@Widget.hash`; generic relays
+  `@generic_hash_Int/Bool` call them; hermetic mutex main calls
+  `@Mutex.new_Int/new_Str/get_Int/lock_Int/unlock_Int` and emits no
+  `@xiom_mutex_init`; stdlib mutex main calls `@Mutex.new_Int`,
+  `@Mutex.lock_Int`, `@MutexGuard.get_Int`, `@Mutex.into_inner_Int`.
+
+Battery green (fixer worktree, windows; logs in %TEMP%\kilo\m353\):
+m353 locks 7/7, codegen lib 14/14, feature_regression 549/549,
+xiom-check lib 205/205, front-end locks 65/65 (checker_locks 37,
+borrow_e001 3, doctor 4, cxx 2, ffi x5, o2 4, run_script 8, m359 2,
+null_literal 1, bench_no_cache 1), stdlib_execution hash/sync 3/3,
+stdlib_tests hash/sync 2/2.
+
+### Caveats / residuals (recorded, not fixed)
+
+- The codegen declaration probe only sees `Type.hash` definitions that
+  reached the injected function table (the same lazy-injection visibility rule
+  as every other method). An uncataloged module that declares `Int.hash` but
+  is never imported/peeked still gets the identity.
+- The `Self`-compatibility broadening is general (not hash-specific): a
+  primitive argument is accepted for any `Self`-typed explicit-receiver
+  param. `Self` is only produced by receiver declarations, but this could
+  mask a genuinely wrong UFCS receiver type on another method.
+- The Mutex barrier signatures stay in the global table as a fallback. Once
+  any module declaring `Mutex` methods is in the import closure (e.g.
+  `xiom.sync` via `xiom.thread`), the zero-arg barrier form `Mutex.new()`
+  now resolves to the declaration (arity error on misuse). No in-tree call
+  sites exist (`git grep`); external users of the v0.56 I3 barrier that also
+  import the stdlib sync surface would see the change. Renaming the barrier
+  behind an explicit intrinsic remains the alternative if the owner wants the
+  builtin kept unconditionally.
+- Generic return substitution: `Mutex.new(v)` types as `Mutex[T]` rather than
+  `Mutex[Int]`; calls still dispatch by receiver base and generic-param
+  compatibility. IR for a Str instantiation of a one-field generic can name
+  `get_Int` while the value round-trips -- a pre-existing generic-substitution
+  limitation, unchanged here.
+
+Fix commits: 4d679b231 (fix), 90dc7bd43 (tests), branch
+fix/m353-builtin-shadow-sweep, unpushed.
+
+---
+
