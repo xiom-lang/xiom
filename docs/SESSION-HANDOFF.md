@@ -14,7 +14,50 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
-*** SESSION UPDATE 2026-10-17T12:45Z (compiler lane; MIDDAY -- pin verify + m352/m359 harvested) -- READ FIRST ***
+*** SESSION UPDATE 2026-10-17T13:20Z (compiler lane; MIDDAY+ -- pin merged, m352/m359/cold-lane landed, cleanup done) -- READ FIRST ***
+- PIN MERGED: **xiom-lang/xiom#7 REBASE-MERGED** 2026-10-17T12:48Z (`8fdc3292`
+  on main: STDLIB_VERSION -> `stdlib-v0.64.6`). CI fully green (ubuntu rerun
+  7m19s after the pre-existing all-modules order flake; the flake reproduced at
+  the OLD pin too -- filed as a residual). Pin battery v2 (clean stdlib
+  worktree `E:\xiom-lang\stdlib-verify-8d95815`, 3 test threads) running:
+  e2e / feature / integration / stdlib suites / api-freeze / checker; log
+  `%TEMP%\kilo\pin-verify-battery2.log`. Record the result on
+  REL-20261016-2330-stdlib when green.
+- LANDED ON MAIN (`eff579c9`, pushed): **m252 follow-up for the benchmark cold
+  lanes** (REL-20261011-2100-benchmark, owner option (a)) -- `--no-cache` now
+  disables the persistent catalog index cache (`catidx.txt`) and the
+  catalog-body check cache (`checkbodies.txt`) READ+WRITE in the compile, AOT
+  run and in-process JIT paths (`CompileConfig::no_cache`,
+  `jit_execute_with`). Lock `bench_no_cache_catalog_caches` wired into ci.yml;
+  m252 parity 1/1, run_script_cli 8/8, JIT lib 4/4. Benchmark notified
+  (REL-20261017-1304-compiler) to re-score xiom-run-jit/aot.
+- M351 IS READY: worktree clean, 3 commits (`45d24ee3` fix: new c_abi.rs +
+  call/expr/decl/emitter/lib, Win64 C-ABI aggregates + typed confined-fault
+  exit-70; `10886289b` tests: in-repo ros2-abi ladder/direct-extern/IR twin/
+  no-silent-exit + e2e locks; `a3ac9a0a3` docs). Session was still busy at
+  13:15Z; HARVEST as soon as it is idle (watch for a 4th commit).
+- RELAY INTAKE TRIAGED (all acked + pushed): 1223-orbitdb (transient exit -1
+  = host memory pressure evidence: rustc E0786 paging-file + rc -1 spawn
+  failures on this box; capture-a-dump ask), 1223-orbitdb-2 (E001 over-report
+  in the combined suite only; standalone shapes + block.xi are clean ->
+  **m362** recon slot), 1227-packages (HIGH fn-value trio ->
+  **m361 LAUNCHED**, branch fix/m361-fn-value-trio). **m353 LAUNCHED**
+  (branch fix/m353-builtin-shadow-sweep: stdlib 1053 .hash + 1456 Mutex).
+  Heavy slots: m351 (finishing) + selfhost Phase 6 + m361 + m353.
+- SELFHOST PHASE 6 advanced: P2b-iii-a tuple field reads (.0) + tuple-typed
+  locals, probe byte-exact (`f7e2585d4`), after the RD4 rebase onto the
+  morning main; T6 meter continues from 13/64.
+- WORKTREE/BRANCH CLEANUP: 65 -> 14 git worktrees; 54 completed fixer
+  branches deleted; stale pin branches (v0.64.5/v0.61.3) deleted; selfhost
+  phases 1-3 removed (0 unique commits); disk free on E: 190 GB. Kept: main,
+  m351 (live), selfhost-phase-4 (live), 7 rustc-study worktrees, xiom-bench.
+  Six deregistered dirs (m347-m350, m352, m359) are still file-locked by the
+  VS Code extension; delete after an extension reload (their branches/registry
+  are already gone).
+- The 11:10Z block below retains the morning context; superseded where it
+  disagrees.
+
+*** SESSION UPDATE 2026-10-17T12:45Z (compiler lane; MIDDAY -- pin verify + m352/m359 harvested) -- superseded by 13:20Z ***
 - PIN (REL-20261016-2330-stdlib): stdlib-v0.64.6 moved to 8d95815 and PUBLISHED
   (xiom-std 0.64.6 live; publish 38979638142 SUCCESS 23:57Z). Pin PR
   **xiom-lang/xiom#7** open; the auto-bot commit lacked DCO sign-off (amended
