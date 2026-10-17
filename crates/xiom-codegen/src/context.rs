@@ -263,6 +263,10 @@ pub struct TypeContext {
     pub generic_type_params: HashMap<String, Vec<String>>,
     /// Known function signatures: name -> (param_llvm_types, return_llvm_type_or_empty)
     pub functions: SyncRegistry<String, (Vec<String>, String)>,
+    /// m351 (B-33): XIOM-VALUE LLVM signatures of `extern "C"` declarations.
+    /// The C-lowered signature (`CAbiPlan`) is derived lazily from these at
+    /// declare/call time, after all struct layouts are registered.
+    pub extern_c_abi_sigs: SyncRegistry<String, (Vec<String>, String)>,
     /// R52: keys of PUB functions (bare-call ranking: imported pub exports
     /// outrank pub helpers, which outrank private same-name functions).
     pub pub_fns: SyncRegistry<String, bool>,
@@ -466,6 +470,14 @@ pub struct MonoContext {
 pub struct LocalContext {
     /// Locals whose declared XIOM type is Bool
     pub bool_locals: HashSet<String>,
+    /// m351 (B-33): fn-typed locals whose source is a RAW C code address
+    /// (an `Int as fn(..)` cast / dlsym shape). Calls through these apply
+    /// the target C ABI plan; XIOM-internal fn values stay internal.
+    pub c_fn_ptr_locals: HashSet<String>,
+    /// m351: the full `fn(P...) -> R` marker recorded for a fn-typed local
+    /// (cast target or annotation). Used to build the C ABI plan at the
+    /// call site.
+    pub fn_ptr_signatures: HashMap<String, String>,
     /// Locals whose declared XIOM type is a raw pointer (*T)
     pub ptr_locals: HashSet<String>,
     /// Locals bound from Expr::Array literals (for indexing dispatch)

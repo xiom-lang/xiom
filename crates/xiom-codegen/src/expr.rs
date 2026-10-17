@@ -6239,40 +6239,47 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // disables the once-only transient retry.
                 let retry_policy = if self.fctx.unsafe_allow_retry { "1" } else { "0" };
                 self.emitln(&format!("  call void @xiom_trampoline_set_allow_retry(i64 {retry_policy})"));
+                // m351 (B-33): a fault must NOT return from the enclosing
+                // function (that turned every confined AV into a silent
+                // exit 0 / undefined struct-return garbage). The fault path
+                // now manifests a typed fault (runtime TLS record, always-on
+                // diagnostic) and CONTINUES with a DEFINED fallback of the
+                // block's tail type. An unacknowledged fault makes the
+                // process exit 70 at exit (runtime atexit handler); a
+                // source-level take_fault() acknowledges it.
+                let block_tail_ty = if last_ty.is_empty() { "void".to_string() } else { last_ty.clone() };
+                let value_slot: Option<String> = if block_tail_ty == "void" {
+                    None
+                } else {
+                    let slot = self.fresh_tmp();
+                    if self.local.loop_depth > 0 {
+                        self.local.hoisted_allocas.push((slot.clone(), block_tail_ty.clone()));
+                    } else {
+                        self.emitln(&format!("  {slot} = alloca {block_tail_ty}"));
+                    }
+                    Some(slot)
+                };
                 let fault_flag = self.fresh_tmp();
                 self.emitln(&format!("  {fault_flag} = call i64 @xiom_trampoline_call(i64 {fn_i64}, i8* {ctx_i8})"));
                 let fault_is_set = self.fresh_tmp();
                 self.emitln(&format!("  {fault_is_set} = icmp ne i64 {fault_flag}, 0"));
                 let fault_path = self.fresh_block("confined_fault");
                 let normal_path = self.fresh_block("confined_normal");
+                let merge_path = self.fresh_block("confined_merge");
                 self.emitln(&format!("  br i1 {fault_is_set}, label %{fault_path}, label %{normal_path}"));
 
-                // Fault path: discard the arena + disarm, return a type-correct
-                // zero for the enclosing fn's return type (recoverable indicator).
+                // Fault path: manifest the typed fault, discard the arena,
+                // yield a defined fallback value, and keep executing the
+                // language-level continuation.
                 self.emitln(&format!("\n{fault_path}:"));
+                self.emitln(&format!("  call void @xiom_fault_note(i64 {unsafe_id})"));
                 self.emitln("  call void @xiom_guard_heap_exit()");
                 self.emitln("  call void @xiom_guard_page_disarm()");
-                let ret_ty = self.fctx.current_return_type.clone();
-                if ret_ty.is_empty() || ret_ty == "void" {
-                    self.emitln("  ret void");
-                } else if ret_ty == LLVM_STR_PTR {
-                    self.emitln("  ret i8* null");
-                } else if ret_ty.starts_with("%struct.") {
-                    let slot = self.fresh_tmp();
-                    self.emitln(&format!("  {slot} = alloca {ret_ty}, align 16"));
-                    let loaded = self.fresh_tmp();
-                    self.emitln(&format!("  {loaded} = load {ret_ty}, {ret_ty}* {slot}, align 16"));
-                    self.emitln(&format!("  ret {ret_ty} {loaded}"));
-                } else if ret_ty.ends_with('*') {
-                    // Pointer return type (e.g. *Int, *Node): the recoverable
-                    // fault indicator is a NULL pointer, not an integer literal
-                    // (clang rejects `ret i64* 0`).
-                    self.emitln(&format!("  ret {ret_ty} null"));
-                } else if ret_ty.starts_with("float") || ret_ty == "double" {
-                    self.emitln(&format!("  ret {ret_ty} 0.0"));
-                } else {
-                    self.emitln(&format!("  ret {ret_ty} 0"));
+                if let Some(slot) = value_slot.as_ref() {
+                    let fallback = Self::default_const_for(&block_tail_ty);
+                    self.emitln(&format!("  store {block_tail_ty} {fallback}, {block_tail_ty}* {slot}"));
                 }
+                self.emitln(&format!("  br label %{merge_path}"));
 
                 // Normal path: recover the block's value from the trampoline's
                 // TLS result slot and convert it back to the block's tail type.
@@ -6338,7 +6345,25 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     }
                     self.emitln(&format!("\n{normal_tail}:"));
                 }
-                Ok((last, last_ty))
+                // m351: merge the normal value and the fault fallback into a
+                // single defined block value (no `ret` from the enclosing fn
+                // on a fault). Both paths stored the block tail type into
+                // `value_slot`; void tails need no slot.
+                if !self.current_block_terminated() {
+                    if let Some(slot) = value_slot.as_ref() {
+                        self.emitln(&format!("  store {block_tail_ty} {last}, {block_tail_ty}* {slot}"));
+                    }
+                    self.emitln(&format!("  br label %{merge_path}"));
+                }
+                self.emitln(&format!("\n{merge_path}:"));
+                let merged = if let Some(slot) = value_slot.as_ref() {
+                    let loaded = self.fresh_tmp();
+                    self.emitln(&format!("  {loaded} = load {block_tail_ty}, {block_tail_ty}* {slot}"));
+                    loaded
+                } else {
+                    "0".to_string()
+                };
+                Ok((merged, block_tail_ty))
             }
             Expr::BlockExpr(block, _) => {
                 // A plain block expression: compile every statement; the value

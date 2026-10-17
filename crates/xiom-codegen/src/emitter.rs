@@ -1552,6 +1552,10 @@ impl IrEmitter {
         self.emitln("declare i64 @xiom_trampoline_was_returned()");
         self.emitln("declare i64 @xiom_trampoline_was_retried()");
         self.emitln("declare void @xiom_trampoline_set_allow_retry(i64)");
+        // m351 (B-33): manifest a caught confined fault into the typed TLS
+        // fault record. Always-on diagnostic; unacknowledged faults exit 70
+        // at process exit (runtime atexit handler).
+        self.emitln("declare void @xiom_fault_note(i64)");
         self.emitln("declare i8* @realloc(i8*, i64)");
         self.emitln("declare i8* @xiom_guard_realloc(i8*, i64, i64)");
         self.emitln("declare void @free(i8*)");
@@ -1934,6 +1938,20 @@ impl IrEmitter {
                         let param_llvm: Vec<String> = fd.params.iter()
                             .map(|p| self.extern_type_to_llvm(&p.ty))
                             .collect();
+                        // m351 (B-33): the DECLARE must carry the C-lowered
+                        // signature (Win64 aggregates by reference, >8B
+                        // returns via a hidden first sret pointer). The XIOM
+                        // value signature stays `types.functions`.
+                        let (ret_llvm, param_llvm) = match self.extern_c_abi_plan(name) {
+                            Some(plan) if !plan.is_direct() => {
+                                let mut params = plan.call_param_types();
+                                if let Some(sret) = plan.sret_ty.as_ref() {
+                                    params[0] = format!("{sret}* sret({sret})");
+                                }
+                                (plan.c_ret.clone(), params)
+                            }
+                            _ => (ret_llvm, param_llvm),
+                        };
                         // NOTE: Variadic extern functions (with `...` in the source)
                         // are parsed but the variadic marker is not stored in FnDecl.
                         // Therefore we cannot detect variadics from the AST alone.
@@ -2315,6 +2333,7 @@ impl IrEmitter {
         s.insert("xiom_fn_emit_all".to_string());
         // strcmp is declared in emit_metadata_tables (conditional)
         s.insert("strcmp".to_string());
+        s.insert("xiom_fault_note".to_string());
         s
     }
 
