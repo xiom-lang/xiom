@@ -18253,3 +18253,80 @@ RESIDUAL: the actual on-arm64 compile/binary identity cannot be exercised
 on this Windows host -- the release flow on ubuntu-22.04-arm verifies it.
 windows-aarch64 is mapped for correctness but has no host here; unknown
 arches keep the historical x86_64-linux fallback.
+
+---
+
+## 2026-10-17 -- FIXED (m359): duplicated value flag after the positional panicked inside clap (REL-20261016-1128-engine class 4 / REL-20261016-2134-engine item 3)
+
+`xiom <file> --timeout 900 --timeout 900` died rc 101 before compiling:
+`thread '<unnamed>' panicked ... arg 'emit-ir''s 'ArgAction' should be
+one of 'SetTrue', 'SetFalse' which should provide a default`
+(clap_builder-4.6.7 arg_matches.rs:185), from `Cli::flag("emit-ir")` in
+`real_main` (main.rs:1787). Same for `--jobs 4 --jobs 4` after the
+positional and for the `=` spelling. Reproduced on v0.64.4/v0.64.5/local
+HEAD 19eb7218; duplicates BEFORE the positional (`xiom --timeout 900
+--timeout 900 <file>`) stayed accepted (rc 0, IR emitted).
+
+ROOT CAUSE: `cli::command()` sets `ignore_errors(true)` (cli.rs:128).
+A repeated single-value flag is an `ArgumentConflict`; the mode
+swallows the error INSIDE clap and returns the PARTIAL match set.
+clap's recovery `add_defaults` pass fails once the positional matcher
+state is pending, so `try_get_matches_from` is `Ok` but `emit-ir` has
+no entry (no SetTrue default). `parse()`'s `unwrap_or_else` fallback
+therefore never runs, and `get_flag` panicked on the first read.
+
+FIX:
+1. `Cli::flag`/`value`/`values` read through `try_get_one` /
+   `try_get_many`; a partial/default-less (or mismatched) match set
+   reads as false/None/empty and can never panic again.
+2. `cli::duplicated_value_flag` scans raw argv for a repeated
+   single-value flag AFTER the first positional and names it; value
+   tokens of value flags, optional-value consumption (`--sandbox
+   strict`), append-style flags (`--link`) and `--` are honored.
+   `real_main` (after tool dispatch, before any flag read) prints
+   `error: the argument '--timeout' cannot be used multiple times`
+   and exits 2. Pre-positional duplicates keep the legacy accepted
+   shape (the repeated value is simply not read).
+3. `--timeout`/`--jobs` twins and the `-o/--output` pair are covered;
+   the lock asserts both the clean rc-2 diagnostic and the preserved
+   pre-positional shape.
+
+EVIDENCE (windows fixer worktree):
+- before (HEAD binary): `xiom ok.xi --timeout 900 --timeout 900`
+  rc 101, stderr = the clap panic above.
+- after: rc 2, stderr = `error: the argument '--timeout' cannot be
+  used multiple times` + one help line (same for `--jobs 4 --jobs 4`).
+- pre-positional control: `xiom --timeout 900 --timeout 900 ok.xi`
+  rc 0 (unchanged; IR branch as before).
+
+LOCKS: `crates/xiom/tests/m359_cli_duplicate_flags.rs` (2 tests: rc-2
+after-positional for --timeout/--jobs, legacy pre-positional shape)
+wired into the ci.yml front-end lock list;
+`cli::tests::defaultless_matches_read_as_defaults` (partial matches
+read as defaults) and
+`cli::tests::duplicate_value_flags_are_detected_only_after_a_positional`
+(raw-argv detector incl. `=`, `--`, `--link`, `-o`, optional values).
+
+Battery green (fixer worktree, windows): bin-target cli unit 8/8,
+m359 lock 2/2, front-end CLI lock set 65/65 (borrow_e001 3,
+checker_locks 36, cxx_standard 2, doctor 4, ffi x5, o2 4,
+run_script 8, m359 2, null_literal 1), e2e g1 16/16 + g2 272/272
+(ci.yml group-2 list), codegen lib 12/12, integration 130/130,
+feature_regression 549/549.
+stdlib_execution 81 passed / 4 failed / 2 ignored -- PRE-EXISTING,
+NOT this fix: the failures are catalog-body T001s in
+`E:\xiom-lang\xiom\stdlib` (new `xiom.error` fault helpers call
+`extern "C"` without `unsafe`), reproduced identically with the
+pre-fix HEAD binary (`--check smoke_error.xi` rc 1, same 6 T001s);
+this compiler branch predates that stdlib checkout.
+
+RESIDUAL RISK: the duplicate scan is conservative (single-value long
+flags + `-o`); a duplicate of an optional-value flag (`--sandbox`,
+`--graph`) still reaches clap's partial matches, but the tolerant
+accessors make it read as "not given" instead of panicking (no rc-2
+diagnostic for that shape). Short attached `-ofoo` spellings are not
+counted by the scan (clap still parses them). Pre-positional
+duplicates remain intentionally silent.
+Fix commit: 5cc0928a (branch fix/m359-cli-clap-duplicate-flags, unpushed).
+
+---
