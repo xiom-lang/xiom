@@ -39,6 +39,15 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   Non-blocking in flight: m360 (i128 div AV), m365 (dep-cache key/lock), m366
   (capture-frames hang), m363 (Send/Sync enforcement), selfhost Phase 6
   (parallel lane, T6 13->14/64 path).
+- CANDIDATE CI GREEN (`065481eb4`). v0.64.7 release notes authored and
+  schema-verified: `release-notes/v0.64.7.md` + `.json` (4 highlights, 0
+  breaking, user-facing known issues; `xiom-release-notes verify` green,
+  commit `70a96c290`). Stdlib's prep note needs a schema fix (highlight kind
+  `feature` -> `stdlib`; highlight text must be plain text, no backticks) --
+  relayed on REL-20261017-1444-compiler. Pin battery v5 running at the
+  candidate in `xiom-pin-verify` (own stdlib pin d6b562a, 2 threads, log
+  `%TEMP%\kilo\pin-verify-battery5.log`). Remaining: stdlib gate -> released
+  tag -> re-pin -> COMBINED notes verify -> final battery -> cut.
 
 *** SESSION UPDATE 2026-10-17T13:20Z (compiler lane; MIDDAY+ -- pin merged, m352/m359/cold-lane landed, cleanup done) -- superseded by 17:55Z ***
 - PIN MERGED: **xiom-lang/xiom#7 REBASE-MERGED** 2026-10-17T12:48Z (`8fdc3292`
