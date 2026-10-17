@@ -18365,3 +18365,170 @@ duplicates remain intentionally silent.
 Fix commit: 5cc0928a (branch fix/m359-cli-clap-duplicate-flags, unpushed).
 
 ---
+
+## 2026-10-17 -- FIXED (m351): Win64 C ABI lowering for aggregates + typed confined faults (REL-20261016-2031-bindings-3, B-33)
+
+Two COMPOSED defects, confirmed on main 9fb10c40 (v0.64.6; m334-m350 do
+not cover them) while bringing up `xiom.ros2` 0.2.0. Found by the ros2
+bindings lane; the recon report lives at
+`C:\Users\lefte\AppData\Local\Temp\kilo\recon-b33\REPORT.md` and the
+in-repo reproduction bundle at `docs/repro/bindings-pilot/ros2-abi/`
+(the relay item claimed the bundle was already in-repo; it was not).
+
+### Defect 1 -- C ABI lowering for aggregates is wrong on x86_64-pc-windows-msvc
+
+XIOM emitted NAKED aggregate parameters/returns at both C boundaries
+(direct `extern "C"` declares/calls and raw `Int as fn(..)` cast calls).
+LLVM's naked aggregate lowering does not match the MS x64 ABI:
+
+| Shape | C (MS x64) | XIOM pre-fix | Result |
+|---|---|---|---|
+| 16B record by value | pointer to caller copy (rcx) | rcx:rdx | callee dereferences a scalar -> 0xC0000005 |
+| 40B record by value | pointer to caller copy | 5 words on the stack/regs | 0xC0000005 |
+| 16B record return | hidden sret pointer (rcx) | rax:rdx | garbage / silent 0 inside a confined block |
+| 40B record return | hidden sret pointer | naked sret (LLVM already agrees) | green (matrix control) |
+
+Confirmed exact: c1 165 / c2 17036 / c3 507,509 / c4 1001,1005 / c5 165.
+Pre-fix c2/c3/c5 faulted and the confined path converted the fault to a
+SILENT exit 0.
+
+FIX: `crates/xiom-codegen/src/c_abi.rs` -- a target-dispatched
+`CAbiPlan` derived from the XIOM-value LLVM signature. On x86_64 Windows:
+- by-value aggregates of exactly 1/2/4/8 bytes become `CoerceInt`
+  (slot + raw-byte load/store as `i8`/`i16`/`i32`/`i64`; LLVM's naked
+  `%struct` lowering SPLITS the fields into separate registers --
+  `{i32,i32}` -> ecx/edx and `{float,float}` -> xmm0/xmm1 -- so a
+  register-sized aggregate was never safe to leave `Direct`);
+- every other by-value aggregate becomes `IndirectCopy` (alloca + store
+  + pass the pointer);
+- returns of 1/2/4/8 bytes become `CoerceInt`, returns > 8B become
+  `Sret` (`void` + explicit first pointer parameter with the
+  `sret(%struct.X)` attribute).
+The size class uses the REAL LLVM alloc size (alignment/padding:
+`{i32,i8}` is 8 bytes, not 5), not the legacy naive field sum.
+Applied at:
+- `emitter.rs::emit_extern_declares` (the C-lowered `declare`);
+- `call.rs` direct-extern argument operands + the hidden sret slot/load;
+- `call.rs` `callee_is_fn_ptr` (raw C fn pointer) call site: the value
+  is cast to the C-lowered fn-pointer type at the call, aggregate args
+  are pointerized, >8B returns load from the caller slot.
+
+Raw-C provenance is recorded at binding time (`As` cast from a non-fn
+value, integer/field sources, extern getter returns) in
+`LocalContext.c_fn_ptr_locals` + `fn_ptr_signatures` (per function,
+cleared with the other per-fn locals). XIOM-internal fn values
+(closures, bare fn names, fn-typed params/copies) KEEP the internal
+convention.
+
+TARGET DISPATCH: only `x86_64*windows*` is enabled (the confirmed
+defect). System V and AArch64 keep the internal convention until each
+is validated on-target; `e2e_m351_c_abi_ir` locks the dispatch and the
+ladder is expected to stay green on SysV/C ABI hosts (CI ubuntu).
+
+### Defect 2 -- the confined-block fault path converted a fault into SILENT SUCCESS
+
+`confined_faultN` emitted `xiom_guard_heap_exit; xiom_guard_page_disarm;
+ret <zero of the enclosing fn type>`. The SEH trampoline DID catch the
+fault; the language-level fault was simply not represented: `main`
+returned 0, no diagnostic unless `XIOM_TRACE_FAULT`, CI masked P1
+crashes. Struct returns read an UNINITIALIZED alloca.
+
+FIX:
+- codegen (`expr.rs`) no longer returns from the enclosing fn on a
+  fault. The fault path calls `xiom_fault_note(block_id)`, discards the
+  arena, disarms the page, stores a DEFINED fallback of the block's tail
+  type (`default_const_for`; zeroinitializer / null / 0.0 / 0), and
+  branches to a merge block. The normal path stores its value too; the
+  merge loads one defined value. No `ret`-on-fault, no uninitialized
+  alloca.
+- runtime (`stdlib/runtime/xiom_runtime.c`) gains a TLS fault record
+  (`code`, raw OS code, pc, retried, block id) written by both the SEH
+  and POSIX trampolines. `xiom_fault_note` manifests it with an
+  ALWAYS-ON `[fault] confined block N fault: SIGSEGV (os=..., pc=...,
+  retried=...)` diagnostic (stderr, flushed) and registers an `atexit`
+  handler that exits 70 if the fault is unacknowledged.
+- retry policy: only a GUARD-PAGE first touch is transient and retried
+  once; deterministic faults (AV/SIGILL/SIGFPE) are NOT retried --
+  previously a foreign AV executed the C call TWICE inside the
+  retried block, duplicating side effects. The trace now increments
+  `attempt` (0, 1, ...) and reports the faulting address.
+- stdlib surface (`xiom/error/error.xi`):
+  `faulted() -> Bool` and `take_fault() -> Option[HardwareFault]`.
+  `take_fault()` acknowledges the record and is the ONLY exit-0 path
+  after a fault. `smoke_guard_fault`/`smoke_guard_retry` acknowledge
+  their deliberate faults; `xiom_fault_transient` now raises a REAL
+  guard-page first touch (the only retried class).
+
+### Locks
+
+- `crates/xiom/tests/ffi_c_abi_aggregate.rs`
+  - `e2e_m351_ros2_abi_ladder` -- in-repo bundle c1..c5 exact
+    (165 / 17036 / 507,509 / 1001,1005 / 165), ladder2, the no-unsafe
+    c2 control (17036), and (Windows) pointer-pretend + multi-arg exact
+    (165/17036, 8186/2166/969) plus the 8B integer-coercion probe
+    (17036 / 507,509); asserts NO `[fault]`/`[trampoline]` text on the
+    fixed ladder.
+  - `e2e_m351_extern_aggregate` -- DIRECT extern 16B by value (17036),
+    confined direct extern (17036), direct extern 16B return (507,509).
+- `crates/xiom-codegen/tests/e2e_tests.rs`
+  - `e2e_m351_c_abi_ir` -- IR twin: extern declares/operands use the
+    pointer shape, >8B returns are `void` + `sret(...)` first, 8B
+    aggregates are `i64`-coerced, raw `Int as fn(..)` cast calls cast to
+    the C-lowered fn type; scalar control stays direct; Windows-only
+    (target dispatch).
+  - `e2e_m351_no_silent_exit` -- m244 faults with no env: exit 70 +
+    always-on `[fault]`; `m351_take_fault` fixture: exit 0, typed
+    `HardwareFault` (SIGSEGV) delivered, diagnostic still printed.
+  - `e2e_m244_*` / `e2e_m308_*` exit-0 assertions updated to 70 and
+    extended with the always-on diagnostic.
+
+### Evidence (fixer worktree, Windows-native)
+
+Ladder post-fix (in-repo bundle + rebuilt probe.dll):
+c1 165 / c2 17036 / c3 507,509 / c4 1001,1005 / c5 165, exit 0, no
+fault text. 8B aggregate probe: c6 17036 / c7 507,509 (the pre-CoerceInt
+Direct path returned 17007/garbage). No-unsafe c2 control: 17036
+(pre-fix a loud 0xC0000005).
+Direct extern: 17036 / 17036 / 507,509. m244: exit 70 with
+`[fault] confined block 1 fault: SIGILL` + `unhandled confined fault:
+exiting 70`. take_fault fixture: exit 0, `fault acknowledged: SIGSEGV
+pc=...`, diagnostic printed. IR: `declare i64 @probe_sum2(%struct.X*,
+i64)`; `declare void @probe_make2(%struct.X* sret(%struct.X), i64)`;
+cast call site `bitcast ... to i64 (%struct.X*, i64)*` and
+`bitcast ... to void (%struct.X*, i64)*`.
+
+Battery (fixer worktree, windows): e2e front 67 (x2), e2e g2 283
+(x2; the first second-run attempt hit host OOM -- six unrelated tests
+failed on `os error 8` / `Allocation failed` / clang killed -- and a
+clean rerun at `--test-threads=4` was 283/283), codegen lib 21,
+feature_regression 549, stdlib_execution 85 (+2 ignored), integration
+130. m351-specific: 2 CLI ladder/extern tests, 2 e2e IR/no-silent-exit
+tests, 9 c_abi unit tests, plus the updated m244/m308 locks.
+Windows-native ladder: 165 / 17036 / 507,509 / 1001,1005 / 165; 8B
+probe 17036 / 507,509; no-unsafe c2 control 17036.
+
+RESIDUAL RISK:
+- Target dispatch is intentionally narrow. SysV/AArch64 are unchanged
+  (not validated on those hosts in this lane); on x86-64 SysV the
+  pointer-pretend channel is still invalid by construction (MEMORY
+  class) and `xiom.ros2` refuses that host typed.
+- An extern call whose registered arity does not match (variadic /
+  unregistered) falls back to the legacy operand building; the plan is
+  applied only when the registered signature is used.
+- RAW-C provenance is name-keyed per function (cleared at fn entry);
+  same-name reuse inside one function body (later scope) could
+  misclassify, matching the existing closure-locals convention.
+- `pc` is the OS exception address (instruction for AV/SIGILL), not the
+  faulting data address; the typed record/report contract is satisfied,
+  but a data-address field would need `ExceptionInformation[1]`.
+- The runtime + stdlib surface live in the stdlib repo (companion
+  commit on a fix branch; the compiler pin was not moved).
+
+Fix commits (unpushed): 45d24ee3 (fix codegen), 10886289 (tests +
+in-repo bundle), this docs commit; stdlib companion c21ad9f
+(branch fix/m351-typed-fault in the stdlib repo, based on v0.64.6
+release prep 8d95815; main's runtime file is identical at cut time).
+The compiler pin must move to a stdlib rev containing c21ad9f before
+the no-silent-exit/smoke locks run in CI.
+
+---

@@ -3,9 +3,15 @@
 
 # XIOM -- Unsafe Confinement Architecture (Production Plan)
 
-**Status:** PLAN ONLY -- no implementation. This document is the design contract for the
-Unsafe Confinement system (items a-i). Implementation begins after approval and follows the
-phases in S6.
+**Status (2026-10-17, m351/B-33):** Phases 1-6 are IMPLEMENTED (this document is retained
+as the design contract). m351 closed the two remaining P1 gaps on the recovery path:
+(g) the fault is now typed end-to-end -- always-on `[fault]` diagnostic, TLS record,
+`xiom.error.faulted()/take_fault()`, and an UNACKNOWLEDGED fault exits 70 (it used to
+return a zero from the enclosing function and exit 0 SILENTLY); (h) retry is now limited
+to a guard-page first touch, so deterministic faults are not re-executed (side effects
+once). See `docs/COMPILER_BUGS.md` m351 and
+`docs/repro/bindings-pilot/ros2-abi/`. The C ABI defect found by the same recon (Win64
+aggregate by value/return) is fixed by the target-dispatched `CAbiPlan`.
 **Target:** v0.57.0 (PRE-SELFHOST -- must land before the self-hosting bootstrap begins)
 **Branch:** `feat/architect`
 **Owner:** Language team (Architect + Compiler hardening + Runtime)
@@ -432,6 +438,10 @@ Each phase is independently verifiable; the suite must stay green at every phase
   around the block call.
 - Codegen: block site -> `xiom_trampoline_call(block_fn, &ctx)` -> `Result[T, HardwareFault]`
   wrapper; handler returns `Err(HardwareFault{ signal, pc, retried })`.
+- **m351 (2026-10-17):** the wrapper no longer returns a zero of the ENCLOSING fn type on
+  a fault (which made `main` exit 0 silently). The fault path manifests the TLS record via
+  `xiom_fault_note(block_id)` and continues with a DEFINED fallback of the block tail type;
+  an unacknowledged fault exits 70 at process exit. `take_fault()` is the only exit-0 path.
 - **Fault-injection test strategy (my addition):** add a test-only `extern` helper that
   writes to a known-bad address / executes `ud2` / divides by zero, called INSIDE a
   confined block; verify the block returns Err and the process continues (print after).
@@ -441,8 +451,14 @@ Each phase is independently verifiable; the suite must stay green at every phase
 ### Phase 6 -- Transient Retry (h)
 - Retry-once machinery via the trampoline (re-arm guard page, fresh arena, re-call
   `block_fn(ctx)`) + `#[unsafe_no_retry]`.
+- **m351 (2026-10-17):** retry is limited to the documented TRANSIENT class -- a guard-page
+  first touch (`STATUS_GUARD_PAGE_VIOLATION` / SIGSEGV at the guard page). Deterministic
+  faults (foreign AV, SIGILL, SIGFPE) are NOT retried: the old unconditional retry
+  re-executed a faulting foreign call (duplicated side effects). The trace now reports
+  `attempt=0`, `attempt=1`, ... and the faulting address.
 - **Verify:** transient-fault smoke (first run faults, retry succeeds, `retried: true`
-  path); permanent-fault smoke (faults twice -> Err).
+  path); permanent-fault smoke (typed fault; not retried). Both smokes acknowledge through
+  `take_fault()`.
 
 ### Phase 7 -- Stdlib Adoption & Perf Budget
 - Migrate the 37+ stdlib unsafe sites to the confined form (wrappers + contracts).
