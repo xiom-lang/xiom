@@ -16,6 +16,7 @@ use std::cell::RefCell;
 use std::sync::Arc;
 use rayon::prelude::*;
 
+pub mod c_abi;
 pub mod call;
 pub mod cancel;
 pub mod llvm_consts;
@@ -278,6 +279,7 @@ impl IrEmitter {
             "i16" => 2,
             "i32" | "float" => 4,
             "i64" | "double" => 8,
+            "i128" | "fp128" => 16,
             ty if ty.starts_with("%struct.") => {
                 let inner = &ty[8..];
                 let meta = type_meta.get(&inner.to_string())
@@ -1849,6 +1851,116 @@ impl IrEmitter {
         }
     }
 
+    /// m351 (REL-20261016-2031-bindings-3, B-33): target-dispatched C ABI
+    /// plan for one C-boundary signature. XIOM source/LLVM value types are
+    /// used for coercion and storage; the plan carries the C-lowered
+    /// parameter/return types used at `declare`s and call operands.
+    pub(crate) fn c_abi_plan(&self, params: &[String], ret: &str) -> c_abi::CAbiPlan {
+        c_abi::build_plan(params, ret, &self.config.target_triple, |ty| {
+            self.c_abi_alloc_size(ty)
+        })
+    }
+
+    /// m351: ALLOCATION size (including struct alignment/padding) of an LLVM
+    /// type, used only for the C ABI size class. `llvm_type_byte_size` is the
+    /// legacy naive sum used for allocation heuristics; the C ABI needs the
+    /// REAL size because the 1/2/4/8-byte register class is exact (e.g.
+    /// `{i32, i8}` is 8 bytes, not 5).
+    pub(crate) fn c_abi_alloc_size(&self, llvm_ty: &str) -> usize {
+        self.c_abi_layout(llvm_ty, 0).0
+    }
+
+    fn c_abi_layout(&self, llvm_ty: &str, depth: u32) -> (usize, usize) {
+        if depth > 32 {
+            return (8, 8);
+        }
+        let ty = llvm_ty.trim();
+        if ty.ends_with('*') {
+            return (8, 8);
+        }
+        // Fixed arrays: [N x T].
+        if let Some(rest) = ty.strip_prefix('[') {
+            if let Some(x_pos) = rest.find(" x ") {
+                if let Ok(n) = rest[..x_pos].trim().parse::<usize>() {
+                    let elem = rest[x_pos + 3..].trim_end_matches(']').trim();
+                    let (es, ea) = self.c_abi_layout(elem, depth + 1);
+                    return (es.saturating_mul(n), ea);
+                }
+            }
+            return (8, 8);
+        }
+        if let Some(inner) = ty.strip_prefix("%struct.") {
+            let meta = self.types.type_meta.get(&inner.to_string())
+                .or_else(|| {
+                    self.types.type_meta.entries().into_iter()
+                        .find(|(k, _)| k.ends_with(&format!(".{inner}")))
+                        .map(|(_, v)| v)
+                });
+            let Some(m) = meta else { return (8, 8); };
+            let mut offset: usize = 0;
+            let mut align: usize = 1;
+            for (_, field_ty) in &m.fields {
+                let field_llvm = match self.llvm_type_for(field_ty) {
+                    Ok(t) => t,
+                    Err(_) => {
+                        if field_ty.contains('[') && !field_ty.starts_with('[') {
+                            // Generic container field -> i64 handle.
+                            "i64".to_string()
+                        } else {
+                            format!("%struct.{field_ty}")
+                        }
+                    }
+                };
+                let (fsize, falign) = self.c_abi_layout(&field_llvm, depth + 1);
+                offset = offset.div_ceil(falign) * falign;
+                offset = offset.saturating_add(fsize);
+                align = align.max(falign);
+            }
+            return (offset.div_ceil(align) * align, align);
+        }
+        match ty {
+            "i1" | "i8" => (1, 1),
+            "i16" => (2, 2),
+            "i32" | "float" => (4, 4),
+            "i64" | "double" => (8, 8),
+            "i128" | "fp128" => (16, 16),
+            _ => (8, 8),
+        }
+    }
+
+    /// m351: the registered XIOM-value signature of an extern callee, looked
+    /// up by bare or module-qualified call key.
+    pub(crate) fn extern_c_abi_sig(&self, key: &str) -> Option<(Vec<String>, String)> {
+        if let Some(sig) = self.types.extern_c_abi_sigs.get(&key.to_string()) {
+            return Some(sig);
+        }
+        self.types.extern_c_abi_sigs.entries().into_iter()
+            .find(|(k, _)| key.ends_with(&format!(".{k}")))
+            .map(|(_, sig)| sig)
+    }
+
+    /// m351: the C ABI plan for an extern callee (None for non-externs).
+    pub(crate) fn extern_c_abi_plan(&self, key: &str) -> Option<c_abi::CAbiPlan> {
+        let (params, ret) = self.extern_c_abi_sig(key)?;
+        Some(self.c_abi_plan(&params, &ret))
+    }
+
+    /// m351: the C ABI plan for a recorded `fn(P...) -> R` marker (the raw
+    /// `Int as fn(..)` cast shape).
+    pub(crate) fn fn_marker_c_abi_plan(&self, marker: &str) -> Option<c_abi::CAbiPlan> {
+        let sig = marker.strip_prefix("fn(")?;
+        let (params_str, ret_str) = Self::split_fn_marker_body(sig)?;
+        let params: Vec<String> = if params_str.trim().is_empty() {
+            Vec::new()
+        } else {
+            Self::split_top_level_type_params(params_str).iter()
+                .map(|p| self.llvm_type_for(p.trim()).unwrap_or_else(|_| "i64".to_string()))
+                .collect()
+        };
+        let ret = self.llvm_type_for(ret_str.trim()).unwrap_or_else(|_| "i64".to_string());
+        Some(self.c_abi_plan(&params, &ret))
+    }
+
     /// Map an AST Type to its LLVM type string, handling pointer types (`*T` -> `<T>*`),
     /// ref types (`&T` -> `<T>*`), and named/builtin types.
     fn extern_type_to_llvm(&self, ty: &Type) -> String {
@@ -2981,6 +3093,25 @@ impl IrEmitter {
             let ret_llvm = self.llvm_type_for_fallback(&Self::type_from_ast(ret));
             self.types.fn_ptr_return_types.insert(name.to_string(), ret_llvm);
             self.local.fn_local_returns.insert(name.to_string(), ret_xiom);
+            // m351 (B-33): record the FULL marker so the call site can build
+            // the C ABI plan, and classify RAW-C provenance. An `as fn(..)`
+            // cast whose source is not an XIOM fn value (a dlsym Int, a
+            // struct field, an integer local) crosses the C boundary; a cast
+            // of a closure/bare fn name stays on the internal convention.
+            let marker = Self::type_from_ast_with_args(sig_ty.expect("checked Fn"));
+            self.local.fn_ptr_signatures.insert(name.to_string(), marker);
+            let raw_c = match value {
+                Expr::As(inner, t, _) if matches!(t, Type::Fn(..)) => {
+                    !self.is_internal_fn_value_expr(inner)
+                }
+                Expr::Int(..) | Expr::Field(..) | Expr::Index(..) => true,
+                _ => false,
+            };
+            if raw_c {
+                self.local.c_fn_ptr_locals.insert(name.to_string());
+            } else {
+                self.local.c_fn_ptr_locals.remove(name);
+            }
         }
         // m348 (REL-20261016-2002-packages, 2026-10-16): a binding whose RHS
         // is a CALL with a declared fn(...) return (`extern fn get_cos() ->
@@ -2992,13 +3123,19 @@ impl IrEmitter {
         // parse it exactly like the cast/annotation path (top-level ")" ->
         // split per m277, vec_abi.rs).
         if sig_ty.is_none() {
-            if let Some(ret_xiom) = Self::call_rhs_callee(value)
+            if let Some(marker) = Self::call_rhs_callee(value)
                 .and_then(|callee| self.callee_return_xiom(callee))
-                .and_then(|marker| Self::fn_type_return_xiom(&marker))
             {
-                let ret_llvm = self.llvm_type_for_fallback(&ret_xiom);
-                self.types.fn_ptr_return_types.insert(name.to_string(), ret_llvm);
-                self.local.fn_local_returns.insert(name.to_string(), ret_xiom);
+                if let Some(ret_xiom) = Self::fn_type_return_xiom(&marker) {
+                    let ret_llvm = self.llvm_type_for_fallback(&ret_xiom);
+                    self.types.fn_ptr_return_types.insert(name.to_string(), ret_llvm);
+                    self.local.fn_local_returns.insert(name.to_string(), ret_xiom);
+                    // m351: a getter returning a fn pointer is a raw C code
+                    // address (the m348 dlsym-loader shape) -- record the
+                    // marker and cross the C boundary at the call site.
+                    self.local.fn_ptr_signatures.insert(name.to_string(), marker);
+                    self.local.c_fn_ptr_locals.insert(name.to_string());
+                }
             }
         }
         let env_src = match value {
@@ -3050,6 +3187,37 @@ impl IrEmitter {
                     self.types.fn_ptr_return_types.insert(name.to_string(), rl);
                 }
             }
+            // m351: provenance follows plain copies too -- an internal env
+            // copy stays internal; a raw C code-address copy stays C.
+            if !self.local.fn_ptr_signatures.contains_key(name) {
+                if let Some(m) = self.local.fn_ptr_signatures.get(&id.name).cloned() {
+                    self.local.fn_ptr_signatures.insert(name.to_string(), m);
+                }
+            }
+            if self.local.c_fn_ptr_locals.contains(&id.name) {
+                self.local.c_fn_ptr_locals.insert(name.to_string());
+            } else {
+                self.local.c_fn_ptr_locals.remove(name);
+            }
+        }
+    }
+
+    /// m351 (B-33): is this expression an XIOM-internal fn VALUE (closure
+    /// env, bare fn name, or a fn-typed local) as opposed to a raw C code
+    /// address (dlsym Int, integer local, struct field)?
+    fn is_internal_fn_value_expr(&self, e: &Expr) -> bool {
+        match e {
+            Expr::Closure(..) | Expr::PipeClosure(..) => true,
+            Expr::Ident(id) => {
+                self.local.closure_locals.contains(&id.name)
+                    || self.types.functions.contains_key(&id.name)
+                    || self.types.functions.keys().into_iter()
+                        .any(|k| k.ends_with(&format!(".{}", id.name)))
+                    || self.mono.emitted_fns.contains(&id.name)
+                    || (self.local.fn_ptr_signatures.contains_key(&id.name)
+                        && !self.local.c_fn_ptr_locals.contains(&id.name))
+            }
+            _ => false,
         }
     }
 

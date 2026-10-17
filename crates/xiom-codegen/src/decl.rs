@@ -1037,7 +1037,14 @@ impl IrEmitter {
                 let ret_type = fd.return_type.as_ref()
                     .map(|t| self.extern_type_to_llvm(t))
                     .unwrap_or_else(|| "void".to_string());
-                self.types.functions.insert(fd.name.name.clone(), (param_types, ret_type));
+                self.types.functions.insert(fd.name.name.clone(), (param_types.clone(), ret_type.clone()));
+                // m351 (B-33): keep the XIOM-VALUE signature so the
+                // C-lowered `CAbiPlan` can be computed at declare/call time
+                // (struct layouts may not all be registered yet here).
+                self.types.extern_c_abi_sigs.insert(
+                    fd.name.name.clone(),
+                    (param_types, ret_type),
+                );
                 // m272 (fn-value ABI regression): remember the extern-ness so
                 // the call-site B-13 field-0 unwrap fires ONLY at the C
                 // boundary. Applying it to internal XIOM callees (which take
@@ -1474,6 +1481,11 @@ impl IrEmitter {
         self.indexed_elem_types.clear();
         self.local.local_opt_payload.clear();
         self.local.local_opt_payload_xiom.clear();
+        // m351 (B-33): raw-C fn-pointer classification + recorded fn
+        // signatures are per-function binding state (a same-named internal
+        // fn value in a later body must not inherit the C convention).
+        self.local.c_fn_ptr_locals.clear();
+        self.local.fn_ptr_signatures.clear();
         self.local.loop_depth = 0;
         self.local.hoisted_allocas.clear();
         self.local.local_boxed_struct.clear();

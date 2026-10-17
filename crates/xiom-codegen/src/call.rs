@@ -5815,6 +5815,15 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         }
                         }
                     }
+                    // m351 (B-33): C-boundary plan for an extern callee.
+                    // Applied to the registered-argument loop (aggregate
+                    // params become pointers to a caller copy) and to the
+                    // call emission (>8B returns use a hidden sret slot).
+                    let extern_plan = if self.callee_is_extern(&resolved_fn_key) {
+                        self.extern_c_abi_plan(&resolved_fn_key)
+                    } else {
+                        None
+                    };
                     let args_str = if let Some(receiver) = receiver_expr {
                         // Check if receiver is a real struct instance (local variable)
                         // vs a type name (TrafficLight.xxx()) or module name (pipeline.xxx()).
@@ -6248,7 +6257,44 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                             }
                                         }
                                     }
-                                    parts.push(format!("{pty} {coerced}"));
+                                    // m351 (B-33): Win64 aggregates that C
+                                    // passes by reference get a caller-owned
+                                    // stack copy; the operand is its address.
+                                    let param_abi = extern_plan.as_ref()
+                                        .and_then(|p| p.params.get(i).cloned())
+                                        .unwrap_or(crate::c_abi::ParamAbi::Direct);
+                                    match param_abi {
+                                        crate::c_abi::ParamAbi::IndirectCopy => {
+                                            let slot = self.fresh_tmp();
+                                            if self.local.loop_depth > 0 {
+                                                self.local.hoisted_allocas.push((slot.clone(), pty.clone()));
+                                            } else {
+                                                self.emitln(&format!("  {slot} = alloca {pty}"));
+                                            }
+                                            self.emitln(&format!("  store {pty} {coerced}, {pty}* {slot}"));
+                                            parts.push(format!("{pty}* {slot}"));
+                                        }
+                                        crate::c_abi::ParamAbi::CoerceInt(ity) => {
+                                            // C passes 1/2/4/8-byte aggregates
+                                            // as one integer: build the slot
+                                            // and load its raw bytes.
+                                            let slot = self.fresh_tmp();
+                                            if self.local.loop_depth > 0 {
+                                                self.local.hoisted_allocas.push((slot.clone(), pty.clone()));
+                                            } else {
+                                                self.emitln(&format!("  {slot} = alloca {pty}"));
+                                            }
+                                            self.emitln(&format!("  store {pty} {coerced}, {pty}* {slot}"));
+                                            let ip = self.fresh_tmp();
+                                            self.emitln(&format!("  {ip} = bitcast {pty}* {slot} to {ity}*"));
+                                            let iv = self.fresh_tmp();
+                                            self.emitln(&format!("  {iv} = load {ity}, {ity}* {ip}"));
+                                            parts.push(format!("{ity} {iv}"));
+                                        }
+                                        crate::c_abi::ParamAbi::Direct => {
+                                            parts.push(format!("{pty} {coerced}"));
+                                        }
+                                    }
                                 }
                             parts.join(", ")
                     } else {
@@ -6626,16 +6672,158 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     let call_symbol = self.mono.fn_symbol_map.get(&resolved_fn_key)
                         .cloned()
                         .unwrap_or_else(|| resolved_fn_key.clone());
+                    // m351 (B-33): a Win64 >8B aggregate return is a hidden
+                    // first pointer parameter + `void`; the caller owns the
+                    // slot and loads the value after the call.
+                    if let Some(plan) = extern_plan.as_ref() {
+                        match plan.ret.clone() {
+                            crate::c_abi::RetAbi::Sret => {
+                                let sret_ty = plan.sret_ty.clone().unwrap_or_else(|| ret_ty.clone());
+                                let slot = self.fresh_tmp();
+                                if self.local.loop_depth > 0 {
+                                    self.local.hoisted_allocas.push((slot.clone(), sret_ty.clone()));
+                                } else {
+                                    self.emitln(&format!("  {slot} = alloca {sret_ty}"));
+                                }
+                                let sret_arg = format!("{sret_ty}* sret({sret_ty}) {slot}");
+                                let call_args = if args_str.is_empty() {
+                                    sret_arg
+                                } else {
+                                    format!("{sret_arg}, {args_str}")
+                                };
+                                self.emit_stdout_flush_before_blocking_read(&resolved_fn_key, &call_symbol);
+                                self.emitln(&format!("  call void @{call_symbol}({call_args})"));
+                                let loaded = self.fresh_tmp();
+                                self.emitln(&format!("  {loaded} = load {sret_ty}, {sret_ty}* {slot}"));
+                                return Ok((loaded, sret_ty));
+                            }
+                            crate::c_abi::RetAbi::CoerceInt(ity) => {
+                                // C returns a 1/2/4/8-byte aggregate as one
+                                // integer; store the bytes and load the
+                                // struct-shaped value.
+                                let struct_ty = plan.source_ret.clone();
+                                let raw = self.fresh_tmp();
+                                self.emit_stdout_flush_before_blocking_read(&resolved_fn_key, &call_symbol);
+                                self.emitln(&format!("  {raw} = call {ity} @{call_symbol}({args_str})"));
+                                let slot = self.fresh_tmp();
+                                if self.local.loop_depth > 0 {
+                                    self.local.hoisted_allocas.push((slot.clone(), struct_ty.clone()));
+                                } else {
+                                    self.emitln(&format!("  {slot} = alloca {struct_ty}"));
+                                }
+                                let ip = self.fresh_tmp();
+                                self.emitln(&format!("  {ip} = bitcast {struct_ty}* {slot} to {ity}*"));
+                                self.emitln(&format!("  store {ity} {raw}, {ity}* {ip}"));
+                                let loaded = self.fresh_tmp();
+                                self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {slot}"));
+                                return Ok((loaded, struct_ty));
+                            }
+                            crate::c_abi::RetAbi::Direct => {}
+                        }
+                    }
                     if callee_is_fn_ptr {
                         let (alloca_reg, local_llvm_ty) = self.lookup_local(&fn_name).expect("fn_ptr target must be in locals").clone();
                         let fn_ptr_loaded = self.fresh_tmp();
                         self.emitln(&format!("  {fn_ptr_loaded} = load {local_llvm_ty}, {local_llvm_ty}* {alloca_reg}"));
-                        let param_types: Vec<String> = args.iter().map(|a| self.infer_llvm_type(a)).collect();
-                        let actual_ret_ty = if ret_ty == "i64" {
+                        // m351 (B-33): a fn pointer bound from a RAW C code
+                        // address (`sym as fn(...)` / dlsym shape) is a C
+                        // boundary. Apply the target C ABI plan: aggregate
+                        // params become pointers to caller copies and >8B
+                        // returns use a hidden first sret pointer. XIOM fn
+                        // values (closures, bare fn names, method pointers)
+                        // keep the internal convention.
+                        let c_plan = if self.local.c_fn_ptr_locals.contains(&fn_name) {
+                            self.local.fn_ptr_signatures.get(&fn_name).cloned()
+                                .and_then(|marker| self.fn_marker_c_abi_plan(&marker))
+                        } else {
+                            None
+                        };
+                        let mut c_call_args: Option<String> = None;
+                        let mut c_sret: Option<(String, String)> = None;
+                        // (integer type, struct type, slot) for a 1/2/4/8-byte
+                        // aggregate C return.
+                        let mut c_coerce_ret: Option<(String, String, String)> = None;
+                        let mut param_types: Vec<String> = args.iter().map(|a| self.infer_llvm_type(a)).collect();
+                        let mut actual_ret_ty = if ret_ty == "i64" {
                             self.types.fn_ptr_return_types.get(&fn_name).unwrap_or_else(|| LLVM_I64.to_string())
                         } else {
                             ret_ty.clone()
-                            };
+                        };
+                        if let Some(plan) = c_plan.as_ref().filter(|p| !p.is_direct()) {
+                            if plan.source_params.len() == compiled_args.len() {
+                                let mut parts: Vec<String> = Vec::new();
+                                match plan.ret.clone() {
+                                    crate::c_abi::RetAbi::Sret => {
+                                        let sret_ty = plan.sret_ty.clone()
+                                            .unwrap_or_else(|| plan.source_ret.clone());
+                                        let slot = self.fresh_tmp();
+                                        if self.local.loop_depth > 0 {
+                                            self.local.hoisted_allocas.push((slot.clone(), sret_ty.clone()));
+                                        } else {
+                                            self.emitln(&format!("  {slot} = alloca {sret_ty}"));
+                                        }
+                                        parts.push(format!("{sret_ty}* sret({sret_ty}) {slot}"));
+                                        c_sret = Some((sret_ty, slot));
+                                    }
+                                    crate::c_abi::RetAbi::CoerceInt(ity) => {
+                                        let struct_ty = plan.source_ret.clone();
+                                        let slot = self.fresh_tmp();
+                                        if self.local.loop_depth > 0 {
+                                            self.local.hoisted_allocas.push((slot.clone(), struct_ty.clone()));
+                                        } else {
+                                            self.emitln(&format!("  {slot} = alloca {struct_ty}"));
+                                        }
+                                        c_coerce_ret = Some((ity, struct_ty, slot));
+                                    }
+                                    crate::c_abi::RetAbi::Direct => {}
+                                }
+                                for (i, (arg_val, arg_ty)) in compiled_args.iter().enumerate() {
+                                    let src_ty = plan.source_params[i].clone();
+                                    // Preserve the fn-ptr C-boundary env unwrap
+                                    // the legacy path applies to i64 fn args.
+                                    let mut raw_val = arg_val.clone();
+                                    if arg_ty == LLVM_I64 {
+                                        if let Some(ae) = args.get(i) {
+                                            raw_val = self.unwrap_fn_env_for_c(ae, raw_val);
+                                        }
+                                    }
+                                    let coerced = self.coerce_value(&raw_val, arg_ty, &src_ty);
+                                    match plan.params[i].clone() {
+                                        crate::c_abi::ParamAbi::IndirectCopy => {
+                                            let slot = self.fresh_tmp();
+                                            if self.local.loop_depth > 0 {
+                                                self.local.hoisted_allocas.push((slot.clone(), src_ty.clone()));
+                                            } else {
+                                                self.emitln(&format!("  {slot} = alloca {src_ty}"));
+                                            }
+                                            self.emitln(&format!("  store {src_ty} {coerced}, {src_ty}* {slot}"));
+                                            parts.push(format!("{src_ty}* {slot}"));
+                                        }
+                                        crate::c_abi::ParamAbi::CoerceInt(ity) => {
+                                            let slot = self.fresh_tmp();
+                                            if self.local.loop_depth > 0 {
+                                                self.local.hoisted_allocas.push((slot.clone(), src_ty.clone()));
+                                            } else {
+                                                self.emitln(&format!("  {slot} = alloca {src_ty}"));
+                                            }
+                                            self.emitln(&format!("  store {src_ty} {coerced}, {src_ty}* {slot}"));
+                                            let ip = self.fresh_tmp();
+                                            self.emitln(&format!("  {ip} = bitcast {src_ty}* {slot} to {ity}*"));
+                                            let iv = self.fresh_tmp();
+                                            self.emitln(&format!("  {iv} = load {ity}, {ity}* {ip}"));
+                                            parts.push(format!("{ity} {iv}"));
+                                        }
+                                        crate::c_abi::ParamAbi::Direct => {
+                                            parts.push(format!("{src_ty} {coerced}"));
+                                        }
+                                    }
+                                }
+                                c_call_args = Some(parts.join(", "));
+                                param_types = plan.call_param_types();
+                                actual_ret_ty = plan.c_ret.clone();
+                            }
+                        }
+                        let args_for_call = c_call_args.as_deref().unwrap_or(&args_str);
                         let fn_ptr_ty = format!("{actual_ret_ty} ({})*", param_types.join(", "));
                         let fn_ptr = self.fresh_tmp();
                         // XVC-C-01 (m219): the slot may hold a POINTER (an
@@ -6650,11 +6838,25 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             "inttoptr"
                         };
                         self.emitln(&format!("  {fn_ptr} = {cast_op} {local_llvm_ty} {fn_ptr_loaded} to {fn_ptr_ty}"));
-                        if actual_ret_ty == "void" {
-                            self.emitln(&format!("  call {fn_ptr_ty} {fn_ptr}({args_str})"));
+                        if let Some((sret_ty, slot)) = c_sret {
+                            self.emitln(&format!("  call void {fn_ptr}({args_for_call})"));
+                            let loaded = self.fresh_tmp();
+                            self.emitln(&format!("  {loaded} = load {sret_ty}, {sret_ty}* {slot}"));
+                            Ok((loaded, sret_ty))
+                        } else if let Some((ity, struct_ty, slot)) = c_coerce_ret {
+                            let raw = self.fresh_tmp();
+                            self.emitln(&format!("  {raw} = call {ity} {fn_ptr}({args_for_call})"));
+                            let ip = self.fresh_tmp();
+                            self.emitln(&format!("  {ip} = bitcast {struct_ty}* {slot} to {ity}*"));
+                            self.emitln(&format!("  store {ity} {raw}, {ity}* {ip}"));
+                            let loaded = self.fresh_tmp();
+                            self.emitln(&format!("  {loaded} = load {struct_ty}, {struct_ty}* {slot}"));
+                            Ok((loaded, struct_ty))
+                        } else if actual_ret_ty == "void" {
+                            self.emitln(&format!("  call {fn_ptr_ty} {fn_ptr}({args_for_call})"));
                             Ok((String::new(), "void".to_string()))
                         } else {
-                            self.emitln(&format!("  {tmp} = call {actual_ret_ty} {fn_ptr}({args_str})"));
+                            self.emitln(&format!("  {tmp} = call {actual_ret_ty} {fn_ptr}({args_for_call})"));
                             Ok((tmp, actual_ret_ty))
                         }
                     } else if self.config.hot_reload
