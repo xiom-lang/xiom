@@ -44,10 +44,23 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
     (+unit tests ~286-298) + optional nasm x86_64 gating. Then add the
     functional on-runner native-compile gate to the release.yml linux-arm64 leg
     and dispatch a workflow_dispatch dry-run.
-  * B-33 recon RELAUNCHED (ses_eb67663e3ffeCIVFcnlZhPji6N; writes
-    %TEMP%\kilo\recon-b33\REPORT.md; earlier artifacts already there). On
-    REPORT: launch m351 (fix/m351-...) -- confined-call trap recovery for
-    aggregate args; silent exit-0 must become a typed fault.
+  * B-33 recon COMPLETE (report C:\Users\lefte\AppData\Local\Temp\kilo\recon-b33\REPORT.md,
+    543 lines; artifacts + register proofs + naked-vs-clang IR/asm under
+    %TEMP%\kilo\recon-b33\). Verdict: TWO composed defects -- (1) Win64 C-ABI
+    aggregate lowering is wrong at extern + raw-Int-as-fn boundaries (16B
+    by-value rcx:rdx vs C pointer-in-rcx; 40B 5 words vs pointer; 16B return
+    rax:rdx vs sret), defect matrix + file:line map in the report; (2) the
+    confined fault path turns any AV into a SILENT exit-0 (SEH catches; the
+    language fault is just not represented; P1 CI masking; secondary:
+    uninitialized alloca on struct-return fault paths, attempt trace always 0,
+    deterministic faults retried -> side effects twice). The item's in-repo
+    bundle claim was WRONG -- the bundle must be landed by the fixer.
+    **m351 LAUNCHED** (fix/m351-ffi-aggregate-abi; brief = the REPORT.md
+    sections 5-7; 4 commits: codegen CAbiPlan + runtime typed fault +
+    docs + tests; locks: in-repo probe ladder e2e, direct-extern e2e, IR twin
+    no-naked-%struct/sret, no-silent-exit exit-70 + take_fault exit-0; update
+    the m244/m308 exit-0 assertions; target-dispatch must not regress
+    SysV/AArch64).
   * selfhost Phase 6 (ses_ebeb8f547ffeSvMCBgei6xvota): nudged 11:12Z to rebase
     onto current main (was 8 behind) and advance; verify parity against m347-m350.
 - STDLIB SYNC (owner rule, HARD): NO v0.64.7 candidate until the stdlib v0.64.7
