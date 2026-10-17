@@ -1494,6 +1494,18 @@ fn real_main() {
         run_tool_dispatch(tool, &args[2..]);
     }
 
+    // m359: a duplicated single-value flag AFTER the first positional makes
+    // clap's `ignore_errors` parser return partial, default-less matches; the
+    // historical read at 1787 panicked (rc 101, engine repro
+    // `xiom <file> --timeout 900 --timeout 900`). Report a usage error
+    // instead. Duplicates before the positional keep their legacy shape
+    // (accepted; the repeated value goes unread).
+    if let Some(flag) = cli::duplicated_value_flag(&args) {
+        eprintln!("error: the argument '{flag}' cannot be used multiple times");
+        eprintln!("help: pass {flag} once; the source file may come before or after the flags");
+        process::exit(2);
+    }
+
     if args.len() < 2 || args.iter().any(|a| a == "--help") {
         print_usage();
         process::exit(if args.iter().any(|a| a == "--help") { 0 } else { 1 });

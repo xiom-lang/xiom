@@ -21,6 +21,14 @@
 // - `flag`/`value`/`values`/`present` read the clap matches; `raw_has`
 //   covers the checks that intentionally distinguish `--flag=value` from
 //   `--flag value`.
+//
+// m359 (REL-20261016-1128-engine class 4): `ignore_errors(true)` returns a
+// PARTIAL match set after an argument conflict -- and those matches carry no
+// SetTrue defaults. Reading a flag off them panicked inside clap
+// (`arg 'emit-ir''s 'ArgAction' should be one of SetTrue/SetFalse`) for
+// `xiom <file> --timeout 900 --timeout 900`. The accessors below never read
+// default-less matches unguarded, and `duplicated_value_flag` detects the
+// offending raw-argv shape so the driver can report a clean usage error.
 
 use clap::{Arg, ArgAction, ArgMatches, Command};
 
@@ -189,19 +197,36 @@ impl std::ops::Deref for Cli {
 
 impl Cli {
     /// `true` when a boolean flag was given.
+    ///
+    /// m359: `try_get_one` instead of `get_flag` -- a partial (default-less)
+    /// match set must read as `false`, never panic.
     pub fn flag(&self, name: &str) -> bool {
-        self.matches.get_flag(name)
+        self.matches
+            .try_get_one::<bool>(name)
+            .ok()
+            .flatten()
+            .copied()
+            .unwrap_or(false)
     }
 
     /// First value of a single-value flag, `--flag value` or `--flag=value`.
+    ///
+    /// m359: `try_get_one` keeps a definition/access mismatch or a missing
+    /// partial-match entry from panicking; both read as "not given".
     pub fn value(&self, name: &str) -> Option<String> {
-        self.matches.get_one::<String>(name).cloned()
+        self.matches
+            .try_get_one::<String>(name)
+            .ok()
+            .flatten()
+            .cloned()
     }
 
     /// All values of a repeatable flag, in command-line order.
     pub fn values(&self, name: &str) -> Vec<String> {
         self.matches
-            .get_many::<String>(name)
+            .try_get_many::<String>(name)
+            .ok()
+            .flatten()
             .map(|vals| vals.cloned().collect())
             .unwrap_or_default()
     }
@@ -233,6 +258,84 @@ pub fn parse(argv: Vec<String>) -> Cli {
         .try_get_matches_from(&argv)
         .unwrap_or_else(|_| command().get_matches_from(["xiom"]));
     Cli { raw: argv, matches }
+}
+
+/// m359: the single-value flag id (the long spelling) duplicated after the
+/// first positional, if any.
+///
+/// clap treats a repeated `Set` flag as an argument conflict. With
+/// `ignore_errors(true)` that conflict is swallowed, but the returned matches
+/// are partial and default-less, and every driver flag read used to panic
+/// (engine repro: `xiom <file> --timeout 900 --timeout 900`, rc 101).
+///
+/// Detection is raw-argv based because the partial matches cannot name the
+/// offending argument. Only occurrences AFTER the first positional are
+/// reported: the pre-positional duplicate shape (`xiom --timeout 900
+/// --timeout 900 <file>`) predates the clap surface and stayed accepted (the
+/// repeated value is simply not read), so it keeps those semantics.
+pub fn duplicated_value_flag(argv: &[String]) -> Option<String> {
+    let mut positional_seen = false;
+    let mut seen: Vec<&'static str> = Vec::new();
+    let mut i = 1;
+    while i < argv.len() {
+        let tok = &argv[i];
+        if tok == "--" {
+            // Everything after `--` is a positional value, never a flag.
+            break;
+        }
+        if let Some(rest) = tok.strip_prefix("--") {
+            let (name, inline_value) = match rest.split_once('=') {
+                Some((name, _)) => (name, true),
+                None => (rest, false),
+            };
+            if name == "output" {
+                if positional_seen && seen.contains(&"output") {
+                    return Some("--output".to_string());
+                }
+                seen.push("output");
+                i += if inline_value { 1 } else { 2 };
+                continue;
+            }
+            if let Some(flag) = VALUE_FLAGS.iter().find(|flag| **flag == name) {
+                if positional_seen && seen.contains(flag) {
+                    return Some(format!("--{}", *flag));
+                }
+                seen.push(*flag);
+                i += if inline_value { 1 } else { 2 };
+                continue;
+            }
+            if OPTIONAL_VALUE_FLAGS.contains(&name) && !inline_value {
+                // A bare optional-value flag consumes a following non-flag
+                // token (clap `num_args(0..=1)`), so that token is NOT the
+                // positional boundary.
+                i += if i + 1 < argv.len() && !argv[i + 1].starts_with('-') {
+                    2
+                } else {
+                    1
+                };
+                continue;
+            }
+            i += 1;
+            continue;
+        }
+        if tok == "-o" {
+            if positional_seen && seen.contains(&"output") {
+                return Some("--output".to_string());
+            }
+            seen.push("output");
+            i += 2;
+            continue;
+        }
+        if tok.starts_with('-') && tok.len() > 1 {
+            // Boolean, optional-value (short) or unknown flag: no source
+            // boundary.
+            i += 1;
+            continue;
+        }
+        positional_seen = true;
+        i += 1;
+    }
+    None
 }
 
 #[cfg(test)]
@@ -350,5 +453,101 @@ mod tests {
         assert!(parse(argv(&["--sandbox=strict", "f.xi"])).present("sandbox"));
         assert!(parse(argv(&["--graph", "f.xi"])).present("graph"));
         assert!(!parse(argv(&["f.xi"])).present("sandbox"));
+    }
+
+    /// m359: clap `ignore_errors` partial matches have no SetTrue defaults.
+    /// Every accessor must read them as "not given" instead of panicking.
+    #[test]
+    fn defaultless_matches_read_as_defaults() {
+        let raw = argv(&["f.xi", "--timeout", "900", "--timeout", "900"]);
+        let partial = command()
+            .try_get_matches_from(&raw)
+            .expect("ignore_errors swallows the conflict and returns partial matches");
+        assert!(
+            !partial.contains_id("emit-ir"),
+            "the repro must reach the default-less match shape"
+        );
+        let cli = Cli {
+            raw: raw.clone(),
+            matches: partial,
+        };
+        assert!(!cli.flag("emit-ir"));
+        assert!(!cli.flag("does-not-exist"));
+        assert_eq!(cli.value("timeout"), None);
+        assert!(cli.values("link").is_empty());
+        assert!(!cli.present("sandbox"));
+    }
+
+    /// m359: duplicates AFTER the first positional are the panicking shape and
+    /// must be reported; duplicates BEFORE it keep the legacy accepted shape.
+    #[test]
+    fn duplicate_value_flags_are_detected_only_after_a_positional() {
+        // Engine repro shapes.
+        assert_eq!(
+            duplicated_value_flag(&argv(&["f.xi", "--timeout", "900", "--timeout", "900"])),
+            Some("--timeout".to_string())
+        );
+        assert_eq!(
+            duplicated_value_flag(&argv(&["f.xi", "--jobs", "4", "--jobs", "4"])),
+            Some("--jobs".to_string())
+        );
+        // `=` spelling and mixed spellings.
+        assert_eq!(
+            duplicated_value_flag(&argv(&["f.xi", "--timeout=900", "--timeout", "900"])),
+            Some("--timeout".to_string())
+        );
+        // Legacy pre-positional duplicates stay accepted.
+        assert_eq!(
+            duplicated_value_flag(&argv(&["--timeout", "900", "--timeout", "900", "f.xi"])),
+            None
+        );
+        assert_eq!(
+            duplicated_value_flag(&argv(&["--jobs", "4", "--jobs", "4", "f.xi"])),
+            None
+        );
+        // Append-style flags are repeatable by design.
+        assert_eq!(
+            duplicated_value_flag(&argv(&["f.xi", "--link", "a", "--link", "b"])),
+            None
+        );
+        // `--` ends flag parsing.
+        assert_eq!(
+            duplicated_value_flag(&argv(&["f.xi", "--", "--timeout", "9", "--timeout", "9"])),
+            None
+        );
+        // `-o` is the short spelling of --output.
+        assert_eq!(
+            duplicated_value_flag(&argv(&["f.xi", "-o", "a", "-o", "b"])),
+            Some("--output".to_string())
+        );
+        // An optional-value flag consumes the next non-flag token, so that
+        // token is NOT the positional boundary.
+        assert_eq!(
+            duplicated_value_flag(&argv(&[
+                "--sandbox",
+                "strict",
+                "--timeout",
+                "9",
+                "--timeout",
+                "9"
+            ])),
+            None
+        );
+        confirm_pre_positional_conflict_shape();
+    }
+
+    /// Cross-check the premise of the "legacy accepted" assertions above: the
+    /// pre-positional duplicate really does reach clap as a swallowed conflict
+    /// (not as a clean parse), yet it predates the clap surface, so it must
+    /// keep compiling instead of turning into a usage error.
+    fn confirm_pre_positional_conflict_shape() {
+        let strict = command().ignore_errors(false).try_get_matches_from(argv(&[
+            "--timeout", "900", "--timeout", "900", "f.xi",
+        ]));
+        assert!(strict.is_err(), "clap must see the duplicate conflict");
+        let ignored = command().try_get_matches_from(argv(&[
+            "--timeout", "900", "--timeout", "900", "f.xi",
+        ]));
+        assert!(ignored.is_ok(), "ignore_errors must keep it accepted");
     }
 }
