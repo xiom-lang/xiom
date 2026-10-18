@@ -5082,6 +5082,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     // BUG 22 #6: isolate the hoisted-alloca list so the closure
                     // splices only its own loop-body allocas.
                     let saved_hoisted = std::mem::take(&mut self.local.hoisted_allocas);
+                    // m368: a return in the closure body must not free the
+                    // enclosing frame's owned Vecs.
+                    let saved_vec_drops = self.suspend_vec_drops();
                     self.tmp_counter = closure_id * 1000;
                     self.block_counter = closure_id * 1000;
                     self.push_scope();
@@ -5118,6 +5121,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     self.tmp_counter = saved_tmp;
                     self.block_counter = saved_block;
                     self.local.hoisted_allocas = saved_hoisted;
+                    self.resume_vec_drops(saved_vec_drops);
                     
                     // Emit env struct: { fn_ptr }
                     let env_def = format!("%struct.{env_name} = type {{ i64 }}\n");
@@ -5168,6 +5172,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 let saved_output = std::mem::take(&mut self.output);
                 let saved_tmp = self.tmp_counter;
                 let saved_block = self.block_counter;
+                let saved_vec_drops = self.suspend_vec_drops();
                 self.tmp_counter = closure_id * 1000;
                 self.block_counter = closure_id * 1000;
                 self.push_scope();
@@ -5220,6 +5225,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 self.output = saved_output;
                 self.tmp_counter = saved_tmp;
                 self.block_counter = saved_block;
+                self.resume_vec_drops(saved_vec_drops);
                 
                 // At the closure creation site: malloc env, store captures, return ptr
                 let env_ptr = self.fresh_tmp();
@@ -5284,6 +5290,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 let saved_tmp = self.tmp_counter;
                 let saved_block = self.block_counter;
                 let saved_ret = self.fctx.current_return_type.clone();
+                let saved_vec_drops = self.suspend_vec_drops();
                 // m203: a `return` inside the closure body must NOT run the
                 // ENCLOSING fn's ensures checks or write the enclosing result
                 // slot -- the outer alloca register is not defined in the
@@ -5409,6 +5416,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 self.fctx.match_result_ptr = saved_match_ptr;
                 self.fctx.match_result_ty = saved_match_ty;
                 self.fctx.current_ensures = saved_ensures;
+                self.resume_vec_drops(saved_vec_drops);
                 
                 // Create closure value: malloc env, store fn_ptr + captures, return ptr
                 if captures.is_empty() {
@@ -5987,6 +5995,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // self.local -- isolate the hoisted-alloca list so each fn
                 // splices only its own loop-body allocas into its own entry.
                 let saved_hoisted = std::mem::take(&mut self.local.hoisted_allocas);
+                // m368: a return in the block fn must not free the enclosing
+                // frame's owned Vecs (its own are arena-owned).
+                let saved_vec_drops = self.suspend_vec_drops();
                 self.in_unsafe_block_fn = true;
                 self.tmp_counter = unsafe_id * 1000;
                 self.block_counter = unsafe_id * 1000;
@@ -6168,6 +6179,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 self.fctx.current_ensures = saved_ensures;
                 self.in_unsafe_block_fn = saved_in_block_fn;
                 self.local.hoisted_allocas = saved_hoisted;
+                self.resume_vec_drops(saved_vec_drops);
                 self.local.confined_return_seen = saved_confined_ret;
                 // BUG 55: the block fn is done -- the enclosing return type
                 // context is no longer needed.

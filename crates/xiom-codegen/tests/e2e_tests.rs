@@ -8144,6 +8144,49 @@ fn collect_files_with_ext(dir: &Path, ext: &str, out: &mut Vec<std::path::PathBu
         );
     }
 }
+// m368 (REL-20261011-2032-engine): owned Vec locals must release their data
+// buffer at function exit. Pre-fix `Vec[Float64].new()` + push malloc'd and
+// realloc'd but never freed (mem.drop is a no-op, no drop glue), so the
+// engine's alloc+drop loop grew RSS ~1 GB/s (15.9 GB / 10 s at v0.64.4). The
+// lock asserts the generated drop path exists for the two owned shapes
+// (var + let, `.push`/`.len` only) and, crucially, that it does NOT fire on
+// the escape controls: `make_vec` returns its Vec and `alias_control` binds a
+// copy of another owned Vec -- freeing either would corrupt live storage.
+#[test] fn e2e_m368_vec_drop_reclaim() {
+    assert_eq!(
+        compile_and_run("tests/regression/m368_vec_drop_reclaim/main.xi"),
+        Some(0),
+        "owned Vec locals must be reclaimed without freeing escaped storage (m368)"
+    );
+    let ir = compile_ir("tests/regression/m368_vec_drop_reclaim/main.xi")
+        .expect("m368: fixture must emit IR");
+    let body_of = |name: &str| -> String {
+        let start = ir.find(&format!("define i64 @{name}("))
+            .or_else(|| ir.find(&format!("define %struct.Vec @{name}(")))
+            .unwrap_or_else(|| panic!("m368: @{name} must be defined; got:\n{ir}"));
+        let rest = &ir[start..];
+        let end = rest[1..].find("\ndefine ").map(|i| i + 1).unwrap_or(rest.len());
+        rest[..end].to_string()
+    };
+    for name in ["alloc_one", "alloc_let"] {
+        let body = body_of(name);
+        assert!(
+            body.contains("call void @xiom_guard_free(i8*"),
+            "m368: @{name} must free its owned Vec buffer at exit; got:\n{body}"
+        );
+        assert!(
+            body.contains("vecdrop_do"),
+            "m368: @{name} must guard the free with a drop flag; got:\n{body}"
+        );
+    }
+    for name in ["make_vec", "alias_control"] {
+        let body = body_of(name);
+        assert!(
+            !body.contains("xiom_guard_free"),
+            "m368: @{name} must NOT free escaped/aliased Vec storage; got:\n{body}"
+        );
+    }
+}
 // m313 (REL-20261013-1445 compiler half): `ffi.free` call sites must lower
 // through the stdlib wrapper (`@ffi.free`, arena-aware since stdlib wave 124:
 // its body calls @xiom_guard_free) -- NOT the bare libc `@free` the codegen

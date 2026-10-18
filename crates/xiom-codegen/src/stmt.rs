@@ -402,7 +402,13 @@ impl IrEmitter {
                     // m296: floor the slot at 8 bytes (see vec_slot_size).
                     let alloc_size = initial_cap * Self::vec_slot_size(elem_size);
                     let struct_alloca = self.fresh_tmp();
-                    self.emitln(&format!("  {struct_alloca} = alloca %struct.Vec"));
+                    // m368: a drop-candidate's header slot must dominate every
+                    // later return, so hoist it into the entry block.
+                    if self.vec_drop_candidate(&name.name, "%struct.Vec", value) {
+                        self.local.hoisted_allocas.push((struct_alloca.clone(), "%struct.Vec".to_string()));
+                    } else {
+                        self.emitln(&format!("  {struct_alloca} = alloca %struct.Vec"));
+                    }
                     let data_ptr = self.fresh_tmp();
                     self.emitln(&format!("  {data_ptr} = call i8* @malloc(i64 {alloc_size})"));
                     let null_check = self.fresh_tmp();
@@ -427,6 +433,8 @@ impl IrEmitter {
                     self.emitln(&format!("  {esz_gep} = getelementptr %struct.Vec, %struct.Vec* {struct_alloca}, i32 0, i32 3"));
                     self.emitln(&format!("  store i64 {elem_size}, i64* {esz_gep}"));
                     let _loaded = self.emit_vec_load_fields(&struct_alloca);
+                    self.register_vec_drop(&name.name, &struct_alloca, "%struct.Vec", value);
+                    // m368: the empty literal was turned into a fresh buffer.
                     self.add_local(&name.name, struct_alloca, &"%struct.Vec".to_string());
                     // Use declared element type, not hardcoded Int
                     let elem_ty = _ty.as_ref()
@@ -717,7 +725,11 @@ impl IrEmitter {
                 let alloca = self.fresh_tmp();
                 // D1: i128/fp128 allocas need 16-byte alignment on x86-64.
                 // BUG 22 #6: loop-body binding allocas hoist to fn entry.
-                if self.local.loop_depth > 0 {
+                // m368: drop-candidate Vec headers hoist too, so every later
+                // return-path cleanup load is dominated by the alloca.
+                if self.local.loop_depth > 0
+                    || self.vec_drop_candidate(&name.name, &llvm_ty, value)
+                {
                     self.local.hoisted_allocas.push((alloca.clone(), llvm_ty.clone()));
                 } else {
                     self.emitln(&format!("  {alloca} = alloca {llvm_ty}{}", self.alloca_align(&llvm_ty)));
@@ -738,6 +750,8 @@ impl IrEmitter {
                 } else {
                     self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}{}", self.store_align(&llvm_ty)));
                 }
+                self.register_vec_drop(&name.name, &alloca, &llvm_ty, value);
+                // m368: own-and-private Vec bindings are reclaimed on exit.
                 self.add_local(&name.name, alloca, &llvm_ty);
                 // Check invariants if the value is a struct with invariants
                 if self.config.check_contracts {
@@ -901,7 +915,13 @@ impl IrEmitter {
                         .unwrap_or(8);
                     let initial_cap: i64 = 16;
                     let struct_alloca = self.fresh_tmp();
-                    self.emitln(&format!("  {struct_alloca} = alloca %struct.Vec"));
+                    // m368: see the Let arm -- hoist a drop candidate's Vec
+                    // header slot so every later return cleanup is dominated.
+                    if self.vec_drop_candidate(&name.name, "%struct.Vec", value) {
+                        self.local.hoisted_allocas.push((struct_alloca.clone(), "%struct.Vec".to_string()));
+                    } else {
+                        self.emitln(&format!("  {struct_alloca} = alloca %struct.Vec"));
+                    }
                     let data_ptr = self.fresh_tmp();
                     self.emitln(&format!("  {data_ptr} = call i8* @malloc(i64 {})", initial_cap * Self::vec_slot_size(elem_size)));
                     let null_check = self.fresh_tmp();
@@ -922,6 +942,8 @@ impl IrEmitter {
                     let eg = self.fresh_tmp(); self.emitln(&format!("  {eg} = getelementptr %struct.Vec, %struct.Vec* {struct_alloca}, i32 0, i32 3"));
                     self.emitln(&format!("  store i64 {elem_size}, i64* {eg}"));
                     let _loaded = self.emit_vec_load_fields(&struct_alloca);
+                    self.register_vec_drop(&name.name, &struct_alloca, "%struct.Vec", value);
+                    // m368: the empty literal was turned into a fresh buffer.
                     self.add_local(&name.name, struct_alloca, &"%struct.Vec".to_string());
                     // Use the declared element type if available, not hardcoded Int
                     let elem_ty = _ty.as_ref()
@@ -1174,7 +1196,11 @@ impl IrEmitter {
                 let alloca = self.fresh_tmp();
                 // D1: i128/fp128 allocas need 16-byte alignment on x86-64.
                 // BUG 22 #6: loop-body binding allocas hoist to fn entry.
-                if self.local.loop_depth > 0 {
+                // m368: drop-candidate Vec headers hoist too, so every later
+                // return-path cleanup load is dominated by the alloca.
+                if self.local.loop_depth > 0
+                    || self.vec_drop_candidate(&name.name, &llvm_ty, value)
+                {
                     self.local.hoisted_allocas.push((alloca.clone(), llvm_ty.clone()));
                 } else {
                     self.emitln(&format!("  {alloca} = alloca {llvm_ty}{}", self.alloca_align(&llvm_ty)));
@@ -1191,6 +1217,8 @@ impl IrEmitter {
                 } else {
                     self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}{}", self.store_align(&llvm_ty)));
                 }
+                self.register_vec_drop(&name.name, &alloca, &llvm_ty, value);
+                // m368: own-and-private Vec bindings are reclaimed on exit.
                 self.add_local(&name.name, alloca, &llvm_ty);
                 // Check invariants if the value is a struct with invariants
                 if self.config.check_contracts {
@@ -3582,6 +3610,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 let saved_output = std::mem::take(&mut self.output);
                 let saved_tmp = self.tmp_counter;
                 let saved_block = self.block_counter;
+                // m368: the spawn body is a separate function -- isolate the
+                // enclosing frame's Vec drop state.
+                let saved_vec_drops = self.suspend_vec_drops();
                 self.tmp_counter = 0;
                 self.block_counter = 0;
 
@@ -3631,6 +3662,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 self.output = saved_output;
                 self.tmp_counter = saved_tmp;
                 self.block_counter = saved_block;
+                self.resume_vec_drops(saved_vec_drops);
 
                 // Append spawn function at end of module
                 self.local.deferred_closure_defs.push(spawn_fn_ir);
@@ -3916,6 +3948,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 }
             }
         }
+        // m368: source defers ran first (they may still read/mutate the Vec),
+        // then every owned Vec local's buffer is released (LIFO).
+        self.compile_vec_drops()?;
         Ok(())
     }
 

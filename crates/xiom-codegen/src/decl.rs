@@ -1537,6 +1537,11 @@ impl IrEmitter {
         self.local.mut_ref_params.clear();
         // P0-2: Clear deferred cleanup stack at function start
         self.clear_deferred_cleanups();
+        // m368: per-function Vec drop state + ownership/escape prepass.
+        self.clear_vec_drops();
+        if let Some(body) = fd.body.as_ref() {
+            self.prepass_owned_vec_locals(body);
+        }
 
         let ret_llvm = fd.return_type.as_ref()
             .map(|t| {
