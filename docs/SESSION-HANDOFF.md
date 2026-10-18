@@ -15,20 +15,25 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 (m254-m275; all pushed) is kept below for reference:
 
 *** SESSION UPDATE 2026-10-18T16:15Z (compiler lane; v0.64.7 UNCHANGED -- RETESTS + FIXERS) -- READ FIRST ***
-- STATE: v0.64.7 remains the release (no re-cut). Main `ee47486ab`; relay bus
-  commit `a8ac095` (compiler lane) pushed.
+- STATE: v0.64.7 remains the release (no re-cut). Main `431e11f23`;
+  relay bus updated by the compiler lane (see the m360/m368/m369 items).
 - BENCHMARK CHECK (REL-20261018-0042-benchmark): acked, NO ACTION. It
   confirms v0.64.7 absorption (commit 79993a1, image sha256:21b4ad95...),
   acceptance 42/42 + 36/36 + 16/16 + lz4 3/3, and the m252 cold lanes are
   cold from sample 1 (aot t6 1576-1686 ms / t7 5874-6028; jit t6 1572-1885 /
   t7 5824-6055; warm-up == median after the one-time 5.5 s JIT rtobj build).
   The t3 trampoline row stays acked awaiting a compiler profile.
-- VEC-DROP RE-VERIFY (REL-20261011-2032-engine): **STILL RED on v0.64.7**.
-  Engine repro (3000 x 1M Float64 push/drop) measured **10.12 GB WS / 10.62
-  GB private at t=10 s**, still growing ~1.0 GB/s (killed); v0.64.4 was
-  15.9/16.7 GB. **m368 launched**: branch `fix/m368-vec-drop-reclaim`,
-  session `ses_eb041c181ffeQYO9mD15NCBmL0`; acceptance = flat memory over
-  the full loop + regression lock.
+- VEC-DROP **FIXED + ON MAIN `5a530cf7e`** (docs `431e11f23`;
+  2026-10-18T18:30Z): the engine repro (3000 x 1M Float64 push/drop)
+  **completes rc 0 in 19.2 s** with a flat **15.4 MB WS / 47.5 MB private**
+  peak on the rebased release build (v0.64.7 baseline: 10.12 GB WS / 10.62
+  GB private at t=10 s, still growing; v0.64.4 15.9/16.7 GB). Codegen frees
+  owned/non-escaping Vec locals at scope exit (conservative AST prepass +
+  entry-block drop flags, `@xiom_guard_free`); escaped/aliased Vecs stay
+  leak-only (no UAF). Branch `fix/m368-vec-drop-reclaim` was rebased onto
+  main and integrated; locks e2e_m368 1/1, m370 1/1, m37 sweep 50/50, fixer
+  battery green. Relay 2032 moved to **fixed**; the engine can retire the
+  workaround. No re-cut.
 - M360 RELAUNCHED (REL-20261016-2331-stdlib): v0.64.7 baseline CONFIRMED
   RED -- build rc 0, direct run rc -1073741819 (0xC0000005) 3/3 on the
   official archive; expected rc 0/value 2. Branch
@@ -80,15 +85,18 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   3/3. The xvector item moved to fixed; re-test lane workloads on a main
   build (the v0.64.7 archive retains the old scan behavior). Plan/history:
   `docs/checklists/m369-catalog-index.md`.
-- SELFHOST RD5 POST-REBASE **GREEN** (2026-10-18T19:37Z): rebase onto
-  `ee47486ab` + RD5 port committed as `cea754405`; harness **6/6 in 759 s**,
-  T3 19/19, T6 13/64, IR headers 8503, check 83 files + 75 manifest cases.
-  Main then advanced with m360/m370, so the lane was instructed to rebase
-  onto current main and re-run RD5 before adopting `m37_tuple_struct`
-  (T6 13 -> 14/64). Worktree was clean at the RD5 commit; the selfhost
-  session owns the next commit.
-- QUEUE (triaged 2026-10-18): **in flight** m368 + selfhost Phase 6 (m360 and
-  m370 are fixed on main; rebase done, parity harness running). **Next wave**
+- SELFHOST RD6 **GREEN** (2026-10-18T20:09Z): rebase onto main `3ba31eb7f`
+  (m360/m370) + RD6 committed as `a2a0ebad7`; full suite **6/6 in 796.47 s**,
+  T3 19/19, T6 13/64, IR headers 8503 (258/4/8075), check 83 files + 75
+  manifest cases; ascii OK. `m37_tuple_struct` adoption re-attempted and
+  **BLOCKED**: div_mod + triple are IDENTICAL, but `mk_big` stubs on
+  `x.d.push(v)` (FIELD receiver -> **P5e**) and `main` stubs on tuple-call
+  local reads + field chains over call results (**P2b-iv**); T6 stays 13/64.
+  Next selfhost work = P5e + P2b-iv, then m37 (14/64). Branch is 45 ahead /
+  6 behind main (the m369 catalog change is reference-only; rebase before
+  the next full harness).
+- QUEUE (triaged 2026-10-18): **in flight** none (m360, m370 and m368 are
+  fixed on main; selfhost RD6 is green, next P5e + P2b-iv). **Next wave**
   (do not launch until
   a heavy slot frees): (a) C-ORBIT-12 residual (m336 branch exists; still
   red 154/160 -- relaunch with the v0.64.7 evidence); (b) B-32/B-34/B-29
@@ -108,8 +116,10 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   Float64 dlsym, Result-ref, platform consts, arm64, macOS memset build,
   cold lanes, E001 same-call). Performance track 1: m369 landed (index
   50.6 s -> 0.7 s); the next measured split on the 6-line probe is check
-  1.6 s + codegen 1.7 s, so profile the checker/codegen path next. Track 2
-  continues via m368/runtime.
+  1.6 s + codegen 1.7 s, so profile the checker/codegen path next. Track 2:
+  m368 landed; the remaining leak-only shapes (escaped/aliased Vecs,
+  loop-redeclared Vecs, Vec struct fields) are the next runtime/codegen
+  follow-up.
 - CONSTRAINTS unchanged: rustc-first study protocol; max 3-4 heavy sessions;
   watch host memory (128 GB box, 32 logical CPUs); do not touch the stdlib
   repo E:\xiom-lang\stdlib except via the relay; no release re-cuts without
