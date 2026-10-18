@@ -51,11 +51,24 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 - SELFHOST: worktree is clean at `eb5ea46b7`, 43 ahead / 38 behind main
   (`ee47486ab`); rebase onto main then re-run the RD4d/T3/T6 parity harness
   (next action after the fixers are settled).
-- QUEUE: m360 + m368 in flight; m369 queued; then C-ORBIT-12 (154/160),
-  B-32/B-34/B-29, m365, m366, m363, m367, registry canary 2257,
-  .xiomignore 1504/2104, alias-qualified 2100, LLVM baseline 1647,
-  packages 2303/2309, and the fixed-but-acked closure pass. Performance
-  tracks 1-2 have a concrete first target now: the catidx scan/thrash above.
+- QUEUE (triaged 2026-10-18): **in flight** m360 + m368 + selfhost Phase 6
+  (rebase done, parity harness running). **Next wave** (do not launch until
+  a heavy slot frees): (a) C-ORBIT-12 residual (m336 branch exists; still
+  red 154/160 -- relaunch with the v0.64.7 evidence); (b) B-32/B-34/B-29
+  cluster (B-33 fixed; B-32 in-situ sqlite, B-34 generic type-alias
+  unification, B-29 big-int bitops); (c) m365 dep-object shared key + HIT
+  existence check + per-key lock (design in REL-20261017-1355-engine);
+  (d) m363 Send/Sync enforcement (THREADING_PLAN Phase B, design first);
+  (e) m369 catidx scoping/pruning -- **absorbs m367** (tests/regression
+  exclusion is one pruning rule); (f) m366 **BLOCKED** on the engine's
+  minimized capture-only snippet (asked 2026-10-17); (g) registry canary
+  2257; .xiomignore 1504/2104; alias-qualified 2100; LLVM baseline 1647;
+  packages 2303/2309 re-verify. Fixed-but-acked closure is reporter-lane
+  work (the compiler cannot move fixed->verified): reporters fill their
+  rows in `release-checks/compiler-compiler-v0.64.7.md` (hash/Mutex,
+  Float64 dlsym, Result-ref, platform consts, arm64, macOS memset build,
+  cold lanes, E001 same-call). Performance track 1's concrete first target
+  is the catidx scan/thrash (m369); track 2 continues via m368/runtime.
 - CONSTRAINTS unchanged: rustc-first study protocol; max 3-4 heavy sessions;
   watch host memory (128 GB box, 32 logical CPUs); do not touch the stdlib
   repo E:\xiom-lang\stdlib except via the relay; no release re-cuts without

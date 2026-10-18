@@ -18970,3 +18970,26 @@ bounded timeout) instead of blocking indefinitely on a lock. Re-verify with
 the xvector probe on an idle host plus a large-consumer build.
 
 ---
+
+## 2026-10-18 -- QUEUED (m365/m366/m363/m367): cache, hang, Send/Sync, index triage
+
+- **m365** (REL-20261017-1355-engine, medium): the m340 dependency-object
+  cache key is consumer-specific (a 139-TU assimp rebuild per target) and a
+  HIT does not verify object existence (a concurrent compile linked a
+  momentarily-missing `.o`). Fix direction: key by dependency identity +
+  dependency flags only; verify every cached object on HIT (else MISS);
+  take a per-key build/evict lock. Stage 6 cache work.
+- **m366** (REL-20261016-1128-engine class 2, high): `probe_capture_frames`
+  run leg hangs on v0.64.6 (no stdout, 6-11 MB WS, killed at 60/92/180 s;
+  v0.64.4 controls PASS 10 checks / 290 MB). **BLOCKED**: the engine was
+  asked for a minimized capture-only snippet (2026-10-17); do not start the
+  fixer until it lands.
+- **m363** (THREADING_PLAN Phase B, medium): Send/Sync enforcement design +
+  checker. Enforce marker bounds on spawn captures/handles; pairs with the
+  stdlib worker-loop wishlist (REL-20261016-1550-stdlib). Design first.
+- **m367** (catalog index excludes `tests/regression` fixtures, low): the
+  m347 `mini_std` fixture leaks a W001 into every root `--dump-check` and
+  suppresses `CHECK-OK`; the post-release e2e now ignores it. Folded into
+  **m369** (prune fixture trees together with stale roots).
+
+---
