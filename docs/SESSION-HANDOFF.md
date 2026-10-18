@@ -14,6 +14,53 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-18T16:15Z (compiler lane; v0.64.7 UNCHANGED -- RETESTS + FIXERS) -- READ FIRST ***
+- STATE: v0.64.7 remains the release (no re-cut). Main `ee47486ab`; relay bus
+  commit `a8ac095` (compiler lane) pushed.
+- BENCHMARK CHECK (REL-20261018-0042-benchmark): acked, NO ACTION. It
+  confirms v0.64.7 absorption (commit 79993a1, image sha256:21b4ad95...),
+  acceptance 42/42 + 36/36 + 16/16 + lz4 3/3, and the m252 cold lanes are
+  cold from sample 1 (aot t6 1576-1686 ms / t7 5874-6028; jit t6 1572-1885 /
+  t7 5824-6055; warm-up == median after the one-time 5.5 s JIT rtobj build).
+  The t3 trampoline row stays acked awaiting a compiler profile.
+- VEC-DROP RE-VERIFY (REL-20261011-2032-engine): **STILL RED on v0.64.7**.
+  Engine repro (3000 x 1M Float64 push/drop) measured **10.12 GB WS / 10.62
+  GB private at t=10 s**, still growing ~1.0 GB/s (killed); v0.64.4 was
+  15.9/16.7 GB. **m368 launched**: branch `fix/m368-vec-drop-reclaim`,
+  session `ses_eb041c181ffeQYO9mD15NCBmL0`; acceptance = flat memory over
+  the full loop + regression lock.
+- M360 RELAUNCHED (REL-20261016-2331-stdlib): v0.64.7 baseline CONFIRMED
+  RED -- build rc 0, direct run rc -1073741819 (0xC0000005) 3/3 on the
+  official archive; expected rc 0/value 2. Branch
+  `fix/m360-i128-div-vec-loop-av`, session `ses_eb0420efdffehWu33lcttC01ED`.
+  Harness pitfall: Start-Process can report a blank/0 ExitCode for the AV;
+  check the raw status directly.
+- NEW XVECTOR ITEM (REL-20261018-1518-xvector, high): triaged as NOT a
+  global-initializer hang. The exact probe is green on the same archive
+  (build.ps1 + direct; "main started"/"vec global ok", exit 0); even the
+  safe null-only mutex control stalls 43-56 s, then completes. ROOT CAUSE:
+  `$HOME/.xiom/catidx.txt` (11.9 MB, 52 stale stdlib roots incl.
+  `tests/regression` fixtures) is shared across compiler versions; a
+  concurrent v0.64.4 engine build flipped the header 0.64.7 <-> 0.64.4 and
+  each flip forces a full rebuild/scan (exact probe 7.9 s when free; 6-line
+  file 49-56 s during a flip). Reply posted on the item. **m369 queued**
+  (not launched): per-version index scoping, stale-root pruning, no fixture
+  trees, bounded non-blocking fallback. Until then, expect slow compiles
+  when multiple toolchain versions run concurrently; do not misattribute
+  them to codegen bugs.
+- SELFHOST: worktree is clean at `eb5ea46b7`, 43 ahead / 38 behind main
+  (`ee47486ab`); rebase onto main then re-run the RD4d/T3/T6 parity harness
+  (next action after the fixers are settled).
+- QUEUE: m360 + m368 in flight; m369 queued; then C-ORBIT-12 (154/160),
+  B-32/B-34/B-29, m365, m366, m363, m367, registry canary 2257,
+  .xiomignore 1504/2104, alias-qualified 2100, LLVM baseline 1647,
+  packages 2303/2309, and the fixed-but-acked closure pass. Performance
+  tracks 1-2 have a concrete first target now: the catidx scan/thrash above.
+- CONSTRAINTS unchanged: rustc-first study protocol; max 3-4 heavy sessions;
+  watch host memory (128 GB box, 32 logical CPUs); do not touch the stdlib
+  repo E:\xiom-lang\stdlib except via the relay; no release re-cuts without
+  owner GO.
+
 *** SESSION UPDATE 2026-10-18T15:40Z (compiler lane; v0.64.7 SHIPPED -- CONTINUATION PROMPT) -- READ FIRST ***
 - STATE: compiler **v0.64.7 released** (2026-10-17T22:59Z, 11 assets incl
   `xiom-0.64.7-linux-arm64.tar.gz`); **stdlib-v0.64.7 released**; **registry

@@ -18909,3 +18909,64 @@ warn and is the lock.
 Fix commit: 632e8c3d2 (branch fix/m364-e001-samecall-borrow, unpushed).
 
 ---
+
+## 2026-10-18 -- OPEN (m368): Vec allocations are not reclaimed on drop (REL-20261011-2032-engine, v0.64.7 re-verify)
+
+Re-tested the engine repro (`E:\xiom-projects\xiom-engine\out\retest\retest_2032.xi`:
+3000 iterations of `alloc_one()`, each pushing 1M `Float64`) on the official
+v0.64.7 Windows archive (sha256 `16a436c4...`) with a 10 s watchdog:
+
+- v0.64.4 baseline: 15.9 GB WS / 16.7 GB private at t=10 s.
+- v0.64.7: **10.12 GB WS / 10.62 GB private at t=10 s**, still growing
+  ~1.0 GB/s (process killed). The slope is lower, but nothing is reclaimed;
+  a drop-at-scope-exit loop must stay flat after the first iteration.
+- Fixer slot **m368** opened on branch `fix/m368-vec-drop-reclaim`
+  (acceptance = the 3000-iteration loop completes with flat memory, plus a
+  regression lock; runtime/allocator + Vec drop lowering are in scope).
+
+---
+
+## 2026-10-18 -- OPEN (m360): i128 sdiv/srem inlined into a vector-loop function AVs (REL-20261016-2331-stdlib, v0.64.7 baseline)
+
+The stdlib witness (`tools/known_failures/p_i128_div_vec_loop_av.xi` + the
+support module copied into a scratch stdlib at `xiom/math/`) is still red on
+the official v0.64.7 Windows archive (sha256 `16a436c4...`):
+
+- compile rc 0 (20.5 s); direct run rc `-1073741819` (0xC0000005) 3/3;
+  expected rc 0 with `r == 2`.
+- Isolated legs (loop alone, division in its own function, cross-module pub
+  helper kept as a real call, constant divisors) remain green.
+- Fixer slot **m360** relaunched on branch `fix/m360-i128-div-vec-loop-av`
+  (the previous session was never registered). Harness pitfall: PowerShell
+  `Start-Process` can report a blank/0 ExitCode for the AV; check the raw
+  status with a direct invocation or `cmd /c`.
+
+---
+
+## 2026-10-18 -- OPEN (m369): shared catalog index is cross-version and accumulates stale roots (xvector hang symptom)
+
+`REL-20261018-1518-xvector` reported that module-level function-call /
+allocating `var` initializers hang the v0.64.7 compiler. The exact probe is
+green on the same archive (build.ps1 and direct; `main started` /
+`vec global ok`, exit 0), so the initializer shape is NOT the trigger.
+Minimal probes -- including the safe null-only `SyncMutex` control -- stall
+43-56 s and then complete.
+
+ROOT CAUSE (confirmed): the persistent catalog index is
+`$HOME/.xiom/catidx.txt` (crates/xiom-check/src/catalog.rs:1060) and is
+shared by every compiler version. A concurrent v0.64.4 engine build flipped
+the header `xiom-catalog-index v1|0.64.7|...` -> `v1|0.64.4|...`; each flip
+forces a full 11.9 MB rebuild/scan. The index currently carries 52 stale
+stdlib roots (historical `%TEMP%\kilo` extractions, including
+`tests/regression` fixture trees -- the m367 symptom). Observed: the exact
+probe compiles in 7.9 s when the index is free, 49-56 s for a 6-line file
+while it is being rebuilt. The xvector >2 min "hang" matches this scan/lock
+under load (plus orphaned processes), not global-initializer semantics.
+
+FIXER SLOT **m369** queued (not yet launched): per-version/per-stdlib index
+scoping or version-partitioned files, prune stale roots, do not persist
+`tests/regression` fixture trees, and fall back to a scan (or wait with a
+bounded timeout) instead of blocking indefinitely on a lock. Re-verify with
+the xvector probe on an idle host plus a large-consumer build.
+
+---
