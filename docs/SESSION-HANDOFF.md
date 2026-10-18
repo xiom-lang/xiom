@@ -48,6 +48,16 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   50/50, codegen lib 23/23. Relay REL-20261016-2331-stdlib moved to
   **fixed**; stdlib residual = replace the runtime helper's single-limb
   branch for direct C callers (none remain in XIOM codegen).
+- **m370 FIXED + ON MAIN (2026-10-18T20:10Z)**: new stdlib HIGH item
+  REL-20261018-1546 (`&Vec[GenericStruct]` callee field corruption; breaks
+  async_select closed-drain). Reproduced on v0.64.7: compile rc 0, run
+  `plain=111` rc 1. IR showed `bs[0]` taking the scalar i64 elem_load and
+  the field reads becoming constants; root cause = the `Box[Int]` annotation
+  spelling vs the erased `{module}.Box` registry key. Fix
+  `resolve_vec_elem_type` generic-base fallback (`f7fe288e3`, branch
+  `fix/m370-vec-byref-generic`, pushed); witness now `plain=0` rc 0; locks
+  m370 e2e 1/1, m37 sweep 51/51, m218 1/1. Relay moved to **fixed**;
+  stdlib to re-test async_select on a main build (v0.64.7 still affected).
 - NEW XVECTOR ITEM (REL-20261018-1518-xvector, high): triaged as NOT a
   global-initializer hang. The exact probe is green on the same archive
   (build.ps1 + direct; "main started"/"vec global ok", exit 0); even the
@@ -68,9 +78,9 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 - SELFHOST: worktree is clean at `eb5ea46b7`, 43 ahead / 38 behind main
   (`ee47486ab`); rebase onto main then re-run the RD4d/T3/T6 parity harness
   (next action after the fixers are settled).
-- QUEUE (triaged 2026-10-18): **in flight** m368 + selfhost Phase 6 (m360 is
-  fixed on main; rebase done, parity harness running). **Next wave** (do not
-  launch until
+- QUEUE (triaged 2026-10-18): **in flight** m368 + selfhost Phase 6 (m360 and
+  m370 are fixed on main; rebase done, parity harness running). **Next wave**
+  (do not launch until
   a heavy slot frees): (a) C-ORBIT-12 residual (m336 branch exists; still
   red 154/160 -- relaunch with the v0.64.7 evidence); (b) B-32/B-34/B-29
   cluster (B-33 fixed; B-32 in-situ sqlite, B-34 generic type-alias
