@@ -18984,10 +18984,15 @@ blocker). No release re-cut.
 - **m363** (THREADING_PLAN Phase B, medium): Send/Sync enforcement design +
   checker. Enforce marker bounds on spawn captures/handles; pairs with the
   stdlib worker-loop wishlist (REL-20261016-1550-stdlib). Design first.
-- **m367** (catalog index excludes `tests/regression` fixtures, low): the
-  m347 `mini_std` fixture leaks a W001 into every root `--dump-check` and
-  suppresses `CHECK-OK`; the post-release e2e now ignores it. Folded into
-  **m369** (prune fixture trees together with stale roots).
+- **m367 FIXED (2026-10-18)**: catalog-index fixture exclusion. A
+  project-root scan now skips `tests/regression`/`tests/fixtures` trees
+  (case-insensitive path components); a compile whose source root IS a
+  fixture still indexes its own files and its `mini_std` child. The m347
+  `mini_std` no longer leaks a W001 into root `--dump-check` or suppresses
+  `CHECK-OK`. `ModuleCatalog::is_fixture_tree` + `skip_fixture_trees` in
+  `build_index`/`index_dir`; unit test
+  `fixture_trees_are_skipped_from_project_roots_but_not_from_fixtures`
+  (catalog 6/6), m347 e2e 3/3. Fix commit: `e43ef97c5`.
 
 ---
 

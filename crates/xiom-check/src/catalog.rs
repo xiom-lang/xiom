@@ -223,7 +223,14 @@ impl ModuleCatalog {
         self.load_index_cache();
         for (dir_index, dir) in self.source_dirs.clone().iter().enumerate() {
             let recurse = !self.shallow_source_dirs.contains(dir);
-            self.index_dir(Path::new(&dir), dir_index, recurse);
+            // m367: when the source root is a project/repo root, do not walk
+            // into `tests/regression` (or `tests/fixtures`) fixture trees --
+            // their mini-stdlibs are not catalog modules for the project and
+            // their duplicate declarations flooded W001. A compile whose
+            // source root IS a fixture still indexes its own children.
+            let source_is_fixture = Self::is_fixture_tree(Path::new(dir));
+            let skip_fixture_trees = recurse && !source_is_fixture;
+            self.index_dir(Path::new(&dir), dir_index, recurse, skip_fixture_trees);
         }
         self.save_index_cache();
     }
@@ -245,7 +252,27 @@ impl ModuleCatalog {
                 | "release")
     }
 
-    fn index_dir(&mut self, dir: &Path, dir_index: usize, recurse: bool) {
+    /// m367: true when `path` is (or contains) a `tests/regression` or
+    /// `tests/fixtures` fixture tree. These trees carry mini-stdlibs and
+    /// probe modules that are not catalog modules for a project root; their
+    /// duplicate declarations flooded W001. Case-insensitive for Windows.
+    fn is_fixture_tree(path: &Path) -> bool {
+        let comps: Vec<String> = path.components()
+            .map(|c| c.as_os_str().to_string_lossy().to_ascii_lowercase())
+            .collect();
+        comps.windows(2).any(|w| {
+            w[0] == "tests"
+                && matches!(w[1].as_str(), "regression" | "fixtures" | "fixture")
+        })
+    }
+
+    fn index_dir(
+        &mut self,
+        dir: &Path,
+        dir_index: usize,
+        recurse: bool,
+        skip_fixture_trees: bool,
+    ) {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -253,6 +280,11 @@ impl ModuleCatalog {
                     // m369: a shallow source dir contributes its own `.xi`
                     // files only; never descend into unrelated subtrees.
                     if !recurse {
+                        continue;
+                    }
+                    // m367: a project-root scan must not descend into fixture
+                    // trees (`tests/regression`, `tests/fixtures`).
+                    if skip_fixture_trees && Self::is_fixture_tree(&path) {
                         continue;
                     }
                     // Do not index build/VCS/package-manager subtrees.
@@ -271,7 +303,7 @@ impl ModuleCatalog {
                     if name == "lib" && dir.join("xiom").is_dir() {
                         continue;
                     }
-                    self.index_dir(&path, dir_index, recurse);
+                    self.index_dir(&path, dir_index, recurse, skip_fixture_trees);
                 } else if path.extension().map_or(false, |e| e == "xi") {
                     if let Some((Some(dotted), canonical)) = self.cached_header_and_canonical(&path) {
                         let display = path.to_string_lossy().to_string();
@@ -1324,5 +1356,66 @@ mod index_cache_tests {
             name.contains(env!("CARGO_PKG_VERSION")),
             "cache file must carry the compiler version: {name}"
         );
+    }
+
+    #[test]
+    fn fixture_trees_are_skipped_from_project_roots_but_not_from_fixtures() {
+        // m367: a project-root scan must not index `tests/regression`
+        // mini-stdlibs (W001 flood), but a compile whose source dir IS the
+        // fixture must still resolve its own children.
+        let root = std::env::temp_dir().join(format!(
+            "xiom-catidx-fixtures-{}-{:x}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let src = root.join("src");
+        let fixture = root.join("tests").join("regression").join("m367_scan");
+        let mini = fixture.join("mini_std");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::create_dir_all(&mini).unwrap();
+        std::fs::write(
+            src.join("a.xi"),
+            "module fixturetest.a\npub fn a() -> Int { return 1; }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            fixture.join("main.xi"),
+            "module fixturetest.fixture_main\npub fn f() -> Int { return 2; }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            mini.join("io.xi"),
+            "module mini_std.io\npub fn io() -> Int { return 3; }\n",
+        )
+        .unwrap();
+
+        let mut project = ModuleCatalog::new(vec![root.to_string_lossy().to_string()]);
+        project.build_index();
+        assert!(project.module_index.contains_key("fixturetest.a"));
+        assert!(
+            !project.module_index.contains_key("fixturetest.fixture_main"),
+            "a project-root scan must skip tests/regression fixture modules"
+        );
+        assert!(
+            !project.module_index.contains_key("mini_std.io"),
+            "a project-root scan must skip a fixture mini_std"
+        );
+
+        let mut fixture_cat =
+            ModuleCatalog::new(vec![fixture.to_string_lossy().to_string()]);
+        fixture_cat.build_index();
+        assert!(
+            fixture_cat.module_index.contains_key("fixturetest.fixture_main"),
+            "a fixture source root must index its own files"
+        );
+        assert!(
+            fixture_cat.module_index.contains_key("mini_std.io"),
+            "a fixture source root must index its mini_std child"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
