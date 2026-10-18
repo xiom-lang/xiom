@@ -1,6 +1,8 @@
 # m365 -- Dependency-object cache: shared key, HIT existence, per-key lock
 
-Status: QUEUED (design checklist; no fixer yet)
+Status: PARTIAL on main (ready marker + canonical dependency paths landed;
+caller flag split + per-key lock remain). See `docs/COMPILER_BUGS.md`
+2026-10-18 m365.
 Owner: compiler lane (Stage 6 cache)
 Sources: REL-20261017-1355-engine (m340 follow-ups), m340 implementation in
 `crates/xiom/src/rtcache.rs`.
@@ -91,3 +93,24 @@ Under concurrent compiles this is a hard link failure.
 - Do not delete the shared `~/.xiom/jit/rtobj` cache in tests; use a scratch
   cache root.
 - No change to the runtime-object cache key (m340 behavior stays).
+
+## Result (2026-10-18)
+
+Landed on branch `fix/m365-dep-cache-ready`:
+
+- canonical dependency source paths for the key and the compile (the same
+  file through different per-target spellings/order shares one key/object
+  set);
+- `.ready` marker written after all object renames; a HIT requires the
+  marker plus every object, so a half-populated directory is a MISS (fixes
+  the concurrent missing-object link failure).
+
+Tests: `cargo test -p xiom --lib rtcache::tests` 4/4 (marker gate,
+path-spelling stability, same-stem sources, content invalidation).
+
+Remaining:
+
+- caller-side dependency-vs-consumer flag split; the 117-target key equality
+  is still unmeasured on the engine CI;
+- per-key build/evict lock;
+- `XIOM_NO_DEP_PORT_ARGS` retirement after the engine acceptance run.

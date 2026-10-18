@@ -129,6 +129,19 @@ fn ensure_objects(
     label: &str,
     object_name: fn(usize, &str) -> String,
 ) -> Result<Vec<PathBuf>, String> {
+    // m365: canonicalize the dependency inputs for BOTH the key and the
+    // compile. The same source reached through different relative spellings
+    // (per-target working directories) must produce ONE key/object set. This
+    // is part of the fix for the consumer-specific keys the engine reported;
+    // the caller-side flag split is still tracked in m365.
+    let files: Vec<String> = files
+        .iter()
+        .map(|f| {
+            std::fs::canonicalize(f)
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| f.clone())
+        })
+        .collect();
     // ---- cache key -----------------------------------------------------
     let mut key_input = String::new();
     key_input.push_str(&clang.to_string_lossy());
@@ -140,7 +153,7 @@ fn ensure_objects(
         key_input.push('\n');
     }
     let mut contents: Vec<(String, u64)> = Vec::with_capacity(files.len());
-    for f in files {
+    for f in &files {
         let bytes = std::fs::read(f).map_err(|e| format!("read {f}: {e}"))?;
         contents.push((f.clone(), fnv1a(&bytes)));
     }
@@ -155,8 +168,13 @@ fn ensure_objects(
 
     // ---- hit? -----------------------------------------------------------
     let dir = cache_root.join(&key);
+    // m365: a HIT requires the ready marker AND every object. The marker is
+    // written last, so a concurrent builder's half-populated directory is a
+    // MISS (rebuild is safe: identical bytes) rather than a link list that
+    // can race a missing object (the engine's `no such file ... .o`).
+    let ready = dir.join(".ready");
     let mut objects: Vec<PathBuf> = Vec::with_capacity(files.len());
-    let mut complete = true;
+    let mut complete = ready.is_file();
     for (i, f) in files.iter().enumerate() {
         let obj = dir.join(object_name(i, f));
         if obj.is_file() {
@@ -214,6 +232,14 @@ fn ensure_objects(
             .map_err(|e| format!("move {}: {e}", produced.display()))?;
     }
     let _ = std::fs::remove_dir_all(&staging);
+
+    // m365: publish readiness only AFTER every object is at its stable path.
+    // The marker content is the key (diagnostics); its presence is the gate.
+    if let Err(e) = std::fs::write(&ready, format!("{key}\n")) {
+        if std::env::var_os("XIOM_TIMINGS").is_some() {
+            eprintln!("[timings] {label} ready-write-failed: {e}");
+        }
+    }
 
     if std::env::var_os("XIOM_TIMINGS").is_some() {
         eprintln!(
@@ -316,6 +342,80 @@ mod tests {
         write_file(&a, "int dep_a(void) { return 40; }\n");
         let third = dependency_objects(&root, &clang, &files, &args).expect("rebuild");
         assert_ne!(first, third, "changed dependency source must produce a new key");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn dep_cache_ready_marker_gates_hits() {
+        // m365: a HIT requires the `.ready` marker written after the object
+        // renames. A half-populated key dir (no marker) must rebuild instead
+        // of handing a linker an incomplete list.
+        let clang = match crate::toolchain::probe_clang() {
+            Some(info) => PathBuf::from(info.path),
+            None => return,
+        };
+        let root = std::env::temp_dir().join(format!(
+            "xiom-depcache-ready-{}-{:x}",
+            std::process::id(),
+            jit::rand_suffix()
+        ));
+        let src = root.join("src");
+        std::fs::create_dir_all(&src).expect("create src");
+        let a = src.join("ready.c");
+        write_file(&a, "int ready_dep(void) { return 7; }\n");
+        let files = vec![a.to_string_lossy().to_string()];
+        let args: Vec<String> = Vec::new();
+
+        let first = dependency_objects(&root, &clang, &files, &args).expect("first build");
+        let dir = first[0].parent().expect("object parent").to_path_buf();
+        let ready = dir.join(".ready");
+        assert!(ready.is_file(), "a completed build must publish .ready");
+
+        std::fs::remove_file(&ready).expect("remove ready marker");
+        let second = dependency_objects(&root, &clang, &files, &args).expect("rebuild");
+        assert_eq!(first, second, "the same key/objects must be reused");
+        assert!(
+            ready.is_file(),
+            "a marker-less directory is a MISS and must re-publish .ready"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn dependency_key_is_stable_across_path_spellings() {
+        // m365: per-target working directories can spell the same dependency
+        // source differently (`a/../a/util.c`). The key/object names must be
+        // canonical so the whole project shares one dependency build.
+        let clang = match crate::toolchain::probe_clang() {
+            Some(info) => PathBuf::from(info.path),
+            None => return,
+        };
+        let root = std::env::temp_dir().join(format!(
+            "xiom-depcache-spelling-{}-{:x}",
+            std::process::id(),
+            jit::rand_suffix()
+        ));
+        let a_dir = root.join("a");
+        std::fs::create_dir_all(&a_dir).expect("create a");
+        let a = a_dir.join("spell.c");
+        write_file(&a, "int spell_dep(void) { return 9; }\n");
+        let canonical = vec![a.to_string_lossy().to_string()];
+        let dotted = vec![a_dir
+            .join("..")
+            .join("a")
+            .join("spell.c")
+            .to_string_lossy()
+            .to_string()];
+        let args: Vec<String> = Vec::new();
+
+        let first = dependency_objects(&root, &clang, &canonical, &args).expect("first build");
+        let second = dependency_objects(&root, &clang, &dotted, &args).expect("spelling hit");
+        assert_eq!(
+            first, second,
+            "the same source through a different spelling must share one key"
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }

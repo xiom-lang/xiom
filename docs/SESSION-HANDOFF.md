@@ -111,12 +111,14 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   160/160** on the release compiler (also 160/160 debug). Orbitdb to verify
   and retire the workaround. Relays 1154 + 1416 moved to fixed; the
   extraction request 1650 closed.
-- QUEUE (triaged 2026-10-18): **in flight** none (m360, m370, m368 and m367
-  are fixed on main; selfhost RD6 green, next P5e + P2b-iv). **Next wave**
-  (do not launch until a heavy slot frees): (a) B-32/B-34/B-29 cluster (B-33
-  fixed; B-32 in-situ sqlite, B-34 generic type-alias unification, B-29
-  big-int bitops); (b) m365 dep-object shared key + HIT existence check +
-  per-key lock (checklist `docs/checklists/m365-dep-cache.md`); (c) m363
+- QUEUE (triaged 2026-10-18): **in flight** none (m360, m370, m368, m367 and
+  C-ORBIT-12 are fixed on main; selfhost RD6 green, next P5e + P2b-iv).
+  **Next wave** (do not launch until a heavy slot frees): (a) B-32/B-34
+  cluster (B-33 fixed; B-32 in-situ sqlite, B-34 generic type-alias
+  unification; B-29 triaged NOT-a-compiler-defect -- reporter re-run/close);
+  (b) m365 PARTIAL: ready marker + canonical dependency paths landed;
+  remaining caller flag split + per-key lock and the engine re-measure
+  (checklist `docs/checklists/m365-dep-cache.md`); (c) m363
   Send/Sync enforcement (THREADING_PLAN Phase B, design first); (d) m366
   **BLOCKED** on the engine's minimized capture-only snippet (asked
   2026-10-17); (e) .xiomignore 1504/2104; alias-qualified 2100; LLVM

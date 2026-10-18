@@ -18969,12 +18969,16 @@ blocker). No release re-cut.
 
 ## 2026-10-18 -- QUEUED (m365/m366/m363/m367): cache, hang, Send/Sync, index triage
 
-- **m365** (REL-20261017-1355-engine, medium): the m340 dependency-object
-  cache key is consumer-specific (a 139-TU assimp rebuild per target) and a
-  HIT does not verify object existence (a concurrent compile linked a
-  momentarily-missing `.o`). Fix direction: key by dependency identity +
-  dependency flags only; verify every cached object on HIT (else MISS);
-  take a per-key build/evict lock. Stage 6 cache work; plan/checklist:
+- **m365 PARTIAL (2026-10-18)**: the ready-marker + canonical-path half is
+  landed on branch `fix/m365-dep-cache-ready`. `ensure_objects` now
+  canonicalizes every dependency source for BOTH the key and the compile
+  (the same file through different per-target spellings/order shares one
+  key/object set) and a HIT requires a `.ready` marker written after all
+  object renames (a half-populated directory is a MISS, so a concurrent
+  compile can no longer link a momentarily-missing `.o`). Tests: rtcache
+  4/4, including the marker gate and path-spelling stability. REMAINING:
+  the caller-side dependency-vs-consumer flag split and the per-key lock;
+  the engine's 117-target key equality must be re-measured. Checklist:
   `docs/checklists/m365-dep-cache.md`.
 - **m366** (REL-20261016-1128-engine class 2, high): `probe_capture_frames`
   run leg hangs on v0.64.6 (no stdout, 6-11 MB WS, killed at 60/92/180 s;
