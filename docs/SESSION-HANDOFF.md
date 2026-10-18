@@ -14,7 +14,68 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
-*** SESSION UPDATE 2026-10-18T14:22Z (compiler lane; v0.64.7 RELEASED + REGISTRY PUBLISHED) -- READ FIRST ***
+*** SESSION UPDATE 2026-10-18T15:40Z (compiler lane; v0.64.7 SHIPPED -- CONTINUATION PROMPT) -- READ FIRST ***
+- STATE: compiler **v0.64.7 released** (2026-10-17T22:59Z, 11 assets incl
+  `xiom-0.64.7-linux-arm64.tar.gz`); **stdlib-v0.64.7 released**; **registry
+  xiom-std 0.64.7 published** (2026-10-18T14:13Z, compiler pin v0.64.7, tag
+  `f4482b1`). Compiler main `376844dd9` (post-release e2e test fixes: g15
+  Win64 sret branch + m17 fixture mini_std W001 allowance). Release-notes JSON
+  is live for the website. Cleanup done: 11 branches remain (main, selfhost,
+  7 rustc-study, bench); E: free 158 GB; repo-local `stdlib/` at `f4482b1`.
+  This session is at its context limit -- continue from the prompt below.
+- **NEXT-SESSION PROMPT (copy/paste, self-contained)**:
+  "You are the compiler-lane successor for XIOM (E:\\xiom-lang\\xiom). v0.64.7
+  is shipped: compiler release v0.64.7 (11 assets incl. linux-arm64),
+  stdlib-v0.64.7 released, registry xiom-std 0.64.7 published with compiler
+  pin v0.64.7; main `376844dd9`; do NOT redo the release. Read
+  docs/SESSION-HANDOFF.md top block and
+  release-checks/compiler-compiler-v0.64.7.md, then:
+  1) Re-verify REL-20261011-2032-engine (Vec drop not reclaimed; 15.9 GB/10 s
+     at v0.64.4, not retested) on the v0.64.7 archive; if red, open a
+     runtime/allocator fixer.
+  2) Relaunch m360 (Int128 division AV, REL-20261016-2331-stdlib, witness
+     tools/known_failures/p_i128_div_vec_loop_av.xi) -- its previous session was
+     never registered.
+  3) Queue/triage m365 (dep-object cache key + HIT existence race,
+     1355-engine), m366 (capture-frames run-leg hang, 1128 class 2; minimized
+     snippet requested), m363 (Send/Sync enforcement, THREADING_PLAN Phase B),
+     m367 (catalog index excludes tests/regression fixtures).
+  4) Re-triage the red-on-v0.64.7 relay items: C-ORBIT-12
+     (REL-20261018-1416-orbitdb-2; Tuple__TValue__Int, 154/160), B-32/B-34/B-29
+     (REL-20261017-2350-bindings; B-33 fixed), .xiomignore 1504/2104,
+     alias-qualified 2100, LLVM baseline 1647, packages 2303/2309; close the
+     fixed-but-acked rows.
+  5) Selfhost: rebase selfhost-phase-4-codegen onto main `376844dd9`, re-run
+     the RD4d/T3/T6 parity harness, adopt m37_tuple_struct (T6 13->14/64), then
+     continue the remaining Phase 6 shapes.
+  6) Performance: tracks 1 (compiler host) and 2 (generated code/runtime) now
+     -- profile first, map hotspots to docs/rustc-study/01/02/03/07 + docs/
+     RUSTC-REFERENCE.md anchors, A/B with locks; track 3 (selfhost perf) waits
+     for the owner's benchmark data.
+  Constraints: rustc-first study protocol; max 3-4 heavy sessions; watch host
+  memory (OOM under >4 concurrent builds + e2e); do not touch the stdlib repo
+  except via the relay; no release re-cuts without owner GO."
+- REMAINING QUEUE (curated, highest first): (1) C-ORBIT-12 tuple unknown type
+  (open HIGH, 154/160); (2) B-32/B-34/B-29 bindings cluster (B-33 fixed);
+  (3) Vec-drop reclaim re-verify (HIGH, last red v0.64.4); (4) m360; (5) m365;
+  (6) m366; (7) m363; (8) m367; (9) registry canary REL-20261017-2257-stdlib
+  (unblocked by the v0.64.7 asset -- stdlib to run/close); (10) .xiomignore
+  1504/2104; (11) alias-qualified 2100; (12) LLVM 22 baseline 1647;
+  (13) packages 2303/2309 re-verify; (14) closure pass for fixed-but-acked
+  rows (hash/Mutex, Float64 dlsym, Result-ref, platform consts, arm64, macOS
+  memset build, cold lanes, E001 same-call).
+- SELFHOST STATUS (relayed for the site as **REL-20261018-1537-compiler**):
+  P5c `Vec.push` (`d82abf871`), P5d `Vec` index reads (`a0db63e1f`), P2b-iii-b
+  field chains (`e3bc0261b`) landed byte-exact; RD4d parity GREEN (83-file
+  check-dump + 75 manifest cases); T6 **13/64**, next `m37_tuple_struct` ->
+  14/64; lane 43 ahead / 37 behind main and idle since `eb5ea46b7` -- rebase
+  onto `376844dd9` first.
+- PERFORMANCE (owner direction 2026-10-18): tracks **1 (compiler host)** and
+  **2 (generated code/runtime)** are approved for benchmark-driven work now;
+  track **3 (selfhost performance)** waits for the owner's benchmark data. The
+  benchmark lane's v0.64.7 re-score confirmed the cold lanes are cold.
+
+*** SESSION UPDATE 2026-10-18T14:22Z (compiler lane; v0.64.7 RELEASED + REGISTRY PUBLISHED) -- superseded by 15:40Z ***
 - **v0.64.7 IS RELEASED.** Compiler GitHub release 2026-10-17T22:59Z (run
   39076930839 GREEN, 11 assets incl. **xiom-0.64.7-linux-arm64.tar.gz**,
   linux-x64, windows-x64, macos-x64/arm64, wasm, VSIX, SHA256SUMS). stdlib
