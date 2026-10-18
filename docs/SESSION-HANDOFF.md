@@ -72,7 +72,8 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   source roots + stdlib, never walk CWD/temp trees. Reply posted on the
   item. **m369 queued**
   (not launched): per-version index scoping, stale-root pruning, no fixture
-  trees, bounded non-blocking fallback. Until then, expect slow compiles
+  trees, bounded non-blocking fallback; plan/checklist in
+  `docs/checklists/m369-catalog-index.md`. Until then, expect slow compiles
   when multiple toolchain versions run concurrently; do not misattribute
   them to codegen bugs.
 - SELFHOST RD5 POST-REBASE **GREEN** (2026-10-18T19:37Z): rebase onto

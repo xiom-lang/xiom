@@ -18953,7 +18953,8 @@ check 0.7 s, codegen 0.03 s; the xvector probe (small source dir) -> index
 0.749 s / 1,247 misses, total ~2 s. So the scan BREADTH (source dir shape),
 not the persistent cache alone, is the cost. Scope the scan to declared
 source roots + stdlib; never walk arbitrary CWD/temp trees; prune the
-persistent index.
+persistent index. Plan, acceptance criteria and the test matrix are in
+`docs/checklists/m369-catalog-index.md`.
 
 FIXER SLOT **m369** queued (not yet launched): per-version/per-stdlib index
 scoping or version-partitioned files, prune stale roots, do not persist
