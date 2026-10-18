@@ -10368,3 +10368,83 @@ fn m347_runtime_guard() -> Option<std::path::PathBuf> {
         assert!(ir.contains(needle), "m353: IR must contain `{needle}`");
     }
 }
+
+// m360 (REL-20261016-2331-stdlib): a RUNTIME 128-bit division that a vector
+// element-load loop keeps from constant-folding compiled rc 0 and AV'd with
+// 0xC0000005 at run time when the function lived in an xiom.*-namespace
+// module. Root cause: clang expands `sdiv i128` to __divti3/__udivti3, and
+// the stdlib runtime's `xiom_udivti3` computes `a / b` natively whenever the
+// divisor's high limb is zero -- clang lowers that back into the very
+// __udivti3 that defines it, so every divisor < 2^64 recurses until the
+// stack faults. The fix lowers Int128/UInt128 / and % as an inline restoring
+// long division, so no i128 div/rem instruction (and therefore no runtime
+// helper) is emitted. The fixture carries its own mini XIOM_STDLIB so the
+// xiom.math module resolves hermetically.
+//
+// Pre-fix: the --opt-level 0 run leg dies 0xC0000005 and the IR leg still
+// emits `sdiv i128`; post-fix both legs exit 0 with the witness value 2.
+#[test] fn e2e_m360_i128_div_vec_loop() {
+    let Some(_runtime_root) = m347_runtime_guard() else { return; };
+    let base = project_root()
+        .join("tests")
+        .join("regression")
+        .join("m360_i128_div_vec_loop");
+    let mini = base.join("mini_std");
+    let src = base.join("main.xi");
+    let exe = project_root().join("target").join("m360_i128_div_vec_loop.exe");
+
+    // Run legs. --opt-level 0 keeps every divide a runtime operation (nothing
+    // folds; pre-fix the recursive helper is reached and the process faults);
+    // the default level exercises the folded witness shape the report showed.
+    for (opt, what) in [("0", "runtime divides"), ("2", "default level")] {
+        let _ = std::fs::remove_file(&exe);
+        let compile = Command::new(xiom_path())
+            .args(["--no-cache", "--opt-level", opt, "-o"])
+            .arg(&exe)
+            .arg(&src)
+            .env("XIOM_STDLIB", &mini)
+            .current_dir(project_root())
+            .output()
+            .expect("spawn xiom for the m360 fixture");
+        assert!(
+            compile.status.success(),
+            "m360 ({what}): fixture must compile; stderr:\n{}",
+            String::from_utf8_lossy(&compile.stderr)
+        );
+        let run = Command::new(&exe).output().expect("run the m360 fixture");
+        assert_eq!(
+            run.status.code(),
+            Some(0),
+            "m360 ({what}): a runtime i128 divide beside a vector element-load loop must return the witness value 2 and exit 0 (pre-fix: 0xC0000005 / status {:?})",
+            run.status.code()
+        );
+    }
+
+    // IR leg: pre-fix the emitted ta4 body carried `sdiv i128`, which clang
+    // expands to the runtime __divti3/__udivti3 pair. Post-fix i128 division
+    // is the inline restoring loop -- no i128 div/rem instruction may survive.
+    let output = Command::new(xiom_path())
+        .args(["--no-cache", "--emit-ir"])
+        .arg(&src)
+        .env("XIOM_STDLIB", &mini)
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom --emit-ir for the m360 fixture");
+    assert!(
+        output.status.success(),
+        "m360 IR leg must compile; stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let ir = String::from_utf8_lossy(&output.stdout);
+    for needle in ["sdiv i128", "srem i128", "udiv i128", "urem i128"] {
+        assert!(
+            !ir.contains(needle),
+            "m360: emitted IR must not contain `{needle}` -- that instruction expands to the runtime helper whose single-limb path recurses"
+        );
+    }
+    assert!(
+        ir.contains("i128_div_hdr"),
+        "m360: the inline long-division loop must be emitted for the runtime divide"
+    );
+    let _ = std::fs::remove_file(&exe);
+}

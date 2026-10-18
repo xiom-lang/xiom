@@ -2251,7 +2251,25 @@ impl IrEmitter {
                     }
                     return Ok((result_val, "i64".to_string()));
                 }
-                self.emitln(&format!("  {tmp} = {inst} {ty} {l}, {r}"));
+                // m360 (REL-20261016-2331-stdlib): NEVER emit `sdiv`/`srem`
+                // (or their unsigned twins) on i128. clang expands them to
+                // the `__divti3`/`__udivti3` libcalls; the stdlib runtime's
+                // `xiom_udivti3` falls back to a native `a / b` for divisors
+                // below 2^64, which clang lowers straight back into the
+                // `__udivti3` that defines it -- infinite recursion and a
+                // 0xC0000005 stack fault once the divide cannot be folded
+                // away (the wave-165 shape needed only a Vec element-load
+                // loop to block folding). Lower the long division inline;
+                // see `emit_i128_divrem_inline`.
+                let tmp = if !is_float
+                    && ty == "i128"
+                    && matches!(op, BinOp::Div | BinOp::Rem)
+                {
+                    self.emit_i128_divrem_inline(&l, &r, !unsigned_op, matches!(op, BinOp::Rem))
+                } else {
+                    self.emitln(&format!("  {tmp} = {inst} {ty} {l}, {r}"));
+                    tmp
+                };
                 let (result, result_ty) = if inst.starts_with("icmp") || inst.starts_with("fcmp") {
                     let ext = self.fresh_tmp();
                     self.emitln(&format!("  {ext} = zext i1 {tmp} to i64"));
@@ -7112,6 +7130,139 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
             out.push(format!("xiom.{joined}.{field}"));
         }
         out
+    }
+
+    /// m360 (REL-20261016-2331-stdlib): emit `lhs / rhs` (or `lhs % rhs`)
+    /// on i128 as an inline 128-step restoring long division instead of an
+    /// `sdiv`/`srem` instruction.
+    ///
+    /// Why: clang expands i128 division to the `__divti3`/`__udivti3`
+    /// libcalls. The stdlib runtime's `xiom_udivti3` handles divisors with a
+    /// nonzero high limb with a shift/subtract loop, but its "high limb of b
+    /// is zero" branch computes a native `a / b` -- which clang lowers right
+    /// back into `__udivti3`, the function defining it. Every divisor below
+    /// 2^64 therefore recurses until the stack faults (0xC0000005). The
+    /// wave-165 witness only needed a Vec element-load loop to stop LLVM
+    /// constant-folding the divide and expose the recursion. Lowering the
+    /// algorithm here keeps i128 division self-contained: no runtime helper
+    /// call, so the loop can never be folded back into one.
+    ///
+    /// Operands are i128 and `rhs` is nonzero (the caller's zero guard
+    /// traps). Truncating semantics match LLVM `sdiv`/`srem`: the quotient
+    /// rounds toward zero, the remainder's sign follows the dividend, and
+    /// INT128_MIN / -1 wraps to INT128_MIN (the runtime's defined value).
+    /// `entry` is the block the magnitude setup is emitted in (the caller's
+    /// div-safe block); the returned SSA value is defined in the final block,
+    /// which falls through to the caller's continuation.
+    fn emit_i128_divrem_inline(
+        &mut self,
+        lhs: &str,
+        rhs: &str,
+        signed: bool,
+        want_rem: bool,
+    ) -> String {
+        let entry = self
+            .current_block_label()
+            .unwrap_or_else(|| "entry0".to_string());
+        // Signed divides work on magnitudes; remember both sign flags so the
+        // quotient/remainder signs can be restored after the unsigned loop.
+        let mut ua = lhs.to_string();
+        let mut ub = rhs.to_string();
+        let mut signs: Option<(String, String)> = None;
+        if signed {
+            let a_neg = self.fresh_tmp();
+            self.emitln(&format!("  {a_neg} = icmp slt i128 {lhs}, 0"));
+            let b_neg = self.fresh_tmp();
+            self.emitln(&format!("  {b_neg} = icmp slt i128 {rhs}, 0"));
+            // Two's-complement negate also gives the right magnitude for
+            // INT128_MIN (0 - INT128_MIN wraps to the 2^127 bit pattern).
+            let a_abs = self.fresh_tmp();
+            self.emitln(&format!("  {a_abs} = sub i128 0, {lhs}"));
+            let b_abs = self.fresh_tmp();
+            self.emitln(&format!("  {b_abs} = sub i128 0, {rhs}"));
+            let ua_t = self.fresh_tmp();
+            self.emitln(&format!("  {ua_t} = select i1 {a_neg}, i128 {a_abs}, i128 {lhs}"));
+            let ub_t = self.fresh_tmp();
+            self.emitln(&format!("  {ub_t} = select i1 {b_neg}, i128 {b_abs}, i128 {rhs}"));
+            ua = ua_t;
+            ub = ub_t;
+            signs = Some((a_neg, b_neg));
+        }
+
+        let hdr = self.fresh_block("i128_div_hdr");
+        let body = self.fresh_block("i128_div_body");
+        let done = self.fresh_block("i128_div_done");
+        self.emitln(&format!("  br label %{hdr}"));
+        self.emitln(&format!("\n{hdr}:"));
+
+        // Loop-carried state: bit index (127..0), remainder, quotient.
+        let bit = self.fresh_tmp();
+        let rem_v = self.fresh_tmp();
+        let quo_v = self.fresh_tmp();
+        let bit_next = self.fresh_tmp();
+        let rem_next = self.fresh_tmp();
+        let quo_next = self.fresh_tmp();
+        self.emitln(&format!(
+            "  {bit} = phi i128 [ 127, %{entry} ], [ {bit_next}, %{body} ]"
+        ));
+        self.emitln(&format!(
+            "  {rem_v} = phi i128 [ 0, %{entry} ], [ {rem_next}, %{body} ]"
+        ));
+        self.emitln(&format!(
+            "  {quo_v} = phi i128 [ 0, %{entry} ], [ {quo_next}, %{body} ]"
+        ));
+        let more = self.fresh_tmp();
+        self.emitln(&format!("  {more} = icmp sge i128 {bit}, 0"));
+        self.emitln(&format!("  br i1 {more}, label %{body}, label %{done}"));
+
+        self.emitln(&format!("\n{body}:"));
+        let shl_rem = self.fresh_tmp();
+        self.emitln(&format!("  {shl_rem} = shl i128 {rem_v}, 1"));
+        let abit = self.fresh_tmp();
+        self.emitln(&format!("  {abit} = lshr i128 {ua}, {bit}"));
+        let abit1 = self.fresh_tmp();
+        self.emitln(&format!("  {abit1} = and i128 {abit}, 1"));
+        let r2 = self.fresh_tmp();
+        self.emitln(&format!("  {r2} = or i128 {shl_rem}, {abit1}"));
+        let ge = self.fresh_tmp();
+        self.emitln(&format!("  {ge} = icmp uge i128 {r2}, {ub}"));
+        let rsub = self.fresh_tmp();
+        self.emitln(&format!("  {rsub} = sub i128 {r2}, {ub}"));
+        self.emitln(&format!("  {rem_next} = select i1 {ge}, i128 {rsub}, i128 {r2}"));
+        let bitval = self.fresh_tmp();
+        self.emitln(&format!("  {bitval} = shl i128 1, {bit}"));
+        let qor = self.fresh_tmp();
+        self.emitln(&format!("  {qor} = or i128 {quo_v}, {bitval}"));
+        self.emitln(&format!("  {quo_next} = select i1 {ge}, i128 {qor}, i128 {quo_v}"));
+        self.emitln(&format!("  {bit_next} = sub i128 {bit}, 1"));
+        self.emitln(&format!("  br label %{hdr}"));
+
+        self.emitln(&format!("\n{done}:"));
+        if want_rem {
+            if let Some((a_neg, _)) = signs {
+                let neg = self.fresh_tmp();
+                self.emitln(&format!("  {neg} = sub i128 0, {rem_v}"));
+                let result = self.fresh_tmp();
+                self.emitln(&format!(
+                    "  {result} = select i1 {a_neg}, i128 {neg}, i128 {rem_v}"
+                ));
+                result
+            } else {
+                rem_v
+            }
+        } else if let Some((a_neg, b_neg)) = signs {
+            let q_neg = self.fresh_tmp();
+            self.emitln(&format!("  {q_neg} = xor i1 {a_neg}, {b_neg}"));
+            let neg = self.fresh_tmp();
+            self.emitln(&format!("  {neg} = sub i128 0, {quo_v}"));
+            let result = self.fresh_tmp();
+            self.emitln(&format!(
+                "  {result} = select i1 {q_neg}, i128 {neg}, i128 {quo_v}"
+            ));
+            result
+        } else {
+            quo_v
+        }
     }
 
 }
