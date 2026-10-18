@@ -18992,7 +18992,7 @@ blocker). No release re-cut.
   `CHECK-OK`. `ModuleCatalog::is_fixture_tree` + `skip_fixture_trees` in
   `build_index`/`index_dir`; unit test
   `fixture_trees_are_skipped_from_project_roots_but_not_from_fixtures`
-  (catalog 6/6), m347 e2e 3/3. Fix commit: `e43ef97c5`.
+  (catalog 6/6), m347 e2e 3/3. Fix commit: `90244d42c`.
 
 ---
 
