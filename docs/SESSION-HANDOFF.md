@@ -15,7 +15,7 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 (m254-m275; all pushed) is kept below for reference:
 
 *** SESSION UPDATE 2026-10-18T16:15Z (compiler lane; v0.64.7 UNCHANGED -- RETESTS + FIXERS) -- READ FIRST ***
-- STATE: v0.64.7 remains the release (no re-cut). Main `56d362a31`;
+- STATE: v0.64.7 remains the release (no re-cut). Main `b3496f360`;
   relay bus updated by the compiler lane (see the m360/m368/m369 items).
 - BENCHMARK CHECK (REL-20261018-0042-benchmark): acked, NO ACTION. It
   confirms v0.64.7 absorption (commit 79993a1, image sha256:21b4ad95...),
@@ -103,6 +103,12 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   8586 (258/4/8158 = 8503 + 83 `guard_free` declares); ascii OK. The
   selfhost session owns the next Phase 6 shapes; rebase before the next
   full harness.
+- SELFHOST RD7 **GREEN** (2026-10-18T21:52Z): rebase onto main `b3496f360`
+  (XVC-C-20/C-ORBIT-12/m365) committed as `5c41c389a`; suite **6/6 in
+  418.06 s**; meter 19/19 + **T6 14/64**; header parity 8586 unchanged;
+  ascii OK; 47 ahead / 0 behind main. Next shape costs noted: Option
+  payloads/`.len()`, the `Vec.pop` family, `&Vec` receivers + f64 elements,
+  index arithmetic.
 - **m367 FIXED + ON MAIN `90244d42c` (2026-10-18T18:45Z)**: project-root
   catalog scans skip `tests/regression`/`tests/fixtures` trees; a compile
   whose source root IS a fixture still indexes its own files and `mini_std`.
@@ -129,8 +135,7 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   3/3. Relay 1815 fixed; xvector to verify (the second-create error message
   prints a numeric handle -- separate from the aliasing fix).
 - QUEUE (triaged 2026-10-18): **in flight** none (m360, m370, m368, m367,
-  C-ORBIT-12 and XVC-C-20 are fixed on main; selfhost P5e/P2b-iv + m37
-  green, T6 14/64;
+  C-ORBIT-12 and XVC-C-20 are fixed on main; selfhost RD7 green, T6 14/64;
   next Phase 6 shapes).
   **Next wave** (do not launch until a heavy slot frees): (a) B-34 generic
   type-alias unification (B-33 fixed; B-32 RETIRED on v0.64.7 -- the red was
