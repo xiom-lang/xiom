@@ -18990,7 +18990,8 @@ blocker). No release re-cut.
   HIT does not verify object existence (a concurrent compile linked a
   momentarily-missing `.o`). Fix direction: key by dependency identity +
   dependency flags only; verify every cached object on HIT (else MISS);
-  take a per-key build/evict lock. Stage 6 cache work.
+  take a per-key build/evict lock. Stage 6 cache work; plan/checklist:
+  `docs/checklists/m365-dep-cache.md`.
 - **m366** (REL-20261016-1128-engine class 2, high): `probe_capture_frames`
   run leg hangs on v0.64.6 (no stdout, 6-11 MB WS, killed at 60/92/180 s;
   v0.64.4 controls PASS 10 checks / 290 MB). **BLOCKED**: the engine was

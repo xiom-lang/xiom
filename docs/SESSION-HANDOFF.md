@@ -94,7 +94,8 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   red 154/160 -- relaunch with the v0.64.7 evidence); (b) B-32/B-34/B-29
   cluster (B-33 fixed; B-32 in-situ sqlite, B-34 generic type-alias
   unification, B-29 big-int bitops); (c) m365 dep-object shared key + HIT
-  existence check + per-key lock (design in REL-20261017-1355-engine);
+  existence check + per-key lock (design in REL-20261017-1355-engine;
+  checklist `docs/checklists/m365-dep-cache.md`);
   (d) m363 Send/Sync enforcement (THREADING_PLAN Phase B, design first);
   (e) m367 leftover: exclude `tests/regression` fixture trees from the
   catalog by rule (m369's shallow-scan + stale-root pruning is landed; the
