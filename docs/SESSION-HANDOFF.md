@@ -43,7 +43,11 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   `tests/regression` fixtures) is shared across compiler versions; a
   concurrent v0.64.4 engine build flipped the header 0.64.7 <-> 0.64.4 and
   each flip forces a full rebuild/scan (exact probe 7.9 s when free; 6-line
-  file 49-56 s during a flip). Reply posted on the item. **m369 queued**
+  file 49-56 s during a flip). `XIOM_TIMINGS=1` phase split: index 50.6 s /
+  56,663 misses vs check 0.7 s / codegen 0.03 s -- scan BREADTH (source-dir
+  shape) is the cost, even under `--no-cache`; scope the scan to declared
+  source roots + stdlib, never walk CWD/temp trees. Reply posted on the
+  item. **m369 queued**
   (not launched): per-version index scoping, stale-root pruning, no fixture
   trees, bounded non-blocking fallback. Until then, expect slow compiles
   when multiple toolchain versions run concurrently; do not misattribute

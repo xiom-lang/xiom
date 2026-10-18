@@ -18963,6 +18963,15 @@ probe compiles in 7.9 s when the index is free, 49-56 s for a 6-line file
 while it is being rebuilt. The xvector >2 min "hang" matches this scan/lock
 under load (plus orphaned processes), not global-initializer semantics.
 
+`XIOM_TIMINGS=1` phase split (same compiler, `--no-cache`, so the persistent
+cache is bypassed but the in-memory index is still built): a 6-line file
+whose source sits in a busy temp tree -> **index 50.569 s / 56,663 misses**,
+check 0.7 s, codegen 0.03 s; the xvector probe (small source dir) -> index
+0.749 s / 1,247 misses, total ~2 s. So the scan BREADTH (source dir shape),
+not the persistent cache alone, is the cost. Scope the scan to declared
+source roots + stdlib; never walk arbitrary CWD/temp trees; prune the
+persistent index.
+
 FIXER SLOT **m369** queued (not yet launched): per-version/per-stdlib index
 scoping or version-partitioned files, prune stale roots, do not persist
 `tests/regression` fixture trees, and fall back to a scan (or wait with a
