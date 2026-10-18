@@ -19339,6 +19339,6 @@ EVIDENCE: the two-module fixture
 binary); new lock `e2e_b34_vec_alias_generic` 1/1; `cargo test -p
 xiom-check` **212/212**; m336 alias/tuple 3/3; m37 sweep 50/50.
 
-Fix commit: pending.
+Fix commit: 344abbc23 (branch fix/b34-vec-alias-generic).
 
 ---
