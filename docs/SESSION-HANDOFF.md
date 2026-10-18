@@ -15,7 +15,7 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 (m254-m275; all pushed) is kept below for reference:
 
 *** SESSION UPDATE 2026-10-18T16:15Z (compiler lane; v0.64.7 UNCHANGED -- RETESTS + FIXERS) -- READ FIRST ***
-- STATE: v0.64.7 remains the release (no re-cut). Main `90244d42c`;
+- STATE: v0.64.7 remains the release (no re-cut). Main `c6b3362ef`;
   relay bus updated by the compiler lane (see the m360/m368/m369 items).
 - BENCHMARK CHECK (REL-20261018-0042-benchmark): acked, NO ACTION. It
   confirms v0.64.7 absorption (commit 79993a1, image sha256:21b4ad95...),
@@ -100,17 +100,26 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   whose source root IS a fixture still indexes its own files and `mini_std`.
   The m347 `mini_std` no longer leaks W001 into root `--dump-check` or
   suppresses `CHECK-OK`. Catalog 6/6, m347 e2e 3/3. No re-cut.
+- **C-ORBIT-12 RESIDUAL FIXED + ON MAIN `c6b3362ef` (2026-10-18T19:10Z)**:
+  the residual was the applied generic alias in an IMPORTED signature
+  (`DbResult[(TValue, Int)]`), not the enum/tuple namers. `llvm_type_for`
+  now registers an unresolved `Tuple__...` on demand under the spelling the
+  access expects (each segment's registered type, bare key preferred). New
+  lock `e2e_m336_alias_module_tuple`; m336 2/2, m324 1/1, m37 50/50. The
+  natural position tuple is restored on orbitdb branch `f779c23` (scratch
+  worktree `E:\xiom-projects\xiom-orbitdb-m336`): **XIOM DB Conformance
+  160/160** on the release compiler (also 160/160 debug). Orbitdb to verify
+  and retire the workaround. Relays 1154 + 1416 moved to fixed; the
+  extraction request 1650 closed.
 - QUEUE (triaged 2026-10-18): **in flight** none (m360, m370, m368 and m367
   are fixed on main; selfhost RD6 green, next P5e + P2b-iv). **Next wave**
-  (do not launch until a heavy slot frees): (a) C-ORBIT-12 residual (m336
-  branch exists; still red 154/160 -- relaunch with the v0.64.7 evidence and
-  the orbitdb extraction when it lands); (b) B-32/B-34/B-29 cluster (B-33
+  (do not launch until a heavy slot frees): (a) B-32/B-34/B-29 cluster (B-33
   fixed; B-32 in-situ sqlite, B-34 generic type-alias unification, B-29
-  big-int bitops); (c) m365 dep-object shared key + HIT existence check +
-  per-key lock (checklist `docs/checklists/m365-dep-cache.md`); (d) m363
-  Send/Sync enforcement (THREADING_PLAN Phase B, design first); (e) m366
+  big-int bitops); (b) m365 dep-object shared key + HIT existence check +
+  per-key lock (checklist `docs/checklists/m365-dep-cache.md`); (c) m363
+  Send/Sync enforcement (THREADING_PLAN Phase B, design first); (d) m366
   **BLOCKED** on the engine's minimized capture-only snippet (asked
-  2026-10-17); (f) .xiomignore 1504/2104; alias-qualified 2100; LLVM
+  2026-10-17); (e) .xiomignore 1504/2104; alias-qualified 2100; LLVM
   baseline 1647; packages 2303/2309 re-verify (registry canary 2257 is
   closed). Fixed-but-acked closure is reporter-lane work (the compiler
   cannot move fixed->verified): reporters fill their rows in

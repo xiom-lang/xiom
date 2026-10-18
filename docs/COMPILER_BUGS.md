@@ -19261,6 +19261,8 @@ natural position tuple restored (scratch worktree
 (also 160/160 on the debug compiler). The workaround is no longer required;
 orbitdb should verify the branch and retire the comment/workaround.
 
-Fix commit: 8031a2a19 (branch fix/m336-orbitdb-alias-tuple).
+Fix commit: c6b3362ef (rebased branch fix/m336-orbitdb-alias-tuple;
+consumer side: orbitdb branch f779c23, scratch worktree
+`E:\xiom-projects\xiom-orbitdb-m336`).
 
 ---
