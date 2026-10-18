@@ -19079,3 +19079,45 @@ the quotient fits 64 bits when the divisor's high limb is nonzero.
 
 Fix commit: `728bf579a` (branch `fix/m360-i128-div-vec-loop-av`, pushed;
 cherry-picked onto main).
+
+---
+
+## 2026-10-18 -- FIXED (m370): callee reading `&Vec[GenericStruct]` sees corrupted fields (REL-20261018-1546-stdlib)
+
+WITNESS: `E:\xiom-lang\stdlib\tools\known_failures\p_vec_byref_generic_struct.xi`
+(`type Box[T] = { items: Vec[T]; closed: Bool; cap: Int; }`; a callee
+`fn inspect(bs: &Vec[Box[Int]])` reads `bs[0]` and its three fields). On the
+official v0.64.7 archive: compile rc 0, run rc 1, `plain=111`; the
+caller-side controls (`let m = v[0]`, `v[0].field`) are green.
+
+IR LOCALIZATION: inside `inspect`, `bs[0]` lowered through the scalar
+`elem_load` switch (an i64 load keyed by the Vec's element-size field), and
+the subsequent field reads became constants: `b.items.len()` ->
+`xiom_str_len(inttoptr 0)`, `b.closed` -> `icmp ne i64 0, 1`, `b.cap` ->
+`icmp ne i64 0, 7`. The struct was not loaded at all.
+
+ROOT CAUSE: the param annotation records the source spelling
+`local_vec_elem["bs"] = "Box[Int]"`. `resolve_vec_elem_type` (lib.rs) looked
+for a registered key ending in `.Box[Int]`; generic structs are registered
+under the erased, module-qualified base key (`%struct.p_vec_byref_generic_struct.Box`,
+layout `{ %struct.Vec, i64, i64 }`). The lookup returned None, so the index
+fell to the scalar path. The caller-side local worked because `v.push(b)`
+had already refreshed `local_vec_elem["v"]` with the registered key; the
+by-ref parameter had no such refresh.
+
+FIX (`crates/xiom-codegen/src/lib.rs::resolve_vec_elem_type`): after the
+exact key lookup, fall back to the generic base name (text before `[`),
+preferring `{current_module}.{base}` and then any `.base` key. Non-generic
+structs, primitives, and the Vec/Option/Result/Map/Set container paths are
+unchanged; the fallback only fires when the bracketed spelling has no
+registered key.
+
+EVIDENCE (branch `fix/m370-vec-byref-generic`): fixed build compiles the
+real stdlib witness rc 0 and runs `plain=0`, rc 0 (pre-fix archive
+`plain=111`, rc 1). Locks: new
+`e2e_m370_vec_byref_generic_struct` (fixture
+`tests/regression/m370_vec_byref_generic_struct/main.xi`) 1/1, m37 sweep
+51/51, `e2e_m218_vec_float_field_lookup` 1/1. Relay
+REL-20261018-1546-stdlib carries the fix ref.
+
+---

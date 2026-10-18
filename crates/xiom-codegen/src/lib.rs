@@ -4550,12 +4550,43 @@ impl IrEmitter {
             // canonical key (bare strings -> module-qualified twin).
             let elem_norm = self.canonical_registered_tuple_key(&elem_norm)
                 .unwrap_or(elem_norm);
-            return self.types.types.keys().into_iter()
+            let direct = self.types.types.keys().into_iter()
     .find(|k| k.ends_with(&format!(".{}", elem_norm)) || k.as_str() == elem_norm)
                 .or_else(|| {
                     self.types.enum_variants.keys().into_iter()
                         .find(|k| k.ends_with(&format!(".{}", elem_norm)) || k.as_str() == elem_norm)
                 });
+            if direct.is_some() {
+                return direct;
+            }
+            // m370 (REL-20261018-1546-stdlib): a GENERIC struct element
+            // written with its type args ("Box[Int]") has no registered key
+            // with the bracketed spelling -- the erased generic layout is
+            // registered under the base name (module-qualified, e.g.
+            // "mod.Box"). Without this fallback `bs[0]` on a `&Vec[Box[Int]]`
+            // param fell to the scalar i64 elem_load and every field read was
+            // corrupted (plain=111). Prefer the current module's key, then
+            // any ".{base}" key; non-generic spellings are unaffected.
+            let base = elem_norm.split('[').next().unwrap_or(&elem_norm).trim();
+            if base != elem_norm && !base.is_empty() {
+                if let Some(cur) = self.local.current_module.as_ref() {
+                    let qualified = format!("{cur}.{base}");
+                    if let Some(k) = self.types.types.keys().into_iter().find(|k| k.as_str() == qualified) {
+                        return Some(k);
+                    }
+                }
+                if let Some(k) = self.types.types.keys().into_iter()
+                    .find(|k| k.ends_with(&format!(".{base}")) || k.as_str() == base)
+                {
+                    return Some(k);
+                }
+                if let Some(k) = self.types.enum_variants.keys().into_iter()
+                    .find(|k| k.ends_with(&format!(".{base}")) || k.as_str() == base)
+                {
+                    return Some(k);
+                }
+            }
+            return None;
         }
         if let Expr::Field(base, field_expr, _) = container {
             // m300 (REL-20261010-1549-stdlib-3): TUPLE-field containers --

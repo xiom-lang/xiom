@@ -10448,3 +10448,48 @@ fn m347_runtime_guard() -> Option<std::path::PathBuf> {
     );
     let _ = std::fs::remove_file(&exe);
 }
+
+// m370 (REL-20261018-1546-stdlib): a callee taking `&Vec[Box[Int]]` (a
+// generic struct with a nested Vec field) read every element field as
+// garbage (plain=111). The element type kept its bracketed annotation
+// spelling ("Box[Int]") while the erased generic layout is registered under
+// "{module}.Box", so the Vec index fell to the scalar i64 elem_load and the
+// field reads became constants/zero.
+//
+// Pre-fix: run rc 1, stdout `plain=111`; post-fix: run rc 0, `plain=0`.
+#[test] fn e2e_m370_vec_byref_generic_struct() {
+    let Some(_runtime_root) = m347_runtime_guard() else { return; };
+    let base = project_root()
+        .join("tests")
+        .join("regression")
+        .join("m370_vec_byref_generic_struct");
+    let src = base.join("main.xi");
+    let exe = project_root().join("target").join("m370_vec_byref_generic_struct.exe");
+    let _ = std::fs::remove_file(&exe);
+
+    let compile = Command::new(xiom_path())
+        .args(["--no-cache", "-o"])
+        .arg(&exe)
+        .arg(&src)
+        .env("XIOM_STDLIB", project_root().join("stdlib"))
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the m370 fixture");
+    assert!(
+        compile.status.success(),
+        "m370: fixture must compile; stderr:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe).output().expect("run the m370 fixture");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "m370: by-ref Vec[GenericStruct] element reads must exit 0 (pre-fix rc 1); stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("plain=0"),
+        "m370: fields read from &Vec[Box[Int]] must be intact (pre-fix plain=111); stdout: {stdout}"
+    );
+    let _ = std::fs::remove_file(&exe);
+}
