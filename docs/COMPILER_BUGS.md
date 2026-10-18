@@ -19226,3 +19226,41 @@ redeclared on every loop iteration frees only the header present at exit
 Fix commit: 5a530cf7e (rebased branch fix/m368-vec-drop-reclaim).
 
 ---
+
+## 2026-10-18 -- FIXED (C-ORBIT-12 residual): applied generic alias hides the position tuple (REL-20261018-1416-orbitdb-2)
+
+WITNESS (two modules): `xiom.db.storage.tuple` declares
+`pub type DbResult[T] = Result[T, DbError]`, an enum `TValue`, and
+`read_value(...) -> DbResult[(TValue, Int)]`; a consumer module calls it and
+reads `p.1`. Pre-fix the compile printed `unknown type 'Tuple__TValue__Int'
+-- defaulting to i64`, and `p.1` read offset 8 (inside TValue) instead of the
+tuple's second field, so `next != 9` (rc 2). The m336 minimal single-module
+`Result[(T8Val, Int), T8Err]` shape was already green; the **applied generic
+alias in an imported signature** was the gap.
+
+ROOT CAUSE: `llvm_type_for` canonicalized a `Tuple__` key only when the
+tuple was already present in `type_meta`/`types`. The imported signature
+spells the return as `DbResult[(TValue, Int)]`; the decl pass registers the
+concrete Result but not the inner tuple before the caller's `p.1` field
+access. The bare tuple name then fell through to the primitive i64 fallback.
+
+FIX (`crates/xiom-codegen/src/lib.rs::llvm_type_for`): an unresolved
+`Tuple__...` name is now registered **on demand** under the spelling the
+access expects, using each segment's registered type (bare key preferred so
+it matches the enum/struct definition the library emits). Existing
+registrations and the m336 canonical-twin path are unchanged; genuine
+unknown names still warn.
+
+EVIDENCE: new `e2e_m336_alias_module_tuple` (fixture
+`tests/regression/m336_alias_module_tuple/{lib,main}.xi`) compiles without
+the unknown-type warning and runs rc 0; m336 2/2, m324 1/1, m37 sweep
+50/50. The real ORBITDB acceptance was run on the release compiler with the
+natural position tuple restored (scratch worktree
+`E:\xiom-projects\xiom-orbitdb-m336`, branch
+`fix/c-orbit-12-position-tuple`): **XIOM DB Conformance 160/160 passed**
+(also 160/160 on the debug compiler). The workaround is no longer required;
+orbitdb should verify the branch and retire the comment/workaround.
+
+Fix commit: 8031a2a19 (branch fix/m336-orbitdb-alias-tuple).
+
+---

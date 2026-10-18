@@ -10536,3 +10536,54 @@ fn m347_runtime_guard() -> Option<std::path::PathBuf> {
     );
     let _ = std::fs::remove_file(&exe);
 }
+
+// m336 residual (C-ORBIT-12 / REL-20261018-1416-orbitdb-2): an applied
+// generic alias in an IMPORTED signature (`DbResult[(TValue, Int)]`) must
+// not degrade the position tuple to i64 at the caller. Pre-fix the compile
+// warned `unknown type 'Tuple__TValue__Int' -- defaulting to i64` and `p.1`
+// read offset 8 (inside TValue), so the consumer saw next != 9 (rc 2).
+// Green = compile without the warning, run rc 0 with `ok`.
+#[test] fn e2e_m336_alias_module_tuple() {
+    let base = project_root()
+        .join("tests")
+        .join("regression")
+        .join("m336_alias_module_tuple");
+    let src = base.join("main.xi");
+    let exe = project_root().join("target").join("m336_alias_module_tuple.exe");
+    let _ = std::fs::remove_file(&exe);
+
+    let compile = Command::new(xiom_path())
+        .args(["--no-cache", "-o"])
+        .arg(&exe)
+        .arg(&src)
+        .env("XIOM_STDLIB", project_root().join("stdlib"))
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the m336 alias tuple fixture");
+    assert!(
+        compile.status.success(),
+        "m336 alias tuple: fixture must compile; stderr:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&compile.stderr);
+    assert!(
+        !stderr.contains("unknown type"),
+        "m336 alias tuple: no unknown-type fallback may fire; stderr:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("defaulting to i64"),
+        "m336 alias tuple: the position tuple must not degrade to i64; stderr:\n{stderr}"
+    );
+    let run = Command::new(&exe).output().expect("run the m336 alias tuple fixture");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "m336 alias tuple: position tuple p.1 must be correct (pre-fix rc 2); stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("ok"),
+        "m336 alias tuple: expected ok; stdout: {stdout}"
+    );
+    let _ = std::fs::remove_file(&exe);
+}

@@ -4945,6 +4945,54 @@ impl IrEmitter {
             if let Some(canon) = self.canonical_registered_tuple_key(type_name) {
                 return Ok(format!("%struct.{canon}"));
             }
+            // C-ORBIT-12 residual (REL-20261017-1154-orbitdb /
+            // REL-20261018-1416-orbitdb-2): an applied generic alias in an
+            // IMPORTED signature (`DbResult[(TValue, Int)]` ->
+            // `Result[(TValue, Int), DbError]`) can reach a caller field
+            // access (`p.1`) before the decl pass has registered the tuple.
+            // The bare name then fell through to the i64 warning/fallback, so
+            // `p.1` read offset 8 (inside TValue) instead of the tuple's
+            // second field. Register the tuple ON DEMAND under the SPELLING
+            // the access expects, using each segment's registered type (bare
+            // key preferred so we match the enum/struct definition the
+            // library emits). The library's own registration later is a
+            // no-op for an existing key.
+            if let Some(rest) = type_name.strip_prefix("Tuple__") {
+                let segs: Vec<&str> = rest.split("__").collect();
+                if segs.len() >= 2 {
+                    let mut field_types: Vec<(String, String)> = Vec::with_capacity(segs.len());
+                    let mut all_known = true;
+                    for seg in &segs {
+                        let bare_known = self.types.types.contains_key(&seg.to_string())
+                            || self.types.type_meta.contains_key(&seg.to_string())
+                            || self.types.enum_variants.contains_key(&seg.to_string());
+                        let key = if bare_known { seg.to_string() } else { self.resolve_type_key(seg) };
+                        let known = bare_known
+                            || self.types.types.contains_key(&key)
+                            || self.types.type_meta.contains_key(&key)
+                            || self.types.enum_variants.contains_key(&key)
+                            || Self::is_primitive_type_name(&key);
+                        if !known {
+                            all_known = false;
+                            break;
+                        }
+                        field_types.push((format!("_{}", field_types.len()), key));
+                    }
+                    if all_known {
+                        if !self.types.type_meta.contains_key(&type_name.to_string()) {
+                            let field_names: Vec<String> =
+                                field_types.iter().map(|(n, _)| n.clone()).collect();
+                            self.types.types.insert(type_name.to_string(), field_names);
+                            self.types.type_meta.insert(type_name.to_string(), TypeMeta {
+                                fields: field_types,
+                                derives: vec![],
+                                invariants: vec![],
+                            });
+                        }
+                        return Ok(format!("%struct.{type_name}"));
+                    }
+                }
+            }
         }
         // Try current module's qualified name first (e.g., "types.Person")
         if let Some(ref module) = self.local.current_module {
