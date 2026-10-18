@@ -18926,7 +18926,7 @@ v0.64.7 Windows archive (sha256 `16a436c4...`) with a 10 s watchdog:
 
 ---
 
-## 2026-10-18 -- OPEN (m369): shared catalog index is cross-version and accumulates stale roots (xvector hang symptom)
+## 2026-10-18 -- FIXED (m369): shared catalog index is cross-version and accumulates stale roots (xvector hang symptom)
 
 `REL-20261018-1518-xvector` reported that module-level function-call /
 allocating `var` initializers hang the v0.64.7 compiler. The exact probe is
@@ -18956,11 +18956,30 @@ source roots + stdlib; never walk arbitrary CWD/temp trees; prune the
 persistent index. Plan, acceptance criteria and the test matrix are in
 `docs/checklists/m369-catalog-index.md`.
 
-FIXER SLOT **m369** queued (not yet launched): per-version/per-stdlib index
-scoping or version-partitioned files, prune stale roots, do not persist
-`tests/regression` fixture trees, and fall back to a scan (or wait with a
-bounded timeout) instead of blocking indefinitely on a lock. Re-verify with
-the xvector probe on an idle host plus a large-consumer build.
+FIX (branch `fix/m369-catalog-index`):
+
+- The driver now marks a transient **temp file-parent** (a non-project
+  directory under the system temp root) as a SHALLOW catalog source dir:
+  only `.xi` files directly in it are indexed; nested trees are never
+  walked, and the grandparent fallback is skipped. Project roots and the
+  stdlib stay recursive (`crates/xiom/src/lib.rs`, both the check and the
+  compile source-dir blocks; `Checker::add_source_dir_shallow`).
+- The persistent cache file is now **per compiler version/platform**
+  (`catidx-<version>-<os>-<arch>.txt`); a v0.64.4 run no longer rewrites
+  the v0.64.7 cache (the 11.9 MB identity flip/rebuild is gone).
+- `save_index_cache` prunes every entry whose canonical path is not under a
+  CURRENT source root (the old 60k-only cap let stale temp/archived-stdlib
+  entries survive), while still keeping the 60k safety cap for huge trees.
+
+EVIDENCE (current main + m369, v0.64.7, `XIOM_TIMINGS=1`): the 6-line
+`v_mutex.xi` in the busy temp tree `%TEMP%\kilo\m368` went from **index
+50.569 s / 56,663 misses** to **0.707 s** (`--no-cache`) and **0.392 s**
+(warm cache, 2,600 hits / 0 misses); total compile 3.3-4.2 s, dominated by
+check/codegen instead of the scan. The xvector probe remains green. Locks:
+catalog unit tests 5/5 (shallow, prune, version path, cache hits, nested
+lib), `cargo test -p xiom-check` **211/211**, m347 e2e 3/3. The m367 fixture
+exclusion remains a follow-up rule on top of this pruning (not a separate
+blocker). No release re-cut.
 
 ---
 

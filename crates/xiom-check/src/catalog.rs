@@ -108,6 +108,11 @@ pub struct CachedModule {
 /// Lazy-loading cache of external `.xi` files keyed by dotted module path.
 pub struct ModuleCatalog {
     pub source_dirs: Vec<String>,
+    /// m369: source dirs indexed SHALLOWLY (only `.xi` files directly in the
+    /// dir, no recursion). Used for a transient file-parent directory (e.g.
+    /// a temp tree) so a single-file compile cannot index 50k unrelated
+    /// files; project/stdlib roots stay recursive.
+    shallow_source_dirs: std::collections::HashSet<String>,
     cache: HashMap<String, CachedModule>,
     module_index: HashMap<String, String>,
     /// R21d follow-up: canonical path per indexed module (identity check so
@@ -161,6 +166,7 @@ impl ModuleCatalog {
     pub fn new(source_dirs: Vec<String>) -> Self {
         Self {
             source_dirs,
+            shallow_source_dirs: std::collections::HashSet::new(),
             cache: HashMap::new(),
             module_index: HashMap::new(),
             index_canonical: HashMap::new(),
@@ -179,9 +185,20 @@ impl ModuleCatalog {
     }
 
     pub fn add_source_dir(&mut self, dir: String) {
+        // An explicit recursive add wins over an earlier shallow marker.
+        self.shallow_source_dirs.remove(&dir);
         if !self.source_dirs.contains(&dir) {
             self.source_dirs.push(dir);
         }
+    }
+
+    /// m369: register a SHALLOW source dir (only `.xi` files directly in it,
+    /// no recursion). A later recursive [`Self::add_source_dir`] upgrades it.
+    pub fn add_source_dir_shallow(&mut self, dir: String) {
+        if !self.source_dirs.contains(&dir) {
+            self.source_dirs.push(dir.clone());
+        }
+        self.shallow_source_dirs.insert(dir);
     }
 
     /// Stage 6: opt into the persistent module-header index cache (Stage 6
@@ -205,7 +222,8 @@ impl ModuleCatalog {
         self.index_tree_files.clear();
         self.load_index_cache();
         for (dir_index, dir) in self.source_dirs.clone().iter().enumerate() {
-            self.index_dir(Path::new(&dir), dir_index);
+            let recurse = !self.shallow_source_dirs.contains(dir);
+            self.index_dir(Path::new(&dir), dir_index, recurse);
         }
         self.save_index_cache();
     }
@@ -227,11 +245,16 @@ impl ModuleCatalog {
                 | "release")
     }
 
-    fn index_dir(&mut self, dir: &Path, dir_index: usize) {
+    fn index_dir(&mut self, dir: &Path, dir_index: usize, recurse: bool) {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
+                    // m369: a shallow source dir contributes its own `.xi`
+                    // files only; never descend into unrelated subtrees.
+                    if !recurse {
+                        continue;
+                    }
                     // Do not index build/VCS/package-manager subtrees.
                     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                     if Self::should_skip_dir(name) {
@@ -248,7 +271,7 @@ impl ModuleCatalog {
                     if name == "lib" && dir.join("xiom").is_dir() {
                         continue;
                     }
-                    self.index_dir(&path, dir_index);
+                    self.index_dir(&path, dir_index, recurse);
                 } else if path.extension().map_or(false, |e| e == "xi") {
                     if let Some((Some(dotted), canonical)) = self.cached_header_and_canonical(&path) {
                         let display = path.to_string_lossy().to_string();
@@ -404,8 +427,21 @@ impl ModuleCatalog {
         let mut out = String::new();
         out.push_str(&Self::index_cache_identity());
         out.push('\n');
+        // m369: keep only entries under a CURRENT source root. Stale roots
+        // (old temp trees, archived stdlib copies, fixture trees) must not
+        // survive a save; the version identity alone did not prune them.
+        let roots: Vec<std::path::PathBuf> = self.source_dirs.iter()
+            .map(|d| std::fs::canonicalize(d).unwrap_or_else(|_| std::path::PathBuf::from(d)))
+            .collect();
+        let under_current_root = |canonical: &str| {
+            let path = std::path::Path::new(canonical);
+            roots.iter().any(|root| path.starts_with(root))
+        };
         let prune = self.index_cache.len() > 60_000;
         for (file, e) in &self.index_cache {
+            if !under_current_root(&e.canonical) {
+                continue;
+            }
             if prune && !self.index_cache_touched.contains(file) {
                 continue;
             }
@@ -1060,18 +1096,29 @@ impl ModuleCatalog {
 /// Stage 6: default persistent index-cache path (`$HOME/.xiom/catidx.txt`,
 /// temp fallback), mirroring the jit script cache's home handling.
 pub fn default_index_cache_path() -> std::path::PathBuf {
+    // m369: one cache file per compiler version/platform. The old shared
+    // `catidx.txt` was rewritten on every version switch (v0.64.4 <-> v0.64.7
+    // flipped the identity and forced a full 11.9 MB rebuild: 49-56 s for a
+    // 6-line file). A per-version file keeps both caches warm without
+    // deleting or rewriting the other toolchain's data.
+    let file = format!(
+        "catidx-{}-{}-{}.txt",
+        env!("CARGO_PKG_VERSION"),
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    );
     for key in ["HOME", "USERPROFILE"] {
         if let Ok(dir) = std::env::var(key) {
             let dir = dir.trim();
             if !dir.is_empty() {
                 let candidate = std::path::PathBuf::from(dir).join(".xiom");
                 if std::fs::create_dir_all(&candidate).is_ok() {
-                    return candidate.join("catidx.txt");
+                    return candidate.join(&file);
                 }
             }
         }
     }
-    std::env::temp_dir().join("xiom-catidx.txt")
+    std::env::temp_dir().join(format!("xiom-{file}"))
 }
 
 #[cfg(test)]
@@ -1168,5 +1215,114 @@ mod index_cache_tests {
         assert!(cat.module_index.contains_key("nestedcopy.io"));
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn shallow_source_dir_does_not_recurse() {
+        // m369: a transient file-parent dir must contribute only its own
+        // `.xi` files. A nested tree (here: 100 unrelated files) must not be
+        // walked; pre-fix the recursive index scanned the whole tree.
+        let root = std::env::temp_dir().join(format!(
+            "xiom-catidx-shallow-{}-{:x}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let nested = root.join("nested");
+        std::fs::create_dir_all(&nested).expect("create nested dir");
+        std::fs::write(
+            root.join("top.xi"),
+            "module shallowtest.top\npub fn top() -> Int { return 1; }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            nested.join("deep.xi"),
+            "module shallowtest.deep\npub fn deep() -> Int { return 2; }\n",
+        )
+        .unwrap();
+        for i in 0..100 {
+            std::fs::write(nested.join(format!("noise-{i}.txt")), "x").unwrap();
+        }
+
+        let mut cat = ModuleCatalog::new(vec![]);
+        cat.add_source_dir_shallow(root.to_string_lossy().to_string());
+        cat.build_index();
+
+        assert!(cat.module_index.contains_key("shallowtest.top"));
+        assert!(
+            !cat.module_index.contains_key("shallowtest.deep"),
+            "a shallow source dir must not recurse into nested/"
+        );
+        assert!(
+            cat.index_cache_misses <= 2,
+            "shallow index must scan only the root's .xi files, got {} misses",
+            cat.index_cache_misses
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn cache_prunes_entries_outside_current_roots() {
+        // m369: saving the index must drop entries from roots that are not
+        // current. Pre-fix stale temp/archived-stdlib entries survived until
+        // the 60k cap and could be replayed into later compiles.
+        let root = std::env::temp_dir().join(format!(
+            "xiom-catidx-prune-{}-{:x}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let a = root.join("a");
+        let b = root.join("b");
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        std::fs::write(
+            a.join("a.xi"),
+            "module prunetest.a\npub fn a() -> Int { return 1; }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            b.join("b.xi"),
+            "module prunetest.b\npub fn b() -> Int { return 2; }\n",
+        )
+        .unwrap();
+        let cache = root.join("catidx.txt");
+
+        let mut first = ModuleCatalog::new(vec![a.to_string_lossy().to_string()]);
+        first.enable_index_cache(cache.clone());
+        first.build_index();
+        let first_data = std::fs::read_to_string(&cache).unwrap();
+        assert!(first_data.contains("a.xi"), "cold cache must record a.xi");
+
+        let mut second = ModuleCatalog::new(vec![b.to_string_lossy().to_string()]);
+        second.enable_index_cache(cache.clone());
+        second.build_index();
+        let second_data = std::fs::read_to_string(&cache).unwrap();
+        assert!(
+            second_data.contains("b.xi"),
+            "current root's entry must be saved"
+        );
+        assert!(
+            !second_data.contains("a.xi"),
+            "entries outside the current source roots must be pruned"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn default_cache_path_is_version_scoped() {
+        let path = default_index_cache_path();
+        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        assert!(name.starts_with("catidx-"), "got {name}");
+        assert!(
+            name.contains(env!("CARGO_PKG_VERSION")),
+            "cache file must carry the compiler version: {name}"
+        );
     }
 }

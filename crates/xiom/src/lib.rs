@@ -623,6 +623,7 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
     let program = xiom_lowering::expand_impl_blocks(&program);
     if let Some(primary) = effective_sources.first() {
         let file_path = Path::new(primary);
+        let project_root = find_project_root(file_path);
         // Add the file's parent directory (e.g. examples/)
         if let Some(parent) = file_path.parent() {
             // m255: a bare filename's parent is the EMPTY path, and an empty
@@ -634,21 +635,34 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
             } else {
                 parent
             };
-            checker.add_source_dir(parent.to_string_lossy().to_string());
+            // m369: a transient file parent under the system temp dir (not a
+            // project root) is indexed SHALLOWLY. The old recursive add made
+            // a 6-line temp-file compile scan 56,663 files (50.6 s) and
+            // persist unrelated trees in the catalog cache.
+            let shallow_parent = parent.starts_with(std::env::temp_dir())
+                && project_root.is_none();
+            if shallow_parent {
+                checker.add_source_dir_shallow(parent.to_string_lossy().to_string());
+            } else {
+                checker.add_source_dir(parent.to_string_lossy().to_string());
+            }
             // 5e.3 G-31: also walk up one level for `project/examples/demo.xi`
             // using `project/vulkan.xi`. Guard: only add the grandparent if it
             // contains at least one .xi file (avoid scanning system dirs like
-            // C:\Users\...\AppData\Local for temp files).
+            // C:\Users\...\AppData\Local for temp files). A shallow temp
+            // parent never gets the grandparent: it would re-open the tree.
             if let Some(grandparent) = parent.parent() {
-                if std::fs::read_dir(grandparent).map_or(false, |entries| {
-                    entries.flatten().any(|e| e.path().extension().map_or(false, |ext| ext == "xi"))
-                }) {
+                if !shallow_parent
+                    && std::fs::read_dir(grandparent).map_or(false, |entries| {
+                        entries.flatten().any(|e| e.path().extension().map_or(false, |ext| ext == "xi"))
+                    })
+                {
                     checker.add_source_dir(grandparent.to_string_lossy().to_string());
                 }
             }
         }
         // Walk-up: if a project marker exists, add src/ subdirectory
-        if let Some(root) = find_project_root(file_path) {
+        if let Some(root) = project_root {
             let src_dir = root.join("src");
             if src_dir.is_dir() {
                 checker.add_source_dir(src_dir.to_string_lossy().to_string());
@@ -1009,6 +1023,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     checker.set_strict_exhaustive(config.strict_exhaustive);
     if let Some(primary) = effective_sources.first() {
         let file_path = Path::new(primary);
+        let project_root = find_project_root(file_path);
         // Stage 6: never let a directory at-or-above the system temp root
         // become a recursive catalog source dir. `xiom run` compiles a
         // %TEMP%/xiom_run copy; with any stray .xi file directly in %TEMP%
@@ -1024,11 +1039,20 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             } else {
                 parent
             };
+            // m369: transient temp parents (not a project root) are indexed
+            // shallowly; project and stdlib roots stay recursive.
+            let shallow_parent = parent.starts_with(std::env::temp_dir())
+                && project_root.is_none();
             if !temp_root_covers(parent) && !is_run_scratch_dir(parent) {
-                checker.add_source_dir(parent.to_string_lossy().to_string());
+                if shallow_parent {
+                    checker.add_source_dir_shallow(parent.to_string_lossy().to_string());
+                } else {
+                    checker.add_source_dir(parent.to_string_lossy().to_string());
+                }
             }
             if let Some(grandparent) = parent.parent() {
-                if !temp_root_covers(grandparent)
+                if !shallow_parent
+                    && !temp_root_covers(grandparent)
                     && !is_run_scratch_dir(grandparent)
                     && std::fs::read_dir(grandparent).map_or(false, |entries| {
                         entries.flatten().any(|e| e.path().extension().map_or(false, |ext| ext == "xi"))
@@ -1038,7 +1062,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 }
             }
         }
-        if let Some(root) = find_project_root(file_path) {
+        if let Some(root) = project_root {
             let src_dir = root.join("src");
             if src_dir.is_dir() {
                 checker.add_source_dir(src_dir.to_string_lossy().to_string());

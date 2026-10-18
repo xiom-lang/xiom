@@ -524,6 +524,17 @@ impl Checker {
         self.catalog.add_source_dir(dir);
     }
 
+    /// m369: add a directory that is indexed SHALLOWLY -- only `.xi` files
+    /// directly in it, no recursion. Used for a transient file-parent dir so
+    /// a single-file compile cannot walk an unrelated 50k-file tree; project
+    /// and stdlib roots keep using [`Self::add_source_dir`].
+    pub fn add_source_dir_shallow(&mut self, dir: String) {
+        if !self.source_dirs.contains(&dir) {
+            self.source_dirs.push(dir.clone());
+        }
+        self.catalog.add_source_dir_shallow(dir);
+    }
+
     /// Build the catalog's module_path -> file_path index for O(1) lookups.
     /// Index all source files added via [`add_source_dir`]. Must be called
     /// before [`check_program`] to populate the catalog of available modules,
