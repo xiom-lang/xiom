@@ -35,6 +35,19 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   `fix/m360-i128-div-vec-loop-av`, session `ses_eb0420efdffehWu33lcttC01ED`.
   Harness pitfall: Start-Process can report a blank/0 ExitCode for the AV;
   check the raw status directly.
+- **m360 RESOLVED + ON MAIN (2026-10-18T19:55Z)**: root cause was the stdlib
+  runtime helper `xiom_udivti3`'s single-limb fast path (`a / b` lowers to
+  `__udivti3`, the symbol that TU defines -> self-recursion), NOT the vector
+  loop/namespace lowering; the loop only blocked constant folding. Compiler
+  fix: i128 `/`/`%` now lower to a 128-step inline long division (no
+  sdiv/srem/udiv/urem, no runtime helper), with INT128_MIN/-1 wrap and the
+  div-by-zero trap retained. Fix `728bf579a` (branch pushed) cherry-picked to
+  main `dc30929da` after main-lane witness verification (compile rc 0 + run
+  rc 0 x2 at default and O0, value 2; official archive still AVs). Locks:
+  m360 e2e 1/1, m314 2/2, m37_u128 1/1, m37_index_arith 1/1, m37 sweep
+  50/50, codegen lib 23/23. Relay REL-20261016-2331-stdlib moved to
+  **fixed**; stdlib residual = replace the runtime helper's single-limb
+  branch for direct C callers (none remain in XIOM codegen).
 - NEW XVECTOR ITEM (REL-20261018-1518-xvector, high): triaged as NOT a
   global-initializer hang. The exact probe is green on the same archive
   (build.ps1 + direct; "main started"/"vec global ok", exit 0); even the
@@ -55,8 +68,9 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 - SELFHOST: worktree is clean at `eb5ea46b7`, 43 ahead / 38 behind main
   (`ee47486ab`); rebase onto main then re-run the RD4d/T3/T6 parity harness
   (next action after the fixers are settled).
-- QUEUE (triaged 2026-10-18): **in flight** m360 + m368 + selfhost Phase 6
-  (rebase done, parity harness running). **Next wave** (do not launch until
+- QUEUE (triaged 2026-10-18): **in flight** m368 + selfhost Phase 6 (m360 is
+  fixed on main; rebase done, parity harness running). **Next wave** (do not
+  launch until
   a heavy slot frees): (a) C-ORBIT-12 residual (m336 branch exists; still
   red 154/160 -- relaunch with the v0.64.7 evidence); (b) B-32/B-34/B-29
   cluster (B-33 fixed; B-32 in-situ sqlite, B-34 generic type-alias
