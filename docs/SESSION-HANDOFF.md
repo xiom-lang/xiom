@@ -134,22 +134,27 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   `count=1`, second create Err, rc 0 on release + debug; m37 50/50, m337
   3/3. Relay 1815 fixed; xvector to verify (the second-create error message
   prints a numeric handle -- separate from the aliasing fix).
+- **B-34 FIXED + ON MAIN (2026-10-18T22:50Z)**: a cross-module alias in a
+  generic position (`&Vec[Handle]`, `Handle = Int`) now unifies with
+  `Vec[Int]`; the generic-argument helpers resolve aliases for both the
+  argument and the container base before comparing. Fixture
+  `b34_vec_alias_generic` runs `n=1 h=42` on debug + release; new lock
+  `e2e_b34_vec_alias_generic` 1/1; `xiom-check` 212/212; m336 3/3; m37
+  sweep 50/50. Relay 0042 fixed; B-29 is the only reporter-side re-run left
+  in this cluster (B-32 retired).
 - QUEUE (triaged 2026-10-18): **in flight** none (m360, m370, m368, m367,
   C-ORBIT-12 and XVC-C-20 are fixed on main; selfhost RD7 green, T6 14/64;
   next Phase 6 shapes).
-  **Next wave** (do not launch until a heavy slot frees): (a) B-34 generic
-  type-alias unification (B-33 fixed; B-32 RETIRED on v0.64.7 -- the red was
-  a stale restore bundle; B-29 triaged NOT-a-compiler-defect -- reporter
-  re-run/close);
-  (b) m365 PARTIAL: ready marker + canonical dependency paths landed;
-  remaining caller flag split + per-key lock and the engine re-measure
-  (checklist `docs/checklists/m365-dep-cache.md`); (c) m363 Send/Sync
-  enforcement (THREADING_PLAN Phase B: the spawn-capture `is_send` half
-  exists, but `is_send` assumes every generic container is Send, `is_sync`
-  does not exist, and Channel/Mutex/Arc boundaries are unchecked; checklist
-  `docs/checklists/m363-send-sync.md`); (d) m366
-  **BLOCKED** on the engine's minimized capture-only snippet (asked
-  2026-10-17); (e) .xiomignore 1504/2104; alias-qualified 2100; LLVM
+  **Next wave** (do not launch until a heavy slot frees): (a) m365 PARTIAL:
+  ready marker + canonical dependency paths landed; remaining caller flag
+  split + per-key lock and the engine re-measure (checklist
+  `docs/checklists/m365-dep-cache.md`); (b) m363 Send/Sync enforcement
+  (THREADING_PLAN Phase B: the spawn-capture `is_send` half exists, but
+  `is_send` assumes every generic container is Send, `is_sync` does not
+  exist, and Channel/Mutex/Arc boundaries are unchecked; checklist
+  `docs/checklists/m363-send-sync.md`); (c) m366 **BLOCKED** on the engine's
+  minimized capture-only snippet (asked 2026-10-17); (d) .xiomignore
+  1504/2104; alias-qualified 2100; LLVM
   baseline 1647; packages 2303/2309 re-verify (registry canary 2257 is
   closed). Fixed-but-acked closure is reporter-lane work (the compiler
   cannot move fixed->verified): reporters fill their rows in

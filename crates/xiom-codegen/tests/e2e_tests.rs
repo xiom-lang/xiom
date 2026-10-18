@@ -10629,3 +10629,45 @@ fn m347_runtime_guard() -> Option<std::path::PathBuf> {
     );
     let _ = std::fs::remove_file(&exe);
 }
+
+// B-34 (REL-20261017-0042-bindings): a module-local alias in a generic
+// position (`&Vec[Handle]`, Handle = Int) must unify with Vec[Int] across
+// modules. Pre-fix the call failed T001 "expected Vec[Handle], found
+// Vec[Int]" before codegen; green = compile ok + run n=1 h=42.
+#[test] fn e2e_b34_vec_alias_generic() {
+    let base = project_root()
+        .join("tests")
+        .join("regression")
+        .join("b34_vec_alias_generic");
+    let src = base.join("main.xi");
+    let exe = project_root().join("target").join("b34_vec_alias_generic.exe");
+    let _ = std::fs::remove_file(&exe);
+
+    let compile = Command::new(xiom_path())
+        .args(["--no-cache", "-o"])
+        .arg(&exe)
+        .arg(&src)
+        .env("XIOM_STDLIB", project_root().join("stdlib"))
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the B-34 alias-generic fixture");
+    assert!(
+        compile.status.success(),
+        "B-34: Vec[Handle] must unify with Vec[Int] across modules; stderr:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe)
+        .output()
+        .expect("run the B-34 alias-generic fixture");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "B-34: alias-generic call must run (pre-fix compile failed T001); stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("n=1 h=42"),
+        "B-34: alias-generic call/return values must be intact; stdout: {stdout}"
+    );
+    let _ = std::fs::remove_file(&exe);
+}

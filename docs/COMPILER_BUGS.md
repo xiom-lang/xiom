@@ -19311,3 +19311,34 @@ formatting separately (pre-existing, not the aliasing defect).
 Fix commit: 56d362a31 (rebased branch fix/xvc-c20-global-addr).
 
 ---
+
+## 2026-10-18 -- FIXED (B-34): cross-module alias in a generic position did not unify (REL-20261017-0042-bindings)
+
+WITNESS (two modules): `d_mod` declares `pub type Handle = Int;` and
+`pub fn take_handles(xs: &Vec[Handle]) -> Int`; a consumer passes a
+`Vec[Int]`. Pre-fix the call was rejected before codegen with
+`error[T001]: argument 1 type mismatch: expected Vec[Handle], found
+Vec[Int]`. Scalar alias params and same-module alias generics were green;
+only the cross-module generic position failed.
+
+ROOT CAUSE: `types_compatible` resolved aliases only at the TOP level.
+`Vec[Handle]` vs `Vec[Int]` then reached the structural generic-argument
+helpers (`type_arg_compatible` / `type_arg_list_compatible`), which were
+**static** and compared the literal argument spelling: `"Handle"` vs
+`"Int"` failed even though both resolve to `Int`.
+
+FIX (`crates/xiom-check/src/lib.rs`): the generic-argument helpers are now
+`&self` methods and resolve each argument **and container base** through
+`resolve_alias` before comparing; nested containers recurse with the same
+rules. The scalar promotion matrix and the Bool-vs-numeric guard are
+unchanged. No codegen change.
+
+EVIDENCE: the two-module fixture
+`tests/regression/b34_vec_alias_generic/` now compiles and runs
+`n=1 h=42`, rc 0 on BOTH debug and release compilers (pre-fix: T001, no
+binary); new lock `e2e_b34_vec_alias_generic` 1/1; `cargo test -p
+xiom-check` **212/212**; m336 alias/tuple 3/3; m37 sweep 50/50.
+
+Fix commit: pending.
+
+---

@@ -10502,14 +10502,16 @@ impl Checker {
     /// "Int" vs "Str" fails; nested containers recurse. Stage 2c: parsed
     /// through the single structural parser instead of ad-hoc bracket
     /// surgery.
-    fn type_arg_compatible(x: &TypeShape, y: &TypeShape) -> bool {
+    fn type_arg_compatible(&self, x: &TypeShape, y: &TypeShape) -> bool {
         // Nested containers recurse; bare-vs-parameterized NESTED args
         // (Result vs Result[Int, Int]) stay tolerant -- the bare side erased
         // its args in a legacy flow, mirroring the top-level rule.
         if x.is_container() || y.is_container() {
             if x.is_container() && y.is_container() {
-                return x.base() == y.base()
-                    && Self::type_arg_list_compatible(x.args(), y.args());
+                let xb = self.resolve_alias(&CheckedType::from_str(x.base()));
+                let yb = self.resolve_alias(&CheckedType::from_str(y.base()));
+                return xb.name() == yb.name()
+                    && self.type_arg_list_compatible(x.args(), y.args());
             }
             // Exactly one side is a parameterized container. The legacy
             // bare-vs-parameterized leniency is ONLY for erased forms of the
@@ -10527,7 +10529,10 @@ impl Checker {
             {
                 return true;
             }
-            return other.base() == container.base();
+            // B-34: a generic-position base can itself be an alias.
+            let ob = self.resolve_alias(&CheckedType::from_str(other.base()));
+            let cb = self.resolve_alias(&CheckedType::from_str(container.base()));
+            return ob.name() == cb.name();
         }
         // Wildcard inner args: Option[_] is context-adaptable.
         if x.is_wildcard() || y.is_wildcard() { return true; }
@@ -10542,8 +10547,15 @@ impl Checker {
         if x.is_tuple_like() || y.is_tuple_like() { return true; }
         // Pointer-to-pointer, mirrors the scalar matrix.
         if x.is_pointer_like() && y.is_pointer_like() { return true; }
-        let cx = CheckedType::from_str(&x.scalar_name());
-        let cy = CheckedType::from_str(&y.scalar_name());
+        // B-34 (REL-20261017-0042-bindings): resolve ALIAS targets inside a
+        // generic instantiation before comparing. `Vec[Handle]` (module-local
+        // `type Handle = Int`) must unify with `Vec[Int]`; the old static
+        // helper compared the literal arg spelling and rejected the call with
+        // T001 even though both resolve to Vec[Int].
+        let rx = self.resolve_alias(&CheckedType::from_str(&x.scalar_name()));
+        let ry = self.resolve_alias(&CheckedType::from_str(&y.scalar_name()));
+        let cx = CheckedType::from_str(&rx.name());
+        let cy = CheckedType::from_str(&ry.name());
         // Packages relay (consul): Bool must NOT pass as a numeric generic
         // arg -- `Result[Bool, Str]` where `Result[Int, Str]` is expected
         // compiled and `.unwrap()` read garbage. Numeric-to-numeric (Int vs
@@ -10553,9 +10565,9 @@ impl Checker {
     }
 
     /// Element-wise structural agreement for two parsed argument lists.
-    fn type_arg_list_compatible(a: &[TypeShape], b: &[TypeShape]) -> bool {
+    fn type_arg_list_compatible(&self, a: &[TypeShape], b: &[TypeShape]) -> bool {
         a.len() == b.len()
-            && a.iter().zip(b.iter()).all(|(x, y)| Self::type_arg_compatible(x, y))
+            && a.iter().zip(b.iter()).all(|(x, y)| self.type_arg_compatible(x, y))
     }
     fn types_compatible(&self, found: &CheckedType, expected: &CheckedType) -> bool {
         // Phase 7E/Feature: Resolve type aliases so newtypes auto-convert
@@ -10596,7 +10608,7 @@ impl Checker {
             let sb = crate::structural::parse_type_shape(b);
             if sa.base() == sb.base() {
                 if !sa.args().is_empty() && !sb.args().is_empty()
-                    && !Self::type_arg_list_compatible(sa.args(), sb.args())
+                    && !self.type_arg_list_compatible(sa.args(), sb.args())
                 {
                     return false;
                 }
