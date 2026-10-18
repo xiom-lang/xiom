@@ -4431,6 +4431,34 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         }
                     }
                 }
+                // XVC-C-20 (REL-20261018-1815-xvector): `&module_global` must
+                // yield the GLOBAL's storage address. `lookup_local` does not
+                // contain module-level vars, so the old code fell through to
+                // compile_expr(inner), which LOADED the global; the call site
+                // then spilled that value into a fresh alloca and passed the
+                // copy. Mutations through `&mut G_ENGINE` were written to the
+                // copy and lost (count 0; second create Ok). Aggregate globals
+                // return @symbol; scalar globals return the slot address as
+                // i64; pointer globals keep the R43 convention (the stored
+                // pointer is the reference).
+                if let Expr::Ident(id) = inner.as_ref() {
+                    if let Some((symbol, llvm_ty)) = self.local.module_globals.get(&id.name).cloned() {
+                        if llvm_ty.ends_with('*') {
+                            let ptr_val = self.fresh_tmp();
+                            self.emitln(&format!("  {ptr_val} = load {llvm_ty}, {llvm_ty}* @{symbol}"));
+                            return Ok((ptr_val, llvm_ty));
+                        }
+                        if llvm_ty.starts_with("%struct.")
+                            || llvm_ty.starts_with('[')
+                            || llvm_ty.starts_with('{')
+                        {
+                            return Ok((format!("@{symbol}"), format!("{llvm_ty}*")));
+                        }
+                        let ptr_val = self.fresh_tmp();
+                        self.emitln(&format!("  {ptr_val} = ptrtoint {llvm_ty}* @{symbol} to i64"));
+                        return Ok((ptr_val, "i64".to_string()));
+                    }
+                }
                 // &literal (e.g. &30, &true): materialise a temp slot holding the
                 // value and return its ADDRESS. The old fallback returned the raw
                 // value which the caller inttoptr'd -- turning the VALUE into its

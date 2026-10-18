@@ -119,8 +119,18 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   160/160** on the release compiler (also 160/160 debug). Orbitdb to verify
   and retire the workaround. Relays 1154 + 1416 moved to fixed; the
   extraction request 1650 closed.
-- QUEUE (triaged 2026-10-18): **in flight** none (m360, m370, m368, m367 and
-  C-ORBIT-12 are fixed on main; selfhost P5e/P2b-iv + m37 green, T6 14/64;
+- **XVC-C-20 FIXED + ON MAIN (2026-10-18T22:00Z)**: `&mut` on a module-level
+  aggregate LOADED a copy and passed a temporary; the global never saw the
+  mutation (`count after create = 0`, second create Ok). The `&x` Ident path
+  now resolves `module_globals`: aggregate globals return `@symbol`, scalars
+  the slot address, pointer globals the stored pointer (R43). Minimal
+  fixture + `e2e_xvc_c20_global_aggregate` 1/1; the real xvector repro now
+  `count=1`, second create Err, rc 0 on release + debug; m37 50/50, m337
+  3/3. Relay 1815 fixed; xvector to verify (the second-create error message
+  prints a numeric handle -- separate from the aliasing fix).
+- QUEUE (triaged 2026-10-18): **in flight** none (m360, m370, m368, m367,
+  C-ORBIT-12 and XVC-C-20 are fixed on main; selfhost P5e/P2b-iv + m37
+  green, T6 14/64;
   next Phase 6 shapes).
   **Next wave** (do not launch until a heavy slot frees): (a) B-34 generic
   type-alias unification (B-33 fixed; B-32 RETIRED on v0.64.7 -- the red was

@@ -19274,3 +19274,40 @@ consumer side: orbitdb branch f779c23, scratch worktree
 `E:\xiom-projects\xiom-orbitdb-m336`).
 
 ---
+
+## 2026-10-18 -- FIXED (XVC-C-20): &mut on a module-level aggregate aliased a copy (REL-20261018-1815-xvector)
+
+WITNESS: `docs/repro/xv-global-engine-mutation/probe.xi` (xvector). Pre-fix
+on main/v0.64.7: `engine_create_named(&mut G_ENGINE, ...)` returns Ok, but
+`engine_collection_count(&G_ENGINE)` is 0 and a second create with the same
+name also returns Ok (the first vanished); exit 1. Minimal: module-level
+`var G: Engine = Engine{ count: 0; tag: 7; }`, `fn bump(e: &mut Engine)`
+increments; pre-fix `a=1 b=0` (the callee mutated a copy), rc 2.
+
+ROOT CAUSE: the `Expr::Ref`/`Expr::MutRef` -> Ident path handled LOCALS
+(`lookup_local`) and literals, but not module-level vars. `&G_ENGINE` fell
+through to `compile_expr(inner)`, which LOADED the aggregate; the call site
+then spilled that value into a fresh alloca and passed the copy. The callee
+mutated the temporary; the global stayed unchanged, and `&G_ENGINE` reads
+saw the unmutated state. The IR was `load %struct.VectorEngine @G_ENGINE;
+alloca; store; call engine_create_named(%struct.VectorEngine* %tmp)`.
+
+FIX (`crates/xiom-codegen/src/expr.rs`): in the `&x` Ident path, resolve
+`local.module_globals` after the local lookup: aggregate globals return
+`@symbol` (the global's storage address), scalar globals return the slot
+address as i64, and pointer globals load the stored pointer (the R43
+reference convention). Locals, self fields, arrays and literals keep their
+existing priority.
+
+EVIDENCE: the minimal fixture (`tests/regression/xvc_c20_global_aggregate`)
+now prints `a=1 b=1`, rc 0; new lock `e2e_xvc_c20_global_aggregate` 1/1.
+The real xvector repro now prints `count after create = 1` and the second
+create returns Err, rc 0, on BOTH the release and debug compilers; m37
+sweep 50/50, m337 global-handle tests 3/3. Note: the probe prints the
+second-create error as a numeric handle rather than "collection exists";
+the Err path itself is correct -- xvector should verify the message
+formatting separately (pre-existing, not the aliasing defect).
+
+Fix commit: 5843607a2 (branch fix/xvc-c20-global-addr).
+
+---

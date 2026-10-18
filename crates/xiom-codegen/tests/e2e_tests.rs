@@ -10587,3 +10587,45 @@ fn m347_runtime_guard() -> Option<std::path::PathBuf> {
     );
     let _ = std::fs::remove_file(&exe);
 }
+
+// XVC-C-20 (REL-20261018-1815-xvector): `&mut` on a module-level aggregate
+// must alias the GLOBAL storage, not a temporary copy. Pre-fix the callee
+// incremented a copy (a=1, b=0) and the global stayed 0. Green = a=1 b=1 and
+// the global's own count/tag are intact.
+#[test] fn e2e_xvc_c20_global_aggregate() {
+    let base = project_root()
+        .join("tests")
+        .join("regression")
+        .join("xvc_c20_global_aggregate");
+    let src = base.join("main.xi");
+    let exe = project_root().join("target").join("xvc_c20_global_aggregate.exe");
+    let _ = std::fs::remove_file(&exe);
+
+    let compile = Command::new(xiom_path())
+        .args(["--no-cache", "-o"])
+        .arg(&exe)
+        .arg(&src)
+        .env("XIOM_STDLIB", project_root().join("stdlib"))
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the XVC-C-20 aggregate global fixture");
+    assert!(
+        compile.status.success(),
+        "XVC-C-20: fixture must compile; stderr:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe)
+        .output()
+        .expect("run the XVC-C-20 aggregate global fixture");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "XVC-C-20: &mut on a module-level aggregate must persist (pre-fix rc 2); stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("a=1 b=1"),
+        "XVC-C-20: callee and read-back must both see count 1; stdout: {stdout}"
+    );
+    let _ = std::fs::remove_file(&exe);
+}
