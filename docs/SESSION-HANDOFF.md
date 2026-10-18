@@ -41,11 +41,13 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   **m363** Send/Sync enforcement, **m367** catalog-index fixture exclusion,
   **armv7** 32-bit Pi deferred (REL-20261017-1955-compiler), selfhost Phase 6
   continues in parallel.
-- CLEANUP: `hold/m351-typed-fault` and `release/arm64-gate-check` are now
-  redundant (content on main/tag); the m351 fixer worktree and the empty m360
-  worktree can be removed; the `xiom-pin-verify` / `stdlib-prep-0647`
-  verification worktrees can be removed after the logs are archived. Candidate
-  tags (r2) are kept for provenance.
+- CLEANUP DONE (2026-10-18): removed `hold/m351-typed-fault`,
+  `release/arm64-gate-check`, the m351/m353/m360/m361/m364 fixer worktrees,
+  `xiom-pin-verify`, `stdlib-prep-0647` and `stdlib-verify-8d95815`, plus the
+  six previously-locked orphan dirs. The repo-local `stdlib/` is checked out at
+  the released `stdlib-v0.64.7` (f4482b1). 11 branches remain (main, selfhost,
+  7 rustc-study, bench) + the study/selfhost/bench worktrees; E: free 158 GB.
+  Candidate tags (r2) are kept for provenance.
 
 *** SESSION UPDATE 2026-10-17T17:55Z (compiler lane; v0.64.7 CANDIDATE PUBLISHED) -- superseded by 14:22Z ***
 - CANDIDATE REF: compiler main `065481eb4` + annotated tag
