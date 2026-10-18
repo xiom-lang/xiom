@@ -75,9 +75,13 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   trees, bounded non-blocking fallback. Until then, expect slow compiles
   when multiple toolchain versions run concurrently; do not misattribute
   them to codegen bugs.
-- SELFHOST: worktree is clean at `eb5ea46b7`, 43 ahead / 38 behind main
-  (`ee47486ab`); rebase onto main then re-run the RD4d/T3/T6 parity harness
-  (next action after the fixers are settled).
+- SELFHOST RD5 POST-REBASE **GREEN** (2026-10-18T19:37Z): rebase onto
+  `ee47486ab` + RD5 port committed as `cea754405`; harness **6/6 in 759 s**,
+  T3 19/19, T6 13/64, IR headers 8503, check 83 files + 75 manifest cases.
+  Main then advanced with m360/m370, so the lane was instructed to rebase
+  onto current main and re-run RD5 before adopting `m37_tuple_struct`
+  (T6 13 -> 14/64). Worktree was clean at the RD5 commit; the selfhost
+  session owns the next commit.
 - QUEUE (triaged 2026-10-18): **in flight** m368 + selfhost Phase 6 (m360 and
   m370 are fixed on main; rebase done, parity harness running). **Next wave**
   (do not launch until
