@@ -1162,12 +1162,27 @@ fn e2e_g15_sret_abi() {
         .expect("xiomc");
     let ir = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success(), "G-15 sret must compile: {}", String::from_utf8_lossy(&output.stderr));
-    assert!(ir.contains("declare %struct.Small @g15_small_return()"),
-        "Small struct must return by value (no sret):\n{ir}");
-    assert!(ir.contains("declare %struct.Large @g15_large_return()"),
-        "Large struct must return (LLVM uses sret):\n{ir}");
-    assert!(ir.contains("declare %struct.Small @g15_pass_and_return(%struct.Small)"),
-        "struct pass+return must work:\n{ir}");
+    // m351: the extern "C" ABI is now target-correct. On Win64 a 16-byte
+    // aggregate return uses sret and a by-value 16-byte aggregate passes as a
+    // pointer operand; SysV keeps the by-value register convention.
+    #[cfg(target_os = "windows")]
+    {
+        assert!(ir.contains("declare void @g15_small_return(%struct.Small* sret(%struct.Small))"),
+            "Win64: Small (16B) struct return must use sret:\n{ir}");
+        assert!(ir.contains("declare void @g15_large_return(%struct.Large* sret(%struct.Large))"),
+            "Win64: Large struct return must use sret:\n{ir}");
+        assert!(ir.contains("declare void @g15_pass_and_return(%struct.Small* sret(%struct.Small), %struct.Small*)"),
+            "Win64: struct pass+return must use the C ABI:\n{ir}");
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        assert!(ir.contains("declare %struct.Small @g15_small_return()"),
+            "SysV: Small struct must return by value (no sret):\n{ir}");
+        assert!(ir.contains("declare %struct.Large @g15_large_return()"),
+            "SysV: Large struct must return (LLVM uses sret):\n{ir}");
+        assert!(ir.contains("declare %struct.Small @g15_pass_and_return(%struct.Small)"),
+            "SysV: struct pass+return must work:\n{ir}");
+    }
 }
 
 /// 5e G-40: repr(C) layout -- mixed-width C struct fields. Verifies XIOM
@@ -1478,7 +1493,17 @@ fn e2e_m17_zero_warnings() {
         .expect("compile");
     let _ = std::fs::remove_file(&tmp);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let own_warn = stderr.lines().any(|l| l.contains("warning") && !l.contains("catalog body") && !l.contains("catalog-body"));
+    // The compiler indexes the repo root for this probe; test-fixture
+    // `tests/regression/*/mini_std` trees duplicate real stdlib modules and
+    // surface as W001 module collisions (introduced by the m347 fixture).
+    // Those are fixture collisions, not user-code warnings. Excluding
+    // tests/regression from the catalog index is tracked as m367.
+    let own_warn = stderr.lines().any(|l| {
+        l.contains("warning")
+            && !l.contains("catalog body")
+            && !l.contains("catalog-body")
+            && !(l.contains("W001") && l.contains("tests") && l.contains("mini_std"))
+    });
     assert!(!own_warn, "M17: zero user-code warnings expected, got: {stderr}");
     assert!(output.status.success());
 }
