@@ -19308,6 +19308,6 @@ second-create error as a numeric handle rather than "collection exists";
 the Err path itself is correct -- xvector should verify the message
 formatting separately (pre-existing, not the aliasing defect).
 
-Fix commit: 5843607a2 (branch fix/xvc-c20-global-addr).
+Fix commit: 56d362a31 (rebased branch fix/xvc-c20-global-addr).
 
 ---

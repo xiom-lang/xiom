@@ -15,7 +15,7 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 (m254-m275; all pushed) is kept below for reference:
 
 *** SESSION UPDATE 2026-10-18T16:15Z (compiler lane; v0.64.7 UNCHANGED -- RETESTS + FIXERS) -- READ FIRST ***
-- STATE: v0.64.7 remains the release (no re-cut). Main `c6b3362ef`;
+- STATE: v0.64.7 remains the release (no re-cut). Main `56d362a31`;
   relay bus updated by the compiler lane (see the m360/m368/m369 items).
 - BENCHMARK CHECK (REL-20261018-0042-benchmark): acked, NO ACTION. It
   confirms v0.64.7 absorption (commit 79993a1, image sha256:21b4ad95...),
@@ -119,7 +119,7 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   160/160** on the release compiler (also 160/160 debug). Orbitdb to verify
   and retire the workaround. Relays 1154 + 1416 moved to fixed; the
   extraction request 1650 closed.
-- **XVC-C-20 FIXED + ON MAIN (2026-10-18T22:00Z)**: `&mut` on a module-level
+- **XVC-C-20 FIXED + ON MAIN `56d362a31` (2026-10-18T22:10Z)**: `&mut` on a module-level
   aggregate LOADED a copy and passed a temporary; the global never saw the
   mutation (`count after create = 0`, second create Ok). The `&x` Ident path
   now resolves `module_globals`: aggregate globals return `@symbol`, scalars
