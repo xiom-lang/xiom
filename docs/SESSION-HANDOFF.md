@@ -70,12 +70,16 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   56,663 misses vs check 0.7 s / codegen 0.03 s -- scan BREADTH (source-dir
   shape) is the cost, even under `--no-cache`; scope the scan to declared
   source roots + stdlib, never walk CWD/temp trees. Reply posted on the
-  item. **m369 queued**
-  (not launched): per-version index scoping, stale-root pruning, no fixture
-  trees, bounded non-blocking fallback; plan/checklist in
-  `docs/checklists/m369-catalog-index.md`. Until then, expect slow compiles
-  when multiple toolchain versions run concurrently; do not misattribute
-  them to codegen bugs.
+  item. **m369 FIXED + ON MAIN `330955136` (2026-10-18T18:05Z)**: transient
+  temp file-parents are shallow source dirs (no recursion, no grandparent),
+  the cache is per compiler version/platform
+  (`catidx-<version>-<os>-<arch>.txt`), and saves prune entries outside the
+  current source roots. Measured: 6-line temp-tree compile index
+  **50.569 s -> 0.707 s** (`--no-cache`) / 0.392 s warm; 56,663 -> 2,058
+  stdlib-scope misses. Locks: catalog 5/5, `xiom-check` 211/211, m347 e2e
+  3/3. The xvector item moved to fixed; re-test lane workloads on a main
+  build (the v0.64.7 archive retains the old scan behavior). Plan/history:
+  `docs/checklists/m369-catalog-index.md`.
 - SELFHOST RD5 POST-REBASE **GREEN** (2026-10-18T19:37Z): rebase onto
   `ee47486ab` + RD5 port committed as `cea754405`; harness **6/6 in 759 s**,
   T3 19/19, T6 13/64, IR headers 8503, check 83 files + 75 manifest cases.
@@ -92,16 +96,19 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   unification, B-29 big-int bitops); (c) m365 dep-object shared key + HIT
   existence check + per-key lock (design in REL-20261017-1355-engine);
   (d) m363 Send/Sync enforcement (THREADING_PLAN Phase B, design first);
-  (e) m369 catidx scoping/pruning -- **absorbs m367** (tests/regression
-  exclusion is one pruning rule); (f) m366 **BLOCKED** on the engine's
+  (e) m367 leftover: exclude `tests/regression` fixture trees from the
+  catalog by rule (m369's shallow-scan + stale-root pruning is landed; the
+  fixture-name exclusion is the remaining piece); (f) m366 **BLOCKED** on the engine's
   minimized capture-only snippet (asked 2026-10-17); (g) registry canary
   2257; .xiomignore 1504/2104; alias-qualified 2100; LLVM baseline 1647;
   packages 2303/2309 re-verify. Fixed-but-acked closure is reporter-lane
   work (the compiler cannot move fixed->verified): reporters fill their
   rows in `release-checks/compiler-compiler-v0.64.7.md` (hash/Mutex,
   Float64 dlsym, Result-ref, platform consts, arm64, macOS memset build,
-  cold lanes, E001 same-call). Performance track 1's concrete first target
-  is the catidx scan/thrash (m369); track 2 continues via m368/runtime.
+  cold lanes, E001 same-call). Performance track 1: m369 landed (index
+  50.6 s -> 0.7 s); the next measured split on the 6-line probe is check
+  1.6 s + codegen 1.7 s, so profile the checker/codegen path next. Track 2
+  continues via m368/runtime.
 - CONSTRAINTS unchanged: rustc-first study protocol; max 3-4 heavy sessions;
   watch host memory (128 GB box, 32 logical CPUs); do not touch the stdlib
   repo E:\xiom-lang\stdlib except via the relay; no release re-cuts without
