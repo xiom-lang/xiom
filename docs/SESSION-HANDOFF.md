@@ -14,7 +14,40 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
-*** SESSION UPDATE 2026-10-17T17:55Z (compiler lane; v0.64.7 CANDIDATE PUBLISHED) -- READ FIRST ***
+*** SESSION UPDATE 2026-10-18T14:22Z (compiler lane; v0.64.7 RELEASED + REGISTRY PUBLISHED) -- READ FIRST ***
+- **v0.64.7 IS RELEASED.** Compiler GitHub release 2026-10-17T22:59Z (run
+  39076930839 GREEN, 11 assets incl. **xiom-0.64.7-linux-arm64.tar.gz**,
+  linux-x64, windows-x64, macos-x64/arm64, wasm, VSIX, SHA256SUMS). stdlib
+  v0.64.7 released 22:53Z and **xiom-std v0.64.7 registered** 2026-10-18T14:13Z
+  with compiler pin **v0.64.7** (OIDC trusted publish run 39135008135 SUCCESS;
+  sha256 925ad7f9...). The first publish had 404'd because the stdlib tag pinned
+  the candidate; under owner GO `COMPILER_VERSION` was set to v0.64.7 on
+  prep+main (f4482b1/da714e4) and the tag force-moved (same name).
+- FINAL BATTERY v7 (release commit 3667ee29d, stdlib-v0.64.7): e2e 2603/2605 +
+  feature_regression / integration / stdlib_execution / stdlib_tests /
+  api_freeze / checker ALL GREEN. The 2 e2e failures were STALE LOCKS, fixed
+  post-release on main `1d79e8f9f`: `e2e_g15_sret_abi` asserted SysV semantics
+  while Win64 correctly uses sret for 16B aggregate returns (now `#[cfg]`-split);
+  `e2e_m17_zero_warnings` saw the m347 fixture `mini_std` duplicate `xiom.env`
+  (W001) and now ignores fixture mini_std collisions. **m367** queued: exclude
+  `tests/regression` fixture trees from the catalog index. Neither is a
+  release regression.
+- RELEASE-CHECK + bus: v0.64.7 rows closed; announcement
+  REL-20261017-2259-compiler updated with the registry publish; stdlib
+  coordination item REL-20261017-1444-compiler has the full chain.
+- POST-RELEASE QUEUE (no release blockers): **m360** i128 division AV (its
+  fixer session was never registered -- relaunch), **m365** dep-object cache
+  key/race, **m366** capture-frames hang (snippet requested),
+  **m363** Send/Sync enforcement, **m367** catalog-index fixture exclusion,
+  **armv7** 32-bit Pi deferred (REL-20261017-1955-compiler), selfhost Phase 6
+  continues in parallel.
+- CLEANUP: `hold/m351-typed-fault` and `release/arm64-gate-check` are now
+  redundant (content on main/tag); the m351 fixer worktree and the empty m360
+  worktree can be removed; the `xiom-pin-verify` / `stdlib-prep-0647`
+  verification worktrees can be removed after the logs are archived. Candidate
+  tags (r2) are kept for provenance.
+
+*** SESSION UPDATE 2026-10-17T17:55Z (compiler lane; v0.64.7 CANDIDATE PUBLISHED) -- superseded by 14:22Z ***
 - CANDIDATE REF: compiler main `065481eb4` + annotated tag
   **`candidate-v0.64.7-m351`** pushed; `STDLIB_VERSION` = stdlib main
   **`d6b562a`** (includes the m351 typed-fault runtime merged at `3cb1138`).
