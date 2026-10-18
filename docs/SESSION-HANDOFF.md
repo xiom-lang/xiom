@@ -95,6 +95,14 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   Next selfhost work = P5e + P2b-iv, then m37 (14/64). Branch is 45 ahead /
   6 behind main (the m369 catalog change is reference-only; rebase before
   the next full harness).
+- SELFHOST P5e + P2b-iv + m37 **GREEN** (2026-10-18T21:08Z): commit
+  `3b5b0f8fd` (unpushed; 46 ahead / 6 behind main). Field-receiver
+  `x.d.push(v)` (P5e) and expression-receiver Vec index (P2b-iv) ported;
+  `m37_tuple_struct` FULL FILE IDENTICAL (747 lines) and adopted into T6.
+  Suite **6/6 in 594.86 s**; meter 19/19 + **T6 14/64**; header parity
+  8586 (258/4/8158 = 8503 + 83 `guard_free` declares); ascii OK. The
+  selfhost session owns the next Phase 6 shapes; rebase before the next
+  full harness.
 - **m367 FIXED + ON MAIN `90244d42c` (2026-10-18T18:45Z)**: project-root
   catalog scans skip `tests/regression`/`tests/fixtures` trees; a compile
   whose source root IS a fixture still indexes its own files and `mini_std`.
@@ -112,10 +120,12 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   and retire the workaround. Relays 1154 + 1416 moved to fixed; the
   extraction request 1650 closed.
 - QUEUE (triaged 2026-10-18): **in flight** none (m360, m370, m368, m367 and
-  C-ORBIT-12 are fixed on main; selfhost RD6 green, next P5e + P2b-iv).
-  **Next wave** (do not launch until a heavy slot frees): (a) B-32/B-34
-  cluster (B-33 fixed; B-32 in-situ sqlite, B-34 generic type-alias
-  unification; B-29 triaged NOT-a-compiler-defect -- reporter re-run/close);
+  C-ORBIT-12 are fixed on main; selfhost P5e/P2b-iv + m37 green, T6 14/64;
+  next Phase 6 shapes).
+  **Next wave** (do not launch until a heavy slot frees): (a) B-34 generic
+  type-alias unification (B-33 fixed; B-32 RETIRED on v0.64.7 -- the red was
+  a stale restore bundle; B-29 triaged NOT-a-compiler-defect -- reporter
+  re-run/close);
   (b) m365 PARTIAL: ready marker + canonical dependency paths landed;
   remaining caller flag split + per-key lock and the engine re-measure
   (checklist `docs/checklists/m365-dep-cache.md`); (c) m363 Send/Sync
