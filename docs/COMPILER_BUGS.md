@@ -19218,6 +19218,6 @@ redeclared on every loop iteration frees only the header present at exit
 `--emit-ir`-only harnesses without stdlib still see the extern declaration
 (no stub needed).
 
-Fix commit: pending (branch fix/m368-vec-drop-reclaim).
+Fix commit: 5a530cf7e (rebased branch fix/m368-vec-drop-reclaim).
 
 ---
