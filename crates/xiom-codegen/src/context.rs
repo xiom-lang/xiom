@@ -380,6 +380,15 @@ pub struct FunctionContext {
     /// unsafe). Restricted to stdlib/trusted, or user code with
     /// --enable-unsafe-direct.
     pub unsafe_direct: bool,
+    /// m368 (REL-20261011-2032-engine): owned Vec locals reclaimed at fn
+    /// exit. Each entry is (Vec alloca holding the header, drop-flag alloca
+    /// holding an i1). The flag is initialized false in the entry block and
+    /// set true by the binding; every return path runs `compile_vec_drops`,
+    /// which is idempotent through the flag (rustc ElaborateDrops analogy).
+    pub vec_drops: Vec<(String, String)>,
+    /// m368: local names proven OWNED AND PRIVATE for the current function by
+    /// the AST prepass (`vec_drop::collect_owned_vec_locals`).
+    pub vec_drop_safe: HashSet<String>,
 }
 
 // ============================================================================
@@ -500,6 +509,10 @@ pub struct LocalContext {
     /// BUG 22 #6: (alloca_reg, llvm_ty) pairs hoisted from loop bodies --
     /// spliced into the fn's entry block at fn end.
     pub hoisted_allocas: Vec<(String, String)>,
+    /// m368: stores spliced into the fn entry block right after the hoisted
+    /// allocas (drop-flag initialization). Kept separate so a fn with drop
+    /// flags but no loop allocas still gets its entry prologue.
+    pub entry_prelude: Vec<String>,
     /// Local Vec bindings' declared element type name
     pub local_vec_elem: HashMap<String, String>,
     /// m283 (REL-20261010-1549-packages-8): contract-clause re-entrancy guard

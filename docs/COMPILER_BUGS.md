@@ -18910,22 +18910,6 @@ Fix commit: 632e8c3d2 (branch fix/m364-e001-samecall-borrow, unpushed).
 
 ---
 
-## 2026-10-18 -- OPEN (m368): Vec allocations are not reclaimed on drop (REL-20261011-2032-engine, v0.64.7 re-verify)
-
-Re-tested the engine repro (`E:\xiom-projects\xiom-engine\out\retest\retest_2032.xi`:
-3000 iterations of `alloc_one()`, each pushing 1M `Float64`) on the official
-v0.64.7 Windows archive (sha256 `16a436c4...`) with a 10 s watchdog:
-
-- v0.64.4 baseline: 15.9 GB WS / 16.7 GB private at t=10 s.
-- v0.64.7: **10.12 GB WS / 10.62 GB private at t=10 s**, still growing
-  ~1.0 GB/s (process killed). The slope is lower, but nothing is reclaimed;
-  a drop-at-scope-exit loop must stay flat after the first iteration.
-- Fixer slot **m368** opened on branch `fix/m368-vec-drop-reclaim`
-  (acceptance = the 3000-iteration loop completes with flat memory, plus a
-  regression lock; runtime/allocator + Vec drop lowering are in scope).
-
----
-
 ## 2026-10-18 -- FIXED (m369): shared catalog index is cross-version and accumulates stale roots (xvector hang symptom)
 
 `REL-20261018-1518-xvector` reported that module-level function-call /
@@ -19140,5 +19124,100 @@ real stdlib witness rc 0 and runs `plain=0`, rc 0 (pre-fix archive
 `tests/regression/m370_vec_byref_generic_struct/main.xi`) 1/1, m37 sweep
 51/51, `e2e_m218_vec_float_field_lookup` 1/1. Relay
 REL-20261018-1546-stdlib carries the fix ref.
+
+## 2026-10-18 -- FIXED (m368): Vec drop reclaim -- owned locals free at scope exit (REL-20261011-2032-engine)
+
+Symptom: the engine's alloc+drop loop (`alloc_one` pushes 1M Float64 into
+`Vec[Float64].new()`, `main` calls it 3000 times) grew RSS linearly. Fresh
+v0.64.7 archive baseline on this host (official archive, sha256 16a436c4...):
+**10.12 GB WS / 10.62 GB private at t=10 s, still growing ~1.0 GB/s, killed**
+(v0.64.4 was 15.9/16.7 GB). `--emit-ir` on the repro showed
+`@malloc(128)` + `@realloc` growth in `alloc_one` and **no `free` at any
+scope exit**; the header died with the stack frame. The 2026-10-13 triage
+correctly called this a missing memory-model feature (not a mechanical
+codegen bug): `mem.drop` is a no-op and builtin Vec had no deinit.
+
+ROOT CAUSE: codegen had no drop glue for owned Vec locals. Nothing in the
+checker/codegen/ownership analysis scheduled a release of the malloc/realloc'd
+data buffer at `return`/scope exit, so every call leaked its buffer.
+
+FIX (`crates/xiom-codegen/src/vec_drop.rs` + plumbing): compiler-side drop
+path for the safe subset, following rustc's drop elaboration:
+- **Owned/prepass** (`collect_owned_vec_locals`): a local name is a
+  reclamation candidate only when EVERY declaration is a FRESH owner
+  (`Vec[T].new()` / `Vec[T].with_capacity(..)` / array literal) and EVERY
+  use is non-escaping (known non-view Vec method -- push/len/pop/clone/... --
+  or a `.len`-style field read). Return, assignment, argument, index,
+  field/array store, closure/spawn/confined-block capture and address-of all
+  disqualify the name (no refcount in the header -> a copy aliases the
+  buffer).
+- **Drop flags** (rustc anchor
+  `compiler/rustc_mir_transform/src/elaborate_drops.rs`: ElaborateDrops
+  inserts flags for every place that may be dropped to decide whether the
+  destructor runs; see `docs/rustc-study/06-mir-safety-lowering.md`):
+  each candidate gets an entry-block i1 flag initialized false and armed
+  true by the binding. Every return path runs `compile_vec_drops`; the flag
+  makes re-emitted cleanup sites idempotent and keeps early returns that
+  precede the binding from freeing an uninitialized pointer.
+- **Dominance**: candidate Vec header allocas are hoisted into the entry
+  block too (loop bodies already were), so a cleanup emitted after an
+  enclosing `if` loads a dominating alloca. (The first cut failed clang with
+  "Instruction does not dominate all uses!" on an if-scoped Vec; the
+  dominance probe below is the lock for that shape.)
+- **Arena-aware free**: the drop calls `@xiom_guard_free` (runtime no-ops
+  for guard-arena pointers, frees main-heap pointers), declared in the IR
+  prelude. Detached bodies (closures, spawn, confined block fns) suspend the
+  enclosing frame's drop state so a `return` there cannot free the caller's
+  Vecs; their own arena allocations are reclaimed by the arena reset.
+
+Files:
+- `crates/xiom-codegen/src/vec_drop.rs` (new: escape prepass, flags, drops)
+- `crates/xiom-codegen/src/context.rs` (vec_drops / vec_drop_safe /
+  entry_prelude state)
+- `crates/xiom-codegen/src/emitter.rs` (`declare @xiom_guard_free`; splice
+  entry prelude with hoisted allocas)
+- `crates/xiom-codegen/src/stmt.rs` (Let/Var registration, header-slot
+  hoisting, cleanup hook after source defers)
+- `crates/xiom-codegen/src/decl.rs`, `lib.rs` (prepass at fn-body start,
+  regular + monomorphised paths)
+- `crates/xiom-codegen/src/expr.rs` (detached-body drop-state isolation)
+
+EVIDENCE:
+- **After (release compiler, same host): the 3000-iteration repro COMPLETES**
+  (exit 0 at 16.8 s) with a FLAT curve:
+  t=0 2.6/9.0 MB; t=1.1 12.9/41.8; t=2.1 9.5/39.8; t=5.2 12.8/45.8;
+  t=10.5 5.8/34.8; t=15.7 **14.1/46.3 MB** (WS/private); **max WS 14.1 MB,
+  max private 46.3 MB** -- vs 10.12 GB at t=10 s before. No growth trend.
+- Shape comparison: `alloc_one` IR is byte-identical between the
+  1-iteration and 3000-iteration builds (only `main`'s bound `1` vs `3000`
+  differs); both carry the drop. Post-fix `alloc_one` entry:
+  `%tmp21 = alloca %struct.Vec` + `%tmp22 = alloca i1` +
+  `store i1 false, i1* %tmp22`; `while_exit7` loads the flag and calls
+  `@xiom_guard_free` on the current (realloc'd) data pointer.
+- Escape controls (in the lock) produce NO free: `make_vec` (`return v`) and
+  `alias_control` (`var b = a`) both still compile without
+  `@xiom_guard_free`, and run correctly.
+- Dominance probe (`if`/`match` scoped Vec declarations, early return before
+  the binding): compiles, clang accepts, exit 0.
+
+LOCKS:
+- `tests/regression/m368_vec_drop_reclaim/main.xi` -- var + let owned shapes
+  (runtime exit 0) plus the two escape controls.
+- `crates/xiom-codegen/tests/e2e_tests.rs`
+  `e2e_m368_vec_drop_reclaim` -- IR assertion: `@alloc_one` / `@alloc_let`
+  contain `@xiom_guard_free` + `vecdrop_do`; `@make_vec` /
+  `@alias_control` contain neither.
+- Tests: e2e m368 (+m302/m309/m283) 4/4; feature_regression 549/549;
+  integration 130/130; stdlib_execution 85/85 (2 ignored); codegen lib
+  23/23; `xiom --test ffi_alloc_guard_free` 1/1.
+
+RESIDUALS (deliberate, leak-only -- no UAF risk): (1) escaped/aliased Vecs,
+call-return Vec bindings, and Vec struct fields are not reclaimed; (2) a Vec
+redeclared on every loop iteration frees only the header present at exit
+(intermediate buffers leak; the slot is hoisted/shared); (3)
+`--emit-ir`-only harnesses without stdlib still see the extern declaration
+(no stub needed).
+
+Fix commit: pending (branch fix/m368-vec-drop-reclaim).
 
 ---

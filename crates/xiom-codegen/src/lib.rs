@@ -31,6 +31,7 @@ pub mod expr;
 pub mod sandbox;
 pub mod stmt;
 pub mod vec_abi;
+pub mod vec_drop;
 
 pub use context::{CodegenConfig, TypeContext, FunctionContext, MonoContext, LocalContext, TypeMeta, SyncRegistry, native_target_triple};
 
@@ -9225,6 +9226,11 @@ impl IrEmitter {
 
             // P0-2: Clear deferred cleanup stack at function start
             self.clear_deferred_cleanups();
+            // m368: per-function Vec drop state + ownership/escape prepass.
+            self.clear_vec_drops();
+            if let Some(body) = fd.body.as_ref() {
+                self.prepass_owned_vec_locals(body);
+            }
 
             // Compile body
             if let Some(body) = fd.body.as_ref() {

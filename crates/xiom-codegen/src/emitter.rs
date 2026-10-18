@@ -1441,7 +1441,8 @@ impl IrEmitter {
     /// drift when the fn body is assembled across buffer swaps).
     pub(crate) fn finish_hoisted_allocas(&mut self) {
         let hoisted = std::mem::take(&mut self.local.hoisted_allocas);
-        if hoisted.is_empty() {
+        let prelude = std::mem::take(&mut self.local.entry_prelude);
+        if hoisted.is_empty() && prelude.is_empty() {
             return;
         }
         let lines: Vec<&str> = self.output.lines().collect();
@@ -1464,6 +1465,10 @@ impl IrEmitter {
         let mut text = String::new();
         for (reg, ty) in &hoisted {
             text.push_str(&format!("  {reg} = alloca {ty}{}\n", self.alloca_align(ty)));
+        }
+        for line in &prelude {
+            text.push_str(line);
+            text.push('\n');
         }
         let mut out = String::with_capacity(self.output.len() + text.len());
         for (i, l) in lines.iter().enumerate() {
@@ -1573,6 +1578,9 @@ impl IrEmitter {
         self.emitln("declare i8* @xiom_read_file(i8*)");
         self.emitln("declare i64 @xiom_file_size(i8*)");
         self.emitln("declare void @xiom_free(i8*)");
+        // m368: arena-aware dealloc for owned Vec buffers. The runtime
+        // no-ops for guard-arena pointers and frees main-heap pointers.
+        self.emitln("declare void @xiom_guard_free(i8*)");
         // round-14 (BUG 26 #7): xiom_char_at returns the UTF-8 CODEPOINT
         // (i64) -- the old i8 returned a raw byte (multibyte chars broke
         // len_utf8/str_chars). xiom_byte_at (the raw-byte accessor) is
