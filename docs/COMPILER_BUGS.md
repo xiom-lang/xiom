@@ -18909,3 +18909,93 @@ warn and is the lock.
 Fix commit: 632e8c3d2 (branch fix/m364-e001-samecall-borrow, unpushed).
 
 ---
+
+## 2026-10-18 -- FIXED (m360): Int128/UInt128 division AVs -- the runtime helper recursed into itself (REL-20261016-2331-stdlib)
+
+WITNESS: stdlib `tools/known_failures/p_i128_div_vec_loop_av.xi` with the
+support module copied to `<stdlib-root>/xiom/math/` per its header. Official
+v0.64.7 Windows archive (relay re-verify, sha256 `16a436c4...`): compile
+rc 0 (20.5 s), direct run rc -1073741819 (0xC0000005) 3/3; expected rc 0
+with `r == 2`.
+
+RECON -- the vector loop and the `xiom.*` namespace were both TRIGGERS OF
+FOLDING, not causes of the fault:
+- a user-namespace copy of the same two functions ran GREEN at the default
+  level; the SAME source at `--opt-level 0` AV'd 0xC0000005.
+- a one-function probe with no loop and no `xiom.*` module
+  (`(18000 + env.args().len()) / (8000 + env.args().len())` on Int128) AV'd
+  at the DEFAULT level. The divide was broken for EVERY divisor < 2^64;
+  the loop only stopped LLVM from constant-folding it.
+- `--emit-ir` of the witness vs the user copy: identical `main`/`ta4`
+  bodies modulo the symbol name; the difference is the bundled stdlib set
+  (476 KB / 251 defines vs 39 KB / 2 defines), which changes LLVM's
+  folding. The archive-built witness's fault offset (0x1cce1) is a `call`
+  to the start of the helper containing it: main -> `__divti3` ->
+  `xiom_udivti3` -> SELF-CALL.
+
+ROOT CAUSE (stdlib runtime C, not loop/attribute/ABI/namespace lowering):
+`stdlib/runtime/xiom_runtime.c` `xiom_udivti3` (introduced 1f0e9d3d,
+2026-08-08) handles divisors >= 2^64 with a shift/subtract loop, but its
+"high limb of b is zero" fast path is the native
+`unsigned __int128 q = a / b;`. clang expands that i128 udiv to the
+`__udivti3` libcall, and this TU is what defines `__udivti3` -- so the
+single-limb branch calls the function it is in, forever
+(0xC0000005/0xC00000FD depending on guard-page state). `__divti3` and
+`__modti3`/`__umodti3` all route through it. The helper is unreachable only
+when LLVM folds the divide away; the wave-165 Vec element-load loop (and, at
+-O2, the whole-stdlib context of an `xiom.*` module) was exactly such a
+folding barrier. The stdlib shipped shift/mask long-division workarounds in
+wave 165 rather than touching the runtime.
+
+RUSTC ANCHOR: rustc never hand-implements a libcall it may itself emit.
+MIR `Div`/`Rem` lower straight to LLVM `sdiv`/`udiv`
+(`compiler/rustc_codegen_llvm/src/builder.rs:526-528`), and the i128
+backends delegate the symbol to compiler-builtins, whose implementation is
+self-contained:
+`compiler/rustc_codegen_cranelift/src/codegen_i128.rs:30-31` ->
+`compiler/rustc_codegen_cranelift/src/compiler_builtins.rs:65-66`;
+`compiler/rustc_codegen_gcc/src/int.rs:286-291`; the builtin itself is
+exercised at `library/compiler-builtins/builtins-test-intrinsics/src/main.rs:360`.
+Following that discipline, the fix makes i128 division self-contained in
+the emitted IR instead of depending on a runtime symbol that can re-enter
+itself.
+
+FIX (compiler lane; E:\xiom-lang\stdlib untouched): in
+`crates/xiom-codegen/src/expr.rs`, `/` and `%` with i128 operands no longer
+emit `sdiv`/`srem`/`udiv`/`urem`. `emit_i128_divrem_inline` lowers a
+128-step restoring long division (shl/lshr/and/or/icmp/select + loop phis)
+directly into the IR; signed divides use two's-complement magnitudes.
+Semantics: quotient truncates toward zero, the remainder's sign follows the
+dividend, INT128_MIN / -1 wraps to INT128_MIN (the runtime's defined value),
+and the existing div-by-zero trap still guards the operand. Applies to
+Int128 and UInt128; no runtime helper (or Windows/MSVC libcall ABI) is
+involved, so it also works on wasm and hosts without the helper.
+
+EVIDENCE (branch `fix/m360-i128-div-vec-loop-av`, release build):
+- pre-fix official archive + scratch stdlib: witness compile rc 0, run
+  -1073741819; the new fixture at `--opt-level 0`: compile rc 0, run
+  -1073741819; emitted IR contains `sdiv i128`, no inline loop.
+- fixed build: witness rc 0 x2 (default and `--opt-level 0`, in-program
+  `r == 2`); plain runtime-division probe returns 2; new fixture rc 0 at
+  `--opt-level 0` and `2`; extreme probe (INT128_MIN / -1, 2^127 / 3,
+  -(2^127-1) / 3, remainders) rc 0 at both levels.
+- fixed emitted IR: zero `sdiv i128`/`srem i128`/`udiv i128`/`urem i128`;
+  the inline `i128_div_hdr` loop is present.
+- locks: `e2e_m360_i128_div_vec_loop` (O0/O2 run legs + IR leg) 1/1,
+  m314 2/2, m37_u128 1/1, m37_index_arith 1/1, m37 sweep 50/50,
+  `xiom-codegen` lib 23/23.
+- fixture: `tests/regression/m360_i128_div_vec_loop/` (`main.xi` and
+  `mini_std/xiom/math/p_i128_div_vec_loop_mod.xi`), so the `xiom.math`
+  import and the no-FOLD witness shape are hermetic.
+
+RESIDUAL: the stdlib runtime still contains the recursive single-limb fast
+path; any direct C caller of `__udivti3`/`__umodti3` would still recurse
+(none remain in XIOM codegen). The stdlib lane should replace that branch
+with the long-division loop the function already carries (relay follow-up);
+after that the compiler lowering can be reconsidered for performance. The
+inline loop is 128 iterations; a follow-up fast path can use the fact that
+the quotient fits 64 bits when the divisor's high limb is nonzero.
+
+Fix commit: the `fix(codegen)` commit on branch
+`fix/m360-i128-div-vec-loop-av` that carries this entry and the new fixture
+(hash reported on REL-20261016-2331-stdlib).
