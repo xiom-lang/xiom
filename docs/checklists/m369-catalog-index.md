@@ -1,6 +1,7 @@
 # m369 -- Catalog index scan breadth, stale roots and cross-version thrash
 
-Status: QUEUED (no fixer launched yet)
+Status: FIXED on main `330955136` (branch `fix/m369-catalog-index`;
+no release re-cut). See `docs/COMPILER_BUGS.md` 2026-10-18 m369.
 Owner: compiler lane
 Sources: REL-20261018-1518-xvector (symptom), m367 (fixture exclusion),
 `docs/COMPILER_BUGS.md` 2026-10-18 m369, benchmark perf track 1.
@@ -99,3 +100,28 @@ Measured on 2026-10-18 (official v0.64.7 archive, `--no-cache`,
 - No changes to module resolution precedence or `use` rewriting.
 - No release tag/re-cut; integrate on main only.
 - Do not delete the shared `$HOME/.xiom` in tests; use a scratch home.
+
+## Result (2026-10-18)
+
+Landed on main `330955136`:
+
+- shallow transient temp file-parents (driver + catalog flag);
+- per-version/platform cache file;
+- save-time prune of entries outside the current source roots.
+
+Measured on the 6-line `v_mutex.xi` in `%TEMP%\kilo\m368`: index
+**50.569 s / 56,663 misses -> 0.707 s** (`--no-cache`) and **0.392 s** warm
+(2,600 hits / 0 misses); total compile 3.3-4.2 s, now dominated by check
+1.6 s + codegen 1.7 s. The xvector probe remains green. Locks: catalog 5/5,
+`cargo test -p xiom-check` 211/211, m347 e2e 3/3.
+
+Remaining / follow-ups:
+
+- m367: a path-aware rule to exclude `tests/regression` fixture trees from
+  the recursive scan (the stale-root prune and per-version file are landed,
+  but a fixture tree under a current root is still indexed).
+- The W001 same-canonical-file dedupe check was not re-measured in this
+  pass; re-run it with the repo-root source-dir case and add a lock.
+- Cache read/write races: saves are atomic temp+rename and failures are
+  ignored; a bounded retry/backoff is still worth adding if a Windows
+  reader holds the target file open.
