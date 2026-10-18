@@ -18985,9 +18985,13 @@ blocker). No release re-cut.
   v0.64.4 controls PASS 10 checks / 290 MB). **BLOCKED**: the engine was
   asked for a minimized capture-only snippet (2026-10-17); do not start the
   fixer until it lands.
-- **m363** (THREADING_PLAN Phase B, medium): Send/Sync enforcement design +
-  checker. Enforce marker bounds on spawn captures/handles; pairs with the
-  stdlib worker-loop wishlist (REL-20261016-1550-stdlib). Design first.
+- **m363** (THREADING_PLAN Phase B, medium): the spawn-capture `is_send`
+  check exists, but `is_send` assumes every generic container is Send
+  (Vec[*UInt8], Channel[FfiHandle], Mutex[*UInt8] pass today), `is_sync`
+  does not exist, and the Channel/Mutex/Arc API boundaries are unchecked.
+  Plan/checklist: `docs/checklists/m363-send-sync.md` (recursive Send/Sync,
+  by-value vs `&T` capture rules, API checks, flag rollout). Pairs with the
+  stdlib worker-loop wishlist (REL-20261016-1550-stdlib).
 - **m367 FIXED (2026-10-18)**: catalog-index fixture exclusion. A
   project-root scan now skips `tests/regression`/`tests/fixtures` trees
   (case-insensitive path components); a compile whose source root IS a

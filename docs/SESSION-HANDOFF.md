@@ -118,8 +118,11 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   unification; B-29 triaged NOT-a-compiler-defect -- reporter re-run/close);
   (b) m365 PARTIAL: ready marker + canonical dependency paths landed;
   remaining caller flag split + per-key lock and the engine re-measure
-  (checklist `docs/checklists/m365-dep-cache.md`); (c) m363
-  Send/Sync enforcement (THREADING_PLAN Phase B, design first); (d) m366
+  (checklist `docs/checklists/m365-dep-cache.md`); (c) m363 Send/Sync
+  enforcement (THREADING_PLAN Phase B: the spawn-capture `is_send` half
+  exists, but `is_send` assumes every generic container is Send, `is_sync`
+  does not exist, and Channel/Mutex/Arc boundaries are unchecked; checklist
+  `docs/checklists/m363-send-sync.md`); (d) m366
   **BLOCKED** on the engine's minimized capture-only snippet (asked
   2026-10-17); (e) .xiomignore 1504/2104; alias-qualified 2100; LLVM
   baseline 1647; packages 2303/2309 re-verify (registry canary 2257 is
