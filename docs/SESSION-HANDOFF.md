@@ -15,7 +15,7 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 (m254-m275; all pushed) is kept below for reference:
 
 *** SESSION UPDATE 2026-10-18T16:15Z (compiler lane; v0.64.7 UNCHANGED -- RETESTS + FIXERS) -- READ FIRST ***
-- STATE: v0.64.7 remains the release (no re-cut). Main `b3496f360`;
+- STATE: v0.64.7 remains the release (no re-cut). Main `dba86f6a8`;
   relay bus updated by the compiler lane (see the m360/m368/m369 items).
 - BENCHMARK CHECK (REL-20261018-0042-benchmark): acked, NO ACTION. It
   confirms v0.64.7 absorption (commit 79993a1, image sha256:21b4ad95...),
@@ -134,7 +134,7 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   `count=1`, second create Err, rc 0 on release + debug; m37 50/50, m337
   3/3. Relay 1815 fixed; xvector to verify (the second-create error message
   prints a numeric handle -- separate from the aliasing fix).
-- **B-34 FIXED + ON MAIN (2026-10-18T22:50Z)**: a cross-module alias in a
+- **B-34 FIXED + ON MAIN `344abbc23` (2026-10-18T22:50Z)**: a cross-module alias in a
   generic position (`&Vec[Handle]`, `Handle = Int`) now unifies with
   `Vec[Int]`; the generic-argument helpers resolve aliases for both the
   argument and the container base before comparing. Fixture
