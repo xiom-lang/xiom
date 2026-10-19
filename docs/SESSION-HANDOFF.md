@@ -14,6 +14,88 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-19T17:40Z (compiler lane; v0.64.8 TRIGGER PENDING -- r2) -- READ FIRST ***
+- STATE: **v0.64.8 is NOT tagged/released yet**; v0.64.7 is not re-cut.
+  Main `b661f645f`; fix commit `4d040604b`; release gate
+  `docs/RELEASE_GATE_v0.64.8.md`; v0.64.8 release check in the relay repo.
+- R2 GATE: the r1 stdlib gate failed `smoke_io_edge` (SIGILL /
+  0xC000001D) because empty-file `Vec[UInt8]::with_capacity(0)` hit
+  `xiom_guard_alloc(0)`=NULL -> `vec_wc_trap`; fixed in r2 `4d040604b`
+  (`emit_alloc` clamps zero to 1; Vec.push grows from 8).
+  `candidate-v0.64.8-r2` pushed; stdlib tag moved to `112c5b6`
+  (`COMPILER_VERSION=candidate-v0.64.8-r2`). r2 dry-run `39287949178`
+  **SUCCESS**; r2 stdlib run `39289746856`: Ubuntu gate **SUCCESS**, Windows
+  **full smoke SUCCESS**, final Windows checks running. Combined notes
+  re-verified against the moved tag.
+  **Next session:** if `39289746856` completes green, tag `v0.64.8` at
+  `4d040604b`, push, watch the release, send the final tag/asset SHA to
+  stdlib for the registry override, and announce/unblock the lanes. If red,
+  do not tag; report. No v0.64.7 re-cut.
+- NEXT-WAVE DECISIONS (owner 2026-10-19, agreed):
+  - **m373 -- parallel compile knobs + product profiling** (next wave):
+    expose `parallel`, `jobs`, `parallel-codegen` (and optional
+    `codegen-units`) in `xiom.toml [compiler]`, map to `CompileConfig`; use
+    the existing 7C (parallel lex/parse across files) and I2 (per-function
+    codegen) paths; profile engine/xvector/orbitdb with `XIOM_TIMINGS`;
+    parallel C deps are m365. Keep selfhost parity defaults sequential.
+  - **m374 -- parallel checker/codegen units** (design/queue now;
+    implementation after selfhost Phase 6 parity, mirror in selfhost):
+    module-DAG checking, CGUs, deterministic diagnostics/IR. Not in v0.64.8.
+  - **MCU/bare-metal target** (1220/1419): `--target arm` is AArch64 Linux,
+    riscv triple invalid; Cortex-M/thumb/no_std/QEMU.
+  - **All relays + v0.64.8 feedback/bugs**: m371 PULSE imported-struct
+    layout, m365 remainder, m366 blocked on the engine snippet, m363
+    Send/Sync, m372 nested generic ptr.read; bindings B-29/B-34/B-32
+    closure; xvector XVC-C-20/G-2b; orbitdb C-ORBIT-12/13; engine
+    2032/2053/1343 soak; .xiomignore/alias/LLVM/packages re-verify.
+- TOML/PARALLEL FACTS (for m373): `xiom.toml` is found by walking up from
+  the entry file; `[project]` name/version/root/source-roots;
+  `[dependencies]` dotted registry specs; `[compiler]` currently parses
+  target/release/incremental/max-depth/timeout-secs -- **no parallel/jobs/
+  parallel-codegen yet**. `package.xi` is the registry manifest; `xiom.toml`
+  is local build resolution. 7C already parallelizes lex+parse across files
+  (`--parallel`, `--jobs`); I2 already parallelizes function bodies
+  (`--parallel-codegen`); the checker and module/CGU partitioning are still
+  sequential.
+- SELFHOST: RD7 green (6/6, 418 s, T3 19/19, T6 14/64, header 8586); next
+  shapes Option/`.len()`, `Vec.pop`, `&Vec`+f64, index arithmetic; branch
+  `selfhost-phase-4-codegen` 47 ahead / 0 behind before the next wave.
+- CONSTRAINTS unchanged: rustc-first study; max 3-4 heavy sessions; watch
+  host memory; no stdlib edits except via relay; no release re-cut without
+  owner GO; use `--no-cache` when shared catidx/engine builds interfere.
+
+*** CONTINUATION PROMPT (paste-ready) -- 2026-10-19T17:40Z ***
+You are the compiler-lane successor for XIOM (E:\xiom-lang\xiom).
+Start by reading docs/SESSION-HANDOFF.md top blocks (2026-10-19T17:40Z),
+docs/RELEASE_GATE_v0.64.8.md, and release-checks/compiler-compiler-v0.64.8.md
+in E:\xiom-lang\xiom-relays.
+
+v0.64.8 is NOT released yet. The r1 stdlib gate caught a SIGILL in
+smoke_io_edge (zero-capacity Vec); it is fixed in r2 4d040604b /
+candidate-v0.64.8-r2. The stdlib tag is moved to 112c5b6; the r2 stdlib run
+39289746856 has Ubuntu and Windows full-smoke green (final Windows checks
+running); r2 dry-run 39287949178 SUCCESS; notes verified with the moved tag.
+
+1) Finish the release: check 39289746856. If green, tag v0.64.8 at
+   4d040604b, push, watch the release workflow, send the final tag/asset SHA
+   to stdlib for the registry override, and announce/unblock
+   engine/xvector/orbitdb/bindings/PULSE. If red, do not tag; report. No
+   v0.64.7 re-cut.
+2) Next wave (owner agreed): m373 parallel compile knobs + product profiling
+   -- expose [compiler] parallel/jobs/parallel-codegen in xiom.toml, use the
+   existing 7C/I2 paths, profile engine/xvector/orbitdb with XIOM_TIMINGS,
+   parallel C deps via m365; m374 parallel checker/codegen units -- queue/
+   design now, implement after selfhost Phase 6 parity; MCU targets 1220/1419.
+3) Relays: m371 PULSE imported-struct layout, m365 remainder, m366 blocked
+   on the engine snippet, m363 Send/Sync, m372 nested ptr.read, bindings
+   B-29/B-34/B-32 closure, xvector XVC-C-20/G-2b, orbitdb C-ORBIT-12/13,
+   engine 2032/2053/1343 soak, .xiomignore/alias/LLVM/packages re-verify.
+4) Selfhost: RD7 green T6 14/64; continue Option/.len, Vec.pop, &Vec+f64,
+   index arithmetic; rebase before the next harness.
+Constraints: rustc-first study; max 3-4 heavy sessions; watch memory; no
+stdlib edits except via relay; no release cuts without owner GO; use
+--no-cache when shared catidx/engine builds interfere.
+
 *** SESSION UPDATE 2026-10-19T14:50Z (compiler lane; v0.64.8 RELEASE IN PREP -- OWNER GO) -- READ FIRST ***
 - **v0.64.8 r1 STDLIB GATE RED; r2 FIX IN MAIN `4d040604b`
   (2026-10-19T16:35Z)**: stdlib release gate on candidate r1 (`c45a247d2`)
