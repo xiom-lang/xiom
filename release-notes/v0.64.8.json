@@ -37,6 +37,7 @@
   "breaking": [],
   "known_issues": [
     "Cross-module aliases to imported structs can still fail field access; a codegen layout fix is queued for the next cycle.",
+    "A generic call nested directly as a ptr.read argument can read the erased element type; stage the call in a local as a workaround.",
     "A capture-frames probe can still hang on the run leg; a minimized repro is pending.",
     "Send/Sync markers are declared and auto-derived but not yet enforced on every spawn capture.",
     "The dependency-object cache key can still be consumer-specific in multi-target builds, and a per-key lock is pending.",
