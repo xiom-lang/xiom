@@ -32,16 +32,14 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   `f390844ff2f9b5eb524a1a41b97037862c1e1a7ffeedc127856f87715cbd11ad`.
   The Windows archive was verified locally (hash + `bin/` + `lib/` staged;
   stdlib imports work without `XIOM_STDLIB`).
-- REGISTRY: stdlib dispatched publish-registry with `--compiler v0.64.8`
-  (run 39297988665, main) and retried on the tag (`--ref stdlib-v0.64.8`,
-  run 39298965606); BOTH failed `publisher_not_mapped` after the compiler
-  asset downloaded and verified. The tag-ref evidence rules out a
-  dispatch-ref issue: the registry trusted-publisher mapping for
-  xiom-lang/stdlib is stale after the 2.14.2 recreate (2026-10-18T16:05Z).
-  packages acked REL-20261019-1755-stdlib; ops is re-adding the mapping and
-  auditing all mappings (REL-20261019-1805-stdlib). stdlib re-dispatches
-  after confirmation. The stdlib pin-PR job failure is the known no-op
-  (main is already on `stdlib-v0.64.8`); the compiler release is unaffected.
+- REGISTRY: **xiom-std 0.64.8 PUBLISHED.** publish-registry run
+  **39298965606** (tag ref `stdlib-v0.64.8`, `compiler=v0.64.8`) is green
+  after ops restored the OIDC trusted-publisher mapping (the registry
+  2.14.2 recreate had dropped it): registry sha256
+  `c4ab5c614506c44f95c011f81901d1630f7d4788aa51af6d5b86ca013447f4fe`,
+  publisher `xiom-lang/stdlib` with OIDC provenance, registry latest =
+  0.64.8. The earlier `publisher_not_mapped` runs are superseded. No open
+  release thread; reporters fill the check rows.
 - POST-RELEASE VERIFY (reporters fill the v0.64.8 check rows): engine
   2032/2053/1343 soak on the archive; xvector XVC-C-20 + G-2b; orbitdb
   natural position tuple 160/160 + C-ORBIT-13; bindings B-34 (B-29
@@ -69,12 +67,9 @@ docs/RELEASE_GATE_v0.64.8.md, and release-checks/compiler-compiler-v0.64.8.md
 in E:\xiom-lang\xiom-relays.
 
 v0.64.8 is RELEASED (tag v0.64.8 @ 4d040604b, run 39296778685, 11 assets,
-stdlib-v0.64.8 pin). The only open release thread is the stdlib registry
-publish: both the main-ref run and the tag-ref retry failed
-publisher_not_mapped; ops is re-adding the xiom-lang/stdlib
-trusted-publisher mapping after the 2.14.2 recreate
-(REL-20261019-1755/1805-stdlib). Confirm the registry run/sha after the
-mapping is restored; close the check rows as reporters verify.
+stdlib-v0.64.8 pin). The release is fully closed: compiler v0.64.8,
+stdlib-v0.64.8, and xiom-std 0.64.8 are public; reporters fill the check
+rows as they verify on the archive.
 
 Next wave (owner agreed): m373 parallel compile knobs + product profiling --
 expose [compiler] parallel/jobs/parallel-codegen in xiom.toml, use the
