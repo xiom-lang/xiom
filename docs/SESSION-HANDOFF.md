@@ -14,6 +14,40 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-19T14:50Z (compiler lane; v0.64.8 RELEASE IN PREP -- OWNER GO) -- READ FIRST ***
+- STATE: **owner GO for the next cut, v0.64.8**, built from current main
+  (fix baseline `ac20559f9`; release prep `c45a247d2`). No v0.64.7 re-cut.
+  Main is `c45a247d2`; relay bus `82511f1` (v0.64.8 check) / `966594f`
+  (GO announcement + stdlib request). Release gate:
+  `docs/RELEASE_GATE_v0.64.8.md`.
+- PREP DONE: workspace + selfhost version bump to 0.64.8, Cargo.lock, VSIX
+  README pin (`c45a247d2`); release notes draft
+  `release-notes/v0.64.8.md` (4 compiler highlights; draft convert/schema
+  check OK); v0.64.8 release check opened
+  (`release-checks/compiler-compiler-v0.64.8.md`).
+- HARD GATE: **stdlib-v0.64.8 must be tagged and published before the
+  compiler tag**; the stdlib request is `REL-20261019-1432-compiler`
+  (tag/publish + `release-notes/v0.64.8.md` fragment). Sequence after it
+  lands: `STDLIB_VERSION=stdlib-v0.64.8` pin -> convert/verify release notes
+  with the pinned fragment -> candidate dry-run archive -> full battery ->
+  tag `v0.64.8` on main -> release + docs dispatch.
+- THIS CUT includes m360/m368/arena/m369/m370/m367/C-ORBIT-12/13/XVC-C-20/
+  B-34 and is the archive requested by the engine (`REL-20261019-1312`).
+  NOT in this cut: m371 PULSE imported-struct layout (1309/2301), m366
+  capture-frames hang (blocked on the engine snippet), m365 caller flag
+  split/per-key lock, m363 Send/Sync, MCU/bare-metal, selfhost Phase 6
+  (separate track). These are known issues/next cycle.
+- ENVIRONMENT: the engine lane is building the editor with
+  `E:\xiom-lang\xiom\target\release\xiom.exe` (0.64.7 label; the binary
+  carries the m368/arena fixes from before the bump). **Do not rebuild that
+  path until its build exits** -- release linking fails with Access denied
+  while it holds the exe. Use the debug 0.64.8 binary for the local battery;
+  CI builds the archive fresh.
+- v0.64.7 check remains open with 114 unverdict rows (reporters own
+  fixed->verified); the v0.64.8 check owns the new cut. Full battery plan:
+  e2e full + feature_regression + integration + stdlib_execution +
+  stdlib_tests + api_freeze + checker, after the engine build exits.
+
 *** SESSION UPDATE 2026-10-18T16:15Z (compiler lane; v0.64.7 UNCHANGED -- RETESTS + FIXERS) -- READ FIRST ***
 - STATE: v0.64.7 remains the release (no re-cut). Main `dba86f6a8`;
   relay bus updated by the compiler lane (see the m360/m368/m369 items).
