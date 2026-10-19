@@ -10800,3 +10800,91 @@ fn m347_runtime_guard() -> Option<std::path::PathBuf> {
     );
     let _ = std::fs::remove_file(&exe);
 }
+
+// m371 (REL-20261019-1309-pulse): a consumer module aliases a struct from an
+// imported package (`pub type HandlerOut = app.HandlerOut;`). The checker may
+// resolve the alias fields, but codegen must also register the imported
+// module-qualified layout; otherwise the alias target falls to i64 and field
+// reads return garbage. This temp package tree reproduces the catalog path
+// (the imported module is NOT passed as a source path).
+#[test]
+fn e2e_m371_pulse_alias_import() {
+    let root = std::env::temp_dir().join(format!(
+        "xiom_m371_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    let src = root.join("packages").join("xiom-pulse").join("src");
+    std::fs::create_dir_all(&src).expect("create m371 package tree");
+    std::fs::write(
+        src.join("app.xi"),
+        r#"module xiom.pulse.app
+
+pub type HandlerOut = {
+  status: Int;
+  body: Str;
+  content_type: Str;
+}
+
+pub fn out_json(status: Int, body: Str) -> HandlerOut {
+  return HandlerOut { status: status, body: body, content_type: "text/plain" };
+}
+
+pub fn pre_stop(co: &HandlerOut) -> Int {
+  return co.status;
+}
+"#,
+    )
+    .expect("write m371 app module");
+    std::fs::write(
+        src.join("core.xi"),
+        r#"module xiom.pulse.station.core
+
+use xiom.pulse.app;
+
+pub type HandlerOut = app.HandlerOut;
+
+pub fn run() -> Int {
+  let co = app.out_json(200, "x");
+  if co.status != 200 { return 1; }
+  if co.body.len() != 1 { return 2; }
+  if co.content_type.len() != 10 { return 3; }
+  if app.pre_stop(&co) != 200 { return 4; }
+  return 0;
+}
+
+fn main() -> Int { return run(); }
+"#,
+    )
+    .expect("write m371 consumer module");
+
+    let core_src = src.join("core.xi");
+    let exe = root.join("core.exe");
+    let compile = Command::new(xiom_path())
+        .arg("--no-cache")
+        .arg("-o")
+        .arg(&exe)
+        .arg(&core_src)
+        .env("XIOM_STDLIB", project_root().join("stdlib"))
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the m371 alias fixture");
+    assert!(
+        compile.status.success(),
+        "m371 alias import: fixture must compile; stderr:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe)
+        .output()
+        .expect("run the m371 alias fixture");
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "m371 alias import: imported struct fields must read correctly; stderr:\n{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}

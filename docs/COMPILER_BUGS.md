@@ -19423,7 +19423,7 @@ Fix commit: 9c8842b5e (branch fix/escaped-vec-scoped-arena).
 
 ---
 
-## 2026-10-19 -- OPEN (m371): cross-module alias to an imported struct loses the codegen layout (REL-20261019-1309-pulse)
+## 2026-10-19 -- FIXED (m371): cross-module alias to an imported struct loses the codegen layout (REL-20261019-1309-pulse)
 
 WITNESS (two modules): `xiom.pulse.app` declares
 `pub type HandlerOut = { status: Int; body: Str; content_type: Str; }` and
@@ -19451,13 +19451,24 @@ resolves the alias target name, finds no struct key, and falls back to i64
 (its warning is suppressed for alias-derived names). The checker has the
 fields (it can resolve the alias target) but the codegen layout is missing.
 
-NEXT (m371): register imported-module type layouts in the codegen registry
-(or resolve the alias target to the defining module's canonical struct key
-and register it on demand) before `llvm_type_for`; then re-enable the
-checker's alias field access and verify `app.pre_stop(co)` argument identity
-and the full PULSE loop-switch. Reproduce with the two-module fixture; add
-an e2e lock (`e2e_m371_pulse_alias_import`) once the codegen half lands.
-No release re-cut.
+FIX (m371): two halves.
+1. Checker (`Expr::Field`): resolve the receiver's type alias before the
+   field-map lookup (`HandlerOut` -> `app.HandlerOut`), so the imported
+   fields type-check.
+2. Catalog injection (`collect_external_decls`): when the consumer declares
+   its own type/alias with the same bare leaf, the imported type was skipped
+   as "already existing"; now it is injected MODULE-QUALIFIED
+   (`xiom.pulse.app.HandlerOut`). Codegen's dotted-key suffix probe resolves
+   the alias target `app.HandlerOut` to that key, emits
+   `%struct.xiom.pulse.app.HandlerOut`, and uses it for the call ABI,
+   argument identity and field GEPs.
+
+EVIDENCE: two-module package probe (imported `app` via the catalog, consumer
+`pub type HandlerOut = app.HandlerOut;`) compiles and runs rc 0; IR has
+`%struct.xiom.pulse.app.HandlerOut = type { i64, i8*, i8* }`, `out_json`
+returns it, `pre_stop` takes a pointer, and the field reads are `i64`/`Str`
+correctly. E2E lock `e2e_m371_pulse_alias_import`. No v0.64.8 re-cut; PULSE
+verifies on a main build or the next cut and can re-enable Phase B.
 
 ---
 

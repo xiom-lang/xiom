@@ -3901,8 +3901,9 @@ impl Checker {
                             // Pub/non-pub non-generic private types stay excluded
                             // (implementation details; referenced ones are injected
                             // via the fn-signature walk below).
+                            let bare_collision = existing.contains(&td.name.name);
                             if (td.is_pub || !td.generics.is_empty())
-                                && !existing.contains(&td.name.name) {
+                                && (!bare_collision || !module_name.is_empty()) {
                                 if primitives.contains(&td.name.name.as_str()) {
                                     // m349 safety net (XARROW-ARRAYNAME): a
                                     // declaration that shadows a
@@ -3932,7 +3933,21 @@ impl Checker {
                                     // m278: a colliding non-generic type injects
                                     // module-qualified (see the pre-scan above);
                                     // single-declaration types keep the bare key.
-                                    if collision_types.contains(&td.name.name)
+                                    // m371 (REL-20261019-1309-pulse): the
+                                    // user's own type/alias with the same
+                                    // leaf must not suppress the imported
+                                    // layout. Inject it module-qualified;
+                                    // codegen resolves `alias -> app.Type`
+                                    // through the dotted-key suffix probe.
+                                    if bare_collision && !module_name.is_empty() {
+                                        let qualified = format!("{}.{}", module_name, td.name.name);
+                                        if !existing.contains(&qualified) {
+                                            let mut td2 = td.clone();
+                                            td2.name.name = qualified.clone();
+                                            existing.insert(qualified);
+                                            out.push(TopDecl::Type(td2));
+                                        }
+                                    } else if collision_types.contains(&td.name.name)
                                         && td.generics.is_empty()
                                         && !module_name.is_empty()
                                     {
@@ -8512,6 +8527,12 @@ impl Checker {
                 }
                 // Struct field access
                 let obj_ty = self.check_expr(obj);
+                // m371 (REL-20261019-1309-pulse): resolve a type ALIAS on
+                // the receiver before the field map lookup. A cross-module
+                // `pub type HandlerOut = app.HandlerOut;` otherwise looks up
+                // the alias's empty field map and degrades every field to
+                // <error>.
+                let obj_ty = self.resolve_alias(&obj_ty);
                 // Check if obj is an enum type and field is a variant (e.g., Color.Red)
                 if let CheckedType::Named(type_name) = &obj_ty {
                     let variant_full = format!("{}.{}", type_name, field.name);
