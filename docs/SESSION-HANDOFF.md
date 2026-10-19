@@ -25,11 +25,14 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   `Vec.push` grows from first capacity 8 when cap == 0. Debug
   `smoke_io_edge` rc 0; new fixture/e2e `vec_with_capacity_zero` 1/1;
   m296/m314/m195/vec locks green; m37 50/50; v0.64.7 control rc 0.
-  Candidate **`candidate-v0.64.8-r2`** pushed at `4d040604b`; stdlib asked
-  to update `COMPILER_VERSION`, move `stdlib-v0.64.8`, re-run
-  (`REL-20261019-1624-stdlib`). r1 dry-run 39283297787 packaging SUCCESS but
-  r1 rejected; r2 dry-run 39287949178 queued on `4d040604b`. **No v0.64.8
-  tag until the r2 stdlib gate is green.**
+  Candidate **`candidate-v0.64.8-r2`** pushed at `4d040604b`; stdlib moved
+  `stdlib-v0.64.8` to **`112c5b6`** (`COMPILER_VERSION=candidate-v0.64.8-r2`)
+  and re-ran (`REL-20261019-1624-stdlib`). r2 dry-run **39287949178
+  SUCCESS** on `4d040604b` (all package jobs); r2 stdlib run 39289746856:
+  Ubuntu gate SUCCESS, Windows **full smoke corpus SUCCESS**
+  (`smoke_io_edge` fixed), remaining Windows checks running. Combined notes
+  were re-verified against the moved tag (6 highlights). **No v0.64.8 tag
+  until the stdlib run completes green.**
 - STATE: **owner GO for the next cut, v0.64.8**, built from current main
   (fix baseline `ac20559f9`; release prep `c45a247d2`). No v0.64.7 re-cut.
   Main is `4d040604b`; relay bus `229f87b`. Release gate:
