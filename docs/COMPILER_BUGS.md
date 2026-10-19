@@ -19342,3 +19342,36 @@ xiom-check` **212/212**; m336 alias/tuple 3/3; m37 sweep 50/50.
 Fix commit: 344abbc23 (branch fix/b34-vec-alias-generic).
 
 ---
+
+## 2026-10-19 -- FIXED (C-ORBIT-13): &mut on a >=3-level nested field path copied intermediate structs (REL-20261019-1209-orbitdb)
+
+WITNESS: `H/BS/NS/T` structs; `fn bump(x: &mut BS) { x.n += 1; x.h.g += 10; x.v[0] += 1; }`;
+`fn flush_three(t: &mut T) { bump(&mut t.store.bs); }`. The two-level
+control (`&mut t.bs`) passed; the three-level path compiled but printed
+`n=1 g=0 v=1` (only the shared Vec buffer leaked through), no warning.
+
+ROOT CAUSE: the `&x` Ident path handled `&t.bs` (Ident base) by GEPing the
+local directly. A NESTED field chain has a **Field base**, so it fell
+through to `compile_expr(inner)`, which LOADED `t.store` and then `bs` into
+fresh allocas; `bump` mutated the copy. Scalars/nested structs were copied;
+the Vec's data pointer was shared, which is why only the Vec write survived.
+
+FIX (`crates/xiom-codegen/src/expr.rs`): added `lvalue_ptr`, a recursive
+local/global/`Field` lvalue resolver that emits GEPs through the real chain
+(no intermediate copies; R43 reference locals and module globals included).
+Nested field chains in the `&`/`&mut` handler use it; the established
+one-level Ident, boxed Result/Option, array-literal and scalar `ptrtoint`
+paths keep their existing priority. Boxed payload fields fall back to the
+existing special cases (the helper returns None).
+
+EVIDENCE: the fixture `tests/regression/c_orbit_13_nested_mut_path/` now
+prints `two-level: PASS`, `three-level: PASS`, `workaround: PASS`, rc 0 on
+BOTH debug and release compilers (pre-fix three-level `n=1 g=0 v=1`);
+new lock `e2e_c_orbit_13_nested_mut_path` 1/1; m37 sweep 50/50; m336 3/3;
+XVC-C-20 1/1; B-34 1/1. The ORBITDB repro prints all PASS (its `main`
+intentionally returns 1 when the defect is absent), so the pager workaround
+can be retired after the lane re-verifies on a main build.
+
+Fix commit: pending.
+
+---

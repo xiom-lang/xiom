@@ -882,6 +882,77 @@ impl IrEmitter {
         }
     }
 
+    /// C-ORBIT-13 (REL-20261019-1209-orbitdb): return a POINTER to an
+    /// lvalue's storage, following nested struct-field chains WITHOUT
+    /// materialising intermediate copies. Supports locals, module globals and
+    /// `Field` chains; returns `(pointer, pointee-LLVM-type)`. `None` keeps
+    /// the legacy path for shapes this helper does not model (e.g. boxed
+    /// Result/Option payloads, array-literal locals).
+    fn lvalue_ptr(&mut self, expr: &Expr) -> Option<(String, String)> {
+        match expr {
+            Expr::Ident(id) => {
+                if let Some((slot, slot_ty)) = self.lookup_local(&id.name).cloned() {
+                    if slot_ty.ends_with('*') {
+                        // R43: the local already holds a reference; the
+                        // reference VALUE is the pointee pointer.
+                        let ptr = self.fresh_tmp();
+                        self.emitln(&format!("  {ptr} = load {slot_ty}, {slot_ty}* {slot}"));
+                        Some((ptr, slot_ty.trim_end_matches('*').to_string()))
+                    } else {
+                        Some((slot, slot_ty))
+                    }
+                } else if let Some((symbol, gty)) =
+                    self.local.module_globals.get(&id.name).cloned()
+                {
+                    if gty.ends_with('*') {
+                        let ptr = self.fresh_tmp();
+                        self.emitln(&format!("  {ptr} = load {gty}, {gty}* @{symbol}"));
+                        Some((ptr, gty.trim_end_matches('*').to_string()))
+                    } else {
+                        Some((format!("@{symbol}"), gty))
+                    }
+                } else {
+                    None
+                }
+            }
+            Expr::Field(base, field_name, _) => {
+                let (base_ptr, base_ty) = self.lvalue_ptr(base)?;
+                let type_name = base_ty
+                    .strip_prefix("%struct.")?
+                    .trim_end_matches('*')
+                    .to_string();
+                let bare = type_name.rsplit('.').next().unwrap_or(&type_name);
+                // Boxed Result/Option payload fields are HANDLES, not inline
+                // storage; leave them to the established special cases.
+                if (bare == "Result"
+                    || bare == "Option"
+                    || bare.ends_with("Result")
+                    || bare.ends_with("Option"))
+                    && matches!(field_name.name.as_str(), "value" | "error")
+                {
+                    return None;
+                }
+                let field_names = self.types.types.get(&type_name).or_else(|| {
+                    let suffix = format!(".{type_name}");
+                    self.types
+                        .types
+                        .keys()
+                        .into_iter()
+                        .find(|k| k.ends_with(&suffix))
+                        .and_then(|k| self.types.types.get(&k))
+                })?;
+                let fi = field_names.iter().position(|f| f == &field_name.name)?;
+                let field_ty = self.field_llvm_type(&type_name, fi);
+                let gep = self.fresh_tmp();
+                self.emitln(&format!(
+                    "  {gep} = getelementptr {base_ty}, {base_ty}* {base_ptr}, i32 0, i32 {fi}"
+                ));
+                Some((gep, field_ty))
+            }
+            _ => None,
+        }
+    }
+
     pub(crate) fn compile_expr(&mut self, expr: &Expr) -> Result<(String, String), String> {
         // Flush any concrete struct types that were registered during
         // compilation (e.g. %struct.Option__Point) so they appear before
@@ -4193,6 +4264,26 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                     }
                                 }
                             }
+                        }
+                    }
+                    // C-ORBIT-13 (REL-20261019-1209-orbitdb): the one-level
+                    // Ident path above handles `&t.bs` / `&this.bs`. A NESTED
+                    // field chain (`&mut t.store.bs`) has a Field base, so the
+                    // old code fell through to compile_expr(inner), which
+                    // LOADED `t.store` and `bs` into temporaries; the callee
+                    // mutated the copy and only the shared Vec buffer leaked
+                    // through. Follow the real lvalue chain with GEPs instead.
+                    if !matches!(base.as_ref(), Expr::Ident(_)) {
+                        if let Some((ptr, ty)) = self.lvalue_ptr(inner) {
+                            if ty.starts_with("%struct.")
+                                || ty.starts_with('[')
+                                || ty.starts_with('{')
+                            {
+                                return Ok((ptr, format!("{ty}*")));
+                            }
+                            let ptr_val = self.fresh_tmp();
+                            self.emitln(&format!("  {ptr_val} = ptrtoint {ty}* {ptr} to i64"));
+                            return Ok((ptr_val, "i64".to_string()));
                         }
                     }
                 }

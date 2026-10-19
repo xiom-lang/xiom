@@ -10671,3 +10671,46 @@ fn m347_runtime_guard() -> Option<std::path::PathBuf> {
     );
     let _ = std::fs::remove_file(&exe);
 }
+
+// C-ORBIT-13 (REL-20261019-1209-orbitdb): `&mut` on a >=3-level nested
+// field path (`&mut t.store.bs`) must alias the real field, not copy the
+// intermediate struct. Pre-fix the three-level case printed n=1 g=0 v=1
+// (only the shared Vec buffer leaked through); the two-level control passed.
+// Green = all three cases PASS, rc 0.
+#[test] fn e2e_c_orbit_13_nested_mut_path() {
+    let base = project_root()
+        .join("tests")
+        .join("regression")
+        .join("c_orbit_13_nested_mut_path");
+    let src = base.join("main.xi");
+    let exe = project_root().join("target").join("c_orbit_13_nested_mut_path.exe");
+    let _ = std::fs::remove_file(&exe);
+
+    let compile = Command::new(xiom_path())
+        .args(["--no-cache", "-o"])
+        .arg(&exe)
+        .arg(&src)
+        .env("XIOM_STDLIB", project_root().join("stdlib"))
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the C-ORBIT-13 fixture");
+    assert!(
+        compile.status.success(),
+        "C-ORBIT-13: fixture must compile; stderr:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe)
+        .output()
+        .expect("run the C-ORBIT-13 fixture");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "C-ORBIT-13: two-level, three-level and workaround must all pass (pre-fix three-level failed); stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("three-level: PASS"),
+        "C-ORBIT-13: nested &mut must persist scalar/nested-struct fields; stdout: {stdout}"
+    );
+    let _ = std::fs::remove_file(&exe);
+}

@@ -142,9 +142,17 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   `e2e_b34_vec_alias_generic` 1/1; `xiom-check` 212/212; m336 3/3; m37
   sweep 50/50. Relay 0042 fixed; B-29 is the only reporter-side re-run left
   in this cluster (B-32 retired).
+- **C-ORBIT-13 FIXED + ON MAIN (2026-10-19T14:00Z)**: `&mut` on a
+  >=3-level nested field path (`&mut t.store.bs`) now follows the real
+  lvalue chain with `lvalue_ptr` GEPs instead of loading intermediate
+  copies. The fixture prints two-level/three-level/workaround PASS, rc 0 on
+  debug + release (pre-fix three-level `n=1 g=0 v=1`); new lock
+  `e2e_c_orbit_13_nested_mut_path` 1/1; m37 50/50, m336 3/3, XVC-C-20 1/1,
+  B-34 1/1. Relay 1209-orbitdb fixed; orbitdb can retire the pager
+  workaround after re-verify.
 - QUEUE (triaged 2026-10-18): **in flight** none (m360, m370, m368, m367,
-  C-ORBIT-12 and XVC-C-20 are fixed on main; selfhost RD7 green, T6 14/64;
-  next Phase 6 shapes).
+  C-ORBIT-12, XVC-C-20, B-34 and C-ORBIT-13 are fixed on main; selfhost RD7
+  green, T6 14/64; next Phase 6 shapes).
   **Next wave** (do not launch until a heavy slot frees): (a) m365 PARTIAL:
   ready marker + canonical dependency paths landed; remaining caller flag
   split + per-key lock and the engine re-measure (checklist
