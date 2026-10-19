@@ -17,7 +17,7 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 *** SESSION UPDATE 2026-10-19T14:50Z (compiler lane; v0.64.8 RELEASE IN PREP -- OWNER GO) -- READ FIRST ***
 - STATE: **owner GO for the next cut, v0.64.8**, built from current main
   (fix baseline `ac20559f9`; release prep `c45a247d2`). No v0.64.7 re-cut.
-  Main is `37f0ba2c1`; relay bus `23a54e7` (source-ref handoff). Release gate:
+  Main is `6faf74dfb`; relay bus `2dfab8f`. Release gate:
   `docs/RELEASE_GATE_v0.64.8.md`.
 - PREP DONE: workspace + selfhost version bump to 0.64.8, Cargo.lock, VSIX
   README pin (`c45a247d2`); release notes `release-notes/v0.64.8.md` plus
@@ -32,9 +32,21 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   guard-alloc), (b) the release-layout runtime C missing, and (c) the
   stdlib root for API-freeze/JIT. Fixed the Vec allocation locks
   (`087e5e7f1`), staged the `9b88b46` stdlib into `target/release/lib`,
-  rebuilt release 0.64.8; **battery2 running** at
-  `%TEMP%\kilo\v0648-battery2.log`. The engine editor build finished, so the
-  release binary is free to relink.
+  rebuilt release 0.64.8. The engine editor build finished, so the release
+  binary is free to relink.
+- **BATTERY2 GREEN ON THE COMPILER SIDE**: e2e **2612/2613 + m17 clean
+  re-run** (the single failure was a local duplicate stdlib root: repo
+  `stdlib` + staged `target/release/lib` -> W001; m17 passes when the
+  staged lib is removed); feature_regression 549/549, integration 130/130,
+  stdlib_execution 85/85, stdlib_tests 40/40, api_freeze 3/3, rtcache/JIT
+  72/72, checker 212/212, codegen lib 23/23. Log:
+  `%TEMP%\kilo\v0648-battery2.log`.
+- **DRY-RUN 39276425781 FAILED at "Checkout stdlib at the pin"**: the
+  stdlib candidate `9b88b46` is **LOCAL-ONLY** (not on origin). This is not
+  a compiler failure. `STDLIB_VERSION` was reverted to `stdlib-v0.64.7`
+  (`6faf74dfb`); relay `REL-20261019-1532-compiler` asks stdlib to push
+  `9b88b46` and tag `stdlib-v0.64.8`. Re-run the dry-run with the tag once
+  it is on origin.
 - HARD GATE: **stdlib-v0.64.8 must be tagged and published before the
   compiler tag**; the stdlib request is `REL-20261019-1432-compiler`
   (tag/publish + `release-notes/v0.64.8.md` fragment). The **source ref is

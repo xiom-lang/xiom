@@ -1,7 +1,10 @@
 # Release gate -- v0.64.8
 
-STATUS: **IN PREP 2026-10-19** -- owner GO received. Not released. The
-official v0.64.7 archive is not re-cut; v0.64.8 is the next cut and the
+STATUS: **IN PREP 2026-10-19** -- owner GO received. Not released. Compiler
+battery is green; dry-run 39276425781 failed at the stdlib checkout because
+the stdlib candidate `9b88b46` is local-only (not on origin). `STDLIB_VERSION`
+was reverted to `stdlib-v0.64.7` (`6faf74dfb`); stdlib asked to push/tag.
+The official v0.64.7 archive is not re-cut; v0.64.8 is the next cut and the
 archive requested by the engine in `REL-20261019-1312-engine`.
 
 ## Scope
@@ -30,7 +33,11 @@ These are in `release-notes/v0.64.8.md` known issues and the v0.64.8 check.
 - [ ] **stdlib-v0.64.8 tagged and published**; `STDLIB_VERSION` pinned to it.
       Hard gate: no compiler tag before the stdlib is on the same track.
       Request: `REL-20261019-1432-compiler` (stdlib lane). The pin must carry
-      `release-notes/v0.64.8.md` for the combined notes.
+      `release-notes/v0.64.8.md` for the combined notes. **Blocker: the
+      candidate `9b88b46` is local-only; the stdlib lane must push it and
+      tag `stdlib-v0.64.8` (relay `REL-20261019-1532-compiler`).** The
+      compiler source ref for the stdlib build is
+      `candidate-v0.64.8-r1` / `c45a247d2` (pushed).
 - [x] Workspace + selfhost version bump to 0.64.8 (`c45a247d2`), Cargo.lock,
       VSIX README pin.
 - [ ] Release notes `release-notes/v0.64.8.md` converted to JSON with the
@@ -40,11 +47,13 @@ These are in `release-notes/v0.64.8.md` known issues and the v0.64.8 check.
 - [ ] Candidate dry-run archive on the pin commit: `gh workflow run
       release.yml -f version=0.64.8`; all platform legs + VSIX + wasm +
       SHA256SUMS green; every staged tool reports 0.64.8.
-- [ ] Full battery on the release commit: e2e_tests (full), feature_regression,
-      integration, stdlib_execution, stdlib_tests, stdlib_api_freeze, checker.
-      Do not run concurrently with the engine's assimp editor build; the
-      release binary may be locked by that build (use the debug binary for the
-      harness, or build the release into a separate CARGO_TARGET_DIR).
+- [x] Full battery on the release commit (battery2): e2e **2612/2613 + m17
+      clean re-run** (the one failure was a local duplicate stdlib root; m17
+      passes with the staged lib removed), feature_regression 549/549,
+      integration 130/130, stdlib_execution 85/85, stdlib_tests 40/40,
+      api_freeze 3/3, rtcache/JIT 72/72, checker 212/212, codegen lib 23/23.
+      Log `%TEMP%\kilo\v0648-battery2.log`. The engine assimp build finished;
+      the release binary is free.
 - [ ] Engine 2032/2053/1343 + editor soak under the 2 GB cap (600+ frames,
       flat WS) on the candidate archive.
 - [ ] Xvector 53-probe battery + XVC-C-20/G-2b on the candidate.
@@ -73,7 +82,10 @@ These are in `release-notes/v0.64.8.md` known issues and the v0.64.8 check.
 ## Tag + publish log
 
 - [ ] Push the pin/notes commits to main.
-- [ ] Dry-run workflow green; record the run id.
+- [x] Dry-run 39276425781 attempted on `6879d694a` (stdlib pin `9b88b46`)
+      -- FAILED at "Checkout stdlib at the pin" because the stdlib commit is
+      local-only; not a compiler failure.
+- [ ] Dry-run workflow green on the pushed stdlib tag; record the run id.
 - [ ] Tag `v0.64.8`; guard green (tag == workspace 0.64.8, tag on main).
 - [ ] Release published; SHA256SUMS + assets verified; docs dispatch.
 - [ ] Announce and unblock the lanes (engine archive, xvector/orbitdb/
