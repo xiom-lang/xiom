@@ -875,7 +875,28 @@ impl IrEmitter {
         // arena exit -- including escaped Vec/Str/box values that the AST
         // drop pass cannot own. This turns the existing guard heap into a
         // documented scoped-arena API, not just an unsafe-block detail.
-        self.emitln(&format!("  {tmp} = call i8* @xiom_guard_alloc(i64 {size_expr})"));
+        // Zero-size requests are a VALID buffer state (e.g.
+        // `Vec[UInt8]::with_capacity(0)` in `io.read_file` on an empty
+        // file). The runtime guard allocator deliberately returns NULL for
+        // size <= 0, and the Vec ctor's null check would then execute
+        // llvm.trap (SIGILL / 0xC000001D). Clamp the request to one byte so
+        // the empty buffer has a stable non-null pointer; callers that later
+        // grow it use realloc with a positive size.
+        //
+        // Keep CONSTANT positive sizes direct: the allocation locks assert
+        // the literal `@xiom_guard_alloc(i64 128/256/512)` shape (m195/m296/
+        // m314/vec_new_initial_capacity). Only zero constants and runtime
+        // sizes need the clamp.
+        if let Ok(n) = size_expr.trim().parse::<i64>() {
+            let size = if n == 0 { 1 } else { n };
+            self.emitln(&format!("  {tmp} = call i8* @xiom_guard_alloc(i64 {size})"));
+        } else {
+            let is_zero = self.fresh_tmp();
+            self.emitln(&format!("  {is_zero} = icmp eq i64 {size_expr}, 0"));
+            let alloc_size = self.fresh_tmp();
+            self.emitln(&format!("  {alloc_size} = select i1 {is_zero}, i64 1, i64 {size_expr}"));
+            self.emitln(&format!("  {tmp} = call i8* @xiom_guard_alloc(i64 {alloc_size})"));
+        }
         tmp
     }
 

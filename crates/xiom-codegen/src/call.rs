@@ -2275,8 +2275,15 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         let store_block = self.fresh_block("vec_store");
                         self.emitln(&format!("  br i1 {cap_check}, label %{store_block}, label %{grow_block}"));
                         self.emitln(&format!("\n{grow_block}:"));
+                        // A zero-capacity Vec (with_capacity(0), empty file
+                        // buffer) must grow to a real first capacity: 0 * 2
+                        // is still 0, and realloc(ptr, 0) would null/trap.
+                        let doubled_cap = self.fresh_tmp();
+                        self.emitln(&format!("  {doubled_cap} = mul i64 {cap_val}, 2"));
+                        let zero_cap = self.fresh_tmp();
+                        self.emitln(&format!("  {zero_cap} = icmp eq i64 {cap_val}, 0"));
                         let new_cap = self.fresh_tmp();
-                        self.emitln(&format!("  {new_cap} = mul i64 {cap_val}, 2"));
+                        self.emitln(&format!("  {new_cap} = select i1 {zero_cap}, i64 8, i64 {doubled_cap}"));
                         // Capacity guard: trap when the next doubling would
                         // exceed 2^32-1 ELEMENTS (effective max capacity is
                         // one doubling below the ceiling: 2^31 elements,

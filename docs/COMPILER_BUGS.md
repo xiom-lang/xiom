@@ -19460,3 +19460,34 @@ an e2e lock (`e2e_m371_pulse_alias_import`) once the codegen half lands.
 No release re-cut.
 
 ---
+
+## 2026-10-19 -- FIXED (REL-20261019-1624-stdlib): zero-capacity Vec buffer trapped (SIGILL / 0xC000001D)
+
+WITNESS: stdlib `tests/smoke/smoke_io_edge.xi` (write_file/read_file/remove_file).
+The first `read_file` is an **empty file** -> `Vec[UInt8]::with_capacity(0)`.
+v0.64.7 archive: rc 0. Candidate `candidate-v0.64.8-r1`: compile rc 0, run
+SIGILL (run_exit 132 on Ubuntu, 0xC000001D on Windows).
+
+ROOT CAUSE: `xiom_alloc` / `xiom_guard_alloc` return NULL for size <= 0. The
+candidate routes Vec data through `@xiom_guard_alloc`, so `with_capacity(0)`
+got NULL and `vec_wc_trap` executed `llvm.trap`. v0.64.7 used `@malloc(0)`,
+which returned non-NULL on both gates. A second edge: pushing into a
+zero-capacity Vec computed `new_cap = 0 * 2 = 0`, then `realloc(ptr, 0)` ->
+NULL -> `llvm.trap`.
+
+FIX: `emit_alloc` clamps a zero-size request to one byte (positive constants
+keep the literal IR shape; runtime sizes use an icmp/select), and Vec.push
+growth uses first capacity 8 when cap == 0.
+
+EVIDENCE: fixed debug compiler: `smoke_io_edge` rc 0; new fixture
+`tests/regression/vec_with_capacity_zero` rc 0 and lock
+`e2e_vec_with_capacity_zero` 1/1; m296/m314/m195/vec_new_initial_capacity
+locks green; m37 sweep 50/50. v0.64.7 control rc 0; r1 candidate reproduced
+the SIGILL. Candidate ref for the stdlib re-gate:
+`candidate-v0.64.8-r2` (this branch/commit); stdlib must move
+`stdlib-v0.64.8` to the r2 marker commit and re-run `release.yml`. No
+compiler v0.64.8 tag until that gate is green; no v0.64.7 re-cut.
+
+Fix commit: `candidate-v0.64.8-r2` (branch `fix/v0.64.8-zero-capacity-alloc`).
+
+---

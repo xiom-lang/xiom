@@ -10758,3 +10758,45 @@ fn m347_runtime_guard() -> Option<std::path::PathBuf> {
     );
     let _ = std::fs::remove_file(&exe);
 }
+
+// REL-20261019-1624-stdlib: `Vec[UInt8]::with_capacity(0)` is a valid empty
+// buffer (io.read_file on an empty file). The runtime allocator returns NULL
+// for size 0; the Vec ctor must not trap on that state, and a later push must
+// grow safely. Pre-fix this exits with SIGILL / 0xC000001D.
+#[test] fn e2e_vec_with_capacity_zero() {
+    let base = project_root()
+        .join("tests")
+        .join("regression")
+        .join("vec_with_capacity_zero");
+    let src = base.join("main.xi");
+    let exe = project_root().join("target").join("vec_with_capacity_zero.exe");
+    let _ = std::fs::remove_file(&exe);
+
+    let compile = Command::new(xiom_path())
+        .args(["--no-cache", "-o"])
+        .arg(&exe)
+        .arg(&src)
+        .env("XIOM_STDLIB", project_root().join("stdlib"))
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the zero-capacity Vec fixture");
+    assert!(
+        compile.status.success(),
+        "zero-capacity Vec: fixture must compile; stderr:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe)
+        .output()
+        .expect("run the zero-capacity Vec fixture");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "zero-capacity Vec: with_capacity(0) plus push must not trap; stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("ok"),
+        "zero-capacity Vec: expected ok; stdout: {stdout}"
+    );
+    let _ = std::fs::remove_file(&exe);
+}
