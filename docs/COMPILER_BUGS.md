@@ -19372,6 +19372,6 @@ XVC-C-20 1/1; B-34 1/1. The ORBITDB repro prints all PASS (its `main`
 intentionally returns 1 when the defect is absent), so the pager workaround
 can be retired after the lane re-verifies on a main build.
 
-Fix commit: pending.
+Fix commit: 7cee95ac2 (branch fix/c-orbit-13-nested-mut-path).
 
 ---
