@@ -19375,3 +19375,50 @@ can be retired after the lane re-verifies on a main build.
 Fix commit: 7cee95ac2 (branch fix/c-orbit-13-nested-mut-path).
 
 ---
+
+## 2026-10-19 -- FIXED (m368 follow-up / REL-20261019-1343-engine): escaped & per-frame Vecs via a scoped arena
+
+WITNESS: an editor-shaped frame (`type Frame = { a: Vec[Int]; b:
+Vec[Float64]; c: Vec[Int]; }`) returned from `make_frame` and consumed by
+`consume` in a 200-iteration loop. Pre-arena on main (m368 included):
+**4555 MB WS / 4765 MB private**, 3.2 s. The engine's fixed editor showed
+the same class: 2204 MB WS / 2635 MB private and killed in 600 frames under
+a 2 GB cap.
+
+ROOT CAUSE: m368 (`5a530cf7e`) owns only **non-escaping Vec locals**. Frame
+structs returned/passed across function boundaries are not owned by that
+pass; the Vec headers inside copied/returned structs alias the buffers, so
+freeing them without ownership tracking would be a use-after-free. The
+container ABI carries no refcount.
+
+FIX (compiler-side, no stdlib edit): all compiler-emitted allocations now
+route through the guard-aware runtime helpers
+(`@xiom_guard_alloc` / `@xiom_guard_realloc`); when no arena is active they
+fall back to the main heap (`xiom_alloc` / `realloc`), preserving normal
+semantics. The runtime's existing per-thread guard heap becomes a documented
+**scoped arena** API: `xiom_guard_heap_enter()` / `xiom_guard_heap_exit()`
+are explicitly SAFE externs (checker allowlist), so application code does
+not need `unsafe`. Enter before a frame's allocations, exit after; the
+arena discards every slab wholesale, including escaped Vec/Str/box values
+that m368 cannot own. `xiom_guard_free` already no-ops for arena pointers
+and frees main-heap pointers; main-heap Vecs grown inside an arena stay on
+the main heap (runtime R4). Array-literal Vec data also uses the
+guard-aware allocator.
+
+EVIDENCE (release compiler, 2026-10-19): the same editor-shaped witness
+inside the scoped arena is **51.7-53.3 MB WS / 82.7 MB private**, 8.5-9.9 s
+(flat); the m368 3000 x 1M Float64 loop remains **15.0 MB WS / 47.5 MB
+private**, `leak loop done`; new lock `e2e_escaped_frame_arena` 1/1; m368
+1/1, m37 50/50, m336 3/3, C-ORBIT-13 1/1, B-34 1/1, XVC-C-20 1/1, m347
+3/3, `cargo test -p xiom-check` green. Docs: `docs/SCOPED-ARENA.md`; soak
+witnesses: `tests/soak/`.
+
+LIMITATION: the arena is opt-in and has a scope contract -- no arena value
+may escape or be used after `exit`. The engine must wrap each editor frame
+(and its allocating helpers) and keep persistent state on the main heap.
+A refcount/ownership-transfer Vec ABI remains future work. No release
+re-cut; the official v0.64.7 archive predates the routing.
+
+Fix commit: pending.
+
+---

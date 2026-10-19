@@ -150,9 +150,26 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   `e2e_c_orbit_13_nested_mut_path` 1/1; m37 50/50, m336 3/3, XVC-C-20 1/1,
   B-34 1/1. Relay 1209-orbitdb fixed; orbitdb can retire the pager
   workaround after re-verify.
-- QUEUE (triaged 2026-10-18): **in flight** none (m360, m370, m368, m367,
-  C-ORBIT-12, XVC-C-20, B-34 and C-ORBIT-13 are fixed on main; selfhost RD7
-  green, T6 14/64; next Phase 6 shapes).
+- **ESCAPED/PER-FRAME VEC LEAK FIXED (REL-20261019-1343-engine)
+  (2026-10-19T15:00Z)**: all compiler-emitted allocations now route through
+  the guard-aware allocator/realloc (main-heap fallback when no arena is
+  active); `xiom_guard_heap_enter()` / `xiom_guard_heap_exit()` are
+  explicitly SAFE externs (checker allowlist), giving a documented scoped
+  arena with no `unsafe` in application code. Editor-shaped witness:
+  **4555 MB WS / 4765 MB private -> 51.7-53.3 MB WS / 82.7 MB private**
+  (flat, 8.5-9.9 s); m368 loop still flat 15.0 / 47.5 MB; new lock
+  `e2e_escaped_frame_arena` 1/1; m37 50/50, m336 3/3, C-ORBIT-13 1/1, B-34
+  1/1, XVC-C-20 1/1, m347 3/3, checker green. Engine must wrap each editor
+  frame (keep persistent state on the main heap) and run the capped 600-frame
+  soak. Docs: `docs/SCOPED-ARENA.md`; soak: `tests/soak/`. Archive 1312
+  still needs owner GO + the remaining lane verification.
+- QUEUE (triaged 2026-10-19): **in flight** none (m360, m370, m368, m367,
+  C-ORBIT-12, XVC-C-20, B-34, C-ORBIT-13 and the escaped/per-frame Vec leak
+  are fixed on main; selfhost RD7 green, T6 14/64; next Phase 6 shapes).
+  **IMMEDIATE:** PULSE 1309 cross-module public `HandlerOut` identity/field
+  access is HIGH and blocks PULSE Phase B (reproduce/fix next; `co.status`
+  -> `<error>`, `app.pre_stop(co)` -> expected HandlerOut/found
+  app.HandlerOut).
   **Next wave** (do not launch until a heavy slot frees): (a) m365 PARTIAL:
   ready marker + canonical dependency paths landed; remaining caller flag
   split + per-key lock and the engine re-measure (checklist
@@ -162,10 +179,11 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   exist, and Channel/Mutex/Arc boundaries are unchecked; checklist
   `docs/checklists/m363-send-sync.md`); (c) m366 **BLOCKED** on the engine's
   minimized capture-only snippet (asked 2026-10-17); (d) .xiomignore
-  1504/2104; alias-qualified 2100; LLVM
-  baseline 1647; packages 2303/2309 re-verify (registry canary 2257 is
-  closed). Fixed-but-acked closure is reporter-lane work (the compiler
-  cannot move fixed->verified): reporters fill their rows in
+  1504/2104; alias-qualified 2100; LLVM baseline 1647; packages 2303/2309
+  re-verify (registry canary 2257 is closed). The engine archive 1312
+  remains blocked on owner GO + lane verification. Fixed-but-acked closure
+  is reporter-lane work (the compiler cannot move fixed->verified):
+  reporters fill their rows in
   `release-checks/compiler-compiler-v0.64.7.md` (hash/Mutex, Float64 dlsym,
   Result-ref, platform consts, arm64, macOS memset build, cold lanes, E001
   same-call). Performance track 1: m369 landed (index

@@ -867,11 +867,15 @@ impl IrEmitter {
     /// block exit, isolating unsafe-block allocations from the main heap.
     fn emit_alloc(&mut self, size_expr: &str) -> String {
         let tmp = self.fresh_tmp();
-        if self.guard_heap_depth > 0 {
-            self.emitln(&format!("  {tmp} = call i8* @xiom_guard_alloc(i64 {size_expr})"));
-        } else {
-            self.emitln(&format!("  {tmp} = call i8* @malloc(i64 {size_expr})"));
-        }
+        // Scoped-arena support (REL-20261019-1343-engine): ALWAYS route
+        // through the guard-aware allocator. When no arena is active the
+        // runtime falls back to xiom_alloc (main heap), so normal allocations
+        // keep their semantics. When a runtime scoped arena is active
+        // (xiom_guard_heap_enter), the allocation is reclaimed wholesale at
+        // arena exit -- including escaped Vec/Str/box values that the AST
+        // drop pass cannot own. This turns the existing guard heap into a
+        // documented scoped-arena API, not just an unsafe-block detail.
+        self.emitln(&format!("  {tmp} = call i8* @xiom_guard_alloc(i64 {size_expr})"));
         tmp
     }
 
@@ -882,11 +886,11 @@ impl IrEmitter {
     /// VirtualAlloc slab pointer (invalid) and corrupt/crash the process.
     fn emit_realloc(&mut self, old_ptr: &str, old_size: &str, new_size: &str) -> String {
         let tmp = self.fresh_tmp();
-        if self.guard_heap_depth > 0 {
-            self.emitln(&format!("  {tmp} = call i8* @xiom_guard_realloc(i8* {old_ptr}, i64 {old_size}, i64 {new_size})"));
-        } else {
-            self.emitln(&format!("  {tmp} = call i8* @realloc(i8* {old_ptr}, i64 {new_size})"));
-        }
+        // Scoped-arena support: the runtime helper falls back to plain
+        // realloc when no arena is active, and stays arena-aware when one is.
+        // Main-heap pointers grown inside an arena stay on the main heap
+        // (runtime R4 guard), so an outer Vec never migrates into a scope.
+        self.emitln(&format!("  {tmp} = call i8* @xiom_guard_realloc(i8* {old_ptr}, i64 {old_size}, i64 {new_size})"));
         tmp
     }
 

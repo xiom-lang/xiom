@@ -9474,9 +9474,20 @@ impl Checker {
                     // safe code (depth 0) is a hard error -- EXCEPT inside a fn
                     // declaring requires/ensures contracts (the sanctioned safe
                     // wrapper pattern, requirement c).
+                    // Scoped-arena API (REL-20261019-1343-engine): the guard
+                    // heap enter/exit functions are explicitly SAFE: they only
+                    // adjust the per-thread arena nesting counter and discard
+                    // arena slabs on the outer exit. No pointers are exposed
+                    // and no caller memory is freed. Safe code may open/close a
+                    // scope directly, so the engine does not need an `unsafe`
+                    // block just to reach the documented arena API.
                     if self.unsafe_depth == 0
                         && !self.current_fn_has_contracts
                         && self.extern_fns.contains(&name.name)
+                        && !matches!(
+                            name.name.as_str(),
+                            "xiom_guard_heap_enter" | "xiom_guard_heap_exit"
+                        )
                     {
                         self.error(
                             format!("calling extern \"C\" function '{}' requires an `unsafe` block", name.name),

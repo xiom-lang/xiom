@@ -816,9 +816,10 @@ impl IrEmitter {
         // Allocate Vec struct on stack
         let vec_alloca = self.fresh_tmp();
         self.emitln(&format!("  {vec_alloca} = alloca %struct.Vec"));
-        // malloc data buffer
-        let data_ptr = self.fresh_tmp();
-        self.emitln(&format!("  {data_ptr} = call i8* @malloc(i64 {alloc_size})"));
+        // Data buffer: use the guard-aware allocator so a scoped arena
+        // (REL-20261019-1343-engine) owns array-literal Vecs too. Falls back
+        // to the main heap when no arena is active.
+        let data_ptr = self.emit_alloc(&alloc_size.to_string());
         let null_check = self.fresh_tmp();
         let ok_block = self.fresh_block("arr2vec_ok");
         let trap_block = self.fresh_block("arr2vec_trap");

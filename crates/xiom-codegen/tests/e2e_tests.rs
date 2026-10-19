@@ -10714,3 +10714,47 @@ fn m347_runtime_guard() -> Option<std::path::PathBuf> {
     );
     let _ = std::fs::remove_file(&exe);
 }
+
+// REL-20261019-1343-engine: editor-shaped frames return several Vecs across
+// function boundaries. m368's non-escaping-only pass cannot own them, so the
+// runtime scoped arena is the escape hatch: guard_heap_enter/exit around a
+// frame makes all compiled allocations arena-backed and discards them
+// wholesale at exit. Green = the frames are consumed correctly (the memory
+// flatness acceptance is the engine editor soak + the large witness).
+#[test] fn e2e_escaped_frame_arena() {
+    let base = project_root()
+        .join("tests")
+        .join("regression")
+        .join("escaped_frame_arena");
+    let src = base.join("main.xi");
+    let exe = project_root().join("target").join("escaped_frame_arena.exe");
+    let _ = std::fs::remove_file(&exe);
+
+    let compile = Command::new(xiom_path())
+        .args(["--no-cache", "-o"])
+        .arg(&exe)
+        .arg(&src)
+        .env("XIOM_STDLIB", project_root().join("stdlib"))
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the scoped-arena fixture");
+    assert!(
+        compile.status.success(),
+        "scoped arena: fixture must compile/link (xiom_guard_heap_* are runtime symbols); stderr:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe)
+        .output()
+        .expect("run the scoped-arena fixture");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "scoped arena: escaped frame Vecs must be consumed correctly; stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("done 6000000"),
+        "scoped arena: frame lengths must be intact; stdout: {stdout}"
+    );
+    let _ = std::fs::remove_file(&exe);
+}
