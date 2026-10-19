@@ -3783,6 +3783,7 @@ impl Checker {
                 primitives: &[&str],
                 generic_types: &HashSet<String>,
                 collision_types: &HashSet<String>,
+                empty_aliases: &HashSet<String>,
                 module_name: &str,
                 out: &mut Vec<TopDecl>,
                 enum_modules: &mut Vec<(String, String)>,
@@ -3934,12 +3935,17 @@ impl Checker {
                                     // module-qualified (see the pre-scan above);
                                     // single-declaration types keep the bare key.
                                     // m371 (REL-20261019-1309-pulse): the
-                                    // user's own type/alias with the same
-                                    // leaf must not suppress the imported
-                                    // layout. Inject it module-qualified;
-                                    // codegen resolves `alias -> app.Type`
-                                    // through the dotted-key suffix probe.
-                                    if bare_collision && !module_name.is_empty() {
+                                    // user's own EMPTY type alias with the
+                                    // same leaf must not suppress the imported
+                                    // layout; inject it module-qualified.
+                                    // A real user type (fields) keeps the old
+                                    // skip -- qualifying every collision broke
+                                    // stdlib method resolution (m37_bug55).
+                                    let bare_is_empty_alias = empty_aliases.contains(&td.name.name);
+                                    if bare_collision
+                                        && !module_name.is_empty()
+                                        && bare_is_empty_alias
+                                    {
                                         let qualified = format!("{}.{}", module_name, td.name.name);
                                         if !existing.contains(&qualified) {
                                             let mut td2 = td.clone();
@@ -4207,7 +4213,7 @@ impl Checker {
                             // external-decl injection, so wrapped decls would never
                             // reach codegen. Module context is preserved instead by
                             // leaf-qualifying free fn names above.
-                            collect_pub_decls(&md.items, existing, primitives, generic_types, collision_types, module_name, out, enum_modules);
+                            collect_pub_decls(&md.items, existing, primitives, generic_types, collision_types, empty_aliases, module_name, out, enum_modules);
                         }
                         TopDecl::Extern(eb) => {
                             // Inject external modules' `extern "C"` blocks so their
@@ -4463,7 +4469,18 @@ impl Checker {
             })
             .collect();
         for (cached_module_name, items) in &prepared {
-            collect_pub_decls(items, &mut existing, PRIMITIVES, &generic_type_names, &collision_type_names, cached_module_name, &mut decls, &mut enum_modules);
+            // m371: bare type/alias names with an EMPTY field map. Only these
+        // user aliases may take the module-qualified imported layout; a real
+        // colliding type keeps the historical skip (m37_bug55).
+        let empty_alias_names: HashSet<String> = self.aliases.keys()
+            .filter(|name| {
+                self.types
+                    .get(&self.intern_type_name(name))
+                    .map_or(true, |f| f.is_empty())
+            })
+            .cloned()
+            .collect();
+        collect_pub_decls(items, &mut existing, PRIMITIVES, &generic_type_names, &collision_type_names, &empty_alias_names, cached_module_name, &mut decls, &mut enum_modules);
         }
         // m225 (C-ORBIT-04): expose the (enum, module) hints to the driver so
         // codegen can scope bare-variant resolution to the declaring module.
@@ -8527,12 +8544,50 @@ impl Checker {
                 }
                 // Struct field access
                 let obj_ty = self.check_expr(obj);
-                // m371 (REL-20261019-1309-pulse): resolve a type ALIAS on
-                // the receiver before the field map lookup. A cross-module
-                // `pub type HandlerOut = app.HandlerOut;` otherwise looks up
-                // the alias's empty field map and degrades every field to
-                // <error>.
-                let obj_ty = self.resolve_alias(&obj_ty);
+                // m371 (REL-20261019-1309-pulse): resolve a cross-module
+                // type ALIAS on the receiver only when the direct field map
+                // is missing/empty. Resolving unconditionally altered the
+                // receiver type for stdlib aliases that already have fields
+                // and broke `Weak.upgrade` / Rc (m37_bug55). The consumer
+                // alias `HandlerOut` has no direct field map, so it still
+                // falls through to `app.HandlerOut`.
+                let obj_ty = if self.checking_catalog {
+                    // Catalog bodies keep their historical alias semantics:
+                    // the m371 fallback is for USER modules importing a type.
+                    obj_ty
+                } else {
+                    match &obj_ty {
+                        CheckedType::Named(name) => {
+                            let base = name.split('[').next().unwrap_or(name);
+                            let has_fields = self.get_type(base).map_or(false, |f| !f.is_empty());
+                            if has_fields {
+                                obj_ty
+                            } else {
+                                let resolved = self.resolve_alias(&obj_ty);
+                                // Only take the alias target when it DECLARES
+                                // this field. A method callee (`w.upgrade()`)
+                                // is an Expr::Field too; resolving it to the
+                                // receiver alias broke Weak.upgrade/Rc
+                                // (m37_bug55). Real struct reads like
+                                // `co.body` resolve here.
+                                let resolved_has_field = match &resolved {
+                                    CheckedType::Named(rname) => {
+                                        let rbase = rname.split('[').next().unwrap_or(rname);
+                                        self.get_type(rbase)
+                                            .map_or(false, |f| f.contains_key(&field.name))
+                                    }
+                                    _ => false,
+                                };
+                                if resolved_has_field {
+                                    resolved
+                                } else {
+                                    obj_ty
+                                }
+                            }
+                        }
+                        _ => obj_ty,
+                    }
+                };
                 // Check if obj is an enum type and field is a variant (e.g., Color.Red)
                 if let CheckedType::Named(type_name) = &obj_ty {
                     let variant_full = format!("{}.{}", type_name, field.name);

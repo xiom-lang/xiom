@@ -19470,6 +19470,16 @@ returns it, `pre_stop` takes a pointer, and the field reads are `i64`/`Str`
 correctly. E2E lock `e2e_m371_pulse_alias_import`. No v0.64.8 re-cut; PULSE
 verifies on a main build or the next cut and can re-enable Phase B.
 
+FOLLOW-UP (same day): the first cut resolved the receiver alias and
+qualified colliding catalog types for every collision. That changed
+catalog-body/method-callee type resolution and regressed m37_bug55
+(`Weak.upgrade` emitted as an unresolved symbol; the v0.64.8 archive is
+green). Narrowed: the field fallback runs only outside catalog bodies and
+only when the alias target DECLARES the accessed field; imported types are
+injected module-qualified only when the colliding user type is an EMPTY
+alias. Locks: m371 + m37_bug55 + m372 e2e green; checker suite 213/213
+including `catalog_corpus_is_clean`.
+
 ---
 
 ## 2026-10-19 -- FIXED (m372): generic call nested as ptr.read argument inferred the erased T (REL-20261019-1451-stdlib)
