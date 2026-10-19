@@ -51,6 +51,14 @@ pub struct CompilerConfig {
     pub incremental: bool,
     pub max_depth: Option<u32>,
     pub timeout_secs: Option<u32>,
+    /// m373: project-default for 7C parallel lex+parse (`--parallel`).
+    pub parallel: bool,
+    /// m373: project-default worker count for 7C/I2 (None = CLI default;
+    /// `0` keeps the historical "all CPUs" meaning).
+    pub jobs: Option<usize>,
+    /// m373: project-default for I2 parallel per-function IR emission
+    /// (`--parallel-codegen`).
+    pub parallel_codegen: bool,
 }
 
 // TOML deserialization structures (serde)
@@ -139,6 +147,10 @@ struct CompilerToml {
     max_depth: Option<u32>,
     #[serde(rename = "timeout-secs")]
     timeout_secs: Option<u32>,
+    parallel: Option<bool>,
+    jobs: Option<usize>,
+    #[serde(rename = "parallel-codegen")]
+    parallel_codegen: Option<bool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -252,6 +264,9 @@ fn parse_xiom_toml(path: &Path) -> Result<ProjectManifest, GraphError> {
             incremental: c.incremental.unwrap_or(true),
             max_depth: c.max_depth,
             timeout_secs: c.timeout_secs,
+            parallel: c.parallel.unwrap_or(false),
+            jobs: c.jobs,
+            parallel_codegen: c.parallel_codegen.unwrap_or(false),
         },
         None => CompilerConfig::default(),
     };
@@ -584,6 +599,33 @@ target = "native"
         assert_eq!(proj.root.as_deref(), Some("lib/"));
         assert_eq!(proj.source_roots.as_ref().unwrap().len(), 2);
         assert!(manifest.compiler.unwrap().release.unwrap());
+    }
+
+    // m373: `[compiler] parallel` / `jobs` / `parallel-codegen` are project
+    // defaults for the existing 7C/I2 CLI paths (explicit flags still win).
+    #[test]
+    fn parse_compiler_parallel_knobs() {
+        let dir = std::env::temp_dir().join(format!("xiom_m373_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("xiom.toml");
+        std::fs::write(
+            &path,
+            r#"
+[project]
+name = "parallel_app"
+
+[compiler]
+parallel = true
+jobs = 6
+parallel-codegen = true
+"#,
+        )
+        .unwrap();
+        let manifest = parse_xiom_toml(&path).unwrap();
+        assert!(manifest.compiler.parallel);
+        assert_eq!(manifest.compiler.jobs, Some(6));
+        assert!(manifest.compiler.parallel_codegen);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

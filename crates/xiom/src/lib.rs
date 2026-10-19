@@ -400,6 +400,57 @@ fn run_child_cancellable(
 /// Production-grade library API: compile XIOM sources and return structured
 /// diagnostics. Never calls `process::exit()`. Safe for use from MCP server,
 /// LSP, debugger, and any long-running process.
+/// m373: apply `[compiler] parallel/jobs/parallel-codegen` as project
+/// defaults. Explicit CLI choices win: `--sequential` keeps both paths
+/// sequential, and an explicit `--jobs N` keeps the CLI worker count.
+pub fn apply_parallel_config_defaults(
+    config: &mut CompileConfig,
+    compiler: &xiom_graph::manifest::CompilerConfig,
+    cli_jobs_present: bool,
+    cli_sequential: bool,
+) {
+    if compiler.parallel && !cli_sequential {
+        config.parallel = true;
+    }
+    if !cli_jobs_present {
+        if let Some(jobs) = compiler.jobs {
+            config.jobs = jobs;
+        }
+    }
+    if compiler.parallel_codegen && !cli_sequential {
+        config.parallel_codegen = true;
+    }
+}
+
+#[cfg(test)]
+mod m373_parallel_config_tests {
+    use super::*;
+    use xiom_graph::manifest::CompilerConfig;
+
+    #[test]
+    fn parallel_defaults_apply_and_cli_wins() {
+        let defaults = CompilerConfig {
+            parallel: true,
+            jobs: Some(6),
+            parallel_codegen: true,
+            ..Default::default()
+        };
+
+        let mut config = CompileConfig::default();
+        apply_parallel_config_defaults(&mut config, &defaults, false, false);
+        assert!(config.parallel);
+        assert_eq!(config.jobs, 6);
+        assert!(config.parallel_codegen);
+
+        // Explicit --jobs and --sequential win over the manifest.
+        let mut config = CompileConfig { jobs: 2, ..Default::default() };
+        apply_parallel_config_defaults(&mut config, &defaults, true, true);
+        assert!(!config.parallel);
+        assert_eq!(config.jobs, 2);
+        assert!(!config.parallel_codegen);
+    }
+}
+
 pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String]) -> CompileResult {
     let mut result = CompileResult {
         success: false,
@@ -1441,7 +1492,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         Target::Wasm => "wasm32-unknown-unknown",
         Target::Wasi => "wasm32-wasi",
         Target::Arm => "aarch64-unknown-linux-gnu",
-        Target::RisCv => "riscv64gc-unknown-linux-gnu",
+        Target::RisCv => "riscv64-unknown-linux-gnu",
         Target::Native => {
             xiom_codegen::native_target_triple(std::env::consts::OS, std::env::consts::ARCH)
         },
@@ -1790,7 +1841,9 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                     cmd.args(["--target=aarch64-unknown-linux-gnu"]);
                 }
                 Target::RisCv => {
-                    cmd.args(["--target=riscv64gc-unknown-linux-gnu"]);
+                    // REL-20261019-1419: clang rejects the GCC arch spelling
+                    // `riscv64gc-...`; use the LLVM triple spelling.
+                    cmd.args(["--target=riscv64-unknown-linux-gnu"]);
                 }
                 Target::Native => {
                     if cfg!(target_os = "windows") {
@@ -2136,7 +2189,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                     eprintln!("  compile manually: clang --target=aarch64-unknown-linux-gnu -o {output} {ir_path}");
                 }
                 Target::RisCv => {
-                    eprintln!("  compile manually: clang --target=riscv64gc-unknown-linux-gnu -o {output} {ir_path}");
+                    eprintln!("  compile manually: clang --target=riscv64-unknown-linux-gnu -o {output} {ir_path}");
                 }
                 Target::Native => {
                     eprintln!("  compile manually: clang -o {output} {ir_path}");

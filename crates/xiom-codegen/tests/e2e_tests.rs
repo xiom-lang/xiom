@@ -465,7 +465,7 @@ fn e2e_target_arm_triple() {
 
 #[test]
 fn e2e_target_riscv_triple() {
-    assert!(compile_and_check_ir_with_target("examples/demo_float.xi", "riscv", "riscv64gc-unknown-linux-gnu"));
+    assert!(compile_and_check_ir_with_target("examples/demo_float.xi", "riscv", "riscv64-unknown-linux-gnu"));
 }
 
 // ============================================================================

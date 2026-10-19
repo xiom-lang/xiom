@@ -2233,9 +2233,20 @@ fn real_main() {
                     }
                 }
             }
+            // m373: [compiler] parallel/jobs/parallel-codegen are project
+            // defaults for the existing 7C/I2 paths. Explicit CLI choices win:
+            // `--sequential` keeps both paths sequential, and an explicit
+            // `--jobs N` keeps the CLI worker count.
+            xiom::apply_parallel_config_defaults(
+                &mut config,
+                cc,
+                args.value("jobs").is_some(),
+                args.flag("sequential"),
+            );
             if std::env::var("XIOM_VERBOSE_CONFIG").as_deref() == Ok("1") {
-                eprintln!("[config] manifest applied: release={} incremental={} max_depth={:?}",
-                    config.release, config.incremental, cc.max_depth);
+                eprintln!("[config] manifest applied: release={} incremental={} max_depth={:?} parallel={} jobs={} parallel_codegen={}",
+                    config.release, config.incremental, cc.max_depth,
+                    config.parallel, config.jobs, config.parallel_codegen);
             }
             // REL-20261010-1549-packages-5: a dependency's shipped
             // port.args.json (vendored-C packages: `--c-source ...`) is
