@@ -22,6 +22,16 @@
       "kind": "fix",
       "title": "Cross-module type and reference fixes",
       "text": "Generic-struct Vec elements, cross-module generic aliases, module-global mutable aggregates, and three-level nested mutable field paths now resolve and mutate the intended storage."
+    },
+    {
+      "kind": "stdlib",
+      "title": "Contract coverage across core surfaces",
+      "text": "Time, async, numeric precision, core, stats, regex and search now carry contracts on most public functions. Search is fully covered, regex is near full, and the readiness floor ratchet moves to the new coverage baseline. No runtime behavior changes."
+    },
+    {
+      "kind": "stdlib",
+      "title": "Release readiness and compiler pin",
+      "text": "The release stays on the thread spawn/join result-buffer fix and the merged contract waves. Compiler pin v0.64.8, release notes, changelog and deterministic packaging are aligned for the next combined cut."
     }
   ],
   "breaking": [],
