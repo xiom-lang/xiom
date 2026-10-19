@@ -320,7 +320,7 @@ fn test_vec_new_initial_capacity() {
     let ir = compile("fn main() -> Int { var v = Vec[Int].new(); return 0; }").unwrap();
     assert!(ir.contains("store i64 0"), "len should be 0");
     assert!(ir.contains("store i64 16"), "cap should be 16");
-    assert!(ir.contains("@malloc(i64 128)"), "should allocate 128 bytes");
+    assert!(ir.contains("@xiom_guard_alloc(i64 128)"), "should allocate 128 bytes through the arena-aware allocator");
 }
 
 #[test]

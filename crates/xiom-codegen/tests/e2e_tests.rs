@@ -7480,11 +7480,11 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     let ir = compile_ir("tests/regression/m296_vec_with_len/main.xi")
         .expect("m296: fixture must emit IR");
     assert!(
-        ir.contains("call i8* @malloc(i64 128)"),
-        "m296: the sized-buffer ctor must allocate 16 x 8-byte slots; got:\n{ir}"
+        ir.contains("call i8* @xiom_guard_alloc(i64 128)"),
+        "m296: the sized-buffer ctor must allocate 16 x 8-byte slots through the arena-aware allocator; got:\n{ir}"
     );
     assert!(
-        !ir.contains("@malloc(i64 16)"),
+        !ir.contains("@xiom_guard_alloc(i64 16)"),
         "m296: the raw element-size allocation must not appear; got:\n{ir}"
     );
 }
@@ -8356,11 +8356,11 @@ fn collect_files_with_ext(dir: &Path, ext: &str, out: &mut Vec<std::path::PathBu
         "m314: a Vec[Int128] element read must load a full i128; @main:\n{main}"
     );
     assert!(
-        main.contains("call i8* @malloc(i64 256)"),
+        main.contains("call i8* @xiom_guard_alloc(i64 256)"),
         "m314: Vec[Int128] slots are 16 bytes (16 slots x 16 = 256); @main:\n{main}"
     );
     assert!(
-        main.contains("call i8* @malloc(i64 512)"),
+        main.contains("call i8* @xiom_guard_alloc(i64 512)"),
         "m314: {{ id: Int128; tag: Int }} slots are 32 bytes (16 slots x 32 = 512); @main:\n{main}"
     );
 }

@@ -6899,11 +6899,11 @@ fn main() -> Int {
 "#;
     let ir = compile(source).expect("m195: angle-bracket Vec.new must compile");
     assert!(
-        ir.contains("malloc(i64 512)"),
-        "m195: Vec<Big>.new() must allocate 16 x 32 bytes; got:\n{ir}"
+        ir.contains("xiom_guard_alloc(i64 512)"),
+        "m195: Vec<Big>.new() must allocate 16 x 32 bytes through the arena-aware allocator; got:\n{ir}"
     );
     assert!(
-        !ir.contains("malloc(i64 128)"),
+        !ir.contains("xiom_guard_alloc(i64 128)"),
         "m195: the 8-byte-fallback allocation must not appear; got:\n{ir}"
     );
 }
