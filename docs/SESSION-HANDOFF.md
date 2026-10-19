@@ -32,11 +32,14 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   `f390844ff2f9b5eb524a1a41b97037862c1e1a7ffeedc127856f87715cbd11ad`.
   The Windows archive was verified locally (hash + `bin/` + `lib/` staged;
   stdlib imports work without `XIOM_STDLIB`).
-- REGISTRY: stdlib dispatches publish-registry for 0.64.8 with
-  `--compiler v0.64.8`; the workflow downloads
-  `xiom-0.64.8-linux-x64.tar.gz` (`a8c003c0...`) and verifies SHA256SUMS.
-  Confirm the registry run/sha when it lands. The stdlib pin-PR job failure
-  is the known no-op (main is already on `stdlib-v0.64.8`).
+- REGISTRY: stdlib dispatched publish-registry with `--compiler v0.64.8`
+  (run 39297988665); the compiler asset downloaded and verified, but the
+  publish failed `publisher_not_mapped` because the run was dispatched on
+  `main` (trusted publishing allows only `refs/tags/stdlib-v*`). stdlib is
+  re-dispatching on the `stdlib-v0.64.8` tag with `compiler=v0.64.8`
+  (`REL-20261019-1754-compiler`). The stdlib pin-PR job failure is the
+  known no-op (main is already on `stdlib-v0.64.8`); the compiler release
+  is unaffected.
 - POST-RELEASE VERIFY (reporters fill the v0.64.8 check rows): engine
   2032/2053/1343 soak on the archive; xvector XVC-C-20 + G-2b; orbitdb
   natural position tuple 160/160 + C-ORBIT-13; bindings B-34 (B-29
@@ -64,9 +67,10 @@ docs/RELEASE_GATE_v0.64.8.md, and release-checks/compiler-compiler-v0.64.8.md
 in E:\xiom-lang\xiom-relays.
 
 v0.64.8 is RELEASED (tag v0.64.8 @ 4d040604b, run 39296778685, 11 assets,
-stdlib-v0.64.8 pin). The only open release thread is the stdlib
-publish-registry dispatch with --compiler v0.64.8; confirm the registry
-run/sha and close the check rows as reporters verify.
+stdlib-v0.64.8 pin). The only open release thread is the stdlib registry
+re-dispatch: the main-ref run failed publisher_not_mapped, so stdlib is
+re-dispatching on the stdlib-v0.64.8 tag with compiler=v0.64.8; confirm
+the registry run/sha. Close the check rows as reporters verify.
 
 Next wave (owner agreed): m373 parallel compile knobs + product profiling --
 expose [compiler] parallel/jobs/parallel-codegen in xiom.toml, use the
