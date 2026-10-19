@@ -277,9 +277,15 @@ impl ModuleCatalog {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
+                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                     // m369: a shallow source dir contributes its own `.xi`
                     // files only; never descend into unrelated subtrees.
-                    if !recurse {
+                    // REL-20261019-1810-playground: the conventional
+                    // `packages/<name>/` offline layout is the exception --
+                    // C3 workdirs keep it nested, and the playground passes
+                    // absolute source paths under the system temp dir.
+                    let recurse_child = recurse || name.eq_ignore_ascii_case("packages");
+                    if !recurse_child {
                         continue;
                     }
                     // m367: a project-root scan must not descend into fixture
@@ -288,7 +294,6 @@ impl ModuleCatalog {
                         continue;
                     }
                     // Do not index build/VCS/package-manager subtrees.
-                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                     if Self::should_skip_dir(name) {
                         continue;
                     }
@@ -303,7 +308,7 @@ impl ModuleCatalog {
                     if name == "lib" && dir.join("xiom").is_dir() {
                         continue;
                     }
-                    self.index_dir(&path, dir_index, recurse, skip_fixture_trees);
+                    self.index_dir(&path, dir_index, recurse_child, skip_fixture_trees);
                 } else if path.extension().map_or(false, |e| e == "xi") {
                     if let Some((Some(dotted), canonical)) = self.cached_header_and_canonical(&path) {
                         let display = path.to_string_lossy().to_string();
@@ -1291,6 +1296,56 @@ mod index_cache_tests {
             cat.index_cache_misses <= 2,
             "shallow index must scan only the root's .xi files, got {} misses",
             cat.index_cache_misses
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn shallow_source_dir_recurses_into_offline_packages() {
+        // REL-20261019-1810-playground: a temp workdir indexed shallowly
+        // must still discover the conventional `packages/<name>/` layout,
+        // while unrelated nested trees stay shallow.
+        let root = std::env::temp_dir().join(format!(
+            "xiom-catidx-packages-{}-{:x}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let pkg_src = root.join("packages").join("xiom-hello").join("src");
+        let unrelated = root.join("unrelated");
+        std::fs::create_dir_all(&pkg_src).expect("create package dir");
+        std::fs::create_dir_all(&unrelated).expect("create unrelated dir");
+        std::fs::write(
+            root.join("main.xi"),
+            "module c3.main\npub fn main() -> Int { return 0; }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            pkg_src.join("hello.xi"),
+            "module xiom.hello\npub fn greeting() -> Str { return \"hi\"; }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            unrelated.join("deep.xi"),
+            "module unrelated.deep\npub fn deep() -> Int { return 2; }\n",
+        )
+        .unwrap();
+
+        let mut cat = ModuleCatalog::new(vec![]);
+        cat.add_source_dir_shallow(root.to_string_lossy().to_string());
+        cat.build_index();
+
+        assert!(cat.module_index.contains_key("c3.main"));
+        assert!(
+            cat.module_index.contains_key("xiom.hello"),
+            "the conventional packages/ layout must be indexed"
+        );
+        assert!(
+            !cat.module_index.contains_key("unrelated.deep"),
+            "unrelated nested trees must stay shallow"
         );
 
         let _ = std::fs::remove_dir_all(&root);

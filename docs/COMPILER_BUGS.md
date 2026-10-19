@@ -19491,3 +19491,29 @@ compiler v0.64.8 tag until that gate is green; no v0.64.7 re-cut.
 Fix commit: `candidate-v0.64.8-r2` (branch `fix/v0.64.8-zero-capacity-alloc`).
 
 ---
+
+## 2026-10-19 -- FIXED (REL-20261019-1810-playground): absolute-path offline package discovery broke on v0.64.8
+
+WITNESS: playground C3 `examples/packages/main.xi` copied into a temp workdir
+with `packages/xiom-hello` + `packages/xiom-csv`; `xiom --check /abs/main.xi`
+-> T001 unresolved imports; `cd workdir && xiom --check main.xi` -> PASSED.
+The v0.64.7 archive with the absolute path -> PASSED.
+
+ROOT CAUSE: m369 (`330955136`) indexes a transient file parent under the
+system temp dir SHALLOWLY (no recursion) to avoid scanning huge temp trees.
+The C3 offline layout keeps package modules nested under
+`packages/<name>/src/`, so a shallow workdir missed them. A relative
+`main.xi` has an empty/`.` parent that does not match the temp-dir check, so
+it stayed recursive -- the absolute/relative split.
+
+FIX: a shallow source dir still recurses into a direct child named
+`packages` (case-insensitive); every other subtree stays shallow. This
+preserves the m369 scan bound while restoring the C3 layout. Locks:
+`shallow_source_dir_recurses_into_offline_packages` plus the existing
+`shallow_source_dir_does_not_recurse`.
+
+EVIDENCE: current debug compiler: real playground tree absolute `--check`
+PASSED (exit 0) and relative PASSED; `cargo test -p xiom-check
+shallow_source_dir` 2/2. No v0.64.8 re-cut (no owner GO); the fix is on main
+for the next cut. Playground can keep v0.64.7 or use a main build meanwhile.
+
