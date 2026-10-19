@@ -56,7 +56,8 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   tag `v0.64.8` on main -> release + docs dispatch.
 - THIS CUT includes m360/m368/arena/m369/m370/m367/C-ORBIT-12/13/XVC-C-20/
   B-34 and is the archive requested by the engine (`REL-20261019-1312`).
-  NOT in this cut: m371 PULSE imported-struct layout (1309/2301), m366
+  NOT in this cut: m371 PULSE imported-struct layout (1309/2301), m372
+  nested generic ptr.read (1451; workaround in the channel handle form), m366
   capture-frames hang (blocked on the engine snippet), m365 caller flag
   split/per-key lock, m363 Send/Sync, MCU/bare-metal, selfhost Phase 6
   (separate track). These are known issues/next cycle.
@@ -240,11 +241,14 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   (THREADING_PLAN Phase B: the spawn-capture `is_send` half exists, but
   `is_send` assumes every generic container is Send, `is_sync` does not
   exist, and Channel/Mutex/Arc boundaries are unchecked; checklist
-  `docs/checklists/m363-send-sync.md`); (c) m366 **BLOCKED** on the engine's
-  minimized capture-only snippet (asked 2026-10-17); (d) .xiomignore
+  `docs/checklists/m363-send-sync.md`); (c) m372 nested generic `ptr.read`
+  (`REL-20261019-1451-stdlib`; silent erased-T read; the channel handle form
+  has a stage-in-local workaround); (d) m366 **BLOCKED** on the engine's
+  minimized capture-only snippet (asked 2026-10-17); (e) .xiomignore
   1504/2104; alias-qualified 2100; LLVM baseline 1647; packages 2303/2309
-  re-verify (registry canary 2257 is closed). The engine archive 1312
-  remains blocked on owner GO + lane verification. Fixed-but-acked closure
+  re-verify (registry canary 2257 is closed). The engine archive 1312 is the
+  v0.64.8 cut: stdlib-v0.64.8 is live; dry-run 39283297787 is in progress on
+  final pin `39f1fddff`; tag follows it. Fixed-but-acked closure
   is reporter-lane work (the compiler cannot move fixed->verified):
   reporters fill their rows in
   `release-checks/compiler-compiler-v0.64.7.md` (hash/Mutex, Float64 dlsym,
