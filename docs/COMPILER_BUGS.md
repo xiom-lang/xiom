@@ -19422,3 +19422,41 @@ re-cut; the official v0.64.7 archive predates the routing.
 Fix commit: 9c8842b5e (branch fix/escaped-vec-scoped-arena).
 
 ---
+
+## 2026-10-19 -- OPEN (m371): cross-module alias to an imported struct loses the codegen layout (REL-20261019-1309-pulse)
+
+WITNESS (two modules): `xiom.pulse.app` declares
+`pub type HandlerOut = { status: Int; body: Str; content_type: Str; }` and
+`out_json`/`pre_stop`; `xiom.pulse.station.core` (the consumer) declares
+`pub type HandlerOut = app.HandlerOut;`, calls `app.out_json(...)`, then
+reads `co.status` / `co.body.len()` / `co.content_type` and passes `co` to
+`app.pre_stop(co)`. On BOTH v0.64.7 and current main the consumer fails
+with `cannot call 'len' on this expression`, `cannot compare <error> with
+Int`, and `cannot compare Int with Str`.
+
+TRIAGE DETAIL: the checker's field-access path can be taught to resolve the
+alias (`resolve_alias` -> `app.HandlerOut`); we tried it and it type-checks.
+But codegen then emits both `out_json` and `local_out` returning **i64**,
+and the runtime reads `s=0 n=4294967295 ct=0` -- silent corruption.
+`[alias-debug] name=app.HandlerOut known=false keys=[]` shows the imported
+module's `HandlerOut` struct layout is **not** in the codegen type registry
+at all. The checker-only field-access change was REVERTED (it converts a
+safe compile error into silent wrong data); the PULSE loop-switch workaround
+stays.
+
+ROOT CAUSE: the codegen registers type layouts from the primary/root
+module; a struct defined in an imported module (and reached through a
+cross-module type alias) is not registered as a `%struct`. `llvm_type_for`
+resolves the alias target name, finds no struct key, and falls back to i64
+(its warning is suppressed for alias-derived names). The checker has the
+fields (it can resolve the alias target) but the codegen layout is missing.
+
+NEXT (m371): register imported-module type layouts in the codegen registry
+(or resolve the alias target to the defining module's canonical struct key
+and register it on demand) before `llvm_type_for`; then re-enable the
+checker's alias field access and verify `app.pre_stop(co)` argument identity
+and the full PULSE loop-switch. Reproduce with the two-module fixture; add
+an e2e lock (`e2e_m371_pulse_alias_import`) once the codegen half lands.
+No release re-cut.
+
+---

@@ -163,13 +163,21 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   frame (keep persistent state on the main heap) and run the capped 600-frame
   soak. Docs: `docs/SCOPED-ARENA.md`; soak: `tests/soak/`. Archive 1312
   still needs owner GO + the remaining lane verification.
+- **PULSE 1309 TRIAGED / m371 OPEN (2026-10-19T15:30Z)**: reproduced on
+  v0.64.7 AND current main with a two-module `type HandlerOut =
+  app.HandlerOut;` probe (T001 field errors). The checker can resolve the
+  alias fields, but the codegen registry has no imported `HandlerOut` layout
+  (`[alias-debug] name=app.HandlerOut known=false keys=[]`), emits
+  `out_json`/`local_out` as i64, and the runtime reads `s=0 n=4294967295
+  ct=0`. The checker-only fix was REVERTED (it converts a safe compile error
+  into silent corruption). m371 queued: register imported-module struct
+  layouts in codegen, then re-enable field access and verify
+  `app.pre_stop(co)`. PULSE keeps the loop workaround until then.
 - QUEUE (triaged 2026-10-19): **in flight** none (m360, m370, m368, m367,
   C-ORBIT-12, XVC-C-20, B-34, C-ORBIT-13 and the escaped/per-frame Vec leak
   are fixed on main; selfhost RD7 green, T6 14/64; next Phase 6 shapes).
-  **IMMEDIATE:** PULSE 1309 cross-module public `HandlerOut` identity/field
-  access is HIGH and blocks PULSE Phase B (reproduce/fix next; `co.status`
-  -> `<error>`, `app.pre_stop(co)` -> expected HandlerOut/found
-  app.HandlerOut).
+  **IMMEDIATE:** PULSE 1309 reproduced; **m371 (codegen imported-struct
+  layout) queued**; the loop workaround stays until it is green.
   **Next wave** (do not launch until a heavy slot frees): (a) m365 PARTIAL:
   ready marker + canonical dependency paths landed; remaining caller flag
   split + per-key lock and the engine re-measure (checklist
