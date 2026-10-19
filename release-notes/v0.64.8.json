@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "tag": "v0.64.8",
+  "summary": "Frame-shaped memory reuse through a scoped arena, safe i128 division in loops, faster catalog indexing, and cross-module type fixes, with the matching stdlib pin.",
+  "highlights": [
+    {
+      "kind": "compiler",
+      "title": "Scoped arena for frame-shaped memory",
+      "text": "Per-frame allocations can be bounded with the runtime scoped arena: enter before a frame and exit after, and its data is reclaimed wholesale, including Vecs that cross function boundaries. A frame-style workload falls from 4.5 GB to about 50 MB and stays flat."
+    },
+    {
+      "kind": "fix",
+      "title": "Vec drops and i128 division",
+      "text": "Owned Vec locals are freed at scope exit, and i128 division and modulo lower to inline long division instead of the recursive runtime helper. The loop repro stays flat and the i128 access violation is gone."
+    },
+    {
+      "kind": "fix",
+      "title": "Faster catalog indexing",
+      "text": "Transient temp directories are indexed shallowly, the persistent catalog cache is per compiler version, and stale roots are pruned. A six-line file in a busy temp tree dropped from about 50 seconds of indexing to under one second."
+    },
+    {
+      "kind": "fix",
+      "title": "Cross-module type and reference fixes",
+      "text": "Generic-struct Vec elements, cross-module generic aliases, module-global mutable aggregates, and three-level nested mutable field paths now resolve and mutate the intended storage."
+    }
+  ],
+  "breaking": [],
+  "known_issues": [
+    "Cross-module aliases to imported structs can still fail field access; a codegen layout fix is queued for the next cycle.",
+    "A capture-frames probe can still hang on the run leg; a minimized repro is pending.",
+    "Send/Sync markers are declared and auto-derived but not yet enforced on every spawn capture.",
+    "The dependency-object cache key can still be consumer-specific in multi-target builds, and a per-key lock is pending.",
+    "The selfhost compiler remains a work in progress and is not part of this toolchain release."
+  ],
+  "docs": [
+    {
+      "title": "Contracts guide",
+      "url": "https://docs.xiom-lang.org/latest/contracts/"
+    },
+    {
+      "title": "Language guide",
+      "url": "https://docs.xiom-lang.org/latest/"
+    }
+  ],
+  "full_changelog": "https://github.com/xiom-lang/xiom/releases/tag/v0.64.8"
+}
