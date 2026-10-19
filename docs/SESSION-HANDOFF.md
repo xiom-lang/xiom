@@ -54,8 +54,11 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   on the engine snippet; m363 Send/Sync; m372 nested ptr.read; bindings
   B-29/B-34/B-32 closure; xvector XVC-C-20/G-2b; orbitdb C-ORBIT-12/13;
   engine soak; .xiomignore/alias/LLVM/packages re-verify.
-- SELFHOST: RD7 green T6 14/64; continue Option/.len, Vec.pop, &Vec+f64,
-  index arithmetic; rebase before the next harness.
+- SELFHOST: RD9 rebased onto `154cc08d7` (49 ahead / 0 behind; RD9 commit
+  `7cd0723de`, not pushed); parity harness NOT re-run yet because the host
+  is running the stdlib/xvector/PULSE lanes. Last verified RD8: T6 14/64,
+  suite 6/6, header parity 8586. Next: full T3 harness, then Option/.len,
+  Vec.pop, &Vec+f64, index arithmetic.
 - CONSTRAINTS unchanged: rustc-first study; max 3-4 heavy sessions; watch
   memory; no stdlib edits except via relay; no release re-cut without
   owner GO; use `--no-cache` when shared catidx/engine builds interfere.
