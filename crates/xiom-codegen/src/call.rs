@@ -4918,7 +4918,24 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         ),
                                         _ => false,
                                     };
-                                    match self.infer_generic_arg_from_container(&param.ty, &gp.name.name, arg_expr) {
+                                    let gp_param_count = fd.params.iter().filter(|p| {
+                                        Self::extract_type_arg_names(&p.ty)
+                                            .iter()
+                                            .any(|a| a == &gp.name.name)
+                                    }).count();
+                                    // m372: only the ptr.read/ptr.write builtins
+                                    // get the call-result pointee inference; the
+                                    // general pointer-param deferral (sibling
+                                    // `src: T`, i8**/Str) is unchanged.
+                                    let allow_call_pointee = (fn_name == "read"
+                                        || fn_name == "write")
+                                        && gp_param_count == 1;
+                                    match self.infer_generic_arg_from_container(
+                                        &param.ty,
+                                        &gp.name.name,
+                                        arg_expr,
+                                        allow_call_pointee,
+                                    ) {
                                         Some(ct) => {
                                             concrete_types.push(ct);
                                             inferred = true;

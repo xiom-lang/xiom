@@ -2058,7 +2058,7 @@ impl IrEmitter {
     /// ("Vec[JsonValue]" -> args[pos]), the LLVM-derived element type for
     /// Vec locals, and a call's inferred container return. Returns None when
     /// the container args are unknown (caller keeps scanning / falls back).
-    fn infer_generic_arg_from_container(&self, param_ty: &Type, gp: &str, arg_expr: &Expr) -> Option<String> {
+    fn infer_generic_arg_from_container(&self, param_ty: &Type, gp: &str, arg_expr: &Expr, allow_call_pointee: bool) -> Option<String> {
         let arg_names = Self::extract_type_arg_names(param_ty);
         let pos = arg_names.iter().position(|a| a == gp)?;
         let mut container_ty = param_ty;
@@ -2149,6 +2149,25 @@ impl IrEmitter {
                 }
                 if let Some(rt) = self.infer_call_return_xiom(inner) {
                     if let Some(u) = usable(&rt) {
+                        return Some(u);
+                    }
+                }
+            } else if allow_call_pointee
+                && matches!(inner, Expr::Call(..) | Expr::GenericCall(..))
+            {
+                // m372 (REL-20261019-1451-stdlib): a bare pointer generic
+                // `*T` called with a function returning `*U` must infer
+                // T = U from the call's return type. The old pointer-local
+                // guard deferred every pointer argument, so
+                // `ptr.read(identity_ptr[T](p))` fell back to T=Int and read
+                // 8 bytes of a 16-byte Pair. This fires only when NO sibling
+                // parameter names the same generic (the caller's deferral
+                // contract); a sibling `src: T` still owns the inference.
+                if let Some(rt) = self.infer_call_return_xiom(inner) {
+                    let pointee = rt.trim_start_matches(|c: char| {
+                        c == '*' || c == '&' || c.is_whitespace()
+                    });
+                    if let Some(u) = usable(pointee) {
                         return Some(u);
                     }
                 }

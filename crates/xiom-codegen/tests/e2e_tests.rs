@@ -10888,3 +10888,47 @@ fn main() -> Int { return run(); }
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+// m372 (REL-20261019-1451-stdlib): a generic call nested directly as the
+// argument of `ptr.read` inferred the erased T and read 8 bytes of a 16-byte
+// Pair; staging the call in a local worked. The lock keeps both shapes green.
+#[test]
+fn e2e_m372_nested_generic_ptr_read() {
+    let src = project_root()
+        .join("tests")
+        .join("regression")
+        .join("m372_nested_generic_ptr_read.xi");
+    let exe = project_root()
+        .join("target")
+        .join("m372_nested_generic_ptr_read.exe");
+    let _ = std::fs::remove_file(&exe);
+
+    let compile = Command::new(xiom_path())
+        .args(["--no-cache", "-o"])
+        .arg(&exe)
+        .arg(&src)
+        .env("XIOM_STDLIB", project_root().join("stdlib"))
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the m372 nested ptr.read fixture");
+    assert!(
+        compile.status.success(),
+        "m372 nested ptr.read: fixture must compile; stderr:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe)
+        .output()
+        .expect("run the m372 nested ptr.read fixture");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "m372 nested ptr.read: both nested and staged reads must return 42; stdout: {stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(
+        stdout.contains("nested=42 local=42"),
+        "m372 nested ptr.read: expected nested=42 local=42; stdout: {stdout}"
+    );
+    let _ = std::fs::remove_file(&exe);
+}

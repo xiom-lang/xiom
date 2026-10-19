@@ -19472,6 +19472,32 @@ verifies on a main build or the next cut and can re-enable Phase B.
 
 ---
 
+## 2026-10-19 -- FIXED (m372): generic call nested as ptr.read argument inferred the erased T (REL-20261019-1451-stdlib)
+
+WITNESS: `tests/regression/m372_nested_generic_ptr_read.xi` (stdlib
+`tools/known_failures/p_nested_generic_ptr_read.xi`):
+`ptr.read(identity_ptr[T](p))` compiled rc 0 but returned
+`nested=0 local=42`, rc 1. The staged local was correct.
+
+ROOT CAUSE: codegen generic inference for a bare pointer param (`*T`) skipped
+every pointer argument to avoid the i8**/Str hazard. For a CALL result that
+guard also fired, so `ptr.read` fell through to the Int fallback and
+monomorphised `ptr.read_Int`; the argument was bitcast `Pair* -> i64*`, so
+only field `a`/8 bytes were read. The staged local reached the local-type
+fallback and monomorphised `ptr.read_Pair`.
+
+FIX: `infer_generic_arg_from_container` now infers T from the pointee of a
+call/GenericCall result for bare pointer params (`*T` with a call argument),
+stripping `*`/`&`; pointer LOCALS keep the old deferral. `ptr.read` now
+monomorphises as `ptr.read_...Pair`, `Pair*` stays 16 bytes, and both paths
+return 42. No v0.64.8 re-cut.
+
+EVIDENCE: fixture compiles and runs rc 0 with `nested=42 local=42`;
+`e2e_m372_nested_generic_ptr_read` lock.
+
+
+---
+
 ## 2026-10-19 -- FIXED (REL-20261019-1624-stdlib): zero-capacity Vec buffer trapped (SIGILL / 0xC000001D)
 
 WITNESS: stdlib `tests/smoke/smoke_io_edge.xi` (write_file/read_file/remove_file).
