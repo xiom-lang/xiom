@@ -14,7 +14,76 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
-*** SESSION UPDATE 2026-10-19T17:40Z (compiler lane; v0.64.8 TRIGGER PENDING -- r2) -- READ FIRST ***
+*** SESSION UPDATE 2026-10-19T17:50Z (compiler lane; v0.64.8 RELEASED) -- READ FIRST ***
+- STATE: **v0.64.8 is RELEASED.** Annotated tag `v0.64.8`
+  (`b0261db4d39f532a4f2cd697faed271c0228fe15`) on `4d040604b`; tag push
+  release run **39296778685 SUCCESS** (guard + windows/linux/macOS/VSIX
+  package legs + publish; docs dispatch green). GitHub release live
+  https://github.com/xiom-lang/xiom/releases/tag/v0.64.8 (2026-10-19T17:49Z)
+  with 11 assets. `STDLIB_VERSION=stdlib-v0.64.8` at the tag; stdlib r2
+  gate run **39289746856 SUCCESS** (`smoke_io_edge` fixed).
+- ASSET SHAS (sha256): windows-x64.zip
+  `c31d9c464a4f9489fc442b4bf9a45b3e3b2363dcf9548d53566bd04a81dee6b5`;
+  linux-x64.tar.gz
+  `a8c003c0d817880a8754fa301a9ba18359cdc7463d7cfc98d3267d7a2e56002a`;
+  linux-arm64
+  `e773260f8ef18998de782a8fe6d8993b0ad92c62c7e406be20d65e708bc3fab6`;
+  SHA256SUMS
+  `f390844ff2f9b5eb524a1a41b97037862c1e1a7ffeedc127856f87715cbd11ad`.
+  The Windows archive was verified locally (hash + `bin/` + `lib/` staged;
+  stdlib imports work without `XIOM_STDLIB`).
+- REGISTRY: stdlib dispatches publish-registry for 0.64.8 with
+  `--compiler v0.64.8`; the workflow downloads
+  `xiom-0.64.8-linux-x64.tar.gz` (`a8c003c0...`) and verifies SHA256SUMS.
+  Confirm the registry run/sha when it lands. The stdlib pin-PR job failure
+  is the known no-op (main is already on `stdlib-v0.64.8`).
+- POST-RELEASE VERIFY (reporters fill the v0.64.8 check rows): engine
+  2032/2053/1343 soak on the archive; xvector XVC-C-20 + G-2b; orbitdb
+  natural position tuple 160/160 + C-ORBIT-13; bindings B-34 (B-29
+  not-a-defect, B-32 retired); PULSE 1309/2301 stays on the workaround
+  (m371 next cycle). v0.64.7 is not re-cut.
+- NEXT WAVE (owner agreed): **m373** parallel compile knobs + product
+  profiling (`xiom.toml [compiler]` parallel/jobs/parallel-codegen; use the
+  existing 7C/I2 paths; XIOM_TIMINGS on engine/xvector/orbitdb; parallel C
+  deps via m365); **m374** parallel checker/codegen units (design/queue
+  now, implement after selfhost Phase 6 parity); MCU/bare-metal 1220/1419.
+- RELAYS: m371 PULSE imported-struct layout; m365 remainder; m366 blocked
+  on the engine snippet; m363 Send/Sync; m372 nested ptr.read; bindings
+  B-29/B-34/B-32 closure; xvector XVC-C-20/G-2b; orbitdb C-ORBIT-12/13;
+  engine soak; .xiomignore/alias/LLVM/packages re-verify.
+- SELFHOST: RD7 green T6 14/64; continue Option/.len, Vec.pop, &Vec+f64,
+  index arithmetic; rebase before the next harness.
+- CONSTRAINTS unchanged: rustc-first study; max 3-4 heavy sessions; watch
+  memory; no stdlib edits except via relay; no release re-cut without
+  owner GO; use `--no-cache` when shared catidx/engine builds interfere.
+
+*** CONTINUATION PROMPT (paste-ready) -- 2026-10-19T17:50Z ***
+You are the compiler-lane successor for XIOM (E:\xiom-lang\xiom).
+Start by reading docs/SESSION-HANDOFF.md top blocks (2026-10-19T17:50Z),
+docs/RELEASE_GATE_v0.64.8.md, and release-checks/compiler-compiler-v0.64.8.md
+in E:\xiom-lang\xiom-relays.
+
+v0.64.8 is RELEASED (tag v0.64.8 @ 4d040604b, run 39296778685, 11 assets,
+stdlib-v0.64.8 pin). The only open release thread is the stdlib
+publish-registry dispatch with --compiler v0.64.8; confirm the registry
+run/sha and close the check rows as reporters verify.
+
+Next wave (owner agreed): m373 parallel compile knobs + product profiling --
+expose [compiler] parallel/jobs/parallel-codegen in xiom.toml, use the
+existing 7C/I2 paths, profile engine/xvector/orbitdb with XIOM_TIMINGS,
+parallel C deps via m365; m374 parallel checker/codegen units -- queue/design
+now, implement after selfhost Phase 6 parity; MCU targets 1220/1419.
+Relays: m371 PULSE imported-struct layout, m365 remainder, m366 blocked on
+the engine snippet, m363 Send/Sync, m372 nested ptr.read, bindings
+B-29/B-34/B-32 closure, xvector XVC-C-20/G-2b, orbitdb C-ORBIT-12/13, engine
+2032/2053/1343 soak, .xiomignore/alias/LLVM/packages re-verify.
+Selfhost: RD7 green T6 14/64; continue Option/.len, Vec.pop, &Vec+f64, index
+arithmetic; rebase before the next harness.
+Constraints: rustc-first study; max 3-4 heavy sessions; watch memory; no
+stdlib edits except via relay; no release cuts without owner GO; use
+--no-cache when shared catidx/engine builds interfere.
+
+*** SESSION UPDATE 2026-10-19T17:40Z (compiler lane; v0.64.8 TRIGGER PENDING -- r2; SUPERSEDED -- v0.64.8 released, see 17:50Z block above) ***
 - STATE: **v0.64.8 is NOT tagged/released yet**; v0.64.7 is not re-cut.
   Main `b661f645f`; fix commit `4d040604b`; release gate
   `docs/RELEASE_GATE_v0.64.8.md`; v0.64.8 release check in the relay repo.
@@ -64,7 +133,7 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   host memory; no stdlib edits except via relay; no release re-cut without
   owner GO; use `--no-cache` when shared catidx/engine builds interfere.
 
-*** CONTINUATION PROMPT (paste-ready) -- 2026-10-19T17:40Z ***
+*** CONTINUATION PROMPT (paste-ready) -- 2026-10-19T17:40Z (SUPERSEDED -- use the 17:50Z prompt above) ***
 You are the compiler-lane successor for XIOM (E:\xiom-lang\xiom).
 Start by reading docs/SESSION-HANDOFF.md top blocks (2026-10-19T17:40Z),
 docs/RELEASE_GATE_v0.64.8.md, and release-checks/compiler-compiler-v0.64.8.md

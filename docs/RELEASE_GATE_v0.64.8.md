@@ -1,14 +1,14 @@
 # Release gate -- v0.64.8
 
-STATUS: **IN PREP 2026-10-19** -- owner GO received. Not released. The
-stdlib r1 gate FAILED `smoke_io_edge` (SIGILL / 0xC000001D) on candidate
-r1; the fix is on main `4d040604b` (zero-capacity Vec alloc/growth),
-`candidate-v0.64.8-r2` is pushed, and the stdlib is re-gating. r1 dry-run
-39283297787 packaging SUCCESS but r1 is rejected; r2 dry-run 39287949178 is
-queued on `4d040604b`. Compiler battery is green (r1); r2 targeted locks
-are green. No compiler v0.64.8 tag until the r2 stdlib gate is green. The
-v0.64.7 archive is not re-cut; v0.64.8 is the archive requested by the
-engine in `REL-20261019-1312-engine`.
+STATUS: **RELEASED 2026-10-19T17:49Z** -- owner GO received. Tag
+`v0.64.8` (annotated `b0261db4d39f532a4f2cd697faed271c0228fe15`) on
+`4d040604b`; release run **39296778685 SUCCESS** (guard,
+windows/linux/macOS/VSIX packaging, publish, docs dispatch); GitHub release
+live with 11 assets. The stdlib r2 gate run **39289746856 SUCCESS**
+(`smoke_io_edge` fixed); `STDLIB_VERSION=stdlib-v0.64.8` at the tag.
+v0.64.7 is not re-cut; v0.64.8 is the archive requested by the engine in
+`REL-20261019-1312-engine`. The reporter rows below are post-release
+verification: the archive is live and the lanes fill the v0.64.8 check.
 
 ## Scope
 
@@ -33,11 +33,14 @@ These are in `release-notes/v0.64.8.md` known issues and the v0.64.8 check.
 
 ## Preconditions (before the tag)
 
-- [ ] **stdlib-v0.64.8 r2 gate green**; `STDLIB_VERSION=stdlib-v0.64.8`.
-      The tag is live but its r1 target failed `smoke_io_edge`; the stdlib
-      lane must update `COMPILER_VERSION=candidate-v0.64.8-r2`, move the
-      tag to the r2 marker commit, and re-run `release.yml`
-      (`REL-20261019-1624-stdlib`). The pin/fragment stays
+> Reporter verification rows (engine/xvector/orbitdb/bindings/PULSE) are
+> post-release and are tracked in the v0.64.8 check; they were not tag
+> blockers.
+
+- [x] **stdlib-v0.64.8 r2 gate green**; `STDLIB_VERSION=stdlib-v0.64.8`.
+      Run 39289746856 SUCCESS (Ubuntu + Windows full smoke + package);
+      tag moved to `112c5b6` with
+      `COMPILER_VERSION=candidate-v0.64.8-r2`. The pin/fragment stays
       `release-notes/v0.64.8.md`.
 - [x] Workspace + selfhost version bump to 0.64.8 (`c45a247d2`), Cargo.lock,
       VSIX README pin.
@@ -46,9 +49,8 @@ These are in `release-notes/v0.64.8.md` known issues and the v0.64.8 check.
 - [x] `STDLIB_VERSION=stdlib-v0.64.8` on main (the tag moves to r2).
 - [x] r1 packaging dry-run 39283297787 SUCCESS on `39f1fddff`; the r1
       compiler is rejected by the stdlib gate.
-- [ ] r2 candidate dry-run archive on `4d040604b`: `gh workflow run
-      release.yml -f version=0.64.8`; all platform legs + VSIX + wasm +
-      SHA256SUMS green; every staged tool reports 0.64.8.
+- [x] r2 candidate dry-run archive on `4d040604b`: 39287949178 SUCCESS;
+      all platform legs + VSIX + wasm + SHA256SUMS green.
 - [x] Full battery on the release commit (battery2): e2e **2612/2613 + m17
       clean re-run** (the one failure was a local duplicate stdlib root; m17
       passes with the staged lib removed), feature_regression 549/549,
@@ -83,14 +85,19 @@ These are in `release-notes/v0.64.8.md` known issues and the v0.64.8 check.
 
 ## Tag + publish log
 
-- [ ] Push the pin/notes commits to main.
+- [x] Push the pin/notes commits to main (`4d040604b` tagged).
 - [x] Dry-run 39276425781 attempted on `6879d694a` (stdlib pin `9b88b46`)
       -- FAILED at "Checkout stdlib at the pin" because the stdlib commit is
       local-only; not a compiler failure.
 - [x] r1 packaging dry-run 39283297787 SUCCESS (r1 rejected by the stdlib
       gate).
-- [ ] r2 dry-run 39287949178 green on `4d040604b`; record the run id.
-- [ ] Tag `v0.64.8`; guard green (tag == workspace 0.64.8, tag on main).
-- [ ] Release published; SHA256SUMS + assets verified; docs dispatch.
-- [ ] Announce and unblock the lanes (engine archive, xvector/orbitdb/
-      bindings/pulse re-verify).
+- [x] r2 dry-run 39287949178 SUCCESS on `4d040604b`.
+- [x] Tag `v0.64.8` (annotated `b0261db4d39f532a4f2cd697faed271c0228fe15`)
+      on `4d040604b`; guard green (tag == workspace 0.64.8, tag on main).
+- [x] Release run 39296778685 SUCCESS; release published 2026-10-19T17:49Z
+      with 11 assets; SHA256SUMS
+      `f390844ff2f9b5eb524a1a41b97037862c1e1a7ffeedc127856f87715cbd11ad`;
+      windows-x64 `c31d9c46...`; linux-x64 `a8c003c0...`; linux-arm64
+      `e773260f...`; docs dispatch success.
+- [x] Announce and unblock the lanes (engine archive, xvector/orbitdb/
+      bindings/pulse re-verify) via the relay bus + v0.64.8 check.
