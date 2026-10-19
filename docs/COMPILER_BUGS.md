@@ -19419,6 +19419,6 @@ may escape or be used after `exit`. The engine must wrap each editor frame
 A refcount/ownership-transfer Vec ABI remains future work. No release
 re-cut; the official v0.64.7 archive predates the routing.
 
-Fix commit: pending.
+Fix commit: 9c8842b5e (branch fix/escaped-vec-scoped-arena).
 
 ---
