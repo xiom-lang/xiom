@@ -35,9 +35,10 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 - REGISTRY: stdlib dispatched publish-registry with `--compiler v0.64.8`
   (run 39297988665); the compiler asset downloaded and verified, but the
   publish failed `publisher_not_mapped` because the run was dispatched on
-  `main` (trusted publishing allows only `refs/tags/stdlib-v*`). stdlib is
-  re-dispatching on the `stdlib-v0.64.8` tag with `compiler=v0.64.8`
-  (`REL-20261019-1754-compiler`). The stdlib pin-PR job failure is the
+  `main` (trusted publishing allows only `refs/tags/stdlib-v*`). stdlib
+  filed REL-20261019-1755-stdlib for the mapping; the compiler recommends
+  the tag-ref retry first (`--ref stdlib-v0.64.8 -f compiler=v0.64.8`,
+  REL-20261019-1755-compiler). The stdlib pin-PR job failure is the
   known no-op (main is already on `stdlib-v0.64.8`); the compiler release
   is unaffected.
 - POST-RELEASE VERIFY (reporters fill the v0.64.8 check rows): engine
@@ -68,9 +69,10 @@ in E:\xiom-lang\xiom-relays.
 
 v0.64.8 is RELEASED (tag v0.64.8 @ 4d040604b, run 39296778685, 11 assets,
 stdlib-v0.64.8 pin). The only open release thread is the stdlib registry
-re-dispatch: the main-ref run failed publisher_not_mapped, so stdlib is
-re-dispatching on the stdlib-v0.64.8 tag with compiler=v0.64.8; confirm
-the registry run/sha. Close the check rows as reporters verify.
+publish: the main-ref run failed publisher_not_mapped; the tag-ref retry
+(--ref stdlib-v0.64.8 -f compiler=v0.64.8) is the recommended first step,
+with REL-20261019-1755-stdlib as the mapping fallback. Confirm the
+registry run/sha and close the check rows as reporters verify.
 
 Next wave (owner agreed): m373 parallel compile knobs + product profiling --
 expose [compiler] parallel/jobs/parallel-codegen in xiom.toml, use the
