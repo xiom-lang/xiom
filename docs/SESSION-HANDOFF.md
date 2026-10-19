@@ -46,25 +46,30 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   2/2. No v0.64.8 re-cut; the next cut carries it. Engine j-spine
   `REL-20261019-2057` acked; stdlib gate-9 green items 1053/1456/2328/2000
   moved to fixed, reds 1626/2343/2100-W1 queued.
+- POST-v0.64.8 FIX 2: m371 imported-struct alias layout (`3b3e50323`,
+  narrowed `095ac15a8` to restore `m37_bug55`) and m372 nested `ptr.read`
+  inference (`0acbbdc8b`). Locks: e2e_m371 + e2e_m372 + e2e_m37 green;
+  checker suite 213/213 incl `catalog_corpus_is_clean`. No re-cut.
 - POST-RELEASE VERIFY (reporters fill the v0.64.8 check rows): engine
   2032/2053/1343 soak on the archive; xvector XVC-C-20 + G-2b; orbitdb
   natural position tuple 160/160 + C-ORBIT-13; bindings B-34 (B-29
-  not-a-defect, B-32 retired); PULSE 1309/2301 stays on the workaround
-  (m371 next cycle). v0.64.7 is not re-cut.
+  not-a-defect, B-32 retired); PULSE 1309/2301 can re-enable Phase B on a
+  main build or the next cut (m371 fixed on main). v0.64.7 is not re-cut.
 - NEXT WAVE (owner agreed): **m373** parallel compile knobs + product
   profiling (`xiom.toml [compiler]` parallel/jobs/parallel-codegen; use the
   existing 7C/I2 paths; XIOM_TIMINGS on engine/xvector/orbitdb; parallel C
   deps via m365); **m374** parallel checker/codegen units (design/queue
   now, implement after selfhost Phase 6 parity); MCU/bare-metal 1220/1419.
-- RELAYS: m371 PULSE imported-struct layout; m365 remainder; m366 blocked
-  on the engine snippet; m363 Send/Sync; m372 nested ptr.read; bindings
-  B-29/B-34/B-32 closure; xvector XVC-C-20/G-2b; orbitdb C-ORBIT-12/13;
-  engine soak; .xiomignore/alias/LLVM/packages re-verify.
-- SELFHOST: RD9 GREEN on main `154cc08d7` (branch 50 ahead / 1 behind; RD9 commit
-  `096bad953`, not pushed): ported the v0.64.8 guard alloc/realloc drift
+- RELAYS: m365 remainder; m366 blocked on the engine snippet; m363
+  Send/Sync; bindings B-29/B-34/B-32 closure; xvector XVC-C-20/G-2b;
+  orbitdb C-ORBIT-12/13; engine soak; .xiomignore/alias/LLVM/packages
+  re-verify.
+- SELFHOST: RD9 GREEN on `154cc08d7` (RD9 commit `096bad953`, not pushed);
+  main has since advanced through m371/m372 (`095ac15a8`) -- rebase before
+  the next harness. Ported the v0.64.8 guard alloc/realloc drift
   (`@malloc`/`@realloc` -> `@xiom_guard_alloc`/`@xiom_guard_realloc` + zero-cap
-  select); full T3 suite 6/6 (942.71 s), meter 19/19 + 14/64, header parity
-  green, T1 all 83. Next: Option/.len, Vec.pop, &Vec+f64, index arithmetic.
+  select); full T3 suite 6/6 (942.71 s), meter 19/19 + 14/64. Next:
+  Option/.len, Vec.pop, &Vec+f64, index arithmetic.
 - CONSTRAINTS unchanged: rustc-first study; max 3-4 heavy sessions; watch
   memory; no stdlib edits except via relay; no release re-cut without
   owner GO; use `--no-cache` when shared catidx/engine builds interfere.
