@@ -1,11 +1,14 @@
 # Release gate -- v0.64.8
 
-STATUS: **IN PREP 2026-10-19** -- owner GO received. Not released. Compiler
-battery is green; dry-run 39276425781 failed at the stdlib checkout because
-the stdlib candidate `9b88b46` is local-only (not on origin). `STDLIB_VERSION`
-was reverted to `stdlib-v0.64.7` (`6faf74dfb`); stdlib asked to push/tag.
-The official v0.64.7 archive is not re-cut; v0.64.8 is the next cut and the
-archive requested by the engine in `REL-20261019-1312-engine`.
+STATUS: **IN PREP 2026-10-19** -- owner GO received. Not released. The
+stdlib r1 gate FAILED `smoke_io_edge` (SIGILL / 0xC000001D) on candidate
+r1; the fix is on main `4d040604b` (zero-capacity Vec alloc/growth),
+`candidate-v0.64.8-r2` is pushed, and the stdlib is re-gating. r1 dry-run
+39283297787 packaging SUCCESS but r1 is rejected; r2 dry-run 39287949178 is
+queued on `4d040604b`. Compiler battery is green (r1); r2 targeted locks
+are green. No compiler v0.64.8 tag until the r2 stdlib gate is green. The
+v0.64.7 archive is not re-cut; v0.64.8 is the archive requested by the
+engine in `REL-20261019-1312-engine`.
 
 ## Scope
 
@@ -30,21 +33,20 @@ These are in `release-notes/v0.64.8.md` known issues and the v0.64.8 check.
 
 ## Preconditions (before the tag)
 
-- [ ] **stdlib-v0.64.8 tagged and published**; `STDLIB_VERSION` pinned to it.
-      Hard gate: no compiler tag before the stdlib is on the same track.
-      Request: `REL-20261019-1432-compiler` (stdlib lane). The pin must carry
-      `release-notes/v0.64.8.md` for the combined notes. **Blocker: the
-      candidate `9b88b46` is local-only; the stdlib lane must push it and
-      tag `stdlib-v0.64.8` (relay `REL-20261019-1532-compiler`).** The
-      compiler source ref for the stdlib build is
-      `candidate-v0.64.8-r1` / `c45a247d2` (pushed).
+- [ ] **stdlib-v0.64.8 r2 gate green**; `STDLIB_VERSION=stdlib-v0.64.8`.
+      The tag is live but its r1 target failed `smoke_io_edge`; the stdlib
+      lane must update `COMPILER_VERSION=candidate-v0.64.8-r2`, move the
+      tag to the r2 marker commit, and re-run `release.yml`
+      (`REL-20261019-1624-stdlib`). The pin/fragment stays
+      `release-notes/v0.64.8.md`.
 - [x] Workspace + selfhost version bump to 0.64.8 (`c45a247d2`), Cargo.lock,
       VSIX README pin.
-- [ ] Release notes `release-notes/v0.64.8.md` converted to JSON with the
-      pinned stdlib fragment; `cargo run --quiet -p xiom-release-notes --
-      verify --tag v0.64.8 --stdlib <pinned-checkout>` green.
-- [ ] `STDLIB_VERSION=stdlib-v0.64.8` commit on main.
-- [ ] Candidate dry-run archive on the pin commit: `gh workflow run
+- [x] Release notes `release-notes/v0.64.8.md` converted to JSON with the
+      pinned stdlib fragment and verified (6 highlights, 0 breaking).
+- [x] `STDLIB_VERSION=stdlib-v0.64.8` on main (the tag moves to r2).
+- [x] r1 packaging dry-run 39283297787 SUCCESS on `39f1fddff`; the r1
+      compiler is rejected by the stdlib gate.
+- [ ] r2 candidate dry-run archive on `4d040604b`: `gh workflow run
       release.yml -f version=0.64.8`; all platform legs + VSIX + wasm +
       SHA256SUMS green; every staged tool reports 0.64.8.
 - [x] Full battery on the release commit (battery2): e2e **2612/2613 + m17
@@ -85,7 +87,9 @@ These are in `release-notes/v0.64.8.md` known issues and the v0.64.8 check.
 - [x] Dry-run 39276425781 attempted on `6879d694a` (stdlib pin `9b88b46`)
       -- FAILED at "Checkout stdlib at the pin" because the stdlib commit is
       local-only; not a compiler failure.
-- [ ] Dry-run workflow green on the pushed stdlib tag; record the run id.
+- [x] r1 packaging dry-run 39283297787 SUCCESS (r1 rejected by the stdlib
+      gate).
+- [ ] r2 dry-run 39287949178 green on `4d040604b`; record the run id.
 - [ ] Tag `v0.64.8`; guard green (tag == workspace 0.64.8, tag on main).
 - [ ] Release published; SHA256SUMS + assets verified; docs dispatch.
 - [ ] Announce and unblock the lanes (engine archive, xvector/orbitdb/

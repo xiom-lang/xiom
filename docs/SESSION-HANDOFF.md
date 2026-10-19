@@ -15,9 +15,24 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 (m254-m275; all pushed) is kept below for reference:
 
 *** SESSION UPDATE 2026-10-19T14:50Z (compiler lane; v0.64.8 RELEASE IN PREP -- OWNER GO) -- READ FIRST ***
+- **v0.64.8 r1 STDLIB GATE RED; r2 FIX IN MAIN `4d040604b`
+  (2026-10-19T16:35Z)**: stdlib release gate on candidate r1 (`c45a247d2`)
+  failed `smoke_io_edge` on both OSes (compile rc 0, SIGILL 0xC000001D):
+  empty-file `Vec[UInt8]::with_capacity(0)` -> `xiom_guard_alloc(0)` NULL ->
+  `vec_wc_trap` -> `llvm.trap`; push from cap 0 also `realloc(ptr,0)` ->
+  NULL. Fixed: `emit_alloc` clamps zero-size requests to 1 (positive
+  constants keep the literal IR shape; runtime sizes use a select), and
+  `Vec.push` grows from first capacity 8 when cap == 0. Debug
+  `smoke_io_edge` rc 0; new fixture/e2e `vec_with_capacity_zero` 1/1;
+  m296/m314/m195/vec locks green; m37 50/50; v0.64.7 control rc 0.
+  Candidate **`candidate-v0.64.8-r2`** pushed at `4d040604b`; stdlib asked
+  to update `COMPILER_VERSION`, move `stdlib-v0.64.8`, re-run
+  (`REL-20261019-1624-stdlib`). r1 dry-run 39283297787 packaging SUCCESS but
+  r1 rejected; r2 dry-run 39287949178 queued on `4d040604b`. **No v0.64.8
+  tag until the r2 stdlib gate is green.**
 - STATE: **owner GO for the next cut, v0.64.8**, built from current main
   (fix baseline `ac20559f9`; release prep `c45a247d2`). No v0.64.7 re-cut.
-  Main is `6faf74dfb`; relay bus `2dfab8f`. Release gate:
+  Main is `4d040604b`; relay bus `229f87b`. Release gate:
   `docs/RELEASE_GATE_v0.64.8.md`.
 - PREP DONE: workspace + selfhost version bump to 0.64.8, Cargo.lock, VSIX
   README pin (`c45a247d2`); release notes `release-notes/v0.64.8.md` plus
