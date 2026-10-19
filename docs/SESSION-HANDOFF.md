@@ -40,6 +40,12 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   publisher `xiom-lang/stdlib` with OIDC provenance, registry latest =
   0.64.8. The earlier `publisher_not_mapped` runs are superseded. No open
   release thread; reporters fill the check rows.
+- POST-v0.64.8 FIX: main `1f85922d8` fixes absolute-path C3 package
+  discovery (m369's shallow temp index skipped `packages/`); the real
+  playground tree passes `--check` absolute and relative, catalog locks
+  2/2. No v0.64.8 re-cut; the next cut carries it. Engine j-spine
+  `REL-20261019-2057` acked; stdlib gate-9 green items 1053/1456/2328/2000
+  moved to fixed, reds 1626/2343/2100-W1 queued.
 - POST-RELEASE VERIFY (reporters fill the v0.64.8 check rows): engine
   2032/2053/1343 soak on the archive; xvector XVC-C-20 + G-2b; orbitdb
   natural position tuple 160/160 + C-ORBIT-13; bindings B-34 (B-29
