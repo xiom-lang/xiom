@@ -17,7 +17,7 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 *** SESSION UPDATE 2026-10-20T16:03Z (compiler lane; m375 MEASURED -- Vec drop elaboration, not the arena) -- READ FIRST ***
 - STATE: v0.64.8 remains the released archive; no re-cut/candidate without
   owner GO. Main `f915fb759` (m376 `9b6b3b59f` + m377 `f5525e9f6`); relays
-  `faf3e1a`.
+  `5a4bf9f`.
 - m375 MEASUREMENT (v0.64.8 Windows, 64 MiB file, 50 ms WorkingSet sampling):
   `io.read_at` 10k x 4 KiB = 304 MB (~31 KB/read); 10k x 64 B = 10.5 MB;
   2k x 64 KiB = 926 MB (~463 KB/read). Differential: Vec[UInt8]
@@ -36,9 +36,10 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   `read_at_into(path, offset, &mut Vec[UInt8], len)` (caller buffer, no fresh
   Vec). Compiler proper fix = owned-payload/scope-exit drop elaboration;
   design first, do not land a use-after-free-prone patch.
-- RELAYS: `faf3e1a`. m375 acked with the trace; m376 fixed (`9b6b3b59f`,
-  commit `26bfcd9`); m377 fixed (`f5525e9f6`, commit `d75f0de`) + stdlib
-  Vec4f lane-math follow-up `REL-20261020-1242-compiler`.
+- RELAYS: `5a4bf9f`. m375 acked with the trace (1222) and the perf addendum
+  1236 acked: R2/R3 50k rows are PRE-RECLAIM. m376 fixed (`9b6b3b59f`, commit
+  `26bfcd9`); m377 fixed (`f5525e9f6`, commit `d75f0de`) + stdlib Vec4f
+  lane-math follow-up `REL-20261020-1242-compiler`.
 - VERIFICATION already green this session: feature_regression 549/549,
   integration 130/130, stdlib_tests 40/40, codegen lib 23/23, plus the
   m249/m283/m326/m337/m371/m372/m376/m377/m37_bug55 locks.
@@ -59,8 +60,9 @@ State: v0.64.8 is released (tag 4d040604b, 11 assets, registry xiom-std 0.64.8
 green); no re-cut/candidate without owner GO. Main `f915fb759` has:
 `9b6b3b59f` m376 (clear per-mono param/ref tracking; Map/Set helper AV, lock
 `e2e_m376_map_set_helpers`) and `f5525e9f6` m377 (scalar-pointee inference +
-call-site pointer ABI, lock `e2e_m377_ptr_scalar_lane`). Relay `faf3e1a`:
-m375 is ACKED with the measured trace; m376/m377 fixed; stdlib Vec4f lane math
+call-site pointer ABI, lock `e2e_m377_ptr_scalar_lane`). Relay `5a4bf9f`:
+m375 is ACKED with the measured trace (and the 1236 perf addendum: R2/R3 rows
+are pre-reclaim); m376/m377 fixed; stdlib Vec4f lane math
 `REL-20261020-1242-compiler`; stdlib `read_at_into` wishlist
 `REL-20261020-1302-compiler`.
 
