@@ -14,6 +14,87 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-20T19:11Z (compiler lane; stdlib gate-9 reds CLEARED: m2100-W1 + m1626 + m2343) -- READ FIRST ***
+- STATE: v0.64.8 remains the released archive; no re-cut/candidate without
+  owner GO. Main `2f887bcf1` (m2343) on top of `626dfbc65` (m1626),
+  `dea6ceee8` (m2100-W1), `029595080` (m2057), `f915fb759` (m376/m377);
+  relays `7955855`.
+- m2100-W1 FIXED (`dea6ceee8`, REL-20261016-2100-stdlib): instance-field
+  receiver inference normalized the declared field type exact ->
+  `xiom.<qualified>` -> deterministic leaf key before method dispatch.
+  Stdlib witnesses `w1546_field.xi` (alias), `w1546_field_full.xi` (full
+  path), `w1546_field_bare.xi` (control) all rc 0; lock
+  `e2e_m2100_alias_field_type` (`field_type_ok`). The bare-name workaround in
+  `xiom/net/sse.xi` can be reverted.
+- m1626 FIXED (`626dfbc65`, REL-20261011-1626-stdlib): a semicolon-less
+  trailing `match` whose arms are VALUE-shaped is now `Expr::Match` (the block
+  value); an explicit `match ...;` keeps discard semantics, and matches with
+  return/loop arms stay statements. The checker also clears `last_expr_ty` at
+  every statement (the preceding `vec.push(x)` was parsed as a tail
+  expression and its Unit type leaked). Probe rc 0; lock
+  `e2e_m1626_trailing_match_after_push` (includes the `match ...;` discard
+  control). The `return match` workaround in `xiom/serialize/json.xi` can be
+  reverted.
+- m2343 FIXED (`2f887bcf1`, REL-20261015-2343-stdlib):
+  `infer_call_return_xiom` now unwraps `unsafe { ... }` / `{ ... }` to the
+  block tail, so `let a = unsafe { ext_i32() }` records Int32 + signedness and
+  the comparison sign-extends (pre-fix `zext`: -1 -> 4294967295). Socket
+  witness rc 0; lock `e2e_m2343_inline_i32_return` (deterministic strcmp
+  negative/positive/declared forms -> `i32_neg_ok`). The 27 stdlib
+  annotations remain harmless.
+- m2057 FIXED (`029595080`, REL-20261019-2057-engine): fn-type alias
+  transparency (checker + codegen, including struct fields) + module-global
+  `Vec.pop`; locks `e2e_m2057_alias_params` / `e2e_m2057_global_pop`.
+- VERIFICATION: parser 109/109, checker 213/213, feature_regression 549/549,
+  integration 130/130, stdlib_tests 40/40, codegen lib 23/23; locks
+  m1626/m2057/m2100/m2343/m337/m371/m372/m376/m377 green;
+  `p_wave196_small_gaps.xi` rc 0. stdlib gate-9 reds 1626/2343/2100-W1 are
+  now all fixed; reporter re-verify is the next step.
+- m375 remains MEASURED/acked (Vec drop elaboration; no fix): direct-reader
+  workaround, stdlib `read_at_into` wishlist `REL-20261020-1302-compiler`;
+  compiler proper fix needs owned-payload/scope-exit drop design.
+- OPERATIONAL: E: can stall in `Wait PageIn` under other lanes' compiles. Use
+  a C:-isolated copy of `xiom.exe` + `lib/`, private `HOME`, `XIOM_STDLIB`,
+  `--no-cache`. Do NOT kill all `xiom` processes; other lanes run compilers.
+- QUEUE: m365 caller flag-split/per-key lock (engine REL-20261019-1355);
+  selfhost rebase + Option/.len, Vec.pop, &Vec+f64, index arithmetic; m373
+  profiling/m374; MCU 1220. m375 design only when the owner prioritizes it.
+
+*** CONTINUATION PROMPT (paste-ready) -- 2026-10-20T19:11Z ***
+You are the compiler-lane successor for XIOM (E:\xiom-lang\xiom).
+Read `docs/SESSION-HANDOFF.md` top block (2026-10-20T19:11Z),
+`docs/RELEASE_GATE_v0.64.8.md`, and `release-checks/compiler-compiler-v0.64.8.md`
+in E:\xiom-lang\xiom-relays.
+
+State: v0.64.8 is released (tag 4d040604b, 11 assets, registry xiom-std 0.64.8
+green); no re-cut/candidate without owner GO. Main `2f887bcf1`: m2343 inline
+i32 extern sign-extension; `626dfbc65`: m1626 trailing match value; `dea6ceee8`:
+m2100-W1 qualified field types; `029595080`: m2057 fn-type aliases + global
+Vec.pop; `f915fb759`: m376/m377. Relays `7955855` mark all four fixed (plus
+m376/m377). stdlib gate-9 reds 1626/2343/2100-W1 are cleared pending reporter
+re-verify; Vec4f lane math is `REL-20261020-1242-compiler`; read_at_into is
+`REL-20261020-1302-compiler`.
+
+m375 is measured, NOT fixed: read_at 10k x 4 KiB = 304 MB; Vec[UInt8] churn
+alone = 317 MB/10k; same churn in a helper = 4.6 MB flat; a read helper
+returning only d.len() still grows 310 MB. Root cause is Vec drop elaboration
+(match-bound Result Vec payloads are not drop candidates; loop locals drop only
+at function return/last binding), not io.read_at or the arena. Orbitdb has the
+direct-reader workaround; the compiler proper fix needs owned-payload/
+scope-exit drop design first (no unsafe drop patch).
+
+Priority: 1) m365 caller flag-split/per-key lock (engine REL-20261019-1355).
+2) Selfhost: rebase 096bad953, re-run T3, continue Option/.len, Vec.pop,
+&Vec+f64, index arithmetic. 3) Performance: m373 profiling/XIOM_TIMINGS, m374
+design, MCU 1220. 4) Wait for lane verification of the v0.64.8 check rows and
+the four re-verify rows; no candidate cut without owner GO. m375 design only
+when the owner prioritizes it.
+
+Constraints: rustc-first study; max 3-4 heavy sessions; watch memory; no
+stdlib edits except via relay; use --no-cache when shared catidx/engine builds
+interfere. If E: stalls in PageIn, run a C:-isolated toolchain copy with a
+private HOME; do not kill other lanes' xiom processes.
+
 *** SESSION UPDATE 2026-10-20T18:44Z (compiler lane; m2057 FIXED; m375 measured) -- READ FIRST ***
 - STATE: v0.64.8 remains the released archive; no re-cut/candidate without
   owner GO. Main `029595080` (m2057) on top of `f915fb759` (m376 `9b6b3b59f`
