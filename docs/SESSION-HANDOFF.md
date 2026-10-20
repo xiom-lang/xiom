@@ -14,6 +14,60 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-20T12:47Z (compiler lane; m377 FIXED; stdlib lane-math follow-up) -- READ FIRST ***
+- STATE: v0.64.8 remains the released archive; no re-cut and no candidate cut
+  without owner GO.
+- MAIN: `f5525e9f6` fix(codegen) m377 scalar-pointee inference + call-site
+  pointer ABI (REL-20261019-2249-stdlib-2). Two roots: (1) the generic
+  fallback bound T="*Float32" from an `as *Float32` cast target instead of
+  Float32; (2) the call-site `*T` ABI substituted the stale
+  `param_concrete_types` map, so it passed `i64*` to a `float*` mono def.
+  Lock `e2e_m377_ptr_scalar_lane` (`tests/regression/m377_ptr_scalar_lane.xi`):
+  warning-free compile, by-value lane round-trip `lane1=2 lane3=4`.
+  Regression batch green: m372, m37 SIMD runtime, m77, m280, m312 (IR +
+  runtime), codegen lib 23/23. Docs: COMPILER_BUGS m377 entry.
+- RELAYS: `d75f0de`. m377 acked->fixed with the compiler commit; new
+  `REL-20261020-1242-compiler` to stdlib: `Vec4f.get`/`set` still use
+  `(data + index * 4)` on a `*Float32` field. `ptr + count` is ELEMENT-based
+  (`api/ptr.md`), so the lane math double-scales and `Vec4f.get(1)` stays 0
+  until stdlib uses `data + index` (or `ptr.offset` bytes). `Vec4f.new` is
+  fine (its `data` is the i8* from `alloc`, byte-sized elements).
+- QUEUE: **m376 next** (Map/Set generic-helper AV; add the combined mutating
+  repro), then **m375** (minimal `io.read_at` loop + RSS/XIOM_TIMINGS trace;
+  do not change the arena until measured). The m377 stdlib lane-math item
+  blocks the reporter's `Vec4f.get` acceptance; compiler-side is green.
+- CONSTRAINTS unchanged: rustc-first study; max 3-4 heavy sessions; watch
+  memory; no stdlib edits except via relay; no release re-cut without owner
+  GO; use `--no-cache` when shared catidx/engine builds interfere.
+
+*** CONTINUATION PROMPT (paste-ready) -- 2026-10-20T12:47Z ***
+You are the compiler-lane successor for XIOM (E:\xiom-lang\xiom).
+Read `docs/SESSION-HANDOFF.md` top block (2026-10-20T12:47Z),
+`docs/RELEASE_GATE_v0.64.8.md`, and `release-checks/compiler-compiler-v0.64.8.md`
+in E:\xiom-lang\xiom-relays.
+
+State: v0.64.8 is released (tag 4d040604b, 11 assets, registry xiom-std 0.64.8
+green); no re-cut or candidate cut without owner GO. Main `f5525e9f6` adds the
+m377 compiler fix (scalar-pointee generic inference + call-site pointer ABI)
+with lock `e2e_m377_ptr_scalar_lane`; relay `d75f0de` marks m377 fixed and
+opens `REL-20261020-1242-compiler` (stdlib Vec4f lane math must use
+`data + index`, not `data + index * 4`). Earlier main: C3 absolute path
+1f85922d8, m371 3b3e50323 + narrowing 095ac15a8, m372 0acbbdc8b, m373/riscv
+383fe9dc6, m374/MCU 154cc08d7. Selfhost branch 096bad953 (RD9 green; rebase
+before the next harness).
+
+Priority: 1) m376 (add the combined Map/Set mutating repro, fix the AV), then
+m375 (minimal read_at loop/RSS trace; no arena change until measured); then
+engine REL-20261019-2057, stdlib reds 1626/2343/2100-W1, m365. 2) Selfhost:
+rebase 096bad953, re-run T3, continue Option/.len, Vec.pop, &Vec+f64, index
+arithmetic. 3) Performance: m373 profiling/XIOM_TIMINGS, m374 design, MCU
+1220. 4) Wait for lane verification of the v0.64.8 check rows; no candidate
+cut without owner GO.
+
+Constraints: rustc-first study; max 3-4 heavy sessions; watch memory; no
+stdlib edits except via relay; use --no-cache when shared catidx/engine builds
+interfere.
+
 *** SESSION UPDATE 2026-10-20T12:26Z (compiler lane; next-session handoff) -- READ FIRST ***
 - STATE: v0.64.8 released (tag `v0.64.8` @ `4d040604b`, 11 assets, run
   39296778685); `stdlib-v0.64.8` pinned; `xiom-std 0.64.8` registry green

@@ -13,10 +13,10 @@ XIOM is a compiled, statically typed, memory-safe systems programming language. 
 ## Current Status (2026-10-20)
 
 - **Latest release: [v0.64.8](https://github.com/xiom-lang/xiom/releases/tag/v0.64.8)** (2026-10-19), with Windows, Linux x64/arm64, macOS x64/arm64, wasm, and VSIX assets. The stdlib pin is `stdlib-v0.64.8`; the public registry has `xiom-std 0.64.8` with OIDC provenance.
-- **Post-release fixes on `main`:** absolute-path package discovery, the m371 cross-module imported-struct alias layout, m372 nested `ptr.read`/`ptr.write` inference, m373 `[compiler]` `parallel`/`jobs`/`parallel-codegen` knobs, and the RISC-V LLVM triple correction. Checker suite: 213/213; the m371/m372/m37 e2e locks are green.
+- **Post-release fixes on `main`:** absolute-path package discovery, the m371 cross-module imported-struct alias layout, m372 nested `ptr.read`/`ptr.write` inference, m377 scalar-pointee `ptr.read`/`ptr.write` inference + call-site pointer ABI, m373 `[compiler]` `parallel`/`jobs`/`parallel-codegen` knobs, and the RISC-V LLVM triple correction. Checker suite: 213/213; the m371/m372/m377/m37 e2e locks are green.
 - **Self-hosting:** Phase 6 RD9 is green (full T3 suite 6/6; T6 **14/64** byte-exact). Next shapes: Option/`.len`, `Vec.pop`, `&Vec`+f64, index arithmetic.
 - **Next:** a v0.64.9 candidate after lane verification; m373 product profiling (the v0.64.8 matrix is front-end-bound, with an ~85 MB peak-RSS floor and LSI 45), m374 parallel checker/CGU design, and MCU/bare-metal targets.
-- **Open relay items:** orbitdb A6 1M-key soak (high; per-I/O memory retention, 57 GB WS at ~130k keys), stdlib generic Map/Set helper codegen AV (high), and the Vec4f `*Float32` lane miscompile (medium). Tracked on the relay bus as m375/m376/m377.
+- **Open relay items:** orbitdb A6 1M-key soak (high; per-I/O memory retention, 57 GB WS at ~130k keys) and the stdlib generic Map/Set helper codegen AV (high). The Vec4f `*Float32` lane-miscompile compiler half is fixed on `main` (m377); the element-based lane-math follow-up is with stdlib (`REL-20261020-1242-compiler`).
 
 ## Quick Start
 
