@@ -5,10 +5,18 @@
 
 **Safe - Verified - Precise** -- A systems programming language with first-class contracts.
 
-[![Tests](https://img.shields.io/badge/tests-2426%20passed-brightgreen)]()
-[![Version](https://img.shields.io/badge/version-0.64.0-blue)]()
+[![Tests](https://img.shields.io/badge/tests-2%2C600%2B-brightgreen)]()
+[![Version](https://img.shields.io/badge/version-0.64.8-blue)]()
 
-XIOM is a compiled, statically typed, memory-safe systems programming language. It compiles to native code via LLVM and supports x86_64, ARM, RISC-V, and WebAssembly. The compiler is self-hosted -- it compiles itself.
+XIOM is a compiled, statically typed, memory-safe systems programming language. It compiles to native code via LLVM and supports x86_64, ARM, RISC-V, and WebAssembly. The Rust compiler is the production toolchain; the self-hosted implementation is in Phase 6 (RD9: 14/64 byte-exact).
+
+## Current Status (2026-10-20)
+
+- **Latest release: [v0.64.8](https://github.com/xiom-lang/xiom/releases/tag/v0.64.8)** (2026-10-19), with Windows, Linux x64/arm64, macOS x64/arm64, wasm, and VSIX assets. The stdlib pin is `stdlib-v0.64.8`; the public registry has `xiom-std 0.64.8` with OIDC provenance.
+- **Post-release fixes on `main`:** absolute-path package discovery, the m371 cross-module imported-struct alias layout, m372 nested `ptr.read`/`ptr.write` inference, m373 `[compiler]` `parallel`/`jobs`/`parallel-codegen` knobs, and the RISC-V LLVM triple correction. Checker suite: 213/213; the m371/m372/m37 e2e locks are green.
+- **Self-hosting:** Phase 6 RD9 is green (full T3 suite 6/6; T6 **14/64** byte-exact). Next shapes: Option/`.len`, `Vec.pop`, `&Vec`+f64, index arithmetic.
+- **Next:** a v0.64.9 candidate after lane verification; m373 product profiling (the v0.64.8 matrix is front-end-bound, with an ~85 MB peak-RSS floor and LSI 45), m374 parallel checker/CGU design, and MCU/bare-metal targets.
+- **Open relay items:** orbitdb A6 1M-key soak (high; per-I/O memory retention, 57 GB WS at ~130k keys), stdlib generic Map/Set helper codegen AV (high), and the Vec4f `*Float32` lane miscompile (medium). Tracked on the relay bus as m375/m376/m377.
 
 ## Quick Start
 
@@ -23,7 +31,7 @@ cd xiom
 
 # After restarting terminal:
 xiom --version
-# -> XIOM Compiler v0.64.0
+# -> XIOM Compiler v0.64.8
 ```
 
 ### One-Command Install (macOS / Linux)
@@ -41,7 +49,7 @@ xiom --version
 
 ### Pre-built Release (Windows)
 
-Download the latest `xiom-v0.64.0-windows-x64.zip` from [Releases](https://github.com/xiom-lang/xiom/releases), extract, and double-click `install.bat`. It will:
+Download the latest `xiom-0.64.8-windows-x64.zip` from [Releases](https://github.com/xiom-lang/xiom/releases/tag/v0.64.8), extract, and double-click `install.bat`. It will:
 
 1. Ask where to install (default: `%LOCALAPPDATA%\xiom`)
 2. Copy binaries + stdlib + runtime
@@ -70,13 +78,13 @@ Download the latest `xiom-v0.64.0-windows-x64.zip` from [Releases](https://githu
 # (version defaults to Cargo.toml [workspace.package] version)
 .\package.ps1
 # Produces:
-#   release\xiom-v0.64.0\                 <- portable folder
-#   release\xiom-v0.64.0-windows-x64.zip   <- distributable ZIP
+#   release\xiom-0.64.8\                  <- portable folder
+#   release\xiom-0.64.8-windows-x64.zip   <- distributable ZIP
 ```
 
 Release folder structure:
 ```
-xiom-v0.64.0\
+xiom-0.64.8\
 |-- bin\              xiom.exe, xiom-pkg.exe, xiom-fmt.exe, xiom-doc.exe,
 |                     xiom-lsp.exe, xiom-dbg.exe, xiom-mcp.exe,
 |                     xiom-verify.exe, xiom-ffigen.exe, z3.exe
@@ -90,74 +98,29 @@ xiom-v0.64.0\
 Install from a release:
 ```powershell
 # From local release folder
-.\install.ps1 -BinaryPath .\release\xiom-v0.64.0
+.\install.ps1 -BinaryPath .\release\xiom-0.64.8
 
 # Or just double-click install.bat in the release folder
 ```
 
 ### Building the Self-Hosted Compiler
 
-The XIOM compiler can compile itself. The Rust compiler is the bootstrap.
+The self-hosted implementation lives in `selfhost/src/main.xi`. It is under active parity work (Phase 6 RD9: full T3 suite 6/6, T6 14/64 byte-exact); the Rust compiler remains the bootstrap and the production toolchain for releases.
 
 ```powershell
 # Step 1: Compile the self-hosted compiler with Rust
-cargo run -p xiom -- -o xiom.exe selfhost/xiom_v10.xi
+cargo run -p xiom -- -o xiom-self.exe selfhost/src/main.xi
 
-# Step 2: The resulting xiom.exe IS the XIOM compiler
-.\xiom.exe --help
-
-# Step 3: Use it to compile XIOM code
-.\xiom.exe examples/demo_float.xi --run
-```
-
-### Bootstrap Chain (Self-Hosting Proof)
-
-The XIOM compiler can compile itself. The bootstrap chain begins with the Rust-compiled compiler and produces a self-sustaining loop:
-
-```
-   Rust xiom (bootstrap)
-        |
-        v compiles selfhost/xiom_v10.xi
-        |
-   xiom.exe  --- stage 1 selfhost binary
-        |
-        v reads its own source, emits LLVM IR
-        |
-   bootstrap_output.ll  (18 function definitions)
-        |
-        v compiled by clang + xiom_runtime.c
-        |
-   xiom_stage2.exe  --- stage 2 selfhost binary (target)
-```
-
-```powershell
-# Step 1: Compile the selfhost with Rust (bootstrap)
-cargo run -p xiom -- -o xiom.exe selfhost/xiom_v10.xi
-
-# Step 2: The resulting xiom.exe is the XIOM compiler
-.\xiom.exe --help
-# -> XIOM Compiler v0.12.0
+# Step 2: The resulting xiom-self.exe is the self-hosted compiler
+.\xiom-self.exe --help
 
 # Step 3: Use it to compile XIOM code
-.\xiom.exe examples/demo_float.xi --emit-ir
-
-# Step 4: Self-host the bootstrap
-.\xiom.exe selfhost/xiom_v10.xi --emit-ir
-# -> produces LLVM IR for all 18 functions
+.\xiom-self.exe examples/demo_float.xi --run
 ```
 
-Latest verification (2026-07-01, feat/ecosystem branch):
+### Bootstrap Chain (Historical)
 
-| Step | Command | Result |
-|------|---------|--------|
-| 1 | `cargo run -p xiom -- -o bootstrap_selfhost.exe selfhost\xiom_v10.xi` | [OK] Compiled, exit 0 |
-| 2 | `.\bootstrap_selfhost.exe` | [OK] Emits `define i64 @main()` + 17 other functions |
-| 3 | `.\bootstrap_selfhost.exe > bootstrap_output.ll` | [OK] 18 function definitions captured |
-| 4 | `clang -o bootstrap_stage2.exe bootstrap_output.ll stdlib\runtime\xiom_runtime.c` | [FAIL] IR syntax issues (named SSA values in calls lack `%` prefix) |
-
-**Status**: The Rust->selfhost->IR pipeline is fully verified. The selfhost compiler emits valid LLVM IR structurally (18 functions, proper module triple) but has two known IR emission bugs: (1) named SSA values in `call` operands lack `%` prefix, (2) string literal arguments are not properly quoted. These affect `codegen/expr.xi` in the selfhost source. Once fixed, `clang` will produce a working stage-2 binary, completing the bootstrap loop.
-
-**Bootstrap verified (partial)**: The XIOM compiler, compiled by Rust, can read and compile its own source, producing structured LLVM IR with 18 function definitions. Rust is the permanent bootstrap fallback; the selfhost compiler is IR-verified and awaiting codegen fixes for full stage-2 closure.
+The original self-hosting proof (v0.12.0, 2026-07-01) used the then-current `selfhost` source and produced a stage-2 compiler. That proof is historical. The current self-hosted implementation is `selfhost/src/main.xi`; parity is tracked in `docs/checklists/selfhost-phase6.md` (RD9: full T3 suite 6/6, T6 14/64 byte-exact). The Rust compiler remains the production bootstrap and release toolchain.
 
 ## Toolchain
 
@@ -196,7 +159,9 @@ OPTIONS:
 | Windows x86_64 | default | `x86_64-pc-windows-msvc` |
 | WebAssembly | `--target wasm` | `wasm32-unknown-unknown` |
 | ARM aarch64 | `--target arm` | `aarch64-unknown-linux-gnu` |
-| RISC-V | `--target riscv` | `riscv64gc-unknown-linux-gnu` |
+| RISC-V | `--target riscv` | `riscv64-unknown-linux-gnu` |
+
+> The v0.64.8 archive predates the RISC-V LLVM triple correction; use `main` (or the next release) for the `riscv64-unknown-linux-gnu` spelling.
 
 ## Language Features
 
@@ -266,6 +231,7 @@ See the [Releases page](https://github.com/xiom-lang/xiom/releases) for the full
 
 | Version | Date | Tests | Milestone |
 |---------|------|-------|-----------|
+| v0.64.8 | 2026-10-19 | 2,600+ | Scoped arena for frame-shaped memory; zero-capacity Vec fix; m360 i128 div/rem; m368 Vec-drop reclaim; m369 catalog index; m370 generic-struct Vec; C-ORBIT-12/13, XVC-C-20, B-34 |
 | v0.64.0 | 2026-10-05 | 2426 | Major correctness: reflect heap corruption, TcpStream.read elision, unsafe stack exhaustion, installed runtime links, exact float bits |
 | v0.63.1 | 2026-10-05 | 2423 | Fixes: runtime contract evaluator, verifier SMT self/sort emission, LZ4 duplicate leaf, catalog flush |
 | v0.63.0 | 2026-10-04 | 2421 | LZ4 block compression, verifier SMT validity, scripting temp-tree fix, compile caches |
@@ -280,6 +246,8 @@ See the [Releases page](https://github.com/xiom-lang/xiom/releases) for the full
 | v0.2.5 | 2026-06-30 | 109 | Full language surface |
 | v0.1.0 | 2026-06-30 | 36 | First working pipeline |
 
+Intermediate releases v0.64.1-v0.64.7 are on the [Releases page](https://github.com/xiom-lang/xiom/releases).
+
 ## Ecosystem
 
 | Library | Purpose | Status |
@@ -290,7 +258,7 @@ See the [Releases page](https://github.com/xiom-lang/xiom/releases) for the full
 
 ## Package Registry
 
-XIOM has a local package registry. Start the server, then publish and install packages.
+The public registry is at `https://registry.xiom-lang.org`; `xiom-std 0.64.8` is published there with OIDC provenance. For local development you can run the registry server, then publish and install packages.
 
 ```powershell
 # Start the registry
@@ -323,8 +291,8 @@ XIOM/
 |   |-- xiom-check/  #   Type checker + borrow checker
 |   |-- xiom-codegen/#   LLVM IR emitter
 |   `-- ...           #   fmt, doc, lsp, pkg, ffigen, verify
-|-- selfhost/         # XIOM self-hosted compiler
-|   `-- xiom_v10.xi #   Main compiler source
+|-- selfhost/         # XIOM self-hosted compiler (Phase 6)
+|   `-- src/main.xi   #   Main compiler source
 |-- stdlib/           # Standard library
 |   |-- xiom/        #   core, io, collections, string, math, ffi, async
 |   `-- runtime/      #   C runtime (xiom_runtime.c)
