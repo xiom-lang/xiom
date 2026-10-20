@@ -4714,6 +4714,25 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // Keep scanning; the historical "Int" default is
                             // applied below when nothing else resolves.
                             let mut container_fallback = false;
+                            // m377 (REL-20261019-2249-stdlib-2): a generic that
+                            // is the DIRECT pointee of a pointer/ref param
+                            // (`read[T](ptr: *const T)`) must bind to the
+                            // argument's POINTEE, not the whole pointer
+                            // spelling. The fallback below reports the cast
+                            // target verbatim, so `ptr.read((p + n) as
+                            // *Float32)` bound T="*Float32"; the mono's `*T`
+                            // param then hit the unknown-type i64 fallback
+                            // (warning) and Vec4f.get returned pointer bits
+                            // (0) instead of the lane.
+                            let gp_is_direct_pointee = fd.params.iter().any(|p| match &p.ty {
+                                Type::Ptr(inner) | Type::Ref(inner) | Type::MutRef(inner) => {
+                                    matches!(
+                                        inner.as_ref(),
+                                        Type::Named(id, args) if args.is_empty() && id.name == gp.name.name
+                                    )
+                                }
+                                _ => false,
+                            });
                             for (param, arg_expr) in fd.params.iter().skip(recv_offset).zip(args.iter()) {
                                 let param_type = Self::type_from_ast(&param.ty);
                                 // m249 (stdlib slice-bound C001): `&Slice[T]` /
@@ -5039,6 +5058,18 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         Expr::Ident(id) => self.infer_generic_ident_type(&id.name, &gp.name.name),
                                         _ => "Int".to_string(),
                                     };
+                                    // m377: strip the pointer spelling when the
+                                    // generic is the param's direct pointee --
+                                    // the cast arm above is the source that
+                                    // produced "*Float32" (see the comment at
+                                    // gp_is_direct_pointee).
+                                    let concrete_ty = if gp_is_direct_pointee {
+                                        concrete_ty.trim_start_matches(|c: char| {
+                                            c == '*' || c == '&' || c.is_whitespace()
+                                        }).to_string()
+                                    } else {
+                                        concrete_ty
+                                    };
                                     concrete_types.push(concrete_ty);
                                 } else if let Some(recv) = receiver_expr {
                                     // R46b: receiver-only inference for
@@ -5181,7 +5212,21 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         match &p.ty {
                                             // &mut T / *T -> real pointer to the value type
                                             Type::MutRef(inner) | Type::Ptr(inner) => {
-                                                let subst = Self::substitute_type(inner, inner, &self.mono.param_concrete_types);
+                                                // m377: substitute with THIS call's
+                                                // inferred type args. At a call site
+                                                // param_concrete_types is stale/empty
+                                                // (it is only populated while compiling
+                                                // a mono body), so `*T` degraded to
+                                                // i64* while the mono def was lowered
+                                                // to float* -- ptr.read then read the
+                                                // pointer bits (Vec4f.get returned 0).
+                                                let mut subst_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+                                                for (gi, gp) in fd.generics.iter().enumerate() {
+                                                    if let Some(c) = concrete_types.get(gi) {
+                                                        subst_map.insert(gp.name.name.clone(), c.clone());
+                                                    }
+                                                }
+                                                let subst = Self::substitute_type(inner, inner, &subst_map);
                                                 let name = Self::type_from_ast(&subst);
                                                 let base = self.llvm_type_for(&name).unwrap_or_else(|_| "i64".to_string());
                                                 format!("{base}*")

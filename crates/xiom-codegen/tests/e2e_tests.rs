@@ -10932,3 +10932,54 @@ fn e2e_m372_nested_generic_ptr_read() {
     );
     let _ = std::fs::remove_file(&exe);
 }
+
+// m377 (REL-20261019-2249-stdlib-2): `ptr.read((p + i) as *Float32)` bound
+// the generic to the whole cast target ("*Float32") instead of its pointee;
+// the mono param hit the unknown-type i64 fallback and the call passed i64*
+// to a float* function, so lane reads returned pointer bits. The call-site
+// pointer ABI also used the stale param map. Locks the warning-free compile
+// plus the by-value lane write/read round-trip.
+#[test]
+fn e2e_m377_ptr_scalar_lane() {
+    let src = project_root()
+        .join("tests")
+        .join("regression")
+        .join("m377_ptr_scalar_lane.xi");
+    let exe = project_root()
+        .join("target")
+        .join("m377_ptr_scalar_lane.exe");
+    let _ = std::fs::remove_file(&exe);
+
+    let compile = Command::new(xiom_path())
+        .args(["--no-cache", "-o"])
+        .arg(&exe)
+        .arg(&src)
+        .env("XIOM_STDLIB", project_root().join("stdlib"))
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the m377 scalar-pointer lane fixture");
+    let compile_stderr = String::from_utf8_lossy(&compile.stderr);
+    assert!(
+        compile.status.success(),
+        "m377 scalar-pointer lane: fixture must compile; stderr:\n{compile_stderr}"
+    );
+    assert!(
+        !compile_stderr.contains("unknown type") && !compile_stderr.contains("defaulting to i64"),
+        "m377 scalar-pointer lane: `*Float32` must resolve to float* without the i64 fallback; stderr:\n{compile_stderr}"
+    );
+    let run = Command::new(&exe)
+        .output()
+        .expect("run the m377 scalar-pointer lane fixture");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "m377 scalar-pointer lane: writes/reads must round-trip; stdout: {stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(
+        stdout.contains("lane1=2 lane3=4"),
+        "m377 scalar-pointer lane: expected lane1=2 lane3=4; stdout: {stdout}"
+    );
+    let _ = std::fs::remove_file(&exe);
+}

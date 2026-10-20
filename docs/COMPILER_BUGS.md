@@ -19564,3 +19564,46 @@ PASSED (exit 0) and relative PASSED; `cargo test -p xiom-check
 shallow_source_dir` 2/2. No v0.64.8 re-cut (no owner GO); the fix is on main
 for the next cut. Playground can keep v0.64.7 or use a main build meanwhile.
 
+
+---
+
+## 2026-10-20 -- FIXED (m377, REL-20261019-2249-stdlib-2): `ptr.read`/`ptr.write` on a scalar pointee inferred the pointer, not its pointee
+
+WITNESS: `Vec4f.new(1.0, 2.0, 3.0, 4.0).get(1)` returned 0; the compile
+warned `unknown type '*Float32' -- defaulting to i64` three times. Minimal
+shape: `ptr.read((data + index) as *Float32)` inside a generic `read[T]`
+mono.
+
+ROOT CAUSE (two coordinated compiler defects):
+1. Generic inference for a DIRECT pointee (`read[T](ptr: *const T)`) fell
+   through the per-param container inference (the argument is an `as *T`
+   cast, not a call) to the first-argument fallback, which returns the CAST
+   TARGET verbatim. T bound to "*Float32" instead of "Float32"; the mono
+   param then lowered through the unknown-type i64 fallback and the
+   definition itself became `i64*`.
+2. The call-site pointer ABI arm (`call.rs`, `*T`/`&mut T` parameters)
+   substituted with the stale `self.mono.param_concrete_types` map, which is
+   only populated while compiling a mono BODY. At the call site the map was
+   empty, so the expected parameter type degraded to `i64*` while the mono
+   definition (after fix 1) was correctly `float*`. The call passed an i64*
+   against a float* signature; the trampoline result then read the pointer
+   bits, so lane reads returned 0.
+
+FIX: (a) normalize the fallback-inferred type to the pointee when the
+generic is the direct pointee of `*T`/`*const T`/`*mut T`/`&T` (`call.rs`);
+(b) build the call-site pointer substitution from THIS call's
+`concrete_types`, matching the sibling `&T`/array/container arms.
+
+EVIDENCE: debug compiler, `tests/regression/m377_ptr_scalar_lane.xi` ->
+`lane1=2 lane3=4`, rc 0, zero unknown-type warnings; lock
+`e2e_m377_ptr_scalar_lane` green. Regression batch: m372 nested ptr.read,
+m37 SIMD runtime, m77 ptr+int, m280 unsafe ptr temp, m312 ptr-field arith
+(IR + runtime) all green.
+
+RESIDUAL (stdlib, tracked separately): the stdlib `Vec4f.get`/`set` lane
+code uses `data + index * 4` on a `*Float32` field. `ptr + count` is
+ELEMENT-based (`website/.../api/ptr.md`), so that double-scales (index 1
+reads byte 16). The compiler fix is necessary but not sufficient for
+`Vec4f.get(1) == 2.0`; stdlib must use `data + index` (or a byte
+`ptr.offset`). `Vec4f.new` is unaffected because its `data` is the i8*
+returned by `alloc.alloc`.
