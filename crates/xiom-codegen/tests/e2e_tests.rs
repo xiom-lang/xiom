@@ -10983,3 +10983,49 @@ fn e2e_m377_ptr_scalar_lane() {
     );
     let _ = std::fs::remove_file(&exe);
 }
+
+// m376 (REL-20261019-2249-stdlib): several mutating generic Map/Set free
+// helpers in ONE program AV'd. The mono path never cleared param_locals/
+// ref_params/mut_ref_params between specialisations, so map_get_or's
+// `key: &K` marked "key" as a reference; map_insert_if_absent's by-value
+// `key` then loaded through inttoptr(2) at `m.insert(key, value)`.
+#[test]
+fn e2e_m376_map_set_helpers() {
+    let src = project_root()
+        .join("tests")
+        .join("regression")
+        .join("m376_map_set_helpers.xi");
+    let exe = project_root()
+        .join("target")
+        .join("m376_map_set_helpers.exe");
+    let _ = std::fs::remove_file(&exe);
+
+    let compile = Command::new(xiom_path())
+        .args(["--no-cache", "-o"])
+        .arg(&exe)
+        .arg(&src)
+        .env("XIOM_STDLIB", project_root().join("stdlib"))
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the m376 Map/Set helper fixture");
+    assert!(
+        compile.status.success(),
+        "m376 Map/Set helpers: fixture must compile; stderr:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe)
+        .output()
+        .expect("run the m376 Map/Set helper fixture");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "m376 Map/Set helpers: combined mutating helpers must not AV; stdout: {stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(
+        stdout.contains("m376 ok"),
+        "m376 Map/Set helpers: expected m376 ok; stdout: {stdout}"
+    );
+    let _ = std::fs::remove_file(&exe);
+}

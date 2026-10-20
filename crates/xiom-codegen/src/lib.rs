@@ -9028,6 +9028,16 @@ impl IrEmitter {
             self.local.local_array_elem_xiom.clear();
             self.local.local_array_sizes.clear();
             self.local.array_value_regs.clear();
+            // m376 (REL-20261019-2249-stdlib): param tracking is PER-BODY.
+            // It was never cleared between monomorphisations, so a `&T` param
+            // named "key" in collections.map_get_or left a ref_params entry;
+            // the later collections.map_insert_if_absent's by-value `key` was
+            // then compiled as a reference (inttoptr + load of the VALUE) at
+            // `m.insert(key, value)`, dereferencing address 2 -> 0xC0000005.
+            // Mirror compile_fn's per-function reset (BUG 47 in decl.rs).
+            self.local.param_locals.clear();
+            self.local.ref_params.clear();
+            self.local.mut_ref_params.clear();
 
             self.fctx.current_return_type = specialized_ret_type.clone();
             self.fctx.current_param_llvm_types = specialized_param_types.clone();

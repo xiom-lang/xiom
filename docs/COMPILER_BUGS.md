@@ -19607,3 +19607,33 @@ reads byte 16). The compiler fix is necessary but not sufficient for
 `Vec4f.get(1) == 2.0`; stdlib must use `data + index` (or a byte
 `ptr.offset`). `Vec4f.new` is unaffected because its `data` is the i8*
 returned by `alloc.alloc`.
+
+---
+
+## 2026-10-20 -- FIXED (m376, REL-20261019-2249-stdlib): multiple mutating generic Map/Set helpers in one program AV'd
+
+WITNESS: one program with
+`map_get_or(&m, &k, 0)` + `map_insert_if_absent(&mut m, 2, 2)` (or
+`set_contains(&s, &1)` + `set_insert(&mut s, 2)`) exits 0xC0000005 before
+the first print. Each helper alone, and the read-only combinations, run
+clean. Reproduced on the v0.64.8 release and on current main.
+
+ROOT CAUSE: the monomorphisation body path cleared array-binding metadata
+per specialisation but never cleared `param_locals` / `ref_params` /
+`mut_ref_params` (compile_fn does; BUG 47 in decl.rs documents the same
+family). `collections.map_get_or`'s `key: &K` inserted "key" into
+`ref_params`; the later `collections.map_insert_if_absent` (sorted after
+get_or) also names its by-value parameter "key", so `m.insert(key, value)`
+compiled the parameter as a REFERENCE: `inttoptr 2` + `load` at address 2.
+The Set pair reproduced the leak the same way.
+
+FIX: clear those three per-body sets at mono body start, mirroring
+compile_fn's reset.
+
+EVIDENCE: fixed debug compiler: Map/Set singles and both combined shapes
+rc 0 (full original repro prints `map a=0 b=true len=1` / `set c=false
+len=1`); lock `e2e_m376_map_set_helpers` green. `p_wave196_small_gaps.xi`
+on the released stdlib compiles and runs rc 0 (its W001 duplicate-module
+warnings are the probe path + XIOM_STDLIB both being scanned). Regression
+batch green: integration 130/130, stdlib_tests 40/40, m249, m283, m326,
+m337, m371, m372, m377, m37_bug55.
