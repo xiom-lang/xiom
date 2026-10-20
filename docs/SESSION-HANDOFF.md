@@ -36,6 +36,10 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   `read_at_into(path, offset, &mut Vec[UInt8], len)` (caller buffer, no fresh
   Vec). Compiler proper fix = owned-payload/scope-exit drop elaboration;
   design first, do not land a use-after-free-prone patch.
+- m377 FULL CHECK: with the stdlib working-tree lane fix (element-based
+  `data + index` in `Vec4f.get`/`set`; uncommitted at doc time) the full
+  repro prints `get1=2 get3=4`, rc 0, with no unknown-type warnings. The
+  compiler lock remains green; stdlib still owns committing that change.
 - RELAYS: `5a4bf9f`. m375 acked with the trace (1222) and the perf addendum
   1236 acked: R2/R3 50k rows are PRE-RECLAIM. m376 fixed (`9b6b3b59f`, commit
   `26bfcd9`); m377 fixed (`f5525e9f6`, commit `d75f0de`) + stdlib Vec4f
@@ -60,7 +64,9 @@ State: v0.64.8 is released (tag 4d040604b, 11 assets, registry xiom-std 0.64.8
 green); no re-cut/candidate without owner GO. Main `f915fb759` has:
 `9b6b3b59f` m376 (clear per-mono param/ref tracking; Map/Set helper AV, lock
 `e2e_m376_map_set_helpers`) and `f5525e9f6` m377 (scalar-pointee inference +
-call-site pointer ABI, lock `e2e_m377_ptr_scalar_lane`). Relay `5a4bf9f`:
+call-site pointer ABI, lock `e2e_m377_ptr_scalar_lane`; the stdlib working
+tree already has the element-based `data + index` lane fix, uncommitted, and
+the full Vec4f repro is green). Relay `5a4bf9f`:
 m375 is ACKED with the measured trace (and the 1236 perf addendum: R2/R3 rows
 are pre-reclaim); m376/m377 fixed; stdlib Vec4f lane math
 `REL-20261020-1242-compiler`; stdlib `read_at_into` wishlist
