@@ -14,6 +14,67 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-20T12:26Z (compiler lane; next-session handoff) -- READ FIRST ***
+- STATE: v0.64.8 released (tag `v0.64.8` @ `4d040604b`, 11 assets, run
+  39296778685); `stdlib-v0.64.8` pinned; `xiom-std 0.64.8` registry green
+  (run 39298965606, sha `c4ab5c61...`, OIDC). No re-cut and no candidate
+  cut without owner GO.
+- MAIN: `9e5904db2` (docs), with `1f85922d8` C3 absolute-path fix,
+  `3b3e50323` m371 + `095ac15a8` narrowing, `0acbbdc8b` m372,
+  `383fe9dc6` m373 config + riscv triple, `154cc08d7` m374/MCU checklists;
+  README current at `f5b7b2f75`. Checker suite 213/213; m371/m372/m37 e2e
+  locks green.
+- RELAYS: `e619d29` (our triage `b4a77ab`). Newly acked: **m375** orbitdb
+  A6 memory blow-up (57.8 GB WS at ~129k keys; per-I/O retention), **m376**
+  stdlib Map/Set generic-helper AV, **m377** Vec4f `*Float32` lane
+  miscompile; benchmark matrix acked as m373 baseline (front-end-bound,
+  ~85 MB RSS floor, LSI 45).
+- SELFHOST: branch `096bad953` (RD9 green: T3 6/6, T6 14/64; base
+  `154cc08d7`; not pushed) -- rebase before the next harness.
+- OPEN CHECK: v0.64.8 reporter rows (engine soak, xvector, orbitdb,
+  bindings, PULSE; v0.64.7 rows) + candidate decision after verification.
+- NEXT-SESSION PRIORITY: m377 -> m376 -> m375; engine REL-20261019-2057;
+  stdlib reds 1626/2343/2100-W1; m365; selfhost rebase + shapes; m373
+  profiling/m374; MCU 1220; m363/m366.
+- CONSTRAINTS: rustc-first study; max 3-4 heavy sessions; watch memory; no
+  stdlib edits except via relay; no release re-cut without owner GO; use
+  `--no-cache` when shared catidx/engine builds interfere.
+
+*** CONTINUATION PROMPT (paste-ready) -- 2026-10-20T12:26Z ***
+You are the compiler-lane successor for XIOM (E:\xiom-lang\xiom).
+Start by reading docs/SESSION-HANDOFF.md top blocks (2026-10-20T12:26Z),
+docs/RELEASE_GATE_v0.64.8.md, and release-checks/compiler-compiler-v0.64.8.md
+in E:\xiom-lang\xiom-relays.
+
+State: v0.64.8 is released (tag 4d040604b, 11 assets, registry xiom-std
+0.64.8 green); no re-cut or candidate cut without owner GO. Main 9e5904db2
+has the post-release fixes: C3 absolute path 1f85922d8, m371 3b3e50323 +
+narrowing 095ac15a8, m372 0acbbdc8b, m373 config/riscv 383fe9dc6, m374/MCU
+checklists 154cc08d7; README f5b7b2f75. Selfhost branch 096bad953 (RD9
+green: T3 6/6, T6 14/64; rebase before the next harness).
+
+Relays just triaged: m375 orbitdb A6 memory blow-up (57.8 GB WS at ~129k
+keys; probe_soak.xi; per-I/O retention in read_at/u8_to_bytes or
+block_store_open), m376 stdlib Map/Set generic-helper AV
+(p_wave196_small_gaps.xi), m377 Vec4f *Float32 lane miscompile
+(llvm_type_for defaults to i64). The benchmark matrix is the m373 baseline
+(front-end-bound, ~85 MB RSS floor, LSI 45; benchmark commit 2b0051c).
+
+Priority:
+1) Bugs: m377 first (small pointer-to-scalar mapping), then m376 (add the
+   combined Map/Set repro, fix the AV), then m375 (minimal read_at loop/RSS
+   trace; do not change the arena until measured). Then engine
+   REL-20261019-2057, stdlib reds 1626/2343/2100-W1, m365.
+2) Selfhost: rebase 096bad953 onto current main, re-run T3, continue
+   Option/.len, Vec.pop, &Vec+f64, index arithmetic.
+3) Performance: m373 profiling using the benchmark matrix and XIOM_TIMINGS
+   on engine/xvector/orbitdb; m374 design; MCU 1220 backend.
+4) Wait for lane verification of the v0.64.8 check rows; no candidate cut
+   without owner GO.
+Constraints: rustc-first study; max 3-4 heavy sessions; watch memory; no
+stdlib edits except via relay; use --no-cache when shared catidx/engine
+builds interfere.
+
 *** SESSION UPDATE 2026-10-20T12:20Z (compiler lane; incoming relays triaged) -- READ FIRST ***
 - RELEASE: v0.64.8 remains the released archive (tag 4d040604b, 11 assets,
   registry xiom-std 0.64.8 green). No re-cut; no candidate cut without
