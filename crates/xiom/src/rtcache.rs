@@ -23,10 +23,95 @@
 //! ships many same-stem files that would collide under the runtime's
 //! `NN_stem.o` naming.
 
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, Instant, SystemTime};
 
 use crate::jit;
+
+/// m365: a per-key build lock guards the MISS path. A stale lock (builder
+/// killed mid-build) is broken after this long; the engine's 139-TU assimp
+/// build is ~438 s, so the threshold leaves ample headroom.
+const KEY_LOCK_STALE_AFTER: Duration = Duration::from_secs(30 * 60);
+/// Maximum time a waiter blocks for a builder before giving up (caller falls
+/// back to the historical single-invocation compile path on error).
+const KEY_LOCK_WAIT_LIMIT: Duration = Duration::from_secs(30 * 60);
+
+/// RAII lock file for one cache key. `create_new` is atomic on both Windows
+/// and Unix; the holder removes it on drop.
+struct KeyLock {
+    path: PathBuf,
+}
+
+impl Drop for KeyLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+fn acquire_key_lock(dir: &Path) -> Result<KeyLock, String> {
+    let path = dir.join(".lock");
+    let deadline = Instant::now() + KEY_LOCK_WAIT_LIMIT;
+    loop {
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(mut f) => {
+                let _ = writeln!(f, "pid={}", std::process::id());
+                return Ok(KeyLock { path });
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                // Break a lock left by a killed builder. A live long build
+                // refreshes nothing, so choose the threshold well above the
+                // largest expected build (see KEY_LOCK_STALE_AFTER).
+                if let Ok(meta) = std::fs::metadata(&path) {
+                    if let Ok(modified) = meta.modified() {
+                        if SystemTime::now()
+                            .duration_since(modified)
+                            .unwrap_or_default()
+                            > KEY_LOCK_STALE_AFTER
+                        {
+                            let _ = std::fs::remove_file(&path);
+                            continue;
+                        }
+                    }
+                }
+                if Instant::now() >= deadline {
+                    return Err(format!(
+                        "timed out waiting for cache lock {}",
+                        path.display()
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Err(e) => return Err(format!("create lock {}: {e}", path.display())),
+        }
+    }
+}
+
+/// m365: a HIT requires the ready marker AND every object. Returning the
+/// object list only when both hold keeps the check identical before and
+/// after acquiring the per-key lock.
+fn complete_objects(
+    dir: &Path,
+    files: &[String],
+    object_name: fn(usize, &str) -> String,
+    ready: &Path,
+) -> Option<Vec<PathBuf>> {
+    if !ready.is_file() {
+        return None;
+    }
+    let mut objects = Vec::with_capacity(files.len());
+    for (i, f) in files.iter().enumerate() {
+        let obj = dir.join(object_name(i, f));
+        if obj.is_file() {
+            objects.push(obj);
+        } else {
+            return None;
+        }
+    }
+    Some(objects)
+}
 
 /// 64-bit FNV-1a. Deterministic across Rust releases (unlike DefaultHasher),
 /// which keeps cache entries valid across toolchain upgrades.
@@ -173,26 +258,28 @@ fn ensure_objects(
     // MISS (rebuild is safe: identical bytes) rather than a link list that
     // can race a missing object (the engine's `no such file ... .o`).
     let ready = dir.join(".ready");
-    let mut objects: Vec<PathBuf> = Vec::with_capacity(files.len());
-    let mut complete = ready.is_file();
-    for (i, f) in files.iter().enumerate() {
-        let obj = dir.join(object_name(i, f));
-        if obj.is_file() {
-            objects.push(obj);
-        } else {
-            complete = false;
-            break;
-        }
-    }
-    if complete {
+    if let Some(objects) = complete_objects(&dir, &files, object_name, &ready) {
         if std::env::var_os("XIOM_TIMINGS").is_some() {
             eprintln!("[timings] {label} HIT {key}");
         }
         return Ok(objects);
     }
 
-    // ---- build ----------------------------------------------------------
+    // ---- build (serialized per key) ------------------------------------
     std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+    // m365 addendum: a per-key lock stops concurrent compilers from building
+    // the same dependency set twice and, together with the marker gate,
+    // removes the missing-object window the engine hit under parallel builds.
+    let _lock = acquire_key_lock(&dir)?;
+    // Another compiler may have completed this key while we waited.
+    if let Some(objects) = complete_objects(&dir, &files, object_name, &ready) {
+        if std::env::var_os("XIOM_TIMINGS").is_some() {
+            eprintln!("[timings] {label} HIT {key} (waited for builder)");
+        }
+        return Ok(objects);
+    }
+    // A rebuild must not expose an old `.ready` while objects are replaced.
+    let _ = std::fs::remove_file(&ready);
     let staging = dir.join(format!(
         "stage-{}-{:x}",
         std::process::id(),
@@ -247,7 +334,7 @@ fn ensure_objects(
             started.elapsed().as_secs_f64()
         );
     }
-    objects.clear();
+    let mut objects: Vec<PathBuf> = Vec::with_capacity(files.len());
     for (i, f) in files.iter().enumerate() {
         objects.push(dir.join(object_name(i, f)));
     }
@@ -416,6 +503,95 @@ mod tests {
             first, second,
             "the same source through a different spelling must share one key"
         );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+    #[test]
+    fn key_lock_is_exclusive() {
+        // m365: the per-key lock admits only one builder. Eight threads race
+        // for the same key; the observed concurrency must never exceed 1.
+        let root = std::env::temp_dir().join(format!(
+            "xiom-keylock-{}-{:x}",
+            std::process::id(),
+            jit::rand_suffix()
+        ));
+        std::fs::create_dir_all(&root).expect("create lock dir");
+        let active = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let max_active = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut handles = Vec::new();
+        for _ in 0..8 {
+            let root = root.clone();
+            let active = std::sync::Arc::clone(&active);
+            let max_active = std::sync::Arc::clone(&max_active);
+            handles.push(std::thread::spawn(move || {
+                let _lock = acquire_key_lock(&root).expect("acquire key lock");
+                let now = active.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                max_active.fetch_max(now, std::sync::atomic::Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(5));
+                active.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            }));
+        }
+        for h in handles {
+            h.join().expect("join lock thread");
+        }
+        assert_eq!(
+            max_active.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "only one holder at a time"
+        );
+        assert!(!root.join(".lock").exists(), "lock file removed on drop");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn concurrent_dependency_objects_share_one_key() {
+        // m365 addendum: four compilers request the same dependency set at
+        // once. The lock serializes the build; every caller gets the SAME
+        // complete object list (no missing .o window).
+        let clang = match crate::toolchain::probe_clang() {
+            Some(info) => PathBuf::from(info.path),
+            None => return,
+        };
+        let root = std::env::temp_dir().join(format!(
+            "xiom-depcache-concurrent-{}-{:x}",
+            std::process::id(),
+            jit::rand_suffix()
+        ));
+        let src = root.join("src");
+        std::fs::create_dir_all(&src).expect("create src");
+        let a = src.join("conc_a.c");
+        let b = src.join("conc_b.c");
+        write_file(&a, "int conc_a(void) { return 11; }\n");
+        write_file(&b, "int conc_b(void) { return 12; }\n");
+        let files = vec![
+            a.to_string_lossy().to_string(),
+            b.to_string_lossy().to_string(),
+        ];
+        let args: Vec<String> = Vec::new();
+
+        let mut handles = Vec::new();
+        for _ in 0..4 {
+            let root = root.clone();
+            let clang = clang.clone();
+            let files = files.clone();
+            let args = args.clone();
+            handles.push(std::thread::spawn(move || {
+                dependency_objects(&root, &clang, &files, &args)
+                    .expect("concurrent dependency objects")
+            }));
+        }
+        let results: Vec<Vec<PathBuf>> = handles
+            .into_iter()
+            .map(|h| h.join().expect("join dep thread"))
+            .collect();
+        assert!(
+            results[0].iter().all(|p| p.is_file()),
+            "every object must exist for the first caller"
+        );
+        for r in &results[1..] {
+            assert_eq!(r, &results[0], "all callers must share one key/object set");
+            assert!(r.iter().all(|p| p.is_file()), "no missing objects");
+        }
 
         let _ = std::fs::remove_dir_all(&root);
     }

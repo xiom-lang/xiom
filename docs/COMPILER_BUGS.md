@@ -19832,3 +19832,38 @@ caller now emits `sext i32 ... to i64`; pre-fix it emitted `zext`). Lock
 declared form -> `i32_neg_ok`. Battery: parser 109/109, checker 213/213,
 feature_regression 549/549, integration 130/130, stdlib_tests 40/40,
 codegen lib 23/23, m1626/m2057/m2100/m337/m371/m372/m376/m377 locks green.
+
+---
+
+## 2026-10-20 -- PARTIAL (m365, REL-20261017-1355-engine): per-key dependency-cache build lock
+
+WITNESS: the engine's parallel 117-target CI. The `.ready` marker gate stops
+a link from consuming a half-populated key dir, but two compilers can still
+build/populate the SAME key concurrently, and a HIT list could race a
+rebuild that leaves an object momentarily absent (clang `no such file ...
+.o`, rc 1).
+
+FIX (this step): `rtcache::ensure_objects` now takes a per-key `.lock`
+(atomic `create_new`, PID content) around the MISS build. After acquiring it,
+it re-checks marker+objects (a waiter whose peer finished becomes a HIT),
+removes `.ready` before rebuilding, and publishes it only after all objects
+are at their stable paths. The lock drops with a guard on every path (build
+failure included); a lock left by a killed builder is broken after 30 minutes
+(chosen above the engine's ~438 s dependency build). The HIT path still
+requires EVERY object, not just the marker.
+
+EVIDENCE: `cargo test -p xiom --lib rtcache` 6/6:
+- `key_lock_is_exclusive`: 8 threads, observed concurrency never exceeds 1,
+  `.lock` removed on drop.
+- `concurrent_dependency_objects_share_one_key`: 4 concurrent
+  `dependency_objects` callers on one source set all return the SAME complete
+  object list.
+- existing runtime/dependency hit, ready-marker, same-stem, and path-spelling
+  tests stay green. Full `xiom` unit suite 75/75.
+
+STILL OPEN (m365): the caller-side dependency-vs-consumer flag split. The
+dependency compile currently keys on `rt_compile_args` (ISA/opt/debug/
+sanitizer/shared flags); a per-target consumer flag change can still fork the
+key. Blocked on the engine's 117-target key-equality re-measure and the two
+key inputs/args, as requested in the item. Earlier partial (ready marker +
+canonical paths) landed at `51cf364c8`.
