@@ -9834,6 +9834,16 @@ impl IrEmitter {
                     t
                 }
             };
+            // m1626 follow-up (selfhost T3): a semicolon-less value-shaped
+            // match can now be an EXPRESSION whose arms are Unit calls
+            // (`side(x);`). infer_llvm_type returns "void" for those, and the
+            // match result slot became `alloca void` -- clang rejects it
+            // ("void type only allowed for function results"). Ignore Unit
+            // arm types when choosing the result slot; all-Unit matches fall
+            // back to i64 below (the value is discarded).
+            if ty == "void" || ty == "()" {
+                continue;
+            }
             types.push(ty);
         }
         if types.is_empty() {

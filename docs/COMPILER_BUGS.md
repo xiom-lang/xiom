@@ -19867,3 +19867,29 @@ sanitizer/shared flags); a per-target consumer flag change can still fork the
 key. Blocked on the engine's 117-target key-equality re-measure and the two
 key inputs/args, as requested in the item. Earlier partial (ready marker +
 canonical paths) landed at `51cf364c8`.
+
+---
+
+## 2026-10-20 -- FIXED (m1626 follow-up, selfhost T3): Unit-valued match expression emitted `alloca void`
+
+WITNESS: after m1626, the rebased selfhost skeleton (`selfhost/src/main.xi`)
+failed clang with `error: void type only allowed for function results` at
+`%tmp793 = alloca void` in `pe_parse_pattern_single`. A minimal shape:
+`let y = match 1 { 1 => { side(1); } _ => { side(2); } };` where `side`
+returns Unit. The old selfhost IR had zero `alloca void`; the rebased IR had
+two.
+
+ROOT CAUSE: m1626 now parses a semicolon-less value-shaped match as an
+EXPRESSION. `infer_match_llvm_type` took the arm's `infer_llvm_type`, which is
+`"void"` for a Unit call, and returned it as the match result type; the
+result slot became `alloca void` and arm values were stored into it. Before
+m1626 the same match was a statement and never allocated a slot.
+
+FIX: `infer_match_llvm_type` ignores `"void"`/`"()"` arm types when choosing
+the result slot (like empty inference results). An all-Unit match falls back
+to i64 (its value is discarded); mixed matches pick the real arm type.
+
+EVIDENCE: the minimal Unit-match repro compiles/links/runs rc 0 with zero
+`alloca void`; `e2e_m1626_trailing_match_after_push` now includes the
+`unit_match_expr` shape and stays green. This unblocks the selfhost T3
+skeleton compile after the rebase.

@@ -30,12 +30,27 @@ fn discard(x: Int) {
   };
 }
 
+fn side(x: Int) {
+  let _ = x;
+}
+
+fn unit_match_expr() {
+  // m1626 follow-up (selfhost T3): a value-shaped match whose arms are Unit
+  // calls is an EXPRESSION; the result slot must not be `alloca void`.
+  let y = match 1 {
+    1 => { side(1); }
+    _ => { side(2); }
+  };
+  let _ = y;
+}
+
 fn main() -> Int {
   match classify() {
     Ok(v) => { if v != 5.0 { return 1; } }
     Err(_) => { return 2; }
   }
   discard(1);
+  unit_match_expr();
   io.println("trailing_match_ok");
   return 0;
 }
