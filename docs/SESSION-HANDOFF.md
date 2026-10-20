@@ -14,6 +14,64 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-20T20:34Z (compiler lane; m365 per-key lock LANDED; gate-9 reds cleared) -- READ FIRST ***
+- STATE: v0.64.8 remains the released archive; no re-cut/candidate without
+  owner GO. Main `306ace857` (m365 lock) on top of `2f887bcf1` (m2343),
+  `626dfbc65` (m1626), `dea6ceee8` (m2100-W1), `029595080` (m2057),
+  `f915fb759` (m376/m377); relays `c817762`.
+- m365 PARTIAL+ (`306ace857`, REL-20261017-1355-engine): `rtcache::
+  ensure_objects` now takes an atomic per-key `.lock` around the MISS build,
+  re-checks marker+objects under the lock (waiters HIT when the peer
+  finishes), removes `.ready` before rebuilding and publishes it only after
+  every object is renamed; stale locks break after 30 min. HIT still requires
+  EVERY object. Tests `key_lock_is_exclusive` (8 threads, max concurrency 1)
+  and `concurrent_dependency_objects_share_one_key` (4 callers, same complete
+  list); `cargo test -p xiom --lib` 75/75. STILL OPEN: caller-side
+  dependency-vs-consumer flag split -- blocked on the engine's 117-target
+  key-equality re-measure and the two key inputs/args.
+- m2100-W1/m1626/m2343/m2057 are fixed (see the 19:11Z block below for the
+  full evidence and locks); stdlib gate-9 reds are cleared pending reporter
+  re-verify.
+- m375 remains MEASURED/acked (Vec drop elaboration; no fix): direct-reader
+  workaround, stdlib `read_at_into` wishlist `REL-20261020-1302-compiler`;
+  compiler proper fix needs owned-payload/scope-exit drop design.
+- SELFHOST: branch `096bad953` (worktree `.kilo/worktrees/selfhost-phase-4-
+  codegen`) is 26 behind / 50 ahead of main. Rebase next, then T3; a conflict
+  means the selfhost owner must reconcile (it carries the phase-6 codegen
+  work, not a quick main-side fix).
+- OPERATIONAL: E: can stall in `Wait PageIn` under other lanes' compiles. Use
+  a C:-isolated copy of `xiom.exe` + `lib/`, private `HOME`, `XIOM_STDLIB`,
+  `--no-cache`. Do NOT kill all `xiom` processes; other lanes run compilers.
+- QUEUE: selfhost rebase + T3, then Option/.len, Vec.pop, &Vec+f64, index
+  arithmetic; m373 profiling/m374; MCU 1220; m365 flag split when the engine
+  reports; m375 design only when the owner prioritizes it.
+
+*** CONTINUATION PROMPT (paste-ready) -- 2026-10-20T20:34Z ***
+You are the compiler-lane successor for XIOM (E:\xiom-lang\xiom).
+Read `docs/SESSION-HANDOFF.md` top block (2026-10-20T20:34Z),
+`docs/RELEASE_GATE_v0.64.8.md`, and `release-checks/compiler-compiler-v0.64.8.md`
+in E:\xiom-lang\xiom-relays.
+
+State: v0.64.8 is released (tag 4d040604b, 11 assets, registry xiom-std 0.64.8
+green); no re-cut/candidate without owner GO. Main `306ace857` (m365 per-key
+dependency-cache lock) on top of the gate-9 red fixes: `2f887bcf1` m2343,
+`626dfbc65` m1626, `dea6ceee8` m2100-W1, `029595080` m2057 (plus `f915fb759`
+m376/m377). Relays `c817762`. stdlib gate-9 reds 1626/2343/2100-W1 are fixed
+pending reporter re-verify; m365 still needs the engine's 117-target
+key-equality re-measure before the flag split; m375 is measured/no-fix.
+
+Priority: 1) Selfhost: rebase `096bad953` onto main, re-run T3, continue
+Option/.len, Vec.pop, &Vec+f64, index arithmetic. 2) m373 profiling/
+XIOM_TIMINGS, m374 design, MCU 1220. 3) m365 flag split when the engine
+reports the two key inputs/args. 4) Wait for lane verification of the v0.64.8
+check rows and the re-verify rows; no candidate cut without owner GO. m375
+design only when the owner prioritizes it.
+
+Constraints: rustc-first study; max 3-4 heavy sessions; watch memory; no
+stdlib edits except via relay; use --no-cache when shared catidx/engine builds
+interfere. If E: stalls in PageIn, run a C:-isolated toolchain copy with a
+private HOME; do not kill other lanes' xiom processes.
+
 *** SESSION UPDATE 2026-10-20T19:11Z (compiler lane; stdlib gate-9 reds CLEARED: m2100-W1 + m1626 + m2343) -- READ FIRST ***
 - STATE: v0.64.8 remains the released archive; no re-cut/candidate without
   owner GO. Main `2f887bcf1` (m2343) on top of `626dfbc65` (m1626),
