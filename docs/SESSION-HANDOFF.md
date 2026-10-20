@@ -14,6 +14,74 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-20T18:44Z (compiler lane; m2057 FIXED; m375 measured) -- READ FIRST ***
+- STATE: v0.64.8 remains the released archive; no re-cut/candidate without
+  owner GO. Main `029595080` (m2057) on top of `f915fb759` (m376 `9b6b3b59f`
+  + m377 `f5525e9f6`); relays `faa3930`.
+- m2057 FIXED at `029595080` (REL-20261019-2057-engine):
+  (a) checker alias transparency at the local-fn, struct-fn-field and
+  general callee paths, on both binary operands, and for nested-module alias
+  keys; (b) codegen: alias fn params use the i64 closure-env ABI (not a raw
+  `i64 (i64)*` pointer), fn-marker stores resolve the destination alias
+  before wrapping, fn-field call detection resolves the field alias;
+  (c) Vec.pop uses `resolve_vec_receiver_ptr`, so module-global/index/handle
+  receivers mutate in place and locals keep the round trip.
+  Locks: `e2e_m2057_alias_params` (`alias_ok 209`; same-module, qualified,
+  struct-field literal + reassignment, qualified Int alias) and
+  `e2e_m2057_global_pop` (`pop_ok`; global/local/field/&mut).
+  IMPORTANT: the literal `type F` snippet is MASKED on v0.64.8 by the
+  single-uppercase generic-param fallback; multi-letter, qualified, and
+  struct-field aliases were the real repro. Engine workaround can be reverted.
+- VERIFICATION this session: checker 213/213, feature_regression 549/549,
+  integration 130/130, stdlib_tests 40/40, codegen lib 23/23,
+  m249/m283/m312/m326/m337/m371/m372/m376/m377/m37_bug55 locks green,
+  `p_wave196_small_gaps.xi` rc 0.
+- m375 remains MEASURED/acked (Vec drop elaboration; no fix): direct-reader
+  workaround, stdlib `read_at_into` wishlist `REL-20261020-1302-compiler`,
+  compiler proper fix needs owned-payload/scope-exit drop design.
+- OPERATIONAL: the E: toolchain can stall in `Wait PageIn` under other lanes'
+  compiles. A C:-isolated copy of `xiom.exe` + `lib/`, with a private `HOME`,
+  `XIOM_STDLIB`, and `--no-cache`, runs reliably. Do NOT `Get-Process xiom |
+  Stop-Process` -- other lanes run compilers; track only your own PID.
+- QUEUE: stdlib reds 1626/2343/2100-W1, m365; selfhost rebase + shapes; m373
+  profiling/m374; MCU 1220. m375 proper-fix design only when the owner
+  prioritizes it (no unsafe drop patch).
+
+*** CONTINUATION PROMPT (paste-ready) -- 2026-10-20T18:44Z ***
+You are the compiler-lane successor for XIOM (E:\xiom-lang\xiom).
+Read `docs/SESSION-HANDOFF.md` top block (2026-10-20T18:44Z),
+`docs/RELEASE_GATE_v0.64.8.md`, and `release-checks/compiler-compiler-v0.64.8.md`
+in E:\xiom-lang\xiom-relays.
+
+State: v0.64.8 is released (tag 4d040604b, 11 assets, registry xiom-std 0.64.8
+green); no re-cut/candidate without owner GO. Main `029595080` fixes m2057
+(fn-type alias transparency in checker + codegen, module-global Vec.pop;
+locks `e2e_m2057_alias_params` / `e2e_m2057_global_pop`). Earlier fixes:
+`9b6b3b59f` m376 (Map/Set helper AV), `f5525e9f6` m377 (scalar-pointee
+inference + call-site pointer ABI). Relay `faa3930` marks m2057 fixed; m376
+`26bfcd9` and m377 `d75f0de` fixed; Vec4f lane-math follow-up
+`REL-20261020-1242-compiler`; read_at_into wishlist
+`REL-20261020-1302-compiler`.
+
+m375 is measured, NOT fixed: read_at 10k x 4 KiB = 304 MB; Vec[UInt8] churn
+alone = 317 MB/10k; same churn in a helper = 4.6 MB flat; a read helper
+returning only d.len() still grows 310 MB. Root cause is Vec drop elaboration
+(match-bound Result Vec payloads are not drop candidates; loop locals drop only
+at function return/last binding), not io.read_at or the arena. Orbitdb has the
+direct-reader workaround; the compiler proper fix needs owned-payload/
+scope-exit drop design first (no unsafe drop patch).
+
+Priority: 1) stdlib reds 1626/2343/2100-W1, then m365. 2) Selfhost: rebase
+096bad953, re-run T3, continue Option/.len, Vec.pop, &Vec+f64, index
+arithmetic. 3) Performance: m373 profiling/XIOM_TIMINGS, m374 design, MCU
+1220. 4) Wait for lane verification of the v0.64.8 check rows; no candidate
+cut without owner GO. m375 design only when the owner prioritizes it.
+
+Constraints: rustc-first study; max 3-4 heavy sessions; watch memory; no
+stdlib edits except via relay; use --no-cache when shared catidx/engine builds
+interfere. If E: stalls in PageIn, run a C:-isolated toolchain copy with a
+private HOME; do not kill other lanes' xiom processes.
+
 *** SESSION UPDATE 2026-10-20T16:03Z (compiler lane; m375 MEASURED -- Vec drop elaboration, not the arena) -- READ FIRST ***
 - STATE: v0.64.8 remains the released archive; no re-cut/candidate without
   owner GO. Main `f915fb759` (m376 `9b6b3b59f` + m377 `f5525e9f6`); relays
