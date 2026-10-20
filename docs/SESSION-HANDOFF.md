@@ -14,6 +14,62 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-20T15:55Z (compiler lane; m376 FIXED; m377 already fixed) -- READ FIRST ***
+- STATE: v0.64.8 remains the released archive; no re-cut and no candidate cut
+  without owner GO.
+- MAIN: `9b6b3b59f` fix(codegen) m376 -- clear
+  `param_locals`/`ref_params`/`mut_ref_params` per mono body. Root cause: the
+  mono path never reset them, so `map_get_or`'s `key: &K` left
+  `ref_params["key"]`; the later `map_insert_if_absent`'s by-value `key`
+  compiled as a reference at `m.insert(key, value)` (`inttoptr 2` + load) ->
+  0xC0000005. The Set pair leaked the same way. Lock
+  `e2e_m376_map_set_helpers`. Previous `f5525e9f6` is the m377 compiler fix
+  (scalar-pointee inference + call-site pointer ABI).
+- VERIFICATION: feature_regression 549/549, integration 130/130,
+  stdlib_tests 40/40, codegen lib 23/23; m249/m283/m326/m337/m371/m372/m377/
+  m37_bug55 locks green; `p_wave196_small_gaps.xi` rc 0 on the released
+  stdlib.
+- RELAYS: `26bfcd9`. m376 acked->fixed with 9b6b3b59f (stdlib can re-add the
+  mutating Map/Set combinations to `p_wave196_small_gaps.xi`). m377 is fixed
+  (`d75f0de`) with the stdlib Vec4f lane-math follow-up
+  `REL-20261020-1242-compiler` (use `data + index`, not `data + index * 4`).
+- QUEUE: **m375 next** (orbitdb A6 memory: minimal `io.read_at` loop + RSS /
+  `XIOM_TIMINGS` trace; do NOT change the arena/scoped-arena until measured).
+  Then engine REL-20261019-2057, stdlib reds 1626/2343/2100-W1, m365;
+  selfhost rebase + shapes; m373 profiling/m374; MCU 1220.
+- CONSTRAINTS unchanged: rustc-first study; max 3-4 heavy sessions; watch
+  memory; no stdlib edits except via relay; no release re-cut without owner
+  GO; `--no-cache` for shared catidx/engine builds.
+
+*** CONTINUATION PROMPT (paste-ready) -- 2026-10-20T15:55Z ***
+You are the compiler-lane successor for XIOM (E:\xiom-lang\xiom).
+Read `docs/SESSION-HANDOFF.md` top block (2026-10-20T15:55Z),
+`docs/RELEASE_GATE_v0.64.8.md`, and `release-checks/compiler-compiler-v0.64.8.md`
+in E:\xiom-lang\xiom-relays.
+
+State: v0.64.8 is released (tag 4d040604b, 11 assets, registry xiom-std 0.64.8
+green); no re-cut or candidate cut without owner GO. Main `9b6b3b59f` has the
+m376 mono-body param/ref reset (Map/Set helper AV) with lock
+`e2e_m376_map_set_helpers`; `f5525e9f6` has the m377 scalar-pointee/call-site
+pointer ABI fix with lock `e2e_m377_ptr_scalar_lane`. Relay `26bfcd9` marks
+m376 fixed; m377's residual stdlib Vec4f lane-math item is
+`REL-20261020-1242-compiler` (`data + index`, not `data + index * 4`). Earlier
+main: C3 1f85922d8, m371 3b3e50323 + narrowing 095ac15a8, m372 0acbbdc8b,
+m373/riscv 383fe9dc6, m374/MCU 154cc08d7. Selfhost branch 096bad953 (RD9 green;
+rebase before the next harness).
+
+Priority: 1) m375 next: minimal `io.read_at` loop + RSS/XIOM_TIMINGS trace on
+v0.64.8; do not change the arena/scoped-arena until measured. Then engine
+REL-20261019-2057, stdlib reds 1626/2343/2100-W1, m365. 2) Selfhost: rebase
+096bad953, re-run T3, continue Option/.len, Vec.pop, &Vec+f64, index
+arithmetic. 3) Performance: m373 profiling/XIOM_TIMINGS, m374 design, MCU
+1220. 4) Wait for lane verification of the v0.64.8 check rows; no candidate
+cut without owner GO.
+
+Constraints: rustc-first study; max 3-4 heavy sessions; watch memory; no
+stdlib edits except via relay; use --no-cache when shared catidx/engine builds
+interfere.
+
 *** SESSION UPDATE 2026-10-20T12:47Z (compiler lane; m377 FIXED; stdlib lane-math follow-up) -- READ FIRST ***
 - STATE: v0.64.8 remains the released archive; no re-cut and no candidate cut
   without owner GO.

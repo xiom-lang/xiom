@@ -19635,5 +19635,5 @@ rc 0 (full original repro prints `map a=0 b=true len=1` / `set c=false
 len=1`); lock `e2e_m376_map_set_helpers` green. `p_wave196_small_gaps.xi`
 on the released stdlib compiles and runs rc 0 (its W001 duplicate-module
 warnings are the probe path + XIOM_STDLIB both being scanned). Regression
-batch green: integration 130/130, stdlib_tests 40/40, m249, m283, m326,
-m337, m371, m372, m377, m37_bug55.
+batch green: feature_regression 549/549, integration 130/130,
+stdlib_tests 40/40, m249, m283, m326, m337, m371, m372, m377, m37_bug55.
