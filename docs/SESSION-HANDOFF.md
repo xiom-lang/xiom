@@ -56,7 +56,9 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 - OPERATIONAL: E: can stall in `Wait PageIn` under other lanes' compiles. Use
   a C:-isolated copy of `xiom.exe` + `lib/`, private `HOME`, `XIOM_STDLIB`,
   `--no-cache`. Do NOT kill all `xiom` processes; other lanes run compilers.
-- QUEUE: m365 caller flag-split/per-key lock (engine REL-20261019-1355);
+- QUEUE: m365 caller flag-split/per-key lock (engine `REL-20261017-1355`;
+  PARTIAL at 51cf364c8 -- ready-marker + canonical paths landed; BLOCKED on
+  the engine's 117-target key-equality re-measure before the flag split);
   selfhost rebase + Option/.len, Vec.pop, &Vec+f64, index arithmetic; m373
   profiling/m374; MCU 1220. m375 design only when the owner prioritizes it.
 
@@ -83,12 +85,14 @@ at function return/last binding), not io.read_at or the arena. Orbitdb has the
 direct-reader workaround; the compiler proper fix needs owned-payload/
 scope-exit drop design first (no unsafe drop patch).
 
-Priority: 1) m365 caller flag-split/per-key lock (engine REL-20261019-1355).
-2) Selfhost: rebase 096bad953, re-run T3, continue Option/.len, Vec.pop,
-&Vec+f64, index arithmetic. 3) Performance: m373 profiling/XIOM_TIMINGS, m374
-design, MCU 1220. 4) Wait for lane verification of the v0.64.8 check rows and
-the four re-verify rows; no candidate cut without owner GO. m375 design only
-when the owner prioritizes it.
+Priority: 1) m365 caller flag-split/per-key lock (engine `REL-20261017-1355`;
+PARTIAL at 51cf364c8, BLOCKED on the engine's 117-target key-equality
+re-measure before the flag split). 2) Selfhost: rebase 096bad953, re-run T3,
+continue Option/.len, Vec.pop, &Vec+f64, index arithmetic. 3) Performance:
+m373 profiling/XIOM_TIMINGS, m374 design, MCU 1220. 4) Wait for lane
+verification of the v0.64.8 check rows and the four re-verify rows; no
+candidate cut without owner GO. m375 design only when the owner prioritizes
+it.
 
 Constraints: rustc-first study; max 3-4 heavy sessions; watch memory; no
 stdlib edits except via relay; use --no-cache when shared catidx/engine builds
