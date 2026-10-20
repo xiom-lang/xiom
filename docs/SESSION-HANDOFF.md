@@ -14,6 +14,75 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-20T16:03Z (compiler lane; m375 MEASURED -- Vec drop elaboration, not the arena) -- READ FIRST ***
+- STATE: v0.64.8 remains the released archive; no re-cut/candidate without
+  owner GO. Main `f915fb759` (m376 `9b6b3b59f` + m377 `f5525e9f6`); relays
+  `faf3e1a`.
+- m375 MEASUREMENT (v0.64.8 Windows, 64 MiB file, 50 ms WorkingSet sampling):
+  `io.read_at` 10k x 4 KiB = 304 MB (~31 KB/read); 10k x 64 B = 10.5 MB;
+  2k x 64 KiB = 926 MB (~463 KB/read). Differential: Vec[UInt8]
+  `with_capacity(4096)` + 4096 pushes alone (NO I/O) = 317 MB/10k (~32 KB per
+  iteration); the SAME churn inside a helper called 10k times = 4.6 MB flat;
+  raw malloc/free 100k x 4 KiB = 2.6 MB flat. A read helper that returns only
+  `d.len()` still grows 310 MB/10k.
+- ROOT CAUSE: Vec drop elaboration. A match-bound `Result[Vec[...], ...]`
+  payload (the `read_at` shape) is never registered as an owned drop
+  candidate; a loop-local Vec is dropped only at function return and only for
+  the LAST binding. `with_capacity` also allocates `cap * 8` bytes even for
+  Vec[UInt8] (elem_size 1) -- an 8x multiplier, not the root cause. The arena,
+  `xiom_read_at`, and the C buffer are NOT implicated; no arena change made.
+- m375 PATH: orbitdb workaround = the direct byte-level page reader (their
+  fallback); stdlib wishlist `REL-20261020-1302-compiler` asks for
+  `read_at_into(path, offset, &mut Vec[UInt8], len)` (caller buffer, no fresh
+  Vec). Compiler proper fix = owned-payload/scope-exit drop elaboration;
+  design first, do not land a use-after-free-prone patch.
+- RELAYS: `faf3e1a`. m375 acked with the trace; m376 fixed (`9b6b3b59f`,
+  commit `26bfcd9`); m377 fixed (`f5525e9f6`, commit `d75f0de`) + stdlib
+  Vec4f lane-math follow-up `REL-20261020-1242-compiler`.
+- VERIFICATION already green this session: feature_regression 549/549,
+  integration 130/130, stdlib_tests 40/40, codegen lib 23/23, plus the
+  m249/m283/m326/m337/m371/m372/m376/m377/m37_bug55 locks.
+- QUEUE: engine REL-20261019-2057; stdlib reds 1626/2343/2100-W1; m365;
+  selfhost rebase + Option/.len, Vec.pop, &Vec+f64, index arithmetic; m373
+  profiling/m374; MCU 1220. v0.64.8 check rows remain reporter-side.
+- CONSTRAINTS unchanged: rustc-first study; max 3-4 heavy sessions; watch
+  memory; no stdlib edits except via relay; no release re-cut without owner
+  GO; `--no-cache` for shared catidx/engine builds.
+
+*** CONTINUATION PROMPT (paste-ready) -- 2026-10-20T16:03Z ***
+You are the compiler-lane successor for XIOM (E:\xiom-lang\xiom).
+Read `docs/SESSION-HANDOFF.md` top block (2026-10-20T16:03Z),
+`docs/RELEASE_GATE_v0.64.8.md`, and `release-checks/compiler-compiler-v0.64.8.md`
+in E:\xiom-lang\xiom-relays.
+
+State: v0.64.8 is released (tag 4d040604b, 11 assets, registry xiom-std 0.64.8
+green); no re-cut/candidate without owner GO. Main `f915fb759` has:
+`9b6b3b59f` m376 (clear per-mono param/ref tracking; Map/Set helper AV, lock
+`e2e_m376_map_set_helpers`) and `f5525e9f6` m377 (scalar-pointee inference +
+call-site pointer ABI, lock `e2e_m377_ptr_scalar_lane`). Relay `faf3e1a`:
+m375 is ACKED with the measured trace; m376/m377 fixed; stdlib Vec4f lane math
+`REL-20261020-1242-compiler`; stdlib `read_at_into` wishlist
+`REL-20261020-1302-compiler`.
+
+m375 is measured, NOT fixed: read_at 10k x 4 KiB = 304 MB; Vec[UInt8] churn
+alone = 317 MB/10k; the same churn in a helper = 4.6 MB flat; a read helper
+returning only d.len() still grows 310 MB. Root cause is Vec drop elaboration
+(match-bound Result Vec payloads are not drop candidates; loop locals drop only
+at function return/last binding), not io.read_at or the arena. Orbitdb has the
+direct-reader workaround; compiler proper fix needs owned-payload/scope-exit
+drop design first.
+
+Priority: 1) Engine REL-20261019-2057, then stdlib reds 1626/2343/2100-W1,
+m365; m375 proper-fix design when the owner prioritizes it (no unsafe drop
+patch). 2) Selfhost: rebase 096bad953, re-run T3, continue Option/.len,
+Vec.pop, &Vec+f64, index arithmetic. 3) Performance: m373 profiling/XIOM_TIMINGS,
+m374 design, MCU 1220. 4) Wait for lane verification of the v0.64.8 check rows;
+no candidate cut without owner GO.
+
+Constraints: rustc-first study; max 3-4 heavy sessions; watch memory; no
+stdlib edits except via relay; use --no-cache when shared catidx/engine builds
+interfere.
+
 *** SESSION UPDATE 2026-10-20T15:55Z (compiler lane; m376 FIXED; m377 already fixed) -- READ FIRST ***
 - STATE: v0.64.8 remains the released archive; no re-cut and no candidate cut
   without owner GO.

@@ -19637,3 +19637,40 @@ on the released stdlib compiles and runs rc 0 (its W001 duplicate-module
 warnings are the probe path + XIOM_STDLIB both being scanned). Regression
 batch green: feature_regression 549/549, integration 130/130,
 stdlib_tests 40/40, m249, m283, m326, m337, m371, m372, m377, m37_bug55.
+
+---
+
+## 2026-10-20 -- OPEN FINDING (m375, REL-20261020-1222-orbitdb): loop/match-bound Vec payloads are not reclaimed
+
+WITNESS (v0.64.8 Windows, 64 MiB file, 50 ms WorkingSet sampling):
+`io.read_at` 10k x 4 KiB = 304 MB (~31 KB/read); 10k x 64 B = 10.5 MB;
+2k x 64 KiB = 926 MB (~463 KB/read). Differential probes: Vec[UInt8]
+`with_capacity(4096)` + 4096 pushes alone (NO I/O) = 317 MB/10k
+(~32 KB/iteration); the SAME churn inside a helper called 10k times = 4.6 MB
+flat; raw malloc/free 100k x 4 KiB = 2.6 MB flat. A read helper that returns
+only `d.len()` still grows 310 MB/10k.
+
+ROOT CAUSE: Vec drop elaboration. `collect_owned_vec_locals` only registers
+fresh `let`/`var` bindings. A match-bound `Result[Vec[...], ...]` payload (the
+`read_at` shape) is never a drop candidate, so its buffer is leaked even when
+the binding is arm-local and the helper returns. Loop-local Vec candidates are
+registered in a function-level list and dropped only on return paths, which
+frees only the LAST binding; earlier iterations' buffers are lost. A secondary
+multiplier: `Vec.with_capacity(n)` allocates `n * 8` bytes regardless of
+element width (`Vec[UInt8]` gets an 8x buffer; header elem_size is 1).
+
+NOT THE CAUSE: `xiom_read_at`, the C buffer, and the guard arena. The same
+churn leaks without any I/O; the arena is discarded at block/function exit
+and raw malloc/free is flat. No arena change was made.
+
+WORKAROUND: orbitdb adopts the direct byte-level page reader. Stdlib wishlist
+`REL-20261020-1302-compiler` asks for
+`read_at_into(path, offset, &mut Vec[UInt8], len) -> Result[Int, IOError]` so
+page readers reuse a caller buffer.
+
+PROPER FIX (design before code): owned-payload/scope-exit drop elaboration --
+register match-bound container payloads only when ownership is provable (or
+introduce an explicit fresh-return annotation), and emit drops at lexical
+scope exit (including loop bodies) with liveness guards for break/continue.
+Do NOT drop call-return Vec payloads unconditionally: a callee may return a
+view/alias, and the header copy has no refcount.
