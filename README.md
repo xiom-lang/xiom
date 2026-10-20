@@ -8,13 +8,13 @@
 [![Tests](https://img.shields.io/badge/tests-2%2C600%2B-brightgreen)]()
 [![Version](https://img.shields.io/badge/version-0.64.8-blue)]()
 
-XIOM is a compiled, statically typed, memory-safe systems programming language. It compiles to native code via LLVM and supports x86_64, ARM, RISC-V, and WebAssembly. The Rust compiler is the production toolchain; the self-hosted implementation is in Phase 6 (RD9: 14/64 byte-exact).
+XIOM is a compiled, statically typed, memory-safe systems programming language. It compiles to native code via LLVM and supports x86_64, ARM, RISC-V, and WebAssembly. The Rust compiler is the production toolchain; the self-hosted implementation is in Phase 6 (RD10: T3 82/83, 13/64 byte-exact).
 
 ## Current Status (2026-10-20)
 
 - **Latest release: [v0.64.8](https://github.com/xiom-lang/xiom/releases/tag/v0.64.8)** (2026-10-19), with Windows, Linux x64/arm64, macOS x64/arm64, wasm, and VSIX assets. The stdlib pin is `stdlib-v0.64.8`; the public registry has `xiom-std 0.64.8` with OIDC provenance.
-- **Post-release fixes on `main`:** absolute-path package discovery, the m371 cross-module imported-struct alias layout, m372 nested `ptr.read`/`ptr.write` inference, m376 per-monomorphisation param/ref-state reset (combined Map/Set generic-helper AV), m377 scalar-pointee `ptr.read`/`ptr.write` inference + call-site pointer ABI, m2057 fn-type alias transparency (checker + codegen, including fn-typed struct fields) + module-global `Vec.pop`, m2100-W1 qualified module field types before method dispatch, m1626 semicolon-less trailing match as the block value, m2343 bare inline i32 extern sign-extension, m365 per-key dependency-cache build lock, m373 `[compiler]` `parallel`/`jobs`/`parallel-codegen` knobs, and the RISC-V LLVM triple correction. Checker suite: 213/213; the m371/m372/m376/m377/m2057/m2100/m1626/m2343/m37 e2e locks are green.
-- **Self-hosting:** Phase 6 RD9 is green (full T3 suite 6/6; T6 **14/64** byte-exact). Next shapes: Option/`.len`, `Vec.pop`, `&Vec`+f64, index arithmetic.
+- **Post-release fixes on `main`:** absolute-path package discovery, the m371 cross-module imported-struct alias layout, m372 nested `ptr.read`/`ptr.write` inference, m376 per-monomorphisation param/ref-state reset (combined Map/Set generic-helper AV), m377 scalar-pointee `ptr.read`/`ptr.write` inference + call-site pointer ABI, m2057 fn-type alias transparency (checker + codegen, including fn-typed struct fields) + module-global `Vec.pop`, m2100-W1 qualified module field types before method dispatch, m1626 semicolon-less trailing match as the block value (including the Unit-match result-slot follow-up), m2343 bare inline i32 extern sign-extension, m365 per-key dependency-cache build lock, m373 `[compiler]` `parallel`/`jobs`/`parallel-codegen` knobs, and the RISC-V LLVM triple correction. Checker suite: 213/213; the m371/m372/m376/m377/m2057/m2100/m1626/m2343/m37 e2e locks are green.
+- **Self-hosting:** Phase 6 RD10 is green on 82/83 T3 files (phase-5 19/19, T6 **13/64** byte-exact); the sole drift is the `phase1_enum.xi` match-result-slot seed the selfhost codegen must port. Next shapes: Option/`.len`, `Vec.pop`, `&Vec`+f64, index arithmetic.
 - **Next:** a v0.64.9 candidate after lane verification; m373 product profiling (the v0.64.8 matrix is front-end-bound, with an ~85 MB peak-RSS floor and LSI 45), m374 parallel checker/CGU design, and MCU/bare-metal targets.
 - **Open relay items:** orbitdb A6 1M-key soak (high). Measured on v0.64.8: the retention is Vec drop elaboration, not `io.read_at` or the arena (`read_at` 10k x 4 KiB = 304 MB; Vec[UInt8] churn alone = 317 MB/10k; the same churn in a helper is flat). Orbitdb has the direct-reader workaround; stdlib has a `read_at_into` caller-buffer wishlist (`REL-20261020-1302-compiler`), and the compiler proper fix (owned Result/Option Vec payloads at scope exit) needs design. The Map/Set generic-helper AV is fixed on `main` (m376); the Vec4f `*Float32` lane-miscompile compiler half is fixed (m377) with the element-based lane-math follow-up in stdlib (`REL-20261020-1242-compiler`). The gate-9 stdlib reds 1626/2343/2100-W1 are fixed on `main` (m1626/m2343/m2100-W1) pending reporter re-verify. m365's per-key dependency-cache lock is on `main`; the caller-side dependency-vs-consumer flag split is waiting on the engine's 117-target key-equality re-measure.
 
@@ -105,7 +105,7 @@ Install from a release:
 
 ### Building the Self-Hosted Compiler
 
-The self-hosted implementation lives in `selfhost/src/main.xi`. It is under active parity work (Phase 6 RD9: full T3 suite 6/6, T6 14/64 byte-exact); the Rust compiler remains the bootstrap and the production toolchain for releases.
+The self-hosted implementation lives in `selfhost/src/main.xi`. It is under active parity work (Phase 6 RD10: T3 82/83, T6 13/64 byte-exact); the Rust compiler remains the bootstrap and the production toolchain for releases.
 
 ```powershell
 # Step 1: Compile the self-hosted compiler with Rust
@@ -120,7 +120,7 @@ cargo run -p xiom -- -o xiom-self.exe selfhost/src/main.xi
 
 ### Bootstrap Chain (Historical)
 
-The original self-hosting proof (v0.12.0, 2026-07-01) used the then-current `selfhost` source and produced a stage-2 compiler. That proof is historical. The current self-hosted implementation is `selfhost/src/main.xi`; parity is tracked in `docs/checklists/selfhost-phase6.md` (RD9: full T3 suite 6/6, T6 14/64 byte-exact). The Rust compiler remains the production bootstrap and release toolchain.
+The original self-hosting proof (v0.12.0, 2026-07-01) used the then-current `selfhost` source and produced a stage-2 compiler. That proof is historical. The current self-hosted implementation is `selfhost/src/main.xi`; parity is tracked in `docs/checklists/selfhost-phase6.md` (RD10: T3 82/83, T6 13/64 byte-exact). The Rust compiler remains the production bootstrap and release toolchain.
 
 ## Toolchain
 

@@ -16,9 +16,9 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 
 *** SESSION UPDATE 2026-10-20T20:34Z (compiler lane; m365 per-key lock LANDED; gate-9 reds cleared) -- READ FIRST ***
 - STATE: v0.64.8 remains the released archive; no re-cut/candidate without
-  owner GO. Main `306ace857` (m365 lock) on top of `2f887bcf1` (m2343),
-  `626dfbc65` (m1626), `dea6ceee8` (m2100-W1), `029595080` (m2057),
-  `f915fb759` (m376/m377); relays `c817762`.
+  owner GO. Main `8bfd4235d` (m1626 follow-up) on top of `306ace857` (m365
+  lock), `2f887bcf1` (m2343), `626dfbc65` (m1626), `dea6ceee8` (m2100-W1),
+  `029595080` (m2057), `f915fb759` (m376/m377); relays `fc2b563`.
 - m365 PARTIAL+ (`306ace857`, REL-20261017-1355-engine): `rtcache::
   ensure_objects` now takes an atomic per-key `.lock` around the MISS build,
   re-checks marker+objects under the lock (waiters HIT when the peer
@@ -29,22 +29,32 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   list); `cargo test -p xiom --lib` 75/75. STILL OPEN: caller-side
   dependency-vs-consumer flag split -- blocked on the engine's 117-target
   key-equality re-measure and the two key inputs/args.
+- m1626 FOLLOW-UP (`8bfd4235d`, relay fc2b563): the selfhost rebase exposed
+  `alloca void` for a Unit-valued match EXPRESSION (m1626 made a
+  semicolon-less value-shaped match an expression). `infer_match_llvm_type`
+  now ignores `void`/`()` arm types (all-Unit falls back to i64; mixed picks
+  the real type). Minimal repro + `unit_match_expr` added to the m1626 lock;
+  this unblocked the selfhost skeleton compile.
 - m2100-W1/m1626/m2343/m2057 are fixed (see the 19:11Z block below for the
   full evidence and locks); stdlib gate-9 reds are cleared pending reporter
   re-verify.
 - m375 remains MEASURED/acked (Vec drop elaboration; no fix): direct-reader
   workaround, stdlib `read_at_into` wishlist `REL-20261020-1302-compiler`;
   compiler proper fix needs owned-payload/scope-exit drop design.
-- SELFHOST: branch `096bad953` (worktree `.kilo/worktrees/selfhost-phase-4-
-  codegen`) is 26 behind / 50 ahead of main. Rebase next, then T3; a conflict
-  means the selfhost owner must reconcile (it carries the phase-6 codegen
-  work, not a quick main-side fix).
+- SELFHOST RD10: rebase onto `8bfd4235d` is CLEAN (50/50) and LOCAL (not
+  force-pushed). Skeleton compiles after the m1626 follow-up. T3 (tier 3,
+  83 files, 171 s): **82/83 green**; phase-5 19/19, phase-6 13/64 (14 ported).
+  Sole failure `examples/phase1_enum.xi` T2 line 134: rust `store i64 0`
+  (Expr::Match result-slot seed) vs selfhost `load`. Selfhost must port that
+  seed for the trailing-match-as-expression shape. RD10 docs committed
+  `d20d14156` on the branch.
 - OPERATIONAL: E: can stall in `Wait PageIn` under other lanes' compiles. Use
   a C:-isolated copy of `xiom.exe` + `lib/`, private `HOME`, `XIOM_STDLIB`,
   `--no-cache`. Do NOT kill all `xiom` processes; other lanes run compilers.
-- QUEUE: selfhost rebase + T3, then Option/.len, Vec.pop, &Vec+f64, index
-  arithmetic; m373 profiling/m374; MCU 1220; m365 flag split when the engine
-  reports; m375 design only when the owner prioritizes it.
+- QUEUE: selfhost -- port the match-slot seed, re-run T3 (expect 83/83), then
+  Option/.len, Vec.pop, &Vec+f64, index arithmetic; m373 profiling/m374; MCU
+  1220; m365 flag split when the engine reports; m375 design only when the
+  owner prioritizes it.
 
 *** CONTINUATION PROMPT (paste-ready) -- 2026-10-20T20:34Z ***
 You are the compiler-lane successor for XIOM (E:\xiom-lang\xiom).
@@ -53,19 +63,25 @@ Read `docs/SESSION-HANDOFF.md` top block (2026-10-20T20:34Z),
 in E:\xiom-lang\xiom-relays.
 
 State: v0.64.8 is released (tag 4d040604b, 11 assets, registry xiom-std 0.64.8
-green); no re-cut/candidate without owner GO. Main `306ace857` (m365 per-key
-dependency-cache lock) on top of the gate-9 red fixes: `2f887bcf1` m2343,
-`626dfbc65` m1626, `dea6ceee8` m2100-W1, `029595080` m2057 (plus `f915fb759`
-m376/m377). Relays `c817762`. stdlib gate-9 reds 1626/2343/2100-W1 are fixed
-pending reporter re-verify; m365 still needs the engine's 117-target
-key-equality re-measure before the flag split; m375 is measured/no-fix.
+green); no re-cut/candidate without owner GO. Main `8bfd4235d` (m1626 Unit
+match-slot follow-up) on top of `306ace857` (m365 per-key cache lock),
+`2f887bcf1` m2343, `626dfbc65` m1626, `dea6ceee8` m2100-W1, `029595080` m2057,
+`f915fb759` m376/m377. Relays `fc2b563`. stdlib gate-9 reds are fixed pending
+reporter re-verify; m365 still needs the engine's 117-target key-equality
+re-measure before the flag split; m375 is measured/no-fix.
 
-Priority: 1) Selfhost: rebase `096bad953` onto main, re-run T3, continue
-Option/.len, Vec.pop, &Vec+f64, index arithmetic. 2) m373 profiling/
-XIOM_TIMINGS, m374 design, MCU 1220. 3) m365 flag split when the engine
-reports the two key inputs/args. 4) Wait for lane verification of the v0.64.8
-check rows and the re-verify rows; no candidate cut without owner GO. m375
-design only when the owner prioritizes it.
+SELFHOST RD10: branch `selfhost-phase-4-codegen` rebased cleanly onto
+`8bfd4235d` (local, not force-pushed); skeleton compiles. T3 is 82/83:
+phase-5 19/19, phase-6 13/64. Sole failure `phase1_enum.xi` T2 line 134 --
+the selfhost match path must emit the Rust `store i64 0` result-slot seed for
+the trailing-match-as-expression shape. RD10 docs are `d20d14156`.
+
+Priority: 1) Selfhost: port the match-slot seed, re-run T3 (expect 83/83),
+then continue Option/.len, Vec.pop, &Vec+f64, index arithmetic. 2) m373
+profiling/XIOM_TIMINGS, m374 design, MCU 1220. 3) m365 flag split when the
+engine reports the two key inputs/args. 4) Wait for lane verification of the
+v0.64.8 check rows and the re-verify rows; no candidate cut without owner GO.
+m375 design only when the owner prioritizes it.
 
 Constraints: rustc-first study; max 3-4 heavy sessions; watch memory; no
 stdlib edits except via relay; use --no-cache when shared catidx/engine builds
