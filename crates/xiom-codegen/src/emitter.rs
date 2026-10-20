@@ -356,6 +356,20 @@ impl IrEmitter {
             Expr::Call(func, args, _) => (func.as_ref(), args),
             Expr::GenericCall(func, _, args, _) => (func.as_ref(), args),
             Expr::Paren(inner, _) => return self.infer_call_return_xiom(inner),
+            // m2343 (REL-20261015-2343-stdlib): `let a = unsafe { ext_i32() };`
+            // -- the binding keeps the BLOCK TAIL's return type. Without this
+            // the bare inline form had no XIOM type/signedness record; the
+            // i32 comparison widened with `zext`, so a C `-1` became
+            // 4294967295 and read as >= 0. The annotated forms were correct.
+            Expr::Unsafe(block, _) | Expr::BlockExpr(block, _) => {
+                match block.stmts.last() {
+                    Some(StmtOrExpr::Expr(tail)) => return self.infer_call_return_xiom(tail),
+                    Some(StmtOrExpr::Stmt(Stmt::Return(Some(tail), _))) => {
+                        return self.infer_call_return_xiom(tail)
+                    }
+                    _ => return None,
+                }
+            }
             _ => return None,
         };
         // m286 (1549-stdlib-7): a bare/explicit-bracket GENERIC call bound to

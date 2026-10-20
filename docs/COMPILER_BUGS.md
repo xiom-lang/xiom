@@ -19800,3 +19800,35 @@ trailing-match value plus the `match ...;` discard control (`discard(1)`).
 Battery: parser 109/109, checker 213/213, feature_regression 549/549,
 integration 130/130, stdlib_tests 40/40, codegen lib 23/23,
 m2057/m2100/m337/m371/m372/m376/m377 locks green.
+
+---
+
+## 2026-10-20 -- FIXED (m2343, REL-20261015-2343-stdlib): bare inline i32 extern return zero-extended (-1 read as >= 0)
+
+WITNESS: `p_inline_i32_misread.xi` (stdlib evidence). A bare inline call
+`let a = unsafe { xiom_socket_connect(...) };` (extern returning Int32) read
+a refused-connect `-1` as `>= 0` (rc 1). The annotated inline form
+(`let a: Int32 = unsafe { ... }`) and the declared form
+(`let a: Int32; unsafe { a = ... }`) were correct.
+
+ROOT CAUSE: codegen's let-binding type tracking (`infer_call_return_xiom`)
+looked only at `Expr::Call`/`GenericCall`/`Paren`. For
+`let a = unsafe { ext_i32() }` the value is `Expr::Unsafe(block)`, so the
+binding had NO XIOM type and NO signedness record. The comparison then
+widened the i32 with `zext` (`-1` -> 4294967295, still >= 0). Annotated
+forms recorded Int32 and used `sext`.
+
+FIX: `infer_call_return_xiom` unwraps `Expr::Unsafe` / `Expr::BlockExpr` to
+the block's tail expression (or `return <tail>`) and keeps the callee's
+declared return type. The binding records Int32, so signed comparisons and
+stores sign-extend. This also fixes the same shape for any value-producing
+unsafe block, not just socket calls.
+
+EVIDENCE: `p_inline_i32_misread.xi` rc 0 on the fixed debug build (the IR
+caller now emits `sext i32 ... to i64`; pre-fix it emitted `zext`). Lock
+`e2e_m2343_inline_i32_return`
+(`tests/regression/m2343_inline_i32_return.xi`) uses deterministic
+`strcmp` returns: bare negative (`"a"` vs `"b"`), positive control, and the
+declared form -> `i32_neg_ok`. Battery: parser 109/109, checker 213/213,
+feature_regression 549/549, integration 130/130, stdlib_tests 40/40,
+codegen lib 23/23, m1626/m2057/m2100/m337/m371/m372/m376/m377 locks green.

@@ -11203,3 +11203,46 @@ fn e2e_m1626_trailing_match_after_push() {
     );
     let _ = std::fs::remove_file(&exe);
 }
+
+// m2343 (REL-20261015-2343-stdlib): a bare inline i32 extern call must keep
+// the unsafe block tail's signed return type (sext, not zext).
+#[test]
+fn e2e_m2343_inline_i32_return() {
+    let src = project_root()
+        .join("tests")
+        .join("regression")
+        .join("m2343_inline_i32_return.xi");
+    let exe = project_root()
+        .join("target")
+        .join("m2343_inline_i32_return.exe");
+    let _ = std::fs::remove_file(&exe);
+
+    let compile = Command::new(xiom_path())
+        .args(["--no-cache", "-o"])
+        .arg(&exe)
+        .arg(&src)
+        .env("XIOM_STDLIB", project_root().join("stdlib"))
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the m2343 i32 fixture");
+    assert!(
+        compile.status.success(),
+        "m2343 i32 return: fixture must compile; stderr:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe)
+        .output()
+        .expect("run the m2343 i32 fixture");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "m2343 i32 return: bare inline negative i32 must compare negative; stdout: {stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(
+        stdout.contains("i32_neg_ok"),
+        "m2343 i32 return: expected i32_neg_ok; stdout: {stdout}"
+    );
+    let _ = std::fs::remove_file(&exe);
+}
