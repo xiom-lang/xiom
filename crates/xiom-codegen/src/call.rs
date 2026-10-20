@@ -2659,12 +2659,17 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             || self.receiver_is_unwrap_of_vec(receiver);
                         if is_vec {
                             self.types.used_builtins.insert("Option".to_string());
-                            let (recv_val, recv_actual_ty) = self.compile_expr(receiver)?;
-                            let (recv_vec, _) = self.resolve_vec_receiver(receiver, &recv_val, &recv_actual_ty);
-                            let vec_alloca = self.fresh_tmp();
-                            self.emitln(&format!("  {vec_alloca} = alloca %struct.Vec"));
-                            self.emit_vec_store_fields(&recv_vec, &vec_alloca);
-                            self.emit_vec_store_fields(&recv_vec, &vec_alloca);
+                            // REL-20261019-2057-engine: resolve the receiver to
+                            // its AUTHORITATIVE header pointer. The old path
+                            // compiled the receiver as a VALUE, copied it into a
+                            // scratch alloca and only tried to store back through
+                            // local/field receivers -- a module-global Vec
+                            // (`var g_q: Vec[Int]`) was never written back, so
+                            // `g_q.pop()` mutated a copy and `g_q.len()` stayed
+                            // unchanged. Global/index/handle receivers now mutate
+                            // in place (needs_store_back=false); locals still get
+                            // the load-fields/store-back round trip below.
+                            let (vec_alloca, needs_store_back) = self.resolve_vec_receiver_ptr(receiver)?;
                             let len_gep = self.fresh_tmp();
                             self.emitln(&format!("  {len_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 1"));
                             let len_val = self.fresh_tmp();
@@ -2715,8 +2720,12 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             self.emitln(&format!("\n{done_block}:"));
                             // Persist the (possibly decremented) Vec back to the
                             // receiver variable so the pop is observable via `v`.
-                            let vec_back = self.emit_vec_load_fields(&vec_alloca);
-                            self.store_back_to_receiver(receiver, &vec_back, "%struct.Vec");
+                            // Global/index/handle receivers already mutated the
+                            // authoritative storage (needs_store_back=false).
+                            if needs_store_back {
+                                let vec_back = self.emit_vec_load_fields(&vec_alloca);
+                                self.store_back_to_receiver(receiver, &vec_back, "%struct.Vec");
+                            }
                             let loaded = self.fresh_tmp();
                             self.emitln(&format!("  {loaded} = load %struct.Option, %struct.Option* {opt_alloca}"));
                             return Ok((loaded, "%struct.Option".to_string()));
@@ -6646,12 +6655,19 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     // `inttoptr`+called it -> 0xC000001D.
                                     // The field's declared type must be a fn
                                     // marker ("fn(...)").
+                                    // REL-20261019-2057-engine: resolve a
+                                    // named fn-type alias (`cb: JobFn`) before
+                                    // the fn-marker gate; the alias spelling
+                                    // never starts with "fn(", so the call fell
+                                    // through to an unresolved `Job.cb` stub.
                                     let field = self.types.type_meta.get(&struct_name)
                                         .and_then(|meta| meta.fields.iter().enumerate()
-                                            .find(|(_, (fname, fty))| {
-                                                fname == &fn_name && fty.trim_start().starts_with("fn(")
-                                            })
-                                            .map(|(idx, (_, fty))| (idx, fty.clone())));
+                                            .find_map(|(idx, (fname, fty))| {
+                                                let resolved = self.resolve_alias_name(fty);
+                                                (fname == &fn_name
+                                                    && resolved.trim_start().starts_with("fn("))
+                                                    .then(|| (idx, resolved))
+                                            }));
                                     field.map(|(idx, fty)| (symbol, struct_name, idx, fty))
                                 } else { None }
                             } else { None }
@@ -6717,11 +6733,16 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         let Expr::Ident(obj_id) = receiver.as_ref() else { return None; };
                         if !(self.lookup_local(&obj_id.name).is_some() || obj_id.name == "self") { return None; }
                         let st = self.infer_struct_type_name(receiver)?;
-                        let field_idx = self.types.type_meta.get(&st)?.fields.iter().position(|(fname, fty)| {
-                            fname == &fn_name && fty.trim_start().starts_with("fn(")
-                        })?;
-                        let fty = self.types.type_meta.get(&st)?.fields.get(field_idx)
-                            .map(|(_, f)| f.clone()).unwrap_or_default();
+                        // REL-20261019-2057-engine: resolve the field's named
+                        // fn-type alias before the "fn(" gate (see the global
+                        // path above); otherwise `j.cb(x)` fell to `Job.cb`.
+                        let (field_idx, fty) = self.types.type_meta.get(&st)?.fields.iter()
+                            .enumerate()
+                            .find_map(|(idx, (fname, fty))| {
+                                let resolved = self.resolve_alias_name(fty);
+                                (fname == &fn_name && resolved.trim_start().starts_with("fn("))
+                                    .then(|| (idx, resolved))
+                            })?;
                         Some((st, field_idx, fty))
                     })();
                     if let Some((_struct_name, field_idx, fn_field_xiom)) = instance_fn_field {

@@ -19674,3 +19674,58 @@ introduce an explicit fresh-return annotation), and emit drops at lexical
 scope exit (including loop bodies) with liveness guards for break/continue.
 Do NOT drop call-return Vec payloads unconditionally: a callee may return a
 view/alias, and the header copy has no refcount.
+
+---
+
+## 2026-10-20 -- FIXED (m2057, REL-20261019-2057-engine): fn-type alias params typed Unit + module-global Vec.pop mutated a copy
+
+WITNESS A: a parameter declared with a named fn-type alias could not be
+called: `type JobFn = fn(Int) -> Int; fn call(f: JobFn, x: Int) -> Int {
+return f(x); }` -> "return type mismatch: expected Int, found ()". The same
+failure appeared for a module-qualified alias (`jobtypes.JobFn`), a
+struct-field call (`j.cb(x)`), and an alias arithmetic operand
+(`type Count = Int` -> "left operand must be numeric, found jobtypes.Count").
+A single-letter alias (`type F`) HID the bug: Named("F") matched the
+single-uppercase generic-param fallback and returned a wildcard.
+
+WITNESS B: `var g_q: Vec[Int] = Vec[Int].new(); g_q.push(1);
+let p = g_q.pop();` left `g_q.len() == 1` (rc 1). The local/field/&mut
+receivers were correct.
+
+ROOT CAUSES:
+1. Checker: the fn-call paths matched `CheckedType::Fn` on the RAW callee
+   type without resolving aliases -- the local fn-param path, the struct
+   field fn path, and the general callee expression. Binary operands were
+   checked before alias resolution too. A nested module alias also needed a
+   current-module-qualified key (`alias_nested.inner.F`).
+2. Codegen: `param_llvm_type` lowered an alias fn param through
+   `llvm_type_for`, which expanded the marker to a RAW function pointer
+   (`i64 (i64)*`) instead of the i64 closure-env ABI used by inline
+   `fn(...)` params, so the caller boxed a pointer into an i64 slot (clang:
+   "%tmp4 defined with type ptr but expected i64"). `fn_marker_store_value`
+   did not resolve a named alias destination marker, so struct literals /
+   assignments stored the raw code address (field call then read code as an
+   env, 0xC0000005). The fn-field call detection gated on the field spelling
+   starting with "fn(", missing alias fields (unresolved `Job.cb`).
+3. Vec.pop compiled the receiver as a VALUE into a scratch alloca;
+   `store_back_to_receiver` cannot write a module global, so the popped copy
+   was discarded. `push` already used the authoritative receiver pointer.
+
+FIX:
+- Checker: `resolve_alias` before the local/field/general Fn-call matches and
+  on both binary operands; current-module-qualified nested alias lookup.
+- Codegen: alias fn params lower to i64 (same env ABI as inline fn types);
+  fn-marker store resolves the destination alias before wrapping;
+  field-call detection resolves the field's alias before the "fn(" gate.
+- Vec.pop now uses `resolve_vec_receiver_ptr`: global/index/handle receivers
+  mutate in place, locals keep the load/store-back round trip.
+
+EVIDENCE: `tests/regression/m2057_alias_params.xi` (+
+`m2057_job_types.xi`) covers same-module, qualified, struct-field literal +
+reassignment, and qualified Int alias arithmetic (`alias_ok 209`);
+`tests/regression/m2057_global_pop.xi` covers global/local/field/&mut
+receivers (`pop_ok`). Locks `e2e_m2057_alias_params`,
+`e2e_m2057_global_pop` green. Full battery: checker 213/213,
+feature_regression 549/549, integration 130/130, stdlib_tests 40/40,
+codegen lib 23/23, m249/m283/m312/m326/m337/m371/m372/m376/m377/m37_bug55
+locks green, `p_wave196_small_gaps.xi` rc 0.

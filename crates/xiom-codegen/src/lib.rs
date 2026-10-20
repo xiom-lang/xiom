@@ -2680,6 +2680,16 @@ impl IrEmitter {
                 format!("{inner_llvm}*")
             }
             _ => {
+                // REL-20261019-2057-engine: a fn-typed PARAM declared through a
+                // named alias (`type JobFn = fn(Int) -> Int; f: JobFn`) must use
+                // the SAME env ABI as an inline `fn(...)` param (i64), not the
+                // raw function-pointer lowering (`i64 (i64)*`). The alias arm
+                // resolved to a fn marker and leaked the raw pointer into the
+                // signature; the caller then boxed a pointer into an i64 slot
+                // ("store i64 %ptr" -> clang reject).
+                if self.fn_marker_of_type(ty).is_some() {
+                    return "i64".to_string();
+                }
                 let name = Self::type_from_ast(ty);
                 // Packages relay (m176/m19): module-scoping first, then the
                 // registered-key probe for qualified names.
@@ -3174,7 +3184,13 @@ impl IrEmitter {
         val_ty: String,
     ) -> (String, String) {
         let Some(marker) = dest_marker else { return (val, val_ty) };
-        if !Self::is_fn_marker(marker) { return (val, val_ty); }
+        // REL-20261019-2057-engine: the DESTINATION marker may be a named
+        // fn-type alias (`cb: JobFn`). Resolve it before the marker check so a
+        // struct literal / assignment stores the uniform closure ENV bits;
+        // storing the raw code address made the field-call path dereference
+        // machine code (alias_field -> 0xC0000005).
+        let marker = self.resolve_alias_name(marker);
+        if !Self::is_fn_marker(&marker) { return (val, val_ty); }
         let Expr::Ident(fid) = value else { return (val, val_ty) };
         let is_bare_fn_ref = (self.types.functions.contains_key(&fid.name)
             || self.types.functions.keys().into_iter().any(|k| k.ends_with(&format!(".{}", fid.name)))
@@ -3188,7 +3204,7 @@ impl IrEmitter {
                 .map(|p| self.llvm_type_for(p).unwrap_or_else(|_| "i64".to_string()))
                 .collect())
             .unwrap_or_default();
-        let ret_xiom = Self::fn_type_return_xiom(marker).unwrap_or_else(|| "Int".to_string());
+        let ret_xiom = Self::fn_type_return_xiom(&marker).unwrap_or_else(|| "Int".to_string());
         let env = self.wrap_fn_ref_env(&fid.name, &val, &ret_xiom, params_llvm);
         (env, "i64".to_string())
     }

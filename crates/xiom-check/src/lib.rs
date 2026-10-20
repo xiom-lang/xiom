@@ -1716,6 +1716,17 @@ impl Checker {
         if let Some(resolved) = self.aliases.get(name) {
             return Some(resolved.clone());
         }
+        // REL-20261019-2057-engine: a nested module alias can be registered
+        // under the full path (`alias_nested.inner.F`) while the reference is
+        // written as `inner.F`; try the current-module-qualified key before
+        // giving up (same shape as alias_base_head's module fallback).
+        if let Some((qualifier, leaf)) = name.rsplit_once('.') {
+            if let Some(m) = &self.current_module {
+                if let Some(resolved) = self.aliases.get(&format!("{m}.{qualifier}.{leaf}")) {
+                    return Some(resolved.clone());
+                }
+            }
+        }
         let (alias_base, args) = crate::structural::container_parts(name)?;
         let alias_ty = self.aliases.get(&alias_base)?;
         let params = self.alias_params.get(&alias_base)?;
@@ -8242,8 +8253,14 @@ impl Checker {
                 }
             }
             Expr::Binary(left, op, right, span) => {
-                let left_ty = self.check_expr(left);
-                let right_ty = self.check_expr(right);
+                let left_raw = self.check_expr(left);
+                let right_raw = self.check_expr(right);
+                // REL-20261019-2057-engine: type aliases are transparent for
+                // binary operators too. A qualified alias (`jobtypes.N`) stayed
+                // a Named type through operand checks ("left operand must be
+                // numeric, found jobtypes.N") while the bare alias resolved.
+                let left_ty = self.resolve_alias(&left_raw);
+                let right_ty = self.resolve_alias(&right_raw);
                 // BUG 26 (secure numeric policy): INT <-> FLOAT mixing requires
                 // an explicit `as` cast (Rust-style). Auto-widening stays for
                 // same-family (int->wider int, float->wider float); an INT
@@ -9431,7 +9448,10 @@ impl Checker {
                             let field_map = self.get_type(tn).map(|fm| fm.clone());
                             if let Some(ref fm) = field_map {
                                 if let Some(field_ty) = fm.get(&method_ident.name) {
-                                    if let CheckedType::Fn(param_types, ret_type) = field_ty {
+                                    // REL-20261019-2057-engine: a field declared with a
+                                    // named fn-type alias stores the alias name, so resolve
+                                    // it before the Fn match (`j.cb(x)` typed as Unit).
+                                    if let CheckedType::Fn(param_types, ret_type) = self.resolve_alias(field_ty) {
                                         for (i, arg) in args.iter().enumerate() {
                                             let arg_ty = self.check_expr(arg);
                                             if i < param_types.len() {
@@ -9529,7 +9549,10 @@ impl Checker {
                     // must call the PARAM, not an unrelated global `compare`
                     // (catalog bodies bound the bench module's `compare` and
                     // reported "expected BenchResult, found Int").
-                    if let Some(CheckedType::Fn(param_types, ret)) = self.lookup_local(&name.name).cloned() {
+                    // REL-20261019-2057-engine: resolve a named fn-type alias
+                    // before the Fn match (`f: JobFn` must call like `fn(...)`).
+                    let local_fn = self.lookup_local(&name.name).cloned().map(|t| self.resolve_alias(&t));
+                    if let Some(CheckedType::Fn(param_types, ret)) = local_fn {
                         for (i, arg) in args.iter().enumerate() {
                             let arg_ty = self.check_expr(arg);
                             if i < param_types.len()
@@ -9939,8 +9962,12 @@ impl Checker {
                         }
                     }
                 }
-                // Check if callee evaluates to a function pointer type
-                let callee_ty = self.check_expr(func_unwrapped);
+                // Check if callee evaluates to a function pointer type.
+                // REL-20261019-2057-engine: resolve a named fn-type alias
+                // first (`type JobFn = fn(Int) -> Int; f: JobFn; f(x)` typed
+                // as Unit because the alias stayed a Named type).
+                let raw_callee_ty = self.check_expr(func_unwrapped);
+                let callee_ty = self.resolve_alias(&raw_callee_ty);
                 if let CheckedType::Fn(param_types, ret_ty) = &callee_ty {
                     for (i, arg) in args.iter().enumerate() {
                         let arg_ty = self.check_expr(arg);

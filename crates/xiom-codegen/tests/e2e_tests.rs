@@ -11029,3 +11029,86 @@ fn e2e_m376_map_set_helpers() {
     );
     let _ = std::fs::remove_file(&exe);
 }
+
+// m2057 (REL-20261019-2057-engine): named fn-type alias params were Typed as
+// Unit in call position; the same-module/qualified/struct-field shapes now
+// resolve, and alias params use the i64 env ABI in codegen.
+#[test]
+fn e2e_m2057_alias_params() {
+    let src = project_root()
+        .join("tests")
+        .join("regression")
+        .join("m2057_alias_params.xi");
+    let exe = project_root().join("target").join("m2057_alias_params.exe");
+    let _ = std::fs::remove_file(&exe);
+
+    let compile = Command::new(xiom_path())
+        .args(["--no-cache", "-o"])
+        .arg(&exe)
+        .arg(&src)
+        .env("XIOM_STDLIB", project_root().join("stdlib"))
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the m2057 alias fixture");
+    assert!(
+        compile.status.success(),
+        "m2057 alias params: fixture must compile; stderr:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe)
+        .output()
+        .expect("run the m2057 alias fixture");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "m2057 alias params: calls must return Int; stdout: {stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(
+        stdout.contains("alias_ok 209"),
+        "m2057 alias params: expected alias_ok 209; stdout: {stdout}"
+    );
+    let _ = std::fs::remove_file(&exe);
+}
+
+// m2057: module-global Vec.pop mutated a copy and never stored back; locks
+// global/local/struct-field/&mut receivers.
+#[test]
+fn e2e_m2057_global_pop() {
+    let src = project_root()
+        .join("tests")
+        .join("regression")
+        .join("m2057_global_pop.xi");
+    let exe = project_root().join("target").join("m2057_global_pop.exe");
+    let _ = std::fs::remove_file(&exe);
+
+    let compile = Command::new(xiom_path())
+        .args(["--no-cache", "-o"])
+        .arg(&exe)
+        .arg(&src)
+        .env("XIOM_STDLIB", project_root().join("stdlib"))
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the m2057 global-pop fixture");
+    assert!(
+        compile.status.success(),
+        "m2057 global pop: fixture must compile; stderr:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe)
+        .output()
+        .expect("run the m2057 global-pop fixture");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "m2057 global pop: every receiver kind must pop; stdout: {stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(
+        stdout.contains("pop_ok"),
+        "m2057 global pop: expected pop_ok; stdout: {stdout}"
+    );
+    let _ = std::fs::remove_file(&exe);
+}
