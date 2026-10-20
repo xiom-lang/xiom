@@ -11112,3 +11112,50 @@ fn e2e_m2057_global_pop() {
     );
     let _ = std::fs::remove_file(&exe);
 }
+
+// m2100-W1 (REL-20261016-2100-stdlib): qualified module types in FIELD
+// position must resolve to the registered type key before method dispatch.
+#[test]
+fn e2e_m2100_alias_field_type() {
+    let src = project_root()
+        .join("tests")
+        .join("regression")
+        .join("m2100_alias_field_type.xi");
+    let exe = project_root()
+        .join("target")
+        .join("m2100_alias_field_type.exe");
+    let _ = std::fs::remove_file(&exe);
+
+    let compile = Command::new(xiom_path())
+        .args(["--no-cache", "-o"])
+        .arg(&exe)
+        .arg(&src)
+        .env("XIOM_STDLIB", project_root().join("stdlib"))
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the m2100 field-type fixture");
+    let compile_stderr = String::from_utf8_lossy(&compile.stderr);
+    assert!(
+        compile.status.success(),
+        "m2100 field type: fixture must compile; stderr:\n{compile_stderr}"
+    );
+    assert!(
+        !compile_stderr.contains("unknown type") && !compile_stderr.contains("defaulting to i64"),
+        "m2100 field type: qualified field types must resolve without the i64 fallback; stderr:\n{compile_stderr}"
+    );
+    let run = Command::new(&exe)
+        .output()
+        .expect("run the m2100 field-type fixture");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "m2100 field type: close() must dispatch for alias/full/bare spellings; stdout: {stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(
+        stdout.contains("field_type_ok"),
+        "m2100 field type: expected field_type_ok; stdout: {stdout}"
+    );
+    let _ = std::fs::remove_file(&exe);
+}

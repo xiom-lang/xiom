@@ -19729,3 +19729,34 @@ receivers (`pop_ok`). Locks `e2e_m2057_alias_params`,
 feature_regression 549/549, integration 130/130, stdlib_tests 40/40,
 codegen lib 23/23, m249/m283/m312/m326/m337/m371/m372/m376/m377/m37_bug55
 locks green, `p_wave196_small_gaps.xi` rc 0.
+
+---
+
+## 2026-10-20 -- FIXED (m2100-W1, REL-20261016-2100-stdlib): qualified module field types lost method dispatch
+
+WITNESS: `use xiom.net; pub type Holder = { stream: net.TcpStream;
+open: Bool; }` then `h.stream.close()` failed C001 (`close` unresolved)
+on v0.64.6-v0.64.8 for BOTH `net.TcpStream` and `xiom.net.TcpStream`
+field spellings. The bare-leaf control (`TcpStream`) compiled and ran rc 0.
+The v0.64.5 silent i64 layout default was already gone; this residual was
+method dispatch only.
+
+ROOT CAUSE: instance-field receiver inference (`infer_struct_type_name`,
+Field arm) took the field's declared type string verbatim (`net.TcpStream`)
+and probed `type_meta` / `types` for that exact key. The registered type key
+is leaf/xiom-prefixed (`xiom.net.TcpStream` or the deterministic leaf key),
+so the probe missed, returned None, and the method resolved as a bare
+`close` call -- the C001 auto-stub abort.
+
+FIX: normalize the field type before the registry probe: exact key ->
+`xiom.<qualified>` -> deterministic leaf key via `resolve_type_key`, then
+run the existing known-type checks. This matches how the bare-leaf control
+already resolved.
+
+EVIDENCE: stdlib witnesses `w1546_field.xi` (alias), `w1546_field_full.xi`
+(full path), `w1546_field_bare.xi` (control) all compile and run rc 0 on the
+fixed debug build. Lock `e2e_m2100_alias_field_type`
+(`tests/regression/m2100_alias_field_type.xi`): alias/full/bare holders,
+`field_type_ok`, no unknown-type/defaulting warnings. Battery:
+feature_regression 549/549, integration 130/130, stdlib_tests 40/40,
+codegen lib 23/23, m2057/m337/m371/m372/m376/m377 locks green.

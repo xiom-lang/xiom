@@ -10202,6 +10202,32 @@ impl IrEmitter {
                                         // hijack -- `holder.s.insert(10)` mono'd Vec.insert as
                                         // @insert_Int with a %struct.Vec* receiver).
                                         let clean = ftype.trim_start_matches('*').split('[').next().unwrap_or(ftype).trim().to_string();
+                                        // m2100-W1 (REL-20261016-2100-stdlib): a
+                                        // module-qualified FIELD type (`net.TcpStream`,
+                                        // `xiom.net.TcpStream`) may be registered under a
+                                        // different prefix. Normalize exact -> xiom-prefixed
+                                        // -> deterministic leaf key BEFORE declaring the
+                                        // field unknown; otherwise the receiver kept the raw
+                                        // `net.TcpStream` spelling, method dispatch missed
+                                        // `TcpStream.close`, and codegen emitted the C001
+                                        // auto-stub abort. The bare-leaf control already
+                                        // resolved through the leaf key.
+                                        let clean = if self.types.type_meta.contains_key(&clean)
+                                            || self.types.types.contains_key(&clean)
+                                        {
+                                            clean
+                                        } else {
+                                            let xiom_full = format!("xiom.{clean}");
+                                            if self.types.type_meta.contains_key(&xiom_full)
+                                                || self.types.types.contains_key(&xiom_full)
+                                            {
+                                                xiom_full
+                                            } else if let Some(leaf) = clean.rsplit('.').next() {
+                                                self.resolve_type_key(leaf)
+                                            } else {
+                                                clean
+                                            }
+                                        };
                                         if self.types.type_meta.contains_key(&clean)
                                             || self.types.types.contains_key(&clean)
                                             || clean == "Vec" || clean == "Option"
