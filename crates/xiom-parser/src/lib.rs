@@ -1212,11 +1212,42 @@ impl Parser {
                 self.pending_externs.push(block);
                 continue;
             }
-            items.push(self.parse_stmt_or_expr()?);
+            let item = self.parse_stmt_or_expr()?;
+            // m1626 (REL-20261011-1626-stdlib): a bare `match` at STATEMENT
+            // position is parsed as Stmt::Match, so a semicolon-less match at
+            // the END of a block never became the block's tail expression:
+            // `fn f() -> Result[Float64, Str] { <stmts>; match ... }` typed
+            // as Unit (T001). When the match is the last item, NO `;` follows,
+            // and every arm is a VALUE (expression / expression-tail block),
+            // re-wrap it as the tail expression. An explicit `;` keeps
+            // statement (discard) semantics; matches with return/loop arms
+            // stay statements (their divergence is the checker's job).
+            let item = match item {
+                StmtOrExpr::Stmt(Stmt::Match(scrut, arms, span))
+                    if self.peek_kind() == &TokenKind::RBrace
+                        && Self::match_arms_value_shaped(&arms) =>
+                {
+                    StmtOrExpr::Expr(Expr::Match(Box::new(scrut), arms, span))
+                }
+                other => other,
+            };
+            items.push(item);
         }
         self.expect_kind(TokenKind::RBrace, "'}'")?;
         self.restrict_struct = saved_restrict;
         Ok(Block { stmts: items, span: start })
+    }
+
+    /// m1626: a trailing `match` is a block VALUE only when every arm body is
+    /// an expression (or a block ending in an expression). Matches whose arms
+    /// return/loop are statements; their divergence is handled by the
+    /// checker, and converting them would couple the match type to a
+    /// returning arm (exposed unrelated stdlib bodies).
+    fn match_arms_value_shaped(arms: &[MatchArm]) -> bool {
+        arms.iter().all(|arm| match &arm.body {
+            MatchBody::Expr(_) => true,
+            MatchBody::Block(b) => matches!(b.stmts.last(), Some(StmtOrExpr::Expr(_))),
+        })
     }
 
     fn parse_stmt_or_expr(&mut self) -> Result<StmtOrExpr, ParseError> {
@@ -2946,7 +2977,7 @@ mod tests {
     }
     #[test] fn test_use_decl() { let prog = parse("use math.vector.Vec3 as V3;").unwrap(); match &prog.items[0] { TopDecl::Use(u) => { assert_eq!(u.path.len(), 3); } _ => panic!("expected use"), } }
     #[test] fn test_if_elif_else() { let prog = parse("fn test(x: Int) -> Int { if x > 0 { return 1; } elif x < 0 { return -1; } else { return 0; } }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => { let body = f.body.as_ref().unwrap(); if let StmtOrExpr::Stmt(Stmt::If(_, _, elifs, else_block, _)) = &body.stmts[0] { assert_eq!(elifs.len(), 1); assert!(else_block.is_some()); } else { panic!("expected if stmt"); } } _ => panic!("expected function"), } }
-    #[test] fn test_match_expr() { let prog = parse("fn check(x: Option[Int]) -> Int { match x { Some(v) => v, None => 0, } }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => { let body = f.body.as_ref().unwrap(); if let StmtOrExpr::Stmt(Stmt::Match(_, arms, _)) = &body.stmts[0] { assert_eq!(arms.len(), 2); } else { panic!("expected match stmt"); } } _ => panic!("expected function"), } }
+    #[test] fn test_match_expr() { let prog = parse("fn check(x: Option[Int]) -> Int { match x { Some(v) => v, None => 0, } }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => { let body = f.body.as_ref().unwrap(); if let StmtOrExpr::Expr(Expr::Match(_, arms, _)) = &body.stmts[0] { assert_eq!(arms.len(), 2); } else { panic!("expected match tail expr"); } } _ => panic!("expected function"), } }
     #[test] fn test_interface() { let prog = parse("interface Comparable { fn compare(other: &Self) -> Int; }").unwrap(); match &prog.items[0] { TopDecl::Interface(_) => {} _ => panic!("expected interface"), } }
     #[test] fn test_for_in_loop() { let prog = parse("fn main() { for i in [0, 1, 2] { print(i); } }").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => { let body = f.body.as_ref().unwrap();         assert!(matches!(&body.stmts[0], StmtOrExpr::Stmt(Stmt::For(_, _, _, _, _)))); } _ => panic!("expected function"), } }
     #[test] fn test_async_fn() { let prog = parse("async fn fetch(url: Str) -> Str;").unwrap(); match &prog.items[0] { TopDecl::Fn(f) => assert!(f.is_async), _ => panic!("expected async function"), } }
@@ -3037,7 +3068,7 @@ mod tests {
         let src = "fn f(x: Int) { match x { 1 => print(x), _ => print(0), } }";
         let prog = parse(src).unwrap();
         match &prog.items[0] {
-            TopDecl::Fn(f) => { assert!(matches!(&f.body.as_ref().unwrap().stmts[0], StmtOrExpr::Stmt(Stmt::Match(..)))); }
+            TopDecl::Fn(f) => { assert!(matches!(&f.body.as_ref().unwrap().stmts[0], StmtOrExpr::Expr(Expr::Match(..)))); }
             _ => panic!("expected function"),
         }
     }

@@ -11159,3 +11159,47 @@ fn e2e_m2100_alias_field_type() {
     );
     let _ = std::fs::remove_file(&exe);
 }
+
+// m1626 (REL-20261011-1626-stdlib): a semicolon-less trailing match is the
+// block value, even after a Vec.push; an explicit `match ...;` stays a
+// statement (the fixture's discard() control).
+#[test]
+fn e2e_m1626_trailing_match_after_push() {
+    let src = project_root()
+        .join("tests")
+        .join("regression")
+        .join("m1626_trailing_match_after_push.xi");
+    let exe = project_root()
+        .join("target")
+        .join("m1626_trailing_match_after_push.exe");
+    let _ = std::fs::remove_file(&exe);
+
+    let compile = Command::new(xiom_path())
+        .args(["--no-cache", "-o"])
+        .arg(&exe)
+        .arg(&src)
+        .env("XIOM_STDLIB", project_root().join("stdlib"))
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the m1626 trailing-match fixture");
+    assert!(
+        compile.status.success(),
+        "m1626 trailing match: fixture must compile; stderr:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe)
+        .output()
+        .expect("run the m1626 trailing-match fixture");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "m1626 trailing match: the tail match must return its value; stdout: {stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(
+        stdout.contains("trailing_match_ok"),
+        "m1626 trailing match: expected trailing_match_ok; stdout: {stdout}"
+    );
+    let _ = std::fs::remove_file(&exe);
+}

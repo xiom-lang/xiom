@@ -6415,6 +6415,13 @@ impl Checker {
             }
             match item {
                 StmtOrExpr::Stmt(stmt) => {
+                    // m1626: any statement after an expression DISCARDS that
+                    // expression's value -- it is not the block's tail. The
+                    // type was left dangling, so `vec.push(x);` (parsed as an
+                    // expression) followed by `let ...; match ...;` reported
+                    // `expected Result[...], found ()` even though the match
+                    // arms produced the value. Clear before checking.
+                    last_expr_ty = None;
                     self.check_stmt(stmt);
                     if Self::stmt_always_returns(stmt) {
                         has_return = true;

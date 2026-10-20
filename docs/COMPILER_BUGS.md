@@ -19760,3 +19760,43 @@ fixed debug build. Lock `e2e_m2100_alias_field_type`
 `field_type_ok`, no unknown-type/defaulting warnings. Battery:
 feature_regression 549/549, integration 130/130, stdlib_tests 40/40,
 codegen lib 23/23, m2057/m337/m371/m372/m376/m377 locks green.
+
+---
+
+## 2026-10-20 -- FIXED (m1626, REL-20261011-1626-stdlib): bare trailing match after a statement typed Unit
+
+WITNESS: `p_trailing_match_after_push.xi` -- a function whose body ends in
+a bare `match` producing `Result[Float64, Str]` reports T001 `expected
+Result[Float64, Str], found ()` once a local `Vec[UInt8]::push` precedes it.
+Removing the push, writing `return match ...;`, or binding the result first
+compiled. The function was found in the stdlib json parser
+(`_json_parse_number`).
+
+ROOT CAUSES:
+1. The parser routes a `match` at STATEMENT position to `Stmt::Match`
+   unconditionally, so a semicolon-less match at the end of a block never
+   became the block's tail expression.
+2. The statement `vec.push(b)` is itself parsed as a tail EXPRESSION
+   (`StmtOrExpr::Expr`), so `check_block` set `last_expr_ty = Unit`. Later
+   statements (`let parsed = ...`, `Stmt::Match`) did not clear it, and the
+   trailing match never replaced it -- the block type stayed Unit and T001
+   fired. Without the push, `last_expr_ty` stayed None and the mismatch was
+   silently skipped (the function still returned Unit at runtime).
+
+FIX:
+- Parser: a semicolon-less trailing `match` whose arms are VALUE-shaped
+  (every arm is an expression, or a block ending in an expression) is
+  re-wrapped as `Expr::Match` (the block value). An explicit `match ...;`
+  keeps statement/discard semantics, and matches whose arms return/loop stay
+  statements (their divergence belongs to the checker).
+- Checker: `check_block` clears `last_expr_ty` at every statement, so an
+  expression followed by a statement can no longer leak its type into the
+  block result.
+
+EVIDENCE: `p_trailing_match_after_push.xi` type-checks and runs rc 0.
+Lock `e2e_m1626_trailing_match_after_push`
+(`tests/regression/m1626_trailing_match_after_push.xi`) covers the push +
+trailing-match value plus the `match ...;` discard control (`discard(1)`).
+Battery: parser 109/109, checker 213/213, feature_regression 549/549,
+integration 130/130, stdlib_tests 40/40, codegen lib 23/23,
+m2057/m2100/m337/m371/m372/m376/m377 locks green.
