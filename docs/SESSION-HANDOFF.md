@@ -14,6 +14,27 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-20T12:20Z (compiler lane; incoming relays triaged) -- READ FIRST ***
+- RELEASE: v0.64.8 remains the released archive (tag 4d040604b, 11 assets,
+  registry xiom-std 0.64.8 green). No re-cut; no candidate cut without
+  owner GO.
+- INCOMING (acked 2026-10-20; relay b4a77ab): **m375** orbitdb A6 1M-key
+  soak memory blow-up (57.8 GB WS at ~129k keys; per-I/O retention in
+  io.read_at/u8_to_bytes or block_store_open buffers); **m376** stdlib
+  generic Map/Set helper codegen AV (mutating wrapper combo); **m377**
+  Vec4f `*Float32` lane miscompile (llvm_type_for defaults to i64); the
+  v0.64.8 benchmark matrix is acked as the m373 baseline (front-end-bound,
+  ~85 MB peak RSS, LSI 45).
+- EXISTING QUEUE: engine REL-20261019-2057 (fn-type alias param + global
+  Vec.pop store-back); stdlib reds 1626/2343/2100-W1; m365 dep-cache;
+  m363 Send/Sync; m366 blocked on the engine snippet; MCU 1220 backend;
+  m373 profiling/m374 design; selfhost rebase + Option/.len, Vec.pop,
+  &Vec+f64, index arithmetic.
+- README updated to v0.64.8 status (`f5b7b2f75`): current release, registry,
+  post-release fixes, selfhost RD9 14/64, RISC-V triple, registry URL.
+- v0.64.8 check rows remain reporter-side (engine soak, xvector, orbitdb,
+  bindings, PULSE; v0.64.7 rows). No open compiler release thread.
+
 *** SESSION UPDATE 2026-10-19T17:50Z (compiler lane; v0.64.8 RELEASED) -- READ FIRST ***
 - STATE: **v0.64.8 is RELEASED.** Annotated tag `v0.64.8`
   (`b0261db4d39f532a4f2cd697faed271c0228fe15`) on `4d040604b`; tag push
