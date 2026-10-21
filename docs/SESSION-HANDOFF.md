@@ -16,10 +16,20 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 
 *** SESSION UPDATE 2026-10-21T14:00Z (compiler lane; m0717 fixed; SELFHOST T3 83/83 GREEN) -- READ FIRST ***
 - STATE: v0.64.8 remains the released archive; no re-cut/candidate without
-  owner GO. Main `05e3ab3bc` (2045 part 1) on `c2dc54a24` (m1626 single match
-  seed), `aecad8c6c` (m0717 field-0 GEP), `98ce2bbd0`, `8bfd4235d`,
-  `306ace857`, `2f887bcf1`, `626dfbc65`, `dea6ceee8`, `029595080`,
-  `f915fb759`; relays `72a0a86`.
+  owner GO. Main `478e06f8b` (m1136) on `05e3ab3bc` (2045 part 1),
+  `c2dc54a24` (m1626 single match seed), `aecad8c6c` (m0717 field-0 GEP),
+  `98ce2bbd0`, `8bfd4235d`, `306ace857`, `2f887bcf1`, `626dfbc65`,
+  `dea6ceee8`, `029595080`, `f915fb759`; relays `f22a7f6`.
+- ORBITDB GLOBAL POP FIXED on main (029595080, REL-20261021-1122-orbitdb):
+  exact repro now prints `before=2`, `after_pop=1 has=true`,
+  `after_loop=0 loops=1` (v0.64.8 predates m2057 and printed 2/2/2). Relay
+  fe2ab3d; per-struct-field/reset workaround no longer needed.
+- m1136 FIXED (`478e06f8b`, REL-20261021-1136-orbitdb): `infer_match_llvm_type`
+  only applied the scrutinee-payload inference to DIRECT arms, so a
+  BLOCK-tailed `Ok(x) => { x }` typed the result slot i64 and stored the Vec's
+  data pointer; `let v = match ...; v.len()` returned 1 (Str.len on the data
+  pointer) instead of 3. Block arms now use the same payload fallback; lock
+  `e2e_m1136_vec_match_binding` (`via_let=3 via_var=3 direct=3`).
 - 2045 PARTIAL (`05e3ab3bc`, REL-20261019-2045-packages): the builtin
   `Vec.pop` (functions + methods tables) and `Vec.remove` returned a BARE
   `Option`; both now carry `T` and return `Option[T]`, so unannotated
@@ -28,8 +38,19 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   is correct (IR memcpy's the full 24-byte Result); `Vec.pop` BOXES
   non-scalar payloads into generic `%struct.Option { i64 tag, i64 boxed_ptr }`
   and the match-arm rebind treats the boxed pointer as the value. Explicit
-  annotations do not help. Next: layout-aware unbox in the match payload
-  binding (mirror `bind_is_payload_xiom`).
+  annotations do not help. m1136 fixed the AGGREGATE (Vec) block-arm result
+  slot; the remaining 2045 path is the Str payload binding/print
+  (`Some(s)`/`Err(msg)` still lacks the Str XIOM type record).
+- XVC-C-22 ACKED, NOT FIXED (relay ec7d832, REL-20261021-1103-xvector): exact
+  pq probe reproduces on main (`first ok`, second pq_train AV). Reduction:
+  10/100/2000 vec with (m1,k2,i1) pass; 100 vec with (m8,k2,i1) or
+  (m1,k16,i8) crash on the SECOND call. Trigger is training work per call,
+  not corpus size. Vec[Vector] push is correct (40-byte memcpy), no frees in
+  pq_train, guard heap only in stdlib unsafe blocks. Instrumented/ASAN builds
+  PASS -> layout/heap-sensitive. A slot-growth experiment improved the
+  10-vec case but not the full one and would keep 8-byte slots permanently;
+  REVERTED, no XVC-C-22 compiler change landed. Need a smaller deterministic
+  repro or a crash dump (PC/stack). P4 stays blocked.
 - m0717 FIXED (`aecad8c6c`, REL-20261021-0717-pulse): `emit_vec_load_fields`
   now loads field 0 through its field GEP, not the struct pointer. Typed-
   pointer LLVM (clang 14 arm64 / Apple clang) accepts the module-scope Vec
@@ -62,10 +83,11 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 - OPERATIONAL: E: can stall in `Wait PageIn`; use a C:-isolated toolchain
   copy with private HOME/XIOM_STDLIB/--no-cache. Do NOT kill all xiom
   processes (other lanes compile).
-- QUEUE: 2045 part 2 (boxed Option match unbox) first, then 1326-stdlib,
-  1550-stdlib, 1531-xvector; m375 drop-elaboration design + 1M/200k probes;
-  selfhost P6 shapes; m373/m374; MCU 1220; m365 flag split on engine data. No
-  candidate cut without owner GO.
+- QUEUE: 2045 Str payload binding/print first, then XVC-C-22 (needs a
+  smaller repro/dump), 1326-stdlib, 1550-stdlib, 1531-xvector; m375
+  drop-elaboration design + 1M/200k probes; selfhost P6 shapes; m373/m374;
+  MCU 1220; m365 flag split on engine data. No candidate cut without owner
+  GO.
 
 *** CONTINUATION PROMPT (paste-ready) -- 2026-10-21T14:00Z ***
 You are the compiler-lane successor for XIOM (E:\xiom-lang\xiom).
@@ -74,26 +96,31 @@ Read `docs/SESSION-HANDOFF.md` top block (2026-10-21T14:00Z),
 in E:\xiom-lang\xiom-relays.
 
 State: v0.64.8 is released (tag 4d040604b, 11 assets, registry xiom-std 0.64.8
-green); no re-cut/candidate without owner GO. Main `05e3ab3bc` (2045 part 1:
-Vec.pop/remove Option[T]) on `c2dc54a24` (m1626 single match seed), `aecad8c6c`
-(m0717 field-0 GEP) and the earlier fixes. Relays `72a0a86`. SELFHOST RD10: T3
-is GREEN 83/83 (phase-5 19/19, phase-6 14/64); branch `589fc67f7` is a local
-rebase, not force-pushed.
+green); no re-cut/candidate without owner GO. Main `478e06f8b` (m1136 block-arm
+Vec match binding) on `05e3ab3bc` (2045 part 1: Vec.pop/remove Option[T]),
+`c2dc54a24` (m1626 single match seed), `aecad8c6c` (m0717 field-0 GEP) and the
+earlier fixes. Relays `f22a7f6`. Also fixed on main: orbitdb global Vec.pop
+shrink (029595080; exact repro 2/1/0, v0.64.8 predates) and m1136. SELFHOST
+RD10: T3 is GREEN 83/83 (phase-5 19/19, phase-6 14/64); branch `589fc67f7` is
+a local rebase, not force-pushed.
 
-2045 is PARTIAL: pop typing is fixed, but the push/pop round-trip still prints
-pointer payloads because `Vec.pop` boxes non-scalar T into generic
-`Option { i64 tag, i64 boxed_ptr }` and the match-arm rebind treats the boxed
-pointer as the value. Push IR is correct (24-byte Result memcpy). Next is a
-layout-aware unbox in the match payload binding (mirror `bind_is_payload_xiom`).
+2045 is PARTIAL: pop typing is fixed, and m1136 fixed the AGGREGATE (Vec)
+block-arm match result slot. The remaining 2045 path is the Str payload
+binding/print: `Some(s)` / `Err(msg)` from a boxed Option/Result still lacks
+the Str XIOM type record, so it prints pointer bits. Push IR is correct
+(24-byte Result memcpy). XVC-C-22 is ACKED, not fixed: the exact pq probe
+still AVs on the second call; reduced cases show the trigger is training work
+per call; instrumented/ASAN builds pass (layout-sensitive); need a smaller
+repro or crash dump before touching code.
 Other open: 1326-stdlib (log+serialize `icmp on %struct.LogLevel`), 1550-stdlib
 (tuple fn-value ABI `EnumerateIter.map`), 1531-xvector-2 (Job Object 16 GB
 hang). m375: read path fixed engine-side; residual page encode/write +
 Vec-drop; 1M cap-killed at 4.17 GB/~435k keys -- drop elaboration design
 needed.
 
-Priority: 1) 2045 part 2 (boxed Option match unbox), then 1326-stdlib,
-1550-stdlib, 1531-xvector-2. 2) m375 drop-elaboration design + 200k/1M
-probes. 3) Selfhost P6 shapes: Option/.len, Vec.pop, &Vec+f64, index
+Priority: 1) 2045 Str payload binding/print, then XVC-C-22 (needs repro/dump),
+1326-stdlib, 1550-stdlib, 1531-xvector-2. 2) m375 drop-elaboration design +
+200k/1M probes. 3) Selfhost P6 shapes: Option/.len, Vec.pop, &Vec+f64, index
 arithmetic. 4) m373/m374, MCU 1220; m365 flag split on engine data. 5) Wait
 for lane re-verify; no candidate cut without owner GO.
 
