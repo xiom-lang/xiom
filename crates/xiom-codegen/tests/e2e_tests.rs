@@ -11301,3 +11301,46 @@ fn e2e_m0717_module_vec_ginit_typed_ir() {
         "m0717: expected at least one data-pointer load in __xiom_ginit_0:\n{body}"
     );
 }
+
+// m1136 (REL-20261021-1136-orbitdb): let-bound Vec from a block-tailed
+// Result match must keep all 32 header bytes (len 3 -> 1 truncation).
+#[test]
+fn e2e_m1136_vec_match_binding() {
+    let src = project_root()
+        .join("tests")
+        .join("regression")
+        .join("m1136_vec_match_binding.xi");
+    let exe = project_root()
+        .join("target")
+        .join("m1136_vec_match_binding.exe");
+    let _ = std::fs::remove_file(&exe);
+
+    let compile = Command::new(xiom_path())
+        .args(["--no-cache", "-o"])
+        .arg(&exe)
+        .arg(&src)
+        .env("XIOM_STDLIB", project_root().join("stdlib"))
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the m1136 match-binding fixture");
+    assert!(
+        compile.status.success(),
+        "m1136 match binding: fixture must compile; stderr:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe)
+        .output()
+        .expect("run the m1136 match-binding fixture");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "m1136 match binding: let/var/direct must all keep len 3; stdout: {stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(
+        stdout.contains("via_let=3 via_var=3 direct=3"),
+        "m1136 match binding: expected via_let=3 via_var=3 direct=3; stdout: {stdout}"
+    );
+    let _ = std::fs::remove_file(&exe);
+}

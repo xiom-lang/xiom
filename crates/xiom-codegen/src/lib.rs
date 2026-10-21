@@ -9828,7 +9828,27 @@ impl IrEmitter {
                 }
                 MatchBody::Block(b) => {
                     let t = b.stmts.last().and_then(|s| {
-                        if let StmtOrExpr::Expr(e) = s { Some(self.infer_llvm_type(e)) } else { None }
+                        if let StmtOrExpr::Expr(e) = s {
+                            let mut t = self.infer_llvm_type(e);
+                            // REL-20261021-1136-orbitdb / 2045 part 2: a BLOCK
+                            // arm `Ok(x) => { x }` returns the pattern-bound
+                            // payload. infer_llvm_type(x) runs before the arm
+                            // binding exists and falls back to i64, so the
+                            // match result slot was 8 bytes and the bound Vec
+                            // was truncated (len 3 -> 1; `v.len()` then
+                            // dispatched as Str.len on the data pointer). Use
+                            // the same scrutinee-payload inference as the
+                            // direct Expr arm above.
+                            if t == "i64" || t == "i8*" || t.is_empty() {
+                                if let Expr::Ident(ident) = e {
+                                    if let Some(payload_ty) = self.infer_pattern_binding_type(
+                                        &arm.pattern, &ident.name, scrutinee_struct_name, scrutinee) {
+                                        t = payload_ty;
+                                    }
+                                }
+                            }
+                            Some(t)
+                        } else { None }
                     }).unwrap_or_default();
                     if t.is_empty() { continue; }
                     t

@@ -19994,3 +19994,37 @@ because the box is a representation choice, not a type-inference choice.
 EVIDENCE: feature_regression 549/549, integration 130/130, stdlib_tests
 40/40, checker 213/213 after Part 1. Probes: alias_str/inline/err_push/
 inline_annot all still print pointer payloads; IR confirms the boxed Option.
+
+---
+
+## 2026-10-21 -- FIXED (m1136, REL-20261021-1136-orbitdb): let-bound Vec from a block-tailed Result match truncated
+
+WITNESS: `let v = match make3() { Ok(x) => { x } Err(_) => { return -1; } };
+v.len()` returned 1 while `make3` pushed 3 Ints. `var v; match ... { Ok(x) =>
+{ v = x; } }` and `Ok(x) => { return x.len(); }` both returned 3.
+
+ROOT CAUSE: `infer_match_llvm_type` applied the scrutinee-payload inference
+(`infer_pattern_binding_type`) only to DIRECT expression arms (`Ok(x) => x`).
+For a BLOCK-tailed arm (`Ok(x) => { x }`) it called `infer_llvm_type(x)`
+before the arm binding exists; that fell back to i64, so the match result
+slot was 8 bytes. The arm stored `ptrtoint` of the Vec's data pointer into
+the i64 slot; the let-bound `v` was an i64, and `v.len()` dispatched as
+`Str.len` on the data pointer (IR: `xiom_str_len`) -- a silent length
+truncation (3 -> 1) with the payload also lost.
+
+FIX: the `MatchBody::Block` branch uses the same payload fallback as the
+direct-expression branch when the tail is a pattern-bound Ident and the raw
+inference is i64/i8*/empty. The result slot becomes `%struct.Vec` (32 bytes)
+and the let binding keeps the full header.
+
+EVIDENCE: exact repro now prints `via_let=3 via_var=3 direct=3`, rc 0. Lock
+`e2e_m1136_vec_match_binding`
+(`tests/regression/m1136_vec_match_binding.xi`). Battery: feature_regression
+549/549, integration 130/130, stdlib_tests 40/40, codegen lib 23/23; all
+recent locks green (m1136/m1626/m2057/m0717/m2100/m2343/m337/m371/m372/
+m376/m377).
+
+RELATED OPEN: 2045's Str-payload print path is separate -- a `Some(s)` /
+`Err(msg)` Str binding from a boxed Option/Result still prints pointer bits
+because the match binding does not record the Str XIOM type on that path.
+This fix covers aggregate (Vec) block-arm results.
