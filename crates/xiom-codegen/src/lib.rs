@@ -7219,6 +7219,16 @@ impl IrEmitter {
 
     fn struct_type_from_expr_inner(&self, expr: &Expr) -> Option<String> {
         match expr {
+            // 1731 (REL-20261021-1731-stdlib): `match &k` -- look through the
+            // borrow so the match builds a struct scrutinee and compares the
+            // enum's tag. Without this the scrutinee type was unknown and the
+            // variant check fell back to `icmp eq i64 <alloca ptr>, 0`
+            // (invalid IR: ptr compared as i64, and the String arm never
+            // matched). The inner Ident/Field patterns already resolve the
+            // struct type.
+            Expr::Ref(inner, _) | Expr::MutRef(inner, _) => {
+                self.struct_type_from_expr_inner(inner)
+            }
             // M18: Inlined Option/Result constructors -- return the struct type
             // so match compilation creates scrutinee alloca for inner value checks.
             Expr::Some(..) | Expr::None(..) => {

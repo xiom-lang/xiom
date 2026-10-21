@@ -20133,3 +20133,32 @@ v0.64.8 by contrast crashes or varies. Locks:
 (`main.xi` + `primitives.xi`). Battery after the fix: feature_regression
 549/549, integration 130/130, stdlib_tests 40/40, codegen lib 23/23,
 checker 214/214, parser 109/109.
+
+---
+
+## 2026-10-21 -- FIXED (m1731, REL-20261021-1731-stdlib): match on a borrowed enum emitted invalid IR
+
+WITNESS: `let k = json.json_string("world"); match &k { JsonValue.String(s)
+=> { io.println(s); } _ => {} }` passes `xiom --check` but a full compile
+fails clang with `'%tmp5' defined with type 'ptr' but expected 'i64'` at
+`%tmp6 = icmp eq i64 %tmp5, 0`. A larger borrowed renderer over JsonValue
+compiled but bound every Str payload to pointer-like garbage (numbers/bools
+were fine).
+
+ROOT CAUSE: `struct_type_from_expr` had no `Ref`/`MutRef` arm. For
+`match &k` the scrutinee type stayed None, so `scrutinee_alloca_info` was
+None and `emit_variant_discriminant_check` took its no-info fallback:
+`icmp eq i64 {val}, 0` with `val` being the alloca POINTER. The String arm
+never matched (IR compared a pointer to 0), and the invalid type reached
+clang. The payload-typing half is covered by 2045 part 2 once the tag path
+is built.
+
+FIX: `struct_type_from_expr_inner` looks through `&`/`&mut` to the inner
+expression. The existing `%struct.X*` scrutinee path then loads the enum
+struct and GEPs field 0 for the tag.
+
+EVIDENCE: exact repro compiles and prints `world`, rc 0. Fixture
+`tests/regression/m1731_borrowed_enum_match.xi` checks the String payload
+value plus Number and Bool controls; lock `e2e_m1731_borrowed_enum_match`.
+Battery: feature_regression 549/549, integration 130/130, stdlib_tests
+40/40, codegen lib 23/23.

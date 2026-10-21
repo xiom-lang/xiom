@@ -11434,3 +11434,16 @@ fn e2e_m_xvc_c22_vec_call_elem_ir() {
         "XVC-C-22: @outer must not use a 40-byte Vec element stride:\n{body}"
     );
 }
+
+// m1731 (REL-20261021-1731-stdlib): `match &enum` used to compare the
+// scrutinee alloca pointer to 0 (invalid IR) instead of loading the tag
+// through the borrow; the String arm never matched and borrowed Str payloads
+// bound pointer bits. The fixture checks String, Number and Bool arms.
+#[test]
+fn e2e_m1731_borrowed_enum_match() {
+    assert_eq!(
+        compile_and_run("tests/regression/m1731_borrowed_enum_match.xi"),
+        Some(0),
+        "m1731: borrowed enum match must load the tag and bind Str/Number/Bool payloads"
+    );
+}
