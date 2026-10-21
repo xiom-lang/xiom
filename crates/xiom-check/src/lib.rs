@@ -1045,8 +1045,12 @@ impl Checker {
             params: vec![
                 ("self".to_string(), CheckedType::Named("Vec".into())),
             ],
-            return_type: Some(CheckedType::Named("Option".into())),
-            generics: vec![],
+            // REL-20261019-2045-packages: keep T so the receiver's element
+            // type substitutes into Option[T]; this functions-table entry is
+            // the one used when Vec.pop is not in builtin_method_keys, and a
+            // bare Option return typed non-Int payloads as Int.
+            return_type: Some(CheckedType::Named("Option[T]".into())),
+            generics: vec!["T".to_string()],
             uses_implicit_this: false,
         });
         // 5e.1 G-18: sizeof[T]() compiler intrinsic for C FFI byte sizes.
@@ -1192,8 +1196,13 @@ impl Checker {
         });
         self.methods.entry("Vec".to_string()).or_default().insert("pop".to_string(), FnSig {
             params: vec![("self".to_string(), CheckedType::Named("Vec".into()))],
-            return_type: Some(CheckedType::Named("Option".into())),
-            generics: vec![],
+            // REL-20261019-2045-packages: carry T so the receiver's element
+            // type substitutes into the payload. The bare `Option` return
+            // typed `v.pop()` as Option[Int] for Vec[Str]/Vec[Result[..]];
+            // the Str payload then printed as pointer bits and a direct
+            // Err(Str) push appeared "lost".
+            return_type: Some(CheckedType::Named("Option[T]".into())),
+            generics: vec!["T".to_string()],
             uses_implicit_this: false,
         });
         self.methods.entry("Vec".to_string()).or_default().insert("sort".to_string(), FnSig {
@@ -1211,11 +1220,10 @@ impl Checker {
         // Register additional Vec methods that have inline codegen support.
         for (method, ret, param) in &[
             ("insert", CheckedType::Unit, vec![("self", CheckedType::Named("Vec".into())), ("idx", CheckedType::Int), ("val", CheckedType::Named("T".into()))]),
-            // round-14b: remove returns Option[T] (Some(popped)/None) -- the
-            // registered "T" was WRONG; the generic leniency masked it until
-            // the method-return substitution concretized it to Int
-            // ("cannot compare Int with Option[Int]" -- m35 v07/v28/v30).
-            ("remove", CheckedType::Named("Option".into()), vec![("self", CheckedType::Named("Vec".into())), ("idx", CheckedType::Int)]),
+            // round-14b: remove returns Option[T] (Some(popped)/None). The
+            // bare `Option` return lost the payload type for non-Int
+            // element Vecs (REL-20261019-2045-packages, same class as pop).
+            ("remove", CheckedType::Named("Option[T]".into()), vec![("self", CheckedType::Named("Vec".into())), ("idx", CheckedType::Int)]),
             ("clear", CheckedType::Unit, vec![("self", CheckedType::Named("Vec".into()))]),
             ("is_empty", CheckedType::Bool, vec![("self", CheckedType::Named("Vec".into()))]),
         ] {
@@ -9945,7 +9953,7 @@ impl Checker {
                             }
                             let ret_ty = sig.return_type.unwrap_or(CheckedType::Unit);
                             if sig.generics.is_empty() {
-                                return ret_ty;
+                            return ret_ty;
                             }
                             // Substitute generic return type with the concrete arg type
                             let ret_name = ret_ty.name();

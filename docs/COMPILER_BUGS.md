@@ -19960,3 +19960,37 @@ EVIDENCE: `examples/phase1_enum.xi` line counts now match (194/194).
 m1626/m2057/m2100/m2343/m0717 locks green; feature_regression 549/549,
 integration 130/130, stdlib_tests 40/40. Selfhost T3 re-run follows the
 rebase onto this commit.
+
+---
+
+## 2026-10-21 -- PARTIAL (2045, REL-20261019-2045-packages): direct Err(Str) payload lost on Vec round-trip
+
+WITNESS: `var v = Vec[Result[Str, Str]].new(); v.push(Err("direct-message"));
+let e = v.pop(); match e { Some(r) => match r { Err(msg) => print(msg) } }`
+prints a pointer-like integer, not the message. The same happens with a
+local-bound `Err` and with an explicit `Option[Result[Str, Str]]`
+annotation, so this is not push-argument inference alone.
+
+PART 1 FIXED (this step): the checker's builtin `Vec.pop` (both the
+`functions` entry and the `methods` table) and `Vec.remove` returned a BARE
+`Option`, so the receiver's element type never reached the payload
+(`v.pop()` typed as Option[Int] for Vec[Str]). Both now carry generic `T` and
+return `Option[T]`; the method-return substitution resolves it from
+`Vec[E]` (traced: `Vec[S] -> Option[S]`, `Vec[Result[Str, Str]] ->
+Option[Result[Str, Str]]`).
+
+PART 2 ROOT (open): the push is correct -- the IR memcpy's the full 24-byte
+`%struct.Result` into the buffer (elem_size 24). `Vec.pop` boxes non-scalar
+payloads into the GENERIC `%struct.Option` `{ i64 tag, i64 value }`:
+`malloc(24); memcpy; ptrtoint; store` -- the payload field is a BOXED
+POINTER. The match-arm binding (`Stmt::Match` / `Option` payload rebind)
+treats that i64 as the value instead of dereferencing the box, so `Some(r)`
+is garbage and the inner `Err(msg)` reads the wrong field. Need a
+layout-aware unbox in the match payload binding for generic boxed
+Option/Result payloads (the `is Some` path has `bind_is_payload_xiom`; the
+match-arm path needs the equivalent). Explicit annotations do NOT help
+because the box is a representation choice, not a type-inference choice.
+
+EVIDENCE: feature_regression 549/549, integration 130/130, stdlib_tests
+40/40, checker 213/213 after Part 1. Probes: alias_str/inline/err_push/
+inline_annot all still print pointer payloads; IR confirms the boxed Option.
