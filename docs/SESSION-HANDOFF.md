@@ -14,6 +14,79 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-21T14:00Z (compiler lane; m0717 fixed; SELFHOST T3 83/83 GREEN) -- READ FIRST ***
+- STATE: v0.64.8 remains the released archive; no re-cut/candidate without
+  owner GO. Main `c2dc54a24` (m1626 single match seed) on `aecad8c6c`
+  (m0717 field-0 GEP), `98ce2bbd0`, `8bfd4235d`, `306ace857`, `2f887bcf1`,
+  `626dfbc65`, `dea6ceee8`, `029595080`, `f915fb759`; relays `aee1bff`.
+- m0717 FIXED (`aecad8c6c`, REL-20261021-0717-pulse): `emit_vec_load_fields`
+  now loads field 0 through its field GEP, not the struct pointer. Typed-
+  pointer LLVM (clang 14 arm64 / Apple clang) accepts the module-scope Vec
+  init IR; opaque-pointer builds are unchanged at runtime. Lock
+  `e2e_m0717_module_vec_ginit_typed_ir` emits arm IR and asserts every ginit
+  data load reads a `%struct.Vec` GEP. Selfhost mirror: `930adab1f`.
+- m1626 PARITY (`c2dc54a24`): the `Expr::Match` wrapper seeded the result slot
+  and the inner `Stmt::Match` seeded it again; the wrapper seed is removed
+  (the statement match owns it, before the scrutinee). `phase1_enum` Rust IR
+  is 194 lines, matching selfhost.
+- SELFHOST RD10: **T3 GREEN 83/83** (tier 3, 83 files, 225 s; phase-5 scalar
+  19/19, phase-6 corpus **14/64** byte-exact). Branch tip `589fc67f7` is
+  rebased onto `c2dc54a24` LOCALLY; NOT force-pushed. Next P6 shapes:
+  Option/`.len`, `Vec.pop`, `&Vec`+f64, index arithmetic.
+- NEW OPEN ITEMS (overnight): REL-20261019-2045-packages (high: directly
+  constructed `Err(Str)` payload lost/order perturbed on `Vec.push`);
+  REL-20261020-1326-stdlib (log+serialize `icmp on %struct.LogLevel`);
+  REL-20261020-1550-stdlib (tuple-returning fn-value ABI:
+  `EnumerateIter.map` garbage); REL-20261020-1531-xvector-2 (build hangs
+  under a Job Object with 16 GB limits). m375 has new high-severity orbitdb
+  evidence: read path fixed by `read_at_into` engine-side, residual page
+  encode/write + Vec-drop; 1M is cap-killed at 4.17 GB/~435k keys
+  (9.6 KB/key, superlinear) -- drop elaboration remains the proper fix.
+- m365: per-key lock landed; only the caller-side dependency-vs-consumer
+  flag split remains, blocked on the engine's 117-target re-measure and the
+  two key inputs/args.
+- VERIFICATION: feature_regression 549/549, integration 130/130,
+  stdlib_tests 40/40, codegen lib 23/23, parser 109/109, checker 213/213;
+  m0717/m1626/m2057/m2100/m2343/m337/m371/m372/m376/m377 locks green;
+  float/other selfhost suites unchanged.
+- OPERATIONAL: E: can stall in `Wait PageIn`; use a C:-isolated toolchain
+  copy with private HOME/XIOM_STDLIB/--no-cache. Do NOT kill all xiom
+  processes (other lanes compile).
+- QUEUE: 2045-packages first (payload loss), then 1326-stdlib, 1550-stdlib,
+  1531-xvector; m375 drop-elaboration design + 1M/200k probes; selfhost P6
+  shapes; m373/m374; MCU 1220; m365 flag split on engine data. No candidate
+  cut without owner GO.
+
+*** CONTINUATION PROMPT (paste-ready) -- 2026-10-21T14:00Z ***
+You are the compiler-lane successor for XIOM (E:\xiom-lang\xiom).
+Read `docs/SESSION-HANDOFF.md` top block (2026-10-21T14:00Z),
+`docs/RELEASE_GATE_v0.64.8.md`, and `release-checks/compiler-compiler-v0.64.8.md`
+in E:\xiom-lang\xiom-relays.
+
+State: v0.64.8 is released (tag 4d040604b, 11 assets, registry xiom-std 0.64.8
+green); no re-cut/candidate without owner GO. Main `c2dc54a24` (m1626 single
+match seed) on `aecad8c6c` (m0717 field-0 GEP) and the earlier m2057/m2100-W1/
+m1626/m2343/m376/m377/m365 fixes. Relays `aee1bff`. SELFHOST RD10: T3 is
+GREEN 83/83 (phase-5 19/19, phase-6 14/64); branch `589fc67f7` is a local
+rebase onto `c2dc54a24`, not force-pushed.
+
+NEW OPEN: 2045-packages (high: direct `Err(Str)` pushed into Vec loses payload),
+1326-stdlib (log+serialize `icmp on %struct.LogLevel`), 1550-stdlib (tuple
+fn-value ABI `EnumerateIter.map`), 1531-xvector-2 (Job Object 16 GB hang).
+m375: read path fixed engine-side; residual page encode/write + Vec-drop; 1M
+cap-killed at 4.17 GB/~435k keys -- drop elaboration design needed.
+
+Priority: 1) 2045-packages, then 1326-stdlib, 1550-stdlib, 1531-xvector-2.
+2) m375 drop-elaboration design + 200k/1M probes. 3) Selfhost P6 shapes:
+Option/.len, Vec.pop, &Vec+f64, index arithmetic. 4) m373/m374, MCU 1220;
+m365 flag split on engine data. 5) Wait for lane re-verify; no candidate cut
+without owner GO.
+
+Constraints: rustc-first study; max 3-4 heavy sessions; watch memory; no
+stdlib edits except via relay; use --no-cache when shared catidx/engine builds
+interfere. If E: stalls in PageIn, use a C:-isolated toolchain copy with a
+private HOME; do not kill other lanes' xiom processes.
+
 *** SESSION UPDATE 2026-10-20T20:34Z (compiler lane; m365 per-key lock LANDED; gate-9 reds cleared) -- READ FIRST ***
 - STATE: v0.64.8 remains the released archive; no re-cut/candidate without
   owner GO. Main `8bfd4235d` (m1626 follow-up) on top of `306ace857` (m365
