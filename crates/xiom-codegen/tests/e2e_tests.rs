@@ -11404,3 +11404,33 @@ fn e2e_m2045_payload_str_binding() {
         "m2045 part 2: boxed Str payload bindings must print the message"
     );
 }
+
+// XVC-C-22 (REL-20261021-1103-xvector): `let part = inner(vs, n)` with
+// vs: &Vec[Vector] (40-byte element) and inner returning Vec[Float32] used to
+// register Vector as part's element. The `cents.push(part[j])` copy then grew
+// with a 40-byte element stride (IR `store i64 40`), corrupting the PQ
+// codebook and the guard heap on the second call. The callee's declared
+// element type must win.
+#[test]
+fn e2e_m_xvc_c22_vec_call_elem() {
+    assert_eq!(
+        compile_and_run("tests/regression/m_xvc_c22_vec_call_elem/main.xi"),
+        Some(0),
+        "XVC-C-22: Vec[Float32] copy from a Vec[Vector]-first-arg call must keep 4-byte elements"
+    );
+}
+
+#[test]
+fn e2e_m_xvc_c22_vec_call_elem_ir() {
+    let ir = compile_ir("tests/regression/m_xvc_c22_vec_call_elem/main.xi")
+        .expect("XVC-C-22: fixture must emit IR");
+    let after = ir
+        .split("define %struct.Vec @outer(")
+        .nth(1)
+        .expect("XVC-C-22: @outer must be emitted");
+    let body = &after[..after.find("\n}").unwrap_or(after.len())];
+    assert!(
+        !body.contains("store i64 40"),
+        "XVC-C-22: @outer must not use a 40-byte Vec element stride:\n{body}"
+    );
+}

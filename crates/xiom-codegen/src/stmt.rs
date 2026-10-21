@@ -327,17 +327,23 @@ impl IrEmitter {
                                     self.local.local_vec_elem.get(&id.name).cloned()
                                 } else { None }
                             });
-                            // Then a clone/to_owned receiver (m210: `let w = v.clone()`
-                            // must keep `v`'s element type).
-                            // Then fall back to the callee's declared return type
-                            // (e.g. `Vec[Tuple__Str__Str]`).
-                            from_arg
+                            // XVC-C-22: the callee's DECLARED Vec return is the
+                            // authoritative element type. The old order took the
+                            // first argument's element first, so
+                            // `let part = kmeans_centroids(vectors, ...)` (vectors:
+                            // &Vec[Vector], callee returns Vec[Float32]) registered
+                            // Vector -> `cents.push(part[j])` grew with 40-byte
+                            // elements and corrupted the codebook. Then a clone/
+                            // to_owned receiver (m210), then the raw declaration
+                            // (including a still-unresolved generic placeholder).
+                            let declared = self.callee_return_xiom(func).and_then(|rt| {
+                                rt.strip_prefix("Vec[").and_then(|rest| rest.strip_suffix(']')).map(|e| e.to_string())
+                            });
+                            declared.clone()
+                                .filter(|e| !e.is_empty() && !Self::has_unresolved_generic_token(e))
                                 .or_else(|| self.clone_receiver_elem(func, args))
-                                .or_else(|| {
-                                    self.callee_return_xiom(func).and_then(|rt| {
-                                        rt.strip_prefix("Vec[").and_then(|rest| rest.strip_suffix(']')).map(|e| e.to_string())
-                                    })
-                                })
+                                .or_else(|| from_arg)
+                                .or(declared)
                         }
                         _ => None,
                     };
@@ -845,25 +851,24 @@ impl IrEmitter {
                         // R7: see the let-binding arm above (m.values -> JsonValue).
                         Expr::Field(..) => self.resolve_vec_elem_xiom(value),
                         Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => {
-                            // BUG 23 #1 fix: inherit from the callee's DECLARED
-                            // return type as well as from the first argument --
-                            // `var v = module.mk_vecf()` (catalog fn returning
-                            // Vec[Float64]) must register "Float64", otherwise
-                            // v[i] element reads degrade to the elem_size switch
-                            // (raw bit-pattern garbage for float elements). The
-                            // let-path had this fallback; the var-path did not.
+                            // BUG 23 #1 fix: prefer the callee's DECLARED return
+                            // type. XVC-C-22: the old from_arg-first order
+                            // registered the first argument's element type for
+                            // any call (`part = kmeans_centroids(vectors, ...)`
+                            // became Vec[Vector] instead of Vec[Float32]).
                             let from_arg = args.first().and_then(|a| {
                                 if let Expr::Ident(id) = a {
                                     self.local.local_vec_elem.get(&id.name).cloned()
                                 } else { None }
                             });
-                            from_arg
+                            let declared = self.callee_return_xiom(func).and_then(|rt| {
+                                rt.strip_prefix("Vec[").and_then(|rest| rest.strip_suffix(']')).map(|e| e.to_string())
+                            });
+                            declared.clone()
+                                .filter(|e| !e.is_empty() && !Self::has_unresolved_generic_token(e))
                                 .or_else(|| self.clone_receiver_elem(func, args))
-                                .or_else(|| {
-                                    self.callee_return_xiom(func).and_then(|rt| {
-                                        rt.strip_prefix("Vec[").and_then(|rest| rest.strip_suffix(']')).map(|e| e.to_string())
-                                    })
-                                })
+                                .or_else(|| from_arg)
+                                .or(declared)
                         }
                         // M33: Array literal bound to Var -- keep the element
                         // type that was inferred above (from first struct element).

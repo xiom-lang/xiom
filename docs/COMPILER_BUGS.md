@@ -20093,3 +20093,43 @@ EVIDENCE: probes print `direct=direct-message`, `local=local-message`,
 (`tests/regression/m2045_payload_str_binding.xi`). Battery: feature_regression
 549/549, integration 130/130, stdlib_tests 40/40, codegen lib 23/23, checker
 214/214, parser 109/109.
+
+---
+
+## 2026-10-21 -- FIXED (XVC-C-22, REL-20261021-1103-xvector): Vec element inference preferred the first argument over the callee return
+
+WITNESS: xvector `docs/repro/xv-pq-second-call/probe.xi` (100+ vectors,
+m=8 k=16 dsub=8, second `pq_train`) AVs on the second call. Under a minimal
+debugger the fault was a `ud2` after `xiom_guard_realloc` returned NULL for a
+small `Vec[Vector]` growth; ASAN/instrumented builds pass and the crash is
+layout-sensitive. A checksum over `PQ.centroids` varies between runs on
+v0.64.8 (66100.8, -2.4e25, 66284.3, ...) and the second call either crashes
+or yields a different sum. The xvector-side checksum/L2 drift is the same
+bug, not a separate engine defect.
+
+ROOT CAUSE: in the let/var Vec-element inference, the `from_arg` heuristic
+(the first argument's Vec element type) was preferred over the callee's
+declared return. In `pq_train`,
+`let part = kmeans_centroids(vectors, ...)` has `vectors: &Vec[Vector]`
+(40-byte element) but returns `Vec[Float32]`; `part` was registered as
+Vector, so `cents.push(part[j])` took the 40-byte struct copy path and wrote
+element size 40 into a `Vec[Float32]` (IR `store i64 40`). The corpus
+codebook then has a 40-byte stride and the push loop overruns the 4-byte
+buffer on growth, corrupting the guard heap and faulting on the next call.
+
+FIX: prefer a CONCRETE declared `Vec[...]` return type; then the
+clone/to_owned receiver (m210); then the first-argument fallback; then the
+raw declared type (including an unresolved generic placeholder). Applied to
+both the let and var arms. A local `V` does not reproduce the struct-copy
+path; the fixture uses a `xiom.vector.*` module so the struct registers as
+the bare `%struct.Vector`, matching xvector's package shape.
+
+EVIDENCE: fixed probe 20/20 runs stable; centroid checksum
+`66254.9604248703` identical for first and second calls across 5 runs.
+v0.64.8 by contrast crashes or varies. Locks:
+`e2e_m_xvc_c22_vec_call_elem` (runtime values) and
+`e2e_m_xvc_c22_vec_call_elem_ir` (`@outer` must not contain
+`store i64 40`), fixture `tests/regression/m_xvc_c22_vec_call_elem/`
+(`main.xi` + `primitives.xi`). Battery after the fix: feature_regression
+549/549, integration 130/130, stdlib_tests 40/40, codegen lib 23/23,
+checker 214/214, parser 109/109.
