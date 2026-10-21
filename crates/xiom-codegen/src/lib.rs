@@ -3448,6 +3448,22 @@ impl IrEmitter {
                 match method.name.as_str() {
                     // Only the INLINE builtins that box struct payloads.
                     "pop" | "get" | "remove" => {
+                        // 2045 part 2: resolve the raw ELEMENT spelling first and
+                        // expand aliases with their ARGS. The old path only used
+                        // resolve_vec_elem_type, which drops generic args on an
+                        // alias terminal (`type ER = Result[Str, Str]` became
+                        // "Result") and returns None for scalar elements, so a
+                        // `Vec[Str]`/`Vec[S]` pop had no tracked payload type
+                        // and the match bound the Str pointer as an i64.
+                        if let Some(elem_xiom) = self.resolve_vec_elem_xiom(recv) {
+                            let elem_xiom = self.expand_alias_application_xiom(&elem_xiom);
+                            if self.is_struct_like_vec_elem(&elem_xiom) {
+                                self.local.local_opt_payload.insert(name.to_string(), elem_xiom);
+                            } else {
+                                self.local.local_opt_payload_xiom.insert(name.to_string(), elem_xiom);
+                            }
+                            return;
+                        }
                         if let Some(elem_ty) = self.resolve_vec_elem_type(recv) {
                             self.local.local_opt_payload.insert(name.to_string(), elem_ty);
                             return;
@@ -4290,6 +4306,15 @@ impl IrEmitter {
                 if field_idx == 2 {
                     self.local.local_err_payload.get(&sid.name).cloned()
                         .filter(|t| !Self::is_generic_placeholder_name(t))
+                        // 2045 part 2: a local whose declared type is a
+                        // Result (annotated, or the payload of an outer
+                        // boxed Some/Ok) must resolve the ERROR payload too.
+                        // Without this fallback `match r { Err(msg) => ... }`
+                        // on a `Some(r)`-bound Result classified `msg` as
+                        // i64 and printed the Str pointer as a number.
+                        .or_else(|| self.local.local_xiom_types.get(&sid.name)
+                            .and_then(|t| self.option_result_err_payload_alias(t))
+                            .filter(|t| !Self::is_generic_placeholder_name(t)))
                 } else {
                     // R52 (playground L5-43): a stale unsubstituted placeholder
                     // payload ("T" recorded by track_boxed_payload_binding for

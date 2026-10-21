@@ -3093,7 +3093,13 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                 // struct payloads from local_opt_payload).
                                 // BUG 43: direct-call scrutinees resolve the
                                 // callee's declared Option/Result return type.
-                                let declared = self.scrutinee_payload_xiom(expr_match, val_field);
+                                // 2045 part 2: expand an alias payload to its
+                                // full body/args before the representation
+                                // dispatch. A terminal alias (`S`/`ER`) either
+                                // loses generic args ("Result") or leaves the
+                                // arm on the raw i64 path.
+                                let declared = self.scrutinee_payload_xiom(expr_match, val_field)
+                                    .map(|d| self.expand_alias_application_xiom(&d));
 
                                 // m148 (benchmark relay R-2): when the payload
                                 // is an aggregate living in the heap box, bind
@@ -3176,6 +3182,12 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                             self.emitln(&format!("  {sptr} = inttoptr i64 {loaded} to {s_ty}*"));
                                             // Track inner variable's struct type for subsequent matches
                                             self.local.local_boxed_struct.insert(ident.name.clone(), norm.clone());
+                                            // 2045 part 2: ALSO record the XIOM payload type. A
+                                            // nested match on this binding (`Some(r) => match r {
+                                            // Err(msg) => ... }`) reads the declared Result error
+                                            // payload from local_xiom_types; without this the inner
+                                            // Str payload was bound as i64 (pointer printed).
+                                            self.local.local_xiom_types.insert(ident.name.clone(), decl.to_string());
                                             // m148 (R-2): alias the boxed payload.
                                             alias_payload = true;
                                             (sptr, s_ty)

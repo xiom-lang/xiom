@@ -11391,3 +11391,16 @@ fn e2e_m1157_bom_module_catalog() {
     );
     let _ = std::fs::remove_file(&exe);
 }
+
+// m2045 part 2 (REL-20261019-2045-packages): Str payloads bound from a boxed
+// Option/Result must keep their Str XIOM type. Vec[Result[Str, Str]].pop ->
+// Some(r) -> Err(msg) used to print the Str pointer as an i64; Vec[Str] pop
+// with a scalar alias had the same shape.
+#[test]
+fn e2e_m2045_payload_str_binding() {
+    assert_eq!(
+        compile_and_run("tests/regression/m2045_payload_str_binding.xi"),
+        Some(0),
+        "m2045 part 2: boxed Str payload bindings must print the message"
+    );
+}

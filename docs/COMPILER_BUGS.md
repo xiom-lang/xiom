@@ -20053,3 +20053,43 @@ EVIDENCE: exact repro prints `v=7`, rc 0. Locks: unit
 and e2e `e2e_m1157_bom_module_catalog`
 (`tests/regression/m1157_bom_module/`; the `sub/impl.xi` fixture deliberately
 keeps its BOM).
+
+---
+
+## 2026-10-21 -- FIXED (2045 part 2, REL-20261019-2045-packages): boxed Option/Result Str payload binding
+
+WITNESS: `Vec[Result[Str, Str]]` + `push(Err("direct-message"))` +
+`let e = v.pop(); match e { Some(r) => match r { Err(msg) => print(msg) } }`
+printed a pointer-like integer on v0.64.8/main. The same happened with a
+local-bound `Err`, with an explicit `Option[Result[Str, Str]]` annotation,
+and with `Vec[S].pop()` where `type S = Str`. The aggregate `Vec` part was
+fixed by m1136; this is the remaining Str payload path.
+
+ROOT CAUSE (three gaps on the same path):
+1. `track_boxed_payload_binding`'s pop/get/remove branch used
+   `resolve_vec_elem_type`, which drops generic args through an alias
+   terminal (`type ER = Result[Str, Str]` became `"Result"`) and returns
+   None for scalar elements. `Vec[Str]`/`Vec[S]` pop bindings therefore had
+   no payload type at all.
+2. `scrutinee_payload_xiom`'s Ident path only consulted
+   `local_err_payload` for field 2; it never looked at the local's declared
+   Result type. A nested `match r { Err(msg) => ... }` on a `Some(r)`-bound
+   Result resolved `declared=None` and bound `msg` as i64.
+3. The boxed-struct match-arm binding recorded `local_boxed_struct` but not
+   `local_xiom_types`, so the nested match could not recover
+   `Result[Str, Str]` even when the outer binding had it.
+
+FIX: pop/get/remove tracking resolves the raw element spelling and expands
+alias bodies with their args; aggregate payloads go to `local_opt_payload`,
+scalars (Str/float/int) to `local_opt_payload_xiom`. The field-2 Ident path
+falls back to `local_xiom_types` -> `option_result_err_payload_alias`. The
+boxed-struct arm binding records the payload's XIOM type, and declared
+payload types are alias-expanded before the representation dispatch
+(Str -> i8*, boxed struct -> inttoptr+load).
+
+EVIDENCE: probes print `direct=direct-message`, `local=local-message`,
+`inline=direct-message`, `annot=direct-message`, `s=alias-str`, rc 0. Lock
+`e2e_m2045_payload_str_binding`
+(`tests/regression/m2045_payload_str_binding.xi`). Battery: feature_regression
+549/549, integration 130/130, stdlib_tests 40/40, codegen lib 23/23, checker
+214/214, parser 109/109.
