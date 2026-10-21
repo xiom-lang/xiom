@@ -11461,3 +11461,17 @@ fn e2e_m1703_fn_value_vec_tuple() {
         "m1703: module-var and Vec[Handler] fn values must return the full tuple"
     );
 }
+
+// m1326 (REL-20261020-1326-stdlib): importing xiom.log.json + xiom.serialize
+// monomorphises Map.insert_LogEntry_JsonValue, whose key equality walked
+// LogEntry.level (a plain LogLevel enum) into `icmp eq %struct.LogLevel`.
+// The structural fallback must compare the enum discriminant when no derived
+// `.eq` exists.
+#[test]
+fn e2e_m1326_log_serialize() {
+    assert_eq!(
+        compile_and_run("tests/regression/m1326_log_serialize.xi"),
+        Some(0),
+        "m1326: log+serialize must compile and parse a JSON log line"
+    );
+}

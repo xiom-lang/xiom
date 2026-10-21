@@ -20195,3 +20195,32 @@ EVIDENCE: PULSE probe rc 0. Fixture
 module-var, and `Vec[Handler]` calls all return `(4, 7)`; lock
 `e2e_m1703_fn_value_vec_tuple`. Battery: feature_regression 549/549,
 integration 130/130, stdlib_tests 40/40, codegen lib 23/23.
+
+---
+
+## 2026-10-21 -- FIXED (m1326, REL-20261020-1326-stdlib): icmp on %struct.LogLevel in log+serialize
+
+WITNESS: a program importing `xiom.log.json` and `xiom.serialize` (and
+using `log_json_entry` + a JSON parse round-trip) fails clang with
+`icmp requires integer operands` at
+`%tmp43 = icmp eq %struct.LogLevel %tmp39, %tmp41` inside
+`Map.insert_LogEntry_JsonValue`. log-only and serialize-only programs
+compile.
+
+ROOT CAUSE: `Map.insert[K, V]` compares keys with `==`. The structural
+field-equality fallback for a struct key (`LogEntry`) walks each field; for
+`level: LogLevel` there is no derived `LogLevel.eq`, the field is not a
+Vec/Map/Set container, so the fallback emitted `icmp eq %struct.LogLevel`
+on the whole enum struct -- invalid LLVM.
+
+FIX: when a `%struct.` field's XIOM type is a registered enum and no
+derived `Enum.eq` exists, compare the discriminant
+(`extract_scalar_field0` + `icmp eq i64`) instead of the struct. Enums that
+derive Eq (payload-carrying) still take the `.eq` branch above; plain
+enums are tag-equal.
+
+EVIDENCE: the exact log+serialize program compiles and runs rc 0 (prints
+the JSON log line, parses a log line, validates JSON). Fixture
+`tests/regression/m1326_log_serialize.xi`, lock `e2e_m1326_log_serialize`.
+Battery: feature_regression 549/549, integration 130/130, stdlib_tests
+40/40, codegen lib 23/23.

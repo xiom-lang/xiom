@@ -1851,6 +1851,24 @@ impl IrEmitter {
                                             // generic template) keep the old path -- a deep walk
                                             // would silently compare the erased placeholders.
                                             cmp = self.emit_deep_eq_operands(fxiom, &lv, &field_llvm, &rv, &field_llvm);
+                                        } else if self.types.enum_variants.contains_key(&fxiom.to_string())
+                                            || self.types.enum_variants.entries().into_iter()
+                                                .any(|(k, _)| k.as_str() == fxiom.as_str() || k.ends_with(&format!(".{fxiom}")))
+                                        {
+                                            // 1326 (REL-20261020-1326-stdlib): a struct field whose
+                                            // type is a plain ENUM without a derived Enum.eq
+                                            // (`LogEntry.level: LogLevel` inside Map.insert) was
+                                            // compared with `icmp eq %struct.LogLevel` -- invalid
+                                            // IR (clang: "icmp requires integer operands"). Compare
+                                            // the discriminant instead; payload-carrying enums that
+                                            // derive Eq take the `.eq` branch above.
+                                            let l_tag = self.extract_scalar_field0(&lv, &field_llvm);
+                                            let r_tag = self.extract_scalar_field0(&rv, &field_llvm);
+                                            let pi = self.fresh_tmp();
+                                            self.emitln(&format!("  {pi} = icmp eq i64 {l_tag}, {r_tag}"));
+                                            let ze = self.fresh_tmp();
+                                            self.emitln(&format!("  {ze} = zext i1 {pi} to i64"));
+                                            cmp = ze;
                                         } else {
                                             let pi = self.fresh_tmp();
                                             self.emitln(&format!("  {pi} = icmp eq {field_llvm} {lv}, {rv}"));
