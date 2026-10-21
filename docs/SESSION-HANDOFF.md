@@ -14,6 +14,110 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-21T11:46Z (compiler lane; CONTEXT HANDOFF -- incoming relays triaged, m1136 fixed, selfhost T3 83/83) -- READ FIRST ***
+- STATE: v0.64.8 remains the released archive (tag 4d040604b, 11 assets,
+  registry xiom-std 0.64.8 green); no re-cut/candidate without owner GO.
+  Main code tip `478e06f8b` (m1136) + this handoff docs commit; origin synced.
+  Relays `f22a7f6`.
+- FIXED THIS SESSION: m1136 block-arm Vec match binding (`478e06f8b`; lock
+  `e2e_m1136_vec_match_binding`, via_let=3); 1122-orbitdb global Vec.pop
+  shrink (already fixed on main by m2057 `029595080`; v0.64.8 predates; exact
+  repro 2/1/0, relay fe2ab3d); m0717 arm64 field-0 GEP (`aecad8c6c`; lock
+  `e2e_m0717_module_vec_ginit_typed_ir`); 2045 part 1 (`05e3ab3bc`;
+  Vec.pop/remove Option[T]); m1626 single match seed (`c2dc54a24`), m365
+  per-key cache lock (`306ace857`), m2343 (`2f887bcf1`), m1626 (`626dfbc65`),
+  m2100-W1 (`dea6ceee8`), m2057 (`029595080`), m376/m377 (`f915fb759`).
+  Full battery green: feature 549/549, integration 130/130, stdlib 40/40,
+  codegen lib 23/23, checker 213/213, parser 109/109; all recent e2e locks.
+- SELFHOST RD10: T3 was GREEN 83/83 (phase-5 19/19, phase-6 14/64) on branch
+  tip `589fc67f7`, which is a LOCAL rebase onto `c2dc54a24` and NOT
+  force-pushed. IMPORTANT: that T3 predates m1136 (`478e06f8b`), which changes
+  block-arm match IR; rebase selfhost onto current main and re-run T3 before
+  continuing P6 (a selfhost mirror may be needed).
+- TOP OPEN:
+  1) 2045 Str payload: `Some(s)` / `Err(msg)` from a boxed Option/Result
+     still prints pointer bits (no Str XIOM type record on that match
+     binding). m1136 fixed the aggregate Vec block-arm result only. Next:
+     record/unbox Str on the match binding (mirror `bind_is_payload_xiom`),
+     add a repo fixture; probes were in `%TEMP%\kilo\e2045`.
+  2) XVC-C-22 (REL-20261021-1103-xvector): ACKED, reproduced. Exact
+     `E:\xiom-projects\xiom-xvector\docs\repro\xv-pq-second-call\probe.xi`
+     prints `built N`, `first ok`, then the second pq_train AVs. Trigger is
+     TRAINING WORK per call (m/ksub/iters), not corpus size: 100 vec +
+     (m8,k2,i1) or (m1,k16,i8) crash; (m1,k2,i1) passes at 10/100/2000.
+     Push IR is correct (40-byte Vector memcpy); no frees in pq_train; guard
+     heap only in stdlib unsafe blocks; instrumented/ASAN builds PASS
+     (layout/heap-sensitive). Need a smaller deterministic repro or crash
+     dump (PC/stack). A slot-growth experiment was REVERTED -- do not land
+     speculative slot changes; P4 stays blocked.
+  3) 1326-stdlib: v0.64.8 log+serialize IR `icmp on %struct.LogLevel`
+     (Map.insert_LogEntry_JsonValue).
+  4) 1550-stdlib: tuple-returning fn-value ABI (`EnumerateIter.map` garbage).
+  5) 1531-xvector-2: build hangs under a Job Object with 16 GB limits.
+  6) m375: drop elaboration/exit reclaim. New orbitdb data: 1M PASSES with a
+     65,536-frame cache (2,494.7MB, exact); remaining is ~880 s exit teardown
+     and cache sizing. `read_at_into` already fixed the read path engine-side.
+  7) m365: per-key lock landed; only the caller-side dependency-vs-consumer
+     flag split remains, blocked on the engine's 117-target key-equality
+     re-measure and the two key inputs/args.
+- OPERATIONAL: E: can stall in `Wait PageIn` under other lanes' compiles. Use
+  a C:-isolated copy of `xiom.exe` + `lib/` with private HOME, XIOM_STDLIB,
+  `--no-cache` (this session's reliable setup). Do NOT kill all `xiom`
+  processes; other lanes run compilers.
+- NEXT: 2045 Str binding/print; XVC-C-22 repro/dump; 1326, 1550, 1531;
+  selfhost rebase + T3 + P6 shapes (Option/.len, Vec.pop, &Vec+f64, index
+  arithmetic); m375 design; m373/m374; MCU 1220; m365 flag split. No
+  candidate cut without owner GO.
+
+*** CONTINUATION PROMPT (paste-ready) -- 2026-10-21T11:46Z ***
+You are the compiler-lane successor for XIOM (E:\xiom-lang\xiom).
+Read `docs/SESSION-HANDOFF.md` top block (2026-10-21T11:46Z),
+`docs/RELEASE_GATE_v0.64.8.md`, and `release-checks/compiler-compiler-v0.64.8.md`
+in E:\xiom-lang\xiom-relays. Pull xiom-relays first and process new items
+addressed to compiler before starting.
+
+State: v0.64.8 is released (tag 4d040604b, 11 assets, registry xiom-std 0.64.8
+green); no re-cut/candidate without owner GO. Main is origin-synced; code tip
+`478e06f8b` (m1136 block-arm Vec match binding). Other recent fixes: 2045
+part 1 `05e3ab3bc` (Vec.pop/remove Option[T]); m1626 single match seed
+`c2dc54a24`; m0717 arm64 field-0 GEP `aecad8c6c`; m365 per-key cache lock
+`306ace857`; m2343 `2f887bcf1`; m1626 `626dfbc65`; m2100-W1 `dea6ceee8`;
+m2057 `029595080`; m376/m377 `f915fb759`. Relays `f22a7f6`. Orbitdb global
+Vec.pop shrink is fixed on main (m2057; v0.64.8 predates it). Selfhost branch
+`589fc67f7` is a LOCAL rebase (not force-pushed) onto `c2dc54a24`; its T3 was
+83/83 (phase-5 19/19, phase-6 14/64) BEFORE m1136. Rebase onto current main
+and re-run T3 first; m1136 changes block-arm match IR and may need a selfhost
+mirror.
+
+Top open:
+1) 2045 Str payload: `Some(s)`/`Err(msg)` from a boxed Option/Result still
+   prints pointer bits. m1136 fixed aggregate block-arm Vec results only.
+   Record/unbox the Str XIOM type on that match binding (mirror
+   bind_is_payload_xiom) and add a repo fixture.
+2) XVC-C-22 (REL-20261021-1103-xvector): acked/reproduced; exact pq probe AVs
+   on the second pq_train. Trigger is training work per call, not corpus size;
+   instrumented/ASAN builds pass. Need a smaller deterministic repro or crash
+   dump. Do NOT land speculative Vec slot/growth changes (an experiment was
+   reverted).
+3) 1326-stdlib: log+serialize `icmp on %struct.LogLevel`.
+4) 1550-stdlib: tuple-returning fn-value ABI (`EnumerateIter.map` garbage).
+5) 1531-xvector-2: build hang under a 16 GB Job Object.
+6) m375: drop elaboration/exit reclaim. 1M passes with a 65,536-frame cache
+   (2,494.7MB); remaining ~880 s exit teardown + cache sizing; read path
+   fixed engine-side.
+7) m365: only the caller-side dependency-vs-consumer flag split remains;
+   blocked on the engine's 117-target re-measure + two key inputs/args.
+
+Priority: 1) 2045 Str binding/print; 2) XVC-C-22 repro/dump; 3) 1326, 1550,
+1531; 4) selfhost rebase + T3 + P6 shapes (Option/.len, Vec.pop, &Vec+f64,
+index arithmetic); 5) m375 design, m373/m374, MCU 1220. No candidate cut
+without owner GO.
+
+Constraints: rustc-first study; max 3-4 heavy sessions; watch memory; no
+stdlib edits except via relay; use --no-cache when shared catidx/engine builds
+interfere. If E: stalls in PageIn, run a C:-isolated xiom.exe+lib copy with a
+private HOME; do not kill other lanes' xiom processes.
+
 *** SESSION UPDATE 2026-10-21T14:00Z (compiler lane; m0717 fixed; SELFHOST T3 83/83 GREEN) -- READ FIRST ***
 - STATE: v0.64.8 remains the released archive; no re-cut/candidate without
   owner GO. Main `478e06f8b` (m1136) on `05e3ab3bc` (2045 part 1),
