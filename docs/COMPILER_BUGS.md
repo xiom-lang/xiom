@@ -20162,3 +20162,36 @@ EVIDENCE: exact repro compiles and prints `world`, rc 0. Fixture
 value plus Number and Bool controls; lock `e2e_m1731_borrowed_enum_match`.
 Battery: feature_regression 549/549, integration 130/130, stdlib_tests
 40/40, codegen lib 23/23.
+
+---
+
+## 2026-10-21 -- FIXED (m1703, REL-20261021-1703-pulse): stored function values lost signature and aggregate return
+
+WITNESS: PULSE `tests/probes/probe_fnptr.xi` fails on v0.64.8 with
+`annotated Int, found ()` for a module-level `var g: Handler = inc` call.
+On main that probe passes, but the richer StreamHandler shape -- a
+`fn(Int, &Vec[UInt8], &Req) -> (Int, Int)` in a module var and in
+`Vec[Handler]` -- still fails: the Vec element call emitted
+`call i64 %fn(...)` and both tuple fields read the same low word
+(`b0=4 b1=4` instead of `4,7`).
+
+ROOT CAUSE: `resolve_vec_container_elem_xiom` returned the raw local
+spelling `"Handler"`, not the alias body. The Vec push's `is_fn_marker`
+test therefore missed it and stored a raw code address (no forwarding
+thunk env), while `track_fn_value_binding`'s `starts_with("fn(")` test
+missed it and recorded no signature/return, so the call site fell back to
+`call i64`. With only the record fixed, the env convention AVed: the
+element read loads field 0 of the value as the code pointer and prepends
+the env, but the push had stored code, not an env.
+
+FIX: expand type aliases in `resolve_vec_container_elem_xiom` (Ident and
+Vec-typed field arms). `Vec[Handler]` now resolves to
+`fn(Int, &Vec[UInt8], &Req) -> (Int, Int)`; the existing push path wraps a
+bare fn ref in the forwarding-thunk env (same as array literals), and the
+element read records the full signature, including the aggregate return.
+
+EVIDENCE: PULSE probe rc 0. Fixture
+`tests/regression/m1703_fn_value_vec_tuple.xi` checks direct,
+module-var, and `Vec[Handler]` calls all return `(4, 7)`; lock
+`e2e_m1703_fn_value_vec_tuple`. Battery: feature_regression 549/549,
+integration 130/130, stdlib_tests 40/40, codegen lib 23/23.

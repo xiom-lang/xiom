@@ -1147,7 +1147,11 @@ impl IrEmitter {
                                 if fname == &field_expr.name {
                                     if let Some(rest) = ftype.strip_prefix("Vec[") {
                                         if let Some(inner) = rest.strip_suffix(']') {
-                                            return Some(inner.to_string());
+                                            // 1703: a Vec field of a fn ALIAS
+                                            // (`Vec[Handler]`) must resolve to the
+                                            // full marker so the push path wraps a
+                                            // bare fn ref in an env thunk.
+                                            return Some(self.expand_alias_application_xiom(inner));
                                         }
                                     }
                                     return None;
@@ -1160,7 +1164,11 @@ impl IrEmitter {
             }
             Expr::Ident(id) => self.local.local_vec_elem.get(&id.name).cloned()
                 // m167: module-global Vecs.
-                .or_else(|| self.global_vec_elem(&id.name)),
+                .or_else(|| self.global_vec_elem(&id.name))
+                // 1703: expand `type Handler = fn(...)` so `Vec[Handler]`
+                // is classified as a fn-element Vec at push and call sites
+                // (the push wraps bare fn refs; the read records the signature).
+                .map(|e| self.expand_alias_application_xiom(&e)),
             _ => None,
         }
     }

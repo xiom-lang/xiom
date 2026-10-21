@@ -11447,3 +11447,17 @@ fn e2e_m1731_borrowed_enum_match() {
         "m1731: borrowed enum match must load the tag and bind Str/Number/Bool payloads"
     );
 }
+
+// m1703 (REL-20261021-1703-pulse): a stored fn value (module var or Vec
+// element) must keep its declared signature and aggregate return type. The
+// PULSE StreamHandler shape returns (Int, Int); pre-fix the Vec element call
+// was `call i64 %fn(...)` so both tuple fields read the same word, and a
+// Vec[Handler] alias push stored a raw code address instead of an env thunk.
+#[test]
+fn e2e_m1703_fn_value_vec_tuple() {
+    assert_eq!(
+        compile_and_run("tests/regression/m1703_fn_value_vec_tuple.xi"),
+        Some(0),
+        "m1703: module-var and Vec[Handler] fn values must return the full tuple"
+    );
+}

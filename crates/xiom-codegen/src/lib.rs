@@ -3309,7 +3309,12 @@ impl IrEmitter {
             // Vec[fn] element read: the m130 element convention stores an
             // ENV, so the copy is env-valued too (`let h = v[i]; h(a, b)`
             // must load field 0 -- direct-calling the env was an AV).
+            // 1703: the element spelling may be a type ALIAS (`Vec[Handler]`
+            // with `type Handler = fn(...) -> (Int, Int)`); expand it before
+            // the `fn(` test or the call site falls back to `call i64` and
+            // reads only the first word of an aggregate return.
             Expr::Index(container, _, _) => self.resolve_vec_container_elem_xiom(container)
+                .map(|x| self.expand_alias_application_xiom(&x))
                 .map_or(false, |x| x.starts_with("fn(")),
             _ => false,
         };
@@ -3319,6 +3324,7 @@ impl IrEmitter {
                 // Record the element's signature (return class) so the call
                 // site types the result like any other fn value.
                 if let Some(marker) = self.resolve_vec_container_elem_xiom(container) {
+                    let marker = self.expand_alias_application_xiom(&marker);
                     if let Some((_, ret)) = marker.rsplit_once("->") {
                         let ret_xiom = ret.trim().to_string();
                         let ret_llvm = self.llvm_type_for_fallback(&ret_xiom);
