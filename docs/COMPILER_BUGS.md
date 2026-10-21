@@ -20028,3 +20028,28 @@ RELATED OPEN: 2045's Str-payload print path is separate -- a `Some(s)` /
 `Err(msg)` Str binding from a boxed Option/Result still prints pointer bits
 because the match binding does not record the Str XIOM type on that path.
 This fix covers aggregate (Vec) block-arm results.
+
+---
+
+## 2026-10-21 -- FIXED (m1157, REL-20261021-1157-orbitdb): UTF-8 BOM on a module file hid it from catalog discovery
+
+WITNESS: `sub/impl.xi` starts with EF BB BF and declares `repro.bom_impl`;
+`main.xi` imports it. On v0.64.8 the compile failed with `T001 unresolved
+import 'repro.bom_impl'` and no BOM diagnostic. Stripping the three BOM bytes
+made the same tree print `v=7`.
+
+ROOT CAUSE: `ModuleCatalog::read_module_header` -- the quick, parse-free
+header scan used by the catalog index -- read the raw text and treated U+FEFF
+as an unexpected token, returning None. The file got no module-index entry,
+so the import could not resolve. `Lexer::new` already strips leading BOMs, so
+full parses were fine; only the catalog path (the normal layout when a module
+name does not match the file path) was affected.
+
+FIX: `read_module_header` strips all leading U+FEFF characters before its
+scan, mirroring the lexer's tolerant handling.
+
+EVIDENCE: exact repro prints `v=7`, rc 0. Locks: unit
+`bom_prefixed_module_header_is_indexed` (`crates/xiom-check/src/catalog.rs`)
+and e2e `e2e_m1157_bom_module_catalog`
+(`tests/regression/m1157_bom_module/`; the `sub/impl.xi` fixture deliberately
+keeps its BOM).

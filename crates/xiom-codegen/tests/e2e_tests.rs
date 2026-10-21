@@ -11344,3 +11344,50 @@ fn e2e_m1136_vec_match_binding() {
     );
     let _ = std::fs::remove_file(&exe);
 }
+
+// m1157 (REL-20261021-1157-orbitdb): a UTF-8 BOM before a module header must
+// not hide the file from catalog discovery. The fixture declares
+// `repro.bom_impl` under sub/impl.xi (BOM-prefixed) and imports it from
+// main.xi; pre-fix the catalog header scan returned None and the import was
+// a bare T001 unresolved import.
+#[test]
+fn e2e_m1157_bom_module_catalog() {
+    let src = project_root()
+        .join("tests")
+        .join("regression")
+        .join("m1157_bom_module")
+        .join("main.xi");
+    let exe = project_root()
+        .join("target")
+        .join("m1157_bom_module.exe");
+    let _ = std::fs::remove_file(&exe);
+
+    let compile = Command::new(xiom_path())
+        .args(["--no-cache", "-o"])
+        .arg(&exe)
+        .arg(&src)
+        .env("XIOM_STDLIB", project_root().join("stdlib"))
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the m1157 BOM module fixture");
+    assert!(
+        compile.status.success(),
+        "m1157 BOM module: fixture must compile; stderr:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe)
+        .output()
+        .expect("run the m1157 BOM module fixture");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "m1157 BOM module: BOM-prefixed module must resolve and run; stdout: {stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(
+        stdout.contains("v=7"),
+        "m1157 BOM module: expected v=7; stdout: {stdout}"
+    );
+    let _ = std::fs::remove_file(&exe);
+}

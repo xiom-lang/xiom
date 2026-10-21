@@ -948,6 +948,12 @@ impl ModuleCatalog {
     /// Quick-parse the `module a.b.c` header of a file without a full parse.
     fn read_module_header(&self, file_path: &Path) -> Option<String> {
         let source = std::fs::read_to_string(file_path).ok()?;
+        // C-ORBIT-15 (REL-20261021-1157-orbitdb): the lexer strips a leading
+        // UTF-8 BOM, but this quick scan runs before parsing. Without the same
+        // strip, a BOM before `module` looked like an unexpected token, the
+        // file was not indexed, and the import failed as a bare T001. Match
+        // the lexer's tolerant handling (all leading BOMs dropped).
+        let source = source.trim_start_matches('\u{FEFF}');
         let mut chars = source.chars().peekable();
 
         // Skip any initial whitespace / comments, and also skip file-level
@@ -1210,6 +1216,45 @@ mod index_cache_tests {
         third.build_index();
         assert!(third.index_cache_misses >= 1, "changed file must rescan");
         assert!(third.module_index.contains_key("cachetest.one"));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn bom_prefixed_module_header_is_indexed() {
+        // C-ORBIT-15 (REL-20261021-1157-orbitdb): a UTF-8 BOM before
+        // `module` made the quick header scan return None, so the module was
+        // never indexed and `use` failed with an unresolved-import T001.
+        // The lexer already strips BOMs; this scan must match it.
+        let root = std::env::temp_dir().join(format!(
+            "xiom-catidx-bom-{}-{:x}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let src = root.join("src");
+        std::fs::create_dir_all(&src).expect("create test dir");
+        std::fs::write(
+            src.join("impl.xi"),
+            "\u{FEFF}module bomtest.impl\npub fn bom_value() -> Int { return 7; }\n",
+        )
+        .unwrap();
+
+        let mut cat = ModuleCatalog::new(vec![src.to_string_lossy().to_string()]);
+        cat.build_index();
+
+        assert_eq!(
+            cat.read_module_header(&src.join("impl.xi")).as_deref(),
+            Some("bomtest.impl"),
+            "a leading UTF-8 BOM must not hide the module header"
+        );
+        assert!(
+            cat.module_index.contains_key("bomtest.impl"),
+            "BOM-prefixed module must be in the catalog index: {:?}",
+            cat.module_index.keys().collect::<Vec<_>>()
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }
