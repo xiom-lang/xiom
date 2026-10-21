@@ -14,6 +14,54 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-21T19:05Z (compiler lane; 6 relay fixes + selfhost RD11 T3 GREEN) -- READ FIRST ***
+- STATE: v0.64.8 remains the released archive (tag 4d040604b, 11 assets,
+  registry xiom-std 0.64.8 green); no re-cut/candidate without owner GO.
+  Main has local commits on top of origin/main (not pushed yet). Relay tip
+  `73210ca`.
+- FIXED THIS SESSION (incoming relays first):
+  * m1157 / REL-20261021-1157-orbitdb -- UTF-8 BOM hid catalog module
+    headers; `read_module_header` now strips leading BOMs (`18415ede2`;
+    unit `bom_prefixed_module_header_is_indexed` + e2e m1157).
+  * 2045 part 2 / REL-20261019-2045-packages -- boxed Option/Result Str
+    payload binding/print (`9d31321df`; pop/get/remove alias+scalar
+    payload tracking, field-2 Result fallback, `local_xiom_types` on the
+    boxed arm; e2e m2045).
+  * XVC-C-22 / REL-20261021-1103-xvector -- Vec element inference prefers
+    the callee's DECLARED return over the first argument (`d38cff2a8`).
+    `pq_train`'s `part` was registered as Vector (40-byte stride), which
+    corrupted the codebook and the guard heap -> second-call AV/ud2.
+    Probe 20/20 stable; centroid checksum 66254.9604248703 identical for
+    first/second x5; v0.64.8 varied/crashed. Runtime + IR locks.
+  * m1731 / REL-20261021-1731-stdlib -- `match &enum` loads the tag instead
+    of comparing the alloca pointer (`ace095744`); borrowed Str payloads
+    bind (e2e m1731; Number/Bool controls).
+  * m1703 / REL-20261021-1703-pulse -- stored fn values keep signature and
+    aggregate return; `Vec[Handler]` aliases expand and bare fn refs get
+    the `__fnwrap` env thunk (`c9b1f1009`); StreamHandler shape returns
+    (4,7) direct/module/Vec; PULSE probe rc 0 (e2e m1703).
+  * m1326 / REL-20261020-1326-stdlib -- struct field equality on an enum
+    without a derived `.eq` compares the discriminant (`d50d1436e`);
+    log.json+serialize compiles/runs (e2e m1326).
+- SELFHOST: `selfhost-phase-4-codegen` rebased onto `d50d1436e` (53 commits,
+  no conflicts; `selfhost/` byte-identical to `589fc67f7`). T3 tier 3:
+  phase-5 scalar 19/19, phase-6 corpus 14/64, T1 green 83/83. RD11
+  `6522688c9`. The separate `diff_ast` check is 80/83 (Rust `Tail` vs
+  selfhost `Stmt` on phase1_enum/phase1_hardening/benchmark_selfhost),
+  unchanged from the old tip and not part of the T3 meter.
+- RELAYS: 1157, 2045, 1103, 1731, 1703, 1326 marked fixed with evidence.
+  1550-stdlib acked/diagnosed: generic-STRUCT field erasure (`MapIter` is
+  emitted as `{fn()->Option, fn(i64)->i64}`); needs a generic-struct pass or
+  a concrete `EnumerateIter.map` specialization, not a one-line ABI fix.
+- BATTERY: feature 549/549, integration 130/130, stdlib 40/40, codegen lib
+  23/23, checker 214/214, parser 109/109. New locks: m1157, m2045,
+  XVC-C-22 (runtime+IR), m1731, m1703, m1326.
+- NEXT: 1) 1550 generic-struct erasure; 2) mirror m1136 on the selfhost
+  block-arm match payload path; 3) the 3 `diff_ast` Tail/Stmt parser drifts;
+  4) 1531-xvector-2 Job Object build hang; 5) m375 drop/exit reclaim;
+  6) m365 caller-side dependency-vs-consumer flag split. No candidate cut
+  without owner GO.
+
 *** SESSION UPDATE 2026-10-21T11:46Z (compiler lane; CONTEXT HANDOFF -- incoming relays triaged, m1136 fixed, selfhost T3 83/83) -- READ FIRST ***
 - STATE: v0.64.8 remains the released archive (tag 4d040604b, 11 assets,
   registry xiom-std 0.64.8 green); no re-cut/candidate without owner GO.
