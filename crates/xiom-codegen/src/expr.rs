@@ -6699,19 +6699,13 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 let result_ty = self.infer_match_llvm_type(arms, &scrutinee_ty, scrutinee);
                 let result_alloca = self.fresh_tmp();
                 self.emitln(&format!("  {result_alloca} = alloca {result_ty}"));
-                // 5c.37: Initialize match result slot to prevent uninitialized
-                // reads when all arms return/exit (no fallthrough store).
-                if result_ty.starts_with("%struct.") {
-                    self.emitln(&format!("  store {result_ty} zeroinitializer, {result_ty}* {result_alloca}"));
-                } else if result_ty.ends_with('*') {
-                    // R48 (playground C17): a pointer slot needs `null`, not
-                    // the integer constant 0 -- clang rejects `store i8* 0`.
-                    self.emitln(&format!("  store {result_ty} null, {result_ty}* {result_alloca}"));
-                } else if result_ty == "double" || result_ty == "float" {
-                    self.emitln(&format!("  store {result_ty} 0.0, {result_ty}* {result_alloca}"));
-                } else {
-                    self.emitln(&format!("  store {result_ty} 0, {result_ty}* {result_alloca}"));
-                }
+                // 5c.37 seeding is owned by the statement-form match below
+                // (stmt.rs Stmt::Match): it seeds `match_result_ty` before
+                // compiling the scrutinee. Seeding here TOO emitted a
+                // duplicate `store {ty} 0` for every Expr::Match; the
+                // selfhost emits one, which was the sole RD10 T3 drift
+                // (phase1_enum line 134: rust `store i64 0` vs selfhost
+                // `load`). Keep the allocation; let the inner match seed.
                 let saved_ptr = self.fctx.match_result_ptr.take();
                 let saved_ty = self.fctx.match_result_ty.take();
                 self.fctx.match_result_ptr = Some(result_alloca.clone());

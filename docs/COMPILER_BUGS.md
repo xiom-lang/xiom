@@ -19935,3 +19935,28 @@ SELFHOST PARITY NOTE: the selfhost `cgb_vec_load_fields` equivalent must
 mirror the field-0 GEP; RD10 T3 will otherwise show a Vec reconstruction
 diff on every affected file (the RD10 phase1_enum match-slot drift is
 separate).
+
+---
+
+## 2026-10-21 -- FIXED (m1626 parity follow-up, selfhost T3): Expr::Match double-seeded its result slot
+
+WITNESS: the RD10 T3 selfhost diff for `examples/phase1_enum.xi` (line 134):
+`rust: store i64 0, i64* %tmp` vs `selfhost: %tmp = load i64, i64* %tmp`.
+The Rust IR for `token_name` had TWO seed stores; the selfhost had one.
+
+ROOT CAUSE: m1626 made the bare trailing match an `Expr::Match`. The
+expression wrapper seeded the result slot (5c.37), then delegated to
+`Stmt::Match`, whose own 5c.37 path seeded the same slot again. The selfhost
+`cgb_match`/tail-match path seeds once, so the line offset produced the
+spurious "store vs load" diff.
+
+FIX: the `Expr::Match` wrapper keeps the result alloca but no longer seeds it;
+the statement-form match owns the seed (it runs before compiling the
+scrutinee, so initialization is unchanged). `phase1_enum` Rust IR is now 194
+lines, matching the selfhost IR; the only remaining seed is the real default
+arm.
+
+EVIDENCE: `examples/phase1_enum.xi` line counts now match (194/194).
+m1626/m2057/m2100/m2343/m0717 locks green; feature_regression 549/549,
+integration 130/130, stdlib_tests 40/40. Selfhost T3 re-run follows the
+rebase onto this commit.
