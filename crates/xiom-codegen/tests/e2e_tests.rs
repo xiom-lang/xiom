@@ -11246,3 +11246,58 @@ fn e2e_m2343_inline_i32_return() {
     );
     let _ = std::fs::remove_file(&exe);
 }
+
+// m0717 (REL-20261021-0717-pulse): a module-scope Vec initializer must load
+// the data pointer through the field-0 GEP so typed-pointer LLVM (clang 14
+// arm64 / Apple clang) accepts the IR.
+#[test]
+fn e2e_m0717_module_vec_ginit_typed_ir() {
+    let src = project_root()
+        .join("tests")
+        .join("regression")
+        .join("m0717_module_vec_init.xi");
+    let out = Command::new(xiom_path())
+        .args(["--no-cache", "--target", "arm", "--emit-ir"])
+        .arg(&src)
+        .env("XIOM_STDLIB", project_root().join("stdlib"))
+        .current_dir(project_root())
+        .output()
+        .expect("emit arm IR for the m0717 module-scope Vec fixture");
+    assert!(
+        out.status.success(),
+        "m0717 module vec init: arm IR emission must succeed; stderr:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let ir = String::from_utf8_lossy(&out.stdout);
+    let after = ir
+        .split("define internal void @__xiom_ginit_0")
+        .nth(1)
+        .expect("m0717: __xiom_ginit_0 must be emitted");
+    let body = &after[..after.find("\n}").unwrap_or(after.len())];
+
+    // Map SSA names to their defining RHS in the ginit body.
+    let mut defs: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+    for line in body.lines() {
+        if let Some((lhs, rhs)) = line.trim().split_once(" = ") {
+            defs.insert(lhs.trim(), rhs.trim());
+        }
+    }
+    let mut checked = 0;
+    for line in body.lines() {
+        if let Some(pos) = line.find("load i8*, i8** ") {
+            let operand = line[pos + "load i8*, i8** ".len()..].trim();
+            let def = defs.get(operand).unwrap_or_else(|| {
+                panic!("m0717: ginit data load reads undefined operand {operand}:\n{body}")
+            });
+            assert!(
+                def.starts_with("getelementptr %struct.Vec"),
+                "m0717: ginit data load must use a %struct.Vec field GEP, got `{def}` (line: {line})"
+            );
+            checked += 1;
+        }
+    }
+    assert!(
+        checked >= 1,
+        "m0717: expected at least one data-pointer load in __xiom_ginit_0:\n{body}"
+    );
+}

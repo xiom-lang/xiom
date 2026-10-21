@@ -496,8 +496,16 @@ impl IrEmitter {
     /// into partial field reads that skip "dead" fields (5c.28).
     pub(crate) fn emit_vec_load_fields(&mut self, src_alloca: &str) -> String {
         let fd = self.fresh_tmp();
+        let fd_gep = self.fresh_tmp();
         let v0 = self.fresh_tmp();
-        self.emitln(&format!("  {fd} = load i8*, i8** {src_alloca}"));
+        // m0717 (REL-20261021-0717-pulse): load field 0 through its FIELD GEP.
+        // The old `load i8*, i8** {src_alloca}` relies on offset 0 matching
+        // the struct address; it is only accepted under opaque pointers.
+        // Typed-pointer LLVM (clang 14 on arm64 Linux, Apple clang arm64)
+        // rejects `%struct.Vec*` where `i8**` is expected, breaking every
+        // module-scope Vec initializer on the arm64 floor.
+        self.emitln(&format!("  {fd_gep} = getelementptr %struct.Vec, %struct.Vec* {src_alloca}, i32 0, i32 0"));
+        self.emitln(&format!("  {fd} = load i8*, i8** {fd_gep}"));
         self.emitln(&format!("  {v0} = insertvalue %struct.Vec undef, i8* {fd}, 0"));
         let mut prev = v0;
         for fi in 1..=3 {

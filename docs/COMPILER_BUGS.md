@@ -19893,3 +19893,45 @@ EVIDENCE: the minimal Unit-match repro compiles/links/runs rc 0 with zero
 `alloca void`; `e2e_m1626_trailing_match_after_push` now includes the
 `unit_match_expr` shape and stays green. This unblocks the selfhost T3
 skeleton compile after the rebase.
+
+---
+
+## 2026-10-21 -- FIXED (m0717, REL-20261021-0717-pulse): module-scope Vec init emitted typed-pointer-invalid IR
+
+WITNESS: `xiom --target arm --emit-ir` on
+`var g: Vec[Str] = Vec[Str].new();` produced, inside `__xiom_ginit_0`:
+
+```
+%tmp0 = alloca %struct.Vec
+...
+%tmp7 = load i8*, i8** %tmp0    ; %tmp0 is %struct.Vec*
+```
+
+Opaque-pointer LLVM (clang 18/22) accepts this because the first field is at
+offset 0; typed-pointer LLVM (clang 14 on arm64 Linux, Apple clang arm64)
+rejects `%struct.Vec*` where `i8**` is expected, breaking module-scope Vec
+initializers on the arm64 floor.
+
+ROOT CAUSE: `vec_abi::emit_vec_load_fields` loaded field 0 through the struct
+pointer and only used field GEPs for fields 1-3. Every caller passes a
+`%struct.Vec*`, so the direct load is type-invalid whenever the toolchain
+still uses typed pointers.
+
+FIX: load field 0 through its field GEP (`getelementptr %struct.Vec,
+%struct.Vec* {src}, i32 0, i32 0` then `load i8*, i8** {gep}`), matching
+fields 1-3. Runtime semantics are unchanged (offset 0); the IR is now valid
+for both typed and opaque pointers.
+
+EVIDENCE: arm IR now emits `%tmp8 = getelementptr ... i32 0, i32 0` and
+`%tmp7 = load i8*, i8** %tmp8`. Lock
+`e2e_m0717_module_vec_ginit_typed_ir`
+(`tests/regression/m0717_module_vec_init.xi`) emits arm IR and asserts every
+ginit `load i8*, i8**` reads a `%struct.Vec` field GEP, so it runs without a
+typed-pointer clang. Battery: feature_regression 549/549, integration
+130/130, stdlib_tests 40/40, codegen lib 23/23, m1626/m2057/m2100/m2343/
+m337/m371/m372/m376/m377 locks green.
+
+SELFHOST PARITY NOTE: the selfhost `cgb_vec_load_fields` equivalent must
+mirror the field-0 GEP; RD10 T3 will otherwise show a Vec reconstruction
+diff on every affected file (the RD10 phase1_enum match-slot drift is
+separate).
