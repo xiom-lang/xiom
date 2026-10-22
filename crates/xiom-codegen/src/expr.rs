@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+﻿// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use xiom_ast::*;
@@ -5286,7 +5286,10 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     let gep0 = self.fresh_tmp();
                     let fn_ptr_i64 = self.fresh_tmp();
                     self.emitln(&format!("  {gep0} = getelementptr %struct.{env_name}, %struct.{env_name}* {env_ptr}, i32 0, i32 0"));
-                    self.emitln(&format!("  {fn_ptr_i64} = ptrtoint ptr @{fn_name} to i64"));
+                    // 1529: typed function-pointer operand -- ptrtoint ptr is an
+                    // opaque-pointer spelling that clang 14 / Apple arm64 reject.
+                    let closure_fn_ty = format!("i64 ({})*", vec!["i64"; params.len() + 1].join(", "));
+                    self.emitln(&format!("  {fn_ptr_i64} = ptrtoint {closure_fn_ty} @{fn_name} to i64"));
                     self.emitln(&format!("  store i64 {fn_ptr_i64}, i64* {gep0}"));
                     let closure_val = self.fresh_tmp();
                     self.emitln(&format!("  {closure_val} = ptrtoint %struct.{env_name}* {env_ptr} to i64"));
@@ -5397,7 +5400,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 let fn_ptr_field = self.fresh_tmp();
                 self.emitln(&format!("  {fn_ptr_field} = getelementptr %struct.{env_name}, %struct.{env_name}* {env_ptr}, i32 0, i32 0"));
                 let fn_ptr_val = self.fresh_tmp();
-                self.emitln(&format!("  {fn_ptr_val} = ptrtoint ptr @{fn_name} to i64"));
+                // 1529: typed function-pointer operand (clang 14 / Apple arm64).
+                let closure_fn_ty = format!("i64 ({})*", vec!["i64"; params.len() + 1].join(", "));
+                self.emitln(&format!("  {fn_ptr_val} = ptrtoint {closure_fn_ty} @{fn_name} to i64"));
                 self.emitln(&format!("  store i64 {fn_ptr_val}, i64* {fn_ptr_field}"));
                 
                 // Store captured values in subsequent fields
@@ -5581,7 +5586,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     self.emitln(&format!("  {env_ptr} = bitcast i8* {mc} to %struct.{env_name}*"));
                     let gep0 = self.fresh_tmp(); let fpi = self.fresh_tmp();
                     self.emitln(&format!("  {gep0} = getelementptr %struct.{env_name}, %struct.{env_name}* {env_ptr}, i32 0, i32 0"));
-                    self.emitln(&format!("  {fpi} = ptrtoint ptr @{fn_name} to i64"));
+                    // 1529: typed function-pointer operand (clang 14 / Apple arm64).
+                    let closure_fn_ty = format!("{ret_llvm} ({})*", std::iter::once("i64".to_string()).chain(param_llvm_types.iter().cloned()).collect::<Vec<_>>().join(", "));
+                    self.emitln(&format!("  {fpi} = ptrtoint {closure_fn_ty} @{fn_name} to i64"));
                     self.emitln(&format!("  store i64 {fpi}, i64* {gep0}"));
                     let cv = self.fresh_tmp();
                     self.emitln(&format!("  {cv} = ptrtoint %struct.{env_name}* {env_ptr} to i64"));
@@ -5610,7 +5617,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 self.emitln(&format!("  {env_ptr} = bitcast i8* {mc} to %struct.{env_name}*"));
                 let gep0 = self.fresh_tmp(); let fpi = self.fresh_tmp();
                 self.emitln(&format!("  {gep0} = getelementptr %struct.{env_name}, %struct.{env_name}* {env_ptr}, i32 0, i32 0"));
-                self.emitln(&format!("  {fpi} = ptrtoint ptr @{fn_name} to i64"));
+                // 1529: typed function-pointer operand (clang 14 / Apple arm64).
+                let closure_fn_ty = format!("{ret_llvm} ({})*", std::iter::once("i64".to_string()).chain(param_llvm_types.iter().cloned()).collect::<Vec<_>>().join(", "));
+                self.emitln(&format!("  {fpi} = ptrtoint {closure_fn_ty} @{fn_name} to i64"));
                 self.emitln(&format!("  store i64 {fpi}, i64* {gep0}"));
                 for (field_idx, (cap_name, _cap_llvm_ty)) in captures.iter().enumerate() {
                     let gep = self.fresh_tmp();
@@ -6373,7 +6382,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     bc
                 };
                 let fn_i64 = self.fresh_tmp();
-                self.emitln(&format!("  {fn_i64} = ptrtoint ptr @{fn_name} to i64"));
+                // 1529: the thunk is define i64 @{fn_name}(i8*); use the typed
+                // function-pointer operand so clang 14 / Apple arm64 accept it.
+                self.emitln(&format!("  {fn_i64} = ptrtoint i64 (i8*)* @{fn_name} to i64"));
                 // D2.1 (Phase 6, requirement h): apply the enclosing fn's retry
                 // policy. `#[unsafe_no_retry]` (fctx.unsafe_allow_retry=false)
                 // disables the once-only transient retry.

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+﻿// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 // XIOM - Feature Regression Tests
@@ -4281,7 +4281,7 @@ fn main() -> Int {
     // Must define a closure function (not constant 0)
     assert!(ir.contains("define i64 @__closure_"), "M20-A1: closure fn must be emitted");
     // Must return function pointer (not constant 0)
-    assert!(ir.contains("ptrtoint ptr @__closure_"), "M20-A1: must return fn ptr");
+    assert!(ir.contains("ptrtoint i64 (") && !ir.contains("ptrtoint ptr"), "M20-A1: must return a TYPED fn ptr (1529)");
     // Must NOT emit the old stub (constant 0)
     assert!(!ir.contains("store i64 0"), "M20-A1: must not store constant 0 for closure");
 }
@@ -4297,7 +4297,7 @@ fn main() -> Int {
 "#;
     let ir = compile(src).unwrap();
     assert!(ir.contains("define i64 @__closure_"), "M20-A1: single-param closure");
-    assert!(ir.contains("ptrtoint ptr @__closure_"), "M20-A1: fn ptr for single-param");
+    assert!(ir.contains("ptrtoint i64 (") && !ir.contains("ptrtoint ptr"), "M20-A1: typed fn ptr for single-param (1529)");
 }
 
 /// M20-A1-R03: Multiple closures in same function.
@@ -4325,7 +4325,7 @@ fn main() -> Int {
 }
 "#;
     let ir = compile(src).unwrap();
-    assert!(ir.contains("ptrtoint ptr @__closure_"), "M20-A1: let-bound closure");
+    assert!(ir.contains("ptrtoint i64 (") && !ir.contains("ptrtoint ptr"), "M20-A1: typed fn ptr for let-bound closure (1529)");
 }
 
 /// M20-A1-R05: Closure returning closure (higher-order function pointer).

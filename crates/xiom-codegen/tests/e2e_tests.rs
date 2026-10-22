@@ -186,6 +186,21 @@ fn compile_and_check_ir(source_path: &str, expected_ir: &str) -> bool {
     stdout.contains(expected_ir)
 }
 
+/// Emit IR and assert a spelling is ABSENT (1529: `ptrtoint ptr @__unsafe_block_N`
+/// is rejected by clang 14 / Apple arm64). Takes optional extra flags.
+fn compile_ir_lacks(source_path: &str, forbidden_ir: &str, extra_args: &[&str]) -> bool {
+    let mut args: Vec<&str> = vec!["--emit-ir"];
+    args.extend(extra_args);
+    args.push(source_path);
+    let output = Command::new(xiom_path())
+        .args(&args)
+        .current_dir(project_root())
+        .output()
+        .expect("failed to emit IR");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    output.status.success() && !stdout.contains(forbidden_ir)
+}
+
 /// Compile with --diagnostics=json and verify valid JSON
 fn compile_diagnostics_json(source_path: &str) -> bool {
     let output = Command::new(xiom_path())
@@ -11550,6 +11565,48 @@ fn e2e_m1827_vec_in_tuple_cross_module() {
         compile_and_run("tests/regression/m1827_vec_in_tuple_main.xi"),
         Some(0),
         "m1827/1645: Vec contents must survive the cross-module tuple boundary"
+    );
+}
+
+// m1529 (REL-20261022-1529-pulse): the stored-fn env thunk address conversion
+// must use a TYPED function-pointer operand. `ptrtoint ptr @__unsafe_block_N`
+// is an opaque-pointer spelling that clang 14 (ubuntu-22.04-arm floor) and
+// Apple arm64 reject; LLVM 18 happens to accept it. Lock both the x64 and
+// arm IR spellings, plus the stored-fn fixture runtime.
+#[test]
+fn e2e_m1529_ir_typed_ptrtoint_x64() {
+    assert!(
+        compile_ir_lacks("tests/regression/m20_corner_unsafe_block.xi", "ptrtoint ptr", &[]),
+        "m1529: x64 IR must not contain the opaque `ptrtoint ptr` spelling"
+    );
+}
+
+#[test]
+fn e2e_m1529_ir_typed_ptrtoint_arm() {
+    assert!(
+        compile_ir_lacks(
+            "tests/regression/m20_corner_unsafe_block.xi",
+            "ptrtoint ptr",
+            &["--target", "arm"]
+        ),
+        "m1529: arm IR must not contain the opaque `ptrtoint ptr` spelling"
+    );
+}
+
+#[test]
+fn e2e_m1529_stored_fn_value_arm_ir() {
+    assert!(
+        compile_ir_lacks(
+            "tests/regression/m1703_fn_value_vec_tuple.xi",
+            "ptrtoint ptr",
+            &["--target", "arm"]
+        ),
+        "m1529: the stored StreamHandler shape must stay typed on arm"
+    );
+    assert_eq!(
+        compile_and_run("tests/regression/m1703_fn_value_vec_tuple.xi"),
+        Some(0),
+        "m1529: stored fn values must still run after the ptrtoint change"
     );
 }
 
