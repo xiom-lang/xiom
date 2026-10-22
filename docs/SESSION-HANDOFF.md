@@ -14,6 +14,40 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-22T18:35Z (compiler lane; v0.64.9 WITHDRAWN; v0.65.0 production plan) -- READ FIRST ***
+- **v0.64.9 is WITHDRAWN FROM ADOPTION.** The GitHub release is marked
+  pre-release; production remains **v0.64.8**. Tag/assets stay for audit
+  only. Do not pin or deploy v0.64.9. The stdlib tag/registry remain
+  published but are not the production pin.
+- **Why:** nested enum-pattern payloads (`Some(Number(n))`,
+  `Ok(Number(n))`, `Err(E.Bad(msg))`) are flattened and bind 0; the
+  m372/1451 and true-1550 regression was bisected to `d04cd3265`
+  (explicit type-arg substitution; reverting restores m372 but breaks
+  m1520); m1511 dependency port args are one level; C07 is still red.
+  The pre-cut battery missed these because it ran the debug compiler and
+  had no nested-pattern or release-compiler lock.
+- **New target: v0.65.0, production, no rush.** Gate:
+  `docs/RELEASE_GATE_v0.65.0.md`; execution checklist:
+  `docs/checklists/v0.65.0.md`. Order: P0 correctness (nested patterns,
+  safe substitution, release-compiler parity, m1511 transitive, C07),
+  P1 production hardening, P2 MCU first wave (Cortex-M + riscv32, no_std,
+  startup/linker contract, QEMU; `docs/checklists/mcu-targets.md`), P3
+  release. No candidate/tag until the gate is green and owner GO.
+- **Version:** workspace and selfhost now 0.65.0. `STDLIB_VERSION`
+  remains `stdlib-v0.64.9` for development; v0.65.0 will pin
+  `stdlib-v0.65.0` after the stdlib cut (which pins v0.64.8 per the
+  checklist).
+- **Host:** the engine incident deleted `C:\Users\lefte\.cargo`. Cargo
+  works at
+  `C:\Users\lefte\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin`;
+  restore the `.cargo\bin` shims so tests/CI do not need a lane-local
+  PATH.
+- **Selfhost:** RD11 T3 green (19/19, 14/64, 83/83); m1136 mirror and P6
+  shapes are part of the v0.65.0 hardening, not the release blocker.
+- **Lane holds:** xvector (compiler + stdlib), orbitdb (compiler pin),
+  engine (C07), packages (m1511/2045), benchmark (compiler). Re-test on
+  the v0.65.0 release archive before any row is closed.
+
 *** SESSION UPDATE 2026-10-22T14:10Z (compiler lane; v0.64.9 RELEASED) -- READ FIRST ***
 - **v0.64.9 IS LIVE.** Compiler tag `v0.64.9` (annotated
   `ffde5aa0f88591b40db949239340cf66a36c3e41`) on `2bcf58db5`; release run

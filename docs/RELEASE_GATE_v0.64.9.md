@@ -1,14 +1,21 @@
 # Release gate -- v0.64.9
 
-STATUS: **RELEASED 2026-10-22T14:03Z** -- owner GO received 13:01Z.
-Compiler tag `v0.64.9` (annotated `ffde5aa0f88591b40db949239340cf66a36c3e41`)
-on `2bcf58db5`; release run **39791522014 SUCCESS**; GitHub release live
-with **11 assets**; SHA256SUMS file hash
+STATUS: **WITHDRAWN FROM ADOPTION 2026-10-22T18:30Z** -- GitHub release
+marked pre-release; production remains v0.64.8; v0.65.0 supersedes. Known
+blockers: nested enum-pattern payloads (Some(Number(n)) / Ok(Number(n)) /
+Err(E.Bad(msg))), m372/1451 and true 1550 regression in `d04cd3265`,
+non-transitive dependency port args (m1511), and C07. The tag and assets
+remain for audit only. Do not pin or deploy v0.64.9. See
+`docs/RELEASE_GATE_v0.65.0.md`.
+
+Historical release data (for the audit): compiler tag `v0.64.9` (annotated
+`ffde5aa0f88591b40db949239340cf66a36c3e41`) on `2bcf58db5`; release run
+**39791522014 SUCCESS**; 11 assets; SHA256SUMS
 `51c45a61dbfebb930acc99ad8cc383234482fc0ba52961628b8f7ffdf6a9ebac`.
 Stdlib `stdlib-v0.64.9` at `aa8b656`; release run **39785430606 SUCCESS**;
-`xiom-std 0.64.9` live (sha256
+`xiom-std 0.64.9` published (sha256
 `6f0d3b1516c7c94fcc6fd7fc1fc34fa66025c9543456a4c2effa16142da73020`,
-compiler v0.64.8, published 2026-10-22T14:01:23Z; production publish run
+compiler v0.64.8, 2026-10-22T14:01:23Z; production publish run
 39785430612 SUCCESS).
 
 ## Scope

@@ -1,7 +1,9 @@
 # MCU/bare-metal targets (1220/1419)
 
-Status: SCOPED. The riscv link-triple fix is landing on main; the target
-matrix, no_std profile, and QEMU CI are design work for the next wave.
+Status: IN PROGRESS -- v0.65.0 first wave (see docs/RELEASE_GATE_v0.65.0.md
+and docs/checklists/v0.65.0.md). The riscv link-triple fix is on main; the
+target matrix, no_std profile, startup/linker contract, and QEMU CI are now
+in the v0.65.0 release scope.
 Owner: compiler lane (targets/runtime), bindings lane (HAL packages)
 Sources: `REL-20261019-1220-bindings` (owner request),
 `REL-20261019-1419-bindings` (target probe), `docs/SYSTEMS_TRACK_PLAN.md`.
