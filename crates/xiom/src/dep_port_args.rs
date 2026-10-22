@@ -1,4 +1,4 @@
-// XIOM -- dependency port.args.json build-arg application
+﻿// XIOM -- dependency port.args.json build-arg application
 // Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //
@@ -26,6 +26,7 @@
 // declared budget as a FLOOR when the consumer set no timeout of its own
 // (see `dependency_timeout_floor` + `resolve_compile_timeout`).
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use xiom_graph::manifest::ProjectManifest;
@@ -60,25 +61,66 @@ pub fn apply_dependency_port_args(
         return 0;
     }
     let mut applied = 0usize;
-    for dir in xiom_graph::manifest::dependency_package_dirs(manifest) {
+    for dir in dependency_closure(manifest) {
         applied += apply_one(config, &dir);
     }
     applied
+}
+
+/// m1511: the TRANSITIVE dependency closure -- direct dependencies plus each
+/// dependency's own dependencies, parsed from its shipped `package.xi`.
+///
+/// A consumer that depends on `xiom.fontraster` never lists
+/// `xiom.harfbuzz` directly, but fontraster's `port.args.json` (the sibling
+/// workaround) and harfbuzz's vendored-source flags must still reach the
+/// link. Iteration is depth-first with a CANONICAL-path visited set, so a
+/// package that (incorrectly) depends on its consumer -- or two packages
+/// that depend on each other -- terminate; the consumer root is seeded as
+/// visited so a cycle cannot apply the consumer's own port args as a
+/// dependency's.
+fn dependency_closure(manifest: &ProjectManifest) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+    let consumer_root = manifest
+        .manifest_dir
+        .canonicalize()
+        .unwrap_or_else(|_| manifest.manifest_dir.clone());
+    seen.insert(consumer_root);
+    let mut pending: Vec<PathBuf> = xiom_graph::manifest::dependency_package_dirs(manifest);
+    while let Some(dir) = pending.pop() {
+        let canonical = dir.canonicalize().unwrap_or_else(|_| dir.clone());
+        if !seen.insert(canonical) {
+            continue;
+        }
+        // Parse the dependency's own manifest for the next level. A missing
+        // or malformed package.xi is not fatal: the direct level was already
+        // applied and the consumer can still pass flags manually.
+        if let Ok(dep_manifest) = xiom_graph::manifest::find_and_parse_manifest(&dir) {
+            for child in xiom_graph::manifest::dependency_package_dirs(&dep_manifest) {
+                let child_canon = child.canonicalize().unwrap_or_else(|_| child.clone());
+                if !seen.contains(&child_canon) {
+                    pending.push(child);
+                }
+            }
+        }
+        roots.push(dir);
+    }
+    roots
 }
 
 /// m340: the highest `--timeout` any dependency declares in its shipped
 /// `port.args.json`, in seconds (the compile-time budget the package author
 /// knows its vendored C needs).
 ///
-/// `apply_dependency_port_args` runs after the compile watchdog has been
-/// armed, so the floor is resolved independently here and folded into the
-/// watchdog budget by [`resolve_compile_timeout`] before spawning it.
+/// m1511: walks the TRANSITIVE closure, so a timeout declared only by a
+/// second-level package (fontraster -> harfbuzz 900 s) still raises the
+/// consumer's watchdog floor.
 pub fn dependency_timeout_floor(manifest: &ProjectManifest) -> Option<u64> {
     if dep_port_args_disabled() {
         return None;
     }
     let mut floor: Option<u64> = None;
-    for dir in xiom_graph::manifest::dependency_package_dirs(manifest) {
+    for dir in dependency_closure(manifest) {
         let path = dir.join("port.args.json");
         let Ok(raw) = std::fs::read_to_string(&path) else {
             continue;
@@ -395,6 +437,131 @@ mod tests {
             timeout_from_args(&v(r#"["--timeout", "300", "--timeout", "900"]"#)),
             Some(900)
         );
+    }
+
+    /// m1511: two-level INSTALLED layout -- consumer -> fontraster ->
+    /// harfbuzz. Only fontraster is a direct dependency; harfbuzz's vendored
+    /// C++ source, `--cxx-standard 17` and 900 s timeout must still reach the
+    /// consumer build. Also proves the cycle guard terminates when a
+    /// second-level package depends back on the first.
+    #[test]
+    fn transitive_installed_port_args_and_cycle_guard() {
+        use xiom_graph::manifest::{CompilerConfig, DependencySpec, ProjectMeta};
+
+        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+        let root = std::env::temp_dir().join(format!(
+            "xiom_depargs_transitive_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let home = root.join("home");
+        let fr = home
+            .join("packages")
+            .join("xiom-fontraster-0.1.0")
+            .join("xiom-fontraster");
+        let hb = home
+            .join("packages")
+            .join("xiom-harfbuzz-0.1.0")
+            .join("xiom-harfbuzz");
+        std::fs::create_dir_all(fr.join("src")).unwrap();
+        std::fs::create_dir_all(hb.join("vendor").join("harfbuzz").join("src")).unwrap();
+        std::fs::write(fr.join("src").join("fontraster.c"), "/* fr */").unwrap();
+        std::fs::write(
+            hb.join("vendor").join("harfbuzz").join("src").join("harfbuzz-subset.cc"),
+            "/* hb */",
+        )
+        .unwrap();
+        std::fs::write(
+            fr.join("port.args.json"),
+            r#"["--c-source", "${PACKAGE_DIR}/src/fontraster.c"]"#,
+        )
+        .unwrap();
+        std::fs::write(
+            hb.join("port.args.json"),
+            r#"["--c-source", "${PACKAGE_DIR}/vendor/harfbuzz/src/harfbuzz-subset.cc", "--cxx-standard", "17", "--timeout", "900"]"#,
+        )
+        .unwrap();
+        std::fs::write(
+            fr.join("package.xi"),
+            "package xiom_fontraster {\n  name: \"xiom.fontraster\";\n  version: \"0.1.0\";\n  deps: { \"xiom.harfbuzz\": \">=0.1.0 <1.0.0\" };\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            hb.join("package.xi"),
+            "package xiom_harfbuzz {\n  name: \"xiom.harfbuzz\";\n  version: \"0.1.0\";\n}\n",
+        )
+        .unwrap();
+
+        let prior_home = std::env::var_os("XIOM_HOME");
+        // SAFETY: this module's tests serialize env mutation via ENV_LOCK.
+        unsafe { std::env::set_var("XIOM_HOME", &home) };
+
+        let consumer = ProjectManifest {
+            project: ProjectMeta {
+                name: "consumer".to_string(),
+                version: "0.1.0".to_string(),
+                ..Default::default()
+            },
+            dependencies: vec![DependencySpec {
+                name: "xiom.fontraster".to_string(),
+                version: ">=0.1.0 <1.0.0".to_string(),
+                path: None,
+                git: None,
+            }],
+            compiler: CompilerConfig::default(),
+            manifest_dir: root.join("consumer"),
+        };
+
+        let mut config = empty_config();
+        let applied = apply_dependency_port_args(&mut config, &consumer);
+        let fr_src = fr.join("src").join("fontraster.c").to_string_lossy().to_string();
+        let hb_src = hb
+            .join("vendor")
+            .join("harfbuzz")
+            .join("src")
+            .join("harfbuzz-subset.cc")
+            .to_string_lossy()
+            .to_string();
+        assert!(
+            config.dependency_c_sources.contains(&fr_src),
+            "direct dependency source missing: {:?}",
+            config.dependency_c_sources
+        );
+        assert!(
+            config.dependency_c_sources.contains(&hb_src),
+            "TRANSITIVE harfbuzz source missing: {:?}",
+            config.dependency_c_sources
+        );
+        assert_eq!(config.cxx_standard.as_deref(), Some("17"));
+        assert_eq!(dependency_timeout_floor(&consumer), Some(900));
+        assert!(applied >= 2, "both levels contribute flags; applied={applied}");
+
+        // Cycle: harfbuzz now depends back on fontraster. The closure must
+        // terminate and must not re-add the same sources.
+        std::fs::write(
+            hb.join("package.xi"),
+            "package xiom_harfbuzz {\n  name: \"xiom.harfbuzz\";\n  version: \"0.1.0\";\n  deps: { \"xiom.fontraster\": \">=0.1.0 <1.0.0\" };\n}\n",
+        )
+        .unwrap();
+        let before = config.dependency_c_sources.len();
+        let _ = apply_dependency_port_args(&mut config, &consumer);
+        assert_eq!(
+            config.dependency_c_sources.len(),
+            before,
+            "cycle guard: no duplicate sources on a cyclic graph"
+        );
+
+        // SAFETY: this test serializes env mutation via ENV_LOCK; restore the
+        // prior process env before releasing it.
+        unsafe {
+            match prior_home {
+                Some(v) => std::env::set_var("XIOM_HOME", v),
+                None => std::env::remove_var("XIOM_HOME"),
+            }
+        }
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
