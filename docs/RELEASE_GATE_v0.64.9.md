@@ -40,8 +40,9 @@ prep commit:
 - [x] Full battery on the release commit: feature_regression 549/549,
       integration 130/130, stdlib_tests 40/40, codegen lib 25/25, xiom lib
       77/77, checker 214/214, parser 109/109, plus the new 1550 e2e lock.
-- [ ] Packaged archive dry-run (Windows/Linux/macOS/VSIX/wasm) on the
-      release commit.
+- [x] Packaged archive dry-run (Windows/Linux/macOS/VSIX/wasm) on the
+      release commit: run 39785770942 SUCCESS (all package legs + VSIX;
+      publish skipped on dispatch).
 - [ ] Registry `xiom-std` pin decision recorded by the stdlib lane.
 - [ ] v0.64.8 check rows closed or explicitly waived; v0.64.9 check opened.
 
