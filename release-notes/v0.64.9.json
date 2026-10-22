@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "tag": "v0.64.9",
+  "summary": "Vector and payload ABI fixes, shared dependency objects, dependency build flags, and a fast process exit, with the matching stdlib pin.",
+  "highlights": [
+    {
+      "kind": "fix",
+      "title": "Vector and adapter typing",
+      "text": "Callee return types now drive Vec element inference and generic adapter calls. The XVC-C-22 PQ codebook drift and second-call access violation are gone, and MapIter.max plus ZipIter.find keep their concrete types."
+    },
+    {
+      "kind": "fix",
+      "title": "Payload and function values",
+      "text": "Boxed Option and Result Str payloads, stored function values, and borrowed enum matches bind by value. Tuple-returning handlers with reference parameters return the full tuple instead of a pointer."
+    },
+    {
+      "kind": "fix",
+      "title": "Enum equality and dependency keys",
+      "text": "Struct equality on a plain enum now compares the discriminant, so log and serialize builds link. Dependency objects use one consumer-neutral key, so multi-target builds stop rebuilding the full vendored set."
+    },
+    {
+      "kind": "fix",
+      "title": "Dependency port args and fast exit",
+      "text": "Package manifests now expose their deps, so an installed package receives its dependency build args and vendored sources. An opt-in fast exit skips process teardown while preserving guard-fault diagnostics."
+    },
+    {
+      "kind": "stdlib",
+      "title": "Contract coverage and readiness",
+      "text": "The contract campaign lifts public-function coverage to 95.2 percent with 97.3 percent of functions carrying clauses, and moves the readiness floor ratchet to the new baseline. Numeric, string, compression, bits, io, core, collect and test surfaces are at or near full coverage."
+    },
+    {
+      "kind": "fix",
+      "title": "JSON and IO retention fixes",
+      "text": "JSON stringification, pretty printing and minification render through byte builders with allocation-free number digits, so repeated JSON loops stay flat under a 256 MB cap. Page readers gain read_at_into with a caller buffer, and list_dir returns runtime-owned entry names so names stay valid after later allocations."
+    }
+  ],
+  "breaking": [],
+  "known_issues": [
+    "The selfhost compiler remains a work in progress and is not part of this toolchain release.",
+    "Dependency objects use a pinned optimization level and are not sanitizer-instrumented.",
+    "The 1M orbitdb exit A/B and the engine dependency-key re-measure are post-release checks.",
+    "A 16 GB Job Object build hang and a JSON numeric service read are still under reporter re-test."
+  ],
+  "docs": [
+    {
+      "title": "Contracts guide",
+      "url": "https://docs.xiom-lang.org/latest/contracts/"
+    },
+    {
+      "title": "Language guide",
+      "url": "https://docs.xiom-lang.org/latest/"
+    }
+  ],
+  "full_changelog": "https://github.com/xiom-lang/xiom/releases/tag/v0.64.9"
+}
