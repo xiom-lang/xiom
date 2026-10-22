@@ -4660,17 +4660,35 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // POINTEE of the argument call, not the enclosing
                             // mono map; the receiver shortcut preempted the
                             // call-result inference and read 8 bytes of Pair.
+                            let concrete_before = concrete_types.len();
                             if !(fn_name == "read" || fn_name == "write") {
                             if let Some(recv) = receiver_expr {
-                                if let Some(pos) = fd.generics.iter().position(|g| g.name.name == gp.name.name) {
-                                    let from_recv = self.receiver_generic_arg_at(recv, pos);
+                                // Only use the receiver shortcut when the method
+                                // generic IS a receiver type parameter, and map
+                                // it by the RECEIVER's param position. The old
+                                // code used the method generic index, so
+                                // EnumerateIter[T].map[U] took the receiver's
+                                // T=Int for U (true 1550 tuple shape).
+                                let recv_base = match recv.as_ref() {
+                                    Expr::Ident(id) => self.resolve_local_xiom_type(&id.name)
+                                        .or_else(|| self.local.local_xiom_types.get(&id.name).cloned())
+                                        .map(|t| Self::parse_generic_type_string(&t).0),
+                                    _ => self.infer_call_return_xiom(recv.as_ref())
+                                        .map(|t| Self::parse_generic_type_string(&t).0),
+                                };
+                                let recv_params = recv_base.as_ref()
+                                    .and_then(|b| self.types.generic_type_params.get(&b.to_string()).cloned());
+                                let recv_pos = recv_params.as_ref()
+                                    .and_then(|ps| ps.iter().position(|p| p == &gp.name.name));
+                                if let Some(recv_pos) = recv_pos {
+                                    let from_recv = self.receiver_generic_arg_at(recv, recv_pos);
                                     let from_map = self.mono.current_type_map.get(&gp.name.name).cloned();
                                     let from_local = if let Expr::Ident(rid) = recv.as_ref() {
                                         self.resolve_local_xiom_type(&rid.name)
                                             .or_else(|| self.local.local_xiom_types.get(&rid.name).cloned())
                                             .and_then(|ty| {
                                                 let (_b, args) = Self::parse_generic_type_string(&ty);
-                                                args.get(pos).cloned()
+                                                args.get(recv_pos).cloned()
                                             })
                                     } else { None };
                                     for arg in [from_recv, from_map, from_local].into_iter().flatten() {
@@ -4682,7 +4700,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                             break;
                                         }
                                     }
-                                    if concrete_types.len() > pos {
+                                    if concrete_types.len() > concrete_before {
                                         continue;
                                     }
                                 }

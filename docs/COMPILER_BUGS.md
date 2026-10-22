@@ -20136,6 +20136,34 @@ checker 214/214, parser 109/109.
 
 ---
 
+## 2026-10-22 -- PARTIAL (true 1550): higher-order U inference and receiver position
+
+WITNESS: `iter.range(10,13).enumerate().map(idx_plus).collect()` with
+`idx_plus: (Int,Int) -> (Int,Int)` still returned `em[1].0 = 0` even after
+the nested-pattern and m372 fixes.
+
+ROOT CAUSE: `EnumerateIter[T].map[U]` has a method generic `U` that is
+NOT a receiver parameter (the receiver is `EnumerateIter[T]`). The new
+receiver shortcut mapped the method's generic index 0 to the receiver's
+T=Int, so `U` became Int (`EnumerateIter.map_Int`) before the fn-argument
+inference ran. `extract_type_arg_names` also ignored `Type::Fn`, so the
+fn-return `U` was not discoverable.
+
+FIX (partial): `extract_type_arg_names` handles `Type::Fn` params/return;
+a higher-order branch binds a generic that appears in the fn return from
+the argument's fn marker (`(Int, Int)` -> `Tuple__Int__Int`); the receiver
+shortcut now requires the generic to be a RECEIVER struct parameter and
+maps it by the receiver's parameter position.
+
+EVIDENCE: `EnumerateIter.map` now specialises with U = the tuple. The
+`collect` call still infers `MapIter.collect_Tuple__Int__Int_Int` (U=Int)
+and `em[1].0` is still 0, so true 1550 is NOT complete. next step: resolve
+the map call's returned `MapIter[(Int,Int),U]` for the collect receiver
+(the map call-site return substitution). Battery after the change:
+feature 549/549, integration 130/130, stdlib 40/40, codegen lib 25/25.
+
+---
+
 ## 2026-10-22 -- FIXED (m1615/1243, REL-20261022-1615-xvector): nested enum patterns were flattened
 
 WITNESS: `Some(Num(n))` / `Ok(Num(n))` / `Err(E.Bad(msg))` selected the

@@ -2226,6 +2226,39 @@ impl IrEmitter {
                 }
             }
         }
+        // 2b. Higher-order generic: `fn map[U](f: fn((Int, T)) -> U)`.
+        // The generic can appear only in the fn return; bind it from the
+        // argument's function marker (`fn((Int, Int)) -> (Int, Int)`).
+        if let Type::Fn(_, fn_ret) = container_ty {
+            if Self::extract_type_arg_names(fn_ret).iter().any(|a| a == gp) {
+                if let Some(marker) = self.fn_ref_marker_xiom(inner) {
+                    if let Some((_, actual_ret)) = marker.rsplit_once("->") {
+                        let actual_ret = actual_ret.trim();
+                        // `(Int, Int)` -> the registered `Tuple__Int__Int`.
+                        let canon = if actual_ret.starts_with('(') && actual_ret.ends_with(')') {
+                            let body = &actual_ret[1..actual_ret.len() - 1];
+                            let parts: Vec<&str> = body.split(',')
+                                .map(|s| s.trim())
+                                .filter(|s| !s.is_empty())
+                                .collect();
+                            if parts.len() > 1 {
+                                format!("Tuple__{}", parts.join("__"))
+                            } else {
+                                parts.first().copied().unwrap_or(actual_ret).to_string()
+                            }
+                        } else {
+                            actual_ret.to_string()
+                        };
+                        let declared_ret = Self::type_from_ast_with_args(fn_ret);
+                        if declared_ret == gp {
+                            if let Some(u) = usable(&canon) {
+                                return Some(u);
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // 3. Call returning a container ("Vec[JsonValue]").
         if let Some(rt) = self.infer_call_return_xiom(inner) {
             let (_base, args) = Self::parse_generic_type_string(&rt);
@@ -2251,6 +2284,17 @@ impl IrEmitter {
             Type::Set(inner) => vec![Self::type_from_ast(inner)],
             // Unwrap Ref/MutRef/Ptr to find type args nested inside.
             Type::Ref(inner) | Type::MutRef(inner) | Type::Ptr(inner) => Self::extract_type_arg_names(inner),
+            // Function type: a generic can live in the return or a param
+            // (`f: fn((Int, T)) -> U`). Map the names so the higher-order
+            // method's U is discoverable; the fn-return branch below binds it
+            // from the actual function marker.
+            Type::Fn(params, ret) => {
+                let mut names = Self::extract_type_arg_names(ret);
+                for p in params {
+                    names.extend(Self::extract_type_arg_names(p));
+                }
+                names
+            }
             // Array: extract const-generic size ident + element type args.
             Type::Array(size_expr, elem) => {
                 let mut names = vec![Self::type_from_ast(elem)];
