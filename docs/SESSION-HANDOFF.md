@@ -14,6 +14,66 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-22T19:52Z (compiler lane; v0.65.0 P0 in progress; v0.64.9 WITHDRAWN) -- READ FIRST ***
+- **v0.64.9 is WITHDRAWN** (GitHub pre-release); production remains
+  **v0.64.8**. Do not pin or deploy v0.64.9. The stdlib v0.64.9 tag and
+  registry exist but are held.
+- **v0.65.0 is the active production goal.** Gate:
+  `docs/RELEASE_GATE_v0.65.0.md`; checklist:
+  `docs/checklists/v0.65.0.md`; paste-ready successor prompt:
+  `docs/CONTINUATION-PROMPT-v0.65.0.md`. No candidate/tag until the gate
+  is green and owner GO is given.
+- Main `dfd234845` plus this handoff commit; workspace/selfhost 0.65.0;
+  `STDLIB_VERSION` remains `stdlib-v0.64.9` for development (v0.65.0 will
+  pin `stdlib-v0.65.0` after the stdlib cut).
+- **Landed since the 18:35Z block:**
+  * nested enum-pattern payloads (m1615/1243) at `ecd22a225`: inner
+    variant discriminant checks + Float64/Str binding; JSON Number probe
+    passes; e2e `e2e_m1615_nested_enum_payloads`.
+  * m372/1451 at `ecd22a225`: generic pointee base canonicalization,
+    LLVM pointee fallback, pointer-local inference; `nested=42 local=42`,
+    e2e green.
+  * partial true 1550 at `dfd234845`: `EnumerateIter.map` now binds U from
+    `idx_plus`'s tuple return and receiver generics map by receiver param
+    position; `collect` still specializes `MapIter.collect_Tuple__Int__Int_Int`
+    (U=Int) and `em[1].0` is still 0.
+  * battery: feature 549/549, integration 130/130, stdlib 40/40, codegen
+    lib 25/25.
+- **Open P0 for v0.65.0:**
+  1. True 1550: resolve the map call's returned `MapIter[(Int,Int),U]` for
+     the `collect` receiver, then add the `em[1].0` e2e lock.
+  2. 1645/1827 data-loss cluster: direct `Err(E.Bad(Str))` in Vec (loses
+     Str; local-bound control works), `Vec[Int]` inside a cross-module
+     `Result[(Nominal, Vec[Int]), Str]` (contents lost), and direct
+     `Err(Enum.Variant(..))` match. Probes are in the packages repo; add
+     them to the compiler/regression suite and gate release-mode codegen.
+  3. 1529 (PULSE): stored-fn env thunks emit `ptrtoint ptr
+     @__unsafe_block_N`; clang 14 / Apple arm64 reject it. Emit a typed
+     `i8*` operand and gate the stored-fn probe on the arm64 floor.
+  4. Release-compiler parity: build `target/release/xiom.exe` and run the
+     P0 probes; add a CI job (the v0.64.9 miss).
+  5. m1511: transitive dependency `port.args.json` closure + two-level
+     installed fontraster test (publish held).
+  6. C07: v0.64.9 capture-probe memory regression (1.43-1.50 GB vs
+     v0.64.4); fix or formally scope with owner approval.
+- **P2 MCU first wave is not started:** target triples
+  thumbv6m/thumbv7em/thumbv8m.main + riscv32imc/imac, `--freestanding`
+  no_std profile, startup/linker contract, Cortex-M + riscv32 hello under
+  QEMU, QEMU CI. See `docs/checklists/mcu-targets.md`.
+- **Selfhost:** RD11 T3 green (19/19, 14/64, 83/83) at `6522688c9`;
+  `diff_ast` 80/83. The trailing-match re-wrap reaches 83/83 but needs a
+  value-returning `NkExprMatch` codegen path; do not enable the parser
+  half alone. m1136 mirror + P6 shapes remain next-cycle.
+- **Relay:** new compiler items `REL-20261022-1529-pulse` and
+  `REL-20261022-1827-packages` (plus 1645/1615). stdlib 1640 is fixed by
+  the JSON digit-loop change; bindings applied the v0.64.9 withdrawal and
+  restored the v0.64.8 production slot; benchmark/orbitdb/engine/packages
+  remain v0.65.0 acceptance inputs.
+- **Host:** the engine incident deleted `C:\Users\lefte\.cargo`. Cargo
+  works from
+  `C:\Users\lefte\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin`;
+  prepend it to PATH. Restore the `.cargo\bin` shims for tests/CI.
+
 *** SESSION UPDATE 2026-10-22T18:35Z (compiler lane; v0.64.9 WITHDRAWN; v0.65.0 production plan) -- READ FIRST ***
 - **v0.64.9 is WITHDRAWN FROM ADOPTION.** The GitHub release is marked
   pre-release; production remains **v0.64.8**. Tag/assets stay for audit
