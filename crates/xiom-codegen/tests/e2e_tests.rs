@@ -11488,3 +11488,15 @@ fn e2e_m1520_adapter_collision() {
         "m1520: adapter max/find must not leak the generic U placeholder"
     );
 }
+
+// m1550 (REL-20261020-1550-stdlib): a tuple-returning fn through
+// EnumerateIter.map must bind the tuple payload by value. Requires the
+// stdlib EnumerateIter[Int].map specialization (stdlib-v0.64.9).
+#[test]
+fn e2e_m1550_enumerate_tuple_map() {
+    assert_eq!(
+        compile_and_run("tests/regression/m1550_enumerate_tuple_map.xi"),
+        Some(0),
+        "m1550: EnumerateIter.map must pass the tuple, not the boxed pointer"
+    );
+}

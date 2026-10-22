@@ -6,17 +6,17 @@
 **Safe - Verified - Precise** -- A systems programming language with first-class contracts.
 
 [![Tests](https://img.shields.io/badge/tests-2%2C600%2B-brightgreen)]()
-[![Version](https://img.shields.io/badge/version-0.64.8-blue)]()
+[![Version](https://img.shields.io/badge/version-0.64.9-blue)]()
 
 XIOM is a compiled, statically typed, memory-safe systems programming language. It compiles to native code via LLVM and supports x86_64, ARM, RISC-V, and WebAssembly. The Rust compiler is the production toolchain; the self-hosted implementation is in Phase 6 (RD10: T3 83/83, 14/64 byte-exact).
 
-## Current Status (2026-10-20)
+## Current Status (2026-10-22)
 
-- **Latest release: [v0.64.8](https://github.com/xiom-lang/xiom/releases/tag/v0.64.8)** (2026-10-19), with Windows, Linux x64/arm64, macOS x64/arm64, wasm, and VSIX assets. The stdlib pin is `stdlib-v0.64.8`; the public registry has `xiom-std 0.64.8` with OIDC provenance.
-- **Post-release fixes on `main`:** absolute-path package discovery, the m371 cross-module imported-struct alias layout, m372 nested `ptr.read`/`ptr.write` inference, m376 per-monomorphisation param/ref-state reset (combined Map/Set generic-helper AV), m377 scalar-pointee `ptr.read`/`ptr.write` inference + call-site pointer ABI, m2057 fn-type alias transparency (checker + codegen, including fn-typed struct fields) + module-global `Vec.pop`, m2100-W1 qualified module field types before method dispatch, m1626 semicolon-less trailing match as the block value (including the Unit-match result-slot follow-up and the single-seed parity fix), m2343 bare inline i32 extern sign-extension, m0717 typed-pointer arm64 Vec field-0 GEP, m1136 block-arm Vec match binding (full 32-byte header), m365 per-key dependency-cache build lock, m373 `[compiler]` `parallel`/`jobs`/`parallel-codegen` knobs, and the RISC-V LLVM triple correction. Checker suite: 213/213; the m371/m372/m376/m377/m2057/m2100/m1626/m2343/m37 e2e locks are green.
-- **Self-hosting:** Phase 6 RD10 is **T3 83/83 green** (phase-5 19/19, T6 **14/64** byte-exact). Next shapes: Option/`.len`, `Vec.pop`, `&Vec`+f64, index arithmetic.
-- **Next:** a v0.64.9 candidate after lane verification; m373 product profiling (the v0.64.8 matrix is front-end-bound, with an ~85 MB peak-RSS floor and LSI 45), m374 parallel checker/CGU design, and MCU/bare-metal targets.
-- **Open relay items:** orbitdb A6 1M-key soak (high). Measured on v0.64.8: the retention is Vec drop elaboration, not `io.read_at` or the arena (`read_at` 10k x 4 KiB = 304 MB; Vec[UInt8] churn alone = 317 MB/10k; the same churn in a helper is flat). Orbitdb has the direct-reader workaround; stdlib has a `read_at_into` caller-buffer wishlist (`REL-20261020-1302-compiler`), and the compiler proper fix (owned Result/Option Vec payloads at scope exit) needs design. The Map/Set generic-helper AV is fixed on `main` (m376); the Vec4f `*Float32` lane-miscompile compiler half is fixed (m377) with the element-based lane-math follow-up in stdlib (`REL-20261020-1242-compiler`). The gate-9 stdlib reds 1626/2343/2100-W1 are fixed on `main` (m1626/m2343/m2100-W1) pending reporter re-verify. m365's per-key dependency-cache lock is on `main`; the caller-side dependency-vs-consumer flag split is waiting on the engine's 117-target key-equality re-measure. New/incoming: orbitdb's global `Vec.pop` shrink is fixed on `main` (m2057, 029595080; v0.64.8 predates it); 2045 is partial (`Vec.pop`/`remove` return `Option[T]`; m1136 fixed aggregate block-arm Vec bindings; the Str payload binding/print remains); XVC-C-22 is acked/reproduced (layout-sensitive second `pq_train` AV; needs a smaller repro/dump); 1326-stdlib (log+serialize `icmp` on `%struct.LogLevel`), 1550-stdlib (tuple fn-value ABI `EnumerateIter.map`), 1531-xvector-2 (build hang under a 16 GB Job Object). m375's new 1M data point is cap-killed at 4.17 GB/~435k keys; the read path is fixed engine-side, residual is page encode/write + Vec-drop.
+- **Latest release: [v0.64.9](https://github.com/xiom-lang/xiom/releases/tag/v0.64.9)** (2026-10-22), with Windows, Linux x64/arm64, macOS x64/arm64, wasm, and VSIX assets. The stdlib pin is `stdlib-v0.64.9`; the public registry has `xiom-std 0.64.9` with OIDC provenance.
+- **v0.64.9 wave:** XVC-C-22 Vec element inference (PQ codebook drift and second-call AV), 2045 part 2 boxed Str payloads, m1731 borrowed-enum match, m1703 stored function values, m1326 enum equality, m1520 adapter generic substitution, m365 shared dependency objects, 1511 dependency port args, 1531 dead-builder cache-lock break, and opt-in `XIOM_FAST_EXIT`. Feature 549/549, integration 130/130, stdlib 40/40, checker 214/214, parser 109/109.
+- **Self-hosting:** Phase 6 RD11 is **T3 83/83 green** (phase-5 19/19, T6 **14/64** byte-exact). Next shapes: m1136 block-arm mirror, Option/`.len`, `Vec.pop`, `&Vec`+f64, index arithmetic.
+- **Next:** v0.65.0 cycle; m375 1M fast-exit A/B, m365 117-target dependency-key re-measure, selfhost m1136/P6, m373 product profiling, m374 parallel checker/CGU design, and MCU/bare-metal targets.
+- **Open coordination:** 1531/1243 xvector re-tests, m375 1M A/B, m365 re-measure, 1511 installed-package re-test. 1550 is fixed in stdlib `d53f93a` (pin verification green on main).
 
 ## Quick Start
 
@@ -31,7 +31,7 @@ cd xiom
 
 # After restarting terminal:
 xiom --version
-# -> XIOM Compiler v0.64.8
+# -> XIOM Compiler v0.64.9
 ```
 
 ### One-Command Install (macOS / Linux)
@@ -49,7 +49,7 @@ xiom --version
 
 ### Pre-built Release (Windows)
 
-Download the latest `xiom-0.64.8-windows-x64.zip` from [Releases](https://github.com/xiom-lang/xiom/releases/tag/v0.64.8), extract, and double-click `install.bat`. It will:
+Download the latest `xiom-0.64.9-windows-x64.zip` from [Releases](https://github.com/xiom-lang/xiom/releases/tag/v0.64.8), extract, and double-click `install.bat`. It will:
 
 1. Ask where to install (default: `%LOCALAPPDATA%\xiom`)
 2. Copy binaries + stdlib + runtime
@@ -78,13 +78,13 @@ Download the latest `xiom-0.64.8-windows-x64.zip` from [Releases](https://github
 # (version defaults to Cargo.toml [workspace.package] version)
 .\package.ps1
 # Produces:
-#   release\xiom-0.64.8\                  <- portable folder
-#   release\xiom-0.64.8-windows-x64.zip   <- distributable ZIP
+#   release\xiom-0.64.9\                  <- portable folder
+#   release\xiom-0.64.9-windows-x64.zip   <- distributable ZIP
 ```
 
 Release folder structure:
 ```
-xiom-0.64.8\
+xiom-0.64.9\
 |-- bin\              xiom.exe, xiom-pkg.exe, xiom-fmt.exe, xiom-doc.exe,
 |                     xiom-lsp.exe, xiom-dbg.exe, xiom-mcp.exe,
 |                     xiom-verify.exe, xiom-ffigen.exe, z3.exe
@@ -98,7 +98,7 @@ xiom-0.64.8\
 Install from a release:
 ```powershell
 # From local release folder
-.\install.ps1 -BinaryPath .\release\xiom-0.64.8
+.\install.ps1 -BinaryPath .\release\xiom-0.64.9
 
 # Or just double-click install.bat in the release folder
 ```
@@ -231,6 +231,7 @@ See the [Releases page](https://github.com/xiom-lang/xiom/releases) for the full
 
 | Version | Date | Tests | Milestone |
 |---------|------|-------|-----------|
+| v0.64.9 | 2026-10-22 | 2,600+ | XVC-C-22 Vec inference, 2045 Str payloads, m1731/m1703/m1326/m1520, m365 shared dependency objects, 1511 port args, m375 fast exit |
 | v0.64.8 | 2026-10-19 | 2,600+ | Scoped arena for frame-shaped memory; zero-capacity Vec fix; m360 i128 div/rem; m368 Vec-drop reclaim; m369 catalog index; m370 generic-struct Vec; C-ORBIT-12/13, XVC-C-20, B-34 |
 | v0.64.0 | 2026-10-05 | 2426 | Major correctness: reflect heap corruption, TcpStream.read elision, unsafe stack exhaustion, installed runtime links, exact float bits |
 | v0.63.1 | 2026-10-05 | 2423 | Fixes: runtime contract evaluator, verifier SMT self/sort emission, LZ4 duplicate leaf, catalog flush |
@@ -258,7 +259,7 @@ Intermediate releases v0.64.1-v0.64.7 are on the [Releases page](https://github.
 
 ## Package Registry
 
-The public registry is at `https://registry.xiom-lang.org`; `xiom-std 0.64.8` is published there with OIDC provenance. For local development you can run the registry server, then publish and install packages.
+The public registry is at `https://registry.xiom-lang.org`; `xiom-std 0.64.9` is published there with OIDC provenance. For local development you can run the registry server, then publish and install packages.
 
 ```powershell
 # Start the registry
