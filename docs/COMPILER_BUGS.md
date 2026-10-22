@@ -20299,3 +20299,34 @@ EVIDENCE: `cargo test -p xiom --lib` 76/76; conformance build under a
 16 GB job on main and v0.64.8 rc 0. Xvector is asked to re-run the exact
 `scripts/build.ps1` command if the hang persists; the primary trigger was
 not reproducible here.
+
+---
+
+## 2026-10-22 -- FIXED (1511, REL-20261021-1511-packages): package.xi `deps:` alias was ignored
+
+WITNESS: an installed `xiom.fontraster` build (its `package.xi` declares
+`deps: { "xiom.harfbuzz": ">=0.1.0 <1.0.0", "xiom.std": ... }`) failed at
+link with undefined `hb_blob_create`/`hb_shape`/... The installed
+`xiom-harfbuzz-0.1.0/xiom-harfbuzz/port.args.json` is present and points at
+`${PACKAGE_DIR}/vendor/harfbuzz/src/harfbuzz-subset.cc`; the consumer
+never received those flags. Only a tree-relative
+`${PACKAGE_DIR}/../xiom-harfbuzz/vendor/...` workaround made it link.
+
+ROOT CAUSE: `parse_package_xi` -> `extract_deps_legacy` recognized only
+`dependencies:`. The package.xi DSL uses the alias `deps:`, so
+`manifest.dependencies` was empty; `dependency_package_dirs` returned no
+dirs and `apply_dependency_port_args` (which already implements transitive
+dependency flags) never ran. `dependency_base_dirs` already resolved the
+nested installed layout correctly.
+
+FIX: accept `deps:`/`"deps":` as well as `dependencies:`; brace-match the
+whole map so the multi-line umbrella `package.xi` form parses; split
+entries quote-aware so version constraints containing commas survive.
+
+EVIDENCE: `cargo test -p xiom-graph` 43/43, including
+`package_xi_deps_alias_is_parsed` (multi-line map) and
+`package_xi_deps_resolve_installed_port_args_dir` (installed
+`xiom-harfbuzz-0.1.0/xiom-harfbuzz` layout). Model confirmed: dependency
+`port.args.json` IS applied transitively; the packages lane can remove the
+tree-relative workaround and verify an installed fontraster build before
+unholding publish.

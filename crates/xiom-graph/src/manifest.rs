@@ -363,35 +363,76 @@ fn extract_modules_root(content: &str) -> Option<String> {
 
 /// Extract dependencies from legacy `package.xi` format.
 fn extract_deps_legacy(content: &str) -> Vec<DependencySpec> {
-    let mut deps = Vec::new();
+    let mut deps: Vec<DependencySpec> = Vec::new();
 
-    // Look for `dependencies: { ... }` or `dependencies: [...]`
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("dependencies:") || trimmed.starts_with("\"dependencies\":") {
-            // Try to find a TOML/JSON-like object
-            let after = trimmed
-                .splitn(2, ':')
-                .nth(1)
-                .unwrap_or("")
-                .trim();
-            if after.starts_with('{') || after.starts_with('[') {
-                // Simple key-value extraction from within braces
-                let inner = after.trim_matches(|c| c == '{' || c == '}' || c == '[' || c == ']');
-                for kv in inner.split(',') {
-                    let kv = kv.trim();
-                    if let Some((name, version)) = kv.split_once(':') {
-                        let name = name.trim().trim_matches('"').trim();
-                        let version = version.trim().trim_matches('"').trim();
-                        if !name.is_empty() {
-                            deps.push(DependencySpec {
-                                name: name.to_string(),
-                                version: version.to_string(),
-                                path: None,
-                                git: None,
-                            });
-                        }
-                    }
+    // Look for `dependencies: { ... }`/`dependencies: [...]` or the
+    // package.xi DSL alias `deps: { ... }`. REL-20261021-1511-packages:
+    // xiom.fontraster declares `deps: { "xiom.harfbuzz": ..., "xiom.std": ... }`;
+    // ignoring the alias left manifest.dependencies empty, so the dependency's
+    // shipped port.args.json (HarfBuzz's vendored C++) was never applied and
+    // an installed consumer failed at link with undefined hb_* symbols.
+    // The umbrella package.xi formats `deps: {` across multiple lines, so scan
+    // the whole body and brace-match instead of reading one line.
+    for key in ["dependencies:", "\"dependencies\":", "deps:", "\"deps\":"] {
+        let Some(start) = content.find(key) else {
+            continue;
+        };
+        let after = &content[start + key.len()..];
+        let Some(open_rel) = after.find(|c: char| c == '{' || c == '[') else {
+            continue;
+        };
+        let open = after.as_bytes()[open_rel] as char;
+        let close = if open == '{' { '}' } else { ']' };
+        let mut depth = 0i32;
+        let mut end = None;
+        for (i, ch) in after[open_rel..].char_indices() {
+            if ch == open {
+                depth += 1;
+            } else if ch == close {
+                depth -= 1;
+                if depth == 0 {
+                    end = Some(open_rel + i);
+                    break;
+                }
+            }
+        }
+        let Some(end) = end else {
+            continue;
+        };
+        let inner = &after[open_rel + 1..end];
+        // Split entries on commas/newlines OUTSIDE quoted version strings
+        // (constraints may contain commas: ">=0.1.0, <1.0.0").
+        let mut entries: Vec<String> = Vec::new();
+        let mut current = String::new();
+        let mut quoted = false;
+        for ch in inner.chars() {
+            match ch {
+                '"' => {
+                    quoted = !quoted;
+                    current.push(ch);
+                }
+                ',' | '\n' if !quoted => {
+                    entries.push(std::mem::take(&mut current));
+                }
+                _ => current.push(ch),
+            }
+        }
+        entries.push(current);
+        for kv in entries {
+            let kv = kv.trim();
+            if kv.is_empty() || kv.starts_with("//") {
+                continue;
+            }
+            if let Some((name, version)) = kv.split_once(':') {
+                let name = name.trim().trim_matches('"').trim();
+                let version = version.trim().trim_matches('"').trim();
+                if !name.is_empty() && !deps.iter().any(|d| d.name == name) {
+                    deps.push(DependencySpec {
+                        name: name.to_string(),
+                        version: version.to_string(),
+                        path: None,
+                        git: None,
+                    });
                 }
             }
         }
@@ -689,6 +730,89 @@ modules: ["core", "string", "math"]
             "older version must not win: {roots:?}"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // REL-20261021-1511-packages: package.xi uses the `deps:` alias. It was
+    // ignored, so dependency port.args.json (HarfBuzz vendored C++) never
+    // applied to an installed consumer.
+    #[test]
+    fn package_xi_deps_alias_is_parsed() {
+        let dir = std::env::temp_dir().join(format!(
+            "xiom_pkgxi_deps_{}_{:x}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).expect("create package dir");
+        let pkg = dir.join("package.xi");
+        std::fs::write(
+            &pkg,
+            r#"package xiom_fontraster {
+  name: "xiom.fontraster";
+  version: "0.1.0";
+  modules: ["xiom.fontraster"];
+  deps: {
+    "xiom.harfbuzz": ">=0.1.0 <1.0.0",
+    "xiom.std": ">=0.60.0 <1.0.0"
+  };
+}
+"#,
+        )
+        .expect("write package.xi");
+
+        let manifest = parse_package_xi(&pkg).expect("parse package.xi");
+        assert!(
+            manifest.dependencies.iter().any(|d| d.name == "xiom.harfbuzz"
+                && d.version == ">=0.1.0 <1.0.0"),
+            "deps: alias lost: {:?}",
+            manifest.dependencies
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn package_xi_deps_resolve_installed_port_args_dir() {
+        let root = std::env::temp_dir().join(format!(
+            "xiom_pkgxi_installed_{}_{:x}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let proj = root.join("proj");
+        let home = root.join("home");
+        let pkg_dir = home
+            .join("packages")
+            .join("xiom-harfbuzz-0.1.0")
+            .join("xiom-harfbuzz");
+        std::fs::create_dir_all(&proj).expect("create project");
+        std::fs::create_dir_all(&pkg_dir).expect("create installed package");
+        std::fs::write(pkg_dir.join("port.args.json"), "[]\n").expect("write port args");
+        let pkg = proj.join("package.xi");
+        std::fs::write(
+            &pkg,
+            r#"package consumer {
+  name: "consumer";
+  version: "0.1.0";
+  modules: ["consumer"];
+  deps: { "xiom.harfbuzz": ">=0.1.0 <1.0.0" };
+}
+"#,
+        )
+        .expect("write package.xi");
+
+        let manifest = parse_package_xi(&pkg).expect("parse package.xi");
+        let bases = dependency_base_dirs(&manifest, &proj, &home);
+        assert!(
+            bases.iter().any(|b| b.ends_with(
+                Path::new("xiom-harfbuzz-0.1.0").join("xiom-harfbuzz")
+            )),
+            "installed port.args dir not resolved: {bases:?}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
