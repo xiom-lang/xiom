@@ -11500,3 +11500,16 @@ fn e2e_m1550_enumerate_tuple_map() {
         "m1550: EnumerateIter.map must pass the tuple, not the boxed pointer"
     );
 }
+
+// m1615 (REL-20261022-1615-xvector): nested enum patterns inside Option and
+// Result must check the inner discriminant and bind Float64/Str payloads.
+// Covers `Some(Num(n))`, `Ok(Num(n))`, `Some(Text(s))`, `Ok(Text(s))`, and
+// `Some(JsonValue.Number(n))` from a parsed object.
+#[test]
+fn e2e_m1615_nested_enum_payloads() {
+    assert_eq!(
+        compile_and_run("tests/regression/m1615_nested_enum_payloads.xi"),
+        Some(0),
+        "m1615: nested enum payloads must bind the inner variant value"
+    );
+}

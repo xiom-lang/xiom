@@ -20136,6 +20136,63 @@ checker 214/214, parser 109/109.
 
 ---
 
+## 2026-10-22 -- FIXED (m1615/1243, REL-20261022-1615-xvector): nested enum patterns were flattened
+
+WITNESS: `Some(Num(n))` / `Ok(Num(n))` / `Err(E.Bad(msg))` selected the
+first Some/Ok arm without checking the inner enum discriminant, and the
+inner payload was never bound; Float64 read 0 and Str read empty. The JSON
+`JsonValue.Number` probe printed `top_d=0`/`match_n=0` while stringify was
+correct. A 15-line local `Option[Inner]`/`Result[Inner, Str]` fixture
+reproduced it at every optimization level.
+
+ROOT CAUSE: the match arm check for `Pattern::Some/Ok/Err` only compared
+the OUTER Option/Result tag. It had no recursion into an inner
+`Pattern::Variant`, and the payload binder only handled
+`Pattern::Ident`, so `Num(n)`/`Text(s)` never bound anything.
+
+FIX: a shared `bind_variant_payload_fields` helper (extracted from the
+top-level variant binder) plus `enum_payload_value_ptr` handle inline and
+boxed enum payloads; the arm check emits the inner discriminant test after
+the outer tag check, and the arm binding resolves the inner enum type via
+`scrutinee_payload_xiom` and binds Float64/Float32/Str/Vec/struct fields.
+`Err(inner)` now also provides its payload pattern (the old code only
+looked at Some/Ok).
+
+EVIDENCE: `m1615_nested_enum_payloads` prints opt_n=3.75, res_n=2.5,
+opt_s=nested-str, res_s=res-str, json_n=3.73975348472595, rc 0; e2e
+`e2e_m1615_nested_enum_payloads`. The JSON read probe passes. 1645's
+direct `Err(E.Bad(...))`-in-Vec loss is a separate Vec-push boxing issue
+and remains open.
+
+---
+
+## 2026-10-22 -- FIXED (m372/1451 regression): generic pointee spelling degraded to i64
+
+WITNESS: `ptr.read(identity_ptr[T](p))` returned Pair but the local-bound
+`let q0 = identity_ptr[T](p); ptr.read(q0)` read 0; the release archive
+also failed `nested=0 local=0` on m372 after `d04cd3265`.
+
+ROOT CAUSE: the explicit type-arg substitution turns the nested call into
+`identity_ptr_Int`; its inferred return is `*Pair[Int]`. `llvm_type_for`
+cannot resolve the parameterized pointee spelling and defaults to i64, so
+`ptr.read` specialized as `ptr.read_Int` and loaded 8 bytes. For the
+local-bound shape the pointer-local path additionally preempted the
+call-result pointee inference.
+
+FIX: canonicalize a pointer-return pointee to its registered base struct
+(`Pair[Int]` -> `Pair`), add an LLVM-pointer-pointee fallback when the
+XIOM return degrades to a non-pointer, exclude `ptr.read`/`ptr.write`
+from the enclosing-mono receiver shortcut, and infer the pointee directly
+from a pointer local's LLVM type. `m1520`'s explicit substitution stays
+intact.
+
+EVIDENCE: m372 prints `nested=42 local=42`, rc 0; e2e
+`e2e_m372_nested_generic_ptr_read`; m1520 `max=6`/`found=2,6`; m1550 e2e
+`em=10,12,14`. The true tuple-returning `p_iter_enumerate_tuple` shape
+still fails on `em[1].0` and is tracked separately.
+
+---
+
 ## 2026-10-21 -- FIXED (m1731, REL-20261021-1731-stdlib): match on a borrowed enum emitted invalid IR
 
 WITNESS: `let k = json.json_string("world"); match &k { JsonValue.String(s)

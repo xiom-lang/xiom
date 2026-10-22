@@ -2129,6 +2129,27 @@ impl IrEmitter {
         let bare_param = matches!(container_ty, Type::Named(id, args) if args.is_empty() && id.name == gp);
         if bare_param {
             let param_is_pointer = matches!(param_ty, Type::Ref(_) | Type::MutRef(_) | Type::Ptr(_));
+            // m372 local-bound control: let q0 = identity_ptr[T](p);
+            // ptr.read(q0) passes a POINTER LOCAL, not a call. Infer
+            // T from the local's LLVM pointee (%struct.Pair* -> Pair),
+            // stripping generic args that llvm_type_for cannot resolve.
+            if param_is_pointer && allow_call_pointee {
+                if let Expr::Ident(id) = inner {
+                    if let Some((_, lt)) = self.lookup_local(&id.name) {
+                        if let Some(pointee_llvm) = lt.strip_suffix('*') {
+                            let clean = pointee_llvm.strip_prefix("%struct.").unwrap_or(pointee_llvm);
+                            let leaf = clean.rsplit('.').next().unwrap_or(clean)
+                                .split('[').next().unwrap_or(clean).trim();
+                            if self.types.types.contains_key(&leaf.to_string())
+                                || self.types.type_meta.contains_key(&leaf.to_string())
+                                || self.types.type_meta.keys().into_iter().any(|k| k.ends_with(&format!(".{leaf}")))
+                            {
+                                if let Some(u) = usable(leaf) { return Some(u); }
+                            }
+                        }
+                    }
+                }
+            }
             let ref_arg = matches!(
                 arg_expr,
                 Expr::Ref(..) | Expr::MutRef(..)
@@ -2163,12 +2184,44 @@ impl IrEmitter {
                 // 8 bytes of a 16-byte Pair. This fires only when NO sibling
                 // parameter names the same generic (the caller's deferral
                 // contract); a sibling `src: T` still owns the inference.
-                if let Some(rt) = self.infer_call_return_xiom(inner) {
-                    let pointee = rt.trim_start_matches(|c: char| {
-                        c == '*' || c == '&' || c.is_whitespace()
-                    });
-                    if let Some(u) = usable(pointee) {
-                        return Some(u);
+                let rt = self.infer_call_return_xiom(inner);
+                let rt_trimmed = rt.as_deref().map(|r| {
+                    let t = r.trim_start();
+                    let pointerish = t.starts_with('*') || t.starts_with('&');
+                    (r, pointerish, t.trim_start_matches(|c: char| c == '*' || c == '&' || c.is_whitespace()).to_string())
+                });
+                if let Some((_raw, pointerish, pointee)) = &rt_trimmed {
+                    if *pointerish {
+                        // The inferred pointee may keep generic args
+                        // (*Pair[Int]). llvm_type_for cannot resolve the
+                        // parameterized spelling and defaults to i64, so
+                        // strip to the registered base struct (Pair).
+                        let pointee_base = pointee.split('[').next().unwrap_or(pointee).trim();
+                        if let Some(u) = usable(pointee_base) {
+                            return Some(u);
+                        }
+                    }
+                }
+                // 1520 fallback: a monomorphised nested generic call
+                // (`identity_ptr[Int](p)`) can make the call-site return
+                // inference degrade to the type ARG ("Int", not pointer-ish).
+                // Recover the pointee from the call's LLVM pointer type
+                // (`%struct.Pair*` -> Pair); this restores m372 without
+                // undoing the explicit type-arg substitution that m1520
+                // needs.
+                let llvm_rt = self.infer_llvm_type(inner);
+                if let Some(pointee_llvm) = llvm_rt.strip_suffix('*') {
+                    let clean = pointee_llvm.strip_prefix("%struct.").unwrap_or(pointee_llvm);
+                    let leaf = clean.rsplit('.').next().unwrap_or(clean)
+                        .split('[').next().unwrap_or(clean).trim();
+                    let registered = self.types.types.contains_key(&leaf.to_string())
+                        || self.types.type_meta.contains_key(&leaf.to_string())
+                        || self.types.type_meta.keys().into_iter()
+                            .any(|k| k.ends_with(&format!(".{leaf}")));
+                    if registered {
+                        if let Some(u) = usable(leaf) {
+                            return Some(u);
+                        }
                     }
                 }
             }

@@ -4656,6 +4656,11 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             // The old arg-only inference left T literal, so
                             // collect/next specialised with Int and the Option
                             // tuple payload was bound as a scalar pointer.
+                            // m372: ptr.read/ptr.write's T is determined by the
+                            // POINTEE of the argument call, not the enclosing
+                            // mono map; the receiver shortcut preempted the
+                            // call-result inference and read 8 bytes of Pair.
+                            if !(fn_name == "read" || fn_name == "write") {
                             if let Some(recv) = receiver_expr {
                                 if let Some(pos) = fd.generics.iter().position(|g| g.name.name == gp.name.name) {
                                     let from_recv = self.receiver_generic_arg_at(recv, pos);
@@ -4681,6 +4686,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                         continue;
                                     }
                                 }
+                            }
                             }
                             // BUG 29 (Map.keys on module globals): infer a
                             // generic METHOD's type args from the RECEIVER's
@@ -5026,6 +5032,25 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     let allow_call_pointee = (fn_name == "read"
                                         || fn_name == "write")
                                         && gp_param_count == 1;
+                                    if allow_call_pointee {
+                                        if let Expr::Ident(id) = arg_expr {
+                                            if let Some((_, lt)) = self.lookup_local(&id.name) {
+                                                let pointee = lt.trim_end_matches('*');
+                                                let clean = pointee.strip_prefix("%struct.").unwrap_or(pointee);
+                                                let leaf = clean.rsplit('.').next().unwrap_or(clean)
+                                                    .split('[').next().unwrap_or(clean).trim();
+                                                let registered = self.types.types.contains_key(&leaf.to_string())
+                                                    || self.types.type_meta.contains_key(&leaf.to_string())
+                                                    || self.types.type_meta.keys().into_iter()
+                                                        .any(|k| k.ends_with(&format!(".{leaf}")));
+                                                if registered && !leaf.is_empty() && leaf != gp.name.name {
+                                                    concrete_types.push(leaf.to_string());
+                                                    inferred = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
                                     match self.infer_generic_arg_from_container(
                                         &param.ty,
                                         &gp.name.name,

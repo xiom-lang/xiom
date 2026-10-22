@@ -236,6 +236,145 @@ impl IrEmitter {
         None
     }
 
+    /// Bind the payload fields of a variant pattern from an enum value.
+    /// `alloca` points at the enum (or its box); `type_name` is its XIOM name
+    /// (exact or suffix-resolvable); `struct_ty` is the LLVM struct type.
+    ///
+    /// Shared by top-level `Pattern::Variant` and nested
+    /// `Some/Ok/Err(InnerVariant(...))` patterns (REL-20261022-1615/1645).
+    /// The nested form previously bound nothing, so the payload read as 0.
+    fn bind_variant_payload_fields(
+        &mut self,
+        alloca: &str,
+        type_name: &str,
+        struct_ty: &str,
+        variant_ident: &Ident,
+        fields: &[Ident],
+    ) {
+        let type_key = if self.types.types.contains_key(&type_name.to_string()) {
+            type_name.to_string()
+        } else {
+            self.types.types.entries().into_iter()
+                .find(|(k, _)| k.ends_with(&format!(".{type_name}")))
+                .map(|(k, _)| k)
+                .unwrap_or_else(|| type_name.to_string())
+        };
+        let Some(field_names) = self.types.types.get(&type_key) else {
+            return;
+        };
+        let leaf_variant = variant_ident.name.rsplit('.').next()
+            .unwrap_or(&variant_ident.name).to_string();
+        let variants_opt = self.types.enum_variants.get(&type_key);
+        for (fi, field_ident) in fields.iter().enumerate() {
+            // The CANONICAL variant field at position fi wins. The pattern
+            // binding NAME is a local, not a field key.
+            let field_idx_opt = variants_opt.as_ref().and_then(|variants| {
+                variants.iter().find(|(vn, _)| vn == &leaf_variant || vn == &variant_ident.name)
+                    .and_then(|(_, vfields)| vfields.get(fi))
+                    .and_then(|canonical| field_names.iter().position(|f| f == canonical))
+            }).or_else(|| field_names.iter().position(|f| f == &field_ident.name));
+            let Some(field_idx) = field_idx_opt else { continue };
+            let gep = self.fresh_tmp();
+            self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {field_idx}"));
+            let loaded = self.fresh_tmp();
+            let field_llvm_ty = self.field_llvm_type(&type_key, field_idx);
+            self.emitln(&format!("  {loaded} = load {field_llvm_ty}, {field_llvm_ty}* {gep}"));
+            let payload_xiom_ty: Option<String> = self.types.enum_variant_field_types.get(&type_key)
+                .or_else(|| {
+                    self.types.enum_variant_field_types.entries().into_iter()
+                        .find(|(k, _)| k.ends_with(&format!(".{type_key}")))
+                        .map(|(_, v)| v)
+                })
+                .and_then(|vft| vft.into_iter().find(|(vn, _)| vn == &leaf_variant || vn == &variant_ident.name))
+                .and_then(|(_, ftypes)| ftypes.get(fi).cloned());
+            // Float payloads are RAW BITS in the i64 slot: bind real floats.
+            let mut alias_payload = false;
+            let (bind_val, bind_ty): (String, String) = match (field_llvm_ty.as_str(), payload_xiom_ty.as_deref()) {
+                ("i64", Some("Float64")) | ("i64", Some("Float")) => {
+                    let d = self.fresh_tmp();
+                    self.emitln(&format!("  {d} = bitcast i64 {loaded} to double"));
+                    (d, "double".to_string())
+                }
+                ("i64", Some("Float32")) => {
+                    let t32 = self.fresh_tmp();
+                    self.emitln(&format!("  {t32} = trunc i64 {loaded} to i32"));
+                    let f = self.fresh_tmp();
+                    self.emitln(&format!("  {f} = bitcast i32 {t32} to float"));
+                    (f, "float".to_string())
+                }
+                ("i64", Some("Str")) => {
+                    let sptr = self.fresh_tmp();
+                    self.emitln(&format!("  {sptr} = inttoptr i64 {loaded} to i8*"));
+                    (sptr, LLVM_STR_PTR.to_string())
+                }
+                ("i64", Some(px)) if !px.starts_with("Vec[") => {
+                    let norm = self.canonical_registered_tuple_key(&Self::tuple_xiom_to_struct_name(px))
+                        .unwrap_or_else(|| Self::tuple_xiom_to_struct_name(px));
+                    let st_opt = self.llvm_type_for(&norm).or_else(|_| self.llvm_type_for(px));
+                    if let Ok(st) = st_opt {
+                        if st.starts_with("%struct.") {
+                            let sptr = self.fresh_tmp();
+                            self.emitln(&format!("  {sptr} = inttoptr i64 {loaded} to {st}*"));
+                            self.local.local_boxed_struct.insert(field_ident.name.clone(), norm.clone());
+                            alias_payload = true;
+                            (sptr, st)
+                        } else {
+                            (loaded.clone(), field_llvm_ty.clone())
+                        }
+                    } else {
+                        (loaded.clone(), field_llvm_ty.clone())
+                    }
+                }
+                _ => (loaded.clone(), field_llvm_ty.clone()),
+            };
+            if alias_payload {
+                self.add_local(&field_ident.name, bind_val, &bind_ty);
+            } else {
+                let field_alloca = self.fresh_tmp();
+                self.emitln(&format!("  {field_alloca} = alloca {bind_ty}"));
+                self.emitln(&format!("  store {bind_ty} {bind_val}, {bind_ty}* {field_alloca}"));
+                self.add_local(&field_ident.name, field_alloca, &bind_ty);
+            }
+            self.local.local_vec_handle.remove(&field_ident.name);
+            if let Some(fty) = payload_xiom_ty.as_deref() {
+                if let Some(inner) = fty.strip_prefix("Vec[").and_then(|s| s.strip_suffix(']')) {
+                    self.local.local_vec_handle.insert(field_ident.name.clone(), inner.to_string());
+                }
+                if !fty.starts_with("Vec[") {
+                    self.local.local_xiom_types.insert(field_ident.name.clone(), fty.to_string());
+                }
+            }
+        }
+    }
+
+    /// Resolve a nested enum payload value to a pointer suitable for field
+    /// GEPs. Handles inline `%struct.Enum` payloads and boxed enum payloads
+    /// (i64 slot holding a heap pointer, the large-enum convention).
+    fn enum_payload_value_ptr(
+        &mut self,
+        loaded: &str,
+        field_ty: &str,
+        inner_xiom: &str,
+    ) -> Option<(String, String)> {
+        if field_ty.starts_with("%struct.") {
+            let a = self.fresh_tmp();
+            self.emitln(&format!("  {a} = alloca {field_ty}"));
+            self.emitln(&format!("  store {field_ty} {loaded}, {field_ty}* {a}"));
+            return Some((a, field_ty.to_string()));
+        }
+        if field_ty != "i64" {
+            return None;
+        }
+        let st = self.registered_struct_llvm_for(inner_xiom)
+            .or_else(|| self.boxed_aggregate_llvm_for(inner_xiom))?;
+        if !st.starts_with("%struct.") {
+            return None;
+        }
+        let p = self.fresh_tmp();
+        self.emitln(&format!("  {p} = inttoptr i64 {loaded} to {st}*"));
+        Some((p, st))
+    }
+
     pub(crate) fn compile_stmt_impl(&mut self, stmt: &Stmt) -> Result<(), String> {
         match stmt {
             Stmt::Let(name, _ty, value, _) => {
@@ -2509,9 +2648,10 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             };
                             let inner_pat: Option<&Pattern> = match &arm.pattern {
                                 Pattern::Some(inner, _) | Pattern::Ok(inner, _) => Some(inner.as_ref()),
+                                Pattern::Err(inner, _) => Some(inner.as_ref()),
                                 _ => None,
                             };
-                            if let Some((alloca, _type_name, struct_ty)) = &scrutinee_alloca_info {
+                            if let Some((alloca, type_name, struct_ty)) = &scrutinee_alloca_info {
                                 let disc_gep = self.fresh_tmp();
                                 let disc_val = self.fresh_tmp();
                                 self.emitln(&format!("  {disc_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 0"));
@@ -2526,6 +2666,10 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                     Some(Pattern::Lit(Literal::Int(n, _))) => Some(*n as i64),
                                     _ => None,
                                 };
+                                let inner_variant = match inner_pat {
+                                    Some(Pattern::Variant(vn, _, _)) => Some(vn),
+                                    _ => None,
+                                };
                                 if let (1i64, Some(val)) = (expected_disc, lit_val) {
                                     let inner_ok = self.fresh_block("match_inner_ok");
                                     self.emitln(&format!("  br i1 {disc_check}, label %{inner_ok}, label %{next}"));
@@ -2537,6 +2681,63 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                     self.emitln(&format!("  {val_loaded} = load i64, i64* {val_gep}"));
                                     self.emitln(&format!("  {val_check} = icmp eq i64 {val_loaded}, {val}"));
                                     self.emitln(&format!("  br i1 {val_check}, label %{arm_label}, label %{next}"));
+                                } else if let Some(vn) = inner_variant {
+                                    // 1615/1645: `Some(Number(n))`, `Ok(Num(n))`,
+                                    // `Err(E.Bad(msg))` must check the INNER enum
+                                    // discriminant too. The old lowering only checked
+                                    // the outer Option/Result tag, selected the first
+                                    // matching arm, and left the inner payload
+                                    // unbound (n read as 0).
+                                    let inner_ok = self.fresh_block("match_inner_variant");
+                                    self.emitln(&format!("  br i1 {disc_check}, label %{inner_ok}, label %{next}"));
+                                    self.emitln(&format!("\n{inner_ok}:"));
+                                    let val_field: i32 = if expected_disc == 1 { 1 } else { 2 };
+                                    let inner_xiom = self.scrutinee_payload_xiom(expr_match, val_field)
+                                        .map(|d| self.expand_alias_application_xiom(&d));
+                                    let mut checked = false;
+                                    if let Some(inner_ty) = inner_xiom {
+                                        let concrete_name = struct_ty.strip_prefix("%struct.").unwrap_or("");
+                                        let field_owner: &str = if !concrete_name.is_empty()
+                                            && self.types.type_meta.contains_key(&concrete_name.to_string())
+                                        {
+                                            concrete_name
+                                        } else {
+                                            type_name.as_str()
+                                        };
+                                        let field_ty = self.field_llvm_type(field_owner, val_field as usize);
+                                        let val_gep = self.fresh_tmp();
+                                        let loaded = self.fresh_tmp();
+                                        self.emitln(&format!("  {val_gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {val_field}"));
+                                        self.emitln(&format!("  {loaded} = load {field_ty}, {field_ty}* {val_gep}"));
+                                        if let Some((inner_ptr, inner_struct)) =
+                                            self.enum_payload_value_ptr(&loaded, &field_ty, &inner_ty)
+                                        {
+                                            let enum_key = if self.types.enum_variants.contains_key(&inner_ty) {
+                                                inner_ty.clone()
+                                            } else {
+                                                self.types.enum_variants.entries().into_iter()
+                                                    .find(|(k, _)| k.ends_with(&format!(".{inner_ty}")))
+                                                    .map(|(k, _)| k.clone())
+                                                    .unwrap_or_else(|| inner_ty.clone())
+                                            };
+                                            let leaf = vn.name.rsplit('.').next().unwrap_or(&vn.name);
+                                            let variant_idx = self.types.enum_variants.get(&enum_key)
+                                                .and_then(|vs| vs.iter().position(|(n, _)| n == leaf || n == vn.name.as_str()));
+                                            if let Some(variant_idx) = variant_idx {
+                                                let tag_gep = self.fresh_tmp();
+                                                let tag = self.fresh_tmp();
+                                                let ok = self.fresh_tmp();
+                                                self.emitln(&format!("  {tag_gep} = getelementptr {inner_struct}, {inner_struct}* {inner_ptr}, i32 0, i32 0"));
+                                                self.emitln(&format!("  {tag} = load i64, i64* {tag_gep}"));
+                                                self.emitln(&format!("  {ok} = icmp eq i64 {tag}, {variant_idx}"));
+                                                self.emitln(&format!("  br i1 {ok}, label %{arm_label}, label %{next}"));
+                                                checked = true;
+                                            }
+                                        }
+                                    }
+                                    if !checked {
+                                        self.emitln(&format!("  br label %{next}"));
+                                    }
                                 } else {
                                     self.emitln(&format!("  br i1 {disc_check}, label %{arm_label}, label %{next}"));
                                 }
@@ -3091,7 +3292,22 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             let field_ty = self.field_llvm_type(field_owner, val_field as usize);
                             let loaded = self.fresh_tmp();
                             self.emitln(&format!("  {loaded} = load {field_ty}, {field_ty}* {val_gep}"));
-                            if let Pattern::Ident(ident) = inner {
+                            if let Pattern::Variant(vn, vfields, _) = inner {
+                                // 1615/1645: nested variant payload. Resolve the
+                                // inner enum type for this Option/Result slot and
+                                // bind the variant fields (Str/Float/Vec/struct).
+                                let inner_xiom = self.scrutinee_payload_xiom(expr_match, val_field)
+                                    .map(|d| self.expand_alias_application_xiom(&d));
+                                if let Some(inner_ty) = inner_xiom {
+                                    if let Some((inner_ptr, inner_struct)) =
+                                        self.enum_payload_value_ptr(&loaded, &field_ty, &inner_ty)
+                                    {
+                                        self.bind_variant_payload_fields(
+                                            &inner_ptr, &inner_ty, &inner_struct, vn, vfields,
+                                        );
+                                    }
+                                }
+                            } else if let Pattern::Ident(ident) = inner {
                                 // Declared payload type from scrutinee tracking
                                 // (BUG 22 #4: scalar float payloads come from
                                 // local_opt_payload_xiom -- `var o = Some(5.0)` --
