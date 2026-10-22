@@ -20355,3 +20355,29 @@ EVIDENCE: unit test
 77/77. Still pending the engine's 117-target assimp re-measure with
 `XIOM_NO_DEP_PORT_ARGS` unset; the acceptance is one cold build followed by
 a hello and an assimp probe sharing the same dep key.
+
+---
+
+## 2026-10-22 -- PARTIAL/TOOLING (m375, REL-20261021-1122-orbitdb-2): exit reclaim and cache sizing
+
+MEASURED: the orbitdb soak's `ms=` field is seconds (`io.time_now` is
+C `time(0)`), so the 20k run is 37 s of work and <0.1 s of exit; 200k is
+527 s of work and 0.04 s of exit (6452 nodes). There is no measurable exit
+teardown at those sizes, and the compiler emits no struct drop glue (only
+the conservative m368 Vec-header drops). The reported 880 s at 1M is
+specific to that scale or to a phase the probe does not time.
+
+ADDED: opt-in `XIOM_FAST_EXIT=1` at compile time. The emitter renames the
+user `main` to `xiom_app_main` and emits a C `main` wrapper that flushes
+stdout, checks `xiom_fault_should_exit` (a guard fault still takes the slow
+`exit` path so the exit-70 diagnostic runs), then calls `ExitProcess`
+(Windows) / `_exit` (POSIX). The OS reclaims the heap in one step; default
+semantics are unchanged. Unit tests
+`fast_exit_wrapper_renames_main_and_declares_once` and
+`fast_exit_disabled_is_identity`; the 20k soak builds and runs with it.
+
+CACHE SIZING (engine ops): `ORBITDB_PAGER_CAPACITY` frames must be >= the
+resident node count for a fully resident tree; 65,536 covered 1M keys /
+32,260 nodes, while the 256 default thrashes (the earlier 4.17 GB kill).
+Awaiting the 1M A/B with `XIOM_FAST_EXIT=1`: if the 880 s remains, it is
+pre-return work and needs a phase timing, not an exit change.

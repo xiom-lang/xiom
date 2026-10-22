@@ -6786,7 +6786,84 @@ impl IrEmitter {
         // level (a mid-function emit would corrupt the IR).
         self.flush_contract_counter_decls();
 
-        Ok(Self::hoist_static_allocas(&self.output))
+        let ir = Self::hoist_static_allocas(&self.output);
+        Ok(Self::maybe_wrap_fast_exit(ir))
+    }
+
+    /// m375 (REL-20261021-1122-orbitdb-2): opt-in fast process exit.
+    ///
+    /// A 20k orbitdb soak spends 37 ms in work and ~37 s in the CRT/ntdll
+    /// heap teardown after `main` returns (RIP samples are 97% ntdll
+    /// `RtlpHp*`/`RtlFreeHeap`). The compiler emits no struct drop glue, so
+    /// this is process-exit cost, not generated drops. With `XIOM_FAST_EXIT=1`
+    /// the user main is renamed and a C `main` wrapper flushes stdio, checks
+    /// the guard-fault record (a fault still takes the slow `exit` path so the
+    /// exit-70 diagnostic runs), then calls `ExitProcess`/`_exit`; the OS
+    /// reclaims the heap in one step. Opt-in: default semantics are unchanged.
+    fn maybe_wrap_fast_exit(ir: String) -> String {
+        let enabled = std::env::var("XIOM_FAST_EXIT")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        Self::wrap_fast_exit(ir, enabled)
+    }
+
+    fn wrap_fast_exit(ir: String, enabled: bool) -> String {
+        if !enabled {
+            return ir;
+        }
+        let needle = "define i64 @main(";
+        let Some(pos) = ir.find(needle) else {
+            return ir;
+        };
+        let mut out = String::with_capacity(ir.len() + 640);
+        out.push_str(&ir[..pos]);
+        out.push_str("define i64 @xiom_app_main(");
+        out.push_str(&ir[pos + needle.len()..]);
+        let out = out.replace("call i64 @main(", "call i64 @xiom_app_main(");
+        // Declare only what the module does not already declare; LLVM rejects
+        // a duplicate declaration in this position (`invalid redefinition`).
+        let mut decls = String::new();
+        if !out.contains("@xiom_fault_should_exit") {
+            decls.push_str("declare i64 @xiom_fault_should_exit()\n");
+        }
+        if !out.contains("@xiom_fflush_stdout") {
+            decls.push_str("declare i32 @xiom_fflush_stdout()\n");
+        }
+        if !out.contains("@exit(i32)") {
+            decls.push_str("declare void @exit(i32)\n");
+        }
+        let fast_call = if cfg!(windows) {
+            if !out.contains("@ExitProcess(i32)") {
+                decls.push_str("declare void @ExitProcess(i32)\n");
+            }
+            "call void @ExitProcess(i32 %c)"
+        } else {
+            if !out.contains("@_exit(i32)") {
+                decls.push_str("declare void @_exit(i32)\n");
+            }
+            "call void @_exit(i32 %c)"
+        };
+        let body = format!(
+            r#"
+define i32 @main() {{
+entry:
+  %r = call i64 @xiom_app_main()
+  %f = call i64 @xiom_fault_should_exit()
+  %isfault = icmp ne i64 %f, 0
+  br i1 %isfault, label %slow, label %fast
+slow:
+  %ec = trunc i64 %r to i32
+  call void @exit(i32 %ec)
+  unreachable
+fast:
+  %fl = call i32 @xiom_fflush_stdout()
+  %c = trunc i64 %r to i32
+  {fast_call}
+  unreachable
+}}
+"#
+        );
+        format!("{out}\n{decls}{body}")
     }
 
     /// m283: emit any not-yet-emitted `@__xiom_ctype_*` global declarations at
@@ -11067,3 +11144,33 @@ fn is_float_local(expr: &Expr, locals: &[HashMap<String, (String, String)>]) -> 
     false
 }
 
+
+#[cfg(test)]
+mod fast_exit_tests {
+    use super::IrEmitter;
+
+    #[test]
+    fn fast_exit_wrapper_renames_main_and_declares_once() {
+        let ir = "define i64 @main() {\nentry:\n  ret i64 0\n}\n".to_string();
+        let out = IrEmitter::wrap_fast_exit(ir, true);
+        assert!(out.contains("define i64 @xiom_app_main("));
+        assert!(out.contains("define i32 @main()"));
+        assert!(out.contains("xiom_fault_should_exit"));
+        assert!(out.contains("xiom_fflush_stdout"));
+        assert_eq!(out.matches("define i32 @main()").count(), 1);
+
+        let dup = "declare i32 @xiom_fflush_stdout()\ndefine i64 @main() { ret i64 0 }\n".to_string();
+        let out2 = IrEmitter::wrap_fast_exit(dup, true);
+        assert_eq!(
+            out2.matches("declare i32 @xiom_fflush_stdout()").count(),
+            1,
+            "existing declarations must not be duplicated"
+        );
+    }
+
+    #[test]
+    fn fast_exit_disabled_is_identity() {
+        let ir = "define i64 @main() { ret i64 0 }\n".to_string();
+        assert_eq!(IrEmitter::wrap_fast_exit(ir.clone(), false), ir);
+    }
+}
