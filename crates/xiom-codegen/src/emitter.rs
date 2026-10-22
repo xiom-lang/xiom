@@ -336,6 +336,67 @@ impl IrEmitter {
     /// binding can infer the type args. Guards against unresolved generic
     /// params: "Map[K, V]" from a generic callee must NOT be recorded
     /// (K/V are placeholders, not concrete types).
+    /// 1550/1520: resolve a CALL's declared return using the concrete generic
+    /// args recorded for THIS call site (`call_site_generic_types`, keyed by
+    /// the callee span). The receiver of a chained call is itself a call
+    /// (`...map(f).collect()`), whose concrete args are only known from the
+    /// emission of that inner call; `infer_struct_type_name` cannot see them
+    /// and the old fallback left placeholders ("MapIter[(Int, T), U]"), so
+    /// `collect`/`next` specialised as Int and bound the Option tuple payload
+    /// as a scalar pointer. Also resolves a computed receiver's base by
+    /// recursing through `infer_call_return_xiom`.
+    fn call_site_return_xiom(&self, func: &Expr) -> Option<String> {
+        let sp = func.span();
+        let cts = self.mono.call_site_generic_types_ptr
+            .get(&(func as *const Expr as usize))
+            .or_else(|| self.mono.call_site_generic_types.get(&(sp.byte_start, sp.byte_end)))?;
+        if cts.is_empty() {
+            return None;
+        }
+        let key: String = match func {
+            Expr::Ident(id) => id.name.clone(),
+            Expr::Field(recv, f, _) => {
+                let base = self.infer_struct_type_name(recv)
+                    .or_else(|| {
+                        self.infer_call_return_xiom(recv).map(|rt| {
+                            let (base, _) = Self::parse_generic_type_string(&rt);
+                            base.rsplit('.').next().unwrap_or(base.as_str()).to_string()
+                        })
+                    })?;
+                format!("{}.{}", base, f.name)
+            }
+            _ => return None,
+        };
+        let (_, fd) = self.find_generic_decl(&key)?;
+        if cts.len() < fd.generics.len() {
+            return None;
+        }
+        let mut type_map = std::collections::HashMap::new();
+        for (gp, ct) in fd.generics.iter().zip(cts.iter()) {
+            if !gp.is_const {
+                type_map.insert(gp.name.name.clone(), ct.clone());
+            }
+        }
+        let ret = fd.return_type.as_ref()?;
+        let subst = Self::substitute_type(ret, ret, &type_map);
+        let name = match &subst {
+            Type::Named(id, args) if !args.is_empty() => {
+                let parts: Vec<String> = args.iter().map(Self::type_from_ast).collect();
+                format!("{}[{}]", id.name, parts.join(", "))
+            }
+            other => Self::type_string_full(other),
+        };
+        // 1550: `substitute_type` does not recurse into a TUPLE type arg
+        // (`MapIter[(Int, T), U]` rendered as `Tuple__Int__T`); the string
+        // token pass fills the remaining placeholders.
+        let name = Self::subst_type_tokens(&name, &type_map);
+        if name.is_empty() || Self::has_unresolved_generic_token(&name) {
+            None
+        } else {
+            Some(name)
+        }
+    }
+
     pub(crate) fn infer_call_return_xiom(&self, value: &Expr) -> Option<String> {
         // R52 (playground L3-02): the AST has dedicated Some/Ok/Err nodes (not
         // Call(Ident)) -- record "Option[Str]" for `let p = Some("x")` so
@@ -372,6 +433,13 @@ impl IrEmitter {
             }
             _ => return None,
         };
+        // 1550/1520: the emission-time per-call-site concrete args are the
+        // authoritative source for a generic call's return, including a
+        // method-call receiver (`...map(f).collect()`). Prefer them before
+        // any placeholder heuristic can accept a partially substituted type.
+        if let Some(concrete) = self.call_site_return_xiom(func) {
+            return Some(concrete);
+        }
         // m286 (1549-stdlib-7): a bare/explicit-bracket GENERIC call bound to
         // a local must keep the SUBSTITUTED return type ("Vec[Str]" for
         // `let ws = mapv(&v, to_s)`, whose declared "Vec[U]" the placeholder

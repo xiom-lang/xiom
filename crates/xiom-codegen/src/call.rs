@@ -578,20 +578,39 @@ impl IrEmitter {
     fn receiver_generic_arg_at(&self, receiver: &Expr, pos: usize) -> Option<String> {
         let (callee, explicit): (&Expr, Vec<String>) = match receiver {
             Expr::Paren(inner, _) => return self.receiver_generic_arg_at(inner, pos),
-            Expr::GenericCall(callee, types, _, _) => {
-                (callee.as_ref(), types.iter().map(Self::type_from_ast).collect())
-            }
-            Expr::Call(func, _, _) => match func.as_ref() {
-                Expr::Index(base, idx, _) => {
-                    let names: Vec<String> = match idx.as_ref() {
-                        Expr::Tuple(elems, _) => elems.iter().filter_map(Self::expr_type_name).collect(),
-                        other => Self::expr_type_name(other).into_iter().collect(),
-                    };
-                    (base.as_ref(), names)
+            // 1550: a METHOD-CALL receiver (`range(...).map(f)`) carries its
+            // instantiated return type (`MapIter[(Int, Int), Int]`). The
+            // explicit-instantiation path below only understands
+            // `f[T](...)`/`Type[T].new(...)`, so `MapIter.collect()` defaulted
+            // T=Int and the nested next() bound the Option tuple payload as a
+            // scalar. Resolve the receiver call's declared return and parse
+            // its args; ignore an unresolved placeholder and keep descending.
+            _ => {
+                if let Some(rt) = self.infer_call_return_xiom(receiver) {
+                    let (_base, args) = Self::parse_generic_type_string(&rt);
+                    if let Some(a) = args.get(pos)
+                        .filter(|a| !a.is_empty() && !Self::is_generic_placeholder_name(a))
+                    {
+                        return Some(a.clone());
+                    }
                 }
-                _ => return None,
-            },
-            _ => return None,
+                match receiver {
+                    Expr::GenericCall(callee, types, _, _) => {
+                        (callee.as_ref(), types.iter().map(Self::type_from_ast).collect())
+                    }
+                    Expr::Call(func, _, _) => match func.as_ref() {
+                        Expr::Index(base, idx, _) => {
+                            let names: Vec<String> = match idx.as_ref() {
+                                Expr::Tuple(elems, _) => elems.iter().filter_map(Self::expr_type_name).collect(),
+                                other => Self::expr_type_name(other).into_iter().collect(),
+                            };
+                            (base.as_ref(), names)
+                        }
+                        _ => return None,
+                    },
+                    _ => return None,
+                }
+            }
         };
         let fn_key = match callee {
             Expr::Field(obj, field, _) => self.infer_struct_type_name(obj)
@@ -4534,7 +4553,14 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     // in explicit_generic_types above. Map each generic param to
                     // its explicit type directly so `add2[Float32]` monomorphises
                     // as Float32, not Int.
-                    let explicit_types: Vec<String> = explicit_generic_types.clone();
+                    // 1520: explicit type args can themselves be the enclosing
+                    // method's generic params (`_max_via[U]` inside
+                    // MapIter[T,U].max). Substitute the current mono map here;
+                    // the parsed list is otherwise used verbatim and emitted
+                    // `_max_via_U` (Tuple__T__U compared with i64).
+                    let explicit_types: Vec<String> = explicit_generic_types.iter()
+                        .map(|t| Self::subst_type_tokens(t, &self.mono.current_type_map))
+                        .collect();
                     // Find the generic function declaration
                     if let Some((_, fd)) = self.find_generic_decl(&fn_key) {
                         let fd = fd.clone();
@@ -4563,7 +4589,15 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     Some(explicit_types[idx].clone())
                                 } else if let Some(ta) = type_arg {
                                     match ta {
-                                        Expr::Ident(id) if fd.generics.len() == 1 => Some(id.name.clone()),
+                                        // 1520: a single generic type arg that is the
+                                        // enclosing method's param (`_max_via[U]` inside
+                                        // MapIter[T,U].max) must substitute the CURRENT
+                                        // mono map; the old literal clone emitted
+                                        // `_max_via_U` and compared %struct.Tuple__T__U
+                                        // with i64.
+                                        Expr::Ident(id) if fd.generics.len() == 1 => {
+                                            Some(Self::subst_type_tokens(&id.name, &self.mono.current_type_map))
+                                        }
                                         // round-14c (generic fn-param aggregates):
                                         // a TUPLE type arg with a SINGLE generic
                                         // param is the tuple TYPE itself
@@ -4613,6 +4647,40 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             if let Some(explicit) = explicit_name {
                                 concrete_types.push(explicit);
                                 continue;
+                            }
+                            // 1550/1520: infer a method's generic params from the
+                            // RECEIVER before the call-argument fallback.
+                            // `EnumerateIter[Int].map(dbl)` must bind T=Int even
+                            // though the first arg is the fn; `MapIter[T,U].next()`
+                            // inside collect must reuse the enclosing mono map.
+                            // The old arg-only inference left T literal, so
+                            // collect/next specialised with Int and the Option
+                            // tuple payload was bound as a scalar pointer.
+                            if let Some(recv) = receiver_expr {
+                                if let Some(pos) = fd.generics.iter().position(|g| g.name.name == gp.name.name) {
+                                    let from_recv = self.receiver_generic_arg_at(recv, pos);
+                                    let from_map = self.mono.current_type_map.get(&gp.name.name).cloned();
+                                    let from_local = if let Expr::Ident(rid) = recv.as_ref() {
+                                        self.resolve_local_xiom_type(&rid.name)
+                                            .or_else(|| self.local.local_xiom_types.get(&rid.name).cloned())
+                                            .and_then(|ty| {
+                                                let (_b, args) = Self::parse_generic_type_string(&ty);
+                                                args.get(pos).cloned()
+                                            })
+                                    } else { None };
+                                    for arg in [from_recv, from_map, from_local].into_iter().flatten() {
+                                        if !arg.is_empty()
+                                            && !Self::is_generic_placeholder_name(&arg)
+                                            && !Self::has_unresolved_generic_token(&arg)
+                                        {
+                                            concrete_types.push(arg);
+                                            break;
+                                        }
+                                    }
+                                    if concrete_types.len() > pos {
+                                        continue;
+                                    }
+                                }
                             }
                             // BUG 29 (Map.keys on module globals): infer a
                             // generic METHOD's type args from the RECEIVER's
@@ -5025,7 +5093,11 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 // (e.g. `Map[Str, JsonValue].new()` -> type_arg = Tuple([Str, JsonValue])).
                                 if let Some(ta) = type_arg {
                                     let type_names: Vec<String> = match ta {
-                                        Expr::Ident(id) => vec![id.name.clone()],
+                                        Expr::Ident(id) => vec![
+                                            // 1520: substitute the enclosing mono map
+                                            // (see the explicit branch above).
+                                            Self::subst_type_tokens(&id.name, &self.mono.current_type_map)
+                                        ],
                                         Expr::Tuple(elems, _) => elems.iter()
                                             .map(|e| {
                                                 // L5-40: nested container type args
@@ -5171,6 +5243,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         if csp.byte_start != 0 || csp.byte_end != 0 {
                             self.mono.call_site_generic_types
                                 .insert((csp.byte_start, csp.byte_end), concrete_types.clone());
+                            self.mono.call_site_generic_types_ptr
+                                .insert(func as *const Expr as usize, concrete_types.clone());
                         }
                     }
                     if !concrete_types.is_empty() {

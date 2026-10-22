@@ -425,6 +425,11 @@ pub struct MonoContext {
     /// substitute the declared "Vec[U]" return (the binding otherwise
     /// stayed untyped and Str pointers crossed as scalars downstream).
     pub call_site_generic_types: HashMap<(u32, u32), Vec<String>>,
+    /// 1550: the same per-call-site map keyed by the callee Expr ADDRESS.
+    /// Callee spans collide for chained/field calls (`...enumerate().map`),
+    /// which made the inner call read another call's concrete args. The AST
+    /// node identity is stable between emission and binding inference.
+    pub call_site_generic_types_ptr: HashMap<usize, Vec<String>>,
     /// Const-generic value map: monomorphised_fn_name -> {const_param_name -> value}
     pub const_value_map: HashMap<String, HashMap<String, i64>>,
     /// Specialized monomorphised function names already emitted

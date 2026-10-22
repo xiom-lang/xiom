@@ -11475,3 +11475,16 @@ fn e2e_m1326_log_serialize() {
         "m1326: log+serialize must compile and parse a JSON log line"
     );
 }
+
+// m1520 (REL-20261021-1520-stdlib): a nested generic call inside a
+// monomorphised method (`_max_via[U]` in MapIter[T,U].max) must substitute
+// the enclosing type map; otherwise `_max_via_U` compares
+// %struct.Tuple__T__U with i64. Covers MapIter.max + ZipIter.find together.
+#[test]
+fn e2e_m1520_adapter_collision() {
+    assert_eq!(
+        compile_and_run("tests/regression/m1520_adapter_collision.xi"),
+        Some(0),
+        "m1520: adapter max/find must not leak the generic U placeholder"
+    );
+}

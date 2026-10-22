@@ -3063,7 +3063,13 @@ impl IrEmitter {
                             Expr::Ident(id) => id.name.clone(),
                             _ => "Int".to_string(),
                         }).collect(),
-                        Expr::Ident(_) => vec![match idx.as_ref() { Expr::Ident(id) => id.name.clone(), _ => "Int".to_string() }],
+                        Expr::Ident(_) => vec![match idx.as_ref() {
+                            // 1520: substitute the enclosing mono map; an
+                            // `_max_via[U]` inside MapIter[T,U].max must become
+                            // `_max_via_Int`, not keep the placeholder.
+                            Expr::Ident(id) => Self::subst_type_tokens(&id.name, &self.mono.current_type_map),
+                            _ => "Int".to_string()
+                        }],
                         _ => Vec::new(),
                     };
                     if let Some(ret) = fd.return_type.as_ref() {
@@ -4335,6 +4341,43 @@ impl IrEmitter {
                 }
             }
             Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
+                // 1550: `self.next_fn()` where the field is fn-typed
+                // (`fn() -> Option[T]`). The callee has no registry entry, so
+                // the payload stayed None and the match bound the BOXED tuple
+                // pointer as i64; `self.f(v)` then passed the pointer to the
+                // thunk (pointer-like map results). Resolve the field's
+                // declared marker, substitute the mono map, and take the
+                // Option/Result payload of its return.
+                if let Expr::Field(recv, fld, _) = func.as_ref() {
+                    if let Some(recv_ty) = self.struct_type_from_expr(recv) {
+                        let (base, _) = Self::parse_generic_type_string(&recv_ty);
+                        let leaf = base.rsplit('.').next().unwrap_or(base.as_str());
+                        let fidx = self.types.types.get(&leaf.to_string())
+                            .or_else(|| self.types.types.entries().into_iter()
+                                .find(|(k, _)| k == leaf || k.ends_with(&format!(".{leaf}")))
+                                .map(|(_, v)| v))
+                            .and_then(|fields| fields.iter().position(|n| n == &fld.name));
+                        if let Some(fi) = fidx {
+                            if let Some(fty) = self.field_xiom_type(leaf, fi) {
+                                let fty = Self::subst_type_tokens(&fty, &self.mono.current_type_map);
+                                if let Some((_, ret)) = fty.rsplit_once("->") {
+                                    let ret = ret.trim().trim_end_matches('{').trim();
+                                    let pay = if field_idx == 2 {
+                                        self.option_result_err_payload_alias(ret)
+                                    } else {
+                                        self.option_result_payload_alias(ret)
+                                    };
+                                    if let Some(p) = pay.filter(|p| {
+                                        !Self::is_generic_placeholder_name(p)
+                                            && !Self::has_unresolved_generic_token(p)
+                                    }) {
+                                        return Some(p);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 let payload = self.callee_return_xiom(func).and_then(|full| {
                     if field_idx == 2 {
                         self.option_result_err_payload_alias(&full)

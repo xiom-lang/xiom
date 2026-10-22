@@ -20224,3 +20224,50 @@ the JSON log line, parses a log line, validates JSON). Fixture
 `tests/regression/m1326_log_serialize.xi`, lock `e2e_m1326_log_serialize`.
 Battery: feature_regression 549/549, integration 130/130, stdlib_tests
 40/40, codegen lib 23/23.
+
+---
+
+## 2026-10-22 -- FIXED (m1520, REL-20261021-1520-stdlib): adapter terminal leaked the `U` placeholder
+
+WITNESS: `iter.range(1,4).map(dbl).max()` + `iter.range(1,5).zip(
+iter.range(5,9)).find(first_is_two)` in one program fails clang with
+`'%tmp48' defined with type '%struct.Tuple__T__U' but expected 'i64'` at
+`%tmp50 = icmp sgt i64 %tmp48, %tmp49` inside `iter._max_via_U`.
+
+ROOT CAUSE: the empty `MapIter.max` body calls the free helper
+`_max_via[U]`; the explicit type argument was used verbatim, so the
+method monomorphised as `_max_via_U` instead of `_max_via_Int`. The same
+literal-copy leak existed in the parser arm and the nested type-arg path.
+A second leak: a generic method's params were inferred only from its call
+arguments, so a receiver generic (`EnumerateIter[T].map`) stayed `T`.
+
+FIX: substitute `self.mono.current_type_map` in (a) explicit
+`GenericCall` type args, (b) the `type_arg` ident arm, (c) the
+`infer_call_return_xiom` index arm, and (d) add receiver/current-map
+inference before the argument fallback in the per-generic loop.
+`receiver_generic_arg_at` also resolves a method-call receiver's declared
+return args. This makes `MapIter.max_Int_Int` call `_max_via_Int`.
+
+EVIDENCE: the combined max+find program compiles and prints
+`max=6`, `found=2,6`, rc 0. Lock `e2e_m1520_adapter_collision`
+(`tests/regression/m1520_adapter_collision.xi`). Battery:
+feature_regression 549/549, integration 130/130, stdlib_tests 40/40,
+codegen lib 23/23.
+
+---
+
+## 2026-10-22 -- PARTIAL (1550, REL-20261020-1550-stdlib): tuple-returning fn through EnumerateIter.map
+
+Compiler groundwork landed: struct field metadata keeps the FULL fn marker
+(`fn() -> Option[T]`, not `fn() -> Option`) via `fn_marker_rendered`; a
+fn-typed field call in `scrutinee_payload_xiom` resolves its Option/Result
+payload through the field's declared return + mono map; computed-receiver
+generic args and per-call-site concrete types are recorded and used.
+
+With a stdlib specialization of `EnumerateIter[Int].map` (concrete Int
+receiver/return instead of `EnumerateIter[T].map`), the exact probe prints
+`len=3`, `em=[10,12,14]`, rc 0. With the current stdlib the return still
+renders `MapIter[(Int, T), U]` as `Tuple__Int__T`, so `collect`/`next`
+specialise with Int and the probe stays red. A stdlib relay with the
+6-line specialization is pending; do NOT mark 1550 fixed until it lands
+and the probe is re-run against the synced stdlib.

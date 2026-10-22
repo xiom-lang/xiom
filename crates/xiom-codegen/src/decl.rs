@@ -63,7 +63,13 @@ impl IrEmitter {
                 .map(|f| f.name.name.clone())
                 .collect();
             let full_fields: Vec<(String, String)> = td.fields.iter()
-                .map(|f| (f.name.name.clone(), Self::type_from_ast_with_args(&f.ty)))
+                .map(|f| (f.name.name.clone(),
+                    // 1550: keep the full fn marker (`fn() -> Option[T]`),
+                    // not the arg-stripped `fn() -> Option`; the match-payload
+                    // resolver needs the generic return to unbox Option
+                    // payloads of fn-typed fields (MapIter.next_fn).
+                    Self::fn_marker_rendered(&f.ty)
+                        .unwrap_or_else(|| Self::type_from_ast_with_args(&f.ty))))
                 .collect();
             // BUG 52 (2026-08-18): keep the generic-args field types for
             // GENERIC type decls -- the builtin Map/Set pre-registrations win
