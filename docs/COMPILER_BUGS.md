@@ -20271,3 +20271,31 @@ renders `MapIter[(Int, T), U]` as `Tuple__Int__T`, so `collect`/`next`
 specialise with Int and the probe stays red. A stdlib relay with the
 6-line specialization is pending; do NOT mark 1550 fixed until it lands
 and the probe is re-run against the synced stdlib.
+
+---
+
+## 2026-10-22 -- HARDENED (1531, REL-20261020-1531-xvector-2): killed-builder cache lock looked like a build hang
+
+WITNESS: v0.64.8 building the xvector conformance suite under a Job Object
+with 16 GB PROCESS/JOB limits timed out at the 120 s watchdog, "never
+reached codegen", and left the output locked until stale children were
+gone. Re-test on current main AND v0.64.8: `tests/test_conformance.xi`
+(178 KB) builds rc 0 under the same 16 GB job (no hang). The conformance
+build is not a repro on this host anymore.
+
+ROOT CAUSE (matching the symptom): `rtcache::acquire_key_lock` waits up
+to `KEY_LOCK_WAIT_LIMIT` (30 min) for the per-key builder lock, and a
+builder killed by a memory job leaves `.lock` behind. A 30-minute wait
+under a 120 s watchdog is indistinguishable from a hang and emits no
+diagnostic.
+
+FIX: the lock file already records `pid=`. On contention, read it and
+break the lock immediately when the holder is not alive (Windows:
+OpenProcess + GetExitCodeProcess; Linux: `/proc/<pid>`). The stale-age
+threshold and wait limit remain for live holders. Added unit test
+`rtcache::tests::dead_holder_lock_is_broken`.
+
+EVIDENCE: `cargo test -p xiom --lib` 76/76; conformance build under a
+16 GB job on main and v0.64.8 rc 0. Xvector is asked to re-run the exact
+`scripts/build.ps1` command if the hang persists; the primary trigger was
+not reproducible here.

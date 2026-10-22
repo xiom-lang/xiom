@@ -51,6 +51,48 @@ impl Drop for KeyLock {
     }
 }
 
+/// m1531 (XVC-C-21): best-effort liveness probe for a lock holder. A builder
+/// killed by a Job Object / OOM leaves `.lock` behind; the 30-minute waiter
+/// cap otherwise looks like a build hang (the xvector watchdog is 120 s).
+fn lock_holder_pid(path: &Path) -> Option<u32> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let first = text.lines().next()?;
+    first.strip_prefix("pid=")?.trim().parse().ok()
+}
+
+#[cfg(windows)]
+fn pid_is_alive(pid: u32) -> bool {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut core::ffi::c_void;
+        fn GetExitCodeProcess(handle: *mut core::ffi::c_void, code: *mut u32) -> i32;
+        fn CloseHandle(handle: *mut core::ffi::c_void) -> i32;
+    }
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const STILL_ACTIVE: u32 = 259;
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if handle.is_null() {
+            return false;
+        }
+        let mut code = 0u32;
+        let ok = GetExitCodeProcess(handle, &mut code);
+        CloseHandle(handle);
+        ok != 0 && code == STILL_ACTIVE
+    }
+}
+
+#[cfg(not(windows))]
+fn pid_is_alive(pid: u32) -> bool {
+    // Linux exposes /proc; other Unix has no dependency-free probe, so assume
+    // alive and keep the stale-age threshold.
+    if cfg!(target_os = "linux") {
+        Path::new("/proc").join(pid.to_string()).exists()
+    } else {
+        true
+    }
+}
+
 fn acquire_key_lock(dir: &Path) -> Result<KeyLock, String> {
     let path = dir.join(".lock");
     let deadline = Instant::now() + KEY_LOCK_WAIT_LIMIT;
@@ -61,6 +103,15 @@ fn acquire_key_lock(dir: &Path) -> Result<KeyLock, String> {
                 return Ok(KeyLock { path });
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                // m1531: break immediately when the recorded holder is dead
+                // (killed mid-build by a memory job); otherwise a waiter
+                // would sleep for KEY_LOCK_WAIT_LIMIT and look hung.
+                if let Some(pid) = lock_holder_pid(&path) {
+                    if !pid_is_alive(pid) {
+                        let _ = std::fs::remove_file(&path);
+                        continue;
+                    }
+                }
                 // Break a lock left by a killed builder. A live long build
                 // refreshes nothing, so choose the threshold well above the
                 // largest expected build (see KEY_LOCK_STALE_AFTER).
@@ -540,6 +591,31 @@ mod tests {
             "only one holder at a time"
         );
         assert!(!root.join(".lock").exists(), "lock file removed on drop");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // m1531: a lock left by a builder killed in a memory-capped Job Object
+    // must be broken immediately, not waited on for KEY_LOCK_WAIT_LIMIT.
+    #[cfg(any(windows, target_os = "linux"))]
+    #[test]
+    fn dead_holder_lock_is_broken() {
+        let root = std::env::temp_dir().join(format!(
+            "xiom-keylock-dead-{}-{:x}",
+            std::process::id(),
+            jit::rand_suffix()
+        ));
+        std::fs::create_dir_all(&root).expect("create lock dir");
+        std::fs::write(root.join(".lock"), format!("pid={}\n", u32::MAX))
+            .expect("write dead-holder lock");
+        let started = Instant::now();
+        let lock = acquire_key_lock(&root).expect("dead holder lock must break");
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "dead-holder lock took {:?} to break",
+            started.elapsed()
+        );
+        drop(lock);
+        assert!(!root.join(".lock").exists(), "lock removed on drop");
         let _ = std::fs::remove_dir_all(&root);
     }
 
