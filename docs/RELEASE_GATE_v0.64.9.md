@@ -1,9 +1,15 @@
 # Release gate -- v0.64.9
 
-STATUS: **PREPARING** -- owner GO received 2026-10-22T13:01Z. No tag or
-release yet. The stdlib tag lands first (docs/RELEASE_CHECKLIST.md): the
-stdlib release pins the last released compiler (v0.64.8); this compiler cut
-then pins `stdlib-v0.64.9`.
+STATUS: **RELEASED 2026-10-22T14:03Z** -- owner GO received 13:01Z.
+Compiler tag `v0.64.9` (annotated `ffde5aa0f88591b40db949239340cf66a36c3e41`)
+on `2bcf58db5`; release run **39791522014 SUCCESS**; GitHub release live
+with **11 assets**; SHA256SUMS file hash
+`51c45a61dbfebb930acc99ad8cc383234482fc0ba52961628b8f7ffdf6a9ebac`.
+Stdlib `stdlib-v0.64.9` at `aa8b656`; release run **39785430606 SUCCESS**;
+`xiom-std 0.64.9` live (sha256
+`6f0d3b1516c7c94fcc6fd7fc1fc34fa66025c9543456a4c2effa16142da73020`,
+compiler v0.64.8, published 2026-10-22T14:01:23Z; production publish run
+39785430612 SUCCESS).
 
 ## Scope
 
@@ -43,15 +49,22 @@ prep commit:
 - [x] Packaged archive dry-run (Windows/Linux/macOS/VSIX/wasm) on the
       release commit: run 39785770942 SUCCESS (all package legs + VSIX;
       publish skipped on dispatch).
-- [ ] Registry `xiom-std` pin decision recorded by the stdlib lane.
-- [ ] v0.64.8 check rows closed or explicitly waived; v0.64.9 check opened.
+- [x] Registry `xiom-std` pin decision recorded by the stdlib lane
+      (`xiom-std 0.64.9`, compiler v0.64.8, OIDC publish).
+- [ ] v0.64.8 check rows closed or explicitly waived; v0.64.9 check opened
+      (v0.64.9 check opened; reporter rows pending).
 
 ## Tag + publish
 
-- [ ] Annotated tag `v0.64.9` on the green release commit; push the tag.
-- [ ] Release workflow publishes 11 assets and dispatches docs.
-- [ ] Relay announcement + lane unblocks (engine/xvector/orbitdb/bindings/
-      packages/PULSE).
+- [x] Annotated tag `v0.64.9` on `2bcf58db5`; pushed (tag object
+      `ffde5aa0...`).
+- [x] Release workflow 39791522014 SUCCESS; 11 assets + SHA256SUMS +
+      docs dispatch.
+- [x] stdlib registry publish: production run 39785430612 SUCCESS;
+      `xiom-std 0.64.9` stable. The release's staging-canary dispatch
+      (39791446653) is waiting for environment approval and is optional.
+- [x] Relay announcement + lane unblocks (engine/xvector/orbitdb/packages/
+      PULSE).
 
 ## Post-release verification
 

@@ -14,6 +14,38 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-22T14:10Z (compiler lane; v0.64.9 RELEASED) -- READ FIRST ***
+- **v0.64.9 IS LIVE.** Compiler tag `v0.64.9` (annotated
+  `ffde5aa0f88591b40db949239340cf66a36c3e41`) on `2bcf58db5`; release run
+  **39791522014 SUCCESS**; **11 assets** live; SHA256SUMS
+  `51c45a61dbfebb930acc99ad8cc383234482fc0ba52961628b8f7ffdf6a9ebac`.
+  Packaging dry-run 39785770942 SUCCESS (all platforms + VSIX).
+- **stdlib v0.64.9:** tag `stdlib-v0.64.9` at `aa8b656`; release run
+  **39785430606 SUCCESS** (2 assets); production registry publish run
+  **39785430612 SUCCESS**. `xiom-std 0.64.9` is stable on
+  registry.xiom-lang.org (sha256
+  `6f0d3b1516c7c94fcc6fd7fc1fc34fa66025c9543456a4c2effa16142da73020`,
+  compiler v0.64.8, published 2026-10-22T14:01:23Z). The automatic
+  STDLIB_VERSION pin PR failed only because `2bcf58db5` already pinned
+  `stdlib-v0.64.9` ("nothing to commit").
+- **Contents:** m1157 BOM catalog; 2045 part 2 Str payloads; XVC-C-22 Vec
+  inference; m1731 borrowed enum; m1703 stored fn values; m1326 enum
+  equality; m1520 adapter substitution; 1550 EnumerateIter tuple fn
+  (stdlib `aa8b656`); m365 shared dependency keys; 1511 deps port args;
+  1531 dead-builder lock; m375 opt-in `XIOM_FAST_EXIT`.
+- **Battery on the release commit:** feature 549/549, integration 130/130,
+  stdlib 40/40, codegen lib 25/25, xiom lib 77/77, checker 214/214, parser
+  109/109, plus the m1550 e2e lock. Release notes JSON verified
+  (6 highlights, 0 breaking).
+- **No re-cut of v0.64.8.** Post-release verification rows are in
+  `release-checks/compiler-compiler-v0.64.9.md`: xvector (XVC-C-22, 1531,
+  1243), orbitdb (m375 1M A/B, A6, m1157), engine (m365 re-measure, 2 GB
+  cap), packages (fontraster installed build, unhold), PULSE (restore
+  StreamHandler; 1703 pre-verified). Selfhost remains RD11 T3 green
+  (19/19, 14/64, 83/83); m1136 mirror + P6 shapes are next-cycle work.
+- The release's staging-canary dispatch (39791446653) is waiting for
+  environment approval and is optional; production is already published.
+
 *** SESSION UPDATE 2026-10-22T12:52Z (compiler lane; v0.64.9 wave-1 fixes + full battery green) -- READ FIRST ***
 - STATE: v0.64.8 remains the released archive; **v0.64.9 is NOT cut**
   (no tag, no publish, no candidate JSON). Main is committed locally and
