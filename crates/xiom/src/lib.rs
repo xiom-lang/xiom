@@ -1948,6 +1948,12 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                     }
                 }
                 let mut dep_cached = false;
+                // m365: dependency C objects use a canonical, consumer-neutral
+                // profile so every target in the project shares one key.
+                let dep_compile_args = crate::rtcache::dependency_compile_args(
+                    &rt_compile_args,
+                    config.shared_lib,
+                );
                 if config.target == Target::Native
                     && !config.static_lib
                     && !dep_c_sources.is_empty()
@@ -1956,7 +1962,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                         &crate::rtcache::default_cache_root(),
                         std::path::Path::new(&clang_info.path),
                         &dep_c_sources,
-                        &rt_compile_args,
+                        &dep_compile_args,
                     ) {
                         for obj in &objects {
                             cmd.arg(obj);

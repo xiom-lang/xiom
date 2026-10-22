@@ -254,6 +254,45 @@ pub fn dependency_objects(
     ensure_objects(cache_root, clang, dep_files, compile_args, "dep-cache", dependency_object_name)
 }
 
+/// m365 (REL-20261017-1355-engine): dependency objects are SHARED across the
+/// consumer targets in one project. Keep only the flags that define the
+/// dependency object ABI/toolchain -- host ISA, the clang-18 SFB disable,
+/// no-asm/CRT defines, and PIC for shared consumers -- and pin `-O2`.
+/// Consumer-only flags (`-g`, `-O0/-O3`, `-flto`, `-fsanitize*`,
+/// `-fstack-protector`) must not fork the key: they made each of the engine's
+/// 117 probes rebuild the full assimp set.
+pub fn dependency_compile_args(rt_compile_args: &[String], shared: bool) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < rt_compile_args.len() {
+        let a = &rt_compile_args[i];
+        if a == "-mllvm" {
+            if let Some(v) = rt_compile_args.get(i + 1) {
+                out.push(a.clone());
+                out.push(v.clone());
+                i += 2;
+                continue;
+            }
+        }
+        if a.starts_with("-m") && a != "-mllvm" {
+            out.push(a.clone());
+        } else if a == "-DXIOM_NO_ASM"
+            || a == "-D_CRT_SECURE_NO_WARNINGS"
+            || a == "-Wno-deprecated-declarations"
+        {
+            out.push(a.clone());
+        }
+        i += 1;
+    }
+    if !out.iter().any(|a| a.starts_with("-O")) {
+        out.push("-O2".to_string());
+    }
+    if shared && !cfg!(windows) && !out.iter().any(|a| a == "-fPIC") {
+        out.push("-fPIC".to_string());
+    }
+    out
+}
+
 /// Shared body of the two caches: key on (clang identity, flags, source
 /// paths + content hashes), build missing objects one clang `-c` per source
 /// into a staging dir, then atomically rename them to their stable names.
@@ -617,6 +656,27 @@ mod tests {
         drop(lock);
         assert!(!root.join(".lock").exists(), "lock removed on drop");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // m365: consumer-only flags must not fork the shared dependency key.
+    #[test]
+    fn dependency_compile_args_ignore_consumer_opt_debug_sanitizer() {
+        let a_args: Vec<String> = vec!["-mavx2".into(), "-O0".into(), "-g".into()];
+        let b_args: Vec<String> = vec![
+            "-mavx2".into(), "-O3".into(), "-flto=thin".into(),
+            "-fsanitize=address".into(), "-fstack-protector".into(), "-g".into(),
+        ];
+        let a = dependency_compile_args(&a_args, false);
+        let b = dependency_compile_args(&b_args, false);
+        assert_eq!(a, b, "consumer opt/debug/sanitizer flags must not fork the key");
+        assert!(a.contains(&"-mavx2".to_string()), "host ISA must stay in the key");
+        assert!(a.contains(&"-O2".to_string()), "canonical dependency opt must be pinned");
+        assert!(!a.iter().any(|x| x == "-g"
+            || x.starts_with("-fsanitize")
+            || x == "-flto=thin"));
+        let shared = dependency_compile_args(&["-O2".to_string()], true);
+        #[cfg(not(windows))]
+        assert!(shared.contains(&"-fPIC".to_string()), "shared consumers need PIC deps");
     }
 
     #[test]

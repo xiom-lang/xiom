@@ -20330,3 +20330,28 @@ EVIDENCE: `cargo test -p xiom-graph` 43/43, including
 `port.args.json` IS applied transitively; the packages lane can remove the
 tree-relative workaround and verify an installed fontraster build before
 unholding publish.
+
+---
+
+## 2026-10-22 -- LANDED (m365, REL-20261017-1355-engine): dependency-vs-consumer cache-key split
+
+WITNESS: the m340 dependency-object cache helped repeat builds of one
+consumer target, but each of the engine's 117 probes computed a different
+key and rebuilt the 139-TU assimp set (~438 s), because dependency objects
+were keyed on the consumer's `rt_compile_args` (ISA/opt/debug/sanitizer/
+shared).
+
+FIX: `rtcache::dependency_compile_args` produces a canonical
+consumer-neutral profile for dependency C objects: host ISA (`-m*`), the
+clang-18 SFB disable (`-mllvm ...`), `-DXIOM_NO_ASM`,
+`-D_CRT_SECURE_NO_WARNINGS`, `-Wno-deprecated-declarations`, PIC for
+shared consumers, and a pinned `-O2`. Consumer-only flags (`-g`,
+`-O0/-O3`, `-flto=thin`, `-fsanitize*`, `-fstack-protector`) are excluded,
+so per-target config changes no longer fork the key. The C++ dependency
+path already used the minimal `-std`/`-fPIC` args.
+
+EVIDENCE: unit test
+`dependency_compile_args_ignore_consumer_opt_debug_sanitizer`; xiom lib
+77/77. Still pending the engine's 117-target assimp re-measure with
+`XIOM_NO_DEP_PORT_ARGS` unset; the acceptance is one cold build followed by
+a hello and an assimp probe sharing the same dep key.
