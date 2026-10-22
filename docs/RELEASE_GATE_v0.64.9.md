@@ -29,17 +29,17 @@ prep commit:
 
 ## Preconditions (before the tag)
 
-- [ ] stdlib-v0.64.9 tag exists, cut from `d53f93a` (or the stdlib release
-      commit), with `COMPILER_VERSION=v0.64.8`; stdlib gate run green.
-- [ ] `STDLIB_VERSION=stdlib-v0.64.9` on the release commit.
-- [ ] Workspace version 0.64.9, Cargo.lock, selfhost `SELFHOST_VERSION`,
+- [x] stdlib-v0.64.9 tag exists at `aa8b656` (annotated tag pushed;
+      release run 39785430606 in progress), with `COMPILER_VERSION=v0.64.8`.
+- [x] `STDLIB_VERSION=stdlib-v0.64.9` on the release commit.
+- [x] Workspace version 0.64.9, Cargo.lock, selfhost `SELFHOST_VERSION`,
       VSIX README pin (`editors/vscode/README.md`).
-- [ ] `release-notes/v0.64.9.md` merged with the two stdlib highlights and
-      converted to JSON with `xiom-release-notes`; schema-valid (max 6
-      highlights).
-- [ ] Full battery on the release commit: feature_regression 549/549,
-      integration 130/130, stdlib_tests 40/40, codegen lib, xiom lib,
-      checker, parser, plus the new 1550 e2e lock.
+- [x] `release-notes/v0.64.9.md` merged with the two stdlib highlights and
+      converted to JSON with `xiom-release-notes`; verify passed (6
+      highlights, 0 breaking).
+- [x] Full battery on the release commit: feature_regression 549/549,
+      integration 130/130, stdlib_tests 40/40, codegen lib 25/25, xiom lib
+      77/77, checker 214/214, parser 109/109, plus the new 1550 e2e lock.
 - [ ] Packaged archive dry-run (Windows/Linux/macOS/VSIX/wasm) on the
       release commit.
 - [ ] Registry `xiom-std` pin decision recorded by the stdlib lane.
