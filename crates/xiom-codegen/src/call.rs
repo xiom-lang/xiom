@@ -113,9 +113,26 @@ impl IrEmitter {
                 _ => false,
             };
             if bare {
-                let ret = Self::llvm_name_to_xiom(arg_ret.trim())?.to_string();
-                if ret != gp {
-                    return Some(ret);
+                let raw = arg_ret.trim();
+                // The registry signature is LLVM-typed. Scalar returns map
+                // through the canonical table; a by-value struct/tuple return
+                // (`%struct.Tuple__Int__Int`) is its registered monomorph
+                // name. Pointer returns are not inferred here (stripping the
+                // suffix would bind the pointee instead of the pointer).
+                let ret: Option<String> = if let Some(s) = Self::llvm_name_to_xiom(raw) {
+                    Some(s.to_string())
+                } else if raw.starts_with("%struct.") && !raw.ends_with('*') {
+                    Some(Self::xiom_type_name_from_llvm(raw))
+                } else {
+                    None
+                };
+                if let Some(ret) = ret {
+                    if !ret.is_empty()
+                        && ret != gp
+                        && !Self::has_unresolved_generic_token(&ret)
+                    {
+                        return Some(ret);
+                    }
                 }
             }
         }
@@ -568,6 +585,169 @@ impl IrEmitter {
         self.compile_call_with_types(func, args, None)
     }
 
+    /// 1550: resolve a generic call's declared return WITHOUT emitting it.
+    /// Chained calls resolve the outer call before the receiver is emitted, so
+    /// `...map(idx_plus).collect()` could not read `map`'s recorded call-site
+    /// instantiation and bound `U=Int` (which later truncated the tuple
+    /// payload to i64). This mirrors the call-site inference for the common
+    /// evidence sources: explicit type args, receiver type parameters, a
+    /// fn-typed argument's return (`fn(..) -> U`), and container elements.
+    /// Returns None unless EVERY non-const generic is concrete, so callers
+    /// fall back to the established paths when evidence is partial.
+    pub(crate) fn infer_call_return_xiom_on_demand(
+        &self,
+        func: &Expr,
+        args: &[Expr],
+    ) -> Option<String> {
+        let fn_key = match func {
+            Expr::Ident(id) => id.name.clone(),
+            Expr::Field(recv, field, _) => {
+                let base = self.infer_struct_type_name(recv)
+                    .or_else(|| {
+                        self.infer_call_return_xiom(recv).map(|rt| {
+                            Self::parse_generic_type_string(&rt).0
+                        })
+                    })?;
+                let base = base.rsplit('.').next().unwrap_or(base.as_str());
+                format!("{base}.{}", field.name)
+            }
+            _ => return None,
+        };
+        let (_, fd) = self.find_generic_decl(&fn_key)?;
+        let ret = fd.return_type.as_ref()?;
+        if fd.generics.iter().all(|g| g.is_const) {
+            return None;
+        }
+        let non_const: Vec<&str> = fd.generics.iter()
+            .filter(|g| !g.is_const)
+            .map(|g| g.name.name.as_str())
+            .collect();
+        let mut bindings: HashMap<String, String> = HashMap::new();
+
+        // Explicit instantiation (`receiver[Type](...)` / `f[Type](...)`).
+        let explicit_types: Vec<String> = match func {
+            Expr::GenericCall(_, types, _, _) => types.iter().map(Self::type_from_ast).collect(),
+            Expr::Index(_, idx, _) => match idx.as_ref() {
+                Expr::Tuple(elems, _) => elems.iter().filter_map(Self::expr_type_name).collect(),
+                other => Self::expr_type_name(other).into_iter().collect(),
+            },
+            _ => Vec::new(),
+        };
+        for (gi, gp) in fd.generics.iter().enumerate() {
+            if gp.is_const {
+                continue;
+            }
+            let name = &gp.name.name;
+            let mut resolved: Option<String> = None;
+
+            if let Some(t) = explicit_types.get(gi) {
+                if !t.is_empty()
+                    && !Self::is_generic_placeholder_name(t)
+                    && !Self::has_unresolved_generic_token(t)
+                {
+                    resolved = Some(t.clone());
+                }
+            }
+
+            // A receiver type parameter (`EnumerateIter[T].map[U]` -> T).
+            if resolved.is_none() {
+                if let Expr::Field(recv, _, _) = func {
+                    let recv_base = self.infer_struct_type_name(recv).or_else(|| {
+                        self.infer_call_return_xiom(recv)
+                            .map(|rt| Self::parse_generic_type_string(&rt).0)
+                    });
+                    if let Some(rb) = recv_base {
+                        if let Some(rps) = self.types.generic_type_params.get(&rb.to_string()) {
+                            if let Some(rpos) = rps.iter().position(|p| p == name) {
+                                if let Some(a) = self.receiver_generic_arg_at(recv, rpos) {
+                                    if !a.is_empty()
+                                        && !Self::is_generic_placeholder_name(&a)
+                                        && !Self::has_unresolved_generic_token(&a)
+                                    {
+                                        resolved = Some(a);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Argument evidence: a fn-typed return (`fn(..) -> U`) or a
+            // container element (`Vec[T]`).
+            if resolved.is_none() {
+                let recv_offset = if matches!(func, Expr::Field(..)) {
+                    fd.params.iter()
+                        .take_while(|p| Self::type_from_ast(&p.ty) == "Self")
+                        .count()
+                        .min(1)
+                } else {
+                    0
+                };
+                for (param, arg) in fd.params.iter().skip(recv_offset).zip(args.iter()) {
+                    if !Self::type_contains_generic(&param.ty, name) {
+                        continue;
+                    }
+                    let candidate = if let Type::Fn(fn_params, fn_ret) = &param.ty {
+                        self.fn_arg_generic_binding(fn_params, fn_ret, name, arg)
+                    } else {
+                        None
+                    }
+                    .or_else(|| {
+                        self.infer_generic_arg_from_container(&param.ty, name, arg, false)
+                    });
+                    if let Some(v) = candidate {
+                        if !v.is_empty() && !Self::has_unresolved_generic_token(&v) {
+                            resolved = Some(v);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if let Some(v) = resolved {
+                bindings.insert(name.clone(), v);
+            }
+        }
+        if bindings.len() < non_const.len() {
+            return None;
+        }
+        let subst = Self::substitute_type(ret, ret, &bindings);
+        let rendered = match &subst {
+            Type::Named(id, targs) if !targs.is_empty() => {
+                let parts: Vec<String> = targs.iter().map(Self::type_from_ast).collect();
+                format!("{}[{}]", id.name, parts.join(", "))
+            }
+            other => Self::type_string_full(other),
+        };
+        let rendered = Self::subst_type_tokens(&rendered, &bindings);
+        if rendered.is_empty() || Self::has_unresolved_generic_token(&rendered) {
+            None
+        } else {
+            Some(rendered)
+        }
+    }
+
+    /// 1550: return the type-argument at `pos` of a computed receiver call by
+    /// resolving that call's declared return on demand (see
+    /// `infer_call_return_xiom_on_demand`).
+    fn infer_receiver_call_generic_arg(
+        &self,
+        func: &Expr,
+        args: &[Expr],
+        pos: usize,
+    ) -> Option<String> {
+        let rt = self.infer_call_return_xiom_on_demand(func, args)?;
+        let (_, ret_args) = Self::parse_generic_type_string(&rt);
+        ret_args.get(pos)
+            .filter(|a| {
+                !a.is_empty()
+                    && !Self::is_generic_placeholder_name(a)
+                    && !Self::has_unresolved_generic_token(a)
+            })
+            .cloned()
+    }
+
     /// R46b: receiver-only type-argument inference for COMPUTED receivers.
     /// `g.Box.new[Str]("x").value_of()` reaches the outer generic method with
     /// a Call receiver; the concrete type arg is spelled on the receiver's own
@@ -592,6 +772,16 @@ impl IrEmitter {
                         .filter(|a| !a.is_empty() && !Self::is_generic_placeholder_name(a))
                     {
                         return Some(a.clone());
+                    }
+                }
+                // The receiver call has not been emitted yet, so its
+                // call-site instantiation may be missing. Infer the generic
+                // from the receiver's own arguments on demand.
+                if let Expr::Call(func, call_args, _) = receiver {
+                    if let Some(a) =
+                        self.infer_receiver_call_generic_arg(func, call_args, pos)
+                    {
+                        return Some(a);
                     }
                 }
                 match receiver {
@@ -5833,10 +6023,24 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             .map(|(_, f)| f);
                         let fn_typed_args: Vec<Option<String>> = (0..args.len()).map(|j| {
                             let pidx = j + (if receiver_in_params { 1 } else { 0 });
-                            callee_fd.and_then(|fd| fd.params.get(pidx)).and_then(|p| match &p.ty {
-                                Type::Fn(_, ret) => Some(Self::type_from_ast(ret)),
+                            callee_fd.and_then(|fd| fd.params.get(pidx).and_then(|p| match &p.ty {
+                                Type::Fn(_, ret) => {
+                                    let declared = Self::type_from_ast(ret);
+                                    // 1550: bind the callback's generic return at
+                                    // THIS call site (`map[U](f: fn(..) -> U)` with
+                                    // U inferred from `f`) before the forwarding
+                                    // thunk lowers it, so tuple returns stay
+                                    // aggregates instead of truncating to i64.
+                                    let mut map = self.mono.current_type_map.clone();
+                                    for (gp, ct) in fd.generics.iter().zip(concrete_types.iter()) {
+                                        if !gp.is_const {
+                                            map.insert(gp.name.name.clone(), ct.clone());
+                                        }
+                                    }
+                                    Some(Self::subst_type_tokens(&declared, &map))
+                                }
                                 _ => None,
-                            })
+                            }))
                         }).collect();
                         if std::env::var_os("XIOM_TRACE_RETXIOM").is_some() {
                             eprintln!("[fta] fn={fn_name} key={fn_key} nargs={} typed={:?} has_fd={}", args.len(), fn_typed_args, callee_fd.is_some());
@@ -6894,11 +7098,39 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // Parse the field's declared return LLVM type from the
                         // fn-ptr field type ("%struct.Option ()*" -> "%struct.Option",
                         // "i64 (i64)*" -> "i64"). Struct returns stay BY VALUE.
-                        let ret_llvm = field_llvm
+                        // 1550: the declared return may name a generic (`fn(U) -> U`);
+                        // the struct layout erases that field to an i64-returning
+                        // fn pointer, which truncated tuple payloads. Substitute
+                        // the active monomorphisation map first and use the real
+                        // aggregate return when the result is a concrete non-
+                        // container type.
+                        let declared_ret = Self::fn_type_return_xiom(&fn_field_xiom)
+                            .map(|r| Self::subst_type_tokens(&r, &self.mono.current_type_map))
+                            .map(|r| {
+                                if let Some(parts) =
+                                    xiom_ast::structural::tuple_elem_names(&r)
+                                {
+                                    format!("Tuple__{}", parts.join("__"))
+                                } else {
+                                    r
+                                }
+                            });
+                        let parsed_ret = field_llvm
                             .rsplit_once('(')
                             .map(|(r, _)| r.trim().to_string())
                             .filter(|r| !r.is_empty())
                             .unwrap_or_else(|| LLVM_I64.to_string());
+                        let ret_llvm = match declared_ret.as_deref() {
+                            Some(r)
+                                if !r.contains('[')
+                                    && r != "Option"
+                                    && r != "Result"
+                                    && !Self::has_unresolved_generic_token(r) =>
+                            {
+                                self.llvm_type_for_fallback(r)
+                            }
+                            _ => parsed_ret,
+                        };
                         let compiled_args: Vec<(String, String)> = args.iter()
                             .map(|a| self.compile_expr(a).map(|(v, t)| (v, t)))
                             .collect::<Result<Vec<_>, _>>()?;

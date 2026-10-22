@@ -450,6 +450,14 @@ impl IrEmitter {
         if let Some(name) = self.bare_generic_call_return_xiom(func) {
             return Some(name);
         }
+        // 1550: a COMPUTED receiver chain (`...map(f).collect()`) resolves the
+        // outer call before the inner call records its instantiation. Infer
+        // the callee's generics on demand from its arguments so the binding
+        // type is the real `Vec[(Int, Int)]`, not a placeholder-collapsed
+        // `Vec[Int]` (which turned `em[i].0` into a literal 0).
+        if let Some(name) = self.infer_call_return_xiom_on_demand(func, args) {
+            return Some(name);
+        }
         // m279 (B-17): mirror the Vec/Slice `as_ptr`/`as_mut_ptr` BUILTIN
         // (call.rs): its value is the data pointer, but no decl exists for
         // the registry lookups, so bindings stayed untyped and `base + N`

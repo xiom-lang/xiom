@@ -2229,28 +2229,57 @@ impl IrEmitter {
         // 2b. Higher-order generic: `fn map[U](f: fn((Int, T)) -> U)`.
         // The generic can appear only in the fn return; bind it from the
         // argument's function marker (`fn((Int, Int)) -> (Int, Int)`).
+        // The registry marker is LLVM-typed (`%struct.Tuple__Int__Int`,
+        // `i64`, `double`), so map it back to a XIOM spelling before it
+        // becomes a monomorphisation key. Emitting the raw LLVM name made
+        // `EnumerateIter.map` specialise as `map__struct.Tuple__Int__Int`
+        // and every downstream `U` (collect/next) fall back to i64.
         if let Type::Fn(_, fn_ret) = container_ty {
             if Self::extract_type_arg_names(fn_ret).iter().any(|a| a == gp) {
                 if let Some(marker) = self.fn_ref_marker_xiom(inner) {
                     if let Some((_, actual_ret)) = marker.rsplit_once("->") {
-                        let actual_ret = actual_ret.trim();
+                        let actual_raw = actual_ret.trim();
                         // `(Int, Int)` -> the registered `Tuple__Int__Int`.
-                        let canon = if actual_ret.starts_with('(') && actual_ret.ends_with(')') {
-                            let body = &actual_ret[1..actual_ret.len() - 1];
-                            let parts: Vec<&str> = body.split(',')
-                                .map(|s| s.trim())
-                                .filter(|s| !s.is_empty())
-                                .collect();
-                            if parts.len() > 1 {
-                                format!("Tuple__{}", parts.join("__"))
+                        // LLVM structs keep their `%struct.` prefix in the
+                        // marker; a pointer result would lose its pointee
+                        // marker, so it is deliberately not inferred here.
+                        let actual_xiom: Option<String> =
+                            if actual_raw.starts_with('(') && actual_raw.ends_with(')') {
+                                Some(actual_raw.to_string())
+                            } else if actual_raw.starts_with("%struct.")
+                                && !actual_raw.ends_with('*')
+                            {
+                                Some(Self::xiom_type_name_from_llvm(actual_raw))
+                            } else if matches!(
+                                actual_raw,
+                                "i64" | "i32" | "i16" | "i8" | "i1"
+                                    | "i128" | "double" | "float" | "fp128" | "i8*"
+                            ) {
+                                Some(Self::xiom_type_name_from_llvm(actual_raw))
                             } else {
-                                parts.first().copied().unwrap_or(actual_ret).to_string()
+                                None
+                            };
+                        let canon = match actual_xiom {
+                            Some(a) if a.starts_with('(') && a.ends_with(')') => {
+                                let body = &a[1..a.len() - 1];
+                                let parts: Vec<&str> = body.split(',')
+                                    .map(|s| s.trim())
+                                    .filter(|s| !s.is_empty())
+                                    .collect();
+                                if parts.len() > 1 {
+                                    format!("Tuple__{}", parts.join("__"))
+                                } else {
+                                    parts.first().copied().unwrap_or(a.as_str()).to_string()
+                                }
                             }
-                        } else {
-                            actual_ret.to_string()
+                            Some(a) => a,
+                            None => String::new(),
                         };
                         let declared_ret = Self::type_from_ast_with_args(fn_ret);
-                        if declared_ret == gp {
+                        if !canon.is_empty()
+                            && declared_ret == gp
+                            && !Self::has_unresolved_generic_token(&canon)
+                        {
                             if let Some(u) = usable(&canon) {
                                 return Some(u);
                             }

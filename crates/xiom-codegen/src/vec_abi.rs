@@ -1024,7 +1024,12 @@ impl IrEmitter {
     /// ptr (0xC0000005 in binary_search_by(v, t, cmp_int)).
     /// Returns the env pointer as i64.
     pub(crate) fn wrap_fn_ref_env(&mut self, fn_name: &str, fn_addr: &str, ret_xiom: &str, param_llvm: Vec<String>) -> String {
-        let ret_llvm = self.llvm_type_for(ret_xiom).unwrap_or_else(|_| "i64".to_string());
+        // The declared return may still be a generic parameter from the
+        // enclosing subject (`fn((Int, Int)) -> U` inside EnumerateIter.map);
+        // lower it against the active monomorphisation map so a tuple/struct
+        // return is forwarded BY VALUE instead of truncated to i64.
+        let ret_xiom = Self::subst_type_tokens(ret_xiom, &self.mono.current_type_map);
+        let ret_llvm = self.llvm_type_for(&ret_xiom).unwrap_or_else(|_| "i64".to_string());
         // Resolve the callee's emitted SYMBOL (the registered key, or the
         // pre-assigned symbol map entry). R25: deterministic scope-first
         // resolution -- a HashMap-order suffix pick here could disagree with

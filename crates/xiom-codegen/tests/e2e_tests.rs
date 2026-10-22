@@ -5,8 +5,15 @@
 use std::process::Command;
 use std::path::Path;
 
-/// Path to the compiled xiomc binary
+/// Path to the compiled xiomc binary. `XIOM_TEST_COMPILER` overrides the
+/// binary under test so the same suite can run against a release build
+/// (`cargo build -p xiom --release` + `XIOM_TEST_COMPILER=target/release/xiom.exe`).
 fn xiom_path() -> String {
+    if let Ok(p) = std::env::var("XIOM_TEST_COMPILER") {
+        if !p.trim().is_empty() {
+            return p;
+        }
+    }
     let exe_name = if cfg!(target_os = "windows") { "xiom.exe" } else { "xiom" };
     let mut path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent().unwrap().parent().unwrap()
@@ -11498,6 +11505,19 @@ fn e2e_m1550_enumerate_tuple_map() {
         compile_and_run("tests/regression/m1550_enumerate_tuple_map.xi"),
         Some(0),
         "m1550: EnumerateIter.map must pass the tuple, not the boxed pointer"
+    );
+}
+
+// m1550 TRUE shape (REL-20261022-1152-compiler): the callback RETURNS a
+// tuple, so `collect` must specialise MapIter[(Int, Int), (Int, Int)] and
+// `em[1].0` must read the tuple element. Locks the on-demand receiver
+// inference that keeps U from collapsing to Int.
+#[test]
+fn e2e_m1550_enumerate_tuple_map_true() {
+    assert_eq!(
+        compile_and_run("tests/regression/m1550_enumerate_tuple_map_true.xi"),
+        Some(0),
+        "m1550 true: em must be [(0,10),(1,12),(2,14)] with em[1].0 == 1"
     );
 }
 
