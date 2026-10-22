@@ -164,3 +164,113 @@ jobs:
           target/release/xiom /tmp/smoke.xi -o /tmp/smoke_test
           /tmp/smoke_test
         shell: bash
+
+  # v0.65.0 gate (the v0.64.9 miss): the RELEASE compiler must pass the P0
+  # correctness locks. The old suite could silently fall back to a debug
+  # binary (or a stale bundled stdlib under target/release/lib), so this job
+  # pins BOTH the compiler under test and the stdlib root. `XIOM_TEST_COMPILER`
+  # switches the e2e harness; `XIOM_STDLIB` removes exe_dir/lib shadowing.
+  release-parity:
+    name: release compiler parity (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    env:
+      XIOM_REQUIRE_STDLIB: "1"
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Read STDLIB_VERSION
+        id: pin
+        shell: bash
+        run: echo "ref=$(tr -d '\r\n ' < STDLIB_VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout stdlib at the pin
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: xiom-lang/stdlib
+          ref: ${{ steps.pin.outputs.ref }}
+          path: stdlib
+          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN || github.token }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+
+      - name: Cache cargo
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry/
+            ~/.cargo/git/
+            target/
+          key: ${{ runner.os }}-cargo-release-parity-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build release compiler
+        run: cargo build --release -p xiom
+
+      - name: Pin compiler under test and stdlib
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            echo "XIOM_TEST_COMPILER=$PWD/target/release/xiom.exe" >> "$GITHUB_ENV"
+          else
+            echo "XIOM_TEST_COMPILER=$PWD/target/release/xiom" >> "$GITHUB_ENV"
+          fi
+          echo "XIOM_STDLIB=$PWD/stdlib" >> "$GITHUB_ENV"
+          "$PWD/target/release/xiom" --version
+
+      - name: Release-mode P0 correctness locks
+        run: |
+          cargo test -p xiom-codegen --test e2e_tests -- e2e_m1550 e2e_m1827 e2e_m1529 e2e_m1615 e2e_m372 e2e_m1520
+
+  # REL-20261022-1529-pulse: the stored-fn thunk spelling must be accepted by
+  # the LLVM 14 floor (clang 14 / Apple-arm64 style typed pointers), not only
+  # by LLVM 18. The IR grep locks run on x64 already; this leg proves the floor
+  # toolchain and runs the stored-fn fixture end to end.
+  arm64-floor:
+    name: arm64 floor (ubuntu-22.04-arm, clang 14)
+    runs-on: ubuntu-22.04-arm
+    env:
+      XIOM_REQUIRE_STDLIB: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Read STDLIB_VERSION
+        id: pin
+        shell: bash
+        run: echo "ref=$(tr -d '\r\n ' < STDLIB_VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout stdlib at the pin
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: xiom-lang/stdlib
+          ref: ${{ steps.pin.outputs.ref }}
+          path: stdlib
+          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN || github.token }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+
+      - name: Confirm floor clang (14)
+        run: clang --version
+
+      - name: Build release compiler
+        run: cargo build --release -p xiom
+
+      - name: Pin compiler under test and stdlib
+        run: |
+          echo "XIOM_TEST_COMPILER=$PWD/target/release/xiom" >> "$GITHUB_ENV"
+          echo "XIOM_STDLIB=$PWD/stdlib" >> "$GITHUB_ENV"
+
+      - name: Stored-fn + P0 on the LLVM 14 floor
+        run: |
+          cargo test -p xiom-codegen --test e2e_tests -- e2e_m1529 e2e_m1550 e2e_m1827

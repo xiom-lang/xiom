@@ -1,4 +1,4 @@
-// XIOM Codegen -- Function/method call compilation (extracted from expr.rs, M4.2)
+﻿// XIOM Codegen -- Function/method call compilation (extracted from expr.rs, M4.2)
 // Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
@@ -2372,13 +2372,14 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // memcpy'd stack garbage past the boxed payload: the Str
                         // was lost on read-back and the Vec stride was clobbered.
                         // Rebuild the value in the concrete layout first.
-                        if let Some(elem) = elem_xiom.as_deref() {
-                            let (ebase, eargs) = Self::parse_generic_type_string(elem);
+                        if let Some(elem_raw) = elem_xiom.as_deref() {
+                            let elem = Self::subst_type_tokens(elem_raw, &self.mono.current_type_map);
+                            let (ebase, eargs) = Self::parse_generic_type_string(&elem);
                             if (ebase == "Result" || ebase == "Option")
                                 && !eargs.is_empty()
                                 && (val_ty == "%struct.Result" || val_ty == "%struct.Option")
                             {
-                                if let Ok(concrete) = self.llvm_type_for(elem) {
+                                if let Ok(concrete) = self.llvm_type_for(&elem) {
                                     if concrete.starts_with("%struct.") && concrete != val_ty {
                                         val_raw = self.coerce_value(&val_raw, &val_ty, &concrete);
                                         val_ty = concrete;
@@ -2469,13 +2470,20 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 let struct_size = if is_wide_scalar {
                                     16
                                 } else {
-                                    // Prefer the receiver's DECLARED element type:
-                                    // the pushed value may be the erased container
-                                    // base (`%struct.Result`), whose 24-byte size
-                                    // is wrong for a concrete `Result[Str, E]`
-                                    // element (32) and desynchronised the stride.
+                                    // Prefer the receiver's DECLARED element type,
+                                    // substituted through the active mono map: a
+                                    // generic body (`Vec[T].push` inside
+                                    // _collect_via[T]) otherwise sizes the slot from
+                                    // the bare placeholder and falls back to 8,
+                                    // truncating a 16-byte tuple element.
                                     let size_name = elem_xiom
-                                        .clone()
+                                        .as_deref()
+                                        .map(|e| Self::subst_type_tokens(e, &self.mono.current_type_map))
+                                        .filter(|e| {
+                                            !e.is_empty()
+                                                && !Self::is_generic_placeholder_name(e)
+                                                && !Self::has_unresolved_generic_token(e)
+                                        })
                                         .unwrap_or_else(|| tn.to_string());
                                     self.vec_elem_storage_size(&size_name)
                                 };
