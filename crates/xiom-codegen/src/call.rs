@@ -2315,7 +2315,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         let (recv_val, recv_actual_ty) = self.compile_expr(receiver)?;
                         let (recv_vec, _) = self.resolve_vec_receiver(receiver, &recv_val, &recv_actual_ty);
                         // Convert array literals -> Vec structs for push arguments
-                        let (mut val_raw, val_ty) = if let Expr::Array(elems, _) = &args[0] {
+                        let (mut val_raw, mut val_ty) = if let Expr::Array(elems, _) = &args[0] {
                             self.compile_array_as_vec(elems, "Int")?
                         } else {
                             self.compile_expr(&args[0])?
@@ -2324,16 +2324,16 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // wrap it in a closure ENV (the element is called env-first
                         // via the M20-A1 / index-call paths -- a raw code address
                         // would be deref'd as an env struct).
+                        // B-15 follow-up (2026-10-11): resolve the element
+                        // marker for EVERY receiver shape -- the old Ident
+                        // arm only knew `local_vec_elem`, so pushing into a
+                        // MODULE-GLOBAL `Vec[fn(Int, Int) -> Bool]` stored
+                        // the RAW code address while the element-call path
+                        // loads env field 0 -> AV (probe7). The shared
+                        // resolver also covers global Vecs via
+                        // global_vec_elem.
+                        let elem_xiom = self.resolve_vec_container_elem_xiom(receiver);
                         {
-                            // B-15 follow-up (2026-10-11): resolve the element
-                            // marker for EVERY receiver shape -- the old Ident
-                            // arm only knew `local_vec_elem`, so pushing into a
-                            // MODULE-GLOBAL `Vec[fn(Int, Int) -> Bool]` stored
-                            // the RAW code address while the element-call path
-                            // loads env field 0 -> AV (probe7). The shared
-                            // resolver also covers global Vecs via
-                            // global_vec_elem.
-                            let elem_xiom = self.resolve_vec_container_elem_xiom(receiver);
                             let mut wrapped = None;
                             if elem_xiom.as_deref().map_or(false, Self::is_fn_marker) {
                                 if let Some(ae) = args.first() {
@@ -2361,6 +2361,29 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             }
                             if let Some(w) = wrapped {
                                 val_raw = w;
+                            }
+                        }
+                        // 2045/1827: a DIRECTLY constructed Err/Ok is lowered
+                        // against the ERASED `%struct.Result`/`%struct.Option`
+                        // when the enclosing fn does not return Result, while
+                        // the receiver Vec's DECLARED element may be a concrete
+                        // monomorph (`Result[Str, E]`). Storing the 24-byte
+                        // erased value with the monomorph's 32-byte element size
+                        // memcpy'd stack garbage past the boxed payload: the Str
+                        // was lost on read-back and the Vec stride was clobbered.
+                        // Rebuild the value in the concrete layout first.
+                        if let Some(elem) = elem_xiom.as_deref() {
+                            let (ebase, eargs) = Self::parse_generic_type_string(elem);
+                            if (ebase == "Result" || ebase == "Option")
+                                && !eargs.is_empty()
+                                && (val_ty == "%struct.Result" || val_ty == "%struct.Option")
+                            {
+                                if let Ok(concrete) = self.llvm_type_for(elem) {
+                                    if concrete.starts_with("%struct.") && concrete != val_ty {
+                                        val_raw = self.coerce_value(&val_raw, &val_ty, &concrete);
+                                        val_ty = concrete;
+                                    }
+                                }
                             }
                         }
                         // G4: Float64->Float32 coercion for Vec[Float32] push.
@@ -2443,7 +2466,19 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 // vec_elem_storage_size knows the enum
                                 // { i64 tag, i64 x slots } layout, container
                                 // fields (Vec 32, Map/Set 64) and arrays.
-                                let struct_size = if is_wide_scalar { 16 } else { self.vec_elem_storage_size(&tn) };
+                                let struct_size = if is_wide_scalar {
+                                    16
+                                } else {
+                                    // Prefer the receiver's DECLARED element type:
+                                    // the pushed value may be the erased container
+                                    // base (`%struct.Result`), whose 24-byte size
+                                    // is wrong for a concrete `Result[Str, E]`
+                                    // element (32) and desynchronised the stride.
+                                    let size_name = elem_xiom
+                                        .clone()
+                                        .unwrap_or_else(|| tn.to_string());
+                                    self.vec_elem_storage_size(&size_name)
+                                };
                                 let sz_tmp = self.fresh_tmp();
                                 self.emitln(&format!("  {sz_tmp} = alloca i64"));
                                 self.emitln(&format!("  store i64 {struct_size}, i64* {sz_tmp}"));

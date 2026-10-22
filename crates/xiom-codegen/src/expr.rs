@@ -1340,20 +1340,14 @@ impl IrEmitter {
                     // concrete-container deferral, which splices early and
                     // dedups (module_deferred_types + emitted_type_defs).
                     self.defer_concrete_def_if_in_body(&name);
-                    let mut struct_ty = self.infer_llvm_type(expr);
-                    // R45: no name override needed -- infer_llvm_type's tuple
-                    // arm now names elements by XIOM type exactly like the
-                    // literal path above (Bool locals/comparisons, cast
-                    // targets), so both agree.
-                    // Fix: If inference falls back to i64 (because element types
-                    // don't match registered struct), try the function return type.
-                    if !struct_ty.starts_with("%struct.") {
-                        if self.fctx.current_return_type.starts_with("%struct.") {
-                            struct_ty = self.fctx.current_return_type.clone();
-                        } else {
-                            return Ok(("0".to_string(), LLVM_I64.to_string()));
-                        }
-                    }
+                    let struct_ty = format!("%struct.{name}");
+                    // 1645: use the canonical name registered above. Re-inferring
+                    // could return i64 when an element's XIOM name differed from
+                    // the LLVM-derived one (a `Handle` local inferred as "Int"),
+                    // and the old return-type fallback then typed the TUPLE as the
+                    // enclosing fn's `%struct.Result`: the Vec element was coerced
+                    // to i64 (its data pointer) and every Vec field past slot 0
+                    // -- len/cap/elem_size -- was dropped at the module boundary.
                     // Parse field types from struct name: %struct.Tuple_Float32_Int ->
                     // field LLVM types: [float, i64]
                     let field_types = self.parse_struct_field_types(&struct_ty);

@@ -11521,6 +11521,38 @@ fn e2e_m1550_enumerate_tuple_map_true() {
     );
 }
 
+// m1827 (REL-20261022-1827-packages / 1645): three data-loss probes.
+// A direct Err(E.Bad(Str)) pushed into Vec[Result[Str,E]] must keep the Str.
+#[test]
+fn e2e_m1827_err_str_vec_push() {
+    assert_eq!(
+        compile_and_run("tests/regression/m1827_err_str_vec_push.xi"),
+        Some(0),
+        "m1827: direct Err(E.Bad(Str)) push must keep the payload"
+    );
+}
+
+// A direct Err(E.Variant(..)) match must descend into the inner enum tag.
+#[test]
+fn e2e_m1827_match_err_enum() {
+    assert_eq!(
+        compile_and_run("tests/regression/m1827_match_err_enum.xi"),
+        Some(0),
+        "m1827: Err(E.Variant(..)) must match the inner variant, not drop the arm"
+    );
+}
+
+// A Vec[Int] inside a cross-module Result[(Nominal, Vec[Int]), Str]
+// must keep len/cap/elem_size at the module boundary.
+#[test]
+fn e2e_m1827_vec_in_tuple_cross_module() {
+    assert_eq!(
+        compile_and_run("tests/regression/m1827_vec_in_tuple_main.xi"),
+        Some(0),
+        "m1827/1645: Vec contents must survive the cross-module tuple boundary"
+    );
+}
+
 // m1615 (REL-20261022-1615-xvector): nested enum patterns inside Option and
 // Result must check the inner discriminant and bind Float64/Str payloads.
 // Covers `Some(Num(n))`, `Ok(Num(n))`, `Some(Text(s))`, `Ok(Text(s))`, and

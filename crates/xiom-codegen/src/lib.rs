@@ -1,4 +1,4 @@
-// XIOM -- LLVM IR Codegen
+﻿// XIOM -- LLVM IR Codegen
 // Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
@@ -3079,6 +3079,32 @@ impl IrEmitter {
         Self::option_result_err_payload(&expanded)
     }
 
+    /// A payload type is usable when it is not a generic placeholder -- but a
+    /// single-uppercase-letter name can be a real registered type (an enum
+    /// named `E`, a struct named `T`). Registered types always win over the
+    /// placeholder heuristic; without this, `Err(E.A(v))` filtered the enum
+    /// out of the payload resolution and the nested variant check was never
+    /// emitted (1827).
+    fn payload_type_usable(&self, t: &str) -> bool {
+        !Self::is_generic_placeholder_name(t) || self.is_registered_type_name(t)
+    }
+
+    fn is_registered_type_name(&self, t: &str) -> bool {
+        if t.is_empty() {
+            return false;
+        }
+        if self.is_enum_type_registered(t)
+            || self.types.type_meta.contains_key(&t.to_string())
+            || self.types.types.contains_key(&t.to_string())
+        {
+            return true;
+        }
+        let suffix = format!(".{t}");
+        self.types.type_meta.keys().into_iter().any(|k| k.ends_with(&suffix))
+            || self.types.types.keys().into_iter().any(|k| k.ends_with(&suffix))
+            || self.types.generic_type_names.iter().any(|k| k == t || k.ends_with(&suffix))
+    }
+
     /// 5c.30: Resolve the declared XIOM return type of a call expression's
     /// callee (exact key, then unique `.name` suffix match).
     fn callee_return_xiom(&self, func: &Expr) -> Option<String> {
@@ -4438,12 +4464,12 @@ impl IrEmitter {
         match expr_match {
             Expr::Some(inner, _) | Expr::Ok(inner, _) | Expr::Err(inner, _) => {
                 self.infer_expr_xiom_type_deep(inner)
-                    .filter(|t| !Self::is_generic_placeholder_name(t))
+                    .filter(|t| self.payload_type_usable(t))
             }
             Expr::Ident(sid) => {
                 if field_idx == 2 {
                     self.local.local_err_payload.get(&sid.name).cloned()
-                        .filter(|t| !Self::is_generic_placeholder_name(t))
+                        .filter(|t| self.payload_type_usable(t))
                         // 2045 part 2: a local whose declared type is a
                         // Result (annotated, or the payload of an outer
                         // boxed Some/Ok) must resolve the ERROR payload too.
@@ -4452,16 +4478,16 @@ impl IrEmitter {
                         // i64 and printed the Str pointer as a number.
                         .or_else(|| self.local.local_xiom_types.get(&sid.name)
                             .and_then(|t| self.option_result_err_payload_alias(t))
-                            .filter(|t| !Self::is_generic_placeholder_name(t)))
+                            .filter(|t| self.payload_type_usable(t)))
                 } else {
                     // R52 (playground L5-43): a stale unsubstituted placeholder
                     // payload ("T" recorded by track_boxed_payload_binding for
                     // `let a = s.pop()`) must not shadow the concrete
                     // Option[Str] derived from the local's recorded type.
                     self.local.local_opt_payload.get(&sid.name).cloned()
-                        .filter(|t| !Self::is_generic_placeholder_name(t))
+                        .filter(|t| self.payload_type_usable(t))
                         .or_else(|| self.local.local_opt_payload_xiom.get(&sid.name).cloned()
-                            .filter(|t| !Self::is_generic_placeholder_name(t)))
+                            .filter(|t| self.payload_type_usable(t)))
                         .or_else(|| self.local.local_xiom_types.get(&sid.name)
                             .and_then(|t| self.option_result_payload_alias(&t)))
                 }
@@ -4510,7 +4536,7 @@ impl IrEmitter {
                     } else {
                         self.option_result_payload_alias(&full)
                     }
-                }).filter(|t| !Self::is_generic_placeholder_name(t));
+                }).filter(|t| self.payload_type_usable(t));
                 // m286 (1549-stdlib-7): a cross-type generic METHOD scrutinee
                 // (`match o.map(to_s) { Some(s) => ... }`, Option[Int].map[U]
                 // with U=Str) resolved the RAW declared "Option[U]" -> payload
@@ -4527,7 +4553,7 @@ impl IrEmitter {
                         } else {
                             self.option_result_payload_alias(&full)
                         };
-                        if let Some(sp) = sub_payload.filter(|t| !Self::is_generic_placeholder_name(t)) {
+                        if let Some(sp) = sub_payload.filter(|t| self.payload_type_usable(t)) {
                             return Some(sp);
                         }
                     }
@@ -11066,6 +11092,18 @@ fast:
                         if let Expr::Ident(id) = i {
                             if let Some(base) = self.mono_param_xiom_name(&id.name) {
                                 return base;
+                            }
+                            // 1645: mirror the literal namer in expr.rs -- a
+                            // local with a registered XIOM type (`h: Handle`)
+                            // must name the tuple element `Handle`, not its LLVM
+                            // width name `Int`; otherwise inference built
+                            // Tuple__Int__Vec while the literal registered
+                            // Tuple__Handle__Vec and fell back to i64.
+                            if let Some(xiom) = self.local.local_xiom_types.get(&id.name) {
+                                let bare = xiom.split('[').next().unwrap_or(xiom.as_str());
+                                let bare = bare.trim().trim_start_matches('&').trim();
+                                let bare = bare.strip_prefix("mut ").unwrap_or(bare).trim();
+                                return bare.to_string();
                             }
                             // m256 (REL-20261010-1803-selfhost): an i64
                             // container-handle binding (match-arm Vec payload
