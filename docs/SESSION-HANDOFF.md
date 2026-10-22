@@ -14,6 +14,70 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-22T12:52Z (compiler lane; v0.64.9 wave-1 fixes + full battery green) -- READ FIRST ***
+- STATE: v0.64.8 remains the released archive; **v0.64.9 is NOT cut**
+  (no tag, no publish, no candidate JSON). Main is committed locally and
+  pushed with this handoff; relay tip `fb17cdd` plus later coordination
+  items.
+- NEW FIXES on top of the 2026-10-21T19:05Z block:
+  * m1520 / REL-20261021-1520-stdlib: `_max_via[U]` inside
+    `MapIter[T,U].max` kept the literal `U`, so `%struct.Tuple__T__U` was
+    compared with i64. Explicit `GenericCall` args, `type_arg` idents, and
+    the index arm now substitute `current_type_map`; receiver/declared-
+    return inference was added before the argument fallback (`d04cd3265`).
+    `MapIter.max` + `ZipIter.find` print `max=6`, `found=2,6`; lock
+    `e2e_m1520_adapter_collision`.
+  * 1511 / REL-20261021-1511-packages: `package.xi` uses `deps:` but
+    `extract_deps_legacy` only matched `dependencies:`, so
+    `manifest.dependencies` stayed empty and dependency `port.args.json`
+    never applied (installed fontraster/HarfBuzz link failure). The parser
+    now accepts `deps:`/`dependencies:`, brace-matches multi-line maps, and
+    splits entries quote-aware (`e45059b76`; graph 43/43). Packages are
+    asked to drop the tree-relative harfbuzz workaround, re-test an
+    installed fontraster build, and unhold publish.
+  * m365 / REL-20261017-1355-engine: dependency C objects now use a
+    consumer-neutral canonical profile (host ISA, m339 SFB disable,
+    no-asm/CRT defines, PIC for shared consumers, pinned `-O2`; consumer
+    `-g/-O*/LTO/sanitizer/stack-protector` excluded) (`70b380c4e`).
+    Pending the engine's 117-target assimp re-measure.
+  * m375 / REL-20261021-1122-orbitdb-2: measured 20k = 37 s work / <0.1 s
+    exit, 200k = 527 s work / 0.04 s exit (the probe's `ms=` is SECONDS --
+    `io.time_now` is C `time(0)`); the 880 s is 1M-specific. Added opt-in
+    `XIOM_FAST_EXIT=1` at compile time (renames user main; wrapper flushes,
+    preserves the guard-fault exit-70 path, then ExitProcess/_exit)
+    (`b51ce6ec2`). Cache sizing guidance relayed; 1M A/B pending.
+  * 1531 / REL-20261020-1531-xvector-2: could not reproduce the 16 GB Job
+    Object build hang on main or v0.64.8 (the full 178 KB conformance file
+    builds under the cap). Hardened `rtcache` to break a lock held by a
+    dead pid immediately (`1fb407377`); xvector asked for the exact command
+    if it persists.
+  * 1243 / REL-20261021-1243-xvector: the standalone JSON numeric path
+    (object, bare number, helper-shaped service extraction) passes on
+    v0.64.8 and main; the shard-service context is still needed. Not the
+    C-18 family in this shape.
+  * 1550 / REL-20261020-1550-stdlib: compiler side ready
+    (`d04cd3265`: full fn field markers, fn-field Option payload resolver,
+    computed-receiver/call-site generic substitution). A 6-line
+    `EnumerateIter[Int].map` specialization is relayed to stdlib
+    (`REL-20261022-1152-compiler`); with it the exact probe prints
+    `10,12,14`, with the current stdlib it is still red. Do NOT mark 1550
+    fixed until stdlib lands and the probe is re-run.
+  * Selfhost: RD11 rebase onto `d50d1436e`, T3 green (phase-5 19/19,
+    phase-6 14/64, T1 83/83) at `6522688c9`. A `diff_ast` experiment
+    (trailing value-shaped match -> ExprMatch) reaches 83/83 AST parity but
+    regresses `examples/phase1_enum` T3 (selfhost `cgb_match` has no
+    value-result path); reverted and documented at `3e9f26484`. The m1136
+    selfhost mirror and the P6 shapes (Option/.len, Vec.pop, &Vec+f64,
+    index arithmetic) remain.
+- BATTERY (final main): feature_regression 549/549, integration 130/130,
+  stdlib_tests 40/40, codegen lib 25/25, xiom lib 77/77, xiom-graph 43/43,
+  checker 214/214, parser 109/109.
+- v0.64.9 READINESS: the compiler tree is green. Remaining blockers are
+  coordination, not codegen: stdlib's 1550 specialization, the engine's
+  m365 117-target re-measure, orbitdb's m375 1M A/B, the packages
+  fontraster installed re-test (1511), and the xvector 1243/1531 re-tests.
+  No candidate cut/tag/publish without those replies and owner GO.
+
 *** SESSION UPDATE 2026-10-21T19:05Z (compiler lane; 6 relay fixes + selfhost RD11 T3 GREEN) -- READ FIRST ***
 - STATE: v0.64.8 remains the released archive (tag 4d040604b, 11 assets,
   registry xiom-std 0.64.8 green); no re-cut/candidate without owner GO.
