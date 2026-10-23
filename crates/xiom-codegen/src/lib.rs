@@ -188,6 +188,23 @@ impl IrEmitter {
         self.config.parallel_codegen = enabled;
     }
 
+    /// v0.65.0 MCU: freestanding/no_std profile (plain recursion counter, no
+    /// TLS; host-runtime assumptions are the driver's responsibility).
+    pub fn set_freestanding(&mut self, enabled: bool) {
+        self.config.freestanding = enabled;
+    }
+
+    /// Emit the recursion-depth counter. A `thread_local` counter needs
+    /// `__aeabi_read_tp` + a TLS segment, which a bare-metal link does not
+    /// have; freestanding uses a plain internal global instead.
+    pub(crate) fn emit_recursion_counter(&mut self, counter: &str) {
+        if self.config.freestanding {
+            self.emitln(&format!("@{counter} = internal global i64 0"));
+        } else {
+            self.emitln(&format!("@{counter} = internal thread_local global i64 0"));
+        }
+    }
+
     pub fn set_debug_symbols(&mut self, enabled: bool) {
         self.config.debug_symbols = enabled;
     }
@@ -9411,7 +9428,7 @@ fast:
             if self.config.check_contracts && !fd.contracts.is_empty() {
                 if let Some(counter) = self.contract_counter_name() {
                     if self.local.contract_eval_counters.insert(counter.clone()) {
-                        self.emitln(&format!("@{counter} = internal thread_local global i64 0"));
+                        self.emit_recursion_counter(&counter);
                     }
                 }
             }

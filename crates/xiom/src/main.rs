@@ -2161,6 +2161,8 @@ fn real_main() {
     let config = {
         let mut config = CompileConfig {
             target,
+            freestanding: args.flag("freestanding") || target.is_freestanding(),
+            linker_script: args.value("linker-script"),
             emit_ir,
             do_run,
             check_only,
@@ -2235,8 +2237,16 @@ fn real_main() {
                         "wasi" => config.target = Target::Wasi,
                         "arm" => config.target = Target::Arm,
                         "riscv" => config.target = Target::RisCv,
+                        "thumbv6m" => config.target = Target::ThumbV6M,
+                        "thumbv7em" => config.target = Target::ThumbV7EM,
+                        "thumbv8m" | "thumbv8m.main" => config.target = Target::ThumbV8MMain,
+                        "riscv32imc" => config.target = Target::RiscV32IMC,
+                        "riscv32imac" => config.target = Target::RiscV32IMAC,
                         "native" => config.target = Target::Native,
                         other => eprintln!("warning: ignoring unknown [compiler] target '{other}'"),
+                    }
+                    if config.target.is_freestanding() {
+                        config.freestanding = true;
                     }
                 }
             }
@@ -2524,6 +2534,7 @@ fn real_main() {
                     check_only: true, emit_ir: true, diagnostics_json: true,
                     dump_check: false,
                     target: config.target, release: config.release,
+                    freestanding: config.freestanding, linker_script: config.linker_script.clone(),
                     do_run: false, check_contracts: config.check_contracts,
                     strict_mode: config.strict_mode, debug_symbols: config.debug_symbols,
                     shared_lib: false, static_lib: false,
@@ -2584,6 +2595,7 @@ fn real_main() {
                     check_only: true, emit_ir: true, diagnostics_json: true,
                     dump_check: false,
                     target: config.target, release: config.release,
+                    freestanding: config.freestanding, linker_script: config.linker_script.clone(),
                     do_run: false, check_contracts: config.check_contracts,
                     strict_mode: config.strict_mode, debug_symbols: config.debug_symbols,
                     shared_lib: false, static_lib: false,
@@ -2700,7 +2712,10 @@ fn print_usage() {
     eprintln!();
     eprintln!("OUTPUT:");
     eprintln!("  -o <output>         Output binary path (default: a.exe on Windows, a.out elsewhere)");
-    eprintln!("  --target <target>   Target: native (default), wasm, wasi, arm, riscv");
+    eprintln!("  --target <target>   Target: native (default), wasm, wasi, arm, riscv,");
+    eprintln!("                      thumbv6m, thumbv7em, thumbv8m, riscv32imc, riscv32imac");
+    eprintln!("  --freestanding      Bare-metal/no_std profile (implied by thumb*/riscv32*):");
+    eprintln!("                      no CRT, no host libc, startup + linker script from runtime/freestanding");
     eprintln!("  --emit-ir           Print LLVM IR to stdout (no compilation)");
     eprintln!("  --emit-tokens       Print the token stream and exit");
     eprintln!("  --dump-tokens       Print the canonical token dump (selfhost parity gate)");
@@ -2798,6 +2813,11 @@ fn parse_target(target: Option<&str>) -> Target {
         Some("wasi") => Target::Wasi,
         Some("arm") => Target::Arm,
         Some("riscv") => Target::RisCv,
+        Some("thumbv6m") => Target::ThumbV6M,
+        Some("thumbv7em") => Target::ThumbV7EM,
+        Some("thumbv8m") | Some("thumbv8m.main") => Target::ThumbV8MMain,
+        Some("riscv32imc") => Target::RiscV32IMC,
+        Some("riscv32imac") => Target::RiscV32IMAC,
         _ => Target::Native,
     }
 }

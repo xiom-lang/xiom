@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+﻿// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use std::collections::HashMap;
@@ -55,7 +55,7 @@ impl super::IrEmitter {
     /// late/parallel functions). LLVM hoists a leading global declaration.
     fn declare_contract_counter(&mut self, counter: &str) {
         if self.local.contract_eval_counters.insert(counter.to_string()) {
-            self.emitln(&format!("@{counter} = internal thread_local global i64 0"));
+            self.emit_recursion_counter(&counter);
         }
     }
 

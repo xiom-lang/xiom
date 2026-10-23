@@ -1,4 +1,4 @@
-// XIOM Compiler Library
+﻿// XIOM Compiler Library
 // -----------------------------------------------------------------------
 // Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -35,6 +35,65 @@ pub enum Target {
     Wasi,
     Arm,
     RisCv,
+    /// v0.65.0 MCU first wave (REL-20261019-1220/1419-bindings).
+    ThumbV6M,
+    ThumbV7EM,
+    ThumbV8MMain,
+    RiscV32IMC,
+    RiscV32IMAC,
+}
+
+impl Target {
+    /// LLVM triple emitted in the IR and passed to clang.
+    pub fn triple(self) -> &'static str {
+        match self {
+            Target::Native => xiom_codegen::native_target_triple(
+                std::env::consts::OS,
+                std::env::consts::ARCH,
+            ),
+            Target::Wasm => "wasm32-unknown-unknown",
+            Target::Wasi => "wasm32-wasi",
+            Target::Arm => "aarch64-unknown-linux-gnu",
+            Target::RisCv => "riscv64-unknown-linux-gnu",
+            Target::ThumbV6M => "thumbv6m-none-eabi",
+            Target::ThumbV7EM => "thumbv7em-none-eabi",
+            Target::ThumbV8MMain => "thumbv8m.main-none-eabi",
+            // clang's RISC-V triple parser rejects the ISA suffix; select the
+            // ISA with `-march` instead.
+            Target::RiscV32IMC | Target::RiscV32IMAC => "riscv32-unknown-none-elf",
+        }
+    }
+
+    /// True for the bare-metal targets: no CRT, no host libc, no OS.
+    pub fn is_freestanding(self) -> bool {
+        matches!(
+            self,
+            Target::ThumbV6M
+                | Target::ThumbV7EM
+                | Target::ThumbV8MMain
+                | Target::RiscV32IMC
+                | Target::RiscV32IMAC
+        )
+    }
+
+    /// True for the two architectural families in the first wave.
+    pub fn is_thumb(self) -> bool {
+        matches!(self, Target::ThumbV6M | Target::ThumbV7EM | Target::ThumbV8MMain)
+    }
+
+    pub fn is_riscv32(self) -> bool {
+        matches!(self, Target::RiscV32IMC | Target::RiscV32IMAC)
+    }
+
+    /// ISA selector for triples whose name does not carry the extension set
+    /// (clang wants `-march=rv32imc` with `riscv32-...`).
+    pub fn arch_flag(self) -> Option<&'static str> {
+        match self {
+            Target::RiscV32IMC => Some("rv32imc"),
+            Target::RiscV32IMAC => Some("rv32imac"),
+            _ => None,
+        }
+    }
 }
 
 /// m228 (B-08, bindings-lane tooling): the exit code of the child binary that
@@ -145,6 +204,12 @@ pub struct CompileConfig {
     pub lto: bool,
     /// I2: Parallel codegen -- rayon-based per-function IR emission (--parallel-codegen)
     pub parallel_codegen: bool,
+    /// v0.65.0 MCU: bare-metal / no_std profile (--freestanding; implied by
+    /// the thumb/riscv32 targets). No CRT, no host libc, startup/linker
+    /// contract from `runtime/freestanding/`.
+    pub freestanding: bool,
+    /// MCU: override the default arch linker script (`--linker-script`).
+    pub linker_script: Option<String>,
     /// D2.1 (Phase 7): `--enable-unsafe-direct` -- allow `#[unsafe_direct]`
     /// (trusted escape hatch) in user code (stdlib/selfhost always allowed).
     pub enable_unsafe_direct: bool,
@@ -201,6 +266,8 @@ impl Default for CompileConfig {
             cache: false,
             lto: false,
             parallel_codegen: false,
+            freestanding: false,
+            linker_script: None,
             enable_unsafe_direct: false,
             extra_source_dirs: Vec::new(),
         }
@@ -836,13 +903,8 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
 
     // Stage 5: Codegen (IR emission)
     let mut emitter = IrEmitter::new();
-    match config.target {
-        Target::Wasm => emitter.set_target_triple("wasm32-unknown-unknown"),
-        Target::Wasi => emitter.set_target_triple("wasm32-wasi"),
-        Target::Arm => emitter.set_target_triple("aarch64-unknown-linux-gnu"),
-        Target::RisCv => emitter.set_target_triple("riscv64-unknown-linux-gnu"),
-        Target::Native => {}
-    }
+    emitter.set_target_triple(config.target.triple());
+    emitter.set_freestanding(config.freestanding || config.target.is_freestanding());
     emitter.set_check_contracts(config.check_contracts || config.runtime_contracts);
     // Security review (2026-08-13): release builds strip assert/dbg!/debugger;
     // `--keep-debug-checks` (or a debug build) retains them. Contracts are
@@ -1488,15 +1550,8 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     if !effective_sources.is_empty() {
         emitter.set_source_file(effective_sources[0].clone());
     }
-    emitter.set_target_triple(match config.target {
-        Target::Wasm => "wasm32-unknown-unknown",
-        Target::Wasi => "wasm32-wasi",
-        Target::Arm => "aarch64-unknown-linux-gnu",
-        Target::RisCv => "riscv64-unknown-linux-gnu",
-        Target::Native => {
-            xiom_codegen::native_target_triple(std::env::consts::OS, std::env::consts::ARCH)
-        },
-    });
+    emitter.set_target_triple(config.target.triple());
+    emitter.set_freestanding(config.freestanding || config.target.is_freestanding());
     let llvm_ir = match emitter.compile_program(&program) {
         Ok(ir) => ir,
         Err(e) => {
@@ -1543,6 +1598,11 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     let default_output = match config.target {
         Target::Wasm | Target::Wasi => "a.wasm",
         Target::Arm | Target::RisCv => "a.out",
+        Target::ThumbV6M
+        | Target::ThumbV7EM
+        | Target::ThumbV8MMain
+        | Target::RiscV32IMC
+        | Target::RiscV32IMAC => "a.elf",
         Target::Native => {
             if cfg!(windows) { "a.exe" } else { "a.out" }
         }
@@ -1684,6 +1744,8 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     match clang {
         Some(clang_info) => {
             let mut cmd = Command::new(&clang_info.path);
+            // v0.65.0 MCU: bare-metal/no_std link profile.
+            let freestanding = config.freestanding || config.target.is_freestanding();
             // Stage 6 (STAGE6_PERF_PLAN item 1): flags that affect the C
             // runtime COMPILATION (not just linking). The runtime object
             // cache keys on these; link-only flags stay out.
@@ -1791,17 +1853,20 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
             if !cfg!(windows) && config.target == Target::Native {
                 cmd.arg("-lm");
             }
-            // 7E.1: Sanitizer flags
+            // 7E.1: Sanitizer flags (host runtimes only; freestanding has no
+            // ASan runtime for the MCU triples).
             if let Some(ref sanitizer) = config.sanitize {
-                let sanitize_flag = format!("-fsanitize={}", sanitizer);
-                cmd.arg(&sanitize_flag);
-                rt_compile_args.push(sanitize_flag);
-                // Address sanitizer needs -g for line numbers
-                if sanitizer == "address" {
-                    cmd.arg("-g");
-                    cmd.arg("-fno-omit-frame-pointer");
-                    rt_compile_args.push("-g".to_string());
-                    rt_compile_args.push("-fno-omit-frame-pointer".to_string());
+                if !freestanding {
+                    let sanitize_flag = format!("-fsanitize={}", sanitizer);
+                    cmd.arg(&sanitize_flag);
+                    rt_compile_args.push(sanitize_flag);
+                    // Address sanitizer needs -g for line numbers
+                    if sanitizer == "address" {
+                        cmd.arg("-g");
+                        cmd.arg("-fno-omit-frame-pointer");
+                        rt_compile_args.push("-g".to_string());
+                        rt_compile_args.push("-fno-omit-frame-pointer".to_string());
+                    }
                 }
             }
             // 7E.2: Stack protector (stack canaries)
@@ -1845,6 +1910,29 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                     // `riscv64gc-...`; use the LLVM triple spelling.
                     cmd.args(["--target=riscv64-unknown-linux-gnu"]);
                 }
+                Target::ThumbV6M
+                | Target::ThumbV7EM
+                | Target::ThumbV8MMain
+                | Target::RiscV32IMC
+                | Target::RiscV32IMAC => {
+                    // v0.65.0 MCU first wave: bare-metal triples, no CRT, no
+                    // host libc. The startup/runtime/linker inputs are added
+                    // below by the freestanding branch.
+                    cmd.arg(format!("--target={}", config.target.triple()));
+                    cmd.args([
+                        "-fuse-ld=lld",
+                        "-nostdlib",
+                        "-ffreestanding",
+                        "-fno-builtin",
+                        "-fno-unwind-tables",
+                        "-fno-asynchronous-unwind-tables",
+                        "-Wl,--gc-sections",
+                    ]);
+                    if let Some(arch) = config.target.arch_flag() {
+                        cmd.arg(format!("-march={arch}"));
+                        cmd.arg("-mabi=ilp32");
+                    }
+                }
                 Target::Native => {
                     if cfg!(target_os = "windows") {
                         cmd.args(["-Xlinker", "/SUBSYSTEM:CONSOLE", "-Xlinker", "/STACK:8388608,8388608", "-Xlinker", "/Brepro"]);
@@ -1852,7 +1940,39 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 }
             }
             if config.target != Target::Wasm && config.target != Target::Wasi {
-                let runtime_c_files = find_runtime_c_files();
+                // v0.65.0 MCU: a freestanding link uses the startup + bare
+                // runtime + linker script from `runtime/freestanding/`, never
+                // the host runtime (no CRT/libc/OS).
+                let mut rt_sources: Vec<String> = Vec::new();
+                if freestanding {
+                    match freestanding_inputs(config.target, config.linker_script.as_deref()) {
+                        Ok((files, script)) => {
+                            cmd.arg(format!("-Wl,-T,{script}"));
+                            rt_sources.extend(files);
+                        }
+                        Err(e) => {
+                            eprintln!("error: freestanding runtime: {e}");
+                            return Err(vec![format!("freestanding runtime: {e}")]);
+                        }
+                    }
+                } else {
+                    let runtime_c_files = find_runtime_c_files();
+                    let rt_cwd = std::env::current_dir().unwrap_or_default();
+                    if runtime_c_files.is_empty() {
+                        if let Some(rt) = find_runtime_c() {
+                            rt_sources.push(rt);
+                        }
+                    } else {
+                        for rt in &runtime_c_files {
+                            let abs_rt = if std::path::Path::new(rt).is_absolute() {
+                                rt.clone()
+                            } else {
+                                rt_cwd.join(rt).to_string_lossy().to_string()
+                            };
+                            rt_sources.push(abs_rt);
+                        }
+                    }
+                }
                 // M21: Deduplicate C sources by canonical path to prevent duplicate
                 // symbols when --c-source overlaps with auto-discovered runtime files.
                 let mut seen_c_sources: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -1861,24 +1981,6 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                         .unwrap_or_else(|_| std::path::PathBuf::from(path));
                     canonical.to_string_lossy().to_lowercase()
                 };
-                let rt_cwd = std::env::current_dir().unwrap_or_default();
-
-                // Resolve the runtime sources exactly as before (M21 dedupe).
-                let mut rt_sources: Vec<String> = Vec::new();
-                if runtime_c_files.is_empty() {
-                    if let Some(rt) = find_runtime_c() {
-                        rt_sources.push(rt);
-                    }
-                } else {
-                    for rt in &runtime_c_files {
-                        let abs_rt = if std::path::Path::new(rt).is_absolute() {
-                            rt.clone()
-                        } else {
-                            rt_cwd.join(rt).to_string_lossy().to_string()
-                        };
-                        rt_sources.push(abs_rt);
-                    }
-                }
                 let mut rt_dedup: Vec<String> = Vec::new();
                 for rt in rt_sources {
                     if seen_c_sources.insert(canonical_key(&rt)) {
@@ -2094,10 +2196,11 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 && !cfg!(target_os = "windows")
                 && config.target != Target::Wasm
                 && config.target != Target::Wasi
+                && !freestanding
             {
                 cmd.arg(if cfg!(target_os = "macos") { "-lc++" } else { "-lstdc++" });
             }
-            if config.target != Target::Wasm && config.target != Target::Wasi {
+            if config.target != Target::Wasm && config.target != Target::Wasi && !freestanding {
                 for lp in &config.link_paths {
                     cmd.arg(&format!("-L{lp}"));
                 }
@@ -2196,6 +2299,13 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 }
                 Target::RisCv => {
                     eprintln!("  compile manually: clang --target=riscv64-unknown-linux-gnu -o {output} {ir_path}");
+                }
+                Target::ThumbV6M
+                | Target::ThumbV7EM
+                | Target::ThumbV8MMain
+                | Target::RiscV32IMC
+                | Target::RiscV32IMAC => {
+                    eprintln!("  compile manually: clang --target={} -nostdlib -ffreestanding -Wl,-T,<runtime/freestanding/{}.ld> -o {output} {ir_path} <startup.c> <bare_runtime.c>", config.target.triple(), if config.target.is_thumb() { "cortex_m" } else { "riscv32" });
                 }
                 Target::Native => {
                     eprintln!("  compile manually: clang -o {output} {ir_path}");
@@ -2528,6 +2638,68 @@ pub fn find_project_root(file_path: &Path) -> Option<PathBuf> {
         cur = dir.parent();
     }
     None
+}
+
+/// v0.65.0 MCU: resolve the freestanding startup/runtime/linker inputs.
+///
+/// Layout (`<stdlib>/runtime/freestanding/`):
+///   cortex_m_startup.c  riscv32_startup.c  bare_runtime.c
+///   cortex_m.ld         riscv32.ld
+///
+/// The compiler repo fallback (`<repo>/runtime/freestanding`) keeps local
+/// builds working before the stdlib lane cuts the next release.
+fn freestanding_dir() -> Option<std::path::PathBuf> {
+    for root in xiom_graph::paths::current_stdlib_candidates() {
+        let dir = root.join("runtime").join("freestanding");
+        if dir.join("bare_runtime.c").is_file() {
+            return Some(dir);
+        }
+    }
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("runtime")
+        .join("freestanding");
+    if repo.join("bare_runtime.c").is_file() {
+        return Some(repo);
+    }
+    None
+}
+
+/// Startup + bare runtime C files and the linker script for a freestanding
+/// target. The two startup files are arch-specific; only the matching one is
+/// linked.
+fn freestanding_inputs(target: Target, override_script: Option<&str>) -> Result<(Vec<String>, String), String> {
+    let dir = freestanding_dir().ok_or_else(|| {
+        "runtime/freestanding not found (expected <stdlib>/runtime/freestanding or <repo>/runtime/freestanding)"
+            .to_string()
+    })?;
+    let startup = if target.is_thumb() {
+        "cortex_m_startup.c"
+    } else if target.is_riscv32() {
+        "riscv32_startup.c"
+    } else {
+        return Err(format!("--freestanding is unsupported for target {}", target.triple()));
+    };
+    let script = if target.is_thumb() { "cortex_m.ld" } else { "riscv32.ld" };
+    let bare = dir.join("bare_runtime.c");
+    let start = dir.join(startup);
+    let ld = match override_script {
+        Some(p) => std::path::PathBuf::from(p),
+        None => dir.join(script),
+    };
+    for f in [&bare, &start, &ld] {
+        if !f.is_file() {
+            return Err(format!("missing {}", f.display()));
+        }
+    }
+    Ok((
+        vec![
+            start.to_string_lossy().to_string(),
+            bare.to_string_lossy().to_string(),
+        ],
+        ld.to_string_lossy().to_string(),
+    ))
 }
 
 pub fn find_runtime_c() -> Option<String> {

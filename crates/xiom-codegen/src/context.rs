@@ -111,6 +111,9 @@ pub struct CodegenConfig {
     pub legacy_stub_unresolved: bool,
     /// I2: Enable parallel codegen (rayon-based per-function IR emission)
     pub parallel_codegen: bool,
+    /// v0.65.0 MCU: freestanding/no_std profile. No TLS (the recursion
+    /// counter is a plain global) and no host-runtime assumptions.
+    pub freestanding: bool,
     /// R1: Enable DWARF debug info emission from .xi source
     pub debug_symbols: bool,
     /// R1: Source file path for DWARF DIFile metadata
@@ -215,6 +218,7 @@ impl Default for CodegenConfig {
             xiom_hot_globals: Vec::new(),
             legacy_stub_unresolved: false,
             parallel_codegen: false,
+            freestanding: false,
             debug_symbols: false,
             source_file: "unknown.xi".to_string(),
             enable_unsafe_direct: false,

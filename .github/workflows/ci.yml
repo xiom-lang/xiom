@@ -274,3 +274,63 @@ jobs:
       - name: Stored-fn + P0 on the LLVM 14 floor
         run: |
           cargo test -p xiom-codegen --test e2e_tests -- e2e_m1529 e2e_m1550 e2e_m1827
+
+  # v0.65.0 MCU first wave: compile + link the freestanding hellos and run
+  # them under QEMU. This is the execution gate the checklist requires; the
+  # e2e suite covers the triples and the link on every platform.
+  mcu-qemu:
+    name: MCU freestanding hello (QEMU)
+    runs-on: ubuntu-latest
+    env:
+      XIOM_REQUIRE_STDLIB: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Read STDLIB_VERSION
+        id: pin
+        shell: bash
+        run: echo "ref=$(tr -d '\r\n ' < STDLIB_VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout stdlib at the pin
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: xiom-lang/stdlib
+          ref: ${{ steps.pin.outputs.ref }}
+          path: stdlib
+          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN || github.token }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-arm qemu-system-misc
+
+      - name: Build release compiler
+        run: cargo build --release -p xiom
+
+      - name: Build freestanding MCU ELFs
+        run: |
+          mkdir -p out
+          target/release/xiom --target thumbv6m --release -o out/mcu_thumb.elf tests/regression/mcu_hello_thumb.xi
+          target/release/xiom --target riscv32imac --release -o out/mcu_riscv.elf tests/regression/mcu_hello_riscv.xi
+          test -s out/mcu_thumb.elf
+          test -s out/mcu_riscv.elf
+
+      - name: QEMU Cortex-M (micro:bit nRF51) hello
+        run: |
+          timeout 30 qemu-system-arm -M microbit -kernel out/mcu_thumb.elf \
+            -nographic -semihosting > out/thumb.log 2>&1
+          cat out/thumb.log
+          grep -q "XIOM" out/thumb.log
+
+      - name: QEMU riscv32 (virt) hello
+        run: |
+          timeout 30 qemu-system-riscv32 -M virt -bios none -kernel out/mcu_riscv.elf \
+            -nographic > out/riscv.log 2>&1
+          cat out/riscv.log
+          grep -q "XIOM" out/riscv.log

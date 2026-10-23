@@ -201,6 +201,51 @@ fn compile_ir_lacks(source_path: &str, forbidden_ir: &str, extra_args: &[&str]) 
     output.status.success() && !stdout.contains(forbidden_ir)
 }
 
+/// Emit IR with extra CLI flags (e.g. `--target thumbv6m`) and return it.
+fn compile_ir_with_args(source_path: &str, extra_args: &[&str]) -> Option<String> {
+    let mut args: Vec<&str> = vec!["--emit-ir"];
+    args.extend(extra_args);
+    args.push(source_path);
+    let output = Command::new(xiom_path())
+        .args(&args)
+        .current_dir(project_root())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+        return None;
+    }
+    Some(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// Compile + link a freestanding MCU hello and return the ELF bytes.
+fn compile_freestanding_elf(target: &str, source_path: &str, stem: &str) -> Option<Vec<u8>> {
+    let out_path = std::env::temp_dir().join(format!(
+        "xiom_mcu_{}_{}_{}.elf",
+        stem,
+        target,
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&out_path);
+    let output = Command::new(xiom_path())
+        .args(["--target", target, "--release", "-o"])
+        .arg(&out_path)
+        .arg(source_path)
+        .current_dir(project_root())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        eprintln!(
+            "MCU link failed for {target}:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return None;
+    }
+    let bytes = std::fs::read(&out_path).ok()?;
+    let _ = std::fs::remove_file(&out_path);
+    Some(bytes)
+}
+
 /// Compile with --diagnostics=json and verify valid JSON
 fn compile_diagnostics_json(source_path: &str) -> bool {
     let output = Command::new(xiom_path())
@@ -11633,6 +11678,52 @@ fn e2e_c07_copy_out_is_arena_guarded() {
         ),
         "C07: Vec copy-out must use the arena-owned guard, not an unconditional malloc"
     );
+}
+
+// v0.65.0 MCU first wave (REL-20261019-1220/1419-bindings): the target matrix
+// must emit the expected LLVM triples. `arm`/`riscv` keep their Linux
+// meanings; only the new thumb*/riscv32* names are bare-metal.
+#[test]
+fn e2e_mcu_target_triples() {
+    for (target, triple, fixture) in [
+        ("thumbv6m", "thumbv6m-none-eabi", "tests/regression/mcu_hello_thumb.xi"),
+        ("thumbv7em", "thumbv7em-none-eabi", "tests/regression/mcu_hello_thumb.xi"),
+        ("thumbv8m", "thumbv8m.main-none-eabi", "tests/regression/mcu_hello_thumb.xi"),
+        ("riscv32imc", "riscv32-unknown-none-elf", "tests/regression/mcu_hello_riscv.xi"),
+        ("riscv32imac", "riscv32-unknown-none-elf", "tests/regression/mcu_hello_riscv.xi"),
+    ] {
+        let ir = compile_ir_with_args(fixture, &["--target", target])
+            .unwrap_or_else(|| panic!("MCU: --target {target} must emit IR"));
+        assert!(
+            ir.contains(&format!("target triple = \"{triple}\"")),
+            "MCU: --target {target} must emit `{triple}`; got:\n{}",
+            ir.lines().next().unwrap_or("")
+        );
+    }
+}
+
+// The freestanding link path: startup + bare runtime + linker script, no CRT,
+// no host libc. A successful link with `-nostdlib` plus the ELF header is the
+// first-wave acceptance (QEMU execution is the CI `mcu-qemu` job).
+#[test]
+fn e2e_mcu_freestanding_links() {
+    let thumb = compile_freestanding_elf(
+        "thumbv6m",
+        "tests/regression/mcu_hello_thumb.xi",
+        "thumb",
+    )
+    .expect("thumbv6m freestanding hello must link");
+    assert_eq!(&thumb[..4], b"\x7fELF", "thumbv6m output must be an ELF");
+    assert!(thumb.len() > 1024, "thumbv6m ELF looks empty");
+
+    let riscv = compile_freestanding_elf(
+        "riscv32imac",
+        "tests/regression/mcu_hello_riscv.xi",
+        "riscv",
+    )
+    .expect("riscv32imac freestanding hello must link");
+    assert_eq!(&riscv[..4], b"\x7fELF", "riscv32 output must be an ELF");
+    assert!(riscv.len() > 1024, "riscv32 ELF looks empty");
 }
 
 // m1615 (REL-20261022-1615-xvector): nested enum patterns inside Option and

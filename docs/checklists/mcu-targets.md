@@ -10,34 +10,41 @@ Sources: `REL-20261019-1220-bindings` (owner request),
 
 ## Current state
 
-- `--target arm` is AArch64 **Linux** (`aarch64-unknown-linux-gnu`), not
-  Cortex-M.
-- `--target riscv` emitted/links with the GCC arch spelling
-  `riscv64gc-unknown-linux-gnu`; clang rejects that triple. The LLVM spelling
-  `riscv64-unknown-linux-gnu` is the fix (REL-20261019-1419).
-- No `thumbv6m`/`thumbv7em`/`thumbv8m`, no `riscv32imc`/`riscv32imac`, no
-  freestanding profile, no startup/linker contract, no QEMU matrix.
+- `--target arm` remains AArch64 **Linux** (`aarch64-unknown-linux-gnu`);
+  `--target riscv` remains riscv64 Linux.
+- The v0.65.0 first wave adds `thumbv6m`, `thumbv7em`, `thumbv8m`,
+  `riscv32imc`, and `riscv32imac` as freestanding targets with the startup /
+  linker / runtime contract in `docs/MCU_FREESTANDING.md`.
+- The riscv32 triple is `riscv32-unknown-none-elf` with `-march=rv32imc` /
+  `rv32imac`; clang rejects an ISA suffix in the triple itself.
+- QEMU execution is gated in CI (`mcu-qemu`); vendor peripherals are not
+  emulated in the first wave.
 
 ## Plan
 
 - [x] Correct the RISC-V link triple to `riscv64-unknown-linux-gnu` and keep
       the IR triple consistent (`crates/xiom/src/lib.rs`; e2e triple lock).
-- [ ] Define the target matrix:
+- [x] Define the target matrix:
       `thumbv6m-none-eabi`, `thumbv7em-none-eabi`,
-      `thumbv8m.main-none-eabi` (if cheap), `riscv32imc-unknown-none-elf`,
-      `riscv32imac-unknown-none-elf`. Keep the existing `arm`/`riscv`
-      desktop/Linux meanings unchanged.
-- [ ] Add a freestanding/no_std profile: no CRT, no host libc, core-only
-      stdlib surface, panic-handler hook, allocator policy hook, and
-      deterministic interrupt-vector story.
-- [ ] Define the startup/linker contract: entry point, vector table,
-      linker-script template, section placement, stack/heap symbols, and a
-      documented "bring your own linker script" path.
-- [ ] Emit/link correctly for the first target pair (one Cortex-M, one
-      riscv32) and compile a hello-world under QEMU.
-- [ ] Add a QEMU CI matrix (micro:bit nRF51 / STM32VLDISCOVERY / netduino
-      and a riscv32 machine). Vendor peripherals stay SKIP/hardware for the
-      first wave.
+      `thumbv8m.main-none-eabi`, `riscv32imc` / `riscv32imac`
+      (`riscv32-unknown-none-elf` + `-march`; clang rejects the ISA suffix in
+      the triple). Keep the existing `arm`/`riscv` desktop/Linux meanings
+      unchanged. e2e `e2e_mcu_target_triples`.
+- [x] Add a freestanding/no_std profile (`--freestanding`, implied by MCU
+      targets): no CRT/host libc, plain (non-TLS) recursion counter, bump
+      allocator, no-op guard heap/page, trampoline ABI, `xiom_panic` hook.
+      See `docs/MCU_FREESTANDING.md`.
+- [x] Define the startup/linker contract: entry point, vector table,
+      linker-script templates (`runtime/freestanding/{cortex_m,riscv32}.ld`),
+      section placement, stack/heap symbols, and `--linker-script` for a
+      bring-your-own script.
+- [x] Emit/link correctly for the first target pair (thumbv6m + riscv32imac);
+      both hellos link with `-nostdlib` and zero undefined symbols. e2e
+      `e2e_mcu_freestanding_links`.
+- [x] Add a QEMU CI matrix: `mcu-qemu` runs the thumbv6m hello on
+      `-M microbit -semihosting` and the riscv32imac hello on
+      `-M virt -bios none`, asserting `XIOM` output. thumbv7em/thumbv8m/
+      riscv32imc stay link-gated; vendor peripherals SKIP/hardware.
 - [ ] Coordinate the host-companion packages (firmata/micropython/uf2) and
       the HAL package family with the bindings lane; no package publish
       until a target passes the QEMU gate.

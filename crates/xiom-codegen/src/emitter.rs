@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+﻿// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use super::IrEmitter;
@@ -1624,7 +1624,7 @@ impl IrEmitter {
         // BUG 27: `debugger;` -- break into an attached debugger.
         self.emitln("declare void @xiom_debugger_break()");
         self.emitln("declare void @llvm.trap()");
-        self.emitln("@xiom_recursion_counter = internal thread_local global i64 0");
+        self.emit_recursion_counter("xiom_recursion_counter");
         self.emitln("declare i8* @malloc(i64)");
         // D2.1 (Unsafe Confinement Phase 3): guard-heap arena + Copy-Out.
         self.emitln("declare void @xiom_guard_heap_enter()");

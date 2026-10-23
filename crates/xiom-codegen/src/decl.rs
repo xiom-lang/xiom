@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+﻿// Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use super::{IrEmitter, TypeMeta};
@@ -1773,7 +1773,7 @@ impl IrEmitter {
         if self.config.check_contracts && self.fn_has_contract_clauses() {
             if let Some(counter) = self.contract_counter_name() {
                 if self.local.contract_eval_counters.insert(counter.clone()) {
-                    self.emitln(&format!("@{counter} = internal thread_local global i64 0"));
+                    self.emit_recursion_counter(&counter);
                 }
             }
         }
