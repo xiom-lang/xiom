@@ -97,7 +97,7 @@ fn m266_unresolved_import_one_clear_error() {
         "the unresolved import must fail the check. stderr:\n{stderr}"
     );
     assert!(
-        stderr.contains("unresolved import 'xiom.core.error'"),
+        stderr.contains("unresolved import 'xiom.core.error_does_not_exist'"),
         "the import line must carry the error. stderr:\n{stderr}"
     );
     let t001 = stderr.matches("error[T001]").count();
