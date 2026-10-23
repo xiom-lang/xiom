@@ -3100,9 +3100,12 @@ impl IrEmitter {
             return true;
         }
         let suffix = format!(".{t}");
+        // Do NOT consult `generic_type_names`: its entries are generic
+        // PARAMETER names (T, U, ...), and treating those as concrete types
+        // breaks generic tuple payloads. A real single-letter type (enum E)
+        // is already covered by the enum/struct checks above.
         self.types.type_meta.keys().into_iter().any(|k| k.ends_with(&suffix))
             || self.types.types.keys().into_iter().any(|k| k.ends_with(&suffix))
-            || self.types.generic_type_names.iter().any(|k| k == t || k.ends_with(&suffix))
     }
 
     /// 5c.30: Resolve the declared XIOM return type of a call expression's
@@ -6809,6 +6812,12 @@ impl IrEmitter {
         // so definitions and call sites agree regardless of emit order.
         self.preassign_fn_symbols(&program.items);
         if self.config.parallel_codegen {
+            // Rayon workers default to a 2 MB stack; recursive codegen on a
+            // large program overflows it (STATUS_STACK_OVERFLOW). Ignore the
+            // error when the caller already built a global pool.
+            let _ = rayon::ThreadPoolBuilder::new()
+                .stack_size(64 * 1024 * 1024)
+                .build_global();
             self.has_non_empty_main = Self::program_has_non_empty_main(&program.items);
             self.compile_functions_parallel(&program.items)?;
         } else {
@@ -10199,6 +10208,38 @@ fast:
     /// the scrutinee struct's field list.
     fn infer_pattern_binding_type(&self, pattern: &Pattern, ident_name: &str, scrutinee_struct_name: Option<&str>, scrutinee: &Expr) -> Option<String> {
         let scrutinee_name = scrutinee_struct_name?;
+        // m35_t21: an ENUM variant arm (`FE.Val(v) => v`) as the tail of a
+        // return-typed fn. Without this the match result slot was i64 and the
+        // Float64 payload was fptosi'd (3.14 -> 3). `Variant` carries the bound
+        // field idents, so resolve the field position and its declared type.
+        if let Pattern::Variant(variant, fields, _) = pattern {
+            let pos = fields.iter().position(|f| f.name == ident_name)?;
+            let leaf = variant.name.rsplit('.').next().unwrap_or(&variant.name);
+            let enum_key = if self.types.enum_variant_field_types.contains_key(&scrutinee_name.to_string()) {
+                scrutinee_name.to_string()
+            } else {
+                self.types.enum_variant_field_types.entries().into_iter()
+                    .find(|(k, _)| k.ends_with(&format!(".{scrutinee_name}")))
+                    .map(|(k, _)| k)
+                    .unwrap_or_else(|| scrutinee_name.to_string())
+            };
+            let ftypes = self.types.enum_variant_field_types.get(&enum_key)
+                .or_else(|| self.types.enum_variant_field_types.entries().into_iter()
+                    .find(|(k, _)| k.ends_with(&format!(".{enum_key}")))
+                    .map(|(_, v)| v))
+                .and_then(|vft| vft.into_iter()
+                    .find(|(vn, _)| vn == leaf || vn == &variant.name)
+                    .map(|(_, f)| f));
+            let px = ftypes.and_then(|f| f.get(pos).cloned())?;
+            return match px.as_str() {
+                "Float64" | "Float" => Some("double".to_string()),
+                "Float32" => Some("float".to_string()),
+                "Str" => Some("i8*".to_string()),
+                p if p.starts_with("Vec[") => Some("%struct.Vec".to_string()),
+                p => self.registered_struct_llvm_for(p)
+                    .or_else(|| self.llvm_type_for(p).ok()),
+            };
+        }
         let (inner, field_idx) = match pattern {
             Pattern::Some(inner, _) | Pattern::Ok(inner, _) => (inner.as_ref(), 1),
             Pattern::Err(inner, _) => (inner.as_ref(), 2),
@@ -11093,18 +11134,13 @@ fast:
                             if let Some(base) = self.mono_param_xiom_name(&id.name) {
                                 return base;
                             }
-                            // 1645: mirror the literal namer in expr.rs -- a
-                            // local with a registered XIOM type (`h: Handle`)
-                            // must name the tuple element `Handle`, not its LLVM
-                            // width name `Int`; otherwise inference built
-                            // Tuple__Int__Vec while the literal registered
-                            // Tuple__Handle__Vec and fell back to i64.
-                            if let Some(xiom) = self.local.local_xiom_types.get(&id.name) {
-                                let bare = xiom.split('[').next().unwrap_or(xiom.as_str());
-                                let bare = bare.trim().trim_start_matches('&').trim();
-                                let bare = bare.strip_prefix("mut ").unwrap_or(bare).trim();
-                                return bare.to_string();
-                            }
+                            // 1645 naming stays in the tuple LITERAL path
+                            // (expr.rs registers the canonical name and uses
+                            // it directly). Do NOT change the generic
+                            // `infer_llvm_type(Ident)` result here: consulting
+                            // local_xiom_types for every tuple element made
+                            // generic tuple payloads (m44 Option[(Int,Int)],
+                            // m48 ZipIter.find) mis-name their elements.
                             // m256 (REL-20261010-1803-selfhost): an i64
                             // container-handle binding (match-arm Vec payload
                             // with a name repeated across variants) names the

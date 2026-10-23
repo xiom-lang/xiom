@@ -2470,22 +2470,36 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 let struct_size = if is_wide_scalar {
                                     16
                                 } else {
-                                    // Prefer the receiver's DECLARED element type,
-                                    // substituted through the active mono map: a
-                                    // generic body (`Vec[T].push` inside
-                                    // _collect_via[T]) otherwise sizes the slot from
-                                    // the bare placeholder and falls back to 8,
-                                    // truncating a 16-byte tuple element.
-                                    let size_name = elem_xiom
-                                        .as_deref()
-                                        .map(|e| Self::subst_type_tokens(e, &self.mono.current_type_map))
-                                        .filter(|e| {
-                                            !e.is_empty()
-                                                && !Self::is_generic_placeholder_name(e)
-                                                && !Self::has_unresolved_generic_token(e)
-                                        })
-                                        .unwrap_or_else(|| tn.to_string());
-                                    self.vec_elem_storage_size(&size_name)
+                                    // 2045: a DIRECT ctor may be lowered against
+                                    // the ERASED container base (`%struct.Result`
+                                    // = 24 B) while the receiver's DECLARED
+                                    // element is the concrete monomorph (32 B).
+                                    // Use the declared element ONLY for that
+                                    // erased-base value; otherwise `tn` is the
+                                    // real element (a tuple/monomorph) and the
+                                    // declared spelling may be a placeholder or
+                                    // unnormalized tuple ("(Int, Int)") that
+                                    // vec_elem_storage_size cannot resolve.
+                                    let tn_size = self.vec_elem_storage_size(&tn);
+                                    if matches!(tn, "Result" | "Option" | "Vec" | "Map" | "Set") {
+                                        let elem = elem_xiom
+                                            .as_deref()
+                                            .map(|e| Self::subst_type_tokens(e, &self.mono.current_type_map))
+                                            .filter(|e| {
+                                                !e.is_empty()
+                                                    && !Self::is_generic_placeholder_name(e)
+                                                    && !Self::has_unresolved_generic_token(e)
+                                            });
+                                        match elem {
+                                            Some(e) => {
+                                                let esz = self.vec_elem_storage_size(&e);
+                                                if esz > tn_size { esz } else { tn_size }
+                                            }
+                                            None => tn_size,
+                                        }
+                                    } else {
+                                        tn_size
+                                    }
                                 };
                                 let sz_tmp = self.fresh_tmp();
                                 self.emitln(&format!("  {sz_tmp} = alloca i64"));

@@ -8148,20 +8148,21 @@ fn collect_files_with_ext(dir: &Path, ext: &str, out: &mut Vec<std::path::PathBu
     let ir = compile_ir("tests/regression/m309_confined_vec_copy_out/main.xi")
         .expect("m309: fixture must emit IR");
     // IR twin: each escaping block fn (0 = return-inside, 1 = block tail)
-    // must allocate the promoted copy with plain @malloc and run the memcpy
-    // copy BEFORE xiom_guard_heap_exit releases the arena.
+    // must promote the copy via the ARENA-GUARDED helper (C07: an
+    // unconditional malloc leaked a full copy per loop iteration) BEFORE
+    // xiom_guard_heap_exit releases the arena.
     for name in ["define i64 @__unsafe_block_0", "define i64 @__unsafe_block_1"] {
         let start = ir.find(name)
             .unwrap_or_else(|| panic!("m309: {name} must be defined; got:\n{ir}"));
         let rest = &ir[start..];
         let end = rest[1..].find("\ndefine ").map(|i| i + 1).unwrap_or(rest.len());
         let body = &rest[..end];
-        let malloc_at = body.find("call i8* @malloc")
-            .unwrap_or_else(|| panic!("m309: {name} must Copy-Out with @malloc; got:\n{body}"));
+        let copy_at = body.find("@xiom_guard_copy_out_if_arena")
+            .unwrap_or_else(|| panic!("m309: {name} must Copy-Out with the arena guard; got:\n{body}"));
         let exit_at = body.find("xiom_guard_heap_exit")
             .unwrap_or_else(|| panic!("m309: {name} must exit the arena; got:\n{body}"));
         assert!(
-            malloc_at < exit_at,
+            copy_at < exit_at,
             "m309: {name} must copy the Vec payload BEFORE the arena reset; got:\n{body}"
         );
     }
@@ -8592,14 +8593,14 @@ fn collect_files_with_ext(dir: &Path, ext: &str, out: &mut Vec<std::path::PathBu
     for id in 0..4 {
         let name = format!("define i64 @__unsafe_block_{id}");
         let body = fn_body(&name);
-        let malloc_at = body
-            .find("call i8* @malloc")
-            .unwrap_or_else(|| panic!("m318: {name} must Copy-Out the inline Vec field with @malloc; got:\n{body}"));
+        let copy_at = body
+            .find("@xiom_guard_copy_out_if_arena")
+            .unwrap_or_else(|| panic!("m318: {name} must Copy-Out the inline Vec field with the arena guard; got:\n{body}"));
         let exit_at = body
             .find("xiom_guard_heap_exit")
             .unwrap_or_else(|| panic!("m318: {name} must exit the arena; got:\n{body}"));
         assert!(
-            malloc_at < exit_at,
+            copy_at < exit_at,
             "m318: {name} must promote the Vec field BEFORE the arena reset; got:\n{body}"
         );
         assert!(
@@ -11607,6 +11608,30 @@ fn e2e_m1529_stored_fn_value_arm_ir() {
         compile_and_run("tests/regression/m1703_fn_value_vec_tuple.xi"),
         Some(0),
         "m1529: stored fn values must still run after the ptrtoint change"
+    );
+}
+
+// C07 (v0.65.0): a Vec created OUTSIDE a confined block and mutated inside it
+// in a loop. Copy-Out must ask the runtime whether the buffer is arena-owned;
+// the unconditional malloc+memcpy leaked a full copy per iteration (the
+// engine capture readback reached 1.4 GB, killed at the 1 GB watchdog).
+#[test]
+fn e2e_c07_unsafe_loop_vec() {
+    assert_eq!(
+        compile_and_run("tests/regression/c07_unsafe_loop_vec.xi"),
+        Some(0),
+        "C07: outer Vec mutated in a confined loop must keep its contents"
+    );
+}
+
+#[test]
+fn e2e_c07_copy_out_is_arena_guarded() {
+    assert!(
+        compile_and_check_ir(
+            "tests/regression/c07_unsafe_loop_vec.xi",
+            "@xiom_guard_copy_out_if_arena"
+        ),
+        "C07: Vec copy-out must use the arena-owned guard, not an unconditional malloc"
     );
 }
 

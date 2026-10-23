@@ -681,13 +681,18 @@ impl IrEmitter {
         let alloc_bytes = self.fresh_tmp();
         self.emitln(&format!("  {alloc_bytes} = mul i64 {cap}, {es_fixed}"));
         let newbuf = if main_heap {
+            // C07: copy only ARENA-OWNED buffers. A Vec created outside the
+            // confined block already lives on the main heap; the old
+            // unconditional malloc+memcpy leaked a full copy of the growing
+            // capture buffer on every readback-loop iteration (1.4 GB).
             let tmp = self.fresh_tmp();
-            self.emitln(&format!("  {tmp} = call i8* @malloc(i64 {alloc_bytes})"));
+            self.emitln(&format!("  {tmp} = call i8* @xiom_guard_copy_out_if_arena(i8* {data}, i64 {bytes}, i64 {alloc_bytes})"));
             tmp
         } else {
-            self.emit_alloc(&alloc_bytes)
+            let tmp = self.emit_alloc(&alloc_bytes);
+            self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {tmp}, i8* {data}, i64 {bytes}, i1 false)"));
+            tmp
         };
-        self.emitln(&format!("  call void @llvm.memcpy.p0i8.p0i8.i64(i8* {newbuf}, i8* {data}, i64 {bytes}, i1 false)"));
         let s0 = self.fresh_tmp();
         self.emitln(&format!("  {s0} = insertvalue {vec_ty} undef, i8* {newbuf}, 0"));
         let s1 = self.fresh_tmp();

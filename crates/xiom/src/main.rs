@@ -1462,6 +1462,13 @@ fn main() {
 }
 
 fn real_main() {
+    // I2: rayon worker threads default to a 2 MB stack, which overflows the
+    // recursive codegen on large programs (--parallel-codegen, t1/t4). The
+    // compiler worker thread above is 512 MB; give the pool the same order of
+    // headroom. build_global is a no-op error if a pool already exists.
+    let _ = rayon::ThreadPoolBuilder::new()
+        .stack_size(64 * 1024 * 1024)
+        .build_global();
     // Audit #12: the timeout / memory watchdogs set this cooperative token
     // instead of calling process::exit from a worker thread.
     xiom_codegen::cancel::reset();

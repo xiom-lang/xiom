@@ -1340,14 +1340,19 @@ impl IrEmitter {
                     // concrete-container deferral, which splices early and
                     // dedups (module_deferred_types + emitted_type_defs).
                     self.defer_concrete_def_if_in_body(&name);
-                    let struct_ty = format!("%struct.{name}");
-                    // 1645: use the canonical name registered above. Re-inferring
-                    // could return i64 when an element's XIOM name differed from
-                    // the LLVM-derived one (a `Handle` local inferred as "Int"),
-                    // and the old return-type fallback then typed the TUPLE as the
-                    // enclosing fn's `%struct.Result`: the Vec element was coerced
-                    // to i64 (its data pointer) and every Vec field past slot 0
-                    // -- len/cap/elem_size -- was dropped at the module boundary.
+                    let mut struct_ty = self.infer_llvm_type(expr);
+                    // 1645: when inference cannot name the tuple (it returned
+                    // i64 because the element spelling differed, the `Handle`
+                    // case), use the canonical name registered above instead of
+                    // falling back to the ENCLOSING fn's return type. The old
+                    // fallback typed the tuple as `%struct.Result`, coerced the
+                    // Vec element to its data pointer, and dropped len/cap/elem.
+                    // When inference DOES yield a registered tuple struct, keep
+                    // it: forcing `name` here broke generic tuple payloads
+                    // (m44 Option[(Int,Int)], m48 ZipIter.find).
+                    if !struct_ty.starts_with("%struct.") {
+                        struct_ty = format!("%struct.{name}");
+                    }
                     // Parse field types from struct name: %struct.Tuple_Float32_Int ->
                     // field LLVM types: [float, i64]
                     let field_types = self.parse_struct_field_types(&struct_ty);

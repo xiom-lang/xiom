@@ -1631,6 +1631,7 @@ impl IrEmitter {
         self.emitln("declare void @xiom_guard_heap_exit()");
         self.emitln("declare i8* @xiom_guard_alloc(i64)");
         self.emitln("declare i8* @xiom_guard_copy_out(i8*, i64)");
+        self.emitln("declare i8* @xiom_guard_copy_out_if_arena(i8*, i64, i64)");
         self.emitln("declare i8* @xiom_guard_copy_str(i8*)");
         // D2.1 (Phase 4): stack guard pages (red-zone overflow catch).
         self.emitln("declare void @xiom_guard_page_arm()");
