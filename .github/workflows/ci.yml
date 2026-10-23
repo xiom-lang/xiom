@@ -352,7 +352,7 @@ jobs:
         run: |
           set +e
           timeout 30 qemu-system-riscv32 -M virt -bios none -nographic \
-            -kernel out/mcu_riscv.bin > out/riscv.log 2>&1
+            -device loader,file=out/mcu_riscv.bin,addr=0x80200000,cpu-num=0 > out/riscv.log 2>&1
           rc=$?
           set -e
           cat out/riscv.log
