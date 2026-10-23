@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+﻿# Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
 name: XIOM CI
@@ -94,7 +94,7 @@ jobs:
           repository: xiom-lang/stdlib
           ref: ${{ steps.pin.outputs.ref }}
           path: stdlib
-          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN || github.token }}
+          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN }}
 
       - name: Encoding guard (no mojibake / non-ASCII in tracked text files)
         run: python tools/ascii_guard.py check
@@ -194,7 +194,7 @@ jobs:
           repository: xiom-lang/stdlib
           ref: ${{ steps.pin.outputs.ref }}
           path: stdlib
-          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN || github.token }}
+          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
@@ -253,7 +253,7 @@ jobs:
           repository: xiom-lang/stdlib
           ref: ${{ steps.pin.outputs.ref }}
           path: stdlib
-          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN || github.token }}
+          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
@@ -298,7 +298,7 @@ jobs:
           repository: xiom-lang/stdlib
           ref: ${{ steps.pin.outputs.ref }}
           path: stdlib
-          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN || github.token }}
+          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable

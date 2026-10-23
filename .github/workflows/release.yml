@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+﻿# Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
 name: XIOM Release
@@ -213,7 +213,7 @@ jobs:
           repository: xiom-lang/stdlib
           ref: ${{ steps.pin.outputs.ref }}
           path: stdlib
-          token: ${{ github.token }} # stdlib is public; no cross-repo PAT needed
+          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN }} # empty on public-only setups = anonymous fetch
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
@@ -463,7 +463,7 @@ jobs:
           repository: xiom-lang/stdlib
           ref: ${{ steps.pin.outputs.ref }}
           path: stdlib
-          token: ${{ github.token }} # stdlib is public; no cross-repo PAT needed
+          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN }} # empty on public-only setups = anonymous fetch
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
@@ -583,7 +583,7 @@ jobs:
           repository: xiom-lang/stdlib
           ref: ${{ steps.notes_pin.outputs.ref }}
           path: stdlib
-          token: ${{ github.token }} # stdlib is public; no cross-repo PAT needed
+          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN }} # empty on public-only setups = anonymous fetch
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
