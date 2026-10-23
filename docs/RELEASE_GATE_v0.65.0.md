@@ -1,15 +1,20 @@
 # Release gate -- v0.65.0 (production, no rush)
 
-STATUS: **P0/P1/P2 GREEN; P3 IN PREP.** P0 correctness, release-compiler
-parity, and the MCU first wave are implemented and verified on main
-(debug + release full e2e 2646/2646). **CI is fully green** (run
-39923808308: windows/ubuntu build-and-test, hygiene, release parity x2,
-arm64 floor, and the MCU QEMU job with both Cortex-M and rv32 hellos
-printing XIOM and exiting 0). v0.64.9 remains **withdrawn**; production
-stays v0.64.8 until the v0.65.0 tag. Waiting on: stdlib v0.65.0
-(C07 runtime helper REL-20261023-0242-compiler + the v0.65.0 notes
-fragment + the `xiom.time` import fix), the all-platform dry-run on the
-final commit, and owner GO. No candidate/tag before those close.
+STATUS: **P0/P1/P2 GREEN; P3 CUT IN PROGRESS.** P0 correctness,
+release-compiler parity, and the MCU first wave are implemented and
+verified on main (debug + release full e2e 2646/2646). **CI is fully
+green** (run 40003313859: windows/ubuntu build-and-test, hygiene,
+release parity x2, arm64 floor, and the MCU QEMU job). v0.64.9 remains
+**withdrawn**; production stays v0.64.8 until the v0.65.0 tag.
+
+Owner GO was granted 2026-10-23T18:31Z. The stdlib v0.65.0 tag is cut
+at `3eb9c05` with `COMPILER_VERSION=v0.64.8`: C07 runtime helper,
+`use xiom.string;` in `xiom.time` and `xiom.path` (the all-modules
+order fix), and a one-highlight notes fragment. The stdlib release gates
+are running (40030168256). On the compiler side `STDLIB_VERSION` is
+pinned to `stdlib-v0.65.0`, the notes JSON is regenerated (6 highlights),
+and the transitional C07 shim is removed. Remaining: the full compiler
+battery, the all-platform dry-run, and the `v0.65.0` tag.
 
 Owner direction (2026-10-22T18:23Z): do not rush the cut; fix all
 compiler-lane relays and release blockers with production-grade
@@ -121,32 +126,36 @@ Target names stay separate from the existing `arm` (AArch64 Linux) and
 ## P3 -- v0.65.0 cut
 
 - [x] Version 0.65.0 everywhere (workspace + Cargo.lock). stdlib v0.65.0
-      cut is still pending with `COMPILER_VERSION=v0.64.8`; it must include
-      the C07 runtime helper (REL-20261023-0242-compiler) and a v0.65.0
-      notes fragment. Then pin `stdlib-v0.65.0` here.
-- [x] Release notes authored (`release-notes/v0.65.0.md`) and converted to
-      JSON; REGENERATE the JSON after the stdlib v0.65.0 fragment lands so
-      `verify` is byte-identical at the tag.
+      is cut at `3eb9c05` with `COMPILER_VERSION=v0.64.8`; it includes the
+      C07 runtime helper (REL-20261023-0242-compiler), `use xiom.string;`
+      in `xiom.time` and `xiom.path` (all-modules order), and the v0.65.0
+      notes fragment. `STDLIB_VERSION=stdlib-v0.65.0` is pinned here.
+- [x] Release notes authored and regenerated after the stdlib fragment;
+      `verify` is byte-identical (6 highlights).
 - [ ] Full dry-run on all package legs (Windows/Linux x64+arm64,
       macOS x64+arm64, wasm, VSIX) on the release commit.
-- [ ] Owner GO, annotated tag `v0.65.0`, release workflow, 11 assets,
-      SHA256SUMS, docs dispatch.
+- [x] Owner GO (2026-10-23T18:31Z).
+- [ ] Annotated tag `v0.65.0`, release workflow, 11 assets, SHA256SUMS,
+      docs dispatch.
 - [ ] Registry `xiom-std 0.65.0` publish; lane announcements; all hold
       rows closed.
 
 ### P3 blocking dependencies
 
-1. **stdlib v0.65.0** (stdlib lane): must include
-   - `xiom_guard_copy_out_if_arena` (REL-20261023-0242-compiler, still open),
-   - the v0.65.0 notes fragment,
-   - `use xiom.string;` in `xiom/time/time.xi` (unqualified `str_slice`
-     makes the all-modules compile order-dependent; Windows exposed it).
-   Then set `STDLIB_VERSION=stdlib-v0.65.0`, regenerate the notes JSON,
-   re-run the release battery, and remove the transitional C07 link shim.
+1. **stdlib v0.65.0** -- DONE. Tag `stdlib-v0.65.0` -> `3eb9c05`
+   (an order-safety follow-up to `f25a9a6`; the protected tag was
+   force-updated via the GitHub ref API). It includes
+   `xiom_guard_copy_out_if_arena` (REL-20261023-0242-compiler), the
+   one-highlight v0.65.0 notes fragment, and `use xiom.string;` in both
+   `xiom/time/time.xi` and `xiom/os/path.xi` (the all-modules compile
+   builds `use xiom.X;` from a HashSet, so bare `str_slice`/`is_empty`
+   could bind the Array overload; the API-freeze gate failed 1/3 before
+   the fix and passed 5/5 after). Release gates: 40030168256.
 2. **All-platform dry-run** on the final release commit (the earlier
    dispatch was green on all six legs but predates the MCU/CI fixes).
-3. **Owner GO**, then tag `v0.65.0`, 11 assets + SHA256SUMS, docs,
-   registry `xiom-std 0.65.0`, announcements.
+3. **Owner GO** -- granted 2026-10-23T18:31Z. Then tag `v0.65.0`,
+   11 assets + SHA256SUMS, docs, registry `xiom-std 0.65.0`,
+   announcements.
 4. **Reporter lanes**: verify their relays on the v0.65.0 archive.
 
 ## Non-goals (MCU first wave)

@@ -27,6 +27,11 @@
       "kind": "compiler",
       "title": "Lower memory use for confined loops",
       "text": "Copying a vector out of a confined block now only copies memory owned by the block, removing a large per-iteration leak in frame capture workloads."
+    },
+    {
+      "kind": "stdlib",
+      "title": "Reusable receive buffers and guarded copy-out",
+      "text": "socket_recv_into and socket_recv_timeout_into fill a caller-owned Vec and reuse its capacity, so per-connection read buffers stop allocating per request. The runtime also returns main-heap Vec buffers in place on confined-block exit, and JSON number rendering is allocation-free."
     }
   ],
   "breaking": [],
