@@ -14,11 +14,6 @@ extern unsigned int __bss_start;
 extern unsigned int __bss_end;
 extern int main(void);
 
-/* Diagnostic stage markers on the QEMU virt UART (0x10000000). */
-static void mcu_mark(char c) {
-    *(volatile unsigned char *)0x10000000u = (unsigned char)c;
-}
-
 void _start_c(void) __attribute__((noreturn));
 
 /* No C prologue: sp is set first, then we tail-jump into C. */
@@ -30,8 +25,6 @@ __attribute__((naked, noreturn)) void _start(void) {
 }
 
 void _start_c(void) {
-    mcu_mark('S');
-
     /* The recursion-depth guard and the bump allocator live in .bss; zero it
        before main, or the first guard check reads garbage and traps. The
        Cortex-M startup does the same. (.data is RAM-resident in this image,
@@ -41,9 +34,7 @@ void _start_c(void) {
         *dst++ = 0;
     }
 
-    mcu_mark('M');
     int rc = main();
-    mcu_mark('E');
 
     /* QEMU virt sifive_test: (code << 16) | 0x5555 exits. */
     volatile unsigned int *tohost = (volatile unsigned int *)0x00100000u;
