@@ -1,4 +1,4 @@
-// XIOM Codegen -- C ABI lowering plan for aggregate parameters/returns.
+﻿// XIOM Codegen -- C ABI lowering plan for aggregate parameters/returns.
 // Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
@@ -38,6 +38,10 @@ pub enum ParamAbi {
     /// Win64 aggregate of any other size: store the value into a
     /// caller-owned stack slot and pass a pointer to it.
     IndirectCopy,
+    /// System V MEMORY-class aggregate (>16 bytes): store the value into a
+    /// caller-owned slot and pass the pointer with `byval` so LLVM copies it
+    /// onto the outgoing stack in the C layout.
+    IndirectCopyByVal,
 }
 
 impl Default for ParamAbi {
@@ -112,6 +116,14 @@ pub fn is_win64_c_abi(triple: &str) -> bool {
     triple.starts_with("x86_64") && triple.contains("windows")
 }
 
+/// System V / AAPCS64 targets that classify aggregates larger than two
+/// eightbytes as MEMORY. C passes/returns them through the stack (a `byval`
+/// pointer / a hidden sret pointer), never in registers.
+pub fn is_sysv_memory_target(triple: &str) -> bool {
+    (triple.starts_with("x86_64") || triple.starts_with("aarch64"))
+        && !triple.contains("windows")
+}
+
 /// A by-value aggregate (`%struct.X`, not a pointer to one) that the C ABI
 /// classifies by size.
 fn is_by_value_aggregate(llvm_ty: &str) -> bool {
@@ -151,6 +163,21 @@ pub fn build_plan(
         sret_ty: None,
     };
     if !is_win64_c_abi(triple) {
+        if is_sysv_memory_target(triple) {
+            // >16-byte aggregates are MEMORY class: pass a byval pointer and
+            // return through a hidden sret pointer.
+            for (i, pty) in params.iter().enumerate() {
+                if is_by_value_aggregate(pty) && size_of(pty) > 16 {
+                    plan.params[i] = ParamAbi::IndirectCopyByVal;
+                    plan.c_params[i] = format!("{pty}*");
+                }
+            }
+            if is_by_value_aggregate(ret) && size_of(ret) > 16 {
+                plan.ret = RetAbi::Sret;
+                plan.c_ret = "void".to_string();
+                plan.sret_ty = Some(ret.to_string());
+            }
+        }
         return plan;
     }
     for (i, pty) in params.iter().enumerate() {
@@ -304,6 +331,35 @@ mod tests {
         assert_eq!(plan.ret, RetAbi::Sret);
         assert_eq!(plan.c_ret, "void");
         assert_eq!(plan.sret_ty.as_deref(), Some("%struct.Big"));
+    }
+
+    #[test]
+    fn sysv_memory_class_aggregates_use_byval_and_sret() {
+        // m351: a 40-byte record is MEMORY class on SysV/AAPCS64. The call
+        // operand is a byval pointer (C copies it to the outgoing stack) and
+        // the return uses the hidden sret pointer.
+        for triple in [
+            "x86_64-unknown-linux-gnu",
+            "x86_64-apple-darwin",
+            "aarch64-unknown-linux-gnu",
+            "aarch64-apple-darwin",
+        ] {
+            let plan = build_plan(
+                &["%struct.Alloc5".to_string()],
+                "%struct.Alloc5",
+                triple,
+                size,
+            );
+            assert_eq!(
+                plan.params,
+                vec![ParamAbi::IndirectCopyByVal],
+                "{triple}: 40B param must be byval"
+            );
+            assert_eq!(plan.c_params, vec!["%struct.Alloc5*".to_string()]);
+            assert_eq!(plan.ret, RetAbi::Sret, "{triple}: 40B return is sret");
+            assert_eq!(plan.c_ret, "void");
+            assert_eq!(plan.sret_ty.as_deref(), Some("%struct.Alloc5"));
+        }
     }
 
     #[test]

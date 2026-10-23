@@ -6798,6 +6798,19 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                             self.emitln(&format!("  store {pty} {coerced}, {pty}* {slot}"));
                                             parts.push(format!("{pty}* {slot}"));
                                         }
+                                        crate::c_abi::ParamAbi::IndirectCopyByVal => {
+                                            // SysV MEMORY class: `byval` makes
+                                            // LLVM copy the struct onto the
+                                            // outgoing stack in C layout.
+                                            let slot = self.fresh_tmp();
+                                            if self.local.loop_depth > 0 {
+                                                self.local.hoisted_allocas.push((slot.clone(), pty.clone()));
+                                            } else {
+                                                self.emitln(&format!("  {slot} = alloca {pty}"));
+                                            }
+                                            self.emitln(&format!("  store {pty} {coerced}, {pty}* {slot}"));
+                                            parts.push(format!("{pty}* byval({pty}) {slot}"));
+                                        }
                                         crate::c_abi::ParamAbi::CoerceInt(ity) => {
                                             // C passes 1/2/4/8-byte aggregates
                                             // as one integer: build the slot
@@ -7381,6 +7394,19 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                             }
                                             self.emitln(&format!("  store {src_ty} {coerced}, {src_ty}* {slot}"));
                                             parts.push(format!("{src_ty}* {slot}"));
+                                        }
+                                        crate::c_abi::ParamAbi::IndirectCopyByVal => {
+                                            // SysV MEMORY class: byval copies
+                                            // the struct onto the outgoing
+                                            // stack in C layout.
+                                            let slot = self.fresh_tmp();
+                                            if self.local.loop_depth > 0 {
+                                                self.local.hoisted_allocas.push((slot.clone(), src_ty.clone()));
+                                            } else {
+                                                self.emitln(&format!("  {slot} = alloca {src_ty}"));
+                                            }
+                                            self.emitln(&format!("  store {src_ty} {coerced}, {src_ty}* {slot}"));
+                                            parts.push(format!("{src_ty}* byval({src_ty}) {slot}"));
                                         }
                                         crate::c_abi::ParamAbi::CoerceInt(ity) => {
                                             let slot = self.fresh_tmp();
