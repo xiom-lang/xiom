@@ -1,4 +1,4 @@
-﻿// XIOM Codegen -- C ABI lowering plan for aggregate parameters/returns.
+// XIOM Codegen -- C ABI lowering plan for aggregate parameters/returns.
 // Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 

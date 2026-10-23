@@ -1,5 +1,6 @@
-/* riscv32 freestanding linker script -- QEMU `virt` (RAM at 0x80000000).
- * Bring-your-own-linker-script: copy and adjust for a real board.
+/* riscv32 freestanding linker script -- QEMU `virt` (kernel load address
+ * 0x80200000; the board reserves 0x80000000 for firmware). Bring-your-own-
+ * linker-script: copy and adjust for a real board.
  *
  * Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
  * SPDX-License-Identifier: MIT OR Apache-2.0
@@ -9,7 +10,7 @@ ENTRY(_start)
 
 MEMORY
 {
-    RAM (rwx) : ORIGIN = 0x80000000, LENGTH = 16M
+    RAM (rwx) : ORIGIN = 0x80200000, LENGTH = 16M
 }
 
 SECTIONS
