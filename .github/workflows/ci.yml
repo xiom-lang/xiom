@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+﻿# Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
 name: XIOM CI
@@ -139,7 +139,7 @@ jobs:
       # (Executor -> AsyncExecutor, HttpResponse -> NetHttpResponse) and the
       # gate was not on the CI path. It is cheap and now guards renames.
       - name: Stdlib API freeze (no removals, all modules compile)
-        run: cargo test -p xiom-codegen --test stdlib_api_freeze_tests
+        run: cargo test -p xiom-codegen --test stdlib_api_freeze_tests -- --test-threads=1
 
       # FE-1..FE-7 + Sprint C + relay locks: the shared toolchain probe +
       # doctor v2 report, the E001 conservatism locks and the checker locks
@@ -321,7 +321,7 @@ jobs:
       - name: Install QEMU
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-arm qemu-system-misc
+          sudo apt-get install -y qemu-system-arm qemu-system-misc llvm
 
       - name: Build release compiler
         run: cargo build --release -p xiom
@@ -331,8 +331,11 @@ jobs:
           mkdir -p out
           target/release/xiom --target thumbv6m --release -o out/mcu_thumb.elf tests/regression/mcu_hello_thumb.xi
           target/release/xiom --target riscv32imac --release -o out/mcu_riscv.elf tests/regression/mcu_hello_riscv.xi
+          OBJCOPY=$(command -v llvm-objcopy || command -v llvm-objcopy-18 || command -v llvm-objcopy-17 || command -v llvm-objcopy-16)
+          "$OBJCOPY" -O binary out/mcu_riscv.elf out/mcu_riscv.bin
           test -s out/mcu_thumb.elf
           test -s out/mcu_riscv.elf
+          test -s out/mcu_riscv.bin
 
       - name: QEMU Cortex-M (micro:bit nRF51) hello
         run: |
@@ -348,8 +351,8 @@ jobs:
       - name: QEMU riscv32 (virt) hello
         run: |
           set +e
-          timeout 30 qemu-system-riscv32 -M virt -bios none -nographic -semihosting \
-            -device loader,file=out/mcu_riscv.elf,cpu-num=0 > out/riscv.log 2>&1
+          timeout 30 qemu-system-riscv32 -M virt -bios none -nographic \
+            -kernel out/mcu_riscv.bin > out/riscv.log 2>&1
           rc=$?
           set -e
           cat out/riscv.log
