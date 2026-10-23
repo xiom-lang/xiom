@@ -151,3 +151,17 @@ void xiom_trampoline_set_returned(void) {}
 void __aeabi_unwind_cpp_pr0(void) {}
 void __aeabi_unwind_cpp_pr1(void) {}
 void __aeabi_unwind_cpp_pr2(void) {}
+
+/* -- Cortex-M semihosting console --------------------------------------- *
+ * QEMU's microbit machine does not route the nRF51 UART to stdio, so a bare
+ * MMIO write is invisible. SYS_WRITEC (0x03) prints one character through
+ * the ARM semihosting console (`-semihosting`). */
+#if defined(__arm__)
+int mcu_putc(unsigned char c) {
+    char ch = (char)c;
+    register int r0 __asm__("r0") = 0x03;
+    register int r1 __asm__("r1") = (int)&ch;
+    __asm__ volatile("bkpt 0xAB" : : "r"(r0), "r"(r1));
+    return 0;
+}
+#endif

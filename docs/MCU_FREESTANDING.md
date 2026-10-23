@@ -49,7 +49,7 @@ compiler, not the stdlib):
 | `riscv32_startup.c` | `_start` sets `sp = _estack`, calls `main`, writes the SiFive test finisher at `0x00100000` (`(rc << 16) | 0x5555`) so QEMU exits with the program status. |
 | `cortex_m.ld` | ENTRY(Reset_Handler); FLASH 0x0/256K, RAM 0x20000000/16K (micro:bit nRF51). Defines `__data_load/start/end`, `__bss_start/end`, `__heap_start/end`, `_estack`. |
 | `riscv32.ld` | ENTRY(_start); RAM 0x80000000/16M (QEMU `virt`). Same symbols. |
-| `bare_runtime.c` | The no_std runtime ABI listed above; `xiom_panic` is weak so a board can override it. |
+| `bare_runtime.c` | The no_std runtime ABI listed above; `xiom_panic` is weak so a board can override it. Cortex-M also exports `mcu_putc` (semihosting `SYS_WRITEC`) for the hello. |
 
 **Bring your own linker script**: pass `--linker-script <path>`. The script
 must define `_estack`, `__heap_start`, `__heap_end`, and (Cortex-M)
@@ -62,8 +62,9 @@ UART message; no unwinding is available.
 
 ## Hello programs
 
-- `tests/regression/mcu_hello_thumb.xi` writes `XIOM\n` to the nRF51 UART TXD
-  register (`0x4000201C`).
+- `tests/regression/mcu_hello_thumb.xi` prints `XIOM\n` through ARM
+  semihosting (`mcu_putc` -> `SYS_WRITEC`) because QEMU's micro:bit machine
+  does not route the nRF51 UART to stdio.
 - `tests/regression/mcu_hello_riscv.xi` writes `XIOM\n` to the 16550 UART THR
   at `0x10000000`.
 
