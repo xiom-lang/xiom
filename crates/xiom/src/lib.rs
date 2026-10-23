@@ -1988,6 +1988,39 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                     }
                 }
 
+                // C07 transitional shim: the helper lives in stdlib v0.65.0,
+                // but CI and users may still link against an older pinned
+                // stdlib. If the runtime does not define the helper, provide
+                // the OLD copy-out behavior so the link succeeds (the real
+                // arena guard returns with the stdlib cut). Remove this shim
+                // once STDLIB_VERSION >= stdlib-v0.65.0.
+                if !freestanding
+                    && config.target != Target::Wasm
+                    && config.target != Target::Wasi
+                {
+                    let has_helper = rt_dedup.iter().any(|p| {
+                        fs::read_to_string(p)
+                            .map(|s| s.contains("xiom_guard_copy_out_if_arena"))
+                            .unwrap_or(false)
+                    });
+                    if !has_helper {
+                        let compat = std::env::temp_dir().join(format!(
+                            "xiom_runtime_compat_{}.c",
+                            std::process::id()
+                        ));
+                        let src = "/* C07 transitional shim: old copy-out behavior for\n\
+                                   stdlibs without xiom_guard_copy_out_if_arena. */\n\
+                                   extern void* xiom_guard_copy_out(const void*, long long);\n\
+                                   void* xiom_guard_copy_out_if_arena(const void* src, long long copy_len, long long alloc_len) {\n\
+                                       (void)alloc_len;\n\
+                                       return xiom_guard_copy_out(src, copy_len);\n\
+                                   }\n";
+                        if fs::write(&compat, src).is_ok() {
+                            rt_dedup.push(compat.to_string_lossy().to_string());
+                        }
+                    }
+                }
+
                 // Stage 6 (STAGE6_PERF_PLAN item 1): compile the runtime C
                 // sources ONCE per (clang identity, flags, contents) and link
                 // the cached objects -- removes the 5.5-6.3s runtime
