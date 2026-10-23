@@ -2,11 +2,14 @@
 
 STATUS: **P0/P1/P2 GREEN; P3 IN PREP.** P0 correctness, release-compiler
 parity, and the MCU first wave are implemented and verified on main
-(debug + release full e2e 2646/2646). v0.64.9 remains **withdrawn**;
-production stays v0.64.8 until the v0.65.0 tag. Waiting on: stdlib v0.65.0
+(debug + release full e2e 2646/2646). **CI is fully green** (run
+39923808308: windows/ubuntu build-and-test, hygiene, release parity x2,
+arm64 floor, and the MCU QEMU job with both Cortex-M and rv32 hellos
+printing XIOM and exiting 0). v0.64.9 remains **withdrawn**; production
+stays v0.64.8 until the v0.65.0 tag. Waiting on: stdlib v0.65.0
 (C07 runtime helper REL-20261023-0242-compiler + the v0.65.0 notes
-fragment), the all-platform dry-run, and owner GO. No candidate/tag before
-those close.
+fragment + the `xiom.time` import fix), the all-platform dry-run on the
+final commit, and owner GO. No candidate/tag before those close.
 
 Owner direction (2026-10-22T18:23Z): do not rush the cut; fix all
 compiler-lane relays and release blockers with production-grade
@@ -133,11 +136,18 @@ Target names stay separate from the existing `arm` (AArch64 Linux) and
 
 ### P3 blocking dependencies
 
-1. **stdlib v0.65.0** (stdlib lane): C07 helper + notes fragment; then
-   `STDLIB_VERSION=stdlib-v0.65.0`, regenerate the notes JSON, re-run the
-   release battery.
-2. **Owner GO** after the dry-run is green.
-3. **Reporter lanes**: verify their relays on the v0.65.0 archive.
+1. **stdlib v0.65.0** (stdlib lane): must include
+   - `xiom_guard_copy_out_if_arena` (REL-20261023-0242-compiler, still open),
+   - the v0.65.0 notes fragment,
+   - `use xiom.string;` in `xiom/time/time.xi` (unqualified `str_slice`
+     makes the all-modules compile order-dependent; Windows exposed it).
+   Then set `STDLIB_VERSION=stdlib-v0.65.0`, regenerate the notes JSON,
+   re-run the release battery, and remove the transitional C07 link shim.
+2. **All-platform dry-run** on the final release commit (the earlier
+   dispatch was green on all six legs but predates the MCU/CI fixes).
+3. **Owner GO**, then tag `v0.65.0`, 11 assets + SHA256SUMS, docs,
+   registry `xiom-std 0.65.0`, announcements.
+4. **Reporter lanes**: verify their relays on the v0.65.0 archive.
 
 ## Non-goals (MCU first wave)
 
