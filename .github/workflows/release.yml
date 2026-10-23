@@ -208,13 +208,16 @@ jobs:
         run: echo "ref=$(tr -d '\r\n ' < STDLIB_VERSION)" >> "$GITHUB_OUTPUT"
 
       - name: Checkout stdlib at the pin
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          repository: xiom-lang/stdlib
-          ref: ${{ steps.pin.outputs.ref }}
-          path: stdlib
-          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN }} # empty on public-only setups = anonymous fetch
-
+        shell: bash
+        env:
+          STDLIB_REF: ${{ steps.pin.outputs.ref }}
+          CROSS_REPO_TOKEN: ${{ secrets.XIOM_CROSS_REPO_TOKEN }}
+        run: |
+          if [ -n "$CROSS_REPO_TOKEN" ]; then
+            git clone --depth 1 --branch "$STDLIB_REF" "https://x-access-token:$CROSS_REPO_TOKEN@github.com/xiom-lang/stdlib.git" stdlib
+          else
+            git clone --depth 1 --branch "$STDLIB_REF" https://github.com/xiom-lang/stdlib.git stdlib
+          fi
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
 
@@ -458,13 +461,16 @@ jobs:
         run: echo "ref=$(tr -d '\r\n ' < STDLIB_VERSION)" >> "$GITHUB_OUTPUT"
 
       - name: Checkout stdlib at the pin
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          repository: xiom-lang/stdlib
-          ref: ${{ steps.pin.outputs.ref }}
-          path: stdlib
-          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN }} # empty on public-only setups = anonymous fetch
-
+        shell: bash
+        env:
+          STDLIB_REF: ${{ steps.pin.outputs.ref }}
+          CROSS_REPO_TOKEN: ${{ secrets.XIOM_CROSS_REPO_TOKEN }}
+        run: |
+          if [ -n "$CROSS_REPO_TOKEN" ]; then
+            git clone --depth 1 --branch "$STDLIB_REF" "https://x-access-token:$CROSS_REPO_TOKEN@github.com/xiom-lang/stdlib.git" stdlib
+          else
+            git clone --depth 1 --branch "$STDLIB_REF" https://github.com/xiom-lang/stdlib.git stdlib
+          fi
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
 
@@ -578,12 +584,16 @@ jobs:
         run: echo "ref=$(tr -d '\r\n ' < xiom-src/STDLIB_VERSION)" >> "$GITHUB_OUTPUT"
 
       - name: Checkout stdlib at the pin (release-notes fragment)
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          repository: xiom-lang/stdlib
-          ref: ${{ steps.notes_pin.outputs.ref }}
-          path: stdlib
-          token: ${{ secrets.XIOM_CROSS_REPO_TOKEN }} # empty on public-only setups = anonymous fetch
+        shell: bash
+        env:
+          STDLIB_REF: ${{ steps.notes_pin.outputs.ref }}
+          CROSS_REPO_TOKEN: ${{ secrets.XIOM_CROSS_REPO_TOKEN }}
+        run: |
+          if [ -n "$CROSS_REPO_TOKEN" ]; then
+            git clone --depth 1 --branch "$STDLIB_REF" "https://x-access-token:$CROSS_REPO_TOKEN@github.com/xiom-lang/stdlib.git" stdlib
+          else
+            git clone --depth 1 --branch "$STDLIB_REF" https://github.com/xiom-lang/stdlib.git stdlib
+          fi
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
