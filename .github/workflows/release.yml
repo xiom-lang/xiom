@@ -326,6 +326,7 @@ jobs:
           foreach ($t in $tools) { Copy-Item "target\release\$t.exe" "$stage/bin/" }
           Copy-Item stdlib\xiom "$stage/lib/xiom" -Recurse
           Copy-Item stdlib\runtime "$stage/lib/runtime" -Recurse
+          Copy-Item runtime\freestanding "$stage/lib/runtime/freestanding" -Recurse
           Copy-Item stdlib\package.xi "$stage/lib/"
           # R64: ship the AI context inside lib/ (MCP serves the same file
           # compiled in; agents get the toolchain-accurate copy).
@@ -359,6 +360,7 @@ jobs:
           done
           cp -r stdlib/xiom stage/lib/xiom
           cp -r stdlib/runtime stage/lib/runtime
+          cp -r runtime/freestanding stage/lib/runtime/
           cp stdlib/package.xi stage/lib/
           # R64: ship the AI context inside lib/ (see the Windows staging step).
           cp AI_CONTEXT.md stage/lib/
@@ -523,6 +525,7 @@ jobs:
           done
           cp -r stdlib/xiom stage/lib/xiom
           cp -r stdlib/runtime stage/lib/runtime
+          cp -r runtime/freestanding stage/lib/runtime/
           cp stdlib/package.xi stage/lib/
           # R64: ship the AI context inside lib/ (see the Windows staging step).
           cp AI_CONTEXT.md stage/lib/

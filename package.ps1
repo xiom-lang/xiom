@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+﻿# Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
 #Requires -Version 5.1
@@ -135,6 +135,9 @@ Write-Host "    + stdlib/ -> lib/ (pin: $((Get-Content "$root\STDLIB_VERSION" -R
 $rtSrc = "$stdlibSrc\runtime\xiom_runtime.c"
 if (Test-Path $rtSrc) {
     Copy-Item $rtSrc "$rtDir\" -Force
+# v0.65.0 MCU: freestanding startup/runtime/linker files ship under lib/runtime
+# so the installed compiler resolves them via the stdlib candidate scan.
+Copy-Item "$root\runtime\freestanding" "$libDir\runtime\freestanding" -Recurse -Force
     Write-Host "    + xiom_runtime.c -> runtime/" -ForegroundColor DarkGray
 }
 
@@ -185,7 +188,7 @@ Manual install:
 
 Contents:
   bin\       - xiom.exe, xiom-pkg.exe, xiom-fmt.exe, xiom-doc.exe, etc.
-  lib\       - Standard library (.xi source files)
+  lib\       - Standard library (.xi source files) + lib\runtime\freestanding (MCU)
   runtime\   - C runtime (xiom_runtime.c)
   install.bat - Windows installer
 
