@@ -164,4 +164,21 @@ int mcu_putc(unsigned char c) {
     __asm__ volatile("bkpt 0xAB" : : "r"(r0), "r"(r1));
     return 0;
 }
+#elif defined(__riscv)
+/* RISC-V semihosting uses the ARM-compatible ABI: SYS_WRITEC (0x03) with a1
+   pointing at the character, entered through the magic ebreak sequence QEMU
+   recognizes (`-semihosting`). */
+int mcu_putc(unsigned char c) {
+    char ch = (char)c;
+    register long a0 __asm__("a0") = 0x03;
+    register long a1 __asm__("a1") = (long)&ch;
+    __asm__ volatile(
+        "slli zero, zero, 0x1f\n"
+        "ebreak\n"
+        "srai zero, zero, 7\n"
+        :
+        : "r"(a0), "r"(a1)
+        : "memory");
+    return 0;
+}
 #endif

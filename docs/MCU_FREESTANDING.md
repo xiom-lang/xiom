@@ -65,8 +65,8 @@ UART message; no unwinding is available.
 - `tests/regression/mcu_hello_thumb.xi` prints `XIOM\n` through ARM
   semihosting (`mcu_putc` -> `SYS_WRITEC`) because QEMU's micro:bit machine
   does not route the nRF51 UART to stdio.
-- `tests/regression/mcu_hello_riscv.xi` writes `XIOM\n` to the 16550 UART THR
-  at `0x10000000`.
+- `tests/regression/mcu_hello_riscv.xi` prints `XIOM\n` through RISC-V
+  semihosting (`mcu_putc` -> `SYS_WRITEC`).
 
 Both build with `xiom --target <target> --release -o hello.elf <fixture>`.
 
@@ -76,7 +76,7 @@ CI job `mcu-qemu` (ubuntu-latest):
 
 ```sh
 qemu-system-arm -M microbit -kernel out/mcu_thumb.elf -nographic -semihosting
-qemu-system-riscv32 -M virt -bios none -nographic -device loader,file=out/mcu_riscv.elf,cpu-num=0
+qemu-system-riscv32 -M virt -bios none -nographic -semihosting -device loader,file=out/mcu_riscv.elf,cpu-num=0
 ```
 
 Both must print `XIOM` and exit 0. `thumbv7em`, `thumbv8m`, and `riscv32imc`
