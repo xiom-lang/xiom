@@ -722,6 +722,7 @@ fn tool_compile_and_fix(params: &Value) -> Result<String, String> {
         check_only: true, emit_ir: true, diagnostics_json: true,
         dump_check: false,
         target: xiom::Target::Native, release: false, do_run: false,
+        freestanding: false, linker_script: None,
         check_contracts: true, strict_mode: false, debug_symbols: false,
         shared_lib: false, static_lib: false, max_recursion_depth: 500,
         dump_contracts: false, verify: false, verify_output: None,
