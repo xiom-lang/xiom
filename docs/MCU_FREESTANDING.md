@@ -46,7 +46,7 @@ compiler, not the stdlib):
 | File | Contract |
 |---|---|
 | `cortex_m_startup.c` | `.vectors` at 0x0: initial SP from `_estack`, `Reset_Handler`, default handlers. `Reset_Handler` copies `.data` from `__data_load`, zeroes `.bss`, calls `main`, then exits via ARM semihosting (`bkpt 0xAB`); without a debugger it stays in the trap loop. |
-| `riscv32_startup.c` | `_start` sets `sp = _estack`, calls `main`, writes the SiFive test finisher at `0x00100000` (`(rc << 16) | 0x5555`) so QEMU exits with the program status. |
+| `riscv32_startup.c` | `_start` sets `sp = _estack`, zeroes `.bss` (the recursion counter and bump pointer live there), calls `main`, writes the SiFive test finisher at `0x00100000` (`(rc << 16) | 0x5555`) so QEMU exits with the program status. |
 | `cortex_m.ld` | ENTRY(Reset_Handler); FLASH 0x0/256K, RAM 0x20000000/16K (micro:bit nRF51). Defines `__data_load/start/end`, `__bss_start/end`, `__heap_start/end`, `_estack`. |
 | `riscv32.ld` | ENTRY(_start); RAM 0x80000000/16M (QEMU `virt`). Same symbols. |
 | `bare_runtime.c` | The no_std runtime ABI listed above; `xiom_panic` is weak so a board can override it. Cortex-M also exports `mcu_putc` (semihosting `SYS_WRITEC`) for the hello. |

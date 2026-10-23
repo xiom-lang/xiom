@@ -10,6 +10,8 @@
  */
 
 extern unsigned int _estack;
+extern unsigned int __bss_start;
+extern unsigned int __bss_end;
 extern int main(void);
 
 void _start(void) {
@@ -19,6 +21,15 @@ void _start(void) {
         :
         :
         : "sp");
+
+    /* The recursion-depth guard and the bump allocator live in .bss; zero it
+       before main, or the first guard check reads garbage and traps. The
+       Cortex-M startup does the same. (.data is RAM-resident in this
+       image, so there is no load-address copy.) */
+    unsigned int *dst = &__bss_start;
+    while (dst < &__bss_end) {
+        *dst++ = 0;
+    }
 
     int rc = main();
 
