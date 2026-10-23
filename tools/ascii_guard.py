@@ -68,6 +68,9 @@ EXCLUDED_PREFIXES = (
     "examples/stdlib_smoke/smoke_encoding_punycode.xi",
     "crates/xiom-codegen/tests/fuzz_tests.rs",
     "tests/regression/m36_e16.xi",
+    # m1157: intentional UTF-8 BOM module used by the catalog-discovery
+    # regression test (the BOM is the input under test).
+    "tests/regression/m1157_bom_module/",
     "stdlib/xiom/format/numbering.xi",
     "stdlib/xiom/math/number_systems.xi",
     "xiom-playground/lessons/",

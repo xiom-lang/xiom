@@ -1,4 +1,4 @@
-﻿// v0.65.0 MCU first wave: freestanding hello on Cortex-M (micro:bit nRF51).
+// v0.65.0 MCU first wave: freestanding hello on Cortex-M (micro:bit nRF51).
 // Writes "XIOM\n" to the nRF51 UART TXD register (0x4000201C), then returns;
 // the startup exits through ARM semihosting under QEMU.
 // Copyright (c) 2026 Eleftherios Notas and The XIOM Authors

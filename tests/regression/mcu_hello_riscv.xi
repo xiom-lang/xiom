@@ -1,4 +1,4 @@
-﻿// v0.65.0 MCU first wave: freestanding hello on riscv32 (QEMU `virt`).
+// v0.65.0 MCU first wave: freestanding hello on riscv32 (QEMU `virt`).
 // Writes "XIOM\n" to the 16550 UART THR at 0x10000000; the startup writes
 // the SiFive test finisher so QEMU exits with the program's status.
 // Copyright (c) 2026 Eleftherios Notas and The XIOM Authors

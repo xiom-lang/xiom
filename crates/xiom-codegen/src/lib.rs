@@ -1,4 +1,4 @@
-﻿// XIOM -- LLVM IR Codegen
+// XIOM -- LLVM IR Codegen
 // Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 

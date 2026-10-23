@@ -1,4 +1,4 @@
-﻿// XIOM -- dependency port.args.json build-arg application
+// XIOM -- dependency port.args.json build-arg application
 // Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //

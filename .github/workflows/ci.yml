@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
+# Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
 name: XIOM CI
@@ -224,11 +224,12 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then
-            echo "XIOM_TEST_COMPILER=$PWD/target/release/xiom.exe" >> "$GITHUB_ENV"
+            echo "XIOM_TEST_COMPILER=$GITHUB_WORKSPACE\\target\\release\\xiom.exe" >> "$GITHUB_ENV"
+            echo "XIOM_STDLIB=$GITHUB_WORKSPACE\\stdlib" >> "$GITHUB_ENV"
           else
             echo "XIOM_TEST_COMPILER=$PWD/target/release/xiom" >> "$GITHUB_ENV"
+            echo "XIOM_STDLIB=$PWD/stdlib" >> "$GITHUB_ENV"
           fi
-          echo "XIOM_STDLIB=$PWD/stdlib" >> "$GITHUB_ENV"
           "$PWD/target/release/xiom" --version
 
       - name: Release-mode P0 correctness locks
@@ -335,14 +336,22 @@ jobs:
 
       - name: QEMU Cortex-M (micro:bit nRF51) hello
         run: |
+          set +e
           timeout 30 qemu-system-arm -M microbit -kernel out/mcu_thumb.elf \
             -nographic -semihosting > out/thumb.log 2>&1
+          rc=$?
+          set -e
           cat out/thumb.log
+          echo "qemu rc=$rc"
           grep -q "XIOM" out/thumb.log
 
       - name: QEMU riscv32 (virt) hello
         run: |
+          set +e
           timeout 30 qemu-system-riscv32 -M virt -bios none -kernel out/mcu_riscv.elf \
             -nographic > out/riscv.log 2>&1
+          rc=$?
+          set -e
           cat out/riscv.log
+          echo "qemu rc=$rc"
           grep -q "XIOM" out/riscv.log
