@@ -76,7 +76,7 @@ CI job `mcu-qemu` (ubuntu-latest):
 
 ```sh
 qemu-system-arm -M microbit -kernel out/mcu_thumb.elf -nographic -semihosting
-qemu-system-riscv32 -M virt -bios none -kernel out/mcu_riscv.elf -nographic
+qemu-system-riscv32 -M virt -bios none -nographic -device loader,file=out/mcu_riscv.elf,cpu-num=0
 ```
 
 Both must print `XIOM` and exit 0. `thumbv7em`, `thumbv8m`, and `riscv32imc`

@@ -348,8 +348,8 @@ jobs:
       - name: QEMU riscv32 (virt) hello
         run: |
           set +e
-          timeout 30 qemu-system-riscv32 -M virt -bios none -kernel out/mcu_riscv.elf \
-            -nographic > out/riscv.log 2>&1
+          timeout 30 qemu-system-riscv32 -M virt -bios none -nographic \
+            -device loader,file=out/mcu_riscv.elf,cpu-num=0 > out/riscv.log 2>&1
           rc=$?
           set -e
           cat out/riscv.log
