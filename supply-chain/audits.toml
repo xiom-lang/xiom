@@ -1,4 +1,14 @@
 
 # cargo-vet audits file
 
-[audits]
+[[audits.rustls-webpki]]
+who = "XIOM compiler lane"
+criteria = "safe-to-deploy"
+delta = "0.103.15 -> 0.103.16"
+notes = "Security delta: distrusted intermediates (RUSTSEC-2026-0382)."
+
+[[audits.webpki-roots]]
+who = "XIOM compiler lane"
+criteria = "safe-to-deploy"
+delta = "1.0.9 -> 1.0.10"
+notes = "Security delta: removes distrusted emSign roots (RUSTSEC-2026-0381)."
