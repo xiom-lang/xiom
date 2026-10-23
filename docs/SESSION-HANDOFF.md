@@ -14,6 +14,53 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-23T05:00Z (compiler lane; v0.65.0 P0/P1/P2 GREEN; P3 waiting on stdlib + owner GO) -- READ FIRST ***
+- **v0.64.9 stays WITHDRAWN**; production remains **v0.64.8** until the
+  v0.65.0 tag. Do not pin/deploy v0.64.9.
+- **Main tip `ade98fb68`** (code through the MCU wave). Workspace 0.65.0.
+  `STDLIB_VERSION` is still `stdlib-v0.64.9`; change it to
+  `stdlib-v0.65.0` only after the stdlib cut.
+- **P0 complete:**
+  * true 1550 (`dd9256343`): on-demand chained-receiver generic inference;
+    `em=[(0,10),(1,12),(2,14)]`, `em[1].0==1`; e2e
+    `e2e_m1550_enumerate_tuple_map_true`.
+  * 1827/1645/2045 (`45804b195`, narrowed in `44dcf01c0`): direct
+    Err(Str)-in-Vec, cross-module Vec-in-tuple, direct Err(Enum.Variant)
+    match; three e2e locks.
+  * 1529 (`a6ba113ed`): typed fn-pointer operands, no `ptrtoint ptr`;
+    x64+arm IR locks; arm64-floor CI job.
+  * release parity (`4acd28bd7` + CI): `release-parity` (ubuntu/windows)
+    and `arm64-floor`; `XIOM_TEST_COMPILER` harness switch.
+  * m1511 (`bf4709a5a`): transitive cycle-safe port.args closure;
+    installed fontraster -> harfbuzz build verified.
+  * C07 (`44dcf01c0`): arena-guarded Vec Copy-Out; engine
+    `probe_rhi_vulkan` PASS 38 checks at 821 MB (v0.64.8: 1391 MB killed;
+    v0.64.4: 744 MB); e2e `e2e_c07_unsafe_loop_vec`.
+  * battery regressions closed in the same commit: m44/m48, m35_t21,
+    parallel-codegen rayon stack.
+- **P1:** full battery + full e2e **2646/2646 (4 ignored)** on debug AND
+  release; ASAN clean on the 1827/1550 probes; IR/exe reproducibility
+  byte-identical. Lane re-verification happens on the v0.65.0 archive.
+- **P2 MCU first wave (`2c5a2192d`):** `thumbv6m`, `thumbv7em`, `thumbv8m`,
+  `riscv32imc`, `riscv32imac`; `--freestanding`, startup/linker/runtime
+  contract (`docs/MCU_FREESTANDING.md`, `runtime/freestanding/`), BYO
+  `--linker-script`, QEMU CI `mcu-qemu`. Both hellos link with zero
+  undefined symbols. Bindings relay `REL-20261023-0423-compiler`.
+- **P3 blockers (only these remain):**
+  1. **stdlib v0.65.0** must include the C07 runtime helper
+     `xiom_guard_copy_out_if_arena` (`REL-20261023-0242-compiler`) and a
+     v0.65.0 notes fragment. Then pin `stdlib-v0.65.0`, regenerate
+     `release-notes/v0.65.0.json`, re-run the battery.
+  2. All-platform dry-run on the release commit.
+  3. Owner GO; then tag, 11 assets, registry `xiom-std 0.65.0`,
+     announcements.
+- Release notes are authored at `release-notes/v0.65.0.md` (JSON exists
+  but must be regenerated after the stdlib fragment). Packaging ships
+  `runtime/freestanding` under `lib/runtime/freestanding`.
+- Cargo is at `C:\Users\lefte\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin`.
+- Continue in `docs/checklists/v0.65.0.md` -> P3 and
+  `docs/RELEASE_GATE_v0.65.0.md` -> "P3 blocking dependencies".
+
 *** SESSION UPDATE 2026-10-22T19:52Z (compiler lane; v0.65.0 P0 in progress; v0.64.9 WITHDRAWN) -- READ FIRST ***
 - **v0.64.9 is WITHDRAWN** (GitHub pre-release); production remains
   **v0.64.8**. Do not pin or deploy v0.64.9. The stdlib v0.64.9 tag and
