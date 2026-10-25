@@ -129,6 +129,33 @@ fn regress_extern_variadic() {
     assert!(ir.contains("declare"));
 }
 
+// REL-20261024-1101-pulse: a fixed-arity extern spelling of a libc varargs
+// symbol must still emit the CALL with the canonical variadic function type.
+// LLVM 14 / clang on arm64 rejects a fixed call against the variadic
+// declaration (x64 tolerates it), so an `io.print` consumer failed only on
+// the arm legs.
+#[test]
+fn regress_variadic_libc_call_type_printf() {
+    let ir = compile(
+        "extern \"C\" { fn printf(format: *UInt8, arg: *UInt8) -> Int32; }\n\
+         fn main() -> Int {\n\
+           let fmt: *UInt8 = 0 as *UInt8;\n\
+           let msg: *UInt8 = 0 as *UInt8;\n\
+           unsafe { printf(fmt, msg); }\n\
+           return 0;\n\
+         }",
+    )
+    .unwrap();
+    assert!(
+        ir.contains("call i32 (i8*, ...) @printf"),
+        "variadic printf call type missing:\n{ir}"
+    );
+    assert!(
+        !ir.contains("call i32 @printf(i8*, i8*)"),
+        "fixed-arity printf call type remains:\n{ir}"
+    );
+}
+
 #[test]
 fn regress_pointer_types() {
     let ir = compile("fn f(p: *UInt8) -> Int { return 0; } fn main() -> Int { return 0; }").unwrap();

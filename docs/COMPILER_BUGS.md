@@ -20521,3 +20521,34 @@ writing `Ada`, then the greeting) and the existing
 `c25_warm_cache_inherits_stdin_and_no_cache_bypasses`; both pass
 (2/2, ~90 s, `cargo test -p xiom --test run_script_cli c25_`). Fixture:
 `tests/regression/c25_run_cached_live/main.xi`.
+
+---
+
+## 2026-10-24 -- FIXED (REL-20261024-1101-pulse): arm64 io.print emitted a fixed-arity @printf call
+
+WITNESS (pulse lane, v0.65.0 archive + stdlib-v0.65.0): a program reaching
+`io.print` contained `declare i32 @printf(i8*, ...)` followed by
+`call i32 @printf(i8*, i8*)`. LLVM 14/clang on `ubuntu-22.04-arm` and
+`macos-14` rejected the module ("'@printf' defined with type
+'i32 (i8*, ...)*' but expected 'i32 (i8*, i8*)'"); the x64 legs tolerated
+the mismatch. PULSE's arm product builds failed at `Build (Unix)`.
+
+ROOT CAUSE: `xiom/io/io.xi` declares `printf(format: *UInt8, arg: *UInt8)`
+as a fixed two-argument extern. The codegen emitted the direct call with
+that declared fixed signature, while the module's predeclared libc
+`printf` is variadic, so the call-site function type did not match the
+declaration.
+
+FIX: `IrEmitter::variadic_c_call_type` emits the canonical variadic
+function type for the libc varargs family (`printf`, `sprintf`,
+`fprintf`, `snprintf`, `scanf`, `fscanf`, `sscanf`, `syslog`) when the
+callee is an extern. The call's actual arguments are unchanged, so the
+stdlib extern spelling keeps working.
+
+EVIDENCE: `--target arm --emit-ir` of `io.print("hello")` now emits
+`call i32 (i8*, ...) @printf(i8* ..., i8* ...)`; lock
+`regress_variadic_libc_call_type_printf`. Full e2e on the final tree:
+**2646/2646 (4 ignored) on both debug and release**; feature regression
+550/550. This unblocks the pulse arm64 product builds and the two pulse
+rows that were blocked on them (REL-20261010-1549-pulse,
+REL-20261010-1609-pulse).

@@ -541,6 +541,37 @@ impl IrEmitter {
                     .any(|e| key.ends_with(&format!(".{}", e))))
     }
 
+    /// Canonical variadic function type for the libc varargs family.
+    ///
+    /// A stdlib extern may spell a varargs symbol with a fixed arity:
+    /// `io.xi` declares `printf(format: *UInt8, arg: *UInt8)` while libc's
+    /// `printf` is `i32 (i8*, ...)`. The call site then used the fixed extern
+    /// type (`call i32 @printf(i8*, i8*)`), which LLVM 14 / clang on arm64
+    /// rejects even though x64 tolerates it (REL-20261024-1101-pulse).
+    /// Emit the canonical type for the known symbols; the actual arguments
+    /// (the fixed prefix plus the varargs) stay unchanged.
+    fn variadic_c_call_type(name: &str, ret_ty: &str) -> Option<String> {
+        let leaf = name.rsplit('.').next().unwrap_or(name);
+        let fixed: &[&str] = match leaf {
+            // int printf(const char*, ...)
+            "printf" => &["i8*"],
+            // int sprintf(char*, const char*, ...)
+            // int fprintf(FILE*, const char*, ...)
+            "sprintf" | "fprintf" => &["i8*", "i8*"],
+            // int snprintf(char*, size_t, const char*, ...)
+            "snprintf" => &["i8*", "i64", "i8*"],
+            // int scanf(const char*, ...)
+            "scanf" => &["i8*"],
+            // int fscanf(FILE*, const char*, ...)
+            // int sscanf(const char*, const char*, ...)
+            "fscanf" | "sscanf" => &["i8*", "i8*"],
+            // void syslog(int, const char*, ...)
+            "syslog" => &["i32", "i8*"],
+            _ => return None,
+        };
+        Some(format!("{ret_ty} ({}, ...)", fixed.join(", ")))
+    }
+
     /// m308 (REL-20261010-1554-playground): a prompt printed with io.println
     /// block-buffers when stdout is a pipe, so a blocking stdio read delivered
     /// it only at exit (strace: read(0) blocked and the whole output arrived
@@ -7488,7 +7519,18 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         Ok((String::new(), "void".to_string()))
                     } else {
                         self.emit_stdout_flush_before_blocking_read(&resolved_fn_key, &call_symbol);
-                        self.emitln(&format!("  {tmp} = call {ret_ty} @{call_symbol}({args_str})"));
+                        // REL-20261024-1101-pulse: the call-site function type
+                        // must match libc's variadic declaration, not a fixed
+                        // arity an extern block may have spelled.
+                        let call_ty = if self.callee_is_extern(&resolved_fn_key) {
+                            Self::variadic_c_call_type(&call_symbol, &ret_ty)
+                        } else {
+                            None
+                        };
+                        match call_ty {
+                            Some(ty) => self.emitln(&format!("  {tmp} = call {ty} @{call_symbol}({args_str})")),
+                            None => self.emitln(&format!("  {tmp} = call {ret_ty} @{call_symbol}({args_str})")),
+                        }
                         Ok((tmp, ret_ty.clone()))
                     }
                 }
