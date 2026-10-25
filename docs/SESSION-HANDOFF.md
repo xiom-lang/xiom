@@ -14,6 +14,40 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-25T15:25Z (compiler lane; v0.65.0 RELEASED; next candidate in prep) -- READ FIRST ***
+- **v0.65.0 is PRODUCTION** (tag `v0.65.0` / `f527d5a` -> `a0dc452dc`;
+  release 40041016248 with 11 assets + SHA256SUMS, all checksums re-verified;
+  registry `xiom-std 0.65.0` sha256 `c3629878...`, compiler field `v0.64.8`;
+  docs dispatch 40041418782). **v0.64.9 stays WITHDRAWN**; v0.64.8 is
+  superseded. Do not pin/deploy v0.64.9.
+- **No next tag yet (owner direction 2026-10-25).** Next-candidate fixes on
+  main, not released:
+  * arm64 `io.print` variadic `@printf` call type (`5b0bedd83`,
+    REL-20261024-1101-pulse): canonical libc varargs call types; arm
+    `--emit-ir` emits `call i32 (i8*, ...) @printf`; debug AND release e2e
+    2646/2646 (4 ignored); lock `regress_variadic_libc_call_type_printf`.
+  * `.xiomignore` precedence (`b45f96be9`, REL-20261014-1504-registry):
+    ignore suppresses default-refused entries, including under `--force`;
+    pkg 97 lib + 1 integration; relay marked fixed.
+  * warm script-cache stdio (`cfc17e92c`, REL-20261022-2032-playground):
+    cache hit inherits stdin/stdout/stderr and propagates the child status;
+    live streaming lock + C25 2/2; relay marked fixed.
+  * Stage 6 confinement budget (`2d40764c6`, S7): <=300 ns/transaction,
+    <=1.5x hot paths, zero trampoline/guard calls for trusted
+    `#[unsafe_direct]`.
+- **Remaining still-red rows for the next candidate** (`release-checks/
+  compiler-v0.65.0.md`): by-ref fn-pointer trap
+  (REL-20261010-1553-playground-2); t3 trampoline ~8x C
+  (REL-20261010-1554-benchmark); silent Int+Str coercion
+  (REL-20261010-1554-playground-2; warning-vs-error policy decision);
+  `.to_str()` W005 stub (REL-20261010-1554-playground-3); RSS retention
+  (REL-20261010-1549-pulse-4). The pulse rows blocked on the arm64 build
+  (REL-20261010-1549-pulse, -1609) are unblocked and need a re-probe on the
+  next archive.
+- Next candidate: include the four fixes above, rerun CI + the all-platform
+  dry-run, then owner GO before tagging. Cargo:
+  `C:\Users\lefte\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin`.
+
 *** SESSION UPDATE 2026-10-23T05:00Z (compiler lane; v0.65.0 P0/P1/P2 GREEN; P3 waiting on stdlib + owner GO) -- READ FIRST ***
 - **v0.64.9 stays WITHDRAWN**; production remains **v0.64.8** until the
   v0.65.0 tag. Do not pin/deploy v0.64.9.

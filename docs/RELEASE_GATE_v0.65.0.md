@@ -1,20 +1,18 @@
 # Release gate -- v0.65.0 (production, no rush)
 
-STATUS: **P0/P1/P2 GREEN; P3 CUT IN PROGRESS.** P0 correctness,
-release-compiler parity, and the MCU first wave are implemented and
-verified on main (debug + release full e2e 2646/2646). **CI is fully
-green** (run 40003313859: windows/ubuntu build-and-test, hygiene,
-release parity x2, arm64 floor, and the MCU QEMU job). v0.64.9 remains
-**withdrawn**; production stays v0.64.8 until the v0.65.0 tag.
+STATUS: **v0.65.0 RELEASED (2026-10-23/24).** Tag `v0.65.0`
+(`f527d5a`) -> `a0dc452dc`; release run 40041016248 GREEN with 11 assets +
+SHA256SUMS; registry `xiom-std 0.65.0` published (sha256
+`c3629878...`, compiler field `v0.64.8`); docs dispatch 40041418782
+green. Final CI 40035344317 7/7 and the all-platform dry-run 40035350921
+green. Debug and release e2e 2646/2646 (4 ignored). **v0.64.9 remains
+withdrawn**; production is v0.65.0.
 
-Owner GO was granted 2026-10-23T18:31Z. The stdlib v0.65.0 tag is cut
-at `3eb9c05` with `COMPILER_VERSION=v0.64.8`: C07 runtime helper,
-`use xiom.string;` in `xiom.time` and `xiom.path` (the all-modules
-order fix), and a one-highlight notes fragment. The stdlib release gates
-are running (40030168256). On the compiler side `STDLIB_VERSION` is
-pinned to `stdlib-v0.65.0`, the notes JSON is regenerated (6 highlights),
-and the transitional C07 shim is removed. Remaining: the full compiler
-battery, the all-platform dry-run, and the `v0.65.0` tag.
+Post-release fixes on main (next candidate, not tagged): arm64 `io.print`
+variadic `@printf` call type (REL-20261024-1101-pulse), `.xiomignore`
+precedence (REL-20261014-1504-registry), warm script-cache stdio
+(REL-20261022-2032-playground), and the Stage 6 confinement budget. See
+"Post-release status" below.
 
 Owner direction (2026-10-22T18:23Z): do not rush the cut; fix all
 compiler-lane relays and release blockers with production-grade
@@ -132,13 +130,16 @@ Target names stay separate from the existing `arm` (AArch64 Linux) and
       notes fragment. `STDLIB_VERSION=stdlib-v0.65.0` is pinned here.
 - [x] Release notes authored and regenerated after the stdlib fragment;
       `verify` is byte-identical (6 highlights).
-- [ ] Full dry-run on all package legs (Windows/Linux x64+arm64,
-      macOS x64+arm64, wasm, VSIX) on the release commit.
+- [x] Full dry-run on all package legs (Windows/Linux x64+arm64,
+      macOS x64+arm64, wasm, VSIX) on the release commit: 40035350921,
+      all six package legs + VSIX green.
 - [x] Owner GO (2026-10-23T18:31Z).
-- [ ] Annotated tag `v0.65.0`, release workflow, 11 assets, SHA256SUMS,
-      docs dispatch.
-- [ ] Registry `xiom-std 0.65.0` publish; lane announcements; all hold
-      rows closed.
+- [x] Annotated tag `v0.65.0`, release workflow, 11 assets, SHA256SUMS,
+      docs dispatch: 40041016248; every published checksum re-verified;
+      docs dispatch 40041418782.
+- [x] Registry `xiom-std 0.65.0` publish (sha256 `c3629878...`, compiler
+      field `v0.64.8`); release announcement posted; reporter lanes filled
+      rows. Residual still-red rows move to the next candidate.
 
 ### P3 blocking dependencies
 
@@ -151,12 +152,43 @@ Target names stay separate from the existing `arm` (AArch64 Linux) and
    builds `use xiom.X;` from a HashSet, so bare `str_slice`/`is_empty`
    could bind the Array overload; the API-freeze gate failed 1/3 before
    the fix and passed 5/5 after). Release gates: 40030168256.
-2. **All-platform dry-run** on the final release commit (the earlier
-   dispatch was green on all six legs but predates the MCU/CI fixes).
-3. **Owner GO** -- granted 2026-10-23T18:31Z. Then tag `v0.65.0`,
-   11 assets + SHA256SUMS, docs, registry `xiom-std 0.65.0`,
-   announcements.
-4. **Reporter lanes**: verify their relays on the v0.65.0 archive.
+2. **All-platform dry-run** -- DONE: 40035350921, all six package legs +
+   VSIX green on `a0dc452dc`.
+3. **Owner GO** -- granted 2026-10-23T18:31Z; tag `v0.65.0`, 11 assets +
+   SHA256SUMS, docs, registry `xiom-std 0.65.0`, announcements -- DONE
+   (release 40041016248; docs dispatch 40041418782).
+4. **Reporter lanes**: verified the v0.65.0 archive and filled
+   `release-checks/compiler-v0.65.0.md`. Residual still-red rows are the
+   next-candidate input (see below).
+
+## Post-release status (2026-10-25)
+
+No next tag yet (owner direction 2026-10-25). Fixes on main:
+
+- **arm64 `io.print` / variadic `@printf`** (REL-20261024-1101-pulse):
+  the codegen now emits canonical variadic libc call types for
+  `printf`/`sprintf`/`fprintf`/`snprintf`/`scanf`/`fscanf`/`sscanf`/`syslog`;
+  the actual arm `--emit-ir` repro emits `call i32 (i8*, ...) @printf`.
+  Lock `regress_variadic_libc_call_type_printf`; debug and release e2e
+  2646/2646 (4 ignored). This unblocks the pulse arm64
+  product builds and the two pulse rows that were blocked on it.
+- **`.xiomignore` precedence** (REL-20261014-1504-registry, `b45f96be9`):
+  an ignore now suppresses a default-refused entry, including under
+  `--force`; pkg tests 97 lib + 1 integration green; relay marked fixed.
+- **warm script-cache stdio** (REL-20261022-2032-playground, `cfc17e92c`):
+  a cache hit inherits stdin/stdout/stderr and propagates the child exit
+  status (no double run); new live streaming lock + C25 tests 2/2; relay
+  marked fixed.
+- **Stage 6 confinement budget** (S7, `2d40764c6`): <=300 ns per
+  transaction, <=1.5x on hot paths, zero trampoline/guard calls for
+  trusted `#[unsafe_direct]` sites.
+
+Remaining still-red rows for the next candidate: by-ref fn-pointer trap
+(REL-20261010-1553-playground-2), t3 trampoline ~8x C
+(REL-20261010-1554-benchmark), silent Int+Str coercion
+(REL-20261010-1554-playground-2; warning-vs-error policy decision), the
+`.to_str()` W005 stub (REL-20261010-1554-playground-3), and RSS retention
+(REL-20261010-1549-pulse-4).
 
 ## Non-goals (MCU first wave)
 
