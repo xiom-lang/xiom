@@ -8,9 +8,10 @@
 // .git/, .toolchain/, .xiom_ai_cache/, node_modules/ and files *.exe,
 // *.o, *.obj, *.a, *.lib, *.dll, *.so, *.dylib, *.wasm, *.pdb,
 // .DS_Store, Thumbs.db. `.xiomignore` (gitignore syntax) extends the
-// list; entries explicitly declared in package.xi (the `modules:` list,
-// plus package.xi itself) are kept; `--force` overrides refusals for
-// intentional cases. Module collection (the pack walk) uses the same
+// list and can suppress a default-refused entry; entries explicitly
+// declared in package.xi (the `modules:` list, plus package.xi itself) are
+// kept; `--force` overrides refusals for intentional non-ignored cases.
+// Module collection (the pack walk) uses the same
 // filter -- there is one collector, so a module cannot be dropped while
 // its stale neighbor rides along.
 
@@ -225,17 +226,19 @@ impl PackPolicy {
         self.keep.iter().any(|k| k.starts_with(&prefix))
     }
 
-    /// Decide one entry's fate. Declared entries win; the default refusal
-    /// list is next (with `--force` overriding); then `.xiomignore`.
+    /// Decide one entry's fate. Declared entries win; `.xiomignore` is next
+    /// (it suppresses a default-refused entry too, which is the documented
+    /// escape and works under `--force`); the default refusal list is last
+    /// (with `--force` overriding only non-ignored entries).
     pub fn verdict(&self, rel: &str, is_dir: bool) -> Verdict {
         if self.keep.contains(rel) || (is_dir && self.keeps_descendant(rel)) {
             return Verdict::Keep;
         }
-        if default_refused(rel, is_dir) {
-            return if self.force { Verdict::Keep } else { Verdict::Refuse };
-        }
         if self.ignore.matches(rel, is_dir) {
             return Verdict::Skip;
+        }
+        if default_refused(rel, is_dir) {
+            return if self.force { Verdict::Keep } else { Verdict::Refuse };
         }
         Verdict::Keep
     }
@@ -327,6 +330,31 @@ mod tests {
         assert_eq!(p.verdict("build-output", true), Verdict::Skip);
         assert_eq!(p.verdict("keep.log", false), Verdict::Keep);
         assert_eq!(p.verdict("target", true), Verdict::Refuse, "defaults still fire");
+    }
+
+    // REL-20261014-1504-registry: .xiomignore is the documented escape for a
+    // default-refused entry. It must win over the refusal list, including
+    // under --force (which must not resurrect an ignored entry).
+    #[test]
+    fn m306_pack_guard_xiomignore_precedes_defaults() {
+        let ignore = XiomIgnore::parse("target\ndist/\n*.exe\n");
+        let mut p = policy(false);
+        p.ignore = ignore.clone();
+        assert_eq!(p.verdict("target", true), Verdict::Skip, "no-slash basename form");
+        assert_eq!(p.verdict("nested/target", true), Verdict::Skip, "basename at any depth");
+        assert_eq!(p.verdict("dist", true), Verdict::Skip, "dir-only form");
+        assert_eq!(p.verdict("app.exe", false), Verdict::Skip, "extension form, LF only");
+        assert_eq!(p.verdict("src/main.xi", false), Verdict::Keep, "ordinary source stays");
+
+        let mut forced = policy(true);
+        forced.ignore = ignore;
+        assert_eq!(forced.verdict("target", true), Verdict::Skip, "ignore wins under --force");
+        assert_eq!(forced.verdict("app.exe", false), Verdict::Skip, "ignore wins under --force (file)");
+        assert_eq!(
+            forced.verdict("build", true),
+            Verdict::Keep,
+            "--force still keeps a non-ignored refusal"
+        );
     }
 
     // Declared entries in package.xi are kept, including inside a refused dir.

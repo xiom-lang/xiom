@@ -507,6 +507,45 @@ mod tests {
         assert!(names.iter().all(|n| !n.contains("notes.tmp")), "{names:?}");
     }
 
+    // REL-20261014-1504-registry: an ignored default-refused entry is skipped
+    // without --force, and --force does not resurrect it.
+    #[test]
+    fn m306_filtered_pack_xiomignore_suppresses_default_refusals() {
+        let root = temp_dir("guard_ignore_defaults");
+        let pkg = root.join("demo");
+        test_tree(&pkg);
+        fs::create_dir_all(pkg.join("target").join("debug")).unwrap();
+        fs::write(pkg.join("target").join("debug").join("junk.o"), b"junk").unwrap();
+        fs::write(pkg.join("app.exe"), b"bin").unwrap();
+        fs::write(pkg.join(".xiomignore"), b"target/\ndist/\n*.exe\n").unwrap();
+
+        let out = root.join("a.tar.gz");
+        let policy = PackPolicy::for_package(&pkg, &[], false);
+        let outcome = write_tar_gz_filtered(&pkg, &out, &policy).expect("ignored defaults pack");
+        assert!(outcome.forced.is_empty());
+        let names = archive_names(&out);
+        assert!(names.iter().all(|n| !n.contains("target/")), "{names:?}");
+        assert!(names.iter().all(|n| !n.ends_with("app.exe")), "{names:?}");
+        assert!(names.iter().any(|n| n == "demo/package.xi"), "{names:?}");
+
+        let forced = PackPolicy::for_package(&pkg, &[], true);
+        let out2 = root.join("b.tar.gz");
+        let outcome = write_tar_gz_filtered(&pkg, &out2, &forced).expect("forced ignored defaults pack");
+        assert!(outcome.forced.is_empty(), "ignored entries are not force-reported");
+        let names = archive_names(&out2);
+        assert!(names.iter().all(|n| !n.contains("target/")), "{names:?}");
+        assert!(names.iter().all(|n| !n.ends_with("app.exe")), "{names:?}");
+
+        // A non-ignored refusal still proves --force keeps and reports.
+        fs::create_dir_all(pkg.join("build")).unwrap();
+        fs::write(pkg.join("build").join("kept.o"), b"obj").unwrap();
+        let forced2 = PackPolicy::for_package(&pkg, &[], true);
+        let out3 = root.join("c.tar.gz");
+        let outcome = write_tar_gz_filtered(&pkg, &out3, &forced2).expect("forced non-ignored pack");
+        assert!(outcome.forced.iter().any(|e| e.contains("build/")), "{:?}", outcome.forced);
+        assert!(archive_names(&out3).iter().any(|n| n == "demo/build/kept.o"));
+    }
+
     /// Minimal stored-deflate decoder for tests only.
     fn gunzip_stored(gz: &[u8]) -> Vec<u8> {
         assert_eq!(&gz[0..4], &[0x1f, 0x8b, 0x08, 0x00]);

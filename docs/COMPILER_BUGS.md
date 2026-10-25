@@ -20466,3 +20466,31 @@ resident node count for a fully resident tree; 65,536 covered 1M keys /
 32,260 nodes, while the 256 default thrashes (the earlier 4.17 GB kill).
 Awaiting the 1M A/B with `XIOM_FAST_EXIT=1`: if the 880 s remains, it is
 pre-return work and needs a phase timing, not an exit change.
+
+---
+
+## 2026-10-25 -- FIXED (m306 follow-up, REL-20261014-1504-registry): .xiomignore could not suppress default-refused entries
+
+WITNESS (registry lane, v0.65.0): a package with `target/` / `dist/` and an
+`.xiomignore` naming them still failed `xiom pkg publish` with the
+default-refusal message; the non-default `.xiomignore` cases worked. Under
+`--force` the same entries were kept and reported, so the ignore rule never
+reached them.
+
+ROOT CAUSE: `PackPolicy::verdict` checked `default_refused` BEFORE
+`XiomIgnore::matches`. `--force` then returned `Keep` from the refusal branch,
+so an ignored default entry was either refused (default) or packed
+(`--force`), never skipped.
+
+FIX: declared `package.xi` modules still win; `.xiomignore` is checked next
+and returns `Skip` (suppressing a default-refused entry); the refusal list is
+last, with `--force` overriding only non-ignored entries. The tarball walk
+already `continue`s on `Verdict::Skip`, so ignored entries are not
+force-reported either. The `.xiomignore` parser was already LF-safe; the new
+tests pin the no-slash basename and dir-only forms.
+
+EVIDENCE: `m306_pack_guard_xiomignore_precedes_defaults` (target, nested
+target, dir-only dist/, `*.exe`, default + forced) and
+`m306_filtered_pack_xiomignore_suppresses_default_refusals` (real tar walk,
+default + forced, plus a non-ignored `build/` control that --force still
+keeps/reports). `cargo test -p xiom-pkg`: 97 lib + 1 integration green.
