@@ -28,7 +28,9 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
     2646/2646 (4 ignored) before the arm lock; feature lock
     `regress_variadic_libc_call_type_printf` plus e2e
     `e2e_m1101_arm_io_print_variadic_printf` (release P0 list + LLVM 14
-    arm64 floor; next-candidate suite 2647 expected).
+    arm64 floor; next-candidate suite 2647 expected). Next-candidate CI
+    40206639784: 7/7 green, including the arm64 floor and the release P0
+    locks with the new test.
   * `.xiomignore` precedence (`b45f96be9`, REL-20261014-1504-registry):
     ignore suppresses default-refused entries, including under `--force`;
     pkg 97 lib + 1 integration; relay marked fixed.

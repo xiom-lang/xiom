@@ -175,6 +175,8 @@ No next tag yet (owner direction 2026-10-25). Fixes on main:
   before the new lock: 2646/2646 (4 ignored); the next-candidate suite adds
   it (2647 expected). This unblocks the pulse arm64
   product builds and the two pulse rows that were blocked on it.
+  Next-candidate CI 40206639784: 7/7 green, including the arm64 floor and
+  the windows/ubuntu release locks with the new test.
 - **`.xiomignore` precedence** (REL-20261014-1504-registry, `b45f96be9`):
   an ignore now suppresses a default-refused entry, including under
   `--force`; pkg tests 97 lib + 1 integration green; relay marked fixed.
