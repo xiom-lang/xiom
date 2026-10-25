@@ -20494,3 +20494,30 @@ target, dir-only dist/, `*.exe`, default + forced) and
 `m306_filtered_pack_xiomignore_suppresses_default_refusals` (real tar walk,
 default + forced, plus a non-ignored `build/` control that --force still
 keeps/reports). `cargo test -p xiom-pkg`: 97 lib + 1 integration green.
+
+---
+
+## 2026-10-25 -- FIXED (REL-20261022-2032-playground): warm script cache captured stdio and re-ran on non-zero exit
+
+WITNESS (playground lane, v0.64.7/v0.65.0): the first `xiom run` streamed
+`Name?` while the child blocked on stdin; the warm-cache rerun produced no
+output until stdin closed, dropped the program's stderr, and a non-zero
+cached exit fell through to the full compile+run path (double side
+effects). The cached binary itself streamed when run directly.
+
+ROOT CAUSE: `crates/xiom/src/main.rs` served a cache hit with
+`Command::new(&cached).stdin(inherit).output()`; `output()` captures
+stdout/stderr, and the code only returned on `status.success()`, so a
+non-zero child exit recompiled and re-ran the program.
+
+FIX: a cache hit now inherits stdin, stdout, and stderr, and uses
+`status()`; a non-zero child status is propagated with `process::exit`
+(no re-run). Only a spawn failure falls back to a rebuild, with a warning.
+This also restores interactive streaming and the child's stderr.
+
+EVIDENCE: `c25_warm_cache_streams_prompt_before_stdin_closes` (spawns the
+warm run with stdin still open; asserts the `Name?` line arrives before
+writing `Ada`, then the greeting) and the existing
+`c25_warm_cache_inherits_stdin_and_no_cache_bypasses`; both pass
+(2/2, ~90 s, `cargo test -p xiom --test run_script_cli c25_`). Fixture:
+`tests/regression/c25_run_cached_live/main.xi`.

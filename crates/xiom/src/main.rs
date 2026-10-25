@@ -1698,16 +1698,28 @@ fn real_main() {
             if let Some(cached) = xiom::jit::script_cache_get(&source, script_cache_level) {
                 // C25: Command::output() defaults the child's stdin to NULL,
                 // so a warm cache served `[]` where the cold run read the
-                // piped line. Inherit stdin (stdout/stderr stay captured for
-                // the success gate and replay below).
-                let output = std::process::Command::new(&cached)
+                // piped line. REL-20261022-2032: output() also captured
+                // stdout/stderr (no interactive streaming, stderr dropped)
+                // and a non-zero child exit fell through to compile+run,
+                // executing the program twice. A cache hit is authoritative:
+                // inherit all three stdio handles and propagate the child's
+                // exit code; only a spawn failure falls back to a rebuild.
+                match std::process::Command::new(&cached)
                     .stdin(std::process::Stdio::inherit())
-                    .output();
-                if let Ok(out) = output {
-                    if out.status.success() {
-                        let stdout = String::from_utf8_lossy(&out.stdout);
-                        if !stdout.is_empty() { print!("{stdout}"); }
+                    .stdout(std::process::Stdio::inherit())
+                    .stderr(std::process::Stdio::inherit())
+                    .status()
+                {
+                    Ok(status) => {
+                        if !status.success() {
+                            process::exit(status.code().unwrap_or(1));
+                        }
                         return;
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "warning: warm script-cache entry could not be started ({e}); rebuilding"
+                        );
                     }
                 }
             }

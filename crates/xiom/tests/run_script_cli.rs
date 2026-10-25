@@ -183,6 +183,126 @@ fn c25_warm_cache_inherits_stdin_and_no_cache_bypasses() {
     let _ = std::fs::remove_dir_all(&home);
 }
 
+// REL-20261022-2032 (playground relay): a warm cache hit used to capture
+// stdout, so an interactive prompt only appeared after stdin closed. The
+// cached path must inherit stdio and stream. This lock waits for the prompt
+// BEFORE writing stdin; the pre-fix capture path times out.
+fn c25_live_fixture() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("tests")
+        .join("regression")
+        .join("c25_run_cached_live")
+        .join("main.xi")
+}
+
+fn run_script_with_stdin(fixture: &Path, home: &Path, stdin: &[u8]) -> std::process::Output {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = Command::new(xiom_bin())
+        .arg("run")
+        .arg(fixture)
+        .env("HOME", home)
+        .env("USERPROFILE", home)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("failed to spawn '{}': {e}", xiom_bin()));
+    child
+        .stdin
+        .as_mut()
+        .expect("child stdin")
+        .write_all(stdin)
+        .expect("write child stdin");
+    child.wait_with_output().expect("wait for xiom run")
+}
+
+#[test]
+fn c25_warm_cache_streams_prompt_before_stdin_closes() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::Stdio;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let home = std::env::temp_dir().join(format!("xiom_c25_live_home_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&home);
+    let fixture = c25_live_fixture();
+
+    // Cold run populates the cache (and exercises the normal path).
+    let cold = run_script_with_stdin(&fixture, &home, b"Ada\n");
+    let cold_err = String::from_utf8_lossy(&cold.stderr);
+    if !cold.status.success()
+        && (cold_err.contains("os error 225") || cold_err.contains("contains a virus"))
+    {
+        eprintln!("SKIP c25 live: environment blocks script execution (Defender os error 225)");
+        let _ = std::fs::remove_dir_all(&home);
+        return;
+    }
+    assert!(
+        cold.status.success(),
+        "cold run failed: {:?}\nstderr: {cold_err}",
+        cold.status.code()
+    );
+    assert!(
+        String::from_utf8_lossy(&cold.stdout).contains("Hello, Ada!"),
+        "cold stdout missing greeting: {}",
+        String::from_utf8_lossy(&cold.stdout)
+    );
+
+    // Warm run: keep stdin open until the prompt is observed.
+    let mut child = Command::new(xiom_bin())
+        .arg("run")
+        .arg(&fixture)
+        .env("HOME", &home)
+        .env("USERPROFILE", &home)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("failed to spawn '{}': {e}", xiom_bin()));
+    let stdout = child.stdout.take().expect("child stdout");
+    let (tx, rx) = mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            match line {
+                Ok(line) => {
+                    if tx.send(line).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+    match rx.recv_timeout(Duration::from_secs(10)) {
+        Ok(line) => assert!(line.contains("Name?"), "first warm line was {line:?}"),
+        Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!(
+                "warm-cache run did not stream its prompt before stdin closed (REL-20261022-2032)"
+            );
+        }
+    }
+    child
+        .stdin
+        .as_mut()
+        .expect("child stdin")
+        .write_all(b"Ada\n")
+        .expect("write child stdin");
+    child.stdin.take(); // close stdin so the program's read_line returns
+    let status = child.wait().expect("wait for warm run");
+    let rest: Vec<String> = rx.iter().collect();
+    assert!(status.success(), "warm run failed: {:?}", status.code());
+    assert!(
+        rest.iter().any(|line| line.contains("Hello, Ada!")),
+        "warm stdout missing greeting after stdin: {rest:?}"
+    );
+    let _ = std::fs::remove_dir_all(&home);
+}
+
 // UX (user-flagged): bare `xiom file.xi` prints IR with no hint that
 // `xiom run file.xi` executes it. The hint is stderr-only so the IR stdout
 // stays byte-identical to `--emit-ir` (the selfhost T3 gates compare stdout
