@@ -144,6 +144,33 @@ t4-packet, t5-btree, t8-safety-probe) under
 companion conformance solutions in `tests/toolchain/solutions/` and LLM
 templates in `tasks/systems-arena/`.
 
+## Confinement performance budget (S7) -- defined 2026-10-25
+
+The D2.1 confined-`unsafe` transaction now has a written budget. It is a
+per-TRANSACTION budget, not a per-operation one; the accepted PERF-1 route
+(`#[unsafe_direct]` for audited stdlib hot paths) remains the sanctioned way
+to meet it.
+
+- **Per transaction (warm release build):** arm/disarm guard page <= 100 ns,
+  trampoline checkpoint + guard-heap select <= 70 ns, **total <= 300 ns**.
+- **Hot paths:** <= 1.5x the same work with the confinement bypassed by
+  `#[unsafe_direct]`; a per-call trampoline on a hot path is a budget
+  violation, not an acceptable steady state.
+- **Trusted sites:** a `#[unsafe_direct]` body must emit ZERO
+  `@xiom_trampoline_call`, `@xiom_guard_page_arm`, and
+  `@xiom_guard_heap_enter` calls. The m166 IR trust locks enforce this
+  deterministically.
+- **Measurement:** `docs/repro/perf-1-atomic-trampoline/` (4M pairs,
+  release, warm caches, median of 3) plus the benchmark lane's t2-queue.
+  The accepted v0.62.3 reference is 24 ms vs 11,968 ms pre-fix.
+- **CI policy:** wall-clock timing is a benchmark-lane/manual gate, not a CI
+  assertion. CI keeps the deterministic `perf_budget_tests` IR-byte ceilings
+  and the trusted-site IR locks.
+- **Open follow-up:** the general fast path for untrusted hot blocks
+  (candidate fixes 1/2/3: block-level arming, callee classification,
+  no-fault/no-alloc fast path). A violation there blocks the workload until
+  the block is batched or audited onto `#[unsafe_direct]`.
+
 ## Checklist
 
 - [x] PERF-1: reproduce the atomic trampoline overhead locally
@@ -164,8 +191,10 @@ templates in `tasks/systems-arena/`.
       t8 safety indices identical; 42 pairs, zero errors
 - [ ] Stage 6 follow-up: general fast path for hot unsafe blocks that
       cannot be marked trusted (candidate fixes 1/2/3)
-- [ ] Stage 6: define the confinement perf budget referenced by
-      `UNSAFE_CONFINEMENT_PLAN` S7
+- [x] Stage 6: define the confinement perf budget referenced by
+      `UNSAFE_CONFINEMENT_PLAN` S7 (2026-10-25; <=300 ns per transaction,
+      <=1.5x on hot paths, zero trampoline/guard calls for trusted sites;
+      see "Confinement performance budget (S7)" above)
 - [ ] Stage 6: keep `xiom bench` as the local harness and record each
       benchmark relay in this doc
 - [x] Stage 6 item 1 slice: runtime-object cache + index/check sub-phase

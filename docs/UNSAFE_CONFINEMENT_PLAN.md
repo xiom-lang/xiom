@@ -88,6 +88,9 @@ values (i). Safe code is never exposed to the failure modes of unsafe code.
 - **The stdlib itself uses `unsafe` heavily** (37+ blocks in `alloc.xi`, `collections.xi`,
   `ptr.xi`, `encoding.xi`, `ffi.xi`, ...). Confinement must NOT slow the hot paths
   (Vec push/alloc) -- a **perf budget** must be defined (see S7).
+  **Defined 2026-10-25:** <=300 ns per transaction, <=1.5x on hot paths, and
+  zero trampoline/guard calls for trusted `#[unsafe_direct]` sites; see
+  `docs/STAGE6_PERF_PLAN.md` "Confinement performance budget (S7)".
 - **Recursion counter** (`@xiom_recursion_counter`, thread_local) interacts with longjmp:
   a fault unwinding past the block must still leave the counter balanced -- the trap wrapper
   must restore it (or the block's counter delta must be captured and restored on fault).
