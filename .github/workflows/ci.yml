@@ -234,7 +234,7 @@ jobs:
 
       - name: Release-mode P0 correctness locks
         run: |
-          cargo test -p xiom-codegen --test e2e_tests -- e2e_m1550 e2e_m1827 e2e_m1529 e2e_m1615 e2e_m372 e2e_m1520
+          cargo test -p xiom-codegen --test e2e_tests -- e2e_m1550 e2e_m1827 e2e_m1529 e2e_m1615 e2e_m372 e2e_m1520 e2e_m1101
 
   # REL-20261022-1529-pulse: the stored-fn thunk spelling must be accepted by
   # the LLVM 14 floor (clang 14 / Apple-arm64 style typed pointers), not only
@@ -281,9 +281,9 @@ jobs:
           echo "XIOM_TEST_COMPILER=$PWD/target/release/xiom" >> "$GITHUB_ENV"
           echo "XIOM_STDLIB=$PWD/stdlib" >> "$GITHUB_ENV"
 
-      - name: Stored-fn + P0 on the LLVM 14 floor
+      - name: Stored-fn + P0 + variadic printf on the LLVM 14 floor
         run: |
-          cargo test -p xiom-codegen --test e2e_tests -- e2e_m1529 e2e_m1550 e2e_m1827
+          cargo test -p xiom-codegen --test e2e_tests -- e2e_m1529 e2e_m1550 e2e_m1827 e2e_m1101
 
   # v0.65.0 MCU first wave: compile + link the freestanding hellos and run
   # them under QEMU. This is the execution gate the checklist requires; the

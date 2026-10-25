@@ -169,8 +169,11 @@ No next tag yet (owner direction 2026-10-25). Fixes on main:
   the codegen now emits canonical variadic libc call types for
   `printf`/`sprintf`/`fprintf`/`snprintf`/`scanf`/`fscanf`/`sscanf`/`syslog`;
   the actual arm `--emit-ir` repro emits `call i32 (i8*, ...) @printf`.
-  Lock `regress_variadic_libc_call_type_printf`; debug and release e2e
-  2646/2646 (4 ignored). This unblocks the pulse arm64
+  Feature lock `regress_variadic_libc_call_type_printf` plus the arm
+  `--emit-ir` lock `e2e_m1101_arm_io_print_variadic_printf`, now in the
+  windows/ubuntu release locks and the LLVM 14 arm64 floor job. Full e2e
+  before the new lock: 2646/2646 (4 ignored); the next-candidate suite adds
+  it (2647 expected). This unblocks the pulse arm64
   product builds and the two pulse rows that were blocked on it.
 - **`.xiomignore` precedence** (REL-20261014-1504-registry, `b45f96be9`):
   an ignore now suppresses a default-refused entry, including under

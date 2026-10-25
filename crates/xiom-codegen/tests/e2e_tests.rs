@@ -530,6 +530,30 @@ fn e2e_target_arm_triple() {
     assert!(compile_and_check_ir_with_target("examples/demo_float.xi", "arm", "aarch64-unknown-linux-gnu"));
 }
 
+// REL-20261024-1101-pulse: arm io.print must emit the variadic @printf
+// call-site type. LLVM 14/clang on arm64 rejected the fixed two-argument
+// form that the stdlib extern spelling produced on v0.65.0.
+#[test]
+fn e2e_m1101_arm_io_print_variadic_printf() {
+    let ir = compile_ir_with_args(
+        "tests/regression/arm_io_print_printf/main.xi",
+        &["--target", "arm"],
+    )
+    .expect("arm --emit-ir failed for the io.print fixture");
+    assert!(
+        ir.contains("declare i32 @printf(i8*, ...)"),
+        "arm IR is missing the variadic printf declaration"
+    );
+    assert!(
+        ir.contains("call i32 (i8*, ...) @printf"),
+        "arm io.print did not emit the variadic printf call type"
+    );
+    assert!(
+        !ir.contains("call i32 @printf(i8*, i8*)"),
+        "arm io.print still emits the fixed-arity printf call type"
+    );
+}
+
 #[test]
 fn e2e_target_riscv_triple() {
     assert!(compile_and_check_ir_with_target("examples/demo_float.xi", "riscv", "riscv64-unknown-linux-gnu"));
