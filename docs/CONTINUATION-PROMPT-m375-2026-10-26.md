@@ -1,12 +1,12 @@
-# CONTINUATION PROMPT — XIOM m375 memory ownership / next candidate (2026-10-26)
+# CONTINUATION PROMPT -- XIOM m375 memory ownership / next candidate (2026-10-26)
 
 You are the XIOM compiler lane. The owner's standing rule: **do not cut/tag the next candidate until the UI memory leak is fixed and the 1200-frame soak is flat.** Production is v0.65.0; v0.64.9 stays withdrawn. Do not edit the stdlib except via relay; do not pin/deploy v0.64.9. The owner wants a permanent ownership fix, not a package patch.
 
 Read first:
-- `docs/COMPILER_BUGS.md` — m375 entries + the 2026-10-26 follow-up.
-- `docs/SESSION-HANDOFF.md` — top memory block.
-- `docs/RELEASE_GATE_v0.65.0.md` — post-release/next-candidate section.
-- `docs/SCOPED-ARENA.md` — “Owned Vecs and `#[owns_return]`”.
+- `docs/COMPILER_BUGS.md` -- m375 entries + the 2026-10-26 follow-up.
+- `docs/SESSION-HANDOFF.md` -- top memory block.
+- `docs/RELEASE_GATE_v0.65.0.md` -- post-release/next-candidate section.
+- `docs/SCOPED-ARENA.md` -- "Owned Vecs and `#[owns_return]`".
 - `E:\xiom-projects\xiom-engine\docs\COMPILER-LEAK-REPORT.md`.
 - Relay items: `REL-20261026-1158-compiler` (engine), `REL-20261026-1158-compiler-2` (packages), `REL-20261026-0040-compiler` (engine), `REL-20261026-0040-compiler-2` (stdlib), `REL-20261016-1128-engine` (fixed), `release-checks/compiler-compiler-v0.65.1.md`.
 
@@ -24,25 +24,25 @@ Read first:
 - Fontraster package: `0.1.0`; `src/fontraster.xi`; `font_shape` (line ~131), `font_glyph_raster` (~190), `font_face_metrics` (~86); engine `xiom.toml` pins `xiom.fontraster = "0.1.0"`.
 
 ## Verified fixed
-- `vecprobe` mode 0: **418 MB → 5 MB**; mode 1: **390 MB → 5 MB** at 800k. Cause: `v[i]` element read/write marked the Vec local escaping. Only `&v[i]` escapes now.
+- `vecprobe` mode 0: **418 MB -> 5 MB**; mode 1: **390 MB -> 5 MB** at 800k. Cause: `v[i]` element read/write marked the Vec local escaping. Only `&v[i]` escapes now.
 - UI link: `probe_ui2_text` and full `ui_showcase` build and run with the new compiler, explicit `XIOM_STDLIB`, and engine LLVM 21. The 1120 came from the new `xiom_alloc` runtime symbol against a stale runtime path; forced main-heap now uses libc `calloc` (no new runtime symbol). Rebuild the compiler and clear the engine package/runtime cache before retesting.
 - `#[owns_return]` now trusts that unsafe/FFI does not retain the function's owned transient Vecs, so `font_shape`-style `buf`/`slots` can drop.
 - Eight hard-RSS gates (`tests/soak/run_memory_gates.ps1`) pass on debug and release before the latest trust commit: with_len 4-5, fresh-return 4-5, read_at 4-5, editor frame 28, arena loop 5, break/continue 4, vecprobe mode 0 4-5, mode 1 4-5 MB.
 - Earlier full e2e green on `778e01d57`: **2647/2647 (4 ignored) debug and release**; non-e2e battery green (550/130/40/26/78/214/109/43/3). The later `8d4968522` index/calloc/trust changes are AFTER that full run; rerun.
 
-## Still broken — the release blocker
+## Still broken -- the release blocker
 - `UI_SHOWCASE_ANIMATE=1`, 1200 frames, 2 GB cap: killed at 2 GB WS / 2908 MB private in my run (engine saw 1437 MB at 82 s).
 - Remaining source: the `xiom.fontraster` package. `font_shape` returns `TextRun` with `glyphs: Vec[ShapedGlyph]`; `font_glyph_raster` returns `GlyphRaster` with `pixels: Vec[UInt8]`; `font_face_metrics` has transient `slots`. Their bodies are unsafe/FFI. They need `#[owns_return]`, package `0.1.1`, and the engine `xiom.toml` dependency `0.1.1`.
 - Callers: `ui2_draw_text` does `let run = font_shape(...)`; `ui2_glyph_get` does `let r = font_glyph_raster(...)`; both need the aggregate drop. `ui2_text_wrap` returns a fresh Vec; the `lines` caller in `ui2_draw_text_wrapped` should drop.
 - If the soak still grows after those annotations, debug deeper in this order:
-  1. `font_glyph_raster`’s `pix` retry/rebind (`pix = Vec.with_len(need)`): the `Stmt::Assign` on a bare local marks it escaping; the old `pix` buffer can leak; the final `pix` is returned as `GlyphRaster.pixels`. Check the IR for the transient `slots` and the old `pix`.
-  2. `ui2_text_wrap` (`out`/`lines`) and `ui2_text_wrap`’s callers; the `lines`/`Ui2TextLine` Vec.
-  3. `ui2_draw_text`’s `run` aggregate (`run.glyphs`) and `ui2_text_width`/`ui2_text_caret_x`/`ui2_text_x` calls to `font_shape`.
-  4. `ui2_glyph_get`’s `r` aggregate (`r.pixels`) and the atlas copy/drop.
+  1. `font_glyph_raster`'s `pix` retry/rebind (`pix = Vec.with_len(need)`): the `Stmt::Assign` on a bare local marks it escaping; the old `pix` buffer can leak; the final `pix` is returned as `GlyphRaster.pixels`. Check the IR for the transient `slots` and the old `pix`.
+  2. `ui2_text_wrap` (`out`/`lines`) and `ui2_text_wrap`'s callers; the `lines`/`Ui2TextLine` Vec.
+  3. `ui2_draw_text`'s `run` aggregate (`run.glyphs`) and `ui2_text_width`/`ui2_text_caret_x`/`ui2_text_x` calls to `font_shape`.
+  4. `ui2_glyph_get`'s `r` aggregate (`r.pixels`) and the atlas copy/drop.
   5. The live caches: `Ui2GlyphCache` (`keys`, `refs`, `atlas`), `Ui2Atlas` pages, the glyph cache/atlas growth; distinguish live cache from per-frame leak.
   6. `g_hits` (`Vec[Ui2Hit]`, clear/push capacity) and the UI text/Str paths (`ui2_text_ellipsis`), the per-frame list/labels.
   7. `font_face_metrics` `slots`, `font_shape` `buf`/`slots`, `font_glyph_raster` `slots`/`pix`.
-- The permanent investigation: complete drop/ownership for struct returns and unsafe/FFI transient Vecs; `Vec[Str]` element drops and nested aggregate fields; move/refcount semantics for owning headers; region/lifetime escape analysis for arenas (the engine’s whole-frame-arena crash); diagnostics for long-loop arena allocations; the `#[owns_return]` trusted contract (a wrong annotation is UAF). Lexical scope + arenas is not the flaw; missing drop/region analysis is. Rust lifetimes are reference-validity, not freeing; the leak is ownership/drop, the arena escape is the region gap.
+- The permanent investigation: complete drop/ownership for struct returns and unsafe/FFI transient Vecs; `Vec[Str]` element drops and nested aggregate fields; move/refcount semantics for owning headers; region/lifetime escape analysis for arenas (the engine's whole-frame-arena crash); diagnostics for long-loop arena allocations; the `#[owns_return]` trusted contract (a wrong annotation is UAF). Lexical scope + arenas is not the flaw; missing drop/region analysis is. Rust lifetimes are reference-validity, not freeing; the leak is ownership/drop, the arena escape is the region gap.
 
 ## Exact repro commands
 Engine env:
