@@ -51,7 +51,11 @@ perf/defer row. No v0.64.9.
       11 assets + SHA256SUMS.
 - [x] Docs dispatch (`compiler-release` to `xiom-lang/website`) success;
       registry `xiom-std 0.65.1` signed (sha256 `3bb9b850...`).
-- [ ] Lane announcements and holds closed; release-check verdicts.
+- [x] `xiom.fontraster` 0.1.1 published by the packages lane
+      (`xiom-fontraster/v0.1.1`, sha256 `c5be1ac1...`, run 40376049948);
+      relay item verified.
+- [ ] Engine verifies the v0.65.1 archive; reporters fill
+      `release-checks/compiler-compiler-v0.65.1.md`; holds close.
 
 ## Evidence
 
@@ -89,6 +93,7 @@ perf/defer row. No v0.64.9.
 - [x] Docs dispatch success (tag `v0.65.1`, stdlib `stdlib-v0.65.1`).
 - [x] Registry `xiom-std 0.65.1` signed, sha256
       `3bb9b85007d69f75a7379b90182f260e8d0bfba03f02431619481f9dae494d31`.
-- [ ] Announces the archive to the engine/packages/stdlib lanes; closes the
-      v0.65.1 holds; reporter verdicts in
-      `release-checks/compiler-compiler-v0.65.1.md`.
+- [x] `xiom.fontraster` 0.1.1 LIVE (tag `xiom-fontraster/v0.1.1`, registry
+      sha256 `c5be1ac1...`, run 40376049948); packages item verified.
+- [ ] Engine verifies the v0.65.1 archive; reporter verdicts in
+      `release-checks/compiler-compiler-v0.65.1.md`; holds close.

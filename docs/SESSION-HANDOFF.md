@@ -31,10 +31,11 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   rebind; sound `fn_owns_return_transfer`), with `778e01d57`/`8d4968522`.
   UI soak flat: 1200 frames, 2 GB cap, exit 0, peak private 1044 MB / WS
   181 MB (was 2908 MB/kill).
-- Post-release: engine/packages lanes should verify the v0.65.1 archive and
-  finish the `xiom.fontraster` 0.1.1 registry publish (owner checking with
-  packages); fill the v0.65.1 release check; close the holds. Known bounded
-  residual: an actually-taken retry rebind leaks only the replaced buffer.
+- Post-release: `xiom.fontraster` 0.1.1 is LIVE (packages lane,
+  `xiom-fontraster/v0.1.1`, sha256 `c5be1ac1...`, run 40376049948; relay item
+  verified). The engine should verify the v0.65.1 archive; fill the v0.65.1
+  release check; close the holds. Known bounded residual: an actually-taken
+  retry rebind leaks only the replaced buffer.
 
 *** SESSION UPDATE 2026-10-26T18:30Z (compiler lane; v0.65.1 CANDIDATE, owner GO) -- READ FIRST ***
 - **Owner GO received; cutting v0.65.1.** stdlib tag `stdlib-v0.65.1` is
