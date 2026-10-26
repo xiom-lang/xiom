@@ -81,13 +81,19 @@ impl IrEmitter {
             self.emitln(&format!("  store i64 {next}, i64* {start_gep}"));
             let label_name = label.map(|l| l.name.clone());
             self.local.loop_stack.push((label_name, loop_cond.clone(), loop_exit.clone()));
+            let loop_drop_mark = self.fctx.vec_drops.len();
+            self.local.loop_drop_marks.push(loop_drop_mark);
             self.local.loop_depth += 1;
             let saved_match_ptr = self.fctx.match_result_ptr.take();
             let body_res = self.compile_block(body, false);
             self.fctx.match_result_ptr = saved_match_ptr;
             body_res?;
+            if !self.current_block_terminated() {
+                self.compile_vec_drops_scope(loop_drop_mark)?;
+            }
             self.local.loop_depth -= 1;
             self.local.loop_stack.pop();
+            self.local.loop_drop_marks.pop();
             self.emitln(&format!("  br label %{loop_cond}"));
             self.emitln(&format!("\n{loop_exit}:"));
             return Ok(());
@@ -205,11 +211,17 @@ impl IrEmitter {
         self.local.loop_stack.push((label_name, loop_cond.clone(), loop_exit.clone()));
         self.local.loop_depth += 1;
         let saved_match_ptr = self.fctx.match_result_ptr.take();
+        let loop_drop_mark = self.fctx.vec_drops.len();
+        self.local.loop_drop_marks.push(loop_drop_mark);
         let body_res = self.compile_block(body, false);
         self.fctx.match_result_ptr = saved_match_ptr;
         body_res?;
+        if !self.current_block_terminated() {
+            self.compile_vec_drops_scope(loop_drop_mark)?;
+        }
         self.local.loop_depth -= 1;
         self.local.loop_stack.pop();
+        self.local.loop_drop_marks.pop();
 
         self.emitln(&format!("  br label %{loop_cond}"));
         self.emitln(&format!("\n{loop_exit}:"));
@@ -668,9 +680,27 @@ impl IrEmitter {
                             elems.first().and_then(|e| self.infer_struct_type_name(e))
                         })
                         .unwrap_or_else(|| "Int".to_string());
-                    self.compile_array_as_vec(elems, &elem_ty)?
+                    // m375: an owned Vec local inside a confined block must
+                    // live on the main heap; the scope drop is a real free.
+                    let saved_force = self.force_main_heap_alloc;
+                    if self.guard_heap_depth > 0
+                        && self.fctx.vec_drop_safe.contains(&name.name)
+                    {
+                        self.force_main_heap_alloc = true;
+                    }
+                    let compiled = self.compile_array_as_vec(elems, &elem_ty);
+                    self.force_main_heap_alloc = saved_force;
+                    compiled?
                 } else {
-                    self.compile_expr(value)?
+                    let saved_force = self.force_main_heap_alloc;
+                    if self.guard_heap_depth > 0
+                        && self.fctx.vec_drop_safe.contains(&name.name)
+                    {
+                        self.force_main_heap_alloc = true;
+                    }
+                    let compiled = self.compile_expr(value);
+                    self.force_main_heap_alloc = saved_force;
+                    compiled?
                 };
                 // m294 (REL-20261010-1549-packages-9): a BARE `&T`/`&mut T`
                 // read in a binding must bind the pointee VALUE -- the checker
@@ -896,6 +926,9 @@ impl IrEmitter {
                     self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}{}", self.store_align(&llvm_ty)));
                 }
                 self.register_vec_drop(&name.name, &alloca, &llvm_ty, value);
+                // m375: an `#[owns_return]` aggregate binding (editor frame)
+                // drops each Vec field at the binding's scope exit.
+                self.register_aggregate_drops(&name.name, &alloca, &llvm_ty);
                 // m368: own-and-private Vec bindings are reclaimed on exit.
                 self.add_local(&name.name, alloca, &llvm_ty);
                 // Check invariants if the value is a struct with invariants
@@ -1273,7 +1306,18 @@ impl IrEmitter {
                         .unwrap_or_else(|| "Int".to_string());
                     self.compile_array_as_vec(elems, &elem_ty)?
                 } else {
-                    self.compile_expr(value)?
+                    // m375: an owned Vec local inside a confined block must
+                    // live on the main heap, or its scope drop would be a
+                    // no-op and the arena would grow for the whole block.
+                    let saved_force = self.force_main_heap_alloc;
+                    if self.guard_heap_depth > 0
+                        && self.fctx.vec_drop_safe.contains(&name.name)
+                    {
+                        self.force_main_heap_alloc = true;
+                    }
+                    let compiled = self.compile_expr(value);
+                    self.force_main_heap_alloc = saved_force;
+                    compiled?
                 };
                 // m294 (REL-20261010-1549-packages-9): see the let-binding
                 // arm -- a bare `&mut T` read binds the pointee value.
@@ -1362,6 +1406,9 @@ impl IrEmitter {
                     self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}{}", self.store_align(&llvm_ty)));
                 }
                 self.register_vec_drop(&name.name, &alloca, &llvm_ty, value);
+                // m375: an `#[owns_return]` aggregate binding (editor frame)
+                // drops each Vec field at the binding's scope exit.
+                self.register_aggregate_drops(&name.name, &alloca, &llvm_ty);
                 // m368: own-and-private Vec bindings are reclaimed on exit.
                 self.add_local(&name.name, alloca, &llvm_ty);
                 // Check invariants if the value is a struct with invariants
@@ -2776,6 +2823,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 for (i, arm) in arms.iter().enumerate() {
                     let arm_label = arm_labels.get(i).cloned().unwrap_or_else(|| merge_label.clone());
                     self.emitln(&format!("\n{arm_label}:"));
+                    // Payload/locals bound in this arm are reclaimed at the
+                    // arm exit (m375: io.read_at's Ok(Vec) payload).
+                    let arm_drop_mark = self.fctx.vec_drops.len();
                     // M18: For guarded arms, pre-bind Ident patterns so the guard
                     // can reference the bound variable, then compile the guard.
                     // On guard failure, skip to the next arm.
@@ -3453,6 +3503,15 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                     },
                                 };
                                 if alias_payload {
+                                    // m375: a fresh-payload Result/Option<Vec>
+                                    // arm owns the payload buffer; the prepass
+                                    // named it, so register the arm-scope drop
+                                    // before add_local takes the slot string.
+                                    self.register_owned_vec_binding(
+                                        &ident.name,
+                                        &bind_val_inner,
+                                        &bind_ty_inner,
+                                    );
                                     // m148 (R-2): `bind_val_inner` is the
                                     // payload ADDRESS; register it under the
                                     // struct type (the pointer-receiver local
@@ -3570,6 +3629,13 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             }
                         }
                     }
+                    if !self.current_block_terminated() {
+                        self.compile_vec_drops_scope(arm_drop_mark)?;
+                    } else {
+                        // The return path already emitted its drops; do not
+                        // leak this arm's slot into the enclosing scopes.
+                        self.fctx.vec_drops.truncate(arm_drop_mark);
+                    }
                     self.emitln(&format!("  br label %{merge_label}"));
                 }
 
@@ -3612,11 +3678,20 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // last statement stored a %struct.Vec into the arm's
                 // %struct.Result slot -> invalid IR).
                 let saved_match_ptr = self.fctx.match_result_ptr.take();
+                // Loop-body scope: owned Vecs declared in the body are dead at
+                // the back-edge (m375). Drop them every iteration; the entry
+                // stays in the function-return list for break/continue paths.
+                let loop_drop_mark = self.fctx.vec_drops.len();
+                self.local.loop_drop_marks.push(loop_drop_mark);
                 let body_res = self.compile_block(body, false);
                 self.fctx.match_result_ptr = saved_match_ptr;
                 body_res?;
+                if !self.current_block_terminated() {
+                    self.compile_vec_drops_scope(loop_drop_mark)?;
+                }
                 self.local.loop_depth -= 1;
                 self.local.loop_stack.pop();
+                self.local.loop_drop_marks.pop();
                 self.emitln(&format!("  br label %{loop_cond}"));
                 self.emitln(&format!("\n{loop_exit}:"));
             }
@@ -3746,12 +3821,18 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 self.local.loop_depth += 1;
                 // R59: see the While body -- statement context, no match-store.
                 let saved_match_ptr = self.fctx.match_result_ptr.take();
+                let loop_drop_mark = self.fctx.vec_drops.len();
+                self.local.loop_drop_marks.push(loop_drop_mark);
                 let body_res = self.compile_block(body, false);
                 self.fctx.match_result_ptr = saved_match_ptr;
                 body_res?;
+                if !self.current_block_terminated() {
+                    self.compile_vec_drops_scope(loop_drop_mark)?;
+                }
                 self.local.loop_depth -= 1;
 
                 self.local.loop_stack.pop();
+                self.local.loop_drop_marks.pop();
 
                 // Jump back to condition
                 self.emitln(&format!("  br label %{loop_cond}"));
@@ -3948,6 +4029,23 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 }
             }
             Stmt::Break(label, _) => {
+                // m375: run the loop-body scope drops on the early exit too.
+                let target_idx = if let Some(lab) = label {
+                    self.local
+                        .loop_stack
+                        .iter()
+                        .rposition(|(l, _, _)| {
+                            l.as_ref().map_or(false, |l_name| l_name == &lab.name)
+                        })
+                        .or_else(|| self.local.loop_stack.len().checked_sub(1))
+                } else {
+                    self.local.loop_stack.len().checked_sub(1)
+                };
+                if let Some(idx) = target_idx {
+                    if let Some(mark) = self.local.loop_drop_marks.get(idx).copied() {
+                        self.compile_vec_drops_since(mark)?;
+                    }
+                }
                 // P0-3 FIX: Respect labeled break. Search loop_stack for matching
                 // label (top-down, LIFO). If no label, use innermost loop.
                 let target = if let Some(lab) = label {
@@ -3965,6 +4063,23 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 }
             }
             Stmt::Continue(label, _) => {
+                // m375: run the loop-body scope drops on continue too.
+                let target_idx = if let Some(lab) = label {
+                    self.local
+                        .loop_stack
+                        .iter()
+                        .rposition(|(l, _, _)| {
+                            l.as_ref().map_or(false, |l_name| l_name == &lab.name)
+                        })
+                        .or_else(|| self.local.loop_stack.len().checked_sub(1))
+                } else {
+                    self.local.loop_stack.len().checked_sub(1)
+                };
+                if let Some(idx) = target_idx {
+                    if let Some(mark) = self.local.loop_drop_marks.get(idx).copied() {
+                        self.compile_vec_drops_since(mark)?;
+                    }
+                }
                 // P0-3 FIX: Respect labeled continue. Search loop_stack for matching
                 // label (top-down, LIFO). If no label, use innermost loop.
                 let target = if let Some(lab) = label {

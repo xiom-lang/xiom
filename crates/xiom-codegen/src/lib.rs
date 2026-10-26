@@ -32,6 +32,7 @@ pub mod sandbox;
 pub mod stmt;
 pub mod vec_abi;
 pub mod vec_drop;
+pub mod fresh_return;
 
 pub use context::{CodegenConfig, TypeContext, FunctionContext, MonoContext, LocalContext, TypeMeta, SyncRegistry, native_target_triple};
 
@@ -56,6 +57,21 @@ pub struct IrEmitter {
     /// exit the arena is discarded wholesale (isolation) and the tail value is
     /// Copy-Out'd to the main heap (requirement i, UAF fix).
     pub guard_heap_depth: u32,
+    /// Leaf names of functions proven to return a freshly owned Vec. A caller
+    /// binding such a call may drop it; computed once per program before any
+    /// function body is compiled (fresh_return::collect_fresh_ownership).
+    pub fresh_vec_returns: HashSet<String>,
+    /// Leaf names of functions whose Result/Option<Vec> payload is freshly
+    /// owned (e.g. io.read_at). A match arm binding that payload may drop it.
+    pub fresh_payload_returns: HashSet<String>,
+    /// Leaf names of `#[owns_return]` aggregate builders (editor frames):
+    /// every Vec field of the returned struct is freshly owned by the caller.
+    pub fresh_aggregate_returns: HashSet<String>,
+    /// Force allocations to the MAIN heap even inside a guard arena. Set for
+    /// `#[owns_return]` functions (their caller owns/frees the result) and for
+    /// drop-classified Vec locals inside confined blocks. The arena must never
+    /// own memory whose ownership transfers out or is freed by a drop.
+    pub force_main_heap_alloc: bool,
     /// D2.1 (Phase 5): globally-unique counter for emitted unsafe-block
     /// functions (`__unsafe_block_N`). Unlike tmp_counter/block_counter (which
     /// are reset per function by compile_fn), this monotonically increases so
@@ -141,6 +157,10 @@ impl IrEmitter {
             str_counter: 0,
             has_llvm_trap_decl: false,
     guard_heap_depth: 0,
+            fresh_vec_returns: HashSet::new(),
+            fresh_payload_returns: HashSet::new(),
+            fresh_aggregate_returns: HashSet::new(),
+            force_main_heap_alloc: false,
             indexed_elem_types: HashMap::new(),
             module_deferred_types: Vec::new(),
             type_decl_splice_offset: 0,
@@ -904,15 +924,20 @@ impl IrEmitter {
         // the literal `@xiom_guard_alloc(i64 128/256/512)` shape (m195/m296/
         // m314/vec_new_initial_capacity). Only zero constants and runtime
         // sizes need the clamp.
+        let alloc_fn = if self.force_main_heap_alloc {
+            "@xiom_alloc"
+        } else {
+            "@xiom_guard_alloc"
+        };
         if let Ok(n) = size_expr.trim().parse::<i64>() {
             let size = if n == 0 { 1 } else { n };
-            self.emitln(&format!("  {tmp} = call i8* @xiom_guard_alloc(i64 {size})"));
+            self.emitln(&format!("  {tmp} = call i8* {alloc_fn}(i64 {size})"));
         } else {
             let is_zero = self.fresh_tmp();
             self.emitln(&format!("  {is_zero} = icmp eq i64 {size_expr}, 0"));
             let alloc_size = self.fresh_tmp();
             self.emitln(&format!("  {alloc_size} = select i1 {is_zero}, i64 1, i64 {size_expr}"));
-            self.emitln(&format!("  {tmp} = call i8* @xiom_guard_alloc(i64 {alloc_size})"));
+            self.emitln(&format!("  {tmp} = call i8* {alloc_fn}(i64 {alloc_size})"));
         }
         tmp
     }
@@ -6440,6 +6465,11 @@ impl IrEmitter {
         if crate::cancel::is_cancelled() {
             return Err("compilation cancelled".to_string());
         }
+        // Ownership prepass (m375 / engine Vec leak): a function that returns
+        // a freshly owned Vec lets the caller drop it. Must run before any
+        // function body, because the caller's drop candidate set is built from
+        // it (including stdlib calls such as io.read_at / font_shape).
+        self.prepass_fresh_vec_returns(program);
         // Register builtin types for Option and Result
         if !self.types.types.contains_key(&"Option".to_string()) {
             self.types.types.insert("Option".to_string(), vec!["discriminant".to_string(), "value".to_string()]);
@@ -9686,7 +9716,8 @@ fast:
             // m368: per-function Vec drop state + ownership/escape prepass.
             self.clear_vec_drops();
             if let Some(body) = fd.body.as_ref() {
-                self.prepass_owned_vec_locals(body);
+                    self.force_main_heap_alloc = crate::fresh_return::fn_has_owns_return(&fd);
+                    self.prepass_owned_vec_locals(body);
             }
 
             // Compile body

@@ -1626,6 +1626,7 @@ impl IrEmitter {
         self.emitln("declare void @llvm.trap()");
         self.emit_recursion_counter("xiom_recursion_counter");
         self.emitln("declare i8* @malloc(i64)");
+        self.emitln("declare i8* @xiom_alloc(i64)");
         // D2.1 (Unsafe Confinement Phase 3): guard-heap arena + Copy-Out.
         self.emitln("declare void @xiom_guard_heap_enter()");
         self.emitln("declare void @xiom_guard_heap_exit()");

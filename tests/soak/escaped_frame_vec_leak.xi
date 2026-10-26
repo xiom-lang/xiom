@@ -10,6 +10,7 @@ use xiom.convert;
 
 type Frame = { a: Vec[Int]; b: Vec[Float64]; c: Vec[Int]; }
 
+#[owns_return]
 fn make_frame(n: Int) -> Frame {
   var a = Vec[Int].new();
   var j = 0;

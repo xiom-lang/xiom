@@ -743,6 +743,11 @@ pub fn type_name_from_ast(ty: &Type) -> String {
         Type::Ref(inner) | Type::MutRef(inner) | Type::Ptr(inner) => type_name_from_ast(inner),
         Type::Vec(inner) => format!("Vec[{}]", type_name_from_ast(inner)),
         Type::Option(inner) => format!("Option[{}]", type_name_from_ast(inner)),
+        Type::Result(ok, err) => format!(
+            "Result[{}, {}]",
+            type_name_from_ast(ok),
+            type_name_from_ast(err)
+        ),
         Type::Slice(inner) => format!("Slice[{}]", type_name_from_ast(inner)),
         _ => format!("{ty:?}"),
     }

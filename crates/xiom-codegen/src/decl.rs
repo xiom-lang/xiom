@@ -1545,6 +1545,9 @@ impl IrEmitter {
         self.clear_deferred_cleanups();
         // m368: per-function Vec drop state + ownership/escape prepass.
         self.clear_vec_drops();
+        // m375: an #[owns_return] function transfers main-heap Vec ownership
+        // to its caller, so it must bypass any enclosing guard arena.
+        self.force_main_heap_alloc = crate::fresh_return::fn_has_owns_return(fd);
         if let Some(body) = fd.body.as_ref() {
             self.prepass_owned_vec_locals(body);
         }

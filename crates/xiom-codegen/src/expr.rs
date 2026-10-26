@@ -6161,6 +6161,11 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // m368: a return in the block fn must not free the enclosing
                 // frame's owned Vecs (its own are arena-owned).
                 let saved_vec_drops = self.suspend_vec_drops();
+                // m375: the confined block fn has its OWN drop state. Its
+                // locals are scanned/owned like any other function; the
+                // enclosing frame's drops stay suspended.
+                self.clear_vec_drops();
+                self.prepass_owned_vec_locals(block);
                 self.in_unsafe_block_fn = true;
                 self.tmp_counter = unsafe_id * 1000;
                 self.block_counter = unsafe_id * 1000;
@@ -6286,6 +6291,10 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     else if last_ty.starts_with("%struct.") && !last_ty.ends_with('*') {
                         last = self.emit_aggregate_vec_fields_copy_out(&last, &last_ty, 0);
                     }
+                    // m375: drop owned block-local Vecs before the arena is
+                    // discarded. Owned locals are forced to the main heap by
+                    // the binding, so these frees are real.
+                    self.compile_vec_drops()?;
                     self.emitln("  call void @xiom_guard_heap_exit()");
                     self.emitln(&format!("  call void @xiom_guard_page_disarm(){GUARD_PAGE_MARK}"));
                     // Return the block's value as i64 (the trampoline ABI is

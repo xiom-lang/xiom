@@ -315,6 +315,27 @@ pub struct TypeContext {
 // FunctionContext -- Per-function compilation state
 // ============================================================================
 
+/// One reclamation site: a Vec header, or a Vec field inside an owned
+/// aggregate (m375 editor frame shape). The flag is shared per site.
+#[derive(Clone, Debug)]
+pub enum VecDrop {
+    Vec { alloca: String, flag: String },
+    Aggregate {
+        struct_alloca: String,
+        struct_ty: String,
+        field_index: u32,
+        flag: String,
+    },
+}
+
+impl VecDrop {
+    pub fn flag(&self) -> &str {
+        match self {
+            VecDrop::Vec { flag, .. } | VecDrop::Aggregate { flag, .. } => flag,
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct FunctionContext {
     /// Current function name (for labels)
@@ -384,15 +405,17 @@ pub struct FunctionContext {
     /// unsafe). Restricted to stdlib/trusted, or user code with
     /// --enable-unsafe-direct.
     pub unsafe_direct: bool,
-    /// m368 (REL-20261011-2032-engine): owned Vec locals reclaimed at fn
-    /// exit. Each entry is (Vec alloca holding the header, drop-flag alloca
-    /// holding an i1). The flag is initialized false in the entry block and
-    /// set true by the binding; every return path runs `compile_vec_drops`,
-    /// which is idempotent through the flag (rustc ElaborateDrops analogy).
-    pub vec_drops: Vec<(String, String)>,
+    /// m368/m375: owned Vec locals and owned aggregate Vec fields reclaimed at
+    /// scope exit. Each entry carries a drop-flag alloca; the flag is
+    /// initialized false in the entry block and set true by the binding, so
+    /// every scope/return exit is idempotent (rustc ElaborateDrops analogy).
+    pub vec_drops: Vec<VecDrop>,
     /// m368: local names proven OWNED AND PRIVATE for the current function by
     /// the AST prepass (`vec_drop::collect_owned_vec_locals`).
     pub vec_drop_safe: HashSet<String>,
+    /// m375: local names bound from an `#[owns_return]` aggregate (a struct
+    /// whose Vec fields are freshly owned); their fields are dropped too.
+    pub aggregate_drop_safe: HashSet<String>,
 }
 
 // ============================================================================
@@ -553,6 +576,9 @@ pub struct LocalContext {
     pub local_err_payload: HashMap<String, String>,
     /// Stack of active loop labels: (optional_label, continue_label, break_label)
     pub loop_stack: Vec<(Option<String>, String, String)>,
+    /// Parallel to loop_stack: the VecDrop index at loop entry. `break` /
+    /// `continue` emit drops for entries added since that index (m375).
+    pub loop_drop_marks: Vec<usize>,
     /// v0.56/P0-2: Deferred blocks to execute at scope exit (LIFO order)
     pub defer_stack: Vec<Block>,
     /// Module/global const values

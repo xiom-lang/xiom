@@ -29,6 +29,7 @@
 //! return before the binding from freeing an uninitialized pointer.
 
 use super::IrEmitter;
+use crate::context::VecDrop;
 use xiom_ast::*;
 use std::collections::{HashMap, HashSet};
 
@@ -42,20 +43,53 @@ struct VecDeclInfo {
 struct ScanState {
     decls: HashMap<String, VecDeclInfo>,
     escaping: HashSet<String>,
+    /// Leaf names of functions proven to return a fresh owned Vec. A binding
+    /// from one of these is a drop candidate (m375 call-return leak).
+    fresh: HashSet<String>,
+    /// Leaf names whose Result/Option<Vec> payload is freshly owned. A match
+    /// arm binding of that payload is a Vec drop candidate (io.read_at).
+    fresh_payload: HashSet<String>,
+    /// Locals bound directly from a fresh-payload call (`let r = io.read_at`).
+    /// Matching on such a local transfers the payload to the arm binding.
+    fresh_payload_locals: HashSet<String>,
+    /// Leaf names of `#[owns_return]` aggregate functions (frames).
+    fresh_aggregate: HashSet<String>,
+    /// Locals bound from a fresh aggregate return; their Vec fields drop.
+    aggregate: HashSet<String>,
+    /// Fresh-return analysis only: the local being returned transfers
+    /// ownership to the caller, so this one return use is not an escape.
+    skip_return_local: Option<String>,
+}
+
+pub(crate) struct OwnedLocals {
+    pub vec: HashSet<String>,
+    pub aggregate: HashSet<String>,
 }
 
 /// Returns the local names that are owned and private for the function body.
-pub(crate) fn collect_owned_vec_locals(block: &Block) -> HashSet<String> {
+pub(crate) fn collect_owned_vec_locals(
+    block: &Block,
+    fresh: &HashSet<String>,
+    fresh_payload: &HashSet<String>,
+    fresh_aggregate: &HashSet<String>,
+) -> OwnedLocals {
     let mut state = ScanState::default();
+    state.fresh = fresh.clone();
+    state.fresh_payload = fresh_payload.clone();
+    state.fresh_aggregate = fresh_aggregate.clone();
     scan_block(block, &mut state);
-    state
+    let vec = state
         .decls
         .into_iter()
         .filter_map(|(name, info)| {
             let owned = info.decls > 0 && info.all_fresh && !state.escaping.contains(&name);
             if owned { Some(name) } else { None }
         })
-        .collect()
+        .collect();
+    OwnedLocals {
+        vec,
+        aggregate: state.aggregate,
+    }
 }
 
 /// Fresh, uniquely owned Vec initializer shapes. Mirrors vec_abi.rs's
@@ -68,12 +102,18 @@ pub(crate) fn is_fresh_vec_init(expr: &Expr) -> bool {
         Expr::Array(..) => true,
         Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => match func.as_ref() {
             Expr::Field(obj, method, _) => {
-                matches!(method.name.as_str(), "new" | "with_capacity")
-                    && matches!(
+                let name = method.name.as_str();
+                if matches!(name, "new" | "with_capacity" | "with_len") {
+                    matches!(
                         obj.as_ref(),
                         Expr::Index(base, _, _)
                             if matches!(base.as_ref(), Expr::Ident(b) if b.name == "Vec")
                     )
+                } else {
+                    // Deep-copy / eager transform: the result owns a fresh
+                    // buffer even when the receiver is another Vec.
+                    matches!(name, "clone" | "map" | "filter" | "to_owned")
+                }
             }
             _ => false,
         },
@@ -157,7 +197,13 @@ fn scan_block(block: &Block, state: &mut ScanState) {
 fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
     match stmt {
         Stmt::Let(name, _, value, _) | Stmt::Var(name, _, value, _) => {
-            let fresh = is_fresh_vec_init(value);
+            let fresh = is_fresh_vec_init(value) || is_fresh_vec_call(value, &state.fresh);
+            if is_fresh_payload_call(value, &state.fresh_payload) {
+                state.fresh_payload_locals.insert(name.name.clone());
+            }
+            if is_fresh_aggregate_call(value, &state.fresh_aggregate) {
+                state.aggregate.insert(name.name.clone());
+            }
             let info = state.decls.entry(name.name.clone()).or_insert_with(|| VecDeclInfo {
                 decls: 0,
                 all_fresh: true,
@@ -176,7 +222,18 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
             }
             scan_expr(value, UseCtx::Escape, state);
         }
-        Stmt::Return(Some(expr), _) => scan_expr(expr, UseCtx::Escape, state),
+        Stmt::Return(Some(expr), _) => {
+            // Fresh-return analysis: returning the local transfers its owned
+            // buffer to the caller; do not count that use as an escape.
+            if state
+                .skip_return_local
+                .as_deref()
+                .map_or(false, |name| is_returned_local(expr, name))
+            {
+                return;
+            }
+            scan_expr(expr, UseCtx::Escape, state)
+        }
         Stmt::Return(None, _) | Stmt::Break(..) | Stmt::Continue(..) | Stmt::Debugger(_) => {}
         Stmt::Expr(expr, _) => scan_expr(expr, UseCtx::Escape, state),
         Stmt::If(cond, then_block, elifs, else_block, _) => {
@@ -191,6 +248,23 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
             }
         }
         Stmt::Match(scrutinee, arms, _) => {
+            // A match on a fresh-payload Result/Option<Vec> call (or a local
+            // bound from one) binds an owned Vec. Register the arm binding for
+            // a scope-exit drop.
+            if is_fresh_payload_call(scrutinee, &state.fresh_payload)
+                || is_fresh_payload_local(scrutinee, &state.fresh_payload_locals)
+            {
+                for arm in arms {
+                    if let Some(name) = payload_binding_name(&arm.pattern) {
+                        let info = state.decls.entry(name).or_insert_with(|| VecDeclInfo {
+                            decls: 0,
+                            all_fresh: true,
+                        });
+                        info.decls += 1;
+                        info.all_fresh = true;
+                    }
+                }
+            }
             scan_expr(scrutinee, UseCtx::Escape, state);
             for arm in arms {
                 if let Some(guard) = &arm.guard {
@@ -332,6 +406,110 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
         Expr::None(_) | Expr::Int(..) | Expr::BigInt(..) | Expr::Float(..) | Expr::Str(..)
         | Expr::Char(..) | Expr::Bool(..) | Expr::Error(..) => {}
     }
+}
+
+fn call_leaf(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Ident(id) => id.name.rsplit('.').next(),
+        Expr::Field(_, method, _) => Some(method.name.as_str()),
+        Expr::Paren(inner, _) => call_leaf(inner),
+        _ => None,
+    }
+}
+
+/// True when `expr` is a call to a leaf the fresh-return prepass proved owns
+/// its returned Vec. Used by the binding scan and the drop-candidate check.
+pub(crate) fn is_fresh_vec_call(expr: &Expr, fresh: &HashSet<String>) -> bool {
+    match expr {
+        Expr::Paren(inner, _) => is_fresh_vec_call(inner, fresh),
+        Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
+            call_leaf(func).map_or(false, |leaf| fresh.contains(leaf))
+        }
+        _ => false,
+    }
+}
+
+/// Same shape, for functions whose Result/Option payload is a fresh Vec.
+pub(crate) fn is_fresh_payload_call(expr: &Expr, fresh: &HashSet<String>) -> bool {
+    match expr {
+        Expr::Paren(inner, _) => is_fresh_payload_call(inner, fresh),
+        Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
+            call_leaf(func).map_or(false, |leaf| fresh.contains(leaf))
+        }
+        _ => false,
+    }
+}
+
+fn is_fresh_payload_local(expr: &Expr, locals: &HashSet<String>) -> bool {
+    match expr {
+        Expr::Paren(inner, _) => is_fresh_payload_local(inner, locals),
+        Expr::Ident(id) => locals.contains(&id.name),
+        _ => false,
+    }
+}
+
+/// Call to an `#[owns_return]` aggregate function (struct with owned Vec
+/// fields), e.g. an editor frame builder.
+pub(crate) fn is_fresh_aggregate_call(expr: &Expr, fresh: &HashSet<String>) -> bool {
+    match expr {
+        Expr::Paren(inner, _) => is_fresh_aggregate_call(inner, fresh),
+        Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
+            call_leaf(func).map_or(false, |leaf| fresh.contains(leaf))
+        }
+        _ => false,
+    }
+}
+
+fn payload_binding_name(pattern: &Pattern) -> Option<String> {
+    match pattern {
+        Pattern::Ok(inner, _) | Pattern::Some(inner, _) => match inner.as_ref() {
+            Pattern::Ident(id) => Some(id.name.clone()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn is_returned_local(expr: &Expr, name: &str) -> bool {
+    match expr {
+        Expr::Paren(inner, _) | Expr::Ok(inner, _) | Expr::Some(inner, _) => {
+            is_returned_local(inner, name)
+        }
+        Expr::Ident(id) => id.name == name,
+        _ => false,
+    }
+}
+
+/// Fresh-return analysis helper: is `name`, returned from this function body,
+/// a uniquely owned Vec local (fresh declaration + no escaping use other than
+/// the return itself)? Ownership transfers to the caller, so the callee's drop
+/// pass does not free it.
+pub(crate) fn local_is_owned_fresh(
+    body: &Block,
+    name: &str,
+    fresh: &HashSet<String>,
+) -> bool {
+    let mut state = ScanState::default();
+    state.fresh = fresh.clone();
+    state.skip_return_local = Some(name.to_string());
+    if let Some((last, rest)) = body.stmts.split_last() {
+        for item in rest {
+            match item {
+                StmtOrExpr::Stmt(stmt) => scan_stmt(stmt, &mut state),
+                StmtOrExpr::Expr(expr) => scan_expr(expr, UseCtx::Escape, &mut state),
+            }
+        }
+        match last {
+            StmtOrExpr::Expr(expr) if is_returned_local(expr, name) => {}
+            StmtOrExpr::Expr(expr) => scan_expr(expr, UseCtx::Escape, &mut state),
+            StmtOrExpr::Stmt(stmt) => scan_stmt(stmt, &mut state),
+        }
+    }
+    state
+        .decls
+        .get(name)
+        .map_or(false, |info| info.decls == 1 && info.all_fresh)
+        && !state.escaping.contains(name)
 }
 
 /// Mark every identifier mentioned anywhere under `block` as escaping. Used
@@ -495,8 +673,9 @@ fn mark_expr_mentions(expr: &Expr, state: &mut ScanState) {
 /// Saved per-function Vec-drop state while a detached function body (closure,
 /// spawn, confined block) is emitted into its own output buffer.
 pub(crate) struct VecDropScope {
-    drops: Vec<(String, String)>,
+    drops: Vec<VecDrop>,
     safe: HashSet<String>,
+    safe_aggregate: HashSet<String>,
     entry_prelude: Vec<String>,
 }
 
@@ -504,13 +683,39 @@ impl IrEmitter {
     /// Build the owned-and-private local set for the function about to be
     /// compiled. Called at function-body start (regular and mono paths).
     pub(crate) fn prepass_owned_vec_locals(&mut self, body: &Block) {
-        self.fctx.vec_drop_safe = collect_owned_vec_locals(body);
+        let fresh = self.fresh_vec_returns.clone();
+        let fresh_payload = self.fresh_payload_returns.clone();
+        let fresh_aggregate = self.fresh_aggregate_returns.clone();
+        let owned = collect_owned_vec_locals(body, &fresh, &fresh_payload, &fresh_aggregate);
+        self.fctx.vec_drop_safe = owned.vec;
+        self.fctx.aggregate_drop_safe = owned.aggregate;
+    }
+
+    /// Whole-program ownership prepass (m375 / engine Vec leak). Runs before
+    /// any function body is compiled so callers can see fresh-return callees.
+    pub(crate) fn prepass_fresh_vec_returns(&mut self, program: &Program) {
+        let (vec, payload, aggregate) = crate::fresh_return::collect_fresh_ownership(program);
+        if std::env::var("XIOM_DEBUG_OWNERSHIP").is_ok() {
+            eprintln!(
+                "ownership: vec={} payload={} aggregate={} read_at_vec={} read_at_payload={} make_frame_aggregate={}",
+                vec.len(),
+                payload.len(),
+                aggregate.len(),
+                vec.contains("read_at"),
+                payload.contains("read_at"),
+                aggregate.contains("make_frame")
+            );
+        }
+        self.fresh_vec_returns = vec;
+        self.fresh_payload_returns = payload;
+        self.fresh_aggregate_returns = aggregate;
     }
 
     /// Reset per-function drop state. Called at every function-body start.
     pub(crate) fn clear_vec_drops(&mut self) {
         self.fctx.vec_drops.clear();
         self.fctx.vec_drop_safe.clear();
+        self.fctx.aggregate_drop_safe.clear();
         self.local.entry_prelude.clear();
     }
 
@@ -521,6 +726,7 @@ impl IrEmitter {
         VecDropScope {
             drops: std::mem::take(&mut self.fctx.vec_drops),
             safe: std::mem::take(&mut self.fctx.vec_drop_safe),
+            safe_aggregate: std::mem::take(&mut self.fctx.aggregate_drop_safe),
             entry_prelude: std::mem::take(&mut self.local.entry_prelude),
         }
     }
@@ -528,6 +734,7 @@ impl IrEmitter {
     pub(crate) fn resume_vec_drops(&mut self, saved: VecDropScope) {
         self.fctx.vec_drops = saved.drops;
         self.fctx.vec_drop_safe = saved.safe;
+        self.fctx.aggregate_drop_safe = saved.safe_aggregate;
         self.local.entry_prelude = saved.entry_prelude;
     }
 
@@ -538,7 +745,8 @@ impl IrEmitter {
     pub(crate) fn vec_drop_candidate(&self, name: &str, llvm_ty: &str, init: &Expr) -> bool {
         llvm_ty == "%struct.Vec"
             && self.fctx.vec_drop_safe.contains(name)
-            && is_fresh_vec_init(init)
+            && (is_fresh_vec_init(init)
+                || is_fresh_vec_call(init, &self.fresh_vec_returns))
     }
 
     /// Register a freshly bound Vec local for reclamation. Emits the flag
@@ -551,7 +759,65 @@ impl IrEmitter {
         let flag = self.fresh_tmp();
         self.local.hoisted_allocas.push((flag.clone(), "i1".to_string()));
         self.local.entry_prelude.push(format!("  store i1 false, i1* {flag}"));
-        self.fctx.vec_drops.push((alloca.to_string(), flag.clone()));
+        self.fctx.vec_drops.push(VecDrop::Vec {
+            alloca: alloca.to_string(),
+            flag: flag.clone(),
+        });
+        self.emitln(&format!("  store i1 true, i1* {flag}"));
+    }
+
+    /// Register the Vec fields of an `#[owns_return]` aggregate binding. The
+    /// struct slot is local to the binding scope; the loop/arm/function drop
+    /// range covers it (the struct alloca dominates that exit).
+    pub(crate) fn register_aggregate_drops(&mut self, name: &str, alloca: &str, llvm_ty: &str) {
+        if !self.fctx.aggregate_drop_safe.contains(name) || !llvm_ty.starts_with("%struct.") {
+            return;
+        }
+        let type_name = llvm_ty.trim_start_matches("%struct.").to_string();
+        let meta = self
+            .types
+            .type_meta
+            .get(&type_name)
+            .or_else(|| {
+                self.types
+                    .type_meta
+                    .entries()
+                    .into_iter()
+                    .find(|(k, _)| k.ends_with(&format!(".{type_name}")))
+                    .map(|(_, meta)| meta)
+            });
+        let Some(meta) = meta else { return; };
+        for (idx, _) in meta.fields.iter().enumerate() {
+            if self.field_llvm_type(&type_name, idx) != "%struct.Vec" {
+                continue;
+            }
+            let flag = self.fresh_tmp();
+            self.local.hoisted_allocas.push((flag.clone(), "i1".to_string()));
+            self.local.entry_prelude.push(format!("  store i1 false, i1* {flag}"));
+            self.fctx.vec_drops.push(VecDrop::Aggregate {
+                struct_alloca: alloca.to_string(),
+                struct_ty: llvm_ty.to_string(),
+                field_index: idx as u32,
+                flag: flag.clone(),
+            });
+            self.emitln(&format!("  store i1 true, i1* {flag}"));
+        }
+    }
+
+    /// Register a match-bound Vec payload the prepass proved uniquely owned
+    /// (fresh-payload Result/Option, e.g. `match io.read_at(..) { Ok(v) => .. }`).
+    /// The payload slot already lives in the arm; the scope drop frees it there.
+    pub(crate) fn register_owned_vec_binding(&mut self, name: &str, alloca: &str, llvm_ty: &str) {
+        if llvm_ty != "%struct.Vec" || !self.fctx.vec_drop_safe.contains(name) {
+            return;
+        }
+        let flag = self.fresh_tmp();
+        self.local.hoisted_allocas.push((flag.clone(), "i1".to_string()));
+        self.local.entry_prelude.push(format!("  store i1 false, i1* {flag}"));
+        self.fctx.vec_drops.push(VecDrop::Vec {
+            alloca: alloca.to_string(),
+            flag: flag.clone(),
+        });
         self.emitln(&format!("  store i1 true, i1* {flag}"));
     }
 
@@ -562,19 +828,72 @@ impl IrEmitter {
             return Ok(());
         }
         let drops = self.fctx.vec_drops.clone();
-        for (vec_alloca, flag) in drops.iter().rev() {
+        self.emit_vec_drops(&drops)
+    }
+
+    /// Emit drops for the entries added since `start` without removing them.
+    /// Used at loop-body/scope exits: the same compiled drop code runs each
+    /// iteration, and the function-return pass still sees the entries for
+    /// paths that leave the scope early (break/continue/return).
+    pub(crate) fn compile_vec_drops_since(&mut self, start: usize) -> Result<(), String> {
+        if self.fctx.vec_drops.len() <= start {
+            return Ok(());
+        }
+        let drops = self.fctx.vec_drops[start..].to_vec();
+        self.emit_vec_drops(&drops)
+    }
+
+    /// Emit and REMOVE the entries added since `start` (match-arm scope).
+    /// The arm slot only dominates the arm's own exit, so it must not leak
+    /// into the enclosing loop/function drop list.
+    pub(crate) fn compile_vec_drops_scope(&mut self, start: usize) -> Result<(), String> {
+        if self.fctx.vec_drops.len() <= start {
+            return Ok(());
+        }
+        let drops = self.fctx.vec_drops[start..].to_vec();
+        self.emit_vec_drops(&drops)?;
+        self.fctx.vec_drops.truncate(start);
+        Ok(())
+    }
+
+    fn emit_vec_drops(&mut self, drops: &[VecDrop]) -> Result<(), String> {
+        for drop in drops.iter().rev() {
+            let flag = drop.flag();
             let armed = self.fresh_tmp();
             let do_block = self.fresh_block("vecdrop_do");
             let skip_block = self.fresh_block("vecdrop_skip");
             self.emitln(&format!("  {armed} = load i1, i1* {flag}"));
             self.emitln(&format!("  br i1 {armed}, label %{do_block}, label %{skip_block}"));
             self.emitln(&format!("\n{do_block}:"));
-            let data_gep = self.fresh_tmp();
-            let data_ptr = self.fresh_tmp();
-            self.emitln(&format!(
-                "  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_alloca}, i32 0, i32 0"
-            ));
-            self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_gep}"));
+            let data_ptr = match drop {
+                VecDrop::Vec { alloca, .. } => {
+                    let data_gep = self.fresh_tmp();
+                    let data_ptr = self.fresh_tmp();
+                    self.emitln(&format!(
+                        "  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {alloca}, i32 0, i32 0"
+                    ));
+                    self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_gep}"));
+                    data_ptr
+                }
+                VecDrop::Aggregate {
+                    struct_alloca,
+                    struct_ty,
+                    field_index,
+                    ..
+                } => {
+                    let field_ptr = self.fresh_tmp();
+                    self.emitln(&format!(
+                        "  {field_ptr} = getelementptr {struct_ty}, {struct_ty}* {struct_alloca}, i32 0, i32 {field_index}"
+                    ));
+                    let data_gep = self.fresh_tmp();
+                    let data_ptr = self.fresh_tmp();
+                    self.emitln(&format!(
+                        "  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {field_ptr}, i32 0, i32 0"
+                    ));
+                    self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_gep}"));
+                    data_ptr
+                }
+            };
             // Arena-aware: block-fn Vecs live on the guard arena and are
             // reclaimed wholesale; main-heap Vecs are freed here.
             self.emitln(&format!("  call void @xiom_guard_free(i8* {data_ptr})"));
