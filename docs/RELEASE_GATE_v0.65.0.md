@@ -204,7 +204,17 @@ confined-block ownership (owned locals bypass the arena). Six hard-RSS
 gates pass: 5/5/5/28/5/5 MB under caps 128/128/128/512/512/128
 (`tests/soak/run_memory_gates.ps1`); non-e2e battery is green; full
 debug+release e2e is green on `778e01d57` (2647/2647, 4 ignored, both
-compilers; release build green). The next candidate requires:
+compilers; release build green).
+
+Engine cargo report (2026-10-26): on `8d4968522`, `vecprobe` mode 0/1 is
+fixed (5 MB vs 418/390 at 800k), the UI link is fixed via libc `calloc`
+(no new runtime symbol), and `probe_ui2_text`/full `ui_showcase` build and
+run with explicit `XIOM_STDLIB`. The 1200-frame soak still hits 2 GB:
+`xiom.fontraster` `font_shape`/`font_glyph_raster`/`font_face_metrics`
+need `#[owns_return]`, package 0.1.1, and the engine `xiom.toml`
+dependency; `ui2_draw_text let run` and `ui2_glyph_get let r` then drop;
+`ui2_text_wrap` is fresh-return. Full e2e after `8d4968522` is pending;
+no cut until the soak is flat. The next candidate requires:
 - stdlib `v0.65.1` with `#[owns_return]` on `read_at`/`read_file_bytes`
   (relay REL-20261026-0040-compiler-2) and the corresponding compiler pin;
 - engine frame builders annotated `#[owns_return]` plus a flat

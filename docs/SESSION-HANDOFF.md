@@ -29,6 +29,14 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   26, xiom 78, checker 214, parser 109, graph 43, API-freeze 3. Full
   debug+release e2e is green on `778e01d57`: **2647/2647 (4 ignored) on
   both compilers**; release build green.
+- **Engine cargo report (2026-10-26):** vecprobe mode 0/1 fixed on
+  `8d4968522` (5 MB vs 418/390 at 800k); UI link fixed via libc `calloc`
+  (no new `xiom_alloc` dependency); `probe_ui2_text`/full `ui_showcase`
+  build and run with explicit `XIOM_STDLIB`. The 1200-frame soak still
+  hits 2 GB: `xiom.fontraster` `font_shape`/`font_glyph_raster`/
+  `font_face_metrics` need `#[owns_return]`, package 0.1.1, and the engine
+  `xiom.toml` dependency; relays REL-20261026-1158-compiler and -2. Full
+  e2e after `8d4968522` pending. **No cut until the soak is flat.**
 - **Next-candidate blockers:** stdlib `v0.65.1` with `#[owns_return]` on
   `read_at`/`read_file_bytes` (relay REL-20261026-0040-compiler-2), engine
   frame builders annotated + the 1200-frame `UI_SHOWCASE_ANIMATE=1` soak

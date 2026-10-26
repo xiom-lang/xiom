@@ -20600,3 +20600,31 @@ integration 130, stdlib 40, codegen 26, xiom 78, checker 214, parser 109,
 graph 43, API-freeze 3. Full debug+release e2e is green on `778e01d57`:
 **2647/2647 (4 ignored) on both the debug and release compilers**; the
 release build is green.
+
+---
+
+## 2026-10-26 -- PARTIAL (engine cargo report): vecprobe and UI link fixed; 1200-frame soak blocked on fontraster
+
+WITNESS (engine lane, cargo release 02:58): `vecprobe` mode 0 = 418 MB,
+mode 1 = 390 MB private at 800k; full `ui_showcase` link failed with clang
+1120; 1200-frame soak hit the 2 GB cap.
+
+FIX (`8d4968522`):
+- `v[i]` element read/write no longer marks the Vec local as escaping;
+  only `&v[i]` does. `vecprobe` mode 0/1 now **5 MB each** at 800k on both
+  debug and release.
+- Forced main-heap allocation uses libc `calloc` instead of the new
+  `xiom_alloc` runtime symbol; the engine UI link no longer depends on a
+  stale runtime object. `probe_ui2_text` and the full `ui_showcase` build
+  and run with an explicit `XIOM_STDLIB` and the engine LLVM 21.
+- `#[owns_return]` functions trust that unsafe/FFI does not retain their
+  owned transient Vecs, so `font_shape`-style `buf`/`slots` can drop.
+
+REMAINING: the 1200-frame soak still hits 2 GB. The per-frame source is the
+`xiom.fontraster` package: `font_shape` (`TextRun.glyphs`),
+`font_glyph_raster` (`GlyphRaster.pixels`), and `font_face_metrics`
+(transient `slots`) need `#[owns_return]`, package 0.1.1, and the engine
+`xiom.toml` dependency. `ui2_draw_text`'s `let run` and `ui2_glyph_get`'s
+`let r` then drop the aggregate fields; `ui2_text_wrap` is already a
+fresh-return Vec and the `lines` caller should drop. Full e2e after
+`8d4968522` is pending. No cut until the soak is flat.
