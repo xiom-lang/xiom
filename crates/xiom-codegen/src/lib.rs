@@ -9726,7 +9726,7 @@ fast:
             // m368: per-function Vec drop state + ownership/escape prepass.
             self.clear_vec_drops();
             if let Some(body) = fd.body.as_ref() {
-                    let owns_return = crate::fresh_return::fn_has_owns_return(&fd);
+                    let owns_return = crate::fresh_return::fn_owns_return_transfer(&fd);
                     self.force_main_heap_alloc = owns_return;
                     self.prepass_owned_vec_locals(body, owns_return);
             }

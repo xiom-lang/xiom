@@ -14,6 +14,35 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-26T16:45Z (compiler lane; m375 UI soak FIXED on main, NO release) -- READ FIRST ***
+- **The 1200-frame UI soak is flat on the current main tree (not released).**
+  Two compiler gaps beyond `8d4968522`: (1) `#[owns_return]` did not exempt
+  `as_ptr`/`as_mut_ptr` inside a trusted unsafe block, so `font_shape`'s
+  `buf`/`slots` stayed escaping; (2) any bare-local rebind (`buf =
+  Vec.with_len(..)` on the retry path) marked the whole local escaping, so
+  `buf` leaked on EVERY call, not only the retry. Fix: trusted pointer export
+  is non-escaping inside a trusted unsafe block; a fresh-to-fresh rebind keeps
+  ownership; `fn_owns_return_transfer` grants trust only for owning return
+  shapes (Vec / `Result`/`Option<Vec>` / named aggregate). New gate
+  `tests/soak/ffi_owns_return_leak.xi`.
+- `xiom.fontraster` 0.1.1 (installed locally in `XIOM_HOME`; publish pending
+  owner GO): `#[owns_return]` on `font_shape`/`font_glyph_raster`/
+  `font_face_metrics`; engine `xiom.toml` pins `0.1.1`.
+- Evidence: UI `UI_SHOWCASE_ANIMATE=1`, 1200 frames, 2 GB cap, exit 0:
+  peak private 1044 MB, peak WS 181 MB; sampled private 1037 -> 1011 MB over
+  the run (flat; the old tree was killed at 2908 MB private). Nine hard-RSS
+  gates green on debug+release; full e2e **2647/2647 (4 ignored) on both
+  compilers**; non-e2e battery green (550/130/40/26/78/214/109/43/3; stdlib
+  execution 85 passed, 2 ignored).
+- Still pending before a next-candidate tag: publish/install fontraster 0.1.1
+  (owner GO), stdlib `v0.65.1` tag (stdlib lane, acked, pending owner GO) +
+  the `STDLIB_VERSION` pin, compiler candidate bump + notes, CI + all-platform
+  dry-run, then owner GO. v0.65.0 remains production; v0.64.9 withdrawn.
+- Residual (not release blocking): an actually-taken fresh rebind leaks only
+  the replaced buffer (one per retry); the final buffer is transferred to the
+  caller. Proper move/refcount semantics for replaced owning headers is future
+  work.
+
 *** SESSION UPDATE 2026-10-26T00:20Z (compiler lane; m375/engine Vec ownership FIXED on main, NO release) -- READ FIRST ***
 - **m375 / engine Vec ownership is fixed on main `778e01d57`, not released.**
   Root cause: drops were registered only for fresh `let`/`var` Vecs and

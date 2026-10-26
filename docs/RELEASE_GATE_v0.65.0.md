@@ -209,17 +209,31 @@ compilers; release build green).
 Engine cargo report (2026-10-26): on `8d4968522`, `vecprobe` mode 0/1 is
 fixed (5 MB vs 418/390 at 800k), the UI link is fixed via libc `calloc`
 (no new runtime symbol), and `probe_ui2_text`/full `ui_showcase` build and
-run with explicit `XIOM_STDLIB`. The 1200-frame soak still hits 2 GB:
-`xiom.fontraster` `font_shape`/`font_glyph_raster`/`font_face_metrics`
-need `#[owns_return]`, package 0.1.1, and the engine `xiom.toml`
-dependency; `ui2_draw_text let run` and `ui2_glyph_get let r` then drop;
-`ui2_text_wrap` is fresh-return. Full e2e after `8d4968522` is pending;
-no cut until the soak is flat. The next candidate requires:
+run with explicit `XIOM_STDLIB`.
+
+The 1200-frame UI soak is now **flat** on the follow-up tree. Two ownership
+gaps remained after `8d4968522`: `#[owns_return]` did not exempt
+`as_ptr`/`as_mut_ptr` inside a trusted unsafe block (so `font_shape`'s
+transient `buf`/`slots` stayed escaping), and a bare-local fresh rebind
+(`buf = Vec.with_len(..)` on the retry branch) marked the local escaping for
+the whole function (so `buf` leaked on every call). The compiler now treats
+trusted pointer exports as non-escaping, keeps a fresh-to-fresh rebind owned,
+and only grants the contract for owning return shapes. `xiom.fontraster`
+0.1.1 annotates `font_shape`/`font_glyph_raster`/`font_face_metrics`, and the
+engine `xiom.toml` pins 0.1.1.
+
+Evidence: `UI_SHOWCASE_ANIMATE=1`, 1200 frames, 2 GB cap, exit 0: peak
+private 1044 MB, peak WS 181 MB; sampled private 1037 -> 1011 MB over the
+run (flat; the old tree was killed at 2908 MB private). Nine hard-RSS gates
+green on debug+release; full debug+release e2e 2647/2647 (4 ignored) on both
+compilers; non-e2e battery green. The next candidate still requires:
+- publishing/installing `xiom.fontraster` 0.1.1 (owner GO) and the engine
+  `xiom.toml` pin (done locally);
 - stdlib `v0.65.1` with `#[owns_return]` on `read_at`/`read_file_bytes`
-  (relay REL-20261026-0040-compiler-2) and the corresponding compiler pin;
-- engine frame builders annotated `#[owns_return]` plus a flat
-  1200-frame `UI_SHOWCASE_ANIMATE=1` soak (relay REL-20261026-0040-compiler);
-- full e2e + CI + all-platform dry-run, then owner GO. No tag is cut now.
+  (relay REL-20261026-0040-compiler-2; stdlib lane, acked, pending owner GO)
+  and the corresponding compiler pin;
+- the compiler candidate bump + regenerated notes, full e2e on the final
+  tree, CI + all-platform dry-run, then owner GO. No tag is cut now.
 
 ## Non-goals (MCU first wave)
 

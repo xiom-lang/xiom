@@ -20628,3 +20628,66 @@ REMAINING: the 1200-frame soak still hits 2 GB. The per-frame source is the
 `let r` then drop the aggregate fields; `ui2_text_wrap` is already a
 fresh-return Vec and the `lines` caller should drop. Full e2e after
 `8d4968522` is pending. No cut until the soak is flat.
+
+---
+
+## 2026-10-26 -- FIXED (m375 follow-up): unsafe FFI pointer export and fresh rebind no longer disable owned-Vec drops
+
+WITNESS (engine lane): `UI_SHOWCASE_ANIMATE=1`, 1200 frames. On `8d4968522`
+the soak still hit the 2 GB private cap; the per-frame source was the
+`xiom.fontraster` package even though `#[owns_return]` had been added to the
+trust machinery.
+
+ROOT CAUSE (two compiler gaps, both in `vec_drop.rs`):
+1. The `#[owns_return]` trust only scanned a trusted `unsafe` body normally.
+   It did not change pointer-export methods: `buf.as_mut_ptr()` /
+   `buf.as_ptr()` still marked `buf` escaping, so `font_shape`'s transient
+   `buf` and `font_face_metrics`' `slots` were never registered for a drop.
+2. A bare-local rebind (`pix = Vec.with_len(need)` on the retry branch)
+   marked the local escaping for the WHOLE function. `font_shape` contains
+   such a rebind for `buf`, so `buf` leaked on every call -- not only on the
+   retry path. (The replaced buffer on an actually-taken retry is the only
+   residual; the final buffer is dropped/transferred correctly.)
+
+FIX (this session):
+- Under the sound `#[owns_return]` contract, `as_ptr`/`as_mut_ptr` inside a
+  trusted `unsafe` block are non-escaping pointer exports: the receiver keeps
+  ownership and is dropped at scope exit. Outside a trusted unsafe block the
+  conservative escape remains.
+- A fresh-to-fresh rebind of an owned local keeps ownership (the final buffer
+  is dropped at scope exit); a non-fresh rebind still escapes.
+- `fn_owns_return_transfer` only grants the trust when the return shape owns
+  memory (Vec, `Result`/`Option<Vec>`, or a named aggregate). An attribute on
+  a raw-pointer/`Str` return grants nothing, so a stray pointer export cannot
+  turn into a use-after-free.
+- New hard-RSS gate `tests/soak/ffi_owns_return_leak.xi` (unsafe FFI pointer
+  export + a fresh retry rebind): 4 MB under the 128 MB cap.
+
+PACKAGE (`xiom.fontraster` 0.1.1, installed locally; publish pending):
+`#[owns_return]` on `font_shape`, `font_glyph_raster`, `font_face_metrics`;
+engine `xiom.toml` pins `0.1.1`. `ui2_draw_text` drops `run.glyphs`,
+`ui2_atlas_entry` drops `gr.pixels`, `ui2_text_wrap`'s `lines` was already a
+fresh-return Vec.
+
+EVIDENCE:
+- UI soak (2 GB cap, exit 0): 120 frames peak private 1035 MB; 1200 frames
+  peak private 1044 MB. Sampled 1200-frame trajectory 1037 -> 1041 -> 1021
+  -> 1024 -> 1028 -> 1032 -> 1011 MB (flat; the peak is a transient). Peak
+  WS 181 MB. The old tree was killed at 2 GB / 2908 MB private.
+- IR: `font_shape` frees `buf` + `slots` on both exits; `ui2_draw_text`
+  frees `run.glyphs` on both exits; `font_glyph_raster` frees `slots`;
+  `ui2_atlas_entry` frees `gr.pixels` on all exits.
+- `run_memory_gates.ps1` 9/9 green on debug and release: with_len 4, fresh
+  return 4, read_at 4, editor frame 27, arena loop 4, break/continue 4,
+  ffi_owns_return 4, vecprobe mode 0/1 4 MB.
+- Full e2e 2647/2647 (4 ignored) on both debug and release compilers.
+- Non-e2e battery: feature 550, integration 130, stdlib 40 (execution 85,
+  2 ignored), codegen 26, xiom 78, checker 214, parser 109, graph 43,
+  API-freeze 3.
+
+REMAINING (not release blocking): an actually-taken fresh rebind leaks only
+the replaced buffer (one per retry, bounded), because the local's final value
+is transferred to the caller; proper move/refcount semantics for replaced
+owning headers remains future work. stdlib v0.65.1 (read_at/read_file_bytes
+annotations) is owned by the stdlib lane and pending owner GO; the compiler
+pin follows the tag.

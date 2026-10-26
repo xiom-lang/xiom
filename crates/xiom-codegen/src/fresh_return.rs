@@ -81,31 +81,35 @@ fn collect_fresh_aggregate_returns(program: &Program) -> HashSet<String> {
 
 fn fn_returns_named_struct(fd: &FnDecl) -> bool {
     match fd.return_type.as_ref() {
-        Some(Type::Named(id, _)) => !matches!(
-            id.name.as_str(),
-            "Int"
-                | "Int8"
-                | "Int16"
-                | "Int32"
-                | "Int64"
-                | "Int128"
-                | "UInt"
-                | "UInt8"
-                | "UInt16"
-                | "UInt32"
-                | "UInt64"
-                | "UInt128"
-                | "Float"
-                | "Float32"
-                | "Float64"
-                | "Bool"
-                | "Char"
-                | "Str"
-                | "Unit"
-                | "Vec"
-        ),
+        Some(Type::Named(id, _)) => is_named_struct_type(id),
         _ => false,
     }
+}
+
+fn is_named_struct_type(id: &Ident) -> bool {
+    !matches!(
+        id.name.as_str(),
+        "Int"
+            | "Int8"
+            | "Int16"
+            | "Int32"
+            | "Int64"
+            | "Int128"
+            | "UInt"
+            | "UInt8"
+            | "UInt16"
+            | "UInt32"
+            | "UInt64"
+            | "UInt128"
+            | "Float"
+            | "Float32"
+            | "Float64"
+            | "Bool"
+            | "Char"
+            | "Str"
+            | "Unit"
+            | "Vec"
+    )
 }
 
 /// Result/Option<Vec> returns (io.read_at shape): the wrapper is a value, but
@@ -249,6 +253,23 @@ pub(crate) fn fn_has_owns_return(fd: &FnDecl) -> bool {
     fd.attributes
         .iter()
         .any(|a| matches!(a.name.name.as_str(), "owns_return" | "fresh_return"))
+}
+
+/// The `#[owns_return]` contract in its *sound* form: the attribute is only
+/// honored when the function returns an owning shape (a Vec, a `Result`/
+/// `Option<Vec>` payload, or a named aggregate). An attribute on a raw-pointer
+/// or `Str` return grants no trust, so a stray pointer export cannot make a
+/// local look non-escaping and then free the buffer it points into.
+pub(crate) fn fn_owns_return_transfer(fd: &FnDecl) -> bool {
+    if !fn_has_owns_return(fd) {
+        return false;
+    }
+    match fd.return_type.as_ref() {
+        Some(Type::Vec(_)) => true,
+        Some(Type::Named(id, _)) => is_named_struct_type(id),
+        Some(Type::Result(ok, _)) | Some(Type::Option(ok)) => is_vec_type(ok.as_ref()),
+        _ => false,
+    }
 }
 
 fn add_fn_group<'a>(fd: &'a FnDecl, groups: &mut HashMap<String, Vec<&'a FnDecl>>) {

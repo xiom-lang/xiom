@@ -64,6 +64,11 @@ struct ScanState {
     /// normally instead of marking every mention as an escape, so transient
     /// buffers (font_shape's buf/slots) are dropped at function exit.
     trust_unsafe: bool,
+    /// Currently scanning the body of a TRUSTED `unsafe` block (only ever set
+    /// while `trust_unsafe` is true). Pointer-exporting reads (`as_ptr`,
+    /// `as_mut_ptr`) are passed to FFI under the contract's no-retain promise,
+    /// so the receiver keeps ownership and is dropped at scope exit.
+    in_trusted_unsafe: bool,
 }
 
 pub(crate) struct OwnedLocals {
@@ -183,6 +188,13 @@ fn is_safe_vec_method(name: &str) -> bool {
     )
 }
 
+/// Pointer-export methods whose result aliases the Vec buffer. They are only
+/// non-escaping under the `#[owns_return]` no-retain contract inside an
+/// `unsafe` block; elsewhere they keep the historical conservative escape.
+fn is_trusted_ptr_export(name: &str) -> bool {
+    matches!(name, "as_ptr" | "as_mut_ptr")
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum UseCtx {
     /// A bare mention escapes the function (default).
@@ -221,9 +233,22 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
         }
         Stmt::Assign(place, value, _) => {
             // Rebinding an owned local would replace the header the drop flag
-            // tracks; the old buffer leaks either way, so never free it.
+            // tracks. Under the `#[owns_return]` contract a fresh-to-fresh
+            // rebind keeps the local owned: the flag stays armed and the final
+            // buffer is dropped at scope exit (the replaced buffer is the only
+            // residual leak). Any other rebind may install an alias, so the
+            // historical conservative escape remains.
             if let Expr::Ident(id) = place {
-                state.escaping.insert(id.name.clone());
+                let fresh_rebind = state.trust_unsafe
+                    && state
+                        .decls
+                        .get(&id.name)
+                        .map_or(false, |info| info.decls == 1 && info.all_fresh)
+                    && (is_fresh_vec_init(value)
+                        || is_fresh_vec_call(value, &state.fresh));
+                if !fresh_rebind {
+                    state.escaping.insert(id.name.clone());
+                }
             } else {
                 scan_expr(place, UseCtx::Escape, state);
             }
@@ -337,6 +362,17 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                 Expr::Field(recv, method, _) if is_safe_vec_method(method.name.as_str()) => {
                     scan_expr(recv, UseCtx::SafeBase, state);
                 }
+                // `#[owns_return]` contract inside `unsafe`: an FFI call is
+                // promised not to retain the buffer, so exporting its pointer
+                // does not transfer ownership. The Vec stays owned by this
+                // function and is dropped at scope exit (font_shape's buf).
+                Expr::Field(recv, method, _)
+                    if state.trust_unsafe
+                        && state.in_trusted_unsafe
+                        && is_trusted_ptr_export(method.name.as_str()) =>
+                {
+                    scan_expr(recv, UseCtx::SafeBase, state);
+                }
                 other => scan_expr(other, UseCtx::Escape, state),
             }
             for arg in args {
@@ -414,8 +450,12 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
             if state.trust_unsafe {
                 // #[owns_return] contract: the unsafe/FFI does not retain the
                 // function's owned Vec buffers; transient buffers stay owned
-                // and are dropped at this function's scope exit.
+                // and are dropped at this function's scope exit. Only inside
+                // this block may a pointer export count as a non-escaping use.
+                let was_trusted = state.in_trusted_unsafe;
+                state.in_trusted_unsafe = true;
                 scan_block(body, state);
+                state.in_trusted_unsafe = was_trusted;
             } else {
                 // Captured locals are passed BY ADDRESS to a standalone block
                 // fn; any outer Vec mentioned there escapes this fn's lifetime.

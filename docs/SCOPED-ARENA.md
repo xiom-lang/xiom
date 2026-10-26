@@ -105,8 +105,21 @@ main-heap and dropped at their lexical scope:
 - `#[owns_return]` functions allocate with `@xiom_alloc` and bypass an
   active guard arena; the caller's drop frees the buffer. Aggregate
   frames drop each direct Vec field at the caller's scope exit.
+- Inside a trusted `unsafe` block in an `#[owns_return]` function, exporting
+  a Vec pointer with `as_ptr`/`as_mut_ptr` is a non-escaping use: the
+  contract promises the FFI does not retain the buffer, so the Vec is still
+  dropped at scope exit (`font_shape`'s `buf`/`slots`). Outside a trusted
+  unsafe block the conservative escape remains.
+- A fresh-to-fresh rebind (`buf = Vec[T].with_len(..)`) of an owned local
+  keeps ownership; the final buffer is dropped at scope exit. The replaced
+  buffer is not freed (a bounded residual on retry paths); a non-fresh rebind
+  still marks the local escaping.
+- Trust is only granted for owning return shapes: `Vec`, `Result`/
+  `Option<Vec>`, or a named aggregate. An attribute on a raw-pointer or `Str`
+  return grants nothing, so a stray pointer export cannot become a
+  use-after-free.
 - `io.read_at` / `io.read_file_bytes` use the contract. Engine frame
-  builders should too.
+  builders and the `xiom.fontraster` FFI wrappers do too.
 - The arena remains the escape hatch for unowned/aliased block data; it
   is not a substitute for ownership when a block wraps a long-running
   loop.
