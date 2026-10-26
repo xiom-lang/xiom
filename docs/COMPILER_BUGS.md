@@ -20691,3 +20691,45 @@ is transferred to the caller; proper move/refcount semantics for replaced
 owning headers remains future work. stdlib v0.65.1 (read_at/read_file_bytes
 annotations) is owned by the stdlib lane and pending owner GO; the compiler
 pin follows the tag.
+
+---
+
+## 2026-10-27 -- FIXED (v0.65.2 candidate): arm64 Result[Str, E] contract payload loads i8* as i64
+
+WITNESS (PULSE, REL-20261024-1101-pulse): `xiom --target arm` on any program
+that compiles the stdlib `io.read_file` contract fails LLVM verification on
+arm64:
+
+```
+%struct.Result__Str__IOError = type { i64, i8*, %struct.IOError }
+%gep = getelementptr %struct.Result__Str__IOError, ... i32 0, i32 1   ; i8**
+%bad = load i64, i64* %gep                                           ; invalid
+```
+
+ROOT CAUSE: `expr.rs::emit_payload_rebind`'s fallback branch (the bare
+`result is Ok` rebind used by ensures/contracts) loaded the payload slot as
+`i64` unconditionally. The payload field's LLVM type is layout/target
+dependent -- arm64 stores the Str payload as `i8*`, x64 in this instantiation
+as `i64`. `emit_is_payload_literal_cmp` had the same hardcoded load for
+`is Ok(<literal>)`, which also breaks Bool/small-int payloads.
+
+FIX: factor `load_payload_as_i64` (load the field's ACTUAL LLVM type, then
+normalize to the historical erased i64 handle: `ptrtoint` for pointers,
+`bitcast` for float/double, `zext`/`trunc` for small/large ints). Both the
+rebind and the literal-compare path use it. x64 IR is unchanged when the
+field is already i64.
+
+EVIDENCE:
+- Local `--target arm --emit-ir` on `tests/regression/arm_result_str_contract`
+  now emits `load i8*, i8**` + `ptrtoint i8*` and assembles with LLVM 21
+  (`llvm-as` exit 0).
+- New lock `e2e_m3752_arm_result_str_contract_payload` asserts every
+  `Result[Str, IOError]` field-1 GEP is not immediately loaded as `i64`, and
+  it runs in the arm64 floor CI job (ubuntu-22.04-arm, clang 14) alongside
+  `e2e_m1101_arm_io_print_variadic_printf`.
+- Payload/contract regression set (m100, m140, m169, m217, m223, m229,
+  m283, m286, m291, m345, m350) green.
+
+NOT YET CLOSED: a fleet arm64 build (PULSE CI) must be green before the
+arm64 packaging hold is lifted. The defect #1 variadic `printf` call-site fix
+(5b0bedd83) remains the other half of that gate.

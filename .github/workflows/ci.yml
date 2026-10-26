@@ -283,7 +283,7 @@ jobs:
 
       - name: Stored-fn + P0 + variadic printf on the LLVM 14 floor
         run: |
-          cargo test -p xiom-codegen --test e2e_tests -- e2e_m1529 e2e_m1550 e2e_m1827 e2e_m1101
+          cargo test -p xiom-codegen --test e2e_tests -- e2e_m1529 e2e_m1550 e2e_m1827 e2e_m1101 e2e_m3752_arm_result_str_contract_payload
 
   # v0.65.0 MCU first wave: compile + link the freestanding hellos and run
   # them under QEMU. This is the execution gate the checklist requires; the

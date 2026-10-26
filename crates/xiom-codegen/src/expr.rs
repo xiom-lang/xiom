@@ -6775,6 +6775,43 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
     /// (`result.len()`, `result.value`) then lower against the inline
     /// struct. Base layouts (and unresolvable types) keep the i64-handle
     /// slot unchanged.
+    /// Load an Option/Result payload field and normalize it to the erased i64
+    /// handle used by the rest of the payload machinery.
+    ///
+    /// The payload field's LLVM type is layout/target dependent: on arm64 a
+    /// `Result[Str, E]` field 1 is `i8*`, while the historical slot contract
+    /// assumed `i64`. Loading `i64` unconditionally emitted invalid IR on
+    /// arm64 (`load i64, i64* %gep` where `%gep` is `i8**`), which broke every
+    /// arm64 consumer that compiles stdlib io contracts. Named inline
+    /// aggregates are handled by the caller; pointers/floats/small ints are
+    /// normalized here.
+    fn load_payload_as_i64(&mut self, gep: &str, field_ty: &str) -> String {
+        let v = self.fresh_tmp();
+        self.emitln(&format!("  {v} = load {field_ty}, {field_ty}* {gep}"));
+        if field_ty == "i64" {
+            return v;
+        }
+        let w = self.fresh_tmp();
+        match field_ty {
+            "double" => self.emitln(&format!("  {w} = bitcast double {v} to i64")),
+            "float" => {
+                let i32v = self.fresh_tmp();
+                self.emitln(&format!("  {i32v} = bitcast float {v} to i32"));
+                self.emitln(&format!("  {w} = zext i32 {i32v} to i64"));
+            }
+            "i1" | "i8" | "i16" | "i32" => {
+                self.emitln(&format!("  {w} = zext {field_ty} {v} to i64"))
+            }
+            "i128" => self.emitln(&format!("  {w} = trunc i128 {v} to i64")),
+            t if t.ends_with('*') => {
+                self.emitln(&format!("  {w} = ptrtoint {t} {v} to i64"))
+            }
+            // Unknown scalar: preserve the historical erased-slot contract.
+            _ => self.emitln(&format!("  {w} = zext {field_ty} {v} to i64")),
+        }
+        w
+    }
+
     fn emit_payload_rebind(&mut self, struct_llvm_ty: &str, struct_alloca: &str, payload_idx: usize, bname: &str) {
         // BUG 30: hoist the payload slot -- `&&` guard chains bind in one
         // block and read in a later one (dominance).
@@ -6793,8 +6830,12 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
         } else {
             // Base layout (or unresolvable concrete): the historical
             // i64-handle slot consumed by unbox_payload_slot / Vec.len.
-            let payload_loaded = self.fresh_tmp();
-            self.emitln(&format!("  {payload_loaded} = load i64, i64* {payload_gep}"));
+            // Load the field's ACTUAL LLVM type first; arm64's
+            // Result[Str, E] field 1 is i8*, not i64.
+            let field_ty = self
+                .emitted_field_llvm_ty(struct_llvm_ty, payload_idx)
+                .unwrap_or_else(|| "i64".to_string());
+            let payload_loaded = self.load_payload_as_i64(&payload_gep, &field_ty);
             let inner_alloca = self.fresh_tmp();
             self.local.hoisted_allocas.push((inner_alloca.clone(), "i64".to_string()));
             self.emitln(&format!("  store i64 {payload_loaded}, i64* {inner_alloca}"));
@@ -6865,8 +6906,13 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
         };
         let gep = self.fresh_tmp();
         self.emitln(&format!("  {gep} = getelementptr {ty}, {ty}* {alloca}, i32 0, i32 {idx}"));
-        let loaded = self.fresh_tmp();
-        self.emitln(&format!("  {loaded} = load i64, i64* {gep}"));
+        // The payload field type is layout/target dependent (Bool payloads are
+        // i1/i8, Str payloads are pointers on arm64). Normalize to i64 before
+        // comparing with the literal.
+        let field_ty = self
+            .emitted_field_llvm_ty(ty, idx)
+            .unwrap_or_else(|| "i64".to_string());
+        let loaded = self.load_payload_as_i64(&gep, &field_ty);
         let cmp = self.fresh_tmp();
         self.emitln(&format!("  {cmp} = icmp eq i64 {loaded}, {lit}"));
         Some(cmp)

@@ -554,6 +554,53 @@ fn e2e_m1101_arm_io_print_variadic_printf() {
     );
 }
 
+// REL-20261024-1101-pulse defect #2 (v0.65.2): the contract evaluator's
+// bare `result is Ok` payload rebind must load the field's actual LLVM type.
+// On arm64 a Result[Str, E] stores field 1 as i8*, so the historical
+// `load i64, i64*` emitted invalid IR and blocked every arm64 consumer of
+// the stdlib io contracts.
+#[test]
+fn e2e_m3752_arm_result_str_contract_payload() {
+    let ir = compile_ir_with_args(
+        "tests/regression/arm_result_str_contract/main.xi",
+        &["--target", "arm"],
+    )
+    .expect("arm --emit-ir failed for the Result[Str, IOError] contract fixture");
+
+    assert!(
+        ir.contains("%struct.Result__Str__IOError = type { i64, i8*,"),
+        "expected the arm Result[Str, IOError] layout with a pointer payload"
+    );
+
+    // Any field-1 GEP of the Result[Str, IOError] must not be loaded as i64.
+    // Temp names are per-function, so check the immediately following line
+    // rather than searching the whole module (the same %tmpN repeats in other
+    // functions).
+    let lines: Vec<&str> = ir.lines().collect();
+    let mut field1_geps = 0usize;
+    for i in 0..lines.len() {
+        let t = lines[i].trim();
+        if t.starts_with("%tmp")
+            && t.contains("getelementptr %struct.Result__Str__IOError")
+            && t.contains("i32 0, i32 1")
+        {
+            field1_geps += 1;
+            let name = t.split(" = ").next().unwrap_or("").trim();
+            if let Some(next) = lines.get(i + 1) {
+                assert!(
+                    !next.trim().starts_with(&format!("load i64, i64* {name}")),
+                    "arm IR still loads i64 from the i8** Str payload GEP {name}"
+                );
+            }
+        }
+    }
+    assert!(field1_geps > 0, "no Result[Str, IOError] field-1 GEP found");
+    assert!(
+        ir.contains("load i8*, i8**") && ir.contains("ptrtoint i8*"),
+        "the Str payload should load as i8* and normalize via ptrtoint"
+    );
+}
+
 #[test]
 fn e2e_target_riscv_triple() {
     assert!(compile_and_check_ir_with_target("examples/demo_float.xi", "riscv", "riscv64-unknown-linux-gnu"));
