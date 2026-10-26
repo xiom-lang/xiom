@@ -14,6 +14,34 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-27T00:40Z (compiler lane; v0.65.2 in progress) -- READ FIRST ***
+- **v0.65.1 remains PRODUCTION.** v0.65.2 is in progress; no tag.
+- **P0 arm64 FIXED and merged** (`3e775908a`, merge `1d4de2a1a`): the
+  contract evaluator's bare `result is Ok` rebind now loads the Result
+  payload field's actual LLVM type (`Result[Str, E]` field 1 is `i8*` on
+  arm64) and normalizes to the erased i64 handle. New arm-IR lock
+  `e2e_m3752_arm_result_str_contract_payload` runs in the arm64 floor job.
+  Full e2e **2648/2648 (4 ignored)** debug+release; CI **40411862697
+  SUCCESS** including **arm64 floor (ubuntu-22.04-arm, clang 14)**. PULSE's
+  fleet arm64 archive build is the remaining exit.
+- **t1 30 MB diagnosed and relayed:** the Vec ABI floors every slot at 8
+  bytes (`with_len` zero-fills `n*8`; push/reserve/insert grow `new_cap*8`;
+  compiler `vec_slot_size = max(elem_size, 8)`). `Vec[UInt8].with_len(32M)`
+  peaks ~282 MB private; the t1 4096/32 pool is not the cause. Stdlib item
+  `REL-20261026-2142-compiler` (packed slots + coordinated compiler change).
+- **Selfhost Phase 6 is running in parallel** in
+  `.kilo/worktrees/selfhost-phase-4-codegen`: value-returning `NkExprMatch`,
+  parser tail re-wrap (`diff_ast` 83/83), then m1136 + P6 shapes.
+- **LSI/safety:** filed `REL-20261026-2143-compiler-2` (benchmark) for the
+  t8/t9 probe source; proposed `xiom --sanitize` (poison/quarantine/guard
+  pages), safe-subset uninit/type-punning rules, and a recoverable fault
+  mode. Current profile LSI 45 (UAF/uninit SILENT_UB; type confusion
+  SILENT_FAILURE).
+- Full v0.65.2 plan and the compiler relay-queue mapping:
+  `docs/NEXT-CANDIDATE-v0.65.2.md`. Next gates: stdlib packed-slot tag +
+  compiler follow-up, Str/Map/JSON/HTTP retention, fleet re-verify, then
+  owner GO.
+
 *** SESSION UPDATE 2026-10-26T19:45Z (compiler lane; v0.65.1 RELEASED) -- READ FIRST ***
 - **v0.65.1 is PRODUCTION.** Tag `v0.65.1` (annotated
   `c4329915f6a55e994ad7ddc05399059a85a0c796`) on `f2c01cf9c`; release run
