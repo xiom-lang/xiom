@@ -14,8 +14,8 @@ the benchmark lane.
 
 ## P0 -- arm64 Result[Str, E] contract payload
 
-DONE on branch `fix/v0.65.2-arm64-contract-payload` (`3e775908a`); merge
-after the full e2e.
+**DONE and merged to main** (`3e775908a`, merge `1d4de2a1a`). Compiler-side
+gate is green.
 
 - Cause: `expr.rs::emit_payload_rebind` loaded the Result payload slot as
   `i64` unconditionally; arm64 stores `Result[Str, E]` field 1 as `i8*`.
@@ -24,8 +24,11 @@ after the full e2e.
   normalizes to the erased handle (`ptrtoint`/`bitcast`/`zext`/`trunc`).
 - Lock: `e2e_m3752_arm_result_str_contract_payload` runs in the arm64 floor
   job (ubuntu-22.04-arm, clang 14) with `e2e_m1101` (variadic printf).
+- Evidence: full e2e **2648/2648 (4 ignored)** on debug and release; CI
+  **40411862697 SUCCESS**, including the **arm64 floor**.
 - Exit: PULSE `linux-arm64` + `macos-14` build/link/run green on the v0.65.2
-  archive; `REL-20261024-1101-pulse` verified.
+  archive; `REL-20261024-1101-pulse` verified. (The compiler gate is green;
+  the fleet app-build gate remains.)
 
 ## P1 -- t1 memory: Vec packed element slots
 
