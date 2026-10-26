@@ -20552,3 +20552,49 @@ EVIDENCE: `--target arm --emit-ir` of `io.print("hello")` now emits
 550/550. This unblocks the pulse arm64 product builds and the two pulse
 rows that were blocked on them (REL-20261010-1549-pulse,
 REL-20261010-1609-pulse).
+
+---
+
+## 2026-10-26 -- FIXED (m375 / engine editor soak): owned Vec drop across scope exits, fresh returns, Result payloads, and aggregate frames
+
+WITNESS (engine lane, v0.65.0): `UI_SHOWCASE_ANIMATE=1`, 1200 frames:
+59 MB WS / 108 MB private at 8 s -> 170/738 at 42 s -> 879/1437 at 82 s
+(~15 MB/s linear; 2 GB cap in ~2 min). The `probe_mem` attribution:
+`Vec[Int].with_len(64)` 400k = 209 MB (full allocation total, never
+freed); `Str` concat flat; `font_shape`/`ui2_draw_text` ~2.7 KB/call.
+Local reproductions: escaped-frame soak 200 frames killed at 550 MB
+(4.8 GB unconstrained); confined-arena loop killed at 1.2 GB; 10k
+`io.read_at(4096)` killed at 140 MB; fresh-return Vec loop killed at
+156 MB.
+
+ROOT CAUSE: drop elaboration registered only fresh `let`/`var` Vec
+bindings and emitted only at function return, so a loop freed only its
+last binding. Call-return Vecs, match-bound `Result[Vec]` payloads,
+struct Vec fields, and confined-block locals were never registered; inside
+an active guard arena the free was a no-op, so a loop inside one `unsafe`
+block grew until block exit. `Vec.with_len` was not recognized as a fresh
+ctor. This is the engine/editor/orbitdb class, not the C read buffer and
+not the arena alone.
+
+FIX (`778e01d57`):
+- `Vec.with_len`/`clone`/`map`/`filter` are fresh; direct fresh-return
+  Vec calls and `#[owns_return]` contracts; `Result`/`Option<Vec>` payload
+  freshness; match-arm payload drops; aggregate `#[owns_return]` frame
+  Vec-field drops; loop-body + match-arm scope exits; break/continue
+  liveness drops.
+- Confined block fns get their own drop state. Owned locals inside an
+  arena are routed to the main heap (`@xiom_alloc`), so their scope free
+  is real; `#[owns_return]` functions also bypass the arena, guaranteeing
+  main-heap ownership transfer.
+- The stdlib `read_at`/`read_file_bytes` carry `#[owns_return]` in the
+  pinned test checkout; the next candidate must pin an annotated stdlib
+  tag (relay REL-20261026-0040-compiler-2). Engine frame builders need the
+  same annotation (relay REL-20261026-0040-compiler); do NOT annotate
+  persistent/aliased `st.*` state.
+
+EVIDENCE: `tests/soak/run_memory_gates.ps1` six hard-RSS gates:
+`with_len` 5 MB (cap 128), fresh-return 5 MB (128), `io.read_at` 5 MB
+(128), editor frame 28 MB (512), confined arena loop 5 MB (512),
+break/continue 5 MB (128). Non-e2e battery green: feature 550,
+integration 130, stdlib 40, codegen 26, xiom 78, checker 214, parser 109,
+graph 43, API-freeze 3. Full debug+release e2e is running on `778e01d57`.

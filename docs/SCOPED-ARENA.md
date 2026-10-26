@@ -90,6 +90,27 @@ acceptance is the soak below and the engine editor soak.
   C-ORBIT-13 1/1; B-34 1/1; XVC-C-20 1/1; m347 3/3; `cargo test -p
   xiom-check` green.
 
+## Owned Vecs and `#[owns_return]` (m375, 2026-10-26)
+
+The arena is for data the compiler cannot prove owned. Owned Vecs are
+main-heap and dropped at their lexical scope:
+
+- Fresh `Vec.with_len`/`with_capacity`/`new`/`clone`/`map`/`filter`
+  bindings; loop-body and match-arm scopes; break/continue paths.
+- A function returning a `Vec`, `Result`/`Option<Vec>`, or an aggregate
+  may carry `#[owns_return]` when every returned Vec buffer is freshly
+  allocated on the MAIN heap and uniquely owned by the caller. The
+  attribute is a contract (like `unsafe`): never annotate an alias, field,
+  global, or persistent `st.*` buffer.
+- `#[owns_return]` functions allocate with `@xiom_alloc` and bypass an
+  active guard arena; the caller's drop frees the buffer. Aggregate
+  frames drop each direct Vec field at the caller's scope exit.
+- `io.read_at` / `io.read_file_bytes` use the contract. Engine frame
+  builders should too.
+- The arena remains the escape hatch for unowned/aliased block data; it
+  is not a substitute for ownership when a block wraps a long-running
+  loop.
+
 ## Limitations / follow-ups
 
 - The arena is **opt-in**; m368 still handles ordinary non-escaping Vec

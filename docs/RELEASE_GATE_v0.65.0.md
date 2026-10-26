@@ -195,6 +195,21 @@ Remaining still-red rows for the next candidate: by-ref fn-pointer trap
 `.to_str()` W005 stub (REL-20261010-1554-playground-3), and RSS retention
 (REL-20261010-1549-pulse-4).
 
+### Memory ownership fix (m375 / engine Vec leak), 2026-10-26
+
+Compiler main `778e01d57` (not released) fixes the editor/engine Vec
+leak: fresh-return `Vec`/`Result`/`Option<Vec>` payloads, loop- and
+match-scope drops, break/continue liveness, aggregate frame fields, and
+confined-block ownership (owned locals bypass the arena). Six hard-RSS
+gates pass: 5/5/5/28/5/5 MB under caps 128/128/128/512/512/128
+(`tests/soak/run_memory_gates.ps1`); non-e2e battery is green; full
+debug+release e2e is running. The next candidate requires:
+- stdlib `v0.65.1` with `#[owns_return]` on `read_at`/`read_file_bytes`
+  (relay REL-20261026-0040-compiler-2) and the corresponding compiler pin;
+- engine frame builders annotated `#[owns_return]` plus a flat
+  1200-frame `UI_SHOWCASE_ANIMATE=1` soak (relay REL-20261026-0040-compiler);
+- full e2e + CI + all-platform dry-run, then owner GO. No tag is cut now.
+
 ## Non-goals (MCU first wave)
 
 - Vendor HAL/SDK emulation or a full HAL.

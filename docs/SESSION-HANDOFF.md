@@ -14,6 +14,29 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-26T00:20Z (compiler lane; m375/engine Vec ownership FIXED on main, NO release) -- READ FIRST ***
+- **m375 / engine Vec ownership is fixed on main `778e01d57`, not released.**
+  Root cause: drops were registered only for fresh `let`/`var` Vecs and
+  emitted only at function return; call-return Vecs, match-bound
+  `Result[Vec]` payloads, aggregate Vec fields, and confined-block locals
+  were never registered, and an arena free was a no-op. `Vec.with_len` was
+  not recognized as fresh.
+- Six hard-RSS gates pass (`tests/soak/run_memory_gates.ps1`):
+  `with_len` 5 MB (was 209), fresh-return 5 MB (was 156 kill), `io.read_at`
+  5 MB (was 140 kill), editor frame 28 MB (was 550 kill), confined arena
+  loop 5 MB (was 1.2 GB kill), break/continue 5 MB. Caps: 128/128/128/512/512/128.
+- Non-e2e battery green: feature 550, integration 130, stdlib 40, codegen
+  26, xiom 78, checker 214, parser 109, graph 43, API-freeze 3. Full
+  debug+release e2e is running on `778e01d57`.
+- **Next-candidate blockers:** stdlib `v0.65.1` with `#[owns_return]` on
+  `read_at`/`read_file_bytes` (relay REL-20261026-0040-compiler-2), engine
+  frame builders annotated + the 1200-frame `UI_SHOWCASE_ANIMATE=1` soak
+  flat (relay REL-20261026-0040-compiler), then CI + all-platform dry-run +
+  owner GO. **No tag.**
+- v0.65.0 remains production; v0.64.9 withdrawn. The 2026-10-25 block below
+  covers the v0.65.0 release, arm64 printf, `.xiomignore`, and warm-cache
+  fixes.
+
 *** SESSION UPDATE 2026-10-25T15:25Z (compiler lane; v0.65.0 RELEASED; next candidate in prep) -- READ FIRST ***
 - **v0.65.0 is PRODUCTION** (tag `v0.65.0` / `f527d5a` -> `a0dc452dc`;
   release 40041016248 with 11 assets + SHA256SUMS, all checksums re-verified;
