@@ -1,8 +1,11 @@
 # Release gate -- v0.65.1
 
-STATUS: **CANDIDATE CUT IN PROGRESS 2026-10-26** -- owner GO received;
-stdlib tag `stdlib-v0.65.1` is live. Tag `v0.65.1` is **not cut yet**; CI,
-the all-platform dry-run, and the final-tree e2e must be green first.
+STATUS: **RELEASED 2026-10-26T19:40Z** -- owner GO received; stdlib tag
+`stdlib-v0.65.1` live. Tag `v0.65.1` (annotated
+`c4329915f6a55e994ad7ddc05399059a85a0c796`) on `f2c01cf9c`; release run
+**40388025015 SUCCESS** with 11 assets; docs dispatch success; registry
+`xiom-std 0.65.1` signed (sha256 `3bb9b850...`). v0.65.0 is superseded;
+v0.64.9 remains withdrawn.
 
 ## Scope
 
@@ -41,12 +44,14 @@ perf/defer row. No v0.64.9.
 - [x] Full e2e + non-e2e battery re-run on the final pinned tree:
       2647/2647 (4 ignored) on both debug and release; battery green.
 - [x] Release-notes `verify` passes against the pinned stdlib fragment.
-- [ ] Push the release commit to main; CI green.
-- [ ] All-platform dry-run green (Windows/Linux x64+arm64, macOS, VSIX,
-      wasm, SHA256SUMS).
-- [ ] Tag `v0.65.1` on main; release workflow publishes 11 assets.
-- [ ] `release-checks/compiler-compiler-v0.65.1.md` verdicts; docs dispatch;
-      registry `xiom-std 0.65.1`; lane announcements; holds closed.
+- [x] Push the release commit to main; CI green (40385480182).
+- [x] All-platform dry-run green on `f2c01cf9c` (40387243828): Windows/Linux
+      x64+arm64, macOS x64+arm64, VSIX, wasm, SHA256SUMS.
+- [x] Tag `v0.65.1` on `f2c01cf9c`; release workflow 40388025015 published
+      11 assets + SHA256SUMS.
+- [x] Docs dispatch (`compiler-release` to `xiom-lang/website`) success;
+      registry `xiom-std 0.65.1` signed (sha256 `3bb9b850...`).
+- [ ] Lane announcements and holds closed; release-check verdicts.
 
 ## Evidence
 
@@ -70,9 +75,20 @@ perf/defer row. No v0.64.9.
 
 ## Tag + publish log
 
-- [ ] Push the pin/notes commit to main (`<sha>`).
-- [ ] CI run `<id>` SUCCESS.
-- [ ] Dry-run `<id>` SUCCESS.
-- [ ] Tag `v0.65.1` (annotated `<tag-object>`) on `<commit>`; guard green.
-- [ ] Release run `<id>` SUCCESS; 11 assets + SHA256SUMS.
-- [ ] Docs dispatch, registry `xiom-std 0.65.1`, announcements.
+- [x] Push the pin/notes commit to main: `0c82babb9`, then the ASCII fix
+      `f2c01cf9c` (encoding guard).
+- [x] CI run **40385480182 SUCCESS** on `f2c01cf9c` (all matrix legs,
+      including the encoding guard and release-parity).
+- [x] Dry-run **40387243828 SUCCESS** on `f2c01cf9c`.
+- [x] Tag `v0.65.1` (annotated
+      `c4329915f6a55e994ad7ddc05399059a85a0c796`) on `f2c01cf9c`; guard
+      green (tag == workspace 0.65.1, tag on main).
+- [x] Release run **40388025015 SUCCESS**; 11 assets; SHA256SUMS file sha256
+      `875650421fd231ff57e703749125d3f771dfe17244044bd69c61d5daede10c0d`;
+      windows-x64 `69de1e27...` verified.
+- [x] Docs dispatch success (tag `v0.65.1`, stdlib `stdlib-v0.65.1`).
+- [x] Registry `xiom-std 0.65.1` signed, sha256
+      `3bb9b85007d69f75a7379b90182f260e8d0bfba03f02431619481f9dae494d31`.
+- [ ] Announces the archive to the engine/packages/stdlib lanes; closes the
+      v0.65.1 holds; reporter verdicts in
+      `release-checks/compiler-compiler-v0.65.1.md`.

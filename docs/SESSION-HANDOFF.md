@@ -14,6 +14,28 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-26T19:45Z (compiler lane; v0.65.1 RELEASED) -- READ FIRST ***
+- **v0.65.1 is PRODUCTION.** Tag `v0.65.1` (annotated
+  `c4329915f6a55e994ad7ddc05399059a85a0c796`) on `f2c01cf9c`; release run
+  **40388025015 SUCCESS** with **11 assets + SHA256SUMS** (file sha256
+  `87565042...`; windows-x64 `69de1e27...` verified). Docs dispatch
+  (`compiler-release` -> `xiom-lang/website`) success. Registry
+  `xiom-std 0.65.1` signed (sha256 `3bb9b850...`). v0.65.0 is superseded;
+  v0.64.9 remains withdrawn.
+- Gate: CI **40385480182 SUCCESS** on `f2c01cf9c`; all-platform dry-run
+  **40387243828 SUCCESS** on the same commit; final-tree e2e
+  **2647/2647 (4 ignored) on both debug and release**; nine hard-RSS gates
+  green on both; non-e2e battery green; `xiom.fontraster` 0.1.1 conformance
+  11/11.
+- Shipping fix: `0eef57018` (trusted unsafe FFI pointer export + fresh
+  rebind; sound `fn_owns_return_transfer`), with `778e01d57`/`8d4968522`.
+  UI soak flat: 1200 frames, 2 GB cap, exit 0, peak private 1044 MB / WS
+  181 MB (was 2908 MB/kill).
+- Post-release: engine/packages lanes should verify the v0.65.1 archive and
+  finish the `xiom.fontraster` 0.1.1 registry publish (owner checking with
+  packages); fill the v0.65.1 release check; close the holds. Known bounded
+  residual: an actually-taken retry rebind leaks only the replaced buffer.
+
 *** SESSION UPDATE 2026-10-26T18:30Z (compiler lane; v0.65.1 CANDIDATE, owner GO) -- READ FIRST ***
 - **Owner GO received; cutting v0.65.1.** stdlib tag `stdlib-v0.65.1` is
   live (`9dc69b3`); the local stdlib checkout is pinned to the tag.

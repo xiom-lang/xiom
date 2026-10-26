@@ -12,9 +12,9 @@ XIOM is a compiled, statically typed, memory-safe systems programming language. 
 
 ## Current Status (2026-10-26)
 
-- **v0.65.1 is the current candidate** for the next production cut: owned-vector reclamation at loop/match/aggregate/function exits, a flat 1,200-frame animated UI soak, and the `stdlib-v0.65.1` read-helper ownership contracts. See `docs/RELEASE_GATE_v0.65.1.md`; the tag is cut only after CI and the all-platform dry-run are green.
-- **Production pin until v0.65.1 ships:** `v0.65.0` (tag `f527d5a`; release 40041016248, 11 assets). **v0.64.9 remains withdrawn** -- do not pin or deploy it.
-- **Registry:** `xiom-std 0.65.0`; the `xiom-std 0.65.1` decision follows the stdlib tag.
+- **v0.65.1 is PRODUCTION** (tag `v0.65.1`; release 40388025015, 11 assets + SHA256SUMS; docs dispatched; registry `xiom-std 0.65.1` signed). Owned vectors are reclaimed at loop/match/aggregate/function exits; the 1,200-frame animated UI soak is flat.
+- **v0.65.0 is superseded.** **v0.64.9 remains withdrawn** -- do not pin or deploy it.
+- **Registry:** `xiom-std 0.65.1` (sha256 `3bb9b850...`), signed.
 - **Self-hosting:** Phase 6 RD11 is **T3 83/83 green** (phase-5 19/19, T6 **14/64** byte-exact). Next: m1136 block-arm mirror, Option/`.len`, `Vec.pop`, `&Vec`+f64, index arithmetic.
 - **Open coordination:** xvector, orbitdb, engine, packages, and benchmark holds; the v0.65.1 release check records the reporter rows.
 
