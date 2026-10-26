@@ -924,20 +924,30 @@ impl IrEmitter {
         // the literal `@xiom_guard_alloc(i64 128/256/512)` shape (m195/m296/
         // m314/vec_new_initial_capacity). Only zero constants and runtime
         // sizes need the clamp.
-        let alloc_fn = if self.force_main_heap_alloc {
-            "@xiom_alloc"
-        } else {
-            "@xiom_guard_alloc"
-        };
-        if let Ok(n) = size_expr.trim().parse::<i64>() {
+        if self.force_main_heap_alloc {
+            // Zeroed MAIN-heap allocation without a new runtime symbol. The
+            // engine UI link path can carry a stale runtime object; libc
+            // calloc is always available and keeps the ownership contract
+            // independent of the runtime archive.
+            if let Ok(n) = size_expr.trim().parse::<i64>() {
+                let size = if n == 0 { 1 } else { n };
+                self.emitln(&format!("  {tmp} = call i8* @calloc(i64 1, i64 {size})"));
+            } else {
+                let is_zero = self.fresh_tmp();
+                self.emitln(&format!("  {is_zero} = icmp eq i64 {size_expr}, 0"));
+                let alloc_size = self.fresh_tmp();
+                self.emitln(&format!("  {alloc_size} = select i1 {is_zero}, i64 1, i64 {size_expr}"));
+                self.emitln(&format!("  {tmp} = call i8* @calloc(i64 1, i64 {alloc_size})"));
+            }
+        } else if let Ok(n) = size_expr.trim().parse::<i64>() {
             let size = if n == 0 { 1 } else { n };
-            self.emitln(&format!("  {tmp} = call i8* {alloc_fn}(i64 {size})"));
+            self.emitln(&format!("  {tmp} = call i8* @xiom_guard_alloc(i64 {size})"));
         } else {
             let is_zero = self.fresh_tmp();
             self.emitln(&format!("  {is_zero} = icmp eq i64 {size_expr}, 0"));
             let alloc_size = self.fresh_tmp();
             self.emitln(&format!("  {alloc_size} = select i1 {is_zero}, i64 1, i64 {size_expr}"));
-            self.emitln(&format!("  {tmp} = call i8* {alloc_fn}(i64 {alloc_size})"));
+            self.emitln(&format!("  {tmp} = call i8* @xiom_guard_alloc(i64 {alloc_size})"));
         }
         tmp
     }
@@ -9716,8 +9726,9 @@ fast:
             // m368: per-function Vec drop state + ownership/escape prepass.
             self.clear_vec_drops();
             if let Some(body) = fd.body.as_ref() {
-                    self.force_main_heap_alloc = crate::fresh_return::fn_has_owns_return(&fd);
-                    self.prepass_owned_vec_locals(body);
+                    let owns_return = crate::fresh_return::fn_has_owns_return(&fd);
+                    self.force_main_heap_alloc = owns_return;
+                    self.prepass_owned_vec_locals(body, owns_return);
             }
 
             // Compile body

@@ -37,16 +37,23 @@ $Gates = @(
     @{ Name = "read_at_loop_leak";        CapMB = 128 },
     @{ Name = "escaped_frame_vec_leak";   CapMB = 512 },
     @{ Name = "arena_scope_loop_leak";    CapMB = 512 },
-    @{ Name = "vec_loop_control_leak";    CapMB = 128 }
+    @{ Name = "vec_loop_control_leak";    CapMB = 128 },
+    @{ Name = "vecprobe_index_loop"; Source = "vecprobe.xi"; CapMB = 128;
+       Env = @{ PROBE_VEC_MODE = "0"; PROBE_VEC_N = "800000" } },
+    @{ Name = "vecprobe_index_fn";   Source = "vecprobe.xi"; CapMB = 128;
+       Env = @{ PROBE_VEC_MODE = "1"; PROBE_VEC_N = "800000" } }
 )
 
-function Invoke-Capped([string]$Exe, [int]$CapMB, [int]$TimeoutSec) {
+function Invoke-Capped([string]$Exe, [int]$CapMB, [int]$TimeoutSec, [hashtable]$Env = @{}) {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $Exe
     $psi.WorkingDirectory = $Repo
     $psi.UseShellExecute = $false
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
+    foreach ($key in $Env.Keys) {
+        $psi.EnvironmentVariables[$key] = [string]$Env[$key]
+    }
     $p = [System.Diagnostics.Process]::Start($psi)
     $peak = 0
     $killed = $false
@@ -76,7 +83,8 @@ function Invoke-Capped([string]$Exe, [int]$CapMB, [int]$TimeoutSec) {
 $failed = @()
 foreach ($gate in $Gates) {
     $name = $gate.Name
-    $src = Join-Path $PSScriptRoot "$name.xi"
+    $srcName = if ($gate.Source) { [string]$gate.Source } else { "$name.xi" }
+    $src = Join-Path $PSScriptRoot $srcName
     $exe = Join-Path $OutDir "$name.exe"
     if (-not (Test-Path $src)) {
         $failed += "$name (missing source)"
@@ -88,7 +96,8 @@ foreach ($gate in $Gates) {
         Write-Output ("FAIL " + $name + " compile")
         continue
     }
-    $r = Invoke-Capped -Exe $exe -CapMB $gate.CapMB -TimeoutSec $TimeoutSec
+    $envTable = if ($gate.Env) { $gate.Env } else { @{} }
+    $r = Invoke-Capped -Exe $exe -CapMB $gate.CapMB -TimeoutSec $TimeoutSec -Env $envTable
     if ($r.Killed -or $r.ExitCode -ne 0) {
         $failed += "$name"
         Write-Output ("FAIL " + $name + " peakMB=" + $r.PeakMB + " exit=" + $r.ExitCode + " killed=" + $r.Killed)

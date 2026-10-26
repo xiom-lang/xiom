@@ -59,6 +59,11 @@ struct ScanState {
     /// Fresh-return analysis only: the local being returned transfers
     /// ownership to the caller, so this one return use is not an escape.
     skip_return_local: Option<String>,
+    /// `#[owns_return]` function body: the author contracts that unsafe/FFI
+    /// does not retain its owned Vec buffers. Scan unsafe-block bodies
+    /// normally instead of marking every mention as an escape, so transient
+    /// buffers (font_shape's buf/slots) are dropped at function exit.
+    trust_unsafe: bool,
 }
 
 pub(crate) struct OwnedLocals {
@@ -72,11 +77,13 @@ pub(crate) fn collect_owned_vec_locals(
     fresh: &HashSet<String>,
     fresh_payload: &HashSet<String>,
     fresh_aggregate: &HashSet<String>,
+    trust_unsafe: bool,
 ) -> OwnedLocals {
     let mut state = ScanState::default();
     state.fresh = fresh.clone();
     state.fresh_payload = fresh_payload.clone();
     state.fresh_aggregate = fresh_aggregate.clone();
+    state.trust_unsafe = trust_unsafe;
     scan_block(block, &mut state);
     let vec = state
         .decls
@@ -337,14 +344,20 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
             }
         }
         Expr::Index(base, index, _) => {
-            // An element of a Vec[Vec[T]]/struct container aliases the outer
-            // buffer; conservatively treat any indexing as an escape.
-            scan_expr(base, UseCtx::Escape, state);
-            scan_expr(index, UseCtx::Escape, state);
+            // Reading/writing an ELEMENT does not transfer the Vec header or
+            // its buffer; the buffer stays owned by the local. A reference to
+            // the element (`&v[i]`) is handled by the Ref/MutRef arm below and
+            // DOES escape. This is the engine vecprobe `v[0] = i` shape.
+            if matches!(base.as_ref(), Expr::Ident(id) if state.decls.contains_key(&id.name)) {
+                scan_expr(index, UseCtx::Escape, state);
+            } else {
+                // Field/nested containers may alias the outer buffer.
+                scan_expr(base, UseCtx::Escape, state);
+                scan_expr(index, UseCtx::Escape, state);
+            }
         }
+        Expr::Ref(inner, _) | Expr::MutRef(inner, _) => scan_ref_target(inner, state),
         Expr::Unary(_, inner, _)
-        | Expr::Ref(inner, _)
-        | Expr::MutRef(inner, _)
         | Expr::Try(inner, _)
         | Expr::AtPre(inner, _)
         | Expr::Await(inner, _)
@@ -398,9 +411,16 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
             }
         }
         Expr::Unsafe(body, _) => {
-            // Captured locals are passed BY ADDRESS to a standalone block fn;
-            // any outer Vec mentioned there escapes this fn's lifetime.
-            mark_block_mentions(body, state);
+            if state.trust_unsafe {
+                // #[owns_return] contract: the unsafe/FFI does not retain the
+                // function's owned Vec buffers; transient buffers stay owned
+                // and are dropped at this function's scope exit.
+                scan_block(body, state);
+            } else {
+                // Captured locals are passed BY ADDRESS to a standalone block
+                // fn; any outer Vec mentioned there escapes this fn's lifetime.
+                mark_block_mentions(body, state);
+            }
         }
         Expr::ConstBlock(inner, _) => scan_expr(inner, UseCtx::Escape, state),
         Expr::None(_) | Expr::Int(..) | Expr::BigInt(..) | Expr::Float(..) | Expr::Str(..)
@@ -510,6 +530,20 @@ pub(crate) fn local_is_owned_fresh(
         .get(name)
         .map_or(false, |info| info.decls == 1 && info.all_fresh)
         && !state.escaping.contains(name)
+}
+
+/// A reference to an element/field aliases the owning Vec buffer: mark the
+/// base local escaping even though a plain index read/write is safe.
+fn scan_ref_target(expr: &Expr, state: &mut ScanState) {
+    match expr {
+        Expr::Paren(inner, _) => scan_ref_target(inner, state),
+        Expr::Index(base, index, _) => {
+            scan_ref_target(base, state);
+            scan_expr(index, UseCtx::Escape, state);
+        }
+        Expr::Field(base, _, _) => scan_ref_target(base, state),
+        _ => scan_expr(expr, UseCtx::Escape, state),
+    }
 }
 
 /// Mark every identifier mentioned anywhere under `block` as escaping. Used
@@ -682,11 +716,17 @@ pub(crate) struct VecDropScope {
 impl IrEmitter {
     /// Build the owned-and-private local set for the function about to be
     /// compiled. Called at function-body start (regular and mono paths).
-    pub(crate) fn prepass_owned_vec_locals(&mut self, body: &Block) {
+    pub(crate) fn prepass_owned_vec_locals(&mut self, body: &Block, trust_unsafe: bool) {
         let fresh = self.fresh_vec_returns.clone();
         let fresh_payload = self.fresh_payload_returns.clone();
         let fresh_aggregate = self.fresh_aggregate_returns.clone();
-        let owned = collect_owned_vec_locals(body, &fresh, &fresh_payload, &fresh_aggregate);
+        let owned = collect_owned_vec_locals(
+            body,
+            &fresh,
+            &fresh_payload,
+            &fresh_aggregate,
+            trust_unsafe,
+        );
         self.fctx.vec_drop_safe = owned.vec;
         self.fctx.aggregate_drop_safe = owned.aggregate;
     }
