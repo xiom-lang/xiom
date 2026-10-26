@@ -14,6 +14,28 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-26T18:30Z (compiler lane; v0.65.1 CANDIDATE, owner GO) -- READ FIRST ***
+- **Owner GO received; cutting v0.65.1.** stdlib tag `stdlib-v0.65.1` is
+  live (`9dc69b3`); the local stdlib checkout is pinned to the tag.
+- Release tree: workspace/Cargo.lock **0.65.1**; `STDLIB_VERSION` =
+  `stdlib-v0.65.1`; `release-notes/v0.65.1.md` converted to JSON with the
+  pinned stdlib fragment (5 highlights, 0 breaking, 1 docs); new gate doc
+  `docs/RELEASE_GATE_v0.65.1.md`.
+- Scope: m375 owned-Vec reclamation (`778e01d57`, `8d4968522`, `0eef57018`),
+  the flat 1200-frame `UI_SHOWCASE_ANIMATE=1` soak, `xiom.fontraster` 0.1.1
+  (packages `b196c10d`/`cb20373f`; engine `f394645`/`ce8a292`), and the
+  stdlib read-helper ownership contracts.
+- Evidence so far: UI soak 1200 frames exit 0, peak private 1044 MB / WS
+  181 MB (flat; old tree 2908 MB/kill); nine hard-RSS gates green on
+  debug+release; non-e2e battery + local CI-equivalent suites green; full
+  debug+release e2e 2647/2647 (4 ignored) on the pre-bump tree.
+- **Still pending before the tag:** full e2e + battery on the final pinned
+  tree; push main; CI green; all-platform dry-run (release workflow_dispatch)
+  green; then annotated tag `v0.65.1`, release workflow (11 assets +
+  SHA256SUMS), docs dispatch, registry `xiom-std 0.65.1`, lane announcements.
+- `xiom.fontraster` 0.1.1 publish remains with the owner/packages lane.
+  v0.65.0 remains production until v0.65.1 is live; v0.64.9 withdrawn.
+
 *** SESSION UPDATE 2026-10-26T16:45Z (compiler lane; m375 UI soak FIXED on main, NO release) -- READ FIRST ***
 - **The 1200-frame UI soak is flat on the current main tree (not released).**
   Two compiler gaps beyond `8d4968522`: (1) `#[owns_return]` did not exempt

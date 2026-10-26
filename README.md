@@ -6,17 +6,17 @@
 **Safe - Verified - Precise** -- A systems programming language with first-class contracts.
 
 [![Tests](https://img.shields.io/badge/tests-2%2C600%2B-brightgreen)]()
-[![Version](https://img.shields.io/badge/version-0.64.8-blue)]()
+[![Version](https://img.shields.io/badge/version-0.65.1-blue)]()
 
 XIOM is a compiled, statically typed, memory-safe systems programming language. It compiles to native code via LLVM and supports x86_64, ARM, RISC-V, and WebAssembly. The Rust compiler is the production toolchain; the self-hosted implementation is in Phase 6 (RD10: T3 83/83, 14/64 byte-exact).
 
-## Current Status (2026-10-22)
+## Current Status (2026-10-26)
 
-- **v0.64.9 is withdrawn from adoption** (GitHub pre-release; production remains **[v0.64.8](https://github.com/xiom-lang/xiom/releases/tag/v0.64.8)**). Post-release verification found source-level codegen defects the pre-cut battery missed: nested enum-pattern payloads, m372/1451 and true 1550 regressions, non-transitive dependency port args (m1511), and C07 memory. Do not pin or deploy v0.64.9.
-- **v0.65.0 is in development** as the next production cut: P0 correctness with release-compiler parity, production tests, and the MCU/bare-metal first wave (Cortex-M + riscv32, no_std, QEMU). No tag until `docs/RELEASE_GATE_v0.65.0.md` is green.
-- **Production pin:** v0.64.8; registry `xiom-std 0.64.8`. `xiom-std 0.64.9` is published but under the compiler hold.
+- **v0.65.1 is the current candidate** for the next production cut: owned-vector reclamation at loop/match/aggregate/function exits, a flat 1,200-frame animated UI soak, and the `stdlib-v0.65.1` read-helper ownership contracts. See `docs/RELEASE_GATE_v0.65.1.md`; the tag is cut only after CI and the all-platform dry-run are green.
+- **Production pin until v0.65.1 ships:** `v0.65.0` (tag `f527d5a`; release 40041016248, 11 assets). **v0.64.9 remains withdrawn** -- do not pin or deploy it.
+- **Registry:** `xiom-std 0.65.0`; the `xiom-std 0.65.1` decision follows the stdlib tag.
 - **Self-hosting:** Phase 6 RD11 is **T3 83/83 green** (phase-5 19/19, T6 **14/64** byte-exact). Next: m1136 block-arm mirror, Option/`.len`, `Vec.pop`, `&Vec`+f64, index arithmetic.
-- **Open coordination:** xvector, orbitdb, engine, packages, and benchmark holds; the v0.64.9 check and v0.65.0 gate record the rows.
+- **Open coordination:** xvector, orbitdb, engine, packages, and benchmark holds; the v0.65.1 release check records the reporter rows.
 
 ## Quick Start
 

@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "tag": "v0.65.1",
+  "summary": "A memory-ownership release: owned vectors are reclaimed at scope exits, and the UI text pipeline stops growing its per-frame footprint.",
+  "highlights": [
+    {
+      "kind": "compiler",
+      "title": "Owned vectors are freed at scope exit",
+      "text": "Fresh and call-return vectors, match-bound result payloads, and aggregate fields are now reclaimed at loop, match, and function exits. Long-running editors and scripting workloads no longer grow without bound."
+    },
+    {
+      "kind": "fix",
+      "title": "Text rendering stays flat",
+      "text": "The font-shaping and glyph-raster wrappers declare caller-owned return buffers, and unsafe foreign calls no longer hide transient vectors from the drop pass. A 1,200-frame animated UI soak holds steady instead of reaching the memory cap."
+    },
+    {
+      "kind": "compiler",
+      "title": "Element access keeps vector ownership",
+      "text": "Reading or writing a vector element no longer marks the whole vector as escaping, so per-iteration scratch vectors are reclaimed while taking an element reference still escapes."
+    },
+    {
+      "kind": "fix",
+      "title": "UI builds link with the new allocator path",
+      "text": "Main-heap allocations in ownership-contract functions use the C allocator directly, so UI applications link against older runtime objects and no longer fail with a linker error."
+    },
+    {
+      "kind": "fix",
+      "title": "Owned return contracts for read helpers",
+      "text": "io.read_file_bytes and io.read_at carry #[owns_return]: the Ok payload is a fresh main-heap Vec owned by the caller. Older pins ignore the attribute; the next compiler registers the payload for a scope-exit drop, removing the read-path Vec leak."
+    }
+  ],
+  "breaking": [],
+  "known_issues": [
+    "An actually-taken retry in a function that rebinds an owned vector can leak only the replaced buffer; the returned buffer is still caller-owned.",
+    "Microcontroller targets use a bump allocator and do not support exceptions; vendor peripherals are not emulated."
+  ],
+  "docs": [
+    {
+      "title": "Contracts guide",
+      "url": "https://docs.xiom-lang.org/latest/contracts/"
+    }
+  ],
+  "full_changelog": "https://github.com/xiom-lang/xiom/releases/tag/v0.65.1"
+}
