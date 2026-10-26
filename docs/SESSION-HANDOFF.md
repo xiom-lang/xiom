@@ -27,7 +27,8 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   loop 5 MB (was 1.2 GB kill), break/continue 5 MB. Caps: 128/128/128/512/512/128.
 - Non-e2e battery green: feature 550, integration 130, stdlib 40, codegen
   26, xiom 78, checker 214, parser 109, graph 43, API-freeze 3. Full
-  debug+release e2e is running on `778e01d57`.
+  debug+release e2e is green on `778e01d57`: **2647/2647 (4 ignored) on
+  both compilers**; release build green.
 - **Next-candidate blockers:** stdlib `v0.65.1` with `#[owns_return]` on
   `read_at`/`read_file_bytes` (relay REL-20261026-0040-compiler-2), engine
   frame builders annotated + the 1200-frame `UI_SHOWCASE_ANIMATE=1` soak

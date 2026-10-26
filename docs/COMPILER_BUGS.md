@@ -20597,4 +20597,6 @@ EVIDENCE: `tests/soak/run_memory_gates.ps1` six hard-RSS gates:
 (128), editor frame 28 MB (512), confined arena loop 5 MB (512),
 break/continue 5 MB (128). Non-e2e battery green: feature 550,
 integration 130, stdlib 40, codegen 26, xiom 78, checker 214, parser 109,
-graph 43, API-freeze 3. Full debug+release e2e is running on `778e01d57`.
+graph 43, API-freeze 3. Full debug+release e2e is green on `778e01d57`:
+**2647/2647 (4 ignored) on both the debug and release compilers**; the
+release build is green.
