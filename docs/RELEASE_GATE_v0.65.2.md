@@ -36,8 +36,10 @@ v0.64.9.
       (all green; packed 4 MiB under 24 MB; str 5 MB).
 - [x] Full e2e debug+release on the final pinned tree: **2649/2649 (4
       ignored)** on both.
-- [ ] Push main; CI green (all matrix, arm64 floor, MCU).
-- [ ] All-platform dry-run green on the final commit.
+- [x] Push main; CI **40545689345 SUCCESS** on `c0ad5694a` (all matrix,
+      arm64 floor, MCU).
+- [x] All-platform dry-run **40545695810 SUCCESS** on `c0ad5694a`
+      (Windows/Linux x64+arm64, macOS x64+arm64, VSIX, SHA256SUMS).
 - [ ] Owner GO; annotated tag `v0.65.2`; release workflow (11 assets).
 - [ ] Registry `xiom-std 0.65.2` (already live), docs dispatch, lane
       announcements, holds closed.
