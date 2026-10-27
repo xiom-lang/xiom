@@ -41,6 +41,12 @@ The t1 Peak Memory row is XIOM 30 MB vs C 8 / Go 3 / Rust 3 / Zig 2 for the
 - Ownership: stdlib item `REL-20261026-2142-compiler`; compiler
   `vec_slot_size` change follows the stdlib tag (never one side alone -- the
   current n*8 zero-fill overflows a packed allocation).
+- **Combined status (2026-10-27):** stdlib fixed the branch at `863248f`
+  (`with_len` reads `v.elem_size`; the type receiver was the segfault). With
+  compiler `c60729714`: `p_wave289_vec8` exit 0; 10/10 memory gates; the
+  4 MiB `with_len` under the 24 MB cap; full e2e **2648/2648 (4 ignored)
+  on both**. The stdlib tag is the **owner gate**; the compiler half stays
+  on `fix/v0.65.2-vec-packed-slots` until it lands.
 - Gate: `Vec[UInt8].with_len(4M)` RSS < 5 MB; t1 Peak Memory < 5 MB on the
   4096 fixture; ASAN/guard-page overflow check for `with_len`; full e2e.
 
@@ -58,6 +64,12 @@ ownership path. Related items:
   `REL-20261021-0606-orbitdb` + `REL-20261021-1100-orbitdb` (1M: cache
   thrash, then 2,494.7 MB pass; remaining 880 s teardown).
 - `REL-20261010-1609-stdlib` (inline Result.value[i] payload index).
+- `REL-20261026-2247-stdlib` gate-9: only **1609** red (it also blocks
+  `1549-pulse-5`); the full stdlib v0.65.1 battery is green. The **1704**
+  JSON matrix is linear ~2.3 KB/iter at 10k-50k: parse 10k 23.6 MB -> 50k
+  113.7 MB, obj 23.7 -> 107.6, type 23.4 -> 85.2, get 23.1 -> 97.9; 200k is
+  cap-killed. The 10k/256 MB target is met; the JsonValue enum-tree drop is
+  compiler-side and is the JSON/Str retention target.
 
 Gate: Str and Map per-op flat; JSON parse loop within an agreed cap; HTTP
 `/health` and `/serialize/big` sustained-request caps; A6 1M peak at or below
@@ -69,10 +81,11 @@ Worktree `E:\xiom-lang\xiom\.kilo\worktrees\selfhost-phase-4-codegen`
 (branch `selfhost-phase-4-codegen`; T3 83/83, phase-6 14/64 at the RD11
 baseline).
 
-- Next: value-returning `NkExprMatch` slot (mirror the Rust match-expression
-  lowering), re-apply the parser tail re-wrap -> `diff_ast` 83/83; then the
-  m1136 block-arm Vec-header mirror; then Option/`.len`, `Vec.pop`,
-  `&Vec`+f64, index arithmetic.
+- **DONE 2026-10-27:** value-returning `NkExprMatch` + parser tail re-wrap
+  (`67b0635a5`) -> `diff_ast` **83/83**, T6 14/64; `Vec.len()`/`&Vec` index
+  reads (`743a28d8e`) -> T6 **16/64**. T3 green.
+- Next: `Vec.pop` (`m37_round7_vec_pop_slot`), `&Vec`+Float64 element typing,
+  Option/payload matches (m1136 `infer_pattern_binding_type`).
 - Gate: T3 83/83, T6 count non-decreasing, T1 + `diff_ir_headers` green,
   ASCII guard, one commit per stage with checklist/progress evidence.
 - No release dependency; never push from the worktree.
@@ -84,12 +97,20 @@ uninitialized-read are SILENT_UB; type confusion is SILENT_FAILURE with the
 sentinel changed; everything else panics. Compile prevention 0%, runtime
 detection 75%, survival 25%.
 
-- Request for the probe source + track intent: `REL-20261026-2143-compiler-2`
-  (benchmark lane).
-- Proposed: (1) `xiom --sanitize` with allocator poison/quarantine + guard
-  pages on freed blocks, so UAF faults; (2) safe-subset checker rules for
+- Probe source (benchmark ack): `reference/systems-arena/t8-safety-probe.xi`
+  and `reference/systems-contracts-arena/t8-safety-probe.xi` (plus the
+  systems/contracts variants). There is no separate t9 source:
+  `safetySanitizedTest` reuses t8, and `getSanitizedCompileCmd` returns null
+  for XIOM, so the sanitized LSI currently equals the raw LSI.
+- Tracks 0-11: UAF, double-free, buffer-overflow, uninit, buffer-overflow-
+  write = SAFE_SUBSET; null-deref, stack-overflow, div0 =
+  FAULT_CONTAINMENT; integer-overflow, type-confusion, invalid-free,
+  invalid-pointer = UNSAFE_BOUNDARY.
+- Implementation: (1) `xiom --sanitize` with allocator poison/quarantine +
+  guard pages on freed blocks; (2) safe-subset checker rules for
   read-before-init and unchecked type-punning; (3) a recoverable fault mode
-  for bounds/null/div0; (4) make the t8/t9 profile a release gate.
+  for bounds/null/div0; (4) make the t8/t9 profile a release gate. Benchmark
+  is standing by to rerun t8/t9 and report the raw canary/sentinel evidence.
 - Do not claim score gains until the canary/sentinel evidence is rerun.
 
 ## P2 -- correctness carry-over (still red)
