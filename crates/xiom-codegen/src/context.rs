@@ -324,6 +324,11 @@ pub enum VecDrop {
     /// buffer at scope exit. Conservative: only shapes the prepass proved
     /// fresh and non-escaping.
     Str { alloca: String, flag: String },
+    /// A captured owned Vec data pointer. The pointer is loaded at the
+    /// binding (where the slot is live) and stored in a hoisted i8* slot, so
+    /// the scope-exit drop never re-reads a struct alloca that may be in a
+    /// non-dominating block (v0.65.2 aggregate literals in match arms).
+    Ptr { data_alloca: String, flag: String },
     Aggregate {
         struct_alloca: String,
         struct_ty: String,
@@ -337,6 +342,7 @@ impl VecDrop {
         match self {
             VecDrop::Vec { flag, .. }
             | VecDrop::Str { flag, .. }
+            | VecDrop::Ptr { flag, .. }
             | VecDrop::Aggregate { flag, .. } => flag,
         }
     }

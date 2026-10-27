@@ -20828,3 +20828,41 @@ FIX (coordinated):
 EVIDENCE (combined branch): `p_wave289_vec8` exit 0; 11/11 memory gates; the
 4 MiB with_len under 24 MB; full e2e 2649/2649 on both compilers. Final
 candidate re-runs the 12-gate suite against the pinned `stdlib-v0.65.2`.
+
+---
+
+## 2026-10-27 -- FIXED (v0.65.2 candidate): borrowed and aggregate-moved Vecs are reclaimed
+
+WITNESS (REL-20261027-1717-engine): the editor leaks 5-9 MB/frame.
+Probes: a fresh 512 KB `Vec[UInt8]` passed by `&` to an ordinary function
+leaked ~512 MB/1000 iterations; a fresh Vec moved into a struct literal (or a
+fresh Vec field) leaked; a constructor-returned struct leaked unless the
+caller had an owns-return contract.
+
+FIX (ownership scan + aggregate drop):
+- A non-retaining `&`/`&mut` argument to an ordinary safe call is a SafeBase
+  use: the borrow checker keeps the reference inside the call, so the caller
+  still owns and drops the local. Inside an unsafe/FFI block the conservative
+  escape remains (except under the trusted `#[owns_return]` contract).
+- A local struct literal with a fresh Vec field is an aggregate drop site.
+  The source Vec local is marked MOVED (not dropped separately); a fresh Vec
+  field expression is owned by the literal.
+- RETURNED aggregate locals are excluded from the callee's exit drop
+  (ownership transfers to the caller). This is the m283 `return b` and m318
+  `return w`/`grid` class.
+- Aggregate drops now CAPTURE each field's data pointer at the binding into a
+  hoisted i8* slot; scope exit never re-reads a struct alloca in a nested
+  arm (fixes the m206/m318 "instruction does not dominate all uses" IR).
+- Supported call-returned aggregate form: annotate the constructor with
+  `#[owns_return]`; the caller drops the returned Vec fields. The editor
+  frame builders use this form.
+
+EVIDENCE:
+- borrow probe: 429 MB WS -> **5 MB**; aggregate literal: ~1 GB -> **6 MB**;
+  owns-return constructor: -> **5 MB**.
+- 14/14 memory gates green on debug+release.
+- m206, m283, m318 (+IR), m37 green; full e2e **2649/2649 (4 ignored) on
+  both**.
+- Remaining: XgView/Vec slot-type confusion (engine item section 2) needs a
+  minimal IR slice; by-value callee-side parameter drops are caller-retained
+  for now; Map/JSON/HTTP retention.

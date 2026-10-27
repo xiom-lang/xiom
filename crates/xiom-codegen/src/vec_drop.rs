@@ -67,6 +67,16 @@ struct ScanState {
     /// normally instead of marking every mention as an escape, so transient
     /// buffers (font_shape's buf/slots) are dropped at function exit.
     trust_unsafe: bool,
+    /// Any unsafe block (trusted or not). A `&` borrow inside an unsafe block
+    /// stays conservative (foreign code may retain); an ordinary safe call
+    /// cannot retain a borrow past the borrow-checked call.
+    in_unsafe: bool,
+    /// Locals whose owned buffer was MOVED into a struct literal. The
+    /// aggregate owns the field, so the source local must not drop it.
+    moved: HashSet<String>,
+    /// Aggregate locals returned from this function: ownership transfers to
+    /// the caller, so the callee must not drop their Vec fields (m283/m318).
+    returned: HashSet<String>,
     /// Currently scanning the body of a TRUSTED `unsafe` block (only ever set
     /// while `trust_unsafe` is true). Pointer-exporting reads (`as_ptr`,
     /// `as_mut_ptr`) are passed to FFI under the contract's no-retain promise,
@@ -98,7 +108,10 @@ pub(crate) fn collect_owned_vec_locals(
         .decls
         .into_iter()
         .filter_map(|(name, info)| {
-            let owned = info.decls > 0 && info.all_fresh && !state.escaping.contains(&name);
+            let owned = info.decls > 0
+                && info.all_fresh
+                && !state.escaping.contains(&name)
+                && !state.moved.contains(&name);
             if owned { Some(name) } else { None }
         })
         .collect();
@@ -106,14 +119,21 @@ pub(crate) fn collect_owned_vec_locals(
         .str_decls
         .into_iter()
         .filter_map(|(name, info)| {
-            let owned = info.decls > 0 && info.all_fresh && !state.escaping.contains(&name);
+            let owned = info.decls > 0
+                && info.all_fresh
+                && !state.escaping.contains(&name)
+                && !state.moved.contains(&name);
             if owned { Some(name) } else { None }
         })
         .collect();
     OwnedLocals {
         vec,
         str,
-        aggregate: state.aggregate,
+        aggregate: state
+            .aggregate
+            .into_iter()
+            .filter(|n| !state.returned.contains(n))
+            .collect(),
     }
 }
 
@@ -278,6 +298,34 @@ fn scan_block(block: &Block, state: &mut ScanState) {
 fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
     match stmt {
         Stmt::Let(name, _, value, _) | Stmt::Var(name, _, value, _) => {
+            // REL-20261027-1717-engine: a local struct literal that owns a
+            // fresh Vec field is an aggregate drop site. The source Vec local
+            // is MOVED into the field (do not drop it separately); a fresh
+            // Vec field expression is owned by the literal.
+            if let Expr::Struct(_, fields, _, _) = value {
+                let mut owns_vec_field = false;
+                for (_, fv) in fields {
+                    if let Expr::Ident(id) = fv {
+                        let owned_vec = state
+                            .decls
+                            .get(&id.name)
+                            .map_or(false, |i| i.decls > 0 && i.all_fresh);
+                        if owned_vec
+                            && !state.escaping.contains(&id.name)
+                            && !state.moved.contains(&id.name)
+                        {
+                            state.moved.insert(id.name.clone());
+                            owns_vec_field = true;
+                        }
+                    }
+                    if is_fresh_vec_init(fv) {
+                        owns_vec_field = true;
+                    }
+                }
+                if owns_vec_field {
+                    state.aggregate.insert(name.name.clone());
+                }
+            }
             let fresh = is_fresh_vec_init(value) || is_fresh_vec_call(value, &state.fresh);
             if is_fresh_payload_call(value, &state.fresh_payload) {
                 state.fresh_payload_locals.insert(name.name.clone());
@@ -327,6 +375,9 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
             scan_expr(value, UseCtx::Escape, state);
         }
         Stmt::Return(Some(expr), _) => {
+            // Returning an aggregate transfers ownership to the caller; its
+            // Vec fields must not be freed by this function's exit drop.
+            mark_returned_roots(expr, state);
             // Fresh-return analysis: returning the local transfers its owned
             // buffer to the caller; do not count that use as an escape.
             if state
@@ -448,6 +499,21 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                 other => scan_expr(other, UseCtx::Escape, state),
             }
             for arg in args {
+                // REL-20261027-1717-engine: a non-retaining `&`/`&mut`
+                // borrow to an ordinary call does not transfer the Vec/Str
+                // buffer. The borrow checker keeps the reference inside the
+                // call, so the caller still owns and drops the local. Inside
+                // an unsafe/FFI block keep the conservative escape (foreign
+                // code may retain), except under the trusted owns_return
+                // contract.
+                let borrow_safe = !state.in_unsafe
+                    || (state.trust_unsafe && state.in_trusted_unsafe);
+                if borrow_safe {
+                    if let Expr::Ref(inner, _) | Expr::MutRef(inner, _) = arg {
+                        scan_borrow_arg(inner, state);
+                        continue;
+                    }
+                }
                 scan_expr(arg, UseCtx::Escape, state);
             }
         }
@@ -519,6 +585,8 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
             }
         }
         Expr::Unsafe(body, _) => {
+            let was_unsafe = state.in_unsafe;
+            state.in_unsafe = true;
             if state.trust_unsafe {
                 // #[owns_return] contract: the unsafe/FFI does not retain the
                 // function's owned Vec buffers; transient buffers stay owned
@@ -533,6 +601,7 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                 // fn; any outer Vec mentioned there escapes this fn's lifetime.
                 mark_block_mentions(body, state);
             }
+            state.in_unsafe = was_unsafe;
         }
         Expr::ConstBlock(inner, _) => scan_expr(inner, UseCtx::Escape, state),
         Expr::None(_) | Expr::Int(..) | Expr::BigInt(..) | Expr::Float(..) | Expr::Str(..)
@@ -655,6 +724,64 @@ fn scan_ref_target(expr: &Expr, state: &mut ScanState) {
         }
         Expr::Field(base, _, _) => scan_ref_target(base, state),
         _ => scan_expr(expr, UseCtx::Escape, state),
+    }
+}
+
+/// A borrow passed to a non-retaining ordinary call: keep the root local
+/// owned; still scan index expressions for their own escapes. Roots reached
+/// through Paren/Field/Index are recognized; anything else falls back to the
+/// conservative escape.
+fn scan_borrow_arg(expr: &Expr, state: &mut ScanState) {
+    match expr {
+        Expr::Paren(inner, _) => scan_borrow_arg(inner, state),
+        Expr::Index(base, index, _) => {
+            scan_borrow_arg(base, state);
+            scan_expr(index, UseCtx::Escape, state);
+        }
+        Expr::Field(base, _, _) => scan_borrow_arg(base, state),
+        Expr::Ident(_) => {}
+        _ => scan_expr(expr, UseCtx::Escape, state),
+    }
+}
+
+/// Mark the owned roots of a returned expression as transferred. The caller
+/// owns the returned aggregate; the callee's scope-exit drop must skip its
+/// Vec fields (m283 `return b`, m318 `return w`/`grid`).
+fn mark_returned_roots(expr: &Expr, state: &mut ScanState) {
+    match expr {
+        Expr::Paren(inner, _) => mark_returned_roots(inner, state),
+        Expr::Ident(id) => {
+            if state.decls.contains_key(&id.name)
+                || state.str_decls.contains_key(&id.name)
+                || state.aggregate.contains(&id.name)
+            {
+                state.returned.insert(id.name.clone());
+            }
+        }
+        Expr::Field(base, _, _) | Expr::Index(base, _, _) => mark_returned_roots(base, state),
+        Expr::Struct(_, fields, spread, _) => {
+            for (_, value) in fields {
+                mark_returned_roots(value, state);
+            }
+            if let Some(spread) = spread {
+                mark_returned_roots(spread, state);
+            }
+        }
+        Expr::Array(elems, _) | Expr::Tuple(elems, _) => {
+            for elem in elems {
+                mark_returned_roots(elem, state);
+            }
+        }
+        Expr::Unary(_, inner, _)
+        | Expr::Try(inner, _)
+        | Expr::AtPre(inner, _)
+        | Expr::Await(inner, _)
+        | Expr::Comptime(inner, _)
+        | Expr::As(inner, _, _)
+        | Expr::Some(inner, _)
+        | Expr::Ok(inner, _)
+        | Expr::Err(inner, _) => mark_returned_roots(inner, state),
+        _ => {}
     }
 }
 
@@ -967,13 +1094,31 @@ impl IrEmitter {
             if self.field_llvm_type(&type_name, idx) != "%struct.Vec" {
                 continue;
             }
+            // Capture the field's data pointer HERE (the struct slot is live
+            // and dominates this block). The drop loads the hoisted i8* slot,
+            // so a struct literal in a nested arm never forces a
+            // non-dominating alloca use at scope exit.
+            let field_ptr = self.fresh_tmp();
+            self.emitln(&format!(
+                "  {field_ptr} = getelementptr {llvm_ty}, {llvm_ty}* {alloca}, i32 0, i32 {idx}"
+            ));
+            let data_gep = self.fresh_tmp();
+            self.emitln(&format!(
+                "  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {field_ptr}, i32 0, i32 0"
+            ));
+            let data_ptr = self.fresh_tmp();
+            self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_gep}"));
+            let data_slot = self.fresh_tmp();
+            self.local.hoisted_allocas.push((data_slot.clone(), "i8*".to_string()));
+            self.local
+                .entry_prelude
+                .push(format!("  store i8* null, i8** {data_slot}"));
+            self.emitln(&format!("  store i8* {data_ptr}, i8** {data_slot}"));
             let flag = self.fresh_tmp();
             self.local.hoisted_allocas.push((flag.clone(), "i1".to_string()));
             self.local.entry_prelude.push(format!("  store i1 false, i1* {flag}"));
-            self.fctx.vec_drops.push(VecDrop::Aggregate {
-                struct_alloca: alloca.to_string(),
-                struct_ty: llvm_ty.to_string(),
-                field_index: idx as u32,
+            self.fctx.vec_drops.push(VecDrop::Ptr {
+                data_alloca: data_slot,
                 flag: flag.clone(),
             });
             self.emitln(&format!("  store i1 true, i1* {flag}"));
@@ -1054,6 +1199,11 @@ impl IrEmitter {
                 VecDrop::Str { alloca, .. } => {
                     let data_ptr = self.fresh_tmp();
                     self.emitln(&format!("  {data_ptr} = load i8*, i8** {alloca}"));
+                    data_ptr
+                }
+                VecDrop::Ptr { data_alloca, .. } => {
+                    let data_ptr = self.fresh_tmp();
+                    self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_alloca}"));
                     data_ptr
                 }
                 VecDrop::Aggregate {

@@ -14,6 +14,23 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-27T17:50Z (compiler lane; engine Vec leak fixed in v0.65.2) -- READ FIRST ***
+- **REL-20261027-1717-engine ownership half FIXED**: a non-retaining
+  `&`/`&mut` argument to an ordinary safe call keeps the caller's ownership;
+  a local struct literal with a fresh Vec field drops that field; returned
+  aggregates are excluded from the callee drop; aggregate drops capture the
+  field data pointer at the binding (no non-dominating alloca in nested
+  arms). The call-returned aggregate form is `#[owns_return]` on the
+  constructor.
+- Probes: borrow 429 MB -> **5 MB**, aggregate literal ~1 GB -> **6 MB**,
+  owns-return constructor -> **5 MB**. **14/14 memory gates** on
+  debug+release; m206/m283/m318/m37 green; full e2e **2649/2649 (4 ignored)
+  on both**.
+- v0.65.2 candidate is amended; CI/dry-run must be rerun on the new commit,
+  then owner GO. Remaining engine blocker: XgView/Vec slot-type confusion
+  (needs the minimal IR slice). Map/JSON/HTTP retention still open.
+- Selfhost T6 19/64, diff_ast 83/83; next call-scrutinee payload typing.
+
 *** SESSION UPDATE 2026-10-27T16:35Z (compiler lane; v0.65.2 CANDIDATE prepared) -- READ FIRST ***
 - **stdlib-v0.65.2 is live** (tag `7d4d48f`; registry `xiom-std 0.65.2`
   sha256 `9638b576...`; release run 40523878342 green). The compiler

@@ -5,8 +5,8 @@
   "highlights": [
     {
       "kind": "compiler",
-      "title": "Packed Vec element slots",
-      "text": "Byte, Bool, and Int8 vectors now allocate one byte per element instead of eight. A 4 MiB byte buffer no longer reserves 32 MiB, closing the 30 MiB startup footprint in the allocator benchmark."
+      "title": "Borrowed and moved vectors are reclaimed",
+      "text": "Fresh vectors passed by reference to ordinary functions, or moved into a struct literal, stay owned by the caller and are freed at scope exit. Constructors that return a struct use the owns-return contract; the editor frame path no longer grows per frame."
     },
     {
       "kind": "fix",
