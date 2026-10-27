@@ -254,6 +254,13 @@ the missing repro paths before the fleet-verification gate.
 
 ## H. Next workstream: container element drops (not started)
 
+Measured on `92e0d07b5` (2026-10-27): a loop that builds `Vec[R]` with
+`R{ xs: Vec[UInt8].with_len(512000) }` and drops the container each
+iteration peaks **496 MB for 1000 iterations** (~0.5 MB/iter) -- the outer
+buffer is freed, each element's Vec payload is not. This is the leak behind
+the engine editor 9 MB/frame and OrbitDB m375, and it needs a real ownership
+tag, not a blind loop.
+
 Do NOT rush this: the v0.65.2 durable regression was exactly a wrong
 element-ownership assumption. Recorded design and hazards for the next fix:
 
@@ -271,12 +278,16 @@ element-ownership assumption. Recorded design and hazards for the next fix:
   push-populated shapes are safe, or the allocation must be zeroed;
   (2) elements can be removed with `pop`/`remove`/`swap_remove` (ownership
   moves to the returned aggregate), so the container must not also free
-  them; (3) `Vec[Str]` elements alias literals/borrowed strings -- only
-  owned Str producers may be freed; (4) a struct pushed with a borrowed
-  field (if any codegen path does not deep-copy the field) must not be
-  freed.
+  them, and `clear`/`truncate`/`resize` change the live range -- restrict
+  the first version to push/insert-only containers; (3) `Vec[Str]` elements
+  alias literals/borrowed strings -- only owned Str producers may be freed;
+  (4) a field initialized from a call return or a global aliases storage the
+  container does not own (`vec_binding_rhs_aliases` does not deep-copy call
+  returns), so element ownership must be proven from local construction
+  (struct literal with fresh/owned fields), not just from the push.
 - Gate: a soak probe with 1000 x `Vec[Struct{Vec[UInt8] 512 KB}]` push/pop
   and a Map-value variant, plus the engine editor 600-frame soak and the
   OrbitDB m375 200k soak. Extend the drop-flag mechanism to the container
   (armed when elements are owned) so a partially filled container is safe.
+
 
