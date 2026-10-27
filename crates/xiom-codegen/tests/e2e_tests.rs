@@ -7600,30 +7600,27 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     );
 }
 
-// m296 (REL-20261011-2320-bindings #1 HIGH): Vec[UInt8].with_len(n) is a
-// sized buffer under the documented 8-bytes-per-slot Vec contract -- the
-// stdlib zero-fill writes n * 8 bytes. The constructor used to allocate
-// cap * elem_size (16 bytes for Vec[UInt8]), so with_len(16) zero-filled
-// 128 bytes into a 16-byte region (ASAN: WRITE of size 128 past a 16-byte
-// region allocated by Vec.with_len_UInt8; the STATUS_HEAP_CORRUPTION
-// class). Construction buffers now floor the slot at 8 bytes
-// (vec_slot_size); the IR twin pins the slot-sized ctor deterministically
-// (pre-fix: malloc(i64 16), post-fix: malloc(i64 128)).
+// m296 (REL-20261011-2320-bindings #1 HIGH) + REL-20261026-2142 (t1 RSS):
+// Vec element slots now match the element stride, with the legacy 8-byte
+// fallback for unknown/generic contexts. Vec[UInt8].with_len(16) must
+// allocate 16 bytes (pre-fix: 128); Vec[Int]/Vec[UInt64] keep 8-byte slots
+// (16 x 8 = 128). The old m296 floor was retired because it made every byte
+// buffer 8x larger.
 #[test] fn e2e_m296_vec_with_len() {
     assert_eq!(
         compile_and_run("tests/regression/m296_vec_with_len/main.xi"),
         Some(0),
-        "with_len sized buffers must be slot-sized and boundary-safe (m296)"
+        "with_len sized buffers must match the element stride and stay boundary-safe (m296)"
     );
     let ir = compile_ir("tests/regression/m296_vec_with_len/main.xi")
         .expect("m296: fixture must emit IR");
     assert!(
-        ir.contains("call i8* @xiom_guard_alloc(i64 128)"),
-        "m296: the sized-buffer ctor must allocate 16 x 8-byte slots through the arena-aware allocator; got:\n{ir}"
+        ir.contains("call i8* @xiom_guard_alloc(i64 16)"),
+        "m296: Vec[UInt8].with_len(16) must allocate 16 packed bytes; got:\n{ir}"
     );
     assert!(
-        !ir.contains("@xiom_guard_alloc(i64 16)"),
-        "m296: the raw element-size allocation must not appear; got:\n{ir}"
+        ir.contains("call i8* @xiom_guard_alloc(i64 128)"),
+        "m296: Vec[Int]/Vec[UInt64] with_len(16) must still allocate 16 x 8-byte slots; got:\n{ir}"
     );
 }
 

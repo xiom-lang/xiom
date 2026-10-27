@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "tag": "v0.65.2",
+  "summary": "A memory-and-ABI release: byte vectors use packed slots, arm64 contracts compile, and the first non-Vec ownership slice drops bound strings.",
+  "highlights": [
+    {
+      "kind": "compiler",
+      "title": "Packed Vec element slots",
+      "text": "Byte, Bool, and Int8 vectors now allocate one byte per element instead of eight. A 4 MiB byte buffer no longer reserves 32 MiB, closing the 30 MiB startup footprint in the allocator benchmark."
+    },
+    {
+      "kind": "fix",
+      "title": "arm64 contracts compile",
+      "text": "The contract evaluator loads a Result payload with its real field type, so Result[Str, Error] contracts no longer fail LLVM verification on arm64. The arm64 packaging gate is unblocked."
+    },
+    {
+      "kind": "fix",
+      "title": "Inline Result payload indices",
+      "text": "An inline Result.value[i] in a concatenation now reads the element's real type instead of formatting its pointer bits. The bound workaround is no longer needed."
+    },
+    {
+      "kind": "compiler",
+      "title": "Bound strings are reclaimed",
+      "text": "Freshly built local strings from concatenation and numeric formatting are freed at scope exit. String-heavy loops no longer grow per iteration; Map, JSON, and HTTP follow."
+    },
+    {
+      "kind": "fix",
+      "title": "Packed Vec slot stride for byte buffers",
+      "text": "Vec.with_len, push, reserve, shrink_to_fit and insert use the header elem_size (with the legacy 8-byte fallback) instead of a hardcoded 8. Vec[UInt8], Vec[Bool] and Vec[Char] become packed; with_len reads v.elem_size on the type receiver. A 4 MiB with_len byte buffer fits a 24 MiB cap in the combined compiler tree."
+    },
+    {
+      "kind": "stdlib",
+      "title": "HTTP/2 primitive layer",
+      "text": "The pure h2 primitives add the RFC 7541 dynamic table, the full Huffman codec (H=1 string decode/encode), and HEADERS plus CONTINUATION reassembly. These are standalone helpers; the connection state machine is not included."
+    }
+  ],
+  "breaking": [],
+  "known_issues": [
+    "Map, JSON enum-tree, and HTTP request buffers still retain; the next retention slices cover them.",
+    "Strings returned from functions are not yet dropped; only fresh local bindings are.",
+    "Microcontroller targets use a bump allocator and do not support exceptions."
+  ],
+  "docs": [
+    {
+      "title": "Contracts guide",
+      "url": "https://docs.xiom-lang.org/latest/contracts/"
+    }
+  ],
+  "full_changelog": "https://github.com/xiom-lang/xiom/releases/tag/v0.65.2"
+}

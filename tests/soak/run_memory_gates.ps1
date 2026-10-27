@@ -40,6 +40,7 @@ $Gates = @(
     @{ Name = "vec_loop_control_leak"; CapMB = 128 },
     @{ Name = "ffi_owns_return_leak";  CapMB = 128 },
     @{ Name = "str_loop_leak";         CapMB = 24 },
+    @{ Name = "vec_uint8_packed_slots"; CapMB = 24 },
     @{ Name = "vecprobe_index_loop"; Source = "vecprobe.xi"; CapMB = 128;
        Env = @{ PROBE_VEC_MODE = "0"; PROBE_VEC_N = "800000" } },
     @{ Name = "vecprobe_index_fn";   Source = "vecprobe.xi"; CapMB = 128;

@@ -20800,3 +20800,31 @@ EVIDENCE:
 
 NEXT: Map/Set fresh-local container drops (two Vec fields), then Vec[Str]
 element drops, then the JSON enum-tree drop and HTTP builder.
+
+---
+
+## 2026-10-27 -- FIXED (v0.65.2): Vec 8x slot floor (t1 30 MB)
+
+WITNESS (benchmark t1 Peak Memory): XIOM 30 MB vs C 8 / Go 3 / Rust 3 /
+Zig 2 for the 4096/32 buddy fixture; `Vec[UInt8].with_len(4M)` peaked ~282 MB
+private on v0.65.1.
+
+ROOT CAUSE: the Vec ABI floored every element slot at 8 bytes
+(`vec_slot_size = max(elem_size, 8)`), and the stdlib with_len zero-filled
+`n*8` / push/reserve/insert/shrink_to_fit grew `new_cap*8`.
+
+FIX (coordinated):
+- Compiler: `vec_slot_size` is the element stride with the legacy 8-byte
+  fallback for unknown/generic contexts. `Vec[Int]` unchanged;
+  `Vec[UInt8]`/Bool/Int8 packed.
+- stdlib `stdlib-v0.65.2` (tag `7d4d48f`): with_len/push/reserve/insert/
+  shrink_to_fit use the header `elem_size`. `with_len` MUST read
+  `v.elem_size` (type-receiver method, not the receiver temporary) -- the
+  first branch cut segfaulted on every element type until this was fixed.
+- m296 fixture/test updated: the byte buffer is 16 bytes; the 8-byte element
+  control is `Vec[UInt64]`; the IR lock asserts 16 and 128.
+- New gate `tests/soak/vec_uint8_packed_slots.xi` (4 MiB, 24 MB cap).
+
+EVIDENCE (combined branch): `p_wave289_vec8` exit 0; 11/11 memory gates; the
+4 MiB with_len under 24 MB; full e2e 2649/2649 on both compilers. Final
+candidate re-runs the 12-gate suite against the pinned `stdlib-v0.65.2`.

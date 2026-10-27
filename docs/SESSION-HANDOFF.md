@@ -14,6 +14,26 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-27T16:35Z (compiler lane; v0.65.2 CANDIDATE prepared) -- READ FIRST ***
+- **stdlib-v0.65.2 is live** (tag `7d4d48f`; registry `xiom-std 0.65.2`
+  sha256 `9638b576...`; release run 40523878342 green). The compiler
+  candidate branch `feat/v0.65.2-candidate` pins it:
+  `STDLIB_VERSION=stdlib-v0.65.2`, workspace **0.65.2**, notes converted
+  (6 highlights), packed `vec_slot_size`, m296 packed fixture/test.
+- **Candidate gates green:** 11/11 memory gates on debug+release (packed
+  4 MiB under 24 MB, str 5 MB); full e2e **2649/2649 (4 ignored) on both**.
+  CI, all-platform dry-run, and owner GO remain; **no v0.65.2 tag yet**.
+- Main already has the arm64 payload fix (`3e775908a`/`1d4de2a1a`), 1609
+  (`623afca78`), and the Str bound-local drop (`b07137eb1`); CI
+  `40532172041` fully green.
+- **Selfhost T6 is 19/64** (worktree commits `c035efc8e`, `98fc4494d`,
+  `7b816803f`; diff_ast 83/83; T3 green). Next: call-scrutinee payload
+  typing (`phase1_error.xi`), `Vec.first`/`last`/`remove`, concrete
+  `Option__T`/`Result__T`.
+- Remaining retention: Map/Set containers, `Vec[Str]` element drops, JSON
+  enum-tree drop, unbound Str temporaries, HTTP builders. Engine C09/Vulkan
+  awaits minimal repros.
+
 *** SESSION UPDATE 2026-10-27T15:40Z (compiler lane; retention work started) -- READ FIRST ***
 - **1609 FIXED and merged** (`623afca78`): inline `Result.value[i]` element
   type now comes from `field_payload_xiom`, so `"[" + ld.value[0] + "]"`

@@ -1,9 +1,10 @@
 # Next candidate plan -- v0.65.2 (2026-10-27)
 
-STATUS: planning + in progress. **v0.65.1 is production** (tag
-`c4329915f6a55e994ad7ddc05399059a85a0c796` on `f2c01cf9c`; release
-40388025015; 11 assets; registry `xiom-std 0.65.1`). No v0.65.2 tag until
-the gates below are green and the owner gives GO. v0.64.9 stays withdrawn.
+STATUS: **CANDIDATE PREPARED 2026-10-27**. `stdlib-v0.65.2` is live (tag
+`7d4d48f`; registry `xiom-std 0.65.2` sha256 `9638b576...`). The compiler
+candidate pins it: version 0.65.2, notes 6 highlights, 11/11 gates, full e2e
+2649/2649 on both. CI, the all-platform dry-run, and owner GO remain; v0.65.1
+stays production until the tag. v0.64.9 remains withdrawn.
 
 ## Theme
 

@@ -5780,17 +5780,21 @@ impl IrEmitter {
         }
     }
 
-    /// m296 (REL-20261011-2320-bindings #1): the documented Vec ABI grants
-    /// every slot at least 8 bytes -- the stdlib sized-buffer path
-    /// (`Vec.with_len`) zero-fills `n * 8` bytes and `reserve` /
-    /// `shrink_to_fit` size in 8-byte slots. Construction sites must floor
-    /// the slot at 8 bytes, or `Vec[UInt8].with_len(16)` zero-fills 128
-    /// bytes into a 16-byte allocation (ASAN: WRITE of size 128 past a
-    /// 16-byte region -- the STATUS_HEAP_CORRUPTION flakiness class).
-    /// Elements larger than 8 bytes keep their real size (m195); push growth
-    /// stays element-sized (no *8-sized writer targets a push-grown buffer).
+    /// Element stride in bytes for Vec constructor allocations.
+    ///
+    /// REL-20261026-2142 (t1 RSS): the old m296 floor (`max(elem_size, 8)`)
+    /// over-allocated every narrow Vec by 8x -- `Vec[UInt8].with_len(4M)`
+    /// reserved and zeroed 32 MB. The slot now matches the element stride,
+    /// with the legacy 8-byte fallback for unknown/generic contexts; the
+    /// stdlib half (`with_len`/push/reserve/insert/shrink_to_fit) uses the
+    /// same `elem_size` (fallback 8) and must land in the same release.
+    /// `Vec[Int]` (8-byte) is unchanged; `Vec[UInt8]`/Bool/Int8 are packed.
     fn vec_slot_size(elem_size: i64) -> i64 {
-        elem_size.max(8)
+        if elem_size < 1 {
+            8
+        } else {
+            elem_size
+        }
     }
 
     fn vec_elem_storage_size(&self, type_name: &str) -> i64 {

@@ -6,17 +6,17 @@
 **Safe - Verified - Precise** -- A systems programming language with first-class contracts.
 
 [![Tests](https://img.shields.io/badge/tests-2%2C600%2B-brightgreen)]()
-[![Version](https://img.shields.io/badge/version-0.65.1-blue)]()
+[![Version](https://img.shields.io/badge/version-0.65.2-blue)]()
 
-XIOM is a compiled, statically typed, memory-safe systems programming language. It compiles to native code via LLVM and supports x86_64, ARM, RISC-V, and WebAssembly. The Rust compiler is the production toolchain; the self-hosted implementation is in Phase 6 (RD10: T3 83/83, 14/64 byte-exact).
+XIOM is a compiled, statically typed, memory-safe systems programming language. It compiles to native code via LLVM and supports x86_64, ARM, RISC-V, and WebAssembly. The Rust compiler is the production toolchain; the self-hosted implementation is in Phase 6 (RD11: T3 83/83, T6 19/64 byte-exact).
 
-## Current Status (2026-10-26)
+## Current Status (2026-10-27)
 
-- **v0.65.1 is PRODUCTION** (tag `v0.65.1`; release 40388025015, 11 assets + SHA256SUMS; docs dispatched; registry `xiom-std 0.65.1` signed). Owned vectors are reclaimed at loop/match/aggregate/function exits; the 1,200-frame animated UI soak is flat.
-- **v0.65.0 is superseded.** **v0.64.9 remains withdrawn** -- do not pin or deploy it.
-- **Registry:** `xiom-std 0.65.1` (sha256 `3bb9b850...`), signed.
-- **Self-hosting:** Phase 6 RD11 is **T3 83/83 green** (phase-5 19/19, T6 **14/64** byte-exact). Next: m1136 block-arm mirror, Option/`.len`, `Vec.pop`, `&Vec`+f64, index arithmetic.
-- **Open coordination:** xvector, orbitdb, engine, packages, and benchmark holds; the v0.65.1 release check records the reporter rows.
+- **v0.65.2 is the current candidate**: packed Vec element slots (the t1 30 MB fix), `Result.value[i]` inline payload typing, bound-Str scope drops, the arm64 contract-payload fix, and the `stdlib-v0.65.2` pin. See `docs/RELEASE_GATE_v0.65.2.md`; the tag follows CI, the all-platform dry-run, and owner GO.
+- **Production pin until v0.65.2 ships:** `v0.65.1` (tag `v0.65.1`, release 40388025015, 11 assets). **v0.64.9 remains withdrawn** -- do not pin or deploy it.
+- **Registry:** `xiom-std 0.65.2` live (sha256 `9638b576...`), signed.
+- **Self-hosting:** Phase 6 RD11 is **T3 83/83 green** (phase-5 19/19, T6 **19/64** byte-exact). Next: call-scrutinee payload typing, `Vec.first`/`last`/`remove`, concrete `Option__T`/`Result__T`.
+- **Open coordination:** xvector, orbitdb, engine, packages, and benchmark holds; the v0.65.2 release check records the reporter rows.
 
 ## Quick Start
 
