@@ -20733,3 +20733,34 @@ EVIDENCE:
 NOT YET CLOSED: a fleet arm64 build (PULSE CI) must be green before the
 arm64 packaging hold is lifted. The defect #1 variadic `printf` call-site fix
 (5b0bedd83) remains the other half of that gate.
+
+---
+
+## 2026-10-27 -- FIXED (v0.65.2 candidate): inline Result.value[i] concat formats Str pointer bits
+
+WITNESS (stdlib gate-9, REL-20261010-1609-stdlib):
+`tools/known_failures/p_result_payload_index_concat.xi` -- `"[" +
+ld.value[0] + "]"` over `Result[Vec[Str], Str]` printed the Str pointer as
+digits; the direct comparison and the bound form (`let v = ld.value; let s =
+v[0]`) were correct.
+
+ROOT CAUSE: `resolve_vec_elem_xiom`'s `Expr::Field` arm consulted the
+declared field metadata (the erased `i64` payload slot) instead of
+`field_payload_xiom`, so the inline index's element type defaulted to Int.
+`concat_operand_is_int` then returned true and the concat called
+`xiom_int_to_string` on the Str pointer bits. The bound form worked because
+`infer_field_xiom_type` already consults `field_payload_xiom`.
+
+FIX: in `resolve_vec_elem_xiom`, consult `field_payload_xiom(base, field)`
+first and return the Vec element type (`Vec[Str]` -> `Str`); the existing
+generic-substitution/declared-field paths remain as fallbacks.
+
+EVIDENCE:
+- stdlib `p_result_payload_index_concat`: exit 0 (was 1).
+- New `e2e_m1609_result_payload_index_concat` fixture/lock.
+- Related m280 (temporary Vec element concat), m296, m346 field-chain
+  bindings green.
+- Full e2e debug+release re-run on the branch.
+
+This also clears one of the two gate-9 red rows; 1609 no longer blocks
+`1549-pulse-5` once the stdlib archive re-verifies.

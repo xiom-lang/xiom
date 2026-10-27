@@ -391,6 +391,21 @@ impl IrEmitter {
                 // m167: module-global Vecs record their type in global_xiom_types.
                 .or_else(|| self.global_vec_elem(&cid.name)),
             Expr::Field(base, fname, _) => {
+                // REL-20261010-1609-stdlib: an INLINE Result/Option payload
+                // index (`ld.value[0]` in a concat rvalue) resolved its
+                // element through the declared field metadata, which is the
+                // erased payload slot -- the element defaulted to Int and the
+                // concat printed the Str pointer bits via int_to_string. The
+                // payload's real type lives in field_payload_xiom; consult it
+                // first (the bound form already did, via infer_field_xiom_type).
+                if let Some(px) = self.field_payload_xiom(base, &fname.name) {
+                    if let Some(inner) = px
+                        .strip_prefix("Vec[")
+                        .and_then(|r| r.strip_suffix(']'))
+                    {
+                        return Some(inner.to_string());
+                    }
+                }
                 // R7 (2026-09-10): generic instantiations FIRST -- the
                 // registered type_meta for a generic type keeps its RAW
                 // params ("keys" -> "Vec[K]"), so the direct path returned

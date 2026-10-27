@@ -7627,6 +7627,14 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     );
 }
 
+#[test] fn e2e_m1609_result_payload_index_concat() {
+    assert_eq!(
+        compile_and_run("tests/regression/m1609_result_payload_index_concat/main.xi"),
+        Some(0),
+        "inline Result.value[0] in a concat must read the Str element, not its pointer bits (1609)"
+    );
+}
+
 // m297 (REL-20261010-1615-stdlib): `Path.is_dir` -- a stdlib METHOD whose
 // body bare-calls the same-leaf free fn `is_dir(self.inner)` -- self-bound:
 // the G-10 implicit-self override re-bound the already-resolved io.is_dir
