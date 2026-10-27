@@ -42,6 +42,9 @@ struct VecDeclInfo {
 #[derive(Default)]
 struct ScanState {
     decls: HashMap<String, VecDeclInfo>,
+    /// v0.65.2 Str pass: fresh Str-producing bindings, filtered by the same
+    /// escape set as Vecs.
+    str_decls: HashMap<String, VecDeclInfo>,
     escaping: HashSet<String>,
     /// Leaf names of functions proven to return a fresh owned Vec. A binding
     /// from one of these is a drop candidate (m375 call-return leak).
@@ -73,6 +76,7 @@ struct ScanState {
 
 pub(crate) struct OwnedLocals {
     pub vec: HashSet<String>,
+    pub str: HashSet<String>,
     pub aggregate: HashSet<String>,
 }
 
@@ -98,9 +102,67 @@ pub(crate) fn collect_owned_vec_locals(
             if owned { Some(name) } else { None }
         })
         .collect();
+    let str = state
+        .str_decls
+        .into_iter()
+        .filter_map(|(name, info)| {
+            let owned = info.decls > 0 && info.all_fresh && !state.escaping.contains(&name);
+            if owned { Some(name) } else { None }
+        })
+        .collect();
     OwnedLocals {
         vec,
+        str,
         aggregate: state.aggregate,
+    }
+}
+
+/// v0.65.2: fresh Str-producing initializer shapes. Conservative: a concat
+/// with a literal/conversion operand, or an explicit `to_str`/`to_string`
+/// call. Literals, `from_cstring`/`from_c_str` (foreign/transfer ambiguity),
+/// and borrows are excluded.
+pub(crate) fn is_fresh_str_init(expr: &Expr) -> bool {
+    fn str_operand(expr: &Expr) -> bool {
+        match expr {
+            Expr::Str(..) => true,
+            Expr::Paren(inner, _) => str_operand(inner),
+            Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => matches!(
+                func.as_ref(),
+                Expr::Field(_, method, _)
+                    if matches!(
+                        method.name.as_str(),
+                        "to_str"
+                            | "to_string"
+                            | "int_to_string"
+                            | "float_to_string"
+                            | "bool_to_string"
+                            | "str_concat"
+                    )
+            ),
+            _ => false,
+        }
+    }
+    // Direct bindings: `Str.to_str` / `Str.to_string` are IDENTITY (they return
+    // the receiver), so they must not be dropped. Only the conversions that
+    // always allocate are accepted here.
+    fn fresh_str_call(func: &Expr) -> bool {
+        match func {
+            Expr::Field(_, method, _) => matches!(
+                method.name.as_str(),
+                "int_to_string" | "float_to_string" | "bool_to_string" | "str_concat"
+            ),
+            Expr::Ident(id) => matches!(
+                id.name.as_str(),
+                "int_to_string" | "float_to_string" | "bool_to_string" | "str_concat"
+            ),
+            _ => false,
+        }
+    }
+    match expr {
+        Expr::Paren(inner, _) => is_fresh_str_init(inner),
+        Expr::Binary(left, BinOp::Add, right, _) => str_operand(left) || str_operand(right),
+        Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => fresh_str_call(func),
+        _ => false,
     }
 }
 
@@ -229,6 +291,16 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
             });
             info.decls += 1;
             info.all_fresh &= fresh;
+            let fresh_str = is_fresh_str_init(value);
+            let sinfo = state
+                .str_decls
+                .entry(name.name.clone())
+                .or_insert_with(|| VecDeclInfo {
+                    decls: 0,
+                    all_fresh: true,
+                });
+            sinfo.decls += 1;
+            sinfo.all_fresh &= fresh_str;
             scan_expr(value, UseCtx::Escape, state);
         }
         Stmt::Assign(place, value, _) => {
@@ -749,6 +821,7 @@ fn mark_expr_mentions(expr: &Expr, state: &mut ScanState) {
 pub(crate) struct VecDropScope {
     drops: Vec<VecDrop>,
     safe: HashSet<String>,
+    safe_str: HashSet<String>,
     safe_aggregate: HashSet<String>,
     entry_prelude: Vec<String>,
 }
@@ -768,6 +841,7 @@ impl IrEmitter {
             trust_unsafe,
         );
         self.fctx.vec_drop_safe = owned.vec;
+        self.fctx.str_drop_safe = owned.str;
         self.fctx.aggregate_drop_safe = owned.aggregate;
     }
 
@@ -795,6 +869,7 @@ impl IrEmitter {
     pub(crate) fn clear_vec_drops(&mut self) {
         self.fctx.vec_drops.clear();
         self.fctx.vec_drop_safe.clear();
+        self.fctx.str_drop_safe.clear();
         self.fctx.aggregate_drop_safe.clear();
         self.local.entry_prelude.clear();
     }
@@ -806,6 +881,7 @@ impl IrEmitter {
         VecDropScope {
             drops: std::mem::take(&mut self.fctx.vec_drops),
             safe: std::mem::take(&mut self.fctx.vec_drop_safe),
+            safe_str: std::mem::take(&mut self.fctx.str_drop_safe),
             safe_aggregate: std::mem::take(&mut self.fctx.aggregate_drop_safe),
             entry_prelude: std::mem::take(&mut self.local.entry_prelude),
         }
@@ -814,6 +890,7 @@ impl IrEmitter {
     pub(crate) fn resume_vec_drops(&mut self, saved: VecDropScope) {
         self.fctx.vec_drops = saved.drops;
         self.fctx.vec_drop_safe = saved.safe;
+        self.fctx.str_drop_safe = saved.safe_str;
         self.fctx.aggregate_drop_safe = saved.safe_aggregate;
         self.local.entry_prelude = saved.entry_prelude;
     }
@@ -840,6 +917,25 @@ impl IrEmitter {
         self.local.hoisted_allocas.push((flag.clone(), "i1".to_string()));
         self.local.entry_prelude.push(format!("  store i1 false, i1* {flag}"));
         self.fctx.vec_drops.push(VecDrop::Vec {
+            alloca: alloca.to_string(),
+            flag: flag.clone(),
+        });
+        self.emitln(&format!("  store i1 true, i1* {flag}"));
+    }
+
+    /// Register a fresh, non-escaping Str local for reclamation. The Str is
+    /// an `i8*` alloca; the flag/emitter are shared with Vec drops.
+    pub(crate) fn register_str_drop(&mut self, name: &str, alloca: &str, llvm_ty: &str, init: &Expr) {
+        if llvm_ty != "i8*"
+            || !self.fctx.str_drop_safe.contains(name)
+            || !is_fresh_str_init(init)
+        {
+            return;
+        }
+        let flag = self.fresh_tmp();
+        self.local.hoisted_allocas.push((flag.clone(), "i1".to_string()));
+        self.local.entry_prelude.push(format!("  store i1 false, i1* {flag}"));
+        self.fctx.vec_drops.push(VecDrop::Str {
             alloca: alloca.to_string(),
             flag: flag.clone(),
         });
@@ -953,6 +1049,11 @@ impl IrEmitter {
                         "  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {alloca}, i32 0, i32 0"
                     ));
                     self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_gep}"));
+                    data_ptr
+                }
+                VecDrop::Str { alloca, .. } => {
+                    let data_ptr = self.fresh_tmp();
+                    self.emitln(&format!("  {data_ptr} = load i8*, i8** {alloca}"));
                     data_ptr
                 }
                 VecDrop::Aggregate {

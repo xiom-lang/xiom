@@ -320,6 +320,10 @@ pub struct TypeContext {
 #[derive(Clone, Debug)]
 pub enum VecDrop {
     Vec { alloca: String, flag: String },
+    /// Fresh Str local (`s = a + b`, `int.to_str()`): free the malloc'd
+    /// buffer at scope exit. Conservative: only shapes the prepass proved
+    /// fresh and non-escaping.
+    Str { alloca: String, flag: String },
     Aggregate {
         struct_alloca: String,
         struct_ty: String,
@@ -331,7 +335,9 @@ pub enum VecDrop {
 impl VecDrop {
     pub fn flag(&self) -> &str {
         match self {
-            VecDrop::Vec { flag, .. } | VecDrop::Aggregate { flag, .. } => flag,
+            VecDrop::Vec { flag, .. }
+            | VecDrop::Str { flag, .. }
+            | VecDrop::Aggregate { flag, .. } => flag,
         }
     }
 }
@@ -413,6 +419,10 @@ pub struct FunctionContext {
     /// m368: local names proven OWNED AND PRIVATE for the current function by
     /// the AST prepass (`vec_drop::collect_owned_vec_locals`).
     pub vec_drop_safe: HashSet<String>,
+    /// v0.65.2 (REL-20261010-1549-pulse-4): fresh, non-escaping Str locals
+    /// (concat / `to_str` / `to_string`) whose malloc'd buffer is freed at
+    /// scope exit. Conservative; literals and borrowed/FFI Str are excluded.
+    pub str_drop_safe: HashSet<String>,
     /// m375: local names bound from an `#[owns_return]` aggregate (a struct
     /// whose Vec fields are freshly owned); their fields are dropped too.
     pub aggregate_drop_safe: HashSet<String>,

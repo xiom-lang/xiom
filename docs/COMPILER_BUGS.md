@@ -20764,3 +20764,39 @@ EVIDENCE:
 
 This also clears one of the two gate-9 red rows; 1609 no longer blocks
 `1549-pulse-5` once the stdlib archive re-verifies.
+
+---
+
+## 2026-10-27 -- IN PROGRESS (v0.65.2): bound fresh Str locals are dropped
+
+WITNESS (PULSE/ORBITDB retention, REL-20261010-1549-pulse-4): Str retained
+48 B/iter; a 2M-iteration `let s = "abcdefghij" + "klmnopqrst"` leaked the
+concat buffer every iteration.
+
+FIX: extend the scope-exit drop pass with `VecDrop::Str`. The AST prepass
+now records fresh-Str bindings (`+` with a literal/conversion operand, or
+`int_to_string`/`float_to_string`/`bool_to_string`/`str_concat`) in a
+separate `str_decls` set, shares the Vec escape set, and `stmt.rs` registers
+the binding; the existing LIFO drop emitter loads the `i8*` slot and calls
+`xiom_guard_free` (arena-aware; main-heap free otherwise).
+
+CONSERVATIVE EXCLUSIONS (safety):
+- `Str.to_str`/`Str.to_string` are IDENTITY (`fmt.xi:103`); direct bindings
+  are not dropped. They are allowed only as CONCAT operands (the concat
+  result is fresh; the identity temp is not dropped).
+- `from_cstring`/`from_c_str` (foreign/transfer ambiguity) and Str literals
+  are excluded.
+- Unbound Str temporaries are not yet dropped; `Vec[Str]`/Map/JSON element
+  drops, enum payload drop, and HTTP buffers remain (see the retention
+  plan).
+- Str call returns are excluded until `fn_owns_return_transfer` accepts Str.
+
+EVIDENCE:
+- New gate `tests/soak/str_loop_leak.xi` (2M x 20-byte concat, 24 MB cap):
+  5 MB (pre-fix the same shape grows ~40 MB). All 11 memory gates green.
+- Targeted m368/m65/m1615/m148/m206/m345/m3752/m296/m1609/m280/m346/m100
+  green.
+- Full e2e debug+release re-run on the branch.
+
+NEXT: Map/Set fresh-local container drops (two Vec fields), then Vec[Str]
+element drops, then the JSON enum-tree drop and HTTP builder.

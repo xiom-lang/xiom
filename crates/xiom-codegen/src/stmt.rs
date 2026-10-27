@@ -926,6 +926,7 @@ impl IrEmitter {
                     self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}{}", self.store_align(&llvm_ty)));
                 }
                 self.register_vec_drop(&name.name, &alloca, &llvm_ty, value);
+                self.register_str_drop(&name.name, &alloca, &llvm_ty, value);
                 // m375: an `#[owns_return]` aggregate binding (editor frame)
                 // drops each Vec field at the binding's scope exit.
                 self.register_aggregate_drops(&name.name, &alloca, &llvm_ty);
@@ -1406,6 +1407,7 @@ impl IrEmitter {
                     self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {alloca}{}", self.store_align(&llvm_ty)));
                 }
                 self.register_vec_drop(&name.name, &alloca, &llvm_ty, value);
+                self.register_str_drop(&name.name, &alloca, &llvm_ty, value);
                 // m375: an `#[owns_return]` aggregate binding (editor frame)
                 // drops each Vec field at the binding's scope exit.
                 self.register_aggregate_drops(&name.name, &alloca, &llvm_ty);
