@@ -14,6 +14,33 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-27T01:20Z (compiler lane; v0.65.2 t1 validated) -- READ FIRST ***
+- **t1 30 MB combined fix validated; merge waits on the stdlib tag.** The
+  stdlib lane acked `REL-20261026-2142-compiler` with branch
+  `feat/vec-elem-stride` (`92a6020`). The first cut segfaulted on every
+  element type: `Vec.with_len` is a TYPE-receiver method, so the unqualified
+  `elem_size` read the receiver temporary (uninitialized). The fix is
+  `var total = n * _vec_elem_bytes(v.elem_size);`. With that one-line fix +
+  the compiler `vec_slot_size` change: `p_wave289_vec8` exit 0; **10/10
+  memory gates** green; the 4 MiB `with_len` passes a **24 MB cap**; full
+  e2e **2648/2648 (4 ignored) on both debug and release**. The m296
+  fixture/test is updated to packed semantics (byte buffer 16 bytes; the
+  8-byte element control is `Vec[UInt64]`; IR lock 16/128).
+- Compiler half: branch `fix/v0.65.2-vec-packed-slots` (`c60729714`,
+  `162ee4ebc`). **Do not merge** until the stdlib tag with `v.elem_size` is
+  cut and pinned; one-sided changes are unsafe.
+- **Selfhost Phase 6 parallel stream landed:** value-returning `NkExprMatch`
+  + parser tail re-wrap (`67b0635a5`) and `Vec.len()`/`&Vec` index reads
+  (`743a28d8e`) in `.kilo/worktrees/selfhost-phase-4-codegen`. Meter T6
+  **16/64**, `diff_ast` **83/83**, T3 green. Next: `Vec.pop`
+  (`m37_round7_vec_pop_slot`), `&Vec`+Float64, Option/payload matches (m1136).
+- LSI: `REL-20261026-2143-compiler-2` (benchmark) asks for the t8/t9 probe
+  source; the proposed path is `xiom --sanitize` + safe-subset
+  read-before-init/type-punning rules + a recoverable fault mode.
+- Next: stdlib commits `v.elem_size` and cuts the tag; compiler pins it,
+  merges the branch, bumps to 0.65.2, reruns the release gates; then
+  Str/Map/JSON/HTTP retention.
+
 *** SESSION UPDATE 2026-10-27T00:40Z (compiler lane; v0.65.2 in progress) -- READ FIRST ***
 - **v0.65.1 remains PRODUCTION.** v0.65.2 is in progress; no tag.
 - **P0 arm64 FIXED and merged** (`3e775908a`, merge `1d4de2a1a`): the
