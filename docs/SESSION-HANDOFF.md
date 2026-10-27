@@ -14,6 +14,29 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-27T21:50Z (compiler lane; CONTEXT HANDOFF -- READ THE CONTINUATION PROMPT) -- READ FIRST ***
+- **Owner directive: fix 100% of all compiler-addressed relay bugs and perf
+  items, and verify them, before the next cut.** v0.65.3 is withheld until
+  `docs/COMPILER-LANE-CLOSURE.md` is green (create it from the live queue);
+  no tag without owner GO unless an explicit emergency durable hotfix is
+  ordered.
+- **Read `docs/CONTINUATION-PROMPT-v0.65.3-2026-10-27.md`** -- it contains
+  the full state, environment, lane repros, workstreams, verification
+  protocol, relay rules, and hard stops.
+- State: **v0.65.2 is live but durable-lane RED** (xvector/orbitdb rejected
+  the named `Struct{Vec}` push regression). Hotfix `bb8eccf5a` on main:
+  container-moved aggregates + Str-drop pointer capture; CI `40587096152`
+  green; 14/14 gates; e2e 2651/2651. **v0.65.1 remains the accepted pin**;
+  v0.65.2 is upstream-only. v0.65.3 is not version-bumped/tagged.
+- t1 correction: the benchmark confirms t1 uses `Vec[Int]` (POOL_SIZE
+  1,048,576), so packed slots are N/A; **t1 remains 30 MB**
+  (`REL-20261026-2143-compiler` acked).
+- Queue: 17 open / 103 acked / 60 fixed to compiler; the closure checklist
+  must classify every row (bug/perf/info/historical) and reach zero
+  unexplained actionable rows.
+- Selfhost parallel worktree: T6 **19/64**, diff_ast 83/83, T3 green; next
+  call-scrutinee payload typing.
+
 *** SESSION UPDATE 2026-10-27T21:00Z (compiler lane; v0.65.2 post-release RED on durable lanes; hotfix on main) -- READ FIRST ***
 - **v0.65.2 is live but NOT accepted by xvector/orbitdb.** The new aggregate
   reclaim freed a named `Struct{Vec}` after `container.push(r)`; `Vec[R]`
