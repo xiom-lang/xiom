@@ -1,4 +1,4 @@
-﻿# Compiler lane closure checklist -- 100% before the next cut
+# Compiler lane closure checklist -- 100% before the next cut
 
 Owner directive: **fix 100% of all compiler-addressed relay bugs and perf
 items, and verify them, before the next version.** v0.65.3 is withheld until
