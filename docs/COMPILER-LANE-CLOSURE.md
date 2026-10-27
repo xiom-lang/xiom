@@ -1,104 +1,252 @@
-# Compiler lane closure checklist -- 100% before the next cut (2026-10-27)
+# Compiler lane closure checklist -- 100% before the next cut
 
 Owner directive: **fix 100% of all compiler-addressed relay bugs and perf
 items, and verify them, before the next version.** v0.65.3 is withheld until
 this checklist has zero unexplained `todo` rows and the owner gives GO
 (unless an explicit emergency durable hotfix is ordered).
 
-Live queue snapshot: **17 open / 103 acked / 60 fixed** to `compiler`.
-This file is the working gate; verify the counts with
-`python tools\relay.py view --lane compiler --status ...` before editing.
+Updated **2026-10-27T22:52Z** from the live bus (`xiom-relays` @ `1c99e16`).
+Verified counts, not a stale snapshot:
 
-Status values: `todo`, `wip`, `fixed`, `verified`, `closed`, `info`.
+| Queue (addressed `to: compiler`) | Count |
+|---|---|
+| open | **17** |
+| acked | **103** (43 bug, 10 wishlist, 50 info) |
+| fixed | **60** (awaiting reporter verify) |
+| verified / closed / wontfix | 23 / 108 / 1 |
 
-## A. Open rows (17)
+The lane view lists **29 open** rows in total: the 17 above plus 12
+compiler->all broadcasts of its own (section E). Re-check before editing:
+
+```powershell
+cd E:\xiom-lang\xiom-relays
+python tools\relay.py view --lane compiler --status open
+python tools\relay.py view --lane compiler --status acked
+python tools\relay.py view --lane compiler --status fixed
+```
+
+Status values: `todo` (repro/fix owed), `wip`, `fixed` (compiler evidence
+in-tree, reporter/lane verify owed), `verify-on-archive` (fix believed
+landed; needs a candidate-archive run), `reporter-close` (the reporter
+already posted a later green verdict; the original row needs the reporter's
+`verify`/`close`), `info` (historical/no compiler action), `verified`,
+`closed`.
+
+Only the addressee (`to`) may `fix`; only the reporter (`from`) may
+`verify`/`close`. The compiler therefore cannot close the other lanes'
+rows -- the closure gate counts a row as done when it is `verified`/`closed`
+or `fixed` with a probe and the lane's verdict on the candidate archive.
+
+## A. Open rows addressed to compiler (17)
 
 | Item | Class | Action | Status |
 |---|---|---|---|
-| REL-20261019-2057-xvector | info/historical | verify/close (v0.64.8 re-pin evidence) | todo |
+| REL-20261019-2057-xvector | info/historical | verify/close (v0.64.8 re-pin evidence; v0.65.1 acceptance supersedes) | reporter-close |
 | REL-20261020-1807-orbitdb-2 | bug/memory | m375 write-path/COW 895 MB/200k + 153 s teardown | todo |
 | REL-20261020-2102-orbitdb | bug/memory | btree 18 MB / WAL 203 MB / soak 895 MB; page encode + Vec drop | todo |
 | REL-20261021-0423-orbitdb | bug/memory | 607 MB / 151 s at 200k; throughput already fixed | todo |
 | REL-20261021-0606-orbitdb | bug/memory | 1M cap-killed 4,173 MB at ~435k keys; superlinear | todo |
 | REL-20261021-1100-orbitdb | bug/teardown | 1M PASS 2,494.7 MB; remaining 880 s exit teardown | todo |
-| REL-20261022-1616-xvector | info | C-21 16 GB build green x2; verify/close | todo |
-| REL-20261022-1617-xvector | info | release-check row carried; close | todo |
-| REL-20261022-1639-packages | info/C09 evidence | C09 fixed; verify/close on the archive | todo |
-| REL-20261022-1725-engine | bug/info | C09 fixed; C07 capture still red; resolve/close C09, track C07 | todo |
-| REL-20261022-1732-benchmark | info/historical | v0.64.9 hold; close (v0.65.x superseded) | todo |
-| REL-20261022-2039-playground | hygiene | stale release-check copy; close | todo |
+| REL-20261022-1616-xvector | info | C-21 16 GB build green x2; verify/close | reporter-close |
+| REL-20261022-1617-xvector | info | release-check row carried; close | reporter-close |
+| REL-20261022-1639-packages | info/C09 evidence | C09 fixed; verify/close on the archive | reporter-close |
+| REL-20261022-1725-engine | bug/info | C09 fixed; C07 capture still red; resolve/close C09, track C07 | todo (C07) |
+| REL-20261022-1732-benchmark | info/historical | v0.64.9 hold; close (v0.65.x superseded) | reporter-close |
+| REL-20261022-2039-playground | hygiene | stale release-check copy; close | reporter-close |
 | REL-20261023-1854-pulse | bug/correctness | catalog-body tuple Vec[Str] inference | todo |
-| REL-20261026-2052-benchmark | info | v0.65.1 absorbed; close | todo |
-| REL-20261026-2113-xvector | info | v0.65.1 acceptance GREEN; close | todo |
+| REL-20261026-2052-benchmark | info | v0.65.1 absorbed; close | reporter-close |
+| REL-20261026-2113-xvector | info | v0.65.1 acceptance GREEN; close | reporter-close |
 | REL-20261027-1931-engine | bug/codegen | XgView/Vec alloca retyping (optional WIP; IR slice in item) | todo |
-| REL-20261027-2034-playground | info | v0.65.2 absorbed; close | todo |
+| REL-20261027-2034-playground | info | v0.65.2 absorbed; close | reporter-close |
 
-## B. Acked high-severity rows (actionable)
+## B. Acked rows addressed to compiler (103)
 
-| Item | Class | Action | Status |
+### B1. Bugs -- 43 actionable rows
+
+| Item | Reporter | Defect | Status |
 |---|---|---|---|
-| REL-20261027-2034-engine | bug/ownership | by-value aggregate param field move leaks 0.37 MB/iter; editor 9 MB/frame (remaining UI gate) | todo |
-| REL-20261010-1549-pulse | bug/arm64 | macOS typed `@llvm.memset.p0i8.i64`; verify on archive | todo |
-| REL-20261010-1609-pulse | bug/arm64 | macOS dry-run memset evidence; same | todo |
-| REL-20261010-1549-pulse-2 | bug/ffi | C-PULSE-16 PULSE_BIND advisory wildcard | todo |
-| REL-20261012-1945-xvector-3 | perf/design | SIMD route for distance kernels | todo |
-| REL-20261013-1731-packages | bug/package | modern registry deps (sqlite/sdl3) | todo |
-| REL-20261014-1208-bindings-2 | bug/codegen | big-int bitops >=2^31; confined-block cast IR undef; const-alias overflow | todo |
-| REL-20261015-2202-pulse-2 | perf/strategic | FFI hardening + ffigen TLS/h2 | todo |
-| REL-20261015-2303-packages | bug/codegen | enum variant construct/read (Float64 denormals, qualified match, layout) | todo |
-| REL-20261015-2309-packages | bug/codegen | mixed-element tuples; `Tuple__Vec[UInt8]__Str__Int`; 4-field link clash | todo |
-| REL-20261016-1917-packages | info/target | linux-arm64 shipped since v0.64.7; verify/close | todo |
-| REL-20261016-2002-packages | bug/codegen | Float64 returns via dlsym'd fn ptrs | todo |
-| REL-20261016-2016-packages | bug/codegen | reading Result fields behind `&Result` crashes | todo |
-| REL-20261016-2031-bindings-3 | bug/codegen | B-33 record-by-value fn-cast / confinement trap | todo |
-| REL-20261016-2134-engine | bug/engine | 7 blockers with shipped workarounds | todo |
-| REL-20261016-2303-bindings | bug/codegen | B-32 residual (check 1803 retirement) | todo |
-| REL-20261016-2330-stdlib | info/historical | v0.64.6 tag move; close | todo |
-| REL-20261018-1803-bindings | info | B-32 retired; close | todo |
-| REL-20261018-1915-bindings | info | B-29 corrected; B-34 witness; close | todo |
-| REL-20261019-2206-orbitdb | bug/memory | A6 paged 57 GB blow-up; verify if m375 fixed | todo |
-| REL-20261020-1222-orbitdb | bug/memory | read_at 3.1 GB; likely fixed by m375; verify | todo |
-| REL-20261020-1236-orbitdb | perf | R2/R3 update/read; verify current numbers | todo |
-| REL-20261021-1652-engine-2 | bug/ffi | intermittent Vulkan bring-up AV (C08); needs no-capture repro | todo |
-| REL-20261024-1101-pulse | bug/arm64 | arm64 printf; compiler fix green; fleet verify | todo |
-| REL-20261024-1501-orbitdb | info | v0.65.0 probes green; close | todo |
-| REL-20261026-2247-stdlib | info | gate-9; 1609 fixed; close after archive re-verify | todo |
-| REL-20261010-1652-stdlib / 1701-stdlib | info/historical | notes-schema fixes; verify/close | todo |
-| REL-20261011-1904-pulse | bug/codegen | SIGILL 1615; verify on current archive | todo |
+| REL-20261010-1548-bindings-5 | bindings | alloc/free in a confined block spins the guard heap (m313 landed) | verify-on-archive |
+| REL-20261010-1549-packages-2 | packages | `io.xi:943` `fs_read` false contract in multi-module programs | todo |
+| REL-20261010-1549-pulse-2 | pulse | C-PULSE-16 `PULSE_BIND` is advisory (wildcard bind) | todo |
+| REL-20261010-1549-pulse-3 | pulse | C-PULSE-12 import-alias module shadowing | todo |
+| REL-20261010-1549-pulse-4 | pulse | C-PULSE-14 Linux request path ~87 KB/req (v0.64.2) | todo |
+| REL-20261010-1549-pulse | pulse | darwin typed `@llvm.memset.p0i8.i64` blocks macOS | verify-on-archive |
+| REL-20261010-1549-stdlib-8 | stdlib | shared `target/release` build drifted past v0.64.2 | historical |
+| REL-20261010-1549-website-7 | website | scripting-guide findings: six repros | todo |
+| REL-20261010-1549-website-8 | website | error codes: exhaustiveness/W000, E001 build, `--explain` | todo |
+| REL-20261010-1553-playground-2 | playground | by-reference fn-pointer params trap at runtime | todo |
+| REL-20261010-1554-benchmark | benchmark | t3 trampoline ~220 ms floor | todo (perf) |
+| REL-20261010-1554-playground-2 | playground | silent `Int+Str` coercion (`12 + 2.to_string()` = 122) | todo |
+| REL-20261010-1554-playground-3 | playground | mixed `.to_str()` prints nothing (W005 stub) | todo |
+| REL-20261010-1609-pulse | pulse | macOS dry-run: arm64 dies on typed memset | verify-on-archive |
+| REL-20261010-1904-bindings-2 | bindings | Float64 returns via fn-pointer casts | reporter-close (20261011-1549) |
+| REL-20261011-1046-engine | engine | E001 misses call-arg/field-projection moves | todo |
+| REL-20261011-1055-bindings-2 | bindings | B-13 fn-typed param marshals to 0 | reporter-close (20261011-1549) |
+| REL-20261011-1121-bindings-2 | bindings | B-14/B-15 `Vec[fn]` calls, `-> Unit` | reporter-close (20261011-1549) |
+| REL-20261011-1411-engine | engine | `read_file_bytes` ensures violation (io.xi:947) | todo |
+| REL-20261012-1457-engine | engine | bare `sqrt` unresolved despite `use xiom.math` | todo |
+| REL-20261013-1731-packages | packages | modern registry deps (sqlite/sdl3) fail; modules list ignored | verify-on-archive |
+| REL-20261014-1208-bindings-2 | bindings | B-29/B-30/B-31 big-int bitops, cast IR, const alias | reporter-close (20261019-1151) |
+| REL-20261014-1509-engine | engine | repeated port.args scalar flags drop C++17 | todo |
+| REL-20261015-1358-engine | engine | Editor W1: json secondary modules, module-id collision | todo |
+| REL-20261015-1538-engine | engine | Editor W2: reflect consts, import order, `&mut` fields | todo |
+| REL-20261015-2303-packages | packages | enum-variant construct/read (Float64 denormals, match) | todo |
+| REL-20261015-2309-packages-2 | packages | bare `assert` mis-binds to `xiom.core.assert` | todo |
+| REL-20261015-2309-packages | packages | mixed-element tuples (`Tuple__Vec[UInt8]__Str__Int`) | todo |
+| REL-20261016-2002-packages | packages | Float64 returns via dlsym'd fn pointers | todo |
+| REL-20261016-2004-packages | packages | imported struct `Array` collides with builtin | todo |
+| REL-20261016-2016-packages | packages | reading Result fields behind `&Result` crashes | todo |
+| REL-20261016-2134-engine | engine | engine pin round 2: 7 blockers | todo |
+| REL-20261017-1123-pulse | pulse | duplicate module names resolve to the dependency (W001) | todo (confirm rule) |
+| REL-20261017-1223-orbitdb-2 | orbitdb | E001 false positive on `&Vec[Int]` param | todo |
+| REL-20261017-1223-orbitdb | orbitdb | transient compiler exit -1, no diagnostics, host load | todo |
+| REL-20261017-1355-engine | engine | m340 dep-object cache key is consumer-specific | todo |
+| REL-20261018-2301-pulse | pulse | cross-module struct type alias breaks field access | todo |
+| REL-20261019-2206-orbitdb | orbitdb | A6 paged 57 GB blow-up at ~130k keys | todo (verify m375) |
+| REL-20261020-1531-xvector-2 | xvector | C-21 build hang under a 16 GB Job Object | reporter-close (20261022-1616) |
+| REL-20261020-1550-stdlib | stdlib | tuple-returning fn-value ABI (`EnumerateIter.map`) | reporter-close (20261024-1501) |
+| REL-20261021-1652-engine-2 | engine | intermittent Vulkan bring-up AV (C08) | todo (needs no-capture repro) |
+| REL-20261024-1101-pulse | pulse | arm64 fixed-arity printf fails IR verification | verify-on-archive (fix green) |
+| REL-20261027-2034-engine | engine | callee moves a Vec field out of a by-value aggregate param | **fixed** (local: probe + 15/15 gates; e2e below) |
 
-Also triage the remaining acked medium/low rows (query the relay); most are
-historical info/verification and should close with evidence.
+### B2. Wishlists -- 10 strategic/perf rows
 
-## C. Already fixed, awaiting reporter verification (60)
+| Item | Reporter | Ask | Status |
+|---|---|---|---|
+| REL-20261010-1549-website-9 | website | verification-gates tracking line | reporter-close |
+| REL-20261011-2045-engine | engine | `--incremental` does not cache `--c-source` objects | todo |
+| REL-20261012-1945-xvector-3 | xvector | bless a SIMD route for distance kernels | todo |
+| REL-20261016-1550-stdlib | stdlib | thread worker-loop primitives (persistent fleet, Send/Sync) | todo |
+| REL-20261016-1917-packages | packages | linux-arm64 target (shipped v0.64.7) | reporter-close |
+| REL-20261016-2031-bindings-3 | bindings | B-33 record-by-value fn-cast (fixed m351) | reporter-close (20261017-2350) |
+| REL-20261016-2303-bindings | bindings | B-32 residual in-situ (retired v0.64.7) | reporter-close (20261018-1803) |
+| REL-20261017-1647-engine | engine | linker baseline: AVX-512 SIGILL on Zen 2 | todo |
+| REL-20261019-1220-bindings | bindings | MCU/bare-metal targets (shipped) | verify-on-archive |
+| REL-20261021-1122-orbitdb-2 | orbitdb | m375 exit-reclaim (880 s at 1M) + cache sizing | todo |
 
-Run `python tools\relay.py view --lane compiler --status fixed` and list
-them. Do not re-fix; ask the reporters to verify/close, and close only where
-the compiler is the reporter.
+### B3. Info -- 50 rows (historical; close by the reporter with evidence)
 
-## D. Current verification baseline
+| Item | Reporter | Note |
+|---|---|---|
+| REL-20261010-1554-benchmark-4 | benchmark | scripting lane semantics + t3 measurement answers |
+| REL-20261010-1559-stdlib | stdlib | candidate-tag pin protocol |
+| REL-20261010-1652-stdlib | stdlib | notes-schema fix (stdlib 35efaf8) |
+| REL-20261010-1701-stdlib | stdlib | tag-base notes fix (f475c9d) |
+| REL-20261011-1426-xvector | xvector | batch 6/3 witnesses ready |
+| REL-20261011-1432-pulse | pulse | batch-5 witness ready |
+| REL-20261011-1500-benchmark | benchmark | m252 cold-lane cache confirmation |
+| REL-20261011-1525-selfhost | selfhost | phase 6 progress, T3 3/64 |
+| REL-20261011-1549-bindings | bindings | re-verify: B-13/1904/B-14/15 fixed |
+| REL-20261011-1801-bindings | bindings | re-verified B-13/14/15 |
+| REL-20261011-1904-pulse | pulse | batch-5 GREEN; SIGILL 1615 red on m271 |
+| REL-20261011-2048-bindings-2 | bindings | B-19 package fix (SDL_WasInit cast) |
+| REL-20261012-1342-stdlib | stdlib | v0.64.4 sweep: tuple elem read verified |
+| REL-20261012-1400-bindings | bindings | v0.64.4 archive verdicts |
+| REL-20261012-1457-engine-2 | engine | engine v0.64.4 wave verdicts |
+| REL-20261013-1941-packages | packages | minimal negative baselines pass |
+| REL-20261014-1510-engine-2 | engine | finding priority order (nudge) |
+| REL-20261015-1109-bindings | bindings | cross-target feasibility inquiry |
+| REL-20261015-1955-bindings | bindings | v0.64.5 re-verify (B-29 red then) |
+| REL-20261015-2029-pulse-2 | pulse | consumer-path dep discovery GREEN |
+| REL-20261015-2044-benchmark | benchmark | v0.64.5 acceptance green |
+| REL-20261015-2202-pulse-2 | pulse | FFI hardening / ffigen TLS plan |
+| REL-20261015-2231-selfhost | selfhost | 1732 reproduced+fixed verdict |
+| REL-20261016-2102-bindings | bindings | ack v0.64.6 re-verify plan |
+| REL-20261016-2213-benchmark | benchmark | v0.64.6 absorbed |
+| REL-20261016-2330-stdlib | stdlib | stdlib-v0.64.6 cut / tag move |
+| REL-20261017-1304-selfhost | selfhost | m347 mini-stdlib fixture pollution |
+| REL-20261017-2350-bindings | bindings | v0.64.7: B-33 fixed; B-32/B-34/B-29 red then |
+| REL-20261018-0000-bindings | bindings | ack v0.64.7 plan |
+| REL-20261018-0042-benchmark | benchmark | v0.64.7 absorbed |
+| REL-20261018-1432-pulse | pulse | v0.64.7 adoption GREEN both x64 |
+| REL-20261018-1505-xvector | xvector | v0.64.7 batteries ALL GATES GREEN |
+| REL-20261018-1540-bindings | bindings | v0.64.7 re-verify complete |
+| REL-20261018-1803-bindings | bindings | B-32 RETIRED (correction) |
+| REL-20261018-1915-bindings | bindings | B-29 not-a-defect; B-34 witness |
+| REL-20261019-1151-bindings | bindings | ledger reconciliation (B-13/14/15/30/31) |
+| REL-20261019-1209-xvector-2 | xvector | XVC-C-20 ack; repro red on pinned archive |
+| REL-20261019-1801-bindings-2 | bindings | B-34 verified fixed (v0.64.8) |
+| REL-20261019-1801-bindings | bindings | B-34 verified fixed; B-series zero-open |
+| REL-20261019-1825-pulse | pulse | v0.64.8 adoption GREEN |
+| REL-20261019-1922-benchmark | benchmark | v0.64.8 absorbed |
+| REL-20261019-1953-stdlib | stdlib | v0.64.8 gate-9 re-verify |
+| REL-20261019-2124-benchmark | benchmark | compiler perf matrix v0.64.8 |
+| REL-20261020-1222-orbitdb | orbitdb | m375 repro: read_at 3.1 GB RSS |
+| REL-20261020-1236-orbitdb | orbitdb | m375 perf: R2/R3 at 50k |
+| REL-20261021-1243-xvector | xvector | L-6 workaround: JSON numeric read |
+| REL-20261024-1120-benchmark | benchmark | v0.65.0 absorbed; v0.64.9 hold closed |
+| REL-20261024-1501-orbitdb | orbitdb | v0.65.0 probes GREEN |
+| REL-20261026-2247-stdlib | stdlib | v0.65.1 gate-9: only 1609 red |
+| REL-20261027-2022-benchmark | benchmark | v0.65.2 absorbed; t1 still 30 MB |
 
-- Hotfix on main `bb8eccf5a`: xvector XVC-C-23 PASS, `str_if_arm_drop`
-  PASS, 14/14 gates, e2e 2651/2651 (4 ignored) both, CI `40587096152` green.
-- v0.65.2 release: tag `fe1994b1` on `8ec0904a5`, release 40566604850,
-  11 assets, docs dispatch, registry `xiom-std 0.65.2`.
-- v0.65.2 is **not accepted** by xvector/orbitdb; v0.65.1 is the accepted
-  pin. Do not advertise v0.65.2 for durable lanes.
-- t1 30 MB is unchanged: t1 uses `Vec[Int]` (POOL_SIZE 1,048,576); packed
-  slots are N/A (`REL-20261026-2143-compiler` acked).
+## C. Fixed rows -- 60 awaiting reporter verification
 
-## E. Definition of done
+Do not re-fix. `python tools\relay.py view --lane compiler --status fixed`
+lists them with the commit refs. Every one needs the reporter's `verify`
+(or `close`) on the candidate archive; the compiler can only act again if a
+reporter reopens with new evidence.
+
+## D. Verification baseline (as of 2026-10-27T22:52Z)
+
+- Main: `c2e0e51d9` (handoff/checklist docs) on top of the v0.65.3 hotfix
+  `bb8eccf5a` (container-moved aggregates, Str-drop pointer capture).
+  CI `40587096152` green on the hotfix.
+- v0.65.2 release: tag `fe1994b1` on `8ec0904a5`, release `40566604850`,
+  11 assets, docs dispatch, registry `xiom-std 0.65.2`. **Not accepted by
+  xvector/orbitdb**; v0.65.1 is the accepted pin. v0.65.3 is not
+  version-bumped or tagged.
+- t1 30 MB unchanged: t1 uses `Vec[Int]` (POOL_SIZE 1,048,576); packed
+  slots are N/A (`REL-20261026-2143-compiler` stays acked).
+- **2034 param-field move (new this session):**
+  - probe `tests/soak/byval_param_field_move_leak.xi`: pre-fix **468 MB WS**
+    on `c2e0e51d9`; post-fix **6 MB at 20k iterations / 0.5 s** (would be
+    ~10 GB pre-fix).
+  - callee IR now frees the deep-copied field under a drop flag; the caller
+    still frees the original (no double free).
+  - **15/15 memory gates GREEN on debug and release** (`target\debug\xiom.exe`
+    and `target\release\xiom.exe`).
+  - `e2e_m368_vec_drop_reclaim` PASS on both (alias/escape controls intact).
+  - Full e2e **2651/2651 (4 ignored) on debug and release** (941 s / 1090 s).
+- xvector durable repros with this build:
+  - `docs\repro\xv-vec-struct-push\probe.xi` (XVC-C-23): **PASS**, named and
+    inline forms bad=0, exit 0.
+  - `tests\probes\probe_wal_file.xi` (built with the bin's pinned stdlib +
+    XIOM_HOME): **0 failed checks**, exit 0, 8 MB peak. WAL persist/reopen/
+    torn-tail recovery are green, which is the durable-lane hotfix gate.
+  - Not yet re-run here: xvector station loopback and orbitdb hybrid (their
+    repo paths/runner setups differ from the continuation prompt; the lanes
+    own those runs).
+
+## E. Compiler's own open broadcasts (12)
+
+These are `from: compiler -> all` announcements (v0.64.7/v0.64.8/v0.64.9/
+v0.65.0/v0.65.1/v0.65.2, incident/withdrawal notices, plus two process
+notes). The compiler is the reporter, so it can `close` them as info with a
+ref. Not part of the 17 lane-addressed rows.
+
+## F. Definition of done
 
 Every open/acked row is `verified`/`closed` with evidence, or `fixed` with
 a compiler probe and the reporting lane's verification on the candidate
 archive. No `todo` bug/perf rows. Then:
 
-1. 14/14 gates on debug+release.
+1. 15/15 memory gates on debug+release.
 2. Full e2e debug+release (baseline 2651/2651, 4 ignored; grows with tests).
 3. Fleet repros on the candidate archive: xvector WAL/station, orbitdb
-   hybrid/station, engine editor + soak + moveprobe, pulse request/arm64,
-   benchmark t1/t3 + sanitized, playground, packages.
+   hybrid/station, engine editor 600-frame soak + 2034 probe, pulse request
+   cycle + arm64, benchmark t1/t3 + sanitized, playground, packages.
 4. CI full matrix (arm64 floor, MCU) + all-platform dry-run on the exact
    candidate.
 5. Regenerate `release-checks/compiler-compiler-<tag>.md`; fill verdicts.
 6. Version bump + notes (stdlib fragment from the pinned tag), tag, release,
    docs dispatch, announcements -- only after owner GO.
+
+## G. Repro-path corrections (2026-10-27)
+
+Paths in the continuation prompt that do NOT exist on disk: xvector
+`station\tests\loopback_suite.xi`, xvector `tests\hybrid\probe_hybrid.xi`,
+engine `moveprobe.xi`, engine `build\xiom-editor.exe.ll`. Present:
+xvector `docs\repro\xv-vec-struct-push\probe.xi`,
+`tests\probes\probe_wal_file.xi`; orbitdb `tests\hybrid\probe_hybrid.xi`;
+engine `scripts\build.ps1`, `tests\diagnostics\*`. Ask the lanes to re-post
+the missing repro paths before the fleet-verification gate.

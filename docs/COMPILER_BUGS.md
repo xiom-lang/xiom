@@ -20900,3 +20900,43 @@ field out of a by-value aggregate param leaks 0.37 MB/iter; editor still
 ~9 MB/frame), Vec/Map element drops for container-owned structs, XgView/Vec
 type confusion, Map/JSON/HTTP retention. t1 30 MB is unchanged: the t1
 reference uses Vec[Int] (POOL_SIZE 1,048,576), so the packed-slot fix is N/A.
+
+## 2026-10-28 -- FIXED (post-v0.65.2 main): by-value param field-move Vec leak (2034)
+
+WITNESS (REL-20261027-2034-engine): the callee moves a field out of a
+by-value aggregate parameter:
+
+```xiom
+type Big = { data: Vec[UInt8]; tag: Int }
+fn move_big_field(b: Big) -> Int { var v = b.data; return v.len(); }
+```
+
+`var v = b.data` is an ALIASING Vec RHS, so codegen deep-copies the field
+(`vec_abi::vec_store_needs_owned_copy` -> `emit_vec_value_deep_copy`); the
+copy is a fresh, uniquely owned buffer. The drop prepass did not treat a
+field/element projection as a fresh binding, so the copy was never freed.
+Probe `tests/soak/byval_param_field_move_leak.xi` (1000 x 512 KB) peaked
+**468 MB WS** on main `c2e0e51d9` (~0.47 MB/iter).
+
+FIX (`vec_drop.rs`): new `is_owned_copy_vec_init` accepts field/element
+projections (and parens) as owned bindings, because codegen deep-copied
+them at the binding. It is used in the prepass freshness check and in
+`vec_drop_candidate`. It is deliberately NOT used by `fresh_return.rs`
+(a returned projection aliases its source). A bare identifier
+(`var b = a`) remains excluded: the m368 lock keeps identifier copies
+leak-only, and the filed defect is the param-field projection.
+
+EVIDENCE:
+- 20,000-iteration probe: exit 0, **6 MB** peak WS in 0.5 s (pre-fix would
+  be ~10 GB). The callee IR now has a guarded `xiom_guard_free` of the copy;
+  the caller still frees the original, so there is no double free.
+- New memory gate `byval_param_field_move_leak` (cap 64 MB):
+  **15/15 gates GREEN on debug and release**.
+- `e2e_m368_vec_drop_reclaim` (alias/escape controls) PASS on both.
+- Full e2e **2651/2651 (4 ignored) on debug and release**.
+- xvector XVC-C-23 probe PASS; `probe_wal_file` 0 failed checks (WAL reopen/
+  torn-tail recovery green) with this build.
+
+REMAINING: the engine editor 600-frame soak still needs the container
+element drops (`Vec[Struct]`/Map values: the editor's 9 MB/frame is not
+this leak) and 1931 XgView/Vec; 2034's 0.37 MB/iter mode-1 probe is fixed.

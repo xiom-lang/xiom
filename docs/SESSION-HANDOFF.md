@@ -14,6 +14,37 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-27T22:52Z (compiler lane; 2034 param-field leak FIXED on main; checklist refreshed) -- READ FIRST ***
+- **REL-20261027-2034-engine FIXED (uncommitted at handoff write; see the
+  commit in the closure doc):** codegen deep-copies an aliasing Vec RHS
+  (`var v = b.data`) at the binding, but the drop prepass did not treat a
+  field/element projection as owned, so the callee copy leaked ~0.47 MB/iter.
+  `vec_drop.rs::is_owned_copy_vec_init` now admits field/index projections
+  (not bare identifiers: the m368 alias control stays leak-only;
+  `fresh_return.rs` is untouched so a returned projection is still not
+  fresh). New gate `tests/soak/byval_param_field_move_leak.xi` (1000 x
+  512 KB, cap 64 MB): pre-fix **468 MB**, post-fix **6 MB at 20k iters**.
+  **15/15 memory gates green on debug+release**; full e2e **2651/2651
+  (4 ignored) on both**; `e2e_m368` PASS both.
+- **Durable-lane hotfix verified with this build:** xvector XVC-C-23 PASS
+  (named+inline bad=0); xvector `probe_wal_file` 0 failed checks, exit 0,
+  8 MB (WAL persist/reopen/torn-tail recovery). Station loopback and orbitdb
+  hybrid were not re-run here (their runners/paths differ); the lanes own
+  those runs.
+- **`docs/COMPILER-LANE-CLOSURE.md` refreshed from the live bus:** the bus
+  snapshot is **17 open / 103 acked / 60 fixed addressed to `compiler`**
+  (29 open rows total once compiler's own broadcasts are counted). The doc
+  now classifies every acked row: 43 bugs, 10 wishlist, 50 info.
+- **v0.65.3 STILL NOT bumped/tagged.** v0.65.2 remains upstream-only;
+  v0.65.1 is the accepted pin for xvector/orbitdb. Owner GO required.
+- Still open on the closure gate: engine editor 600-frame soak (needs
+  container element drops; 2034 mode-1 is fixed), 1931 XgView/Vec,
+  OrbitDB m375 memory/teardown, pulse/JSON/Map retention, correctness carry.
+- Repro-path note: the prompt's `station/tests/loopback_suite.xi`,
+  `tests/hybrid/probe_hybrid.xi` (xvector) and `engine/moveprobe.xi` do not
+  exist on disk; OrbitDB's `tests/hybrid/probe_hybrid.xi` does. Use the
+  in-repo gates plus the OrbitDB hybrid probe until the lanes re-post paths.
+
 *** SESSION UPDATE 2026-10-27T21:50Z (compiler lane; CONTEXT HANDOFF -- READ THE CONTINUATION PROMPT) -- READ FIRST ***
 - **Owner directive: fix 100% of all compiler-addressed relay bugs and perf
   items, and verify them, before the next cut.** v0.65.3 is withheld until

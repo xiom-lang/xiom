@@ -215,6 +215,25 @@ pub(crate) fn is_fresh_vec_init(expr: &Expr) -> bool {
     }
 }
 
+/// REL-20261027-2034-engine: a Vec binding whose RHS is a FIELD or ELEMENT
+/// projection is deep-copied by codegen (`vec_abi::vec_store_needs_owned_copy`
+/// -> `emit_vec_value_deep_copy`), so the new local uniquely owns the copy.
+/// `is_fresh_vec_init` is deliberately NOT widened: `fresh_return.rs` uses it
+/// to prove that a FUNCTION returns a fresh buffer, and a projection return
+/// aliases the source. This predicate is only for binding ownership.
+///
+/// A bare identifier (`var b = a`) is excluded on purpose: the m368 drop lock
+/// keeps identifier copies as leak-only controls, and the 2034 defect is the
+/// param-field projection (`var v = b.data`). Widening that later needs its
+/// own evidence that every codegen path takes the owned copy.
+pub(crate) fn is_owned_copy_vec_init(expr: &Expr) -> bool {
+    match expr {
+        Expr::Index(..) | Expr::Field(..) => true,
+        Expr::Paren(inner, _) => is_owned_copy_vec_init(inner),
+        _ => false,
+    }
+}
+
 /// Vec methods that only read the header, mutate elements in place, or build a
 /// FRESH result (deep copy / scalar). View-returning or pointer-exporting
 /// methods (`slice`, `as_ptr`, `as_mut_ptr`, iterators, `into_*`) are
@@ -326,7 +345,13 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
                     state.aggregate.insert(name.name.clone());
                 }
             }
-            let fresh = is_fresh_vec_init(value) || is_fresh_vec_call(value, &state.fresh);
+            // REL-20261027-2034-engine: an aliasing RHS (`b.data`, `v`, `xs[0]`)
+            // is deep-copied at the binding, so the local owns its own buffer
+            // and is a valid drop site. Without this the callee's copy of a
+            // by-value aggregate param field leaked ~0.47 MB/iter (engine 2034).
+            let fresh = is_fresh_vec_init(value)
+                || is_fresh_vec_call(value, &state.fresh)
+                || is_owned_copy_vec_init(value);
             if is_fresh_payload_call(value, &state.fresh_payload) {
                 state.fresh_payload_locals.insert(name.name.clone());
             }
@@ -1049,7 +1074,10 @@ impl IrEmitter {
         llvm_ty == "%struct.Vec"
             && self.fctx.vec_drop_safe.contains(name)
             && (is_fresh_vec_init(init)
-                || is_fresh_vec_call(init, &self.fresh_vec_returns))
+                || is_fresh_vec_call(init, &self.fresh_vec_returns)
+                // codegen deep-copied an aliasing RHS into this slot, so the
+                // local owns the copy (REL-20261027-2034-engine).
+                || is_owned_copy_vec_init(init))
     }
 
     /// Register a freshly bound Vec local for reclamation. Emits the flag
