@@ -25,7 +25,9 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   fresh). New gate `tests/soak/byval_param_field_move_leak.xi` (1000 x
   512 KB, cap 64 MB): pre-fix **468 MB**, post-fix **6 MB at 20k iters**.
   **15/15 memory gates green on debug+release**; full e2e **2651/2651
-  (4 ignored) on both**; `e2e_m368` PASS both.
+  (4 ignored) on both**; `e2e_m368` PASS both; **CI `40602249053` SUCCESS**
+  on `79b01d676` (all matrix incl. arm64 floor/MCU). Fix commit `92e0d07b5`,
+  relay `REL-20261027-2034-engine` now `fixed` (engine verify owed).
 - **Durable-lane hotfix verified with this build:** xvector XVC-C-23 PASS
   (named+inline bad=0); xvector `probe_wal_file` 0 failed checks, exit 0,
   8 MB (WAL persist/reopen/torn-tail recovery). Station loopback and orbitdb

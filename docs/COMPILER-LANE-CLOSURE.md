@@ -190,8 +190,8 @@ reporter reopens with new evidence.
 
 - Main: `92e0d07b5` (2034 drop fix + refreshed handoff/checklist) on top of
   the v0.65.3 hotfix `bb8eccf5a` (container-moved aggregates, Str-drop
-  pointer capture). CI `40587096152` green on the hotfix; CI for `92e0d07b5`
-  is pending.
+  pointer capture). CI **`40602249053` SUCCESS** on `79b01d676` (all
+  matrix: windows, ubuntu, release parity x2, arm64 floor, MCU, hygiene).
 - v0.65.2 release: tag `fe1994b1` on `8ec0904a5`, release `40566604850`,
   11 assets, docs dispatch, registry `xiom-std 0.65.2`. **Not accepted by
   xvector/orbitdb**; v0.65.1 is the accepted pin. v0.65.3 is not
