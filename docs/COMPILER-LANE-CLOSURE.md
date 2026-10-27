@@ -188,10 +188,13 @@ reporter reopens with new evidence.
 
 ## D. Verification baseline (as of 2026-10-27T22:52Z)
 
-- Main: `92e0d07b5` (2034 drop fix + refreshed handoff/checklist) on top of
-  the v0.65.3 hotfix `bb8eccf5a` (container-moved aggregates, Str-drop
-  pointer capture). CI **`40602249053` SUCCESS** on `79b01d676` (all
-  matrix: windows, ubuntu, release parity x2, arm64 floor, MCU, hygiene).
+- Main: `92e0d07b5` (2034 drop fix + refreshed handoff/checklist) and
+  `de2854544` (1854 e2e lock) on top of the v0.65.3 hotfix `bb8eccf5a`
+  (container-moved aggregates, Str-drop pointer capture). CI
+  **`40602249053` SUCCESS** on `79b01d676` (fix) and **`40604134197`
+  SUCCESS** on `fbfd2fbfe` (code + 1854 lock; all matrix: windows, ubuntu,
+  release parity x2, arm64 floor, MCU, hygiene). Later commits are
+  docs-only.
 - v0.65.2 release: tag `fe1994b1` on `8ec0904a5`, release `40566604850`,
   11 assets, docs dispatch, registry `xiom-std 0.65.2`. **Not accepted by
   xvector/orbitdb**; v0.65.1 is the accepted pin. v0.65.3 is not
