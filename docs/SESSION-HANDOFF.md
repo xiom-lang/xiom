@@ -14,6 +14,30 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-27T15:40Z (compiler lane; retention work started) -- READ FIRST ***
+- **1609 FIXED and merged** (`623afca78`): inline `Result.value[i]` element
+  type now comes from `field_payload_xiom`, so `"[" + ld.value[0] + "]"`
+  over `Result[Vec[Str], Str]` reads the Str instead of formatting pointer
+  bits. stdlib probe exit 0; new `e2e_m1609`; full e2e **2649/2649 (4
+  ignored) on both**. Relay `REL-20261010-1609-stdlib` is fixed; the stdlib
+  gate-9 red row clears on the next archive.
+- **Str bound-local drop landed** (`b07137eb1`): new `VecDrop::Str` frees
+  fresh `+`/`int_to_string`/`float_to_string`/`bool_to_string` locals at
+  scope exit. `Str.to_str`/`to_string` identity, `from_cstring`, literals,
+  unbound temporaries, and Str call returns are excluded. New
+  `str_loop_leak` gate (2M x 20 B, 24 MB) = **5 MB**; **11/11 memory gates**;
+  full e2e 2649/2649 both; CI `40532172041` running on `b07137eb1`.
+- **Retention plan (research):** Str -> Map (two Vec fields) -> `Vec[Str]`
+  element drops -> JSON enum payload drop -> HTTP builder. Blockers: enum
+  boxing has heap and stack-slot producers, by-value copies share boxes
+  (`json_get_ref`), aggregate names are not escape-filtered; do not enable
+  enum drop until unique ownership is tagged.
+- **stdlib tag still owner-gated** (`feat/vec-elem-stride` at `863248f`/
+  `7d4d48f`); the packed-slot compiler half `c60729714` is ready. On GO:
+  pin, merge, bump 0.65.2, rerun gates.
+- **Selfhost next stage** (`Vec.pop`, `&Vec`+Float64, Option payloads) is
+  running in the worktree; T6 currently 16/64, diff_ast 83/83.
+
 *** SESSION UPDATE 2026-10-27T01:20Z (compiler lane; v0.65.2 t1 validated) -- READ FIRST ***
 - **t1 30 MB combined fix validated; merge waits on the stdlib tag.** The
   stdlib lane acked `REL-20261026-2142-compiler` with branch

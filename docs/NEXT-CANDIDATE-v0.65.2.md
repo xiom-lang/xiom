@@ -55,6 +55,19 @@ The t1 Peak Memory row is XIOM 30 MB vs C 8 / Go 3 / Rust 3 / Zig 2 for the
 Order: Str -> Map -> JSON -> HTTP. Vec is flat; the floor is the non-Vec
 ownership path. Related items:
 
+- **Str bound-local drop DONE** (`b07137eb1`): `VecDrop::Str`; fresh
+  concat/`int_to_string`/`float_to_string`/`bool_to_string` locals are freed
+  via `xiom_guard_free`. Excluded: `Str.to_str`/`to_string` (identity),
+  `from_cstring`/`from_c_str`, literals, unbound temporaries, Str call
+  returns. New `str_loop_leak` 2M/24 MB gate = 5 MB; 11/11 gates; full e2e
+  2649/2649 on both.
+- **Research plan:** Map (two Vec fields) -> `Vec[Str]` element drops -> JSON
+  enum payload drop (tag switch: String free, Array unbox Vec + element/data/
+  box free, Object unbox Map + both buffers/box) -> HTTP builder. Blockers:
+  `Str.to_str` identity, enum boxing has heap and stack-slot producers,
+  by-value copies share boxes (`json_get_ref`), and `aggregate` names are not
+  escape-filtered. Do not enable enum drop until unique ownership is tagged.
+
 - `REL-20261010-1549-pulse-4` (Linux request-path RSS growth; v0.65.1
   remeasure: /health 50 KB/req, /serialize 36, /insert 78,
   /serialize/big 219).
@@ -74,9 +87,9 @@ ownership path. Related items:
   10k/256 MB target is met; the JsonValue enum-tree drop is compiler-side and
   is the JSON/Str retention target.
 
-Gate: Str and Map per-op flat; JSON parse loop within an agreed cap; HTTP
-`/health` and `/serialize/big` sustained-request caps; A6 1M peak at or below
-1.8 GB plus a measured teardown.
+Gate: Str bound-local flat (done); unbound Str temporaries, Map, JSON, and
+HTTP targets per the research plan; A6 1M peak at or below 1.8 GB plus a
+measured teardown.
 
 ## P1 -- selfhost Phase 6 (parallel)
 
