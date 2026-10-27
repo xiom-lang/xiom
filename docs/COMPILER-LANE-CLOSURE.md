@@ -5,18 +5,20 @@ items, and verify them, before the next version.** v0.65.3 is withheld until
 this checklist has zero unexplained `todo` rows and the owner gives GO
 (unless an explicit emergency durable hotfix is ordered).
 
-Updated **2026-10-27T22:52Z** from the live bus (`xiom-relays` @ `1c99e16`).
+Updated **2026-10-27T23:43Z** from the live bus (`xiom-relays` @ `00e677b`).
 Verified counts, not a stale snapshot:
 
 | Queue (addressed `to: compiler`) | Count |
 |---|---|
-| open | **17** |
+| open | **15** |
 | acked | **103** (43 bug, 10 wishlist, 50 info) |
-| fixed | **60** (awaiting reporter verify) |
+| fixed | **61** (awaiting reporter verify) |
 | verified / closed / wontfix | 23 / 108 / 1 |
 
-The lane view lists **29 open** rows in total: the 17 above plus 12
-compiler->all broadcasts of its own (section E). Re-check before editing:
+The lane view lists **27 open** rows in total: the 15 above plus 12
+compiler->all broadcasts of its own (section E). Since the 22:52Z snapshot
+`2034-playground` was closed by its reporter, `1854-pulse` moved to acked
+(reduced probes green), and `2034-engine` moved to fixed.
 
 ```powershell
 cd E:\xiom-lang\xiom-relays
@@ -37,7 +39,7 @@ Only the addressee (`to`) may `fix`; only the reporter (`from`) may
 rows -- the closure gate counts a row as done when it is `verified`/`closed`
 or `fixed` with a probe and the lane's verdict on the candidate archive.
 
-## A. Open rows addressed to compiler (17)
+## A. Open rows addressed to compiler (15)
 
 | Item | Class | Action | Status |
 |---|---|---|---|
@@ -53,11 +55,9 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261022-1725-engine | bug/info | C09 fixed; C07 capture still red; resolve/close C09, track C07 | todo (C07) |
 | REL-20261022-1732-benchmark | info/historical | v0.64.9 hold; close (v0.65.x superseded) | reporter-close |
 | REL-20261022-2039-playground | hygiene | stale release-check copy; close | reporter-close |
-| REL-20261023-1854-pulse | bug/correctness | catalog-body tuple Vec[Str] inference | acked: reduced probes + e2e lock green on `92e0d07b5`; pulse verify `probe_wsauth` |
 | REL-20261026-2052-benchmark | info | v0.65.1 absorbed; close | reporter-close |
 | REL-20261026-2113-xvector | info | v0.65.1 acceptance GREEN; close | reporter-close |
 | REL-20261027-1931-engine | bug/codegen | XgView/Vec alloca retyping (optional WIP; IR slice in item) | todo |
-| REL-20261027-2034-playground | info | v0.65.2 absorbed; close | reporter-close |
 
 ## B. Acked rows addressed to compiler (103)
 
@@ -107,7 +107,7 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261020-1550-stdlib | stdlib | tuple-returning fn-value ABI (`EnumerateIter.map`) | reporter-close (20261024-1501) |
 | REL-20261021-1652-engine-2 | engine | intermittent Vulkan bring-up AV (C08) | todo (needs no-capture repro) |
 | REL-20261024-1101-pulse | pulse | arm64 fixed-arity printf fails IR verification | verify-on-archive (fix green) |
-| REL-20261027-2034-engine | engine | callee moves a Vec field out of a by-value aggregate param | **fixed** `92e0d07b5` (probe 6 MB; 15/15 gates; e2e 2651/2651 both; lane verify owed) |
+| REL-20261023-1854-pulse | pulse | tuple-returned Vec[Str] inline + cross-module unannotated Str bind | acked; reduced probes + e2e lock green on `de2854544`; pulse verify `probe_wsauth` |
 
 ### B2. Wishlists -- 10 strategic/perf rows
 
@@ -179,7 +179,7 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261026-2247-stdlib | stdlib | v0.65.1 gate-9: only 1609 red |
 | REL-20261027-2022-benchmark | benchmark | v0.65.2 absorbed; t1 still 30 MB |
 
-## C. Fixed rows -- 60 awaiting reporter verification
+## C. Fixed rows -- 61 awaiting reporter verification
 
 Do not re-fix. `python tools\relay.py view --lane compiler --status fixed`
 lists them with the commit refs. Every one needs the reporter's `verify`

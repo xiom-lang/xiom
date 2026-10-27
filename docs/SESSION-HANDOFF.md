@@ -33,10 +33,19 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   8 MB (WAL persist/reopen/torn-tail recovery). Station loopback and orbitdb
   hybrid were not re-run here (their runners/paths differ); the lanes own
   those runs.
+- **`REL-20261023-1854-pulse` acked, not closed:** both reported shapes now
+  pass on main (inline `pq.0[0]` Str in concat/call; unannotated cross-module
+  Str binding). No code change was needed (1609/inference work covers them);
+  new lock `tests/regression/tuple_vecstr_inline` +
+  `e2e_tuple_vecstr_inline`. Pulse must verify `probe_wsauth` on the
+  candidate archive.
 - **`docs/COMPILER-LANE-CLOSURE.md` refreshed from the live bus:** the bus
-  snapshot is **17 open / 103 acked / 60 fixed addressed to `compiler`**
-  (29 open rows total once compiler's own broadcasts are counted). The doc
-  now classifies every acked row: 43 bugs, 10 wishlist, 50 info.
+  snapshot is now **15 open / 103 acked / 61 fixed addressed to `compiler`**
+  (27 open rows total once compiler's own broadcasts are counted). The doc
+  classifies every acked row: 43 bugs, 10 wishlist, 50 info. Since the first
+  refresh: `2034-playground` was closed by its reporter, `1854-pulse` moved
+  open -> acked (reduced probes + a new e2e lock green, pulse verify owed),
+  and `2034-engine` moved acked -> fixed.
 - **v0.65.3 STILL NOT bumped/tagged.** v0.65.2 remains upstream-only;
   v0.65.1 is the accepted pin for xvector/orbitdb. Owner GO required.
 - Still open on the closure gate: engine editor 600-frame soak (needs
