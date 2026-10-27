@@ -53,7 +53,7 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261022-1725-engine | bug/info | C09 fixed; C07 capture still red; resolve/close C09, track C07 | todo (C07) |
 | REL-20261022-1732-benchmark | info/historical | v0.64.9 hold; close (v0.65.x superseded) | reporter-close |
 | REL-20261022-2039-playground | hygiene | stale release-check copy; close | reporter-close |
-| REL-20261023-1854-pulse | bug/correctness | catalog-body tuple Vec[Str] inference | todo |
+| REL-20261023-1854-pulse | bug/correctness | catalog-body tuple Vec[Str] inference | acked: reduced probes + e2e lock green on `92e0d07b5`; pulse verify `probe_wsauth` |
 | REL-20261026-2052-benchmark | info | v0.65.1 absorbed; close | reporter-close |
 | REL-20261026-2113-xvector | info | v0.65.1 acceptance GREEN; close | reporter-close |
 | REL-20261027-1931-engine | bug/codegen | XgView/Vec alloca retyping (optional WIP; IR slice in item) | todo |

@@ -20940,3 +20940,23 @@ EVIDENCE:
 REMAINING: the engine editor 600-frame soak still needs the container
 element drops (`Vec[Struct]`/Map values: the editor's 9 MB/frame is not
 this leak) and 1931 XgView/Vec; 2034's 0.37 MB/iter mode-1 probe is fixed.
+
+## 2026-10-27 -- VERIFIED (no new code): tuple Vec[Str] inline + cross-module Str bind (1854)
+
+WITNESS (REL-20261023-1854-pulse, v0.64.8): `pq.0[0]` on a tuple-returned
+`Vec[Str]` used inline in a concat/call printed pointer bits; an
+un-annotated `let id = other_module.session_id_from_cookie(x)` then
+`session_get(id)` missed the session.
+
+REPRO ON `92e0d07b5`:
+- Reduced tuple probe: `"k=" + pq.0[0]` and `is_token(pq.0[0])` both read
+  "token"; annotated form unchanged.
+- Reduced two-module probe (`pulse_like_sessions.xi`): un-annotated
+  `let id = ...` and `let id2: Str = ...` both print `id='4df1tok'` and
+  `session_get` returns `user42`. No silent pointer/Int fallback.
+- The earlier 1609/inference work covers both shapes; no compiler change
+  was needed here.
+
+LOCK: new `tests/regression/tuple_vecstr_inline/main.xi` +
+`e2e_tuple_vecstr_inline` (PASS on debug and release). Pulse still owns
+`probe_wsauth.xi` verification on the candidate archive.

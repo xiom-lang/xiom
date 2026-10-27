@@ -7648,6 +7648,16 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     );
 }
 
+// REL-20261023-1854-pulse: a tuple-returned Vec[Str] indexed INLINE must
+// resolve the Str element (concat and call argument), not a pointer/Int.
+#[test] fn e2e_tuple_vecstr_inline() {
+    assert_eq!(
+        compile_and_run("tests/regression/tuple_vecstr_inline/main.xi"),
+        Some(0),
+        "inline pq.0[0] on a tuple-returned Vec[Str] must be a Str (1854)"
+    );
+}
+
 // m297 (REL-20261010-1615-stdlib): `Path.is_dir` -- a stdlib METHOD whose
 // body bare-calls the same-leaf free fn `is_dir(self.inner)` -- self-bound:
 // the G-10 implicit-self override re-bound the already-resolved io.is_dir
