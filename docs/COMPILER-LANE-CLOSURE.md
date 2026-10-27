@@ -1,4 +1,4 @@
-# Compiler lane closure checklist -- 100% before the next cut
+﻿# Compiler lane closure checklist -- 100% before the next cut
 
 Owner directive: **fix 100% of all compiler-addressed relay bugs and perf
 items, and verify them, before the next version.** v0.65.3 is withheld until
@@ -69,33 +69,33 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261010-1549-packages-2 | packages | `io.xi:943` `fs_read` false contract in multi-module programs | todo |
 | REL-20261010-1549-pulse-2 | pulse | C-PULSE-16 `PULSE_BIND` is advisory (wildcard bind) | todo |
 | REL-20261010-1549-pulse-3 | pulse | C-PULSE-12 import-alias module shadowing | todo |
-| REL-20261010-1549-pulse-4 | pulse | C-PULSE-14 Linux request path ~87 KB/req (v0.64.2) | todo |
+| REL-20261010-1549-pulse-4 | pulse | C-PULSE-14 Linux request path ~87 KB/req (v0.64.2) | verify-on-archive (bound Str drops; request path to re-measure) |
 | REL-20261010-1549-pulse | pulse | darwin typed `@llvm.memset.p0i8.i64` blocks macOS | verify-on-archive |
 | REL-20261010-1549-stdlib-8 | stdlib | shared `target/release` build drifted past v0.64.2 | historical |
 | REL-20261010-1549-website-7 | website | scripting-guide findings: six repros | todo |
 | REL-20261010-1549-website-8 | website | error codes: exhaustiveness/W000, E001 build, `--explain` | todo |
-| REL-20261010-1553-playground-2 | playground | by-reference fn-pointer params trap at runtime | todo |
-| REL-20261010-1554-benchmark | benchmark | t3 trampoline ~220 ms floor | todo (perf) |
+| REL-20261010-1553-playground-2 | playground | by-reference fn-pointer params trap at runtime | reporter-close (m308) |
+| REL-20261010-1554-benchmark | benchmark | t3 trampoline ~220 ms floor | reporter-close (m308; clean idle re-measure) |
 | REL-20261010-1554-playground-2 | playground | silent `Int+Str` coercion (`12 + 2.to_string()` = 122) | todo |
 | REL-20261010-1554-playground-3 | playground | mixed `.to_str()` prints nothing (W005 stub) | todo |
 | REL-20261010-1609-pulse | pulse | macOS dry-run: arm64 dies on typed memset | verify-on-archive |
 | REL-20261010-1904-bindings-2 | bindings | Float64 returns via fn-pointer casts | reporter-close (20261011-1549) |
-| REL-20261011-1046-engine | engine | E001 misses call-arg/field-projection moves | todo |
+| REL-20261011-1046-engine | engine | E001 misses call-arg/field-projection moves | reporter-close (m344) |
 | REL-20261011-1055-bindings-2 | bindings | B-13 fn-typed param marshals to 0 | reporter-close (20261011-1549) |
 | REL-20261011-1121-bindings-2 | bindings | B-14/B-15 `Vec[fn]` calls, `-> Unit` | reporter-close (20261011-1549) |
-| REL-20261011-1411-engine | engine | `read_file_bytes` ensures violation (io.xi:947) | todo |
+| REL-20261011-1411-engine | engine | `read_file_bytes` ensures violation (io.xi:947) | reporter-close (m345) |
 | REL-20261012-1457-engine | engine | bare `sqrt` unresolved despite `use xiom.math` | todo |
 | REL-20261013-1731-packages | packages | modern registry deps (sqlite/sdl3) fail; modules list ignored | verify-on-archive |
 | REL-20261014-1208-bindings-2 | bindings | B-29/B-30/B-31 big-int bitops, cast IR, const alias | reporter-close (20261019-1151) |
 | REL-20261014-1509-engine | engine | repeated port.args scalar flags drop C++17 | todo |
-| REL-20261015-1358-engine | engine | Editor W1: json secondary modules, module-id collision | todo |
-| REL-20261015-1538-engine | engine | Editor W2: reflect consts, import order, `&mut` fields | todo |
+| REL-20261015-1358-engine | engine | Editor W1: json secondary modules, module-id collision | verify-on-archive (m341 W1.1; other W1 sub-findings) |
+| REL-20261015-1538-engine | engine | Editor W2: reflect consts, import order, `&mut` fields | verify-on-archive (m341 W2.1; other W2 sub-findings) |
 | REL-20261015-2303-packages | packages | enum-variant construct/read (Float64 denormals, match) | todo |
 | REL-20261015-2309-packages-2 | packages | bare `assert` mis-binds to `xiom.core.assert` | todo |
 | REL-20261015-2309-packages | packages | mixed-element tuples (`Tuple__Vec[UInt8]__Str__Int`) | todo |
-| REL-20261016-2002-packages | packages | Float64 returns via dlsym'd fn pointers | todo |
-| REL-20261016-2004-packages | packages | imported struct `Array` collides with builtin | todo |
-| REL-20261016-2016-packages | packages | reading Result fields behind `&Result` crashes | todo |
+| REL-20261016-2002-packages | packages | Float64 returns via dlsym'd fn pointers | reporter-close (m348) |
+| REL-20261016-2004-packages | packages | imported struct `Array` collides with builtin | reporter-close (m349) |
+| REL-20261016-2016-packages | packages | reading Result fields behind `&Result` crashes | reporter-close (m350) |
 | REL-20261016-2134-engine | engine | engine pin round 2: 7 blockers | todo |
 | REL-20261017-1123-pulse | pulse | duplicate module names resolve to the dependency (W001) | todo (confirm rule) |
 | REL-20261017-1223-orbitdb-2 | orbitdb | E001 false positive on `&Vec[Int]` param | todo |
