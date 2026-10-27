@@ -1,10 +1,11 @@
 # Release gate -- v0.65.2
 
-STATUS: **CANDIDATE AMENDED 2026-10-27** -- `stdlib-v0.65.2` is live
+STATUS: **CANDIDATE READY 2026-10-27** -- `stdlib-v0.65.2` is live
 (tag `7d4d48f`, registry `xiom-std 0.65.2` sha256 `9638b576...`, release run
-40523878342 green). The compiler candidate pins it and adds the engine
-borrowed/aggregate Vec reclaim. Tag `v0.65.2` is **not cut**; CI and the
-all-platform dry-run must be rerun on the amended commit, then owner GO.
+40523878342 green). The amended candidate `8ec0904a5` pins it and includes
+the engine borrowed/aggregate Vec reclaim. CI **40559690805 SUCCESS** and the
+all-platform dry-run **40559700656 SUCCESS** are green on that commit. Tag
+`v0.65.2` is **not cut**; owner GO is the only remaining gate.
 
 ## Scope
 
@@ -43,10 +44,10 @@ t3 perf, engine C09/Vulkan. No v0.64.9.
       aggregate 6 MB; return constructor 5 MB).
 - [x] Full e2e debug+release on the amended tree: **2649/2649 (4 ignored)**
       on both.
-- [ ] Push the amended commit; rerun CI (previous `40545689345` was on
-      `c0ad5694a`).
-- [ ] Rerun the all-platform dry-run on the amended commit (previous
-      `40545695810`).
+- [x] Push the amended commit `8ec0904a5`; CI **40559690805 SUCCESS**
+      (all matrix, arm64 floor, MCU).
+- [x] All-platform dry-run **40559700656 SUCCESS** on `8ec0904a5`
+      (Windows/Linux x64+arm64, macOS x64+arm64, VSIX, SHA256SUMS).
 - [ ] Owner GO; annotated tag `v0.65.2`; release workflow (11 assets).
 - [ ] Registry `xiom-std 0.65.2` (already live), docs dispatch, lane
       announcements, holds closed.
@@ -78,6 +79,7 @@ t3 perf, engine C09/Vulkan. No v0.64.9.
 
 ## Release log
 
-- [ ] Final candidate commit `<sha>`; CI `<id>`; dry-run `<id>`.
+- [x] Final candidate commit `8ec0904a5`; CI `40559690805`; dry-run
+      `40559700656`.
 - [ ] Tag `<annotated>`; release `<id>`; 11 assets + SHA256SUMS.
 - [ ] Docs dispatch, announcements, holds closed.
