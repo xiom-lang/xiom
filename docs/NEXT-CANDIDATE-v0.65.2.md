@@ -63,13 +63,16 @@ ownership path. Related items:
   `REL-20261021-0423-orbitdb` (607 MB/151s at 200k),
   `REL-20261021-0606-orbitdb` + `REL-20261021-1100-orbitdb` (1M: cache
   thrash, then 2,494.7 MB pass; remaining 880 s teardown).
-- `REL-20261010-1609-stdlib` (inline Result.value[i] payload index).
-- `REL-20261026-2247-stdlib` gate-9: only **1609** red (it also blocks
-  `1549-pulse-5`); the full stdlib v0.65.1 battery is green. The **1704**
-  JSON matrix is linear ~2.3 KB/iter at 10k-50k: parse 10k 23.6 MB -> 50k
-  113.7 MB, obj 23.7 -> 107.6, type 23.4 -> 85.2, get 23.1 -> 97.9; 200k is
-  cap-killed. The 10k/256 MB target is met; the JsonValue enum-tree drop is
-  compiler-side and is the JSON/Str retention target.
+- `REL-20261010-1609-stdlib` -- **FIXED on main `623afca78`** (inline
+  `Result.value[i]` element type now comes from `field_payload_xiom`; stdlib
+  probe exit 0; new `e2e_m1609`; full e2e 2649/2649 on both). Stdlib gate-9
+  re-verify on the next archive is pending.
+- `REL-20261026-2247-stdlib` gate-9: the only red row was **1609**, now fixed
+  on main; expect 10/10 on the re-run. The **1704** JSON matrix is linear
+  ~2.3 KB/iter at 10k-50k: parse 10k 23.6 MB -> 50k 113.7 MB, obj 23.7 ->
+  107.6, type 23.4 -> 85.2, get 23.1 -> 97.9; 200k is cap-killed. The
+  10k/256 MB target is met; the JsonValue enum-tree drop is compiler-side and
+  is the JSON/Str retention target.
 
 Gate: Str and Map per-op flat; JSON parse loop within an agreed cap; HTTP
 `/health` and `/serialize/big` sustained-request caps; A6 1M peak at or below
