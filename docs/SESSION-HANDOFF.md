@@ -15,8 +15,8 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 (m254-m275; all pushed) is kept below for reference:
 
 *** SESSION UPDATE 2026-10-27T22:52Z (compiler lane; 2034 param-field leak FIXED on main; checklist refreshed) -- READ FIRST ***
-- **REL-20261027-2034-engine FIXED (uncommitted at handoff write; see the
-  commit in the closure doc):** codegen deep-copies an aliasing Vec RHS
+- **REL-20261027-2034-engine FIXED (`92e0d07b5`):** codegen deep-copies an
+  aliasing Vec RHS
   (`var v = b.data`) at the binding, but the drop prepass did not treat a
   field/element projection as owned, so the callee copy leaked ~0.47 MB/iter.
   `vec_drop.rs::is_owned_copy_vec_init` now admits field/index projections
