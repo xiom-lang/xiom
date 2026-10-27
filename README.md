@@ -12,8 +12,8 @@ XIOM is a compiled, statically typed, memory-safe systems programming language. 
 
 ## Current Status (2026-10-27)
 
-- **v0.65.2 is the current candidate**: packed Vec element slots (the t1 30 MB fix), `Result.value[i]` inline payload typing, bound-Str scope drops, the arm64 contract-payload fix, and the `stdlib-v0.65.2` pin. See `docs/RELEASE_GATE_v0.65.2.md`; the tag follows CI, the all-platform dry-run, and owner GO.
-- **Production pin until v0.65.2 ships:** `v0.65.1` (tag `v0.65.1`, release 40388025015, 11 assets). **v0.64.9 remains withdrawn** -- do not pin or deploy it.
+- **v0.65.2 is PRODUCTION**: tag `v0.65.2` (`fe1994b1`), release 40566604850 with 11 assets + SHA256SUMS, docs dispatched, registry `xiom-std 0.65.2` live. Packed Vec element slots (the t1 30 MB fix), arm64 contract-payload fix, `Result.value[i]` inline payload typing, bound-Str scope drops, and borrowed/aggregate Vec reclaim.
+- **v0.65.1 is superseded.** **v0.64.9 remains withdrawn** -- do not pin or deploy it.
 - **Registry:** `xiom-std 0.65.2` live (sha256 `9638b576...`), signed.
 - **Self-hosting:** Phase 6 RD11 is **T3 83/83 green** (phase-5 19/19, T6 **19/64** byte-exact). Next: call-scrutinee payload typing, `Vec.first`/`last`/`remove`, concrete `Option__T`/`Result__T`.
 - **Open coordination:** xvector, orbitdb, engine, packages, and benchmark holds; the v0.65.2 release check records the reporter rows.

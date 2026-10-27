@@ -1,10 +1,11 @@
 # Next candidate plan -- v0.65.2 (2026-10-27)
 
-STATUS: **CANDIDATE PREPARED 2026-10-27**. `stdlib-v0.65.2` is live (tag
-`7d4d48f`; registry `xiom-std 0.65.2` sha256 `9638b576...`). The compiler
-candidate pins it: version 0.65.2, notes 6 highlights, 11/11 gates, full e2e
-2649/2649 on both. CI, the all-platform dry-run, and owner GO remain; v0.65.1
-stays production until the tag. v0.64.9 remains withdrawn.
+STATUS: **RELEASED 2026-10-27**. `stdlib-v0.65.2` live; compiler tag
+`v0.65.2` (annotated `fe1994b1...`) on `8ec0904a5`; release 40566604850 with
+11 assets; docs dispatched; registry `xiom-std 0.65.2` live. 14/14 gates and
+full e2e 2649/2649 on both. v0.65.1 is superseded; v0.64.9 remains withdrawn.
+Remaining work is the retention/correctness carry below (Map/JSON/HTTP,
+XgView/Vec type confusion, playground/memset rows, t3).
 
 ## Theme
 

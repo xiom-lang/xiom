@@ -14,6 +14,32 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-27T19:25Z (compiler lane; v0.65.2 RELEASED) -- READ FIRST ***
+- **v0.65.2 is PRODUCTION.** Annotated tag `v0.65.2`
+  (`fe1994b10305471d2cf4378508393980410af9a5`) on `8ec0904a5`; release run
+  **40566604850 SUCCESS** with **11 assets + SHA256SUMS** (file sha256
+  `c08eeadf...`; windows-x64 `0a328560...` verified). Docs dispatch
+  (`compiler-release` -> `xiom-lang/website`) success. Registry
+  `xiom-std 0.65.2` live (sha256 `9638b576...`). v0.65.1 is superseded;
+  v0.64.9 remains withdrawn.
+- Gate: CI **40559690805 SUCCESS** (all matrix, arm64 floor, MCU);
+  all-platform dry-run **40559700656 SUCCESS**; **14/14 memory gates**;
+  full e2e **2649/2649 (4 ignored) on both**.
+- Shipping: packed Vec slots (t1), arm64 contract payload, 1609 inline
+  Result payload, bound Str drops, and borrowed/aggregate Vec reclaim
+  (engine editor leak: borrow 429 MB -> 5 MB, aggregate ~1 GB -> 6 MB,
+  owns-return constructor 5 MB).
+- Engine relay: `REL-20261027-1717-engine` ownership half fixed
+  (`8ec0904a5`); C09 fixed/confirmed. Remaining engine blocker:
+  XgView/Vec slot-type confusion (needs the minimal IR slice); C07 red,
+  C08 acked.
+- Selfhost T6 **19/64**, diff_ast 83/83, T3 green. Next: call-scrutinee
+  payload typing, `Vec.first`/`last`/`remove`, concrete `Option__T`/
+  `Result__T`.
+- Remaining retention: Map/Set containers, `Vec[Str]` elements, JSON
+  enum-tree, HTTP builders, unbound Str temporaries; correctness carry rows
+  (playground by-ref fn pointer, Int+Str, W005, macOS memset), t3 perf.
+
 *** SESSION UPDATE 2026-10-27T17:50Z (compiler lane; engine Vec leak fixed in v0.65.2) -- READ FIRST ***
 - **REL-20261027-1717-engine ownership half FIXED**: a non-retaining
   `&`/`&mut` argument to an ordinary safe call keeps the caller's ownership;

@@ -1,11 +1,12 @@
 # Release gate -- v0.65.2
 
-STATUS: **CANDIDATE READY 2026-10-27** -- `stdlib-v0.65.2` is live
-(tag `7d4d48f`, registry `xiom-std 0.65.2` sha256 `9638b576...`, release run
-40523878342 green). The amended candidate `8ec0904a5` pins it and includes
-the engine borrowed/aggregate Vec reclaim. CI **40559690805 SUCCESS** and the
-all-platform dry-run **40559700656 SUCCESS** are green on that commit. Tag
-`v0.65.2` is **not cut**; owner GO is the only remaining gate.
+STATUS: **RELEASED 2026-10-27T19:20Z** -- `stdlib-v0.65.2` live
+(tag `7d4d48f`, registry sha256 `9638b576...`). Compiler tag **`v0.65.2`**
+(annotated `fe1994b10305471d2cf4378508393980410af9a5`) on `8ec0904a5`;
+release run **40566604850 SUCCESS** with **11 assets + SHA256SUMS** (file
+sha256 `c08eeadf...`; windows-x64 `0a328560...` verified); docs dispatch to
+`xiom-lang/website` success; registry `xiom-std 0.65.2` live. v0.65.1 is
+superseded; v0.64.9 remains withdrawn.
 
 ## Scope
 
@@ -48,9 +49,11 @@ t3 perf, engine C09/Vulkan. No v0.64.9.
       (all matrix, arm64 floor, MCU).
 - [x] All-platform dry-run **40559700656 SUCCESS** on `8ec0904a5`
       (Windows/Linux x64+arm64, macOS x64+arm64, VSIX, SHA256SUMS).
-- [ ] Owner GO; annotated tag `v0.65.2`; release workflow (11 assets).
-- [ ] Registry `xiom-std 0.65.2` (already live), docs dispatch, lane
-      announcements, holds closed.
+- [x] Owner GO; annotated tag `v0.65.2` on `8ec0904a5`; release workflow
+      **40566604850 SUCCESS** (11 assets).
+- [x] Registry `xiom-std 0.65.2` live; docs dispatch success.
+- [ ] Lane announcements and holds closed; reporter verdicts in
+      `release-checks/compiler-compiler-v0.65.2.md`.
 
 ## Evidence so far
 
@@ -81,5 +84,13 @@ t3 perf, engine C09/Vulkan. No v0.64.9.
 
 - [x] Final candidate commit `8ec0904a5`; CI `40559690805`; dry-run
       `40559700656`.
-- [ ] Tag `<annotated>`; release `<id>`; 11 assets + SHA256SUMS.
-- [ ] Docs dispatch, announcements, holds closed.
+- [x] Tag **`v0.65.2`** (annotated
+      `fe1994b10305471d2cf4378508393980410af9a5`) on `8ec0904a5`; release
+      run **40566604850 SUCCESS**; **11 assets + SHA256SUMS** (file sha256
+      `c08eeadfbb0dc1688fa648bfe72cb69ef1dae539bc66ac8ff6018601a63c453b`;
+      windows-x64 `0a328560169580463f4a77b09c01964c0693728cd82e640b868aa4c940f28136`,
+      verified).
+- [x] Docs dispatch (`compiler-release` to `xiom-lang/website`) success;
+      registry `xiom-std 0.65.2` live.
+- [ ] Lane announcements and holds closed; reporter verdicts in
+      `release-checks/compiler-compiler-v0.65.2.md`.
