@@ -14,6 +14,27 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-27T21:00Z (compiler lane; v0.65.2 post-release RED on durable lanes; hotfix on main) -- READ FIRST ***
+- **v0.65.2 is live but NOT accepted by xvector/orbitdb.** The new aggregate
+  reclaim freed a named `Struct{Vec}` after `container.push(r)`; `Vec[R]`
+  elements referenced freed memory (10 WAL checks red, station loopback
+  double-free 0xC0000374, XVECTOR WAL reopen empty). The engine editor build
+  was also blocked by a Str-drop alloca in an if-arm not dominating.
+- **Hotfix on main** (`fix/v0.65.3-regressions`): a by-value aggregate passed
+  to `push`/`insert`/`set`/`add`/`append`/`put` is MOVED into the container
+  (caller aggregate drop disarmed); Str drops capture the pointer at the
+  binding into a hoisted slot. xvector XVC-C-23 repro PASS;
+  `str_if_arm_drop` PASS; **14/14 gates**; full e2e **2651/2651 (4 ignored)
+  on both**. v0.65.3 is not bumped/tagged yet; owner GO needed.
+- **t1 correction:** the benchmark says t1 uses `Vec[Int]` (POOL_SIZE
+  1,048,576), so the packed-slot fix is N/A; t1 remains 30 MB and
+  `REL-20261026-2143-compiler` stays acked.
+- Remaining: engine 2034 (Vec field moved out of a by-value param leaks
+  0.37 MB/iter; editor still ~9 MB/frame), Vec/Map element drops for
+  container-owned structs, XgView/Vec type confusion, Map/JSON/HTTP;
+  pulse `xiom.http 0.1.8` libc FFI widths (packages lane). Keep v0.65.1 for
+  xvector/orbitdb; v0.65.2 is upstream-only until v0.65.3 is accepted.
+
 *** SESSION UPDATE 2026-10-27T19:25Z (compiler lane; v0.65.2 RELEASED) -- READ FIRST ***
 - **v0.65.2 is PRODUCTION.** Annotated tag `v0.65.2`
   (`fe1994b10305471d2cf4378508393980410af9a5`) on `8ec0904a5`; release run

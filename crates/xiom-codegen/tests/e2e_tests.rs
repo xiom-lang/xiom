@@ -7624,6 +7624,22 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     );
 }
 
+#[test] fn e2e_xv_vec_struct_push() {
+    assert_eq!(
+        compile_and_run("tests/regression/xv_vec_struct_push/main.xi"),
+        Some(0),
+        "a named struct with a Vec field pushed into Vec[Struct] must transfer ownership to the container (XVC-C-23)"
+    );
+}
+
+#[test] fn e2e_str_if_arm_drop() {
+    assert_eq!(
+        compile_and_run("tests/regression/str_if_arm_drop/main.xi"),
+        Some(0),
+        "a Str drop in an if-arm must capture the pointer at the binding, not load a non-dominating alloca"
+    );
+}
+
 #[test] fn e2e_m1609_result_payload_index_concat() {
     assert_eq!(
         compile_and_run("tests/regression/m1609_result_payload_index_concat/main.xi"),

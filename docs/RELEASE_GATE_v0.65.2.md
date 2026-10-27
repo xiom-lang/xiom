@@ -8,10 +8,22 @@ sha256 `c08eeadf...`; windows-x64 `0a328560...` verified); docs dispatch to
 `xiom-lang/website` success; registry `xiom-std 0.65.2` live. v0.65.1 is
 superseded; v0.64.9 remains withdrawn.
 
+**POST-RELEASE (2026-10-27):** xvector/orbitdb **rejected** v0.65.2 -- a
+named `Struct{Vec}` pushed into a container had its Vec freed at scope exit
+(WAL recovery corruption; station loopback double-free). The engine editor
+build was also blocked by a Str-drop dominance error. The v0.65.3 hotfix on
+main fixes both (`push`/`insert`/... transfer ownership; Str drops capture
+the pointer at the binding): 14/14 gates, e2e 2651/2651 on both. The
+remaining engine leak (moving a Vec field out of a by-value param) and
+container element drops are follow-ups. **t1 is unchanged** (see above).
+
 ## Scope
 
 - **Packed Vec element slots** (`vec_slot_size` + stdlib `elem_size`):
-  `Vec[UInt8]`/Bool/Int8 no longer over-allocate 8x. t1 Peak Memory target.
+  `Vec[UInt8]`/Bool/Int8 no longer over-allocate 8x for byte buffers.
+  **t1 is unchanged**: its reference uses `Vec[Int]` (POOL_SIZE
+  1,048,576), so the packed-slot fix is N/A and the 30 MB row remains open
+  (`REL-20261026-2143-compiler` stays acked).
 - **arm64 contract payload** (`3e775908a`): `Result[Str, E]` field 1 loads
   its real `i8*` type in the contract evaluator; arm64 floor CI green.
 - **1609** (`623afca78`): inline `Result.value[i]` element type comes from
@@ -57,7 +69,8 @@ t3 perf, engine C09/Vulkan. No v0.64.9.
 
 ## Evidence so far
 
-- Vec/t1 combined branch: `p_wave289_vec8` exit 0; 10/10 gates; 4 MiB
+- Vec packed-slot combined branch (byte buffers; the t1 row uses `Vec[Int]`
+  and is unchanged): `p_wave289_vec8` exit 0; 10/10 gates; 4 MiB
   `with_len` under 24 MB; e2e 2648/2648 (pre-1609/Str).
 - 1609: stdlib probe exit 0; `e2e_m1609`; e2e 2649/2649 both.
 - Str drop: `str_loop_leak` (2M x 20 B, 24 MB) = 5 MB; 14/14 gates; e2e

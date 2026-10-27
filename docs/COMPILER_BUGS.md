@@ -20866,3 +20866,37 @@ EVIDENCE:
 - Remaining: XgView/Vec slot-type confusion (engine item section 2) needs a
   minimal IR slice; by-value callee-side parameter drops are caller-retained
   for now; Map/JSON/HTTP retention.
+
+---
+
+## 2026-10-27 -- FIXED (v0.65.3 hotfix): named struct push and Str-drop dominance
+
+WITNESS:
+- REL-20261027-1956-xvector: `var r = R{ id: i; xs: xs }; rs.push(r);`
+  freed `r.xs` at scope exit; `Vec[R]` elements referenced freed memory
+  (10 WAL checks red). Inline literal was green.
+- REL-20261027-2033-orbitdb / 2042-orbitdb: station
+  `wire_header_decode` double-free (0xC0000374) and XVECTOR WAL reopen
+  empty; same named-struct push shape.
+- REL-20261027-2000-engine: Str drop alloca inside an if-arm caused
+  "instruction does not dominate all uses" in the editor build.
+
+FIX:
+- A by-value aggregate argument to a container store (`push`/`insert`/`set`/
+  `add`/`append`/`put`) is MOVED into the container: the caller's aggregate
+  drop is disarmed, so the element's Vec payload is not freed. The inline
+  literal form was already safe.
+- Str drops now capture the pointer at the binding into a hoisted i8* slot;
+  the scope-exit drop loads that slot, never an if-arm alloca.
+
+EVIDENCE:
+- xvector XVC-C-23 repro (named + inline): PASS, exit 0.
+- `str_if_arm_drop` regression: PASS.
+- 14/14 memory gates on debug+release; full e2e **2651/2651 (4 ignored) on
+  both**.
+
+REMAINING (not in this hotfix): engine REL-20261027-2034 (moving a Vec
+field out of a by-value aggregate param leaks 0.37 MB/iter; editor still
+~9 MB/frame), Vec/Map element drops for container-owned structs, XgView/Vec
+type confusion, Map/JSON/HTTP retention. t1 30 MB is unchanged: the t1
+reference uses Vec[Int] (POOL_SIZE 1,048,576), so the packed-slot fix is N/A.

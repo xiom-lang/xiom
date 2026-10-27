@@ -132,7 +132,7 @@ pub(crate) fn collect_owned_vec_locals(
         aggregate: state
             .aggregate
             .into_iter()
-            .filter(|n| !state.returned.contains(n))
+            .filter(|n| !state.returned.contains(n) && !state.moved.contains(n))
             .collect(),
     }
 }
@@ -481,6 +481,17 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
             }
         }
         Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => {
+            // REL-20261027-1956-xvector: a by-value aggregate pushed into a
+            // container is MOVED into the container; the caller must not free
+            // its Vec fields at scope exit (the container owns the copy).
+            let container_store = matches!(
+                func.as_ref(),
+                Expr::Field(_, method, _)
+                    if matches!(
+                        method.name.as_str(),
+                        "push" | "insert" | "set" | "add" | "append" | "put"
+                    )
+            );
             match func.as_ref() {
                 Expr::Field(recv, method, _) if is_safe_vec_method(method.name.as_str()) => {
                     scan_expr(recv, UseCtx::SafeBase, state);
@@ -499,6 +510,14 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                 other => scan_expr(other, UseCtx::Escape, state),
             }
             for arg in args {
+                if container_store {
+                    if let Expr::Ident(id) = arg {
+                        if state.aggregate.contains(&id.name) {
+                            state.moved.insert(id.name.clone());
+                            continue;
+                        }
+                    }
+                }
                 // REL-20261027-1717-engine: a non-retaining `&`/`&mut`
                 // borrow to an ordinary call does not transfer the Vec/Str
                 // buffer. The borrow checker keeps the reference inside the
@@ -1050,8 +1069,9 @@ impl IrEmitter {
         self.emitln(&format!("  store i1 true, i1* {flag}"));
     }
 
-    /// Register a fresh, non-escaping Str local for reclamation. The Str is
-    /// an `i8*` alloca; the flag/emitter are shared with Vec drops.
+    /// Register a fresh, non-escaping Str local for reclamation. The pointer
+    /// is captured HERE into a hoisted i8* slot so the scope-exit drop never
+    /// loads an alloca from a non-dominating if-arm (engine sfr_unique).
     pub(crate) fn register_str_drop(&mut self, name: &str, alloca: &str, llvm_ty: &str, init: &Expr) {
         if llvm_ty != "i8*"
             || !self.fctx.str_drop_safe.contains(name)
@@ -1059,11 +1079,19 @@ impl IrEmitter {
         {
             return;
         }
+        let data_ptr = self.fresh_tmp();
+        self.emitln(&format!("  {data_ptr} = load i8*, i8** {alloca}"));
+        let data_slot = self.fresh_tmp();
+        self.local.hoisted_allocas.push((data_slot.clone(), "i8*".to_string()));
+        self.local
+            .entry_prelude
+            .push(format!("  store i8* null, i8** {data_slot}"));
+        self.emitln(&format!("  store i8* {data_ptr}, i8** {data_slot}"));
         let flag = self.fresh_tmp();
         self.local.hoisted_allocas.push((flag.clone(), "i1".to_string()));
         self.local.entry_prelude.push(format!("  store i1 false, i1* {flag}"));
-        self.fctx.vec_drops.push(VecDrop::Str {
-            alloca: alloca.to_string(),
+        self.fctx.vec_drops.push(VecDrop::Ptr {
+            data_alloca: data_slot,
             flag: flag.clone(),
         });
         self.emitln(&format!("  store i1 true, i1* {flag}"));
