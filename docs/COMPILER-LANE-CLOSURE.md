@@ -107,7 +107,7 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261020-1550-stdlib | stdlib | tuple-returning fn-value ABI (`EnumerateIter.map`) | reporter-close (20261024-1501) |
 | REL-20261021-1652-engine-2 | engine | intermittent Vulkan bring-up AV (C08) | todo (needs no-capture repro) |
 | REL-20261024-1101-pulse | pulse | arm64 fixed-arity printf fails IR verification | verify-on-archive (fix green) |
-| REL-20261027-2034-engine | engine | callee moves a Vec field out of a by-value aggregate param | **fixed** (local: probe + 15/15 gates; e2e below) |
+| REL-20261027-2034-engine | engine | callee moves a Vec field out of a by-value aggregate param | **fixed** `92e0d07b5` (probe 6 MB; 15/15 gates; e2e 2651/2651 both; lane verify owed) |
 
 ### B2. Wishlists -- 10 strategic/perf rows
 
@@ -188,9 +188,10 @@ reporter reopens with new evidence.
 
 ## D. Verification baseline (as of 2026-10-27T22:52Z)
 
-- Main: `c2e0e51d9` (handoff/checklist docs) on top of the v0.65.3 hotfix
-  `bb8eccf5a` (container-moved aggregates, Str-drop pointer capture).
-  CI `40587096152` green on the hotfix.
+- Main: `92e0d07b5` (2034 drop fix + refreshed handoff/checklist) on top of
+  the v0.65.3 hotfix `bb8eccf5a` (container-moved aggregates, Str-drop
+  pointer capture). CI `40587096152` green on the hotfix; CI for `92e0d07b5`
+  is pending.
 - v0.65.2 release: tag `fe1994b1` on `8ec0904a5`, release `40566604850`,
   11 assets, docs dispatch, registry `xiom-std 0.65.2`. **Not accepted by
   xvector/orbitdb**; v0.65.1 is the accepted pin. v0.65.3 is not
@@ -250,3 +251,32 @@ xvector `docs\repro\xv-vec-struct-push\probe.xi`,
 `tests\probes\probe_wal_file.xi`; orbitdb `tests\hybrid\probe_hybrid.xi`;
 engine `scripts\build.ps1`, `tests\diagnostics\*`. Ask the lanes to re-post
 the missing repro paths before the fleet-verification gate.
+
+## H. Next workstream: container element drops (not started)
+
+Do NOT rush this: the v0.65.2 durable regression was exactly a wrong
+element-ownership assumption. Recorded design and hazards for the next fix:
+
+- Shape: `Vec[Struct{Vec}]` (and Map values) owns the element's Vec payload
+  after the hotfix disarms the caller aggregate drop. When the container
+  local dies, `VecDrop::Vec` frees only the element buffer, so every
+  element's Vec data leaks (no UAF).
+- Needed: type-directed element drop glue. The binding knows its declared
+  element type (`vec_elem_from_type_annotation` / `local_vec_elem`); for a
+  struct element type, walk `type_meta` Vec fields and free each element's
+  data pointer inside a runtime loop, depth-bounded.
+- Hazards that must be proven before enabling: (1) `Vec[T].with_len(n)`
+  allocates elements without initializing them -- freeing field pointers of
+  uninitialized elements is a crash; only `new`/empty/array-literal and
+  push-populated shapes are safe, or the allocation must be zeroed;
+  (2) elements can be removed with `pop`/`remove`/`swap_remove` (ownership
+  moves to the returned aggregate), so the container must not also free
+  them; (3) `Vec[Str]` elements alias literals/borrowed strings -- only
+  owned Str producers may be freed; (4) a struct pushed with a borrowed
+  field (if any codegen path does not deep-copy the field) must not be
+  freed.
+- Gate: a soak probe with 1000 x `Vec[Struct{Vec[UInt8] 512 KB}]` push/pop
+  and a Map-value variant, plus the engine editor 600-frame soak and the
+  OrbitDB m375 200k soak. Extend the drop-flag mechanism to the container
+  (armed when elements are owned) so a partially filled container is safe.
+
