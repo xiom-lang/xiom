@@ -29,7 +29,7 @@
 //! return before the binding from freeing an uninitialized pointer.
 
 use super::IrEmitter;
-use crate::context::VecDrop;
+use crate::context::{TypeContext, VecDrop};
 use xiom_ast::*;
 use std::collections::{HashMap, HashSet};
 
@@ -82,12 +82,35 @@ struct ScanState {
     /// `as_mut_ptr`) are passed to FFI under the contract's no-retain promise,
     /// so the receiver keeps ownership and is dropped at scope exit.
     in_trusted_unsafe: bool,
+    /// Element-drop ownership tag (container local -> element XIOM type).
+    /// A candidate starts empty (`Vec[T].new`/`with_capacity`); it stays a
+    /// candidate only while every pushed element is provably owned and no
+    /// removal/alias use can invalidate that.
+    elem_candidate: HashMap<String, String>,
+    /// Container local -> names of the element struct's Vec fields.
+    elem_vec_fields: HashMap<String, Vec<String>>,
+    /// Containers that lost element ownership (removal, escaping element
+    /// reads, duplicate pushes, borrows, unknown methods, ...).
+    elem_unsafe: HashSet<String>,
+    /// Per-container set of aggregate identifiers already pushed (a second
+    /// push of the same header would alias one buffer twice).
+    elem_pushed: HashMap<String, HashSet<String>>,
+    /// Block id in which each local was declared (a pushed aggregate must be
+    /// declared in the same block as the push, so a loop body re-creates both).
+    decl_block: HashMap<String, usize>,
+    cur_block: usize,
+    next_block: usize,
+    /// Precomputed type-name variant -> Vec field names (plain structs only).
+    elem_type_vec_fields: HashMap<String, Vec<String>>,
 }
 
 pub(crate) struct OwnedLocals {
     pub vec: HashSet<String>,
     pub str: HashSet<String>,
     pub aggregate: HashSet<String>,
+    /// Container local -> (element XIOM type, element Vec field names) for
+    /// containers whose elements are all owned and never reordered/removed.
+    pub elem: HashMap<String, (String, Vec<String>)>,
 }
 
 /// Returns the local names that are owned and private for the function body.
@@ -97,14 +120,24 @@ pub(crate) fn collect_owned_vec_locals(
     fresh_payload: &HashSet<String>,
     fresh_aggregate: &HashSet<String>,
     trust_unsafe: bool,
+    elem_type_vec_fields: &HashMap<String, Vec<String>>,
 ) -> OwnedLocals {
     let mut state = ScanState::default();
     state.fresh = fresh.clone();
     state.fresh_payload = fresh_payload.clone();
     state.fresh_aggregate = fresh_aggregate.clone();
     state.trust_unsafe = trust_unsafe;
+    state.elem_type_vec_fields = elem_type_vec_fields.clone();
     scan_block(block, &mut state);
-    let vec = state
+    // Element drops are per-DECLARATION: a shadowed name with a second,
+    // different binding must not inherit the first one's tag.
+    let single_decl: HashSet<String> = state
+        .decls
+        .iter()
+        .filter(|(_, info)| info.decls == 1)
+        .map(|(name, _)| name.clone())
+        .collect();
+    let vec: HashSet<String> = state
         .decls
         .into_iter()
         .filter_map(|(name, info)| {
@@ -126,6 +159,20 @@ pub(crate) fn collect_owned_vec_locals(
             if owned { Some(name) } else { None }
         })
         .collect();
+    let mut elem = HashMap::new();
+    for (name, elem_ty) in state.elem_candidate {
+        if !single_decl.contains(&name)
+            || !vec.contains(&name)
+            || state.elem_unsafe.contains(&name)
+            || state.escaping.contains(&name)
+            || state.moved.contains(&name)
+        {
+            continue;
+        }
+        if let Some(fields) = state.elem_vec_fields.get(&name) {
+            elem.insert(name, (elem_ty, fields.clone()));
+        }
+    }
     OwnedLocals {
         vec,
         str,
@@ -134,6 +181,7 @@ pub(crate) fn collect_owned_vec_locals(
             .into_iter()
             .filter(|n| !state.returned.contains(n) && !state.moved.contains(n))
             .collect(),
+        elem,
     }
 }
 
@@ -305,18 +353,101 @@ enum UseCtx {
     SafeBase,
 }
 
+/// Element-drop ownership: an EMPTY Vec constructor (`Vec[T].new()` /
+/// `Vec[T].with_capacity(n)`). Only these can be proven fully populated by
+/// the pushes the scan sees; `with_len` elements are uninitialized.
+fn is_empty_vec_ctor(value: &Expr) -> bool {
+    match value {
+        Expr::Paren(inner, _) => is_empty_vec_ctor(inner),
+        Expr::Call(func, args, _) => match func.as_ref() {
+            Expr::Field(obj, method, _) => {
+                let ctor = method.name == "new"
+                    || (method.name == "with_capacity" && args.len() <= 1);
+                ctor && matches!(
+                    obj.as_ref(),
+                    Expr::Index(base, _, _)
+                        if matches!(base.as_ref(), Expr::Ident(b) if b.name == "Vec")
+                )
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// XIOM type name of a Vec local's element: the declaration annotation when
+/// present, else the `Vec[T].new()/with_capacity()` constructor spelling.
+fn vec_element_name(ty: Option<&Type>, value: &Expr) -> Option<String> {
+    if let Some(t) = ty {
+        if let Some(elem) = IrEmitter::vec_elem_from_type_annotation(t) {
+            return Some(elem);
+        }
+    }
+    match value {
+        Expr::Paren(inner, _) => vec_element_name(None, inner),
+        Expr::Call(func, _, _) => match func.as_ref() {
+            Expr::Field(obj, method, _)
+                if method.name == "new" || method.name == "with_capacity" =>
+            {
+                match obj.as_ref() {
+                    Expr::Index(base, elem, _)
+                        if matches!(base.as_ref(), Expr::Ident(b) if b.name == "Vec") =>
+                    {
+                        match elem.as_ref() {
+                            Expr::Ident(e) => Some(e.name.clone()),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Vec field names of a plain element struct. Ambiguous same-leaf names are
+/// rejected (conservative leak, never a wrong layout).
+fn elem_vec_fields_for(elem_ty: &str, state: &ScanState) -> Option<Vec<String>> {
+    if let Some(v) = state.elem_type_vec_fields.get(elem_ty) {
+        return Some(v.clone());
+    }
+    let suffix = format!(".{elem_ty}");
+    let mut found: Option<&Vec<String>> = None;
+    for (key, fields) in &state.elem_type_vec_fields {
+        if key.ends_with(&suffix) {
+            if found.is_some() {
+                return None;
+            }
+            found = Some(fields);
+        }
+    }
+    found.cloned()
+}
+
 fn scan_block(block: &Block, state: &mut ScanState) {
+    // Element-drop ownership: a pushed aggregate must be declared in the
+    // SAME block as the push. Both are then re-created per loop iteration;
+    // an outer declaration pushed inside a loop would push one aliasing
+    // header many times.
+    let id = state.next_block;
+    state.next_block += 1;
+    let saved_block = state.cur_block;
+    state.cur_block = id;
     for item in &block.stmts {
         match item {
             StmtOrExpr::Stmt(stmt) => scan_stmt(stmt, state),
             StmtOrExpr::Expr(expr) => scan_expr(expr, UseCtx::Escape, state),
         }
     }
+    state.cur_block = saved_block;
 }
 
 fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
     match stmt {
-        Stmt::Let(name, _, value, _) | Stmt::Var(name, _, value, _) => {
+        Stmt::Let(name, ty, value, _) | Stmt::Var(name, ty, value, _) => {
+            state.decl_block.insert(name.name.clone(), state.cur_block);
             // REL-20261027-1717-engine: a local struct literal that owns a
             // fresh Vec field is an aggregate drop site. The source Vec local
             // is MOVED into the field (do not drop it separately); a fresh
@@ -374,6 +505,19 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
                 });
             sinfo.decls += 1;
             sinfo.all_fresh &= fresh_str;
+            // Element-drop ownership tag: only an EMPTY Vec built by
+            // `new`/`with_capacity` can be proven fully populated by owned
+            // pushes. `with_len` elements are uninitialized; array literals
+            // and call returns have their own construction rules.
+            if is_empty_vec_ctor(value) {
+                if let Some(elem_ty) = vec_element_name(ty.as_deref(), value) {
+                    let fields = elem_vec_fields_for(&elem_ty, state);
+                    if fields.as_ref().map_or(false, |f| !f.is_empty()) {
+                        state.elem_candidate.insert(name.name.clone(), elem_ty);
+                        state.elem_vec_fields.insert(name.name.clone(), fields.unwrap());
+                    }
+                }
+            }
             scan_expr(value, UseCtx::Escape, state);
         }
         Stmt::Assign(place, value, _) => {
@@ -498,6 +642,20 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
         }
         Expr::Paren(inner, _) => scan_expr(inner, ctx, state),
         Expr::Field(base, field, _) => {
+            // Element field read: a Vec field can escape the element (and its
+            // buffer), so only SCALAR fields of an element are non-escaping.
+            if let Expr::Index(b, _, _) = base.as_ref() {
+                if let Expr::Ident(bid) = b.as_ref() {
+                    if let Some(vf) = state.elem_vec_fields.get(&bid.name) {
+                        if vf.iter().any(|f| f == &field.name) {
+                            scan_expr(base, UseCtx::Escape, state);
+                        } else {
+                            scan_expr(base, UseCtx::SafeBase, state);
+                        }
+                        return;
+                    }
+                }
+            }
             let safe_read = matches!(field.name.as_str(), "len" | "capacity" | "is_empty");
             if safe_read && matches!(base.as_ref(), Expr::Ident(_)) {
                 scan_expr(base, UseCtx::SafeBase, state);
@@ -517,6 +675,78 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                         "push" | "insert" | "set" | "add" | "append" | "put"
                     )
             );
+            // Element-drop ownership: methods that remove/reorder/replace
+            // elements invalidate "every element is still the owned one we
+            // pushed"; a push/insert is accepted only with an owned element.
+            if let Expr::Field(recv, method, _) = func.as_ref() {
+                if let Expr::Ident(rid) = recv.as_ref() {
+                    let rname = rid.name.clone();
+                    if state.elem_candidate.contains_key(&rname) {
+                        let m = method.name.as_str();
+                        const ELEM_READ_ONLY: &[&str] = &[
+                            "len", "is_empty", "capacity", "contains", "index_of", "count",
+                            "get", "first", "last", "peek", "binary_search",
+                        ];
+                        if !ELEM_READ_ONLY.contains(&m) && m != "push" && m != "insert" {
+                            state.elem_unsafe.insert(rname.clone());
+                        } else if m == "push" || m == "insert" {
+                            let elem_arg = if m == "push" { args.first() } else { args.last() };
+                            let needed = state
+                                .elem_vec_fields
+                                .get(&rname)
+                                .cloned()
+                                .unwrap_or_default();
+                            let owned = match elem_arg {
+                                Some(Expr::Ident(id)) => {
+                                    state.aggregate.contains(&id.name)
+                                        && state.decl_block.get(&id.name)
+                                            == Some(&state.cur_block)
+                                        && state
+                                            .elem_pushed
+                                            .entry(rname.clone())
+                                            .or_default()
+                                            .insert(id.name.clone())
+                                }
+                                Some(Expr::Struct(lit, fields, spread, _)) => {
+                                    if spread.is_some() {
+                                        false
+                                    } else {
+                                        let elem_ty = state
+                                            .elem_candidate
+                                            .get(&rname)
+                                            .cloned()
+                                            .unwrap_or_default();
+                                        let same = lit.name == elem_ty
+                                            || lit.name.ends_with(&format!(".{elem_ty}"))
+                                            || elem_ty.ends_with(&format!(".{}", lit.name));
+                                        same
+                                            && needed.iter().all(|nf| {
+                                                fields.iter().any(|(fname, fval)| {
+                                                    &fname.name == nf
+                                                        && (is_fresh_vec_init(fval)
+                                                            || is_owned_copy_vec_init(fval))
+                                                })
+                                            })
+                                    }
+                                }
+                                _ => false,
+                            };
+                            if !owned {
+                                state.elem_unsafe.insert(rname.clone());
+                            }
+                        }
+                    }
+                }
+                // A method call ON an element (`rs[i].take()`) may move the
+                // element's Vec fields out; conservative.
+                if let Expr::Index(b, _, _) = recv.as_ref() {
+                    if let Expr::Ident(bid) = b.as_ref() {
+                        if state.elem_candidate.contains_key(&bid.name) {
+                            state.elem_unsafe.insert(bid.name.clone());
+                        }
+                    }
+                }
+            }
             match func.as_ref() {
                 Expr::Field(recv, method, _) if is_safe_vec_method(method.name.as_str()) => {
                     scan_expr(recv, UseCtx::SafeBase, state);
@@ -535,6 +765,16 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                 other => scan_expr(other, UseCtx::Escape, state),
             }
             for arg in args {
+                // A borrow of a container lets the callee read/mutate its
+                // elements without this scan seeing it; element ownership
+                // cannot be proven.
+                if let Expr::Ref(inner, _) | Expr::MutRef(inner, _) = arg {
+                    if let Expr::Ident(bid) = inner.as_ref() {
+                        if state.elem_candidate.contains_key(&bid.name) {
+                            state.elem_unsafe.insert(bid.name.clone());
+                        }
+                    }
+                }
                 if container_store {
                     if let Expr::Ident(id) = arg {
                         if state.aggregate.contains(&id.name) {
@@ -562,6 +802,16 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
             }
         }
         Expr::Index(base, index, _) => {
+            // An element projection used in an ESCAPE context (call arg,
+            // return, assignment, another literal) can alias the element's
+            // Vec payload; element drops need it to stay local.
+            if ctx == UseCtx::Escape {
+                if let Expr::Ident(bid) = base.as_ref() {
+                    if state.elem_candidate.contains_key(&bid.name) {
+                        state.elem_unsafe.insert(bid.name.clone());
+                    }
+                }
+            }
             // Reading/writing an ELEMENT does not transfer the Vec header or
             // its buffer; the buffer stays owned by the local. A reference to
             // the element (`&v[i]`) is handled by the Ref/MutRef arm below and
@@ -994,6 +1244,7 @@ pub(crate) struct VecDropScope {
     safe: HashSet<String>,
     safe_str: HashSet<String>,
     safe_aggregate: HashSet<String>,
+    safe_elem: HashMap<String, (String, Vec<String>)>,
     entry_prelude: Vec<String>,
 }
 
@@ -1004,16 +1255,94 @@ impl IrEmitter {
         let fresh = self.fresh_vec_returns.clone();
         let fresh_payload = self.fresh_payload_returns.clone();
         let fresh_aggregate = self.fresh_aggregate_returns.clone();
+        let elem_type_vec_fields = Self::elem_type_vec_fields(&self.types);
         let owned = collect_owned_vec_locals(
             body,
             &fresh,
             &fresh_payload,
             &fresh_aggregate,
             trust_unsafe,
+            &elem_type_vec_fields,
         );
         self.fctx.vec_drop_safe = owned.vec;
         self.fctx.str_drop_safe = owned.str;
         self.fctx.aggregate_drop_safe = owned.aggregate;
+        self.fctx.elem_drop_safe = owned.elem;
+    }
+
+    /// Names of the Vec fields of every plain struct type, keyed by the full
+    /// registry key AND the bare leaf when unambiguous. Element drops are only
+    /// enabled for such structs.
+    fn elem_type_vec_fields(
+        types: &TypeContext,
+    ) -> HashMap<String, Vec<String>> {
+        let mut map: HashMap<String, Vec<String>> = HashMap::new();
+        let mut ambiguous: HashSet<String> = HashSet::new();
+        let is_vec_ty = |ty: &str| -> bool {
+            if ty == "Vec" || ty.starts_with("Vec[") {
+                return true;
+            }
+            // `pub type Bytes = Vec[UInt8]` field aliases.
+            let mut cur = ty.to_string();
+            let mut seen: HashSet<String> = HashSet::new();
+            while let Some(next) = types.type_aliases.get(&cur) {
+                if !seen.insert(cur.clone()) {
+                    break;
+                }
+                cur = next;
+                if cur == "Vec" || cur.starts_with("Vec[") {
+                    return true;
+                }
+            }
+            false
+        };
+        let skip = |k: &str| {
+            k.starts_with("Tuple__")
+                || k.starts_with("Option__")
+                || k.starts_with("Result__")
+                || k.starts_with("_Anon__")
+                || k.starts_with("Vec[")
+                || k.starts_with("Map[")
+                || k.starts_with("Set[")
+                || k.starts_with("Option[")
+                || k.starts_with("Result[")
+        };
+        for (key, meta) in types.type_meta.entries() {
+            if skip(&key) {
+                continue;
+            }
+            let fields: Vec<String> = meta
+                .fields
+                .iter()
+                .filter(|(_, ty)| is_vec_ty(ty))
+                .map(|(n, _)| n.clone())
+                .collect();
+            if fields.is_empty() {
+                continue;
+            }
+            map.insert(key.clone(), fields.clone());
+            if let Some(leaf) = key.rsplit('.').next() {
+                if leaf != key {
+                    if map.contains_key(leaf) {
+                        ambiguous.insert(leaf.to_string());
+                    } else {
+                        map.insert(leaf.to_string(), fields);
+                    }
+                }
+            }
+        }
+        for (alias, target) in types.type_aliases.entries() {
+            if map.contains_key(&alias) {
+                continue;
+            }
+            if let Some(fields) = map.get(&target).cloned() {
+                map.insert(alias, fields);
+            }
+        }
+        for name in ambiguous {
+            map.remove(&name);
+        }
+        map
     }
 
     /// Whole-program ownership prepass (m375 / engine Vec leak). Runs before
@@ -1042,6 +1371,7 @@ impl IrEmitter {
         self.fctx.vec_drop_safe.clear();
         self.fctx.str_drop_safe.clear();
         self.fctx.aggregate_drop_safe.clear();
+        self.fctx.elem_drop_safe.clear();
         self.local.entry_prelude.clear();
     }
 
@@ -1054,6 +1384,7 @@ impl IrEmitter {
             safe: std::mem::take(&mut self.fctx.vec_drop_safe),
             safe_str: std::mem::take(&mut self.fctx.str_drop_safe),
             safe_aggregate: std::mem::take(&mut self.fctx.aggregate_drop_safe),
+            safe_elem: std::mem::take(&mut self.fctx.elem_drop_safe),
             entry_prelude: std::mem::take(&mut self.local.entry_prelude),
         }
     }
@@ -1063,6 +1394,7 @@ impl IrEmitter {
         self.fctx.vec_drop_safe = saved.safe;
         self.fctx.str_drop_safe = saved.safe_str;
         self.fctx.aggregate_drop_safe = saved.safe_aggregate;
+        self.fctx.elem_drop_safe = saved.safe_elem;
         self.local.entry_prelude = saved.entry_prelude;
     }
 
@@ -1090,9 +1422,11 @@ impl IrEmitter {
         let flag = self.fresh_tmp();
         self.local.hoisted_allocas.push((flag.clone(), "i1".to_string()));
         self.local.entry_prelude.push(format!("  store i1 false, i1* {flag}"));
+        let elem = self.elem_drop_info(name);
         self.fctx.vec_drops.push(VecDrop::Vec {
             alloca: alloca.to_string(),
             flag: flag.clone(),
+            elem,
         });
         self.emitln(&format!("  store i1 true, i1* {flag}"));
     }
@@ -1123,6 +1457,51 @@ impl IrEmitter {
             flag: flag.clone(),
         });
         self.emitln(&format!("  store i1 true, i1* {flag}"));
+    }
+
+    /// Element drop glue for a container whose prepass ownership tag proved
+    /// every element owns its Vec fields. `None` means "leak elements".
+    fn elem_drop_info(&self, name: &str) -> Option<crate::context::ElemDrop> {
+        let (xiom_ty, validated) = self.fctx.elem_drop_safe.get(name)?.clone();
+        let llvm_ty = self.llvm_type_for(&xiom_ty).ok()?;
+        if !llvm_ty.starts_with("%struct.") {
+            return None;
+        }
+        let key = llvm_ty.trim_start_matches("%struct.").to_string();
+        let meta = self.types.type_meta.get(&key).or_else(|| {
+            let leaf = key.rsplit('.').next().unwrap_or(&key);
+            let candidates: Vec<String> = self
+                .types
+                .type_meta
+                .keys()
+                .into_iter()
+                .filter(|k| k.ends_with(&format!(".{key}")) || k.ends_with(&format!(".{leaf}")))
+                .collect();
+            self.pick_deterministic(candidates)
+                .and_then(|k| self.types.type_meta.get(&k))
+        })?;
+        let mut fields = Vec::new();
+        // Intersect with the field NAMES the prepass validated: never free a
+        // Vec field the ownership analysis did not see.
+        for (idx, (field_name, _)) in meta.fields.iter().enumerate() {
+            if validated.iter().any(|n| n == field_name)
+                && self.field_llvm_type(&key, idx) == "%struct.Vec"
+            {
+                fields.push(idx as u32);
+            }
+        }
+        if fields.is_empty() {
+            return None;
+        }
+        let size = self.vec_elem_storage_size(&xiom_ty);
+        if size <= 0 {
+            return None;
+        }
+        Some(crate::context::ElemDrop {
+            llvm_ty,
+            stride: Self::vec_slot_size(size),
+            fields,
+        })
     }
 
     /// Register the Vec fields of an `#[owns_return]` aggregate binding. The
@@ -1191,9 +1570,11 @@ impl IrEmitter {
         let flag = self.fresh_tmp();
         self.local.hoisted_allocas.push((flag.clone(), "i1".to_string()));
         self.local.entry_prelude.push(format!("  store i1 false, i1* {flag}"));
+        let elem = self.elem_drop_info(name);
         self.fctx.vec_drops.push(VecDrop::Vec {
             alloca: alloca.to_string(),
             flag: flag.clone(),
+            elem,
         });
         self.emitln(&format!("  store i1 true, i1* {flag}"));
     }
@@ -1243,13 +1624,76 @@ impl IrEmitter {
             self.emitln(&format!("  br i1 {armed}, label %{do_block}, label %{skip_block}"));
             self.emitln(&format!("\n{do_block}:"));
             let data_ptr = match drop {
-                VecDrop::Vec { alloca, .. } => {
+                VecDrop::Vec { alloca, elem, .. } => {
                     let data_gep = self.fresh_tmp();
                     let data_ptr = self.fresh_tmp();
                     self.emitln(&format!(
                         "  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {alloca}, i32 0, i32 0"
                     ));
                     self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_gep}"));
+                    // Element-drop ownership tag: free each element's Vec
+                    // payloads BEFORE the element buffer. The header is
+                    // re-read here, so pushes/reallocs after the binding are
+                    // reflected. Owned elements only (prepass proven).
+                    if let Some(e) = elem {
+                        let len_gep = self.fresh_tmp();
+                        let len = self.fresh_tmp();
+                        self.emitln(&format!(
+                            "  {len_gep} = getelementptr %struct.Vec, %struct.Vec* {alloca}, i32 0, i32 1"
+                        ));
+                        self.emitln(&format!("  {len} = load i64, i64* {len_gep}"));
+                        let idx_slot = self.fresh_tmp();
+                        self.emitln(&format!("  {idx_slot} = alloca i64"));
+                        self.emitln(&format!("  store i64 0, i64* {idx_slot}"));
+                        let cond = self.fresh_block("vecdrop_elt_cond");
+                        let body = self.fresh_block("vecdrop_elt_body");
+                        let done = self.fresh_block("vecdrop_elt_done");
+                        self.emitln(&format!("  br label %{cond}"));
+                        self.emitln(&format!("\n{cond}:"));
+                        let i = self.fresh_tmp();
+                        let more = self.fresh_tmp();
+                        self.emitln(&format!("  {i} = load i64, i64* {idx_slot}"));
+                        self.emitln(&format!("  {more} = icmp ult i64 {i}, {len}"));
+                        self.emitln(&format!(
+                            "  br i1 {more}, label %{body}, label %{done}"
+                        ));
+                        self.emitln(&format!("\n{body}:"));
+                        let off = self.fresh_tmp();
+                        let ep = self.fresh_tmp();
+                        let epc = self.fresh_tmp();
+                        self.emitln(&format!(
+                            "  {off} = mul i64 {i}, {}",
+                            e.stride
+                        ));
+                        self.emitln(&format!(
+                            "  {ep} = getelementptr i8, i8* {data_ptr}, i64 {off}"
+                        ));
+                        self.emitln(&format!(
+                            "  {epc} = bitcast i8* {ep} to {}*",
+                            e.llvm_ty
+                        ));
+                        for field in &e.fields {
+                            let fp = self.fresh_tmp();
+                            let dgp = self.fresh_tmp();
+                            let dp = self.fresh_tmp();
+                            self.emitln(&format!(
+                                "  {fp} = getelementptr {}, {}* {epc}, i32 0, i32 {field}",
+                                e.llvm_ty, e.llvm_ty
+                            ));
+                            self.emitln(&format!(
+                                "  {dgp} = getelementptr %struct.Vec, %struct.Vec* {fp}, i32 0, i32 0"
+                            ));
+                            self.emitln(&format!("  {dp} = load i8*, i8** {dgp}"));
+                            self.emitln(&format!(
+                                "  call void @xiom_guard_free(i8* {dp})"
+                            ));
+                        }
+                        let next = self.fresh_tmp();
+                        self.emitln(&format!("  {next} = add i64 {i}, 1"));
+                        self.emitln(&format!("  store i64 {next}, i64* {idx_slot}"));
+                        self.emitln(&format!("  br label %{cond}"));
+                        self.emitln(&format!("\n{done}:"));
+                    }
                     data_ptr
                 }
                 VecDrop::Str { alloca, .. } => {

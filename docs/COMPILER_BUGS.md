@@ -21019,3 +21019,48 @@ export (`recv`, `send`, `connect`, `bind`, `listen`, `accept`, `select`,
 libraries are linked. Workaround: rename the function. Tracked as
 `REL-20261028-0052-compiler`; fix direction is user-fn mangling (or a
 reserved-name diagnostic) and printing the linker stderr on failure.
+## 2026-10-28 -- ELEMENT DROPS (ownership tag): owned Vec[Struct{Vec}] containers
+
+WITNESS: 1000 iterations of `Vec[R].new(); rs.push(R{ xs: Vec[UInt8].with_len(512000) })`
+peak **496 MB** on main before this change: the container buffer was freed,
+the element Vec payloads were not. This is the engine editor 9 MB/frame and
+OrbitDB m375 leak family.
+
+DESIGN (no blind loop): a prepass ownership tag, not a blanket iteration.
+- Only `Vec[T].new()` / `Vec[T].with_capacity(n)` (EMPTY) containers are
+  candidates. `with_len` elements are uninitialized (freeing their field
+  pointers would crash); array literals/call returns have other rules.
+- T must resolve to a plain struct with >=1 Vec field (aliases followed;
+  enums/containers/nested tuples are skipped). Ambiguous same-leaf types
+  are skipped (conservative leak).
+- A container stays tagged only while EVERY push/insert element is owned:
+  - a named aggregate in the prepass aggregate set, declared in the SAME
+    block as the push and never pushed twice (a duplicate push aliases one
+    buffer twice -> E001 warns; the tag stays off);
+  - or an inline struct literal of the SAME element type whose every Vec
+    field is fresh or an owned deep-copy projection (ident fields are
+    rejected because the field-store copy is not proven there).
+- Any removal/reorder/replace method (pop/remove/swap_remove/clear/
+  truncate/resize/set/dedup/retain/sort/fill/swap/extend/add/append/put),
+  any borrow (`&`/`&mut`) of the container, any method call on an element,
+  any element projection in an escape context, or a Vec-field read of an
+  element disqualifies the tag. SCALAR element reads (`rs[i].id`) remain
+  allowed.
+- Names must have exactly ONE declaration (no shadowed tag reuse), be in
+  the existing Vec drop-safe set, and all declarations must be fresh.
+- Codegen intersects the validated field NAMES with `%struct.Vec` LLVM
+  fields, so it never frees a field the analysis did not see. The drop
+  re-reads the header (len/data) at scope exit, so pushes and reallocs after
+  the binding are respected; element payloads are freed BEFORE the element
+  buffer; one flag per container keeps the drop idempotent.
+
+GATES: new `tests/soak/container_elem_owned_drop.xi` (prefix 496 MB; now
+**5 MB at 20k iterations / 0.1 s**) and `container_elem_unsafe_shapes.xi`
+(duplicate push, pop, escaped element Vec, with_len, borrow must all stay
+leak-only and NOT crash). **17/17 memory gates GREEN on debug and release**;
+full e2e **2654/2654 (4 ignored) on both**.
+
+REMAINING (still conservative leaks, never UAF): nested struct fields,
+Str fields of elements, Map/Set values, enum element types, containers with
+removals/reorders, aliased inline-literal fields. Engine editor soak and
+OrbitDB m375 must re-measure on the candidate archive.

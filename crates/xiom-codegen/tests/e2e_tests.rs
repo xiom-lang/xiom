@@ -7677,6 +7677,24 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     );
 }
 
+// Element-drop ownership tag: owned Vec[Struct{Vec}] containers reclaim
+// element payloads; the negative control must not double free.
+#[test] fn e2e_container_elem_owned_drop() {
+    assert_eq!(
+        compile_and_run("tests/soak/container_elem_owned_drop.xi"),
+        Some(0),
+        "owned Vec of Struct with Vec must drop element payloads cleanly"
+    );
+}
+
+#[test] fn e2e_container_elem_unsafe_shapes() {
+    assert_eq!(
+        compile_and_run("tests/soak/container_elem_unsafe_shapes.xi"),
+        Some(0),
+        "disqualifying container shapes must stay leak-only (no double free)"
+    );
+}
+
 // m297 (REL-20261010-1615-stdlib): `Path.is_dir` -- a stdlib METHOD whose
 // body bare-calls the same-leaf free fn `is_dir(self.inner)` -- self-bound:
 // the G-10 implicit-self override re-bound the already-resolved io.is_dir

@@ -231,6 +231,12 @@ reporter reopens with new evidence.
   `ws2_32.lib` (LNK2005 -> LNK1169, and the compiler hides the LNK line).
   Filed as `REL-20261028-0052-compiler`; renaming the function is the
   workaround. Packages verify on the candidate archive is owed.
+- **Container element drops (ownership tag) landed this session:** a
+  push-only `Vec[Struct{Vec}]` built from owned elements now frees each
+  element's Vec payload at scope exit. Probe 496 MB -> **5 MB at 20k
+  iterations**; disqualifying shapes (duplicate push, pop, escaped element
+  Vec, with_len, borrow) stay leak-only and do not crash. **17/17 memory
+  gates GREEN on debug+release; full e2e 2654/2654 (4 ignored) both.**
 - xvector durable repros with this build:
   - `docs\repro\xv-vec-struct-push\probe.xi` (XVC-C-23): **PASS**, named and
     inline forms bad=0, exit 0.
@@ -254,7 +260,7 @@ Every open/acked row is `verified`/`closed` with evidence, or `fixed` with
 a compiler probe and the reporting lane's verification on the candidate
 archive. No `todo` bug/perf rows. Then:
 
-1. 15/15 memory gates on debug+release.
+1. 17/17 memory gates on debug+release.
 2. Full e2e debug+release (baseline 2653/2653, 4 ignored; grows with tests).
 3. Fleet repros on the candidate archive: xvector WAL/station, orbitdb
    hybrid/station, engine editor 600-frame soak + 2034 probe, pulse request
@@ -275,42 +281,40 @@ xvector `docs\repro\xv-vec-struct-push\probe.xi`,
 engine `scripts\build.ps1`, `tests\diagnostics\*`. Ask the lanes to re-post
 the missing repro paths before the fleet-verification gate.
 
-## H. Next workstream: container element drops (not started)
+## H. Container element drops -- ownership tag (IMPLEMENTED, v1 conservative)
 
-Measured on `92e0d07b5` (2026-10-27): a loop that builds `Vec[R]` with
-`R{ xs: Vec[UInt8].with_len(512000) }` and drops the container each
-iteration peaks **496 MB for 1000 iterations** (~0.5 MB/iter) -- the outer
-buffer is freed, each element's Vec payload is not. This is the leak behind
-the engine editor 9 MB/frame and OrbitDB m375, and it needs a real ownership
-tag, not a blind loop.
+Pre-fix measurement on `92e0d07b5`: 1000 iterations of
+`Vec[R].new(); rs.push(R{ xs: Vec[UInt8].with_len(512000) })` peaked
+**496 MB** (~0.5 MB/iter): the outer buffer was freed, each element's Vec
+payload was not. The engine editor 9 MB/frame and OrbitDB m375 sit in this
+family.
 
-Do NOT rush this: the v0.65.2 durable regression was exactly a wrong
-element-ownership assumption. Recorded design and hazards for the next fix:
+Implemented as a prepass OWNERSHIP TAG, not a blind loop:
+- Candidates: `Vec[T].new()`/`with_capacity` (EMPTY) only; `with_len`
+  elements are uninitialized. T must be a plain struct with >=1 Vec field
+  (aliases followed; enums/containers skipped; ambiguous leaves skipped).
+- A container stays tagged only while every push/insert element is owned:
+  a same-block named aggregate in the prepass aggregate set (pushed once),
+  or an inline literal of the same element type whose every Vec field is
+  fresh / an owned deep-copy projection (ident fields rejected).
+- Disqualifiers: pop/remove/swap_remove/clear/truncate/resize/set/dedup/
+  retain/sort/fill/swap/extend/add/append/put; borrows of the container;
+  method calls on an element; an element projection in an escape context;
+  a Vec-field read of an element. Scalar element reads are allowed.
+- One declaration only (no shadowed tag reuse); must already be in the Vec
+  drop-safe set. Codegen frees only the validated field NAMES whose LLVM
+  type is `%struct.Vec`, reads len/data at scope exit, frees payloads before
+  the element buffer, and uses the existing idempotent flag.
 
-- Shape: `Vec[Struct{Vec}]` (and Map values) owns the element's Vec payload
-  after the hotfix disarms the caller aggregate drop. When the container
-  local dies, `VecDrop::Vec` frees only the element buffer, so every
-  element's Vec data leaks (no UAF).
-- Needed: type-directed element drop glue. The binding knows its declared
-  element type (`vec_elem_from_type_annotation` / `local_vec_elem`); for a
-  struct element type, walk `type_meta` Vec fields and free each element's
-  data pointer inside a runtime loop, depth-bounded.
-- Hazards that must be proven before enabling: (1) `Vec[T].with_len(n)`
-  allocates elements without initializing them -- freeing field pointers of
-  uninitialized elements is a crash; only `new`/empty/array-literal and
-  push-populated shapes are safe, or the allocation must be zeroed;
-  (2) elements can be removed with `pop`/`remove`/`swap_remove` (ownership
-  moves to the returned aggregate), so the container must not also free
-  them, and `clear`/`truncate`/`resize` change the live range -- restrict
-  the first version to push/insert-only containers; (3) `Vec[Str]` elements
-  alias literals/borrowed strings -- only owned Str producers may be freed;
-  (4) a field initialized from a call return or a global aliases storage the
-  container does not own (`vec_binding_rhs_aliases` does not deep-copy call
-  returns), so element ownership must be proven from local construction
-  (struct literal with fresh/owned fields), not just from the push.
-- Gate: a soak probe with 1000 x `Vec[Struct{Vec[UInt8] 512 KB}]` push/pop
-  and a Map-value variant, plus the engine editor 600-frame soak and the
-  OrbitDB m375 200k soak. Extend the drop-flag mechanism to the container
-  (armed when elements are owned) so a partially filled container is safe.
+Evidence: `container_elem_owned_drop` (496 MB -> **5 MB at 20k iters /
+0.1 s**) and `container_elem_unsafe_shapes` (duplicate push, pop, escaped
+element Vec, with_len, borrow: leak-only, no crash). **17/17 memory gates
+GREEN on debug+release**; full e2e **2654/2654 (4 ignored) on both**.
+
+Still conservative leaks (never UAF): nested struct fields / Str fields of
+elements, Map/Set values, enum element types, containers with removals or
+reorders, aliased inline-literal fields. The engine editor 600-frame soak
+and OrbitDB m375 200k soak must re-measure on the candidate archive.
+
 
 

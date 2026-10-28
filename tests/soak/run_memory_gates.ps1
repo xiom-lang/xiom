@@ -45,6 +45,8 @@ $Gates = @(
     @{ Name = "aggregate_vec_leak";     CapMB = 64 },
     @{ Name = "aggregate_return_leak";  CapMB = 64 },
     @{ Name = "byval_param_field_move_leak"; CapMB = 64 },
+    @{ Name = "container_elem_owned_drop"; CapMB = 64 },
+    @{ Name = "container_elem_unsafe_shapes"; CapMB = 64 },
     @{ Name = "vecprobe_index_loop"; Source = "vecprobe.xi"; CapMB = 128;
        Env = @{ PROBE_VEC_MODE = "0"; PROBE_VEC_N = "800000" } },
     @{ Name = "vecprobe_index_fn";   Source = "vecprobe.xi"; CapMB = 128;

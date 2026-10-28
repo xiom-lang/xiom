@@ -315,11 +315,30 @@ pub struct TypeContext {
 // FunctionContext -- Per-function compilation state
 // ============================================================================
 
+/// Element drop glue for a `Vec[Struct]` container whose prepass ownership
+/// tag proved every element's Vec fields are owned by the container.
+#[derive(Clone, Debug)]
+pub struct ElemDrop {
+    /// Concrete LLVM struct type of one element (`%struct.<key>`).
+    pub llvm_ty: String,
+    /// Byte stride between elements (`vec_slot_size(struct size)`).
+    pub stride: i64,
+    /// Field indices whose LLVM type is `%struct.Vec`.
+    pub fields: Vec<u32>,
+}
+
 /// One reclamation site: a Vec header, or a Vec field inside an owned
 /// aggregate (m375 editor frame shape). The flag is shared per site.
 #[derive(Clone, Debug)]
 pub enum VecDrop {
-    Vec { alloca: String, flag: String },
+    Vec {
+        alloca: String,
+        flag: String,
+        /// REL-20261015-2309 / element-drop work: when the prepass ownership
+        /// tag proved the elements are owned, free each element's Vec fields
+        /// before freeing the element buffer.
+        elem: Option<ElemDrop>,
+    },
     /// Fresh Str local (`s = a + b`, `int.to_str()`): free the malloc'd
     /// buffer at scope exit. Conservative: only shapes the prepass proved
     /// fresh and non-escaping.
@@ -425,6 +444,12 @@ pub struct FunctionContext {
     /// m368: local names proven OWNED AND PRIVATE for the current function by
     /// the AST prepass (`vec_drop::collect_owned_vec_locals`).
     pub vec_drop_safe: HashSet<String>,
+    /// Element-drop ownership tag (container local -> element XIOM type and
+    /// the validated Vec field names). Present only when the prepass proved
+    /// EVERY element pushed into the container owns its Vec fields and no
+    /// ordering/removal/alias use can invalidate that. Absent means "leak, do
+    /// not free elements".
+    pub elem_drop_safe: HashMap<String, (String, Vec<String>)>,
     /// v0.65.2 (REL-20261010-1549-pulse-4): fresh, non-escaping Str locals
     /// (concat / `to_str` / `to_string`) whose malloc'd buffer is freed at
     /// scope exit. Conservative; literals and borrowed/FFI Str are excluded.

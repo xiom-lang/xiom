@@ -61,6 +61,16 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   (LNK2005/LNK1169, hidden stderr) -- filed as
   **`REL-20261028-0052-compiler`** (workaround: rename); user-fn mangling or
   a reserved-name diagnostic is the fix.
+- **Container element drops v1 landed (ownership tag):** `Vec[Struct{Vec}]`
+  built with `new`/`with_capacity` and push/insert-only from owned elements
+  now frees each element's Vec payload. Pre-fix 496 MB/1000 iters -> **5 MB
+  at 20k iters**; disqualifying shapes (duplicate push, pop, escaped element
+  Vec, `with_len`, borrow, element methods, Vec-field reads) stay leak-only
+  and are covered by `container_elem_unsafe_shapes`. **17/17 gates both;
+  full e2e 2654/2654 (4 ignored) both.** Remaining conservative leaks:
+  nested struct/Str fields, Map/Set values, enum element types, removals/
+  reorders, aliased inline fields. Engine editor soak + OrbitDB m375 must
+  re-measure on the candidate archive.
 - **`docs/COMPILER-LANE-CLOSURE.md` refreshed from the live bus:** the bus
   snapshot is now **16 open / 102 acked / 62 fixed addressed to `compiler`**
   (28 open rows total once compiler's own broadcasts are counted). The doc
@@ -77,8 +87,8 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   diff_ast is re-run; T6/diff_ast was not re-run this session.
 - **v0.65.3 STILL NOT bumped/tagged.** v0.65.2 remains upstream-only;
   v0.65.1 is the accepted pin for xvector/orbitdb. Owner GO required.
-- Still open on the closure gate: engine editor 600-frame soak (needs
-  container element drops; 2034 mode-1 is fixed), 1931 XgView/Vec,
+- Still open on the closure gate: engine editor 600-frame soak (element
+  drops v1 landed; nested/Str/Map fields still leak), 1931 XgView/Vec,
   OrbitDB m375 memory/teardown, pulse/JSON/Map retention, the new
   libc/Winsock fn-name collision (`REL-20261028-0052-compiler`), and the
   correctness carry.
