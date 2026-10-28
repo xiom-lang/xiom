@@ -30,10 +30,11 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   **`40610999107` SUCCESS** on `63c3d809d`, **`40612001738` SUCCESS**
   on `fea788908`, **`40692787953` SUCCESS** on `93d561107`,
   **`40701485338` SUCCESS** on `eac90fba6`, **`40716560050` SUCCESS** on
-  `855766b73`, **`40743760247` SUCCESS** on `a13040ac0` (Str rebind), and
-  **`40752513403` SUCCESS** on `46f7f50aa` (Vec[Vec] drops; all matrix incl.
-  arm64 floor/MCU). A source-built candidate is at
-  `target\candidate\xiom-46f7f50aa.exe` (sha256 `8BB859BB...`); lanes were
+  `855766b73`, **`40743760247` SUCCESS** on `a13040ac0` (Str rebind),
+  **`40752513403` SUCCESS** on `46f7f50aa` (Vec[Vec] drops), and
+  **`40763583267` SUCCESS** on `ab97014d9` (huffman borrow fix; all matrix
+  incl. arm64 floor/MCU). Updated candidate:
+  `target\candidate\xiom-ab97014d9.exe` (sha256 `6D9F2ED0...`); lanes were
   asked to re-measure. Fix commit `92e0d07b5`; relay
   `REL-20261027-2034-engine` now `fixed` (engine verify owed).
 - **Durable-lane hotfix verified with this build:** xvector XVC-C-23 PASS
@@ -130,13 +131,14 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   Packages must re-run with their exact envelope (pass count, last check,
   exit, stdlib commit). Not marked fixed.
 - **`docs/COMPILER-LANE-CLOSURE.md` refreshed from the live bus:** the bus
-  snapshot is now **15 open / 106 acked / 64 fixed addressed to `compiler`**
-  (27 open rows total once compiler's own broadcasts are counted). The doc
-  classifies every acked row: 42 bugs, 10 wishlist, 50 info. Since the first
+  snapshot is now **16 open / 106 acked / 65 fixed addressed to `compiler`**
+  (29 open lane rows total: 16 above + 13 compiler broadcasts). The doc
+  classifies every acked row: 45 bugs, 10 wishlist, 51 info. Since the first
   refresh: `2034-playground` was closed by its reporter, `1854-pulse` moved
   open -> acked (reduced probes + a new e2e lock green, pulse verify owed),
-  `2034-engine`, `2303-packages`, `1159-stdlib` and `0052-compiler` moved to
-  fixed.
+  `2034-engine`, `2303-packages`, `1159-stdlib`, `0052-compiler` and
+  `1801-stdlib` (1805 duplicate) moved to fixed; `1641-stdlib` (p_wave162
+  SSE) is newly open.
 - **Parser/AST note for the selfhost lane:** qualified enum/struct literal
   constructors now parse to `Expr::Struct(name = "<dotted path>")` instead of
   the anonymous `_` (`IVal.IStr`, `module.Type.Variant`), so the canonical

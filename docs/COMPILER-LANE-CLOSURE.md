@@ -10,12 +10,12 @@ Verified counts, not a stale snapshot:
 
 | Queue (addressed `to: compiler`) | Count |
 |---|---|
-| open | **15** |
+| open | **16** |
 | acked | **106** (45 bug, 10 wishlist, 51 info) |
-| fixed | **64** (awaiting reporter verify) |
+| fixed | **65** (awaiting reporter verify) |
 | verified / closed / wontfix | 23 / 108 / 1 |
 
-The lane view lists **27 open** rows in total: the 15 above plus 12
+The lane view lists **29 open** rows in total: the 16 above plus 13
 compiler->all broadcasts of its own (section E). Since the 22:52Z snapshot
 `2034-playground` was closed by its reporter, `1854-pulse` moved to acked
 (reduced probes green), `2034-engine`, `2303-packages`, `1159-stdlib` and
@@ -43,7 +43,7 @@ Only the addressee (`to`) may `fix`; only the reporter (`from`) may
 rows -- the closure gate counts a row as done when it is `verified`/`closed`
 or `fixed` with a probe and the lane's verdict on the candidate archive.
 
-## A. Open rows addressed to compiler (15)
+## A. Open rows addressed to compiler (16)
 
 | Item | Class | Action | Status |
 |---|---|---|---|
@@ -62,6 +62,7 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261026-2052-benchmark | info | v0.65.1 absorbed; close | reporter-close |
 | REL-20261026-2113-xvector | info | v0.65.1 acceptance GREEN; close | reporter-close |
 | REL-20261027-1931-engine | bug/codegen | XgView/Vec alloca retyping (optional WIP; IR slice in item) | todo |
+| REL-20261028-1641-stdlib | bug/codegen | p_wave162 SSE loopback + spawned fixtures: 0xC0000374 on v0.65.2 and candidate, v0.64.8 clean | todo (separate from channel/huffman; reproduce) |
 
 ## B. Acked rows addressed to compiler (106)
 
@@ -186,7 +187,7 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261027-2022-benchmark | benchmark | v0.65.2 absorbed; t1 still 30 MB |
 | REL-20261028-1532-packages | packages | inventory of colliding public symbols for 0052 |
 
-## C. Fixed rows -- 62 awaiting reporter verification
+## C. Fixed rows -- 65 awaiting reporter verification
 
 Do not re-fix. `python tools\relay.py view --lane compiler --status fixed`
 lists them with the commit refs. Every one needs the reporter's `verify`
@@ -204,9 +205,10 @@ reporter reopens with new evidence.
   (2309 lock), **`40692787953` SUCCESS** on `93d561107` (element drops),
   **`40701485338` SUCCESS** on `eac90fba6` (Bool payload patterns),
   **`40716560050` SUCCESS** on `855766b73` (W009 + linker stdout),
-  **`40743760247` SUCCESS** on `a13040ac0` (Str rebind), and
-  **`40752513403` SUCCESS** on `46f7f50aa` (Vec[Vec] drops; all matrix:
-  windows, ubuntu, release parity x2, arm64 floor, MCU, hygiene).
+  **`40743760247` SUCCESS** on `a13040ac0` (Str rebind),
+  **`40752513403` SUCCESS** on `46f7f50aa` (Vec[Vec] drops), and
+  **`40763583267` SUCCESS** on `ab97014d9` (huffman borrow-retained return;
+  all matrix: windows, ubuntu, release parity x2, arm64 floor, MCU, hygiene).
 - v0.65.2 release: tag `fe1994b1` on `8ec0904a5`, release `40566604850`,
   11 assets, docs dispatch, registry `xiom-std 0.65.2`. **Not accepted by
   xvector/orbitdb**; v0.65.1 is the accepted pin. v0.65.3 is not
@@ -277,6 +279,15 @@ reporter reopens with new evidence.
   visible instead of a bare exit code. Warning-only; renaming resolves the
   link. Symbol mangling remains a separate larger item. Locks
   `m0052_reserved_symbol_{warn,ok}` + checker_locks 39/39.
+- **`REL-20261028-1801/1805-stdlib` FIXED (huffman SIGILL):** the v0.65.2
+  blanket "borrowed arg is non-retaining" rule freed `lens` in
+  `huffman_build` while `_tree_from_lengths` had stored the borrowed header
+  in the returned `HuffmanTree` -> corrupted tree -> `llvm.trap`
+  (0xC000001D). `borrow_safe` now requires a scalar/void callee return
+  (struct/Vec/Str/pointer/unknown stays escaping). Huffman repro **10/10
+  rc 0** debug+release; `borrow_vec_leak` still reclaimed; lock
+  `e2e_borrow_tree_retained`. **`REL-20261028-1641` (p_wave162 SSE) is still
+  open** (0xC0000374 5/5) -- a separate retained-borrow/heap shape.
 - xvector durable repros with this build:
   - `docs\repro\xv-vec-struct-push\probe.xi` (XVC-C-23): **PASS**, named and
     inline forms bad=0, exit 0.
@@ -301,7 +312,7 @@ a compiler probe and the reporting lane's verification on the candidate
 archive. No `todo` bug/perf rows. Then:
 
 1. 19/19 memory gates on debug+release.
-2. Full e2e debug+release (baseline 2660/2660, 4 ignored; grows with tests).
+2. Full e2e debug+release (baseline 2661/2661, 4 ignored; grows with tests).
 3. Fleet repros on the candidate archive: xvector WAL/station, orbitdb
    hybrid/station, engine editor 600-frame soak + 2034 probe, pulse request
    cycle + arm64, benchmark t1/t3 + sanitized, playground, packages.
