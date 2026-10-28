@@ -20997,3 +20997,25 @@ LOCK: `tests/regression/m2303_enum_qualified_payload/main.xi` +
 `e2e_m2303_enum_qualified_payload`; 15/15 memory gates both; full e2e
 recorded in `docs/COMPILER-LANE-CLOSURE.md` section D.
 Packages still owns the in-situ jev/otel re-verify on the candidate archive.
+
+## 2026-10-28 -- VERIFIED: mixed-element tuples (2309); OPEN: libc fn-name collision
+
+WITNESS (REL-20261015-2309-packages): `fn ... -> (Vec[UInt8], Str, Int)` was
+reported as `unknown type Tuple__Vec[UInt8]__Str__Int` with garbage/AV, plus
+a 4-field tuple link clash.
+
+REPRO ON `63c3d809d`: both shapes compile, link, and read exactly --
+`("abc", 42, Vec[65,66,67])` and `(1, "two", 3, "four")`. No unknown-type
+diagnostic. LOCK: `tests/regression/m2309_mixed_tuples/main.xi` +
+`e2e_m2309_mixed_tuples` (PASS on debug and release).
+
+SEPARATE DEFECT FOUND (open): the reduced probe first used a helper named
+`recv`; the link failed `ws2_32.lib(WS2_32.dll) : error LNK2005: recv
+already defined in xiominput-<hash>.o` -> LNK1169, while the compiler
+reported only "clang failed with exit code 1169". Top-level XIOM functions
+are emitted as plain LLVM symbols, so any name matching a libc/Winsock
+export (`recv`, `send`, `connect`, `bind`, `listen`, `accept`, `select`,
+`socket`, `closesocket`, `free`, `malloc`, ...) collides whenever those
+libraries are linked. Workaround: rename the function. Tracked as
+`REL-20261028-0052-compiler`; fix direction is user-fn mangling (or a
+reserved-name diagnostic) and printing the linker stderr on failure.

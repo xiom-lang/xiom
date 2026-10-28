@@ -7668,6 +7668,15 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     );
 }
 
+// REL-20261015-2309-packages: mixed-element tuples (Vec/Str/Int, 4 fields).
+#[test] fn e2e_m2309_mixed_tuples() {
+    assert_eq!(
+        compile_and_run("tests/regression/m2309_mixed_tuples/main.xi"),
+        Some(0),
+        "mixed-element tuples must link and read every element (2309)"
+    );
+}
+
 // m297 (REL-20261010-1615-stdlib): `Path.is_dir` -- a stdlib METHOD whose
 // body bare-calls the same-leaf free fn `is_dir(self.inner)` -- self-bound:
 // the G-10 implicit-self override re-bound the already-resolved io.is_dir

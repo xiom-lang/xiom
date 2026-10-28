@@ -52,13 +52,21 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   module), including NaN/Inf cross-module. New lock
   `e2e_m2303_enum_qualified_payload`; 15/15 gates; full e2e
   **2653/2653 (4 ignored) on both**; packages in-situ verify owed.
+- **`REL-20261015-2309-packages` VERIFIED (no new code):** both reported
+  mixed-tuple shapes compile, link, and read exactly on `63c3d809d`; new
+  lock `e2e_m2309_mixed_tuples`. The reduction exposed a separate defect:
+  a top-level fn named `recv` collides with Winsock `recv`
+  (LNK2005/LNK1169, hidden stderr) -- filed as
+  **`REL-20261028-0052-compiler`** (workaround: rename); user-fn mangling or
+  a reserved-name diagnostic is the fix.
 - **`docs/COMPILER-LANE-CLOSURE.md` refreshed from the live bus:** the bus
-  snapshot is now **15 open / 102 acked / 62 fixed addressed to `compiler`**
-  (27 open rows total once compiler's own broadcasts are counted). The doc
+  snapshot is now **16 open / 102 acked / 62 fixed addressed to `compiler`**
+  (28 open rows total once compiler's own broadcasts are counted). The doc
   classifies every acked row: 42 bugs, 10 wishlist, 50 info. Since the first
   refresh: `2034-playground` was closed by its reporter, `1854-pulse` moved
   open -> acked (reduced probes + a new e2e lock green, pulse verify owed),
-  `2034-engine` and `2303-packages` moved acked -> fixed.
+  `2034-engine` and `2303-packages` moved acked -> fixed, and
+  `REL-20261028-0052-compiler` was filed.
 - **v0.65.3 STILL NOT bumped/tagged.** v0.65.2 remains upstream-only;
   v0.65.1 is the accepted pin for xvector/orbitdb. Owner GO required.
 - Still open on the closure gate: engine editor 600-frame soak (needs

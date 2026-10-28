@@ -10,15 +10,16 @@ Verified counts, not a stale snapshot:
 
 | Queue (addressed `to: compiler`) | Count |
 |---|---|
-| open | **15** |
+| open | **16** |
 | acked | **102** (42 bug, 10 wishlist, 50 info) |
 | fixed | **62** (awaiting reporter verify) |
 | verified / closed / wontfix | 23 / 108 / 1 |
 
-The lane view lists **27 open** rows in total: the 15 above plus 12
+The lane view lists **28 open** rows in total: the 16 above plus 12
 compiler->all broadcasts of its own (section E). Since the 22:52Z snapshot
 `2034-playground` was closed by its reporter, `1854-pulse` moved to acked
-(reduced probes green), and `2034-engine` moved to fixed.
+(reduced probes green), and `2034-engine` and `2303-packages` moved to
+fixed; `REL-20261028-0052-compiler` was filed from the 2309 reduction.
 
 ```powershell
 cd E:\xiom-lang\xiom-relays
@@ -39,7 +40,7 @@ Only the addressee (`to`) may `fix`; only the reporter (`from`) may
 rows -- the closure gate counts a row as done when it is `verified`/`closed`
 or `fixed` with a probe and the lane's verdict on the candidate archive.
 
-## A. Open rows addressed to compiler (15)
+## A. Open rows addressed to compiler (16)
 
 | Item | Class | Action | Status |
 |---|---|---|---|
@@ -58,6 +59,7 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261026-2052-benchmark | info | v0.65.1 absorbed; close | reporter-close |
 | REL-20261026-2113-xvector | info | v0.65.1 acceptance GREEN; close | reporter-close |
 | REL-20261027-1931-engine | bug/codegen | XgView/Vec alloca retyping (optional WIP; IR slice in item) | todo |
+| REL-20261028-0052-compiler | bug/codegen | top-level fn name collides with libc/Winsock (`recv` -> LNK2005); mangle or diagnose reserved names, surface linker stderr | todo (new 2026-10-28) |
 
 ## B. Acked rows addressed to compiler (103)
 
@@ -91,7 +93,7 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261015-1358-engine | engine | Editor W1: json secondary modules, module-id collision | verify-on-archive (m341 W1.1; other W1 sub-findings) |
 | REL-20261015-1538-engine | engine | Editor W2: reflect consts, import order, `&mut` fields | verify-on-archive (m341 W2.1; other W2 sub-findings) |
 | REL-20261015-2309-packages-2 | packages | bare `assert` mis-binds to `xiom.core.assert` | todo |
-| REL-20261015-2309-packages | packages | mixed-element tuples (`Tuple__Vec[UInt8]__Str__Int`) | todo |
+| REL-20261015-2309-packages | packages | mixed-element tuples (`Tuple__Vec[UInt8]__Str__Int`) | reporter-close (3-field Vec/Str/Int + 4-field green `63c3d809d`; e2e lock; packages verify owed) |
 | REL-20261016-2002-packages | packages | Float64 returns via dlsym'd fn pointers | reporter-close (m348) |
 | REL-20261016-2004-packages | packages | imported struct `Array` collides with builtin | reporter-close (m349) |
 | REL-20261016-2016-packages | packages | reading Result fields behind `&Result` crashes | reporter-close (m350) |
@@ -220,6 +222,14 @@ reporter reopens with new evidence.
   no clang layout collisions. Lock `e2e_m2303_enum_qualified_payload`.
   Packages in-situ jev/otel verify is owed. 15/15 gates both; full e2e
   **2653/2653 (4 ignored) on debug and release**.
+- **2309 mixed tuples (this session):** the reported `Tuple__Vec[UInt8]__Str__Int`
+  shape now compiles, links, and reads every element; a 4-field
+  `(Int, Str, Int, Str)` tuple does too. New lock `e2e_m2309_mixed_tuples`.
+  The reduced probe exposed a separate link defect: a top-level user
+  function named `recv` collides with the Winsock `recv` pulled from
+  `ws2_32.lib` (LNK2005 -> LNK1169, and the compiler hides the LNK line).
+  Filed as `REL-20261028-0052-compiler`; renaming the function is the
+  workaround. Packages verify on the candidate archive is owed.
 - xvector durable repros with this build:
   - `docs\repro\xv-vec-struct-push\probe.xi` (XVC-C-23): **PASS**, named and
     inline forms bad=0, exit 0.
