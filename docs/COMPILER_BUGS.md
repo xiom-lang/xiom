@@ -21221,3 +21221,35 @@ REMAINING measured app leaks: nested `Vec[Outer{Inner{Vec}}]`
 **431 MB/1000**, Map/Set values, enum element types, large-string `Vec[Str]`,
 containers with removals/reorders. Nested-struct field drops are the next
 target.
+## 2026-10-28 -- FIXED: borrowed Vec retained in a returned struct (huffman SIGILL, 1801/1805)
+
+WITNESS: `p_huffman_compress_5000_linux.xi` -- mk a 5000-byte Vec,
+`huffman_compress`, `huffman_decompress`. v0.64.8 rc 0; official v0.65.2
+rc 132 (Linux 3/3) / 0xC000001D (Windows 1/3); candidate 0xC000001D 3-4/5.
+WER fault offset maps to the `ud2` (llvm.trap) at the end of
+`compress.huffman.huffman_encode`; the trap is a corrupted-tree guard, not
+an illegal CPU instruction.
+
+ROOT CAUSE: 8ec0904a5 (v0.65.2) made a `&` argument to ANY ordinary call
+non-escaping. `_tree_from_lengths(lens: &Vec[Int])` stores the BORROWED
+lens header in the returned `HuffmanTree` (IR: `store %struct.Vec` of the
+param header, no deep copy); `huffman_build` then frees `lens` at exit
+because the borrow was considered non-retaining, leaving the returned
+tree's `code_lengths` dangling. The tree walk then reads garbage lengths
+and reaches a trap. Nondeterministic on v0.65.2 (freed memory contents);
+deterministic on the candidate (different allocator order).
+
+FIX: `borrow_safe` now requires the CALLEE's return type to be scalar/void
+(built from `types.functions` leaf names; any `%struct`, `Vec`, `Str`,
+pointer or unknown return keeps the borrow escaping). This preserves the
+engine `consume(&v) -> Int` reclaim (borrow gate still ~5 MB) while a
+callee that returns a struct holding the borrowed header can no longer
+have its source freed.
+
+EVIDENCE: huffman repro **10/10 rc 0** on debug and release; `p_wave188`
+5/5; `borrow_vec_leak` gate green; **19/19 memory gates**; full e2e
+2660/2660 before the added lock; new lock `tests/regression/borrow_tree_retained`
++ `e2e_borrow_tree_retained` (PASS both).
+
+REMAINING: `REL-20261028-1641` (p_wave162 SSE) still 0xC0000374 5/5 -- a
+separate retained-borrow/heap shape, not the channel or huffman.

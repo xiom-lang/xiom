@@ -7736,6 +7736,16 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     );
 }
 
+// REL-20261028-1801/1805: a callee that stores a borrowed Vec in its
+// returned struct keeps the borrow alive; the caller must not free it.
+#[test] fn e2e_borrow_tree_retained() {
+    assert_eq!(
+        compile_and_run("tests/regression/borrow_tree_retained/main.xi"),
+        Some(0),
+        "borrowed Vec retained in a returned tree must not be freed by the caller (SIGILL)"
+    );
+}
+
 // m297 (REL-20261010-1615-stdlib): `Path.is_dir` -- a stdlib METHOD whose
 // body bare-calls the same-leaf free fn `is_dir(self.inner)` -- self-bound:
 // the G-10 implicit-self override re-bound the already-resolved io.is_dir

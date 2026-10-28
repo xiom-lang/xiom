@@ -98,6 +98,15 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   2660/2660 (4 ignored) both.**
   Remaining measured app leaks: nested struct **431 MB/1000**, large
   `Vec[Str]`, Map/Set values, enum elements, removal-containing containers.
+- **`REL-20261028-1801/1805-stdlib` FIXED (huffman SIGILL):** the v0.65.2
+  blanket "borrowed arg is non-retaining" rule freed `lens` in
+  `huffman_build` while `_tree_from_lengths` had stored the borrowed header
+  in the returned `HuffmanTree` -> corrupted tree -> `llvm.trap`
+  (0xC000001D). `borrow_safe` now requires a scalar/void callee return;
+  struct/Vec/Str/pointer/unknown returns keep the borrow escaping. Huffman
+  repro 10/10 rc 0 debug+release; `borrow_vec_leak` still reclaimed; lock
+  `e2e_borrow_tree_retained`; 19/19 gates. `p_wave162` (1641) is still an
+  open separate 0xC0000374.
 - **`REL-20261028-1159-stdlib` FIXED (new finding):** nested literal Bool
   payload patterns (`Ok(false)`, `Some(true)`) only checked the tag, so both
   arms matched any Ok/Some (stdlib h2 frame reader took the wrong branch).
@@ -139,7 +148,7 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 - Still open on the closure gate: engine editor 600-frame soak (element
   drops v1 + Str rebind landed; Vec[Vec]/nested/Map fields still leak),
   1931 XgView/Vec, OrbitDB m375 memory/teardown, pulse/JSON/Map retention,
-  and the correctness carry.
+  `p_wave162` SSE 0xC0000374 (1641), and the correctness carry.
 - Repro-path note: the prompt's `station/tests/loopback_suite.xi`,
   `tests/hybrid/probe_hybrid.xi` (xvector) and `engine/moveprobe.xi` do not
   exist on disk; OrbitDB's `tests/hybrid/probe_hybrid.xi` does. Use the
@@ -3631,3 +3640,4 @@ sole writer there; sibling ses_ef8e3a27cffe stays idle. Prompt it only if
 it needs to continue docs/checklists/selfhost-phase6.md on the current
 main (post-m284).
 ```
+

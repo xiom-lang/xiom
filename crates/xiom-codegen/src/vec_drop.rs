@@ -102,6 +102,11 @@ struct ScanState {
     next_block: usize,
     /// Precomputed type-name variant -> Vec field names (plain structs only).
     elem_type_vec_fields: HashMap<String, Vec<String>>,
+    /// Callee leaf names whose return type is a scalar/void: only these may
+    /// treat a `&` argument as non-retaining. A callee returning a struct or
+    /// a Vec can store the borrowed header in its result (huffman
+    /// `_tree_from_lengths`), so the borrow MUST be treated as escaping.
+    known_nonretaining: HashSet<String>,
     /// Str locals with at least one fresh assignment/declaration.
     str_rebind: HashSet<String>,
     /// Str locals used in an escaping context OTHER than `return` (an alias
@@ -135,6 +140,7 @@ pub(crate) fn collect_owned_vec_locals(
     fresh_aggregate: &HashSet<String>,
     trust_unsafe: bool,
     elem_type_vec_fields: &HashMap<String, Vec<String>>,
+    known_nonretaining: &HashSet<String>,
 ) -> OwnedLocals {
     let mut state = ScanState::default();
     state.fresh = fresh.clone();
@@ -142,6 +148,7 @@ pub(crate) fn collect_owned_vec_locals(
     state.fresh_aggregate = fresh_aggregate.clone();
     state.trust_unsafe = trust_unsafe;
     state.elem_type_vec_fields = elem_type_vec_fields.clone();
+    state.known_nonretaining = known_nonretaining.clone();
     scan_block(block, &mut state);
     // Element drops are per-DECLARATION: a shadowed name with a second,
     // different binding must not inherit the first one's tag.
@@ -920,8 +927,17 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                 // an unsafe/FFI block keep the conservative escape (foreign
                 // code may retain), except under the trusted owns_return
                 // contract.
-                let borrow_safe = !state.in_unsafe
-                    || (state.trust_unsafe && state.in_trusted_unsafe);
+                let borrow_safe = (!state.in_unsafe
+                    || (state.trust_unsafe && state.in_trusted_unsafe))
+                    && match func.as_ref() {
+                        Expr::Ident(id) => {
+                            state.known_nonretaining.contains(&id.name)
+                        }
+                        Expr::Field(_, method, _) => {
+                            state.known_nonretaining.contains(&method.name)
+                        }
+                        _ => false,
+                    };
                 if borrow_safe {
                     if let Expr::Ref(inner, _) | Expr::MutRef(inner, _) = arg {
                         scan_borrow_arg(inner, state);
@@ -1389,6 +1405,21 @@ impl IrEmitter {
         let fresh_payload = self.fresh_payload_returns.clone();
         let fresh_aggregate = self.fresh_aggregate_returns.clone();
         let elem_type_vec_fields = Self::elem_type_vec_fields(&self.types);
+        // A borrow is only non-retaining when the callee's return type cannot
+        // carry it (scalar/void). huffman `_tree_from_lengths(&lens)` returns
+        // a struct holding the borrowed Vec header, so `lens` must stay
+        // escaping (0xC000001D on v0.65.2/candidate).
+        let mut known: HashSet<String> = HashSet::new();
+        let mut may_retain: HashSet<String> = HashSet::new();
+        for (name, (_, ret)) in self.types.functions.entries() {
+            let leaf = name.rsplit('.').next().unwrap_or(&name).to_string();
+            known.insert(leaf.clone());
+            if !Self::is_nonretaining_return(&ret) {
+                may_retain.insert(leaf);
+            }
+        }
+        let known_nonretaining: HashSet<String> =
+            known.difference(&may_retain).cloned().collect();
         let owned = collect_owned_vec_locals(
             body,
             &fresh,
@@ -1396,12 +1427,22 @@ impl IrEmitter {
             &fresh_aggregate,
             trust_unsafe,
             &elem_type_vec_fields,
+            &known_nonretaining,
         );
         self.fctx.vec_drop_safe = owned.vec;
         self.fctx.str_drop_safe = owned.str;
         self.fctx.aggregate_drop_safe = owned.aggregate;
         self.fctx.elem_drop_safe = owned.elem;
         self.fctx.str_rebind_safe = owned.str_rebind;
+    }
+
+    /// A return type that cannot carry a borrowed Vec header: scalar/void.
+    fn is_nonretaining_return(ret: &str) -> bool {
+        let r = ret.trim();
+        matches!(r, "void" | "float" | "double" | "half" | "fp128")
+            || (r.starts_with('i')
+                && r.len() > 1
+                && r[1..].chars().all(|c| c.is_ascii_digit()))
     }
 
     /// Names of the Vec fields of every plain struct type, keyed by the full
