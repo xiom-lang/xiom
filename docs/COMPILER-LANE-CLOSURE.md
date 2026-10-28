@@ -10,18 +10,17 @@ Verified counts, not a stale snapshot:
 
 | Queue (addressed `to: compiler`) | Count |
 |---|---|
-| open | **16** |
+| open | **15** |
 | acked | **102** (42 bug, 10 wishlist, 50 info) |
-| fixed | **63** (awaiting reporter verify) |
+| fixed | **64** (awaiting reporter verify) |
 | verified / closed / wontfix | 23 / 108 / 1 |
 
-The lane view lists **28 open** rows in total: the 16 above plus 12
+The lane view lists **27 open** rows in total: the 15 above plus 12
 compiler->all broadcasts of its own (section E). Since the 22:52Z snapshot
 `2034-playground` was closed by its reporter, `1854-pulse` moved to acked
-(reduced probes green), `2034-engine` and `2303-packages` moved to
-fixed; `REL-20261028-0052-compiler` was filed from the 2309 reduction, and
-`REL-20261028-1159-stdlib` (Bool payload patterns) was reported and fixed
-in this session.
+(reduced probes green), `2034-engine`, `2303-packages`, `1159-stdlib` and
+`0052-compiler` moved to fixed; `REL-20261028-0052-compiler` was filed from
+the 2309 reduction.
 
 ```powershell
 cd E:\xiom-lang\xiom-relays
@@ -42,7 +41,7 @@ Only the addressee (`to`) may `fix`; only the reporter (`from`) may
 rows -- the closure gate counts a row as done when it is `verified`/`closed`
 or `fixed` with a probe and the lane's verdict on the candidate archive.
 
-## A. Open rows addressed to compiler (16)
+## A. Open rows addressed to compiler (15)
 
 | Item | Class | Action | Status |
 |---|---|---|---|
@@ -61,9 +60,8 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261026-2052-benchmark | info | v0.65.1 absorbed; close | reporter-close |
 | REL-20261026-2113-xvector | info | v0.65.1 acceptance GREEN; close | reporter-close |
 | REL-20261027-1931-engine | bug/codegen | XgView/Vec alloca retyping (optional WIP; IR slice in item) | todo |
-| REL-20261028-0052-compiler | bug/codegen | top-level fn name collides with libc/Winsock (`recv` -> LNK2005); mangle or diagnose reserved names, surface linker stderr | todo (new 2026-10-28) |
 
-## B. Acked rows addressed to compiler (103)
+## B. Acked rows addressed to compiler (102)
 
 ### B1. Bugs -- 42 actionable rows
 
@@ -247,6 +245,13 @@ reporter reopens with new evidence.
   is compared in plain and or-pattern arms. Repro runs rc 0; matrix covers
   Ok/Err/Some/None/or-patterns. Lock `e2e_result_bool_patterns`; 17/17
   gates; full e2e **2658/2658 (4 ignored) both**.
+- **`REL-20261028-0052-compiler` FIXED (diagnose+surface):** top-level fns
+  emitted as plain symbols that collide with libc/Winsock exports now warn
+  (W009) for the known set (recv/send/connect/.../free/malloc/str*/...), and
+  clang STDOUT is printed on failure, so LNK2005 + the defining object are
+  visible instead of a bare exit code. Warning-only; renaming resolves the
+  link. Symbol mangling remains a separate larger item. Locks
+  `m0052_reserved_symbol_{warn,ok}` + checker_locks 39/39.
 - xvector durable repros with this build:
   - `docs\repro\xv-vec-struct-push\probe.xi` (XVC-C-23): **PASS**, named and
     inline forms bad=0, exit 0.

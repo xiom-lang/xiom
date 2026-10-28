@@ -3242,9 +3242,41 @@ impl Checker {
         }
     }
 
+    /// W009 (REL-20261028-0052-compiler): top-level XIOM functions are
+    /// emitted as plain LLVM symbols, so these names collide with the
+    /// libc/Winsock exports the native runtime already links. On Windows the
+    /// result is LNK2005 "already defined" -> LNK1169, with no source-level
+    /// hint. Warning-only: a freestanding build may legitimately provide one.
+    fn reserved_system_symbol(name: &str) -> bool {
+        matches!(
+            name,
+            "recv" | "recvfrom" | "send" | "sendto" | "connect" | "bind" | "listen"
+                | "accept" | "select" | "socket" | "closesocket" | "shutdown"
+                | "ioctlsocket" | "WSAStartup" | "WSACleanup" | "WSAGetLastError"
+                | "free" | "malloc" | "calloc" | "realloc"
+                | "memcpy" | "memmove" | "memset"
+                | "strlen" | "strcmp" | "strcpy" | "strncpy"
+                | "printf" | "puts" | "exit" | "abort"
+        )
+    }
+
     fn check_top_decl(&mut self, item: &TopDecl) {
         match item {
             TopDecl::Fn(fd) => {
+                if !self.checking_catalog
+                    && fd.receiver.is_none()
+                    && fd.name.name != "main"
+                    && Self::reserved_system_symbol(&fd.name.name)
+                {
+                    self.warn_coded_at(
+                        "W009",
+                        format!(
+                            "top-level function '{}' is emitted as a plain symbol and collides with a libc/Winsock export on native targets; rename it (the link can fail with LNK2005 / a duplicate symbol)",
+                            fd.name.name
+                        ),
+                        fd.name.span,
+                    );
+                }
                 if fd.body.is_some() {
                     // STAGE6_PERF_PLAN: flag-gated per-function flush timing.
                     let trace = self.checking_catalog

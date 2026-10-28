@@ -842,3 +842,33 @@ fn m349_array_builtin_method_gate() {
         "expected the unknown-method T001, got:\n{stderr}"
     );
 }
+/// REL-20261028-0052-compiler: a top-level function whose name is emitted as
+/// a plain LLVM symbol and collides with a libc/Winsock export must warn
+/// (link would fail with LNK2005 / duplicate symbol). Warning-only.
+#[test]
+fn m0052_reserved_system_symbol_warns() {
+    let (stderr, code) = check_on("m0052_reserved_symbol_warn");
+    assert_eq!(
+        code,
+        Some(0),
+        "W009 must not block the build. stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("warning[W009]"),
+        "expected warning[W009] for `fn recv`, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("libc/Winsock"),
+        "expected the collision explanation, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn m0052_reserved_system_symbol_silent_for_normal_names() {
+    let (stderr, code) = check_on("m0052_reserved_symbol_ok");
+    assert_eq!(code, Some(0), "the control fixture must check cleanly. stderr:\n{stderr}");
+    assert!(
+        !stderr.contains("warning[W009]"),
+        "`recv_bytes` must not trigger W009, got:\n{stderr}"
+    );
+}

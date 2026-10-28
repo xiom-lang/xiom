@@ -21091,3 +21091,32 @@ EVIDENCE: the repro runs rc 0; a matrix also covers `Ok(false)`, `Err(_)`,
 rc 0). LOCK: `tests/regression/result_bool_patterns/main.xi` +
 `e2e_result_bool_patterns`. **17/17 gates both; full e2e 2658/2658
 (4 ignored) both.**
+## 2026-10-28 -- FIXED (diagnose+surface): libc/Winsock fn-name collision (0052)
+
+WITNESS (REL-20261028-0052-compiler, reduced from 2309): a top-level
+`fn recv() -> (Vec[UInt8], Str, Int)` links as the plain symbol `@recv`;
+the native runtime pulls `ws2_32.lib`, whose `recv` export collides --
+`ws2_32.lib(WS2_32.dll) : error LNK2005: recv already defined` ->
+`LNK1169`. The compiler printed only "clang failed with exit code 1169":
+the linker writes LNK2005/LNK1169 to STDOUT, which was discarded.
+
+FIX:
+- `xiom-check` emits **W009** for a top-level free fn whose name is a
+  known libc/Winsock export (`recv`, `send`, `connect`, `bind`, `listen`,
+  `accept`, `select`, `socket`, `closesocket`, `shutdown`, `ioctlsocket`,
+  WSA*, `free`, `malloc`, `calloc`, `realloc`, `mem*`, `str*`, `printf`,
+  `puts`, `exit`, `abort`). Warning-only (freestanding builds may provide
+  one); suppressed for catalog bodies and methods.
+- `xiom` now prints clang STDOUT on failure, so the LNK2005 line and the
+  "already defined in <obj>" origin are visible.
+Scope: this is the requested DIAGNOSIS route, not user-symbol mangling.
+Renaming the function resolves the link. A future mangling change (module
+prefix for non-extern fns) remains a separate, larger item because it
+touches hot reload, FFI exports and the selfhost ABI.
+
+EVIDENCE: `fn recv` now prints `warning[W009] ... collides with a
+libc/Winsock export` and then `stdout: ws2_32.lib(...) : error LNK2005:
+recv already defined ...` + `fatal error LNK1169`; `recv_bytes` is silent.
+LOCKS: `tests/regression/m0052_reserved_symbol_{warn,ok}` +
+`checker_locks` m0052 tests (39/39). **17/17 gates both; full e2e
+2658/2658 (4 ignored) both.**

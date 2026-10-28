@@ -2265,7 +2265,15 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
                 }
                 Ok(out) => {
                     let stderr = String::from_utf8_lossy(&out.stderr);
+                    let stdout = String::from_utf8_lossy(&out.stdout);
                     eprintln!("error: clang failed with exit code {}", out.status.code().unwrap_or(-1));
+                    // REL-20261028-0052-compiler: the Windows linker reports
+                    // LNK2005/LNK1169 on STDOUT, not stderr; printing only
+                    // stderr hid the duplicate-symbol cause behind "linker
+                    // command failed".
+                    if !stdout.trim().is_empty() {
+                        eprintln!("  stdout: {}", stdout.trim());
+                    }
                     // Only show the "missing stdio.h" hint when clang actually
                     // reports a fatal error about it (not when it appears in
                     // diagnostic notes alongside other errors like invalid IR).

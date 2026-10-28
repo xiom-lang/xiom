@@ -60,8 +60,12 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   lock `e2e_m2309_mixed_tuples`. The reduction exposed a separate defect:
   a top-level fn named `recv` collides with Winsock `recv`
   (LNK2005/LNK1169, hidden stderr) -- filed as
-  **`REL-20261028-0052-compiler`** (workaround: rename); user-fn mangling or
-  a reserved-name diagnostic is the fix.
+  **`REL-20261028-0052-compiler` FIXED (diagnose+surface):** W009 warns for
+  top-level fns whose names collide with libc/Winsock exports
+  (recv/send/connect/.../free/malloc/str*/...), and clang STDOUT is now
+  printed on failure so LNK2005 + the defining object are visible. Renaming
+  resolves the link; symbol mangling remains a separate larger item.
+  Locks m0052_reserved_symbol_{warn,ok} + checker_locks 39/39.
 - **Container element drops v1 landed (ownership tag):** `Vec[Struct{Vec}]`
   built with `new`/`with_capacity` and push/insert-only from owned elements
   now frees each element's Vec payload. Pre-fix 496 MB/1000 iters -> **5 MB
@@ -81,13 +85,13 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   or-pattern arms. Repro rc 0; matrix covers Ok/Err/Some/None/or-patterns;
   lock `e2e_result_bool_patterns`; 17/17 gates; e2e 2658/2658 both.
 - **`docs/COMPILER-LANE-CLOSURE.md` refreshed from the live bus:** the bus
-  snapshot is now **16 open / 102 acked / 63 fixed addressed to `compiler`**
-  (28 open rows total once compiler's own broadcasts are counted). The doc
+  snapshot is now **15 open / 102 acked / 64 fixed addressed to `compiler`**
+  (27 open rows total once compiler's own broadcasts are counted). The doc
   classifies every acked row: 42 bugs, 10 wishlist, 50 info. Since the first
   refresh: `2034-playground` was closed by its reporter, `1854-pulse` moved
   open -> acked (reduced probes + a new e2e lock green, pulse verify owed),
-  `2034-engine` and `2303-packages` moved acked -> fixed, and
-  `REL-20261028-0052-compiler` was filed.
+  `2034-engine`, `2303-packages`, `1159-stdlib` and `0052-compiler` moved to
+  fixed.
 - **Parser/AST note for the selfhost lane:** qualified enum/struct literal
   constructors now parse to `Expr::Struct(name = "<dotted path>")` instead of
   the anonymous `_` (`IVal.IStr`, `module.Type.Variant`), so the canonical
@@ -98,8 +102,7 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   v0.65.1 is the accepted pin for xvector/orbitdb. Owner GO required.
 - Still open on the closure gate: engine editor 600-frame soak (element
   drops v1 landed; nested/Str/Map fields still leak), 1931 XgView/Vec,
-  OrbitDB m375 memory/teardown, pulse/JSON/Map retention, the new
-  libc/Winsock fn-name collision (`REL-20261028-0052-compiler`), and the
+  OrbitDB m375 memory/teardown, pulse/JSON/Map retention, and the
   correctness carry.
 - Repro-path note: the prompt's `station/tests/loopback_suite.xi`,
   `tests/hybrid/probe_hybrid.xi` (xvector) and `engine/moveprobe.xi` do not
