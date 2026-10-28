@@ -193,9 +193,10 @@ reporter reopens with new evidence.
   `de2854544` (1854 e2e lock) on top of the v0.65.3 hotfix `bb8eccf5a`
   (container-moved aggregates, Str-drop pointer capture). CI
   **`40602249053` SUCCESS** on `79b01d676` (2034 fix), **`40604134197`
-  SUCCESS** on `fbfd2fbfe` (1854 lock), and **`40610999107` SUCCESS** on
-  `63c3d809d` (2303 fix; all matrix: windows, ubuntu, release parity x2,
-  arm64 floor, MCU, hygiene).
+  SUCCESS** on `fbfd2fbfe` (1854 lock), **`40610999107` SUCCESS** on
+  `63c3d809d` (2303 fix), and **`40612001738` SUCCESS** on `fea788908`
+  (2309 lock; all matrix: windows, ubuntu, release parity x2, arm64 floor,
+  MCU, hygiene).
 - v0.65.2 release: tag `fe1994b1` on `8ec0904a5`, release `40566604850`,
   11 assets, docs dispatch, registry `xiom-std 0.65.2`. **Not accepted by
   xvector/orbitdb**; v0.65.1 is the accepted pin. v0.65.3 is not

@@ -26,8 +26,10 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   512 KB, cap 64 MB): pre-fix **468 MB**, post-fix **6 MB at 20k iters**.
   **15/15 memory gates green on debug+release**; full e2e **2651/2651
   (4 ignored) on both**; `e2e_m368` PASS both; **CI `40602249053` SUCCESS**
-  on `79b01d676` and **`40604134197` SUCCESS** on `fbfd2fbfe` (all matrix
-  incl. arm64 floor/MCU; the latter also carries the 1854 e2e lock). Fix
+  on `79b01d676`, **`40604134197` SUCCESS** on `fbfd2fbfe`,
+  **`40610999107` SUCCESS** on `63c3d809d`, and **`40612001738` SUCCESS**
+  on `fea788908` (all matrix incl. arm64 floor/MCU; the last two carry the
+  2303 and 2309 locks). Fix
   commit `92e0d07b5`; relay `REL-20261027-2034-engine` now `fixed` (engine
   verify owed).
 - **Durable-lane hotfix verified with this build:** xvector XVC-C-23 PASS
