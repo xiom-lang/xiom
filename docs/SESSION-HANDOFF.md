@@ -85,8 +85,24 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   `stmt.rs` now maps Bool to 0/1 and compares the payload slot in plain and
   or-pattern arms. Repro rc 0; matrix covers Ok/Err/Some/None/or-patterns;
   lock `e2e_result_bool_patterns`; 17/17 gates; e2e 2658/2658 both.
+- **`REL-20261028-1533/1617-stdlib` DECISION -- ptr.read copy is OWNING:**
+  dropping the read-out value is correct (bitwise copy; automatic-drop
+  ownership; no ManuallyDrop/forget). A non-owning ptr.read would leak
+  genuine moves. The stdlib channel stores an owning `Channel[T]` (with
+  Vec[T]) in a raw cell and copies it in/out with ptr.read/write, so the
+  cell and the local both own the buffer. Minimal repro
+  `p_channel_handle_free_after_send.xi` crashes 3/3 on the OFFICIAL v0.65.2
+  and on the candidate -> pre-existing; element drops only expose it.
+  **stdlib action: non-owning Channel (data+len/cap/elem)**, then re-run
+  p_wave188/p_wave162/minimal/smokes/battery. The compiler will document the
+  rule; no ptr.read semantic change.
+- **`REL-20261028-1507-packages` NO-REPRO:** the orbitdb suite passes
+  **10/10 (160/160)** with the exact candidate binary (sha256
+  `503FFEC8...`) and the same stdlib tree; official v0.65.2 also 160/160.
+  Packages must re-run with their exact envelope (pass count, last check,
+  exit, stdlib commit). Not marked fixed.
 - **`docs/COMPILER-LANE-CLOSURE.md` refreshed from the live bus:** the bus
-  snapshot is now **15 open / 102 acked / 64 fixed addressed to `compiler`**
+  snapshot is now **15 open / 106 acked / 64 fixed addressed to `compiler`**
   (27 open rows total once compiler's own broadcasts are counted). The doc
   classifies every acked row: 42 bugs, 10 wishlist, 50 info. Since the first
   refresh: `2034-playground` was closed by its reporter, `1854-pulse` moved

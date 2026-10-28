@@ -21120,3 +21120,38 @@ recv already defined ...` + `fatal error LNK1169`; `recv_bytes` is silent.
 LOCKS: `tests/regression/m0052_reserved_symbol_{warn,ok}` +
 `checker_locks` m0052 tests (39/39). **17/17 gates both; full e2e
 2658/2658 (4 ignored) both.**
+## 2026-10-28 -- DECISION: ptr.read copies OWN; stdlib Channel goes non-owning (1533/1617)
+
+WITNESS: `tools/known_failures/p_channel_handle_free_after_send.xi` --
+`channel_open[Int](3); try_send(h,1); try_recv(h); free(h)` -- exits
+0xC0000005 **3/3 on the OFFICIAL v0.65.2 archive** and 3/3 on the
+committed candidate. The no-thread shape without a send (open; free) is
+rc 0, so the crash is the send/recv path. `p_wave188_channel_handle` also
+crashes 10/10 on official v0.65.2 and 3/3 through `xiom run` in this
+environment; the earlier "v0.65.2 passes" baseline was environment/stdlib-
+commit dependent.
+
+ROOT CAUSE (stdlib): `xiom/sync/channel.xi` reads the whole owning
+`Channel[T]` (with its `Vec[T]` items) out of a raw heap cell with
+`ptr.read`, mutates the local copy, writes it back with `ptr.write`, then
+the local copy is dropped: cell and local both own the items buffer, so
+the local drop frees the buffer the live cell still uses. PRE-EXISTING;
+the ownership-tagged element drops (6a58a60e1) only make the latent
+corruption deterministic in the threaded probes -- no element-drop path is
+involved (`Channel[Int]` has no `Vec[Struct]`).
+
+DECISION: dropping the `ptr.read` value is CORRECT. `ptr.read` is a
+bitwise copy; in XIOM's automatic-drop model the read-out local is an
+owning value and is dropped unless moved. There is no ManuallyDrop/forget;
+making `ptr.read` non-owning would leak every genuine move and undermine
+the ownership model the 2034/aggregate/element drops rely on. Therefore
+**stdlib** redesigns Channel to non-owning raw storage (data pointer +
+len/cap + elem size) or an explicit ownership transfer with the source
+zeroed under unsafe. The compiler will document the rule; a future unsafe
+lint may warn on `ptr.read` of a type with owned fields into a still-live
+source (not a v0.65.3 blocker).
+
+SEPARATE: the candidate OrbitDB crash (1507) does NOT reproduce -- 10/10
+PASS 160/160 with the exact candidate binary SHA256 503FFEC8... and the
+same stdlib tree, and official v0.65.2 also 160/160. Packages owns the
+re-run with their exact envelope.

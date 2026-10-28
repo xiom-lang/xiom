@@ -11,7 +11,7 @@ Verified counts, not a stale snapshot:
 | Queue (addressed `to: compiler`) | Count |
 |---|---|
 | open | **15** |
-| acked | **102** (42 bug, 10 wishlist, 50 info) |
+| acked | **106** (45 bug, 10 wishlist, 51 info) |
 | fixed | **64** (awaiting reporter verify) |
 | verified / closed / wontfix | 23 / 108 / 1 |
 
@@ -20,7 +20,9 @@ compiler->all broadcasts of its own (section E). Since the 22:52Z snapshot
 `2034-playground` was closed by its reporter, `1854-pulse` moved to acked
 (reduced probes green), `2034-engine`, `2303-packages`, `1159-stdlib` and
 `0052-compiler` moved to fixed; `REL-20261028-0052-compiler` was filed from
-the 2309 reduction.
+the 2309 reduction. The candidate wave added `1507-packages` (no-repro
+10/10), `1532-packages` (W009 inventory), `1533-stdlib` and `1617-stdlib`
+(dropping a `ptr.read` copy is correct; stdlib Channel goes non-owning).
 
 ```powershell
 cd E:\xiom-lang\xiom-relays
@@ -61,9 +63,9 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261026-2113-xvector | info | v0.65.1 acceptance GREEN; close | reporter-close |
 | REL-20261027-1931-engine | bug/codegen | XgView/Vec alloca retyping (optional WIP; IR slice in item) | todo |
 
-## B. Acked rows addressed to compiler (102)
+## B. Acked rows addressed to compiler (106)
 
-### B1. Bugs -- 42 actionable rows
+### B1. Bugs -- 45 actionable rows
 
 | Item | Reporter | Defect | Status |
 |---|---|---|---|
@@ -109,6 +111,9 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261021-1652-engine-2 | engine | intermittent Vulkan bring-up AV (C08) | todo (needs no-capture repro) |
 | REL-20261024-1101-pulse | pulse | arm64 fixed-arity printf fails IR verification | verify-on-archive (fix green) |
 | REL-20261023-1854-pulse | pulse | tuple-returned Vec[Str] inline + cross-module unannotated Str bind | acked; reduced probes + e2e lock green on `de2854544`; pulse verify `probe_wsauth` |
+| REL-20261028-1507-packages | packages | candidate orbitdb suite crash after 82 checks | acked; **no-repro 10/10 (160/160)** with the exact candidate `503FFEC8...`; packages re-run with envelope |
+| REL-20261028-1533-stdlib | stdlib | candidate channel/SSE heap corruption | acked; root cause = owning `Channel` copied via `ptr.read` (repro fails on official v0.65.2 too); **decision: stdlib non-owning Channel** |
+| REL-20261028-1617-stdlib | stdlib | channel `ptr.read/write` double-owns its Vec | acked; same decision (dropping the copy is correct; no compiler change); stdlib action |
 
 ### B2. Wishlists -- 10 strategic/perf rows
 
@@ -125,7 +130,7 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261019-1220-bindings | bindings | MCU/bare-metal targets (shipped) | verify-on-archive |
 | REL-20261021-1122-orbitdb-2 | orbitdb | m375 exit-reclaim (880 s at 1M) + cache sizing | todo |
 
-### B3. Info -- 50 rows (historical; close by the reporter with evidence)
+### B3. Info -- 51 rows (historical; close by the reporter with evidence)
 
 | Item | Reporter | Note |
 |---|---|---|
@@ -179,6 +184,7 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261024-1501-orbitdb | orbitdb | v0.65.0 probes GREEN |
 | REL-20261026-2247-stdlib | stdlib | v0.65.1 gate-9: only 1609 red |
 | REL-20261027-2022-benchmark | benchmark | v0.65.2 absorbed; t1 still 30 MB |
+| REL-20261028-1532-packages | packages | inventory of colliding public symbols for 0052 |
 
 ## C. Fixed rows -- 62 awaiting reporter verification
 
