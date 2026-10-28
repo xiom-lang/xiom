@@ -28,8 +28,9 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   (4 ignored) on both**; `e2e_m368` PASS both; **CI `40602249053` SUCCESS**
   on `79b01d676`, **`40604134197` SUCCESS** on `fbfd2fbfe`,
   **`40610999107` SUCCESS** on `63c3d809d`, **`40612001738` SUCCESS**
-  on `fea788908`, and **`40692787953` SUCCESS** on `93d561107` (all matrix
-  incl. arm64 floor/MCU; the last carries the element-drop tags and locks). Fix
+  on `fea788908`, **`40692787953` SUCCESS** on `93d561107`, and
+  **`40701485338` SUCCESS** on `eac90fba6` (all matrix incl. arm64 floor/MCU;
+  the last carries the element-drop tags and Bool-pattern locks). Fix
   commit `92e0d07b5`; relay `REL-20261027-2034-engine` now `fixed` (engine
   verify owed).
 - **Durable-lane hotfix verified with this build:** xvector XVC-C-23 PASS

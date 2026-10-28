@@ -198,9 +198,9 @@ reporter reopens with new evidence.
   **`40602249053` SUCCESS** on `79b01d676` (2034 fix), **`40604134197`
   SUCCESS** on `fbfd2fbfe` (1854 lock), **`40610999107` SUCCESS** on
   `63c3d809d` (2303 fix), **`40612001738` SUCCESS** on `fea788908`
-  (2309 lock), and **`40692787953` SUCCESS** on `93d561107` (element drops;
-  all matrix: windows, ubuntu, release parity x2, arm64 floor, MCU,
-  hygiene).
+  (2309 lock), **`40692787953` SUCCESS** on `93d561107` (element drops), and
+  **`40701485338` SUCCESS** on `eac90fba6` (Bool payload patterns; all
+  matrix: windows, ubuntu, release parity x2, arm64 floor, MCU, hygiene).
 - v0.65.2 release: tag `fe1994b1` on `8ec0904a5`, release `40566604850`,
   11 assets, docs dispatch, registry `xiom-std 0.65.2`. **Not accepted by
   xvector/orbitdb**; v0.65.1 is the accepted pin. v0.65.3 is not
