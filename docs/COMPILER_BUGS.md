@@ -21190,3 +21190,34 @@ REMAINING app leak families (measured on this build): `Vec[Vec[UInt8]]`
 **505 MB/1000** (inner buffers), nested `Vec[Outer{Inner{Vec}}]`
 **431 MB/1000**, `Vec[Str]` with large strings, Map/Set values, enum
 element types, and containers with removals/reorders. Next targets.
+## 2026-10-28 -- FIXED: Vec[Vec[T]] element drops (chunk-buffer leak)
+
+WITNESS: 1000 iterations of `outer = Vec[Vec[UInt8]].new(); inner =
+Vec[UInt8].with_len(512000); outer.push(inner)` peaked **505 MB** on
+855766b73 -- the outer buffer was freed, each element's inner buffer was
+not. OrbitDB/WAL/HTTP chunk buffers use this shape.
+
+FIX (ownership tag extension + transfer):
+- `vec_element_name` now renders nested element types (`Vec[UInt8]`), and a
+  Vec-element candidate carries the sentinel field list `["__vec"]`.
+- Pushing a fresh inner Vec local into a container STORE now marks it MOVED
+  (its own exit drop is disarmed), so the container owns the inner buffer.
+  The prepass accepts only a fresh local declared in the same block, or an
+  inline fresh inner Vec.
+- The finalize step rejects the tag if the pushed inner local is used/aliased
+  later (escape), or is pushed twice; a whole-element read/pop/removal,
+  a non-header element method, or an element projection in an escape context
+  disqualifies too. Header-only reads (`outer[0].len()`) stay allowed.
+- Codegen: each element is a `%struct.Vec` header; free field 0 (`data`) per
+  element with stride 32, before freeing the outer buffer.
+
+EVIDENCE: 1000 x 512 KB -> **5 MB at 20k iterations / 0.2 s** (was ~505 MB
+per 1000). Safety lock `vec_of_vec_shapes` covers inline, alias-after-push,
+duplicate push, whole-element read, pop, element `push`, and with_capacity.
+New soak gate `container_vec_of_vec` (cap 64). **19/19 memory gates GREEN
+on debug+release; full e2e 2660/2660 (4 ignored) on both.**
+
+REMAINING measured app leaks: nested `Vec[Outer{Inner{Vec}}]`
+**431 MB/1000**, Map/Set values, enum element types, large-string `Vec[Str]`,
+containers with removals/reorders. Nested-struct field drops are the next
+target.

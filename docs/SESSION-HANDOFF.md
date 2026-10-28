@@ -84,10 +84,18 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   replaced owned buffer, never aliases/literals, leaves self-assign
   leak-only, and returned builders transfer the final value. Measured
   **116 MB -> 4 MB**; new gate `str_rebind_growth` + lock
-  `str_rebind_shapes`. **18/18 gates; full e2e 2659/2659 (4 ignored) both.**
-  Remaining measured app leaks: `Vec[Vec]` **505 MB/1000**, nested struct
-  **431 MB/1000**, large `Vec[Str]`, Map/Set values, enum elements,
-  removal-containing containers.
+  `str_rebind_shapes`. **18/18 gates; full e2e 2659/2659 (4 ignored) both**
+  at that commit.
+- **Vec[Vec[T]] element drops landed:** a fresh inner Vec pushed into a
+  container store is MOVED (its own drop disarmed); each element's inner
+  `data` pointer is freed before the outer buffer. 1000 x 512 KB leaked
+  **505 MB**; now **5 MB at 20k iterations**. Alias-after-push, duplicate
+  push, whole-element read, pop, element `push`, non-header element methods
+  disqualify (leak, no UAF); `outer[0].len()` stays allowed. Gate
+  `container_vec_of_vec`, lock `vec_of_vec_shapes`. **19/19 gates; full e2e
+  2660/2660 (4 ignored) both.**
+  Remaining measured app leaks: nested struct **431 MB/1000**, large
+  `Vec[Str]`, Map/Set values, enum elements, removal-containing containers.
 - **`REL-20261028-1159-stdlib` FIXED (new finding):** nested literal Bool
   payload patterns (`Ok(false)`, `Some(true)`) only checked the tag, so both
   arms matched any Ok/Some (stdlib h2 frame reader took the wrong branch).

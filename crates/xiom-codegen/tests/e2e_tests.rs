@@ -7726,6 +7726,16 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     );
 }
 
+// REL-20261028: Vec[Vec[T]] element drops (owned inner buffers) and the
+// disqualifying alias/dup/pop/whole-element shapes.
+#[test] fn e2e_vec_of_vec_shapes() {
+    assert_eq!(
+        compile_and_run("tests/regression/vec_of_vec_shapes/main.xi"),
+        Some(0),
+        "Vec-of-Vec element drops must reclaim owned inner buffers only"
+    );
+}
+
 // m297 (REL-20261010-1615-stdlib): `Path.is_dir` -- a stdlib METHOD whose
 // body bare-calls the same-leaf free fn `is_dir(self.inner)` -- self-bound:
 // the G-10 implicit-self override re-bound the already-resolved io.is_dir

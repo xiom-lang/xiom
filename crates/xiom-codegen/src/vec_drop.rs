@@ -183,6 +183,19 @@ pub(crate) fn collect_owned_vec_locals(
         {
             continue;
         }
+        // Vec-of-Vec: the inner Vec local was moved into the container. If it
+        // is used/aliased later, the element drop could free a live alias.
+        let is_vec_elem = state
+            .elem_vec_fields
+            .get(&name)
+            .map_or(false, |f| f.len() == 1 && f[0] == "__vec");
+        if is_vec_elem {
+            if let Some(pushed) = state.elem_pushed.get(&name) {
+                if pushed.iter().any(|p| state.escaping.contains(p)) {
+                    continue;
+                }
+            }
+        }
         if let Some(fields) = state.elem_vec_fields.get(&name) {
             elem.insert(name, (elem_ty, fields.clone()));
         }
@@ -417,16 +430,29 @@ fn vec_element_name(ty: Option<&Type>, value: &Expr) -> Option<String> {
                     Expr::Index(base, elem, _)
                         if matches!(base.as_ref(), Expr::Ident(b) if b.name == "Vec") =>
                     {
-                        match elem.as_ref() {
-                            Expr::Ident(e) => Some(e.name.clone()),
-                            _ => None,
-                        }
+                        // Nested element types (`Vec[Vec[UInt8]]`) render to
+                        // "Vec[UInt8]"; plain structs keep their name.
+                        type_expr_name(elem)
                     }
                     _ => None,
                 }
             }
             _ => None,
         },
+        _ => None,
+    }
+}
+
+/// Render a type expression (`Ident` / `Index`) to its source spelling.
+fn type_expr_name(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Ident(id) => Some(id.name.clone()),
+        Expr::Paren(inner, _) => type_expr_name(inner),
+        Expr::Index(base, elem, _) => Some(format!(
+            "{}[{}]",
+            type_expr_name(base)?,
+            type_expr_name(elem)?
+        )),
         _ => None,
     }
 }
@@ -535,7 +561,13 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
             // and call returns have their own construction rules.
             if is_empty_vec_ctor(value) {
                 if let Some(elem_ty) = vec_element_name(ty.as_deref(), value) {
-                    let fields = elem_vec_fields_for(&elem_ty, state);
+                    // `Vec[Vec[T]]`: free each element's inner buffer. The
+                    // sentinel field list keeps the tag shape uniform.
+                    let fields = if elem_ty.starts_with("Vec[") {
+                        Some(vec!["__vec".to_string()])
+                    } else {
+                        elem_vec_fields_for(&elem_ty, state)
+                    };
                     if fields.as_ref().map_or(false, |f| !f.is_empty()) {
                         state.elem_candidate.insert(name.name.clone(), elem_ty);
                         state.elem_vec_fields.insert(name.name.clone(), fields.unwrap());
@@ -763,7 +795,12 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                                 .unwrap_or_default();
                             let owned = match elem_arg {
                                 Some(Expr::Ident(id)) => {
-                                    state.aggregate.contains(&id.name)
+                                    let owned_local = state.aggregate.contains(&id.name)
+                                        || (state.decls.get(&id.name).map_or(false, |info| {
+                                            info.decls > 0 && info.all_fresh
+                                        }) && !state.escaping.contains(&id.name)
+                                            && !state.moved.contains(&id.name));
+                                    owned_local
                                         && state.decl_block.get(&id.name)
                                             == Some(&state.cur_block)
                                         && state
@@ -794,6 +831,9 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                                             })
                                     }
                                 }
+                                // `Vec[Vec[T]]`: an inline fresh inner Vec
+                                // (`rs.push(Vec[UInt8].with_len(n))`).
+                                Some(inner) if is_fresh_vec_init(inner) => true,
                                 _ => false,
                             };
                             if !owned {
@@ -803,11 +843,22 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                     }
                 }
                 // A method call ON an element (`rs[i].take()`) may move the
-                // element's Vec fields out; conservative.
+                // element's Vec fields out; conservative. For a Vec-of-Vec
+                // element, header-only reads (`outer[0].len()`) are safe.
                 if let Expr::Index(b, _, _) = recv.as_ref() {
                     if let Expr::Ident(bid) = b.as_ref() {
                         if state.elem_candidate.contains_key(&bid.name) {
-                            state.elem_unsafe.insert(bid.name.clone());
+                            let vec_elem = state
+                                .elem_vec_fields
+                                .get(&bid.name)
+                                .map_or(false, |f| f.len() == 1 && f[0] == "__vec");
+                            let header_only = matches!(
+                                method.name.as_str(),
+                                "len" | "is_empty" | "capacity"
+                            );
+                            if !(vec_elem && header_only) {
+                                state.elem_unsafe.insert(bid.name.clone());
+                            }
                         }
                     }
                 }
@@ -843,6 +894,20 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                 if container_store {
                     if let Expr::Ident(id) = arg {
                         if state.aggregate.contains(&id.name) {
+                            state.moved.insert(id.name.clone());
+                            continue;
+                        }
+                        // `Vec[Vec[T]]`: pushing a fresh inner Vec transfers
+                        // its buffer to the container (the element drop owns
+                        // it). A later use/alias of the local marks escaping
+                        // and disqualifies the element tag at finalize.
+                        let fresh_vec_local = state
+                            .decls
+                            .get(&id.name)
+                            .map_or(false, |info| info.decls > 0 && info.all_fresh)
+                            && !state.escaping.contains(&id.name)
+                            && !state.moved.contains(&id.name);
+                        if fresh_vec_local {
                             state.moved.insert(id.name.clone());
                             continue;
                         }
@@ -1632,6 +1697,16 @@ impl IrEmitter {
     /// every element owns its Vec fields. `None` means "leak elements".
     fn elem_drop_info(&self, name: &str) -> Option<crate::context::ElemDrop> {
         let (xiom_ty, validated) = self.fctx.elem_drop_safe.get(name)?.clone();
+        // Vec-of-Vec: each element is a %struct.Vec header {data,len,cap,
+        // elem_size}; free its data pointer. The header is 4 x 8 bytes, and
+        // field 0 is `data`. No struct metadata is involved.
+        if xiom_ty.starts_with("Vec[") {
+            return Some(crate::context::ElemDrop {
+                llvm_ty: "%struct.Vec".to_string(),
+                stride: Self::vec_slot_size(32),
+                fields: vec![0],
+            });
+        }
         let llvm_ty = self.llvm_type_for(&xiom_ty).ok()?;
         if !llvm_ty.starts_with("%struct.") {
             return None;
