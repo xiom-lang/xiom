@@ -20960,3 +20960,40 @@ REPRO ON `92e0d07b5`:
 LOCK: new `tests/regression/tuple_vecstr_inline/main.xi` +
 `e2e_tuple_vecstr_inline` (PASS on debug and release). Pulse still owns
 `probe_wsauth.xi` verification on the candidate archive.
+## 2026-10-28 -- FIXED: qualified enum constructors and Float64 payloads (2303)
+
+WITNESS (REL-20261015-2303-packages, v0.64.5): the 16-probe enum-float
+bundle (`%TEMP%\kilo\otel-findings\enum-float`) reproduced three classes on
+current main: (1) qualified `IVal.IStr(value: "hello")` failed clang with
+`%struct.Reverse` vs `%struct.repro_b1_qualified_str.IVal`; (2) qualified
+constructs compiled but matched NO arm; (3) Float64 payloads read back the
+truncated integer bits (7.25 -> 3.458e-323, 3.5 -> 1.482e-323), and
+cross-module NaN/Inf read 0.
+
+ROOT CAUSE 1 (parser): the named-argument call arm only kept the literal
+type for `Expr::Ident`; `Type.Variant(name: value)` (a `Field` receiver)
+became an anonymous `_` struct, so codegen guessed the type from field
+names -- `resolve_bare_struct` picked the stdlib `Reverse[T] { value }`.
+
+ROOT CAUSE 2 (codegen): the enum-literal payload store (`expr.rs`) wrote
+payloads through `coerce_value` into the erased i64 slot, so a double was
+fptosi-truncated to its integer part. The dedicated
+`compile_enum_constructor` path already used the raw-bit convention.
+
+FIX:
+- `xiom-parser`: new `expr_path_name` keeps the dotted receiver; both the
+  `(name: value)` and `{ name: value }` qualified-literal arms use it
+  (`IVal.IStr`, `module.Type.Variant`).
+- `expr.rs` enum literal: mirror `compile_enum_constructor` -- resolve the
+  variant's declared field type, narrow/widen Float32/Float64, and pack an
+  i64 slot with `val_to_i64` (double/float bits; heap-boxed struct handle)
+  instead of `coerce_value`.
+
+EVIDENCE (bundle on the fixed build): b1/b4/b5/b7/c0..c5 all exit 0 with
+correct values (7.25, 3.5, 10.239, 2.5, Int 42, Str hello); c2b NaN/Inf
+read back exactly; the one non-runnable probe is a helper module with no
+`main` (expected link failure). No clang layout collisions remain.
+LOCK: `tests/regression/m2303_enum_qualified_payload/main.xi` +
+`e2e_m2303_enum_qualified_payload`; 15/15 memory gates both; full e2e
+recorded in `docs/COMPILER-LANE-CLOSURE.md` section D.
+Packages still owns the in-situ jev/otel re-verify on the candidate archive.

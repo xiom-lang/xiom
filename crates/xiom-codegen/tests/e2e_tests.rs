@@ -7658,6 +7658,16 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     );
 }
 
+// REL-20261015-2303-packages: qualified enum-variant ctors keep the parent
+// enum, and Float64 payloads in a shared field-name slot are bit-packed.
+#[test] fn e2e_m2303_enum_qualified_payload() {
+    assert_eq!(
+        compile_and_run("tests/regression/m2303_enum_qualified_payload/main.xi"),
+        Some(0),
+        "qualified enum ctor + Float64 payload must build/read the correct enum (2303)"
+    );
+}
+
 // m297 (REL-20261010-1615-stdlib): `Path.is_dir` -- a stdlib METHOD whose
 // body bare-calls the same-leaf free fn `is_dir(self.inner)` -- self-bound:
 // the G-10 implicit-self override re-bound the already-resolved io.is_dir

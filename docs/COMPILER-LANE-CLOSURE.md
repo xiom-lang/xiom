@@ -11,8 +11,8 @@ Verified counts, not a stale snapshot:
 | Queue (addressed `to: compiler`) | Count |
 |---|---|
 | open | **15** |
-| acked | **103** (43 bug, 10 wishlist, 50 info) |
-| fixed | **61** (awaiting reporter verify) |
+| acked | **102** (42 bug, 10 wishlist, 50 info) |
+| fixed | **62** (awaiting reporter verify) |
 | verified / closed / wontfix | 23 / 108 / 1 |
 
 The lane view lists **27 open** rows in total: the 15 above plus 12
@@ -61,7 +61,7 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 
 ## B. Acked rows addressed to compiler (103)
 
-### B1. Bugs -- 43 actionable rows
+### B1. Bugs -- 42 actionable rows
 
 | Item | Reporter | Defect | Status |
 |---|---|---|---|
@@ -90,7 +90,6 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261014-1509-engine | engine | repeated port.args scalar flags drop C++17 | todo |
 | REL-20261015-1358-engine | engine | Editor W1: json secondary modules, module-id collision | verify-on-archive (m341 W1.1; other W1 sub-findings) |
 | REL-20261015-1538-engine | engine | Editor W2: reflect consts, import order, `&mut` fields | verify-on-archive (m341 W2.1; other W2 sub-findings) |
-| REL-20261015-2303-packages | packages | enum-variant construct/read (Float64 denormals, match) | todo |
 | REL-20261015-2309-packages-2 | packages | bare `assert` mis-binds to `xiom.core.assert` | todo |
 | REL-20261015-2309-packages | packages | mixed-element tuples (`Tuple__Vec[UInt8]__Str__Int`) | todo |
 | REL-20261016-2002-packages | packages | Float64 returns via dlsym'd fn pointers | reporter-close (m348) |
@@ -179,7 +178,7 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261026-2247-stdlib | stdlib | v0.65.1 gate-9: only 1609 red |
 | REL-20261027-2022-benchmark | benchmark | v0.65.2 absorbed; t1 still 30 MB |
 
-## C. Fixed rows -- 61 awaiting reporter verification
+## C. Fixed rows -- 62 awaiting reporter verification
 
 Do not re-fix. `python tools\relay.py view --lane compiler --status fixed`
 lists them with the commit refs. Every one needs the reporter's `verify`
@@ -211,6 +210,16 @@ reporter reopens with new evidence.
     and `target\release\xiom.exe`).
   - `e2e_m368_vec_drop_reclaim` PASS on both (alias/escape controls intact).
   - Full e2e **2651/2651 (4 ignored) on debug and release** (941 s / 1090 s).
+- **2303 enum family (this session):** qualified `Type.Variant(name: value)`
+  no longer collapses to an anonymous struct (parser keeps the dotted path,
+  so codegen no longer picks `Reverse` from field names), and Float64
+  payloads in an erased i64 slot are bit-packed with `val_to_i64` instead of
+  fptosi-truncated. The 16-probe `otel-findings/enum-float` bundle is green
+  (15 runnable probes; the 16th is a helper module with no `main`): 7.25 /
+  3.5 / 10.239 / 2.5 / Int 42 / Str hello exact, cross-module NaN/Inf exact,
+  no clang layout collisions. Lock `e2e_m2303_enum_qualified_payload`.
+  Packages in-situ jev/otel verify is owed. 15/15 gates both; full e2e
+  **2653/2653 (4 ignored) on debug and release**.
 - xvector durable repros with this build:
   - `docs\repro\xv-vec-struct-push\probe.xi` (XVC-C-23): **PASS**, named and
     inline forms bad=0, exit 0.
@@ -235,7 +244,7 @@ a compiler probe and the reporting lane's verification on the candidate
 archive. No `todo` bug/perf rows. Then:
 
 1. 15/15 memory gates on debug+release.
-2. Full e2e debug+release (baseline 2651/2651, 4 ignored; grows with tests).
+2. Full e2e debug+release (baseline 2653/2653, 4 ignored; grows with tests).
 3. Fleet repros on the candidate archive: xvector WAL/station, orbitdb
    hybrid/station, engine editor 600-frame soak + 2034 probe, pulse request
    cycle + arm64, benchmark t1/t3 + sanitized, playground, packages.

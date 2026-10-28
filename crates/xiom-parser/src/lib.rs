@@ -2139,7 +2139,17 @@ impl Parser {
                             let mut fields = Vec::new();
                             loop { let fname = self.parse_ident()?; self.expect_kind(TokenKind::Colon, "':'")?; let fval = self.parse_expr_open()?; fields.push((fname, fval)); if !self.skip(TokenKind::Comma) && !self.skip(TokenKind::Semicolon) { break; } }
                             self.expect_kind(TokenKind::RParen, "')'")?; let span = expr.span();
-                            let type_name = match &expr { Expr::Ident(id) => id.clone(), _ => Ident::new("_", span) };
+                            // REL-20261015-2303-packages: keep a QUALIFIED
+                            // `Type.Variant(name: value)` path. The old
+                            // Ident-only match turned every qualified variant
+                            // literal into an anonymous `_` struct, so codegen
+                            // guessed the type from field names (e.g. the
+                            // stdlib `Reverse{value}`) -- wrong layout / silent
+                            // dead match. The struct-literal lowering splits on
+                            // the last dot and resolves the parent enum.
+                            let type_name = expr_path_name(&expr)
+                                .map(|name| Ident::new(name, span))
+                                .unwrap_or_else(|| Ident::new("_", span));
                             expr = Expr::Struct(type_name, fields, None, span);
                         } else {
                             let args = self.parse_arg_list()?; self.expect_kind(TokenKind::RParen, "')'")?; let span = expr.span();
@@ -2355,23 +2365,9 @@ impl Parser {
                         }
                     };
                     if looks_like_struct {
-                        let path_name = match &expr {
-                            Expr::Ident(id) => id.name.clone(),
-                            Expr::Field(obj, field, _) => {
-                                let mut name = String::new();
-                                fn collect_path(expr: &Expr, out: &mut String) {
-                                    match expr {
-                                        Expr::Ident(id) => { if !out.is_empty() { out.push('.'); } out.push_str(&id.name); }
-                                        Expr::Field(base, field, _) => { collect_path(base, out); out.push('.'); out.push_str(&field.name); }
-                                        _ => {}
-                                    }
-                                }
-                                collect_path(&obj, &mut name);
-                                if !name.is_empty() { name.push('.'); }
-                                name.push_str(&field.name);
-                                name
-                            }
-                            _ => return Err(self.error("expected type name before '{'")),
+                        let path_name = match expr_path_name(&expr) {
+                            Some(name) => name,
+                            None => return Err(self.error("expected type name before '{'")),
                         };
                         self.advance(); // consume '{'
                         let mut fields = Vec::new();
@@ -2762,6 +2758,41 @@ impl Parser {
 }
 
 static EOF_TOKEN: Token = Token { kind: TokenKind::Eof, span: Span::new(0, 0), lexeme: String::new() };
+
+/// Dotted path of a type/variant receiver (`IVal.IStr`, `module.Type.Variant`).
+/// Used by qualified struct and enum-variant literal parsing so the qualifier
+/// survives into `Expr::Struct` instead of collapsing to the anonymous `_`
+/// (REL-20261015-2303-packages: field-name-based guessing built the wrong
+/// type, e.g. stdlib `Reverse{value}` for `IVal.IStr(value: ...)`).
+fn expr_path_name(expr: &Expr) -> Option<String> {
+    fn collect(expr: &Expr, out: &mut String) -> bool {
+        match expr {
+            Expr::Ident(id) => {
+                if !out.is_empty() {
+                    out.push('.');
+                }
+                out.push_str(&id.name);
+                true
+            }
+            Expr::Field(base, field, _) => {
+                if !collect(base, out) {
+                    return false;
+                }
+                out.push('.');
+                out.push_str(&field.name);
+                true
+            }
+            Expr::Paren(inner, _) => collect(inner, out),
+            _ => false,
+        }
+    }
+    let mut out = String::new();
+    if collect(expr, &mut out) && !out.is_empty() {
+        Some(out)
+    } else {
+        None
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ParseError {

@@ -5023,16 +5023,49 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             .position(|f| f == &field_name)
                             .unwrap_or(i + 1);
                         let field_llvm_ty = self.field_llvm_type(enum_key, parent_field_idx);
-                        let store_val = if field_val == "0" && (field_llvm_ty.ends_with('*') || field_llvm_ty.contains('*')) {
+                        // m221/XVC-C-06 + REL-20261015-2303-packages: when a
+                        // field name collides across variants the slot is the
+                        // erased i64, and EVERY variant writer must use the
+                        // same packing as `compile_enum_constructor`: raw
+                        // double/float BITS (fptosi truncated 7.25 -> 7 and
+                        // read back as 3.458e-323) and a boxed handle for a
+                        // by-value struct. Readers reinterpret the slot.
+                        let declared_ty = self.types.enum_variant_field_types
+                            .get(&enum_key.to_string())
+                            .and_then(|vts| {
+                                vts.iter()
+                                    .find(|(v, _)| v == &leaf_variant)
+                                    .and_then(|(_, ftypes)| ftypes.get(i))
+                                    .cloned()
+                            });
+                        let (pack_val, pack_ty) = match (field_val_ty.as_str(), declared_ty.as_deref()) {
+                            ("double", Some("Float32")) => {
+                                let narrowed = self.fresh_tmp();
+                                self.emitln(&format!("  {narrowed} = fptrunc double {field_val} to float"));
+                                (narrowed, "float".to_string())
+                            }
+                            ("float", Some("Float64") | Some("Float")) => {
+                                let widened = self.fresh_tmp();
+                                self.emitln(&format!("  {widened} = fpext float {field_val} to double"));
+                                (widened, "double".to_string())
+                            }
+                            _ => (field_val, field_val_ty),
+                        };
+                        let store_val = if field_llvm_ty == "i64"
+                            && (pack_ty == "double" || pack_ty == "float"
+                                || (pack_ty.starts_with("%struct.") && !pack_ty.ends_with('*')))
+                        {
+                            self.val_to_i64(&pack_val, &pack_ty)
+                        } else if pack_val == "0" && (field_llvm_ty.ends_with('*') || field_llvm_ty.contains('*')) {
                             "null".to_string()
-                        } else if field_llvm_ty.ends_with('*') && field_val.chars().all(|c| c.is_ascii_digit() || c == '-') {
+                        } else if field_llvm_ty.ends_with('*') && pack_val.chars().all(|c| c.is_ascii_digit() || c == '-') {
                             let ptr_tmp = self.fresh_tmp();
-                            self.emitln(&format!("  {ptr_tmp} = inttoptr i64 {field_val} to {field_llvm_ty}"));
+                            self.emitln(&format!("  {ptr_tmp} = inttoptr i64 {pack_val} to {field_llvm_ty}"));
                             ptr_tmp
                         } else {
                             // Coerce the field value to the field slot's declared
                             // type (e.g. an i8 char value into an i64 field).
-                            self.coerce_value(&field_val, &field_val_ty, &field_llvm_ty)
+                            self.coerce_value(&pack_val, &pack_ty, &field_llvm_ty)
                         };
                         let gep = self.fresh_tmp();
                         self.emitln(&format!("  {gep} = getelementptr {struct_ty}, {struct_ty}* {alloca}, i32 0, i32 {parent_field_idx}"));

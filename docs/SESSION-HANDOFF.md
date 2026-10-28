@@ -41,13 +41,24 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   new lock `tests/regression/tuple_vecstr_inline` +
   `e2e_tuple_vecstr_inline`. Pulse must verify `probe_wsauth` on the
   candidate archive.
+- **`REL-20261015-2303-packages` FIXED (parser + codegen):** the named-arg
+  qualified enum ctor `IVal.IStr(value: ...)` lost its qualifier in the
+  parser (anonymous `_` struct -> codegen guessed `Reverse` from field
+  names); Float64 payloads in an erased i64 slot were fptosi-truncated
+  (7.25 -> 3.458e-323). `xiom-parser::expr_path_name` keeps the dotted path;
+  the enum-literal store now mirrors `compile_enum_constructor` (declared
+  field type, Float32/64 narrow/widen, `val_to_i64` raw bits/boxed struct).
+  The 16-probe otel enum bundle is green (15 runnable; the last is a helper
+  module), including NaN/Inf cross-module. New lock
+  `e2e_m2303_enum_qualified_payload`; 15/15 gates; full e2e
+  **2653/2653 (4 ignored) on both**; packages in-situ verify owed.
 - **`docs/COMPILER-LANE-CLOSURE.md` refreshed from the live bus:** the bus
-  snapshot is now **15 open / 103 acked / 61 fixed addressed to `compiler`**
+  snapshot is now **15 open / 102 acked / 62 fixed addressed to `compiler`**
   (27 open rows total once compiler's own broadcasts are counted). The doc
-  classifies every acked row: 43 bugs, 10 wishlist, 50 info. Since the first
+  classifies every acked row: 42 bugs, 10 wishlist, 50 info. Since the first
   refresh: `2034-playground` was closed by its reporter, `1854-pulse` moved
   open -> acked (reduced probes + a new e2e lock green, pulse verify owed),
-  and `2034-engine` moved acked -> fixed.
+  `2034-engine` and `2303-packages` moved acked -> fixed.
 - **v0.65.3 STILL NOT bumped/tagged.** v0.65.2 remains upstream-only;
   v0.65.1 is the accepted pin for xvector/orbitdb. Owner GO required.
 - Still open on the closure gate: engine editor 600-frame soak (needs
