@@ -21069,3 +21069,25 @@ REMAINING (still conservative leaks, never UAF): nested struct fields,
 Str fields of elements, Map/Set values, enum element types, containers with
 removals/reorders, aliased inline-literal fields. Engine editor soak and
 OrbitDB m375 must re-measure on the candidate archive.
+## 2026-10-28 -- FIXED: nested Bool payload patterns (REL-20261028-1159-stdlib)
+
+WITNESS (stdlib h2 wave): `fn f() -> Result[Bool, Str] { return Ok(true); }`
+then `match f() { Err(_) => 1, Ok(false) => 2, Ok(true) => {} }` returned 2
+(the Ok(false) arm) on v0.64.8 and v0.65.2 -- silent wrong branch, no
+diagnostic. Repro: `stdlib/tools/known_failures/p_result_bool_pattern.xi`.
+
+ROOT CAUSE: the Option/Result match check handled nested literal payloads
+for Char and Int only (`lit_val`), so `Ok(false)`/`Ok(true)`/`Some(false)`
+lowered to a DISC-ONLY check; both arms matched any Ok/Some. The same gap
+existed in the or-pattern alternative path.
+
+FIX (`stmt.rs`): a nested `Pattern::Lit(Literal::Bool)` now yields 0/1 and
+the payload slot is compared. This covers Result and Option, plain and
+or-pattern arms, with the same i64 erased-payload convention used by the
+constructors.
+
+EVIDENCE: the repro runs rc 0; a matrix also covers `Ok(false)`, `Err(_)`,
+`Some(true)/Some(false)/None`, and `Ok(true) | Ok(false)` or-patterns (all
+rc 0). LOCK: `tests/regression/result_bool_patterns/main.xi` +
+`e2e_result_bool_patterns`. **17/17 gates both; full e2e 2658/2658
+(4 ignored) both.**

@@ -12,14 +12,16 @@ Verified counts, not a stale snapshot:
 |---|---|
 | open | **16** |
 | acked | **102** (42 bug, 10 wishlist, 50 info) |
-| fixed | **62** (awaiting reporter verify) |
+| fixed | **63** (awaiting reporter verify) |
 | verified / closed / wontfix | 23 / 108 / 1 |
 
 The lane view lists **28 open** rows in total: the 16 above plus 12
 compiler->all broadcasts of its own (section E). Since the 22:52Z snapshot
 `2034-playground` was closed by its reporter, `1854-pulse` moved to acked
-(reduced probes green), and `2034-engine` and `2303-packages` moved to
-fixed; `REL-20261028-0052-compiler` was filed from the 2309 reduction.
+(reduced probes green), `2034-engine` and `2303-packages` moved to
+fixed; `REL-20261028-0052-compiler` was filed from the 2309 reduction, and
+`REL-20261028-1159-stdlib` (Bool payload patterns) was reported and fixed
+in this session.
 
 ```powershell
 cd E:\xiom-lang\xiom-relays
@@ -238,7 +240,13 @@ reporter reopens with new evidence.
   element's Vec payload at scope exit. Probe 496 MB -> **5 MB at 20k
   iterations**; disqualifying shapes (duplicate push, pop, escaped element
   Vec, with_len, borrow) stay leak-only and do not crash. **17/17 memory
-  gates GREEN on debug+release; full e2e 2656/2656 (4 ignored) both.**
+  gates GREEN on debug+release; full e2e 2658/2658 (4 ignored) both.**
+- **`REL-20261028-1159-stdlib` FIXED:** nested literal Bool payload patterns
+  (`Ok(false)`, `Some(true)`) only checked the tag (Char/Int were handled),
+  so both arms matched any Ok/Some. Bool now yields 0/1 and the payload slot
+  is compared in plain and or-pattern arms. Repro runs rc 0; matrix covers
+  Ok/Err/Some/None/or-patterns. Lock `e2e_result_bool_patterns`; 17/17
+  gates; full e2e **2658/2658 (4 ignored) both**.
 - xvector durable repros with this build:
   - `docs\repro\xv-vec-struct-push\probe.xi` (XVC-C-23): **PASS**, named and
     inline forms bad=0, exit 0.
@@ -263,7 +271,7 @@ a compiler probe and the reporting lane's verification on the candidate
 archive. No `todo` bug/perf rows. Then:
 
 1. 17/17 memory gates on debug+release.
-2. Full e2e debug+release (baseline 2653/2653, 4 ignored; grows with tests).
+2. Full e2e debug+release (baseline 2658/2658, 4 ignored; grows with tests).
 3. Fleet repros on the candidate archive: xvector WAL/station, orbitdb
    hybrid/station, engine editor 600-frame soak + 2034 probe, pulse request
    cycle + arm64, benchmark t1/t3 + sanitized, playground, packages.

@@ -73,8 +73,14 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   conservative leaks: nested struct/Str fields, Map/Set values, enum element
   types, removals/reorders, aliased inline fields. Engine editor soak +
   OrbitDB m375 must re-measure on the candidate archive.
+- **`REL-20261028-1159-stdlib` FIXED (new finding):** nested literal Bool
+  payload patterns (`Ok(false)`, `Some(true)`) only checked the tag, so both
+  arms matched any Ok/Some (stdlib h2 frame reader took the wrong branch).
+  `stmt.rs` now maps Bool to 0/1 and compares the payload slot in plain and
+  or-pattern arms. Repro rc 0; matrix covers Ok/Err/Some/None/or-patterns;
+  lock `e2e_result_bool_patterns`; 17/17 gates; e2e 2658/2658 both.
 - **`docs/COMPILER-LANE-CLOSURE.md` refreshed from the live bus:** the bus
-  snapshot is now **16 open / 102 acked / 62 fixed addressed to `compiler`**
+  snapshot is now **16 open / 102 acked / 63 fixed addressed to `compiler`**
   (28 open rows total once compiler's own broadcasts are counted). The doc
   classifies every acked row: 42 bugs, 10 wishlist, 50 info. Since the first
   refresh: `2034-playground` was closed by its reporter, `1854-pulse` moved

@@ -2558,6 +2558,13 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                             let lit_val: Option<i64> = match inner.as_ref() {
                                                 Pattern::Lit(Literal::Char(ch, _)) => Some(*ch as i64),
                                                 Pattern::Lit(Literal::Int(n, _)) => Some(*n as i64),
+                                                // REL-20261028-1159-stdlib: a Bool payload
+                                                // pattern (`Ok(false)`/`Some(true)`) must
+                                                // compare the payload. Disc-only made
+                                                // Ok(false) match an Ok(true) value.
+                                                Pattern::Lit(Literal::Bool(b, _)) => {
+                                                    Some(if *b { 1 } else { 0 })
+                                                }
                                                 _ => None,
                                             };
                                             if let Some(v) = lit_val {
@@ -2713,6 +2720,13 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                 let lit_val: Option<i64> = match inner_pat {
                                     Some(Pattern::Lit(Literal::Char(ch, _))) => Some(*ch as i64),
                                     Some(Pattern::Lit(Literal::Int(n, _))) => Some(*n as i64),
+                                    // REL-20261028-1159-stdlib: nested Bool payload
+                                    // patterns must compare the payload, not just the
+                                    // Result/Option discriminant (`Ok(false)` took
+                                    // the Ok(true) path silently).
+                                    Some(Pattern::Lit(Literal::Bool(b, _))) => {
+                                        Some(if *b { 1 } else { 0 })
+                                    }
                                     _ => None,
                                 };
                                 let inner_variant = match inner_pat {

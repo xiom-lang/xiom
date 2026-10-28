@@ -7695,6 +7695,16 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     );
 }
 
+// REL-20261028-1159-stdlib: nested literal Bool payload patterns
+// (`Ok(false)`, `Some(true)`) must compare the payload, not only the tag.
+#[test] fn e2e_result_bool_patterns() {
+    assert_eq!(
+        compile_and_run("tests/regression/result_bool_patterns/main.xi"),
+        Some(0),
+        "Bool payload patterns must select the exact arm (Result and Option)"
+    );
+}
+
 // Element-drop tag edges: shadowed names, same-arm push, cross-block push
 // (must disqualify), with_capacity, scalar element write, two Vec fields,
 // and header-only `.len()` reads of an element's Vec field.
