@@ -21044,8 +21044,10 @@ DESIGN (no blind loop): a prepass ownership tag, not a blanket iteration.
   truncate/resize/set/dedup/retain/sort/fill/swap/extend/add/append/put),
   any borrow (`&`/`&mut`) of the container, any method call on an element,
   any element projection in an escape context, or a Vec-field read of an
-  element disqualifies the tag. SCALAR element reads (`rs[i].id`) remain
-  allowed.
+  element in a binding/argument/return context disqualifies the tag.
+  SCALAR element reads (`rs[i].id`) and HEADER-ONLY uses of an element's
+  Vec field via a safe method (`rs[i].xs.len()`, `.push(..)`) remain allowed
+  (the container drop re-reads the field at exit).
 - Names must have exactly ONE declaration (no shadowed tag reuse), be in
   the existing Vec drop-safe set, and all declarations must be fresh.
 - Codegen intersects the validated field NAMES with `%struct.Vec` LLVM
@@ -21058,7 +21060,10 @@ GATES: new `tests/soak/container_elem_owned_drop.xi` (prefix 496 MB; now
 **5 MB at 20k iterations / 0.1 s**) and `container_elem_unsafe_shapes.xi`
 (duplicate push, pop, escaped element Vec, with_len, borrow must all stay
 leak-only and NOT crash). **17/17 memory gates GREEN on debug and release**;
-full e2e **2654/2654 (4 ignored) on both**.
+full e2e **2656/2656 (4 ignored) on both**. Edge locks:
+`container_elem_tag_edges` (shadowed names, same-arm push, cross-block push
+disqualified, with_capacity, scalar element write, TWO Vec fields per
+element, header-only `.len()` reads).
 
 REMAINING (still conservative leaks, never UAF): nested struct fields,
 Str fields of elements, Map/Set values, enum element types, containers with

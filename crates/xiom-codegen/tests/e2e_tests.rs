@@ -7695,6 +7695,17 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     );
 }
 
+// Element-drop tag edges: shadowed names, same-arm push, cross-block push
+// (must disqualify), with_capacity, scalar element write, two Vec fields,
+// and header-only `.len()` reads of an element's Vec field.
+#[test] fn e2e_container_elem_tag_edges() {
+    assert_eq!(
+        compile_and_run("tests/soak/container_elem_tag_edges.xi"),
+        Some(0),
+        "element-drop tag must handle shadowing, blocks, capacity and multi-field elements"
+    );
+}
+
 // m297 (REL-20261010-1615-stdlib): `Path.is_dir` -- a stdlib METHOD whose
 // body bare-calls the same-leaf free fn `is_dir(self.inner)` -- self-bound:
 // the G-10 implicit-self override re-bound the already-resolved io.is_dir

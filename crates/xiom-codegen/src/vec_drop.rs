@@ -648,7 +648,16 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                 if let Expr::Ident(bid) = b.as_ref() {
                     if let Some(vf) = state.elem_vec_fields.get(&bid.name) {
                         if vf.iter().any(|f| f == &field.name) {
-                            scan_expr(base, UseCtx::Escape, state);
+                            // Header-only use of an element's Vec field
+                            // (`c5[0].a.len()`, `.push(..)`) is safe: the
+                            // container drop re-reads the field at exit. A
+                            // transfer/escape context is not.
+                            let inner = if ctx == UseCtx::SafeBase {
+                                UseCtx::SafeBase
+                            } else {
+                                UseCtx::Escape
+                            };
+                            scan_expr(base, inner, state);
                         } else {
                             scan_expr(base, UseCtx::SafeBase, state);
                         }

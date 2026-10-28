@@ -236,7 +236,7 @@ reporter reopens with new evidence.
   element's Vec payload at scope exit. Probe 496 MB -> **5 MB at 20k
   iterations**; disqualifying shapes (duplicate push, pop, escaped element
   Vec, with_len, borrow) stay leak-only and do not crash. **17/17 memory
-  gates GREEN on debug+release; full e2e 2654/2654 (4 ignored) both.**
+  gates GREEN on debug+release; full e2e 2656/2656 (4 ignored) both.**
 - xvector durable repros with this build:
   - `docs\repro\xv-vec-struct-push\probe.xi` (XVC-C-23): **PASS**, named and
     inline forms bad=0, exit 0.
@@ -300,7 +300,9 @@ Implemented as a prepass OWNERSHIP TAG, not a blind loop:
 - Disqualifiers: pop/remove/swap_remove/clear/truncate/resize/set/dedup/
   retain/sort/fill/swap/extend/add/append/put; borrows of the container;
   method calls on an element; an element projection in an escape context;
-  a Vec-field read of an element. Scalar element reads are allowed.
+  a Vec-field read of an element in a binding/argument/return context.
+  Scalar element reads and header-only safe-method uses of an element's Vec
+  field (`rs[i].xs.len()`) are allowed.
 - One declaration only (no shadowed tag reuse); must already be in the Vec
   drop-safe set. Codegen frees only the validated field NAMES whose LLVM
   type is `%struct.Vec`, reads len/data at scope exit, frees payloads before
@@ -308,8 +310,10 @@ Implemented as a prepass OWNERSHIP TAG, not a blind loop:
 
 Evidence: `container_elem_owned_drop` (496 MB -> **5 MB at 20k iters /
 0.1 s**) and `container_elem_unsafe_shapes` (duplicate push, pop, escaped
-element Vec, with_len, borrow: leak-only, no crash). **17/17 memory gates
-GREEN on debug+release**; full e2e **2654/2654 (4 ignored) on both**.
+element Vec, with_len, borrow: leak-only, no crash), plus
+`container_elem_tag_edges` (shadowing, blocks, with_capacity, scalar write,
+two Vec fields). **17/17 memory gates GREEN on debug+release**; full e2e
+**2656/2656 (4 ignored) on both**.
 
 Still conservative leaks (never UAF): nested struct fields / Str fields of
 elements, Map/Set values, enum element types, containers with removals or

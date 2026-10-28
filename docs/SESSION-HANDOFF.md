@@ -65,12 +65,14 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   built with `new`/`with_capacity` and push/insert-only from owned elements
   now frees each element's Vec payload. Pre-fix 496 MB/1000 iters -> **5 MB
   at 20k iters**; disqualifying shapes (duplicate push, pop, escaped element
-  Vec, `with_len`, borrow, element methods, Vec-field reads) stay leak-only
+  Vec, `with_len`, borrow, element methods, element Vec-field escapes) stay leak-only
   and are covered by `container_elem_unsafe_shapes`. **17/17 gates both;
-  full e2e 2654/2654 (4 ignored) both.** Remaining conservative leaks:
-  nested struct/Str fields, Map/Set values, enum element types, removals/
-  reorders, aliased inline fields. Engine editor soak + OrbitDB m375 must
-  re-measure on the candidate archive.
+  full e2e 2656/2656 (4 ignored) both.** Edge locks cover shadowed names,
+  same-arm vs cross-block pushes, with_capacity, scalar element writes, two
+  Vec fields per element, and header-only `.len()` reads. Remaining
+  conservative leaks: nested struct/Str fields, Map/Set values, enum element
+  types, removals/reorders, aliased inline fields. Engine editor soak +
+  OrbitDB m375 must re-measure on the candidate archive.
 - **`docs/COMPILER-LANE-CLOSURE.md` refreshed from the live bus:** the bus
   snapshot is now **16 open / 102 acked / 62 fixed addressed to `compiler`**
   (28 open rows total once compiler's own broadcasts are counted). The doc
