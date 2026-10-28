@@ -86,14 +86,14 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261011-1055-bindings-2 | bindings | B-13 fn-typed param marshals to 0 | reporter-close (20261011-1549) |
 | REL-20261011-1121-bindings-2 | bindings | B-14/B-15 `Vec[fn]` calls, `-> Unit` | reporter-close (20261011-1549) |
 | REL-20261011-1411-engine | engine | `read_file_bytes` ensures violation (io.xi:947) | reporter-close (m345) |
-| REL-20261012-1457-engine | engine | bare `sqrt` unresolved despite `use xiom.math` | todo |
+| REL-20261012-1457-engine | engine | bare `sqrt` unresolved despite `use xiom.math` | verify-on-archive (reduced probe `sqrt(4.0)`=2 green 2026-10-28; engine repro to re-run) |
 | REL-20261013-1731-packages | packages | modern registry deps (sqlite/sdl3) fail; modules list ignored | verify-on-archive |
 | REL-20261014-1208-bindings-2 | bindings | B-29/B-30/B-31 big-int bitops, cast IR, const alias | reporter-close (20261019-1151) |
 | REL-20261014-1509-engine | engine | repeated port.args scalar flags drop C++17 | todo |
 | REL-20261015-1358-engine | engine | Editor W1: json secondary modules, module-id collision | verify-on-archive (m341 W1.1; other W1 sub-findings) |
 | REL-20261015-1538-engine | engine | Editor W2: reflect consts, import order, `&mut` fields | verify-on-archive (m341 W2.1; other W2 sub-findings) |
 | REL-20261015-2309-packages-2 | packages | bare `assert` mis-binds to `xiom.core.assert` | todo |
-| REL-20261015-2309-packages | packages | mixed-element tuples (`Tuple__Vec[UInt8]__Str__Int`) | reporter-close (3-field Vec/Str/Int + 4-field green `63c3d809d`; e2e lock; packages verify owed) |
+| REL-20261015-2309-packages | packages | mixed-element tuples (`Tuple__Vec[UInt8]__Str__Int`) | acked; reduced probes + e2e lock green `63c3d809d`; packages verify owed |
 | REL-20261016-2002-packages | packages | Float64 returns via dlsym'd fn pointers | reporter-close (m348) |
 | REL-20261016-2004-packages | packages | imported struct `Array` collides with builtin | reporter-close (m349) |
 | REL-20261016-2016-packages | packages | reading Result fields behind `&Result` crashes | reporter-close (m350) |
@@ -102,7 +102,7 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261017-1223-orbitdb-2 | orbitdb | E001 false positive on `&Vec[Int]` param | todo |
 | REL-20261017-1223-orbitdb | orbitdb | transient compiler exit -1, no diagnostics, host load | todo |
 | REL-20261017-1355-engine | engine | m340 dep-object cache key is consumer-specific | todo |
-| REL-20261018-2301-pulse | pulse | cross-module struct type alias breaks field access | todo |
+| REL-20261018-2301-pulse | pulse | cross-module struct type alias breaks field access | verify-on-archive (reduced cross-module alias probe green 2026-10-28; pulse repro to re-run) |
 | REL-20261019-2206-orbitdb | orbitdb | A6 paged 57 GB blow-up at ~130k keys | todo (verify m375) |
 | REL-20261020-1531-xvector-2 | xvector | C-21 build hang under a 16 GB Job Object | reporter-close (20261022-1616) |
 | REL-20261020-1550-stdlib | stdlib | tuple-returning fn-value ABI (`EnumerateIter.map`) | reporter-close (20261024-1501) |
@@ -192,10 +192,10 @@ reporter reopens with new evidence.
 - Main: `92e0d07b5` (2034 drop fix + refreshed handoff/checklist) and
   `de2854544` (1854 e2e lock) on top of the v0.65.3 hotfix `bb8eccf5a`
   (container-moved aggregates, Str-drop pointer capture). CI
-  **`40602249053` SUCCESS** on `79b01d676` (fix) and **`40604134197`
-  SUCCESS** on `fbfd2fbfe` (code + 1854 lock; all matrix: windows, ubuntu,
-  release parity x2, arm64 floor, MCU, hygiene). Later commits are
-  docs-only.
+  **`40602249053` SUCCESS** on `79b01d676` (2034 fix), **`40604134197`
+  SUCCESS** on `fbfd2fbfe` (1854 lock), and **`40610999107` SUCCESS** on
+  `63c3d809d` (2303 fix; all matrix: windows, ubuntu, release parity x2,
+  arm64 floor, MCU, hygiene).
 - v0.65.2 release: tag `fe1994b1` on `8ec0904a5`, release `40566604850`,
   11 assets, docs dispatch, registry `xiom-std 0.65.2`. **Not accepted by
   xvector/orbitdb**; v0.65.1 is the accepted pin. v0.65.3 is not
