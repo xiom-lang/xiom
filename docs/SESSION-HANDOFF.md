@@ -28,12 +28,14 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   (4 ignored) on both**; `e2e_m368` PASS both; **CI `40602249053` SUCCESS**
   on `79b01d676`, **`40604134197` SUCCESS** on `fbfd2fbfe`,
   **`40610999107` SUCCESS** on `63c3d809d`, **`40612001738` SUCCESS**
-  on `fea788908`, **`40692787953` SUCCESS** on `93d561107`, and
-  **`40701485338` SUCCESS** on `eac90fba6` (all matrix incl. arm64 floor/MCU;
-  the last carries the element-drop tags and Bool-pattern locks), and
-  **`40716560050` SUCCESS** on `855766b73` (W009 + linker stdout). Fix
-  commit `92e0d07b5`; relay `REL-20261027-2034-engine` now `fixed` (engine
-  verify owed).
+  on `fea788908`, **`40692787953` SUCCESS** on `93d561107`,
+  **`40701485338` SUCCESS** on `eac90fba6`, **`40716560050` SUCCESS** on
+  `855766b73`, **`40743760247` SUCCESS** on `a13040ac0` (Str rebind), and
+  **`40752513403` SUCCESS** on `46f7f50aa` (Vec[Vec] drops; all matrix incl.
+  arm64 floor/MCU). A source-built candidate is at
+  `target\candidate\xiom-46f7f50aa.exe` (sha256 `8BB859BB...`); lanes were
+  asked to re-measure. Fix commit `92e0d07b5`; relay
+  `REL-20261027-2034-engine` now `fixed` (engine verify owed).
 - **Durable-lane hotfix verified with this build:** xvector XVC-C-23 PASS
   (named+inline bad=0); xvector `probe_wal_file` 0 failed checks, exit 0,
   8 MB (WAL persist/reopen/torn-tail recovery). Station loopback and orbitdb
