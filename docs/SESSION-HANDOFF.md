@@ -14,7 +14,7 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
-*** SESSION UPDATE 2026-10-27T22:52Z (compiler lane; 2034 param-field leak FIXED on main; checklist refreshed) -- READ FIRST ***
+*** SESSION UPDATE 2026-10-28T00:52Z (compiler lane; 2034 + 2303 FIXED; 1854/2309 verified; checklist refreshed) -- READ FIRST ***
 - **REL-20261027-2034-engine FIXED (`92e0d07b5`):** codegen deep-copies an
   aliasing Vec RHS
   (`var v = b.data`) at the binding, but the drop prepass did not treat a
@@ -67,11 +67,19 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   open -> acked (reduced probes + a new e2e lock green, pulse verify owed),
   `2034-engine` and `2303-packages` moved acked -> fixed, and
   `REL-20261028-0052-compiler` was filed.
+- **Parser/AST note for the selfhost lane:** qualified enum/struct literal
+  constructors now parse to `Expr::Struct(name = "<dotted path>")` instead of
+  the anonymous `_` (`IVal.IStr`, `module.Type.Variant`), so the canonical
+  AST dump prints the dotted name. The selfhost parser in
+  `.kilo\worktrees\selfhost-phase-4-codegen` must make the same change before
+  diff_ast is re-run; T6/diff_ast was not re-run this session.
 - **v0.65.3 STILL NOT bumped/tagged.** v0.65.2 remains upstream-only;
   v0.65.1 is the accepted pin for xvector/orbitdb. Owner GO required.
 - Still open on the closure gate: engine editor 600-frame soak (needs
   container element drops; 2034 mode-1 is fixed), 1931 XgView/Vec,
-  OrbitDB m375 memory/teardown, pulse/JSON/Map retention, correctness carry.
+  OrbitDB m375 memory/teardown, pulse/JSON/Map retention, the new
+  libc/Winsock fn-name collision (`REL-20261028-0052-compiler`), and the
+  correctness carry.
 - Repro-path note: the prompt's `station/tests/loopback_suite.xi`,
   `tests/hybrid/probe_hybrid.xi` (xvector) and `engine/moveprobe.xi` do not
   exist on disk; OrbitDB's `tests/hybrid/probe_hybrid.xi` does. Use the
