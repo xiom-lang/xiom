@@ -21155,3 +21155,38 @@ SEPARATE: the candidate OrbitDB crash (1507) does NOT reproduce -- 10/10
 PASS 160/160 with the exact candidate binary SHA256 503FFEC8... and the
 same stdlib tree, and official v0.65.2 also 160/160. Packages owns the
 re-run with their exact envelope.
+## 2026-10-28 -- FIXED: replaced-Str-buffer reclamation (app leak family)
+
+WITNESS: 5000 iterations of `s = s + "0123456789"` (final string 50 KB)
+peaked **116 MB** on 855766b73 -- every replaced concat buffer leaked.
+This is the pulse request-path/builder shape and a common app leak.
+
+ROOT CAUSE: assigning to an owned Str local marked the local escaping, so
+no drop was registered at all; the historical `trust_unsafe` fresh rebind
+also leaked the replaced buffer.
+
+FIX: a per-local rebind state (hoisted `i8*` slot + `i1` owned flag) for
+single-declaration Str locals that are never alias-escaped (a `return` is
+a transfer, not an alias):
+- the first fresh value arms the flag; each fresh replacement (`s + x`,
+  conversions) frees the previous owned buffer;
+- a non-fresh alias frees the old owned buffer and disarms (the alias is
+  never freed); a self-assign that mentions the target stays leak-only;
+  literals are never freed;
+- the exit Str drop is skipped for these locals (the rebind state owns the
+  current value; a returned builder transfers it);
+- the state is materialized BEFORE the free check, so a loop body (emitted
+  once) frees on later iterations; the flag makes iteration 1 a no-op.
+Residual: a reassigned, non-returned local's FINAL buffer still leaks (no
+exit free); the growth is gone.
+
+EVIDENCE: 116 MB -> **4 MB at 5000 appends** (gate cap 64 reports 5 MB).
+New soak gate `str_rebind_growth`; edge lock `str_rebind_shapes`
+(fresh->rebind, literal->rebind, owned->alias, self-assign, returned
+builder). **18/18 memory gates GREEN on debug+release; full e2e 2659/2659
+(4 ignored) on both.**
+
+REMAINING app leak families (measured on this build): `Vec[Vec[UInt8]]`
+**505 MB/1000** (inner buffers), nested `Vec[Outer{Inner{Vec}}]`
+**431 MB/1000**, `Vec[Str]` with large strings, Map/Set values, enum
+element types, and containers with removals/reorders. Next targets.

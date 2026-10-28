@@ -444,6 +444,12 @@ pub struct FunctionContext {
     /// m368: local names proven OWNED AND PRIVATE for the current function by
     /// the AST prepass (`vec_drop::collect_owned_vec_locals`).
     pub vec_drop_safe: HashSet<String>,
+    /// Str locals whose fresh-to-fresh rebinds may free the replaced owned
+    /// buffer (single declaration, never alias-escaped except by `return`).
+    pub str_rebind_safe: HashSet<String>,
+    /// Per-local rebind bookkeeping: (i8* slot holding the currently owned
+    /// pointer, i1 owned flag). Created lazily on the first owned value.
+    pub str_rebind_state: HashMap<String, (String, String)>,
     /// Element-drop ownership tag (container local -> element XIOM type and
     /// the validated Vec field names). Present only when the prepass proved
     /// EVERY element pushed into the container owns its Vec fields and no

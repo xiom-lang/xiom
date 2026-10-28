@@ -246,6 +246,15 @@ reporter reopens with new evidence.
   iterations**; disqualifying shapes (duplicate push, pop, escaped element
   Vec, with_len, borrow) stay leak-only and do not crash. **17/17 memory
   gates GREEN on debug+release; full e2e 2658/2658 (4 ignored) both.**
+- **Str rebind reclamation (this session):** `s = s + chunk` leaked every
+  replaced buffer (5000 small appends = **116 MB**). A per-local owned flag
+  now frees the replaced owned buffer, never aliases/literals, and leaves
+  self-assign leak-only; returned builders transfer the final value.
+  Measured **116 MB -> 4 MB**; new gate `str_rebind_growth` + lock
+  `str_rebind_shapes`. **18/18 memory gates; full e2e 2659/2659 both.**
+  Remaining measured app leaks: `Vec[Vec]` 505 MB/1000, nested struct
+  431 MB/1000, large `Vec[Str]`, Map/Set values, enum elements,
+  removal-containing containers.
 - **`REL-20261028-1159-stdlib` FIXED:** nested literal Bool payload patterns
   (`Ok(false)`, `Some(true)`) only checked the tag (Char/Int were handled),
   so both arms matched any Ok/Some. Bool now yields 0/1 and the payload slot
@@ -282,8 +291,8 @@ Every open/acked row is `verified`/`closed` with evidence, or `fixed` with
 a compiler probe and the reporting lane's verification on the candidate
 archive. No `todo` bug/perf rows. Then:
 
-1. 17/17 memory gates on debug+release.
-2. Full e2e debug+release (baseline 2658/2658, 4 ignored; grows with tests).
+1. 18/18 memory gates on debug+release.
+2. Full e2e debug+release (baseline 2659/2659, 4 ignored; grows with tests).
 3. Fleet repros on the candidate archive: xvector WAL/station, orbitdb
    hybrid/station, engine editor 600-frame soak + 2034 probe, pulse request
    cycle + arm64, benchmark t1/t3 + sanitized, playground, packages.
@@ -334,13 +343,26 @@ Evidence: `container_elem_owned_drop` (496 MB -> **5 MB at 20k iters /
 0.1 s**) and `container_elem_unsafe_shapes` (duplicate push, pop, escaped
 element Vec, with_len, borrow: leak-only, no crash), plus
 `container_elem_tag_edges` (shadowing, blocks, with_capacity, scalar write,
-two Vec fields). **17/17 memory gates GREEN on debug+release**; full e2e
-**2656/2656 (4 ignored) on both**.
+two Vec fields). **18/18 memory gates GREEN on debug+release**; full e2e
+**2659/2659 (4 ignored) on both**.
 
-Still conservative leaks (never UAF): nested struct fields / Str fields of
-elements, Map/Set values, enum element types, containers with removals or
-reorders, aliased inline-literal fields. The engine editor 600-frame soak
-and OrbitDB m375 200k soak must re-measure on the candidate archive.
+### H2. Str rebind -- replaced-buffer reclamation (IMPLEMENTED)
+
+`s = s + chunk` / `s = int_to_string(..)` leaked every replaced buffer:
+5000 small appends peaked **116 MB** on 855766b73. A per-local owned flag
+now frees the previous owned buffer on each fresh replacement, disarms on a
+non-fresh alias (never freeing aliases/literals), leaves self-assign
+leak-only, and skips the exit drop for the rebind locals (returned builders
+transfer the final value). Measured **116 MB -> 4 MB**; residual final-value
+leak for a reassigned non-returned local only. New gate `str_rebind_growth`
++ lock `str_rebind_shapes`.
+
+Still conservative leaks (never UAF): `Vec[Vec[T]]` (inner buffers, 505
+MB/1000), nested struct fields (431 MB/1000), Str fields of elements,
+Map/Set values, enum element types, containers with removals/reorders, and
+large-string `Vec[Str]`. These are the next memory targets. The engine
+editor 600-frame soak and OrbitDB m375 200k soak must re-measure on the
+candidate archive.
 
 ## I. Candidate verification, then release acceptance (workflow)
 

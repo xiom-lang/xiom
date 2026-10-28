@@ -79,6 +79,15 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   conservative leaks: nested struct/Str fields, Map/Set values, enum element
   types, removals/reorders, aliased inline fields. Engine editor soak +
   OrbitDB m375 must re-measure on the candidate archive.
+- **Str rebind reclamation landed:** `s = s + chunk` leaked every replaced
+  buffer (5000 small appends = **116 MB**). A per-local owned flag frees the
+  replaced owned buffer, never aliases/literals, leaves self-assign
+  leak-only, and returned builders transfer the final value. Measured
+  **116 MB -> 4 MB**; new gate `str_rebind_growth` + lock
+  `str_rebind_shapes`. **18/18 gates; full e2e 2659/2659 (4 ignored) both.**
+  Remaining measured app leaks: `Vec[Vec]` **505 MB/1000**, nested struct
+  **431 MB/1000**, large `Vec[Str]`, Map/Set values, enum elements,
+  removal-containing containers.
 - **`REL-20261028-1159-stdlib` FIXED (new finding):** nested literal Bool
   payload patterns (`Ok(false)`, `Some(true)`) only checked the tag, so both
   arms matched any Ok/Some (stdlib h2 frame reader took the wrong branch).
@@ -118,9 +127,9 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 - **v0.65.3 STILL NOT bumped/tagged.** v0.65.2 remains upstream-only;
   v0.65.1 is the accepted pin for xvector/orbitdb. Owner GO required.
 - Still open on the closure gate: engine editor 600-frame soak (element
-  drops v1 landed; nested/Str/Map fields still leak), 1931 XgView/Vec,
-  OrbitDB m375 memory/teardown, pulse/JSON/Map retention, and the
-  correctness carry.
+  drops v1 + Str rebind landed; Vec[Vec]/nested/Map fields still leak),
+  1931 XgView/Vec, OrbitDB m375 memory/teardown, pulse/JSON/Map retention,
+  and the correctness carry.
 - Repro-path note: the prompt's `station/tests/loopback_suite.xi`,
   `tests/hybrid/probe_hybrid.xi` (xvector) and `engine/moveprobe.xi` do not
   exist on disk; OrbitDB's `tests/hybrid/probe_hybrid.xi` does. Use the

@@ -102,6 +102,17 @@ struct ScanState {
     next_block: usize,
     /// Precomputed type-name variant -> Vec field names (plain structs only).
     elem_type_vec_fields: HashMap<String, Vec<String>>,
+    /// Str locals with at least one fresh assignment/declaration.
+    str_rebind: HashSet<String>,
+    /// Str locals used in an escaping context OTHER than `return` (an alias
+    /// may outlive the replaced buffer, so rebind reclamation is disabled).
+    str_alias_escaped: HashSet<String>,
+    /// True while scanning a `return` expression (transfers the CURRENT
+    /// value; older replaced buffers are still safe to reclaim).
+    in_return: bool,
+    /// While scanning the RHS of a fresh Str assignment, the target name is
+    /// read by the concat but does not alias the NEW buffer.
+    rebind_target: Option<String>,
 }
 
 pub(crate) struct OwnedLocals {
@@ -111,6 +122,9 @@ pub(crate) struct OwnedLocals {
     /// Container local -> (element XIOM type, element Vec field names) for
     /// containers whose elements are all owned and never reordered/removed.
     pub elem: HashMap<String, (String, Vec<String>)>,
+    /// Single-declaration Str locals eligible for replaced-buffer
+    /// reclamation on fresh reassignment (REL-20261028).
+    pub str_rebind: HashSet<String>,
 }
 
 /// Returns the local names that are owned and private for the function body.
@@ -173,6 +187,15 @@ pub(crate) fn collect_owned_vec_locals(
             elem.insert(name, (elem_ty, fields.clone()));
         }
     }
+    let str_rebind: HashSet<String> = state
+        .str_rebind
+        .into_iter()
+        .filter(|name| {
+            single_decl.contains(name)
+                && !state.str_alias_escaped.contains(name)
+                && !state.moved.contains(name)
+        })
+        .collect();
     OwnedLocals {
         vec,
         str,
@@ -182,6 +205,7 @@ pub(crate) fn collect_owned_vec_locals(
             .filter(|n| !state.returned.contains(n) && !state.moved.contains(n))
             .collect(),
         elem,
+        str_rebind,
     }
 }
 
@@ -521,27 +545,49 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
             scan_expr(value, UseCtx::Escape, state);
         }
         Stmt::Assign(place, value, _) => {
-            // Rebinding an owned local would replace the header the drop flag
-            // tracks. Under the `#[owns_return]` contract a fresh-to-fresh
-            // rebind keeps the local owned: the flag stays armed and the final
-            // buffer is dropped at scope exit (the replaced buffer is the only
-            // residual leak). Any other rebind may install an alias, so the
-            // historical conservative escape remains.
+            // REL-20261028: `s = s + x` / `s = int_to_string(..)` replaces an
+            // owned Str buffer. The replaced buffer is dead once the fresh
+            // RHS exists, so codegen may free it (guarded by a per-local
+            // owned flag). This only applies when the name has one
+            // declaration and is never alias-escaped (return is a transfer,
+            // not an alias). Other rebinds keep the historical conservative
+            // escape.
+            let fresh_str_rebind = match place {
+                Expr::Ident(id) => {
+                    is_fresh_str_init(value)
+                        && state
+                            .decls
+                            .get(&id.name)
+                            .map_or(false, |info| info.decls == 1)
+                }
+                _ => false,
+            };
             if let Expr::Ident(id) = place {
-                let fresh_rebind = state.trust_unsafe
-                    && state
-                        .decls
-                        .get(&id.name)
-                        .map_or(false, |info| info.decls == 1 && info.all_fresh)
-                    && (is_fresh_vec_init(value)
-                        || is_fresh_vec_call(value, &state.fresh));
-                if !fresh_rebind {
-                    state.escaping.insert(id.name.clone());
+                if fresh_str_rebind {
+                    state.str_rebind.insert(id.name.clone());
+                } else {
+                    let fresh_rebind = state.trust_unsafe
+                        && state
+                            .decls
+                            .get(&id.name)
+                            .map_or(false, |info| info.decls == 1 && info.all_fresh)
+                        && (is_fresh_vec_init(value)
+                            || is_fresh_vec_call(value, &state.fresh));
+                    if !fresh_rebind {
+                        state.escaping.insert(id.name.clone());
+                    }
                 }
             } else {
                 scan_expr(place, UseCtx::Escape, state);
             }
+            let saved_target = state.rebind_target.clone();
+            if fresh_str_rebind {
+                if let Expr::Ident(id) = place {
+                    state.rebind_target = Some(id.name.clone());
+                }
+            }
             scan_expr(value, UseCtx::Escape, state);
+            state.rebind_target = saved_target;
         }
         Stmt::Return(Some(expr), _) => {
             // Returning an aggregate transfers ownership to the caller; its
@@ -549,14 +595,16 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
             mark_returned_roots(expr, state);
             // Fresh-return analysis: returning the local transfers its owned
             // buffer to the caller; do not count that use as an escape.
-            if state
+            let saved = state.in_return;
+            state.in_return = true;
+            if !state
                 .skip_return_local
                 .as_deref()
                 .map_or(false, |name| is_returned_local(expr, name))
             {
-                return;
+                scan_expr(expr, UseCtx::Escape, state);
             }
-            scan_expr(expr, UseCtx::Escape, state)
+            state.in_return = saved;
         }
         Stmt::Return(None, _) | Stmt::Break(..) | Stmt::Continue(..) | Stmt::Debugger(_) => {}
         Stmt::Expr(expr, _) => scan_expr(expr, UseCtx::Escape, state),
@@ -638,6 +686,14 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
         Expr::Ident(id) => {
             if ctx != UseCtx::SafeBase {
                 state.escaping.insert(id.name.clone());
+                // A return transfers the CURRENT value; older replaced
+                // buffers are still safe to free. Any other escape (alias,
+                // argument, store, capture) can outlive the old buffer.
+                if !state.in_return
+                    && state.rebind_target.as_deref() != Some(id.name.as_str())
+                {
+                    state.str_alias_escaped.insert(id.name.clone());
+                }
             }
         }
         Expr::Paren(inner, _) => scan_expr(inner, ctx, state),
@@ -1165,6 +1221,7 @@ fn mark_expr_mentions(expr: &Expr, state: &mut ScanState) {
     match expr {
         Expr::Ident(id) => {
             state.escaping.insert(id.name.clone());
+            state.str_alias_escaped.insert(id.name.clone());
         }
         Expr::Paren(inner, _)
         | Expr::Unary(_, inner, _)
@@ -1254,6 +1311,8 @@ pub(crate) struct VecDropScope {
     safe_str: HashSet<String>,
     safe_aggregate: HashSet<String>,
     safe_elem: HashMap<String, (String, Vec<String>)>,
+    safe_str_rebind: HashSet<String>,
+    str_rebind_state: HashMap<String, (String, String)>,
     entry_prelude: Vec<String>,
 }
 
@@ -1277,6 +1336,7 @@ impl IrEmitter {
         self.fctx.str_drop_safe = owned.str;
         self.fctx.aggregate_drop_safe = owned.aggregate;
         self.fctx.elem_drop_safe = owned.elem;
+        self.fctx.str_rebind_safe = owned.str_rebind;
     }
 
     /// Names of the Vec fields of every plain struct type, keyed by the full
@@ -1381,6 +1441,8 @@ impl IrEmitter {
         self.fctx.str_drop_safe.clear();
         self.fctx.aggregate_drop_safe.clear();
         self.fctx.elem_drop_safe.clear();
+        self.fctx.str_rebind_safe.clear();
+        self.fctx.str_rebind_state.clear();
         self.local.entry_prelude.clear();
     }
 
@@ -1394,6 +1456,8 @@ impl IrEmitter {
             safe_str: std::mem::take(&mut self.fctx.str_drop_safe),
             safe_aggregate: std::mem::take(&mut self.fctx.aggregate_drop_safe),
             safe_elem: std::mem::take(&mut self.fctx.elem_drop_safe),
+            safe_str_rebind: std::mem::take(&mut self.fctx.str_rebind_safe),
+            str_rebind_state: std::mem::take(&mut self.fctx.str_rebind_state),
             entry_prelude: std::mem::take(&mut self.local.entry_prelude),
         }
     }
@@ -1404,6 +1468,8 @@ impl IrEmitter {
         self.fctx.str_drop_safe = saved.safe_str;
         self.fctx.aggregate_drop_safe = saved.safe_aggregate;
         self.fctx.elem_drop_safe = saved.safe_elem;
+        self.fctx.str_rebind_safe = saved.safe_str_rebind;
+        self.fctx.str_rebind_state = saved.str_rebind_state;
         self.local.entry_prelude = saved.entry_prelude;
     }
 
@@ -1443,7 +1509,12 @@ impl IrEmitter {
     /// Register a fresh, non-escaping Str local for reclamation. The pointer
     /// is captured HERE into a hoisted i8* slot so the scope-exit drop never
     /// loads an alloca from a non-dominating if-arm (engine sfr_unique).
-    pub(crate) fn register_str_drop(&mut self, name: &str, alloca: &str, llvm_ty: &str, init: &Expr) {
+    pub(crate)     fn register_str_drop(&mut self, name: &str, alloca: &str, llvm_ty: &str, init: &Expr) {
+        // Reassigned Str locals are managed by the rebind state (old buffer
+        // freed at each replacement); a second exit drop would double free.
+        if self.fctx.str_rebind_safe.contains(name) {
+            return;
+        }
         if llvm_ty != "i8*"
             || !self.fctx.str_drop_safe.contains(name)
             || !is_fresh_str_init(init)
@@ -1466,6 +1537,95 @@ impl IrEmitter {
             flag: flag.clone(),
         });
         self.emitln(&format!("  store i1 true, i1* {flag}"));
+    }
+
+    /// Rebind bookkeeping for a Str local: (owned-pointer slot, owned flag).
+    /// Created lazily (and hoisted) so loop bodies reuse one flag.
+    fn str_rebind_state(&mut self, name: &str) -> (String, String) {
+        if let Some(state) = self.fctx.str_rebind_state.get(name) {
+            return state.clone();
+        }
+        let slot = self.fresh_tmp();
+        self.local
+            .hoisted_allocas
+            .push((slot.clone(), "i8*".to_string()));
+        self.local
+            .entry_prelude
+            .push(format!("  store i8* null, i8** {slot}"));
+        let flag = self.fresh_tmp();
+        self.local
+            .hoisted_allocas
+            .push((flag.clone(), "i1".to_string()));
+        self.local
+            .entry_prelude
+            .push(format!("  store i1 false, i1* {flag}"));
+        self.fctx
+            .str_rebind_state
+            .insert(name.to_string(), (slot.clone(), flag.clone()));
+        (slot, flag)
+    }
+
+    fn emit_free_owned_str(&mut self, slot: &str, flag: &str) {
+        let free_block = self.fresh_block("str_rebind_free");
+        let after_block = self.fresh_block("str_rebind_after");
+        let owned = self.fresh_tmp();
+        self.emitln(&format!("  {owned} = load i1, i1* {flag}"));
+        self.emitln(&format!(
+            "  br i1 {owned}, label %{free_block}, label %{after_block}"
+        ));
+        self.emitln(&format!("\n{free_block}:"));
+        let ptr = self.fresh_tmp();
+        self.emitln(&format!("  {ptr} = load i8*, i8** {slot}"));
+        self.emitln(&format!("  call void @xiom_guard_free(i8* {ptr})"));
+        self.emitln(&format!("  br label %{after_block}"));
+        self.emitln(&format!("\n{after_block}:"));
+    }
+
+    /// At a fresh Str binding, start tracking its owned buffer so the first
+    /// reassignment can free it. Literal/alias initializers start untracked
+    /// (the flag stays false) and arm on the first fresh assignment.
+    pub(crate) fn note_str_rebind_binding(&mut self, name: &str, init: &Expr, alloca: &str) {
+        if !self.fctx.str_rebind_safe.contains(name) || !is_fresh_str_init(init) {
+            return;
+        }
+        let (slot, flag) = self.str_rebind_state(name);
+        let ptr = self.fresh_tmp();
+        self.emitln(&format!("  {ptr} = load i8*, i8** {alloca}"));
+        self.emitln(&format!("  store i8* {ptr}, i8** {slot}"));
+        self.emitln(&format!("  store i1 true, i1* {flag}"));
+    }
+
+    /// On `s = <value>`: free the replaced owned buffer, then track the new
+    /// value. A concat (`s = s + x`) allocates a NEW buffer, so freeing the
+    /// old one is safe even though the RHS reads `s`. A non-fresh alias that
+    /// mentions the target (self-assign) is left leak-only.
+    pub(crate) fn update_str_rebind_assign(
+        &mut self,
+        name: &str,
+        value: &Expr,
+        store_val: &str,
+        val_ty: &str,
+    ) {
+        if !self.fctx.str_rebind_safe.contains(name) || val_ty != "i8*" {
+            return;
+        }
+        let fresh = is_fresh_str_init(value)
+            || matches!(value, Expr::Binary(_, BinOp::Add, _, _));
+        let mentions = Self::expr_mentions_any_ident(value, &[name]);
+        // Always materialize the state BEFORE deciding to free: the loop body
+        // is emitted once, so a first-iteration-only check would omit the
+        // free for every later iteration. The flag makes iteration 1 a no-op.
+        let (slot, flag) = self.str_rebind_state(name);
+        if fresh || !mentions {
+            self.emit_free_owned_str(&slot, &flag);
+        }
+        if fresh {
+            self.emitln(&format!("  store i8* {store_val}, i8** {slot}"));
+            self.emitln(&format!("  store i1 true, i1* {flag}"));
+        } else {
+            self.emitln(&format!("  store i8* {store_val}, i8** {slot}"));
+            self.emitln(&format!("  store i1 false, i1* {flag}"));
+        }
     }
 
     /// Element drop glue for a container whose prepass ownership tag proved
