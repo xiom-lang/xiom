@@ -68,7 +68,7 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | Item | Reporter | Defect | Status |
 |---|---|---|---|
 | REL-20261010-1548-bindings-5 | bindings | alloc/free in a confined block spins the guard heap (m313 landed) | verify-on-archive |
-| REL-20261010-1549-packages-2 | packages | `io.xi:943` `fs_read` false contract in multi-module programs | todo |
+| REL-20261010-1549-packages-2 | packages | `io.xi:943` `fs_read` false contract in multi-module programs | no-repro (m301: 73 runs/7 shapes); reporter close or provide repro |
 | REL-20261010-1549-pulse-2 | pulse | C-PULSE-16 `PULSE_BIND` is advisory (wildcard bind) | todo |
 | REL-20261010-1549-pulse-3 | pulse | C-PULSE-12 import-alias module shadowing | todo |
 | REL-20261010-1549-pulse-4 | pulse | C-PULSE-14 Linux request path ~87 KB/req (v0.64.2) | verify-on-archive (bound Str drops; request path to re-measure) |
@@ -92,7 +92,7 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261014-1509-engine | engine | repeated port.args scalar flags drop C++17 | todo |
 | REL-20261015-1358-engine | engine | Editor W1: json secondary modules, module-id collision | verify-on-archive (m341 W1.1; other W1 sub-findings) |
 | REL-20261015-1538-engine | engine | Editor W2: reflect consts, import order, `&mut` fields | verify-on-archive (m341 W2.1; other W2 sub-findings) |
-| REL-20261015-2309-packages-2 | packages | bare `assert` mis-binds to `xiom.core.assert` | todo |
+| REL-20261015-2309-packages-2 | packages | bare `assert` mis-binds to `xiom.core.assert` | no-repro on `855766b73` (reduced `xiom.transport.foo` probe binds a panicking assert; both stdlib asserts are void now); packages re-verify with the harness |
 | REL-20261015-2309-packages | packages | mixed-element tuples (`Tuple__Vec[UInt8]__Str__Int`) | acked; reduced probes + e2e lock green `63c3d809d`; packages verify owed |
 | REL-20261016-2002-packages | packages | Float64 returns via dlsym'd fn pointers | reporter-close (m348) |
 | REL-20261016-2004-packages | packages | imported struct `Array` collides with builtin | reporter-close (m349) |
@@ -334,6 +334,37 @@ Still conservative leaks (never UAF): nested struct fields / Str fields of
 elements, Map/Set values, enum element types, containers with removals or
 reorders, aliased inline-literal fields. The engine editor 600-frame soak
 and OrbitDB m375 200k soak must re-measure on the candidate archive.
+
+## I. Candidate verification, then release acceptance (workflow)
+
+Do NOT use ad-hoc `cargo build` binaries as lane acceptance. A cargo build
+is a useful per-fix smoke, but it does not prove the shipped form: flags,
+asset layout, arm64 cross-builds and pinned stdlib differ, and the durable
+regression was found in a packaged lane build. Lanes also pin by artifact
+hash, so the acceptance object must be an artifact.
+
+1. **Candidate (pre-release, no tag):** create a candidate ref from main
+   (e.g. `release/v0.65.3-rc1`) with ONLY `Cargo.toml` + `Cargo.lock`
+   workspace version `0.65.3-rc.1` (the release dry run labels artifacts
+   with the Cargo.toml version; leaving 0.65.2 would make the zip
+   indistinguishable from the shipped v0.65.2). Never tag and never publish
+   a release from it.
+2. `gh workflow run release.yml --ref release/v0.65.3-rc1` builds the same
+   packages as a release, uploads workflow artifacts, and creates nothing.
+   Record the run id, commit SHA, and each asset's SHA256.
+3. Nudge the owning lanes with one relay item each (engine, orbitdb,
+   stdlib, packages, pulse, xvector, benchmark) containing the run URL, the
+   candidate label, the commit SHA, and their exact repro/soak. Ask them to
+   run against the EXTRACTED candidate and post the verdict; a `fixed` row
+   becomes `verified` only on that run.
+4. Keep fixing on main in parallel; cut `rc2` when fixes land. A candidate
+   does not change any lane pin -- adoption waits.
+5. When every `fixed` row is verified, the checklist has no `todo`
+   bug/perf row, and the owner says GO: bump main to `0.65.3`, tag, publish,
+   run release-check, then ask lanes for **release acceptance** on the
+   official assets (hash pin) and, separately, adoption of the new pin.
+   Acceptance and adoption are two different decisions; the release is not
+   the first test of a fix.
 
 
 
