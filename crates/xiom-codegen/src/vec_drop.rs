@@ -150,6 +150,17 @@ pub(crate) fn collect_owned_vec_locals(
     state.elem_type_vec_fields = elem_type_vec_fields.clone();
     state.known_nonretaining = known_nonretaining.clone();
     scan_block(block, &mut state);
+    // REL-20261028-1641 follow-up: the function body's trailing expression is
+    // its IMPLICIT return value. `scan_block` sees it as a plain expression
+    // (UseCtx::Escape), so `Ok(conn)` / `Some(conn)` never marked `conn`
+    // returned and the aggregate exit drop freed the buffer the caller now
+    // owns (`p_borrowed_mut_grown_vec_uaf`, p_wave162 row 12 UAF). Treat the
+    // tail exactly like `return <expr>` for ownership transfer.
+    match block.stmts.last() {
+        Some(StmtOrExpr::Expr(expr)) => mark_returned_roots(expr, &mut state),
+        Some(StmtOrExpr::Stmt(Stmt::Expr(expr, _))) => mark_returned_roots(expr, &mut state),
+        _ => {}
+    }
     // Element drops are per-DECLARATION: a shadowed name with a second,
     // different binding must not inherit the first one's tag.
     let single_decl: HashSet<String> = state

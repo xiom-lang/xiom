@@ -7780,6 +7780,18 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     );
 }
 
+// REL-20261028-1641 follow-up: the function body's trailing `Ok(conn)` /
+// `Some(conn)` is an implicit return and must transfer the aggregate to the
+// caller. Scanned as a plain escape, the exit drop freed the returned buffer
+// (p_wave162 row 12 UAF; stdlib p_borrowed_mut_grown_vec_uaf).
+#[test] fn e2e_tail_return_aggregate() {
+    assert_eq!(
+        compile_and_run("tests/regression/tail_return_aggregate/main.xi"),
+        Some(0),
+        "implicit tail return must transfer aggregate ownership (REL-1641)"
+    );
+}
+
 // m297 (REL-20261010-1615-stdlib): `Path.is_dir` -- a stdlib METHOD whose
 // body bare-calls the same-leaf free fn `is_dir(self.inner)` -- self-bound:
 // the G-10 implicit-self override re-bound the already-resolved io.is_dir
