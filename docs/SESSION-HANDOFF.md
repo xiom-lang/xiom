@@ -14,6 +14,33 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-29T15:45Z (compiler lane; REL-1324 ROOT-CAUSED + FIXED) -- READ FIRST ***
+- **Fix commit `e48213c66`** on main (atop `445e0f194`/`b135dfbe8`). Source
+  candidate `target\candidate\xiom-e48213c66.exe`, sha256
+  `E0222F264FBD5FFE46FA81D088DB647836412E6C8A4B605D0F4EF05729AE9221`;
+  CI `40904436187`.
+- **REL-20261029-1324 (0.2.1 orbitdb carve, TOP blocker) FIXED -- orbitdb
+  verify owed on the candidate.** Root cause was the drop prepass, not the
+  carve: `vec_drop.rs::struct_literal_owns_vec` treated only a fresh Vec
+  local as MOVED into a struct literal. An aggregate local that already
+  owned Vec fields (`store`) was shallow-copied into the next literal
+  (`tree = BTree{ store: store }`) but stayed in the drop set, so
+  `return Some(Snapshot{ tree: tree })` handed back pointers to freed Vec
+  buffers. ASan: the 2176-byte `Vec[BTreeNode]` (cap 16 x 136 B) allocated
+  and freed in `snap_load_v2`, read 136 B at element 8 in the caller. The
+  `xiom_guard_heap_exit` frame in the report is bogus unwinding; the real
+  UAF is the returned tree. Fix: an aggregate local is now a moved field
+  source exactly like a fresh Vec local.
+- **Evidence:** minimal repro `tests/regression/aggregate_nested_return`
+  (fails pre-fix exit 2, passes post-fix; Option + two aggregate levels +
+  churn) and e2e lock `e2e_aggregate_nested_return`; eight repro variants
+  clean under ASan; **0.2.1 carve 160/160 under ASan (debug) and release**;
+  **20/20 memory gates debug + release**; full e2e **2663/2663 (4 ignored)
+  both** (debug 1169 s, release 979 s).
+- **Next: `REL-20261028-1641-stdlib` (p_wave162)** with ASan; then orbitdb
+  verifies the 0.2.1 carve on this candidate and the compiler marks `1324`
+  fixed on the bus. v0.65.3 still NOT bumped/tagged.
+
 *** SESSION UPDATE 2026-10-29T14:05Z (compiler lane; memory + huffman + nested landed; lane feedback; 2 release blockers) -- READ FIRST ***
 - **NEXT SESSION: read `docs/CONTINUATION-PROMPT-v0.65.3-2026-10-29.md`**
   (self-contained; state, blockers, repros, protocol).

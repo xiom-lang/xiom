@@ -1,11 +1,19 @@
 # CONTINUATION PROMPT -- v0.65.3 compiler lane, 2026-10-29
 
 You are continuing the XIOM compiler lane in `E:\xiom-lang\xiom` (main
-`0f86351cb`, atop `b135dfbe8`). Read, in order:
+`e48213c66`, atop `445e0f194`/`b135dfbe8`). Read, in order:
 
-1. `docs/SESSION-HANDOFF.md` top block (2026-10-29T14:00Z).
+1. `docs/SESSION-HANDOFF.md` top block (2026-10-29T15:45Z).
 2. `docs/COMPILER-LANE-CLOSURE.md` (live counts + memory sections H1..H2).
 3. This file.
+
+> **STATUS 2026-10-29T15:45Z:** `REL-20261029-1324-orbitdb` is FIXED on our
+> side at `e48213c66` (aggregate-local move; 0.2.1 carve 160/160 under ASan
+> and release). Candidate `target\candidate\xiom-e48213c66.exe`, sha256
+> `E0222F26...`; CI `40904436187`. The next blockers are `1641` (p_wave162)
+> and the orbitdb verification of this candidate. Sections 1 and 3.1 below
+> keep the original state for reference; use the top block for current
+> state.
 
 Do **not** bump, tag, or publish v0.65.3 without the owner's explicit GO.
 Do **not** mark a bug fixed without compiler evidence AND the owning lane's
@@ -14,10 +22,10 @@ or UAF with a stdlib workaround.
 
 ## 1. Current state
 
-- main `0f86351cb` (docs) on `b135dfbe8` (nested-struct drops).
-- Source candidate: `target\candidate\xiom-b135dfbe8.exe`,
-  sha256 `A7B48E5EFF907FA2440ECC1A2531F0B1CC5E61595E63221CBCFDB8E937555A0B`.
-  CI `40884503130` green (all matrix). Earlier candidates:
+- main `e48213c66` (1324 fix) atop `445e0f194` (docs) on `b135dfbe8`.
+- Source candidate: `target\candidate\xiom-e48213c66.exe`,
+  sha256 `E0222F264FBD5FFE46FA81D088DB647836412E6C8A4B605D0F4EF05729AE9221`.
+  CI `40904436187`. Earlier candidates: `b135dfbe8` (nested drops),
   `ab97014d9` (`6D9F2ED0...`), `46f7f50aa` (`8BB859BB...`).
 - v0.65.2 official = tag `fe1994b1` on `8ec0904a5`; v0.65.1 is the
   accepted pin. v0.65.3 is NOT bumped/tagged.
@@ -27,8 +35,8 @@ or UAF with a stdlib workaround.
 - Memory fixed this line: 2034 by-value field move; Vec[Struct] element
   drops; Vec[Vec] element drops; nested struct paths; Str rebind; plus
   2303 enum payloads, 1159 Bool patterns, 0052 W009/linker stdout.
-- **20/20 memory gates** (debug+release), full e2e **2662/2662 (4 ignored)
-  both**, CI green on `b135dfbe8`.
+- **20/20 memory gates** (debug+release), full e2e **2663/2663 (4 ignored)
+  both**, CI `40904436187` on `e48213c66`; 1324 carve 160/160 ASan+release.
 
 Live relay (2026-10-29T14:00Z, `compiler` addressee): **15 open / 107
 acked / 66 fixed**; 30 open lane rows total (15 + 15 broadcasts). Always
@@ -59,9 +67,33 @@ recount from the live bus before editing the checklist.
 
 ## 3. Release blockers (must be green before any rc/release)
 
-### 3.1 `REL-20261029-1324-orbitdb` -- 0.2.1 carve crash (TOP)
+### 3.1 `REL-20261029-1324-orbitdb` -- 0.2.1 carve crash (FIXED on our side)
 
-Repro (published carve, installed):
+**Fixed at `e48213c66`.** The crash was a compiler ownership bug, not the
+carve. `vec_drop.rs::struct_literal_owns_vec` only treated a fresh Vec local
+as moved into a struct literal; an aggregate local that already owned Vec
+fields was shallow-copied into the next literal and still dropped. In
+`snap_load_v2` (`var store = NodeStore{ nodes, dirty, births, pins };
+var tree = BTree{ store: store }; return Some(Snapshot{ tree: tree })`) the
+returned Snapshot kept pointers to the freed `Vec[BTreeNode]` (2176 B, cap
+16 x 136 B) plus dirty/births/pins buffers. ASan: allocated and freed in
+`snap_load_v2`, read 136 B at element 8 in the caller. The
+`xiom_guard_heap_exit` frame is bogus unwinding.
+
+Fix: treat an aggregate local (already in the drop set) as a MOVED field
+source, exactly like a fresh Vec local. Locks:
+`tests/regression/aggregate_nested_return` + `e2e_aggregate_nested_return`.
+
+Evidence on `e48213c66`: **0.2.1 carve 160/160 under ASan (debug) and
+release**; eight ASan repro variants clean; **20/20 memory gates debug +
+release**; **full e2e 2663/2663 (4 ignored) both** (debug 1169 s, release
+979 s); CI `40904436187`. Candidate
+`target\candidate\xiom-e48213c66.exe`, sha256 `E0222F26...`.
+
+Remaining: orbitdb re-runs the 0.2.1 carve on the candidate; only then mark
+`1324` fixed on the bus. The root-cause audit below is kept for history.
+
+Historical repro (pre-fix candidate `b135dfbe8`):
 ```powershell
 cd $env:LOCALAPPDATA\xiom\packages\xiom-orbitdb-0.2.1\xiom-orbitdb
 E:\xiom-lang\xiom\target\candidate\xiom-b135dfbe8.exe --run tests\test_conformance.xi -o conf.exe

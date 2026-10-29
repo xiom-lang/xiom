@@ -22,8 +22,8 @@ compiler->all broadcasts of its own (section E). Since the 22:52Z snapshot
 `0052-compiler`, `1533-stdlib` and `1617-stdlib` moved to fixed;
 `1507-packages` is acked (no-repro 10/10), `1532-packages` is the W009
 inventory, `1243-xvector` is the candidate GREEN report, `1324-orbitdb` is
-the 0.2.1 carve crash (blocker) and `1641-stdlib` is the p_wave162 SSE
-crash (blocker).
+**fixed on our side** (`e48213c66`; candidate 0.2.1 carve 160/160, orbitdb
+verify owed) and `1641-stdlib` is the p_wave162 SSE crash (blocker).
 
 ```powershell
 cd E:\xiom-lang\xiom-relays
@@ -113,7 +113,7 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261024-1101-pulse | pulse | arm64 fixed-arity printf fails IR verification | verify-on-archive (fix green) |
 | REL-20261023-1854-pulse | pulse | tuple-returned Vec[Str] inline + cross-module unannotated Str bind | acked; reduced probes + e2e lock green on `de2854544`; pulse verify `probe_wsauth` |
 | REL-20261028-1507-packages | packages | candidate orbitdb suite crash after 82 checks | acked; **no-repro 10/10 (160/160)** with the exact candidate `503FFEC8...`; packages re-run with envelope |
-| REL-20261029-1324-orbitdb | orbitdb | published 0.2.1 carve crashes at 82 passes (0xC0000005); v0.65.1 160/160 | **acked blocker**; ASan: UAF at `xiom_guard_heap_exit`, block alloc/free in `snap_load_v2`; audit + fix |
+| REL-20261029-1324-orbitdb | orbitdb | published 0.2.1 carve crashed at 82 passes (0xC0000005); v0.65.1 160/160 | **fixed on our side at `e48213c66`**; aggregate-local drop bug (`struct_literal_owns_vec`); carve 160/160 ASan+release; orbitdb verify on the candidate owed |
 | REL-20261028-1641-stdlib | stdlib | p_wave162 SSE loopback + spawned fixtures: 0xC0000374; v0.64.8 clean | **acked blocker**; huffman fix did not cover; ASan next |
 
 ### B2. Wishlists -- 10 strategic/perf rows
@@ -308,11 +308,14 @@ reporter reopens with new evidence.
     B/iter Map), parser ~1.6 KB, builder ~1.4 KB.
   - orbitdb: modern 166/166, station 169/169, hybrid 36/36, m375 PASS
     (200k **372.6 MB**, 1M **1,658.1 MB**); 0.2.1 carve still crashes.
-- **BLOCKER `1324-orbitdb`:** 0.2.1 carve 82 passes then 0xC0000005 on
-  b135dfbe8. ASan: heap-use-after-free at `xiom_guard_heap_exit`
-  (runtime:471); the 2176-byte block was `xiom_guard_alloc`'d and freed in
-  `snap_load_v2`; source audit of the BTreeNode/block-store ownership is
-  the next step (details in the continuation prompt section 3.1).
+- **`1324-orbitdb` FIXED on our side (`e48213c66`):** 0.2.1 carve was
+  82 passes then 0xC0000005 on b135dfbe8. Root cause:
+  `struct_literal_owns_vec` only moved fresh Vec locals into a literal; an
+  aggregate local with owned Vec fields stayed in the drop set after the
+  shallow header copy, so the returned Snapshot pointed at freed buffers
+  (`snap_load_v2`). ASan UAF (2176 B `Vec[BTreeNode]`, element 8). Carve
+  **160/160** ASan+release; lock `aggregate_nested_return`; orbitdb verify
+  on the candidate owed.
 - **BLOCKER `1641-stdlib`:** p_wave162 0xC0000374 5/5; huffman fix does
   not cover it; ASan next.
 - xvector durable repros with this build:  - `docs\repro\xv-vec-struct-push\probe.xi` (XVC-C-23): **PASS**, named and
