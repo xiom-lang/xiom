@@ -7768,6 +7768,18 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     );
 }
 
+// REL-20261028-1641: an aggregate binding's Vec field may be grown/replaced
+// after the binding (own `push` or a `&mut` callee). The exit drop must read
+// the field at drop time; a pointer captured at binding time is already freed
+// by realloc and double-frees (p_wave162, 0xC0000374).
+#[test] fn e2e_aggregate_vec_field_grow() {
+    assert_eq!(
+        compile_and_run("tests/regression/aggregate_vec_field_grow/main.xi"),
+        Some(0),
+        "aggregate Vec field drop must re-read the field after growth (REL-1641)"
+    );
+}
+
 // m297 (REL-20261010-1615-stdlib): `Path.is_dir` -- a stdlib METHOD whose
 // body bare-calls the same-leaf free fn `is_dir(self.inner)` -- self-bound:
 // the G-10 implicit-self override re-bound the already-resolved io.is_dir
