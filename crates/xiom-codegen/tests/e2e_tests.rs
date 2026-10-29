@@ -7756,6 +7756,18 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     );
 }
 
+// REL-20261029-1324: moving an aggregate local that already owns Vec fields
+// into another aggregate must transfer ownership. Pre-fix the intermediate
+// local stayed in the drop set, so the returned tree pointed at freed Vec
+// buffers (orbitdb 0.2.1 carve `snap_load_v2`, 82 passes then AV).
+#[test] fn e2e_aggregate_nested_return() {
+    assert_eq!(
+        compile_and_run("tests/regression/aggregate_nested_return/main.xi"),
+        Some(0),
+        "nested aggregate return must transfer every level's Vec ownership (REL-1324)"
+    );
+}
+
 // m297 (REL-20261010-1615-stdlib): `Path.is_dir` -- a stdlib METHOD whose
 // body bare-calls the same-leaf free fn `is_dir(self.inner)` -- self-bound:
 // the G-10 implicit-self override re-bound the already-resolved io.is_dir

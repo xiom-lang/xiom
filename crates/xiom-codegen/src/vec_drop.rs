@@ -493,11 +493,19 @@ fn struct_literal_owns_vec(fields: &[(Ident, Expr)], state: &mut ScanState) -> b
     for (_, fv) in fields {
         match fv {
             Expr::Ident(id) => {
+                // REL-20261029-1324: an aggregate local that already owns a
+                // Vec field is MOVED into this literal exactly like a fresh Vec
+                // local. The literal's field copy is shallow (header only), so
+                // leaving the source aggregate in the drop set frees the buffer
+                // the new aggregate still points at. This is the multi-level
+                // `Store{..} -> Tree{ store: store } -> return Some(..)` shape
+                // (0.2.1 carve `snap_load_v2`).
+                let owned_aggregate = state.aggregate.contains(&id.name);
                 let owned_vec = state
                     .decls
                     .get(&id.name)
                     .map_or(false, |i| i.decls > 0 && i.all_fresh);
-                if owned_vec
+                if (owned_aggregate || owned_vec)
                     && !state.escaping.contains(&id.name)
                     && !state.moved.contains(&id.name)
                 {
