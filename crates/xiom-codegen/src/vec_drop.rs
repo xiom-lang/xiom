@@ -107,6 +107,11 @@ struct ScanState {
     /// a Vec can store the borrowed header in its result (huffman
     /// `_tree_from_lengths`), so the borrow MUST be treated as escaping.
     known_nonretaining: HashSet<String>,
+    /// Callee leaf names with at least one `&mut` parameter. Such a callee can
+    /// store a by-value aggregate argument through the reference
+    /// (`sim_send_a -> _enqueue(l, p) -> l.q_ab.push(p)`); passing the
+    /// aggregate to it transfers ownership even when the callee returns void.
+    mut_ref_callees: HashSet<String>,
     /// Str locals with at least one fresh assignment/declaration.
     str_rebind: HashSet<String>,
     /// Str locals used in an escaping context OTHER than `return` (an alias
@@ -141,6 +146,7 @@ pub(crate) fn collect_owned_vec_locals(
     trust_unsafe: bool,
     elem_type_vec_fields: &HashMap<String, Vec<String>>,
     known_nonretaining: &HashSet<String>,
+    mut_ref_callees: &HashSet<String>,
 ) -> OwnedLocals {
     let mut state = ScanState::default();
     state.fresh = fresh.clone();
@@ -149,6 +155,7 @@ pub(crate) fn collect_owned_vec_locals(
     state.trust_unsafe = trust_unsafe;
     state.elem_type_vec_fields = elem_type_vec_fields.clone();
     state.known_nonretaining = known_nonretaining.clone();
+    state.mut_ref_callees = mut_ref_callees.clone();
     scan_block(block, &mut state);
     // REL-20261028-1641 follow-up: the function body's trailing expression is
     // its IMPLICIT return value. `scan_block` sees it as a plain expression
@@ -950,7 +957,29 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                 }
                 other => scan_expr(other, UseCtx::Escape, state),
             }
+            // REL-20261029-2110-packages: passing an owned aggregate BY VALUE
+            // to a callee that has a `&mut` parameter. The callee can store the
+            // shallow-copied Vec headers through that reference
+            // (`sim_send_a -> _enqueue(l, p) -> l.q_ab.push(p)`), so ownership
+            // moves and the caller's exit drop must be disarmed. Callees with
+            // no `&mut` parameter (consume_val/consume_ref-style readers) keep
+            // the caller drop, which the memory gates require.
+            let callee_has_mut_ref = match func.as_ref() {
+                Expr::Ident(id) => state.mut_ref_callees.contains(&id.name),
+                Expr::Field(_, method, _) => state.mut_ref_callees.contains(&method.name),
+                _ => false,
+            };
             for arg in args {
+                if callee_has_mut_ref {
+                    if let Expr::Ident(id) = arg {
+                        if state.aggregate.contains(&id.name)
+                            && !state.moved.contains(&id.name)
+                        {
+                            state.moved.insert(id.name.clone());
+                            continue;
+                        }
+                    }
+                }
                 // A borrow of a container lets the callee read/mutate its
                 // elements without this scan seeing it; element ownership
                 // cannot be proven.
@@ -1483,6 +1512,7 @@ impl IrEmitter {
         }
         let known_nonretaining: HashSet<String> =
             known.difference(&may_retain).cloned().collect();
+        let mut_ref_callees = self.mut_ref_callees.clone();
         let owned = collect_owned_vec_locals(
             body,
             &fresh,
@@ -1491,6 +1521,7 @@ impl IrEmitter {
             trust_unsafe,
             &elem_type_vec_fields,
             &known_nonretaining,
+            &mut_ref_callees,
         );
         self.fctx.vec_drop_safe = owned.vec;
         self.fctx.str_drop_safe = owned.str;
@@ -1646,6 +1677,7 @@ impl IrEmitter {
         self.fresh_vec_returns = vec;
         self.fresh_payload_returns = payload;
         self.fresh_aggregate_returns = aggregate;
+        self.mut_ref_callees = crate::fresh_return::collect_mut_ref_callees(program);
     }
 
     /// Reset per-function drop state. Called at every function-body start.

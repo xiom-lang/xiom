@@ -567,3 +567,20 @@ fn expr_has_nested_return(expr: &Expr) -> bool {
         _ => false,
     }
 }
+
+/// Leaf names of functions with a `&mut` parameter. Such a callee can store a
+/// by-value aggregate argument through the reference
+/// (`_enqueue(l: &mut SimLink, p: SimPacket)` -> `l.q_ab.push(p)`), so the
+/// caller must transfer ownership instead of dropping it (REL-20261029-2110).
+pub(crate) fn collect_mut_ref_callees(program: &Program) -> HashSet<String> {
+    let mut groups: HashMap<String, Vec<&FnDecl>> = HashMap::new();
+    collect_fn_groups(&program.items, &mut groups);
+    groups
+        .into_iter()
+        .filter(|(_, fns)| {
+            fns.iter()
+                .any(|fd| fd.params.iter().any(|p| matches!(p.ty, Type::MutRef(_))))
+        })
+        .map(|(leaf, _)| leaf)
+        .collect()
+}

@@ -7792,6 +7792,18 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     );
 }
 
+// REL-20261029-2110-packages: an aggregate local moved by value into a callee
+// that stores it (sim_send_a -> _enqueue -> q_ab) must escape the caller's
+// drop set. Pre-fix the exit drop freed the queued payload (p_wave-style UAF;
+// sim r2 [k3,k2,k3], k0=0).
+#[test] fn e2e_aggregate_escapes_callee() {
+    assert_eq!(
+        compile_and_run("tests/regression/aggregate_escapes_callee/main.xi"),
+        Some(0),
+        "an aggregate passed by value to a retaining callee must escape the caller drop (REL-2110)"
+    );
+}
+
 // m297 (REL-20261010-1615-stdlib): `Path.is_dir` -- a stdlib METHOD whose
 // body bare-calls the same-leaf free fn `is_dir(self.inner)` -- self-bound:
 // the G-10 implicit-self override re-bound the already-resolved io.is_dir

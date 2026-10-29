@@ -67,6 +67,9 @@ pub struct IrEmitter {
     /// Leaf names of `#[owns_return]` aggregate builders (editor frames):
     /// every Vec field of the returned struct is freshly owned by the caller.
     pub fresh_aggregate_returns: HashSet<String>,
+    /// Function leaves with a `&mut` parameter (caller transfers by-value
+    /// aggregate args; REL-20261029-2110).
+    pub mut_ref_callees: HashSet<String>,
     /// Force allocations to the MAIN heap even inside a guard arena. Set for
     /// `#[owns_return]` functions (their caller owns/frees the result) and for
     /// drop-classified Vec locals inside confined blocks. The arena must never
@@ -160,6 +163,7 @@ impl IrEmitter {
             fresh_vec_returns: HashSet::new(),
             fresh_payload_returns: HashSet::new(),
             fresh_aggregate_returns: HashSet::new(),
+            mut_ref_callees: HashSet::new(),
             force_main_heap_alloc: false,
             indexed_elem_types: HashMap::new(),
             module_deferred_types: Vec::new(),
