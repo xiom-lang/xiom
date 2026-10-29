@@ -5,25 +5,24 @@ items, and verify them, before the next version.** v0.65.3 is withheld until
 this checklist has zero unexplained `todo` rows and the owner gives GO
 (unless an explicit emergency durable hotfix is ordered).
 
-Updated **2026-10-27T23:43Z** from the live bus (`xiom-relays` @ `00e677b`).
+Updated **2026-10-29T16:05Z** from the live bus (`xiom-relays` @ `2a614e4`).
 Verified counts, not a stale snapshot:
 
 | Queue (addressed `to: compiler`) | Count |
 |---|---|
 | open | **15** |
-| acked | **107** (45 bug, 10 wishlist, 52 info) |
+| acked | **109** (46 bug, 10 wishlist, 53 info) |
 | fixed | **66** (awaiting reporter verify) |
 | verified / closed / wontfix | 23 / 94 / 1 |
 
-The lane view lists **30 open** rows in total: the 15 above plus 15
-compiler->all broadcasts of its own (section E). Since the 22:52Z snapshot
-`2034-playground` was closed by its reporter, `1854-pulse` moved to acked
-(reduced probes green), `2034-engine`, `2303-packages`, `1159-stdlib`,
-`0052-compiler`, `1533-stdlib` and `1617-stdlib` moved to fixed;
-`1507-packages` is acked (no-repro 10/10), `1532-packages` is the W009
-inventory, `1243-xvector` is the candidate GREEN report, `1324-orbitdb` is
-**fixed on our side** (`e48213c66`; candidate 0.2.1 carve 160/160, orbitdb
-verify owed) and `1641-stdlib` is the p_wave162 SSE crash (blocker).
+The lane view lists **27 open** rows in total: the 15 above plus 12
+compiler->all broadcasts of its own (section E). `1324-orbitdb` is **fixed
+on our side** (`e48213c66`; candidate 0.2.1 carve 160/160, orbitdb verify
+owed); `1641-stdlib` is the p_wave162 SSE crash (blocker). New from
+packages: `1415-packages` (Vec[Vec[UInt8]] transport corruption, same
+Vec-drop family; packages must run the witness on the candidate) and
+`1415-packages-2` (the exact 0.2.1 carve envelope that confirms 1324), both
+acked.
 
 ```powershell
 cd E:\xiom-lang\xiom-relays

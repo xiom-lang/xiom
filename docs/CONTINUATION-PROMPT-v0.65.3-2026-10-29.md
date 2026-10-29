@@ -38,8 +38,10 @@ or UAF with a stdlib workaround.
 - **20/20 memory gates** (debug+release), full e2e **2663/2663 (4 ignored)
   both**, CI `40904436187` on `e48213c66`; 1324 carve 160/160 ASan+release.
 
-Live relay (2026-10-29T14:00Z, `compiler` addressee): **15 open / 107
-acked / 66 fixed**; 30 open lane rows total (15 + 15 broadcasts). Always
+Live relay (2026-10-29T16:05Z, `compiler` addressee): **15 open / 109
+acked / 66 fixed**; 27 open lane rows total (15 + 12 broadcasts). New:
+`1415-packages` (Vec[Vec[UInt8]] transport corruption) and
+`1415-packages-2` (0.2.1 carve envelope, confirms 1324) are acked. Always
 recount from the live bus before editing the checklist.
 
 ## 2. Ledgers (lane feedback received 2026-10-29)
@@ -146,6 +148,16 @@ this red.
 
 ### 3.3 Other open blockers/memory
 
+- `REL-20261029-1415-packages` (acked, packages): v0.65.3 candidates
+  corrupt `Vec[Vec[UInt8]]` transport b4 (35/36 on 46f7f50aa + ab97014d9;
+  v0.65.1 green). Witness `packages/xiom-transport/docs/repro/
+  sim_vecvec_corruption.xi` (not in this checkout). Same Vec-drop family as
+  1324; test it on `e48213c66` first -- the aggregate-local move may or may
+  not cover it. Do not claim fixed without the packages run.
+- `REL-20261029-1415-packages-2` (acked): exact 0.2.1 carve envelope
+  (`packages@9d4944e8`, 10/10 + 5/5, 82 passes then 0xC0000005); this is
+  the 1324 trigger. No separate fix; ask packages/orbitdb to verify on the
+  candidate.
 - `REL-20261027-1931-engine` (XgView/Vec allocas) -- open WIP; needs the
   engine IR slice.
 - `REL-20261022-1725-engine` (C07 capture) -- open.
