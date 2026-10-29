@@ -14,7 +14,51 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
-*** SESSION UPDATE 2026-10-28T00:52Z (compiler lane; 2034 + 2303 FIXED; 1854/2309 verified; checklist refreshed) -- READ FIRST ***
+*** SESSION UPDATE 2026-10-29T14:05Z (compiler lane; memory + huffman + nested landed; lane feedback; 2 release blockers) -- READ FIRST ***
+- **NEXT SESSION: read `docs/CONTINUATION-PROMPT-v0.65.3-2026-10-29.md`**
+  (self-contained; state, blockers, repros, protocol).
+- **main `0f86351cb`** atop `b135dfbe8` (nested-struct drops). Source
+  candidate `target\candidate\xiom-b135dfbe8.exe`, sha256
+  `A7B48E5E...`; CI `40884503130` green. **20/20 memory gates**
+  debug+release; full e2e **2662/2662 (4 ignored) both**.
+- **Memory fixed this line:** Str rebind (116 MB -> 4 MB/5000 appends),
+  Vec[Vec] (505 MB/1000 -> 5 MB/20k), owned Vec[Struct] (496 -> 5 MB/20k),
+  **nested struct paths** `inner.data` (431 MB/1000 -> 5 MB/20k), 2034
+  (468 -> 6 MB/20k). Remaining: Map/Set values, large Vec[Str], enum
+  elements, removal/reorder containers.
+- **Lane feedback (2026-10-29):**
+  - stdlib: NON-OWNING Channel on 5071f86; full matrix on ab97014d9
+    modules 533/533, probes 417/418 (only p_wave162), smokes 963/963,
+    channel 5/5; 1533/1617 fixed on our side (stdlib verifies); huffman
+    1801 verified/closed.
+  - xvector (1243): candidate ab97014d9 pre-verification GREEN (C-23/WAL/
+    station/C-21); pin stays v0.65.1; wants the release for full acceptance.
+  - pulse: candidate ab97014d9 memory: parse 8294 -> **1636 B/iter**,
+    build 9092 -> **1446 B/iter**; /health 46.0 -> **21.9 KB/req**; residual
+    is **Map/JSON** (obj ~2.0 KB, Map 287 B/iter) + router/parser/builder.
+  - orbitdb: modern 166/166, station 169/169, hybrid 36/36, m375 PASS
+    (200k **372.6 MB**, 1M **1,658.1 MB**); BUT the published 0.2.1 carve
+    still crashes at 82 passes.
+- **BLOCKERS:**
+  1. **`REL-20261029-1324-orbitdb` (TOP):** 0.2.1 carve, 82 passes then
+     0xC0000005 on 46f7f50aa/ab97014d9/b135dfbe8; v0.65.1 160/160. ASan
+     reproduced: **heap-use-after-free at `xiom_guard_heap_exit`**
+     (runtime:471); the 2176-byte block was allocated by
+     `xiom_guard_alloc` in `db.engine.snap_load_v2` and freed by a
+     plain/inlined free in `snap_load_v2`. Next: source audit
+     (engine.xi snap_load_v2/snap_decode_node/BTreeNode), addr2line,
+     compiler bisect if needed. Repro + commands in the continuation
+     prompt section 3.1.
+  2. **`REL-20261028-1641-stdlib`:** p_wave162 0xC0000374 5/5 on the
+     candidate; huffman fix does not cover it; ASan next.
+  - Also open: 1931 (XgView), 1725 (C07), OrbitDB m375 1M 1.65 GB.
+- Relay now **15 open / 107 acked / 66 fixed** (30 open lane rows: 15 +
+  15 broadcasts). 1533/1617 -> fixed; 1243/1324/1641 -> acked.
+- **v0.65.3 NOT bumped/tagged.** Sequence: fix 1324+1641 -> packaged `rc`
+  (owner GO for the candidate version bump) -> lanes verify the archive ->
+  release -> acceptance/adoption. No release-as-test.
+
+
 - **REL-20261027-2034-engine FIXED (`92e0d07b5`):** codegen deep-copies an
   aliasing Vec RHS
   (`var v = b.data`) at the binding, but the drop prepass did not treat a

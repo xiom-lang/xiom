@@ -10,19 +10,20 @@ Verified counts, not a stale snapshot:
 
 | Queue (addressed `to: compiler`) | Count |
 |---|---|
-| open | **16** |
-| acked | **106** (45 bug, 10 wishlist, 51 info) |
-| fixed | **65** (awaiting reporter verify) |
-| verified / closed / wontfix | 23 / 108 / 1 |
+| open | **15** |
+| acked | **107** (45 bug, 10 wishlist, 52 info) |
+| fixed | **66** (awaiting reporter verify) |
+| verified / closed / wontfix | 23 / 94 / 1 |
 
-The lane view lists **29 open** rows in total: the 16 above plus 13
+The lane view lists **30 open** rows in total: the 15 above plus 15
 compiler->all broadcasts of its own (section E). Since the 22:52Z snapshot
 `2034-playground` was closed by its reporter, `1854-pulse` moved to acked
-(reduced probes green), `2034-engine`, `2303-packages`, `1159-stdlib` and
-`0052-compiler` moved to fixed; `REL-20261028-0052-compiler` was filed from
-the 2309 reduction. The candidate wave added `1507-packages` (no-repro
-10/10), `1532-packages` (W009 inventory), `1533-stdlib` and `1617-stdlib`
-(dropping a `ptr.read` copy is correct; stdlib Channel goes non-owning).
+(reduced probes green), `2034-engine`, `2303-packages`, `1159-stdlib`,
+`0052-compiler`, `1533-stdlib` and `1617-stdlib` moved to fixed;
+`1507-packages` is acked (no-repro 10/10), `1532-packages` is the W009
+inventory, `1243-xvector` is the candidate GREEN report, `1324-orbitdb` is
+the 0.2.1 carve crash (blocker) and `1641-stdlib` is the p_wave162 SSE
+crash (blocker).
 
 ```powershell
 cd E:\xiom-lang\xiom-relays
@@ -43,7 +44,7 @@ Only the addressee (`to`) may `fix`; only the reporter (`from`) may
 rows -- the closure gate counts a row as done when it is `verified`/`closed`
 or `fixed` with a probe and the lane's verdict on the candidate archive.
 
-## A. Open rows addressed to compiler (16)
+## A. Open rows addressed to compiler (15)
 
 | Item | Class | Action | Status |
 |---|---|---|---|
@@ -62,9 +63,8 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261026-2052-benchmark | info | v0.65.1 absorbed; close | reporter-close |
 | REL-20261026-2113-xvector | info | v0.65.1 acceptance GREEN; close | reporter-close |
 | REL-20261027-1931-engine | bug/codegen | XgView/Vec alloca retyping (optional WIP; IR slice in item) | todo |
-| REL-20261028-1641-stdlib | bug/codegen | p_wave162 SSE loopback + spawned fixtures: 0xC0000374 on v0.65.2 and candidate, v0.64.8 clean | todo (separate from channel/huffman; reproduce) |
 
-## B. Acked rows addressed to compiler (106)
+## B. Acked rows addressed to compiler (107)
 
 ### B1. Bugs -- 45 actionable rows
 
@@ -113,8 +113,8 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261024-1101-pulse | pulse | arm64 fixed-arity printf fails IR verification | verify-on-archive (fix green) |
 | REL-20261023-1854-pulse | pulse | tuple-returned Vec[Str] inline + cross-module unannotated Str bind | acked; reduced probes + e2e lock green on `de2854544`; pulse verify `probe_wsauth` |
 | REL-20261028-1507-packages | packages | candidate orbitdb suite crash after 82 checks | acked; **no-repro 10/10 (160/160)** with the exact candidate `503FFEC8...`; packages re-run with envelope |
-| REL-20261028-1533-stdlib | stdlib | candidate channel/SSE heap corruption | acked; root cause = owning `Channel` copied via `ptr.read` (repro fails on official v0.65.2 too); **decision: stdlib non-owning Channel** |
-| REL-20261028-1617-stdlib | stdlib | channel `ptr.read/write` double-owns its Vec | acked; same decision (dropping the copy is correct; no compiler change); stdlib action |
+| REL-20261029-1324-orbitdb | orbitdb | published 0.2.1 carve crashes at 82 passes (0xC0000005); v0.65.1 160/160 | **acked blocker**; ASan: UAF at `xiom_guard_heap_exit`, block alloc/free in `snap_load_v2`; audit + fix |
+| REL-20261028-1641-stdlib | stdlib | p_wave162 SSE loopback + spawned fixtures: 0xC0000374; v0.64.8 clean | **acked blocker**; huffman fix did not cover; ASan next |
 
 ### B2. Wishlists -- 10 strategic/perf rows
 
@@ -131,7 +131,7 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261019-1220-bindings | bindings | MCU/bare-metal targets (shipped) | verify-on-archive |
 | REL-20261021-1122-orbitdb-2 | orbitdb | m375 exit-reclaim (880 s at 1M) + cache sizing | todo |
 
-### B3. Info -- 51 rows (historical; close by the reporter with evidence)
+### B3. Info -- 52 rows (historical; close by the reporter with evidence)
 
 | Item | Reporter | Note |
 |---|---|---|
@@ -186,8 +186,9 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261026-2247-stdlib | stdlib | v0.65.1 gate-9: only 1609 red |
 | REL-20261027-2022-benchmark | benchmark | v0.65.2 absorbed; t1 still 30 MB |
 | REL-20261028-1532-packages | packages | inventory of colliding public symbols for 0052 |
+| REL-20261029-1243-xvector | xvector | candidate ab97014d9 pre-verification GREEN; pin stays v0.65.1 |
 
-## C. Fixed rows -- 65 awaiting reporter verification
+## C. Fixed rows -- 66 awaiting reporter verification
 
 Do not re-fix. `python tools\relay.py view --lane compiler --status fixed`
 lists them with the commit refs. Every one needs the reporter's `verify`
@@ -196,9 +197,9 @@ reporter reopens with new evidence.
 
 ## D. Verification baseline (as of 2026-10-27T22:52Z)
 
-- Main: `46f7f50aa` (Vec[Vec] element drops) atop `a13040ac0` (Str rebind)
-  and `93d561107` (element-drop ownership tag + edge locks) on the rest of
-  the session's fixes. CI
+- Main: `0f86351cb` (docs) atop `b135dfbe8` (nested struct drops) and the
+  rest of the session's fixes. Source candidate
+  `target\candidate\xiom-b135dfbe8.exe` (sha256 `A7B48E5E...`). CI
   **`40602249053` SUCCESS** on `79b01d676` (2034 fix), **`40604134197`
   SUCCESS** on `fbfd2fbfe` (1854 lock), **`40610999107` SUCCESS** on
   `63c3d809d` (2303 fix), **`40612001738` SUCCESS** on `fea788908`
@@ -296,8 +297,25 @@ reporter reopens with new evidence.
   rc 0** debug+release; `borrow_vec_leak` still reclaimed; lock
   `e2e_borrow_tree_retained`. **`REL-20261028-1641` (p_wave162 SSE) is still
   open** (0xC0000374 5/5) -- a separate retained-borrow/heap shape.
-- xvector durable repros with this build:
-  - `docs\repro\xv-vec-struct-push\probe.xi` (XVC-C-23): **PASS**, named and
+- **Latest lane feedback (2026-10-29):**
+  - stdlib (1533/1617): non-owning Channel on 5071f86; full matrix on
+    ab97014d9 -- modules 533/533, probes 417/418 (only p_wave162), smokes
+    963/963, barename 0/533, gate9 10/10+29; channel 5/5; 1801 verified.
+  - xvector (1243): candidate ab97014d9 pre-verification GREEN (C-23/WAL
+    x2, 8 previously-red probes, station/UI, C-21 16 GB); pin v0.65.1.
+  - pulse: parse 8294 -> **1636 B/iter**, build 9092 -> **1446 B/iter**;
+    /health 46.0 -> **21.9 KB/req**; residual Map/JSON (~2.0 KB obj, 287
+    B/iter Map), parser ~1.6 KB, builder ~1.4 KB.
+  - orbitdb: modern 166/166, station 169/169, hybrid 36/36, m375 PASS
+    (200k **372.6 MB**, 1M **1,658.1 MB**); 0.2.1 carve still crashes.
+- **BLOCKER `1324-orbitdb`:** 0.2.1 carve 82 passes then 0xC0000005 on
+  b135dfbe8. ASan: heap-use-after-free at `xiom_guard_heap_exit`
+  (runtime:471); the 2176-byte block was `xiom_guard_alloc`'d and freed in
+  `snap_load_v2`; source audit of the BTreeNode/block-store ownership is
+  the next step (details in the continuation prompt section 3.1).
+- **BLOCKER `1641-stdlib`:** p_wave162 0xC0000374 5/5; huffman fix does
+  not cover it; ASan next.
+- xvector durable repros with this build:  - `docs\repro\xv-vec-struct-push\probe.xi` (XVC-C-23): **PASS**, named and
     inline forms bad=0, exit 0.
   - `tests\probes\probe_wal_file.xi` (built with the bin's pinned stdlib +
     XIOM_HOME): **0 failed checks**, exit 0, 8 MB peak. WAL persist/reopen/
