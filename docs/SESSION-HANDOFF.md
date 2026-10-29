@@ -39,11 +39,15 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   modules) -- 1641 was the only red. `1910` fixed on our side (stdlib
   verify owed). **New open `1926-packages`:** Vec[Vec]/UDP transport
   corruption still red on e48213c66/ed2f38cff (34-35/36; ed2f added a UDP
-  reassembly failure) -- acked; packages re-runs on `605c6a879`. Counts
-  **15 open / 107 acked / 66 fixed**.
+  reassembly failure) -- acked; packages re-runs on `605c6a879`. Its
+  follow-up `REL-20261029-2110-packages` (same repro) is also acked and is
+  now the only open compiler blocker; the exact source was requested
+  (`REL-20261029-2125-compiler`). Counts **15 open / 108 acked / 66
+  fixed**. stdlib verdict on `605c6a879` still missing on the bus
+  (`REL-20261029-2128-compiler`).
 - v0.65.3 NOT bumped/tagged. Next: stdlib verdict on `605c6a879`,
-  packages `1926`, then packaged rc (owner GO) -> lanes verify the archive
-  -> release.
+  packages `2110` (need the repro source), then packaged rc (owner GO) ->
+  lanes verify the archive -> release.
 
 *** SESSION UPDATE 2026-10-29T18:38Z (compiler lane; REL-1641 FIXED; candidate ed2f38cff = 1324+1641) -- READ FIRST ***
 - main **`ed2f38cff`** (1641) atop `0e8caf803` (docs) on `e48213c66` (1324).

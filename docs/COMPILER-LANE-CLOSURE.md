@@ -11,7 +11,7 @@ Verified counts, not a stale snapshot:
 | Queue (addressed `to: compiler`) | Count |
 |---|---|
 | open | **15** |
-| acked | **107** (44 bug, 10 wishlist, 53 info) |
+| acked | **108** (45 bug, 10 wishlist, 53 info) |
 | fixed | **66** (awaiting reporter verify) |
 | verified / closed / wontfix | 23 / 99 / 1 |
 
@@ -23,8 +23,10 @@ modern/station/hybrid green). `1641-stdlib` is **fixed on our side at
 p_wave162 20/20 ASan+release) and `1910-stdlib` (the ed2f38cff UAF) is
 fixed at the same commit; stdlib verify owed. `1507-packages` and
 `1415-packages-2` were verified/closed by packages. **Open:**
-`1926-packages` (Vec[Vec]/UDP transport still red; acked, packages re-runs
-on `605c6a879`) and the longstanding engine/xvector rows.
+`2110-packages` (Vec[Vec]/UDP transport still red on 605c6a879; acked; the
+exact repro source was requested in `2125-compiler`) and the longstanding
+engine/xvector rows. stdlib's 605c6a879 verdict is still missing on the bus
+(requested in `2128-compiler`).
 
 ```powershell
 cd E:\xiom-lang\xiom-relays
@@ -117,7 +119,8 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261029-1324-orbitdb | orbitdb | published 0.2.1 carve crashed at 82 passes (0xC0000005); v0.65.1 160/160 | **verified + closed** by orbitdb on `ed2f38cff`; aggregate-local move fix (`e48213c66`); 0.2.1 160/160 release+ASan, modern/station/hybrid green |
 | REL-20261028-1641-stdlib | stdlib | p_wave162 SSE loopback + spawned fixtures: 0xC0000374; v0.64.8 clean | **fixed on our side at `605c6a879`** (aggregate field re-read + implicit tail-return ownership); p_wave162 20/20 ASan+release; stdlib verify owed |
 | REL-20261029-1910-stdlib | stdlib | 1641 NOT fixed on ed2f38cff: UAF (p_wave162 row 12) + minimal early-return witness | **fixed at `605c6a879`**; stdlib witness 5/5 ASan+release; lock `tail_return_aggregate`; stdlib verify owed |
-| REL-20261029-1926-packages | packages | Vec[Vec]/UDP transport corruption still red (34-35/36); ed2f adds UDP reassembly failure | **acked, open**; tail-return fix `605c6a879` may cover the aliasing but not claimed; packages re-runs on the candidate |
+| REL-20261029-1926-packages | packages | Vec[Vec]/UDP transport corruption still red (34-35/36); ed2f adds UDP reassembly failure | **acked**; superseded by `2110`; exact repro source requested in `2125-compiler` |
+| REL-20261029-2110-packages | packages | 605c6a879 still red: transport 34-35/36 (b4 4/5, UDP 4/5); other 13 suites green | **acked, OPEN -- only compiler blocker**; needs the actual `sim_vecvec_corruption.xi`; blind reconstructions clean |
 
 ### B2. Wishlists -- 10 strategic/perf rows
 
@@ -335,10 +338,14 @@ reporter reopens with new evidence.
   lock `tail_return_aggregate`; stdlib verify owed.
 - **`1910-stdlib` FIXED at `605c6a879`:** the ed2f38cff UAF report; same
   implicit-tail-return fix. stdlib verify owed.
-- **OPEN `1926-packages` (acked):** Vec[Vec] transport corruption still red
-  on e48213c66 (35/36) and ed2f38cff (34/36 + a UDP reassembly failure).
-  The tail-return fix may cover the aliasing but is not claimed; packages
-  re-runs on `605c6a879`.
+- **OPEN `2110-packages` (acked, supersedes 1926):** 605c6a879 re-run:
+  transport 34/36, 35/36, 34/36, 34/36, 35/36; b4 4/5 and UDP 1500-byte
+  reassembly 4/5; all 13 other suites green (orbitdb 160). The tail-return
+  fix did not cover it. `sim_vecvec_corruption.xi` is not in this
+  checkout; requested in `2125-compiler`. Blind Vec[Vec]
+  reuse/alias/projection/element-read reconstructions are clean (the
+  clear+push reuse shape also aliases on v0.65.1), so ASan the real repro
+  next.
 - xvector durable repros with this build:  - `docs\repro\xv-vec-struct-push\probe.xi` (XVC-C-23): **PASS**, named and
     inline forms bad=0, exit 0.
   - `tests\probes\probe_wal_file.xi` (built with the bin's pinned stdlib +

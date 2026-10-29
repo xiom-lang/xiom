@@ -13,7 +13,9 @@ You are continuing the XIOM compiler lane in `E:\xiom-lang\xiom` (main
 > Newest candidate `target\candidate\xiom-605c6a879.exe`, sha256
 > `50A10EBE...`, CI `40946877255` (carve 160/160; p_wave162 20/20 ASan +
 > 20/20 release; stdlib UAF witness 5/5; gates 20/20; e2e 2665/2665 both).
-> Open: stdlib verdict on `605c6a879`; packages `1926` (Vec[Vec]/UDP).
+> Open: stdlib verdict on `605c6a879` (missing on the bus; requested in
+> `2128-compiler`); packages `2110` (Vec[Vec]/UDP; exact repro source
+> requested in `2125-compiler`).
 > Sections 1/3.1/3.2 keep the historical analysis; use the top block for
 > current state.
 
@@ -177,15 +179,17 @@ ERROR: AddressSanitizer: attempting double-free
 
 ### 3.3 Other open blockers/memory
 
-- **`REL-20261029-1926-packages` (acked, OPEN -- current packages blocker):**
-  Vec[Vec] transport corruption still red on e48213c66 (35/36, b4) and
-  ed2f38cff (34/36: b4 + a NEW UDP reassembly failure; ab97014d9 passed
-  UDP). Repro `packages/xiom-transport/docs/repro/sim_vecvec_corruption.xi`
-  (not in this checkout); expected `r1[0]=k1, r2=[k2,k2,k0], k0=1 k2=2`.
-  The implicit-tail-return fix (`605c6a879`) is a plausible cover for the
-  aliasing but is NOT claimed; packages re-runs on the new candidate.
-- `REL-20261029-1415-packages` (superseded by 1926): Vec[Vec] transport
-  corruption; acked, packages should fold it into 1926.
+- **`REL-20261029-2110-packages` (acked, OPEN -- current packages blocker):**
+  the 605c6a879 re-run: transport 34/36, 35/36, 34/36, 34/36, 35/36; b4
+  4/5 and UDP 1500-byte reassembly 4/5; all 13 other suites green
+  (orbitdb 160). Same `sim_vecvec_corruption.xi` as 1926. The source is
+  NOT in this checkout; requested in `REL-20261029-2125-compiler`. Blind
+  reconstructions did NOT reproduce (Vec[Vec] reuse/alias/projection/
+  element-read are clean on 605c6a879; the clear+push reuse shape behaves
+  identically on v0.65.1, so it is source aliasing). Do not guess further:
+  ASan the real repro.
+- `REL-20261029-1926-packages` (superseded by 2110): same repro on
+  e48213c66/ed2f38cff; acked.
 - `REL-20261029-1415-packages-2`: verified fixed/closed by packages (0.2.1
   envelope 160/160, 5/5 on e48213c66/ed2f38cff).
 - `REL-20261027-1931-engine` (XgView/Vec allocas) -- open WIP; needs the
