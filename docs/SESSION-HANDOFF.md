@@ -14,6 +14,39 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-29T22:30Z (compiler lane; stdlib VERIFIED/CLOSED 1641+1910; packages b4 FIXED, u4 open) -- READ FIRST ***
+- main **`aac15cc27`** (by-value aggregate args into `&mut` callees) atop
+  `605c6a879` / `42ab98b49` / `ed2f38cff` / `e48213c66`. Candidate
+  `target\candidate\xiom-aac15cc27.exe`, sha256
+  `199E79FE7678EC46304DD764C9E1848CAAABCFA302BAFA2A7F7720152AEB2B6A`;
+  CI `40966359970` SUCCESS.
+- **stdlib VERIFIED + CLOSED `1641` and `1910`; `1956` closed** on
+  `605c6a879`: p_wave162 **20/20**, `p_borrowed_mut_grown_vec_uaf`
+  **20/20**, full matrix **418/418 probes, 963/963 smokes, 533/533
+  modules, barename 0/533, gate9 OK**. v0.65.3 package is ready for the
+  owner's GO; still no bump/tag/release.
+- **packages `2110` STILL OPEN** (transport **35/36**). The exact repro is
+  in `xiom-relays/repro/REL-20261029-2110-packages/` (checkout at
+  `E:\xiom-packages\packages\packages\xiom-transport`). **b4/sim FIXED**
+  at `aac15cc27`: `sim_send_a` passes the `SimPacket` BY VALUE to
+  `_enqueue`, which stores it in `q_ab` through its `&mut SimLink`; the
+  caller's exit drop freed the queued payload (ASan UAF; `r2=[k3,k2,k3]`,
+  `k0=0`). A callee with a `&mut` parameter now takes ownership of by-value
+  aggregate args; reader callees keep the caller drop (five gates stay
+  green). Sim repro now 5/5 ASan `k0=1 k2=2`.
+- **u4 (UDP 1500-byte reassembly) is a SEPARATE escape and is still red**
+  5/5. Instrumentation: fragments and `_reasm_place` are correct
+  (`done.payload[0]=0` after `_reasm_remove`); corruption appears later in
+  the poll/event delivery path (`p.got[0]` starts with a Vec-header-like
+  `80,1,...`). Minimal enum/returned-poll reductions are clean, so the
+  exact shape still needs ASan on the real suite.
+- Evidence landed: 20/20 gates, carve 160/160, witness
+  `aggregate_escapes_callee` (pre-fix exit 3, post-fix 0), stdlib full
+  matrix green, **full e2e 2666/2666 (4 ignored) both** (debug 960 s,
+  release 1036 s), CI `40966359970`. **Release is HELD**: u4 is red and
+  packages has not verified; owner GO is recorded, package not cut.
+- Counts **15 open / 108 acked / 64 fixed** (23 verified, 102 closed).
+
 *** SESSION UPDATE 2026-10-29T20:52Z (compiler lane; 1641 COMPLETE at 605c6a879; 1324 verified/closed) -- READ FIRST ***
 - main **`605c6a879`** (implicit tail-return ownership) atop `42ab98b49`
   (docs) / `ed2f38cff` / `e48213c66`. Candidate

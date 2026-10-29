@@ -13,9 +13,21 @@ You are continuing the XIOM compiler lane in `E:\xiom-lang\xiom` (main
 > Newest candidate `target\candidate\xiom-605c6a879.exe`, sha256
 > `50A10EBE...`, CI `40946877255` (carve 160/160; p_wave162 20/20 ASan +
 > 20/20 release; stdlib UAF witness 5/5; gates 20/20; e2e 2665/2665 both).
-> Open: stdlib verdict on `605c6a879` (missing on the bus; requested in
-> `2128-compiler`); packages `2110` (Vec[Vec]/UDP; exact repro source
-> requested in `2125-compiler`).
+> **STATUS 2026-10-29T22:58Z:** stdlib **verified + closed** `1641`/`1910`
+> (and closed `1956`) on `605c6a879`: p_wave162 20/20, UAF witness 20/20,
+> probes 418/418, smokes 963/963, modules 533/533, gate9 OK. Packages
+> `2110` is still OPEN: b4/sim FIXED at `aac15cc27` (by-value aggregate
+> args into `&mut` callees; sim 5/5 ASan `k0=1 k2=2`), but UDP u4 is a
+> separate escape and stays red (transport 35/36). New evidence: the event
+> payload is already wrong when it reaches `collect_delivered` (copying it
+> there does NOT fix u4), so the corruption is upstream in the
+> RlMessage/event delivery path. Candidate
+> `target\candidate\xiom-aac15cc27.exe` sha256 `199E79FE...`; CI
+> `40966359970`; gates 20/20; carve 160/160; e2e 2666/2666 both. **Owner GO
+> is recorded but the release is HELD until u4 is green and packages
+> verifies.** Exact repro now in
+> `xiom-relays/repro/REL-20261029-2110-packages/`; checkout at
+> `E:\xiom-packages\packages\packages\xiom-transport`.
 > Sections 1/3.1/3.2 keep the historical analysis; use the top block for
 > current state.
 
@@ -179,15 +191,20 @@ ERROR: AddressSanitizer: attempting double-free
 
 ### 3.3 Other open blockers/memory
 
-- **`REL-20261029-2110-packages` (acked, OPEN -- current packages blocker):**
-  the 605c6a879 re-run: transport 34/36, 35/36, 34/36, 34/36, 35/36; b4
-  4/5 and UDP 1500-byte reassembly 4/5; all 13 other suites green
-  (orbitdb 160). Same `sim_vecvec_corruption.xi` as 1926. The source is
-  NOT in this checkout; requested in `REL-20261029-2125-compiler`. Blind
-  reconstructions did NOT reproduce (Vec[Vec] reuse/alias/projection/
-  element-read are clean on 605c6a879; the clear+push reuse shape behaves
-  identically on v0.65.1, so it is source aliasing). Do not guess further:
-  ASan the real repro.
+- **`REL-20261029-2110-packages` (acked, OPEN -- only compiler blocker):**
+  exact repro in `xiom-relays/repro/REL-20261029-2110-packages/`; checkout
+  `E:\xiom-packages\packages\packages\xiom-transport` (port.ps1 with
+  `XIOM_COMPILER`). **b4/sim FIXED at `aac15cc27`:** `sim_send_a` passes
+  `SimPacket` by value to `_enqueue`, which stores it in `q_ab` through
+  `&mut SimLink`; the caller's exit drop freed the payload. The prepass now
+  moves by-value aggregate args to callees with a `&mut` parameter. Sim
+  repro 5/5 ASan `k0=1 k2=2`; gates 20/20; carve 160/160.
+  **u4 (UDP 1500-byte reassembly) STILL RED 5/5** and is a separate escape:
+  fragments and `_reasm_place` are correct (`done.payload[0]=0` after
+  `_reasm_remove`); corruption appears later in the poll/event delivery
+  path (`p.got[0]` starts with a Vec-header-like `80,1,...`). Minimal
+  enum/returned-poll reductions are clean; next is ASan on the real suite
+  or a witness that mirrors `_accept_message`'s `rr` drop.
 - `REL-20261029-1926-packages` (superseded by 2110): same repro on
   e48213c66/ed2f38cff; acked.
 - `REL-20261029-1415-packages-2`: verified fixed/closed by packages (0.2.1

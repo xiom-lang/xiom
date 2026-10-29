@@ -5,28 +5,25 @@ items, and verify them, before the next version.** v0.65.3 is withheld until
 this checklist has zero unexplained `todo` rows and the owner gives GO
 (unless an explicit emergency durable hotfix is ordered).
 
-Updated **2026-10-29T20:52Z** from the live bus after the 1641 completion.
-Verified counts, not a stale snapshot:
+Updated **2026-10-29T22:30Z** from the live bus after stdlib's verdict and
+the packages b4 fix. Verified counts, not a stale snapshot:
 
 | Queue (addressed `to: compiler`) | Count |
 |---|---|
 | open | **15** |
 | acked | **108** (45 bug, 10 wishlist, 53 info) |
-| fixed | **66** (awaiting reporter verify) |
-| verified / closed / wontfix | 23 / 99 / 1 |
+| fixed | **64** (awaiting reporter verify) |
+| verified / closed / wontfix | 23 / 102 / 1 |
 
 The lane view lists **29 open** rows in total: the 15 above plus 14
 compiler->all broadcasts of its own (section E). `1324-orbitdb` is
-**verified + closed by orbitdb** (`ed2f38cff`; 0.2.1 160/160 release+ASan,
-modern/station/hybrid green). `1641-stdlib` is **fixed on our side at
-`605c6a879`** (aggregate field re-read + implicit tail-return ownership;
-p_wave162 20/20 ASan+release) and `1910-stdlib` (the ed2f38cff UAF) is
-fixed at the same commit; stdlib verify owed. `1507-packages` and
+**verified + closed by orbitdb** (`ed2f38cff`); `1641-stdlib` and
+`1910-stdlib` are **verified + closed by stdlib** on `605c6a879` (p_wave162
+20/20, UAF witness 20/20, probes 418/418, smokes 963/963, modules 533/533,
+gate9 OK); `1956-stdlib` is closed. `1507-packages` and
 `1415-packages-2` were verified/closed by packages. **Open:**
-`2110-packages` (Vec[Vec]/UDP transport still red on 605c6a879; acked; the
-exact repro source was requested in `2125-compiler`) and the longstanding
-engine/xvector rows. stdlib's 605c6a879 verdict is still missing on the bus
-(requested in `2128-compiler`).
+`2110-packages` (b4/sim FIXED at `aac15cc27`; UDP u4 still red, transport
+35/36) and the longstanding engine/xvector rows.
 
 ```powershell
 cd E:\xiom-lang\xiom-relays
@@ -117,10 +114,10 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261023-1854-pulse | pulse | tuple-returned Vec[Str] inline + cross-module unannotated Str bind | acked; reduced probes + e2e lock green on `de2854544`; pulse verify `probe_wsauth` |
 | REL-20261028-1507-packages | packages | candidate orbitdb suite crash after 82 checks | **verified fixed + closed** by packages on e48213c66/ed2f38cff (0.2.1 160/160, 5/5 each) |
 | REL-20261029-1324-orbitdb | orbitdb | published 0.2.1 carve crashed at 82 passes (0xC0000005); v0.65.1 160/160 | **verified + closed** by orbitdb on `ed2f38cff`; aggregate-local move fix (`e48213c66`); 0.2.1 160/160 release+ASan, modern/station/hybrid green |
-| REL-20261028-1641-stdlib | stdlib | p_wave162 SSE loopback + spawned fixtures: 0xC0000374; v0.64.8 clean | **fixed on our side at `605c6a879`** (aggregate field re-read + implicit tail-return ownership); p_wave162 20/20 ASan+release; stdlib verify owed |
-| REL-20261029-1910-stdlib | stdlib | 1641 NOT fixed on ed2f38cff: UAF (p_wave162 row 12) + minimal early-return witness | **fixed at `605c6a879`**; stdlib witness 5/5 ASan+release; lock `tail_return_aggregate`; stdlib verify owed |
+| REL-20261028-1641-stdlib | stdlib | p_wave162 SSE loopback + spawned fixtures: 0xC0000374; v0.64.8 clean | **verified + closed by stdlib** on `605c6a879` (p_wave162 20/20, UAF witness 20/20, probes 418/418, smokes 963/963, modules 533/533, gate9 OK) |
+| REL-20261029-1910-stdlib | stdlib | 1641 NOT fixed on ed2f38cff: UAF (p_wave162 row 12) + minimal early-return witness | **verified + closed by stdlib** on `605c6a879` (UAF witness 20/20; implicit tail-return ownership) |
 | REL-20261029-1926-packages | packages | Vec[Vec]/UDP transport corruption still red (34-35/36); ed2f adds UDP reassembly failure | **acked**; superseded by `2110`; exact repro source requested in `2125-compiler` |
-| REL-20261029-2110-packages | packages | 605c6a879 still red: transport 34-35/36 (b4 4/5, UDP 4/5); other 13 suites green | **acked, OPEN -- only compiler blocker**; needs the actual `sim_vecvec_corruption.xi`; blind reconstructions clean |
+| REL-20261029-2110-packages | packages | 605c6a879 still red: transport 34-35/36 (b4 4/5, UDP 4/5); other 13 suites green | **acked, OPEN -- only compiler blocker**; b4/sim FIXED at `aac15cc27` (sim 5/5 ASan `k0=1 k2=2`); UDP u4 still red 5/5 (separate escape: payload correct at `_reasm_place`, corrupted in poll/event delivery); transport 35/36 |
 
 ### B2. Wishlists -- 10 strategic/perf rows
 
