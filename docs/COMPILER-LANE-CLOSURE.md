@@ -12,14 +12,15 @@ Verified counts, not a stale snapshot:
 |---|---|
 | open | **15** |
 | acked | **108** (45 bug, 10 wishlist, 53 info) |
-| fixed | **67** (awaiting reporter verify) |
-| verified / closed / wontfix | 23 / 94 / 1 |
+| fixed | **65** (awaiting reporter verify) |
+| verified / closed / wontfix | 23 / 96 / 1 |
 
-The lane view lists **27 open** rows in total: the 15 above plus 12
+The lane view lists **28 open** rows in total: the 15 above plus 13
 compiler->all broadcasts of its own (section E). `1324-orbitdb` is **fixed
 on our side** (`e48213c66`; 0.2.1 carve 160/160, orbitdb verify owed);
 `1641-stdlib` is **fixed on our side** (`ed2f38cff`; p_wave162 5/5
-ASan+release, stdlib verify owed). New from packages: `1415-packages`
+ASan+release, stdlib verify owed); `1533`/`1617-stdlib` were verified and
+closed by stdlib (2026-10-29T17:41Z). New from packages: `1415-packages`
 (Vec[Vec[UInt8]] transport corruption, same Vec-drop family; packages must
 run the witness on `ed2f38cff`) and `1415-packages-2` (the exact 0.2.1
 carve envelope that confirms 1324), both acked.
