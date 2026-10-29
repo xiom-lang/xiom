@@ -207,8 +207,9 @@ reporter reopens with new evidence.
   **`40716560050` SUCCESS** on `855766b73` (W009 + linker stdout),
   **`40743760247` SUCCESS** on `a13040ac0` (Str rebind),
   **`40752513403` SUCCESS** on `46f7f50aa` (Vec[Vec] drops), and
-  **`40763583267` SUCCESS** on `ab97014d9` (huffman borrow-retained return;
-  all matrix: windows, ubuntu, release parity x2, arm64 floor, MCU, hygiene).
+  **`40763583267` SUCCESS** on `ab97014d9` (huffman borrow-retained return),
+  and **`40884503130` SUCCESS** on `b135dfbe8` (nested struct drops; all
+  matrix: windows, ubuntu, release parity x2, arm64 floor, MCU, hygiene).
 - v0.65.2 release: tag `fe1994b1` on `8ec0904a5`, release `40566604850`,
   11 assets, docs dispatch, registry `xiom-std 0.65.2`. **Not accepted by
   xvector/orbitdb**; v0.65.1 is the accepted pin. v0.65.3 is not

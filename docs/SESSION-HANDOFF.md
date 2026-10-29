@@ -32,9 +32,10 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   **`40701485338` SUCCESS** on `eac90fba6`, **`40716560050` SUCCESS** on
   `855766b73`, **`40743760247` SUCCESS** on `a13040ac0` (Str rebind),
   **`40752513403` SUCCESS** on `46f7f50aa` (Vec[Vec] drops), and
-  **`40763583267` SUCCESS** on `ab97014d9` (huffman borrow fix; all matrix
+  **`40763583267` SUCCESS** on `ab97014d9` (huffman borrow fix) and
+  **`40884503130` SUCCESS** on `b135dfbe8` (nested struct drops; all matrix
   incl. arm64 floor/MCU). Updated candidate:
-  `target\candidate\xiom-ab97014d9.exe` (sha256 `6D9F2ED0...`); lanes were
+  `target\candidate\xiom-b135dfbe8.exe` (sha256 `A7B48E5E...`); lanes were
   asked to re-measure. Fix commit `92e0d07b5`; relay
   `REL-20261027-2034-engine` now `fixed` (engine verify owed).
 - **Durable-lane hotfix verified with this build:** xvector XVC-C-23 PASS
