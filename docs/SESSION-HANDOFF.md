@@ -14,6 +14,34 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-29T18:38Z (compiler lane; REL-1641 FIXED; candidate ed2f38cff = 1324+1641) -- READ FIRST ***
+- main **`ed2f38cff`** (1641) atop `0e8caf803` (docs) on `e48213c66` (1324).
+  Candidate `target\candidate\xiom-ed2f38cff.exe`, sha256
+  `99AF0E77BD2A6EDB9B7B7CAC7946F9036CFAF363EFC28594D6CE40F850C4D94B`;
+  CI `40925117193` SUCCESS (all 7 jobs).
+- **REL-20261028-1641 (p_wave162, 0xC0000374) FIXED -- stdlib verify owed.**
+  Root cause: `register_aggregate_drops` captured each Vec field's data
+  pointer at the binding and freed it at scope exit. Growing the field
+  later (`s.buf.push(..)`, or a `&mut` callee such as
+  `net.sse._read_head`) reallocs and frees that buffer; the exit drop freed
+  it again. The earlier "`&mut` aggregate arg copied to a temp" reading was
+  wrong -- the temp is the normal literal->slot materialization; the drop
+  was stale. Fix: `VecDrop::Aggregate` re-reads the (entry-hoisted) struct
+  field at drop time, so it frees the current buffer exactly once.
+- **Evidence:** p_wave162 **5/5 ASan --debug + 5/5 release**; minimal
+  witness `tests/regression/aggregate_vec_field_grow` (pre-fix exit
+  `-1073740940` / 0xC0000374, passes post-fix; covers self-grow and
+  `&mut` grow) + `e2e_aggregate_vec_field_grow`; 0.2.1 carve **160/160**
+  ASan+release; **20/20 memory gates** debug+release; full e2e
+  **2664/2664 (4 ignored) both** (debug 1521 s, release 1023 s).
+- **Bus:** `1641` moved to fixed on our side (stdlib verifies on the
+  candidate); `1324` stays acked pending orbitdb's verdict on the
+  candidate; `1415-packages` (Vec[Vec] transport corruption) stays acked
+  for triage. v0.65.3 NOT bumped/tagged.
+- **Next:** orbitdb verify 1324 on `ed2f38cff`; stdlib verify 1641 + full
+  matrix; then `1415-packages`, then the Map/Json/enum memory residual
+  (`1704`).
+
 *** SESSION UPDATE 2026-10-29T15:45Z (compiler lane; REL-1324 ROOT-CAUSED + FIXED) -- READ FIRST ***
 - **Fix commit `e48213c66`** on main (atop `445e0f194`/`b135dfbe8`). Source
   candidate `target\candidate\xiom-e48213c66.exe`, sha256

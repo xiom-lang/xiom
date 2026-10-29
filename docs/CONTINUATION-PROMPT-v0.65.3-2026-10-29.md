@@ -7,13 +7,13 @@ You are continuing the XIOM compiler lane in `E:\xiom-lang\xiom` (main
 2. `docs/COMPILER-LANE-CLOSURE.md` (live counts + memory sections H1..H2).
 3. This file.
 
-> **STATUS 2026-10-29T15:45Z:** `REL-20261029-1324-orbitdb` is FIXED on our
-> side at `e48213c66` (aggregate-local move; 0.2.1 carve 160/160 under ASan
-> and release). Candidate `target\candidate\xiom-e48213c66.exe`, sha256
-> `E0222F26...`; CI `40904436187`. The next blockers are `1641` (p_wave162)
-> and the orbitdb verification of this candidate. Sections 1 and 3.1 below
-> keep the original state for reference; use the top block for current
-> state.
+> **STATUS 2026-10-29T18:38Z:** `1324` is fixed at `e48213c66` and `1641` is
+> fixed at `ed2f38cff`; the newest candidate is
+> `target\candidate\xiom-ed2f38cff.exe`, sha256 `99AF0E77...`, CI
+> `40925117193` (carve 160/160 ASan+release; p_wave162 5/5 ASan+release;
+> gates 20/20; e2e 2664/2664 both). `1324` waits on orbitdb, `1641` on
+> stdlib verification. Sections 1/3.1/3.2 below keep the historical
+> analysis; use the top block for current state.
 
 Do **not** bump, tag, or publish v0.65.3 without the owner's explicit GO.
 Do **not** mark a bug fixed without compiler evidence AND the owning lane's
@@ -22,21 +22,25 @@ or UAF with a stdlib workaround.
 
 ## 1. Current state
 
-- main `e48213c66` (1324 fix) atop `445e0f194` (docs) on `b135dfbe8`.
-- Source candidate: `target\candidate\xiom-e48213c66.exe`,
-  sha256 `E0222F264FBD5FFE46FA81D088DB647836412E6C8A4B605D0F4EF05729AE9221`.
-  CI `40904436187`. Earlier candidates: `b135dfbe8` (nested drops),
-  `ab97014d9` (`6D9F2ED0...`), `46f7f50aa` (`8BB859BB...`).
+- main `ed2f38cff` (1641) atop `0e8caf803` (docs) / `e48213c66` (1324) /
+  `1f8415294` on `b135dfbe8`.
+- Source candidate: `target\candidate\xiom-ed2f38cff.exe`, sha256
+  `99AF0E77BD2A6EDB9B7B7CAC7946F9036CFAF363EFC28594D6CE40F850C4D94B`;
+  CI `40925117193` SUCCESS (all 7 jobs). Earlier candidates: `e48213c66`
+  (`E0222F26...`), `b135dfbe8` (`A7B48E5E...`), `ab97014d9`
+  (`6D9F2ED0...`), `46f7f50aa` (`8BB859BB...`).
 - v0.65.2 official = tag `fe1994b1` on `8ec0904a5`; v0.65.1 is the
   accepted pin. v0.65.3 is NOT bumped/tagged.
 - Stdlib main `5071f86` contains the NON-OWNING Channel (required for the
   release pin). huffman (1801/1805) is fixed/verified; channel 1533/1617
   are fixed on our side, stdlib verifies/closes.
 - Memory fixed this line: 2034 by-value field move; Vec[Struct] element
-  drops; Vec[Vec] element drops; nested struct paths; Str rebind; plus
+  drops; Vec[Vec] element drops; nested struct paths; Str rebind; 1324
+  aggregate-local move; 1641 aggregate Vec-field exit re-read; plus
   2303 enum payloads, 1159 Bool patterns, 0052 W009/linker stdout.
-- **20/20 memory gates** (debug+release), full e2e **2663/2663 (4 ignored)
-  both**, CI `40904436187` on `e48213c66`; 1324 carve 160/160 ASan+release.
+- **20/20 memory gates** (debug+release), full e2e **2664/2664 (4 ignored)
+  both** (debug 1521 s, release 1023 s), CI `40925117193` on `ed2f38cff`;
+  carve 160/160 ASan+release; p_wave162 5/5 ASan+release.
 
 Live relay (2026-10-29T16:05Z, `compiler` addressee): **15 open / 109
 acked / 66 fixed**; 27 open lane rows total (15 + 12 broadcasts). New:
@@ -92,8 +96,9 @@ release**; **full e2e 2663/2663 (4 ignored) both** (debug 1169 s, release
 979 s); CI `40904436187`. Candidate
 `target\candidate\xiom-e48213c66.exe`, sha256 `E0222F26...`.
 
-Remaining: orbitdb re-runs the 0.2.1 carve on the candidate; only then mark
-`1324` fixed on the bus. The root-cause audit below is kept for history.
+Remaining: orbitdb re-runs the 0.2.1 carve on the candidate (`ed2f38cff`,
+which also carries 1641); only then mark `1324` fixed on the bus. The
+root-cause audit below is kept for history.
 
 Historical repro (pre-fix candidate `b135dfbe8`):
 ```powershell
@@ -136,11 +141,28 @@ Next steps (in order):
 5. Add an in-repo regression witness; the 0.2.1 carve remains the
    acceptance test (modern suite does not cover it).
 
-### 3.2 `REL-20261028-1641-stdlib` -- p_wave162 SSE (blocker)
+### 3.2 `REL-20261028-1641-stdlib` -- p_wave162 SSE (FIXED at `ed2f38cff`)
 
-`tools/probes/p_wave162_shapes.xi` 0xC0000374 5/5 on `e48213c66` too (the
-1324 aggregate-move fix does not cover it). ASan (canonical stdlib
-`E:\xiom-lang\stdlib`):
+**Fixed.** Root cause: `vec_drop.rs::register_aggregate_drops` captured each
+Vec field's data pointer at the binding and freed that captured pointer at
+scope exit. Growing the field later -- `s.buf.push(..)` or a `&mut` callee
+such as `net.sse._read_head` -- reallocs the buffer and `realloc` frees the
+old pointer; the exit drop then frees it again (0xC0000374 / ASan
+double-free). The earlier reading ("the `&mut` arg is copied to a temp") was
+wrong: the temp is the normal literal->slot materialization, and the callee
+mutates the same slot. The stale DROP was the bug.
+
+Fix: push `VecDrop::Aggregate` (already defined) instead of `VecDrop::Ptr`;
+it GEPs the entry-hoisted struct alloca and loads the CURRENT field data at
+drop time.
+
+Evidence: p_wave162 **5/5 ASan --debug + 5/5 release**; witness
+`tests/regression/aggregate_vec_field_grow` (pre-fix exit `-1073740940`,
+post-fix 0; self-grow + `&mut` grow) + `e2e_aggregate_vec_field_grow`;
+0.2.1 carve 160/160 ASan+release; gates 20/20; e2e 2664/2664 both;
+CI `40925117193`.
+
+Historical ASan signature (kept for the record):
 
 ```
 ERROR: AddressSanitizer: attempting double-free
@@ -150,33 +172,18 @@ ERROR: AddressSanitizer: attempting double-free
   second free in net.sse._connect_core
 ```
 
-IR witness (`--emit-ir`): `_connect_core` does
-`%tmp441 = load %struct.SseConnection, %struct.SseConnection* %conn`;
-`%tmp442 = alloca %struct.SseConnection; store ...`;
-`call @net.sse._read_head(%struct.SseConnection* %tmp442)`. The callee grows
-`conn.buf` through the pointer; `realloc` frees the original 16-byte buffer,
-but the caller's `%conn` header still points at it, so the caller's exit
-drop double-frees. The `&mut` aggregate argument is being lowered through a
-by-value temp copy instead of the local's slot (the lvalue branch of
-`coerce_arg_for_param` exists but did not fire here). Audit the arg
-pre-compilation (`call.rs` around `all_args` / `coerce_arg_for_param`) and
-make sure an Ident `&mut` aggregate arg passes `%local_slot`. Do NOT disable
-the caller drop; the mutation itself is currently invisible to the caller.
-Repro: compile the probe with
-`--sanitize=address --debug` and `XIOM_STDLIB=E:\xiom-lang\stdlib`.
-
 ### 3.3 Other open blockers/memory
 
 - `REL-20261029-1415-packages` (acked, packages): v0.65.3 candidates
   corrupt `Vec[Vec[UInt8]]` transport b4 (35/36 on 46f7f50aa + ab97014d9;
   v0.65.1 green). Witness `packages/xiom-transport/docs/repro/
   sim_vecvec_corruption.xi` (not in this checkout). Same Vec-drop family as
-  1324; test it on `e48213c66` first -- the aggregate-local move may or may
-  not cover it. Do not claim fixed without the packages run.
+  1324/1641; test it on `ed2f38cff` first -- the two aggregate-drop fixes
+  may or may not cover it. Do not claim fixed without the packages run.
 - `REL-20261029-1415-packages-2` (acked): exact 0.2.1 carve envelope
   (`packages@9d4944e8`, 10/10 + 5/5, 82 passes then 0xC0000005); this is
-  the 1324 trigger. No separate fix; ask packages/orbitdb to verify on the
-  candidate.
+  the 1324 trigger. No separate fix; ask packages/orbitdb to verify on
+  `ed2f38cff`.
 - `REL-20261027-1931-engine` (XgView/Vec allocas) -- open WIP; needs the
   engine IR slice.
 - `REL-20261022-1725-engine` (C07 capture) -- open.
