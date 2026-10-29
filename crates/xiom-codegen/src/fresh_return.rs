@@ -568,19 +568,54 @@ fn expr_has_nested_return(expr: &Expr) -> bool {
     }
 }
 
-/// Leaf names of functions with a `&mut` parameter. Such a callee can store a
-/// by-value aggregate argument through the reference
-/// (`_enqueue(l: &mut SimLink, p: SimPacket)` -> `l.q_ab.push(p)`), so the
-/// caller must transfer ownership instead of dropping it (REL-20261029-2110).
-pub(crate) fn collect_mut_ref_callees(program: &Program) -> HashSet<String> {
+/// Leaf names of functions that can retain a by-value aggregate argument:
+/// any `&mut` parameter (store through the reference), or a return type that
+/// can carry an aggregate (Option/Result/Vec/Map/Set/Tuple/pointer, or a named
+/// struct/enum). Helpers like `_ok_outcome(done)` are ordinary calls but
+/// return the value, so the caller must transfer ownership (REL-2110 u4).
+pub(crate) fn collect_retaining_callees(program: &Program) -> HashSet<String> {
     let mut groups: HashMap<String, Vec<&FnDecl>> = HashMap::new();
     collect_fn_groups(&program.items, &mut groups);
     groups
         .into_iter()
         .filter(|(_, fns)| {
-            fns.iter()
-                .any(|fd| fd.params.iter().any(|p| matches!(p.ty, Type::MutRef(_))))
+            fns.iter().any(|fd| {
+                fd.params
+                    .iter()
+                    .any(|p| matches!(p.ty, Type::MutRef(_)))
+                    || ret_can_carry(&fd.return_type)
+            })
         })
         .map(|(leaf, _)| leaf)
         .collect()
+}
+
+/// A return type that can carry a by-value aggregate argument. Scalars, unit
+/// and Str cannot carry a struct/Vec (Str is a separate pointer payload and is
+/// deliberately excluded so read-only `-> Str` helpers keep the caller drop).
+fn ret_can_carry(ret: &Option<Type>) -> bool {
+    match ret {
+        None => false,
+        Some(Type::Named(id, _)) => !matches!(
+            id.name.as_str(),
+            "Int"
+                | "UInt"
+                | "Float"
+                | "Float32"
+                | "Float64"
+                | "Bool"
+                | "Str"
+                | "Unit"
+                | "Char"
+                | "Int8"
+                | "Int16"
+                | "Int32"
+                | "Int64"
+                | "UInt8"
+                | "UInt16"
+                | "UInt32"
+                | "UInt64"
+        ),
+        Some(_) => true,
+    }
 }

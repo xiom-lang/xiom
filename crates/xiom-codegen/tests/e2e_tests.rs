@@ -7804,6 +7804,17 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     );
 }
 
+// REL-20261029-2110-packages (u4): an aggregate returned through a leaf helper
+// (`_ok_outcome(done)`) is a real return; a Vec field projected out of an
+// aggregate into the returned literal must move the source, not alias it.
+#[test] fn e2e_return_helper_aggregate() {
+    assert_eq!(
+        compile_and_run("tests/regression/return_helper_aggregate/main.xi"),
+        Some(0),
+        "helper-wrapped aggregate return + field projection must transfer ownership (REL-2110 u4)"
+    );
+}
+
 // m297 (REL-20261010-1615-stdlib): `Path.is_dir` -- a stdlib METHOD whose
 // body bare-calls the same-leaf free fn `is_dir(self.inner)` -- self-bound:
 // the G-10 implicit-self override re-bound the already-resolved io.is_dir

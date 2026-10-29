@@ -111,7 +111,7 @@ struct ScanState {
     /// store a by-value aggregate argument through the reference
     /// (`sim_send_a -> _enqueue(l, p) -> l.q_ab.push(p)`); passing the
     /// aggregate to it transfers ownership even when the callee returns void.
-    mut_ref_callees: HashSet<String>,
+    retaining_callees: HashSet<String>,
     /// Str locals with at least one fresh assignment/declaration.
     str_rebind: HashSet<String>,
     /// Str locals used in an escaping context OTHER than `return` (an alias
@@ -146,7 +146,7 @@ pub(crate) fn collect_owned_vec_locals(
     trust_unsafe: bool,
     elem_type_vec_fields: &HashMap<String, Vec<String>>,
     known_nonretaining: &HashSet<String>,
-    mut_ref_callees: &HashSet<String>,
+    retaining_callees: &HashSet<String>,
 ) -> OwnedLocals {
     let mut state = ScanState::default();
     state.fresh = fresh.clone();
@@ -155,7 +155,7 @@ pub(crate) fn collect_owned_vec_locals(
     state.trust_unsafe = trust_unsafe;
     state.elem_type_vec_fields = elem_type_vec_fields.clone();
     state.known_nonretaining = known_nonretaining.clone();
-    state.mut_ref_callees = mut_ref_callees.clone();
+    state.retaining_callees = retaining_callees.clone();
     scan_block(block, &mut state);
     // REL-20261028-1641 follow-up: the function body's trailing expression is
     // its IMPLICIT return value. `scan_block` sees it as a plain expression
@@ -529,6 +529,22 @@ fn struct_literal_owns_vec(fields: &[(Ident, Expr)], state: &mut ScanState) -> b
                 {
                     state.moved.insert(id.name.clone());
                     owns = true;
+                }
+            }
+            Expr::Field(base, _, _) => {
+                // REL-2110 u4: a Vec field projected out of an aggregate local
+                // (`done.payload = taken.payload`) is shallow-copied into the
+                // literal. The source aggregate must not drop that field, or
+                // the literal/result points at freed storage. Moving the whole
+                // source is conservative (unused fields leak, never UAF).
+                if let Expr::Ident(bid) = base.as_ref() {
+                    if state.aggregate.contains(&bid.name)
+                        && !state.escaping.contains(&bid.name)
+                        && !state.moved.contains(&bid.name)
+                    {
+                        state.moved.insert(bid.name.clone());
+                        owns = true;
+                    }
                 }
             }
             expr if is_fresh_vec_init(expr) || is_owned_copy_vec_init(expr) => {
@@ -964,13 +980,13 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
             // moves and the caller's exit drop must be disarmed. Callees with
             // no `&mut` parameter (consume_val/consume_ref-style readers) keep
             // the caller drop, which the memory gates require.
-            let callee_has_mut_ref = match func.as_ref() {
-                Expr::Ident(id) => state.mut_ref_callees.contains(&id.name),
-                Expr::Field(_, method, _) => state.mut_ref_callees.contains(&method.name),
+            let callee_retains = match func.as_ref() {
+                Expr::Ident(id) => state.retaining_callees.contains(&id.name),
+                Expr::Field(_, method, _) => state.retaining_callees.contains(&method.name),
                 _ => false,
             };
             for arg in args {
-                if callee_has_mut_ref {
+                if callee_retains {
                     if let Expr::Ident(id) = arg {
                         if state.aggregate.contains(&id.name)
                             && !state.moved.contains(&id.name)
@@ -1512,7 +1528,7 @@ impl IrEmitter {
         }
         let known_nonretaining: HashSet<String> =
             known.difference(&may_retain).cloned().collect();
-        let mut_ref_callees = self.mut_ref_callees.clone();
+        let retaining_callees = self.retaining_callees.clone();
         let owned = collect_owned_vec_locals(
             body,
             &fresh,
@@ -1521,7 +1537,7 @@ impl IrEmitter {
             trust_unsafe,
             &elem_type_vec_fields,
             &known_nonretaining,
-            &mut_ref_callees,
+            &retaining_callees,
         );
         self.fctx.vec_drop_safe = owned.vec;
         self.fctx.str_drop_safe = owned.str;
@@ -1677,7 +1693,7 @@ impl IrEmitter {
         self.fresh_vec_returns = vec;
         self.fresh_payload_returns = payload;
         self.fresh_aggregate_returns = aggregate;
-        self.mut_ref_callees = crate::fresh_return::collect_mut_ref_callees(program);
+        self.retaining_callees = crate::fresh_return::collect_retaining_callees(program);
     }
 
     /// Reset per-function drop state. Called at every function-body start.
