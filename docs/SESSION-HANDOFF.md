@@ -40,6 +40,15 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 - **Next: `REL-20261028-1641-stdlib` (p_wave162)** with ASan; then orbitdb
   verifies the 0.2.1 carve on this candidate and the compiler marks `1324`
   fixed on the bus. v0.65.3 still NOT bumped/tagged.
+- **1641 reproduced on `e48213c66` 5/5 (0xC0000374); not fixed.** ASan:
+  double-free of a 16-byte region -- freed by `realloc` in
+  `net.sse._read_head`, allocated in `net.sse._connect_core`, second free
+  in `_connect_core`. IR: `_connect_core` copies `conn` into a temp alloca
+  and passes that pointer to `_read_head`; the callee grows `conn.buf`,
+  `realloc` frees the shared 16-byte buffer, the caller's stale header
+  double-frees. Root direction: the `&mut` aggregate arg is lowered through
+  the by-value temp path instead of the local's slot; details in the
+  continuation prompt section 3.2. Do not disable drops.
 
 *** SESSION UPDATE 2026-10-29T14:05Z (compiler lane; memory + huffman + nested landed; lane feedback; 2 release blockers) -- READ FIRST ***
 - **NEXT SESSION: read `docs/CONTINUATION-PROMPT-v0.65.3-2026-10-29.md`**

@@ -138,13 +138,32 @@ Next steps (in order):
 
 ### 3.2 `REL-20261028-1641-stdlib` -- p_wave162 SSE (blocker)
 
-`tools/probes/p_wave162_shapes.xi` 0xC0000374 5/5 on ab97014d9 and
-b135dfbe8; v0.64.8 clean; the huffman borrow fix did NOT cover it.
-Next: ASan the probe (same method as 1324), audit the SSE/buffer ownership
-(`xiom/net/sse.xi`, thread.spawn fixtures), and check for another
-retained-borrow shape the scalar/void-return rule missed (methods,
-closures, fields of returned structs). The full stdlib matrix has only
-this red.
+`tools/probes/p_wave162_shapes.xi` 0xC0000374 5/5 on `e48213c66` too (the
+1324 aggregate-move fix does not cover it). ASan (canonical stdlib
+`E:\xiom-lang\stdlib`):
+
+```
+ERROR: AddressSanitizer: attempting double-free
+16-byte region
+  freed by realloc  in net.sse._read_head   (called from _connect_core)
+  allocated by xiom_guard_alloc in net.sse._connect_core
+  second free in net.sse._connect_core
+```
+
+IR witness (`--emit-ir`): `_connect_core` does
+`%tmp441 = load %struct.SseConnection, %struct.SseConnection* %conn`;
+`%tmp442 = alloca %struct.SseConnection; store ...`;
+`call @net.sse._read_head(%struct.SseConnection* %tmp442)`. The callee grows
+`conn.buf` through the pointer; `realloc` frees the original 16-byte buffer,
+but the caller's `%conn` header still points at it, so the caller's exit
+drop double-frees. The `&mut` aggregate argument is being lowered through a
+by-value temp copy instead of the local's slot (the lvalue branch of
+`coerce_arg_for_param` exists but did not fire here). Audit the arg
+pre-compilation (`call.rs` around `all_args` / `coerce_arg_for_param`) and
+make sure an Ident `&mut` aggregate arg passes `%local_slot`. Do NOT disable
+the caller drop; the mutation itself is currently invisible to the caller.
+Repro: compile the probe with
+`--sanitize=address --debug` and `XIOM_STDLIB=E:\xiom-lang\stdlib`.
 
 ### 3.3 Other open blockers/memory
 
