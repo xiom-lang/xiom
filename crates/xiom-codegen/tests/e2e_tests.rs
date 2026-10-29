@@ -7746,6 +7746,16 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     );
 }
 
+// REL-20261028: nested struct Vec fields are freed only for owned push-only
+// containers; nested reads/aliases/duplicate pushes stay leak-only.
+#[test] fn e2e_nested_struct_drops() {
+    assert_eq!(
+        compile_and_run("tests/regression/nested_struct_drops/main.xi"),
+        Some(0),
+        "nested struct element drops must free owned nested Vecs only"
+    );
+}
+
 // m297 (REL-20261010-1615-stdlib): `Path.is_dir` -- a stdlib METHOD whose
 // body bare-calls the same-leaf free fn `is_dir(self.inner)` -- self-bound:
 // the G-10 implicit-self override re-bound the already-resolved io.is_dir

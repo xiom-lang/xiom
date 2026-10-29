@@ -483,6 +483,60 @@ fn elem_vec_fields_for(elem_ty: &str, state: &ScanState) -> Option<Vec<String>> 
     found.cloned()
 }
 
+/// A struct literal owns a Vec if any (possibly nested) field is a fresh Vec
+/// initializer, an owned deep-copy projection, or a fresh Vec local that is
+/// MOVED into the literal. Recursive so `Outer{ inner: Inner{ data: xs } }`
+/// marks `xs` moved; otherwise both the literal aggregate and `xs` would free
+/// the same buffer.
+fn struct_literal_owns_vec(fields: &[(Ident, Expr)], state: &mut ScanState) -> bool {
+    let mut owns = false;
+    for (_, fv) in fields {
+        match fv {
+            Expr::Ident(id) => {
+                let owned_vec = state
+                    .decls
+                    .get(&id.name)
+                    .map_or(false, |i| i.decls > 0 && i.all_fresh);
+                if owned_vec
+                    && !state.escaping.contains(&id.name)
+                    && !state.moved.contains(&id.name)
+                {
+                    state.moved.insert(id.name.clone());
+                    owns = true;
+                }
+            }
+            expr if is_fresh_vec_init(expr) || is_owned_copy_vec_init(expr) => {
+                owns = true;
+            }
+            Expr::Struct(_, inner, spread, _) if spread.is_none() => {
+                if struct_literal_owns_vec(inner, state) {
+                    owns = true;
+                }
+            }
+            _ => {}
+        }
+    }
+    owns
+}
+
+/// Resolve a dotted literal path (`inner.data`) through nested struct
+/// literals.
+fn literal_path_value<'a>(fields: &'a [(Ident, Expr)], path: &str) -> Option<&'a Expr> {
+    let parts: Vec<&str> = path.split('.').collect();
+    let mut cur = fields;
+    for (i, part) in parts.iter().enumerate() {
+        let value = &cur.iter().find(|(name, _)| name.name == *part)?.1;
+        if i + 1 == parts.len() {
+            return Some(value);
+        }
+        match value {
+            Expr::Struct(_, inner, None, _) => cur = inner.as_slice(),
+            _ => return None,
+        }
+    }
+    None
+}
+
 fn scan_block(block: &Block, state: &mut ScanState) {
     // Element-drop ownership: a pushed aggregate must be declared in the
     // SAME block as the push. Both are then re-created per loop iteration;
@@ -509,27 +563,8 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
             // fresh Vec field is an aggregate drop site. The source Vec local
             // is MOVED into the field (do not drop it separately); a fresh
             // Vec field expression is owned by the literal.
-            if let Expr::Struct(_, fields, _, _) = value {
-                let mut owns_vec_field = false;
-                for (_, fv) in fields {
-                    if let Expr::Ident(id) = fv {
-                        let owned_vec = state
-                            .decls
-                            .get(&id.name)
-                            .map_or(false, |i| i.decls > 0 && i.all_fresh);
-                        if owned_vec
-                            && !state.escaping.contains(&id.name)
-                            && !state.moved.contains(&id.name)
-                        {
-                            state.moved.insert(id.name.clone());
-                            owns_vec_field = true;
-                        }
-                    }
-                    if is_fresh_vec_init(fv) {
-                        owns_vec_field = true;
-                    }
-                }
-                if owns_vec_field {
+            if let Expr::Struct(_, fields, spread, _) = value {
+                if spread.is_none() && struct_literal_owns_vec(fields, state) {
                     state.aggregate.insert(name.name.clone());
                 }
             }
@@ -742,7 +777,14 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
             if let Expr::Index(b, _, _) = base.as_ref() {
                 if let Expr::Ident(bid) = b.as_ref() {
                     if let Some(vf) = state.elem_vec_fields.get(&bid.name) {
-                        if vf.iter().any(|f| f == &field.name) {
+                        let direct = vf.iter().any(|f| f == &field.name);
+                        // `inner` in a path `inner.data`: the struct field
+                        // itself can be aliased/read, so only a header-only
+                        // safe context is allowed.
+                        let nested = vf
+                            .iter()
+                            .any(|p| p.starts_with(&format!("{}.", field.name)));
+                        if direct || nested {
                             // Header-only use of an element's Vec field
                             // (`c5[0].a.len()`, `.push(..)`) is safe: the
                             // container drop re-reads the field at exit. A
@@ -829,12 +871,14 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                                             || lit.name.ends_with(&format!(".{elem_ty}"))
                                             || elem_ty.ends_with(&format!(".{}", lit.name));
                                         same
-                                            && needed.iter().all(|nf| {
-                                                fields.iter().any(|(fname, fval)| {
-                                                    &fname.name == nf
-                                                        && (is_fresh_vec_init(fval)
-                                                            || is_owned_copy_vec_init(fval))
-                                                })
+                                            && needed.iter().all(|path| {
+                                                literal_path_value(fields, path).map_or(
+                                                    false,
+                                                    |fval| {
+                                                        is_fresh_vec_init(fval)
+                                                            || is_owned_copy_vec_init(fval)
+                                                    },
+                                                )
                                             })
                                     }
                                 }
@@ -1453,11 +1497,7 @@ impl IrEmitter {
     ) -> HashMap<String, Vec<String>> {
         let mut map: HashMap<String, Vec<String>> = HashMap::new();
         let mut ambiguous: HashSet<String> = HashSet::new();
-        let is_vec_ty = |ty: &str| -> bool {
-            if ty == "Vec" || ty.starts_with("Vec[") {
-                return true;
-            }
-            // `pub type Bytes = Vec[UInt8]` field aliases.
+        fn resolve_alias(types: &TypeContext, ty: &str) -> String {
             let mut cur = ty.to_string();
             let mut seen: HashSet<String> = HashSet::new();
             while let Some(next) = types.type_aliases.get(&cur) {
@@ -1465,13 +1505,14 @@ impl IrEmitter {
                     break;
                 }
                 cur = next;
-                if cur == "Vec" || cur.starts_with("Vec[") {
-                    return true;
-                }
             }
-            false
-        };
-        let skip = |k: &str| {
+            cur
+        }
+        fn is_vec_ty(types: &TypeContext, ty: &str) -> bool {
+            let cur = resolve_alias(types, ty);
+            cur == "Vec" || cur.starts_with("Vec[")
+        }
+        fn is_skippable(k: &str) -> bool {
             k.starts_with("Tuple__")
                 || k.starts_with("Option__")
                 || k.starts_with("Result__")
@@ -1481,17 +1522,65 @@ impl IrEmitter {
                 || k.starts_with("Set[")
                 || k.starts_with("Option[")
                 || k.starts_with("Result[")
-        };
-        for (key, meta) in types.type_meta.entries() {
-            if skip(&key) {
+        }
+        fn struct_key(types: &TypeContext, ty: &str) -> Option<String> {
+            let resolved = resolve_alias(types, ty);
+            if resolved == "Vec" || resolved.starts_with("Vec[") || is_skippable(&resolved) {
+                return None;
+            }
+            if types.type_meta.contains_key(&resolved) {
+                return Some(resolved);
+            }
+            let suffix = format!(".{resolved}");
+            let mut found: Option<String> = None;
+            for k in types.type_meta.keys() {
+                if k.ends_with(&suffix) {
+                    if found.is_some() {
+                        return None;
+                    }
+                    found = Some(k);
+                }
+            }
+            found
+        }
+        // Dotted paths to every owned Vec inside a struct, including nested
+        // structs (`inner.data`). Depth-limited and cycle-safe.
+        fn walk(
+            types: &TypeContext,
+            key: &str,
+            prefix: &str,
+            depth: usize,
+            seen: &mut HashSet<String>,
+            out: &mut Vec<String>,
+        ) {
+            if depth > 8 || !seen.insert(key.to_string()) {
+                return;
+            }
+            if let Some(meta) = types.type_meta.get(&key.to_string()) {
+                for (fname, fty) in meta.fields.iter() {
+                    let path = if prefix.is_empty() {
+                        fname.clone()
+                    } else {
+                        format!("{prefix}.{fname}")
+                    };
+                    if is_vec_ty(types, fty) {
+                        out.push(path);
+                    } else if let Some(child) = struct_key(types, fty) {
+                        walk(types, &child, &path, depth + 1, seen, out);
+                    }
+                }
+            }
+            seen.remove(key);
+        }
+        for (key, _meta) in types.type_meta.entries() {
+            if is_skippable(&key) {
                 continue;
             }
-            let fields: Vec<String> = meta
-                .fields
-                .iter()
-                .filter(|(_, ty)| is_vec_ty(ty))
-                .map(|(n, _)| n.clone())
-                .collect();
+            let mut fields: Vec<String> = Vec::new();
+            let mut seen: HashSet<String> = HashSet::new();
+            walk(types, &key, "", 0, &mut seen, &mut fields);
+            fields.sort();
+            fields.dedup();
             if fields.is_empty() {
                 continue;
             }
@@ -1745,7 +1834,8 @@ impl IrEmitter {
             return Some(crate::context::ElemDrop {
                 llvm_ty: "%struct.Vec".to_string(),
                 stride: Self::vec_slot_size(32),
-                fields: vec![0],
+                elem_is_vec: true,
+                paths: Vec::new(),
             });
         }
         let llvm_ty = self.llvm_type_for(&xiom_ty).ok()?;
@@ -1753,31 +1843,44 @@ impl IrEmitter {
             return None;
         }
         let key = llvm_ty.trim_start_matches("%struct.").to_string();
-        let meta = self.types.type_meta.get(&key).or_else(|| {
-            let leaf = key.rsplit('.').next().unwrap_or(&key);
-            let candidates: Vec<String> = self
-                .types
-                .type_meta
-                .keys()
-                .into_iter()
-                .filter(|k| k.ends_with(&format!(".{key}")) || k.ends_with(&format!(".{leaf}")))
-                .collect();
-            self.pick_deterministic(candidates)
-                .and_then(|k| self.types.type_meta.get(&k))
-        })?;
-        let mut fields = Vec::new();
-        // Intersect with the field NAMES the prepass validated: never free a
-        // Vec field the ownership analysis did not see.
-        for (idx, (field_name, _)) in meta.fields.iter().enumerate() {
-            if validated.iter().any(|n| n == field_name)
-                && self.field_llvm_type(&key, idx) == "%struct.Vec"
-            {
-                fields.push(idx as u32);
+        let mut paths: Vec<Vec<(u32, String)>> = Vec::new();
+        for path in &validated {
+            let mut cur_key = key.clone();
+            let mut steps: Vec<(u32, String)> = Vec::new();
+            let mut ok = true;
+            let parts: Vec<&str> = path.split('.').collect();
+            for (i, part) in parts.iter().enumerate() {
+                let Some(meta) = self.types.type_meta.get(&cur_key) else {
+                    ok = false;
+                    break;
+                };
+                let Some(idx) = meta.fields.iter().position(|(n, _)| n == part) else {
+                    ok = false;
+                    break;
+                };
+                let fty = self.field_llvm_type(&cur_key, idx);
+                steps.push((idx as u32, fty.clone()));
+                if i + 1 < parts.len() {
+                    match self.resolve_struct_key(&meta.fields[idx].1) {
+                        Some(next) => cur_key = next,
+                        None => {
+                            ok = false;
+                            break;
+                        }
+                    }
+                } else if fty != "%struct.Vec" {
+                    ok = false;
+                }
+            }
+            if ok && !steps.is_empty() {
+                paths.push(steps);
             }
         }
-        if fields.is_empty() {
+        if paths.is_empty() {
             return None;
         }
+        // Intersect with the field paths the prepass validated: never free a
+        // Vec field the ownership analysis did not see.
         let size = self.vec_elem_storage_size(&xiom_ty);
         if size <= 0 {
             return None;
@@ -1785,8 +1888,35 @@ impl IrEmitter {
         Some(crate::context::ElemDrop {
             llvm_ty,
             stride: Self::vec_slot_size(size),
-            fields,
+            elem_is_vec: false,
+            paths,
         })
+    }
+
+    /// Resolve a field's XIOM type to a `type_meta` key (alias + leaf aware).
+    fn resolve_struct_key(&self, ty: &str) -> Option<String> {
+        let mut cur = ty.to_string();
+        let mut seen: HashSet<String> = HashSet::new();
+        while let Some(next) = self.types.type_aliases.get(&cur) {
+            if !seen.insert(cur.clone()) {
+                break;
+            }
+            cur = next;
+        }
+        if self.types.type_meta.contains_key(&cur) {
+            return Some(cur);
+        }
+        let suffix = format!(".{cur}");
+        let mut found: Option<String> = None;
+        for k in self.types.type_meta.keys() {
+            if k.ends_with(&suffix) {
+                if found.is_some() {
+                    return None;
+                }
+                found = Some(k);
+            }
+        }
+        found
     }
 
     /// Register the Vec fields of an `#[owns_return]` aggregate binding. The
@@ -1957,21 +2087,34 @@ impl IrEmitter {
                             "  {epc} = bitcast i8* {ep} to {}*",
                             e.llvm_ty
                         ));
-                        for field in &e.fields {
-                            let fp = self.fresh_tmp();
+                        if e.elem_is_vec {
                             let dgp = self.fresh_tmp();
                             let dp = self.fresh_tmp();
                             self.emitln(&format!(
-                                "  {fp} = getelementptr {}, {}* {epc}, i32 0, i32 {field}",
-                                e.llvm_ty, e.llvm_ty
-                            ));
-                            self.emitln(&format!(
-                                "  {dgp} = getelementptr %struct.Vec, %struct.Vec* {fp}, i32 0, i32 0"
+                                "  {dgp} = getelementptr %struct.Vec, %struct.Vec* {epc}, i32 0, i32 0"
                             ));
                             self.emitln(&format!("  {dp} = load i8*, i8** {dgp}"));
-                            self.emitln(&format!(
-                                "  call void @xiom_guard_free(i8* {dp})"
-                            ));
+                            self.emitln(&format!("  call void @xiom_guard_free(i8* {dp})"));
+                        } else {
+                            for path in &e.paths {
+                                let mut cur = epc.clone();
+                                let mut cur_ty = e.llvm_ty.clone();
+                                for (idx, fty) in path {
+                                    let fp = self.fresh_tmp();
+                                    self.emitln(&format!(
+                                        "  {fp} = getelementptr {cur_ty}, {cur_ty}* {cur}, i32 0, i32 {idx}"
+                                    ));
+                                    cur = fp;
+                                    cur_ty = fty.clone();
+                                }
+                                let dgp = self.fresh_tmp();
+                                let dp = self.fresh_tmp();
+                                self.emitln(&format!(
+                                    "  {dgp} = getelementptr %struct.Vec, %struct.Vec* {cur}, i32 0, i32 0"
+                                ));
+                                self.emitln(&format!("  {dp} = load i8*, i8** {dgp}"));
+                                self.emitln(&format!("  call void @xiom_guard_free(i8* {dp})"));
+                            }
                         }
                         let next = self.fresh_tmp();
                         self.emitln(&format!("  {next} = add i64 {i}, 1"));

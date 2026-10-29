@@ -323,8 +323,12 @@ pub struct ElemDrop {
     pub llvm_ty: String,
     /// Byte stride between elements (`vec_slot_size(struct size)`).
     pub stride: i64,
-    /// Field indices whose LLVM type is `%struct.Vec`.
-    pub fields: Vec<u32>,
+    /// `Vec[Vec[T]]`: the element itself is a `%struct.Vec`; free its data.
+    pub elem_is_vec: bool,
+    /// Struct elements: chains of (field index, field LLVM type after the
+    /// GEP). The final field is always `%struct.Vec`. Dotted paths let a
+    /// nested struct's Vec be freed (`inner.data`).
+    pub paths: Vec<Vec<(u32, String)>>,
 }
 
 /// One reclamation site: a Vec header, or a Vec field inside an owned

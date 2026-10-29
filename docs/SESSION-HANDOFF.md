@@ -96,9 +96,16 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   push, whole-element read, pop, element `push`, non-header element methods
   disqualify (leak, no UAF); `outer[0].len()` stays allowed. Gate
   `container_vec_of_vec`, lock `vec_of_vec_shapes`. **19/19 gates; full e2e
-  2660/2660 (4 ignored) both.**
-  Remaining measured app leaks: nested struct **431 MB/1000**, large
-  `Vec[Str]`, Map/Set values, enum elements, removal-containing containers.
+  2660/2660 (4 ignored) at that commit.
+- **Nested struct Vec fields landed:** element field paths are recursive
+  (`inner.data`); nested fresh Vec locals are MOVED into the aggregate and
+  codegen frees the leaf `Vec.data` through the GEP chain. 1000 x 512 KB
+  leaked **431 MB**; now **5 MB at 20k iterations**. Nested reads/escapes
+  and duplicate pushes disqualify; direct scalar reads allowed. Gate
+  `container_nested_struct`, lock `nested_struct_drops`. **20/20 gates;
+  full e2e 2662/2662 (4 ignored) both.**
+  Remaining measured app leaks: large `Vec[Str]`, Map/Set values, enum
+  elements, removal-containing containers.
 - **`REL-20261028-1801/1805-stdlib` FIXED (huffman SIGILL):** the v0.65.2
   blanket "borrowed arg is non-retaining" rule freed `lens` in
   `huffman_build` while `_tree_from_lengths` had stored the borrowed header
@@ -147,9 +154,9 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   diff_ast is re-run; T6/diff_ast was not re-run this session.
 - **v0.65.3 STILL NOT bumped/tagged.** v0.65.2 remains upstream-only;
   v0.65.1 is the accepted pin for xvector/orbitdb. Owner GO required.
-- Still open on the closure gate: engine editor 600-frame soak (element
-  drops v1 + Str rebind landed; Vec[Vec]/nested/Map fields still leak),
-  1931 XgView/Vec, OrbitDB m375 memory/teardown, pulse/JSON/Map retention,
+- Still open on the closure gate: engine editor 600-frame soak (Str rebind,
+  Vec[Vec] and nested drops landed; Map/Set fields still leak), 1931
+  XgView/Vec, OrbitDB m375 memory/teardown, pulse/JSON/Map retention,
   `p_wave162` SSE 0xC0000374 (1641), and the correctness carry.
 - Repro-path note: the prompt's `station/tests/loopback_suite.xi`,
   `tests/hybrid/probe_hybrid.xi` (xvector) and `engine/moveprobe.xi` do not

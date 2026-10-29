@@ -21253,3 +21253,35 @@ EVIDENCE: huffman repro **10/10 rc 0** on debug and release; `p_wave188`
 
 REMAINING: `REL-20261028-1641` (p_wave162 SSE) still 0xC0000374 5/5 -- a
 separate retained-borrow/heap shape, not the channel or huffman.
+## 2026-10-28 -- FIXED: nested struct Vec fields in element drops
+
+WITNESS: 1000 iterations of `Vec[Outer]` with
+`Outer{ inner: Inner{ data: Vec[UInt8].with_len(512000) } }` peaked **431 MB**
+on ab97014d9: only direct element Vec fields were freed.
+
+FIX (extends the ownership tag to dotted paths):
+- `elem_type_vec_fields` now builds RECURSIVE field paths (`inner.data`)
+  through plain structs (depth 8, cycle-safe, aliases followed).
+- The prepass aggregate detector is recursive:
+  `Outer{ inner: Inner{ data: xs } }` marks `xs` MOVED, so neither the
+  source Vec nor the container element double-owns; nested fresh Vec
+  initializers/projections are accepted for inline literals via a dotted
+  path resolver.
+- Element reads: a direct scalar field (`os[0].id`) stays allowed; a field
+  that is a prefix of a nested path (`inner`) or a nested Vec leaf only
+  stays allowed in a safe header-only context. Any escape/nested read
+  disqualifies the tag (leak, no UAF).
+- Codegen `ElemDrop` now carries per-path (field index, field LLVM type)
+  chains and emits `Outer.inner -> Inner.data -> Vec.data -> free` before
+  the element buffer. Direct fields, nested paths and the Vec-of-Vec
+  element case share the same loop.
+
+EVIDENCE: 1000 x 512 KB -> **5 MB at 20k iterations / 0.2 s**; two nested
+Vec fields per element free both (Outer.a.data + Outer.b.data); inline
+nested literals work; nested reads/aliases and duplicate pushes stay
+leak-only. New gate `container_nested_struct` + lock
+`nested_struct_drops`. **20/20 memory gates GREEN on debug+release; full
+e2e 2662/2662 (4 ignored) on both.**
+
+REMAINING measured app leaks: Map/Set values, enum element types,
+large-string `Vec[Str]`, containers with removals/reorders. Next targets.

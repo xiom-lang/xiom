@@ -266,6 +266,13 @@ reporter reopens with new evidence.
   and non-header element methods disqualify (leak, no UAF). Gate
   `container_vec_of_vec`, lock `vec_of_vec_shapes`. **19/19 gates; full e2e
   2660/2660 both.**
+- **Nested struct Vec fields (this session):** element field paths are
+  recursive (`inner.data`); nested fresh Vec locals are marked MOVED, and
+  codegen frees the leaf `Vec.data` through the GEP chain. 1000 x 512 KB
+  leaked **431 MB**; now **5 MB at 20k iterations**. Nested reads/escapes,
+  duplicate pushes disqualify; direct scalar reads allowed. Gate
+  `container_nested_struct`, lock `nested_struct_drops`. **20/20 gates;
+  full e2e 2662/2662 both.**
 - **`REL-20261028-1159-stdlib` FIXED:** nested literal Bool payload patterns
   (`Ok(false)`, `Some(true)`) only checked the tag (Char/Int were handled),
   so both arms matched any Ok/Some. Bool now yields 0/1 and the payload slot
@@ -311,8 +318,8 @@ Every open/acked row is `verified`/`closed` with evidence, or `fixed` with
 a compiler probe and the reporting lane's verification on the candidate
 archive. No `todo` bug/perf rows. Then:
 
-1. 19/19 memory gates on debug+release.
-2. Full e2e debug+release (baseline 2661/2661, 4 ignored; grows with tests).
+1. 20/20 memory gates on debug+release.
+2. Full e2e debug+release (baseline 2662/2662, 4 ignored; grows with tests).
 3. Fleet repros on the candidate archive: xvector WAL/station, orbitdb
    hybrid/station, engine editor 600-frame soak + 2034 probe, pulse request
    cycle + arm64, benchmark t1/t3 + sanitized, playground, packages.
@@ -363,8 +370,8 @@ Evidence: `container_elem_owned_drop` (496 MB -> **5 MB at 20k iters /
 0.1 s**) and `container_elem_unsafe_shapes` (duplicate push, pop, escaped
 element Vec, with_len, borrow: leak-only, no crash), plus
 `container_elem_tag_edges` (shadowing, blocks, with_capacity, scalar write,
-two Vec fields). **19/19 memory gates GREEN on debug+release**; full e2e
-**2660/2660 (4 ignored) on both**.
+two Vec fields). **20/20 memory gates GREEN on debug+release**; full e2e
+**2662/2662 (4 ignored) on both**.
 
 ### H1b. Vec[Vec[T]] element drops (IMPLEMENTED)
 
@@ -378,6 +385,17 @@ disqualify; header-only `outer[0].len()` stays allowed. Measured **505 MB ->
 5 MB at 20k iterations**. Gate `container_vec_of_vec`, lock
 `vec_of_vec_shapes`.
 
+### H1c. Nested struct Vec fields (IMPLEMENTED)
+
+`Vec[Outer{ inner: Inner{ data: Vec } }]` leaked the nested payload
+(431 MB/1000 x 512 KB). Element field paths are now RECURSIVE (`inner.data`,
+depth 8, cycle-safe, aliases followed); the aggregate prepass marks nested
+fresh Vec locals MOVED, so the source and the element never double-own.
+Direct scalar element reads stay allowed; nested struct/Vec reads, escapes
+and duplicate pushes disqualify. Codegen emits the full GEP chain and frees
+the leaf `Vec.data`. Measured **431 MB -> 5 MB at 20k iterations**. Gate
+`container_nested_struct`, lock `nested_struct_drops`.
+
 ### H2. Str rebind -- replaced-buffer reclamation (IMPLEMENTED)
 
 `s = s + chunk` / `s = int_to_string(..)` leaked every replaced buffer:
@@ -389,11 +407,11 @@ transfer the final value). Measured **116 MB -> 4 MB**; residual final-value
 leak for a reassigned non-returned local only. New gate `str_rebind_growth`
 + lock `str_rebind_shapes`.
 
-Still conservative leaks (never UAF): nested struct fields (431 MB/1000),
-Str fields of elements, Map/Set values, enum element types, containers with
-removals/reorders, and large-string `Vec[Str]`. These are the next memory
-targets. The engine editor 600-frame soak and OrbitDB m375 200k soak must
-re-measure on the candidate archive.
+Still conservative leaks (never UAF): Str fields of elements, Map/Set
+values, enum element types, containers with removals/reorders, and
+large-string `Vec[Str]`. These are the next memory targets. The engine
+editor 600-frame soak and OrbitDB m375 200k soak must re-measure on the
+candidate archive.
 
 ## I. Candidate verification, then release acceptance (workflow)
 
