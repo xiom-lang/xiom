@@ -7,13 +7,15 @@ You are continuing the XIOM compiler lane in `E:\xiom-lang\xiom` (main
 2. `docs/COMPILER-LANE-CLOSURE.md` (live counts + memory sections H1..H2).
 3. This file.
 
-> **STATUS 2026-10-29T18:38Z:** `1324` is fixed at `e48213c66` and `1641` is
-> fixed at `ed2f38cff`; the newest candidate is
-> `target\candidate\xiom-ed2f38cff.exe`, sha256 `99AF0E77...`, CI
-> `40925117193` (carve 160/160 ASan+release; p_wave162 5/5 ASan+release;
-> gates 20/20; e2e 2664/2664 both). `1324` waits on orbitdb, `1641` on
-> stdlib verification. Sections 1/3.1/3.2 below keep the historical
-> analysis; use the top block for current state.
+> **STATUS 2026-10-29T20:52Z:** `1324` is verified/closed by orbitdb
+> (`ed2f38cff`); `1641` is COMPLETE at `605c6a879` (implicit tail-return
+> ownership; `ed2f38cff` alone converted the double-free into a UAF).
+> Newest candidate `target\candidate\xiom-605c6a879.exe`, sha256
+> `50A10EBE...`, CI `40946877255` (carve 160/160; p_wave162 20/20 ASan +
+> 20/20 release; stdlib UAF witness 5/5; gates 20/20; e2e 2665/2665 both).
+> Open: stdlib verdict on `605c6a879`; packages `1926` (Vec[Vec]/UDP).
+> Sections 1/3.1/3.2 keep the historical analysis; use the top block for
+> current state.
 
 Do **not** bump, tag, or publish v0.65.3 without the owner's explicit GO.
 Do **not** mark a bug fixed without compiler evidence AND the owning lane's
@@ -22,25 +24,28 @@ or UAF with a stdlib workaround.
 
 ## 1. Current state
 
-- main `ed2f38cff` (1641) atop `0e8caf803` (docs) / `e48213c66` (1324) /
-  `1f8415294` on `b135dfbe8`.
-- Source candidate: `target\candidate\xiom-ed2f38cff.exe`, sha256
-  `99AF0E77BD2A6EDB9B7B7CAC7946F9036CFAF363EFC28594D6CE40F850C4D94B`;
-  CI `40925117193` SUCCESS (all 7 jobs). Earlier candidates: `e48213c66`
-  (`E0222F26...`), `b135dfbe8` (`A7B48E5E...`), `ab97014d9`
-  (`6D9F2ED0...`), `46f7f50aa` (`8BB859BB...`).
+- main `605c6a879` (implicit tail-return ownership) atop `42ab98b49`
+  (docs) / `ed2f38cff` / `e48213c66` / `b135dfbe8`.
+- Source candidate: `target\candidate\xiom-605c6a879.exe`, sha256
+  `50A10EBEF9F728519243487E1B785A5E6A93C3B6A5EF7F6CA56FF66454CF09DE`;
+  CI `40946877255` SUCCESS (all 7 jobs). Earlier candidates: `ed2f38cff`
+  (`99AF0E77...`), `e48213c66` (`E0222F26...`), `b135dfbe8`
+  (`A7B48E5E...`), `ab97014d9` (`6D9F2ED0...`), `46f7f50aa`
+  (`8BB859BB...`).
 - v0.65.2 official = tag `fe1994b1` on `8ec0904a5`; v0.65.1 is the
   accepted pin. v0.65.3 is NOT bumped/tagged.
 - Stdlib main `5071f86` contains the NON-OWNING Channel (required for the
   release pin). huffman (1801/1805) is fixed/verified; channel 1533/1617
-  are fixed on our side, stdlib verifies/closes.
+  are verified/closed by stdlib.
 - Memory fixed this line: 2034 by-value field move; Vec[Struct] element
   drops; Vec[Vec] element drops; nested struct paths; Str rebind; 1324
-  aggregate-local move; 1641 aggregate Vec-field exit re-read; plus
-  2303 enum payloads, 1159 Bool patterns, 0052 W009/linker stdout.
-- **20/20 memory gates** (debug+release), full e2e **2664/2664 (4 ignored)
-  both** (debug 1521 s, release 1023 s), CI `40925117193` on `ed2f38cff`;
-  carve 160/160 ASan+release; p_wave162 5/5 ASan+release.
+  aggregate-local move; 1641 aggregate Vec-field exit re-read + implicit
+  tail-return ownership; plus 2303 enum payloads, 1159 Bool patterns,
+  0052 W009/linker stdout.
+- **20/20 memory gates** (debug+release), full e2e **2665/2665 (4 ignored)
+  both** (debug 1169 s, release 1162 s), CI `40946877255` on
+  `605c6a879`; carve 160/160 debug+release; p_wave162 20/20 ASan +
+  20/20 release; stdlib UAF witness 5/5 ASan+release.
 
 Live relay (2026-10-29T16:05Z, `compiler` addressee): **15 open / 109
 acked / 66 fixed**; 27 open lane rows total (15 + 12 broadcasts). New:
@@ -73,10 +78,11 @@ recount from the live bus before editing the checklist.
 
 ## 3. Release blockers (must be green before any rc/release)
 
-### 3.1 `REL-20261029-1324-orbitdb` -- 0.2.1 carve crash (FIXED on our side)
+### 3.1 `REL-20261029-1324-orbitdb` -- 0.2.1 carve crash (VERIFIED/CLOSED)
 
-**Fixed at `e48213c66`.** The crash was a compiler ownership bug, not the
-carve. `vec_drop.rs::struct_literal_owns_vec` only treated a fresh Vec local
+**Fixed at `e48213c66`; verified and closed by orbitdb on `ed2f38cff`.**
+The crash was a compiler ownership bug, not the carve.
+`vec_drop.rs::struct_literal_owns_vec` only treated a fresh Vec local
 as moved into a struct literal; an aggregate local that already owned Vec
 fields was shallow-copied into the next literal and still dropped. In
 `snap_load_v2` (`var store = NodeStore{ nodes, dirty, births, pins };
@@ -90,14 +96,9 @@ Fix: treat an aggregate local (already in the drop set) as a MOVED field
 source, exactly like a fresh Vec local. Locks:
 `tests/regression/aggregate_nested_return` + `e2e_aggregate_nested_return`.
 
-Evidence on `e48213c66`: **0.2.1 carve 160/160 under ASan (debug) and
-release**; eight ASan repro variants clean; **20/20 memory gates debug +
-release**; **full e2e 2663/2663 (4 ignored) both** (debug 1169 s, release
-979 s); CI `40904436187`. Candidate
-`target\candidate\xiom-e48213c66.exe`, sha256 `E0222F26...`.
-
-Remaining: orbitdb re-runs the 0.2.1 carve on the candidate (`ed2f38cff`,
-which also carries 1641); only then mark `1324` fixed on the bus. The
+Orbitdb verdict on `ed2f38cff` (sha `99AF0E77...`): 0.2.1 carve 160/160
+release + ASan --debug; modern 166/166 x2; station 169/169 x2 (loopback
+108/108 x2); hybrid 36/36 + crash 5/5; m375 200k/8192 368.5 MB. The
 root-cause audit below is kept for history.
 
 Historical repro (pre-fix candidate `b135dfbe8`):
@@ -141,26 +142,28 @@ Next steps (in order):
 5. Add an in-repo regression witness; the 0.2.1 carve remains the
    acceptance test (modern suite does not cover it).
 
-### 3.2 `REL-20261028-1641-stdlib` -- p_wave162 SSE (FIXED at `ed2f38cff`)
+### 3.2 `REL-20261028-1641-stdlib` -- p_wave162 SSE (COMPLETE at `605c6a879`)
 
-**Fixed.** Root cause: `vec_drop.rs::register_aggregate_drops` captured each
-Vec field's data pointer at the binding and freed that captured pointer at
-scope exit. Growing the field later -- `s.buf.push(..)` or a `&mut` callee
-such as `net.sse._read_head` -- reallocs the buffer and `realloc` frees the
-old pointer; the exit drop then frees it again (0xC0000374 / ASan
-double-free). The earlier reading ("the `&mut` arg is copied to a temp") was
-wrong: the temp is the normal literal->slot materialization, and the callee
-mutates the same slot. The stale DROP was the bug.
+**Complete.** Two compiler bugs were involved:
 
-Fix: push `VecDrop::Aggregate` (already defined) instead of `VecDrop::Ptr`;
-it GEPs the entry-hoisted struct alloca and loads the CURRENT field data at
-drop time.
+1. `register_aggregate_drops` captured each Vec field's data pointer at the
+   binding and freed it at exit; growth replaced it and the exit drop
+   double-freed (`ed2f38cff` fixed this by re-reading the field).
+2. The function body's **trailing expression** (`Ok(conn)` / `Some(conn)`
+   with no `return`) is an implicit return, but `scan_block` scanned it as
+   a plain escaping use. The body tail never marked `conn` returned, so
+   the aggregate exit drop freed the buffer returned to the caller -- the
+   UAF stdlib found on `ed2f38cff` (`p_borrowed_mut_grown_vec_uaf`,
+   p_wave162 row 12, 11/20 rc 12).
 
-Evidence: p_wave162 **5/5 ASan --debug + 5/5 release**; witness
-`tests/regression/aggregate_vec_field_grow` (pre-fix exit `-1073740940`,
-post-fix 0; self-grow + `&mut` grow) + `e2e_aggregate_vec_field_grow`;
-0.2.1 carve 160/160 ASan+release; gates 20/20; e2e 2664/2664 both;
-CI `40925117193`.
+`605c6a879` fixes (2): after `scan_block`, the function body's trailing
+expression is passed through `mark_returned_roots`, exactly like
+`return <expr>`.
+
+Evidence: stdlib witness **5/5 ASan + release rc 0** (ed2f38cff rc 3);
+p_wave162 **20/20 ASan + 20/20 release**; new witness
+`tests/regression/tail_return_aggregate` (pre-fix exit 5, post-fix 0);
+0.2.1 carve 160/160; gates 20/20; e2e 2665/2665 both; CI `40946877255`.
 
 Historical ASan signature (kept for the record):
 
@@ -174,16 +177,17 @@ ERROR: AddressSanitizer: attempting double-free
 
 ### 3.3 Other open blockers/memory
 
-- `REL-20261029-1415-packages` (acked, packages): v0.65.3 candidates
-  corrupt `Vec[Vec[UInt8]]` transport b4 (35/36 on 46f7f50aa + ab97014d9;
-  v0.65.1 green). Witness `packages/xiom-transport/docs/repro/
-  sim_vecvec_corruption.xi` (not in this checkout). Same Vec-drop family as
-  1324/1641; test it on `ed2f38cff` first -- the two aggregate-drop fixes
-  may or may not cover it. Do not claim fixed without the packages run.
-- `REL-20261029-1415-packages-2` (acked): exact 0.2.1 carve envelope
-  (`packages@9d4944e8`, 10/10 + 5/5, 82 passes then 0xC0000005); this is
-  the 1324 trigger. No separate fix; ask packages/orbitdb to verify on
-  `ed2f38cff`.
+- **`REL-20261029-1926-packages` (acked, OPEN -- current packages blocker):**
+  Vec[Vec] transport corruption still red on e48213c66 (35/36, b4) and
+  ed2f38cff (34/36: b4 + a NEW UDP reassembly failure; ab97014d9 passed
+  UDP). Repro `packages/xiom-transport/docs/repro/sim_vecvec_corruption.xi`
+  (not in this checkout); expected `r1[0]=k1, r2=[k2,k2,k0], k0=1 k2=2`.
+  The implicit-tail-return fix (`605c6a879`) is a plausible cover for the
+  aliasing but is NOT claimed; packages re-runs on the new candidate.
+- `REL-20261029-1415-packages` (superseded by 1926): Vec[Vec] transport
+  corruption; acked, packages should fold it into 1926.
+- `REL-20261029-1415-packages-2`: verified fixed/closed by packages (0.2.1
+  envelope 160/160, 5/5 on e48213c66/ed2f38cff).
 - `REL-20261027-1931-engine` (XgView/Vec allocas) -- open WIP; needs the
   engine IR slice.
 - `REL-20261022-1725-engine` (C07 capture) -- open.

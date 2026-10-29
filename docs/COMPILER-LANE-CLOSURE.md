@@ -5,25 +5,26 @@ items, and verify them, before the next version.** v0.65.3 is withheld until
 this checklist has zero unexplained `todo` rows and the owner gives GO
 (unless an explicit emergency durable hotfix is ordered).
 
-Updated **2026-10-29T18:38Z** from the live bus after the 1641 fix.
+Updated **2026-10-29T20:52Z** from the live bus after the 1641 completion.
 Verified counts, not a stale snapshot:
 
 | Queue (addressed `to: compiler`) | Count |
 |---|---|
 | open | **15** |
-| acked | **108** (45 bug, 10 wishlist, 53 info) |
-| fixed | **65** (awaiting reporter verify) |
-| verified / closed / wontfix | 23 / 96 / 1 |
+| acked | **107** (44 bug, 10 wishlist, 53 info) |
+| fixed | **66** (awaiting reporter verify) |
+| verified / closed / wontfix | 23 / 99 / 1 |
 
-The lane view lists **28 open** rows in total: the 15 above plus 13
-compiler->all broadcasts of its own (section E). `1324-orbitdb` is **fixed
-on our side** (`e48213c66`; 0.2.1 carve 160/160, orbitdb verify owed);
-`1641-stdlib` is **fixed on our side** (`ed2f38cff`; p_wave162 5/5
-ASan+release, stdlib verify owed); `1533`/`1617-stdlib` were verified and
-closed by stdlib (2026-10-29T17:41Z). New from packages: `1415-packages`
-(Vec[Vec[UInt8]] transport corruption, same Vec-drop family; packages must
-run the witness on `ed2f38cff`) and `1415-packages-2` (the exact 0.2.1
-carve envelope that confirms 1324), both acked.
+The lane view lists **29 open** rows in total: the 15 above plus 14
+compiler->all broadcasts of its own (section E). `1324-orbitdb` is
+**verified + closed by orbitdb** (`ed2f38cff`; 0.2.1 160/160 release+ASan,
+modern/station/hybrid green). `1641-stdlib` is **fixed on our side at
+`605c6a879`** (aggregate field re-read + implicit tail-return ownership;
+p_wave162 20/20 ASan+release) and `1910-stdlib` (the ed2f38cff UAF) is
+fixed at the same commit; stdlib verify owed. `1507-packages` and
+`1415-packages-2` were verified/closed by packages. **Open:**
+`1926-packages` (Vec[Vec]/UDP transport still red; acked, packages re-runs
+on `605c6a879`) and the longstanding engine/xvector rows.
 
 ```powershell
 cd E:\xiom-lang\xiom-relays
@@ -112,9 +113,11 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261021-1652-engine-2 | engine | intermittent Vulkan bring-up AV (C08) | todo (needs no-capture repro) |
 | REL-20261024-1101-pulse | pulse | arm64 fixed-arity printf fails IR verification | verify-on-archive (fix green) |
 | REL-20261023-1854-pulse | pulse | tuple-returned Vec[Str] inline + cross-module unannotated Str bind | acked; reduced probes + e2e lock green on `de2854544`; pulse verify `probe_wsauth` |
-| REL-20261028-1507-packages | packages | candidate orbitdb suite crash after 82 checks | acked; **no-repro 10/10 (160/160)** with the exact candidate `503FFEC8...`; packages re-run with envelope |
-| REL-20261029-1324-orbitdb | orbitdb | published 0.2.1 carve crashed at 82 passes (0xC0000005); v0.65.1 160/160 | **fixed on our side at `e48213c66`**; aggregate-local drop bug (`struct_literal_owns_vec`); carve 160/160 ASan+release; orbitdb verify on the candidate owed |
-| REL-20261028-1641-stdlib | stdlib | p_wave162 SSE loopback + spawned fixtures: 0xC0000374; v0.64.8 clean | **fixed on our side at `ed2f38cff`**; aggregate Vec-field exit drop re-reads the field; p_wave162 5/5 ASan+release; stdlib verify owed |
+| REL-20261028-1507-packages | packages | candidate orbitdb suite crash after 82 checks | **verified fixed + closed** by packages on e48213c66/ed2f38cff (0.2.1 160/160, 5/5 each) |
+| REL-20261029-1324-orbitdb | orbitdb | published 0.2.1 carve crashed at 82 passes (0xC0000005); v0.65.1 160/160 | **verified + closed** by orbitdb on `ed2f38cff`; aggregate-local move fix (`e48213c66`); 0.2.1 160/160 release+ASan, modern/station/hybrid green |
+| REL-20261028-1641-stdlib | stdlib | p_wave162 SSE loopback + spawned fixtures: 0xC0000374; v0.64.8 clean | **fixed on our side at `605c6a879`** (aggregate field re-read + implicit tail-return ownership); p_wave162 20/20 ASan+release; stdlib verify owed |
+| REL-20261029-1910-stdlib | stdlib | 1641 NOT fixed on ed2f38cff: UAF (p_wave162 row 12) + minimal early-return witness | **fixed at `605c6a879`**; stdlib witness 5/5 ASan+release; lock `tail_return_aggregate`; stdlib verify owed |
+| REL-20261029-1926-packages | packages | Vec[Vec]/UDP transport corruption still red (34-35/36); ed2f adds UDP reassembly failure | **acked, open**; tail-return fix `605c6a879` may cover the aliasing but not claimed; packages re-runs on the candidate |
 
 ### B2. Wishlists -- 10 strategic/perf rows
 
@@ -296,8 +299,9 @@ reporter reopens with new evidence.
   (struct/Vec/Str/pointer/unknown stays escaping). Huffman repro **10/10
   rc 0** debug+release; `borrow_vec_leak` still reclaimed; lock
   `e2e_borrow_tree_retained`. **`REL-20261028-1641` (p_wave162 SSE) is
-  FIXED at `ed2f38cff`** (aggregate Vec-field exit drop re-reads the field;
-  p_wave162 5/5 ASan+release).
+  COMPLETE at `605c6a879`** (aggregate Vec-field exit drop re-reads the
+  field; implicit tail return transfers ownership; p_wave162 20/20
+  ASan+release).
 - **Latest lane feedback (2026-10-29):**
   - stdlib (1533/1617): non-owning Channel on 5071f86; full matrix on
     ab97014d9 -- modules 533/533, probes 417/418 (only p_wave162), smokes
@@ -309,21 +313,32 @@ reporter reopens with new evidence.
     B/iter Map), parser ~1.6 KB, builder ~1.4 KB.
   - orbitdb: modern 166/166, station 169/169, hybrid 36/36, m375 PASS
     (200k **372.6 MB**, 1M **1,658.1 MB**); 0.2.1 carve still crashes.
-- **`1324-orbitdb` FIXED on our side (`e48213c66`):** 0.2.1 carve was
-  82 passes then 0xC0000005 on b135dfbe8. Root cause:
-  `struct_literal_owns_vec` only moved fresh Vec locals into a literal; an
-  aggregate local with owned Vec fields stayed in the drop set after the
-  shallow header copy, so the returned Snapshot pointed at freed buffers
-  (`snap_load_v2`). ASan UAF (2176 B `Vec[BTreeNode]`, element 8). Carve
-  **160/160** ASan+release; lock `aggregate_nested_return`; orbitdb verify
-  on the candidate owed.
-- **`1641-stdlib` FIXED on our side (`ed2f38cff`):** p_wave162
-  0xC0000374 5/5. Root cause: `register_aggregate_drops` captured each Vec
-  field's data pointer at the binding and freed it at scope exit; growing
-  the field later (own `push` or a `&mut` callee) reallocs and frees that
-  buffer, and the exit drop freed it again. Fix: `VecDrop::Aggregate`
-  re-reads the entry-hoisted field at drop time. p_wave162 5/5 ASan+release;
-  lock `aggregate_vec_field_grow`; stdlib verify owed.
+- **`1324-orbitdb` VERIFIED + CLOSED by orbitdb on `ed2f38cff`
+  (`e48213c66` fix):** 0.2.1 carve was 82 passes then 0xC0000005 on
+  b135dfbe8. Root cause: `struct_literal_owns_vec` only moved fresh Vec
+  locals into a literal; an aggregate local with owned Vec fields stayed in
+  the drop set after the shallow header copy, so the returned Snapshot
+  pointed at freed buffers (`snap_load_v2`). ASan UAF (2176 B
+  `Vec[BTreeNode]`, element 8). Verdict: 0.2.1 160/160 release + ASan;
+  modern 166/166 x2, station 169/169 x2, hybrid 36/36 + crash 5/5, 200k
+  368.5 MB. Lock `aggregate_nested_return`.
+- **`1641-stdlib` COMPLETE on our side (`605c6a879`):** two bugs. (a)
+  `register_aggregate_drops` captured each Vec field's data pointer at the
+  binding and freed it at exit; growing the field later reallocs and frees
+  that buffer, so the exit drop double-freed (`ed2f38cff` re-reads the
+  field instead). (b) `ed2f38cff` then exposed the real ownership miss: the
+  body's trailing `Ok(conn)`/`Some(conn)` is an implicit return but was
+  scanned as a plain escape, so the exit drop freed the buffer returned to
+  the caller (stdlib `p_borrowed_mut_grown_vec_uaf`, p_wave162 row 12).
+  `605c6a879` marks the body tail with `mark_returned_roots`. Evidence:
+  stdlib witness 5/5 ASan+release; p_wave162 20/20 ASan + 20/20 release;
+  lock `tail_return_aggregate`; stdlib verify owed.
+- **`1910-stdlib` FIXED at `605c6a879`:** the ed2f38cff UAF report; same
+  implicit-tail-return fix. stdlib verify owed.
+- **OPEN `1926-packages` (acked):** Vec[Vec] transport corruption still red
+  on e48213c66 (35/36) and ed2f38cff (34/36 + a UDP reassembly failure).
+  The tail-return fix may cover the aliasing but is not claimed; packages
+  re-runs on `605c6a879`.
 - xvector durable repros with this build:  - `docs\repro\xv-vec-struct-push\probe.xi` (XVC-C-23): **PASS**, named and
     inline forms bad=0, exit 0.
   - `tests\probes\probe_wal_file.xi` (built with the bin's pinned stdlib +
@@ -333,12 +348,12 @@ reporter reopens with new evidence.
     repo paths/runner setups differ from the continuation prompt; the lanes
     own those runs).
 
-## E. Compiler's own open broadcasts (12)
+## E. Compiler's own open broadcasts (14)
 
 These are `from: compiler -> all` announcements (v0.64.7/v0.64.8/v0.64.9/
-v0.65.0/v0.65.1/v0.65.2, incident/withdrawal notices, plus two process
-notes). The compiler is the reporter, so it can `close` them as info with a
-ref. Not part of the 17 lane-addressed rows.
+v0.65.0/v0.65.1/v0.65.2, incident/withdrawal notices, candidate notices).
+The compiler is the reporter, so it can `close` them as info with a ref.
+Not part of the 15 lane-addressed rows.
 
 ## F. Definition of done
 

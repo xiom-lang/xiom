@@ -14,6 +14,37 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-29T20:52Z (compiler lane; 1641 COMPLETE at 605c6a879; 1324 verified/closed) -- READ FIRST ***
+- main **`605c6a879`** (implicit tail-return ownership) atop `42ab98b49`
+  (docs) / `ed2f38cff` / `e48213c66`. Candidate
+  `target\candidate\xiom-605c6a879.exe`, sha256
+  `50A10EBEF9F728519243487E1B785A5E6A93C3B6A5EF7F6CA56FF66454CF09DE`;
+  CI `40946877255` SUCCESS.
+- **REL-20261028-1641 COMPLETE -- stdlib verify owed.** `ed2f38cff`
+  removed the double-free but exposed a UAF (stdlib
+  `p_borrowed_mut_grown_vec_uaf`; p_wave162 row 12): the function body's
+  trailing `Ok(conn)`/`Some(conn)` (implicit return, no `return`) was
+  scanned as a plain escaping use, so the aggregate exit drop freed the
+  buffer returned to the caller. `605c6a879` marks the body tail with
+  `mark_returned_roots` exactly like an explicit return.
+- **Evidence:** stdlib witness **5/5 ASan + release rc 0**; p_wave162
+  **20/20 ASan + 20/20 release**; 0.2.1 carve **160/160** debug+release;
+  **20/20 gates** debug+release; full e2e **2665/2665 (4 ignored) both**
+  (debug 1169 s, release 1162 s); CI green.
+- **Bus:** orbitdb **verified/closed 1324** on `ed2f38cff` (0.2.1 160/160
+  release+ASan; modern 166/166 x2, station 169/169 x2, hybrid 36/36 +
+  crash 5/5, 200k 368.5 MB). packages **verified/closed 1507 +
+  1415-packages-2** (0.2.1 160/160, 5/5 each). stdlib matrix on
+  `ed2f38cff` otherwise clean (417/418 probes, 963/963 smokes, 533/533
+  modules) -- 1641 was the only red. `1910` fixed on our side (stdlib
+  verify owed). **New open `1926-packages`:** Vec[Vec]/UDP transport
+  corruption still red on e48213c66/ed2f38cff (34-35/36; ed2f added a UDP
+  reassembly failure) -- acked; packages re-runs on `605c6a879`. Counts
+  **15 open / 107 acked / 66 fixed**.
+- v0.65.3 NOT bumped/tagged. Next: stdlib verdict on `605c6a879`,
+  packages `1926`, then packaged rc (owner GO) -> lanes verify the archive
+  -> release.
+
 *** SESSION UPDATE 2026-10-29T18:38Z (compiler lane; REL-1641 FIXED; candidate ed2f38cff = 1324+1641) -- READ FIRST ***
 - main **`ed2f38cff`** (1641) atop `0e8caf803` (docs) on `e48213c66` (1324).
   Candidate `target\candidate\xiom-ed2f38cff.exe`, sha256
