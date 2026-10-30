@@ -32,6 +32,7 @@ use super::IrEmitter;
 use crate::context::{TypeContext, VecDrop};
 use xiom_ast::*;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 #[derive(Default)]
 struct VecDeclInfo {
@@ -101,17 +102,17 @@ struct ScanState {
     cur_block: usize,
     next_block: usize,
     /// Precomputed type-name variant -> Vec field names (plain structs only).
-    elem_type_vec_fields: HashMap<String, Vec<String>>,
+    elem_type_vec_fields: Arc<HashMap<String, Vec<String>>>,
     /// Callee leaf names whose return type is a scalar/void: only these may
     /// treat a `&` argument as non-retaining. A callee returning a struct or
     /// a Vec can store the borrowed header in its result (huffman
     /// `_tree_from_lengths`), so the borrow MUST be treated as escaping.
-    known_nonretaining: HashSet<String>,
+    known_nonretaining: Arc<HashSet<String>>,
     /// Callee leaf names with at least one `&mut` parameter. Such a callee can
     /// store a by-value aggregate argument through the reference
     /// (`sim_send_a -> _enqueue(l, p) -> l.q_ab.push(p)`); passing the
     /// aggregate to it transfers ownership even when the callee returns void.
-    retaining_callees: HashSet<String>,
+    retaining_callees: Arc<HashSet<String>>,
     /// Str locals with at least one fresh assignment/declaration.
     str_rebind: HashSet<String>,
     /// Str locals used in an escaping context OTHER than `return` (an alias
@@ -144,9 +145,9 @@ pub(crate) fn collect_owned_vec_locals(
     fresh_payload: &HashSet<String>,
     fresh_aggregate: &HashSet<String>,
     trust_unsafe: bool,
-    elem_type_vec_fields: &HashMap<String, Vec<String>>,
-    known_nonretaining: &HashSet<String>,
-    retaining_callees: &HashSet<String>,
+    elem_type_vec_fields: &Arc<HashMap<String, Vec<String>>>,
+    known_nonretaining: &Arc<HashSet<String>>,
+    retaining_callees: &Arc<HashSet<String>>,
 ) -> OwnedLocals {
     let mut state = ScanState::default();
     state.fresh = fresh.clone();
@@ -490,7 +491,7 @@ fn elem_vec_fields_for(elem_ty: &str, state: &ScanState) -> Option<Vec<String>> 
     }
     let suffix = format!(".{elem_ty}");
     let mut found: Option<&Vec<String>> = None;
-    for (key, fields) in &state.elem_type_vec_fields {
+    for (key, fields) in state.elem_type_vec_fields.iter() {
         if key.ends_with(&suffix) {
             if found.is_some() {
                 return None;
@@ -1512,22 +1513,12 @@ impl IrEmitter {
         let fresh = self.fresh_vec_returns.clone();
         let fresh_payload = self.fresh_payload_returns.clone();
         let fresh_aggregate = self.fresh_aggregate_returns.clone();
-        let elem_type_vec_fields = Self::elem_type_vec_fields(&self.types);
-        // A borrow is only non-retaining when the callee's return type cannot
-        // carry it (scalar/void). huffman `_tree_from_lengths(&lens)` returns
-        // a struct holding the borrowed Vec header, so `lens` must stay
-        // escaping (0xC000001D on v0.65.2/candidate).
-        let mut known: HashSet<String> = HashSet::new();
-        let mut may_retain: HashSet<String> = HashSet::new();
-        for (name, (_, ret)) in self.types.functions.entries() {
-            let leaf = name.rsplit('.').next().unwrap_or(&name).to_string();
-            known.insert(leaf.clone());
-            if !Self::is_nonretaining_return(&ret) {
-                may_retain.insert(leaf);
-            }
-        }
-        let known_nonretaining: HashSet<String> =
-            known.difference(&may_retain).cloned().collect();
+        // Program-global sets, built once in build_drop_caches(); sharing them
+        // by Arc keeps the per-function prepass O(body), not O(catalog). The
+        // engine injects ~12k decls; rebuilding/cloning the catalog per
+        // function made a full editor compile take hours.
+        let elem_type_vec_fields = self.elem_type_vec_fields.clone();
+        let known_nonretaining = self.known_nonretaining.clone();
         let retaining_callees = self.retaining_callees.clone();
         let owned = collect_owned_vec_locals(
             body,
@@ -1693,7 +1684,26 @@ impl IrEmitter {
         self.fresh_vec_returns = vec;
         self.fresh_payload_returns = payload;
         self.fresh_aggregate_returns = aggregate;
-        self.retaining_callees = crate::fresh_return::collect_retaining_callees(program);
+        self.retaining_callees = Arc::new(crate::fresh_return::collect_retaining_callees(program));
+    }
+
+    /// Build the program-global drop-analysis caches ONCE, after the function
+    /// catalog is complete (preassign). The per-function prepass then shares
+    /// them by Arc: on the engine program (~12k injected decls) rebuilding and
+    /// cloning these per function was O(functions^2) and took hours.
+    pub(crate) fn build_drop_caches(&mut self) {
+        let mut known: HashSet<String> = HashSet::new();
+        let mut may_retain: HashSet<String> = HashSet::new();
+        for (name, (_, ret)) in self.types.functions.entries() {
+            let leaf = name.rsplit('.').next().unwrap_or(&name).to_string();
+            known.insert(leaf.clone());
+            if !Self::is_nonretaining_return(&ret) {
+                may_retain.insert(leaf);
+            }
+        }
+        self.known_nonretaining =
+            Arc::new(known.difference(&may_retain).cloned().collect());
+        self.elem_type_vec_fields = Arc::new(Self::elem_type_vec_fields(&self.types));
     }
 
     /// Reset per-function drop state. Called at every function-body start.

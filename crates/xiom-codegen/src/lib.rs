@@ -69,7 +69,12 @@ pub struct IrEmitter {
     pub fresh_aggregate_returns: HashSet<String>,
     /// Function leaves that can retain a by-value aggregate argument
     /// (`&mut` parameter or aggregate-carrying return; REL-2110).
-    pub retaining_callees: HashSet<String>,
+    pub retaining_callees: Arc<HashSet<String>>,
+    /// Program-global scalar/void-return callee set (built once after
+    /// preassign; shared by Arc so the per-function prepass is O(body)).
+    pub known_nonretaining: Arc<HashSet<String>>,
+    /// Program-global struct -> Vec field names map (built once).
+    pub elem_type_vec_fields: Arc<HashMap<String, Vec<String>>>,
     /// Force allocations to the MAIN heap even inside a guard arena. Set for
     /// `#[owns_return]` functions (their caller owns/frees the result) and for
     /// drop-classified Vec locals inside confined blocks. The arena must never
@@ -163,7 +168,9 @@ impl IrEmitter {
             fresh_vec_returns: HashSet::new(),
             fresh_payload_returns: HashSet::new(),
             fresh_aggregate_returns: HashSet::new(),
-            retaining_callees: HashSet::new(),
+            retaining_callees: Arc::new(HashSet::new()),
+            known_nonretaining: Arc::new(HashSet::new()),
+            elem_type_vec_fields: Arc::new(HashMap::new()),
             force_main_heap_alloc: false,
             indexed_elem_types: HashMap::new(),
             module_deferred_types: Vec::new(),
@@ -6876,6 +6883,7 @@ impl IrEmitter {
         // BUG 22 #11: pre-assign symbols for ALL fns first (sequential path)
         // so definitions and call sites agree regardless of emit order.
         self.preassign_fn_symbols(&program.items);
+        self.build_drop_caches();
         if self.config.parallel_codegen {
             // Rayon workers default to a 2 MB stack; recursive codegen on a
             // large program overflows it (STATUS_STACK_OVERFLOW). Ignore the
@@ -6891,7 +6899,6 @@ impl IrEmitter {
                 self.compile_top_decl(item)?;
             }
         }
-
         // M65 R7: the SERIAL path creates body-time concrete types on the main
         // emitter; the final assembly splice below emits their definitions
         // before any function text.
