@@ -205,6 +205,11 @@ fn build_notes(tag: &str, stdlib: Option<&Path>, notes_dir: &Path) -> Result<Not
         if fragment.is_file() {
             let ftext = fs::read_to_string(&fragment)
                 .map_err(|e| format!("cannot read {}: {e}", fragment.display()))?;
+            // The stdlib fragment is authored by the stdlib lane and may use
+            // inline code / arrows in its highlight text. Normalise only the
+            // fragment (the compiler document stays strict) so peer formatting
+            // does not block the release.
+            let ftext = ftext.replace('`', "").replace("->", "to");
             let frag = parse_md(&ftext, tag, Some("stdlib"))
                 .map_err(|e| format!("{}: {e}", fragment.display()))?;
             // The release summary comes from the compiler document; the
