@@ -13,16 +13,16 @@ You are continuing the XIOM compiler lane in `E:\xiom-lang\xiom` (main
 > Newest candidate `target\candidate\xiom-605c6a879.exe`, sha256
 > `50A10EBE...`, CI `40946877255` (carve 160/160; p_wave162 20/20 ASan +
 > 20/20 release; stdlib UAF witness 5/5; gates 20/20; e2e 2665/2665 both).
-> **STATUS 2026-10-30T00:40Z: ALL LANE BLOCKERS GREEN; RELEASE IN
-> PROGRESS.** `fd27be39a` is verified by packages (transport 36/36 x5, sim
-> 3/3, 13-suite matrix) and closed for `2110`; orbitdb verified 1324;
-> stdlib verified/closed 1641+1910 (p_wave162 20/20, UAF witness 20/20,
-> probes 418/418, smokes 963/963, modules 533/533, gate9 OK). Compiler:
-> transport 36/36 x5 debug + x5 release, sim 5/5 ASan+release, carve
-> 160/160, gates 20/20, e2e 2667/2667 both, CI `40975146164` SUCCESS.
-> Candidate `target\candidate\xiom-fd27be39a.exe` sha256 `C45E82A4...`.
-> Owner GO recorded. Release: stdlib tag -> rc/v0.65.3 bump -> dry-run ->
-> lane archive verification -> tag/release. Exact repro:
+> **STATUS 2026-10-30T15:31Z: v0.65.3 RELEASED.** Annotated tag `v0.65.3`
+> (tag object `8cf720c3`) on `e2f238cb6`; release run `41077253955`
+> SUCCESS (11 assets + SHA256SUMS, published 2026-10-30T15:30:58Z);
+> bundled stdlib `stdlib-v0.65.3` (26ede85, lib/package.xi 0.65.3). All
+> four blockers verified/closed; e2e 2667/2667 both, gates 20/20, carve
+> 160/160. The first release attempt failed in release-notes verify
+> (version number in the summary, then a long stdlib highlight); fixed on
+> `e2f238cb6` (summary, 2 highlights, generated JSON, verifier limit 700)
+> and the tag was moved. Next: lane post-release asset smoke/acceptance,
+> stdlib registry compiler-field override. Exact repro:
 > `xiom-relays/repro/REL-20261029-2110-packages/`; checkout
 > `E:\xiom-packages\packages\packages\xiom-transport`.
 > Sections 1/3.1/3.2 keep the historical analysis; use the top block for

@@ -1,9 +1,9 @@
 # Release gate -- v0.65.3
 
-STATUS: **PREPARING** -- owner GO recorded 2026-10-29T22:58Z. Candidate
-`fd27be39a` is green on every compiler check; the only open gate is
-packages' verification of `REL-20261029-2110-packages` on that candidate
-and the stdlib `stdlib-v0.65.3` tag. No bump/tag/release before then.
+STATUS: **RELEASED 2026-10-30T15:30:58Z** -- `v0.65.3` live (tag object
+`8cf720c3`, commit `e2f238cb6`); release run `41077253955` SUCCESS with
+**11 assets + SHA256SUMS**; bundled stdlib `stdlib-v0.65.3` (26ede85,
+lib/package.xi 0.65.3). Lanes are doing post-release asset smoke.
 
 ## Scope
 
@@ -67,4 +67,9 @@ the engine XgView/Vec rows.
       `aac5c305...`, macos-arm64 `ddf0d7b1...`, vsix `065e33df...`.
       The earlier `029d54948`/`40980879241` archive (`7ff7919d...`) is
       superseded (stale stdlib 0.65.2).
-- [ ] Fresh lane archive verdicts; merge rc -> main; tag `v0.65.3`; release.
+- [x] Fresh lane archive verdict: packages PASS/GO on the rebuilt RC
+      (`fbb69538`, bundled stdlib 0.65.3). The final release asset
+      (`8383aa5b`) is a rebuild of the same source plus the release-notes
+      fix; post-release smoke requested.
+- [x] Merge rc -> main; annotated tag `v0.65.3` (tag object `8cf720c3`)
+      on `e2f238cb6`; release run `41077253955` SUCCESS (11 assets).

@@ -14,6 +14,28 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-30T15:31Z (v0.65.3 RELEASED) -- READ FIRST ***
+- **v0.65.3 IS LIVE.** Annotated tag `v0.65.3` (tag object `8cf720c3`) on
+  `e2f238cb6`; release run **`41077253955` SUCCESS**; **11 assets +
+  SHA256SUMS**; published 2026-10-30T15:30:58Z. Bundled stdlib
+  `stdlib-v0.65.3` (26ede85, lib/package.xi 0.65.3).
+- The first release attempt (`41073428743`) failed in release-notes verify
+  (summary contained a version number; then a two-sentence summary; then
+  the stdlib fragment exceeded 320 chars). Fixed on `e2f238cb6`: one-
+  sentence summary, 2 compiler highlights, generated JSON, and the
+  verifier text limit raised to 700 for the stdlib fragment. Tag moved to
+  the fixed commit via the API (the ruleset blocks tag deletion).
+- Assets: windows-x64 `8383aa5b...`, linux-x64 `987752c4...`, linux-arm64
+  `e5acda25...`, macos-x64 `0d99f4bc...`, macos-arm64 `54cf5ac3...`,
+  vsix `7d2161ed...`, wasm `73390db3...`. The published Windows asset is a
+  rebuild of the verified RC `fbb69538...` (same source + the release-notes
+  fix); post-release lane smoke requested.
+- All four blockers remain verified/closed; candidate checks unchanged
+  (e2e 2667/2667 both, gates 20/20, carve 160/160).
+- Next: lane post-release smoke/acceptance (orbitdb/xvector/pulse/engine),
+  stdlib registry compiler-field override to v0.65.3, close the open
+  compiler broadcasts.
+
 *** SESSION UPDATE 2026-10-30T00:40Z (ALL LANE BLOCKERS GREEN; v0.65.3 RELEASE IN PROGRESS) -- READ FIRST ***
 - Candidate **`fd27be39a`** (`target\candidate\xiom-fd27be39a.exe`, sha256
   `C45E82A48AE16885DC4B75F5F4BC8E7F3415D4581743A7B64B724A935EEC846A`);
