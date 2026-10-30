@@ -14,6 +14,29 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-30T23:36Z (v0.65.4 RELEASED) -- READ FIRST ***
+- **v0.65.4 IS LIVE.** Annotated tag `v0.65.4` on `c0104e21e`; release run
+  **`41144793224` SUCCESS**; **11 assets**; published 2026-10-30T23:35:43Z.
+  Bundled stdlib `stdlib-v0.65.4`, now at `407c92d` (`net.xi`
+  `xiom_socket_close -> Int`).
+- Fixes: `34e42ad87` aggregate drop GEPs dominate nested arms (epos);
+  `13fc28352` cached drop-analysis (engine 200K-LOC build: OK,
+  34,764,288 B, ~29 min, was 2h24m no finish); stdlib `407c92d` int64
+  socket ABI + POSIX SIGPIPE.
+- Evidence: epos 29/29; transport 42/42 x2; e2e 2668/2668 both; gates
+  20/20; CI 41139797014 (merge) green; published windows archive
+  re-verified (xiom 0.65.4, lib/package.xi 0.65.4, transport 42/42,
+  epos 29/29).
+- Lane verdicts: packages PASS/GO (transport 42/42, epos 29/29, full
+  matrix); pulse Windows PASS + arm IR i64 PASS; xvector WSL SIGPIPE
+  battery green (`1645` verified); stdlib pin confirmed.
+- Assets: windows-x64 `49e02478...`, linux-x64 `0e8a7418...`,
+  linux-arm64 `f90e6620...`, macos-x64 `604d82a7...`, macos-arm64
+  `4aaba675...`, vsix `b99f8b4e...`, wasm `032dd9d0...`.
+- Follow-ups: pulse native arm run on the published archive; packages/
+  xvector/bindings/engine published-asset smoke/acceptance; xvector pin
+  move after acceptance.
+
 *** SESSION UPDATE 2026-10-30T15:31Z (v0.65.3 RELEASED) -- READ FIRST ***
 - **v0.65.3 IS LIVE.** Annotated tag `v0.65.3` (tag object `8cf720c3`) on
   `e2f238cb6`; release run **`41077253955` SUCCESS**; **11 assets +

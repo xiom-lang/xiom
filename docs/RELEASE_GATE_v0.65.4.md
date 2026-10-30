@@ -1,6 +1,10 @@
 # Release gate -- v0.65.4
 
-STATUS: **PREPARING** -- post-release hotfix after v0.65.3.
+STATUS: **RELEASED 2026-10-30T23:35:43Z** -- `v0.65.4` live (tag on
+`c0104e21e`); release run `41144793224` SUCCESS with **11 assets**. Bundled
+stdlib is `stdlib-v0.65.4` now at `407c92d` (net.xi close -> Int).
+Published Windows archive verified: xiom 0.65.4, lib/package.xi 0.65.4,
+transport 42/42, epos 29/29.
 
 ## Scope
 
@@ -32,7 +36,8 @@ strings, removal containers, callee-side by-value parameter drops.
 - [x] Release dry-run 41134774980 SUCCESS (six platforms + VSIX;
       macos-arm64 moved to macos-15 and its attest step retried). Lanes
       verifying (`REL-20261030-2212-compiler`).
-- [ ] Tag `v0.65.4`; release; announcements.
+- [x] Tag `v0.65.4` on `c0104e21e`; release run `41144793224` SUCCESS;
+      published 2026-10-30T23:35:43Z (11 assets).
 
 ## Evidence
 
@@ -40,6 +45,8 @@ strings, removal containers, callee-side by-value parameter drops.
   (cached drop-analysis).
 - Engine: previous run 2h24m at 100% CPU, no IR; now ~91 MB IR in ~20 min
   and a full run/build in ~29 min.
-- e2e 2668/2668 both; CI 41136384010.
+- e2e 2668/2668 both; CI 41136384010 (rc) and 41139797014 (merge) green.
+- Published assets: windows 49e02478, linux-x64 0e8a7418, linux-arm64
+  f90e6620, macos-x64 604d82a7, macos-arm64 4aaba675, vsix b99f8b4e.
 - Assets: windows efe7af95, linux-x64 a01ec42c, linux-arm64 d56a3e5b,
   macos-x64 54c7e5e2, macos-arm64 fe67e81c, vsix 368f2ba2.
