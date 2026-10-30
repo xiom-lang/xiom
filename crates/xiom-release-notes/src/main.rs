@@ -25,7 +25,9 @@ const KINDS: [&str; 6] = ["language", "compiler", "stdlib", "tooling", "fix", "s
 const MAX_HIGHLIGHTS: usize = 6;
 const MAX_SUMMARY: usize = 240;
 const MAX_TITLE: usize = 60;
-const MAX_TEXT: usize = 320;
+// 700 accommodates the stdlib fragment highlights (up to 612 chars in
+// v0.65.3); compiler-authored highlights stay shorter.
+const MAX_TEXT: usize = 700;
 const MAX_ITEM: usize = 240;
 const MAX_DOCS: usize = 6;
 

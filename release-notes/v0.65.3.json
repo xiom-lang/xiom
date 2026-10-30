@@ -1,27 +1,37 @@
 {
   "schema": 1,
   "tag": "v0.65.3",
-  "summary": "A correctness hotfix for the three v0.65.3 release blockers: the published orbitdb 0.2.1 carve, the stdlib p_wave162 SSE probe, and the transport Vec[Vec]/UDP suites.",
+  "summary": "A correctness hotfix for the three release blockers: the published orbitdb carve, the stdlib SSE probe, and the transport Vec[Vec]/UDP suites.",
   "highlights": [
     {
       "kind": "compiler",
-      "title": "Aggregate ownership across nested literals",
-      "text": "A struct local that already owned Vec fields was shallow-copied into the next literal but still freed at scope exit, so a returned Snapshot pointed at freed buffers (orbitdb 0.2.1 snap_load_v2). An aggregate local moved into a literal now transfers its field ownership."
+      "title": "Aggregate ownership across literals, returns and helpers",
+      "text": "Nested struct literals, implicit tail returns and leaf-helper returns (ok_outcome(done)) now transfer the owned Vec fields; a projected Vec field moves its source aggregate, and a by-value aggregate passed to a retaining callee is moved. The orbitdb carve and the transport Vec[Vec]/UDP suites are green."
     },
     {
       "kind": "compiler",
-      "title": "Aggregate Vec fields re-read at drop; implicit returns transfer",
-      "text": "A struct field's data pointer is loaded at drop time, not captured at the binding, so growing the field in place no longer double-frees (p_wave162). The function body's trailing Ok(x)/Some(x) is treated as a real return, so a borrowed-but-grown aggregate is handed to the caller instead of freed (stdlib p_borrowed_mut_grown_vec_uaf)."
+      "title": "Aggregate Vec fields re-read at drop",
+      "text": "A struct field's data pointer is loaded at drop time instead of being captured at the binding, so growing the field in place no longer double-frees (p_wave162). The borrowed-but-grown aggregate UAF is covered by the implicit-return transfer above."
     },
     {
-      "kind": "compiler",
-      "title": "Helper-wrapped returns and projected fields",
-      "text": "The transport package returns values through leaf helpers (_ok_outcome(done)). A callee that can carry an aggregate (any &mut parameter, or an Option/Result/Vec/Map/Set/Tuple/pointer/struct/enum return) now takes by-value aggregate arguments, and a Vec field projected out of an aggregate into a returned literal moves its source. The UDP 1500-byte reassembly is byte-exact and the Vec[Vec] simulator transcript is stable."
+      "kind": "fix",
+      "title": "Non-owning channel storage",
+      "text": "sync.channel now stores its queue as raw element storage (data pointer, len, alloc_cap, cap, closed) instead of a Vec[T]. The handle form copies the cell through ptr.read / ptr.write, and a Vec field made the cell and the local copy two owners of the same items buffer (heap corruption on open/send/free, REL-20261028-1533-stdlib / REL-20261028-1617-stdlib). Elements are moved element-wise on growth and freed by channel_handle_free; the public function API is unchanged."
     },
     {
       "kind": "stdlib",
-      "title": "Non-owning Channel and Huffman decode",
-      "text": "The stdlib Channel stores no owned payload across a handoff, and the HTTP/2 Huffman decoder no longer retains the decoded buffer. Both were verified by the stdlib lane on the release candidate."
+      "title": "Server-side SSE",
+      "text": "sse_encode_event, sse_encode_comment and sse_encode_heartbeat build LF wire bytes (CR/LF injection rejected; multi-line data becomes repeated data: fields), and sse_write_event, sse_write_comment and sse_heartbeat write them over a TcpStream with write_all. Probe p_wave298_sse_wire covers round-trip, injection and a loopback write."
+    },
+    {
+      "kind": "stdlib",
+      "title": "HTTP/2 connection multiplexing and frame I/O",
+      "text": "H2Connection adds a concurrency cap, local stream ids, received-GOAWAY drain (streams above the peer's last id are dropped; an increased last id is rejected) and local graceful drain. xiom/net/h2_io.xi adds a buffered H2Reader over a TcpStream (9-byte header plus payload reassembly, EOF/max_payload errors), h2_join_header_block (HEADERS + CONTINUATION with a block cap), h2_write_frame, h2_write_settings_ack, h2_write_ping_ack and h2_write_header_block (fragmented HEADERS/CONTINUATION). This completes the h2 primitive layer; frame I/O stays with the caller. Probes p_wave298_h2_conn_mux and p_wave299_h2_io."
+    },
+    {
+      "kind": "fix",
+      "title": "Request parsing without the whole-head copies",
+      "text": "net.server.server_parse_request parses directly from the request byte buffer using (start, len) spans instead of copying the whole head into a Vec[UInt8] and a Str, then slicing request-line strings and two strings per header. Header names are lowercased in the same copy and the header vector is pre-sized. 50k-parse measurement on the official v0.64.8/v0.65.2 compilers (Windows x64): about 8,954 B/iteration before, about 857 B/iteration after; API and error semantics are unchanged. Probe p_http_parse_alloc (REL-20261027-1955-pulse-2)."
     }
   ],
   "breaking": [],
