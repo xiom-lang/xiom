@@ -35,12 +35,16 @@ the engine XgView/Vec rows.
 - [x] stdlib full matrix green on `605c6a879`; 1641/1910 verified/closed.
 - [x] Transport suite 36/36 x5 debug + x5 release (b4 + u4 green).
 - [ ] packages verifies `REL-20261029-2110-packages` on `fd27be39a`.
-- [ ] stdlib tag `stdlib-v0.65.3` live and pinned
-      (requested `REL-20261030-0007-compiler`).
-- [ ] Version bump 0.65.3 on `rc/v0.65.3` (not main); Cargo.lock.
+- [x] stdlib tag `stdlib-v0.65.3` live on `801d300` (created by the
+      compiler lane after the stdlib verify; `STDLIB_VERSION` pinned).
+- [x] Version bump 0.65.3 on `rc/v0.65.3` (`029d54948`); Cargo.lock.
 - [ ] Release notes `v0.65.3.md`/`.json`; selfhost/VSIX pins.
-- [ ] All-platform dry-run on the rc ref; archives published as artifacts.
-- [ ] Lanes verify the archive.
+- [x] All-platform dry-run `41065811987` SUCCESS on `c8b1fb1b1`
+      (windows-x64, linux-x64+arm64, macos-x64+arm64, VSIX). The first
+      dry-run `40980879241` was STALE: it bundled stdlib 0.65.2 because the
+      tag still pointed at 801d300 before stdlib re-cut it to 26ede85. The
+      rebuilt archive bundles lib/package.xi 0.65.3 (verified).
+- [ ] Lanes verify the archive (requested `REL-20261030-0049-compiler`).
 - [ ] Annotated tag `v0.65.3` on the rc commit merged to main; release
       workflow.
 - [ ] Registry `xiom-std 0.65.3`, docs dispatch, lane announcements.
@@ -57,4 +61,10 @@ the engine XgView/Vec rows.
 
 ## Release log
 
-- [ ] Final candidate + dry-run + tag + assets (filled at cut time).
+- [x] rc `c8b1fb1b1` (version 0.65.3); rebuilt dry-run `41065811987`
+      bundling stdlib 0.65.3; archives: windows-x64 `fbb69538...`,
+      linux-x64 `9435e745...`, linux-arm64 `40d30adc...`, macos-x64
+      `aac5c305...`, macos-arm64 `ddf0d7b1...`, vsix `065e33df...`.
+      The earlier `029d54948`/`40980879241` archive (`7ff7919d...`) is
+      superseded (stale stdlib 0.65.2).
+- [ ] Fresh lane archive verdicts; merge rc -> main; tag `v0.65.3`; release.
