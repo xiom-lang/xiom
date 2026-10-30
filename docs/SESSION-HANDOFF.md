@@ -14,6 +14,30 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-30T00:40Z (ALL LANE BLOCKERS GREEN; v0.65.3 RELEASE IN PROGRESS) -- READ FIRST ***
+- Candidate **`fd27be39a`** (`target\candidate\xiom-fd27be39a.exe`, sha256
+  `C45E82A48AE16885DC4B75F5F4BC8E7F3415D4581743A7B64B724A935EEC846A`);
+  CI `40975146164` SUCCESS.
+- **Every lane blocker is verified/closed:** orbitdb `1324` (ed2f38cff);
+  stdlib `1641`+`1910` (+`1956`) on 605c6a879 (p_wave162 20/20, UAF
+  witness 20/20, probes 418/418, smokes 963/963, modules 533/533, gate9
+  OK); packages `2110` on **fd27be39a** (transport 36/36 x5, sim 3/3,
+  13-suite matrix, orbitdb 160) and `2110` closed.
+- **Compiler evidence on the candidate:** transport 36/36 x5 debug + x5
+  release (b4 + u4 byte-exact); sim 5/5 ASan+release `k0=1 k2=2`; 0.2.1
+  carve 160/160; 20/20 gates; full e2e **2667/2667 (4 ignored) both**
+  (debug 970 s, release 1220 s); CI green.
+- **u4 root cause (fixed):** `_reasm_place` returns through
+  `_ok_outcome(done)`; the prepass only followed direct Ok/Some, so `done`
+  was dropped and the caller got a dangling payload (already wrong at
+  `rl_on_packet`). Aggregate-carrying callees now take by-value aggregate
+  args; a projected Vec field moves its source aggregate.
+- **Owner GO recorded 2026-10-29T22:58Z.** Release in progress: stdlib
+  `stdlib-v0.65.3` tag -> `STDLIB_VERSION` pin -> `rc/v0.65.3` version bump
+  -> release dry-run -> lanes verify the archive -> annotated `v0.65.3`
+  tag -> release + registry/docs.
+- Counts **15 open / 110 acked / 64 fixed** (23 verified, 103 closed).
+
 *** SESSION UPDATE 2026-10-29T22:30Z (compiler lane; stdlib VERIFIED/CLOSED 1641+1910; packages b4 FIXED, u4 open) -- READ FIRST ***
 - main **`aac15cc27`** (by-value aggregate args into `&mut` callees) atop
   `605c6a879` / `42ab98b49` / `ed2f38cff` / `e48213c66`. Candidate

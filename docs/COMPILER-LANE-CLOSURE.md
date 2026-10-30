@@ -11,9 +11,9 @@ the packages b4 fix. Verified counts, not a stale snapshot:
 | Queue (addressed `to: compiler`) | Count |
 |---|---|
 | open | **15** |
-| acked | **108** (45 bug, 10 wishlist, 53 info) |
+| acked | **110** (44 bug, 10 wishlist, 56 info) |
 | fixed | **64** (awaiting reporter verify) |
-| verified / closed / wontfix | 23 / 102 / 1 |
+| verified / closed / wontfix | 23 / 103 / 1 |
 
 The lane view lists **29 open** rows in total: the 15 above plus 14
 compiler->all broadcasts of its own (section E). `1324-orbitdb` is
@@ -21,9 +21,10 @@ compiler->all broadcasts of its own (section E). `1324-orbitdb` is
 `1910-stdlib` are **verified + closed by stdlib** on `605c6a879` (p_wave162
 20/20, UAF witness 20/20, probes 418/418, smokes 963/963, modules 533/533,
 gate9 OK); `1956-stdlib` is closed. `1507-packages` and
-`1415-packages-2` were verified/closed by packages. **Open:**
-`2110-packages` (b4/sim FIXED at `aac15cc27`; UDP u4 still red, transport
-35/36) and the longstanding engine/xvector rows.
+`1415-packages-2` were verified/closed by packages. **ALL FOUR RELEASE
+BLOCKERS (`1324`, `1641`, `1910`, `2110`) ARE VERIFIED + CLOSED.** The
+remaining open rows are the longstanding engine/xvector/benchmark items,
+not release blockers.
 
 ```powershell
 cd E:\xiom-lang\xiom-relays
@@ -117,7 +118,7 @@ or `fixed` with a probe and the lane's verdict on the candidate archive.
 | REL-20261028-1641-stdlib | stdlib | p_wave162 SSE loopback + spawned fixtures: 0xC0000374; v0.64.8 clean | **verified + closed by stdlib** on `605c6a879` (p_wave162 20/20, UAF witness 20/20, probes 418/418, smokes 963/963, modules 533/533, gate9 OK) |
 | REL-20261029-1910-stdlib | stdlib | 1641 NOT fixed on ed2f38cff: UAF (p_wave162 row 12) + minimal early-return witness | **verified + closed by stdlib** on `605c6a879` (UAF witness 20/20; implicit tail-return ownership) |
 | REL-20261029-1926-packages | packages | Vec[Vec]/UDP transport corruption still red (34-35/36); ed2f adds UDP reassembly failure | **acked**; superseded by `2110`; exact repro source requested in `2125-compiler` |
-| REL-20261029-2110-packages | packages | 605c6a879 still red: transport 34-35/36 (b4 4/5, UDP 4/5); other 13 suites green | **acked, OPEN -- only compiler blocker**; b4/sim FIXED at `aac15cc27` (sim 5/5 ASan `k0=1 k2=2`); UDP u4 still red 5/5 (separate escape: payload correct at `_reasm_place`, corrupted in poll/event delivery); transport 35/36 |
+| REL-20261029-2110-packages | packages | 605c6a879 still red: transport 34-35/36 (b4 4/5, UDP 4/5); other 13 suites green | **VERIFIED + CLOSED by packages on `fd27be39a`** (transport 36/36 x5, sim 3/3, 13-suite matrix, orbitdb 160) |
 
 ### B2. Wishlists -- 10 strategic/perf rows
 
@@ -332,17 +333,16 @@ reporter reopens with new evidence.
   the caller (stdlib `p_borrowed_mut_grown_vec_uaf`, p_wave162 row 12).
   `605c6a879` marks the body tail with `mark_returned_roots`. Evidence:
   stdlib witness 5/5 ASan+release; p_wave162 20/20 ASan + 20/20 release;
-  lock `tail_return_aggregate`; stdlib verify owed.
+  lock `tail_return_aggregate`. **Verified + closed by stdlib.**
 - **`1910-stdlib` FIXED at `605c6a879`:** the ed2f38cff UAF report; same
-  implicit-tail-return fix. stdlib verify owed.
-- **OPEN `2110-packages` (acked, supersedes 1926):** 605c6a879 re-run:
-  transport 34/36, 35/36, 34/36, 34/36, 35/36; b4 4/5 and UDP 1500-byte
-  reassembly 4/5; all 13 other suites green (orbitdb 160). The tail-return
-  fix did not cover it. `sim_vecvec_corruption.xi` is not in this
-  checkout; requested in `2125-compiler`. Blind Vec[Vec]
-  reuse/alias/projection/element-read reconstructions are clean (the
-  clear+push reuse shape also aliases on v0.65.1), so ASan the real repro
-  next.
+  implicit-tail-return fix. **Verified + closed by stdlib on 605c6a879.**
+- **`2110-packages` VERIFIED + CLOSED by packages on `fd27be39a`:**
+  transport 36/36 x5 (b4 + u4), sim 3/3, 13-suite matrix, orbitdb 160.
+  Root causes: by-value aggregate into `_enqueue` through `&mut`; the
+  `_ok_outcome(done)` helper return not treated as a return (payload
+  dangling at `rl_on_packet`); a projected Vec field shallow-copied while
+  its source aggregate still dropped. Fixes: retaining-callee by-value
+  transfer, helper-wrapped return recognition, projected-field move.
 - xvector durable repros with this build:  - `docs\repro\xv-vec-struct-push\probe.xi` (XVC-C-23): **PASS**, named and
     inline forms bad=0, exit 0.
   - `tests\probes\probe_wal_file.xi` (built with the bin's pinned stdlib +

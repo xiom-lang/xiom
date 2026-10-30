@@ -13,20 +13,17 @@ You are continuing the XIOM compiler lane in `E:\xiom-lang\xiom` (main
 > Newest candidate `target\candidate\xiom-605c6a879.exe`, sha256
 > `50A10EBE...`, CI `40946877255` (carve 160/160; p_wave162 20/20 ASan +
 > 20/20 release; stdlib UAF witness 5/5; gates 20/20; e2e 2665/2665 both).
-> **STATUS 2026-10-29T22:58Z:** stdlib **verified + closed** `1641`/`1910`
-> (and closed `1956`) on `605c6a879`: p_wave162 20/20, UAF witness 20/20,
-> probes 418/418, smokes 963/963, modules 533/533, gate9 OK. Packages
-> `2110` is still OPEN: b4/sim FIXED at `aac15cc27` (by-value aggregate
-> args into `&mut` callees; sim 5/5 ASan `k0=1 k2=2`), but UDP u4 is a
-> separate escape and stays red (transport 35/36). New evidence: the event
-> payload is already wrong when it reaches `collect_delivered` (copying it
-> there does NOT fix u4), so the corruption is upstream in the
-> RlMessage/event delivery path. Candidate
-> `target\candidate\xiom-aac15cc27.exe` sha256 `199E79FE...`; CI
-> `40966359970`; gates 20/20; carve 160/160; e2e 2666/2666 both. **Owner GO
-> is recorded but the release is HELD until u4 is green and packages
-> verifies.** Exact repro now in
-> `xiom-relays/repro/REL-20261029-2110-packages/`; checkout at
+> **STATUS 2026-10-30T00:40Z: ALL LANE BLOCKERS GREEN; RELEASE IN
+> PROGRESS.** `fd27be39a` is verified by packages (transport 36/36 x5, sim
+> 3/3, 13-suite matrix) and closed for `2110`; orbitdb verified 1324;
+> stdlib verified/closed 1641+1910 (p_wave162 20/20, UAF witness 20/20,
+> probes 418/418, smokes 963/963, modules 533/533, gate9 OK). Compiler:
+> transport 36/36 x5 debug + x5 release, sim 5/5 ASan+release, carve
+> 160/160, gates 20/20, e2e 2667/2667 both, CI `40975146164` SUCCESS.
+> Candidate `target\candidate\xiom-fd27be39a.exe` sha256 `C45E82A4...`.
+> Owner GO recorded. Release: stdlib tag -> rc/v0.65.3 bump -> dry-run ->
+> lane archive verification -> tag/release. Exact repro:
+> `xiom-relays/repro/REL-20261029-2110-packages/`; checkout
 > `E:\xiom-packages\packages\packages\xiom-transport`.
 > Sections 1/3.1/3.2 keep the historical analysis; use the top block for
 > current state.
@@ -38,16 +35,14 @@ or UAF with a stdlib workaround.
 
 ## 1. Current state
 
-- main `605c6a879` (implicit tail-return ownership) atop `42ab98b49`
-  (docs) / `ed2f38cff` / `e48213c66` / `b135dfbe8`.
-- Source candidate: `target\candidate\xiom-605c6a879.exe`, sha256
-  `50A10EBEF9F728519243487E1B785A5E6A93C3B6A5EF7F6CA56FF66454CF09DE`;
-  CI `40946877255` SUCCESS (all 7 jobs). Earlier candidates: `ed2f38cff`
-  (`99AF0E77...`), `e48213c66` (`E0222F26...`), `b135dfbe8`
-  (`A7B48E5E...`), `ab97014d9` (`6D9F2ED0...`), `46f7f50aa`
-  (`8BB859BB...`).
+- main `fd27be39a` (helper-wrapped returns + projected fields + retaining
+  callees) atop `aac15cc27` / `605c6a879` / `ed2f38cff` / `e48213c66`.
+- Source candidate: `target\candidate\xiom-fd27be39a.exe`, sha256
+  `C45E82A48AE16885DC4B75F5F4BC8E7F3415D4581743A7B64B724A935EEC846A`;
+  CI `40975146164` SUCCESS. Earlier: `aac15cc27` (`199E79FE...`),
+  `605c6a879` (`50A10EBE...`), `ed2f38cff` (`99AF0E77...`), `e48213c66`.
 - v0.65.2 official = tag `fe1994b1` on `8ec0904a5`; v0.65.1 is the
-  accepted pin. v0.65.3 is NOT bumped/tagged.
+  accepted pin. v0.65.3 is being cut now (owner GO 2026-10-29T22:58Z).
 - Stdlib main `5071f86` contains the NON-OWNING Channel (required for the
   release pin). huffman (1801/1805) is fixed/verified; channel 1533/1617
   are verified/closed by stdlib.
@@ -56,16 +51,15 @@ or UAF with a stdlib workaround.
   aggregate-local move; 1641 aggregate Vec-field exit re-read + implicit
   tail-return ownership; plus 2303 enum payloads, 1159 Bool patterns,
   0052 W009/linker stdout.
-- **20/20 memory gates** (debug+release), full e2e **2665/2665 (4 ignored)
-  both** (debug 1169 s, release 1162 s), CI `40946877255` on
-  `605c6a879`; carve 160/160 debug+release; p_wave162 20/20 ASan +
-  20/20 release; stdlib UAF witness 5/5 ASan+release.
+- **20/20 memory gates** (debug+release), full e2e **2667/2667 (4 ignored)
+  both** (debug 970 s, release 1220 s), CI `40975146164` on
+  `fd27be39a`; carve 160/160; transport 36/36 x5 debug + x5 release;
+  sim 5/5 ASan+release; stdlib UAF witness 20/20; p_wave162 20/20.
 
-Live relay (2026-10-29T16:05Z, `compiler` addressee): **15 open / 109
-acked / 66 fixed**; 27 open lane rows total (15 + 12 broadcasts). New:
-`1415-packages` (Vec[Vec[UInt8]] transport corruption) and
-`1415-packages-2` (0.2.1 carve envelope, confirms 1324) are acked. Always
-recount from the live bus before editing the checklist.
+Live relay (2026-10-30T00:40Z, `compiler` addressee): **15 open / 110
+acked / 64 fixed**; 30 open lane rows total (15 + 15 broadcasts). 1324,
+1641, 1910 and 2110 are verified/closed by their lanes. Always recount
+from the live bus before editing the checklist.
 
 ## 2. Ledgers (lane feedback received 2026-10-29)
 
@@ -191,20 +185,16 @@ ERROR: AddressSanitizer: attempting double-free
 
 ### 3.3 Other open blockers/memory
 
-- **`REL-20261029-2110-packages` (acked, OPEN -- only compiler blocker):**
-  exact repro in `xiom-relays/repro/REL-20261029-2110-packages/`; checkout
-  `E:\xiom-packages\packages\packages\xiom-transport` (port.ps1 with
-  `XIOM_COMPILER`). **b4/sim FIXED at `aac15cc27`:** `sim_send_a` passes
-  `SimPacket` by value to `_enqueue`, which stores it in `q_ab` through
-  `&mut SimLink`; the caller's exit drop freed the payload. The prepass now
-  moves by-value aggregate args to callees with a `&mut` parameter. Sim
-  repro 5/5 ASan `k0=1 k2=2`; gates 20/20; carve 160/160.
-  **u4 (UDP 1500-byte reassembly) STILL RED 5/5** and is a separate escape:
-  fragments and `_reasm_place` are correct (`done.payload[0]=0` after
-  `_reasm_remove`); corruption appears later in the poll/event delivery
-  path (`p.got[0]` starts with a Vec-header-like `80,1,...`). Minimal
-  enum/returned-poll reductions are clean; next is ASan on the real suite
-  or a witness that mirrors `_accept_message`'s `rr` drop.
+- **`REL-20261029-2110-packages` (VERIFIED + CLOSED on `fd27be39a`):**
+  b4/sim and u4 are fixed and packages verified transport **36/36 x5**,
+  sim 3/3, 13-suite matrix, orbitdb 160. Root causes: (a) by-value
+  aggregate into `_enqueue` through `&mut`; (b) `_ok_outcome(done)` helper
+  return was not treated as a return; (c) a projected Vec field
+  (`done.payload = taken.payload`) shallow-copied while the source
+  aggregate still dropped. Fixes: retaining-callee by-value transfer,
+  helper-wrapped return recognition, projected-field move. Exact repro:
+  `xiom-relays/repro/REL-20261029-2110-packages/`; checkout
+  `E:\xiom-packages\packages\packages\xiom-transport`.
 - `REL-20261029-1926-packages` (superseded by 2110): same repro on
   e48213c66/ed2f38cff; acked.
 - `REL-20261029-1415-packages-2`: verified fixed/closed by packages (0.2.1

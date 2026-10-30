@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "tag": "v0.65.3",
+  "summary": "A correctness hotfix for the three v0.65.3 release blockers: the published orbitdb 0.2.1 carve, the stdlib p_wave162 SSE probe, and the transport Vec[Vec]/UDP suites.",
+  "highlights": [
+    {
+      "kind": "compiler",
+      "title": "Aggregate ownership across nested literals",
+      "text": "A struct local that already owned Vec fields was shallow-copied into the next literal but still freed at scope exit, so a returned Snapshot pointed at freed buffers (orbitdb 0.2.1 snap_load_v2). An aggregate local moved into a literal now transfers its field ownership."
+    },
+    {
+      "kind": "compiler",
+      "title": "Aggregate Vec fields re-read at drop; implicit returns transfer",
+      "text": "A struct field's data pointer is loaded at drop time, not captured at the binding, so growing the field in place no longer double-frees (p_wave162). The function body's trailing Ok(x)/Some(x) is treated as a real return, so a borrowed-but-grown aggregate is handed to the caller instead of freed (stdlib p_borrowed_mut_grown_vec_uaf)."
+    },
+    {
+      "kind": "compiler",
+      "title": "Helper-wrapped returns and projected fields",
+      "text": "The transport package returns values through leaf helpers (_ok_outcome(done)). A callee that can carry an aggregate (any &mut parameter, or an Option/Result/Vec/Map/Set/Tuple/pointer/struct/enum return) now takes by-value aggregate arguments, and a Vec field projected out of an aggregate into a returned literal moves its source. The UDP 1500-byte reassembly is byte-exact and the Vec[Vec] simulator transcript is stable."
+    },
+    {
+      "kind": "stdlib",
+      "title": "Non-owning Channel and Huffman decode",
+      "text": "The stdlib Channel stores no owned payload across a handoff, and the HTTP/2 Huffman decoder no longer retains the decoded buffer. Both were verified by the stdlib lane on the release candidate."
+    }
+  ],
+  "breaking": [],
+  "known_issues": [
+    "Map/JSON/enum-tree retention (REL-1704) is the next memory slice.",
+    "Vec[Str] element strings and removal containers are not yet reclaimed.",
+    "By-value aggregate parameters are caller-transferred for retaining callees; callee-side parameter drops remain future work."
+  ],
+  "docs": [
+    {
+      "title": "Ownership and drop rules",
+      "url": "https://docs.xiom-lang.org/latest/ownership/"
+    }
+  ],
+  "full_changelog": "https://github.com/xiom-lang/xiom/releases/tag/v0.65.3"
+}
