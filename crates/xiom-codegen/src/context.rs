@@ -353,9 +353,10 @@ pub enum VecDrop {
     /// non-dominating block (v0.65.2 aggregate literals in match arms).
     Ptr { data_alloca: String, flag: String },
     Aggregate {
-        struct_alloca: String,
-        struct_ty: String,
-        field_index: u32,
+        /// Field GEP computed at REGISTRATION (it dominates every scope exit,
+        /// even when the struct alloca is nested); the data pointer is loaded
+        /// from it at drop time so growth/realloc is seen.
+        data_gep: String,
         flag: String,
     },
 }

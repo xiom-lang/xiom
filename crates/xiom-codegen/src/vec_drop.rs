@@ -2011,20 +2011,27 @@ impl IrEmitter {
             if self.field_llvm_type(&type_name, idx) != "%struct.Vec" {
                 continue;
             }
-            // REL-20261028-1641: re-read the field at DROP time (the
-            // Aggregate variant GEPs the struct alloca and loads field 0).
-            // Capturing the data pointer at the binding frees the pre-realloc
-            // buffer again after the Vec grows through `s.buf.push(..)` or a
-            // `&mut` callee -- the p_wave162 double-free. The struct alloca is
-            // hoisted to the entry block (stmt.rs add_local), so the GEP
-            // dominates every scope exit.
+            // REL-20261030-1540-bindings (epos): the field GEP must be
+            // computed HERE, at registration, where the struct alloca
+            // dominates; a GEP emitted at the drop block can be in a
+            // non-dominating arm (alloca EposLibrary / field 5). The drop
+            // still LOADS the data pointer at drop time, so realloc/growth
+            // (p_wave162) is seen.
+            // Entry-block GEPs: the binding's alloca is hoisted when it is an
+            // aggregate-drop candidate, so these dominate every scope exit.
+            let field_ptr = self.fresh_tmp();
+            self.local.entry_prelude.push(format!(
+                "  {field_ptr} = getelementptr {llvm_ty}, {llvm_ty}* {alloca}, i32 0, i32 {idx}"
+            ));
+            let data_gep = self.fresh_tmp();
+            self.local.entry_prelude.push(format!(
+                "  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {field_ptr}, i32 0, i32 0"
+            ));
             let flag = self.fresh_tmp();
             self.local.hoisted_allocas.push((flag.clone(), "i1".to_string()));
             self.local.entry_prelude.push(format!("  store i1 false, i1* {flag}"));
             self.fctx.vec_drops.push(VecDrop::Aggregate {
-                struct_alloca: alloca.to_string(),
-                struct_ty: llvm_ty.to_string(),
-                field_index: idx as u32,
+                data_gep,
                 flag: flag.clone(),
             });
             self.emitln(&format!("  store i1 true, i1* {flag}"));
@@ -2190,21 +2197,8 @@ impl IrEmitter {
                     self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_alloca}"));
                     data_ptr
                 }
-                VecDrop::Aggregate {
-                    struct_alloca,
-                    struct_ty,
-                    field_index,
-                    ..
-                } => {
-                    let field_ptr = self.fresh_tmp();
-                    self.emitln(&format!(
-                        "  {field_ptr} = getelementptr {struct_ty}, {struct_ty}* {struct_alloca}, i32 0, i32 {field_index}"
-                    ));
-                    let data_gep = self.fresh_tmp();
+                VecDrop::Aggregate { data_gep, .. } => {
                     let data_ptr = self.fresh_tmp();
-                    self.emitln(&format!(
-                        "  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {field_ptr}, i32 0, i32 0"
-                    ));
                     self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_gep}"));
                     data_ptr
                 }

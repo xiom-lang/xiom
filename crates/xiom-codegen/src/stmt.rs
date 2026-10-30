@@ -904,6 +904,11 @@ impl IrEmitter {
                 // return-path cleanup load is dominated by the alloca.
                 if self.local.loop_depth > 0
                     || self.vec_drop_candidate(&name.name, &llvm_ty, value)
+                    // REL-2110 epos: an aggregate-drop binding must have its
+                    // alloca in the entry block so the field GEP registered
+                    // for the drop dominates every scope exit.
+                    || (self.fctx.aggregate_drop_safe.contains(&name.name)
+                        && llvm_ty.starts_with("%struct."))
                 {
                     self.local.hoisted_allocas.push((alloca.clone(), llvm_ty.clone()));
                 } else {
@@ -1392,6 +1397,11 @@ impl IrEmitter {
                 // return-path cleanup load is dominated by the alloca.
                 if self.local.loop_depth > 0
                     || self.vec_drop_candidate(&name.name, &llvm_ty, value)
+                    // REL-2110 epos: an aggregate-drop binding must have its
+                    // alloca in the entry block so the field GEP registered
+                    // for the drop dominates every scope exit.
+                    || (self.fctx.aggregate_drop_safe.contains(&name.name)
+                        && llvm_ty.starts_with("%struct."))
                 {
                     self.local.hoisted_allocas.push((alloca.clone(), llvm_ty.clone()));
                 } else {

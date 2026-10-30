@@ -7815,6 +7815,18 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     );
 }
 
+// REL-20261030-1540-bindings (epos): a struct-with-Vec binding inside a
+// conditional arm must not emit a drop-time field GEP that its alloca does not
+// dominate. The GEP is registered in the entry block; the data pointer is
+// loaded at drop time.
+#[test] fn e2e_aggregate_arm_drop() {
+    assert_eq!(
+        compile_and_run("tests/regression/aggregate_arm_drop/main.xi"),
+        Some(0),
+        "aggregate drop in a nested arm needs a dominating field GEP (epos)"
+    );
+}
+
 // m297 (REL-20261010-1615-stdlib): `Path.is_dir` -- a stdlib METHOD whose
 // body bare-calls the same-leaf free fn `is_dir(self.inner)` -- self-bound:
 // the G-10 implicit-self override re-bound the already-resolved io.is_dir
