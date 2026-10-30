@@ -39,8 +39,11 @@ the engine XgView/Vec rows.
       compiler lane after the stdlib verify; `STDLIB_VERSION` pinned).
 - [x] Version bump 0.65.3 on `rc/v0.65.3` (`029d54948`); Cargo.lock.
 - [ ] Release notes `v0.65.3.md`/`.json`; selfhost/VSIX pins.
-- [x] All-platform dry-run `40980879241` SUCCESS on `029d54948`
-      (windows-x64, linux-x64+arm64, macos-x64+arm64, VSIX).
+- [x] All-platform dry-run `41065811987` SUCCESS on `c8b1fb1b1`
+      (windows-x64, linux-x64+arm64, macos-x64+arm64, VSIX). The first
+      dry-run `40980879241` was STALE: it bundled stdlib 0.65.2 because the
+      tag still pointed at 801d300 before stdlib re-cut it to 26ede85. The
+      rebuilt archive bundles lib/package.xi 0.65.3 (verified).
 - [ ] Lanes verify the archive (requested `REL-20261030-0049-compiler`).
 - [ ] Annotated tag `v0.65.3` on the rc commit merged to main; release
       workflow.
@@ -58,8 +61,10 @@ the engine XgView/Vec rows.
 
 ## Release log
 
-- [x] rc `029d54948`; dry-run `40980879241`; archives: windows-x64
-      `7ff7919d...`, linux-x64 `f041c943...`, linux-arm64 `d43f5355...`,
-      macos-x64 `8c1bf7e9...`, macos-arm64 `58a1ae24...`, vsix
-      `3bd024c6...`.
-- [ ] Lane archive verdicts; merge rc -> main; tag `v0.65.3`; release.
+- [x] rc `c8b1fb1b1` (version 0.65.3); rebuilt dry-run `41065811987`
+      bundling stdlib 0.65.3; archives: windows-x64 `fbb69538...`,
+      linux-x64 `9435e745...`, linux-arm64 `40d30adc...`, macos-x64
+      `aac5c305...`, macos-arm64 `ddf0d7b1...`, vsix `065e33df...`.
+      The earlier `029d54948`/`40980879241` archive (`7ff7919d...`) is
+      superseded (stale stdlib 0.65.2).
+- [ ] Fresh lane archive verdicts; merge rc -> main; tag `v0.65.3`; release.
