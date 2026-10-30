@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "tag": "v0.65.4",
+  "summary": "Fixes the post-release aggregate-drop dominance failure and restores compile performance on large programs.",
+  "highlights": [
+    {
+      "kind": "compiler",
+      "title": "Aggregate drop GEPs dominate nested arms",
+      "text": "An aggregate binding with a Vec field created inside a conditional arm emitted its drop-time field GEP in a block reachable without the arm's alloca, so clang rejected the IR (the epos package). The field and Vec-data GEPs are registered in the entry block and the current data pointer is still loaded at drop time, so growth/realloc reclamation is preserved."
+    },
+    {
+      "kind": "compiler",
+      "title": "Large-program compile performance",
+      "text": "The per-function ownership prepass rebuilt and cloned program-global catalogs for every function. With the engine's twelve thousand injected declarations this was quadratic and a full editor build never finished. Those sets are now built once per compile and shared, and the editor emits its IR and links in minutes."
+    },
+    {
+      "kind": "fix",
+      "title": "One socket-handle ABI on every target",
+      "text": "xiom_socket_create, xiom_socket_accept and xiom_socket_close return int64_t on every target, widening the POSIX int fd and the Win64 SOCKET. The stdlib declarations stay to Int. On arm64 the previous i32 definitions failed LLVM IR verification (@xiom_socket_close defined with type 'i32 (i64)*' but expected 'i64 (i64)*'), so every consumer of xiom.net.socket could not build. Probe p_socket_ffi_width (REL-20261030-1628-pulse)."
+    },
+    {
+      "kind": "fix",
+      "title": "POSIX SIGPIPE no longer kills the server",
+      "text": "xiom_socket_send passes MSG_NOSIGNAL where available, and the runtime ignores SIGPIPE at init as a belt-and-braces guard (macOS has no MSG_NOSIGNAL). A client that connects, closes, and then receives a server write no longer terminates the process with exit 141. Windows is unchanged. Probe p_socket_sigpipe (REL-20261030-1645-xvector)."
+    }
+  ],
+  "breaking": [],
+  "known_issues": [
+    "Map/JSON/enum-tree retention (REL-1704) is the next memory slice.",
+    "Vec[Str] element strings and removal containers are not yet reclaimed.",
+    "By-value aggregate parameters are caller-transferred for retaining callees; callee-side parameter drops remain future work.",
+    "A cold full editor build is still a long compile (dependency C/C++ included); it now completes instead of stalling."
+  ],
+  "docs": [
+    {
+      "title": "Ownership and drop rules",
+      "url": "https://docs.xiom-lang.org/latest/ownership/"
+    }
+  ],
+  "full_changelog": "https://github.com/xiom-lang/xiom/releases/tag/v0.65.4"
+}

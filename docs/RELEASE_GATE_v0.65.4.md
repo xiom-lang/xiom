@@ -25,10 +25,13 @@ strings, removal containers, callee-side by-value parameter drops.
 - [x] Transport 36/36 x5 debug + release (b4 + u4) with stdlib 0.65.4.
 - [x] Engine editor build completes (34,764,288 B, ~29 min).
 - [x] stdlib tag `stdlib-v0.65.4` live at `d267317` (package.xi 0.65.4).
-- [ ] Full e2e debug + release on the final commit.
-- [ ] CI green on the final commit.
-- [ ] Version bump 0.65.4 + STDLIB_VERSION pin on `rc/v0.65.4`.
-- [ ] Release dry-run; lanes verify the archive.
+- [x] Full e2e 2668/2668 (4 ignored) debug 1414 s + release 1123 s.
+- [x] CI on rc 917729a17: run 41136384010 (running; check at cut).
+- [x] Version bump 0.65.4 + STDLIB_VERSION stdlib-v0.65.4 on
+      `rc/v0.65.4` (917729a17; notes JSON generated, verifier green).
+- [x] Release dry-run 41134774980 SUCCESS (six platforms + VSIX;
+      macos-arm64 moved to macos-15 and its attest step retried). Lanes
+      verifying (`REL-20261030-2212-compiler`).
 - [ ] Tag `v0.65.4`; release; announcements.
 
 ## Evidence
@@ -37,4 +40,6 @@ strings, removal containers, callee-side by-value parameter drops.
   (cached drop-analysis).
 - Engine: previous run 2h24m at 100% CPU, no IR; now ~91 MB IR in ~20 min
   and a full run/build in ~29 min.
-- e2e and CI recorded below at cut time.
+- e2e 2668/2668 both; CI 41136384010.
+- Assets: windows efe7af95, linux-x64 a01ec42c, linux-arm64 d56a3e5b,
+  macos-x64 54c7e5e2, macos-arm64 fe67e81c, vsix 368f2ba2.

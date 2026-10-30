@@ -450,7 +450,9 @@ jobs:
             # Intel label for public repos is macos-15-intel.
             os: macos-15-intel
           - platform: macos-arm64
-            os: macos-14
+            # macos-14 arm64 was cancelling jobs at start (2026-10-30); the
+            # current public arm64 label is macos-15.
+            os: macos-15
     steps:
       - name: Checkout xiom
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
