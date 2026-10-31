@@ -1864,7 +1864,16 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                 // green, alloc failed). Mirrors the user_defined_to_str guard
                 // below: only the unshadowed builtin allocates.
                 let user_shadowed_alloc = self.lookup_local(&fn_name).is_some();
-                if fn_name == "alloc" && !user_shadowed_alloc {
+                // REL-20261026-2143: a user method on a VALUE instance
+                // (`BuddyAllocator.alloc(...)`) must dispatch to that method,
+                // not the builtin. The old guard only checked LOCALS, so the
+                // t1 buddy allocator's own alloc/free were silently lowered to
+                // xiom_guard_alloc/malloc+memset and libc free, bypassing the
+                // pool by exactly 20,480 KB on the benchmark.
+                let receiver_is_instance = receiver_expr
+                    .map(|r| self.receiver_is_instance(r))
+                    .unwrap_or(false);
+                if fn_name == "alloc" && !user_shadowed_alloc && !receiver_is_instance {
                     if let Some(size_arg) = args.first() {
                         let (size_raw, size_ty) = self.compile_expr(size_arg)?;
                         let size_val = self.val_to_i64(&size_raw, &size_ty);
@@ -2071,7 +2080,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                 || self.mono.generic_fn_decls.iter().any(|(k, _)| k == key))
                     })
                     .is_some();
-                if fn_name == "free" && !user_shadowed_free && !module_free_def {
+                if fn_name == "free" && !user_shadowed_free && !module_free_def && !receiver_is_instance {
                     if let Some(ptr_arg) = args.first() {
                         let (ptr_val, ptr_ty) = self.compile_expr(ptr_arg)?;
                         // Coerce the freed pointer to i8* (it may be typed i64 or a

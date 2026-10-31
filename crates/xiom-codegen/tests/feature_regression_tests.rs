@@ -7984,3 +7984,33 @@ fn main() -> Int {
         "call offset must stay i64 to match the declare: {call}"
     );
 }
+
+#[test]
+fn m2143_user_alloc_method_is_not_hijacked() {
+    // REL-20261026-2143: `value.alloc(n)` on a user struct must dispatch to
+    // the user's method. The old guard only checked locals, so the t1 buddy
+    // allocator was lowered to xiom_guard_alloc/malloc and bypassed its pool.
+    let source = r#"
+type Fake = { x: Int; }
+fn Fake.alloc(sz: Int) -> Int { return 1; }
+fn main() -> Int {
+  var f = Fake{ x: 0 };
+  var s: Int = 0;
+  var i: Int = 0;
+  while i < 10 {
+    s = s + f.alloc(2048);
+    i = i + 1;
+  }
+  return s;
+}
+"#;
+    let ir = compile(source).expect("m2143: user alloc method must compile");
+    assert!(
+        ir.lines().any(|l| l.contains("call i64 @Fake.alloc")),
+        "user value.alloc must dispatch to Fake.alloc:\n{ir}"
+    );
+    assert!(
+        !ir.lines().any(|l| l.contains("call i8* @xiom_guard_alloc(i64 2048)")),
+        "user value.alloc must not be hijacked by the allocation builtin:\n{ir}"
+    );
+}
