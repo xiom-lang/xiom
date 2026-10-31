@@ -6,9 +6,10 @@ Self-contained prompt for the next session. Read this first, then
 ## State
 
 - v0.65.4 is released and must not be re-cut. The fix line is **v0.65.5**.
-- Compiler repo: `E:\xiom-lang\xiom`, main at `f537b1b14` (slice C +
-  Str copy-out + rebind exit on top of `64a7f2398`). Working tree must
-  stay clean except the pre-existing `.gitignore` change and untracked
+- Compiler repo: `E:\xiom-lang\xiom`, main at `2e8193e2b` (slice C +
+  Str copy-out + rebind exit `f537b1b14`, typed Str element leaves
+  `e86989f46`, removal payloads `2e8193e2b`). Working tree must stay
+  clean except the pre-existing `.gitignore` change and untracked
   `m211_listdir_probe/`.
 - No v0.65.5 tag yet. Do not tag until the rebuilt stdlib + engine
   600-frame soak + lane sign-off are green.
@@ -29,6 +30,8 @@ Self-contained prompt for the next session. Read this first, then
 | `364d19efd` | fresh Str fields of aggregates (deferred scope-exit free), tail-return Str rebind, safe str builders | `m375_struct_fresh_str_field_is_dropped`, `m375_tail_return_str_rebind_is_reclaimed`; p_structstr 364 -> 278 MB |
 | `683c77d5b` | `Vec[Str]` element payload drops | `m375_vec_str_elements_are_dropped`; p_vecstr 402 -> 355 MB; p_panel_move 403 -> 277 MB |
 | `f537b1b14` | reader by-value Vec args keep caller drop; arena-aware Str copy-out; non-returned Str rebind exit free | `m375_by_value_vec_arg_to_reader_keeps_caller_drop`, `..._writer_stays_leak_only`, `m375_str_rebind_local_exit_is_freed`, `m375_returned_str_rebind_is_not_freed_at_exit`; p_panel_move 337/368 -> 5/34 MB; p_structstr 255/259 -> 5/33; p_vecstr 329/364 -> 9/35; p_strrepeat 210/242 -> 5/33; p_vecrebind 5/33 |
+| `e86989f46` | typed `Str` leaves of container elements (`Vec[Struct{Str}]`) | `m375_elem_str_leaf_is_dropped`, `m375_elem_borrowed_str_stays_leak_only`; p_elemstr 15/44 -> 5/33 MB |
+| `2e8193e2b` | removal/reorder tag + dead boxed removed-element free | `m375_dead_removed_vec_element_is_freed`, `m375_used_removed_vec_element_stays_leak_only`; p_remove 297/313 -> flat (50k x 16 KB: 4/34 MB) |
 
 Do not revert these. The drop-glue work is conservative by design; do
 not replace it with blind frees.
@@ -144,35 +147,53 @@ only; do not ship/rely on it).
    re-measure p_structstr/p_vecstr/p_mapstr/str_repeat/p_panel_move.
    Current numbers (WS/private MB): p_structstr 5/33, p_structstr_small
    5/33, p_vecstr 9/35, p_strrepeat_iso 5/33, p_panel_move 5/34,
-   p_vecrebind 5/33, p_mapstr 27/55, p_remove 297/313.
+   p_vecrebind 5/33, p_elemstr 5/33, p_remove flat (50k long: 4/34),
+   p_mapstr 27/55 (open).
 4. Engine rebuild + 600-frame soak on the paired toolchain is the
    remaining acceptance gate. If engine cannot take the temp toolchain,
    wait for the v0.65.5 candidate pin.
-5. Continue slices A (Map payloads) and B (removals) below.
+5. Slice A (Map/Set payloads) is the last measured compiler residual and
+   needs the stdlib contract below; then 1931 (needs the editor `.ll`).
 
 ## Remaining compiler slices (in order)
 
-### A. Map/Set value payloads (`p_mapstr`)
+### A. Map/Set value payloads (`p_mapstr`) — OPEN, needs a contract
 
 Probe: `C:\Users\lefte\AppData\Local\Temp\kilo\leak-agent\proj\p_mapstr.xi`
 (5k iterations, fresh 2 KB Str key+value into `StringStrMap`).
-Baseline ~40 KB/iter.
+Current pair: **27/55 MB**. `main` has ZERO frees: `string_str_map_new`
+is not `#[owns_return]`, so even the Vec buffers leak; the dominant
+residual is the key/value `Str` payloads stored in `keys`/`values`.
 
 `StringStrMap` is `{ buckets: Vec[Int]; keys: Vec[Str]; values: Vec[Str];
 next: Vec[Int]; live: Vec[Bool]; count: Int }`
-(`stdlib/xiom/collect/stringmap.xi:196+`). The aggregate drop frees the
-Vec **buffers** but not `keys`/`values` Str elements. Do not free a
-Vec[Str] field blindly: a map field can contain borrowed/literal Str.
-Implement typed leaf ownership (per-field Str proof) or a Map-specific
-drop helper with element tags. See the leak report §6.
+(`stdlib/xiom/collect/stringmap.xi:196+`). Do not free a Vec[Str] field
+blindly: a map field can contain borrowed/literal Str.
 
-### B. Removals (`p_remove`)
+Proposed safe contract (coordinate with stdlib; do not hardcode a
+field-to-arg guess):
+1. `#[owns_return]` on the map/set constructors (`string_map_new`,
+   `string_str_map_new`, `string_set_new`, ... so the Vec buffers drop).
+2. A mutator contract (e.g. `#[consumes_str]`) on `*_map_put`/`set`/
+   `add` declaring that fresh Str args are MOVED into the type's owned
+   `Vec[Str]` fields.
+3. Prepass proof for a fresh aggregate local: every `&`/`&mut` use is a
+   contracted mutator with fresh Str args (or a read-only `size`/
+   `contains`); no `get`, no escape/return, no other call. Then mark the
+   args moved and free each `Vec[Str]` field's elements at exit.
+   Any literal/borrowed put or unknown use disqualifies the whole map
+   (leak-only).
 
-Probe: `...\proj\p_remove.xi`. `vec_drop.rs:879-880` marks
-`remove/swap_remove/sort/retain/...` as `elem_unsafe`, so removed
-payloads leak. Keep the element tag across `remove`/`swap_remove` and
-drop the removed element at the removal site (or transfer it if used).
-Do not drop an element whose returned value is consumed.
+### B. Removals (`p_remove`) — LANDED (`2e8193e2b`)
+
+Probe: `...\proj\p_remove.xi`. Removal/reorder-only methods keep the
+element tag; the exit loop walks the current len, so remaining elements
+are owned and removed slots are never freed twice. A provably-dead
+`let gone = v.remove(i)` frees the boxed element's Vec data + box at the
+binding; a consumed result stays leak-only (transfer path). Measured
+297/313 -> flat (50k x 16 KB: 4/34 MB). The `container_elem_unsafe_shapes`
+negative control stays green. A future slice can transfer the removed
+payload into a local drop instead of only handling the dead case.
 
 ### C. By-value aggregate parameter ownership (`p_panel_move`) — LANDED
 
@@ -267,8 +288,9 @@ Full showcase reproduction: `C:\Users\lefte\AppData\Local\Temp\kilo\p1-pre`
    ownership fixes (done; pin it in the v0.65.5 candidate).
 2. p_structstr, p_vecstr, p_mapstr, p_remove, p_panel_move flat or near
    baseline (recorded numbers). Current: p_structstr 5/33,
-   p_vecstr 9/35, p_panel_move 5/34, p_vecrebind 5/33; p_mapstr 27/55
-   and p_remove 297/313 still open (slices A/B).
+   p_vecstr 9/35, p_panel_move 5/34, p_vecrebind 5/33, p_elemstr 5/33,
+   p_remove flat (50k long: 4/34); **p_mapstr 27/55 still open** (needs
+   the stdlib ownership contract in slice A).
 3. Editor 600 frames <2 GB, slope <=0.5 MB/frame.
 4. Engine verifies 2357/1423; orbitdb re-measures m375; benchmark t1
    re-measures ~9.98 MB on v0.65.5.

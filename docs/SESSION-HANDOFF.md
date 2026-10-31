@@ -14,6 +14,38 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-31T23:45Z (m375: typed Str element leaves + dead removal payloads flat; Map remains) -- READ FIRST ***
+- **`e86989f46`** `fix(codegen): drop typed Str leaves of container
+  elements (m375)` -- `Vec[Struct{Str}]` elements carry typed `str:`
+  leaves in the element tag. An inline literal or aggregate local enables
+  the tag only when every Str leaf is fresh at the push site (fresh Str
+  init or a same-block fresh Str local); literal/borrowed strings stay
+  leak-only. p_elemstr 15/44 -> **5/33 MB**. Engine `Vec[UiDrawText]`
+  labels use the same path.
+- **`2e8193e2b`** `fix(codegen): reclaim dead removed element payloads
+  (m375)` -- removal/reorder-only methods (`remove`, `swap_remove`,
+  `pop`, `sort`/`reverse`/`swap`, `retain`/`dedup`/`truncate`/`clear`)
+  keep the element tag; the exit loop walks the current len, so remaining
+  elements stay owned and removed slots are never freed twice. A
+  provably-dead `let gone = v.remove(i)` (single-decl local never
+  referenced again) frees the boxed element's Vec data + the box at the
+  binding. p_remove 297/313 -> **flat** (50k x 16 KB: 4/34 MB). The
+  `container_elem_unsafe_shapes` negative control (pop/match, borrow,
+  escape) stays crash-free.
+- **Tests:** feature 567/567 (new:
+  `m375_elem_str_leaf_is_dropped`, `m375_elem_borrowed_str_stays_leak_only`,
+  `m375_dead_removed_vec_element_is_freed`,
+  `m375_used_removed_vec_element_stays_leak_only`); xiom-check 214/214;
+  e2e container/elem/drop/param/guard/confined/return/m318/m344/
+  by_value/aggregate/str/global green.
+- **Remaining:** Map/Set value payloads (`p_mapstr` 27/55) need a
+  stdlib ownership contract (`#[owns_return]` on the map constructors +
+  a consumes-Str-args mutator contract, or a Map-specific drop), not a
+  blind free; 1931 (needs the editor `.ll`); engine 600-frame soak.
+  No v0.65.5 tag.
+- Pair now: compiler `2e8193e2b` + stdlib `7d47924`; paired toolchain
+  `...\toolchain-7d47924` refreshed.
+
 *** SESSION UPDATE 2026-10-31T22:45Z (m375: reader by-value args + Str copy-out + rebind exit; stdlib 7d47924 FIXED; no tag) -- READ FIRST ***
 - **Stdlib `REL-20261031-2156-compiler` is FIXED/VERIFIED on our side.**
   Fixes: stdlib main `11fb9b2`, candidate branch
