@@ -14,6 +14,42 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-31T18:55Z (2357-2 ROOT-CAUSED + FIXED in 2b2b51b54; UNRELEASED; no tag) -- READ FIRST ***
+- **Root cause was a cross-module MUTABLE GLOBAL NAME COLLISION, not the
+  proj/float ABI.** `apps/ui_showcase/showcase_advanced.xi:165` declares
+  `var g_clip: Int = 1`; `engine/editor/p1_data.xi:2339` declares
+  `var g_clip: AnimClip = anim_clip_new(3.0, true, 0)`. The external-decl
+  injector qualified only immutable consts (`if !cd.is_mut && ...`), so
+  both injected as bare `g_clip`; codegen deduped the AnimClip definition
+  and `p1_notify_init` loaded the Int global (i64 1), then `inttoptr`'d
+  `g_clip.duration` (3.0) as `%struct.AnimClip*` -> 0xC0000005. The 3.0
+  in the WER fault is the clip duration; `proj`'s 3.0 dist was a
+  coincidence. Full v0.65.4 IR: `@g_clip = internal global i64 1`.
+- **Fix `2b2b51b54` on main (UNRELEASED, v0.65.5 candidate):** qualify
+  mutable catalog globals, emit one LLVM symbol per module, keep a bare
+  leaf alias for legacy lookups, and resolve globals with a module-scoped
+  helper. New witness `tests/regression/global_name_collision` fails
+  pre-fix (`b=0.00`) and passes post-fix (`b=0.50`); 17/17 global e2e
+  tests (m227/m337/m361 included) and 214/214 xiom-check tests pass.
+- **Full pre-workaround showcase rebuilt with the fixed compiler:**
+  `@showcase_advanced.g_clip = i64 1` AND
+  `@engine.editor.p1_data.g_clip = %struct.AnimClip zeroinitializer`;
+  `UI_SHOWCASE_ASSETS_SELFTEST=1` -> PASS; full selftest reaches the
+  pre-workaround source assertions (P1 `s23`/`data`/`gizmo` FAIL) with
+  no 0xC0000005. Engine item marked fixed; engine verify pending.
+- **`REL-20261030-2357-engine` (600-frame soak leak) is still OPEN.**
+  `13fc28352` is compile-time only; the ~100 MB/s WS / ~120 MB/s private
+  slope remains the drop-glue/reclaim slice (Map/Set values, enum
+  payloads, Str fields, removals, Vec[Str]); orbitdb m375 shares it. This
+  is the next memory project, separate from the AV fix.
+- Engine workaround `1461c07` (scalarized `g_clip`) can stay as
+  belt-and-braces or be reverted once v0.65.5 carries `2b2b51b54`; no tag
+  until engine verifies the P1 rows.
+- Main now `2b2b51b54`; working tree has only the pre-existing
+  `.gitignore` change and untracked `m211_listdir_probe/`.
+- Relay counts: **31 open / 117 acked / 66 fixed / 25 verified / 106
+  closed** (2357-2 moved to fixed; engine verify pending).
+
 *** SESSION UPDATE 2026-10-31T14:10Z (v0.65.4 RELEASED; engine 2357 items OPEN; reduced probe passes) -- READ FIRST ***
 - **v0.65.4 IS LIVE.** Tag `v0.65.4` on `c0104e21e`; release run
   **`41144793224` SUCCESS**; **11 assets**; published 2026-10-30T23:35:43Z.

@@ -11,8 +11,8 @@ Verified counts, not a stale snapshot:
 | Queue (addressed `to: compiler`) | Count |
 |---|---|
 | open | **31** |
-| acked | **118** |
-| fixed | **65** (awaiting reporter verify) |
+| acked | **117** |
+| fixed | **66** (awaiting reporter verify) |
 | verified / closed / wontfix | 25 / 106 / 1 |
 
 The lane view lists **33 open** rows: the 32 above plus the one open
@@ -30,16 +30,18 @@ The owner directive is 100% closure, but the backlog is not one kind of
 work. Each open/acked bug belongs to exactly one bucket:
 
 **A. v0.65.5 code-fix blockers (repro + fix + witness owed)**
-- `REL-20261030-2357-engine-2` (top): showcase panel-hook AV. The minimal
-  `proj` probe passes on v0.65.4 and v0.65.1. The pre-workaround snapshot
-  `faa5a41` built standalone on v0.65.4 also passes (`assets_probe`), and
-  its `p1_data`/`assets_selftest` IR is correct (`@g_clip` is a struct,
-  P1Op fields and the `proj` call are correct). So the 1:26 crash needs
-  the exact full-showcase build state/context, not faa5a41 alone; the
-  engine has been asked for the exact 1:26 source/LL/PDB
-  (`REL-20261031-1523-compiler`). The engine workaround (`1461c07`)
-  scalarized `g_clip`/`P1Op`/`P1Placed`, so the aggregate/global path is
-  still the lead, but it is not yet a compiler witness.
+- `REL-20261030-2357-engine-2` -- **FIXED in `2b2b51b54`, awaiting engine
+  verify.** Root cause was not the proj/float ABI: `showcase_advanced.g_clip:
+  Int` and `engine.editor.p1_data.g_clip: AnimClip` were both injected as
+  bare `@g_clip`, codegen deduped the AnimClip definition, and
+  `p1_notify_init` loaded the Int global (i64 1) and `inttoptr`'d
+  duration 3.0 as `%struct.AnimClip*`. Fix qualifies mutable globals in
+  the catalog injector, emits one symbol per module, keeps a bare leaf
+  alias, and resolves globals with a module-scoped helper. Witness:
+  `tests/regression/global_name_collision` (pre-fix `b=0.00`, post-fix
+  `b=0.50`); 17/17 global e2e tests, 214/214 xiom-check tests; full
+  pre-workaround showcase rebuild: `UI_SHOWCASE_ASSETS_SELFTEST=1` PASS,
+  full selftest reaches source assertions without the AV.
 - `REL-20261029-1415-packages` + `REL-20261029-1926-packages`:
   `Vec[Vec[UInt8]]` corruption. **Resolved on the published v0.65.4**:
   the minimal repro `sim_vecvec_corruption.xi` is green **10/10** with
@@ -74,6 +76,33 @@ work. Each open/acked bug belongs to exactly one bucket:
 Gate rule: `fixed` requires a witness that fails before and passes after,
 plus the relevant gates/e2e. The reporter/lane verifies; no tag while a
 lane verdict is red.
+
+### 2026-10-31T18:55Z -- `2b2b51b54` fixes the 2357-2 showcase AV (unreleased)
+
+The 1:26 `ui_showcase_0654.exe` crash is a **cross-module mutable global
+collision**, reproduced and fixed on main:
+
+- `showcase_advanced.xi:165` declares `var g_clip: Int = 1`;
+  `p1_data.xi:2339` declares `var g_clip: AnimClip = anim_clip_new(...)`.
+- The external-decl injector qualified only immutable consts
+  (`if !cd.is_mut && ...`), so both `var g_clip`s injected as bare
+  `g_clip`; codegen deduped the second definition and the aggregate
+  module read the scalar's i64 storage. The 3.0 in the WER fault is
+  `g_clip.duration`, not `proj`'s dist.
+- Fix `2b2b51b54`: qualify mutable globals too, emit one LLVM symbol per
+  module, keep a bare leaf alias for legacy lookups, and prefer the
+  module-qualified key in codegen. New witness
+  `tests/regression/global_name_collision` fails pre-fix (`b=0.00`) and
+  passes post-fix (`b=0.50`).
+- Verification: 17/17 global e2e tests (m227/m337/m361 included), 214/214
+  `xiom-check` tests, and the full pre-workaround showcase rebuild:
+  both `@showcase_advanced.g_clip = i64` and
+  `@engine.editor.p1_data.g_clip = %struct.AnimClip` are emitted;
+  `UI_SHOWCASE_ASSETS_SELFTEST=1` PASS; full selftest runs to the
+  pre-workaround source assertions (P1 `s23`/`data`/`gizmo` FAIL) with no
+  0xC0000005.
+
+No tag yet. The next gate is engine verification on a v0.65.5 candidate.
 
 ```powershell
 cd E:\xiom-lang\xiom-relays
