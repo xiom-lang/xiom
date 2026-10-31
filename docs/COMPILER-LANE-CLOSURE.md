@@ -230,9 +230,14 @@ input is never freed. `str_slice` and the other
 `from_cstring(malloc(...))` sites share it. The v0.65.4 stdlib is
 precompiled, so the new rebind/Vec-drop logic is not in it until a
 stdlib rebuild. Relayed in `REL-20261031-2153-compiler`; stdlib asked to
-free/own the input and rebuild with `683c77d5b`. Still open: Map values
-(`p_mapstr`), removal payloads (`p_remove`), the p_panel_move residual,
-and the 600-frame editor soak. No tag.
+free/own the input and rebuild with `683c77d5b`. **Experimentally
+confirmed:** patching a temp copy of the v0.65.4 stdlib so `str_concat`
+does `let out = Str.from_cstring(buf); free(buf); return out;` drops
+`p_structstr` from **278 MB to 159 MB**. The residual includes
+`from_cstring`'s own Vec/`from_utf8` copy and other
+`from_cstring(malloc(...))` sites; stdlib must fix those and rebuild.
+Still open: Map values (`p_mapstr`), removal payloads (`p_remove`), the
+p_panel_move residual, and the 600-frame editor soak. No tag.
 
 ```powershell
 cd E:\xiom-lang\xiom-relays

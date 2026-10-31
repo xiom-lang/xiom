@@ -32,7 +32,11 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   sites share it. The v0.65.4 stdlib is precompiled, so the new
   rebind/Vec-drop logic is not in it. Relayed in
   `REL-20261031-2153-compiler`; stdlib must free/own the input and
-  rebuild with `683c77d5b`.
+  rebuild with `683c77d5b`. **Temp-copy test:** patching `str_concat`
+  to `let out = Str.from_cstring(buf); free(buf); return out;` drops
+  `p_structstr` from **278 MB to 159 MB**. Residual includes
+  `from_cstring`'s Vec/`from_utf8` copy and other
+  `from_cstring(malloc(...))` sites.
 - **Still open:** Map values (`p_mapstr`), removal payloads
   (`p_remove`), by-value aggregate parameter ownership
   (p_panel_move residual), the 600-frame editor soak, `1931` (needs
