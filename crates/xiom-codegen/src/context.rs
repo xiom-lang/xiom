@@ -472,6 +472,9 @@ pub struct FunctionContext {
     /// m375: local names bound from an `#[owns_return]` aggregate (a struct
     /// whose Vec fields are freshly owned); their fields are dropped too.
     pub aggregate_drop_safe: HashSet<String>,
+    /// m375: aggregate local -> freshly-owned Str field names to free at
+    /// scope exit. Only leaves proven fresh at the binding are listed.
+    pub aggregate_str_drop_safe: HashMap<String, Vec<String>>,
 }
 
 // ============================================================================

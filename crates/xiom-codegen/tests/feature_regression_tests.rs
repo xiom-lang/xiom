@@ -8065,6 +8065,64 @@ fn main() -> Int {
 }
 
 #[test]
+fn m375_struct_fresh_str_field_is_dropped() {
+    // A local struct literal whose Str field is a fresh Str owns the buffer;
+    // the scope-exit aggregate drop must free it (deferred, not at binding).
+    let source = r#"
+type T = { n: Int; text: Str; }
+fn use_field() -> Int {
+  let s = str_repeat("x", 8);
+  var t = T{ n: 1; text: s };
+  var sink = t.n;
+  return sink;
+}
+fn main() -> Int { return use_field(); }
+"#;
+    let ir = compile(source).expect("m375: fresh Str field must compile");
+    let body = ir
+        .split("define i64 @use_field()")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("use_field body");
+    assert!(
+        body.contains("call void @xiom_guard_free"),
+        "fresh Str field must be freed at scope exit:\n{ir}"
+    );
+}
+
+#[test]
+fn m375_tail_return_str_rebind_is_reclaimed() {
+    // The function body's TAIL expression is a return transfer. It used to be
+    // scanned as an alias escape, disabling Str rebind for stdlib builders
+    // whose final expression is the accumulator.
+    let source = r#"
+fn rep(s: Str, n: Int) -> Str {
+  if n <= 0 { return ""; }
+  var result = "";
+  var chunk = s;
+  var remaining = n;
+  while remaining > 0 {
+    if remaining % 2 == 1 { result = str_concat(result, chunk); };
+    remaining = remaining / 2;
+    if remaining > 0 { chunk = str_concat(chunk, chunk); };
+  };
+  result
+}
+fn main() -> Int { return rep("ab", 16).len(); }
+"#;
+    let ir = compile(source).expect("m375: tail Str rebind must compile");
+    let body = ir
+        .split("define i8* @rep(")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("rep body");
+    assert!(
+        body.matches("call void @xiom_guard_free").count() >= 2,
+        "both Str accumulators must reclaim replaced buffers:\n{ir}"
+    );
+}
+
+#[test]
 fn m1552_by_ref_fn_value_still_compiles() {
     let source = r#"
 fn gt(p: &(Int, Int)) -> Bool { return p.0 > 5; }

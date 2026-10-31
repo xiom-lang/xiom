@@ -105,6 +105,13 @@ struct ScanState {
     /// copies them at the call boundary, so a local bound from one owns its
     /// buffer and can be dropped (m375 / REL-20261030-2357-engine).
     by_value_vec_params: HashSet<String>,
+    /// Aggregate local -> Str field names proven fresh at the binding site.
+    /// Only these leaves are freed; borrowed/literal Str fields stay alive.
+    aggregate_str_fields: HashMap<String, Vec<String>>,
+    /// Aggregate locals whose owned Str field was reassigned after binding.
+    /// Rebind codegen for fields is not implemented; disabling the exit drop
+    /// is a leak, not a UAF (production-safe conservative choice).
+    aggregate_str_unsafe: HashSet<String>,
     /// Precomputed type-name variant -> Vec field names (plain structs only).
     elem_type_vec_fields: Arc<HashMap<String, Vec<String>>>,
     /// Callee leaf names whose return type is a scalar/void: only these may
@@ -134,6 +141,8 @@ pub(crate) struct OwnedLocals {
     pub vec: HashSet<String>,
     pub str: HashSet<String>,
     pub aggregate: HashSet<String>,
+    /// Aggregate local -> freshly-owned Str field names.
+    pub aggregate_str: HashMap<String, Vec<String>>,
     /// Container local -> (element XIOM type, element Vec field names) for
     /// containers whose elements are all owned and never reordered/removed.
     pub elem: HashMap<String, (String, Vec<String>)>,
@@ -163,7 +172,7 @@ pub(crate) fn collect_owned_vec_locals(
     state.elem_type_vec_fields = elem_type_vec_fields.clone();
     state.known_nonretaining = known_nonretaining.clone();
     state.retaining_callees = retaining_callees.clone();
-    scan_block(block, &mut state);
+    scan_block(block, &mut state, true);
     // REL-20261028-1641 follow-up: the function body's trailing expression is
     // its IMPLICIT return value. `scan_block` sees it as a plain expression
     // (UseCtx::Escape), so `Ok(conn)` / `Some(conn)` never marked `conn`
@@ -236,9 +245,10 @@ pub(crate) fn collect_owned_vec_locals(
         .str_rebind
         .into_iter()
         .filter(|name| {
-            single_decl.contains(name)
+            let keep = single_decl.contains(name)
                 && !state.str_alias_escaped.contains(name)
-                && !state.moved.contains(name)
+                && !state.moved.contains(name);
+            keep
         })
         .collect();
     OwnedLocals {
@@ -248,6 +258,15 @@ pub(crate) fn collect_owned_vec_locals(
             .aggregate
             .into_iter()
             .filter(|n| !state.returned.contains(n) && !state.moved.contains(n))
+            .collect(),
+        aggregate_str: state
+            .aggregate_str_fields
+            .into_iter()
+            .filter(|(n, _)| {
+                !state.returned.contains(n)
+                    && !state.moved.contains(n)
+                    && !state.aggregate_str_unsafe.contains(n)
+            })
             .collect(),
         elem,
         str_rebind,
@@ -286,11 +305,23 @@ pub(crate) fn is_fresh_str_init(expr: &Expr) -> bool {
         match func {
             Expr::Field(_, method, _) => matches!(
                 method.name.as_str(),
-                "int_to_string" | "float_to_string" | "bool_to_string" | "str_concat"
+                "int_to_string"
+                    | "float_to_string"
+                    | "bool_to_string"
+                    | "str_concat"
+                    | "str_repeat"
+                    | "str_join"
+                    | "str_replace"
             ),
             Expr::Ident(id) => matches!(
                 id.name.as_str(),
-                "int_to_string" | "float_to_string" | "bool_to_string" | "str_concat"
+                "int_to_string"
+                    | "float_to_string"
+                    | "bool_to_string"
+                    | "str_concat"
+                    | "str_repeat"
+                    | "str_join"
+                    | "str_replace"
             ),
             _ => false,
         }
@@ -594,7 +625,7 @@ fn literal_path_value<'a>(fields: &'a [(Ident, Expr)], path: &str) -> Option<&'a
     None
 }
 
-fn scan_block(block: &Block, state: &mut ScanState) {
+fn scan_block(block: &Block, state: &mut ScanState, tail_is_return: bool) {
     // Element-drop ownership: a pushed aggregate must be declared in the
     // SAME block as the push. Both are then re-created per loop iteration;
     // an outer declaration pushed inside a loop would push one aliasing
@@ -603,10 +634,26 @@ fn scan_block(block: &Block, state: &mut ScanState) {
     state.next_block += 1;
     let saved_block = state.cur_block;
     state.cur_block = id;
-    for item in &block.stmts {
+    let last = block.stmts.len().saturating_sub(1);
+    for (idx, item) in block.stmts.iter().enumerate() {
         match item {
             StmtOrExpr::Stmt(stmt) => scan_stmt(stmt, state),
-            StmtOrExpr::Expr(expr) => scan_expr(expr, UseCtx::Escape, state),
+            StmtOrExpr::Expr(expr) => {
+                // A function body's TAIL expression is a return transfer.
+                // Scanning it as an ordinary escape used to mark a returned
+                // local `result` as alias-escaped, disabling Str rebind
+                // reclamation inside stdlib builders (str_repeat O(log n)
+                // concat loop leaked every intermediate buffer).
+                if tail_is_return && idx == last {
+                    mark_returned_roots(expr, state);
+                    let saved = state.in_return;
+                    state.in_return = true;
+                    scan_expr(expr, UseCtx::Escape, state);
+                    state.in_return = saved;
+                } else {
+                    scan_expr(expr, UseCtx::Escape, state);
+                }
+            }
         }
     }
     state.cur_block = saved_block;
@@ -621,8 +668,46 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
             // is MOVED into the field (do not drop it separately); a fresh
             // Vec field expression is owned by the literal.
             if let Expr::Struct(_, fields, spread, _) = value {
-                if spread.is_none() && struct_literal_owns_vec(fields, state) {
-                    state.aggregate.insert(name.name.clone());
+                if spread.is_none() {
+                    let owns_vec = struct_literal_owns_vec(fields, state);
+                    // m375: a struct literal whose Str field is a FRESH Str
+                    // owns that buffer. Track the exact field names so the
+                    // aggregate drop frees only proven-fresh leaves; a
+                    // literal/borrowed Str field in the same struct is left
+                    // alone. Moving a fresh Str local into the field disarms
+                    // its own plain-Str drop.
+                    let mut owned_str_fields: Vec<String> = Vec::new();
+                    for (fname, fval) in fields {
+                        let fresh_field = is_fresh_str_init(fval)
+                            || matches!(
+                                fval,
+                                Expr::Ident(id)
+                                    if state
+                                        .str_decls
+                                        .get(&id.name)
+                                        .map_or(false, |d| d.all_fresh)
+                            );
+                        if fresh_field {
+                            owned_str_fields.push(fname.name.clone());
+                            if let Expr::Ident(id) = fval {
+                                if state
+                                    .str_decls
+                                    .get(&id.name)
+                                    .map_or(false, |d| d.all_fresh)
+                                {
+                                    state.moved.insert(id.name.clone());
+                                }
+                            }
+                        }
+                    }
+                    if owns_vec || !owned_str_fields.is_empty() {
+                        state.aggregate.insert(name.name.clone());
+                    }
+                    if !owned_str_fields.is_empty() {
+                        state
+                            .aggregate_str_fields
+                            .insert(name.name.clone(), owned_str_fields);
+                    }
                 }
             }
             // REL-20261027-2034-engine: an aliasing RHS (`b.data`, `v`, `xs[0]`)
@@ -676,6 +761,27 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
             scan_expr(value, UseCtx::Escape, state);
         }
         Stmt::Assign(place, value, _) => {
+            // A reassigned owned Str FIELD (or whole aggregate) needs
+            // field-rebind codegen to free the old buffer safely. Until that
+            // exists, disable the exit drop: a leak is preferable to freeing
+            // a pointer that may now be borrowed/literal.
+            match place {
+                Expr::Field(base, field, _) => {
+                    if let Expr::Ident(id) = base.as_ref() {
+                        if state
+                            .aggregate_str_fields
+                            .get(&id.name)
+                            .map_or(false, |fs| fs.iter().any(|f| f == &field.name))
+                        {
+                            state.aggregate_str_unsafe.insert(id.name.clone());
+                        }
+                    }
+                }
+                Expr::Ident(id) if state.aggregate_str_fields.contains_key(&id.name) => {
+                    state.aggregate_str_unsafe.insert(id.name.clone());
+                }
+                _ => {}
+            }
             // REL-20261028: `s = s + x` / `s = int_to_string(..)` replaces an
             // owned Str buffer. The replaced buffer is dead once the fresh
             // RHS exists, so codegen may free it (guarded by a per-local
@@ -741,13 +847,13 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
         Stmt::Expr(expr, _) => scan_expr(expr, UseCtx::Escape, state),
         Stmt::If(cond, then_block, elifs, else_block, _) => {
             scan_expr(cond, UseCtx::Escape, state);
-            scan_block(then_block, state);
+            scan_block(then_block, state, false);
             for (elif_cond, elif_block) in elifs {
                 scan_expr(elif_cond, UseCtx::Escape, state);
-                scan_block(elif_block, state);
+                scan_block(elif_block, state, false);
             }
             if let Some(else_block) = else_block {
-                scan_block(else_block, state);
+                scan_block(else_block, state, false);
             }
         }
         Stmt::Match(scrutinee, arms, _) => {
@@ -774,7 +880,7 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
                     scan_expr(guard, UseCtx::Escape, state);
                 }
                 match &arm.body {
-                    MatchBody::Block(block) => scan_block(block, state),
+                    MatchBody::Block(block) => scan_block(block, state, false),
                     MatchBody::Expr(expr) => scan_expr(expr, UseCtx::Escape, state),
                 }
             }
@@ -784,11 +890,11 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
             if let Some(inv) = invariant {
                 scan_expr(inv, UseCtx::Escape, state);
             }
-            scan_block(body, state);
+            scan_block(body, state, false);
         }
         Stmt::For(_, iter, body, _, _) => {
             scan_expr(iter, UseCtx::Escape, state);
-            scan_block(body, state);
+            scan_block(body, state, false);
         }
         Stmt::Spawn(body, _, _) => mark_block_mentions(body, state),
         Stmt::Destructure(_, value, _) => scan_expr(value, UseCtx::Escape, state),
@@ -1000,7 +1106,27 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                 Expr::Field(_, method, _) => state.retaining_callees.contains(&method.name),
                 _ => false,
             };
+            // Known Str-producing allocators only READ their Str arguments and
+            // return a NEW buffer. Reading `result` in
+            // `result = str_concat(result, chunk)` must not disable rebind
+            // reclamation; otherwise every intermediate buffer in stdlib
+            // builders (str_repeat/join/replace) leaks.
+            let safe_str_callee = match func.as_ref() {
+                Expr::Ident(id) => matches!(
+                    id.name.as_str(),
+                    "str_concat" | "str_repeat" | "str_join" | "str_replace"
+                ),
+                Expr::Field(_, method, _) => matches!(
+                    method.name.as_str(),
+                    "str_concat" | "str_repeat" | "str_join" | "str_replace"
+                ),
+                _ => false,
+            };
             for arg in args {
+                if safe_str_callee {
+                    scan_expr(arg, UseCtx::SafeBase, state);
+                    continue;
+                }
                 if callee_retains {
                     if let Expr::Ident(id) = arg {
                         if state.aggregate.contains(&id.name)
@@ -1121,18 +1247,18 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                 scan_expr(elem, UseCtx::Escape, state);
             }
         }
-        Expr::BlockExpr(block, _) => scan_block(block, state),
+        Expr::BlockExpr(block, _) => scan_block(block, state, false),
         Expr::Closure(_, _, body, _) => mark_block_mentions(body, state),
         Expr::PipeClosure(_, body, _) => scan_expr(body, UseCtx::Escape, state),
         Expr::If(cond, then_block, elifs, else_block, _) => {
             scan_expr(cond, UseCtx::Escape, state);
-            scan_block(then_block, state);
+            scan_block(then_block, state, false);
             for (elif_cond, elif_block) in elifs {
                 scan_expr(elif_cond, UseCtx::Escape, state);
-                scan_block(elif_block, state);
+                scan_block(elif_block, state, false);
             }
             if let Some(else_block) = else_block {
-                scan_block(else_block, state);
+                scan_block(else_block, state, false);
             }
         }
         Expr::Match(scrutinee, arms, _) => {
@@ -1142,7 +1268,7 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                     scan_expr(guard, UseCtx::Escape, state);
                 }
                 match &arm.body {
-                    MatchBody::Block(block) => scan_block(block, state),
+                    MatchBody::Block(block) => scan_block(block, state, false),
                     MatchBody::Expr(expr) => scan_expr(expr, UseCtx::Escape, state),
                 }
             }
@@ -1157,7 +1283,7 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                 // this block may a pointer export count as a non-escaping use.
                 let was_trusted = state.in_trusted_unsafe;
                 state.in_trusted_unsafe = true;
-                scan_block(body, state);
+                scan_block(body, state, false);
                 state.in_trusted_unsafe = was_trusted;
             } else {
                 // Captured locals are passed BY ADDRESS to a standalone block
@@ -1514,6 +1640,7 @@ pub(crate) struct VecDropScope {
     safe: HashSet<String>,
     safe_str: HashSet<String>,
     safe_aggregate: HashSet<String>,
+    safe_aggregate_str: HashMap<String, Vec<String>>,
     safe_elem: HashMap<String, (String, Vec<String>)>,
     safe_str_rebind: HashSet<String>,
     str_rebind_state: HashMap<String, (String, String)>,
@@ -1555,6 +1682,7 @@ impl IrEmitter {
         self.fctx.vec_drop_safe = owned.vec;
         self.fctx.str_drop_safe = owned.str;
         self.fctx.aggregate_drop_safe = owned.aggregate;
+        self.fctx.aggregate_str_drop_safe = owned.aggregate_str;
         self.fctx.elem_drop_safe = owned.elem;
         self.fctx.str_rebind_safe = owned.str_rebind;
     }
@@ -1734,6 +1862,7 @@ impl IrEmitter {
         self.fctx.vec_drop_safe.clear();
         self.fctx.str_drop_safe.clear();
         self.fctx.aggregate_drop_safe.clear();
+        self.fctx.aggregate_str_drop_safe.clear();
         self.fctx.elem_drop_safe.clear();
         self.fctx.str_rebind_safe.clear();
         self.fctx.str_rebind_state.clear();
@@ -1750,6 +1879,7 @@ impl IrEmitter {
             safe: std::mem::take(&mut self.fctx.vec_drop_safe),
             safe_str: std::mem::take(&mut self.fctx.str_drop_safe),
             safe_aggregate: std::mem::take(&mut self.fctx.aggregate_drop_safe),
+            safe_aggregate_str: std::mem::take(&mut self.fctx.aggregate_str_drop_safe),
             safe_elem: std::mem::take(&mut self.fctx.elem_drop_safe),
             safe_str_rebind: std::mem::take(&mut self.fctx.str_rebind_safe),
             str_rebind_state: std::mem::take(&mut self.fctx.str_rebind_state),
@@ -1763,6 +1893,7 @@ impl IrEmitter {
         self.fctx.vec_drop_safe = saved.safe;
         self.fctx.str_drop_safe = saved.safe_str;
         self.fctx.aggregate_drop_safe = saved.safe_aggregate;
+        self.fctx.aggregate_str_drop_safe = saved.safe_aggregate_str;
         self.fctx.elem_drop_safe = saved.safe_elem;
         self.fctx.str_rebind_safe = saved.safe_str_rebind;
         self.fctx.str_rebind_state = saved.str_rebind_state;
@@ -2070,6 +2201,35 @@ impl IrEmitter {
                 flag: flag.clone(),
             });
             self.emitln(&format!("  store i1 true, i1* {flag}"));
+        }
+        // m375: free only the Str fields the prepass proved FRESH at the
+        // binding site. Borrowed/literal Str fields are not in this list, so
+        // a struct can mix owned and borrowed text safely.
+        if let Some(str_fields) = self.fctx.aggregate_str_drop_safe.get(name).cloned() {
+            for (idx, field) in meta.fields.iter().enumerate() {
+                if !str_fields.contains(&field.0) {
+                    continue;
+                }
+                if self.field_llvm_type(&type_name, idx) != "i8*" {
+                    continue;
+                }
+                let field_ptr = self.fresh_tmp();
+                self.local.entry_prelude.push(format!(
+                    "  {field_ptr} = getelementptr {llvm_ty}, {llvm_ty}* {alloca}, i32 0, i32 {idx}"
+                ));
+                // Defer the load/free to scope exit: freeing at the binding
+                // would UAF a field the caller reads after construction (e.g.
+                // UiDrawText.text is drawn after the literal). The slot is
+                // re-read at drop time so a later fresh rebind is seen.
+                let flag = self.fresh_tmp();
+                self.local.hoisted_allocas.push((flag.clone(), "i1".to_string()));
+                self.local.entry_prelude.push(format!("  store i1 false, i1* {flag}"));
+                self.fctx.vec_drops.push(VecDrop::Str {
+                    alloca: field_ptr,
+                    flag: flag.clone(),
+                });
+                self.emitln(&format!("  store i1 true, i1* {flag}"));
+            }
         }
     }
 
