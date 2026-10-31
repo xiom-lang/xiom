@@ -1049,7 +1049,22 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                                             }) && !state.escaping.contains(&id.name)
                                                 && !state.moved.contains(&id.name))
                                     };
+                                    let str_leaves_owned = needed.iter().all(|path| {
+                                        match path.strip_prefix("str:") {
+                                            // A pushed aggregate owns a Str leaf
+                                            // only when that leaf was proven
+                                            // fresh at its own binding site.
+                                            Some(leaf) => state
+                                                .aggregate_str_fields
+                                                .get(&id.name)
+                                                .map_or(false, |fs| {
+                                                    fs.iter().any(|f| f == leaf)
+                                                }),
+                                            None => true,
+                                        }
+                                    });
                                     let ok = owned_local
+                                        && str_leaves_owned
                                         && state.decl_block.get(&id.name)
                                             == Some(&state.cur_block)
                                         && state
@@ -1076,13 +1091,31 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                                             || elem_ty.ends_with(&format!(".{}", lit.name));
                                         same
                                             && needed.iter().all(|path| {
-                                                literal_path_value(fields, path).map_or(
-                                                    false,
-                                                    |fval| {
-                                                        is_fresh_vec_init(fval)
-                                                            || is_owned_copy_vec_init(fval, &state.by_value_vec_params)
-                                                    },
-                                                )
+                                                match path.strip_prefix("str:") {
+                                                    Some(leaf) => literal_path_value(fields, leaf)
+                                                        .map_or(false, |fval| {
+                                                            is_fresh_str_init(fval)
+                                                                || matches!(
+                                                                    fval,
+                                                                    Expr::Ident(id)
+                                                                        if state
+                                                                            .str_decls
+                                                                            .get(&id.name)
+                                                                            .map_or(false, |d| d.all_fresh)
+                                                                            && !state.escaping.contains(&id.name)
+                                                                            && !state.moved.contains(&id.name)
+                                                                            && state.decl_block.get(&id.name)
+                                                                                == Some(&state.cur_block)
+                                                                )
+                                                        }),
+                                                    None => literal_path_value(fields, path).map_or(
+                                                        false,
+                                                        |fval| {
+                                                            is_fresh_vec_init(fval)
+                                                                || is_owned_copy_vec_init(fval, &state.by_value_vec_params)
+                                                        },
+                                                    ),
+                                                }
                                             })
                                     }
                                 }
@@ -1103,6 +1136,22 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                             };
                             if !owned {
                                 state.elem_unsafe.insert(rname.clone());
+                            } else if let Some(Expr::Struct(_, fields, spread, _)) = elem_arg {
+                                // A fresh Str LOCAL moved into the element now
+                                // belongs to the container. Mark it moved so no
+                                // exit drop frees it a second time; the element
+                                // drop owns it.
+                                if spread.is_none() {
+                                    for path in &needed {
+                                        if let Some(leaf) = path.strip_prefix("str:") {
+                                            if let Some(Expr::Ident(id)) =
+                                                literal_path_value(fields, leaf)
+                                            {
+                                                state.moved.insert(id.name.clone());
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1814,6 +1863,9 @@ impl IrEmitter {
             let cur = resolve_alias(types, ty);
             cur == "Vec" || cur.starts_with("Vec[")
         }
+        fn is_str_ty(types: &TypeContext, ty: &str) -> bool {
+            resolve_alias(types, ty) == "Str"
+        }
         fn is_skippable(k: &str) -> bool {
             k.starts_with("Tuple__")
                 || k.starts_with("Option__")
@@ -1867,6 +1919,13 @@ impl IrEmitter {
                     };
                     if is_vec_ty(types, fty) {
                         out.push(path);
+                    } else if is_str_ty(types, fty) {
+                        // Typed Str leaf of an element: the `str:` prefix tells
+                        // the push check to require a fresh/owned Str value and
+                        // elem_drop_info to emit a pointer free instead of a
+                        // Vec data free. `Vec[UiDrawText]` / `Vec[T{text:Str}]`
+                        // leaked every per-element label before this.
+                        out.push(format!("str:{path}"));
                     } else if let Some(child) = struct_key(types, fty) {
                         walk(types, &child, &path, depth + 1, seen, out);
                     }
@@ -2201,6 +2260,10 @@ impl IrEmitter {
         let key = llvm_ty.trim_start_matches("%struct.").to_string();
         let mut paths: Vec<Vec<(u32, String)>> = Vec::new();
         for path in &validated {
+            // `str:` marks a typed Str leaf of the element struct (not a Vec
+            // field). The final GEP target is an i8* slot.
+            let is_str_leaf = path.starts_with("str:");
+            let path = path.strip_prefix("str:").unwrap_or(path.as_str());
             let mut cur_key = key.clone();
             let mut steps: Vec<(u32, String)> = Vec::new();
             let mut ok = true;
@@ -2224,7 +2287,9 @@ impl IrEmitter {
                             break;
                         }
                     }
-                } else if fty != "%struct.Vec" {
+                } else if (is_str_leaf && fty != "i8*")
+                    || (!is_str_leaf && fty != "%struct.Vec")
+                {
                     ok = false;
                 }
             }
@@ -2493,13 +2558,21 @@ impl IrEmitter {
                                     cur = fp;
                                     cur_ty = fty.clone();
                                 }
-                                let dgp = self.fresh_tmp();
-                                let dp = self.fresh_tmp();
-                                self.emitln(&format!(
-                                    "  {dgp} = getelementptr %struct.Vec, %struct.Vec* {cur}, i32 0, i32 0"
-                                ));
-                                self.emitln(&format!("  {dp} = load i8*, i8** {dgp}"));
-                                self.emitln(&format!("  call void @xiom_guard_free(i8* {dp})"));
+                                if cur_ty == "i8*" {
+                                    // Typed Str leaf: `cur` is the i8** field
+                                    // slot; free the owned string pointer.
+                                    let dp = self.fresh_tmp();
+                                    self.emitln(&format!("  {dp} = load i8*, i8** {cur}"));
+                                    self.emitln(&format!("  call void @xiom_guard_free(i8* {dp})"));
+                                } else {
+                                    let dgp = self.fresh_tmp();
+                                    let dp = self.fresh_tmp();
+                                    self.emitln(&format!(
+                                        "  {dgp} = getelementptr %struct.Vec, %struct.Vec* {cur}, i32 0, i32 0"
+                                    ));
+                                    self.emitln(&format!("  {dp} = load i8*, i8** {dgp}"));
+                                    self.emitln(&format!("  call void @xiom_guard_free(i8* {dp})"));
+                                }
                             }
                         }
                         let next = self.fresh_tmp();

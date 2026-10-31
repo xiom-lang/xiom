@@ -8261,6 +8261,59 @@ fn main() -> Int { return build(4).len(); }
 }
 
 #[test]
+fn m375_elem_str_leaf_is_dropped() {
+    // Vec[Struct{Str}]: a fresh Str pushed into an inline struct element is
+    // owned by the container. The element drop frees the Str leaf and the
+    // element buffer (p_elemstr / engine UiDrawText labels).
+    let source = r#"
+type T = { n: Int; text: Str; }
+fn use_v() -> Int {
+  var v = Vec[T].new();
+  let s = str_repeat("x", 8);
+  v.push(T{ n: 1; text: s });
+  return v.len();
+}
+fn main() -> Int { return use_v(); }
+"#;
+    let ir = compile(source).expect("m375: Vec[Struct{Str}] must compile");
+    let body = ir
+        .split("define i64 @use_v()")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("use_v body");
+    assert!(
+        body.matches("call void @xiom_guard_free").count() >= 2,
+        "an owned Str element leaf must be freed with the element buffer:\n{ir}"
+    );
+}
+
+#[test]
+fn m375_elem_borrowed_str_stays_leak_only() {
+    // Control: a literal/borrowed Str element field is not owned. The element
+    // tag must stay disabled; only the element buffer is freed.
+    let source = r#"
+type T = { n: Int; text: Str; }
+fn use_v() -> Int {
+  var v = Vec[T].new();
+  v.push(T{ n: 1; text: "lit" });
+  return v.len();
+}
+fn main() -> Int { return use_v(); }
+"#;
+    let ir = compile(source).expect("m375: literal Str element must compile");
+    let body = ir
+        .split("define i64 @use_v()")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("use_v body");
+    assert_eq!(
+        body.matches("call void @xiom_guard_free").count(),
+        1,
+        "a literal Str element field must stay leak-only:\n{ir}"
+    );
+}
+
+#[test]
 fn m1552_by_ref_fn_value_still_compiles() {
     let source = r#"
 fn gt(p: &(Int, Int)) -> Bool { return p.0 > 5; }

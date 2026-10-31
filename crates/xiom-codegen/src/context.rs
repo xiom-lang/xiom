@@ -328,8 +328,9 @@ pub struct ElemDrop {
     /// `Vec[Str]`: the element is an `i8*`; free each element pointer.
     pub elem_is_str: bool,
     /// Struct elements: chains of (field index, field LLVM type after the
-    /// GEP). The final field is always `%struct.Vec`. Dotted paths let a
-    /// nested struct's Vec be freed (`inner.data`).
+    /// GEP). The final field is `%struct.Vec` (free its data pointer) or
+    /// `i8*` (a typed Str leaf: load and free the pointer). Dotted paths let
+    /// a nested struct's Vec/Str leaf be freed (`inner.data`).
     pub paths: Vec<Vec<(u32, String)>>,
 }
 
