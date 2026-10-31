@@ -37,6 +37,11 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   `p_structstr` from **278 MB to 159 MB**. Residual includes
   `from_cstring`'s Vec/`from_utf8` copy and other
   `from_cstring(malloc(...))` sites.
+- **Stdlib bug/rebuild ask:** `REL-20261031-2156-compiler` (bug, high)
+  with exact patches and verification; waiting on the stdlib tag/sha.
+- **Next session prompt:** `docs/CONTINUATION-PROMPT-2026-10-31-MEMORY.md`
+  (self-contained state, commits, probes, remaining Map/removal/aggregate
+  slices, test inventory, hard stops).
 - **Still open:** Map values (`p_mapstr`), removal payloads
   (`p_remove`), by-value aggregate parameter ownership
   (p_panel_move residual), the 600-frame editor soak, `1931` (needs
