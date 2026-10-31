@@ -1867,6 +1867,22 @@ impl IrEmitter {
         )
     }
 
+    /// Resolve a module-global reference in the CURRENT function's module
+    /// first (`<current_module>.<name>`), then fall back to the legacy bare
+    /// key. Two modules may declare the same `var g`; the qualified key keeps
+    /// each function on its own LLVM symbol and the bare entry stays as a
+    /// keep-first alias for unqualified/legacy paths
+    /// (REL-20261030-2357-engine-2).
+    fn module_global_lookup(&self, name: &str) -> Option<(String, String)> {
+        if let Some(module) = &self.local.current_module {
+            let qualified = format!("{module}.{name}");
+            if let Some(found) = self.local.module_globals.get(&qualified) {
+                return Some(found.clone());
+            }
+        }
+        self.local.module_globals.get(name).cloned()
+    }
+
     fn xiom_to_llvm_type(xiom_ty: &str) -> &'static str {
         match xiom_ty {
             "Int8" | "UInt8" => "i8",
@@ -10502,7 +10518,7 @@ fast:
                     }
                 }
                 // Check module-level globals (var _exec: Executor = ...)
-                if let Some((_, global_ty)) = self.local.module_globals.get(&ident.name) {
+                if let Some((_, global_ty)) = self.module_global_lookup(&ident.name).as_ref() {
                     if global_ty.starts_with("%struct.") {
                         let raw = &global_ty[8..];
                         let clean = raw.trim_end_matches('*');
@@ -10962,7 +10978,7 @@ fast:
                 // (the LEN field) -> `inttoptr` -> `call i64 %len()` ->
                 // 0xC000001D at the first access (Windows). Local receivers
                 // were already covered by `lookup_local` above.
-                if let Some((_, llvm_ty)) = self.local.module_globals.get(&ident.name) {
+                if let Some((_, llvm_ty)) = self.module_global_lookup(&ident.name).as_ref() {
                     return llvm_ty.clone();
                 }
                 // If the ident is an enum variant name (e.g., DivByZero), return the parent enum's struct type

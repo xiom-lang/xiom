@@ -1165,7 +1165,7 @@ impl IrEmitter {
                     };
                     let elem_ty = base_ptr_ty.trim_end_matches('*').to_string();
                     Some((base_ptr, base_ptr_ty, elem_ty))
-                } else if let Some((symbol, llvm_ty)) = self.local.module_globals.get(&id.name).cloned() {
+                } else if let Some((symbol, llvm_ty)) = self.module_global_lookup(&id.name) {
                     // BUG 2 fix: a mutable module-level `var` IS its own storage --
                     // GEP directly on @symbol so field writes (`g.v = 5`) write
                     // through to the global instead of being silently dropped.

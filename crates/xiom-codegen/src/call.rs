@@ -1314,12 +1314,13 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         if self.lookup_local(name).is_none()
                             && !self.local.closure_locals.contains(name)
                             && self.types.functions.get(name).is_none()
-                            && self.local.module_globals.get(name).is_some()
+                            && self.module_global_lookup(name).is_some()
                         {
                             if let Some(marker) = self.local.global_xiom_types.get(name).cloned() {
                                 if Self::is_fn_marker(&marker) {
-                                    let (slot_sym, slot_ty) = self.local.module_globals.get(name)
-                                        .cloned().expect("module global checked above");
+                                    let (slot_sym, slot_ty) = self
+                                        .module_global_lookup(name)
+                                        .expect("module global checked above");
                                     let ret_xiom = Self::fn_type_return_xiom(&marker)
                                         .unwrap_or_else(|| "Int".to_string());
                                     let ret_llvm = self.llvm_type_for_fallback(&ret_xiom);
@@ -1367,13 +1368,13 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             if let Some(segs) = Self::qualified_receiver_segments(recv) {
                                 let mut hit: Option<(String, String)> = None;
                                 for key in self.module_const_candidate_keys(&segs, &name) {
-                                    if let Some(g) = self.local.module_globals.get(&key).cloned() {
+                                    if let Some(g) = self.module_global_lookup(&key) {
                                         hit = Some(g);
                                         break;
                                     }
                                 }
                                 if hit.is_none() {
-                                    hit = self.local.module_globals.get(&name).cloned();
+                                    hit = self.module_global_lookup(&name);
                                 }
                                 if let Some((slot_sym, slot_ty)) = hit {
                                     let marker = self.local.global_xiom_types.get(&slot_sym).cloned()
@@ -2334,8 +2335,8 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // unscaled `data + len` emitted `store i8 <handle>`,
                         // which clang rejects.
                         let is_global_vec = matches!(receiver.as_ref(), Expr::Ident(id)
-                            if self.local.module_globals.get(&id.name)
-                                .map_or(false, |(_, ty)| Self::is_llvm_struct_named(ty, "Vec")));
+                            if self.module_global_lookup(&id.name)
+                                .map_or(false, |(_, ty)| Self::is_llvm_struct_named(&ty, "Vec")));
                         let is_vec = Self::is_llvm_struct_named(&recv_ty, "Vec")
                             || self.is_container_vec_field(receiver) || is_indexed_vec_elem
                             || self.receiver_is_unwrap_of_vec(receiver)
@@ -3428,7 +3429,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         // Also skip module-level globals whose type is a named struct
                         // (like Map[K,V]) -- they're not strings.
                         let is_struct_global = if let Expr::Ident(id) = &**receiver {
-                            self.local.module_globals.get(&id.name)
+                            self.module_global_lookup(&id.name)
                                 .map_or(false, |(_, ty)| ty.starts_with("%struct.") || ty.ends_with(".Map") || ty.ends_with(".Vec"))
                         } else { false };
                         let is_vec_handle_index = is_vec_index && recv_ty == "i64" && !is_vec_str_elem;
@@ -6025,7 +6026,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                                 // the receiver is a MODULE-GLOBAL --
                                                 // pass the global's ADDRESS
                                                 // (@_coverage), not the loaded value.
-                                                } else if let Some((symbol, _)) = self.local.module_globals.get(&id.name).cloned() {
+                                                } else if let Some((symbol, _)) = self.module_global_lookup(&id.name) {
                                                     (format!("@{symbol}"), format!("{recv_llvm_ty}*"))
                                                 } else { (recv_val, recv_llvm_ty) }
                                             } else if let Expr::Field(..) = &**receiver {
@@ -7067,7 +7068,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         && self.mono.generic_fn_decls.iter().all(|(k, _)| k != &resolved_fn_key)
                     {
                         if let Some(Expr::Ident(obj_id)) = receiver_expr.map(|r| r.as_ref()) {
-                            if let Some((symbol, global_llvm_ty)) = self.local.module_globals.get(&obj_id.name).cloned() {
+                            if let Some((symbol, global_llvm_ty)) = self.module_global_lookup(&obj_id.name) {
                                 if let Some(struct_name) = global_llvm_ty.strip_prefix("%struct.").map(|s| s.trim_end_matches('*').to_string()) {
                                     // m227 (C-PULSE-09): ONLY fn-typed fields
                                     // are callable through this path. A global

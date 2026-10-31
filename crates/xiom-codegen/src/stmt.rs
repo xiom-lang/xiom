@@ -1524,7 +1524,7 @@ impl IrEmitter {
                         // REL-20261028: free the replaced owned Str buffer and
                         // track the new value (fresh concat/conversion only).
                         self.update_str_rebind_assign(&ident.name, value, &store_val, &llvm_ty);
-                    } else if let Some((symbol, llvm_ty)) = self.local.module_globals.get(&ident.name).cloned() {
+                    } else if let Some((symbol, llvm_ty)) = self.module_global_lookup(&ident.name) {
                         // Assignment to a mutable module-level `var`: store into the
                         // real global so the write persists across calls. Checked
                         // BEFORE the unknown-target path so it is never silently
@@ -1718,7 +1718,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             if let Some((slot, _slot_ty)) = self.lookup_local(&id.name).cloned() {
                                 (arr_ptr, arr_ptr_ty) = (slot, format!("{cont_ty}*"));
                                 is_ident = true;
-                            } else if let Some((symbol, _gty)) = self.local.module_globals.get(&id.name).cloned() {
+                            } else if let Some((symbol, _gty)) = self.module_global_lookup(&id.name) {
                                 // Stdlib finding 3b-2 #8 (module-level arrays):
                                 // write THROUGH the real global. The old path
                                 // wrote into a stack copy of the loaded value and

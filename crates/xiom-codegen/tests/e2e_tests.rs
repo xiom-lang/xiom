@@ -6245,6 +6245,19 @@ fn e2e_safety_probe() {
     );
 }
 
+// Two catalog modules may declare the same mutable global name with different
+// types. The external-decl injector used to qualify only immutable consts, so
+// both emitted bare `@g`; codegen deduped the second definition and the
+// aggregate module read the scalar's storage -> 0xC0000005 in the showcase
+// (REL-20261030-2357-engine-2).
+#[test] fn e2e_global_name_collision_across_modules() {
+    assert_eq!(
+        compile_and_run("tests/regression/global_name_collision/main.xi"),
+        Some(0),
+        "same-named mutable globals in different modules must not share one LLVM symbol"
+    );
+}
+
 // m229 (packages lane): `is Ok(<literal>)` must compare the payload literal,
 // not just the tag.
 #[test] fn e2e_m229_is_payload_literal() {

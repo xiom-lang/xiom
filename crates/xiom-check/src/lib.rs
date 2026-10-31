@@ -4284,13 +4284,19 @@ impl Checker {
                             // (`_K0` in xiom.hash.farm AND xiom.hash.metro) deduped to
                             // ONE bare injection and every body substituted the
                             // survivor's value (metro's digest used farm's constants).
-                            // IMMUTABLE consts only: a module-level `pub var` is a
-                            // ConstDecl too, but its NAME is its emitted LLVM global
-                            // symbol and its lookups are leaf-keyed (`module_globals`),
-                            // so qualifying it renamed the symbol and unregistered the
-                            // leaf (m227 module-global Vec `stores.push` broke).
+                            // Mutable module globals MUST be qualified too: two
+                            // modules can declare the same `var g` (e.g. the
+                            // showcase's `showcase_advanced.g_clip: Int` and
+                            // `xiom.engine.editor.p1_data.g_clip: AnimClip`).
+                            // Emitting both as bare `@g` made codegen dedup the
+                            // second definition; the aggregate module then read
+                            // the scalar's storage (REL-20261030-2357-engine-2).
+                            // Codegen keeps a bare LEAF alias for legacy lookups
+                            // and prefers the module-qualified key when the
+                            // current function has one (m227 store path stays
+                            // green).
                             let mut cd2 = cd.clone();
-                            if !cd.is_mut && !module_name.is_empty() {
+                            if !module_name.is_empty() {
                                 let stripped = module_name.strip_prefix("xiom.").unwrap_or(module_name);
                                 if !stripped.is_empty() {
                                     cd2.name.name = format!("{}.{}", stripped, cd2.name.name);

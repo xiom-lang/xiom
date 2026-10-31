@@ -902,7 +902,7 @@ impl IrEmitter {
                         Some((slot, slot_ty))
                     }
                 } else if let Some((symbol, gty)) =
-                    self.local.module_globals.get(&id.name).cloned()
+                    self.module_global_lookup(&id.name)
                 {
                     if gty.ends_with('*') {
                         let ptr = self.fresh_tmp();
@@ -998,7 +998,7 @@ impl IrEmitter {
                         _ => (tmp, llvm_ty),
                     };
                     Ok((result_val, result_ty))
-                } else if let Some((symbol, llvm_ty)) = self.local.module_globals.get(&ident.name).cloned() {
+                } else if let Some((symbol, llvm_ty)) = self.module_global_lookup(&ident.name) {
                     // Mutable module-level `var`: load the current value from the
                     // real global. Checked BEFORE enum-variant / constant fallbacks
                     // so a live global is never mistaken for a compile-time literal.
@@ -2931,7 +2931,7 @@ impl IrEmitter {
                         // miss and the bare key below resolves.
                         for key in self.module_const_candidate_keys(&segs, &field.name) {
                             if let Some((symbol, llvm_ty)) =
-                                self.local.module_globals.get(&key).cloned()
+                                self.module_global_lookup(&key)
                             {
                                 let tmp = self.fresh_tmp();
                                 self.emitln(&format!(
@@ -2941,7 +2941,7 @@ impl IrEmitter {
                             }
                         }
                         if let Some((symbol, llvm_ty)) =
-                            self.local.module_globals.get(&field.name).cloned()
+                            self.module_global_lookup(&field.name)
                         {
                             let tmp = self.fresh_tmp();
                             self.emitln(&format!(
@@ -3979,7 +3979,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                             // Use the existing alloca pointer directly -- avoids
                             // creating a fresh alloca on every loop iteration.
                             (slot.clone(), format!("{cont_ty}*"))
-                        } else if let Some((symbol, _gty)) = self.local.module_globals.get(&id.name).cloned() {
+                        } else if let Some((symbol, _gty)) = self.module_global_lookup(&id.name) {
                             // Stdlib finding 3b-2 #8 (module-level arrays): GEP the
                             // REAL global directly. The old fallback spilled the
                             // loaded [N x T] VALUE into a fresh stack alloca and
@@ -4550,7 +4550,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // i64; pointer globals keep the R43 convention (the stored
                 // pointer is the reference).
                 if let Expr::Ident(id) = inner.as_ref() {
-                    if let Some((symbol, llvm_ty)) = self.local.module_globals.get(&id.name).cloned() {
+                    if let Some((symbol, llvm_ty)) = self.module_global_lookup(&id.name) {
                         if llvm_ty.ends_with('*') {
                             let ptr_val = self.fresh_tmp();
                             self.emitln(&format!("  {ptr_val} = load {llvm_ty}, {llvm_ty}* @{symbol}"));
@@ -7109,7 +7109,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     // BUG 29 (Map.keys on module globals): a MODULE-GLOBAL var
                     // (`var _coverage: Map[Str, Bool]`) is a VALUE -- generic
                     // method calls on it must pass the receiver instance.
-                    || self.local.module_globals.contains_key(&ident.name)
+                    || self.module_global_lookup(&ident.name).is_some()
                     // C-PULSE-05: an immutable module-level `const` (substituted
                     // from self.local.constants) is a VALUE too. Without this,
                     // `SCHEMA_VERSION.to_str()` on a `const ... : Int` was

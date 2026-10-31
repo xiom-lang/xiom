@@ -634,8 +634,26 @@ impl IrEmitter {
                     ty_name = key;
                 }
                 if let Ok(llvm_ty) = self.llvm_type_for(&ty_name) {
+                    // Injected catalog consts already carry a module-qualified
+                    // name; do not prefix them twice. Keep the bare LEAF as a
+                    // keep-first alias for legacy lookups, but the module
+                    // helper prefers the qualified key so two modules can both
+                    // declare `var g` without sharing one LLVM symbol
+                    // (REL-20261030-2357-engine-2).
+                    let leaf = cd
+                        .name
+                        .name
+                        .rsplit('.')
+                        .next()
+                        .unwrap_or(&cd.name.name)
+                        .to_string();
                     let symbol = if let Some(ref m) = self.local.current_module {
-                        format!("{}.{}", m, cd.name.name)
+                        let prefix = format!("{m}.");
+                        if cd.name.name.starts_with(&prefix) {
+                            cd.name.name.clone()
+                        } else {
+                            format!("{}.{}", m, cd.name.name)
+                        }
                     } else {
                         cd.name.name.clone()
                     };
@@ -643,6 +661,9 @@ impl IrEmitter {
                     // reference resolves whether the module is compiled directly or
                     // its decls are injected flattened at top level.
                     self.local.module_globals.insert(cd.name.name.clone(), (symbol.clone(), llvm_ty.clone()));
+                    if leaf != cd.name.name {
+                        self.local.module_globals.entry(leaf.clone()).or_insert((symbol.clone(), llvm_ty.clone()));
+                    }
                     self.local.module_globals.insert(symbol.clone(), (symbol.clone(), llvm_ty.clone()));
                     // BUG 29 (Map.keys on module globals): record the XIOM type
                     // with args ("Map[Str, Bool]") so generic METHOD calls on the
@@ -661,6 +682,9 @@ impl IrEmitter {
                             if Self::is_fn_marker(&resolved) { xiom_ty = resolved; }
                         }
                         self.local.global_xiom_types.insert(cd.name.name.clone(), xiom_ty.clone());
+                        if leaf != cd.name.name {
+                            self.local.global_xiom_types.entry(leaf).or_insert(xiom_ty.clone());
+                        }
                         self.local.global_xiom_types.insert(symbol.clone(), xiom_ty);
                     }
                     // Dedup the emitted definition by symbol name.
@@ -2669,7 +2693,7 @@ impl IrEmitter {
                 };
                 if self.lookup_local(&recv_ident.name).is_some()
                     || self.local.local_xiom_types.contains_key(&recv_ident.name)
-                    || self.local.module_globals.contains_key(&recv_ident.name)
+                    || self.module_global_lookup(&recv_ident.name).is_some()
                 {
                     let base = self.local.local_xiom_types.get(&recv_ident.name)
                         .map(|t| Self::parse_generic_type_string(t).0)

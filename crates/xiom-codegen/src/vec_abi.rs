@@ -41,7 +41,7 @@ impl IrEmitter {
         // stride + unscaled `data + len` produced invalid IR (clang rejects
         // `store i8 <handle>, i8*`).
         if let Expr::Ident(id) = receiver {
-            if let Some((symbol, llvm_ty)) = self.local.module_globals.get(&id.name).cloned() {
+            if let Some((symbol, llvm_ty)) = self.module_global_lookup(&id.name) {
                 if Self::is_llvm_struct_named(&llvm_ty, "Vec") {
                     return Ok((format!("@{symbol}"), false));
                 }
@@ -120,7 +120,7 @@ impl IrEmitter {
         // `Vec.push[T]` fallback hardcodes an 8-byte stride and does not
         // scale `data + len`, which clang rejects for Str elements.
         if let Expr::Ident(id) = receiver {
-            if let Some((symbol, llvm_ty)) = self.local.module_globals.get(&id.name).cloned() {
+            if let Some((symbol, llvm_ty)) = self.module_global_lookup(&id.name) {
                 if Self::is_llvm_struct_named(&llvm_ty, "Vec") {
                     return Ok((format!("@{symbol}"), false));
                 }

@@ -1291,7 +1291,7 @@ impl IrEmitter {
                 }
                 // Module-global fallback: the LLVM slot verdict -- a non-pointer
                 // integer slot (i64/i32/...) is an Int/UInt global.
-                if let Some((_, llvm_ty)) = self.local.module_globals.get(&id.name) {
+                if let Some((_, llvm_ty)) = self.module_global_lookup(&id.name).as_ref() {
                     return llvm_ty.starts_with('i') && !llvm_ty.ends_with('*') && llvm_ty != "i1" && llvm_ty != "i8*";
                 }
                 // Local-slot fallback: derive the XIOM name from the LLVM type.
