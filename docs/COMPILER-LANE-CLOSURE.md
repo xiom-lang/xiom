@@ -104,6 +104,25 @@ collision**, reproduced and fixed on main:
 
 No tag yet. The next gate is engine verification on a v0.65.5 candidate.
 
+### Cross-lane triage 2026-10-31T19:11Z (relay `745cf91`)
+
+Read-only cross-lane pass (notes at
+`C:\Users\lefte\AppData\Local\Temp\kilo\cross-agent\triage-2026-10-31.md`):
+
+| Item | Status | Action |
+|---|---|---|
+| `2142-packages` ffmpeg demux | Resolved by `0.4.1` (`50f6d46b`, run 38577890832; 23/23 x2) | bindings marks fixed; packages yanks `0.4.0` (`910946e2`, eco-v0.1.177) and verifies |
+| `2329-packages` imgui pack | Resolved by exception `fb55b372`; publish `a60d80a5` run 41111907416 | bindings marks fixed; packages verifies; `1740` is a duplicate |
+| `0900-playground` relay BOM | Resolved (`d76bb39`; validate 1129 items) | playground/orbitdb close; no action |
+| `1721-ops` pulse 0.2.0 SIGILL | Resolved by m297 + pulse 0.2.1 (run 38808850409) | pulse marks fixed; ops verifies |
+| `2143-compiler` t1 30 MB | Misdiagnosed: fixture is `Vec[Int]`/`with_capacity(1M)`, no `Vec[UInt8]`; v0.65.4 probe ~34.3 MB | benchmark re-measures and re-scopes/closes; no compiler change |
+| `1945-xvector-3` SIMD wishlist | No XIOM vector codegen in v0.65.x; owner/product route | deferred; xvector keeps acked or closes |
+| `1415/1926-packages` Vec[Vec] | Verified/closed on v0.65.4 (42/42 x2, b4, UDP) | none |
+
+The `2357-engine` soak and orbitdb m375 memory family are **not** in this
+table: a dedicated leak/drop-glue agent is running them with a before/after
+slope requirement, separate from the stdlib JSON item.
+
 ```powershell
 cd E:\xiom-lang\xiom-relays
 python tools\relay.py view --lane compiler --status open
