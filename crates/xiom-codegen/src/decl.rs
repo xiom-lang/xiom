@@ -1589,7 +1589,16 @@ impl IrEmitter {
         let owns_return = crate::fresh_return::fn_owns_return_transfer(fd);
         self.force_main_heap_alloc = owns_return;
         if let Some(body) = fd.body.as_ref() {
-            self.prepass_owned_vec_locals(body, owns_return);
+            let by_value_vec_params: HashSet<String> = fd
+                .params
+                .iter()
+                .filter(|p| {
+                    matches!(&p.ty, Type::Vec(_))
+                        || matches!(&p.ty, Type::Named(id, _) if id.name == "Vec")
+                })
+                .map(|p| p.name.name.clone())
+                .collect();
+            self.prepass_owned_vec_locals(body, owns_return, &by_value_vec_params);
         }
 
         let ret_llvm = fd.return_type.as_ref()

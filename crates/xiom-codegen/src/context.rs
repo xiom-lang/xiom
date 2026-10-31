@@ -449,6 +449,10 @@ pub struct FunctionContext {
     /// m368: local names proven OWNED AND PRIVATE for the current function by
     /// the AST prepass (`vec_drop::collect_owned_vec_locals`).
     pub vec_drop_safe: HashSet<String>,
+    /// By-value `Vec[T]` parameters of the current function. vec_abi deep-
+    /// copies them at the call boundary, so a local bound from one owns its
+    /// buffer and can be dropped (m375 / REL-20261030-2357-engine).
+    pub by_value_vec_params: HashSet<String>,
     /// Str locals whose fresh-to-fresh rebinds may free the replaced owned
     /// buffer (single declaration, never alias-escaped except by `return`).
     pub str_rebind_safe: HashSet<String>,

@@ -8014,3 +8014,31 @@ fn main() -> Int {
         "user value.alloc must not be hijacked by the allocation builtin:\n{ir}"
     );
 }
+
+#[test]
+fn m375_by_value_vec_param_rebind_is_dropped() {
+    // vec_abi deep-copies a by-value Vec parameter at the call boundary, so
+    // `var b = bytes` owns its copy and must be registered for reclamation.
+    // Pre-fix the bare-ident init was excluded and p_vecrebind leaked ~127 KB
+    // per 64 KB iteration.
+    let source = r#"
+fn usev(bytes: Vec[UInt8]) -> Int {
+  var b = bytes;
+  return b.len();
+}
+fn main() -> Int {
+  var v = Vec[UInt8].with_len(64);
+  return usev(v);
+}
+"#;
+    let ir = compile(source).expect("m375: by-value Vec rebind must compile");
+    let usev_body = ir
+        .split("define i64 @usev(%struct.Vec %param0)")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("expected by-value Vec parameter ABI");
+    assert!(
+        usev_body.contains("call void @xiom_guard_free"),
+        "by-value Vec rebind must emit a drop in @usev:\n{ir}"
+    );
+}

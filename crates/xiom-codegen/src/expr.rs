@@ -6214,7 +6214,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // locals are scanned/owned like any other function; the
                 // enclosing frame's drops stay suspended.
                 self.clear_vec_drops();
-                self.prepass_owned_vec_locals(block, false);
+                self.prepass_owned_vec_locals(block, false, &std::collections::HashSet::new());
                 self.in_unsafe_block_fn = true;
                 self.tmp_counter = unsafe_id * 1000;
                 self.block_counter = unsafe_id * 1000;

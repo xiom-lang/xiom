@@ -101,6 +101,10 @@ struct ScanState {
     decl_block: HashMap<String, usize>,
     cur_block: usize,
     next_block: usize,
+    /// By-value `Vec[T]` parameters of the current function. vec_abi deep-
+    /// copies them at the call boundary, so a local bound from one owns its
+    /// buffer and can be dropped (m375 / REL-20261030-2357-engine).
+    by_value_vec_params: HashSet<String>,
     /// Precomputed type-name variant -> Vec field names (plain structs only).
     elem_type_vec_fields: Arc<HashMap<String, Vec<String>>>,
     /// Callee leaf names whose return type is a scalar/void: only these may
@@ -148,8 +152,10 @@ pub(crate) fn collect_owned_vec_locals(
     elem_type_vec_fields: &Arc<HashMap<String, Vec<String>>>,
     known_nonretaining: &Arc<HashSet<String>>,
     retaining_callees: &Arc<HashSet<String>>,
+    by_value_vec_params: &HashSet<String>,
 ) -> OwnedLocals {
     let mut state = ScanState::default();
+    state.by_value_vec_params = by_value_vec_params.clone();
     state.fresh = fresh.clone();
     state.fresh_payload = fresh_payload.clone();
     state.fresh_aggregate = fresh_aggregate.clone();
@@ -337,10 +343,17 @@ pub(crate) fn is_fresh_vec_init(expr: &Expr) -> bool {
 /// keeps identifier copies as leak-only controls, and the 2034 defect is the
 /// param-field projection (`var v = b.data`). Widening that later needs its
 /// own evidence that every codegen path takes the owned copy.
-pub(crate) fn is_owned_copy_vec_init(expr: &Expr) -> bool {
+pub(crate) fn is_owned_copy_vec_init(
+    expr: &Expr,
+    by_value_vec_params: &HashSet<String>,
+) -> bool {
     match expr {
         Expr::Index(..) | Expr::Field(..) => true,
-        Expr::Paren(inner, _) => is_owned_copy_vec_init(inner),
+        // m375: vec_abi deep-copies a by-value Vec parameter at the call
+        // boundary, so `var b = bytes` / `var uiv = f_uiv` owns the copy and
+        // is a valid drop site. Only parameters of THIS function count.
+        Expr::Ident(id) if by_value_vec_params.contains(&id.name) => true,
+        Expr::Paren(inner, _) => is_owned_copy_vec_init(inner, by_value_vec_params),
         _ => false,
     }
 }
@@ -548,7 +561,8 @@ fn struct_literal_owns_vec(fields: &[(Ident, Expr)], state: &mut ScanState) -> b
                     }
                 }
             }
-            expr if is_fresh_vec_init(expr) || is_owned_copy_vec_init(expr) => {
+            expr if is_fresh_vec_init(expr)
+                || is_owned_copy_vec_init(expr, &state.by_value_vec_params) => {
                 owns = true;
             }
             Expr::Struct(_, inner, spread, _) if spread.is_none() => {
@@ -617,7 +631,7 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
             // by-value aggregate param field leaked ~0.47 MB/iter (engine 2034).
             let fresh = is_fresh_vec_init(value)
                 || is_fresh_vec_call(value, &state.fresh)
-                || is_owned_copy_vec_init(value);
+                || is_owned_copy_vec_init(value, &state.by_value_vec_params);
             if is_fresh_payload_call(value, &state.fresh_payload) {
                 state.fresh_payload_locals.insert(name.name.clone());
             }
@@ -919,7 +933,7 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                                                     false,
                                                     |fval| {
                                                         is_fresh_vec_init(fval)
-                                                            || is_owned_copy_vec_init(fval)
+                                                            || is_owned_copy_vec_init(fval, &state.by_value_vec_params)
                                                     },
                                                 )
                                             })
@@ -1503,13 +1517,20 @@ pub(crate) struct VecDropScope {
     safe_elem: HashMap<String, (String, Vec<String>)>,
     safe_str_rebind: HashSet<String>,
     str_rebind_state: HashMap<String, (String, String)>,
+    by_value_vec_params: HashSet<String>,
     entry_prelude: Vec<String>,
 }
 
 impl IrEmitter {
     /// Build the owned-and-private local set for the function about to be
     /// compiled. Called at function-body start (regular and mono paths).
-    pub(crate) fn prepass_owned_vec_locals(&mut self, body: &Block, trust_unsafe: bool) {
+    pub(crate) fn prepass_owned_vec_locals(
+        &mut self,
+        body: &Block,
+        trust_unsafe: bool,
+        by_value_vec_params: &HashSet<String>,
+    ) {
+        self.fctx.by_value_vec_params = by_value_vec_params.clone();
         let fresh = self.fresh_vec_returns.clone();
         let fresh_payload = self.fresh_payload_returns.clone();
         let fresh_aggregate = self.fresh_aggregate_returns.clone();
@@ -1529,6 +1550,7 @@ impl IrEmitter {
             &elem_type_vec_fields,
             &known_nonretaining,
             &retaining_callees,
+            by_value_vec_params,
         );
         self.fctx.vec_drop_safe = owned.vec;
         self.fctx.str_drop_safe = owned.str;
@@ -1715,6 +1737,7 @@ impl IrEmitter {
         self.fctx.elem_drop_safe.clear();
         self.fctx.str_rebind_safe.clear();
         self.fctx.str_rebind_state.clear();
+        self.fctx.by_value_vec_params.clear();
         self.local.entry_prelude.clear();
     }
 
@@ -1730,6 +1753,7 @@ impl IrEmitter {
             safe_elem: std::mem::take(&mut self.fctx.elem_drop_safe),
             safe_str_rebind: std::mem::take(&mut self.fctx.str_rebind_safe),
             str_rebind_state: std::mem::take(&mut self.fctx.str_rebind_state),
+            by_value_vec_params: std::mem::take(&mut self.fctx.by_value_vec_params),
             entry_prelude: std::mem::take(&mut self.local.entry_prelude),
         }
     }
@@ -1742,6 +1766,7 @@ impl IrEmitter {
         self.fctx.elem_drop_safe = saved.safe_elem;
         self.fctx.str_rebind_safe = saved.safe_str_rebind;
         self.fctx.str_rebind_state = saved.str_rebind_state;
+        self.fctx.by_value_vec_params = saved.by_value_vec_params;
         self.local.entry_prelude = saved.entry_prelude;
     }
 
@@ -1756,7 +1781,7 @@ impl IrEmitter {
                 || is_fresh_vec_call(init, &self.fresh_vec_returns)
                 // codegen deep-copied an aliasing RHS into this slot, so the
                 // local owns the copy (REL-20261027-2034-engine).
-                || is_owned_copy_vec_init(init))
+                || is_owned_copy_vec_init(init, &self.fctx.by_value_vec_params))
     }
 
     /// Register a freshly bound Vec local for reclamation. Emits the flag
