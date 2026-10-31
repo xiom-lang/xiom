@@ -1007,19 +1007,41 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                                 .unwrap_or_default();
                             let owned = match elem_arg {
                                 Some(Expr::Ident(id)) => {
-                                    let owned_local = state.aggregate.contains(&id.name)
-                                        || (state.decls.get(&id.name).map_or(false, |info| {
-                                            info.decls > 0 && info.all_fresh
-                                        }) && !state.escaping.contains(&id.name)
-                                            && !state.moved.contains(&id.name));
-                                    owned_local
+                                    let is_str_elem = state
+                                        .elem_candidate
+                                        .get(&rname)
+                                        .map_or(false, |t| t == "Str");
+                                    let owned_local = if is_str_elem {
+                                        // Vec[Str]: the pushed Str local must
+                                        // itself be fresh/owned; ownership
+                                        // transfers to the container.
+                                        state
+                                            .str_decls
+                                            .get(&id.name)
+                                            .map_or(false, |info| {
+                                                info.decls > 0 && info.all_fresh
+                                            })
+                                            && !state.escaping.contains(&id.name)
+                                            && !state.moved.contains(&id.name)
+                                    } else {
+                                        state.aggregate.contains(&id.name)
+                                            || (state.decls.get(&id.name).map_or(false, |info| {
+                                                info.decls > 0 && info.all_fresh
+                                            }) && !state.escaping.contains(&id.name)
+                                                && !state.moved.contains(&id.name))
+                                    };
+                                    let ok = owned_local
                                         && state.decl_block.get(&id.name)
                                             == Some(&state.cur_block)
                                         && state
                                             .elem_pushed
                                             .entry(rname.clone())
                                             .or_default()
-                                            .insert(id.name.clone())
+                                            .insert(id.name.clone());
+                                    if ok && is_str_elem {
+                                        state.moved.insert(id.name.clone());
+                                    }
+                                    ok
                                 }
                                 Some(Expr::Struct(lit, fields, spread, _)) => {
                                     if spread.is_some() {
@@ -1048,6 +1070,16 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                                 // `Vec[Vec[T]]`: an inline fresh inner Vec
                                 // (`rs.push(Vec[UInt8].with_len(n))`).
                                 Some(inner) if is_fresh_vec_init(inner) => true,
+                                // `Vec[Str]`: an inline fresh Str expression.
+                                Some(inner)
+                                    if state
+                                        .elem_candidate
+                                        .get(&rname)
+                                        .map_or(false, |t| t == "Str")
+                                        && is_fresh_str_init(inner) =>
+                                {
+                                    true
+                                }
                                 _ => false,
                             };
                             if !owned {
@@ -1813,6 +1845,9 @@ impl IrEmitter {
         for name in ambiguous {
             map.remove(&name);
         }
+        // Vec[Str]: the element itself is an owned i8*; the `__str` marker
+        // tells elem_drop_info to free each element pointer.
+        map.insert("Str".to_string(), vec!["__str".to_string()]);
         map
     }
 
@@ -2060,6 +2095,16 @@ impl IrEmitter {
     /// every element owns its Vec fields. `None` means "leak elements".
     fn elem_drop_info(&self, name: &str) -> Option<crate::context::ElemDrop> {
         let (xiom_ty, validated) = self.fctx.elem_drop_safe.get(name)?.clone();
+        // Vec[Str]: each element is an owned i8* buffer.
+        if xiom_ty == "Str" {
+            return Some(crate::context::ElemDrop {
+                llvm_ty: "i8*".to_string(),
+                stride: 8,
+                elem_is_vec: false,
+                elem_is_str: true,
+                paths: Vec::new(),
+            });
+        }
         // Vec-of-Vec: each element is a %struct.Vec header {data,len,cap,
         // elem_size}; free its data pointer. The header is 4 x 8 bytes, and
         // field 0 is `data`. No struct metadata is involved.
@@ -2068,6 +2113,7 @@ impl IrEmitter {
                 llvm_ty: "%struct.Vec".to_string(),
                 stride: Self::vec_slot_size(32),
                 elem_is_vec: true,
+                elem_is_str: false,
                 paths: Vec::new(),
             });
         }
@@ -2122,6 +2168,7 @@ impl IrEmitter {
             llvm_ty,
             stride: Self::vec_slot_size(size),
             elem_is_vec: false,
+            elem_is_str: false,
             paths,
         })
     }
@@ -2345,7 +2392,11 @@ impl IrEmitter {
                             "  {epc} = bitcast i8* {ep} to {}*",
                             e.llvm_ty
                         ));
-                        if e.elem_is_vec {
+                        if e.elem_is_str {
+                            let dp = self.fresh_tmp();
+                            self.emitln(&format!("  {dp} = load i8*, i8** {epc}"));
+                            self.emitln(&format!("  call void @xiom_guard_free(i8* {dp})"));
+                        } else if e.elem_is_vec {
                             let dgp = self.fresh_tmp();
                             let dp = self.fresh_tmp();
                             self.emitln(&format!(

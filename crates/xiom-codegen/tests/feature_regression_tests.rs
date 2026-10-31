@@ -8123,6 +8123,30 @@ fn main() -> Int { return rep("ab", 16).len(); }
 }
 
 #[test]
+fn m375_vec_str_elements_are_dropped() {
+    // Vec[Str]: each pushed fresh Str is owned by the container; scope exit
+    // frees the element pointers and then the element buffer.
+    let source = r#"
+fn use_v() -> Int {
+  var v = Vec[Str].new();
+  v.push(str_repeat("x", 8));
+  return v.len();
+}
+fn main() -> Int { return use_v(); }
+"#;
+    let ir = compile(source).expect("m375: Vec[Str] must compile");
+    let body = ir
+        .split("define i64 @use_v()")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("use_v body");
+    assert!(
+        body.matches("call void @xiom_guard_free").count() >= 2,
+        "Vec[Str] must free each element and the element buffer:\n{ir}"
+    );
+}
+
+#[test]
 fn m1552_by_ref_fn_value_still_compiles() {
     let source = r#"
 fn gt(p: &(Int, Int)) -> Bool { return p.0 > 5; }
