@@ -14,6 +14,30 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-31T19:45Z (t1 alloc + partial m375 leak fixed; 1600/1619 fixed; 1552 open; no tag) -- READ FIRST ***
+- **Compiler commits on main (UNRELEASED; v0.65.5 candidates):**
+  `2b2b51b54` 2357-2 global name collision; `61f9e3b6a` Float128/Int128
+  casts + first-wins externs; `f644fd54b` user `value.alloc/free` method
+  dispatch; `e875528ce` by-value `Vec[T]` parameter reclaim.
+- **Verified:** 2357-2 full pre-workaround showcase assets selftest PASS;
+  1600 IR + e2e probe; 1619 arm IR `declare/call fseek i64`; t1
+  `Fake.alloc` dispatches (no `xiom_guard_alloc`); `p_vecrebind`
+  3000x64 KB peak WS **403 MB -> 101 MB / private 130 MB**, same result.
+  Targeted drop e2e (m368/m375/container/str/nested) pass.
+- **Still open:** `REL-20261031-1552-stdlib` (checker ref erasure /
+  bare-fn wildcard; patch direction in relay, not fixed); the rest of
+  the 2357 leak (`p_panel_move`, `p_structstr`/`p_elemstr`/`p_vecstr`,
+  `p_mapstr`, `p_remove`); 600-frame editor soak <2 GB and <=0.5 MB/frame;
+  `REL-20261027-1931-engine` and `1423` aggregate/P1 rows (agent running);
+  t3 POSIX runtime sigaction fix (stdlib ask); t8/t9 ASan IR work
+  (benchmark wishlist). No tag; v0.65.4 unchanged.
+- **Benchmark correction:** t1 was a compiler bug, not methodology;
+  `REL-20261031-1933-compiler` corrects the earlier note. Benchmark must
+  re-measure v0.65.5 (expect ~9.98 MB, not <5 MB).
+- Relay: `7f6f1cb` (leak partial), `4f89359` (leak/benchmark/t3),
+  `a946e45` (t1 correction), `b54de9d` (1600/1619). Docs committed with
+  each fix.
+
 *** SESSION UPDATE 2026-10-31T18:55Z (2357-2 ROOT-CAUSED + FIXED in 2b2b51b54; UNRELEASED; no tag) -- READ FIRST ***
 - **Root cause was a cross-module MUTABLE GLOBAL NAME COLLISION, not the
   proj/float ABI.** `apps/ui_showcase/showcase_advanced.xi:165` declares

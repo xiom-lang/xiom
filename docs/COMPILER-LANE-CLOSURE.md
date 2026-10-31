@@ -152,6 +152,27 @@ slope requirement, separate from the stdlib JSON item.
   the before/after slope fix; optional `json_stringify_into` is only a
   mitigation.
 
+### 2026-10-31T19:42Z -- t1 alloc fix; partial m375 leak fix
+
+- **Benchmark t1 (`2143-compiler`):** fixed in `f644fd54b`. The +20,480 KB
+  was not methodology: `value.alloc()`/`value.free()` on a user struct
+  were hijacked by the allocation builtins, so the buddy allocator was
+  bypassed. Both builtins now skip a value-instance receiver; regression
+  `m2143_user_alloc_method_is_not_hijacked`. Benchmark must re-measure on
+  v0.65.5; expected ~9.98 MB, not <5 MB. The earlier "no compiler fix"
+  note is corrected by `REL-20261031-1933-compiler`.
+- **Leak (`2357-engine`) partial:** `e875528ce` reclaims by-value
+  `Vec[T]` parameter copies (`var b = bytes`). Measured `p_vecrebind`
+  3000x64 KB: 403 MB -> **101 MB WS / 130 MB private**, same result.
+  Targeted drop e2e (m368/m375/container/str/nested) pass; new lock
+  `m375_by_value_vec_param_rebind_is_dropped`.
+- **Leak still open:** `p_panel_move` (~190 KB/iter), `p_structstr`/
+  `p_elemstr`/`p_vecstr` (~20 KB/iter), `p_mapstr` (~40 KB/iter),
+  `p_remove` (~16 KB/iter). The 600-frame editor rebuild/soak has not
+  been rerun; acceptance remains <2 GB and <=0.5 MB/frame. No tag.
+- **1552** is root-caused (checker ref erasure + bare-fn wildcard) but
+  not fixed; the patch direction is in `REL-20261031-1924-compiler`.
+
 ```powershell
 cd E:\xiom-lang\xiom-relays
 python tools\relay.py view --lane compiler --status open
