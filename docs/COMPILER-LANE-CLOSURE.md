@@ -5,13 +5,13 @@ items, and verify them, before the next version.** v0.65.3 is withheld until
 this checklist has zero unexplained `todo` rows and the owner gives GO
 (unless an explicit emergency durable hotfix is ordered).
 
-Updated **2026-10-31T14:10Z** from the live bus after the v0.65.4 release.
+Updated **2026-10-31T14:50Z** from the live bus after the v0.65.4 release.
 Verified counts, not a stale snapshot:
 
 | Queue (addressed `to: compiler`) | Count |
 |---|---|
-| open | **32** |
-| acked | **116** |
+| open | **31** |
+| acked | **118** |
 | fixed | **65** (awaiting reporter verify) |
 | verified / closed / wontfix | 25 / 106 / 1 |
 
@@ -23,6 +23,57 @@ release announcement). **v0.65.4 is live** (tag `c0104e21e`, run
 items are open: `2357-engine` (600-frame soak leak; build fixed, runtime
 reclaim unchanged) and `2357-engine-2` (showcase panel-hook AV; the
 reduced probe passes on v0.65.4, so the real call/IR is the next step).
+
+### Triage 2026-10-31T14:50Z -- "all lane bugs" split into four buckets
+
+The owner directive is 100% closure, but the backlog is not one kind of
+work. Each open/acked bug belongs to exactly one bucket:
+
+**A. v0.65.5 code-fix blockers (repro + fix + witness owed)**
+- `REL-20261030-2357-engine-2` (top): showcase panel-hook AV. The minimal
+  `proj` probe passes on v0.65.4 and v0.65.1. The pre-workaround snapshot
+  `faa5a41` built standalone on v0.65.4 also passes (`assets_probe`), and
+  its `p1_data`/`assets_selftest` IR is correct (`@g_clip` is a struct,
+  P1Op fields and the `proj` call are correct). So the 1:26 crash needs
+  the exact full-showcase build state/context, not faa5a41 alone; the
+  engine has been asked for the exact 1:26 source/LL/PDB
+  (`REL-20261031-1523-compiler`). The engine workaround (`1461c07`)
+  scalarized `g_clip`/`P1Op`/`P1Placed`, so the aggregate/global path is
+  still the lead, but it is not yet a compiler witness.
+- `REL-20261029-1415-packages` + `REL-20261029-1926-packages`:
+  `Vec[Vec[UInt8]]` corruption. **Resolved on the published v0.65.4**:
+  the minimal repro `sim_vecvec_corruption.xi` is green **10/10** with
+  `r1[0]=k1`, `r2=[k2,k2,k0]`, `k0=1 k2=2` (the v0.65.1 expectation).
+  Packages asked to verify b4 + UDP reassembly on the archive
+  (`REL-20261031-1510-compiler`); re-open only with a red v0.65.4 run.
+- `REL-20261027-1931-engine`: XgView/Vec alloca/slot type confusion; the
+  optional editor WIP is not shipping, but the IR slice is a real codegen
+  defect and may share a root with 2357-2.
+
+**B. Drop-glue / reclaim slice (one memory project, not a one-line fix)**
+- `REL-20261030-2357-engine` (600-frame soak) is the acceptance gate.
+- orbitdb `1807/2102/0423/0606/1100` (m375 write-path/page/Vec-drop and
+  teardown) are the same family at a different workload.
+- compiler conservative leaks still open: Map/Set values, enum payloads,
+  Str fields of elements, containers with removals/reorders, `Vec[Str]`
+  (sections H/I below). `13fc28352` only caches compile-time analysis;
+  no runtime-reclaim claim is attached to it.
+
+**C. Verification-only (no new compiler code)**
+- packages `1446/1523/1729`: superseded by the v0.65.4 publish; reporter
+  verify/close requested in `REL-20261031-1448-compiler`.
+- The 65 `fixed` rows: reporters verify on the published v0.65.4 archive.
+- Older acked v0.64.x bugs: re-test on v0.65.4 before re-opening; do not
+  re-fix from stale evidence.
+
+**D. Not compiler-action**
+- release/CI transients, lane-side workarounds (e.g. engine scalarization),
+  and historical info rows. Record the disposition; do not count them as
+  open code work.
+
+Gate rule: `fixed` requires a witness that fails before and passes after,
+plus the relevant gates/e2e. The reporter/lane verifies; no tag while a
+lane verdict is red.
 
 ```powershell
 cd E:\xiom-lang\xiom-relays
