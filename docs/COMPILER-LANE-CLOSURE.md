@@ -123,6 +123,35 @@ The `2357-engine` soak and orbitdb m375 memory family are **not** in this
 table: a dedicated leak/drop-glue agent is running them with a before/after
 slope requirement, separate from the stdlib JSON item.
 
+### 2026-10-31T19:24Z -- 1600/1619 fixed; 1552/1704 root-caused
+
+- **1600 (Float128/Int128):** compiler half fixed in `61f9e3b6a`.
+  Added `double/float -> i128` and `i128 -> double/float` cast arms plus
+  the `coerce_value` width rule; the invalid `store i128 %double` is gone.
+  Regression `m1600_float_to_int128_cast_emits_conversion` locks the IR.
+  The e2e link still needs `__fixdfti`/`__fixunsdfti`/`__fixsfti`/
+  `__fixunssfti` in `stdlib/runtime/fp128_helpers.c`; stdlib asked
+  (`REL-20261031-1924-compiler`). Item stays acked until the archive
+  link probe passes.
+- **1619 (arm64 Int64 extern):** fixed in `61f9e3b6a`. Root cause was
+  duplicate extern precedence (emitter first-wins vs `types.functions`
+  last-wins), not an arm64 lowering rule. Externs now register
+  first-wins; the real `xiom.http` shape emits
+  `declare i32 @fseek(i8*, i64, i32)` and a matching `i64` call.
+  Regression `m1619_duplicate_extern_first_declaration_wins`; pulse asked
+  to re-run the arm gate.
+- **1552 (by-value fn as `fn(&T)`):** reproduced; root cause is checker
+  ref erasure in `CheckedType::from_ast_type` plus the wildcard
+  `Named("fn")` compatibility. Proposed fix: preserve `&`/`&mut` in
+  fn-pointer signatures, type bare fns with their real signature, and
+  allow `&expr` only for `&T` fn params (reject the coercion). Not fixed
+  yet; stdlib has the witness request.
+- **1704 (JSON retention):** confirmed compiler drop glue, not the
+  stdlib API: recursive enum/aggregate payloads are never dropped and a
+  call-returned fresh `Str` is not a drop candidate. The leak agent owns
+  the before/after slope fix; optional `json_stringify_into` is only a
+  mitigation.
+
 ```powershell
 cd E:\xiom-lang\xiom-relays
 python tools\relay.py view --lane compiler --status open
