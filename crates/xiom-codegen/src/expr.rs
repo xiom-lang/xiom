@@ -5812,6 +5812,22 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                         self.emitln(&format!("  {tmp} = fptosi double {val} to i64"));
                         Ok((tmp, LLVM_I64.to_string()))
                     }
+                    // REL-20261031-1600: Float64/Float32 -> Int128. Without
+                    // this arm the cast fell through to coerce_value, which
+                    // returned the `double` operand unchanged and emitted
+                    // `store i128 %double` (clang rejects the IR).
+                    ("double", "i128") | ("float", "i128") => {
+                        self.emitln(&format!(
+                            "  {tmp} = fptosi {inner_llvm_ty} {val} to i128"
+                        ));
+                        Ok((tmp, "i128".to_string()))
+                    }
+                    ("i128", "double") | ("i128", "float") => {
+                        self.emitln(&format!(
+                            "  {tmp} = sitofp i128 {val} to {target_llvm_ty}"
+                        ));
+                        Ok((tmp, target_llvm_ty.to_string()))
+                    }
                     // M39: Float <-> narrow int / float width conversions
                     ("double", "i32") | ("float", "i32") => {
                         self.emitln(&format!("  {tmp} = fptosi {inner_llvm_ty} {val} to i32"));

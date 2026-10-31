@@ -7922,3 +7922,65 @@ fn main() -> Int {
         }
     }
 }
+
+#[test]
+fn m1600_float_to_int128_cast_emits_conversion() {
+    // REL-20261031-1600: the cast used to fall through to coerce_value and
+    // return the `double` unchanged, so the caller emitted
+    // `store i128 %double` and clang rejected the IR.
+    let source = r#"
+fn conv_direct(n: Float64) -> Int128 { return n as Int128; }
+fn conv_via_f128(n: Float64) -> Int128 {
+  var a: Float128 = n as Float128;
+  return a as Int128;
+}
+fn main() -> Int {
+  let n: Float64 = 10.0;
+  if conv_direct(n) != 10 { return 1; }
+  return 0;
+}
+"#;
+    let ir = compile(source).expect("m1600: Float->Int128 cast must compile");
+    assert!(
+        ir.lines().any(|l| l.contains("fptosi double") && l.contains("to i128")),
+        "missing Float64 -> Int128 fptosi in IR:\n{ir}"
+    );
+    assert!(
+        ir.lines().any(|l| l.contains("fptosi fp128") && l.contains("to i128")),
+        "missing Float128 -> Int128 fptosi in IR:\n{ir}"
+    );
+}
+
+#[test]
+fn m1619_duplicate_extern_first_declaration_wins() {
+    // REL-20261031-1619: two externs for one C symbol must resolve
+    // first-wins in BOTH the emitted declare and the call site. The old
+    // last-wins call signature produced an i32 offset against an i64
+    // declare on arm64 (fseek via xiom.http vs io.fs).
+    let source = r#"
+extern "C" {
+  fn fseek(file: *UInt8, offset: Int64, whence: Int32) -> Int32;
+}
+extern "C" {
+  fn fseek(file: *UInt8, offset: Int32, whence: Int32) -> Int32;
+}
+fn main() -> Int {
+  var f: *UInt8 = null;
+  unsafe { let _ = fseek(f, 0 as Int64, 2 as Int32); }
+  return 0;
+}
+"#;
+    let ir = compile(source).expect("m1619: duplicate extern must compile");
+    assert!(
+        ir.lines().any(|l| l.contains("declare i32 @fseek(i8*, i64, i32)")),
+        "first (Int64) extern declaration must win:\n{ir}"
+    );
+    let call = ir
+        .lines()
+        .find(|l| l.contains("call i32 @fseek"))
+        .expect("fseek call missing");
+    assert!(
+        call.contains("i64 0") || call.contains("i64 %"),
+        "call offset must stay i64 to match the declare: {call}"
+    );
+}

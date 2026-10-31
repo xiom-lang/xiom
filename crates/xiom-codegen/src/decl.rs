@@ -1087,14 +1087,29 @@ impl IrEmitter {
                 let ret_type = fd.return_type.as_ref()
                     .map(|t| self.extern_type_to_llvm(t))
                     .unwrap_or_else(|| "void".to_string());
-                self.types.functions.insert(fd.name.name.clone(), (param_types.clone(), ret_type.clone()));
+                // REL-20261031-1619: duplicate extern declarations for one C
+                // symbol must resolve FIRST-wins, matching the emitter's
+                // `already_declared` dedup. The old last-wins call signature
+                // (stdlib io.fs `fseek(..., Int32, ...)`) disagreed with the
+                // first emitted declare (xiom.http `fseek(..., Int64, ...)`),
+                // producing an `i32` call against an `i64` declare on arm64.
+                // First-wins keeps the declare, the call, and the C ABI plan
+                // on the same visible signature.
+                if self.types.functions.get(&fd.name.name).is_none() {
+                    self.types.functions.insert(
+                        fd.name.name.clone(),
+                        (param_types.clone(), ret_type.clone()),
+                    );
+                }
                 // m351 (B-33): keep the XIOM-VALUE signature so the
                 // C-lowered `CAbiPlan` can be computed at declare/call time
                 // (struct layouts may not all be registered yet here).
-                self.types.extern_c_abi_sigs.insert(
-                    fd.name.name.clone(),
-                    (param_types, ret_type),
-                );
+                if self.types.extern_c_abi_sigs.get(&fd.name.name).is_none() {
+                    self.types.extern_c_abi_sigs.insert(
+                        fd.name.name.clone(),
+                        (param_types, ret_type),
+                    );
+                }
                 // m272 (fn-value ABI regression): remember the extern-ness so
                 // the call-site B-13 field-0 unwrap fires ONLY at the C
                 // boundary. Applying it to internal XIOM callees (which take

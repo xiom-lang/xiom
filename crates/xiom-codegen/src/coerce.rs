@@ -592,6 +592,7 @@ impl IrEmitter {
                 "i16" => Some(16),
                 "i32" => Some(32),
                 "i64" => Some(64),
+                "i128" => Some(128),
                 _ => None,
             }
         };
@@ -954,6 +955,19 @@ impl IrEmitter {
                 self.extract_scalar_field0(val, from)
             };
             return self.coerce_value(&scalar, "i64", to);
+        }
+        // REL-20261031-1600: Float64/Float32 <-> Int128. The old fallthrough
+        // returned the double unchanged, so the caller stored it into an i128
+        // slot (invalid IR).
+        if (from == "double" || from == "float") && to == "i128" {
+            let t = self.fresh_tmp();
+            self.emitln(&format!("  {t} = fptosi {from} {val} to i128"));
+            return t;
+        }
+        if from == "i128" && (to == "double" || to == "float") {
+            let t = self.fresh_tmp();
+            self.emitln(&format!("  {t} = sitofp i128 {val} to {to}"));
+            return t;
         }
         // No known cast -- return unchanged (best effort).
         val.to_string()
