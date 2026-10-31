@@ -23,7 +23,9 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   `xiom_str_from_vec` directly (no intermediate Vec copy). Evidence on
   their side: string smokes 56/56, platform/os_args/io_args green;
   dry-run `41248000167`.
-- **New compiler commits on main (UNRELEASED; v0.65.5 candidates):**
+- **New compiler commit on main (UNRELEASED; v0.65.5 candidate):
+  `f537b1b14`** (`fix(codegen): reclaim reader-arg, Str copy-out, and
+  rebind buffers (m375)`), containing three slices:
   1. **slice C** (`fix(codegen): keep caller Vec ownership across
      reader calls (m375)`) -- `fresh_return::collect_byval_vec_readers`
      proves a callee's by-value Vec params are only read

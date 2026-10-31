@@ -6,10 +6,10 @@ Self-contained prompt for the next session. Read this first, then
 ## State
 
 - v0.65.4 is released and must not be re-cut. The fix line is **v0.65.5**.
-- Compiler repo: `E:\xiom-lang\xiom`, main at `64a7f2398` plus the
-  slice-C commit (`fix(codegen): keep caller Vec ownership across reader
-  calls (m375)`). Working tree must stay clean except the pre-existing
-  `.gitignore` change and untracked `m211_listdir_probe/`.
+- Compiler repo: `E:\xiom-lang\xiom`, main at `f537b1b14` (slice C +
+  Str copy-out + rebind exit on top of `64a7f2398`). Working tree must
+  stay clean except the pre-existing `.gitignore` change and untracked
+  `m211_listdir_probe/`.
 - No v0.65.5 tag yet. Do not tag until the rebuilt stdlib + engine
   600-frame soak + lane sign-off are green.
 - PC crash/OOM warning: do NOT run multiple memory-heavy editor/IR
@@ -28,7 +28,7 @@ Self-contained prompt for the next session. Read this first, then
 | `e875528ce` | reclaim by-value `Vec[T]` parameter copies | `m375_by_value_vec_param_rebind_is_dropped`; p_vecrebind 403 MB -> flat |
 | `364d19efd` | fresh Str fields of aggregates (deferred scope-exit free), tail-return Str rebind, safe str builders | `m375_struct_fresh_str_field_is_dropped`, `m375_tail_return_str_rebind_is_reclaimed`; p_structstr 364 -> 278 MB |
 | `683c77d5b` | `Vec[Str]` element payload drops | `m375_vec_str_elements_are_dropped`; p_vecstr 402 -> 355 MB; p_panel_move 403 -> 277 MB |
-| `slice C (2026-11-01)` | by-value Vec/aggregate args to reader callees keep the caller drop | `m375_by_value_vec_arg_to_reader_keeps_caller_drop`, `m375_by_value_vec_arg_to_writer_stays_leak_only`; p_panel_move 337/368 -> 5/34 MB; p_vecrebind flat (1.9 GB churn, 5/33 MB) |
+| `f537b1b14` | reader by-value Vec args keep caller drop; arena-aware Str copy-out; non-returned Str rebind exit free | `m375_by_value_vec_arg_to_reader_keeps_caller_drop`, `..._writer_stays_leak_only`, `m375_str_rebind_local_exit_is_freed`, `m375_returned_str_rebind_is_not_freed_at_exit`; p_panel_move 337/368 -> 5/34 MB; p_structstr 255/259 -> 5/33; p_vecstr 329/364 -> 9/35; p_strrepeat 210/242 -> 5/33; p_vecrebind 5/33 |
 
 Do not revert these. The drop-glue work is conservative by design; do
 not replace it with blind frees.
@@ -116,6 +116,10 @@ only; do not ship/rely on it).
   measurements are in the State/commits sections. Note: the stdlib's
   quoted compiler `d4d52e0c9` predates `683c77d5b`; our numbers are on
   the current main + `7d47924`.
+- `REL-20261031-2243-compiler` — engine checkpoint soak ask: rebuild the
+  editor on compiler `f537b1b14` + stdlib `7d47924` (paired toolchain
+  path in the item) and run 300/600 frames under 2 GB. Interim, not the
+  final v0.65.5 cut.
 - `REL-20261027-1931-engine` — still open, distinct class; needs the
   original ~44 MB editor `.ll` function body around line 65929 or a
   reduced two-module `load X; store as Y` repro.
@@ -172,7 +176,7 @@ Do not drop an element whose returned value is consumed.
 
 ### C. By-value aggregate parameter ownership (`p_panel_move`) — LANDED
 
-Probe: `...\proj\p_panel_move.xi`. Fixed in the slice-C commit: a
+Probe: `...\proj\p_panel_move.xi`. Fixed in `f537b1b14`: a
 by-value Vec local passed to a callee proven to only READ its by-value
 Vec params (`len`/`is_empty`/`capacity`/`count`, or a local bind that
 deep-copies) keeps the caller's drop. A callee that mutates (`push`,
