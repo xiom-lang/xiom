@@ -14,6 +14,31 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-31T21:55Z (m375 drop glue: Str fields/tail rebind/Vec[Str]; stdlib copy-leak found; no tag) -- READ FIRST ***
+- **New compiler commits on main (UNRELEASED):** `e875528ce` by-value
+  `Vec[T]` copies; `364d19efd` fresh Str aggregate fields + tail-return
+  Str rebind + non-retaining str builders; `683c77d5b` `Vec[Str]`
+  element payloads.
+- **Measured:** p_vecrebind 403 MB -> flat; p_structstr 364 -> 278 MB;
+  p_vecstr 402 -> 355 MB; p_panel_move 403 -> 277 MB. Regressions
+  `m375_by_value_vec_param_rebind_is_dropped`,
+  `m375_struct_fresh_str_field_is_dropped`,
+  `m375_tail_return_str_rebind_is_reclaimed`,
+  `m375_vec_str_elements_are_dropped`; drop/str/global e2e green.
+- **Residual leak is stdlib source:** `str_concat`
+  (stdlib/xiom/string/string.xi:105-124) mallocs `buf`, then
+  `Str.from_cstring` (convert/cstring.xi:25-48) copies it and never
+  frees the input. `str_slice` and other `from_cstring(malloc(...))`
+  sites share it. The v0.65.4 stdlib is precompiled, so the new
+  rebind/Vec-drop logic is not in it. Relayed in
+  `REL-20261031-2153-compiler`; stdlib must free/own the input and
+  rebuild with `683c77d5b`.
+- **Still open:** Map values (`p_mapstr`), removal payloads
+  (`p_remove`), by-value aggregate parameter ownership
+  (p_panel_move residual), the 600-frame editor soak, `1931` (needs
+  the editor `.ll`), t3/t8, and lane verification. No tag; v0.65.4
+  unchanged.
+
 *** SESSION UPDATE 2026-10-31T21:15Z (t1 + partial m375 leak + 1552 + 1423 fixed; 1931 gated; no tag) -- READ FIRST ***
 - **Compiler commits on main (UNRELEASED; v0.65.5 candidates):**
   `2b2b51b54` 2357-2 global name collision; `61f9e3b6a` Float128/Int128

@@ -202,6 +202,38 @@ slope requirement, separate from the stdlib JSON item.
   two-module `load X; store as Y` repro (`REL-20261031-2115-compiler`).
   No fix claimed.
 
+### 2026-10-31T21:55Z -- m375 drop glue: Str fields, tail rebinds, Vec[Str]
+
+Compiler-side reclamation improved; this is a **production drop-glue
+slice**, not a full leak close:
+
+- **`e875528ce`** by-value `Vec[T]` parameter copies reclaimed
+  (`p_vecrebind` 403 MB -> flat).
+- **`364d19efd`** fresh Str fields of local aggregates are freed at
+  **scope exit** (deferred, not at binding); function-body **tail
+  expressions** are return transfers, so Str rebind reclamation works
+  for builders; `str_concat`/`str_repeat`/`str_join`/`str_replace` are
+  known non-retaining. Measured `p_structstr` 364 -> 278 MB.
+- **`683c77d5b`** `Vec[Str]` element payloads freed (element pointer +
+  buffer); `p_vecstr` 402 -> 355 MB.
+- `p_panel_move` 403 -> 277 MB (partial; by-value aggregate parameter
+  ownership still open).
+- Regressions `m375_by_value_vec_param_rebind_is_dropped`,
+  `m375_struct_fresh_str_field_is_dropped`,
+  `m375_tail_return_str_rebind_is_reclaimed`,
+  `m375_vec_str_elements_are_dropped`; drop/str/global e2e green.
+
+**Residual root cause is now stdlib source:** `str_concat`
+(`stdlib/xiom/string/string.xi:105-124`) mallocs `buf`, then
+`Str.from_cstring` (`convert/cstring.xi:25-48`) **copies** it and the
+input is never freed. `str_slice` and the other
+`from_cstring(malloc(...))` sites share it. The v0.65.4 stdlib is
+precompiled, so the new rebind/Vec-drop logic is not in it until a
+stdlib rebuild. Relayed in `REL-20261031-2153-compiler`; stdlib asked to
+free/own the input and rebuild with `683c77d5b`. Still open: Map values
+(`p_mapstr`), removal payloads (`p_remove`), the p_panel_move residual,
+and the 600-frame editor soak. No tag.
+
 ```powershell
 cd E:\xiom-lang\xiom-relays
 python tools\relay.py view --lane compiler --status open
