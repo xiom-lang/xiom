@@ -14,7 +14,7 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
-*** SESSION UPDATE 2026-10-31T20:40Z (t1 + partial m375 leak + 1552 fixed; 1600/1619 fixed; no tag) -- READ FIRST ***
+*** SESSION UPDATE 2026-10-31T21:15Z (t1 + partial m375 leak + 1552 + 1423 fixed; 1931 gated; no tag) -- READ FIRST ***
 - **Compiler commits on main (UNRELEASED; v0.65.5 candidates):**
   `2b2b51b54` 2357-2 global name collision; `61f9e3b6a` Float128/Int128
   casts + first-wins externs; `f644fd54b` user `value.alloc/free` method
@@ -28,10 +28,18 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 - **1552 fixed in `216a70322`:** p1552 by-value -> `fn(&T)` is now a T001;
   valid by-ref/by-value fn values still compile/run; 214/214 `xiom-check`
   and the catalog corpus pass. Relay item marked fixed.
+- **1423 fixed** (compiler half): `g_clip` collision fixed by
+  `2b2b51b54`; assets/world/S76/S77 and the aggregate probe pass. The
+  residual `p1 s23` is engine source arithmetic (duplicate `"Layer 6"`;
+  uniqueness loop already in `1461c07`). Engine asked to verify/close.
+- **1931 still open, distinct class:** unique `@g_ed_iv` + SSA pointer,
+  destination-slot type mismatch in `stmt.rs:1514/1523`/`:1532/1539`
+  after `coerce.rs:972-973`. Need the original ~44 MB editor `.ll`
+  function body around line 65929 or a reduced two-module `load X; store
+  as Y` repro (`REL-20261031-2115-compiler`). Not reproduced; no fix.
 - **Still open:** the rest of the 2357 leak (`p_panel_move`,
   `p_structstr`/`p_elemstr`/`p_vecstr`, `p_mapstr`, `p_remove`);
   600-frame editor soak <2 GB and <=0.5 MB/frame;
-  `REL-20261027-1931-engine` and `1423` aggregate/P1 rows (agent running);
   t3 POSIX runtime sigaction fix (stdlib ask); t8/t9 ASan IR work
   (benchmark wishlist). No tag; v0.65.4 unchanged.
 - **Benchmark correction:** t1 was a compiler bug, not methodology;

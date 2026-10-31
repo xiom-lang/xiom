@@ -179,6 +179,29 @@ slope requirement, separate from the stdlib JSON item.
   `m1552_by_value_fn_is_not_accepted_as_by_ref` /
   `m1552_by_ref_fn_value_still_compiles`. Relay item marked fixed.
 
+### 2026-10-31T21:15Z -- 1423 fixed; 1931 gated on the editor .ll
+
+- **1423-engine fixed** (compiler half). Symptom B was the `g_clip`
+  mutable-global collision (`p1_data.xi:2339` vs
+  `showcase_advanced.xi:165`), fixed by `2b2b51b54`. On the unmodified
+  `faa5a41` full link with the fixed compiler, `assets_selftest`
+  (`bad_asset.err.code`), `world_selftest` (`bad_place.err.code`), and
+  S76/S77 (`g_clip`/`g_montage` field writes) pass; the aggregate probe
+  passes. The residual `FAIL p1 s23 index` is engine **source arithmetic**
+  (`p1_layer_add` names by count; the worldsettings prelude leaves
+  `"Layer 6"`), fixed by the uniqueness loop already in `1461c07`.
+  `st p1 data`/`gizmo` are the same `ok` bool. Engine asked to verify and
+  close; a large-link battery can remain separate.
+- **1931-engine still open, distinct class:** `@g_ed_iv` is unique and
+  the bad value comes through an SSA pointer, not a bare-name collision.
+  The assignment uses the destination slot type (`stmt.rs:1514/1523`
+  local, `:1532/1539` global) after `coerce_value`'s no-cast fallback
+  (`coerce.rs:972-973`). The editor cannot be rebuilt on this host
+  (allocation failure); engine asked for the original ~44 MB
+  `xiom-editor.exe.ll` function body around line 65929 or a reduced
+  two-module `load X; store as Y` repro (`REL-20261031-2115-compiler`).
+  No fix claimed.
+
 ```powershell
 cd E:\xiom-lang\xiom-relays
 python tools\relay.py view --lane compiler --status open
