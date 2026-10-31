@@ -157,6 +157,9 @@ pub(crate) struct OwnedLocals {
     /// Rebind locals that are not returned: their final owned buffer is freed
     /// at scope exit (the replaced buffers are already freed at each rebind).
     pub str_rebind_exit: HashSet<String>,
+    /// Single-declaration locals never referenced after their binding. Used to
+    /// free a dead boxed `remove`/`pop` result at the binding site.
+    pub unused: HashSet<String>,
 }
 
 /// Returns the local names that are owned and private for the function body.
@@ -200,6 +203,21 @@ pub(crate) fn collect_owned_vec_locals(
         .decls
         .iter()
         .filter(|(_, info)| info.decls == 1)
+        .map(|(name, _)| name.clone())
+        .collect();
+    // Locals declared once and never referenced again. A dead
+    // `let gone = v.remove(i)` result is freed at the binding site (the
+    // boxed element is not reachable after this point); any later use marks
+    // the name escaping and disqualifies it.
+    let unused_locals: HashSet<String> = state
+        .decls
+        .iter()
+        .filter(|(name, info)| {
+            info.decls == 1
+                && !state.escaping.contains(*name)
+                && !state.moved.contains(*name)
+                && !state.returned.contains(*name)
+        })
         .map(|(name, _)| name.clone())
         .collect();
     let vec: HashSet<String> = state
@@ -289,6 +307,7 @@ pub(crate) fn collect_owned_vec_locals(
         elem,
         str_rebind,
         str_rebind_exit,
+        unused: unused_locals,
     }
 }
 
@@ -1015,7 +1034,23 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                             "len", "is_empty", "capacity", "contains", "index_of", "count",
                             "get", "first", "last", "peek", "binary_search",
                         ];
-                        if !ELEM_READ_ONLY.contains(&m) && m != "push" && m != "insert" {
+                        // Removal/reorder methods keep the REMAINING elements
+                        // owned: `remove`/`swap_remove`/`pop` move one element
+                        // out (its payload is handled at the removal site when
+                        // the result is dead), `sort`/`reverse`/`swap` reorder,
+                        // and `retain`/`dedup`/`truncate`/`clear` drop elements
+                        // without returning them (those leak conservatively).
+                        // The container's exit loop only walks the CURRENT len,
+                        // so it never frees a removed element twice.
+                        const ELEM_REMOVAL_ORDER_ONLY: &[&str] = &[
+                            "remove", "swap_remove", "pop", "sort", "sort_by", "reverse",
+                            "retain", "dedup", "truncate", "clear", "swap", "shrink_to_fit",
+                        ];
+                        if !ELEM_READ_ONLY.contains(&m)
+                            && m != "push"
+                            && m != "insert"
+                            && !ELEM_REMOVAL_ORDER_ONLY.contains(&m)
+                        {
                             state.elem_unsafe.insert(rname.clone());
                         } else if m == "push" || m == "insert" {
                             let elem_arg = if m == "push" { args.first() } else { args.last() };
@@ -1784,6 +1819,7 @@ pub(crate) struct VecDropScope {
     safe_elem: HashMap<String, (String, Vec<String>)>,
     safe_str_rebind: HashSet<String>,
     safe_str_rebind_exit: HashSet<String>,
+    unused: HashSet<String>,
     str_rebind_state: HashMap<String, (String, String)>,
     by_value_vec_params: HashSet<String>,
     entry_prelude: Vec<String>,
@@ -1829,6 +1865,7 @@ impl IrEmitter {
         self.fctx.elem_drop_safe = owned.elem;
         self.fctx.str_rebind_safe = owned.str_rebind;
         self.fctx.str_rebind_exit = owned.str_rebind_exit;
+        self.fctx.unused_locals = owned.unused;
     }
 
     /// A return type that cannot carry a borrowed Vec header: scalar/void.
@@ -2024,6 +2061,7 @@ impl IrEmitter {
         self.fctx.elem_drop_safe.clear();
         self.fctx.str_rebind_safe.clear();
         self.fctx.str_rebind_exit.clear();
+        self.fctx.unused_locals.clear();
         self.fctx.str_rebind_state.clear();
         self.fctx.by_value_vec_params.clear();
         self.local.entry_prelude.clear();
@@ -2042,6 +2080,7 @@ impl IrEmitter {
             safe_elem: std::mem::take(&mut self.fctx.elem_drop_safe),
             safe_str_rebind: std::mem::take(&mut self.fctx.str_rebind_safe),
             safe_str_rebind_exit: std::mem::take(&mut self.fctx.str_rebind_exit),
+            unused: std::mem::take(&mut self.fctx.unused_locals),
             str_rebind_state: std::mem::take(&mut self.fctx.str_rebind_state),
             by_value_vec_params: std::mem::take(&mut self.fctx.by_value_vec_params),
             entry_prelude: std::mem::take(&mut self.local.entry_prelude),
@@ -2057,9 +2096,86 @@ impl IrEmitter {
         self.fctx.elem_drop_safe = saved.safe_elem;
         self.fctx.str_rebind_safe = saved.safe_str_rebind;
         self.fctx.str_rebind_exit = saved.safe_str_rebind_exit;
+        self.fctx.unused_locals = saved.unused;
         self.fctx.str_rebind_state = saved.str_rebind_state;
         self.fctx.by_value_vec_params = saved.by_value_vec_params;
         self.local.entry_prelude = saved.entry_prelude;
+    }
+
+    /// The element type when `value` is a `remove`/`swap_remove`/`pop` call on
+    /// a container whose element tag survived the prepass (so every element is
+    /// owned). `Some("Vec[...]")` means the erased Option payload is a boxed
+    /// `%struct.Vec` header.
+    pub(crate) fn boxed_removal_vec_payload(&self, value: &Expr) -> Option<String> {
+        let (func, _args) = match value {
+            Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => (func, args),
+            Expr::Paren(inner, _) => return self.boxed_removal_vec_payload(inner),
+            _ => return None,
+        };
+        let Expr::Field(recv, method, _) = func.as_ref() else {
+            return None;
+        };
+        if !matches!(method.name.as_str(), "remove" | "swap_remove" | "pop") {
+            return None;
+        }
+        let Expr::Ident(id) = recv.as_ref() else {
+            return None;
+        };
+        let (elem_ty, _) = self.fctx.elem_drop_safe.get(&id.name)?.clone();
+        // Vec-of-Vec only: the Option payload is a boxed %struct.Vec header
+        // (element size 32). Str/struct payloads are a separate slice.
+        if elem_ty.starts_with("Vec[") {
+            Some(elem_ty)
+        } else {
+            None
+        }
+    }
+
+    /// Free the boxed element of a provably-DEAD `remove`/`pop` result: its
+    /// Vec data buffer and the malloc'd element header. The container's exit
+    /// drop only walks the current len, so the removed slot is never freed a
+    /// second time (m375 p_remove).
+    pub(crate) fn emit_dead_boxed_vec_payload(&mut self, option_alloca: &str) {
+        let tag_gep = self.fresh_tmp();
+        let tag = self.fresh_tmp();
+        let is_some = self.fresh_tmp();
+        let free_blk = self.fresh_block("dead_remove_free");
+        let after_blk = self.fresh_block("dead_remove_after");
+        self.emitln(&format!(
+            "  {tag_gep} = getelementptr %struct.Option, %struct.Option* {option_alloca}, i32 0, i32 0"
+        ));
+        self.emitln(&format!("  {tag} = load i64, i64* {tag_gep}"));
+        self.emitln(&format!("  {is_some} = icmp ne i64 {tag}, 0"));
+        self.emitln(&format!(
+            "  br i1 {is_some}, label %{free_blk}, label %{after_blk}"
+        ));
+        self.emitln(&format!("\n{free_blk}:"));
+        let pay_gep = self.fresh_tmp();
+        let pay = self.fresh_tmp();
+        let boxed = self.fresh_tmp();
+        self.emitln(&format!(
+            "  {pay_gep} = getelementptr %struct.Option, %struct.Option* {option_alloca}, i32 0, i32 1"
+        ));
+        self.emitln(&format!("  {pay} = load i64, i64* {pay_gep}"));
+        self.emitln(&format!("  {boxed} = inttoptr i64 {pay} to %struct.Vec*"));
+        let dgp = self.fresh_tmp();
+        let dp = self.fresh_tmp();
+        self.emitln(&format!(
+            "  {dgp} = getelementptr %struct.Vec, %struct.Vec* {boxed}, i32 0, i32 0"
+        ));
+        self.emitln(&format!("  {dp} = load i8*, i8** {dgp}"));
+        self.emitln(&format!("  call void @xiom_guard_free(i8* {dp})"));
+        let box_i8 = self.fresh_tmp();
+        self.emitln(&format!("  {box_i8} = bitcast %struct.Vec* {boxed} to i8*"));
+        self.emitln(&format!("  call void @xiom_guard_free(i8* {box_i8})"));
+        self.emitln(&format!("  br label %{after_blk}"));
+        self.emitln(&format!("\n{after_blk}:"));
+    }
+
+    /// Named result of `collect_owned_vec_locals` for this function, consulted
+    /// before emitting a binding's drop glue.
+    pub(crate) fn unused_local(&self, name: &str) -> bool {
+        self.fctx.unused_locals.contains(name)
     }
 
     /// True when a `%struct.Vec` binding is an owned/private reclamation

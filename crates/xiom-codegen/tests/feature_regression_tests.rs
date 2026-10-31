@@ -8314,6 +8314,67 @@ fn main() -> Int { return use_v(); }
 }
 
 #[test]
+fn m375_dead_removed_vec_element_is_freed() {
+    // `let gone = v.remove(0)` boxes the removed Vec element. When `gone` is
+    // never used, its data buffer and box are dead at the binding; the
+    // container's exit drop only walks the current len, so this is the only
+    // owner (p_remove).
+    let source = r#"
+fn use_v() -> Int {
+  var outer = Vec[Vec[UInt8]].new();
+  let inner = Vec[UInt8].with_len(16);
+  outer.push(inner);
+  let gone = outer.remove(0);
+  return outer.len();
+}
+fn main() -> Int { return use_v(); }
+"#;
+    let ir = compile(source).expect("m375: dead removed element must compile");
+    let body = ir
+        .split("define i64 @use_v()")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("use_v body");
+    assert!(
+        body.contains("dead_remove_free"),
+        "a dead removed element must be freed at the binding:\n{ir}"
+    );
+    assert!(
+        body.matches("call void @xiom_guard_free").count() >= 3,
+        "the removed element data + box and the container buffer must be freed:\n{ir}"
+    );
+}
+
+#[test]
+fn m375_used_removed_vec_element_stays_leak_only() {
+    // Control: a consumed removal result is NOT freed at the binding (its
+    // payload is transferred to the match arm; that path stays leak-only).
+    let source = r#"
+fn use_v() -> Int {
+  var outer = Vec[Vec[UInt8]].new();
+  let inner = Vec[UInt8].with_len(16);
+  outer.push(inner);
+  let gone = outer.remove(0);
+  match gone {
+    Some(x) => { return x.len(); },
+    None => { return 0; },
+  }
+}
+fn main() -> Int { return use_v(); }
+"#;
+    let ir = compile(source).expect("m375: used removed element must compile");
+    let body = ir
+        .split("define i64 @use_v()")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("use_v body");
+    assert!(
+        !body.contains("dead_remove_free"),
+        "a consumed removal result must not be freed at the binding:\n{ir}"
+    );
+}
+
+#[test]
 fn m1552_by_ref_fn_value_still_compiles() {
     let source = r#"
 fn gt(p: &(Int, Int)) -> Bool { return p.0 > 5; }

@@ -462,6 +462,9 @@ pub struct FunctionContext {
     /// Subset of `str_rebind_safe` that is NOT returned: the buffer owned at
     /// scope exit (the last fresh assignment) is freed by an exit drop.
     pub str_rebind_exit: HashSet<String>,
+    /// Single-declaration locals never referenced after their binding. A dead
+    /// boxed `Vec.remove`/`pop` result is freed at the binding site.
+    pub unused_locals: HashSet<String>,
     /// Per-local rebind bookkeeping: (i8* slot holding the currently owned
     /// pointer, i1 owned flag). Created lazily on the first owned value.
     pub str_rebind_state: HashMap<String, (String, String)>,

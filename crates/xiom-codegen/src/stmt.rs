@@ -938,6 +938,13 @@ impl IrEmitter {
                 // m375: an `#[owns_return]` aggregate binding (editor frame)
                 // drops each Vec field at the binding's scope exit.
                 self.register_aggregate_drops(&name.name, &alloca, &llvm_ty);
+                // m375 removal slice: a provably-dead boxed `remove`/`pop`
+                // result owns its element; free the Vec data + box now.
+                if llvm_ty == "%struct.Option" && self.unused_local(&name.name)
+                    && self.boxed_removal_vec_payload(value).is_some()
+                {
+                    self.emit_dead_boxed_vec_payload(&alloca);
+                }
                 // m368: own-and-private Vec bindings are reclaimed on exit.
                 self.add_local(&name.name, alloca, &llvm_ty);
                 // Check invariants if the value is a struct with invariants
@@ -1427,6 +1434,13 @@ impl IrEmitter {
                 // m375: an `#[owns_return]` aggregate binding (editor frame)
                 // drops each Vec field at the binding's scope exit.
                 self.register_aggregate_drops(&name.name, &alloca, &llvm_ty);
+                // m375 removal slice: a provably-dead boxed `remove`/`pop`
+                // result owns its element; free the Vec data + box now.
+                if llvm_ty == "%struct.Option" && self.unused_local(&name.name)
+                    && self.boxed_removal_vec_payload(value).is_some()
+                {
+                    self.emit_dead_boxed_vec_payload(&alloca);
+                }
                 // m368: own-and-private Vec bindings are reclaimed on exit.
                 self.add_local(&name.name, alloca, &llvm_ty);
                 // Check invariants if the value is a struct with invariants
