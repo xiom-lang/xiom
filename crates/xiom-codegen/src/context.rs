@@ -458,6 +458,9 @@ pub struct FunctionContext {
     /// Str locals whose fresh-to-fresh rebinds may free the replaced owned
     /// buffer (single declaration, never alias-escaped except by `return`).
     pub str_rebind_safe: HashSet<String>,
+    /// Subset of `str_rebind_safe` that is NOT returned: the buffer owned at
+    /// scope exit (the last fresh assignment) is freed by an exit drop.
+    pub str_rebind_exit: HashSet<String>,
     /// Per-local rebind bookkeeping: (i8* slot holding the currently owned
     /// pointer, i1 owned flag). Created lazily on the first owned value.
     pub str_rebind_state: HashMap<String, (String, String)>,

@@ -8147,6 +8147,120 @@ fn main() -> Int { return use_v(); }
 }
 
 #[test]
+fn m375_by_value_vec_arg_to_reader_keeps_caller_drop() {
+    // A by-value Vec parameter is a shallow header. A callee that only reads
+    // it (len/is_empty/capacity/count) cannot realloc or retain the buffer, so
+    // the caller must keep ownership and free it at scope exit. Pre-fix the
+    // argument escape disarmed the caller drop and the callee never freed the
+    // borrowed param (p_panel_move: 190 KB/iter; p_vecrebind: caller buffer).
+    let source = r#"
+fn read(v: Vec[UInt8]) -> Int { return v.len(); }
+fn usev(bytes: Vec[UInt8]) -> Int {
+  var b = bytes;
+  return read(b);
+}
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(source).expect("m375: reader Vec arg must compile");
+    let usev_body = ir
+        .split("define i64 @usev(%struct.Vec")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("usev body");
+    assert!(
+        usev_body.contains("call void @xiom_guard_free"),
+        "a by-value Vec passed to a reader callee must keep the caller drop:\n{ir}"
+    );
+}
+
+#[test]
+fn m375_by_value_vec_arg_to_writer_stays_leak_only() {
+    // Control: a callee that MUTATES its by-value Vec parameter reallocs the
+    // shared buffer (push/reserve), so the caller must not free it again. The
+    // historical leak-only behavior is preserved.
+    let source = r#"
+fn grow(v: Vec[UInt8]) -> Int {
+  v.push(7);
+  return v.len();
+}
+fn usev(bytes: Vec[UInt8]) -> Int {
+  var b = bytes;
+  return grow(b);
+}
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(source).expect("m375: writer Vec arg must compile");
+    let usev_body = ir
+        .split("define i64 @usev(%struct.Vec")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("usev body");
+    assert!(
+        !usev_body.contains("call void @xiom_guard_free"),
+        "a by-value Vec passed to a mutating callee must stay leak-only:\n{ir}"
+    );
+}
+
+#[test]
+fn m375_str_rebind_local_exit_is_freed() {
+    // A rebind local that is NOT returned still owns its final fresh buffer at
+    // scope exit. The rebind pass frees each REPLACED buffer; without the exit
+    // drop the last one leaks (stdlib str_repeat's `chunk` doubling buffer
+    // leaked ~2 KB per call).
+    let source = r#"
+fn build(n: Int) -> Int {
+  var chunk = "a";
+  var i = 0;
+  while i < n {
+    chunk = str_concat(chunk, chunk);
+    i = i + 1;
+  }
+  return chunk.len();
+}
+fn main() -> Int { return build(4); }
+"#;
+    let ir = compile(source).expect("m375: local Str rebind must compile");
+    let body = ir
+        .split("define i64 @build(")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("build body");
+    assert!(
+        body.matches("call void @xiom_guard_free").count() >= 2,
+        "a non-returned rebind local must free its final buffer at exit:\n{ir}"
+    );
+}
+
+#[test]
+fn m375_returned_str_rebind_is_not_freed_at_exit() {
+    // Control: a returned accumulator transfers its final buffer to the
+    // caller. Only the replaced buffers are freed (no exit drop).
+    let source = r#"
+fn build(n: Int) -> Str {
+  var result = "";
+  var i = 0;
+  while i < n {
+    result = str_concat(result, "x");
+    i = i + 1;
+  }
+  result
+}
+fn main() -> Int { return build(4).len(); }
+"#;
+    let ir = compile(source).expect("m375: returned Str rebind must compile");
+    let body = ir
+        .split("define i8* @build(")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("build body");
+    assert_eq!(
+        body.matches("call void @xiom_guard_free").count(),
+        1,
+        "a returned rebind accumulator must transfer, not free at exit:\n{ir}"
+    );
+}
+
+#[test]
 fn m1552_by_ref_fn_value_still_compiles() {
     let source = r#"
 fn gt(p: &(Int, Int)) -> Bool { return p.0 > 5; }

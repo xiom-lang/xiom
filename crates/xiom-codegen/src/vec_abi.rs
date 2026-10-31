@@ -604,6 +604,32 @@ impl IrEmitter {
         self.emit_vec_value_deep_copy_alloc(vec_val, vec_ty, true)
     }
 
+    /// m375 / REL-20261031-2156 follow-up: confined-block Copy-Out for a Str
+    /// tail. `xiom_guard_copy_str` copies UNCONDITIONALLY, so a Str that is
+    /// already on the main heap (every `xiom_str_from_vec` result from
+    /// `Str.from_cstring`/`str_concat`) is duplicated and the original leaks.
+    /// Reuse the C07 arena-aware promote used for Vec: arena-owned data is
+    /// copied to the main heap, main-heap data is returned unchanged. The
+    /// allocation is plain @malloc inside the helper (the arena is still
+    /// active at this point).
+    pub(crate) fn emit_str_copy_out_if_arena(&mut self, val: &str) -> String {
+        let len = self.fresh_tmp();
+        self.emitln(&format!("  {len} = call i64 @xiom_str_len(i8* {val})"));
+        let n = self.fresh_tmp();
+        self.emitln(&format!("  {n} = add i64 {len}, 1"));
+        let copy = self.fresh_tmp();
+        self.emitln(&format!(
+            "  {copy} = call i8* @xiom_guard_copy_out_if_arena(i8* {val}, i64 {n}, i64 {n})"
+        ));
+        let not_null = self.fresh_tmp();
+        self.emitln(&format!("  {not_null} = icmp ne i8* {copy}, null"));
+        let sel = self.fresh_tmp();
+        self.emitln(&format!(
+            "  {sel} = select i1 {not_null}, i8* {copy}, i8* {val}"
+        ));
+        sel
+    }
+
     /// m318 (REL-20261013-2215-engine): confined-block Copy-Out for an
     /// AGGREGATE tail/return value that holds inline `%struct.Vec` fields.
     /// m309 promoted only a DIRECT `%struct.Vec` tail; a struct-returning fn

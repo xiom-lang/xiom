@@ -6,8 +6,9 @@ Self-contained prompt for the next session. Read this first, then
 ## State
 
 - v0.65.4 is released and must not be re-cut. The fix line is **v0.65.5**.
-- Compiler repo: `E:\xiom-lang\xiom`, main at `dde4739af` (this prompt
-  commits on top). Working tree must stay clean except the pre-existing
+- Compiler repo: `E:\xiom-lang\xiom`, main at `64a7f2398` plus the
+  slice-C commit (`fix(codegen): keep caller Vec ownership across reader
+  calls (m375)`). Working tree must stay clean except the pre-existing
   `.gitignore` change and untracked `m211_listdir_probe/`.
 - No v0.65.5 tag yet. Do not tag until the rebuilt stdlib + engine
   600-frame soak + lane sign-off are green.
@@ -27,9 +28,27 @@ Self-contained prompt for the next session. Read this first, then
 | `e875528ce` | reclaim by-value `Vec[T]` parameter copies | `m375_by_value_vec_param_rebind_is_dropped`; p_vecrebind 403 MB -> flat |
 | `364d19efd` | fresh Str fields of aggregates (deferred scope-exit free), tail-return Str rebind, safe str builders | `m375_struct_fresh_str_field_is_dropped`, `m375_tail_return_str_rebind_is_reclaimed`; p_structstr 364 -> 278 MB |
 | `683c77d5b` | `Vec[Str]` element payload drops | `m375_vec_str_elements_are_dropped`; p_vecstr 402 -> 355 MB; p_panel_move 403 -> 277 MB |
+| `slice C (2026-11-01)` | by-value Vec/aggregate args to reader callees keep the caller drop | `m375_by_value_vec_arg_to_reader_keeps_caller_drop`, `m375_by_value_vec_arg_to_writer_stays_leak_only`; p_panel_move 337/368 -> 5/34 MB; p_vecrebind flat (1.9 GB churn, 5/33 MB) |
 
 Do not revert these. The drop-glue work is conservative by design; do
 not replace it with blind frees.
+
+### Slice C detail (landed this session)
+
+A by-value `Vec[T]` parameter is a shallow header: the caller's data
+buffer is shared. The argument escape used to disarm the caller's drop
+and the callee never freed a borrowed param, so every `read(v)` call
+leaked the caller's buffer (p_panel_move 190 KB/iter). New whole-program
+analysis `fresh_return::collect_byval_vec_readers` marks a function as a
+reader only when EVERY by-value Vec param is used solely as the receiver
+of `len`/`is_empty`/`capacity`/`count`, or as the RHS of a local bind
+(which deep-copies). A reader returning a scalar / carrying nothing keeps
+the caller's ownership; any bare use (return, call arg, assignment,
+element projection) or mutating method (`push`/`reserve`/`remove`/...)
+leaves the historical leak-only behavior. `retaining_callees` (&mut or
+carrying return) still wins. Do not widen the read-only method set to
+element-returning methods (`get`/`first`/`last`) without owning the
+element-alias proof.
 
 ## The memory leak: current model
 
@@ -54,18 +73,18 @@ Two acceptance gates, one compiler slice:
   accumulator;
 - `Vec[Str]` element payloads were never freed.
 
-**Stdlib (open, blocked on stdlib lane):**
-- `stdlib/xiom/string/string.xi:105-124` `str_concat` mallocs `buf`,
-  then `Str.from_cstring(buf)` **copies** it and the malloc input is
-  never freed.
-- `stdlib/xiom/convert/cstring.xi:25-48` `from_cstring` builds a
-  `Vec[UInt8]` and calls `Str::from_utf8(buf)`; the intermediate copy
-  is part of the residual.
-- `str_slice` (:127-148) and other `from_cstring(malloc(...))` sites
-  share the shape.
-- The v0.65.4 stdlib is **precompiled**; the new tail-return rebind and
-  Vec-drop logic are not in `str_repeat`/`from_cstring` until stdlib is
-  rebuilt with `683c77d5b` or later.
+**Stdlib (FIXED on `11fb9b2` / candidate `7d47924`):**
+- `stdlib/xiom/string/string.xi` `str_concat` mallocs `buf`, then
+  `Str.from_cstring(buf)` copies it; all 10 local sites now
+  `free(buf)` after the copy.
+- `stdlib/xiom/convert/cstring.xi` `from_cstring` no longer builds a
+  `Vec[UInt8]` + `from_utf8`; it calls `xiom_str_len` /
+  `xiom_str_from_vec` directly.
+- The compiler half of the same leak remained after the stdlib fix:
+  confined-block Str copy-out duplicated main-heap results. Fixed by
+  `emit_str_copy_out_if_arena` (C07 promote); see the slice list above.
+- Rebuild the paired toolchain on `7d47924` for any further probe
+  numbers; the v0.65.4 precompiled lib is superseded for v0.65.5.
 
 **Proof of the stdlib part:** a temp copy of the v0.65.4 lib with
 
@@ -89,8 +108,14 @@ only; do not ship/rely on it).
 - `REL-20261031-1600-stdlib` — compiler half fixed (`61f9e3b6a`); link
   needs `__fixdfti` family in `stdlib/runtime/fp128_helpers.c`.
 - `REL-20261031-1619-pulse` — fixed (`61f9e3b6a`), pulse re-run arm gate.
-- `REL-20261031-2156-compiler` — **stdlib bug/rebuild ask** for the
-  copy-leak; waiting on stdlib tag/sha. Check this first.
+- `REL-20261031-2156-compiler` — **FIXED + VERIFIED on our side.**
+  Stdlib main `11fb9b2`, candidate `release/v0.65.5-prep` `7d47924`
+  (package 0.65.5, COMPILER_VERSION v0.65.4). The 10
+  `Str.from_cstring(buf)` sites free the input; `from_cstring` uses
+  `xiom_str_len`/`xiom_str_from_vec` directly. Paired-toolchain
+  measurements are in the State/commits sections. Note: the stdlib's
+  quoted compiler `d4d52e0c9` predates `683c77d5b`; our numbers are on
+  the current main + `7d47924`.
 - `REL-20261027-1931-engine` — still open, distinct class; needs the
   original ~44 MB editor `.ll` function body around line 65929 or a
   reduced two-module `load X; store as Y` repro.
@@ -110,11 +135,16 @@ only; do not ship/rely on it).
    git -C E:\xiom-lang\xiom status --short
    git -C E:\xiom-lang\xiom log --oneline -10
    ```
-3. If stdlib has a new tag/sha:
-   - build/retest the probes against the new stdlib;
-   - require p_structstr/p_vecstr/p_mapstr/str_repeat flat or near
-     baseline before the engine soak.
-4. If stdlib has not replied, continue the compiler slices below.
+3. Build the paired toolchain from `C:\Users\lefte\AppData\Local\Temp\kilo\toolchain-7d47924`
+   (bin = this compiler, lib = `E:\xiom-lang\stdlib` at `7d47924`) and
+   re-measure p_structstr/p_vecstr/p_mapstr/str_repeat/p_panel_move.
+   Current numbers (WS/private MB): p_structstr 5/33, p_structstr_small
+   5/33, p_vecstr 9/35, p_strrepeat_iso 5/33, p_panel_move 5/34,
+   p_vecrebind 5/33, p_mapstr 27/55, p_remove 297/313.
+4. Engine rebuild + 600-frame soak on the paired toolchain is the
+   remaining acceptance gate. If engine cannot take the temp toolchain,
+   wait for the v0.65.5 candidate pin.
+5. Continue slices A (Map payloads) and B (removals) below.
 
 ## Remaining compiler slices (in order)
 
@@ -140,15 +170,21 @@ payloads leak. Keep the element tag across `remove`/`swap_remove` and
 drop the removed element at the removal site (or transfer it if used).
 Do not drop an element whose returned value is consumed.
 
-### C. By-value aggregate parameter ownership (`p_panel_move`)
+### C. By-value aggregate parameter ownership (`p_panel_move`) — LANDED
 
-Probe: `...\proj\p_panel_move.xi` (baseline ~190 KB/iter; currently
-403 -> 277 MB peak). The callee frees its deep-copied locals, but the
-caller's fresh P buffers / the callee's by-value aggregate param are
-double-disarmed. Choose exactly one owner: either register the callee's
-by-value aggregate param for aggregate drop, or keep the caller drop.
-Do not do both. The existing `retaining_callees` logic is not sufficient
-for by-value struct params.
+Probe: `...\proj\p_panel_move.xi`. Fixed in the slice-C commit: a
+by-value Vec local passed to a callee proven to only READ its by-value
+Vec params (`len`/`is_empty`/`capacity`/`count`, or a local bind that
+deep-copies) keeps the caller's drop. A callee that mutates (`push`,
+`reserve`, `remove`, ...) or can carry the value out (`&mut` param,
+aggregate-carrying return) still disarms the caller and stays leak-only.
+Measured: p_panel_move 337/368 MB -> **5/34 MB**; p_vecrebind flat
+(30k x 64 KB churn, **5/33 MB**). Reader analysis:
+`fresh_return::collect_byval_vec_readers`; tests
+`m375_by_value_vec_arg_to_reader_keeps_caller_drop` and
+`..._writer_stays_leak_only`. Do not widen the read-only method set to
+element-returning methods (`get`/`first`/`last`) without an element-alias
+proof.
 
 ### D. 1931 alloca/slot type confusion
 
@@ -215,17 +251,20 @@ Full showcase reproduction: `C:\Users\lefte\AppData\Local\Temp\kilo\p1-pre`
   the typed pass proves ownership.
 - `13fc28352` is compile-time only; never claim it as runtime reclaim.
 - The v0.65.4 stdlib is precompiled; compiler drop fixes cannot change
-  it until stdlib rebuilds. `REL-20261031-2156-compiler` is the ask.
+  it. The rebuilt stdlib candidate is `7d47924`; use the paired
+  toolchain. `REL-20261031-2156-compiler` is fixed/verified.
 - The temp patched lib is evidence only.
 - One heavy build at a time (the PC crashed/OOM from concurrent builds).
 - Relay evidence over prose; update the item with before/after slope.
 
 ## Definition of done
 
-1. Stdlib tag/sha with `str_concat`/`from_cstring` ownership fixes and a
-   rebuild on `683c77d5b`+.
+1. Stdlib rebuilt on `7d47924` with `str_concat`/`from_cstring`
+   ownership fixes (done; pin it in the v0.65.5 candidate).
 2. p_structstr, p_vecstr, p_mapstr, p_remove, p_panel_move flat or near
-   baseline (recorded numbers).
+   baseline (recorded numbers). Current: p_structstr 5/33,
+   p_vecstr 9/35, p_panel_move 5/34, p_vecrebind 5/33; p_mapstr 27/55
+   and p_remove 297/313 still open (slices A/B).
 3. Editor 600 frames <2 GB, slope <=0.5 MB/frame.
 4. Engine verifies 2357/1423; orbitdb re-measures m375; benchmark t1
    re-measures ~9.98 MB on v0.65.5.

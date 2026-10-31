@@ -70,6 +70,10 @@ pub struct IrEmitter {
     /// Function leaves that can retain a by-value aggregate argument
     /// (`&mut` parameter or aggregate-carrying return; REL-2110).
     pub retaining_callees: Arc<HashSet<String>>,
+    /// Function leaves whose by-value Vec parameters are only read
+    /// (`len`/`is_empty`/`capacity`/`count`). A caller passing an owned Vec to
+    /// one keeps ownership and drops the buffer at its own scope exit (m375).
+    pub byval_vec_readers: Arc<HashSet<String>>,
     /// Program-global scalar/void-return callee set (built once after
     /// preassign; shared by Arc so the per-function prepass is O(body)).
     pub known_nonretaining: Arc<HashSet<String>>,
@@ -169,6 +173,7 @@ impl IrEmitter {
             fresh_payload_returns: HashSet::new(),
             fresh_aggregate_returns: HashSet::new(),
             retaining_callees: Arc::new(HashSet::new()),
+            byval_vec_readers: Arc::new(HashSet::new()),
             known_nonretaining: Arc::new(HashSet::new()),
             elem_type_vec_fields: Arc::new(HashMap::new()),
             force_main_heap_alloc: false,

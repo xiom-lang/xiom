@@ -6113,13 +6113,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     if last_ty == LLVM_STR_PTR
                         && !last_expr.map_or(false, |e| self.expr_is_pointer(e) || self.binary_ptr_arith(e))
                     {
-                        let copy_tmp = self.fresh_tmp();
-                        self.emitln(&format!("  {copy_tmp} = call i8* @xiom_guard_copy_str(i8* {last})"));
-                        let not_null = self.fresh_tmp();
-                        self.emitln(&format!("  {not_null} = icmp ne i8* {copy_tmp}, null"));
-                        let sel = self.fresh_tmp();
-                        self.emitln(&format!("  {sel} = select i1 {not_null}, i8* {copy_tmp}, i8* {last}"));
-                        last = sel;
+                        last = self.emit_str_copy_out_if_arena(&last);
                     }
                     self.emitln("  call void @xiom_guard_heap_exit()");
                     self.emitln(&format!("  call void @xiom_guard_page_disarm(){GUARD_PAGE_MARK}"));
@@ -6313,13 +6307,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     if last_ty == LLVM_STR_PTR
                         && !last_expr.map_or(false, |e| self.expr_is_pointer(e) || self.binary_ptr_arith(e))
                     {
-                        let copy_tmp = self.fresh_tmp();
-                        self.emitln(&format!("  {copy_tmp} = call i8* @xiom_guard_copy_str(i8* {last})"));
-                        let not_null = self.fresh_tmp();
-                        self.emitln(&format!("  {not_null} = icmp ne i8* {copy_tmp}, null"));
-                        let sel = self.fresh_tmp();
-                        self.emitln(&format!("  {sel} = select i1 {not_null}, i8* {copy_tmp}, i8* {last}"));
-                        last = sel;
+                        last = self.emit_str_copy_out_if_arena(&last);
                     }
                     // m309 (REL-20261011-2320-bindings part 2): the same
                     // arena-owned `%struct.Vec` tail promotion as the

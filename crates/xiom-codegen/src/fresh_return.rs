@@ -590,6 +590,214 @@ pub(crate) fn collect_retaining_callees(program: &Program) -> HashSet<String> {
         .collect()
 }
 
+/// Leaf names of functions whose by-value `Vec[T]` parameters are only READ
+/// (header/length queries), never reallocated or stored anywhere.
+///
+/// A by-value Vec parameter is a shallow header: the caller's data buffer is
+/// shared. A `push`/`insert`/`remove`/`reserve` on the parameter reallocs and
+/// frees that shared buffer, and any bare use (return, call arg, assignment,
+/// element projection) can let the callee retain a pointer into it. Only when
+/// every such param is used solely through `len`/`is_empty`/`capacity`/`count`
+/// may the caller keep ownership and free the buffer at its own scope exit
+/// (m375 p_panel_move / p_vecrebind). Anything else stays leak-only, the
+/// historical conservative behavior.
+pub(crate) fn collect_byval_vec_readers(program: &Program) -> HashSet<String> {
+    let mut groups: HashMap<String, Vec<&FnDecl>> = HashMap::new();
+    collect_fn_groups(&program.items, &mut groups);
+    groups
+        .into_iter()
+        .filter_map(|(leaf, fns)| {
+            if fns.iter().all(|fd| fn_byval_vec_params_read_only(fd)) {
+                Some(leaf)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Methods that read the Vec header only and return a scalar. Element-returning
+/// methods (`get`/`first`/`last`) are deliberately absent: their result can
+/// alias an element the caller's buffer owns.
+const READ_ONLY_VEC_METHODS: &[&str] = &["len", "is_empty", "capacity", "count"];
+
+fn fn_byval_vec_params_read_only(fd: &FnDecl) -> bool {
+    let Some(body) = &fd.body else { return false };
+    let params: HashSet<String> = fd
+        .params
+        .iter()
+        .filter(|p| is_vec_type(&p.ty))
+        .map(|p| p.name.name.clone())
+        .collect();
+    // No by-value Vec parameter: the leaf cannot participate in the
+    // caller-keeps-ownership rule for this analysis.
+    if params.is_empty() {
+        return false;
+    }
+    !block_uses_params_unsafely(body, &params)
+}
+
+/// True when any name in `params` is used somewhere other than as the receiver
+/// of a header-only method. Conservative on purpose: a false positive keeps the
+/// caller's drop disarmed (leak), never a wrong free.
+fn block_uses_params_unsafely(block: &Block, params: &HashSet<String>) -> bool {
+    block.stmts.iter().any(|item| match item {
+        StmtOrExpr::Stmt(stmt) => stmt_uses_params_unsafely(stmt, params),
+        StmtOrExpr::Expr(expr) => expr_uses_params_unsafely(expr, params),
+    })
+}
+
+fn stmt_uses_params_unsafely(stmt: &Stmt, params: &HashSet<String>) -> bool {
+    match stmt {
+        Stmt::Let(_, _, expr, _) | Stmt::Var(_, _, expr, _) => {
+            // `var b = param` deep-copies the Vec header at the binding
+            // (vec_abi::emit_vec_value_deep_copy), so the callee owns a
+            // private buffer and the caller's param buffer is untouched.
+            if let Expr::Ident(id) = expr {
+                if params.contains(&id.name) {
+                    return false;
+                }
+            }
+            expr_uses_params_unsafely(expr, params)
+        }
+        Stmt::Expr(expr, _) | Stmt::Return(Some(expr), _) => {
+            expr_uses_params_unsafely(expr, params)
+        }
+        Stmt::Assign(place, value, _) => {
+            expr_uses_params_unsafely(place, params) || expr_uses_params_unsafely(value, params)
+        }
+        Stmt::If(cond, then_block, elifs, else_block, _) => {
+            expr_uses_params_unsafely(cond, params)
+                || block_uses_params_unsafely(then_block, params)
+                || elifs.iter().any(|(cond, block)| {
+                    expr_uses_params_unsafely(cond, params)
+                        || block_uses_params_unsafely(block, params)
+                })
+                || else_block
+                    .as_ref()
+                    .map_or(false, |block| block_uses_params_unsafely(block, params))
+        }
+        Stmt::Match(scrutinee, arms, _) => {
+            expr_uses_params_unsafely(scrutinee, params)
+                || arms.iter().any(|arm| {
+                    arm.guard
+                        .as_ref()
+                        .map_or(false, |guard| expr_uses_params_unsafely(guard, params))
+                        || match &arm.body {
+                            MatchBody::Block(block) => block_uses_params_unsafely(block, params),
+                            MatchBody::Expr(expr) => expr_uses_params_unsafely(expr, params),
+                        }
+                })
+        }
+        Stmt::While(cond, block, invariant, _, _) => {
+            expr_uses_params_unsafely(cond, params)
+                || invariant
+                    .as_ref()
+                    .map_or(false, |inv| expr_uses_params_unsafely(inv, params))
+                || block_uses_params_unsafely(block, params)
+        }
+        Stmt::For(_, iter, block, _, _) => {
+            expr_uses_params_unsafely(iter, params) || block_uses_params_unsafely(block, params)
+        }
+        Stmt::Spawn(block, _, _) | Stmt::Defer(block, _) => {
+            block_uses_params_unsafely(block, params)
+        }
+        Stmt::Destructure(_, expr, _) => expr_uses_params_unsafely(expr, params),
+        Stmt::Assert(expr, msg, _) => {
+            expr_uses_params_unsafely(expr, params)
+                || msg
+                    .as_ref()
+                    .map_or(false, |msg| expr_uses_params_unsafely(msg, params))
+        }
+        Stmt::Asm(asm_block) => asm_block
+            .inputs
+            .iter()
+            .any(|(_, expr)| expr_uses_params_unsafely(expr, params)),
+        Stmt::Return(None, _) | Stmt::Break(..) | Stmt::Continue(..) | Stmt::Debugger(_) => false,
+    }
+}
+
+fn expr_uses_params_unsafely(expr: &Expr, params: &HashSet<String>) -> bool {
+    match expr {
+        Expr::Ident(id) => params.contains(&id.name),
+        Expr::Paren(inner, _) => expr_uses_params_unsafely(inner, params),
+        Expr::Field(base, method, _) => {
+            if READ_ONLY_VEC_METHODS.contains(&method.name.as_str()) {
+                // Header-only receiver: `v.len()`, `v.is_empty()`. The method
+                // itself cannot realloc or retain the buffer.
+                false
+            } else {
+                expr_uses_params_unsafely(base, params)
+            }
+        }
+        Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => {
+            expr_uses_params_unsafely(func, params)
+                || args.iter().any(|arg| expr_uses_params_unsafely(arg, params))
+        }
+        Expr::Index(base, index, _) => {
+            expr_uses_params_unsafely(base, params)
+                || expr_uses_params_unsafely(index, params)
+        }
+        Expr::Unary(_, inner, _)
+        | Expr::Ref(inner, _)
+        | Expr::MutRef(inner, _)
+        | Expr::Try(inner, _)
+        | Expr::AtPre(inner, _)
+        | Expr::Await(inner, _)
+        | Expr::Comptime(inner, _)
+        | Expr::As(inner, _, _)
+        | Expr::Some(inner, _)
+        | Expr::Ok(inner, _)
+        | Expr::Err(inner, _)
+        | Expr::Is(inner, _, _)
+        | Expr::ConstBlock(inner, _) => expr_uses_params_unsafely(inner, params),
+        Expr::Binary(left, _, right, _) | Expr::Imply(left, right, _) => {
+            expr_uses_params_unsafely(left, params) || expr_uses_params_unsafely(right, params)
+        }
+        Expr::Struct(_, fields, spread, _) => {
+            fields
+                .iter()
+                .any(|(_, value)| expr_uses_params_unsafely(value, params))
+                || spread
+                    .as_ref()
+                    .map_or(false, |spread| expr_uses_params_unsafely(spread, params))
+        }
+        Expr::Array(elems, _) | Expr::Tuple(elems, _) => elems
+            .iter()
+            .any(|elem| expr_uses_params_unsafely(elem, params)),
+        Expr::BlockExpr(block, _) | Expr::Unsafe(block, _) => {
+            block_uses_params_unsafely(block, params)
+        }
+        Expr::Closure(_, _, block, _) => block_uses_params_unsafely(block, params),
+        Expr::PipeClosure(_, body, _) => expr_uses_params_unsafely(body, params),
+        Expr::If(cond, then_block, elifs, else_block, _) => {
+            expr_uses_params_unsafely(cond, params)
+                || block_uses_params_unsafely(then_block, params)
+                || elifs.iter().any(|(cond, block)| {
+                    expr_uses_params_unsafely(cond, params)
+                        || block_uses_params_unsafely(block, params)
+                })
+                || else_block
+                    .as_ref()
+                    .map_or(false, |block| block_uses_params_unsafely(block, params))
+        }
+        Expr::Match(scrutinee, arms, _) => {
+            expr_uses_params_unsafely(scrutinee, params)
+                || arms.iter().any(|arm| {
+                    arm.guard
+                        .as_ref()
+                        .map_or(false, |guard| expr_uses_params_unsafely(guard, params))
+                        || match &arm.body {
+                            MatchBody::Block(block) => block_uses_params_unsafely(block, params),
+                            MatchBody::Expr(expr) => expr_uses_params_unsafely(expr, params),
+                        }
+                })
+        }
+        Expr::None(_) | Expr::Int(..) | Expr::BigInt(..) | Expr::Float(..) | Expr::Str(..)
+        | Expr::Char(..) | Expr::Bool(..) | Expr::Error(..) => false,
+    }
+}
+
 /// A return type that can carry a by-value aggregate argument. Scalars, unit
 /// and Str cannot carry a struct/Vec (Str is a separate pointer payload and is
 /// deliberately excluded so read-only `-> Str` helpers keep the caller drop).

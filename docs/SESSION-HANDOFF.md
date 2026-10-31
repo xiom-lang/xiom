@@ -14,6 +14,62 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-31T22:45Z (m375: reader by-value args + Str copy-out + rebind exit; stdlib 7d47924 FIXED; no tag) -- READ FIRST ***
+- **Stdlib `REL-20261031-2156-compiler` is FIXED/VERIFIED on our side.**
+  Fixes: stdlib main `11fb9b2`, candidate branch
+  `release/v0.65.5-prep` `7d47924` (package 0.65.5, COMPILER_VERSION
+  v0.65.4). All 10 local `Str.from_cstring(buf)` sites copy then
+  `free(buf)`; `from_cstring` calls `xiom_str_len` +
+  `xiom_str_from_vec` directly (no intermediate Vec copy). Evidence on
+  their side: string smokes 56/56, platform/os_args/io_args green;
+  dry-run `41248000167`.
+- **New compiler commits on main (UNRELEASED; v0.65.5 candidates):**
+  1. **slice C** (`fix(codegen): keep caller Vec ownership across
+     reader calls (m375)`) -- `fresh_return::collect_byval_vec_readers`
+     proves a callee's by-value Vec params are only read
+     (`len`/`is_empty`/`capacity`/`count`, or a local bind that
+     deep-copies). The caller keeps its drop; a callee that mutates
+     (`push`/`reserve`/`remove`/...) or can carry the value out
+     (`&mut`, aggregate-carrying return) stays leak-only.
+  2. **Str copy-out** (`fix(codegen): promote only arena-owned Str
+     tails`) -- confined-block copy-out used `xiom_guard_copy_str`
+     unconditionally, duplicating every main-heap
+     `xiom_str_from_vec` result (the `str_concat`/`from_cstring` copy
+     leak). It now uses the existing C07
+     `xiom_guard_copy_out_if_arena(src, len+1, len+1)`.
+  3. **rebind exit** (`fix(codegen): free non-returned Str rebind
+     buffers at scope exit`) -- a rebind local's FINAL fresh buffer was
+     never freed when the local was not returned (stdlib `str_repeat`'s
+     `chunk` doubling buffer, ~2 KB/call). `str_rebind_exit` adds a
+     guarded `VecDrop::Ptr` at scope exit; returned accumulators keep
+     transferring (no exit drop).
+- **Measured with the paired toolchain (this compiler + stdlib
+  `7d47924`), WS/private MB:**
+  - p_structstr 255/259 -> **5/33** (flat); p_structstr_small
+    117/151 -> **5/33**
+  - p_vecstr 329/364 -> **9/35**
+  - p_strrepeat_iso 210/242 -> **5/33** (flat)
+  - p_panel_move 337/368 -> **5/34** (slice C)
+  - p_vecrebind (30k x 64 KB) -> **5/33** (flat)
+  - p_mapstr 125/155 -> **27/55** (Map payloads still compiler-side)
+  - p_remove 287/325 -> **297/313** (unchanged; removal slice)
+- **Tests:** feature_regression 563/563 (new:
+  `m375_by_value_vec_arg_to_reader_keeps_caller_drop`,
+  `..._writer_stays_leak_only`,
+  `m375_str_rebind_local_exit_is_freed`,
+  `m375_returned_str_rebind_is_not_freed_at_exit`); xiom-check
+  214/214; e2e drop/str/global/aggregate/by_value/param/callee/
+  m318/m344/unsafe/guard/confined/return/block all green.
+- **Still open:** Map/Set value payloads (`p_mapstr`, 27/55),
+  removals (`p_remove`, 297/313), enum/aggregate typed Str leaves,
+  1931 (needs the editor `.ll`), the 600-frame engine soak. No v0.65.5
+  tag.
+- **Next action:** engine rebuild against the paired toolchain
+  (`C:\Users\lefte\AppData\Local\Temp\kilo\toolchain-7d47924`) and the
+  600-frame soak (<2 GB, <=0.5 MB/frame); then pin stdlib `7d47924` in
+  the v0.65.5 candidate. Compiler commit: this session's slice commits
+  on main.
+
 *** SESSION UPDATE 2026-10-31T21:55Z (m375 drop glue: Str fields/tail rebind/Vec[Str]; stdlib copy-leak found; no tag) -- READ FIRST ***
 - **New compiler commits on main (UNRELEASED):** `e875528ce` by-value
   `Vec[T]` copies; `364d19efd` fresh Str aggregate fields + tail-return

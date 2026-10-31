@@ -124,6 +124,11 @@ struct ScanState {
     /// (`sim_send_a -> _enqueue(l, p) -> l.q_ab.push(p)`); passing the
     /// aggregate to it transfers ownership even when the callee returns void.
     retaining_callees: Arc<HashSet<String>>,
+    /// Callee leaf names whose by-value `Vec` parameters are only READ
+    /// (len/is_empty/capacity/count). A by-value Vec argument to such a
+    /// callee is a borrowed header: the caller keeps ownership and frees the
+    /// buffer at its own scope exit (m375 p_panel_move / p_vecrebind).
+    byval_vec_readers: Arc<HashSet<String>>,
     /// Str locals with at least one fresh assignment/declaration.
     str_rebind: HashSet<String>,
     /// Str locals used in an escaping context OTHER than `return` (an alias
@@ -149,6 +154,9 @@ pub(crate) struct OwnedLocals {
     /// Single-declaration Str locals eligible for replaced-buffer
     /// reclamation on fresh reassignment (REL-20261028).
     pub str_rebind: HashSet<String>,
+    /// Rebind locals that are not returned: their final owned buffer is freed
+    /// at scope exit (the replaced buffers are already freed at each rebind).
+    pub str_rebind_exit: HashSet<String>,
 }
 
 /// Returns the local names that are owned and private for the function body.
@@ -161,6 +169,7 @@ pub(crate) fn collect_owned_vec_locals(
     elem_type_vec_fields: &Arc<HashMap<String, Vec<String>>>,
     known_nonretaining: &Arc<HashSet<String>>,
     retaining_callees: &Arc<HashSet<String>>,
+    byval_vec_readers: &Arc<HashSet<String>>,
     by_value_vec_params: &HashSet<String>,
 ) -> OwnedLocals {
     let mut state = ScanState::default();
@@ -172,6 +181,7 @@ pub(crate) fn collect_owned_vec_locals(
     state.elem_type_vec_fields = elem_type_vec_fields.clone();
     state.known_nonretaining = known_nonretaining.clone();
     state.retaining_callees = retaining_callees.clone();
+    state.byval_vec_readers = byval_vec_readers.clone();
     scan_block(block, &mut state, true);
     // REL-20261028-1641 follow-up: the function body's trailing expression is
     // its IMPLICIT return value. `scan_block` sees it as a plain expression
@@ -251,6 +261,14 @@ pub(crate) fn collect_owned_vec_locals(
             keep
         })
         .collect();
+    // A rebind local whose final value is NOT returned still owns the last
+    // fresh buffer at scope exit. Free it there; returned locals transfer the
+    // buffer to the caller (and must keep no exit drop).
+    let str_rebind_exit: HashSet<String> = str_rebind
+        .iter()
+        .filter(|name| !state.returned.contains(*name))
+        .cloned()
+        .collect();
     OwnedLocals {
         vec,
         str,
@@ -270,6 +288,7 @@ pub(crate) fn collect_owned_vec_locals(
             .collect(),
         elem,
         str_rebind,
+        str_rebind_exit,
     }
 }
 
@@ -1225,6 +1244,46 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                         continue;
                     }
                 }
+                // m375 / p_panel_move: a by-value Vec local passed to a callee
+                // proven to only READ its by-value Vec params keeps the
+                // caller's ownership. The param ABI is a shallow header (the
+                // callee rebinds it by deep copy when it needs a private one),
+                // and the reader never reallocs/retains it, so the caller must
+                // still free the buffer. Without this the caller's drop was
+                // disarmed by the argument escape and the callee never freed a
+                // borrowed param -> 190 KB/iter (p_panel_move).
+                let byval_reader = !container_store
+                    && !callee_retains
+                    && (!state.in_unsafe
+                        || (state.trust_unsafe && state.in_trusted_unsafe))
+                    && match func.as_ref() {
+                        Expr::Ident(id) => state
+                            .byval_vec_readers
+                            .contains(id.name.rsplit('.').next().unwrap_or(&id.name)),
+                        Expr::Field(_, method, _) => {
+                            state.byval_vec_readers.contains(&method.name)
+                        }
+                        _ => false,
+                    };
+                if byval_reader {
+                    if let Expr::Ident(id) = arg {
+                        // Only an owned Vec binding (fresh ctor/deep copy) or a
+                        // fresh aggregate is safe to keep; the element-tagged
+                        // container is excluded because the callee could mutate
+                        // elements behind the tag's back.
+                        let owned_vec = state
+                            .decls
+                            .get(&id.name)
+                            .map_or(false, |info| info.all_fresh);
+                        let owned_aggregate = state.aggregate.contains(&id.name);
+                        if (owned_vec || owned_aggregate)
+                            && !state.moved.contains(&id.name)
+                            && !state.elem_candidate.contains_key(&id.name)
+                        {
+                            continue;
+                        }
+                    }
+                }
                 scan_expr(arg, UseCtx::Escape, state);
             }
         }
@@ -1675,6 +1734,7 @@ pub(crate) struct VecDropScope {
     safe_aggregate_str: HashMap<String, Vec<String>>,
     safe_elem: HashMap<String, (String, Vec<String>)>,
     safe_str_rebind: HashSet<String>,
+    safe_str_rebind_exit: HashSet<String>,
     str_rebind_state: HashMap<String, (String, String)>,
     by_value_vec_params: HashSet<String>,
     entry_prelude: Vec<String>,
@@ -1700,6 +1760,7 @@ impl IrEmitter {
         let elem_type_vec_fields = self.elem_type_vec_fields.clone();
         let known_nonretaining = self.known_nonretaining.clone();
         let retaining_callees = self.retaining_callees.clone();
+        let byval_vec_readers = self.byval_vec_readers.clone();
         let owned = collect_owned_vec_locals(
             body,
             &fresh,
@@ -1709,6 +1770,7 @@ impl IrEmitter {
             &elem_type_vec_fields,
             &known_nonretaining,
             &retaining_callees,
+            &byval_vec_readers,
             by_value_vec_params,
         );
         self.fctx.vec_drop_safe = owned.vec;
@@ -1717,6 +1779,7 @@ impl IrEmitter {
         self.fctx.aggregate_str_drop_safe = owned.aggregate_str;
         self.fctx.elem_drop_safe = owned.elem;
         self.fctx.str_rebind_safe = owned.str_rebind;
+        self.fctx.str_rebind_exit = owned.str_rebind_exit;
     }
 
     /// A return type that cannot carry a borrowed Vec header: scalar/void.
@@ -1870,6 +1933,7 @@ impl IrEmitter {
         self.fresh_payload_returns = payload;
         self.fresh_aggregate_returns = aggregate;
         self.retaining_callees = Arc::new(crate::fresh_return::collect_retaining_callees(program));
+        self.byval_vec_readers = Arc::new(crate::fresh_return::collect_byval_vec_readers(program));
     }
 
     /// Build the program-global drop-analysis caches ONCE, after the function
@@ -1900,6 +1964,7 @@ impl IrEmitter {
         self.fctx.aggregate_str_drop_safe.clear();
         self.fctx.elem_drop_safe.clear();
         self.fctx.str_rebind_safe.clear();
+        self.fctx.str_rebind_exit.clear();
         self.fctx.str_rebind_state.clear();
         self.fctx.by_value_vec_params.clear();
         self.local.entry_prelude.clear();
@@ -1917,6 +1982,7 @@ impl IrEmitter {
             safe_aggregate_str: std::mem::take(&mut self.fctx.aggregate_str_drop_safe),
             safe_elem: std::mem::take(&mut self.fctx.elem_drop_safe),
             safe_str_rebind: std::mem::take(&mut self.fctx.str_rebind_safe),
+            safe_str_rebind_exit: std::mem::take(&mut self.fctx.str_rebind_exit),
             str_rebind_state: std::mem::take(&mut self.fctx.str_rebind_state),
             by_value_vec_params: std::mem::take(&mut self.fctx.by_value_vec_params),
             entry_prelude: std::mem::take(&mut self.local.entry_prelude),
@@ -1931,6 +1997,7 @@ impl IrEmitter {
         self.fctx.aggregate_str_drop_safe = saved.safe_aggregate_str;
         self.fctx.elem_drop_safe = saved.safe_elem;
         self.fctx.str_rebind_safe = saved.safe_str_rebind;
+        self.fctx.str_rebind_exit = saved.safe_str_rebind_exit;
         self.fctx.str_rebind_state = saved.str_rebind_state;
         self.fctx.by_value_vec_params = saved.by_value_vec_params;
         self.local.entry_prelude = saved.entry_prelude;
@@ -1973,9 +2040,19 @@ impl IrEmitter {
     /// is captured HERE into a hoisted i8* slot so the scope-exit drop never
     /// loads an alloca from a non-dominating if-arm (engine sfr_unique).
     pub(crate)     fn register_str_drop(&mut self, name: &str, alloca: &str, llvm_ty: &str, init: &Expr) {
-        // Reassigned Str locals are managed by the rebind state (old buffer
-        // freed at each replacement); a second exit drop would double free.
+        // Reassigned Str locals free each replaced buffer at the rebind. If
+        // the final value is NOT returned, it is still owned at scope exit:
+        // free it through the same guarded slot (m375 str_repeat's `chunk`
+        // accumulator leaked one buffer per call). A returned local transfers
+        // the final buffer to the caller and must keep no exit drop.
         if self.fctx.str_rebind_safe.contains(name) {
+            if self.fctx.str_rebind_exit.contains(name) {
+                let (slot, flag) = self.str_rebind_state(name);
+                self.fctx.vec_drops.push(VecDrop::Ptr {
+                    data_alloca: slot,
+                    flag,
+                });
+            }
             return;
         }
         if llvm_ty != "i8*"
