@@ -47,8 +47,9 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   until engine verifies the P1 rows.
 - Main now `2b2b51b54`; working tree has only the pre-existing
   `.gitignore` change and untracked `m211_listdir_probe/`.
-- Relay counts: **31 open / 117 acked / 66 fixed / 25 verified / 106
-  closed** (2357-2 moved to fixed; engine verify pending).
+- Relay counts (live 19:05Z): **29 open / 111 acked / 57 fixed / 24
+  verified / 130 closed** (2357-2 moved to fixed; other lanes are closing
+  verified rows concurrently).
 
 *** SESSION UPDATE 2026-10-31T14:10Z (v0.65.4 RELEASED; engine 2357 items OPEN; reduced probe passes) -- READ FIRST ***
 - **v0.65.4 IS LIVE.** Tag `v0.65.4` on `c0104e21e`; release run

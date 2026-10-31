@@ -10,10 +10,10 @@ Verified counts, not a stale snapshot:
 
 | Queue (addressed `to: compiler`) | Count |
 |---|---|
-| open | **31** |
-| acked | **117** |
-| fixed | **66** (awaiting reporter verify) |
-| verified / closed / wontfix | 25 / 106 / 1 |
+| open | **29** |
+| acked | **111** |
+| fixed | **57** (awaiting reporter verify) |
+| verified / closed / wontfix | 24 / 130 / 1 |
 
 The lane view lists **33 open** rows: the 32 above plus the one open
 compiler->all broadcast (`REL-20261030-2343-compiler`, the v0.65.4
