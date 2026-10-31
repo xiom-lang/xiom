@@ -5,26 +5,24 @@ items, and verify them, before the next version.** v0.65.3 is withheld until
 this checklist has zero unexplained `todo` rows and the owner gives GO
 (unless an explicit emergency durable hotfix is ordered).
 
-Updated **2026-10-29T22:30Z** from the live bus after stdlib's verdict and
-the packages b4 fix. Verified counts, not a stale snapshot:
+Updated **2026-10-31T14:10Z** from the live bus after the v0.65.4 release.
+Verified counts, not a stale snapshot:
 
 | Queue (addressed `to: compiler`) | Count |
 |---|---|
-| open | **15** |
-| acked | **110** (44 bug, 10 wishlist, 56 info) |
-| fixed | **64** (awaiting reporter verify) |
-| verified / closed / wontfix | 23 / 103 / 1 |
+| open | **32** |
+| acked | **116** |
+| fixed | **65** (awaiting reporter verify) |
+| verified / closed / wontfix | 25 / 106 / 1 |
 
-The lane view lists **29 open** rows in total: the 15 above plus 14
-compiler->all broadcasts of its own (section E). `1324-orbitdb` is
-**verified + closed by orbitdb** (`ed2f38cff`); `1641-stdlib` and
-`1910-stdlib` are **verified + closed by stdlib** on `605c6a879` (p_wave162
-20/20, UAF witness 20/20, probes 418/418, smokes 963/963, modules 533/533,
-gate9 OK); `1956-stdlib` is closed. `1507-packages` and
-`1415-packages-2` were verified/closed by packages. **ALL FOUR RELEASE
-BLOCKERS (`1324`, `1641`, `1910`, `2110`) ARE VERIFIED + CLOSED.** The
-remaining open rows are the longstanding engine/xvector/benchmark items,
-not release blockers.
+The lane view lists **33 open** rows: the 32 above plus the one open
+compiler->all broadcast (`REL-20261030-2343-compiler`, the v0.65.4
+release announcement). **v0.65.4 is live** (tag `c0104e21e`, run
+`41144793224`, stdlib 0.65.4 at 407c92d). The four release blockers
+(1324/1641/1910/2110) remain verified/closed. New post-release engine
+items are open: `2357-engine` (600-frame soak leak; build fixed, runtime
+reclaim unchanged) and `2357-engine-2` (showcase panel-hook AV; the
+reduced probe passes on v0.65.4, so the real call/IR is the next step).
 
 ```powershell
 cd E:\xiom-lang\xiom-relays

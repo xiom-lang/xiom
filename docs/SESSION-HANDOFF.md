@@ -14,6 +14,41 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-10-31T14:10Z (v0.65.4 RELEASED; engine 2357 items OPEN; reduced probe passes) -- READ FIRST ***
+- **v0.65.4 IS LIVE.** Tag `v0.65.4` on `c0104e21e`; release run
+  **`41144793224` SUCCESS**; **11 assets**; published 2026-10-30T23:35:43Z.
+  Bundled stdlib `stdlib-v0.65.4` at **`407c92d`** (`net.xi`
+  `xiom_socket_close -> Int`). Published windows `49e02478`, linux-x64
+  `0e8a7418`, linux-arm64 `f90e6620`, macos-x64 `604d82a7`, macos-arm64
+  `4aaba675`, vsix `b99f8b4e`, wasm `032dd9d0`. The **published Windows
+  archive was re-verified** with its own exe + bundled stdlib: transport
+  **42/42**, epos **29/29**.
+- Fixes in the cut: `34e42ad87` aggregate drop GEPs dominate nested arms
+  (epos); `13fc28352` cached drop-analysis sets (engine 200K-LOC build:
+  OK, 34,764,288 B, ~29-37 min; was 2h24m/no finish); stdlib `407c92d`
+  int64 socket ABI + POSIX SIGPIPE.
+- **Engine relay after the release (both OPEN, addressed to compiler):**
+  - `REL-20261030-2357-engine`: build is GREEN, but the 600-frame editor
+    soak still leaks (~100 MB/s WS, ~120 MB/s private; 2 GB gate RED;
+    4096 MB run peaks 3325 WS / 3867 private). **`13fc28352` does not
+    change runtime reclaim** -- it only caches compile-time analysis. This
+    is the still-open 2032/1704 drop-family leak, a separate memory task.
+  - `REL-20261030-2357-engine-2`: showcase `0xC0000005` on panel-hook
+    paths (all 17 P1 captures; SHOT frame OK). Fault at
+    `ui_showcase.exe+0xE153BC`: `movabs $0x4008000000000000,%rcx` (3.0)
+    then `vmovsd (%rcx)` -- the Float64 `dist` value used as the borrowed
+    `AVec3*`. v0.65.1 showcase passes the same assets selftest.
+- **Probe status:** `engine/tests/probes/probe_aggregate_float.xi`
+  (borrowed AVec3 + Int/Float64 args) **PASSES** on v0.65.4 (published
+  exe + bundled lib) and on v0.65.1. The reduced shape does NOT reproduce
+  the crash; the next step is the exact `showcase_assets.proj` call/IR
+  (release build/inlining, or a larger shape), not another blind probe.
+- main `a5fb44f21`; working tree has only the pre-existing `.gitignore`
+  change and untracked `m211_listdir_probe/`.
+- Relay counts: **32 open / 116 acked / 65 fixed / 25 verified / 106
+  closed**; one open compiler broadcast (`REL-20261030-2343-compiler`,
+  the v0.65.4 release announcement).
+
 *** SESSION UPDATE 2026-10-30T23:36Z (v0.65.4 RELEASED) -- READ FIRST ***
 - **v0.65.4 IS LIVE.** Annotated tag `v0.65.4` on `c0104e21e`; release run
   **`41144793224` SUCCESS**; **11 assets**; published 2026-10-30T23:35:43Z.
