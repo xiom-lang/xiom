@@ -272,6 +272,24 @@ impl CheckedType {
     }
 
     /// Convert from AST Type to checked type representation
+    /// REL-20261031-1552: preserve `&`/`&mut` inside fn-pointer signatures.
+    /// Value-level `&expr` erasure is unchanged, so direct calls to named
+    /// functions keep their existing ergonomics; only fn-typed annotations
+    /// and bare fn values see the reference modifier.
+    pub(crate) fn fn_param_type(ty: &Type) -> Self {
+        match ty {
+            Type::Ref(inner) => Self::named(format!("&{}", Self::fn_param_type(inner).name())),
+            Type::MutRef(inner) => {
+                Self::named(format!("&mut {}", Self::fn_param_type(inner).name()))
+            }
+            Type::Fn(params, ret) => Self::Fn(
+                params.iter().map(Self::fn_param_type).collect(),
+                Box::new(Self::fn_param_type(ret)),
+            ),
+            other => Self::from_ast_type(other),
+        }
+    }
+
     pub fn from_ast_type(ty: &Type) -> Self {
         match ty {
             Type::Named(ident, _) => Self::from_str(&ident.name),
@@ -319,8 +337,8 @@ impl CheckedType {
                 CheckedType::from_ast_type(elem).name()
             )),
             Type::Fn(params, ret) => CheckedType::Fn(
-                params.iter().map(CheckedType::from_ast_type).collect(),
-                Box::new(CheckedType::from_ast_type(ret)),
+                params.iter().map(CheckedType::fn_param_type).collect(),
+                Box::new(CheckedType::fn_param_type(ret)),
             ),
             Type::ImplTrait(traits) => CheckedType::ImplTrait(
                 traits.iter().map(|t| t.name.clone()).collect(),

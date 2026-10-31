@@ -8042,3 +8042,41 @@ fn main() -> Int {
         "by-value Vec rebind must emit a drop in @usev:\n{ir}"
     );
 }
+
+#[test]
+fn m1552_by_value_fn_is_not_accepted_as_by_ref() {
+    // REL-20261031-1552: a by-value fn parameter and a &T fn parameter have
+    // different ABIs. The checker used to type bare fns as the wildcard
+    // Named("fn") and accept any Fn signature, so g(&p) read the pointer as
+    // the tuple. The coercion must be a type error.
+    let source = r#"
+fn gt(p: (Int, Int)) -> Bool { return p.0 > 5; }
+fn main() -> Int {
+  let p = (1, 10);
+  let g: fn(&(Int, Int)) -> Bool = gt;
+  if g(&p) { return 1; }
+  return 0;
+}
+"#;
+    assert!(
+        compile_checked(source).is_err(),
+        "by-value fn must not be accepted as fn(&T)"
+    );
+}
+
+#[test]
+fn m1552_by_ref_fn_value_still_compiles() {
+    let source = r#"
+fn gt(p: &(Int, Int)) -> Bool { return p.0 > 5; }
+fn main() -> Int {
+  let p = (1, 10);
+  let g: fn(&(Int, Int)) -> Bool = gt;
+  if g(&p) { return 1; }
+  return 0;
+}
+"#;
+    assert!(
+        compile_checked(source).is_ok(),
+        "a real fn(&T) must still bind and be callable with &expr"
+    );
+}

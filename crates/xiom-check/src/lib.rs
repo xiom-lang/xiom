@@ -53,6 +53,10 @@ pub struct Checker {
     current_fn_qual: Option<String>,
     /// Known function signatures
     functions: HashMap<String, FnSig>,
+    /// REL-20261031-1552: bare-function VALUE types with `&`/`&mut` preserved
+    /// in fn-pointer signatures. Separate from `functions` so direct calls
+    /// keep the historical erased-reference ergonomics.
+    fn_value_types: HashMap<String, CheckedType>,
     /// Current function return type
     current_return: Option<CheckedType>,
     /// Local variable types
@@ -402,6 +406,7 @@ impl Checker {
             current_module: None,
             current_fn_qual: None,
             functions: HashMap::new(),
+            fn_value_types: HashMap::new(),
             current_return: None,
             locals: vec![HashMap::new()],
             errors: Vec::new(),
@@ -3134,6 +3139,28 @@ impl Checker {
                     && fd.body.as_ref().map_or(false, |b| Self::block_uses_this(b));
                 let sig = FnSig { params, return_type, generics, uses_implicit_this: uses_this };
                 self.functions.insert(key.clone(), sig.clone());
+                // REL-20261031-1552: bare-function VALUE type with `&`/`&mut`
+                // preserved. Direct calls still use `functions` (erased).
+                let value_ty = CheckedType::Fn(
+                    fd.params
+                        .iter()
+                        .map(|p| CheckedType::fn_param_type(&p.ty))
+                        .collect(),
+                    Box::new(
+                        fd.return_type
+                            .as_ref()
+                            .map(CheckedType::fn_param_type)
+                            .unwrap_or(CheckedType::Unit),
+                    ),
+                );
+                self.fn_value_types.insert(key.clone(), value_ty.clone());
+                if let Some(leaf) = key.rsplit('.').next() {
+                    if leaf != key {
+                        self.fn_value_types
+                            .entry(leaf.to_string())
+                            .or_insert(value_ty);
+                    }
+                }
                 // Also register with bare key as fallback (don't overwrite existing)
                 if key != bare_key {
                     self.functions.entry(bare_key).or_insert(sig.clone());
@@ -8083,8 +8110,8 @@ impl Checker {
             let arg_ty = self.check_expr(arg);
             if i + param_offset < sig.params.len() {
                 let expected = &sig.params[i + param_offset].1;
-                let is_generic = sig.generics.iter().any(|g| g == &expected.name());
-                if !is_generic && !self.types_compatible(&arg_ty, expected) && arg_ty != CheckedType::Error {
+                                    let is_generic = sig.generics.iter().any(|g| g == &expected.name());
+                                    if !is_generic && !self.types_compatible(&arg_ty, expected) && arg_ty != CheckedType::Error {
                     self.error(
                         format!("argument {} type mismatch: expected {}, found {}",
                             i + 1, expected.name(), arg_ty.name()),
@@ -8110,6 +8137,70 @@ impl Checker {
             (key == bound || key_leaf == leaf || key == leaf)
                 && methods.iter().any(|(mn, _, _)| mn == method)
         })
+    }
+
+    /// REL-20261031-1552: bare/qualified function VALUE type. Falls back to
+    /// the historical wildcard `Named("fn")` only when no signature is known
+    /// (builtins/closures).
+    fn fn_value_type_for(&self, name: &str) -> CheckedType {
+        if let Some(ty) = self.fn_value_types.get(name) {
+            return ty.clone();
+        }
+        if let Some(leaf) = name.rsplit('.').next() {
+            if leaf != name {
+                if let Some(ty) = self.fn_value_types.get(leaf) {
+                    return ty.clone();
+                }
+            }
+        }
+        CheckedType::Named("fn".into())
+    }
+
+    /// REL-20261031-1552: compare FN-SIGNATURE parameters strictly on the
+    /// reference modifier. A by-value `T` is not compatible with `&T`, while
+    /// both `&T` spellings match after pointee comparison. Non-reference
+    /// parameters keep the normal (tuple/numeric/alias) compatibility.
+    fn fn_type_param_compatible(&self, found: &CheckedType, expected: &CheckedType) -> bool {
+        fn ref_pointee(ty: &CheckedType) -> Option<String> {
+            if let CheckedType::Named(name) = ty {
+                let n = name.name();
+                if let Some(rest) = n.strip_prefix("&mut ") {
+                    return Some(rest.trim().to_string());
+                }
+                if let Some(rest) = n.strip_prefix('&') {
+                    return Some(rest.trim().to_string());
+                }
+            }
+            None
+        }
+        match (ref_pointee(found), ref_pointee(expected)) {
+            (Some(a), Some(b)) => {
+                self.types_compatible(&CheckedType::named(a), &CheckedType::named(b))
+            }
+            (None, None) => self.types_compatible(found, expected),
+            _ => false,
+        }
+    }
+
+    /// REL-20261031-1552: a fn-value call argument may pass `&expr` to a
+    /// parameter declared `&T`/`&mut T` even though the expression type erases
+    /// the reference. All other combinations use normal compatibility.
+    fn fn_arg_compatible(&self, _arg: &Expr, actual: &CheckedType, expected: &CheckedType) -> bool {
+        if self.types_compatible(actual, expected) {
+            return true;
+        }
+        // Direct calls erase `&T` in the argument position; a correctly typed
+        // fn VALUE must keep the same ergonomics. The dangerous direction
+        // (binding a by-value fn to a `fn(&T)` value) is rejected by the
+        // strict Fn/Fn signature comparison, not here.
+        let expected_name = expected.name();
+        let pointee = expected_name
+            .strip_prefix("&mut ")
+            .or_else(|| expected_name.strip_prefix('&'));
+        if let Some(pointee) = pointee {
+            return self.types_compatible(actual, &CheckedType::named(pointee.trim().to_string()));
+        }
+        false
     }
 
     fn check_expr(&mut self, expr: &Expr) -> CheckedType {
@@ -8142,7 +8233,10 @@ impl Checker {
                             }))
                             .unwrap_or(true))
                 {
-                    CheckedType::Named("fn".into())
+                    // REL-20261031-1552: a bare function VALUE carries its
+                    // real signature (refs preserved), not the wildcard
+                    // Named("fn") that accepted any Fn type.
+                    self.fn_value_type_for(&ident.name)
                 } else if (ident.name == "dbg" || ident.name == "todo" || ident.name == "unimplemented")
                     // BUG 27: debug intrinsics are callable builtins when no
                     // user fn with the name is registered.
@@ -9509,7 +9603,7 @@ impl Checker {
                                             let arg_ty = self.check_expr(arg);
                                             if i < param_types.len() {
                                                 let expected = &param_types[i];
-                                                if !self.types_compatible(&arg_ty, expected) && arg_ty != CheckedType::Error {
+                                                if !self.fn_arg_compatible(arg, &arg_ty, expected) && arg_ty != CheckedType::Error {
                                                     self.error(
                                                         format!("argument {} type mismatch: expected {}, found {}", i + 1, expected.name(), arg_ty.name()),
                                                         *span,
@@ -9609,7 +9703,7 @@ impl Checker {
                         for (i, arg) in args.iter().enumerate() {
                             let arg_ty = self.check_expr(arg);
                             if i < param_types.len()
-                                && !self.types_compatible(&arg_ty, &param_types[i])
+                                && !self.fn_arg_compatible(arg, &arg_ty, &param_types[i])
                                 && arg_ty != CheckedType::Error
                             {
                                 self.error(
@@ -10026,7 +10120,7 @@ impl Checker {
                         let arg_ty = self.check_expr(arg);
                         if i < param_types.len() {
                             let expected = &param_types[i];
-                            if !self.types_compatible(&arg_ty, expected) && arg_ty != CheckedType::Error {
+                            if !self.fn_arg_compatible(arg, &arg_ty, expected) && arg_ty != CheckedType::Error {
                                 self.error(
                                     format!("argument {} type mismatch: expected {}, found {}",
                                         i + 1, expected.name(), arg_ty.name()),
@@ -10918,7 +11012,7 @@ impl Checker {
             (CheckedType::Fn(fp, fr), CheckedType::Fn(ep, er)) => {
                 fp.len() == ep.len()
                     && fp.iter().zip(ep.iter())
-                        .all(|(f, e)| self.types_compatible(f, e))
+                        .all(|(f, e)| self.fn_type_param_compatible(f, e))
                     && self.types_compatible(fr.as_ref(), er.as_ref())
             }
             _ => false,
