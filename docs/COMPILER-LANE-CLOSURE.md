@@ -144,8 +144,8 @@ slope requirement, separate from the stdlib JSON item.
   ref erasure in `CheckedType::from_ast_type` plus the wildcard
   `Named("fn")` compatibility. Proposed fix: preserve `&`/`&mut` in
   fn-pointer signatures, type bare fns with their real signature, and
-  allow `&expr` only for `&T` fn params (reject the coercion). Not fixed
-  yet; stdlib has the witness request.
+  allow `&expr` only for `&T` fn params (reject the coercion).
+  **Fixed in `216a70322`** (see the 19:42 section).
 - **1704 (JSON retention):** confirmed compiler drop glue, not the
   stdlib API: recursive enum/aggregate payloads are never dropped and a
   call-returned fresh `Str` is not a drop candidate. The leak agent owns
@@ -170,8 +170,14 @@ slope requirement, separate from the stdlib JSON item.
   `p_elemstr`/`p_vecstr` (~20 KB/iter), `p_mapstr` (~40 KB/iter),
   `p_remove` (~16 KB/iter). The 600-frame editor rebuild/soak has not
   been rerun; acceptance remains <2 GB and <=0.5 MB/frame. No tag.
-- **1552** is root-caused (checker ref erasure + bare-fn wildcard) but
-  not fixed; the patch direction is in `REL-20261031-1924-compiler`.
+- **1552 fixed in `216a70322`:** checker now preserves `&`/`&mut` in
+  fn-pointer signatures, types bare fns with their real `Fn` value type,
+  and compares Fn/Fn params strictly. `p1552.xi` now fails the let with
+  `annotated fn(&Tuple) -> Bool, found fn(Tuple) -> Bool`; valid by-ref
+  and by-value fn values still compile/run. 214/214 `xiom-check` tests
+  and the catalog corpus pass; regressions
+  `m1552_by_value_fn_is_not_accepted_as_by_ref` /
+  `m1552_by_ref_fn_value_still_compiles`. Relay item marked fixed.
 
 ```powershell
 cd E:\xiom-lang\xiom-relays
