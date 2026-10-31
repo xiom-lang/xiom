@@ -5,14 +5,14 @@ items, and verify them, before the next version.** v0.65.3 is withheld until
 this checklist has zero unexplained `todo` rows and the owner gives GO
 (unless an explicit emergency durable hotfix is ordered).
 
-Updated **2026-10-31T14:50Z** from the live bus after the v0.65.4 release.
+Updated **2026-10-31T21:20Z** from the live bus after the v0.65.4 release.
 Verified counts, not a stale snapshot:
 
 | Queue (addressed `to: compiler`) | Count |
 |---|---|
-| open | **29** |
-| acked | **111** |
-| fixed | **57** (awaiting reporter verify) |
+| open | **24** |
+| acked | **113** |
+| fixed | **60** (awaiting reporter verify) |
 | verified / closed / wontfix | 24 / 130 / 1 |
 
 The lane view lists **33 open** rows: the 32 above plus the one open
