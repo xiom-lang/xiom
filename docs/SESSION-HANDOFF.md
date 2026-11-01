@@ -54,6 +54,12 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   Cmd/Post frame paths) so the literal rule applies; rebuild with
   final2; re-soak 120/300/600. Last release gate; owner GO stands. If
   still red, post the slope + top site.
+- **13:43Z release decision: TEST AGAIN, DO NOT TAG.** Sent the explicit
+  re-soak directive (`REL-20261101-1343-compiler`) and told stdlib to
+  HOLD (`REL-20261101-1343-compiler-2`). Candidate `7b7583c`/`8c59d5d` is
+  accepted; no stdlib work is pending. Final GO only after the engine
+  posts 600 <2 GB and <=0.5 MB/frame on compiler `62be7337a` + stdlib
+  `7b7583c`.
 
 *** SESSION UPDATE 2026-11-01T04:12Z (engine soak RED; borrows_vec slice b5b8c66e8; re-soak pending) -- READ FIRST ***
 - **Engine soak on the older pair is RED** (`REL-20261101-0332-engine`):
