@@ -46,6 +46,15 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   `m375_consumes_str_literal_arg_stays_leak_only`); xiom-check 214/214;
   e2e map/container/drop/str/guard/confined/return/param/aggregate/
   m318/m344 green.
+- **OWNER GO (relayed 2026-11-01T02:01Z):** v0.65.5 may be tagged and
+  published once the leak gate is green; no further owner approval is
+  needed. Gate = stdlib update-path frees + compiler witness flat +
+  engine 600/120 soak green. Relayed to stdlib in
+  `REL-20261101-0201-compiler`; the conditional sequence is
+  `REL-20261101-0144-compiler`.
+- **30-min relay watch** scheduled (`*/30 * * * *`) to check engine soak
+  and the stdlib candidate; it posts the final GO when both gates are
+  green and will not swap `toolchain-7d47924` mid-build.
 
 *** SESSION UPDATE 2026-10-31T23:45Z (m375: typed Str element leaves + dead removal payloads flat; Map remains) -- READ FIRST ***
 - **`e86989f46`** `fix(codegen): drop typed Str leaves of container

@@ -120,6 +120,14 @@ only; do not ship/rely on it).
   measurements are in the State/commits sections. Note: the stdlib's
   quoted compiler `d4d52e0c9` predates `683c77d5b`; our numbers are on
   the current main + `7d47924`.
+- `REL-20261101-0201-compiler` — **OWNER GO relayed to stdlib:**
+  v0.65.5 may be tagged/published once the leak gate is green (stdlib
+  update-path frees + compiler witness flat + engine 600/120 soak). No
+  further owner approval needed. `REL-20261101-0144-compiler` has the
+  condition sequence.
+- A 30-minute relay watch (`*/30 * * * *`) is scheduled in the session
+  that filed the GO; it checks engine + stdlib and posts the final GO when
+  both gates are green.
 - `REL-20261031-2243-compiler` — engine checkpoint soak ask: rebuild the
   editor on compiler `f537b1b14` + stdlib `7d47924` (paired toolchain
   path in the item) and run 300/600 frames under 2 GB. Interim, not the
