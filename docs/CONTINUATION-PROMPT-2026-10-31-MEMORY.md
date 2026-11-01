@@ -168,6 +168,14 @@ only; do not ship/rely on it).
   (`vulkan_scene_submit_panel_frame`, `vulkan_scene_present`,
   `vulkan_scene_submit_multi_panel_frame`, Cmd/Post paths) and re-soak.
   Last gate; no tag yet.
+- `REL-20261101-1515-engine` — **final2 + zero-legacy soak STILL RED**
+  (~2.9 MB/frame; 600 killed 2050/2498) with the UI path OFF; the
+  atlas-px/inline-literal sites are cleared. Residual is non-UI. Probes
+  ruled out aggregate rebind and aggregate return. Engine asked for a
+  120-frame bisect of (1) menu/state struct returns/assignments, (2)
+  rstore/eds writes, (3) scene/world/terrain/physics updates, (4) buffer
+  upload temps, (5) remaining command/render temps. Take the next slice
+  once the group is named.
 - `REL-20261027-1931-engine` — **wontfix** (parked buffer-reuse WIP; the
   shipping v0.65.4 `.ll` verifies with opt). Reopen only if restored.
 - `REL-20261101-0427-engine` — **acked, queued after the memory gate:**
@@ -351,10 +359,11 @@ Full showcase reproduction: `C:\Users\lefte\AppData\Local\Temp\kilo\p1-pre`
    p_vecstr 9/35, p_panel_move 5/34, p_vecrebind 5/33, p_elemstr 5/33,
    p_remove flat (50k long: 4/34); p_mapstr insert and one-map update
    both 5/34 on `7b7583c` `_owned` (borrowing controls leak-only).
-3. Editor 600 frames <2 GB, slope <=0.5 MB/frame. Current engine soak on
-   the pre-final2 pair is RED (~2.9 MB/frame, 600 killed at 2 GB).
-   Re-soak with the outer frame wrappers annotated on
-   `toolchain-v0655-final2` (compiler `62be7337a`) is the last gate.
+3. Editor 600 frames <2 GB, slope <=0.5 MB/frame. Final2 + zero-legacy
+   is still RED (~2.9 MB/frame, 600 killed 2050/2498) with UI OFF; the
+   atlas-px and inline-literal sites are cleared. The residual is a
+   non-UI per-frame aggregate/Vec lifetime; engine is bisecting the loop
+   groups (1515). Compiler takes the next slice once named.
 4. `p_ffi_vec_borrow` control 20/49 -> flat (`b5b8c66e8`);
    `p_canvas_px` flat, `p_inline_agg` 20/50 -> 0/0, `p_frame_literal`
    0/0 with 4 frees (`62be7337a`).

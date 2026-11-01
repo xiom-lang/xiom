@@ -67,6 +67,24 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   `vulkan_scene_submit_post_frame`); editor rebuild running
   (`build/editor_final3.log`); 120/300/600 shell-off + shell/canvas
   controls next; numbers on `REL-20261101-1343-compiler`.
+- **FINAL2 + ZERO-LEGACY SOAK STILL RED (`REL-20261101-1515-engine`):**
+  engine main `3886476` + zero-legacy `9781544`, binary 31.8 MB (legacy UI
+  unlinked). 120 = 580/993 MB, 300 = 1079/1495, 600 = KILLED 2050/2498;
+  slope **2.77 -> 3.24 WS / 2.79 -> 3.34 private MB/frame**. UI is OFF
+  (`canvas=0`, legacy=0), so the atlas-px and inline-frame-literal fixes
+  are NOT on this path. The residual is a non-UI per-frame aggregate/Vec
+  lifetime.
+  - Ruled out by probes on final2: aggregate local rebind (`var s = p`,
+    shallow/flat) and aggregate return bound by the caller (flat without
+    `#[owns_return]`).
+  - Asked engine for a 120-frame bisect of: (1) menu/state struct returns
+    and `st.x = func(st.x)` assignments (`gmenu/vp_ctx/gside/graph/
+    abrowse`); (2) `rstore`/`prop_instance_add`/`st.eds` writes;
+    (3) scene/world/terrain/physics update blocks; (4) buffer-upload
+    temps (`ed_vp_model_bytes` -> `vulkan_rhi_buffer_update`); (5)
+    command/render temps not on the retired UI path. A heap trace with the
+    top allocation stack is the alternative. Compiler will take the next
+    slice once the group is named. **No tag; stdlib hold.**
 
 *** SESSION UPDATE 2026-11-01T04:12Z (engine soak RED; borrows_vec slice b5b8c66e8; re-soak pending) -- READ FIRST ***
 - **Engine soak on the older pair is RED** (`REL-20261101-0332-engine`):
