@@ -14,6 +14,45 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-11-01T04:12Z (engine soak RED; borrows_vec slice b5b8c66e8; re-soak pending) -- READ FIRST ***
+- **Engine soak on the older pair is RED** (`REL-20261101-0332-engine`):
+  toolchain-7d47924 (compiler 2e8193e2b; its lib junction had moved to
+  stdlib `de9407e`, so not a frozen 7d47924). 120 = 683/1116 MB,
+  300 = 1333/1789, 600 = KILLED at 2 GB (2066/2570); **~2.9 MB/frame
+  WS / ~3.0 private**, target <=0.5. The shell crash is separate
+  (2357-2; `XIOM_EDITOR_SHELL_UI=1` at frame 1). Soak numbers are with
+  `XIOM_EDITOR_SHELL_UI=0`.
+- **Cause isolated:** the per-frame Vulkan UI batches are filled through
+  `&mut` builders (`vulkan_ui_rect/text/text_clip/tex`) and submitted by
+  value (`vk_scene_submit_core` f_uiv/f_icons/f_Uiv/f_ovv). Every `&mut`
+  callee is classified retaining, so the caller's `uv/uvo/iv` drop is
+  disarmed and the grown buffer leaks each frame (~2.9 MB). The
+  container-Str/removal/Map slices do not touch this path.
+- **New compiler slice `b5b8c66e8`:** `#[borrows_vec]` contract -- the
+  callee may mutate/read a Vec arg during the call but never retains the
+  header. The compiler keeps caller ownership for `&mut`/`&` Vec args and
+  by-value Vec locals, overriding the `&mut`/retaining classification.
+  Probe `p_ffi_vec_borrow` (20k x 1KB builder + pointer-export submit):
+  control **20/49 MB -> annotated flat**. Tests
+  `m375_borrows_vec_keeps_caller_drop`,
+  `m375_no_borrows_vec_stays_leak_only`; feature 571/571, check 214/214,
+  e2e drop/param/aggregate/container/str/guard/return/unsafe/confined/
+  m318/m344 green.
+- **Immutable final-pair toolchain:**
+  `C:\Users\lefte\AppData\Local\Temp\kilo\toolchain-v0655-final`
+  - compiler `b5b8c66e8`, sha256
+    `211B45D0CBB93781A62AB6A66A52D7F32F2B463DB780455EA4341B984F688911`
+  - lib = immutable extracted stdlib `7b7583c` (code; main `ec9af22`),
+    not a live junction. `PAIR.txt` describes it; `doctor` = v0.65.5.
+  - Do NOT use `toolchain-7d47924` (its lib junction moved to `de9407e`).
+- **Engine action (`REL-20261101-0411-compiler`):** annotate the six
+  functions (`vulkan_ui_rect/text/text_clip/tex`, `vk_scene_submit_core`,
+  `vulkan_rhi_buffer_update`) plus any other per-frame non-retaining Vec
+  builder/submit, rebuild with `toolchain-v0655-final`, re-soak
+  120/300/600. Last release gate; owner GO stands
+  (`REL-20261101-0201-compiler`). **No tag.** Final GO on `0144` when
+  green.
+
 *** SESSION UPDATE 2026-11-01T02:32Z (stdlib update-path GREEN on 7b7583c; only engine soak remains) -- READ FIRST ***
 - **Stdlib candidate `7b7583c` (main `ec9af22`) closes the update-path
   leak safely:** added `string.str_free`; the existing `*_put` functions
