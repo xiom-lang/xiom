@@ -192,14 +192,17 @@ only; do not ship/rely on it).
   A/B vs base 581/993, then 300/600 if the render delta drops, else the
   buffer-upload/submit/present sub-split.
 - A/B result: 581/993 -> **562/977** (-19 MB, ~0.16 MB/frame); builders
-  are NOT the dominant cause (1853). Engine added SKIP_UPLOADS /
-  SKIP_SUBMIT on `0396677`; 19:33Z four-case 120 names upload vs submit.
-  Compiler probe `p_rhi_shape` (D with Vec field, fresh payload,
-  `#[borrows_vec] update(d,bytes)->D`, `d=update(d,b)` per iter) is
-  **0/0 flat**; the upload call shape is not a codegen leak. If
-  SKIP_UPLOADS drops the slope, inspect the engine Vulkan
-  staging/buffer/memory create-free lifetime; if SKIP_SUBMIT, the
-  submit/present resources.
+  are NOT the dominant cause (1853).
+- **Submit/present split (1934):** SKIP_UPLOADS ~0; **SKIP_SUBMIT -153 MB
+  (~1.28 MB/frame)**; both same as submit. The 7 buffer updates are not
+  the leak; it is `vulkan_scene_submit_panel_frame_ui` /
+  `vulkan_scene_present` -> `vk_scene_submit_core`. Compiler probes
+  `p_rhi_shape` and the exact `zbuf(n)` helper are **0/0 flat** (zbuf even
+  without `#[owns_return]`), so the 31 zbuf locals are not it. This is
+  engine resource lifetime (staging/command/descriptor/semaphore/fence/
+  image-view), not codegen; engine is auditing and will fix in engine
+  code, no compiler change requested. Residual ~1.2 MB/frame with
+  uploads+submit skipped is a separate group for the next split.
 - `REL-20261027-1931-engine` — **wontfix** (parked buffer-reuse WIP; the
   shipping v0.65.4 `.ll` verifies with opt). Reopen only if restored.
 - `REL-20261101-0427-engine` — **acked, queued after the memory gate:**

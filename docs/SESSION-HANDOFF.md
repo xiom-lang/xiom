@@ -136,6 +136,19 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   Vulkan staging/buffer/memory create-free lifetime, not codegen; if
   SKIP_SUBMIT, the submit/present resource path. No compiler change until
   the named site.
+- **Submit/present split (`REL-20261101-1934-engine`):** SKIP_UPLOADS ~0
+  (562/981 vs base 561/976); **SKIP_SUBMIT -153 MB (~1.28 MB/frame)**;
+  both the same as submit. The 7 `vulkan_rhi_buffer_update` calls are NOT
+  the leak; the leak is `vulkan_scene_submit_panel_frame_ui` /
+  `vulkan_scene_present` -> `vk_scene_submit_core`. Compiler also probed
+  the exact `zbuf(n)` helper (Vec.new + push loop, bound per iteration,
+  `#[borrows_vec]` callee): **0/0 flat without `#[owns_return]`** - the
+  31 small zbuf locals in submit-core are not it. Combined with
+  `p_rhi_shape` flat, this is engine resource lifetime (staging/command/
+  descriptor/semaphore/fence/image-view), not codegen. Engine is auditing
+  and will fix in engine code; **no compiler change requested**. The
+  residual ~1.2 MB/frame with uploads+submit skipped is a separate group
+  for the next split. **No tag; stdlib hold.**
 
 *** SESSION UPDATE 2026-11-01T04:12Z (engine soak RED; borrows_vec slice b5b8c66e8; re-soak pending) -- READ FIRST ***
 - **Engine soak on the older pair is RED** (`REL-20261101-0332-engine`):
