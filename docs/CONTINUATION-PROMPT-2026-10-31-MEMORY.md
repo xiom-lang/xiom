@@ -372,6 +372,9 @@ Full showcase reproduction: `C:\Users\lefte\AppData\Local\Temp\kilo\p1-pre`
 - The temp patched lib is evidence only.
 - One heavy build at a time (the PC crashed/OOM from concurrent builds).
 - Relay evidence over prose; update the item with before/after slope.
+- Relay item notes must be pure ASCII. Em dashes/arrows get mojibake'd
+  through the CLI and fail `relay.py validate` (fixed in `5f9c3de` for
+  items 332/1343-2/1804; use `-`, `->`, and plain quotes).
 
 ## Definition of done
 
