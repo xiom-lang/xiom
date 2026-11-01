@@ -14,6 +14,32 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-11-01T22:20Z (engine 600 hard gate GREEN; slope 0.53 only miss; JSON triage) -- READ FIRST ***
+- **Engine vrebind gate (compiler a28cb352a + stdlib 7b7583c + trace/present workaround):**
+  120 = 448/859 MB, 300 = 540/955, **600 = 696/1115 MB, exit 0 all**
+  (`REL-20261031-2243` / `1934` history). The **hard <2 GB gate is GREEN**
+  (old build was killed at 2050/2498).
+- **Only miss: slope 0.53 MB/frame** vs the <=0.5 criterion (120->600 and
+  300->600 agree). Present contributes a constant ~170 MB (skip-submit
+  slope flat); the residual is in the non-present loop.
+- **Prime suspect:** `xgc_mark -> xg_stringify` re-serializes the graph
+  every frame (per-frame JSON tree + string temporaries). Engine is
+  applying an **xg stamp** fix to skip the per-frame serialization; next
+  is a main-tree validation build and 120/300/600.
+- **JSON 1704 triage (compiler a28cb352a + 7b7583c):**
+  `p_json_1704_obj` at 100k = **406/444 MB**, still linear (~4 KB/iter);
+  `main` has **0 drops** for the builder, stringify Str, or parse Result.
+  Distinct JsonValue/enum + Map[Str,JsonValue] + Result[JsonValue] +
+  arbitrary Str-return ownership slice, not the Map/Set payload slice.
+  Queued as its own m375 slice; `#[owns_return]` on JSON builders and a
+  future `#[owns_str]` help, but the tree/parse payload needs a compiler
+  enum/Map drop. **Do not** add `#[consumes_str]` to builder.put for
+  literal keys.
+- Relay: `REL-20261101-2218-compiler` (engine: 600 green, proceed with
+  xg stamp; if 0.53 remains, owner decision), `2308` triage. **No tag;
+  stdlib hold.** If the xg stamp does not land, the owner decides whether
+  600 <2 GB with a bounded 0.53 slope is acceptable.
+
 *** SESSION UPDATE 2026-11-01T13:32Z (engine leaks isolated; compiler 62be7337a fixes canvas px + inline frame literals) -- READ FIRST ***
 - **Engine numbers (`REL-20261101-1314-engine`):** legacy shell-off
   120 = 683/1121, 300 = 1332/1795, 600 = killed 2071/2575 (~2.9/3.0
