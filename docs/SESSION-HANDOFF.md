@@ -52,6 +52,14 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   120/300/600. Last release gate; owner GO stands
   (`REL-20261101-0201-compiler`). **No tag.** Final GO on `0144` when
   green.
+- **Intermediate re-soak (engine 06:33Z):** the six annotations ALONE did
+  not move the slope: 120 = 683/1115 MB, 300 = 1331/1797, 600 = killed
+  2054/2556; still ~2.9 MB/frame. The editor's per-frame UI path also
+  goes through `vulkan_scene_submit_panel_frame_ui` and
+  `vulkan_rhi_param_upload` (both previously unannotated); engine
+  annotated them in `26d35d5` and is rebuilding on the immutable final
+  pair. Next numbers pending. If still red, engine will post the top
+  allocation site.
 
 *** SESSION UPDATE 2026-11-01T02:32Z (stdlib update-path GREEN on 7b7583c; only engine soak remains) -- READ FIRST ***
 - **Stdlib candidate `7b7583c` (main `ec9af22`) closes the update-path

@@ -152,6 +152,11 @@ only; do not ship/rely on it).
   builders) with `#[borrows_vec]` (`b5b8c66e8`), rebuild with the
   immutable `toolchain-v0655-final` (compiler `b5b8c66e8`, lib stdlib
   `7b7583c` extracted), re-soak 120/300/600. Last release gate.
+  Engine 06:33Z: the six annotations alone did not move the slope
+  (120 683/1115, 300 1331/1797, 600 killed 2054/2556; ~2.9 MB/frame).
+  Found two more per-frame functions
+  (`vulkan_scene_submit_panel_frame_ui`, `vulkan_rhi_param_upload`),
+  annotated in engine `26d35d5`, rebuilding; next numbers pending.
 - `REL-20261027-1931-engine` — **wontfix** (parked buffer-reuse WIP; the
   shipping v0.65.4 `.ll` verifies with opt). Reopen only if restored.
 - `REL-20261101-0427-engine` — **acked, queued after the memory gate:**
