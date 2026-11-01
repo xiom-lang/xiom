@@ -8375,6 +8375,81 @@ fn main() -> Int { return use_v(); }
 }
 
 #[test]
+fn m375_consumes_str_map_payloads_are_freed() {
+    // #[owns_return] ctor + #[consumes_str] mutator: fresh Str args are
+    // moved into the aggregate's Vec[Str] field; the exit drop frees the
+    // element string before the field buffer (p_mapstr).
+    let source = r#"
+type M = { vals: Vec[Str]; n: Int; }
+#[owns_return]
+fn m_new() -> M {
+  var m = M{ vals: Vec[Str].new(); n: 0 };
+  return m;
+}
+#[consumes_str]
+fn m_put(m: &mut M, v: Str) {
+  m.vals.push(v);
+}
+fn use_m() -> Int {
+  var m = m_new();
+  let s = str_repeat("x", 8);
+  m_put(&mut m, s);
+  return 0;
+}
+fn main() -> Int { return use_m(); }
+"#;
+    let ir = compile(source).expect("m375: map contract must compile");
+    let body = ir
+        .split("define i64 @use_m()")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("use_m body");
+    assert!(
+        body.contains("vecdrop_elt_cond"),
+        "contracted Vec[Str] fields need an element-free loop:\n{ir}"
+    );
+    assert!(
+        body.matches("call void @xiom_guard_free").count() >= 2,
+        "the consumed Str and the field buffer must be freed:\n{ir}"
+    );
+}
+
+#[test]
+fn m375_consumes_str_literal_arg_stays_leak_only() {
+    // Control: a literal/borrowed Str arg is not fresh, so the contract does
+    // not apply; the map's Vec[Str] elements must stay leak-only (freeing a
+    // literal would be a UAF/crash).
+    let source = r#"
+type M = { vals: Vec[Str]; n: Int; }
+#[owns_return]
+fn m_new() -> M {
+  var m = M{ vals: Vec[Str].new(); n: 0 };
+  return m;
+}
+#[consumes_str]
+fn m_put(m: &mut M, v: Str) {
+  m.vals.push(v);
+}
+fn use_m() -> Int {
+  var m = m_new();
+  m_put(&mut m, "lit");
+  return 0;
+}
+fn main() -> Int { return use_m(); }
+"#;
+    let ir = compile(source).expect("m375: literal map arg must compile");
+    let body = ir
+        .split("define i64 @use_m()")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("use_m body");
+    assert!(
+        !body.contains("vecdrop_elt_cond"),
+        "a literal/borrowed Str arg must keep the elements leak-only:\n{ir}"
+    );
+}
+
+#[test]
 fn m1552_by_ref_fn_value_still_compiles() {
     let source = r#"
 fn gt(p: &(Int, Int)) -> Bool { return p.0 > 5; }

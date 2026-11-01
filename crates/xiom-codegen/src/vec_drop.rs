@@ -34,6 +34,19 @@ use xiom_ast::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+/// Resolve type aliases to a canonical name for field-type tests.
+fn resolve_alias_name(types: &TypeContext, ty: &str) -> String {
+    let mut cur = ty.trim().to_string();
+    let mut seen = HashSet::new();
+    while let Some(next) = types.type_aliases.get(&cur) {
+        if !seen.insert(cur.clone()) {
+            break;
+        }
+        cur = next.clone();
+    }
+    cur
+}
+
 #[derive(Default)]
 struct VecDeclInfo {
     decls: usize,
@@ -129,6 +142,13 @@ struct ScanState {
     /// callee is a borrowed header: the caller keeps ownership and frees the
     /// buffer at its own scope exit (m375 p_panel_move / p_vecrebind).
     byval_vec_readers: Arc<HashSet<String>>,
+    /// `#[consumes_str]` callees: leaf -> Str parameter indices. A contracted
+    /// call MOVES its fresh Str args into the `&mut` aggregate's owned
+    /// `Vec[Str]` fields (Map/Set put/set/add).
+    consumes_str_callees: Arc<HashMap<String, Vec<usize>>>,
+    /// Fresh aggregate locals that received only contracted + fresh Str
+    /// arguments. Their `Vec[Str]` field elements are freed at scope exit.
+    str_vec_owned: HashSet<String>,
     /// Str locals with at least one fresh assignment/declaration.
     str_rebind: HashSet<String>,
     /// Str locals used in an escaping context OTHER than `return` (an alias
@@ -160,6 +180,9 @@ pub(crate) struct OwnedLocals {
     /// Single-declaration locals never referenced after their binding. Used to
     /// free a dead boxed `remove`/`pop` result at the binding site.
     pub unused: HashSet<String>,
+    /// Fresh aggregates whose owned `Vec[Str]` fields were populated only by
+    /// `#[consumes_str]` calls with fresh Str args. Their elements are freed.
+    pub aggregate_str_vec: HashSet<String>,
 }
 
 /// Returns the local names that are owned and private for the function body.
@@ -173,6 +196,7 @@ pub(crate) fn collect_owned_vec_locals(
     known_nonretaining: &Arc<HashSet<String>>,
     retaining_callees: &Arc<HashSet<String>>,
     byval_vec_readers: &Arc<HashSet<String>>,
+    consumes_str_callees: &Arc<HashMap<String, Vec<usize>>>,
     by_value_vec_params: &HashSet<String>,
 ) -> OwnedLocals {
     let mut state = ScanState::default();
@@ -185,6 +209,7 @@ pub(crate) fn collect_owned_vec_locals(
     state.known_nonretaining = known_nonretaining.clone();
     state.retaining_callees = retaining_callees.clone();
     state.byval_vec_readers = byval_vec_readers.clone();
+    state.consumes_str_callees = consumes_str_callees.clone();
     scan_block(block, &mut state, true);
     // REL-20261028-1641 follow-up: the function body's trailing expression is
     // its IMPLICIT return value. `scan_block` sees it as a plain expression
@@ -219,6 +244,19 @@ pub(crate) fn collect_owned_vec_locals(
                 && !state.returned.contains(*name)
         })
         .map(|(name, _)| name.clone())
+        .collect();
+    // Contract proof: a fresh aggregate whose only uses were contracted
+    // `#[consumes_str]` calls (with fresh Str args) or safe borrow reads. Any
+    // escape/move/return disqualifies the element free (leak-only).
+    let aggregate_str_vec: HashSet<String> = state
+        .str_vec_owned
+        .into_iter()
+        .filter(|name| {
+            single_decl.contains(name)
+                && !state.escaping.contains(name)
+                && !state.moved.contains(name)
+                && !state.returned.contains(name)
+        })
         .collect();
     let vec: HashSet<String> = state
         .decls
@@ -308,6 +346,7 @@ pub(crate) fn collect_owned_vec_locals(
         str_rebind,
         str_rebind_exit,
         unused: unused_locals,
+        aggregate_str_vec,
     }
 }
 
@@ -1257,7 +1296,62 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                 ),
                 _ => false,
             };
-            for arg in args {
+            // REL-20261031-2337-compiler: `#[consumes_str]` (Map/Set
+            // put/set/add) moves fresh Str args into the `&mut` aggregate's
+            // owned Vec[Str] fields. Accept only a fresh `#[owns_return]`
+            // aggregate whose Str args are fresh; mark both sides and record
+            // the aggregate for element drops. Any other use (escape, return,
+            // unknown call) disqualifies it at finalize (leak-only).
+            let consumes_leaf = match func.as_ref() {
+                Expr::Ident(id) => Some(id.name.rsplit('.').next().unwrap_or(&id.name)),
+                Expr::Field(_, method, _) => Some(method.name.as_str()),
+                _ => None,
+            };
+            let mut consumed_str_indices: HashSet<usize> = HashSet::new();
+            let mut consumed_agg_index: Option<usize> = None;
+            if let Some(indices) = consumes_leaf
+                .and_then(|leaf| state.consumes_str_callees.get(leaf).cloned())
+            {
+                if let Some((agg_idx, agg_name)) = args.iter().enumerate().find_map(|(i, a)| {
+                    match a {
+                        Expr::Ref(inner, _) | Expr::MutRef(inner, _) => match inner.as_ref() {
+                            Expr::Ident(id) if state.aggregate.contains(&id.name) => {
+                                Some((i, id.name.clone()))
+                            }
+                            _ => None,
+                        },
+                        _ => None,
+                    }
+                }) {
+                    let all_fresh = indices.iter().all(|&i| {
+                        args.get(i).map_or(false, |a| {
+                            is_fresh_str_init(a)
+                                || matches!(a, Expr::Ident(id)
+                                    if state.str_decls.get(&id.name).map_or(false, |d| d.all_fresh)
+                                        && !state.escaping.contains(&id.name)
+                                        && !state.moved.contains(&id.name)
+                                        && state.decl_block.get(&id.name)
+                                            == Some(&state.cur_block))
+                        })
+                    });
+                    if all_fresh {
+                        state.str_vec_owned.insert(agg_name);
+                        consumed_agg_index = Some(agg_idx);
+                        for &i in &indices {
+                            consumed_str_indices.insert(i);
+                            if let Some(Expr::Ident(id)) = args.get(i) {
+                                state.moved.insert(id.name.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            for (arg_index, arg) in args.iter().enumerate() {
+                if consumed_agg_index == Some(arg_index)
+                    || consumed_str_indices.contains(&arg_index)
+                {
+                    continue;
+                }
                 if safe_str_callee {
                     scan_expr(arg, UseCtx::SafeBase, state);
                     continue;
@@ -1816,6 +1910,7 @@ pub(crate) struct VecDropScope {
     safe_str: HashSet<String>,
     safe_aggregate: HashSet<String>,
     safe_aggregate_str: HashMap<String, Vec<String>>,
+    safe_aggregate_str_vec: HashSet<String>,
     safe_elem: HashMap<String, (String, Vec<String>)>,
     safe_str_rebind: HashSet<String>,
     safe_str_rebind_exit: HashSet<String>,
@@ -1846,6 +1941,7 @@ impl IrEmitter {
         let known_nonretaining = self.known_nonretaining.clone();
         let retaining_callees = self.retaining_callees.clone();
         let byval_vec_readers = self.byval_vec_readers.clone();
+        let consumes_str_callees = self.consumes_str_callees.clone();
         let owned = collect_owned_vec_locals(
             body,
             &fresh,
@@ -1856,12 +1952,14 @@ impl IrEmitter {
             &known_nonretaining,
             &retaining_callees,
             &byval_vec_readers,
+            &consumes_str_callees,
             by_value_vec_params,
         );
         self.fctx.vec_drop_safe = owned.vec;
         self.fctx.str_drop_safe = owned.str;
         self.fctx.aggregate_drop_safe = owned.aggregate;
         self.fctx.aggregate_str_drop_safe = owned.aggregate_str;
+        self.fctx.aggregate_str_vec_safe = owned.aggregate_str_vec;
         self.fctx.elem_drop_safe = owned.elem;
         self.fctx.str_rebind_safe = owned.str_rebind;
         self.fctx.str_rebind_exit = owned.str_rebind_exit;
@@ -2030,6 +2128,8 @@ impl IrEmitter {
         self.fresh_aggregate_returns = aggregate;
         self.retaining_callees = Arc::new(crate::fresh_return::collect_retaining_callees(program));
         self.byval_vec_readers = Arc::new(crate::fresh_return::collect_byval_vec_readers(program));
+        self.consumes_str_callees =
+            Arc::new(crate::fresh_return::collect_str_consuming_callees(program));
     }
 
     /// Build the program-global drop-analysis caches ONCE, after the function
@@ -2058,6 +2158,7 @@ impl IrEmitter {
         self.fctx.str_drop_safe.clear();
         self.fctx.aggregate_drop_safe.clear();
         self.fctx.aggregate_str_drop_safe.clear();
+        self.fctx.aggregate_str_vec_safe.clear();
         self.fctx.elem_drop_safe.clear();
         self.fctx.str_rebind_safe.clear();
         self.fctx.str_rebind_exit.clear();
@@ -2077,6 +2178,7 @@ impl IrEmitter {
             safe_str: std::mem::take(&mut self.fctx.str_drop_safe),
             safe_aggregate: std::mem::take(&mut self.fctx.aggregate_drop_safe),
             safe_aggregate_str: std::mem::take(&mut self.fctx.aggregate_str_drop_safe),
+            safe_aggregate_str_vec: std::mem::take(&mut self.fctx.aggregate_str_vec_safe),
             safe_elem: std::mem::take(&mut self.fctx.elem_drop_safe),
             safe_str_rebind: std::mem::take(&mut self.fctx.str_rebind_safe),
             safe_str_rebind_exit: std::mem::take(&mut self.fctx.str_rebind_exit),
@@ -2093,6 +2195,7 @@ impl IrEmitter {
         self.fctx.str_drop_safe = saved.safe_str;
         self.fctx.aggregate_drop_safe = saved.safe_aggregate;
         self.fctx.aggregate_str_drop_safe = saved.safe_aggregate_str;
+        self.fctx.aggregate_str_vec_safe = saved.safe_aggregate_str_vec;
         self.fctx.elem_drop_safe = saved.safe_elem;
         self.fctx.str_rebind_safe = saved.safe_str_rebind;
         self.fctx.str_rebind_exit = saved.safe_str_rebind_exit;
@@ -2478,10 +2581,15 @@ impl IrEmitter {
                     .map(|(_, meta)| meta)
             });
         let Some(meta) = meta else { return; };
-        for (idx, _) in meta.fields.iter().enumerate() {
+        for (idx, field) in meta.fields.iter().enumerate() {
             if self.field_llvm_type(&type_name, idx) != "%struct.Vec" {
                 continue;
             }
+            // Contracted Map/Set: this Vec[Str] field's elements are owned by
+            // the aggregate (the #[consumes_str] call moved them in). Free
+            // each string before the field buffer.
+            let elem_is_str = self.fctx.aggregate_str_vec_safe.contains(name)
+                && resolve_alias_name(&self.types, &field.1) == "Vec[Str]";
             // REL-20261030-1540-bindings (epos): the field GEP must be
             // computed HERE, at registration, where the struct alloca
             // dominates; a GEP emitted at the drop block can be in a
@@ -2504,6 +2612,7 @@ impl IrEmitter {
             self.fctx.vec_drops.push(VecDrop::Aggregate {
                 data_gep,
                 flag: flag.clone(),
+                elem_is_str,
             });
             self.emitln(&format!("  store i1 true, i1* {flag}"));
         }
@@ -2557,10 +2666,96 @@ impl IrEmitter {
         self.emitln(&format!("  store i1 true, i1* {flag}"));
     }
 
+    /// Free each owned element payload of a Vec before its data buffer.
+    /// `vec_ptr` is the `%struct.Vec*` header; `data_ptr` is its loaded data
+    /// pointer. Used for plain `Vec[T]` element tags and for contracted
+    /// Map/Set `Vec[Str]` aggregate fields.
+    fn emit_elem_free_loop(
+        &mut self,
+        data_ptr: &str,
+        vec_ptr: &str,
+        e: &crate::context::ElemDrop,
+    ) {
+        let len_gep = self.fresh_tmp();
+        let len = self.fresh_tmp();
+        self.emitln(&format!(
+            "  {len_gep} = getelementptr %struct.Vec, %struct.Vec* {vec_ptr}, i32 0, i32 1"
+        ));
+        self.emitln(&format!("  {len} = load i64, i64* {len_gep}"));
+        let idx_slot = self.fresh_tmp();
+        self.emitln(&format!("  {idx_slot} = alloca i64"));
+        self.emitln(&format!("  store i64 0, i64* {idx_slot}"));
+        let cond = self.fresh_block("vecdrop_elt_cond");
+        let body = self.fresh_block("vecdrop_elt_body");
+        let done = self.fresh_block("vecdrop_elt_done");
+        self.emitln(&format!("  br label %{cond}"));
+        self.emitln(&format!("\n{cond}:"));
+        let i = self.fresh_tmp();
+        let more = self.fresh_tmp();
+        self.emitln(&format!("  {i} = load i64, i64* {idx_slot}"));
+        self.emitln(&format!("  {more} = icmp ult i64 {i}, {len}"));
+        self.emitln(&format!("  br i1 {more}, label %{body}, label %{done}"));
+        self.emitln(&format!("\n{body}:"));
+        let off = self.fresh_tmp();
+        let ep = self.fresh_tmp();
+        let epc = self.fresh_tmp();
+        self.emitln(&format!("  {off} = mul i64 {i}, {}", e.stride));
+        self.emitln(&format!(
+            "  {ep} = getelementptr i8, i8* {data_ptr}, i64 {off}"
+        ));
+        self.emitln(&format!(
+            "  {epc} = bitcast i8* {ep} to {}*",
+            e.llvm_ty
+        ));
+        if e.elem_is_str {
+            let dp = self.fresh_tmp();
+            self.emitln(&format!("  {dp} = load i8*, i8** {epc}"));
+            self.emitln(&format!("  call void @xiom_guard_free(i8* {dp})"));
+        } else if e.elem_is_vec {
+            let dgp = self.fresh_tmp();
+            let dp = self.fresh_tmp();
+            self.emitln(&format!(
+                "  {dgp} = getelementptr %struct.Vec, %struct.Vec* {epc}, i32 0, i32 0"
+            ));
+            self.emitln(&format!("  {dp} = load i8*, i8** {dgp}"));
+            self.emitln(&format!("  call void @xiom_guard_free(i8* {dp})"));
+        } else {
+            for path in &e.paths {
+                let mut cur = epc.clone();
+                let mut cur_ty = e.llvm_ty.clone();
+                for (idx, fty) in path {
+                    let fp = self.fresh_tmp();
+                    self.emitln(&format!(
+                        "  {fp} = getelementptr {cur_ty}, {cur_ty}* {cur}, i32 0, i32 {idx}"
+                    ));
+                    cur = fp;
+                    cur_ty = fty.clone();
+                }
+                if cur_ty == "i8*" {
+                    let dp = self.fresh_tmp();
+                    self.emitln(&format!("  {dp} = load i8*, i8** {cur}"));
+                    self.emitln(&format!("  call void @xiom_guard_free(i8* {dp})"));
+                } else {
+                    let dgp = self.fresh_tmp();
+                    let dp = self.fresh_tmp();
+                    self.emitln(&format!(
+                        "  {dgp} = getelementptr %struct.Vec, %struct.Vec* {cur}, i32 0, i32 0"
+                    ));
+                    self.emitln(&format!("  {dp} = load i8*, i8** {dgp}"));
+                    self.emitln(&format!("  call void @xiom_guard_free(i8* {dp})"));
+                }
+            }
+        }
+        let next = self.fresh_tmp();
+        self.emitln(&format!("  {next} = add i64 {i}, 1"));
+        self.emitln(&format!("  store i64 {next}, i64* {idx_slot}"));
+        self.emitln(&format!("  br label %{cond}"));
+        self.emitln(&format!("\n{done}:"));
+    }
+
     /// Emit the pending Vec deallocations (LIFO). Safe to emit on every return
     /// path: the drop flag has already been cleared on paths that ran this.
-    pub(crate) fn compile_vec_drops(&mut self) -> Result<(), String> {
-        if self.fctx.vec_drops.is_empty() {
+    pub(crate) fn compile_vec_drops(&mut self) -> Result<(), String> {        if self.fctx.vec_drops.is_empty() {
             return Ok(());
         }
         let drops = self.fctx.vec_drops.clone();
@@ -2614,88 +2809,7 @@ impl IrEmitter {
                     // re-read here, so pushes/reallocs after the binding are
                     // reflected. Owned elements only (prepass proven).
                     if let Some(e) = elem {
-                        let len_gep = self.fresh_tmp();
-                        let len = self.fresh_tmp();
-                        self.emitln(&format!(
-                            "  {len_gep} = getelementptr %struct.Vec, %struct.Vec* {alloca}, i32 0, i32 1"
-                        ));
-                        self.emitln(&format!("  {len} = load i64, i64* {len_gep}"));
-                        let idx_slot = self.fresh_tmp();
-                        self.emitln(&format!("  {idx_slot} = alloca i64"));
-                        self.emitln(&format!("  store i64 0, i64* {idx_slot}"));
-                        let cond = self.fresh_block("vecdrop_elt_cond");
-                        let body = self.fresh_block("vecdrop_elt_body");
-                        let done = self.fresh_block("vecdrop_elt_done");
-                        self.emitln(&format!("  br label %{cond}"));
-                        self.emitln(&format!("\n{cond}:"));
-                        let i = self.fresh_tmp();
-                        let more = self.fresh_tmp();
-                        self.emitln(&format!("  {i} = load i64, i64* {idx_slot}"));
-                        self.emitln(&format!("  {more} = icmp ult i64 {i}, {len}"));
-                        self.emitln(&format!(
-                            "  br i1 {more}, label %{body}, label %{done}"
-                        ));
-                        self.emitln(&format!("\n{body}:"));
-                        let off = self.fresh_tmp();
-                        let ep = self.fresh_tmp();
-                        let epc = self.fresh_tmp();
-                        self.emitln(&format!(
-                            "  {off} = mul i64 {i}, {}",
-                            e.stride
-                        ));
-                        self.emitln(&format!(
-                            "  {ep} = getelementptr i8, i8* {data_ptr}, i64 {off}"
-                        ));
-                        self.emitln(&format!(
-                            "  {epc} = bitcast i8* {ep} to {}*",
-                            e.llvm_ty
-                        ));
-                        if e.elem_is_str {
-                            let dp = self.fresh_tmp();
-                            self.emitln(&format!("  {dp} = load i8*, i8** {epc}"));
-                            self.emitln(&format!("  call void @xiom_guard_free(i8* {dp})"));
-                        } else if e.elem_is_vec {
-                            let dgp = self.fresh_tmp();
-                            let dp = self.fresh_tmp();
-                            self.emitln(&format!(
-                                "  {dgp} = getelementptr %struct.Vec, %struct.Vec* {epc}, i32 0, i32 0"
-                            ));
-                            self.emitln(&format!("  {dp} = load i8*, i8** {dgp}"));
-                            self.emitln(&format!("  call void @xiom_guard_free(i8* {dp})"));
-                        } else {
-                            for path in &e.paths {
-                                let mut cur = epc.clone();
-                                let mut cur_ty = e.llvm_ty.clone();
-                                for (idx, fty) in path {
-                                    let fp = self.fresh_tmp();
-                                    self.emitln(&format!(
-                                        "  {fp} = getelementptr {cur_ty}, {cur_ty}* {cur}, i32 0, i32 {idx}"
-                                    ));
-                                    cur = fp;
-                                    cur_ty = fty.clone();
-                                }
-                                if cur_ty == "i8*" {
-                                    // Typed Str leaf: `cur` is the i8** field
-                                    // slot; free the owned string pointer.
-                                    let dp = self.fresh_tmp();
-                                    self.emitln(&format!("  {dp} = load i8*, i8** {cur}"));
-                                    self.emitln(&format!("  call void @xiom_guard_free(i8* {dp})"));
-                                } else {
-                                    let dgp = self.fresh_tmp();
-                                    let dp = self.fresh_tmp();
-                                    self.emitln(&format!(
-                                        "  {dgp} = getelementptr %struct.Vec, %struct.Vec* {cur}, i32 0, i32 0"
-                                    ));
-                                    self.emitln(&format!("  {dp} = load i8*, i8** {dgp}"));
-                                    self.emitln(&format!("  call void @xiom_guard_free(i8* {dp})"));
-                                }
-                            }
-                        }
-                        let next = self.fresh_tmp();
-                        self.emitln(&format!("  {next} = add i64 {i}, 1"));
-                        self.emitln(&format!("  store i64 {next}, i64* {idx_slot}"));
-                        self.emitln(&format!("  br label %{cond}"));
-                        self.emitln(&format!("\n{done}:"));
+                        self.emit_elem_free_loop(&data_ptr, alloca, e);
                     }
                     data_ptr
                 }
@@ -2709,9 +2823,29 @@ impl IrEmitter {
                     self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_alloca}"));
                     data_ptr
                 }
-                VecDrop::Aggregate { data_gep, .. } => {
+                VecDrop::Aggregate {
+                    data_gep,
+                    elem_is_str,
+                    ..
+                } => {
                     let data_ptr = self.fresh_tmp();
                     self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_gep}"));
+                    if *elem_is_str {
+                        // Contracted Map/Set Vec[Str] field: the elements are
+                        // owned Str payloads. Free them before the buffer.
+                        let vec_ptr = self.fresh_tmp();
+                        self.emitln(&format!(
+                            "  {vec_ptr} = bitcast i8** {data_gep} to %struct.Vec*"
+                        ));
+                        let e = crate::context::ElemDrop {
+                            llvm_ty: "i8*".to_string(),
+                            stride: 8,
+                            elem_is_vec: false,
+                            elem_is_str: true,
+                            paths: Vec::new(),
+                        };
+                        self.emit_elem_free_loop(&data_ptr, &vec_ptr, &e);
+                    }
                     data_ptr
                 }
             };

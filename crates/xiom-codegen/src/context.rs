@@ -361,6 +361,9 @@ pub enum VecDrop {
         /// from it at drop time so growth/realloc is seen.
         data_gep: String,
         flag: String,
+        /// Contracted Map/Set `Vec[Str]` field: free each owned element
+        /// string before the field's data buffer.
+        elem_is_str: bool,
     },
 }
 
@@ -484,6 +487,10 @@ pub struct FunctionContext {
     /// m375: aggregate local -> freshly-owned Str field names to free at
     /// scope exit. Only leaves proven fresh at the binding are listed.
     pub aggregate_str_drop_safe: HashMap<String, Vec<String>>,
+    /// Fresh aggregates whose owned `Vec[Str]` fields were populated only by
+    /// `#[consumes_str]` calls with fresh Str args (Map/Set put). The field
+    /// elements are freed before the field buffers at scope exit.
+    pub aggregate_str_vec_safe: HashSet<String>,
 }
 
 // ============================================================================

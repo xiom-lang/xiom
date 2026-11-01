@@ -74,6 +74,10 @@ pub struct IrEmitter {
     /// (`len`/`is_empty`/`capacity`/`count`). A caller passing an owned Vec to
     /// one keeps ownership and drops the buffer at its own scope exit (m375).
     pub byval_vec_readers: Arc<HashSet<String>>,
+    /// `#[consumes_str]` callees: leaf -> Str parameter indices. A contracted
+    /// call moves fresh Str args into the `&mut` aggregate's owned Vec[Str]
+    /// fields (Map/Set put).
+    pub consumes_str_callees: Arc<HashMap<String, Vec<usize>>>,
     /// Program-global scalar/void-return callee set (built once after
     /// preassign; shared by Arc so the per-function prepass is O(body)).
     pub known_nonretaining: Arc<HashSet<String>>,
@@ -174,6 +178,7 @@ impl IrEmitter {
             fresh_aggregate_returns: HashSet::new(),
             retaining_callees: Arc::new(HashSet::new()),
             byval_vec_readers: Arc::new(HashSet::new()),
+            consumes_str_callees: Arc::new(HashMap::new()),
             known_nonretaining: Arc::new(HashSet::new()),
             elem_type_vec_fields: Arc::new(HashMap::new()),
             force_main_heap_alloc: false,

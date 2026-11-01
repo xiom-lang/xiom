@@ -255,6 +255,54 @@ pub(crate) fn fn_has_owns_return(fd: &FnDecl) -> bool {
         .any(|a| matches!(a.name.name.as_str(), "owns_return" | "fresh_return"))
 }
 
+/// `#[consumes_str]` contract (REL-20261031-2337-compiler): on a successful
+/// call, every `Str` parameter is MOVED into an owned `Vec[Str]` field of the
+/// `&mut` aggregate argument. Map/Set `put`/`set`/`add` use this. Returns
+/// leaf -> the parameter indices that are `Str`; a leaf is only accepted when
+/// every same-leaf function carries the attribute and agrees on those
+/// positions (conservative).
+pub(crate) fn collect_str_consuming_callees(program: &Program) -> HashMap<String, Vec<usize>> {
+    let mut groups: HashMap<String, Vec<&FnDecl>> = HashMap::new();
+    collect_fn_groups(&program.items, &mut groups);
+    let mut out = HashMap::new();
+    for (leaf, fns) in groups {
+        if fns.is_empty() || !fns.iter().all(|fd| fn_has_consumes_str(fd)) {
+            continue;
+        }
+        let indices: Vec<usize> = fns[0]
+            .params
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| is_str_param_type(&p.ty))
+            .map(|(i, _)| i)
+            .collect();
+        if indices.is_empty() {
+            continue;
+        }
+        if fns.iter().all(|fd| {
+            indices
+                .iter()
+                .all(|&i| fd.params.get(i).map_or(false, |p| is_str_param_type(&p.ty)))
+        }) {
+            out.insert(leaf, indices);
+        }
+    }
+    out
+}
+
+pub(crate) fn fn_has_consumes_str(fd: &FnDecl) -> bool {
+    fd.attributes
+        .iter()
+        .any(|a| a.name.name.as_str() == "consumes_str")
+}
+
+fn is_str_param_type(ty: &Type) -> bool {
+    match ty {
+        Type::Named(id, _) => id.name == "Str" || id.name.ends_with(".Str"),
+        _ => false,
+    }
+}
+
 /// The `#[owns_return]` contract in its *sound* form: the attribute is only
 /// honored when the function returns an owning shape (a Vec, a `Result`/
 /// `Option<Vec>` payload, or a named aggregate). An attribute on a raw-pointer
