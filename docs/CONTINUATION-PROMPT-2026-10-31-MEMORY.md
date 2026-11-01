@@ -170,14 +170,18 @@ only; do not ship/rely on it).
   Last gate; no tag yet.
 - `REL-20261101-1515-engine` — **final2 + zero-legacy soak STILL RED**
   (~2.9 MB/frame; 600 killed 2050/2498) with the UI path OFF; the
-  atlas-px/inline-literal sites are cleared. Residual is non-UI. Probes
-  ruled out aggregate rebind and aggregate return. Engine is bisecting
-  the editor loop on the stable QA build with env skip flags (sim/world/
-  terrain, scene, physics, debug draw, script/profiler), 120 frames each;
-  it will post the leaking stage/function on 1515, then do a final QA
-  soak on the fully merged tree (after P2-adapter/networking) with the
-  exact commit. If stage 4 (buffer-upload temps), `#[owns_return]` is
-  already honored for Vec-returning functions; annotate the builder.
+  atlas-px/inline-literal sites are cleared. Residual is non-UI.
+- `REL-20261101-1726-engine` — **120-frame bisect:** render group
+  ~1.46 MB/frame (175/120), shell bodies ~0.23, canvas ~0.18, residual
+  ~1.2 with both skipped. Named render block builds `vp_draws/vp_cast`
+  and `gbytes/sbytes/cb`. **Compiler probe confirmed** a builder returning
+  a local built via `&mut` pushes is not fresh: `p_vec_builder` 21/50 ->
+  5/33 flat with `#[owns_return]`. Engine action: annotate
+  `mesh_to_vertex_bytes_f32`, `mesh_to_index_bytes`,
+  `mesh_to_vertex_bytes`, `ed_vp_grid_bytes`, `ed_vp_model_bytes` (leaf
+  annotation propagates); rebuild final2; measure 120 then 600. Remaining
+  ~1.2 MB/frame needs the next render sub-split (buffer upload vs submit
+  vs present).
 - `REL-20261027-1931-engine` — **wontfix** (parked buffer-reuse WIP; the
   shipping v0.65.4 `.ll` verifies with opt). Reopen only if restored.
 - `REL-20261101-0427-engine` — **acked, queued after the memory gate:**

@@ -96,6 +96,23 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
     Vec-returning functions (`fn_owns_return_transfer`: `Type::Vec`), so a
     fresh `ed_vp_model_bytes`-style builder can be annotated by the engine
     if the bisect points there; the caller then drops the returned Vec.
+- **120-frame group bisect (`REL-20261101-1726-engine`):** render group
+  dominates ~**1.46 MB/frame** (175 MB/120); shell bodies ~0.23, canvas
+  ~0.18; with both skipped a residual ~1.2 MB/frame remains (another
+  group). Named site: render block at `main.xi` ~3007-3175 builds
+  `vp_draws`/`vp_cast` and per-frame `gbytes`/`sbytes`/`cb`, then the
+  panel/present literal.
+- **Cause CONFIRMED by compiler probe:** a Vec builder returning a local
+  built through `&mut` pushes (`var out = Vec.new(); … push(&mut out); …
+  return out`) is not seen as fresh, so the caller's `gbytes`-style local
+  never drops. `p_vec_builder`: **21/50 MB at 20k x 1 KB -> 5/33 flat
+  with `#[owns_return]`**. Action: engine annotates
+  `mesh_to_vertex_bytes_f32`, `mesh_to_index_bytes`,
+  `mesh_to_vertex_bytes`, `ed_vp_grid_bytes`, `ed_vp_model_bytes` (and
+  other per-frame fresh Vec builders); the leaf annotation propagates
+  through the fresh-return fixpoint. Rebuild on final2, measure 120, then
+  600. The remaining ~1.2 MB/frame needs the next render sub-split
+  (buffer upload vs submit vs present). **No tag; stdlib hold.**
 
 *** SESSION UPDATE 2026-11-01T04:12Z (engine soak RED; borrows_vec slice b5b8c66e8; re-soak pending) -- READ FIRST ***
 - **Engine soak on the older pair is RED** (`REL-20261101-0332-engine`):
