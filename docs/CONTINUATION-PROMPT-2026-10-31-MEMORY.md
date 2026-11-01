@@ -154,6 +154,13 @@ only; do not ship/rely on it).
   `7b7583c` extracted), re-soak 120/300/600. Last release gate.
 - `REL-20261027-1931-engine` — **wontfix** (parked buffer-reuse WIP; the
   shipping v0.65.4 `.ll` verifies with opt). Reopen only if restored.
+- `REL-20261101-0427-engine` — **acked, queued after the memory gate:**
+  bare top-level global name collision (`g_layers` in p1_data vs
+  adapters/world); codegen resolved the wrong global and emitted
+  `DataLayerRegistry.len`. Engine workaround `3f48e47` (rename to
+  `g_world_layers`) unblocks QA. Fix: module-qualified global symbols,
+  or reject an ambiguous bare global use with a clear diagnostic; never
+  infer from the wrong global / auto-stub.
 - `2357-engine` — partial compiler fixes; full soak not rerun.
 
 ## First actions next session
