@@ -8450,6 +8450,78 @@ fn main() -> Int { return use_m(); }
 }
 
 #[test]
+fn m375_borrows_vec_keeps_caller_drop() {
+    // #[borrows_vec] contract: an FFI/builder callee may mutate a Vec through
+    // &mut or read a by-value header, but does not retain it. The caller keeps
+    // ownership and drops the frame-local buffer. Without this, every &mut
+    // builder marks the Vec escaping and the per-frame Vulkan UI batches leak
+    // (~2.9 MB/frame in the engine soak).
+    let source = r#"
+#[borrows_vec]
+fn push(out: &mut Vec[UInt8]) {
+  out.push(1);
+}
+#[borrows_vec]
+fn submit(v: Vec[UInt8]) -> Bool {
+  unsafe {
+    let p = v.as_ptr();
+    return p != 0;
+  }
+}
+fn use_v(bytes: Vec[UInt8]) -> Int {
+  var uv = bytes;
+  push(&mut uv);
+  let ok = submit(uv);
+  return 0;
+}
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(source).expect("m375: borrows_vec fixture must compile");
+    let body = ir
+        .split("define i64 @use_v(%struct.Vec")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("use_v body");
+    assert!(
+        body.contains("call void @xiom_guard_free"),
+        "a #[borrows_vec] builder/submit must keep the caller drop:\n{ir}"
+    );
+}
+
+#[test]
+fn m375_no_borrows_vec_stays_leak_only() {
+    // Control: without the contract the &mut builder still disarms the drop.
+    let source = r#"
+fn push(out: &mut Vec[UInt8]) {
+  out.push(1);
+}
+fn submit(v: Vec[UInt8]) -> Bool {
+  unsafe {
+    let p = v.as_ptr();
+    return p != 0;
+  }
+}
+fn use_v(bytes: Vec[UInt8]) -> Int {
+  var uv = bytes;
+  push(&mut uv);
+  let ok = submit(uv);
+  return 0;
+}
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(source).expect("m375: control fixture must compile");
+    let body = ir
+        .split("define i64 @use_v(%struct.Vec")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("use_v body");
+    assert!(
+        !body.contains("call void @xiom_guard_free"),
+        "without #[borrows_vec] the caller drop must stay disarmed:\n{ir}"
+    );
+}
+
+#[test]
 fn m1552_by_ref_fn_value_still_compiles() {
     let source = r#"
 fn gt(p: &(Int, Int)) -> Bool { return p.0 > 5; }

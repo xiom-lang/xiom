@@ -296,6 +296,34 @@ pub(crate) fn fn_has_consumes_str(fd: &FnDecl) -> bool {
         .any(|a| a.name.name.as_str() == "consumes_str")
 }
 
+/// Leaf names of functions with the `#[borrows_vec]` contract: the callee may
+/// MUTATE a `Vec` parameter through a `&mut` reference (or read a by-value
+/// header) during the call, but it does NOT retain the header/data anywhere.
+/// The caller keeps ownership and drops the buffer at its own scope exit.
+/// Used for the engine's per-frame Vulkan UI batch builders/submits, whose
+/// `&mut`/by-value Vec args otherwise disarm the caller drop (REL-20261101-
+/// 0332-engine: ~2.9 MB/frame). All same-leaf functions must carry it.
+pub(crate) fn collect_borrows_vec_callees(program: &Program) -> HashSet<String> {
+    let mut groups: HashMap<String, Vec<&FnDecl>> = HashMap::new();
+    collect_fn_groups(&program.items, &mut groups);
+    groups
+        .into_iter()
+        .filter_map(|(leaf, fns)| {
+            if !fns.is_empty()
+                && fns.iter().all(|fd| {
+                    fd.attributes
+                        .iter()
+                        .any(|a| a.name.name.as_str() == "borrows_vec")
+                })
+            {
+                Some(leaf)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 fn is_str_param_type(ty: &Type) -> bool {
     match ty {
         Type::Named(id, _) => id.name == "Str" || id.name.ends_with(".Str"),

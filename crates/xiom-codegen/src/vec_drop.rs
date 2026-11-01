@@ -146,6 +146,9 @@ struct ScanState {
     /// call MOVES its fresh Str args into the `&mut` aggregate's owned
     /// `Vec[Str]` fields (Map/Set put/set/add).
     consumes_str_callees: Arc<HashMap<String, Vec<usize>>>,
+    /// `#[borrows_vec]` callees: Vec args may be mutated/read during the call
+    /// but are not retained; the caller keeps the drop.
+    borrows_vec_callees: Arc<HashSet<String>>,
     /// Fresh aggregate locals that received only contracted + fresh Str
     /// arguments. Their `Vec[Str]` field elements are freed at scope exit.
     str_vec_owned: HashSet<String>,
@@ -197,6 +200,7 @@ pub(crate) fn collect_owned_vec_locals(
     retaining_callees: &Arc<HashSet<String>>,
     byval_vec_readers: &Arc<HashSet<String>>,
     consumes_str_callees: &Arc<HashMap<String, Vec<usize>>>,
+    borrows_vec_callees: &Arc<HashSet<String>>,
     by_value_vec_params: &HashSet<String>,
 ) -> OwnedLocals {
     let mut state = ScanState::default();
@@ -210,6 +214,7 @@ pub(crate) fn collect_owned_vec_locals(
     state.retaining_callees = retaining_callees.clone();
     state.byval_vec_readers = byval_vec_readers.clone();
     state.consumes_str_callees = consumes_str_callees.clone();
+    state.borrows_vec_callees = borrows_vec_callees.clone();
     scan_block(block, &mut state, true);
     // REL-20261028-1641 follow-up: the function body's trailing expression is
     // its IMPLICIT return value. `scan_block` sees it as a plain expression
@@ -1346,6 +1351,21 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                     }
                 }
             }
+            // `#[borrows_vec]` contract: the callee may mutate/upload through
+            // a Vec reference and read a by-value header, but it never retains
+            // the header. The caller keeps ownership and drops at scope exit.
+            // This is the engine per-frame Vulkan UI batch fix (REL-20261101-
+            // 0332-engine: ~2.9 MB/frame). It deliberately OVERRIDES the
+            // `&mut` => retaining classification; the attribute is the proof.
+            let borrows_vec_callee = match func.as_ref() {
+                Expr::Ident(id) => state
+                    .borrows_vec_callees
+                    .contains(id.name.rsplit('.').next().unwrap_or(&id.name)),
+                Expr::Field(_, method, _) => {
+                    state.borrows_vec_callees.contains(&method.name)
+                }
+                _ => false,
+            };
             for (arg_index, arg) in args.iter().enumerate() {
                 if consumed_agg_index == Some(arg_index)
                     || consumed_str_indices.contains(&arg_index)
@@ -1355,6 +1375,13 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                 if safe_str_callee {
                     scan_expr(arg, UseCtx::SafeBase, state);
                     continue;
+                }
+                if borrows_vec_callee {
+                    if let Expr::Ref(inner, _) | Expr::MutRef(inner, _) = arg {
+                        // Mutated/uploaded during the call only; not retained.
+                        scan_borrow_arg(inner, state);
+                        continue;
+                    }
                 }
                 if callee_retains {
                     if let Expr::Ident(id) = arg {
@@ -1431,18 +1458,19 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                 // disarmed by the argument escape and the callee never freed a
                 // borrowed param -> 190 KB/iter (p_panel_move).
                 let byval_reader = !container_store
-                    && !callee_retains
                     && (!state.in_unsafe
                         || (state.trust_unsafe && state.in_trusted_unsafe))
-                    && match func.as_ref() {
-                        Expr::Ident(id) => state
-                            .byval_vec_readers
-                            .contains(id.name.rsplit('.').next().unwrap_or(&id.name)),
-                        Expr::Field(_, method, _) => {
-                            state.byval_vec_readers.contains(&method.name)
-                        }
-                        _ => false,
-                    };
+                    && (borrows_vec_callee
+                        || (!callee_retains
+                            && match func.as_ref() {
+                                Expr::Ident(id) => state.byval_vec_readers.contains(
+                                    id.name.rsplit('.').next().unwrap_or(&id.name),
+                                ),
+                                Expr::Field(_, method, _) => {
+                                    state.byval_vec_readers.contains(&method.name)
+                                }
+                                _ => false,
+                            }));
                 if byval_reader {
                     if let Expr::Ident(id) = arg {
                         // Only an owned Vec binding (fresh ctor/deep copy) or a
@@ -1942,6 +1970,7 @@ impl IrEmitter {
         let retaining_callees = self.retaining_callees.clone();
         let byval_vec_readers = self.byval_vec_readers.clone();
         let consumes_str_callees = self.consumes_str_callees.clone();
+        let borrows_vec_callees = self.borrows_vec_callees.clone();
         let owned = collect_owned_vec_locals(
             body,
             &fresh,
@@ -1953,6 +1982,7 @@ impl IrEmitter {
             &retaining_callees,
             &byval_vec_readers,
             &consumes_str_callees,
+            &borrows_vec_callees,
             by_value_vec_params,
         );
         self.fctx.vec_drop_safe = owned.vec;
@@ -2130,6 +2160,8 @@ impl IrEmitter {
         self.byval_vec_readers = Arc::new(crate::fresh_return::collect_byval_vec_readers(program));
         self.consumes_str_callees =
             Arc::new(crate::fresh_return::collect_str_consuming_callees(program));
+        self.borrows_vec_callees =
+            Arc::new(crate::fresh_return::collect_borrows_vec_callees(program));
     }
 
     /// Build the program-global drop-analysis caches ONCE, after the function

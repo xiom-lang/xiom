@@ -78,6 +78,10 @@ pub struct IrEmitter {
     /// call moves fresh Str args into the `&mut` aggregate's owned Vec[Str]
     /// fields (Map/Set put).
     pub consumes_str_callees: Arc<HashMap<String, Vec<usize>>>,
+    /// `#[borrows_vec]` callees: they may mutate/read a Vec arg during the
+    /// call but never retain the header. The caller keeps ownership and drops
+    /// the buffer (engine per-frame Vulkan UI batches).
+    pub borrows_vec_callees: Arc<HashSet<String>>,
     /// Program-global scalar/void-return callee set (built once after
     /// preassign; shared by Arc so the per-function prepass is O(body)).
     pub known_nonretaining: Arc<HashSet<String>>,
@@ -179,6 +183,7 @@ impl IrEmitter {
             retaining_callees: Arc::new(HashSet::new()),
             byval_vec_readers: Arc::new(HashSet::new()),
             consumes_str_callees: Arc::new(HashMap::new()),
+            borrows_vec_callees: Arc::new(HashSet::new()),
             known_nonretaining: Arc::new(HashSet::new()),
             elem_type_vec_fields: Arc::new(HashMap::new()),
             force_main_heap_alloc: false,
