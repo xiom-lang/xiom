@@ -14,6 +14,31 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-11-01T02:32Z (stdlib update-path GREEN on 7b7583c; only engine soak remains) -- READ FIRST ***
+- **Stdlib candidate `7b7583c` (main `ec9af22`) closes the update-path
+  leak safely:** added `string.str_free`; the existing `*_put` functions
+  stay the BORROWING API (unannotated, literal-safe, maps stay
+  leak-only); new consuming variants carry `#[consumes_str]`:
+  `string_map_put_owned` (stringmap + intmap) and
+  `string_str_map_put_owned`. On update they free the discarded fresh
+  key and (StringStrMap) the overwritten old value before assigning;
+  on insert the map owns both. Radix annotations removed (literal `''`
+  label seeds would be freed). This is the sound contract.
+- **Verified on compiler `f3e18120a` + `7b7583c`** in a separate
+  toolchain (engine's `toolchain-7d47924` untouched), 5k iters:
+  - `p_mapstr_owned` (insert): flat.
+  - `p_mapstr_shapes_owned` (one map, same key -> update):
+    **8/36 -> 5/34 MB** WS/private (stdlib measured 5.5 WS); near the
+    ~4 KB live payload floor.
+  - Borrowing controls: `p_mapstr` 25/54, `p_mapstr_shapes` 6/34,
+    leak-only, no crash. The split behaves as designed.
+- `REL-20261101-0116-compiler` **verified**. The Map/update-path gate is
+  closed. **Only the engine 600/120 soak remains** (`REL-20261031-2243`;
+  engine acked 02:07Z, rebuild running). Owner GO stands
+  (`REL-20261101-0201-compiler`): no further owner approval once the soak
+  is green. **No tag until then.** Final GO will be posted on
+  `REL-20261101-0144-compiler`.
+
 *** SESSION UPDATE 2026-11-01T01:10Z (Map insert path flat; engine soak running; 1931 parked-WIP) -- READ FIRST ***
 - **`f3e18120a`** `fix(codegen): honor consumes_str for owned Vec[Str]
   aggregate fields (m375)` -- compiler half of the stdlib Map/Set

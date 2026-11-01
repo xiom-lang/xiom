@@ -32,7 +32,7 @@ Self-contained prompt for the next session. Read this first, then
 | `f537b1b14` | reader by-value Vec args keep caller drop; arena-aware Str copy-out; non-returned Str rebind exit free | `m375_by_value_vec_arg_to_reader_keeps_caller_drop`, `..._writer_stays_leak_only`, `m375_str_rebind_local_exit_is_freed`, `m375_returned_str_rebind_is_not_freed_at_exit`; p_panel_move 337/368 -> 5/34 MB; p_structstr 255/259 -> 5/33; p_vecstr 329/364 -> 9/35; p_strrepeat 210/242 -> 5/33; p_vecrebind 5/33 |
 | `e86989f46` | typed `Str` leaves of container elements (`Vec[Struct{Str}]`) | `m375_elem_str_leaf_is_dropped`, `m375_elem_borrowed_str_stays_leak_only`; p_elemstr 15/44 -> 5/33 MB |
 | `2e8193e2b` | removal/reorder tag + dead boxed removed-element free | `m375_dead_removed_vec_element_is_freed`, `m375_used_removed_vec_element_stays_leak_only`; p_remove 297/313 -> flat (50k x 16 KB: 4/34 MB) |
-| `f3e18120a` | `#[consumes_str]` + `#[owns_return]` Map/Set Vec[Str] element drops | `m375_consumes_str_map_payloads_are_freed`, `m375_consumes_str_literal_arg_stays_leak_only`; p_mapstr insert 27/55 -> 5/34 MB; the one-map update witness stays 8/36 MB (stdlib callee must free discarded key/overwritten value) |
+| `f3e18120a` | `#[consumes_str]` + `#[owns_return]` Map/Set Vec[Str] element drops | `m375_consumes_str_map_payloads_are_freed`, `m375_consumes_str_literal_arg_stays_leak_only`; p_mapstr insert 27/55 -> 5/34 MB; update witness 8/36 -> 5/34 on stdlib `7b7583c` `_owned` mutators; borrowing API stays leak-only |
 
 Do not revert these. The drop-glue work is conservative by design; do
 not replace it with blind frees.
@@ -77,7 +77,8 @@ Two acceptance gates, one compiler slice:
   accumulator;
 - `Vec[Str]` element payloads were never freed.
 
-**Stdlib (FIXED on `11fb9b2` / candidate `7d47924`):**
+**Stdlib (candidate `7b7583c`, main `ec9af22`; supersedes the
+`7d47924` copy-leak candidate):**
 - `stdlib/xiom/string/string.xi` `str_concat` mallocs `buf`, then
   `Str.from_cstring(buf)` copies it; all 10 local sites now
   `free(buf)` after the copy.
@@ -87,8 +88,13 @@ Two acceptance gates, one compiler slice:
 - The compiler half of the same leak remained after the stdlib fix:
   confined-block Str copy-out duplicated main-heap results. Fixed by
   `emit_str_copy_out_if_arena` (C07 promote); see the slice list above.
-- Rebuild the paired toolchain on `7d47924` for any further probe
-  numbers; the v0.65.4 precompiled lib is superseded for v0.65.5.
+- Map/Set: `string.str_free`; existing `*_put` is the borrowing API
+  (literal-safe, leak-only); `*_put_owned` carries `#[consumes_str]` and
+  frees discarded keys/overwritten values; radix unannotated.
+- Use `C:\Users\lefte\AppData\Local\Temp\kilo\toolchain-map-7b7583c`
+  (compiler `f3e18120a` + lib extracted at `7b7583c`) for the map
+  probes; keep `toolchain-7d47924` for the engine soak. The v0.65.4
+  precompiled lib is superseded for v0.65.5.
 
 **Proof of the stdlib part:** a temp copy of the v0.65.4 lib with
 
@@ -157,7 +163,8 @@ only; do not ship/rely on it).
    Current numbers (WS/private MB): p_structstr 5/33, p_structstr_small
    5/33, p_vecstr 9/35, p_strrepeat_iso 5/33, p_panel_move 5/34,
    p_vecrebind 5/33, p_elemstr 5/33, p_remove flat (50k long: 4/34),
-   p_mapstr insert 5/34 (update witness 8/36; stdlib callee fix open).
+   p_mapstr insert 5/34, update witness 5/34 (stdlib 7b7583c `_owned`;
+   borrowing controls remain leak-only).
 4. Engine rebuild + 600-frame soak on the paired toolchain is the
    remaining acceptance gate. If engine cannot take the temp toolchain,
    wait for the v0.65.5 candidate pin.
@@ -166,30 +173,33 @@ only; do not ship/rely on it).
 
 ## Remaining compiler slices (in order)
 
-### A. Map/Set value payloads (`p_mapstr`) — INSERT PATH LANDED, UPDATE PATH OPEN
+### A. Map/Set value payloads (`p_mapstr`) — LANDED, both paths
 
 Probe: `C:\Users\lefte\AppData\Local\Temp\kilo\leak-agent\proj\p_mapstr.xi`
 (5k iterations, fresh 2KB Str key+value into a fresh `StringStrMap`, one
-insert per map). **27/55 -> 5/34 MB flat** in `f3e18120a` (compiler half
-of the stdlib `9c26a88` contract).
+insert per map). **27/55 -> 5/34 MB flat** in `f3e18120a` (compiler half).
 
 Contract now implemented:
 1. `#[owns_return]` on the map/set constructors makes the aggregate's
    Vec buffers drop.
-2. `#[consumes_str]` on `*_map_put` marks fresh Str args moved; the
-   prepass proves every `&`/`&mut` use is a contracted call with fresh Str
-   args (or a safe borrow read) and frees each owned `Vec[Str]` field's
-   elements at exit. Literal/borrowed args or unknown uses stay leak-only.
+2. `#[consumes_str]` on the CONSUMING mutators marks fresh Str args moved;
+   the prepass proves every `&`/`&mut` use is a contracted call with fresh
+   Str args (or a safe borrow read) and frees each owned `Vec[Str]`
+   field's elements at exit. Literal/borrowed args or unknown uses stay
+   leak-only.
 
-**Open (stdlib callee fix):** the shared-map witness
-`stdlib/tools/probes/p_mapstr_shapes.xi` (one map, the SAME 2KB key every
-iteration) still peaks **8/36 MB at 5k** (~4KB/iter). The update branch
-`stdlib/xiom/collect/stringmap.xi:270-272` discards the fresh key and
-overwrites the old value without freeing either; the compiler cannot know
-insert-vs-update, so the callee must `free` them. Same for
-`string_map_put` in stringmap/intmap (key not stored on update). Radix
-needs the same treatment or disqualification. Tracked in the stdlib
-relay item filed after `f3e18120a`.
+Stdlib `7b7583c` (main `ec9af22`) split the API soundly:
+- existing `*_put` = BORROWING (unannotated, literal-safe, leak-only);
+- new `#[consumes_str]` `string_map_put_owned` (stringmap + intmap) and
+  `string_str_map_put_owned` free the discarded key and (StringStrMap)
+  the overwritten old value on update; insert transfers ownership;
+- `string.str_free(s)` added; radix annotations removed (literal `''`
+  seeds).
+Verified on `f3e18120a` + `7b7583c` (5k): `p_mapstr_owned` flat,
+`p_mapstr_shapes_owned` **8/36 -> 5/34 MB**, borrowing controls 25/54 and
+6/34 leak-only/no crash. `REL-20261101-0116-compiler` verified.
+`p_mapstr`/`p_mapstr_shapes` must now be pointed at the `_owned` mutators;
+the borrowing variants are the negative controls.
 
 ### B. Removals (`p_remove`) — LANDED (`2e8193e2b`)
 
@@ -291,14 +301,14 @@ Full showcase reproduction: `C:\Users\lefte\AppData\Local\Temp\kilo\p1-pre`
 
 ## Definition of done
 
-1. Stdlib rebuilt on `7d47924` with `str_concat`/`from_cstring`
-   ownership fixes (done; pin it in the v0.65.5 candidate).
+1. Stdlib candidate `7b7583c` (main `ec9af22`) carries the
+   `str_concat`/`from_cstring` fixes AND the map consuming-mutator split;
+   pin it in the v0.65.5 candidate.
 2. p_structstr, p_vecstr, p_mapstr, p_remove, p_panel_move flat or near
    baseline (recorded numbers). Current: p_structstr 5/33,
    p_vecstr 9/35, p_panel_move 5/34, p_vecrebind 5/33, p_elemstr 5/33,
-   p_remove flat (50k long: 4/34); **p_mapstr insert 27/55 -> 5/34**
-   (`f3e18120a`), update path 8/36 pending a stdlib callee free for the
-   discarded key / overwritten value.
+   p_remove flat (50k long: 4/34); p_mapstr insert and one-map update
+   both 5/34 on `7b7583c` `_owned` (borrowing controls leak-only).
 3. Editor 600 frames <2 GB, slope <=0.5 MB/frame.
 4. Engine verifies 2357/1423; orbitdb re-measures m375; benchmark t1
    re-measures ~9.98 MB on v0.65.5.
