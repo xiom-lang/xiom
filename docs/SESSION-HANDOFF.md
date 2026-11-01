@@ -113,6 +113,16 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   through the fresh-return fixpoint. Rebuild on final2, measure 120, then
   600. The remaining ~1.2 MB/frame needs the next render sub-split
   (buffer upload vs submit vs present). **No tag; stdlib hold.**
+- **Engine applied the fix (18:12Z, `73f1f45`):** `#[owns_return]` added
+  to 13 per-frame builders -- `mesh_to_vertex_bytes`,
+  `mesh_to_index_bytes`, `mesh_to_vertex_bytes_f32`, `ed_vp_sky_bytes`,
+  `ed_vp_quad_index_bytes`, `ed_vp_grid_bytes`, `ed_vp_model_bytes`,
+  `ed_vp_axis_strip_bytes`, `ed_vp_dots_bytes`, `vulkan_ui_begin`,
+  `instancing_record_bytes`, `instancing_batch_bytes`,
+  `material_instances_frame_bytes`. Bisect branch, type-check PASS,
+  rebuilding on `toolchain-v0655-final2`. 18:49Z wakeup runs the 120-frame
+  A/B against base 581/993: if the render delta drops, 300/600 and the gate
+  numbers; otherwise the buffer-upload vs submit vs present sub-split.
 
 *** SESSION UPDATE 2026-11-01T04:12Z (engine soak RED; borrows_vec slice b5b8c66e8; re-soak pending) -- READ FIRST ***
 - **Engine soak on the older pair is RED** (`REL-20261101-0332-engine`):

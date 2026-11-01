@@ -182,6 +182,15 @@ only; do not ship/rely on it).
   annotation propagates); rebuild final2; measure 120 then 600. Remaining
   ~1.2 MB/frame needs the next render sub-split (buffer upload vs submit
   vs present).
+- Engine applied `#[owns_return]` to 13 per-frame builders on `73f1f45`
+  (bisect branch; type-check PASS): mesh_to_vertex_bytes /
+  mesh_to_index_bytes / mesh_to_vertex_bytes_f32, ed_vp_sky_bytes /
+  ed_vp_quad_index_bytes / ed_vp_grid_bytes / ed_vp_model_bytes /
+  ed_vp_axis_strip_bytes / ed_vp_dots_bytes, vulkan_ui_begin,
+  instancing_record_bytes, instancing_batch_bytes,
+  material_instances_frame_bytes. Rebuilding on final2; 18:49Z 120-frame
+  A/B vs base 581/993, then 300/600 if the render delta drops, else the
+  buffer-upload/submit/present sub-split.
 - `REL-20261027-1931-engine` — **wontfix** (parked buffer-reuse WIP; the
   shipping v0.65.4 `.ll` verifies with opt). Reopen only if restored.
 - `REL-20261101-0427-engine` — **acked, queued after the memory gate:**
