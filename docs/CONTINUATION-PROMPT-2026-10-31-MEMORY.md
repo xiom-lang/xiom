@@ -6,11 +6,11 @@ Self-contained prompt for the next session. Read this first, then
 ## State
 
 - v0.65.4 is released and must not be re-cut. The fix line is **v0.65.5**.
-- Compiler repo: `E:\xiom-lang\xiom`, main at `2e8193e2b` (slice C +
+- Compiler repo: `E:\xiom-lang\xiom`, main at `f3e18120a` (slice C +
   Str copy-out + rebind exit `f537b1b14`, typed Str element leaves
-  `e86989f46`, removal payloads `2e8193e2b`). Working tree must stay
-  clean except the pre-existing `.gitignore` change and untracked
-  `m211_listdir_probe/`.
+  `e86989f46`, removal payloads `2e8193e2b`, Map insert-path contract
+  `f3e18120a`). Working tree must stay clean except the pre-existing
+  `.gitignore` change and untracked `m211_listdir_probe/`.
 - No v0.65.5 tag yet. Do not tag until the rebuilt stdlib + engine
   600-frame soak + lane sign-off are green.
 - PC crash/OOM warning: do NOT run multiple memory-heavy editor/IR
@@ -32,6 +32,7 @@ Self-contained prompt for the next session. Read this first, then
 | `f537b1b14` | reader by-value Vec args keep caller drop; arena-aware Str copy-out; non-returned Str rebind exit free | `m375_by_value_vec_arg_to_reader_keeps_caller_drop`, `..._writer_stays_leak_only`, `m375_str_rebind_local_exit_is_freed`, `m375_returned_str_rebind_is_not_freed_at_exit`; p_panel_move 337/368 -> 5/34 MB; p_structstr 255/259 -> 5/33; p_vecstr 329/364 -> 9/35; p_strrepeat 210/242 -> 5/33; p_vecrebind 5/33 |
 | `e86989f46` | typed `Str` leaves of container elements (`Vec[Struct{Str}]`) | `m375_elem_str_leaf_is_dropped`, `m375_elem_borrowed_str_stays_leak_only`; p_elemstr 15/44 -> 5/33 MB |
 | `2e8193e2b` | removal/reorder tag + dead boxed removed-element free | `m375_dead_removed_vec_element_is_freed`, `m375_used_removed_vec_element_stays_leak_only`; p_remove 297/313 -> flat (50k x 16 KB: 4/34 MB) |
+| `f3e18120a` | `#[consumes_str]` + `#[owns_return]` Map/Set Vec[Str] element drops | `m375_consumes_str_map_payloads_are_freed`, `m375_consumes_str_literal_arg_stays_leak_only`; p_mapstr insert 27/55 -> 5/34 MB; the one-map update witness stays 8/36 MB (stdlib callee must free discarded key/overwritten value) |
 
 Do not revert these. The drop-glue work is conservative by design; do
 not replace it with blind frees.
@@ -148,7 +149,7 @@ only; do not ship/rely on it).
    Current numbers (WS/private MB): p_structstr 5/33, p_structstr_small
    5/33, p_vecstr 9/35, p_strrepeat_iso 5/33, p_panel_move 5/34,
    p_vecrebind 5/33, p_elemstr 5/33, p_remove flat (50k long: 4/34),
-   p_mapstr 27/55 (open).
+   p_mapstr insert 5/34 (update witness 8/36; stdlib callee fix open).
 4. Engine rebuild + 600-frame soak on the paired toolchain is the
    remaining acceptance gate. If engine cannot take the temp toolchain,
    wait for the v0.65.5 candidate pin.
@@ -157,32 +158,30 @@ only; do not ship/rely on it).
 
 ## Remaining compiler slices (in order)
 
-### A. Map/Set value payloads (`p_mapstr`) — OPEN, needs a contract
+### A. Map/Set value payloads (`p_mapstr`) — INSERT PATH LANDED, UPDATE PATH OPEN
 
 Probe: `C:\Users\lefte\AppData\Local\Temp\kilo\leak-agent\proj\p_mapstr.xi`
-(5k iterations, fresh 2 KB Str key+value into `StringStrMap`).
-Current pair: **27/55 MB**. `main` has ZERO frees: `string_str_map_new`
-is not `#[owns_return]`, so even the Vec buffers leak; the dominant
-residual is the key/value `Str` payloads stored in `keys`/`values`.
+(5k iterations, fresh 2KB Str key+value into a fresh `StringStrMap`, one
+insert per map). **27/55 -> 5/34 MB flat** in `f3e18120a` (compiler half
+of the stdlib `9c26a88` contract).
 
-`StringStrMap` is `{ buckets: Vec[Int]; keys: Vec[Str]; values: Vec[Str];
-next: Vec[Int]; live: Vec[Bool]; count: Int }`
-(`stdlib/xiom/collect/stringmap.xi:196+`). Do not free a Vec[Str] field
-blindly: a map field can contain borrowed/literal Str.
+Contract now implemented:
+1. `#[owns_return]` on the map/set constructors makes the aggregate's
+   Vec buffers drop.
+2. `#[consumes_str]` on `*_map_put` marks fresh Str args moved; the
+   prepass proves every `&`/`&mut` use is a contracted call with fresh Str
+   args (or a safe borrow read) and frees each owned `Vec[Str]` field's
+   elements at exit. Literal/borrowed args or unknown uses stay leak-only.
 
-Proposed safe contract (coordinate with stdlib; do not hardcode a
-field-to-arg guess):
-1. `#[owns_return]` on the map/set constructors (`string_map_new`,
-   `string_str_map_new`, `string_set_new`, ... so the Vec buffers drop).
-2. A mutator contract (e.g. `#[consumes_str]`) on `*_map_put`/`set`/
-   `add` declaring that fresh Str args are MOVED into the type's owned
-   `Vec[Str]` fields.
-3. Prepass proof for a fresh aggregate local: every `&`/`&mut` use is a
-   contracted mutator with fresh Str args (or a read-only `size`/
-   `contains`); no `get`, no escape/return, no other call. Then mark the
-   args moved and free each `Vec[Str]` field's elements at exit.
-   Any literal/borrowed put or unknown use disqualifies the whole map
-   (leak-only).
+**Open (stdlib callee fix):** the shared-map witness
+`stdlib/tools/probes/p_mapstr_shapes.xi` (one map, the SAME 2KB key every
+iteration) still peaks **8/36 MB at 5k** (~4KB/iter). The update branch
+`stdlib/xiom/collect/stringmap.xi:270-272` discards the fresh key and
+overwrites the old value without freeing either; the compiler cannot know
+insert-vs-update, so the callee must `free` them. Same for
+`string_map_put` in stringmap/intmap (key not stored on update). Radix
+needs the same treatment or disqualification. Tracked in the stdlib
+relay item filed after `f3e18120a`.
 
 ### B. Removals (`p_remove`) — LANDED (`2e8193e2b`)
 
@@ -289,8 +288,9 @@ Full showcase reproduction: `C:\Users\lefte\AppData\Local\Temp\kilo\p1-pre`
 2. p_structstr, p_vecstr, p_mapstr, p_remove, p_panel_move flat or near
    baseline (recorded numbers). Current: p_structstr 5/33,
    p_vecstr 9/35, p_panel_move 5/34, p_vecrebind 5/33, p_elemstr 5/33,
-   p_remove flat (50k long: 4/34); **p_mapstr 27/55 still open** (needs
-   the stdlib ownership contract in slice A).
+   p_remove flat (50k long: 4/34); **p_mapstr insert 27/55 -> 5/34**
+   (`f3e18120a`), update path 8/36 pending a stdlib callee free for the
+   discarded key / overwritten value.
 3. Editor 600 frames <2 GB, slope <=0.5 MB/frame.
 4. Engine verifies 2357/1423; orbitdb re-measures m375; benchmark t1
    re-measures ~9.98 MB on v0.65.5.

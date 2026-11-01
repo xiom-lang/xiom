@@ -14,6 +14,39 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-11-01T01:10Z (Map insert path flat; engine soak running; 1931 parked-WIP) -- READ FIRST ***
+- **`f3e18120a`** `fix(codegen): honor consumes_str for owned Vec[Str]
+  aggregate fields (m375)` -- compiler half of the stdlib Map/Set
+  contract (`9c26a88`). Reads `#[consumes_str]` (leaf -> Str param
+  indices), trusts fresh `#[owns_return]` aggregates, proves every use is
+  a contracted call with fresh Str args (or a safe borrow read), marks the
+  args moved, and frees each owned `Vec[Str]` field's elements before the
+  field buffer at exit. Any escape/return/unknown call or literal/borrowed
+  Str arg keeps the leak-only path.
+  - **p_mapstr (fresh map, insert) 27/55 -> 5/34 MB flat.**
+  - **Update path still leaks in the stdlib:** the witness
+    `tools/probes/p_mapstr_shapes.xi` (one map, same key) = 8/36 MB at 5k.
+    `string_str_map_put`'s update branch (`stringmap.xi:270-272`) discards
+    the fresh key and overwrites the old value without freeing; the
+    compiler cannot know insert-vs-update, so the callee must free them.
+    Tracked in a new stdlib relay item; not a compiler free.
+- **Engine soak:** engine adopted `toolchain-7d47924` (compiler
+  `2e8193e2b` + stdlib `7d47924`) and is building the editor, then
+  600 frames + a 120-frame control under `run_capped.ps1 -LimitMB 2048`.
+  Keep that toolchain stable; the Map slice is not in it and is not
+  needed for the engine hot path (`Vec[Str]`/`Vec[UiDrawText]` are
+  covered).
+- **1931:** engine confirmed the failing XgView->Vec body is only the
+  parked buffer-reuse WIP (`xiominput.ll:65263`); the current v0.65.4
+  `build/xiom-editor.exe.ll` verifies with `opt -passes=verify`. The
+  compiler cannot fix code that is not in the tree; `wontfix` unless the
+  WIP is restored.
+- **Tests:** feature 569/569 (new:
+  `m375_consumes_str_map_payloads_are_freed`,
+  `m375_consumes_str_literal_arg_stays_leak_only`); xiom-check 214/214;
+  e2e map/container/drop/str/guard/confined/return/param/aggregate/
+  m318/m344 green.
+
 *** SESSION UPDATE 2026-10-31T23:45Z (m375: typed Str element leaves + dead removal payloads flat; Map remains) -- READ FIRST ***
 - **`e86989f46`** `fix(codegen): drop typed Str leaves of container
   elements (m375)` -- `Vec[Struct{Str}]` elements carry typed `str:`
