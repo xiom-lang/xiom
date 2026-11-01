@@ -149,6 +149,26 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   and will fix in engine code; **no compiler change requested**. The
   residual ~1.2 MB/frame with uploads+submit skipped is a separate group
   for the next split. **No tag; stdlib hold.**
+- **Vec overwrite-drop (`a28cb352a`, REL-20261101-2117):** single-decl
+  owned Vec LOCALS reassigned with a fresh/owned Vec now free the replaced
+  data pointer at the assignment; the final data via a guarded exit
+  pointer drop. Mirror of the Str-rebind machinery (hoisted slot+flag,
+  `extractvalue %struct.Vec, 0`). Non-fresh assignments and element-tagged
+  locals stay leak-only (no wrong free).
+  - Engine probe shape (8,192-Int Vec, 5k reassignments):
+    **95/125 MB -> 5/33 MB flat**. Test
+    `m375_vec_local_reassign_frees_overwritten_data`; feature 575/575,
+    check 214/214, e2e drop/container/param/aggregate/str/guard/return/
+    unsafe/confined green.
+  - Toolchain: `toolchain-vrebind` (compiler `a28cb352a`, sha256
+    `03D607118EE797AB07A1D9667848469A18F6DA2F67C5ACB9D6DD55A7AEE6CF33`,
+    immutable stdlib 7b7583c).
+  - **Field/whole-struct overwrite (the trace ring) is NOT fixed by
+    design:** `var out = r; out.events = fresh` shallow-copies, so
+    `out.events` aliases `r.events`; freeing there is a UAF if the old
+    ring is still live. The engine workaround (stop advancing the ring
+    when not recording) is the safe release fix. A general field rebind
+    needs a moves/consumes/uniqueness contract; do not blind-free.
 
 *** SESSION UPDATE 2026-11-01T04:12Z (engine soak RED; borrows_vec slice b5b8c66e8; re-soak pending) -- READ FIRST ***
 - **Engine soak on the older pair is RED** (`REL-20261101-0332-engine`):

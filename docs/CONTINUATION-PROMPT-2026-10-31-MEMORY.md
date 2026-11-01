@@ -6,13 +6,13 @@ Self-contained prompt for the next session. Read this first, then
 ## State
 
 - v0.65.4 is released and must not be re-cut. The fix line is **v0.65.5**.
-- Compiler repo: `E:\xiom-lang\xiom`, main at `62be7337a` (slice C +
+- Compiler repo: `E:\xiom-lang\xiom`, main at `a28cb352a` (slice C +
   Str copy-out + rebind exit `f537b1b14`, typed Str element leaves
   `e86989f46`, removal payloads `2e8193e2b`, Map insert-path contract
   `f3e18120a`, `#[borrows_vec]` `b5b8c66e8`, body/pointer-export trust +
-  inline aggregate literal fields `62be7337a`). Working tree must stay
-  clean except the pre-existing `.gitignore` change and untracked
-  `m211_listdir_probe/`.
+  inline aggregate literal fields `62be7337a`, Vec local overwrite-drop
+  `a28cb352a`). Working tree must stay clean except the pre-existing
+  `.gitignore` change and untracked `m211_listdir_probe/`.
 - No v0.65.5 tag yet. Do not tag until the rebuilt stdlib + engine
   600-frame soak + lane sign-off are green.
 - PC crash/OOM warning: do NOT run multiple memory-heavy editor/IR
@@ -37,6 +37,7 @@ Self-contained prompt for the next session. Read this first, then
 | `f3e18120a` | `#[consumes_str]` + `#[owns_return]` Map/Set Vec[Str] element drops | `m375_consumes_str_map_payloads_are_freed`, `m375_consumes_str_literal_arg_stays_leak_only`; p_mapstr insert 27/55 -> 5/34 MB; update witness 8/36 -> 5/34 on stdlib `7b7583c` `_owned` mutators; borrowing API stays leak-only |
 | `b5b8c66e8` | `#[borrows_vec]` keeps caller ownership for non-retaining Vec call args | `m375_borrows_vec_keeps_caller_drop`, `m375_no_borrows_vec_stays_leak_only`; p_ffi_vec_borrow control 20/49 MB -> flat; engine per-frame Vulkan UI batches (re-soak pending) |
 | `62be7337a` | `#[borrows_vec]` body pointer-export trust + inline aggregate literal field drops | `m375_borrows_vec_body_ptr_export_keeps_local_drop`, `m375_borrows_vec_inline_aggregate_literal_keeps_field_drops`, `m375_no_borrows_vec_inline_literal_stays_leak_only`; p_canvas_px flat, p_inline_agg 20/50 -> 0/0, p_frame_literal 0/0 (4 frees) |
+| `a28cb352a` | Vec local overwrite-drop (free replaced data on fresh reassignment) | `m375_vec_local_reassign_frees_overwritten_data`; 8,192-Int Vec x 5k reassignments 95/125 -> 5/33 MB flat. Field/whole-struct overwrite stays leak-only (shallow-copy alias; needs a moves/consumes contract) |
 
 Do not revert these. The drop-glue work is conservative by design; do
 not replace it with blind frees.
@@ -203,6 +204,17 @@ only; do not ship/rely on it).
   image-view), not codegen; engine is auditing and will fix in engine
   code, no compiler change requested. Residual ~1.2 MB/frame with
   uploads+submit skipped is a separate group for the next split.
+- **Second leak found + gated (2117):** with present skipped a ~2.6
+  MB/frame leak remains from the profiler trace ring. `trace_accepts`
+  forced Frame=true when not recording; `profiler_sample_frame` rebuilt a
+  4096-event ring every frame. Engine workaround (`73f1f45`/`0396677`
+  line): `trace_accepts` requires recording && !paused; profiler only
+  advances the ring while recording. Compiler `a28cb352a` also fixes Vec
+  LOCAL overwrite-drop (95/125 -> 5/33 flat). Field/whole-struct overwrite
+  (`var out = r; out.events = fresh`, profiler_trace.xi:354-362) is NOT
+  freed: shallow-copy alias, needs a moves/consumes contract; the engine
+  workaround is the safe release fix. Toolchain `toolchain-vrebind`
+  (compiler `a28cb352a`, sha 03D60711..., stdlib 7b7583c).
 - `REL-20261027-1931-engine` — **wontfix** (parked buffer-reuse WIP; the
   shipping v0.65.4 `.ll` verifies with opt). Reopen only if restored.
 - `REL-20261101-0427-engine` — **acked, queued after the memory gate:**
