@@ -85,6 +85,17 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
     command/render temps not on the retired UI path. A heap trace with the
     top allocation stack is the alternative. Compiler will take the next
     slice once the group is named. **No tag; stdlib hold.**
+  - Engine plan (15:59Z, via owner): bisect the editor loop on the stable
+    QA build with env flags that skip the non-UI stages (sim/world/
+    terrain, scene, physics, debug draw, script/profiler), 120 frames
+    each; post the leaking stage/function on `1515` so the compiler can
+    inspect that function's IR. Then a **final QA soak on the fully merged
+    tree** (after the P2-adapter and networking agents land) with the exact
+    commit hash. The compiler is not waiting on the initial numbers.
+  - Preemptive note for stage 4: `#[owns_return]` is already honored for
+    Vec-returning functions (`fn_owns_return_transfer`: `Type::Vec`), so a
+    fresh `ed_vp_model_bytes`-style builder can be annotated by the engine
+    if the bisect points there; the caller then drops the returned Vec.
 
 *** SESSION UPDATE 2026-11-01T04:12Z (engine soak RED; borrows_vec slice b5b8c66e8; re-soak pending) -- READ FIRST ***
 - **Engine soak on the older pair is RED** (`REL-20261101-0332-engine`):

@@ -171,11 +171,13 @@ only; do not ship/rely on it).
 - `REL-20261101-1515-engine` — **final2 + zero-legacy soak STILL RED**
   (~2.9 MB/frame; 600 killed 2050/2498) with the UI path OFF; the
   atlas-px/inline-literal sites are cleared. Residual is non-UI. Probes
-  ruled out aggregate rebind and aggregate return. Engine asked for a
-  120-frame bisect of (1) menu/state struct returns/assignments, (2)
-  rstore/eds writes, (3) scene/world/terrain/physics updates, (4) buffer
-  upload temps, (5) remaining command/render temps. Take the next slice
-  once the group is named.
+  ruled out aggregate rebind and aggregate return. Engine is bisecting
+  the editor loop on the stable QA build with env skip flags (sim/world/
+  terrain, scene, physics, debug draw, script/profiler), 120 frames each;
+  it will post the leaking stage/function on 1515, then do a final QA
+  soak on the fully merged tree (after P2-adapter/networking) with the
+  exact commit. If stage 4 (buffer-upload temps), `#[owns_return]` is
+  already honored for Vec-returning functions; annotate the builder.
 - `REL-20261027-1931-engine` — **wontfix** (parked buffer-reuse WIP; the
   shipping v0.65.4 `.ll` verifies with opt). Reopen only if restored.
 - `REL-20261101-0427-engine` — **acked, queued after the memory gate:**
