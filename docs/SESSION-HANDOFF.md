@@ -38,6 +38,13 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   (`REL-20261101-0201-compiler`): no further owner approval once the soak
   is green. **No tag until then.** Final GO will be posted on
   `REL-20261101-0144-compiler`.
+- **Stdlib acked the owner GO at 03:00Z:** candidate branch
+  `release/v0.65.5-prep` is at `8c59d5d` (docs; code `7b7583c`); release
+  dry-run **`41263228033` SUCCESS** (validate/Ubuntu/Windows/package;
+  release/pin/canary skipped). Waiting only on the engine soak and the
+  final compiler GO on `0144`. The tag pair will be stdlib code
+  `7b7583c` + the compiler main code commit (`f3e18120a` or the release
+  commit on top).
 
 *** SESSION UPDATE 2026-11-01T01:10Z (Map insert path flat; engine soak running; 1931 parked-WIP) -- READ FIRST ***
 - **`f3e18120a`** `fix(codegen): honor consumes_str for owned Vec[Str]

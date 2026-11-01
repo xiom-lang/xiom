@@ -130,7 +130,9 @@ only; do not ship/rely on it).
   v0.65.5 may be tagged/published once the leak gate is green (stdlib
   update-path frees + compiler witness flat + engine 600/120 soak). No
   further owner approval needed. `REL-20261101-0144-compiler` has the
-  condition sequence.
+  condition sequence. Stdlib acked 03:00Z: candidate branch
+  `release/v0.65.5-prep` `8c59d5d` (code `7b7583c`), release dry-run
+  `41263228033` SUCCESS; waiting only on the engine soak + final GO.
 - A 30-minute relay watch (`*/30 * * * *`) is scheduled in the session
   that filed the GO; it checks engine + stdlib and posts the final GO when
   both gates are green.
