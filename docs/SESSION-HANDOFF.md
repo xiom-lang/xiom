@@ -60,6 +60,13 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   accepted; no stdlib work is pending. Final GO only after the engine
   posts 600 <2 GB and <=0.5 MB/frame on compiler `62be7337a` + stdlib
   `7b7583c`.
+- **Engine acked 13:55Z:** final2 sha verified; all five outer wrappers
+  annotated in engine `68fe8e5`
+  (`vulkan_scene_submit_panel_frame`, `vulkan_scene_present`,
+  `vulkan_scene_submit_multi_panel_frame`, `vulkan_scene_submit_frame`,
+  `vulkan_scene_submit_post_frame`); editor rebuild running
+  (`build/editor_final3.log`); 120/300/600 shell-off + shell/canvas
+  controls next; numbers on `REL-20261101-1343-compiler`.
 
 *** SESSION UPDATE 2026-11-01T04:12Z (engine soak RED; borrows_vec slice b5b8c66e8; re-soak pending) -- READ FIRST ***
 - **Engine soak on the older pair is RED** (`REL-20261101-0332-engine`):
