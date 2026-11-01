@@ -1382,6 +1382,14 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                         scan_borrow_arg(inner, state);
                         continue;
                     }
+                    if let Expr::Struct(_, _, spread, _) = arg {
+                        if spread.is_none() {
+                            // Inline frame/command literal passed by value:
+                            // keep the owned field locals' scope drops.
+                            scan_borrows_vec_literal(arg, state);
+                            continue;
+                        }
+                    }
                 }
                 if callee_retains {
                     if let Expr::Ident(id) = arg {
@@ -1726,6 +1734,37 @@ fn scan_borrow_arg(expr: &Expr, state: &mut ScanState) {
         }
         Expr::Field(base, _, _) => scan_borrow_arg(base, state),
         Expr::Ident(_) => {}
+        _ => scan_expr(expr, UseCtx::Escape, state),
+    }
+}
+
+/// Scan an inline aggregate literal passed by value to a `#[borrows_vec]`
+/// callee. The callee reads the fields during the call but does not retain
+/// them, so owned Vec/aggregate LOCALS used as field values keep their
+/// scope-exit drop (the literal temp is a shallow copy; the caller owns the
+/// backing buffers). Nested struct literals are walked the same way
+/// (`RhiCmdList{ draws: vp_draws }`). A fresh inline expression has no local
+/// drop and stays leak-only.
+fn scan_borrows_vec_literal(expr: &Expr, state: &mut ScanState) {
+    match expr {
+        Expr::Struct(_, fields, spread, _) if spread.is_none() => {
+            for (_, value) in fields {
+                scan_borrows_vec_literal(value, state);
+            }
+        }
+        Expr::Array(elems, _) | Expr::Tuple(elems, _) => {
+            for elem in elems {
+                scan_borrows_vec_literal(elem, state);
+            }
+        }
+        Expr::Paren(inner, _) => scan_borrows_vec_literal(inner, state),
+        Expr::Ident(id)
+            if state.decls.get(&id.name).map_or(false, |info| info.all_fresh)
+                || state.aggregate.contains(&id.name) =>
+        {
+            // Owned local: keep its drop; the callee does not retain it.
+            scan_expr(expr, UseCtx::SafeBase, state);
+        }
         _ => scan_expr(expr, UseCtx::Escape, state),
     }
 }

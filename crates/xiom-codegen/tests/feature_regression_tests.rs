@@ -8522,6 +8522,97 @@ fn main() -> Int { return 0; }
 }
 
 #[test]
+fn m375_borrows_vec_body_ptr_export_keeps_local_drop() {
+    // Inside a #[borrows_vec] callee, `var px = arg; ... px.as_mut_ptr()`
+    // deep-copies the Vec; the pointer export must not disarm px's own exit
+    // drop (vk_ui_atlas_update leaked ~5 MB/frame this way).
+    let source = r#"
+#[borrows_vec]
+fn update(px_owned: Vec[UInt8]) -> Int
+  requires: px_owned.len() >= 0
+{
+  var px = px_owned;
+  unsafe {
+    let p = px.as_mut_ptr();
+    return px.len() + 0;
+  }
+}
+fn use_v(bytes: Vec[UInt8]) -> Int {
+  let r = update(bytes);
+  return 0;
+}
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(source).expect("m375: borrows_vec body fixture must compile");
+    let body = ir
+        .split("define i64 @update(%struct.Vec")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("update body");
+    assert!(
+        body.contains("call void @xiom_guard_free"),
+        "a #[borrows_vec] callee must drop its own deep-copied Vec local:\n{ir}"
+    );
+}
+
+#[test]
+fn m375_borrows_vec_inline_aggregate_literal_keeps_field_drops() {
+    // An inline frame/command literal passed by value to a #[borrows_vec]
+    // callee: owned Vec field locals keep their scope drop (the legacy editor
+    // VulkanPanelFrame{ chrome_verts: uv; ... } leak).
+    let source = r#"
+type F = { v: Vec[UInt8]; n: Int; }
+#[borrows_vec]
+fn submit(f: F) -> Int {
+  return f.n;
+}
+fn use_v(bytes: Vec[UInt8]) -> Int {
+  var s = bytes;
+  let r = submit(F{ v: s; n: 1 });
+  return 0;
+}
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(source).expect("m375: inline literal fixture must compile");
+    let body = ir
+        .split("define i64 @use_v(%struct.Vec")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("use_v body");
+    assert!(
+        body.contains("call void @xiom_guard_free"),
+        "an owned field of an inline aggregate literal must keep its drop:\n{ir}"
+    );
+}
+
+#[test]
+fn m375_no_borrows_vec_inline_literal_stays_leak_only() {
+    // Control: without the contract the literal field local still escapes.
+    let source = r#"
+type F = { v: Vec[UInt8]; n: Int; }
+fn submit(f: F) -> Int {
+  return f.n;
+}
+fn use_v(bytes: Vec[UInt8]) -> Int {
+  var s = bytes;
+  let r = submit(F{ v: s; n: 1 });
+  return 0;
+}
+fn main() -> Int { return 0; }
+"#;
+    let ir = compile(source).expect("m375: inline literal control must compile");
+    let body = ir
+        .split("define i64 @use_v(%struct.Vec")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("use_v body");
+    assert!(
+        !body.contains("call void @xiom_guard_free"),
+        "without #[borrows_vec] the inline literal field must stay leak-only:\n{ir}"
+    );
+}
+
+#[test]
 fn m1552_by_ref_fn_value_still_compiles() {
     let source = r#"
 fn gt(p: &(Int, Int)) -> Bool { return p.0 > 5; }

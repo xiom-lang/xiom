@@ -1588,6 +1588,11 @@ impl IrEmitter {
         // to its caller, so it must bypass any enclosing guard arena.
         let owns_return = crate::fresh_return::fn_owns_return_transfer(fd);
         self.force_main_heap_alloc = owns_return;
+        // A #[borrows_vec] callee promises not to retain any Vec header,
+        // including its own local deep copies exported through as_ptr /
+        // as_mut_ptr inside an unsafe block. Trust those exports so the local
+        // drops at scope exit (vk_ui_atlas_update's `var px = px_owned`).
+        let trust_unsafe = owns_return || crate::fresh_return::fn_has_borrows_vec(fd);
         if let Some(body) = fd.body.as_ref() {
             let by_value_vec_params: HashSet<String> = fd
                 .params
@@ -1598,7 +1603,7 @@ impl IrEmitter {
                 })
                 .map(|p| p.name.name.clone())
                 .collect();
-            self.prepass_owned_vec_locals(body, owns_return, &by_value_vec_params);
+            self.prepass_owned_vec_locals(body, trust_unsafe, &by_value_vec_params);
         }
 
         let ret_llvm = fd.return_type.as_ref()

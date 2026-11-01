@@ -296,6 +296,12 @@ pub(crate) fn fn_has_consumes_str(fd: &FnDecl) -> bool {
         .any(|a| a.name.name.as_str() == "consumes_str")
 }
 
+pub(crate) fn fn_has_borrows_vec(fd: &FnDecl) -> bool {
+    fd.attributes
+        .iter()
+        .any(|a| a.name.name.as_str() == "borrows_vec")
+}
+
 /// Leaf names of functions with the `#[borrows_vec]` contract: the callee may
 /// MUTATE a `Vec` parameter through a `&mut` reference (or read a by-value
 /// header) during the call, but it does NOT retain the header/data anywhere.

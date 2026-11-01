@@ -9774,6 +9774,8 @@ fast:
             if let Some(body) = fd.body.as_ref() {
                     let owns_return = crate::fresh_return::fn_owns_return_transfer(&fd);
                     self.force_main_heap_alloc = owns_return;
+                    let trust_unsafe = owns_return
+                        || crate::fresh_return::fn_has_borrows_vec(&fd);
                     let by_value_vec_params: HashSet<String> = fd
                         .params
                         .iter()
@@ -9783,7 +9785,7 @@ fast:
                         })
                         .map(|p| p.name.name.clone())
                         .collect();
-                    self.prepass_owned_vec_locals(body, owns_return, &by_value_vec_params);
+                    self.prepass_owned_vec_locals(body, trust_unsafe, &by_value_vec_params);
             }
 
             // Compile body
