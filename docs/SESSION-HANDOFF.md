@@ -123,6 +123,19 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   rebuilding on `toolchain-v0655-final2`. 18:49Z wakeup runs the 120-frame
   A/B against base 581/993: if the render delta drops, 300/600 and the gate
   numbers; otherwise the buffer-upload vs submit vs present sub-split.
+- **A/B result (`REL-20261101-1853-engine`):** the 13 annotations only
+  moved 120 from 581/993 to **562/977** (-19 WS / -16 private, ~0.16
+  MB/frame) -> builders are NOT the dominant render leak. Engine added
+  `XIOM_EDITOR_SKIP_UPLOADS` (7 `vulkan_rhi_buffer_update` calls) and
+  `XIOM_EDITOR_SKIP_SUBMIT` (submit/present) on `0396677`; 19:33Z
+  four-case 120 split names upload vs submit.
+- **Compiler ruled out the upload call shape:** `p_rhi_shape` (D with a
+  Vec field, fresh payload from a `#[owns_return]` builder, `#[borrows_vec]
+  update(d, bytes) -> D`, `d = update(d, b)` per iter) is **0/0 flat** at
+  20k. So if SKIP_UPLOADS drops the slope, the leak is inside the engine's
+  Vulkan staging/buffer/memory create-free lifetime, not codegen; if
+  SKIP_SUBMIT, the submit/present resource path. No compiler change until
+  the named site.
 
 *** SESSION UPDATE 2026-11-01T04:12Z (engine soak RED; borrows_vec slice b5b8c66e8; re-soak pending) -- READ FIRST ***
 - **Engine soak on the older pair is RED** (`REL-20261101-0332-engine`):

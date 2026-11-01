@@ -191,6 +191,15 @@ only; do not ship/rely on it).
   material_instances_frame_bytes. Rebuilding on final2; 18:49Z 120-frame
   A/B vs base 581/993, then 300/600 if the render delta drops, else the
   buffer-upload/submit/present sub-split.
+- A/B result: 581/993 -> **562/977** (-19 MB, ~0.16 MB/frame); builders
+  are NOT the dominant cause (1853). Engine added SKIP_UPLOADS /
+  SKIP_SUBMIT on `0396677`; 19:33Z four-case 120 names upload vs submit.
+  Compiler probe `p_rhi_shape` (D with Vec field, fresh payload,
+  `#[borrows_vec] update(d,bytes)->D`, `d=update(d,b)` per iter) is
+  **0/0 flat**; the upload call shape is not a codegen leak. If
+  SKIP_UPLOADS drops the slope, inspect the engine Vulkan
+  staging/buffer/memory create-free lifetime; if SKIP_SUBMIT, the
+  submit/present resources.
 - `REL-20261027-1931-engine` — **wontfix** (parked buffer-reuse WIP; the
   shipping v0.65.4 `.ll` verifies with opt). Reopen only if restored.
 - `REL-20261101-0427-engine` — **acked, queued after the memory gate:**
