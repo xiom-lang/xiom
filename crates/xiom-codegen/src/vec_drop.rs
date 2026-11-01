@@ -163,6 +163,9 @@ struct ScanState {
     /// While scanning the RHS of a fresh Str assignment, the target name is
     /// read by the concat but does not alias the NEW buffer.
     rebind_target: Option<String>,
+    /// Single-declaration owned Vec locals reassigned with a fresh/owned Vec.
+    /// The old data pointer is freed at each overwrite; the final one at exit.
+    vec_rebind: HashSet<String>,
 }
 
 pub(crate) struct OwnedLocals {
@@ -186,6 +189,9 @@ pub(crate) struct OwnedLocals {
     /// Fresh aggregates whose owned `Vec[Str]` fields were populated only by
     /// `#[consumes_str]` calls with fresh Str args. Their elements are freed.
     pub aggregate_str_vec: HashSet<String>,
+    /// Single-declaration owned Vec locals reassigned with a fresh/owned Vec.
+    /// The old data is freed at each overwrite, the final data at scope exit.
+    pub vec_rebind: HashSet<String>,
 }
 
 /// Returns the local names that are owned and private for the function body.
@@ -322,6 +328,21 @@ pub(crate) fn collect_owned_vec_locals(
             keep
         })
         .collect();
+    // Vec overwrite-drop: only plain Vec locals (no element-payload tag, so
+    // the overwrite free cannot orphan element payloads). The local must be
+    // owned, single-decl, non-escaping/moved/returned.
+    let vec_rebind: HashSet<String> = state
+        .vec_rebind
+        .into_iter()
+        .filter(|name| {
+            single_decl.contains(name)
+                && vec.contains(name)
+                && !elem.contains_key(name)
+                && !state.escaping.contains(name)
+                && !state.moved.contains(name)
+                && !state.returned.contains(name)
+        })
+        .collect();
     // A rebind local whose final value is NOT returned still owns the last
     // fresh buffer at scope exit. Free it there; returned locals transfer the
     // buffer to the caller (and must keep no exit drop).
@@ -350,6 +371,7 @@ pub(crate) fn collect_owned_vec_locals(
         elem,
         str_rebind,
         str_rebind_exit,
+        vec_rebind,
         unused: unused_locals,
         aggregate_str_vec,
     }
@@ -881,20 +903,28 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
                 }
                 _ => false,
             };
+            // Vec overwrite-drop (REL-20261101-2117): a single-declaration
+            // owned Vec local reassigned with a fresh/owned Vec can free the
+            // REPLACED data pointer at the assignment. The exit drop is
+            // replaced by a guarded pointer drop (final value). A non-fresh
+            // assignment disqualifies the local (leak-only) via escaping.
+            let fresh_vec_rebind = match place {
+                Expr::Ident(id) => {
+                    state.decls.get(&id.name).map_or(false, |info| {
+                        info.decls == 1 && info.all_fresh
+                    }) && (is_fresh_vec_init(value)
+                        || is_fresh_vec_call(value, &state.fresh)
+                        || is_owned_copy_vec_init(value, &state.by_value_vec_params))
+                }
+                _ => false,
+            };
             if let Expr::Ident(id) = place {
                 if fresh_str_rebind {
                     state.str_rebind.insert(id.name.clone());
+                } else if fresh_vec_rebind {
+                    state.vec_rebind.insert(id.name.clone());
                 } else {
-                    let fresh_rebind = state.trust_unsafe
-                        && state
-                            .decls
-                            .get(&id.name)
-                            .map_or(false, |info| info.decls == 1 && info.all_fresh)
-                        && (is_fresh_vec_init(value)
-                            || is_fresh_vec_call(value, &state.fresh));
-                    if !fresh_rebind {
-                        state.escaping.insert(id.name.clone());
-                    }
+                    state.escaping.insert(id.name.clone());
                 }
             } else {
                 scan_expr(place, UseCtx::Escape, state);
@@ -1982,7 +2012,9 @@ pub(crate) struct VecDropScope {
     safe_str_rebind: HashSet<String>,
     safe_str_rebind_exit: HashSet<String>,
     unused: HashSet<String>,
+    safe_vec_rebind: HashSet<String>,
     str_rebind_state: HashMap<String, (String, String)>,
+    vec_rebind_state: HashMap<String, (String, String)>,
     by_value_vec_params: HashSet<String>,
     entry_prelude: Vec<String>,
 }
@@ -2033,6 +2065,7 @@ impl IrEmitter {
         self.fctx.str_rebind_safe = owned.str_rebind;
         self.fctx.str_rebind_exit = owned.str_rebind_exit;
         self.fctx.unused_locals = owned.unused;
+        self.fctx.vec_rebind_safe = owned.vec_rebind;
     }
 
     /// A return type that cannot carry a borrowed Vec header: scalar/void.
@@ -2234,6 +2267,8 @@ impl IrEmitter {
         self.fctx.str_rebind_safe.clear();
         self.fctx.str_rebind_exit.clear();
         self.fctx.unused_locals.clear();
+        self.fctx.vec_rebind_safe.clear();
+        self.fctx.vec_rebind_state.clear();
         self.fctx.str_rebind_state.clear();
         self.fctx.by_value_vec_params.clear();
         self.local.entry_prelude.clear();
@@ -2254,7 +2289,9 @@ impl IrEmitter {
             safe_str_rebind: std::mem::take(&mut self.fctx.str_rebind_safe),
             safe_str_rebind_exit: std::mem::take(&mut self.fctx.str_rebind_exit),
             unused: std::mem::take(&mut self.fctx.unused_locals),
+            safe_vec_rebind: std::mem::take(&mut self.fctx.vec_rebind_safe),
             str_rebind_state: std::mem::take(&mut self.fctx.str_rebind_state),
+            vec_rebind_state: std::mem::take(&mut self.fctx.vec_rebind_state),
             by_value_vec_params: std::mem::take(&mut self.fctx.by_value_vec_params),
             entry_prelude: std::mem::take(&mut self.local.entry_prelude),
         }
@@ -2271,7 +2308,9 @@ impl IrEmitter {
         self.fctx.str_rebind_safe = saved.safe_str_rebind;
         self.fctx.str_rebind_exit = saved.safe_str_rebind_exit;
         self.fctx.unused_locals = saved.unused;
+        self.fctx.vec_rebind_safe = saved.safe_vec_rebind;
         self.fctx.str_rebind_state = saved.str_rebind_state;
+        self.fctx.vec_rebind_state = saved.vec_rebind_state;
         self.fctx.by_value_vec_params = saved.by_value_vec_params;
         self.local.entry_prelude = saved.entry_prelude;
     }
@@ -2371,6 +2410,17 @@ impl IrEmitter {
     /// flag right after the binding stores its header.
     pub(crate) fn register_vec_drop(&mut self, name: &str, alloca: &str, llvm_ty: &str, init: &Expr) {
         if !self.vec_drop_candidate(name, llvm_ty, init) {
+            return;
+        }
+        // Vec overwrite-drop: the replaced data pointer is freed at each
+        // assignment; the final one through this guarded pointer drop.
+        if self.fctx.vec_rebind_safe.contains(name) {
+            let (slot, flag) = self.vec_rebind_state(name);
+            self.fctx.vec_drops.push(VecDrop::Ptr {
+                data_alloca: slot,
+                flag,
+            });
+            self.note_vec_rebind_binding(name, alloca);
             return;
         }
         let flag = self.fresh_tmp();
@@ -2515,6 +2565,79 @@ impl IrEmitter {
             self.emitln(&format!("  store i8* {store_val}, i8** {slot}"));
             self.emitln(&format!("  store i1 false, i1* {flag}"));
         }
+    }
+
+    /// Rebind bookkeeping for a Vec local: (data-pointer slot, owned flag).
+    /// The slot holds the CURRENT data pointer (not the header); the flag says
+    /// whether that data is owned by this local. Created lazily and hoisted.
+    fn vec_rebind_state(&mut self, name: &str) -> (String, String) {
+        if let Some(state) = self.fctx.vec_rebind_state.get(name) {
+            return state.clone();
+        }
+        let slot = self.fresh_tmp();
+        self.local
+            .hoisted_allocas
+            .push((slot.clone(), "i8*".to_string()));
+        self.local
+            .entry_prelude
+            .push(format!("  store i8* null, i8** {slot}"));
+        let flag = self.fresh_tmp();
+        self.local
+            .hoisted_allocas
+            .push((flag.clone(), "i1".to_string()));
+        self.local
+            .entry_prelude
+            .push(format!("  store i1 false, i1* {flag}"));
+        self.fctx
+            .vec_rebind_state
+            .insert(name.to_string(), (slot.clone(), flag.clone()));
+        (slot, flag)
+    }
+
+    /// At a fresh/owned Vec binding, start tracking its data pointer so the
+    /// first reassignment can free the replaced allocation.
+    pub(crate) fn note_vec_rebind_binding(&mut self, name: &str, alloca: &str) {
+        if !self.fctx.vec_rebind_safe.contains(name) {
+            return;
+        }
+        let (slot, flag) = self.vec_rebind_state(name);
+        let dgp = self.fresh_tmp();
+        let dp = self.fresh_tmp();
+        self.emitln(&format!(
+            "  {dgp} = getelementptr %struct.Vec, %struct.Vec* {alloca}, i32 0, i32 0"
+        ));
+        self.emitln(&format!("  {dp} = load i8*, i8** {dgp}"));
+        self.emitln(&format!("  store i8* {dp}, i8** {slot}"));
+        self.emitln(&format!("  store i1 true, i1* {flag}"));
+    }
+
+    /// Before storing a fresh/owned Vec into a rebind local, free the data
+    /// pointer it currently owns (the overwritten allocation).
+    pub(crate) fn emit_vec_rebind_free_old(&mut self, name: &str) {
+        if !self.fctx.vec_rebind_safe.contains(name) {
+            return;
+        }
+        let (slot, flag) = self.vec_rebind_state(name);
+        self.emit_free_owned_str(&slot, &flag);
+    }
+
+    /// After the store, track the new header's data pointer as the owned value.
+    pub(crate) fn update_vec_rebind_assign(
+        &mut self,
+        name: &str,
+        store_val: &str,
+        val_ty: &str,
+    ) {
+        if !self.fctx.vec_rebind_safe.contains(name) || val_ty != "%struct.Vec" {
+            return;
+        }
+        let (slot, flag) = self.vec_rebind_state(name);
+        let dp = self.fresh_tmp();
+        self.emitln(&format!(
+            "  {dp} = extractvalue %struct.Vec {store_val}, 0"
+        ));
+        self.emitln(&format!("  store i8* {dp}, i8** {slot}"));
+        self.emitln(&format!("  store i1 true, i1* {flag}"));
     }
 
     /// Element drop glue for a container whose prepass ownership tag proved

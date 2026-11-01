@@ -8613,6 +8613,50 @@ fn main() -> Int { return 0; }
 }
 
 #[test]
+fn m375_vec_local_reassign_frees_overwritten_data() {
+    // REL-20261101-2117: `v = mk(w)` overwrites an owned Vec local. The
+    // replaced data pointer must be freed at the assignment; the final one
+    // through the guarded exit pointer drop. Pre-fix the old allocation
+    // leaked every iteration.
+    let source = r#"
+#[owns_return]
+fn mk(n: Int) -> Vec[Int] {
+  var b = Vec[Int].new();
+  var i = 0;
+  while i < n {
+    b.push(i);
+    i = i + 1;
+  }
+  return b;
+}
+fn use_v(iters: Int) -> Int {
+  var v = mk(8);
+  var i = 0;
+  while i < iters {
+    v = mk(8);
+    i = i + 1;
+  }
+  return v.len();
+}
+fn main() -> Int { return use_v(4); }
+"#;
+    let ir = compile(source).expect("m375: Vec local reassign must compile");
+    let body = ir
+        .split("define i64 @use_v(")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("use_v body");
+    assert!(
+        body.contains("extractvalue %struct.Vec"),
+        "the rebind must track the new header's data pointer:\n{ir}"
+    );
+    assert!(
+        body.matches("call void @xiom_guard_free").count() >= 2,
+        "the replaced and final data pointers must both be freed:\n{ir}"
+    );
+}
+
+#[test]
 fn m1552_by_ref_fn_value_still_compiles() {
     let source = r#"
 fn gt(p: &(Int, Int)) -> Bool { return p.0 > 5; }
