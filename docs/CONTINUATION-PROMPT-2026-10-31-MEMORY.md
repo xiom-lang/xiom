@@ -6,10 +6,11 @@ Self-contained prompt for the next session. Read this first, then
 ## State
 
 - v0.65.4 is released and must not be re-cut. The fix line is **v0.65.5**.
-- Compiler repo: `E:\xiom-lang\xiom`, main at `b5b8c66e8` (slice C +
+- Compiler repo: `E:\xiom-lang\xiom`, main at `62be7337a` (slice C +
   Str copy-out + rebind exit `f537b1b14`, typed Str element leaves
   `e86989f46`, removal payloads `2e8193e2b`, Map insert-path contract
-  `f3e18120a`, `#[borrows_vec]` `b5b8c66e8`). Working tree must stay
+  `f3e18120a`, `#[borrows_vec]` `b5b8c66e8`, body/pointer-export trust +
+  inline aggregate literal fields `62be7337a`). Working tree must stay
   clean except the pre-existing `.gitignore` change and untracked
   `m211_listdir_probe/`.
 - No v0.65.5 tag yet. Do not tag until the rebuilt stdlib + engine
@@ -35,6 +36,7 @@ Self-contained prompt for the next session. Read this first, then
 | `2e8193e2b` | removal/reorder tag + dead boxed removed-element free | `m375_dead_removed_vec_element_is_freed`, `m375_used_removed_vec_element_stays_leak_only`; p_remove 297/313 -> flat (50k x 16 KB: 4/34 MB) |
 | `f3e18120a` | `#[consumes_str]` + `#[owns_return]` Map/Set Vec[Str] element drops | `m375_consumes_str_map_payloads_are_freed`, `m375_consumes_str_literal_arg_stays_leak_only`; p_mapstr insert 27/55 -> 5/34 MB; update witness 8/36 -> 5/34 on stdlib `7b7583c` `_owned` mutators; borrowing API stays leak-only |
 | `b5b8c66e8` | `#[borrows_vec]` keeps caller ownership for non-retaining Vec call args | `m375_borrows_vec_keeps_caller_drop`, `m375_no_borrows_vec_stays_leak_only`; p_ffi_vec_borrow control 20/49 MB -> flat; engine per-frame Vulkan UI batches (re-soak pending) |
+| `62be7337a` | `#[borrows_vec]` body pointer-export trust + inline aggregate literal field drops | `m375_borrows_vec_body_ptr_export_keeps_local_drop`, `m375_borrows_vec_inline_aggregate_literal_keeps_field_drops`, `m375_no_borrows_vec_inline_literal_stays_leak_only`; p_canvas_px flat, p_inline_agg 20/50 -> 0/0, p_frame_literal 0/0 (4 frees) |
 
 Do not revert these. The drop-glue work is conservative by design; do
 not replace it with blind frees.
@@ -149,14 +151,23 @@ only; do not ship/rely on it).
 - `REL-20261101-0411-compiler` — engine re-soak ask: annotate
   `vulkan_ui_rect/text/text_clip/tex`, `vk_scene_submit_core`,
   `vulkan_rhi_buffer_update` (and other non-retaining per-frame Vec
-  builders) with `#[borrows_vec]` (`b5b8c66e8`), rebuild with the
-  immutable `toolchain-v0655-final` (compiler `b5b8c66e8`, lib stdlib
-  `7b7583c` extracted), re-soak 120/300/600. Last release gate.
+  builders) with `#[borrows_vec]` (`b5b8c66e8`), rebuild with an immutable
+  final pair, re-soak 120/300/600. Last release gate.
   Engine 06:33Z: the six annotations alone did not move the slope
-  (120 683/1115, 300 1331/1797, 600 killed 2054/2556; ~2.9 MB/frame).
-  Found two more per-frame functions
-  (`vulkan_scene_submit_panel_frame_ui`, `vulkan_rhi_param_upload`),
-  annotated in engine `26d35d5`, rebuilding; next numbers pending.
+  (120 683/1115, 300 1331/1797, 600 killed 2054/2556; ~2.9 MB/frame);
+  added `_panel_frame_ui` + `_param_upload` (26d35d5), still ~2.9.
+- `REL-20261101-1314-engine` — engine isolated BOTH remaining sites:
+  canvas `vk_ui_atlas_update` `var px = px_owned` + `as_mut_ptr`
+  (~4.9 MB/frame with canvas on); legacy inline `VulkanPanelFrame{...}`
+  literal at `apps/editor/main.xi:3692` (and `VulkanSceneFrame` :3710)
+  (~2.9 MB/frame). Compiler `62be7337a` fixes both (body pointer-export
+  trust + inline literal field drops); probes flat.
+- `REL-20261101-1329-compiler` — handoff: new immutable
+  `toolchain-v0655-final2` (compiler `62be7337a`, lib `7b7583c`
+  extracted); annotate the OUTER frame wrappers too
+  (`vulkan_scene_submit_panel_frame`, `vulkan_scene_present`,
+  `vulkan_scene_submit_multi_panel_frame`, Cmd/Post paths) and re-soak.
+  Last gate; no tag yet.
 - `REL-20261027-1931-engine` — **wontfix** (parked buffer-reuse WIP; the
   shipping v0.65.4 `.ll` verifies with opt). Reopen only if restored.
 - `REL-20261101-0427-engine` — **acked, queued after the memory gate:**
@@ -183,11 +194,12 @@ only; do not ship/rely on it).
    git -C E:\xiom-lang\xiom log --oneline -10
    ```
 3. Use the IMMUTABLE final-pair toolchain
-   `C:\Users\lefte\AppData\Local\Temp\kilo\toolchain-v0655-final`
-   (bin = compiler `b5b8c66e8`, lib = extracted stdlib `7b7583c`) for the
-   engine re-soak. Do NOT use `toolchain-7d47924` (its lib junction moved
-   to `de9407e`). Re-measure p_structstr/p_vecstr/p_mapstr/str_repeat/
-   p_panel_move/p_ffi_vec_borrow.
+   `C:\Users\lefte\AppData\Local\Temp\kilo\toolchain-v0655-final2`
+   (bin = compiler `62be7337a`, lib = extracted stdlib `7b7583c`) for the
+   engine re-soak. Supersedes `toolchain-v0655-final` (lacks `62be7337a`).
+   Do NOT use `toolchain-7d47924` (its lib junction moved to `de9407e`).
+   Re-measure p_structstr/p_vecstr/p_mapstr/str_repeat/p_panel_move/
+   p_ffi_vec_borrow/p_canvas_px/p_inline_agg/p_frame_literal.
    Current numbers (WS/private MB): p_structstr 5/33, p_structstr_small
    5/33, p_vecstr 9/35, p_strrepeat_iso 5/33, p_panel_move 5/34,
    p_vecrebind 5/33, p_elemstr 5/33, p_remove flat (50k long: 4/34),
@@ -323,7 +335,7 @@ Full showcase reproduction: `C:\Users\lefte\AppData\Local\Temp\kilo\p1-pre`
 - `13fc28352` is compile-time only; never claim it as runtime reclaim.
 - The v0.65.4 stdlib is precompiled; compiler drop fixes cannot change
   it. The rebuilt stdlib candidate is `7b7583c` (main `ec9af22`); use the
-  immutable `toolchain-v0655-final`. `REL-20261031-2156-compiler` and
+  immutable `toolchain-v0655-final2`. `REL-20261031-2156-compiler` and
   `REL-20261101-0116-compiler` are fixed/verified.
 - The temp patched lib is evidence only.
 - One heavy build at a time (the PC crashed/OOM from concurrent builds).
@@ -340,11 +352,13 @@ Full showcase reproduction: `C:\Users\lefte\AppData\Local\Temp\kilo\p1-pre`
    p_remove flat (50k long: 4/34); p_mapstr insert and one-map update
    both 5/34 on `7b7583c` `_owned` (borrowing controls leak-only).
 3. Editor 600 frames <2 GB, slope <=0.5 MB/frame. Current engine soak on
-   the older pair is RED (~2.9 MB/frame, 600 killed at 2 GB). Re-soak with
-   `#[borrows_vec]`-annotated builders on the immutable final pair
-   (`REL-20261101-0411-compiler`) is the last gate.
-4. p_ffi_vec_borrow control 20/49 MB -> annotated flat on `b5b8c66e8`.
-4. Engine verifies 2357/1423; orbitdb re-measures m375; benchmark t1
+   the pre-final2 pair is RED (~2.9 MB/frame, 600 killed at 2 GB).
+   Re-soak with the outer frame wrappers annotated on
+   `toolchain-v0655-final2` (compiler `62be7337a`) is the last gate.
+4. `p_ffi_vec_borrow` control 20/49 -> flat (`b5b8c66e8`);
+   `p_canvas_px` flat, `p_inline_agg` 20/50 -> 0/0, `p_frame_literal`
+   0/0 with 4 frees (`62be7337a`).
+5. Engine verifies 2357/1423; orbitdb re-measures m375; benchmark t1
    re-measures ~9.98 MB on v0.65.5.
 5. Only then cut v0.65.5, update `SESSION-HANDOFF.md` and the closure
    doc, and mark the relay items fixed/verified.

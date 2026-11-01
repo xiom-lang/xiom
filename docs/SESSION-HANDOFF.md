@@ -14,6 +14,47 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-11-01T13:32Z (engine leaks isolated; compiler 62be7337a fixes canvas px + inline frame literals) -- READ FIRST ***
+- **Engine numbers (`REL-20261101-1314-engine`):** legacy shell-off
+  120 = 683/1121, 300 = 1332/1795, 600 = killed 2071/2575 (~2.9/3.0
+  MB/frame); shell + canvas present at 120 = 1284/1711 (+~4.9 MB/frame).
+  The shell crash is separate. Pair: compiler b5b8c66e8 + stdlib 7b7583c.
+- **Canvas site:** `vk_ui_atlas_update` does `var px = px_owned;
+  ... px.as_mut_ptr() ...`. `#[borrows_vec]` fixed the caller side, but
+  the callee's own deep copy `px` still leaked because the pointer export
+  disarmed its drop.
+- **Legacy site:** the inline `VulkanPanelFrame{ chrome_verts: uv;
+  overlay_verts: uvo; ui_icon_verts: iv; cmd: RhiCmdList{ draws:
+  vp_draws }; casters: RhiCmdList{ draws: vp_cast }; ... }` at
+  `apps/editor/main.xi:3692` (and `VulkanSceneFrame` at :3710) marked the
+  field locals escaping; their scope drops were disarmed.
+- **Compiler `62be7337a`** (`fix(codegen): trust borrows_vec body exports
+  and inline aggregate fields (m375)`):
+  1. `#[borrows_vec]` now also trusts the function's own
+     `as_ptr`/`as_mut_ptr` exports (`trust_unsafe`), so `var px =
+     px_owned` drops at exit. Caller still drops the original; each owner
+     frees its own deep copy.
+  2. An inline aggregate literal passed to a `#[borrows_vec]` callee is
+     walked (nested literals included) and owned field locals keep their
+     scope drops; the callee does not retain the frame/fields.
+  Probes: `p_canvas_px` flat; `p_inline_agg` 20/50 -> 0/0;
+  `p_frame_literal` 0/0 with 4 frees. Tests
+  `m375_borrows_vec_body_ptr_export_keeps_local_drop`,
+  `m375_borrows_vec_inline_aggregate_literal_keeps_field_drops`,
+  `m375_no_borrows_vec_inline_literal_stays_leak_only`; feature 574/574,
+  check 214/214, e2e drop/param/aggregate/container/str/guard/return/
+  unsafe/confined/m318/m344 green.
+- **New immutable pair:** `toolchain-v0655-final2` = compiler
+  `62be7337a` (sha256 `B6273012A808347D7D5048280EE1F80651C953F813A9D7269BB773B5AE8B7D52`)
+  + immutable stdlib `7b7583c` extracted. Supersedes
+  `toolchain-v0655-final`.
+- **Engine action (`REL-20261101-1329-compiler`):** annotate the OUTER
+  frame wrappers too (`vulkan_scene_submit_panel_frame`,
+  `vulkan_scene_present`, `vulkan_scene_submit_multi_panel_frame`, and the
+  Cmd/Post frame paths) so the literal rule applies; rebuild with
+  final2; re-soak 120/300/600. Last release gate; owner GO stands. If
+  still red, post the slope + top site.
+
 *** SESSION UPDATE 2026-11-01T04:12Z (engine soak RED; borrows_vec slice b5b8c66e8; re-soak pending) -- READ FIRST ***
 - **Engine soak on the older pair is RED** (`REL-20261101-0332-engine`):
   toolchain-7d47924 (compiler 2e8193e2b; its lib junction had moved to
