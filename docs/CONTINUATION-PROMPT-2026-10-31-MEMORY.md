@@ -223,10 +223,12 @@ only; do not ship/rely on it).
   (`xgc_is_dirty` no longer calls `xg_stringify` per frame; FNV-1a doc
   signature). On a28cb352a + 7b7583c: 120 399/809, 300 405/815,
   **600 419/826 MB exit 0; slope 0.037 MB/frame**; shell-on canvas 120
-  426/848 exit 0. **FINAL GO issued on `0144` (closed); tag pair:
+  426/848 exit 0.   **FINAL GO issued on `0144` (closed); tag pair:
   compiler `a28cb352a`, stdlib `7b7583c`/`8c59d5d`, engine `94a2fc4`.**
-  No tag from the compiler lane; stdlib/owner tags. Post-release:
-  2117 aggregate contract, JSON 1704.
+  **TAGGED: `stdlib-v0.65.5` (tag object `d1e4b36`) at `88f3c12`;
+  release workflow `41447551297` in progress.** No tag from the compiler
+  lane; stdlib/owner tags. Post-release: 2117 aggregate contract, JSON
+  1704, compiler stdlib pin bump when the release assets/URL land.
 - **JSON 1704 (current pair):** 100k = 406/444 MB, main 0 frees; distinct
   JsonValue enum + Map[Str,JsonValue] + Result + Str-return ownership
   slice, queued; not a quick annotation and not the Map/Str slices.

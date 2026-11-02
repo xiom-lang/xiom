@@ -14,6 +14,20 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-11-02T12:47Z (v0.65.5 TAGGED; release run in progress) -- READ FIRST ***
+- **Tag created:** annotated `stdlib-v0.65.5` (tag object `d1e4b36`) at
+  `release/v0.65.5-prep` `88f3c12` (code `7b7583c`, package 0.65.5,
+  COMPILER_VERSION v0.65.4), pushed. Release workflow run
+  **`41447551297`** in progress on the tag.
+- **Pair recorded:** compiler code `a28cb352a` + stdlib `7b7583c`
+  (tag `stdlib-v0.65.5`) + engine soak tree `94a2fc4`; soak 120 399/809,
+  300 405/815, 600 419/826 MB, slope 0.037, <2 GB; shell-on 120 426/848.
+- Stdlib will post the release URL, asset SHA256SUMS, registry
+  canary/publish, and the **compiler pin request** after the run.
+- 30-min relay watch stopped (release gate met and tagged). Post-release
+  follow-ups: `2117` aggregate contract, JSON 1704; compiler stdlib pin
+  bump when the release assets/URL land.
+
 *** SESSION UPDATE 2026-11-02T12:45Z (GATE MET; FINAL GO ISSUED for v0.65.5) -- READ FIRST ***
 - **Engine xg stamp `94a2fc4` is the fix:** `xgc_is_dirty` no longer calls
   `xg_stringify` per frame (FNV-1a signature over doc/uses/vars/nodes/pins/
