@@ -14,6 +14,25 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-11-02T10:55Z (OWNER: HOLD for <=0.5; engine xg stamp next; 2117 needs a contract) -- READ FIRST ***
+- **Owner decision: HOLD for <=0.5.** Do not tag on the 0.547 main QA
+  build. The hard <2 GB gate is green, but the slope miss is not waived.
+- **Next (engine, fastest safe path):** apply the xg stamp so
+  `xgc_mark -> xg_stringify` does not re-serialize the graph every frame;
+  re-soak 120/300/600. If <=0.5, release on compiler `a28cb352a` +
+  stdlib `7b7583c` + the engine main tree. If still >0.5, post the
+  120-frame split (xg stringify vs st.eds=unified_editors_sample vs
+  profiler HUD history). Directive: `REL-20261102-1055-compiler`.
+- **Compiler 2117 will be an opt-in aggregate contract, not a blind
+  free.** `st.eds = unified_editors_sample(st.eds)` may consume/return
+  the old state; `st.eds = cfx.eds` shallow-copies and aliases `cfx`.
+  A safe fix needs `#[consumes_agg]`/`#[borrows_agg]` (or a
+  uniqueness proof per site) plus recursive nested-field drop
+  registration. The local Vec reassignment is already fixed
+  (`a28cb352a`). Do not free nested/field Vecs blindly.
+- JSON 1704 stays a separate queued slice; not needed if the stamp avoids
+  the per-frame tree/string. **No tag; stdlib hold.**
+
 *** SESSION UPDATE 2026-11-02T00:05Z (main QA build: 600 hard gate GREEN; slope 0.547; owner decision) -- READ FIRST ***
 - **Main QA build (`main 0784c90`, `toolchain-vrebind`, engine
   `editor_qa_vrebind3`, 50.4 MB):** SHELL_UI=0 run_capped 2048:

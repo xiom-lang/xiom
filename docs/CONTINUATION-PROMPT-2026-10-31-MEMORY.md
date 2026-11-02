@@ -213,9 +213,12 @@ only; do not ship/rely on it).
   residual is the non-present loop (xg_stringify, st.eds overwrite,
   profiler HUD). Structural fix = compiler field/whole-struct drop
   (2117), which is a larger alias-safe slice (shallow-copy trace ring).
-  **OWNER DECISION:** accept 600<2 GB with the bounded 0.547, or hold for
-  the nested field/whole-struct compiler slice + re-soak. No tag until
-  decided.
+  **OWNER DECISION (2026-11-02T10:44Z): HOLD for <=0.5.** Do not tag on
+  0.547. Engine directive: apply the xg stamp (skip per-frame
+  xgc_mark/xg_stringify) and re-soak; if <=0.5, release on compiler
+  `a28cb352a` + stdlib `7b7583c` + engine main. If still >0.5, post the
+  120-frame split (xg stringify vs st.eds vs profiler HUD).
+  `REL-20261102-1055-compiler`.
 - **JSON 1704 (current pair):** 100k = 406/444 MB, main 0 frees; distinct
   JsonValue enum + Map[Str,JsonValue] + Result + Str-return ownership
   slice, queued; not a quick annotation and not the Map/Str slices.
