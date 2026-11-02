@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "tag": "v0.65.5",
+  "summary": "Memory-leak release with a bounded 600-frame editor soak and ownership/drop fixes across Vec, Str, Map and removal containers, plus the stdlib pin, with no breaking changes.",
+  "highlights": [
+    {
+      "kind": "fix",
+      "title": "Editor 600-frame soak under 2 GB",
+      "text": "The engine 600-frame soak now completes at 419/826 MB WS/private with a 0.037 MB/frame slope; the previous build was killed at the 2 GB cap. The graph serializer no longer re-serializes the xg graph every frame, and the compiler ownership and drop slices plus the engine resource work are validated together."
+    },
+    {
+      "kind": "compiler",
+      "title": "Vec and Str overwrite and ownership reclamation",
+      "text": "Fresh reassignment of an owned Vec local frees the replaced data at the assignment. The borrows_vec attribute keeps caller ownership for non-retaining Vec call arguments and trusts a callee's own pointer exports; inline aggregate frame literals keep owned field locals' drops. Typed Str element leaves and Vec of Str element payloads are freed, and replaced Str rebind buffers are reclaimed at scope exit."
+    },
+    {
+      "kind": "compiler",
+      "title": "Map, Set and removal payloads",
+      "text": "The owns_return map and set constructors plus consumes_str consuming mutators free owned Vec of Str field elements at exit. Removal and reorder methods keep the element tag, and a provably dead removed element is freed at the binding. The borrowing API remains for literal or borrowed keys."
+    },
+    {
+      "kind": "stdlib",
+      "title": "Stdlib v0.65.5 pin",
+      "text": "The compiler pins the v0.65.5 stdlib package, including the string copy-from-malloc fix, the persistent worker pool, and the consuming Map mutators. No breaking changes."
+    },
+    {
+      "kind": "stdlib",
+      "title": "Persistent worker pool and real thread arguments",
+      "text": "thread.pool owns a persistent OS worker fleet with a bounded FIFO queue, a true join, and a shutdown drain. tp_submit_with runs f(arg) on a worker; thread.spawn_with is a real OS thread with its argument. Named or top-level jobs only. Probes p_wave_workerpool, p_wave145 and p_wave153."
+    },
+    {
+      "kind": "stdlib",
+      "title": "Diagnostics sink and path ergonomics",
+      "text": "io.eprintln writes one flushed stderr line and io.flush_stderr exposes the explicit flush, so a later crash cannot lose the marker. io.normalize_path cleans separators and dot segments, and io.join_paths treats backslash as a separator. Vec gains swap_remove and a sort_by method. Probe p_engine_p1p2_gaps."
+    }
+  ],
+  "breaking": [],
+  "known_issues": [
+    "Field/whole-struct aggregate overwrite-drop (REL-2117) remains leak-only; it needs an opt-in aggregate contract.",
+    "JsonValue and enum JSON tree retention (REL-1704) remains a compiler slice.",
+    "The compiler binary reports v0.65.5; the stdlib package is 0.65.5 and its COMPILER_VERSION remains v0.65.4 as published."
+  ],
+  "docs": [
+    {
+      "title": "Ownership and drop rules",
+      "url": "https://docs.xiom-lang.org/latest/ownership/"
+    }
+  ],
+  "full_changelog": "https://github.com/xiom-lang/xiom/releases/tag/v0.65.5"
+}
