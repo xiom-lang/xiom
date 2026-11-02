@@ -14,6 +14,38 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-11-02T17:35Z (v0.65.5 shipped; orbitdb hotfix landed; next session prompt) -- READ FIRST ***
+- **v0.65.5 is PUBLIC and shipped** (compiler + stdlib). Compiler release
+  https://github.com/xiom-lang/xiom/releases/tag/v0.65.5 (tag at
+  576965617; workflow 41461717955; assets windows/linux/macos/wasm/vsix/
+  SHA256SUMS). Stdlib release
+  https://github.com/xiom-lang/stdlib/releases/tag/stdlib-v0.65.5
+  (tag d1e4b36 at 88f3c12; code 7b7583c; registry LIVE); compiler pin
+  `stdlib-v0.65.5` (PR #12, b2538ae5a).
+- **Acceptance:** bindings, packages, xvector, pulse and engine accept
+  v0.65.5. **orbitdb does NOT** (REL-20261102-1605 critical): hybrid
+  crash verify 0xC0000374 double-free in `db_file_open_cfg` WAL replay.
+- **ROOT CAUSE FOUND AND FIXED in `1df9bd5af`** (main, pushed): the Vec
+  overwrite-drop captured a data pointer at binding/assignment; a `push`
+  realloc left it stale and the next rebind freed the realloc-freed
+  pointer. Now the CURRENT `%struct.Vec` header is read at the
+  assignment; the normal Vec drop frees the final header at exit.
+  Evidence: `p_vec_rebind_grow` crashed pre-fix, exits 0 post-fix; new
+  soak gate `vec_rebind_growth` PASS; memory gates 21/21 GREEN; feature
+  575/575; check 214/214; e2e drop/container/param/aggregate/str/guard/
+  return/unsafe/confined green.
+- **Next: cut v0.65.6** (hotfix), publish, and have orbitdb re-run
+  `scripts/hybrid_crash_test.ps1` for acceptance. No v0.65.6 tag yet.
+- **Benchmark/Stage 6:** REL-20261010-1554-benchmark (t3 trampoline
+  ~220 ms floor) is still acked/open; STAGE6_LINT tier 3 is parked
+  (noise budget). **Selfhost:** T6 19/64, T3 83/83, diff_ast 83/83;
+  apply the qualified-literal parser AST note in the selfhost worktree;
+  then the 100% bootstrap gates.
+- **Read next:** `docs/CONTINUATION-PROMPT-2026-11-02-STAGE6-SELFHOST.md`
+  (state, acceptance map, P0-P4 work list, exact release process and
+  commands, hard stops, definition of done). Post-release memory items:
+  JSON 1704 and 2117.
+
 *** SESSION UPDATE 2026-11-02T14:38Z (compiler v0.65.5 PUBLIC release) -- READ FIRST ***
 - **Public compiler release:** https://github.com/xiom-lang/xiom/releases/tag/v0.65.5
   (published 2026-11-02T14:38:13Z; release workflow run 41461717955
