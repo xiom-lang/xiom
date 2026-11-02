@@ -14,6 +14,30 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-11-02T00:05Z (main QA build: 600 hard gate GREEN; slope 0.547; owner decision) -- READ FIRST ***
+- **Main QA build (`main 0784c90`, `toolchain-vrebind`, engine
+  `editor_qa_vrebind3`, 50.4 MB):** SHELL_UI=0 run_capped 2048:
+  120 = 454/864, 300 = 544/955, **600 = 702/1119 MB, exit 0 all**.
+  Slope 300->600 = **0.547** (120->600 0.531) -> still above the 0.5
+  criterion, so **not formally green; do not tag**.
+- Shell-on canvas-on 120 = 482/905 MB exit 0; canvas present mode=gpu ok
+  (`tex=5760000B`, quad 384B). Present is a constant ~170 MB
+  (skip-submit slope unchanged); the residual is the non-present loop.
+- Campaign code (panel wiring, live material opt-in, content.xpack/DLC
+  runtime, P7 capture) compiles and runs in this build.
+- **Residual suspects:** `xgc_mark -> xg_stringify` per frame (JSON
+  tree/string), `st.eds = unified_editors_sample` overwrite, profiler HUD
+  history. Engine says the **structural fix is the compiler
+  field/whole-struct overwrite drop (2117)**. That is a larger slice:
+  the trace-ring shape (`var out = r; out.events = fresh`) shallow-copies,
+  so a blind field free is a UAF; it needs a no-alias/uniqueness proof and
+  nested aggregate-field drop registration. The local Vec reassignment
+  case is already fixed (`a28cb352a`).
+- **Decision point (owner):** hard gate (<2 GB at 600) is GREEN; the only
+  miss is 0.547 vs 0.5. Options: (A) accept 600 <2 GB with the bounded
+  0.547 slope and release, or (B) hold for the nested field/whole-struct
+  compiler slice + re-soak. No tag until the owner decides.
+
 *** SESSION UPDATE 2026-11-01T22:20Z (engine 600 hard gate GREEN; slope 0.53 only miss; JSON triage) -- READ FIRST ***
 - **Engine vrebind gate (compiler a28cb352a + stdlib 7b7583c + trace/present workaround):**
   120 = 448/859 MB, 300 = 540/955, **600 = 696/1115 MB, exit 0 all**

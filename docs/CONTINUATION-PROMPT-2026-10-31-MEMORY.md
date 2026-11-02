@@ -204,13 +204,18 @@ only; do not ship/rely on it).
   image-view), not codegen; engine is auditing and will fix in engine
   code, no compiler change requested. Residual ~1.2 MB/frame with
   uploads+submit skipped is a separate group for the next split.
-- **ENGINE GATE (22:02Z):** on `toolchain-vrebind` (compiler `a28cb352a`,
-  trace/present workaround) 120 = 448/859, 300 = 540/955, **600 =
-  696/1115 MB exit 0**. Hard <2 GB gate GREEN (old killed at 2050/2498);
-  **only miss is slope 0.53 vs 0.5**. Present is a constant ~170 MB;
-  residual is `xgc_mark -> xg_stringify` per-frame JSON serialization.
-  Engine is applying an xg stamp; then main-tree validation + 120/300/600.
-  If 0.53 remains, owner decides whether 600<2 GB is acceptable.
+- **ENGINE GATE (22:02Z / MAIN QA 23:42Z):** on `toolchain-vrebind`
+  (compiler `a28cb352a`, trace/present workaround) 600 = 696/1115 MB
+  exit 0; main QA build (`main 0784c90`) 120 = 454/864, 300 = 544/955,
+  **600 = 702/1119 MB exit 0**. Hard <2 GB gate GREEN (old killed at
+  2050/2498); **only miss is slope 0.547 vs 0.5** (120->600 0.531).
+  Shell-on canvas-on 120 = 482/905 exit 0. Present is a constant ~170 MB;
+  residual is the non-present loop (xg_stringify, st.eds overwrite,
+  profiler HUD). Structural fix = compiler field/whole-struct drop
+  (2117), which is a larger alias-safe slice (shallow-copy trace ring).
+  **OWNER DECISION:** accept 600<2 GB with the bounded 0.547, or hold for
+  the nested field/whole-struct compiler slice + re-soak. No tag until
+  decided.
 - **JSON 1704 (current pair):** 100k = 406/444 MB, main 0 frees; distinct
   JsonValue enum + Map[Str,JsonValue] + Result + Str-return ownership
   slice, queued; not a quick annotation and not the Map/Str slices.
