@@ -14,6 +14,26 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-11-02T12:45Z (GATE MET; FINAL GO ISSUED for v0.65.5) -- READ FIRST ***
+- **Engine xg stamp `94a2fc4` is the fix:** `xgc_is_dirty` no longer calls
+  `xg_stringify` per frame (FNV-1a signature over doc/uses/vars/nodes/pins/
+  links). On the held pair (compiler `a28cb352a` + stdlib `7b7583c`),
+  SHELL_UI=0 run_capped 2048:
+  - 120 = 399/809, 300 = 405/815, **600 = 419/826 MB, exit 0 all**
+  - **slope 300->600 = 0.037 MB/frame** (target <=0.5); <2 GB at 600
+  - shell-on canvas-on 120 = 426/848 MB exit 0; canvas_present gpu ok.
+- **FINAL RELEASE GO issued** to stdlib on `REL-20261101-0144-compiler`
+  (closed, pushed `faca408`). Owner GO (0201) stands; the hold-for-<=0.5
+  condition is met.
+- **Tag pair:** compiler code `a28cb352a` (docs `5d97e379d` on top),
+  stdlib code `7b7583c` (branch `8c59d5d`, package 0.65.5), engine soak
+  tree `94a2fc4`.
+- Post-release follow-ups (not blockers): `2117` field/whole-struct
+  overwrite needs an opt-in aggregate contract; JSON 1704 JsonValue/enum
+  drops; no tag from the compiler lane.
+- Compiler suites green: feature 575/575, check 214/214, e2e drop/
+  container/param/aggregate/str/guard/return/unsafe/confined.
+
 *** SESSION UPDATE 2026-11-02T10:55Z (OWNER: HOLD for <=0.5; engine xg stamp next; 2117 needs a contract) -- READ FIRST ***
 - **Owner decision: HOLD for <=0.5.** Do not tag on the 0.547 main QA
   build. The hard <2 GB gate is green, but the slope miss is not waived.
