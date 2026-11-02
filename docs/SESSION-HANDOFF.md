@@ -14,6 +14,30 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-11-02T13:45Z (v0.65.5 PUBLISHED; compiler pin merged) -- READ FIRST ***
+- **v0.65.5 is PUBLISHED:** https://github.com/xiom-lang/stdlib/releases/tag/stdlib-v0.65.5
+  (release run 41447551297 success; validate/Ubuntu/Windows/package/GitHub
+  Release green). Tag `stdlib-v0.65.5` (object `d1e4b36`) at `88f3c12`,
+  code `7b7583c`, package 0.65.5.
+  - Asset `xiom-std-0.65.5.tar.gz` sha256
+    `0ed34f959064c5753678b53d42a6a1dcb306b5457005eecb8b85160795d866d4`;
+    SHA256SUMS sha256 `e345e3e34b7dc529cf2eec1d8f1dca97d6802fdd8623c9ba606af97fb4ae3140`.
+  - Registry `xiom-std` 0.65.5 LIVE, sha256
+    `e8aa1bd7a123529bb1c2995d422ca429d4bd5ae751ddc7b86a6a7cd0dd960214`,
+    compiler field v0.65.4, run 41447551299.
+- **Compiler pin merged:** PR #12 (signed `chore: pin STDLIB_VERSION to
+  stdlib-v0.65.5`) squash-merged at main `b2538ae5a`;
+  `STDLIB_VERSION=stdlib-v0.65.5`. PR #11 (bot branch based on stale main,
+  DCO/ASCII failures) closed as superseded. ASCII guard green (repair
+  `9a1888286`).
+- Main now carries the 33 local v0.65.5 compiler commits
+  (`a28cb352a` + predecessors + docs), pushed as
+  `64a7f2398..9a1888286`.
+- Compiler binary version stays v0.65.4 (stdlib `COMPILER_VERSION`
+  v0.65.4); the stdlib package is 0.65.5. Engine soak tree `94a2fc4`:
+  600 = 419/826 MB, slope 0.037.
+- Post-release follow-ups: `2117` aggregate contract, JSON 1704.
+
 *** SESSION UPDATE 2026-11-02T12:47Z (v0.65.5 TAGGED; release run in progress) -- READ FIRST ***
 - **Tag created:** annotated `stdlib-v0.65.5` (tag object `d1e4b36`) at
   `release/v0.65.5-prep` `88f3c12` (code `7b7583c`, package 0.65.5,

@@ -229,6 +229,15 @@ only; do not ship/rely on it).
   release workflow `41447551297` in progress.** No tag from the compiler
   lane; stdlib/owner tags. Post-release: 2117 aggregate contract, JSON
   1704, compiler stdlib pin bump when the release assets/URL land.
+- **PUBLISHED + PINNED (2026-11-02T13:45Z):**
+  https://github.com/xiom-lang/stdlib/releases/tag/stdlib-v0.65.5
+  (run 41447551297 success; asset sha256 0ed34f95...; registry
+  xiom-std 0.65.5 LIVE sha256 e8aa1bd7..., compiler field v0.65.4).
+  Compiler pin PR #12 merged at main `b2538ae5a`:
+  `STDLIB_VERSION=stdlib-v0.65.5`. PR #11 (stale bot branch) closed.
+  ASCII repair `9a1888286`; the 33 v0.65.5 compiler commits are pushed.
+  Compiler binary stays v0.65.4 by design (stdlib COMPILER_VERSION
+  v0.65.4). Post-release only: 2117 aggregate contract, JSON 1704.
 - **JSON 1704 (current pair):** 100k = 406/444 MB, main 0 frees; distinct
   JsonValue enum + Map[Str,JsonValue] + Result + Str-return ownership
   slice, queued; not a quick annotation and not the Map/Str slices.
