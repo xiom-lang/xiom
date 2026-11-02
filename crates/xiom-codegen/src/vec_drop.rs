@@ -2014,7 +2014,7 @@ pub(crate) struct VecDropScope {
     unused: HashSet<String>,
     safe_vec_rebind: HashSet<String>,
     str_rebind_state: HashMap<String, (String, String)>,
-    vec_rebind_state: HashMap<String, (String, String)>,
+    vec_rebind_alloca: HashMap<String, String>,
     by_value_vec_params: HashSet<String>,
     entry_prelude: Vec<String>,
 }
@@ -2268,7 +2268,7 @@ impl IrEmitter {
         self.fctx.str_rebind_exit.clear();
         self.fctx.unused_locals.clear();
         self.fctx.vec_rebind_safe.clear();
-        self.fctx.vec_rebind_state.clear();
+        self.fctx.vec_rebind_alloca.clear();
         self.fctx.str_rebind_state.clear();
         self.fctx.by_value_vec_params.clear();
         self.local.entry_prelude.clear();
@@ -2291,7 +2291,7 @@ impl IrEmitter {
             unused: std::mem::take(&mut self.fctx.unused_locals),
             safe_vec_rebind: std::mem::take(&mut self.fctx.vec_rebind_safe),
             str_rebind_state: std::mem::take(&mut self.fctx.str_rebind_state),
-            vec_rebind_state: std::mem::take(&mut self.fctx.vec_rebind_state),
+            vec_rebind_alloca: std::mem::take(&mut self.fctx.vec_rebind_alloca),
             by_value_vec_params: std::mem::take(&mut self.fctx.by_value_vec_params),
             entry_prelude: std::mem::take(&mut self.local.entry_prelude),
         }
@@ -2310,7 +2310,7 @@ impl IrEmitter {
         self.fctx.unused_locals = saved.unused;
         self.fctx.vec_rebind_safe = saved.safe_vec_rebind;
         self.fctx.str_rebind_state = saved.str_rebind_state;
-        self.fctx.vec_rebind_state = saved.vec_rebind_state;
+        self.fctx.vec_rebind_alloca = saved.vec_rebind_alloca;
         self.fctx.by_value_vec_params = saved.by_value_vec_params;
         self.local.entry_prelude = saved.entry_prelude;
     }
@@ -2412,16 +2412,13 @@ impl IrEmitter {
         if !self.vec_drop_candidate(name, llvm_ty, init) {
             return;
         }
-        // Vec overwrite-drop: the replaced data pointer is freed at each
-        // assignment; the final one through this guarded pointer drop.
+        // Vec overwrite-drop: remember the header slot; the normal Vec drop
+        // below frees the FINAL header data at exit, and each assignment
+        // frees the CURRENT header data before overwriting it.
         if self.fctx.vec_rebind_safe.contains(name) {
-            let (slot, flag) = self.vec_rebind_state(name);
-            self.fctx.vec_drops.push(VecDrop::Ptr {
-                data_alloca: slot,
-                flag,
-            });
-            self.note_vec_rebind_binding(name, alloca);
-            return;
+            self.fctx
+                .vec_rebind_alloca
+                .insert(name.to_string(), alloca.to_string());
         }
         let flag = self.fresh_tmp();
         self.local.hoisted_allocas.push((flag.clone(), "i1".to_string()));
@@ -2567,77 +2564,25 @@ impl IrEmitter {
         }
     }
 
-    /// Rebind bookkeeping for a Vec local: (data-pointer slot, owned flag).
-    /// The slot holds the CURRENT data pointer (not the header); the flag says
-    /// whether that data is owned by this local. Created lazily and hoisted.
-    fn vec_rebind_state(&mut self, name: &str) -> (String, String) {
-        if let Some(state) = self.fctx.vec_rebind_state.get(name) {
-            return state.clone();
-        }
-        let slot = self.fresh_tmp();
-        self.local
-            .hoisted_allocas
-            .push((slot.clone(), "i8*".to_string()));
-        self.local
-            .entry_prelude
-            .push(format!("  store i8* null, i8** {slot}"));
-        let flag = self.fresh_tmp();
-        self.local
-            .hoisted_allocas
-            .push((flag.clone(), "i1".to_string()));
-        self.local
-            .entry_prelude
-            .push(format!("  store i1 false, i1* {flag}"));
-        self.fctx
-            .vec_rebind_state
-            .insert(name.to_string(), (slot.clone(), flag.clone()));
-        (slot, flag)
-    }
-
-    /// At a fresh/owned Vec binding, start tracking its data pointer so the
-    /// first reassignment can free the replaced allocation.
-    pub(crate) fn note_vec_rebind_binding(&mut self, name: &str, alloca: &str) {
+    /// Before storing a fresh/owned Vec into a rebind local, free the data
+    /// pointer that the local's CURRENT header owns. Reading the header (not
+    /// a captured slot) is essential: `push` may have realloc'd and freed the
+    /// old buffer since the binding; a stale captured pointer is a
+    /// double-free (orbitdb hybrid crash 0xC0000374, REL-20261102-1605).
+    pub(crate) fn emit_vec_rebind_free_old(&mut self, name: &str) {
         if !self.fctx.vec_rebind_safe.contains(name) {
             return;
         }
-        let (slot, flag) = self.vec_rebind_state(name);
+        let Some(alloca) = self.fctx.vec_rebind_alloca.get(name).cloned() else {
+            return;
+        };
         let dgp = self.fresh_tmp();
         let dp = self.fresh_tmp();
         self.emitln(&format!(
             "  {dgp} = getelementptr %struct.Vec, %struct.Vec* {alloca}, i32 0, i32 0"
         ));
         self.emitln(&format!("  {dp} = load i8*, i8** {dgp}"));
-        self.emitln(&format!("  store i8* {dp}, i8** {slot}"));
-        self.emitln(&format!("  store i1 true, i1* {flag}"));
-    }
-
-    /// Before storing a fresh/owned Vec into a rebind local, free the data
-    /// pointer it currently owns (the overwritten allocation).
-    pub(crate) fn emit_vec_rebind_free_old(&mut self, name: &str) {
-        if !self.fctx.vec_rebind_safe.contains(name) {
-            return;
-        }
-        let (slot, flag) = self.vec_rebind_state(name);
-        self.emit_free_owned_str(&slot, &flag);
-    }
-
-    /// After the store, track the new header's data pointer as the owned value.
-    pub(crate) fn update_vec_rebind_assign(
-        &mut self,
-        name: &str,
-        store_val: &str,
-        val_ty: &str,
-    ) {
-        if !self.fctx.vec_rebind_safe.contains(name) || val_ty != "%struct.Vec" {
-            return;
-        }
-        let (slot, flag) = self.vec_rebind_state(name);
-        let dp = self.fresh_tmp();
-        self.emitln(&format!(
-            "  {dp} = extractvalue %struct.Vec {store_val}, 0"
-        ));
-        self.emitln(&format!("  store i8* {dp}, i8** {slot}"));
-        self.emitln(&format!("  store i1 true, i1* {flag}"));
+        self.emitln(&format!("  call void @xiom_guard_free(i8* {dp})"));
     }
 
     /// Element drop glue for a container whose prepass ownership tag proved

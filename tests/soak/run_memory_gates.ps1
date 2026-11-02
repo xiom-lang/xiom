@@ -48,6 +48,7 @@ $Gates = @(
     @{ Name = "container_elem_owned_drop"; CapMB = 64 },
     @{ Name = "container_elem_unsafe_shapes"; CapMB = 64 },
     @{ Name = "str_rebind_growth"; CapMB = 64 },
+    @{ Name = "vec_rebind_growth"; CapMB = 64 },
     @{ Name = "container_vec_of_vec"; CapMB = 64 },
     @{ Name = "container_nested_struct"; CapMB = 64 },
     @{ Name = "vecprobe_index_loop"; Source = "vecprobe.xi"; CapMB = 128;

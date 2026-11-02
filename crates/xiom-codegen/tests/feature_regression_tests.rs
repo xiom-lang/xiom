@@ -8647,8 +8647,8 @@ fn main() -> Int { return use_v(4); }
         .and_then(|rest| rest.split("\ndefine ").next())
         .expect("use_v body");
     assert!(
-        body.contains("extractvalue %struct.Vec"),
-        "the rebind must track the new header's data pointer:\n{ir}"
+        body.matches("getelementptr %struct.Vec").count() >= 2,
+        "the rebind must free the CURRENT header data before the store and the exit drop the final data (no stale slot):\n{ir}"
     );
     assert!(
         body.matches("call void @xiom_guard_free").count() >= 2,

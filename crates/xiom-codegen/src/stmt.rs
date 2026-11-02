@@ -1540,9 +1540,6 @@ impl IrEmitter {
                         // materialized, so a self-alias RHS is safe.
                         self.emit_vec_rebind_free_old(&ident.name);
                         self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {ptr}"));
-                        // Track the new header's data pointer as the owned
-                        // value; the exit drop frees the final one.
-                        self.update_vec_rebind_assign(&ident.name, &store_val, &llvm_ty);
                         // REL-20261028: free the replaced owned Str buffer and
                         // track the new value (fresh concat/conversion only).
                         self.update_str_rebind_assign(&ident.name, value, &store_val, &llvm_ty);

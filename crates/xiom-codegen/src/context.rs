@@ -469,11 +469,11 @@ pub struct FunctionContext {
     /// boxed `Vec.remove`/`pop` result is freed at the binding site.
     pub unused_locals: HashSet<String>,
     /// Single-declaration owned Vec locals reassigned with a fresh/owned Vec.
-    /// The replaced data pointer is freed at the assignment; the final data at
-    /// scope exit (guarded pointer drop).
+    /// The replaced data pointer is read from the CURRENT header at the
+    /// assignment (push/realloc safe) and freed; the final data at scope exit.
     pub vec_rebind_safe: HashSet<String>,
-    /// Per-local (data-pointer slot, owned flag) for Vec overwrite-drop.
-    pub vec_rebind_state: HashMap<String, (String, String)>,
+    /// Local alloca for each Vec rebind local (name -> %struct.Vec slot).
+    pub vec_rebind_alloca: HashMap<String, String>,
     /// Per-local rebind bookkeeping: (i8* slot holding the currently owned
     /// pointer, i1 owned flag). Created lazily on the first owned value.
     pub str_rebind_state: HashMap<String, (String, String)>,
