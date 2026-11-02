@@ -206,7 +206,7 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   `vp_draws`/`vp_cast` and per-frame `gbytes`/`sbytes`/`cb`, then the
   panel/present literal.
 - **Cause CONFIRMED by compiler probe:** a Vec builder returning a local
-  built through `&mut` pushes (`var out = Vec.new(); … push(&mut out); …
+  built through `&mut` pushes (`var out = Vec.new(); ... push(&mut out); ...
   return out`) is not seen as fresh, so the caller's `gbytes`-style local
   never drops. `p_vec_builder`: **21/50 MB at 20k x 1 KB -> 5/33 flat
   with `#[owns_return]`**. Action: engine annotates

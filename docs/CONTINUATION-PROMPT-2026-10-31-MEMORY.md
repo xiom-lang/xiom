@@ -1,4 +1,4 @@
-# CONTINUATION PROMPT — 2026-10-31 memory-leak slice (m375 / 2357-engine)
+# CONTINUATION PROMPT -- 2026-10-31 memory-leak slice (m375 / 2357-engine)
 
 Self-contained prompt for the next session. Read this first, then
 `docs/SESSION-HANDOFF.md`, then the live relay.
@@ -63,9 +63,9 @@ element-alias proof.
 
 Two acceptance gates, one compiler slice:
 
-1. `REL-20261030-2357-engine` — editor 600-frame soak; ~100 MB/s WS /
+1. `REL-20261030-2357-engine` -- editor 600-frame soak; ~100 MB/s WS /
    ~120 MB/s private; 2 GB gate RED.
-2. orbitdb m375 (`1807/2102/0423/0606/1100`) — current v0.65.4 numbers
+2. orbitdb m375 (`1807/2102/0423/0606/1100`) -- current v0.65.4 numbers
    are ~607 MB/200k, 2.49 GB/1M; 57.8 GB/129k was the old v0.64.8
    transient Vec retention, not current.
 3. Compiler drop glue: Map/Set values, enum payloads, removals,
@@ -115,15 +115,15 @@ only; do not ship/rely on it).
 
 ### Relay state
 
-- `REL-20261030-2357-engine-2` — fixed (`2b2b51b54`), engine verify.
-- `REL-20261031-1423-engine` — compiler half fixed; residual P1 s23 is
+- `REL-20261030-2357-engine-2` -- fixed (`2b2b51b54`), engine verify.
+- `REL-20261031-1423-engine` -- compiler half fixed; residual P1 s23 is
   engine source arithmetic (`p1_layer_add` names by count; uniqueness
   loop already in `1461c07`). Engine verify.
-- `REL-20261031-1552-stdlib` — fixed (`216a70322`), stdlib verify.
-- `REL-20261031-1600-stdlib` — compiler half fixed (`61f9e3b6a`); link
+- `REL-20261031-1552-stdlib` -- fixed (`216a70322`), stdlib verify.
+- `REL-20261031-1600-stdlib` -- compiler half fixed (`61f9e3b6a`); link
   needs `__fixdfti` family in `stdlib/runtime/fp128_helpers.c`.
-- `REL-20261031-1619-pulse` — fixed (`61f9e3b6a`), pulse re-run arm gate.
-- `REL-20261031-2156-compiler` — **FIXED + VERIFIED on our side.**
+- `REL-20261031-1619-pulse` -- fixed (`61f9e3b6a`), pulse re-run arm gate.
+- `REL-20261031-2156-compiler` -- **FIXED + VERIFIED on our side.**
   Stdlib main `11fb9b2`, candidate `release/v0.65.5-prep` `7d47924`
   (package 0.65.5, COMPILER_VERSION v0.65.4). The 10
   `Str.from_cstring(buf)` sites free the input; `from_cstring` uses
@@ -131,7 +131,7 @@ only; do not ship/rely on it).
   measurements are in the State/commits sections. Note: the stdlib's
   quoted compiler `d4d52e0c9` predates `683c77d5b`; our numbers are on
   the current main + `7d47924`.
-- `REL-20261101-0201-compiler` — **OWNER GO relayed to stdlib:**
+- `REL-20261101-0201-compiler` -- **OWNER GO relayed to stdlib:**
   v0.65.5 may be tagged/published once the leak gate is green (stdlib
   update-path frees + compiler witness flat + engine 600/120 soak). No
   further owner approval needed. `REL-20261101-0144-compiler` has the
@@ -141,15 +141,15 @@ only; do not ship/rely on it).
 - A 30-minute relay watch (`*/30 * * * *`) is scheduled in the session
   that filed the GO; it checks engine + stdlib and posts the final GO when
   both gates are green.
-- `REL-20261031-2243-compiler` — engine checkpoint soak ask: rebuild the
+- `REL-20261031-2243-compiler` -- engine checkpoint soak ask: rebuild the
   editor on compiler `f537b1b14` + stdlib `7d47924` (paired toolchain
   path in the item) and run 300/600 frames under 2 GB. Interim, not the
   final v0.65.5 cut.
-- `REL-20261101-0332-engine` — **engine soak RED** on the older pair:
+- `REL-20261101-0332-engine` -- **engine soak RED** on the older pair:
   120 = 683/1116 MB, 300 = 1333/1789, 600 = KILLED at 2 GB; ~2.9 MB/frame
   (target <=0.5). Cause: per-frame Vulkan UI batches through `&mut`
   builders + by-value submit. Shell crash is separate (2357-2).
-- `REL-20261101-0411-compiler` — engine re-soak ask: annotate
+- `REL-20261101-0411-compiler` -- engine re-soak ask: annotate
   `vulkan_ui_rect/text/text_clip/tex`, `vk_scene_submit_core`,
   `vulkan_rhi_buffer_update` (and other non-retaining per-frame Vec
   builders) with `#[borrows_vec]` (`b5b8c66e8`), rebuild with an immutable
@@ -157,22 +157,22 @@ only; do not ship/rely on it).
   Engine 06:33Z: the six annotations alone did not move the slope
   (120 683/1115, 300 1331/1797, 600 killed 2054/2556; ~2.9 MB/frame);
   added `_panel_frame_ui` + `_param_upload` (26d35d5), still ~2.9.
-- `REL-20261101-1314-engine` — engine isolated BOTH remaining sites:
+- `REL-20261101-1314-engine` -- engine isolated BOTH remaining sites:
   canvas `vk_ui_atlas_update` `var px = px_owned` + `as_mut_ptr`
   (~4.9 MB/frame with canvas on); legacy inline `VulkanPanelFrame{...}`
   literal at `apps/editor/main.xi:3692` (and `VulkanSceneFrame` :3710)
   (~2.9 MB/frame). Compiler `62be7337a` fixes both (body pointer-export
   trust + inline literal field drops); probes flat.
-- `REL-20261101-1329-compiler` — handoff: new immutable
+- `REL-20261101-1329-compiler` -- handoff: new immutable
   `toolchain-v0655-final2` (compiler `62be7337a`, lib `7b7583c`
   extracted); annotate the OUTER frame wrappers too
   (`vulkan_scene_submit_panel_frame`, `vulkan_scene_present`,
   `vulkan_scene_submit_multi_panel_frame`, Cmd/Post paths) and re-soak.
   Last gate; no tag yet.
-- `REL-20261101-1515-engine` — **final2 + zero-legacy soak STILL RED**
+- `REL-20261101-1515-engine` -- **final2 + zero-legacy soak STILL RED**
   (~2.9 MB/frame; 600 killed 2050/2498) with the UI path OFF; the
   atlas-px/inline-literal sites are cleared. Residual is non-UI.
-- `REL-20261101-1726-engine` — **120-frame bisect:** render group
+- `REL-20261101-1726-engine` -- **120-frame bisect:** render group
   ~1.46 MB/frame (175/120), shell bodies ~0.23, canvas ~0.18, residual
   ~1.2 with both skipped. Named render block builds `vp_draws/vp_cast`
   and `gbytes/sbytes/cb`. **Compiler probe confirmed** a builder returning
@@ -243,16 +243,16 @@ only; do not ship/rely on it).
   freed: shallow-copy alias, needs a moves/consumes contract; the engine
   workaround is the safe release fix. Toolchain `toolchain-vrebind`
   (compiler `a28cb352a`, sha 03D60711..., stdlib 7b7583c).
-- `REL-20261027-1931-engine` — **wontfix** (parked buffer-reuse WIP; the
+- `REL-20261027-1931-engine` -- **wontfix** (parked buffer-reuse WIP; the
   shipping v0.65.4 `.ll` verifies with opt). Reopen only if restored.
-- `REL-20261101-0427-engine` — **acked, queued after the memory gate:**
+- `REL-20261101-0427-engine` -- **acked, queued after the memory gate:**
   bare top-level global name collision (`g_layers` in p1_data vs
   adapters/world); codegen resolved the wrong global and emitted
   `DataLayerRegistry.len`. Engine workaround `3f48e47` (rename to
   `g_world_layers`) unblocks QA. Fix: module-qualified global symbols,
   or reject an ambiguous bare global use with a clear diagnostic; never
   infer from the wrong global / auto-stub.
-- `2357-engine` — partial compiler fixes; full soak not rerun.
+- `2357-engine` -- partial compiler fixes; full soak not rerun.
 
 ## First actions next session
 
@@ -289,7 +289,7 @@ only; do not ship/rely on it).
 
 ## Remaining compiler slices (in order)
 
-### A. Map/Set value payloads (`p_mapstr`) — LANDED, both paths
+### A. Map/Set value payloads (`p_mapstr`) -- LANDED, both paths
 
 Probe: `C:\Users\lefte\AppData\Local\Temp\kilo\leak-agent\proj\p_mapstr.xi`
 (5k iterations, fresh 2KB Str key+value into a fresh `StringStrMap`, one
@@ -317,7 +317,7 @@ Verified on `f3e18120a` + `7b7583c` (5k): `p_mapstr_owned` flat,
 `p_mapstr`/`p_mapstr_shapes` must now be pointed at the `_owned` mutators;
 the borrowing variants are the negative controls.
 
-### B. Removals (`p_remove`) — LANDED (`2e8193e2b`)
+### B. Removals (`p_remove`) -- LANDED (`2e8193e2b`)
 
 Probe: `...\proj\p_remove.xi`. Removal/reorder-only methods keep the
 element tag; the exit loop walks the current len, so remaining elements
@@ -328,7 +328,7 @@ binding; a consumed result stays leak-only (transfer path). Measured
 negative control stays green. A future slice can transfer the removed
 payload into a local drop instead of only handling the dead case.
 
-### C. By-value aggregate parameter ownership (`p_panel_move`) — LANDED
+### C. By-value aggregate parameter ownership (`p_panel_move`) -- LANDED
 
 Probe: `...\proj\p_panel_move.xi`. Fixed in `f537b1b14`: a
 by-value Vec local passed to a callee proven to only READ its by-value
