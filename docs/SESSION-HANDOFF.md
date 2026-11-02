@@ -14,6 +14,29 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
 `38256358845` GREEN; assets live). The commit map that produced it
 (m254-m275; all pushed) is kept below for reference:
 
+*** SESSION UPDATE 2026-11-02T14:38Z (compiler v0.65.5 PUBLIC release) -- READ FIRST ***
+- **Public compiler release:** https://github.com/xiom-lang/xiom/releases/tag/v0.65.5
+  (published 2026-11-02T14:38:13Z; release workflow run 41461717955
+  success; tag v0.65.5 at the release-notes commit 576965617; workspace
+  version 0.65.5; STDLIB_VERSION=stdlib-v0.65.5).
+- Assets (sha256):
+  - `xiom-0.65.5-windows-x64.zip`
+    `86a253a531aeaf0af1192f68de255f25bddce9a15abe29312ebf0a5717513093`
+  - `xiom-0.65.5-linux-x64.tar.gz`
+    `cae744410aed92ad101787d05619a9c2fa65029dab7a19f608a77fc15bb1a491`
+  - `xiom-0.65.5-linux-arm64.tar.gz`
+    `01652f04eee0f16c04eb7e91d008175b5ef98b23e6fcfee62a0380494b845659`
+  - `xiom-0.65.5-macos-x64.tar.gz`
+    `b6042810a2f0ad9ca4de3ab5b3e86a3f800ea256d70a0e3f874580a6cb694754`
+  - `xiom-0.65.5-macos-arm64.tar.gz`
+    `fe4cc054a0dee23e94b9c023d5c264f0e4cbb722dbef73fee97ccdd7f82d026d`
+  - `xiom-wasm-0.65.5.wasm`, `xiom-vscode-0.12.2.vsix`, `SHA256SUMS`.
+- First attempt 41459983890 failed on missing release notes; fixed by
+  adding `release-notes/v0.65.5.md` + generated `.json` (6 highlights,
+  stdlib fragment included) and moving the tag to that commit.
+- Stdlib companion: https://github.com/xiom-lang/stdlib/releases/tag/stdlib-v0.65.5
+- The compiler release is public; no local build needed.
+
 *** SESSION UPDATE 2026-11-02T13:45Z (v0.65.5 PUBLISHED; compiler pin merged) -- READ FIRST ***
 - **v0.65.5 is PUBLISHED:** https://github.com/xiom-lang/stdlib/releases/tag/stdlib-v0.65.5
   (release run 41447551297 success; validate/Ubuntu/Windows/package/GitHub
