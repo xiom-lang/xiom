@@ -6,12 +6,12 @@
     {
       "kind": "fix",
       "title": "Vec, JSON, and aggregate memory reclamation",
-      "text": "Rebinding an owned Vec now frees the data pointer read from the current header, so a push that reallocates before the rebind can no longer double-free. JSON parse trees, builder containers, and scratch buffers are reclaimed under ownership and borrow contracts while literal keys and borrowed string leaves stay untouched. A provably unique aggregate field or whole-struct overwrite now frees its old payload; aliased and trace-ring shapes stay leak-only."
+      "text": "Rebinding an owned Vec frees the data pointer from the current header, so a reallocating push before the rebind cannot double-free. JSON parse trees, builder containers, and scratch buffers are reclaimed under ownership contracts; literal keys and borrowed leaves stay untouched."
     },
     {
       "kind": "language",
       "title": "Init-once bindings and all seven spec rules",
-      "text": "The checker now enforces let and const immutability as init-once: a deferred let may be initialized once, while a reassignment of an initialized binding, const, or field is rejected. Seven audited spec gaps are hard diagnostics with positive controls and no ignored tests: loop control placement, duplicate parameters, duplicate struct fields, duplicate pattern bindings, CTFE-evaluable const initializers, fixed-width integer bounds, and init-once mutability."
+      "text": "Let and const are init-once: a deferred let may be initialized once, while reassigning an initialized binding, const, or field is rejected. Seven audited spec gaps are hard diagnostics with positive controls and no ignored tests, covering loops, duplicate names, CTFE consts, integer bounds, and mutability."
     },
     {
       "kind": "tooling",
@@ -21,7 +21,7 @@
     {
       "kind": "compiler",
       "title": "Sanitizer tagging and relay correctness fixes",
-      "text": "Address sanitizer builds now tag generated IR and bypass the guard arena, and the guarded allocator recycles freed blocks instead of retaining them until block exit. By-reference function parameters are enforced, the macOS typed memset lowering is fixed, the HTTP server frees its parse buffers, and W000, exhaustiveness, the explain flag, Int plus Str, and mixed to_str conversions behave consistently."
+      "text": "Sanitizer builds tag generated IR and bypass the guard arena, and the guarded allocator recycles freed blocks. By-reference function parameters are enforced, macOS typed memset is fixed, and W000, exhaustiveness, the explain flag, Int plus Str, and mixed to_str behave consistently."
     },
     {
       "kind": "fix",
