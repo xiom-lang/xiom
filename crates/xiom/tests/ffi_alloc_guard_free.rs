@@ -21,10 +21,19 @@ fn runtime_has_guard_free(root: &std::path::Path) -> bool {
         .unwrap_or(false)
 }
 
+/// B-05 needs the recycling runtime marker, not just the arena-aware free:
+/// the checked-out inner `xiom/stdlib` snapshot predates the fix, so the
+/// root search must skip it rather than test the stale copy.
+fn runtime_has_guard_recycle(root: &std::path::Path) -> bool {
+    std::fs::read_to_string(root.join("runtime").join("xiom_runtime.c"))
+        .map(|src| src.contains("XIOM_GUARD_MAGIC"))
+        .unwrap_or(false)
+}
+
 /// First stdlib root (XIOM_STDLIB -> exe ancestors -> ./stdlib, mirroring
 /// xiom-graph::paths::stdlib_candidates) that has a module tree AND the
-/// xiom_guard_free runtime symbol.
-fn guard_stdlib_root() -> Option<std::path::PathBuf> {
+/// requested runtime marker.
+fn guard_stdlib_root_with(marker: fn(&std::path::Path) -> bool) -> Option<std::path::PathBuf> {
     let mut cands: Vec<std::path::PathBuf> = Vec::new();
     if let Ok(s) = std::env::var("XIOM_STDLIB") {
         if !s.trim().is_empty() {
@@ -44,7 +53,11 @@ fn guard_stdlib_root() -> Option<std::path::PathBuf> {
     cands.push(std::path::PathBuf::from("stdlib"));
     cands
         .into_iter()
-        .find(|c| c.join("xiom").is_dir() && runtime_has_guard_free(c))
+        .find(|c| c.join("xiom").is_dir() && marker(c))
+}
+
+fn guard_stdlib_root() -> Option<std::path::PathBuf> {
+    guard_stdlib_root_with(runtime_has_guard_free)
 }
 
 #[test]
@@ -136,5 +149,95 @@ fn m313_ffi_free_guard_watchdog() {
     assert!(
         stdout.contains("v=7"),
         "m313: the confined alloc/free roundtrip must read back 7; stdout:\n{stdout}"
+    );
+}
+
+
+// B-05 accounting half: a balanced alloc/free loop inside ONE confined block
+// must stay flat. Pre-fix `xiom_guard_free` no-oped arena pointers, so every
+// pair retained its 16-byte block until block exit (30M pairs = 480 MB and
+// ~25 s of slab allocation). The 20 s watchdog therefore fails the pre-fix
+// runtime and passes the recycling runtime with a large margin.
+#[test]
+fn b05_alloc_guard_loop_flat() {
+    let Some(root) = guard_stdlib_root_with(runtime_has_guard_recycle) else {
+        eprintln!(
+            "SKIP: no stdlib root with the B-05 recycling runtime found \
+             (looked at XIOM_STDLIB, exe ancestors, ./stdlib)"
+        );
+        return;
+    };
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("tests")
+        .join("regression")
+        .join("b05_alloc_guard_loop");
+    let dir = std::env::temp_dir().join(format!("xiom_b05_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let main_xi = dir.join("main.xi");
+    std::fs::copy(fixture.join("main.xi"), &main_xi).expect("fixture main.xi must exist");
+
+    let exe_name = if cfg!(windows) { "b05_probe.exe" } else { "b05_probe" };
+    let out_bin = dir.join(exe_name);
+    let compile = Command::new(env!("CARGO_BIN_EXE_xiom"))
+        .arg(&main_xi)
+        .arg("--force")
+        .arg("--no-cache")
+        .arg("-o")
+        .arg(&out_bin)
+        .env("XIOM_STDLIB", &root)
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn '{}': {e}", env!("CARGO_BIN_EXE_xiom")));
+    assert!(
+        compile.status.success(),
+        "b05 fixture must compile; exit={:?}\nstdout:\n{}\nstderr:\n{}",
+        compile.status.code(),
+        String::from_utf8_lossy(&compile.stdout),
+        String::from_utf8_lossy(&compile.stderr)
+    );
+
+    let out_log = dir.join("run.out");
+    let err_log = dir.join("run.err");
+    let stdout_file = std::fs::File::create(&out_log).unwrap();
+    let stderr_file = std::fs::File::create(&err_log).unwrap();
+    let mut child = Command::new(&out_bin)
+        .stdout(stdout_file)
+        .stderr(stderr_file)
+        .spawn()
+        .unwrap_or_else(|e| panic!("failed to run {}: {e}", out_bin.display()));
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(20);
+    let mut killed = false;
+    let status = loop {
+        match child.try_wait().unwrap() {
+            Some(status) => break status,
+            None => {
+                if start.elapsed() > timeout {
+                    killed = true;
+                    let _ = child.kill();
+                    break child.wait().unwrap();
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        }
+    };
+    let stdout = std::fs::read_to_string(&out_log).unwrap_or_default();
+    let stderr = std::fs::read_to_string(&err_log).unwrap_or_default();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(
+        !killed,
+        "b05: 30M confined alloc/free pairs exceeded 20 s -- the guard heap \
+         retained freed blocks (free/alloc accounting regressed); \
+         stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(
+        status.code(),
+        Some(0),
+        "b05 probe must exit 0\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("acc=210000000"),
+        "b05: every payload read must return 7; stdout:\n{stdout}"
     );
 }

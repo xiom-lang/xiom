@@ -5253,6 +5253,15 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 self.closure_counter += 1;
                 let fn_name = format!("__closure_{closure_id}");
                 let env_name = format!("__closure_env_{closure_id}");
+                // REL-20261010-1553: `|a, b| ...` carries no annotations.
+                // The call site supplies the DECLARED parameter types of the
+                // fn-typed parameter this literal is passed to (arity must
+                // match); only type tracking changes -- the i64 closure ABI
+                // is unchanged, and a `&T` param's slot holds the ADDRESS.
+                let expected_params = self
+                    .pending_closure_params
+                    .take()
+                    .filter(|v| v.len() == params.len());
                 
                 // Detect captured (free) variables: identifiers in the body
                 // that are in the local scope but NOT closure params.
@@ -5288,9 +5297,38 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     for (i, p) in params.iter().enumerate() {
                         let preg = format!("%{}_{}", p.name, i);
                         let a = format!("%{}_{}_alloca", p.name, i);
-                        self.emitln(&format!("  {a} = alloca i64"));
-                        self.emitln(&format!("  store i64 {preg}, i64* {a}"));
-                        self.add_local(&p.name, a, "i64");
+                        let expected_ty = expected_params
+                            .as_ref()
+                            .and_then(|v| v.get(i))
+                            .map(|s| s.as_str());
+                        // A declared `&T` param receives an ADDRESS in the
+                        // uniform i64 slot. Bind it through a real typed
+                        // pointer slot (like a normal `&T` param) so value
+                        // uses auto-deref (`a < b` must compare referents).
+                        let ref_pointee = expected_ty
+                            .filter(|t| t.trim().starts_with('&'))
+                            .and_then(|t| {
+                                let p = t.trim();
+                                let inner = p
+                                    .strip_prefix("&mut ")
+                                    .or_else(|| p.strip_prefix('&'))
+                                    .unwrap_or("")
+                                    .trim();
+                                self.llvm_type_for(inner).ok()
+                            });
+                        if let Some(pointee) = ref_pointee {
+                            let ptr_ty = format!("{pointee}*");
+                            let pv = format!("%{}_{}_ptr", p.name, i);
+                            self.emitln(&format!("  {a} = alloca {ptr_ty}"));
+                            self.emitln(&format!("  {pv} = inttoptr i64 {preg} to {ptr_ty}"));
+                            self.emitln(&format!("  store {ptr_ty} {pv}, {ptr_ty}* {a}"));
+                            self.add_local(&p.name, a, &ptr_ty);
+                        } else {
+                            self.emitln(&format!("  {a} = alloca i64"));
+                            self.emitln(&format!("  store i64 {preg}, i64* {a}"));
+                            self.add_local(&p.name, a, "i64");
+                        }
+                        self.record_closure_param_expected_type(&p.name, expected_ty);
                     }
                     
                     let (ret_val, ret_ty) = self.compile_expr(body)?;
@@ -5398,9 +5436,34 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 for (i, p) in params.iter().enumerate() {
                     let preg = format!("%{}_{}", p.name, i);
                     let a = format!("%{}_{}_alloca", p.name, i);
-                    self.emitln(&format!("  {a} = alloca i64"));
-                    self.emitln(&format!("  store i64 {preg}, i64* {a}"));
-                    self.add_local(&p.name, a, "i64");
+                    let expected_ty = expected_params
+                        .as_ref()
+                        .and_then(|v| v.get(i))
+                        .map(|s| s.as_str());
+                    let ref_pointee = expected_ty
+                        .filter(|t| t.trim().starts_with('&'))
+                        .and_then(|t| {
+                            let p = t.trim();
+                            let inner = p
+                                .strip_prefix("&mut ")
+                                .or_else(|| p.strip_prefix('&'))
+                                .unwrap_or("")
+                                .trim();
+                            self.llvm_type_for(inner).ok()
+                        });
+                    if let Some(pointee) = ref_pointee {
+                        let ptr_ty = format!("{pointee}*");
+                        let pv = format!("%{}_{}_ptr", p.name, i);
+                        self.emitln(&format!("  {a} = alloca {ptr_ty}"));
+                        self.emitln(&format!("  {pv} = inttoptr i64 {preg} to {ptr_ty}"));
+                        self.emitln(&format!("  store {ptr_ty} {pv}, {ptr_ty}* {a}"));
+                        self.add_local(&p.name, a, &ptr_ty);
+                    } else {
+                        self.emitln(&format!("  {a} = alloca i64"));
+                        self.emitln(&format!("  store i64 {preg}, i64* {a}"));
+                        self.add_local(&p.name, a, "i64");
+                    }
+                    self.record_closure_param_expected_type(&p.name, expected_ty);
                 }
                 
                 // Compile body
@@ -5468,6 +5531,9 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 self.closure_counter += 1;
                 let fn_name = format!("__closure_{closure_id}");
                 let env_name = format!("__closure_env_{closure_id}");
+                // Block closures carry explicit param types; consume any
+                // call-site hint so it cannot leak into nested compiles.
+                let _ = self.pending_closure_params.take();
                 
                 let ret_llvm = ret_ty.as_ref()
                     .map(|t| self.llvm_type_for(&Self::type_from_ast(t)).unwrap_or_else(|_| "i64".to_string()))

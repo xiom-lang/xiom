@@ -799,7 +799,7 @@ impl<'a> AstDump<'a> {
                 self.line(depth, &format!("StmtSpawn move={} span={}", *mv as u8, ast_span(sp)));
                 self.block(b, depth + 1);
             }
-            Stmt::Destructure(names, e, sp) => {
+            Stmt::Destructure(names, e, sp, _) => {
                 self.line(depth, &format!("Destructure names={} span={}", names.len(), ast_span(sp)));
                 for n in names {
                     self.id_name(n, depth + 1);
@@ -1859,6 +1859,8 @@ fn real_main() {
     let stack_protector = args.flag("stack-protector");
     let overflow_checks = args.flag("overflow-checks");
     let strict_exhaustive = args.flag("strict-exhaustive");
+    // Stage 6 tier 3: opt-in noise lints (never errors).
+    let lint_strict = args.flag("lint-strict");
     // D2.1 (Phase 7): allow `#[unsafe_direct]` (trusted escape hatch) in user code
     let enable_unsafe_direct = args.flag("enable-unsafe-direct");
     if enable_unsafe_direct {
@@ -2209,6 +2211,7 @@ fn real_main() {
         keep_debug_checks,
         overflow_checks,
         strict_exhaustive,
+        lint_strict,
         incremental,
         force: force_recompile,
         no_cache: args.flag("no-cache"),
@@ -2572,6 +2575,7 @@ fn real_main() {
                     keep_debug_checks: false,
                     overflow_checks: config.overflow_checks,
                     strict_exhaustive: config.strict_exhaustive,
+                    lint_strict: config.lint_strict,
                     script_mode: false,
                     cache: false,
                     lto: false,
@@ -2633,6 +2637,7 @@ fn real_main() {
                     keep_debug_checks: false,
                     overflow_checks: config.overflow_checks,
                     strict_exhaustive: config.strict_exhaustive,
+                    lint_strict: config.lint_strict,
                     script_mode: false,
                     cache: false,
                     lto: false,
@@ -2772,6 +2777,7 @@ fn print_usage() {
     eprintln!("  --sanitize=<type>   Sanitizer: address, undefined, leak, thread");
     eprintln!("  --strict            Strict mode (alias: --strict-mode)");
     eprintln!("  --strict-exhaustive Strict exhaustiveness checks");
+    eprintln!("  --lint-strict       Opt-in tier-3 lints (warning-only; never errors)");
     eprintln!("  --timeout <seconds> Set compilation timeout (default: 300; 0 disables)");
     eprintln!("  --max-memory-mb <N> Set max memory budget in MB (0 = disabled)");
     eprintln!("  --max-depth <N>     Max contract recursion depth (default: 500)");

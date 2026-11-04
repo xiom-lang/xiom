@@ -886,6 +886,43 @@ impl IrEmitter {
             // resolves the declared method.
             Expr::As(_, ty, _) => Some(Self::type_string_full(ty)),
             Expr::Unary(UnaryOp::Neg, inner, _) => self.infer_expr_xiom_type_deep(inner),
+            // Mixed arithmetic carries its RESULT type: `2 + 2.5` is a
+            // Float64 (checker promotes to the float operand), so
+            // `(2 + 2.5).to_str()` must lower through the Float64 conversion
+            // instead of falling through to an undefined `@to_str` stub
+            // (W005, empty render / 0xC0000409). Comparisons/logical
+            // operators are Bool; Add follows the Str-concat rule used by
+            // the BinOp lowering.
+            Expr::Binary(left, op, right, _) => {
+                let lhs = self.infer_expr_xiom_type_deep(left);
+                let rhs = self.infer_expr_xiom_type_deep(right);
+                match op {
+                    BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Gt
+                    | BinOp::Le | BinOp::Ge | BinOp::And | BinOp::Or => {
+                        Some("Bool".to_string())
+                    }
+                    BinOp::Add
+                        if lhs.as_deref() == Some("Str") || rhs.as_deref() == Some("Str") =>
+                    {
+                        Some("Str".to_string())
+                    }
+                    _ => {
+                        let is_float = |t: &Option<String>| {
+                            matches!(
+                                t.as_deref(),
+                                Some("Float32") | Some("Float64") | Some("Float128")
+                            )
+                        };
+                        if is_float(&lhs) {
+                            lhs
+                        } else if is_float(&rhs) {
+                            rhs
+                        } else {
+                            None
+                        }
+                    }
+                }
+            }
             // C-PULSE-05: module-level consts/globals carry their declared XIOM
             // type in global_xiom_types; fall back to it so `const V: Int = 41;
             // V.to_str()` (and Str/Float/Bool consts) pick the right conversion.
@@ -1055,6 +1092,71 @@ impl IrEmitter {
     }
 
     /// D1: compile_call with explicit generic type args (from `fn[Type](args)`).
+    /// R4: reclaim a PROVEN-OWNED temporary's CONTAINER buffers after a call
+    /// to an `#[consumes_agg]` callee (json_stringify). The contract says the
+    /// callee consumes the by-value aggregate for the call's duration and
+    /// retains nothing, so once it returns the caller may free the tree's
+    /// Vec/Map data buffers. String leaves are borrowed (literal keys/values)
+    /// and are NEVER freed. Only a DIRECT call to a contracted builder
+    /// (`b.build()`) is accepted as provenance; a variable/field/index
+    /// argument stays leak-only because there is no move proof.
+    fn reclaim_consumed_agg_args(
+        &mut self,
+        callee_key: &str,
+        args: &[Expr],
+        compiled_args: &[(String, String)],
+    ) {
+        let leaf = callee_key.rsplit('.').next().unwrap_or(callee_key);
+        if !self.consumes_agg_callees.contains(leaf) {
+            return;
+        }
+        for (i, ae) in args.iter().enumerate() {
+            let Some(enum_name) = self.owned_consumes_agg_temp(ae) else {
+                continue;
+            };
+            let Some((val, ty)) = compiled_args.get(i) else {
+                continue;
+            };
+            let Some(arg_enum) = ty.strip_prefix("%struct.") else {
+                continue;
+            };
+            let arg_leaf = arg_enum.rsplit('.').next().unwrap_or(arg_enum);
+            let want_leaf = enum_name.rsplit('.').next().unwrap_or(&enum_name);
+            if arg_leaf != want_leaf {
+                continue;
+            }
+            let Some(key) = self.resolve_enum_key(arg_enum) else {
+                continue;
+            };
+            if !self.types.enum_variants.contains_key(&key) {
+                continue;
+            }
+            let helper = crate::vec_drop::enum_tree_container_drop_helper_name(&key);
+            let slot = self.fresh_tmp();
+            if self.local.loop_depth > 0 {
+                self.local.hoisted_allocas.push((slot.clone(), ty.clone()));
+            } else {
+                self.emitln(&format!("  {slot} = alloca {ty}"));
+            }
+            self.emitln(&format!("  store {ty} {val}, {ty}* {slot}"));
+            self.emitln(&format!("  call void @{helper}({ty}* {slot})"));
+        }
+    }
+
+    /// `expr` is a direct call whose leaf is a contracted `#[consumes_agg]`
+    /// builder returning a named enum (`b.build()`), so its result is a
+    /// container-owned tree. Returns that enum name.
+    fn owned_consumes_agg_temp(&self, expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Paren(inner, _) => self.owned_consumes_agg_temp(inner),
+            Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
+                crate::vec_drop::call_leaf(func)
+                    .and_then(|leaf| self.consumes_agg_returns.get(leaf).cloned())
+            }
+            _ => None,
+        }
+    }
+
     pub(crate) fn compile_call_with_types(
         &mut self,
         func: &Expr,
@@ -1200,8 +1302,30 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     if let Some(ref name) = fn_name_opt {
                         if self.local.closure_locals.contains(name) {
                             // Local variable -- could be a closure
-                            let compiled_args: Vec<(String, String)> = args.iter()
-                                .map(|a| self.compile_expr(a).map(|(v, t)| (v, t)))
+                            // REL-20261010-1553: the callee's declared
+                            // signature is the only source of by-reference
+                            // parameter information inside the callee body.
+                            // `less: fn(&T, &T) -> Bool` called with the
+                            // VALUE `items.get(i).unwrap()` must hand over
+                            // the value's slot ADDRESS (the forwarding thunk
+                            // inttoptrs it); an already address-valued arg
+                            // (`&arr[i]`) passes through untouched.
+                            let callee_marker = self.local.fn_ptr_signatures.get(name).cloned()
+                                .or_else(|| self.local.local_xiom_types.get(name).cloned())
+                                .map(|m| Self::subst_type_tokens(&m, &self.mono.current_type_map));
+                            let ref_params = callee_marker.as_deref()
+                                .filter(|m| !Self::has_unresolved_generic_token(m))
+                                .and_then(Self::fn_marker_param_types)
+                                .unwrap_or_default();
+                            let compiled_args: Vec<(String, String)> = args.iter().enumerate()
+                                .map(|(i, a)| {
+                                    let (val, ty) = self.compile_expr(a)?;
+                                    let val = match ref_params.get(i) {
+                                        Some(param) => self.materialize_ref_arg_if_needed(a, val, &ty, param),
+                                        None => val,
+                                    };
+                                    Ok::<(String, String), String>((val, ty))
+                                })
                                 .collect::<Result<Vec<_>, _>>()?;
                             // Load the closure variable
                             let (callee_val, _callee_ty) = self.compile_expr(func_unwrapped)?;
@@ -1988,6 +2112,30 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                                     self.emitln(&format!("  {tmp} = call i8* @{sym}(double {fv})"));
                                     return Ok((tmp, LLVM_STR_PTR.to_string()));
                                 }
+                                // The peeked `convert.float_to_string` is not
+                                // always injected (mixed-expression receivers
+                                // call the builtin without naming the module).
+                                // The host runtime's shortest-round-trip
+                                // formatter is always declared and prints the
+                                // same text (`4.5`), so use it instead of
+                                // falling through to the W005 `@to_str` stub.
+                                if !self.config.freestanding {
+                                    let (val, vty) = self.compile_expr(op_expr)?;
+                                    let fv = if vty == "double" {
+                                        val
+                                    } else if vty == "float" {
+                                        let e = self.fresh_tmp();
+                                        self.emitln(&format!("  {e} = fpext float {val} to double"));
+                                        e
+                                    } else {
+                                        let b = self.fresh_tmp();
+                                        self.emitln(&format!("  {b} = bitcast {vty} {val} to double"));
+                                        b
+                                    };
+                                    let tmp = self.fresh_tmp();
+                                    self.emitln(&format!("  {tmp} = call i8* @xiom_double_to_string(double {fv})"));
+                                    return Ok((tmp, LLVM_STR_PTR.to_string()));
+                                }
                             }
                             if xiom_ty == "Bool" {
                                 let (val, vty) = self.compile_expr(op_expr)?;
@@ -2010,6 +2158,19 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             let iv = self.val_to_i64(&val, &vty);
                             let tmp = self.fresh_tmp();
                             self.emitln(&format!("  {tmp} = call i8* @xiom_int_to_string(i64 {iv})"));
+                            return Ok((tmp, LLVM_STR_PTR.to_string()));
+                        }
+                        if matches!(ty.as_str(), "double" | "float") && !self.config.freestanding {
+                            let (val, vty) = self.compile_expr(op_expr)?;
+                            let fv = if vty == "double" {
+                                val
+                            } else {
+                                let e = self.fresh_tmp();
+                                self.emitln(&format!("  {e} = fpext float {val} to double"));
+                                e
+                            };
+                            let tmp = self.fresh_tmp();
+                            self.emitln(&format!("  {tmp} = call i8* @xiom_double_to_string(double {fv})"));
                             return Ok((tmp, LLVM_STR_PTR.to_string()));
                         }
                     }
@@ -3708,8 +3869,26 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                         return Ok((tmp, LLVM_STR_PTR.to_string()));
                     }
                 }
+                // REL-20261010-1553: a closure LITERAL passed straight to a
+                // fn-typed parameter is compiled BEFORE the callee resolves,
+                // so pull the expected parameter spellings from the
+                // registration-time marker table. Only the bare free-fn form
+                // is handled here (a receiver would shift param indices).
+                let closure_hints: Vec<Option<Vec<String>>> = if receiver_expr.is_none() {
+                    (0..args.len())
+                        .map(|i| {
+                            self.fn_typed_param_marker_for(&fn_name, i)
+                                .map(|m| Self::subst_type_tokens(&m, &self.mono.current_type_map))
+                                .filter(|m| !Self::has_unresolved_generic_token(m))
+                                .and_then(|m| Self::fn_marker_param_types(&m))
+                        })
+                        .collect()
+                } else {
+                    vec![None; args.len()]
+                };
                 let compiled_args: Vec<(String, String)> = args.iter()
-                    .map(|a| self.compile_expr(a))
+                    .enumerate()
+                    .map(|(i, a)| self.compile_arg_with_closure_hint(a, closure_hints[i].clone()))
                     .collect::<Result<Vec<_>, _>>()?;
                 if fn_name == "io" {
                     if let Some((arg, _)) = compiled_args.first() {
@@ -7526,6 +7705,7 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                     } else if ret_ty == "void" {
                         self.emit_stdout_flush_before_blocking_read(&resolved_fn_key, &call_symbol);
                         self.emitln(&format!("  call void @{call_symbol}({args_str})"));
+                        self.reclaim_consumed_agg_args(&resolved_fn_key, args, &compiled_args);
                         Ok((String::new(), "void".to_string()))
                     } else {
                         self.emit_stdout_flush_before_blocking_read(&resolved_fn_key, &call_symbol);
@@ -7541,6 +7721,10 @@ let (func_unwrapped, mut type_arg): (&Expr, Option<&Expr>) = match func {
                             Some(ty) => self.emitln(&format!("  {tmp} = call {ty} @{call_symbol}({args_str})")),
                             None => self.emitln(&format!("  {tmp} = call {ret_ty} @{call_symbol}({args_str})")),
                         }
+                        // R4: an `#[consumes_agg]` callee (json_stringify) has
+                        // consumed any proven-owned temporary aggregate arg.
+                        // Reclaim its container buffers now; String leaves stay.
+                        self.reclaim_consumed_agg_args(&resolved_fn_key, args, &compiled_args);
                         Ok((tmp, ret_ty.clone()))
                     }
                 }

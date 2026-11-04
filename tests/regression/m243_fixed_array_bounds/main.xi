@@ -10,7 +10,7 @@
 module m243_fixed_array_bounds
 
 fn main() -> Int {
-  let a = [1, 2, 3];
+  var a: [3]Int = [1, 2, 3];
   a[100] = 42;
   var sink = a[100];
   return sink;

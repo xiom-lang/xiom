@@ -150,7 +150,7 @@ impl crate::Formatter {
                 self.push_indent();
                 self.buf.push_str("}\n");
             }
-            Stmt::Destructure(names, val, _) => {
+            Stmt::Destructure(names, val, _, _) => {
                 self.buf.push_str("var (");
                 for (i, n) in names.iter().enumerate() {
                     if i > 0 { self.buf.push_str(", "); }

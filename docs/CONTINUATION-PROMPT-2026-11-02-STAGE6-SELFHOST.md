@@ -125,8 +125,14 @@ Benchmark:
 
 ### P4 - Stage 6 lint wave
 - `docs/STAGE6_LINT_WAVE.md`: tier 1 (W002/W003/W004) and tier 2
-  (W006/W007/W008) landed; tier 3 is parked pending the noise-budget
-  decision. Do not enable tier 3 without the owner decision.
+  (W006/W007/W008) landed. **Tier 3 landed OPT-IN (`--lint-strict`)** per
+  the 2026-11-02 owner decision. Codes: W010 unused param, W011 unused
+  import, W012 constant condition, W013 self-assignment, W014 vacuous
+  integer arithmetic, W015 unused local. Default builds stay
+  warning-clean. Measured over 61 examples at `--lint-strict`: 47 tier-3
+  warnings (W015 30, W014 8, W011 4, W012 3, W010 1, W013 1), 21/61 files
+  noisy. Keep opt-in until the 30 W015 + 8 W014 sites are triaged
+  (cleanup vs suppression) and a default-on proposal is accepted.
 
 ## 4. Release process (exact, used for v0.65.5)
 
@@ -208,3 +214,44 @@ Known pitfalls already hit:
    green; the 100% bootstrap gates tracked.
 5. `docs/SELFHOST_PROGRESS.md` meter refreshed; relay/acceptance records
    current.
+
+## 8. Update 2026-11-02 (later session)
+
+- **P1 t3 CLOSED in code (not yet released).** Root cause was the POSIX
+  confinement trampoline calling `sigsetjmp(..., 1)` per confined-block entry
+  (a `sigprocmask` syscall, ~21 ms / 100k). Fixed in
+  `E:\xiom-lang\stdlib\runtime\xiom_runtime.c`: savemask=0 on
+  `xiom_trampoline_call` and `xiom_trap_enter`, with the fault handler
+  unblocking the delivered signal before `siglongjmp`. Linux/WSL scored t3:
+  27 ms internal / 31 ms wall -> **5 ms / 8.5 ms** (peer Rust 6 ms). Locks:
+  `e2e_t3_trampoline_floor_budget`, `e2e_confined_repeat_fault_contained`
+  (wired into ci.yml), fixtures under `tests/regression/`. A new stdlib tag
+  and `STDLIB_VERSION` bump are required to ship it.
+- **P3 AST note resolved.** The qualified-literal names already matched; the
+  real diff was `NkPatField` dumping its sub-pattern one level too deep
+  (`struct_depth+3` vs Rust's `+2`). Fixed in the selfhost worktree
+  `selfhost/src/ast_dump.xi`; `diff_ast` is green (83 files, 12877 nodes,
+  206.76 s). **T6 37/64 - non-phase-8 work complete.** `phase1_hardening.xi`
+  is byte-identical (2013/2013) via enum payload derives (`Eq`/`Clone`),
+  module-generic symbol spelling, invariant calls, `&mut` scalar params, and
+  Option/Result pseudo-fields. Gates: diff_corpus tier 3 T3 19/19, phase-6
+  37/64, T1 83/83; diff_ast 83/83; full tier-3 suite 6/6; ported-set spot
+  check 56/56.
+  Next: phase-8 `xiom.*` import-closure catalog/preamble emission, starting
+  with `examples/catfix/b9main.xi` (`xiom.io`) and
+  `tests/regression/m37_bug53_array_ref_param.xi`. All 27 remaining unported
+  PHASE6 files are stdlib-catalog/preamble; no non-catalog delta remains.
+- **P2 JSON 1704 fixed (R1+R3+R4).** The parse tree and the builder half are
+  reclaimed. `p_json_1704_obj` peak: 7.3/25.5/45.9 MB at 1k/10k/20k (R3) ->
+  **4.7/6.6/8.6 MB** (R4), i.e. a plateau. Provenance stays strict: only a
+  direct `let p = json_parse(s)` frees Strings; builder/stringify trees free
+  containers only (literal keys and borrowed String leaves are never freed).
+  `#[consumes_agg]` on `build(self)`/`json_stringify`. Verification: 577/577
+  regression, 21/21 memory gates, ASan clean, m375 22/22. **R2 also landed**
+  (`#[owns_str]` + `#[borrows_str]` + `#[borrows_vec]` on `_json_buf_str`):
+  `p_json_1704_obj` is now 4.6/5.0/5.5 MB at 1k/10k/20k (~0.05 KB/iter), with
+  literal/borrowed strings leak-only and ASan clean. 2117 field /
+  whole-struct overwrite is fixed too (unique-aggregate proof; 5 MB at 20k;
+  trace-ring/alias negatives leak-only; gates 22/22).
+- **Release:** no `v0.65.6` tag, no version bump. The orbitdb Vec fix remains
+  on main; the t3 fix lives in stdlib.

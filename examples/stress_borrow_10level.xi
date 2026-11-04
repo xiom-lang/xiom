@@ -2,7 +2,7 @@
 // Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-fn read1(x: &Int) -> Int { return x + 0; }
+fn read1(x: &Int) -> Int { return x; }
 fn read2(x: &Int) -> Int { return read1(x); }
 fn read3(x: &Int) -> Int { return read2(x); }
 fn read4(x: &Int) -> Int { return read3(x); }

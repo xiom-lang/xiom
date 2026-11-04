@@ -45,8 +45,8 @@ pub fn own_read_file_bytes(path: Str) -> Result[Vec[UInt8], IOError]
   ensures: result is Ok => result.len() >= 0
 {
   let c_path = path.c_str();
-  let ptr: *UInt8;
-  let size: Int;
+  var ptr: *UInt8;
+  var size: Int;
   unsafe {
     ptr = xiom_read_file(c_path);
     if ptr == 0 {
@@ -74,8 +74,8 @@ pub fn own_read_file_bytes_value(path: Str) -> Result[Vec[UInt8], IOError]
   ensures: result is Ok => result.value.len() >= 0
 {
   let c_path = path.c_str();
-  let ptr: *UInt8;
-  let size: Int;
+  var ptr: *UInt8;
+  var size: Int;
   unsafe {
     ptr = xiom_read_file(c_path);
     if ptr == 0 {

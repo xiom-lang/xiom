@@ -14,7 +14,7 @@ type Color = {
 } derive[Eq, Clone, Hash, Ord]
 
 fn main() -> Int {
-  let p = Point{ x: 1.0, y: 2.0 };
-  let c = Color{ r: 255, g: 128, b: 64 };
+  let _p = Point{ x: 1.0, y: 2.0 };
+  let _c = Color{ r: 255, g: 128, b: 64 };
   return 0;
 }

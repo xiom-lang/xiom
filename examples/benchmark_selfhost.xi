@@ -180,7 +180,7 @@ module control {
     var total = 0;
     var i = 0;
     while i < limit + 1 {
-      if true { total = total + i; }
+      total = total + i;
       i = i + 1;
     }
     return total;
@@ -189,7 +189,7 @@ module control {
   pub fn count_to(limit: Int) -> Int {
     var i = 0;
     while i < limit {
-      if true { i = i + 1; }
+      i = i + 1;
     }
     return i;
   }

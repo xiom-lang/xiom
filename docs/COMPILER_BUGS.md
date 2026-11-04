@@ -28,6 +28,124 @@ and the reporter lane verifies at the next release check
 
 ---
 
+## 2026-11-04 -- VERIFIED (no code change): closing the three compiler-lane PARTIAL/OPEN items
+
+All three were re-run on current HEAD (workspace v0.65.5; the uncommitted
+mutability/init-once, seven SPEC gaps, t3/1704/2117/drop glue, lint, ASan and
+playground work is preserved) with the **release** compiler
+(`target/release/xiom.exe`, `XIOM_STDLIB` pointed at this repo's `stdlib/`
+checkout). No compiler or stdlib source was changed by this verification.
+
+| Item | Verdict | Repro | Evidence |
+|------|---------|-------|----------|
+| true 1550 (`COMPILER_BUGS` 2026-10-22 PARTIAL) | GREEN | `xiom -o m1550_true.exe tests/regression/m1550_enumerate_tuple_map_true.xi && ./m1550_true.exe` | `m1550 true ok`, rc 0; fixture asserts `em[1].0 == 1` and `em=[(0,10),(1,12),(2,14)]` |
+| 1550 / REL-20261020-1550-stdlib | GREEN | `xiom -o m1550.exe tests/regression/m1550_enumerate_tuple_map.xi && ./m1550.exe` | `len=3`, `em[0]=10`, `em[1]=12`, `em[2]=14`, `m1550 ok`, rc 0 |
+| 2309 + 0052 libc collision | GREEN (diagnose+surface, `855766b73`) | `xiom -o m0052_warn.exe tests/regression/m0052_reserved_symbol_warn/main.xi` | `warning[W009] ... 'recv' ... collides with a libc/Winsock export`; linker cause surfaced (`lld-link: error: duplicate symbol: recv`, defined at `xiominput-*.o` and `ws2_32.lib`). `recv_bytes` control compiles rc 0. |
+
+Root causes and fixes (already committed):
+- true 1550: `dd9256343` resolves the `MapIter[(Int,Int),U]` returned by the
+  inner `.map()` for the outer `.collect()` receiver and canonicalizes the
+  callback tuple return, so `Vec[Tuple__Int__Int]` is read at 16-byte stride.
+- REL-20261020-1550-stdlib: stdlib `d53f93a` specializes
+  `EnumerateIter[Int].map`; both the Int and tuple callback shapes are green.
+- 0052: `855766b73` adds W009 (warning-only, catalog/method-suppressed) and
+  prints clang STDOUT so the Windows linker's duplicate-symbol line is visible.
+  Actual user-symbol mangling remains the separate larger item recorded in the
+  2026-10-28 FIXED (diagnose+surface) entry; no IR shape changed here.
+
+LOCKS re-run green: `e2e_m1550_enumerate_tuple_map{,_true}`,
+`e2e_m2309_mixed_tuples`, `m0052_reserved_system_symbol_{warns,silent_for_normal_names}`.
+
+GATES on current HEAD: `cargo test -p xiom-check` **219/219**;
+`cargo test -p xiom --test checker_locks` **60/60**;
+`cargo test -p xiom --test checker_spec_gaps` **26/26 (0 ignored)**;
+`RUST_MIN_STACK=67108864 cargo test -p xiom-codegen --test feature_regression_tests`
+**582/582**; `cargo build -p xiom --release` OK. Memory gates not run: no
+drop/codegen path changed. Selfhost parity: no IR-shape change, no port needed.
+
+Environment note: the repo also has a stale installed checkout at
+`target/release/lib`; the release binary prefers it over `stdlib/`, so the
+probes above were run with `XIOM_STDLIB=<repo>/stdlib` to test current HEAD.
+
+---
+
+## 2026-11-03 -- FIXED (checker): seven SPEC enforcement gaps activated (0 ignored)
+
+Audit of `crates/xiom/tests/checker_spec_gaps.rs`: the two pre-existing locks
+(undeclared assignment, missing struct field) were active; seven locks were
+`#[ignore]` because the checker silently accepted the invalid shape. All seven
+are now hard diagnostics in `crates/xiom-check/src/lib.rs` with positive
+controls for the legal shapes. No waiver was used: every `#[ignore]` was
+removed and the tests pass.
+
+| # | Gap (was accepted) | Enforcement (file:line) | Negative lock(s) | Positive control |
+|---|--------------------|--------------------------|------------------|------------------|
+| 1 | `break`/`continue` outside a loop; unknown label | `lib.rs:7894` (`check_loop_control`), `:8206`/`:8233` (While/For enter), `:8347` (arms), borrow mirror `:12695`/`:12839`/`:12853`/`:12886` | `break_outside_loop`, `continue_outside_loop`, `unknown_loop_label` | `loop_control_inside_loops_is_accepted` |
+| 2 | duplicate parameter names, including receiver collision | `lib.rs:6682` (`check_fn_decl`) | `duplicate_parameter_name_is_rejected`, `duplicate_receiver_name_is_rejected` | `var_params_and_for_bindings_stay_mutable` |
+| 3 | duplicate struct-literal fields (spread base excluded) | `lib.rs:11105` (`Expr::Struct`) | `duplicate_struct_literal_field_is_rejected` | `in_range_literals_and_explicit_casts_are_accepted` |
+| 4 | duplicate pattern bindings; or-pattern alternatives must bind the same set | `lib.rs:1837`/`:1857` | `duplicate_pattern_binding_is_rejected`, `or_pattern_with_different_bindings_is_rejected` | `legal_or_patterns_are_accepted` |
+| 5 | non-CTFE `const` initializer (SPEC 2.6) | `lib.rs:2827` (`is_const_expr`), `:2834` (binding-aware), `:2954` (blocks), `:2988` (match bindings), `:3016` (`is_ctfe_callable`), `:3888` (diagnostic) | `non_constant_const_initializer_is_rejected` (extern/FFI), `non_constant_const_identifier_is_rejected` (mutable global) | `constant_expression_consts_are_accepted`, `ctfe_call_if_match_and_builtin_consts_are_accepted` |
+| 6 | out-of-range fixed-width literal (let/var/assign/arg/field/return/const) | `lib.rs:8485`/`:8513`, call sites at the binding/assign/return/struct/arg arms | `out_of_range_int_literal_*`, `out_of_range_{call_argument,struct_field,return,const_initializer}_*` | `in_range_literals_and_explicit_casts_are_accepted` (casts stay legal) |
+| 7 | init-once immutability (`let`/`const`/field) | pre-existing m396, not regressed | `deferred_let_init_once_stays_legal` | `checker_locks` m396 group |
+
+Corpus burn-down: the only false positive was `var _default_round: RoundMode =
+RoundMode.Nearest;` in `stdlib/xiom/num/bigfloat.xi`, i.e. a `var` (runtime)
+initializer, not a `const` -- `TopDecl::Const` represents both and the rule is
+now gated on `!cd.is_mut`. `catalog_corpus_is_clean` and the full stdlib-import
+probes stay green; no stdlib `const` initializer needed weakening.
+
+CTFE-aware (RESOLVED 2026-11-03): the predicate now mirrors
+`IrEmitter::evaluate_const_init` instead of a literal-only subset. It accepts
+user-function calls with const arguments, the five foldable builtins
+(`sizeof`, `align_of`, `type_id`, `is_signed`, `field_offset`), `if`/`match`
+over const values (with pattern bindings substituted), and the existing
+literal/unary/binary/aggregate forms. It rejects only what CTFE cannot fold:
+extern/FFI calls (tracked in `extern_fns`), method calls, runtime-I/O/panic
+builtins, `unsafe`, and reads of mutable globals.
+
+The three previously-blocked fixtures are green in main and in the selfhost:
+
+- `tests/regression/ctfe_phase_a.xi` -- CTFE builtins plus `if`/`match`.
+- `tests/regression/ctfe_phase_b.xi` -- user-function CTFE.
+- `tests/regression/ctfe_builtins_struct.xi` -- struct builtins.
+
+Evidence: `cargo test -p xiom-codegen --test e2e_tests ctfe` -> 4/4 passed;
+`xiom --check` and selfhost `--dump-check` -> PASSED/CHECK-OK on all three.
+The negative lock is now an `unsafe { extern_fn() }` initializer; the second
+negative lock is a mutable-global read.
+
+Selfhost parity (worktree `selfhost-phase-4-codegen`): `check_state.xi`
+(loop state + `ck_check_loop_control`), `check_expr.xi` (loop enter/exit,
+pattern/field duplicates, `ce_is_const_expr`, `ce_check_int_literal_range`),
+`check_core.xi` (parameter duplicates, const pre-check; `extern_fns` tracking).
+New fixtures: 16 negative + 6 accept cases in
+`selfhost/tests/check_negative/` (including `accept_const_ctfe`), wired into
+`NEGATIVE_CASES` and the new `selfhost_spec_gap_locks_fail_hard` test.
+
+Evidence (2026-11-03):
+
+- `cargo test -p xiom --test checker_spec_gaps` -> 26 passed, 0 ignored, 0 failed
+- `... -- --ignored` -> 0 tests
+- `cargo test -p xiom --test checker_locks` -> 57 passed
+- `cargo test -p xiom-check` -> 219 passed (catalog corpus clean)
+- `cargo test -p xiom-codegen --test e2e_tests ctfe` -> 4 passed
+- `RUST_MIN_STACK=64MB cargo test -p xiom-codegen --test feature_regression_tests` -> 582 passed
+- `run_memory_gates.ps1` -> 22/22 GREEN; e2e drop/container/loop/error groups green
+- selfhost: `diff_ast` 83/83, `diff_check` 83 files + 101 manifest cases,
+  `diff_corpus` T3 19/19, T6 37/64, full tier-3 suite 8 passed / 0 failed
+- worktree `cargo test -p xiom-check` -> 214 passed
+- worktree-only baseline gap: `checker_locks::m266_unresolved_import_one_clear_error`
+  (36/37) still uses the pre-`3fbf32500` fixture; main updated that fixture in
+  `test(checker): point m266 at a permanently missing module` and passes 57/57.
+  Not a compiler regression from these changes.
+
+Spec-silent decisions: bare `Int`/`UInt` are not range-checked (only explicit
+widths); `as` casts remain the legal wrapping form; qualified `module.CONST`
+reads are not constant expressions (no corpus use); selfhost accepts unsigned
+64-bit hex/binary bit patterns that overflow its `i64` literal slot.
+
+---
+
 ## 2026-10-05 -- FIXED (UX): bare `xiom file.xi` printed IR with no `xiom run` hint
 
 User-flagged: `xiom file.xi` (no -o, no `run`) prints the LLVM IR to stdout
@@ -20138,6 +20256,10 @@ checker 214/214, parser 109/109.
 
 ## 2026-10-22 -- PARTIAL (true 1550): higher-order U inference and receiver position
 
+> CLOSED 2026-11-04: true shape verified green on current HEAD (see the
+> "2026-11-04 -- VERIFIED" entry at the top). The remainder landed in
+> `dd9256343` (on-demand chained-receiver generics); this entry is history.
+
 WITNESS: `iter.range(10,13).enumerate().map(idx_plus).collect()` with
 `idx_plus: (Int,Int) -> (Int,Int)` still returned `em[1].0 = 0` even after
 the nested-pattern and m372 fixes.
@@ -20342,6 +20464,10 @@ codegen lib 23/23.
 ---
 
 ## 2026-10-22 -- PARTIAL (1550, REL-20261020-1550-stdlib): tuple-returning fn through EnumerateIter.map
+
+> CLOSED 2026-11-04: the stdlib specialization (`d53f93a`) is in the synced
+> checkout and both callback shapes verify green (see the
+> "2026-11-04 -- VERIFIED" entry at the top). This entry is history.
 
 Compiler groundwork landed: struct field metadata keeps the FULL fn marker
 (`fn() -> Option[T]`, not `fn() -> Option`) via `fn_marker_rendered`; a
@@ -21000,6 +21126,11 @@ Packages still owns the in-situ jev/otel re-verify on the candidate archive.
 
 ## 2026-10-28 -- VERIFIED: mixed-element tuples (2309); OPEN: libc fn-name collision
 
+> CLOSED 2026-11-04: the collision is diagnosed and surfaced by `855766b73`
+> (W009 + clang stdout; see the 2026-10-28 FIXED (diagnose+surface) entry
+> below) and re-verified green on current HEAD. User-symbol mangling remains
+> the separately tracked larger item.
+
 WITNESS (REL-20261015-2309-packages): `fn ... -> (Vec[UInt8], Str, Int)` was
 reported as `unknown type Tuple__Vec[UInt8]__Str__Int` with garbage/AV, plus
 a 4-field tuple link clash.
@@ -21285,3 +21416,971 @@ e2e 2662/2662 (4 ignored) on both.**
 
 REMAINING measured app leaks: Map/Set values, enum element types,
 large-string `Vec[Str]`, containers with removals/reorders. Next targets.
+
+## 2026-11-02 -- FIXED (P1): t3-hot-reload floor = per-entry sigsetjmp savemask
+
+ROOT CAUSE: the POSIX confinement trampoline called
+`sigsetjmp(xiom_trampoline_jmp, 1)` on EVERY confined-block entry. savemask=1
+saves the thread signal mask with a `sigprocmask` syscall (~200 ns), which on
+the scored t3 shape (100k per-call unsafe blocks) is ~20 ms alone. The
+handlers were already installed once per thread (REL-20261031-1934), which is
+why the old 220 ms floor fell to ~30 ms; the residual floor was this mask
+save.
+
+FIX (stdlib runtime, cross-lane): savemask=0 on both POSIX paths
+(`xiom_trampoline_call` and `xiom_trap_enter`). On a fault the kernel has the
+delivered signal blocked for the handler, so the handler now unblocks that
+signal (async-signal-safe `sigprocmask`) before `siglongjmp`; the retry path
+and a second fault in the same thread are unaffected.
+
+ABLATION (Linux x64, WSL, official v0.65.5 linux toolchain, 11-15 runs):
+- scored t3: 27 ms internal / 31 ms wall -> 5 ms internal / 8.5 ms wall
+  (peer Rust 6 ms, C 21 ms in the 2026-11-02 arena run).
+- 100k calls, per-call unsafe block, dl* hoisted: 21 ms internal.
+- same calls inside ONE unsafe block per cycle: 5 ms.
+- dl* open/dlsym/reload/close only: 5 ms internal.
+- microbenchmark: `sigsetjmp` savemask=1 = 21.2-22.0 ms / 100k; savemask=0 =
+  0.38-0.43 ms / 100k.
+The 100k indirect calls are NOT the cost; the per-entry mask save is.
+
+LOCKS: e2e `e2e_t3_trampoline_floor_budget` (1M confined entries; 1500 ms
+budget catches the old ~2 us/entry class) and
+`e2e_confined_repeat_fault_contained` (two faults in one thread both
+contained + exit 70). Fixtures `tests/regression/{t3_trampoline_floor,
+confined_repeat_fault}`. Windows fault containment (SEH) re-verified, exit 70.
+
+RELAY: REL-20261010-1554-benchmark; stdlib CHANGELOG [Unreleased] Fixed.
+
+## 2026-11-02 -- FIXED (R4 + R3; see the two FIXED entries below): JSON 1704 tree leak
+
+Repro: `stdlib/tools/probes/p_json_1704_obj.xi` at 100k = 406/444 MB
+(REL-20261031-2308-stdlib); still linear on the current pair.
+
+TRIAGE (codegen):
+- `JsonValue` is `enum { Null; Bool(value); Number(value); String(value: Str);
+  Array(items: Vec[JsonValue]); Object(entries: Map[Str, JsonValue]) }`.
+  Layout is discriminant + deduped payload slots; field-name collisions
+  across variants force `Int`, so String's Str is an i64-boxed pointer and
+  Array/Object are i64 boxed handles (`decl.rs` enum registration;
+  `enum_ctors.rs` val_to_i64).
+- Drop kinds are Vec/Str/Ptr/Aggregate only (`context.rs`). There is no enum
+  tag-selected drop, no Map drop, and no Result-local drop.
+- `register_aggregate_drops` walks direct `%struct.Vec` fields only; Map
+  fields are skipped (`vec_drop.rs` `is_skippable` starts `Map[`).
+- Str call returns are not fresh (`is_fresh_str_init`); `#[owns_return]`
+  rejects a Str return (`ret_can_carry` excludes Str). There is no
+  `#[owns_str]`.
+- Result payload ownership is limited to `Result/Option<Vec>` and match-arm
+  bindings; a plain `let p = json_parse(s)` Result is never registered.
+- The builder shares its Map with the returned `JsonValue.Object`
+  (`build(self)` shallow-copies), so a builder field free without a consume
+  contract is a UAF. The same-leaf `json_parse` in serialize.xi means every
+  same-leaf variant needs the contract.
+
+STAGED PLAN (safe-first):
+- R1 DONE: `#[borrows_vec]` on `string.builder.sb_to_str` (renderer buffer).
+- R2 (small): add `#[owns_str]` + a non-retaining Str-arg contract; annotate
+  json_stringify/pretty/escape. Reclaims the output Str only.
+- R3 (key tree slice) DONE (2026-11-02, see the FIXED entry below): tag-aware
+  JsonValue drop attached to a contracted parse Result local via
+  `VecDrop::EnumTree`, with a recursive per-enum helper generated from the
+  enum/field registry. `Result[named enum]` is now an accepted
+  `#[owns_return]` payload shape.
+- R4 (builder half): `#[consumes_agg]`/`#[borrows_agg]` for `build(self)` and
+  Map-field drops; never free literal keys/values.
+
+Do not add `#[consumes_str]` to put (literal keys; locked leak-only).
+
+## 2026-11-02 -- FIXED: --sanitize=address never instrumented generated IR
+
+ROOT CAUSE: the compiler emits LLVM IR and invokes clang on the `.ll` file.
+clang runs the ASan instrumentation pass only on functions carrying the
+`sanitize_address` attribute; for `.ll` inputs the driver does not set that
+up. Verified on clang 18: the same load gets a shadow check from a `.c` input
+and none from `.ll` at -O0..-O3; `opt -passes=asan` likewise only tags
+attributed functions. So `--sanitize=address` linked the ASan runtime
+(double-free / invalid-free via the interceptors) but left heap-use-after-free,
+buffer-overflow reads and redzone writes unchecked -- exactly the t8/t9
+zero-score class.
+
+FIX:
+- Driver (`crates/xiom/src/lib.rs`): under `--sanitize=address`, tag every
+  `define` with a fresh `attributes #N = { sanitize_address }` group before
+  clang. Unit tests cover the transform; e2e
+  `e2e_sanitize_address_tags_ir_for_asan` locks it (wired into ci.yml).
+- Codegen (`IrEmitter.asan`): under ASan, `alloc`/`realloc` route to libc
+  calloc/realloc instead of the guard arena. The arena's slab reuse masked a
+  stale read (the read hit live arena memory) and its slabs are invisible to
+  ASan's redzones.
+
+MEASURED (Linux WSL, official v0.65.5 linux toolchain + these two changes,
+`--release --target native --no-contracts --overflow-checks
+--sanitize=address`, `ASAN_OPTIONS=detect_leaks=0`):
+- minimal UAF probe: heap-use-after-free in `__unsafe_block_1`, exit 1.
+- t8 ladder: use-after-free SILENT_UB (0) -> RUNTIME_PANIC (6); every other
+  probe unchanged; sum 54 -> 60, declared LSI 45 -> 50.
+- The probe flags matter: without `--overflow-checks` the integer-overflow
+  and stack-overflow probes regress (the recursion probe depends on the
+  overflow trap), so the sanitized lane must keep the documented probe flags.
+- Remaining zeros: use-of-uninit (needs MSan or init tracking) and
+  type-confusion (needs runtime type tags).
+
+BENCHMARK TOGGLE: `getSanitizedCompileCmd` returns null for XIOM and
+`safetySanitizedTest` prefers the unsanitized `probeCmd`, so t9 is identical
+to t8 today. Relay `REL-20261102-1929-compiler` carries the exact two-line
+change (add the XIOM `--sanitize=address` branch; prefer `sc` over
+`probeCmd`) plus the `detect_leaks=0` note.
+
+## 2026-11-02 -- FIXED (R3): json_parse tree reclaimed by provenance
+
+The R3 slice of the 1704 JSON leak is green. The tree OWNED by a direct
+`let p = json_parse(s)` Result binding is reclaimed at scope exit; the
+builder half (R4) remains deliberately leak-only.
+
+FIX (codegen):
+- `fresh_return.rs`: `collect_fresh_enum_tree_returns` accepts
+  `Result/Option<named enum>` only when EVERY same-leaf function carries
+  `#[owns_return]` and names the same enum; `fn_owns_return_transfer` now
+  accepts that payload shape (force_main_heap_alloc/trust_unsafe for the
+  contracted callee).
+- `vec_drop.rs`: `ScanState.enum_tree_decl` records ONLY a local bound by a
+  DIRECT call to a contracted leaf; the final set is single-declaration and
+  non-escaping. Scalar tag reads (`is_err`/`is_ok`/`is_some`/`is_none`) were
+  added to the safe-read set so `if p.is_err` does not count as an escape.
+- `VecDrop::EnumTree` (context.rs) carries the Result slot, Ok payload field
+  index, enum LLVM type and helper symbol. `register_enum_tree_drop`
+  (vec_drop.rs) reads the payload index from `type_meta`, never a hardcoded
+  offset.
+- `build_enum_tree_drop_helper` generates ONE recursive helper per enum from
+  `enum_variants`, `type_meta` and `enum_variant_field_types`: String payload
+  frees its heap buffer (empty-literal guard), Vec[Self] recurses elements
+  then frees data, Map[Str, Self] frees each key string and recurses each
+  value, then frees both data buffers. Boxed/erased (i64) container slots are
+  skipped (leak-only) rather than guessed. The discriminant is gated on Ok==1
+  so an Err payload (zero-initialized) is never walked.
+- The helper is emitted at module level BEFORE the C001 unresolved-symbol
+  check (`compile_program`), once per enum (parallel emitters cannot duplicate
+  it).
+- `stmt.rs`: `register_enum_tree_drop` runs on both `let`/`var` binding paths.
+- stdlib: `#[owns_return]` on `serialize/json.xi::json_parse` AND
+  `serialize/serialize.xi::json_parse` (every same-leaf variant must carry it).
+
+MEASURED (release compiler, XIOM_STDLIB=E:\xiom-lang\stdlib,
+stdlib/tools/json_peak.ps1, MaxMB=512):
+- full probe `p_json_1704_obj`: 1k 6.5 MB; 10k 25.4; 20k 45.9
+  (pre-R3 10k ~44, 20k ~85). The parse-tree slope is gone; the residual
+  slope is the R4 builder half.
+- parse-only control (same JSON via a literal source):
+  10k 6.4 MB; 20k 7.4; 50k 11.5 (near-flat). The ~0.13 KB/iter residual is
+  the parser's transient Vec[UInt8] number/string buffers (R1/R2 class), not
+  the returned tree.
+- build-only control (no parse): 10k 24.4 MB; 20k 43.1 -- exactly the
+  remaining full-probe slope.
+
+ASan (Windows, clang 22.1.8; the pre-existing --sanitize IR tagging is in
+this working tree). Commands:
+  xiom <probe> -o out.exe --sanitize=address --no-contracts --overflow-checks --release
+  set PATH=C:\Program Files\LLVM\lib\clang\22\lib\windows;%PATH%
+  set ASAN_OPTIONS=detect_leaks=0
+Results: `p_json_1704_obj` at 10k rc 0; nested fixture
+`tests/regression/m375_json_parse_tree_reclaim.xi` rc 0
+(`json_tree_reclaim_ok`). No heap-use-after-free / invalid-free report.
+
+BLOCKER (R4, explicitly out of scope): a full-probe peak plateau is NOT
+reachable with R3 alone. The builder Map (`JsonObjectBuilder.entries`, plus
+the build/stringify stack copies) is ~2.2 KB/iter and is moved into a
+JsonValue that `json_stringify` receives by value, so freeing it requires the
+R4 consume/borrow contract; a blind builder-field free is a UAF (build()
+shallow-copies the Map). Do NOT add the drop without R4.
+
+LOCKS: `cargo test -p xiom-codegen --test feature_regression_tests
+m375_` = 22/22 (577/577 full suite); `m65_` 6/6; `m1615` 1/1;
+`tests/soak/run_memory_gates.ps1` 21/21 GREEN; new IR locks
+`m375_enum_tree_parse_local_is_reclaimed`,
+`m375_enum_tree_non_parse_value_stays_leak_only`; e2e
+`e2e_m375_json_parse_tree_reclaim`.
+
+## 2026-11-02 -- FIXED (R4): builder/stringify containers reclaimed
+
+The R4 half of the 1704 JSON leak is green. The builder Map buffers and the
+build/stringify stack copies are the whole residual slope; with R3's parse
+tree already reclaimed, the full probe now plateaus.
+
+CONTRACT (explicit, no name heuristic):
+- New `#[consumes_agg]` contract (`fresh_return.rs`):
+  - `JsonObjectBuilder.build(self)` / `JsonArrayBuilder.build(self)`: the
+    receiver is consumed and the returned named enum owns the aggregate's
+    Vec/Map data buffers (`consumes_agg_returns`).
+  - `json_stringify(v: JsonValue)`: the by-value argument is consumed for the
+    call and not retained (`consumes_agg_callees`).
+- `collect_consumes_agg_returns` / `collect_consumes_agg_callees` apply the
+  same conservative same-leaf rule as the other contracts: a leaf is trusted
+  only when EVERY same-leaf function carries the attribute (and, for the
+  producer map, names the same enum).
+
+CODEGEN:
+- `vec_drop.rs`: `build_enum_tree_drop_helper(enum_key, free_strings)` now
+  emits two helpers per enum:
+  - R3 `__xiom_enum_tree_drop_<Enum>`: parse-owned tree, frees containers AND
+    freshly allocated String payloads (unchanged behavior).
+  - R4 `__xiom_enum_tree_containers_<Enum>`: builder/stringify-owned tree,
+    frees Vec/Map data buffers only. String payloads are skipped, key strings
+    are skipped (literal keys are borrowed), and Vec[Str] elements are skipped
+    while the Vec data buffer is still freed. Array/Object payloads recurse.
+- `call.rs`: after a call to a `#[consumes_agg]` callee, a PROVEN-OWNED
+  temporary argument (a direct call to a contracted builder, `b.build()`) is
+  copied to a slot and the container-only helper is called. A variable,
+  field, or index argument stays leak-only: there is no move proof at the
+  call site, and freeing a live variable would be a UAF.
+- `stmt.rs`/prepass wiring is unchanged: R3 provenance still registers only
+  a direct `let p = json_parse(s)` Result binding for the String-freeing
+  helper. The builder local itself is never freed at builder exit.
+
+MEASURED (release compiler, XIOM_STDLIB=E:\xiom-lang\stdlib,
+stdlib/tools/json_peak.ps1, MaxMB=512):
+- full probe `p_json_1704_obj`: 1k 4.7 MB; 10k 6.6; 20k 8.6
+  (R3-only baseline: 7.3 / 25.5 / 45.9). 10k -> 20k is +2.0 MB, a plateau.
+- nested builder probe (object -> array -> object -> string, 5000 iters):
+  rc 0 (`nested_r4_ok`); ASan clean.
+- ASan (Windows, clang 22.1.8, `--sanitize=address --no-contracts
+  --overflow-checks --release`, ASAN_OPTIONS=detect_leaks=0): full probe at
+  3000 iters rc 0; `p_json_builder` rc 0; nested probe rc 0; R3 fixture
+  `m375_json_parse_tree_reclaim` rc 0 (`json_tree_reclaim_ok`). No
+  heap-use-after-free / invalid-free report.
+
+LOCKS: `feature_regression_tests` 577/577; `m375_` 22/22; e2e `m65` 8/8,
+`m1615` 1/1, `e2e_m375` 2/2; `tests/soak/run_memory_gates.ps1` 21/21 GREEN.
+
+PRE-EXISTING (R3, out of R4 scope): `stdlib_execution_tests::
+stdlib_exec_serialize_json_nested_runs` fails to compile because an R3
+EnumTree drop registered for a `let p = json_parse(s)` declared inside an
+`if` block is emitted at function exit, so its payload GEP does not dominate
+the alloca. Confirmed on the pre-R4 debug compiler; not introduced here.
+
+
+## 2026-11-03 -- FIXED (REL-20261103-loop-drop): per-iteration loop-body Vec/Str drops and boxed match-bound Vec payloads
+
+WITNESS: the C-PULSE request cycle allocates a fresh 64 KiB `Vec[UInt8]`
+inside `while n < 2000`, fills it, then passes `&buf` to
+`server_parse_request`. `out/pulse/req_plain.ll` (`while_body7`) contained no
+`@xiom_guard_free`/`@free`, so RSS grew 130.5 MB / 2000 iterations
+(66.8 KB/iter; measured 132 MB peak for the committed
+`out/pulse/req_plain.exe`). The loop-body drop machinery itself was already
+present (`compile_vec_drops_scope` at the `while`/`for` back-edge), so the
+defect was that the local was never a DROP CANDIDATE.
+
+ROOT CAUSE 1 -- borrow disarmed the candidate. The prepass
+(`vec_drop::collect_owned_vec_locals`) marks a local escaping when an argument
+is a `&`/`&mut` borrow of it unless the callee is `known_nonretaining`
+(scalar/void return) or `#[borrows_vec]`. `server_parse_request` returns
+`Option[ServerRequest]`, so `&buf` escaped and `buf` got no flag/alloca and no
+drop. The function only reads the bytes; it never retains the header.
+- `stdlib/xiom/net/server.xi:70`: `#[borrows_vec]` on `server_parse_request`.
+- `stdlib/xiom/net/server.xi:189`: `#[owns_str]` on `server_build_response`
+  (its result is a fresh concat chain, and the same loop bound the response
+  Str; without the contract the ~135 B response leaked per iteration).
+
+ROOT CAUSE 2 -- boxed match-bound Vec payload. `pop`/`remove`/`swap_remove`
+on an owned `Vec[Vec[T]]` boxes the removed element into the generic
+`%struct.Option` payload as an i64 handle to a malloc'd `%struct.Vec` header
+(`vec_abi::emit_elem_payload_load`). The prepass only registered arm payloads
+for fresh-payload CALLS (`io.read_at`) and fresh-payload LOCALS, so
+`match outer.pop() { Some(v) => ... }` bound `v` with no drop (ledger 19643).
+- `vec_drop.rs`: `is_boxed_vec_removal` (2033) recognizes the removal shape
+  only while the container's element tag is valid (not `elem_unsafe`);
+  `ScanState::boxed_vec_payload` / `OwnedLocals::boxed_vec_payload` carry the
+  arm names; the same escaping/moved/returned filters gate the reclamation.
+- `context.rs`: `VecDrop::BoxedVec` (376) is a new drop site. It frees the
+  element's data buffer and the header box (the standard `Vec` drop only frees
+  data, and the removed slot is outside the container's current len).
+- `vec_drop.rs`: `register_boxed_vec_binding` (3434) captures the unboxed
+  `%struct.Vec*` into a HOISTED `%struct.Vec**` slot plus a hoisted i1 flag
+  (entry-block init false, armed true after binding), so every arm/loop/return
+  exit is dominated and idempotent. `emit_vec_drops` (4198) emits the guarded
+  data+box free and clears the flag.
+- `stmt.rs:3598`: the match-arm bind paths choose the boxed registration for
+  these names; every other arm keeps the existing `register_owned_vec_binding`.
+
+The loop-body end drop (`compile_vec_drops_scope`) still truncates the entry
+after emitting it, so the function-exit pass never frees the same buffer a
+second time. `break`/`continue` keep using `compile_vec_drops_since`, which
+clears the same flag.
+
+MEASURED (Windows, debug compiler; peak working set):
+- Loop-local Vec probe (`tests/fixtures/loop_local_vec_drop`, 64 KiB Vec +
+  realloc + rebind + fresh Str per iteration): 5 MB at 10k and 5 MB at 100k
+  (~0.05 KB/iter, flat). Pre-fix this shape leaked the full buffer.
+- C-PULSE request cycle (`tests/fixtures/c_pulse_request_cycle`, 10k):
+  13 MB (~1.3 KB/iter). At 100k: 98 MB (~0.98 KB/iter). The 64 KiB Vec and
+  the response Str are freed per iteration (IR: both drops inside `while_body`);
+  the remaining growth is the UNCONSUMED `Option[ServerRequest]` return payload
+  (`let r = server_parse_request(&buf)`), i.e. ~0.9 KB/iter of returned
+  aggregate allocations with no drop glue -- a SEPARATE aggregate-return slice.
+- Match-bound Vec payload probe (`tests/fixtures/loop_match_vec_payload_drop`,
+  `Vec[Vec[Int]].pop()` per iteration, 100k): 5 MB, flat; pre-fix the 8 KiB
+  element buffer plus the 32-byte header box leaked each iteration.
+
+ASAN (`--sanitize=address`, `ASAN_OPTIONS=detect_leaks=0`; LSan is unsupported
+on Windows): rc 0 with no report for the loop probe, the pop-payload probe,
+`m368_vec_drop_reclaim`, `nested_struct_drops`, `aggregate_arm_drop`,
+`str_if_arm_drop`, and `container_elem_owned_drop` -- no double-free/UAF.
+
+VERIFY:
+- `RUST_MIN_STACK=64MB cargo test -p xiom-codegen --test feature_regression_tests -- --test-threads=1`
+  -> 582/582 (2117 four-test group green).
+- `run_memory_gates.ps1 -Compiler <verified compiler> -Stdlib E:\xiom-lang\stdlib`
+  -> 22/22 `MEMORY GATES GREEN`.
+- e2e drop (5/5), container (7/7), nested_struct (3/3), loop (13/13),
+  `e2e_m375_json_parse_tree_reclaim` (1/1), R4
+  `m375_consumes_str_map_payloads_are_freed` (1/1).
+SEPARATE (not addressed here):
+- Ledger 19966 (`Err(Str)` payload lost on a `Vec[Result[Str, Str]]` round
+  trip) is a match-payload UNBOX/TYPE-BINDING defect (the boxed
+  `Option[Result]` arm binds the box handle as the value, and the inner
+  `Err(msg)` lacks the Str XIOM type), not loop drop glue. Still PARTIAL.
+- Ledger 20446 (exit reclaim / cache sizing) is process teardown and cache
+  behavior, untouched by the per-iteration loop drop.
+- The unconsumed `Option[ServerRequest]` return payload above needs
+  aggregate-return drop glue for `Option[named struct]`; it is a distinct
+  contract/analysis slice.
+
+- MAIN-TREE BLOCKER (not this slice): the in-flight strict-`let` checker
+  rejects deferred initialization (`let x: T; ... x = ...`) in stdlib catalog
+  bodies (`xiom/os/sync_io.xi:58`, `xiom/os/mmap.xi:47`, `xiom/collections.xi`
+  implicit `data/len/cap`), so any stdlib-importing compile aborts with T001
+  "cannot assign to immutable binding". The counts above were produced by a
+  temporary build of the same source with that one check neutralized; the
+  main-tree build becomes green once the checker treats an uninitialized
+  `let` deferred store as initialization (reported to that lane).
+
+--- 
+
+## 2026-11-03 -- FIXED (2117): uniquely-owned aggregate field/whole-struct overwrite reclaim
+
+A Vec/Str field overwrite (`d.v = fresh`) and a whole-struct overwrite
+(`d = fresh`) leaked the replaced field data. A blind field free is a UAF:
+the engine trace ring (`var out = r; out.events = fresh`) shallow-copies the
+header, and `let x = d.v` reads a field header into a binding. This slice
+only reclaims when the destination aggregate is PROVABLY uniquely owned.
+
+PROOF (scanner, `vec_drop.rs::collect_owned_vec_locals`):
+- destination is a struct LITERAL constructed in this function
+  (`ScanState.aggregate_literal`, separate from the call-return `aggregate`
+  set), with at least one fresh Vec (ctor or fresh-return call) or fresh Str
+  field (`aggregate_vec_fields` / `aggregate_str_fields`);
+- exactly one declaration;
+- never copied as a whole value, returned, moved, or otherwise escaped
+  (`escaping` / `moved` / `returned`). A field read into a binding, a
+  by-value arg, or `var out = r` sets escaping/moved and disables reclaim;
+  a whole-value copy explicitly moves the source (leak-only, never UAF);
+- field overwrite: only a leaf proven owned at the binding, and only a
+  self-contained fresh RHS (`Vec.new`/fresh-return Vec call for Vec;
+  concat/conversion for Str). A bare identifier/projection RHS is excluded
+  because the field store is shallow;
+- whole-struct overwrite: only a fresh `#[owns_return]` aggregate CALL
+  (the contract proves every Vec field is owned), matching the
+  `st.eds = unified_editors_sample(st.eds)` shape.
+
+CODEGEN:
+- `context.rs`: `FunctionContext.agg_overwrite_safe` +
+  `aggregate_vec_owned` (per-function provenance, saved/restored with the
+  other drop state).
+- `vec_drop.rs`: `register_agg_overwrite_drops` registers scope-exit drops
+  for literal-bound owned fields not already covered by
+  `aggregate_drop_safe`; `emit_agg_field_free_old` frees the CURRENT field
+  header data before a field store; `emit_agg_overwrite_free_old` frees the
+  old aggregate's owned Vec/Str leaves before a whole-struct store. The exit
+  drop still frees the FINAL field (the header is re-read at drop time).
+- `stmt.rs`: both `let`/`var` paths hoist the aggregate slot and call the
+  new registration; assignment lowering frees the old owned field/whole
+  aggregate after the RHS is materialized and before the store.
+
+MEASURED (release compiler, XIOM_STDLIB=E:\xiom-lang\stdlib):
+- `tests/soak/aggregate_field_overwrite.xi` (8,192-Int Vec, 10k then 20k
+  field overwrites): peak **5 MB** under the 64 MB gate. Without the
+  overwrite free the same run leaks ~1.9 GB (30k x 64 KB).
+- ASan (Windows, clang 22.1.8, `--sanitize=address --no-contracts
+  --overflow-checks --release`, ASAN_OPTIONS=detect_leaks=0):
+  positive fixture rc 0; `tests/regression/m2117_aggregate_overwrite_guards/
+  main.xi` (trace-ring copy + `let x = d.v` field alias) rc 0
+  (`guards=32`). No heap-use-after-free / invalid-free report.
+
+LOCKS: `feature_regression_tests` 581/581 (4 new 2117 tests; the pre-2117
+suite was 577); `tests/soak/run_memory_gates.ps1` 22/22 GREEN (new
+`aggregate_field_overwrite`); e2e `e2e_m375_json_parse_tree_reclaim` 1/1;
+local Vec rebind and R3/R4 JSON locks unchanged.
+
+REMAINING (leak-only by design):
+- aggregates initialized from a param/alias (`var out = r`) and any
+  whole-value copy;
+- whole-struct overwrite with a struct-LITERAL RHS (only the
+  `#[owns_return]` CALL RHS is proven whole-owned);
+- nested Vec-of-Vec / Vec[Str] ELEMENT payloads under an overwritten field
+  (only the field data buffer is freed; element payloads stay leak-only).
+
+
+## 2026-11-03 -- FIXED (R2): fresh-Str returns and non-retaining Str args
+
+The last slope of the 1704 JSON probe came from (a) the `json_stringify`
+output Str leaking at the caller and (b) the parser's transient byte buffers:
+`_json_buf_str(buf: Vec[UInt8])` takes the buffer by value and returns a fresh
+Str copy, so the caller's Vec data was never reclaimed. Both are now
+provenance-reclaimed.
+
+CONTRACTS (explicit, no name heuristic, `fresh_return.rs`):
+- `#[owns_str]` (`fn_has_owns_str`, `collect_fresh_str_returns`): a function
+  returning `Str` whose buffer is freshly allocated. A local bound from a
+  DIRECT contracted call is a Str drop candidate. The same-leaf rule applies
+  (every Str-returning function with the leaf must carry the attribute, or the
+  leaf is rejected). This contract does NOT grant `force_main_heap_alloc` or
+  `trust_unsafe`; it is deliberately separate from `#[owns_return]`.
+- `#[borrows_str]` (`collect_borrows_str_callees`): leaf -> by-value `Str`
+  parameter indices. The callee does not retain those arguments, so a caller's
+  Str local keeps its scope-exit drop after the call. A literal/borrowed arg
+  has no owned drop and is never freed.
+
+CODEGEN (`vec_drop.rs`, `lib.rs`):
+- `ScanState.fresh_str` + `is_fresh_str_call` / `is_fresh_str_value`: accepts a
+  direct call return in the Str binding path (`fresh_str` decl tracking,
+  `register_str_drop`, `note_str_rebind_binding`,
+  `update_str_rebind_assign`, aggregate Str field bindings/rebinds).
+- `ScanState.borrows_str_callees`: a listed by-value Str arg is scanned with
+  `scan_borrow_arg` (keeps the caller's ownership) instead of as an escape.
+  Only the exact contracted parameter positions take this path.
+- `fresh_str_returns` / `borrows_str_callees` are threaded through the
+  IrEmitter ownership prepass (`lib.rs`, `vec_drop.rs`).
+- `emit_free_str_ptr`: every Str drop site now skips null and EMPTY strings
+  (plain Str locals/rebinds, aggregate Str fields, Vec[Str]/Map keys, struct
+  Str leaves). This is required for soundness: `json_escape("")` returns the
+  shared `""` literal through `_json_buf_str`, and freeing it is an ASan
+  bad-free. Skipping empty strings is leak-only and matches the existing
+  enum-tree helper guard.
+
+STDLIB:
+- `xiom/serialize/json.xi`: `#[owns_str]` on `json_stringify`,
+  `json_stringify_ref`, `json_pretty`, `json_pretty_ref`, `json_escape`;
+  `#[borrows_str]` on `json_parse`; `#[borrows_vec]` on `_json_buf_str` (R1
+  supporting annotation: it copies the bytes and does not retain the Vec, so
+  the parser's `num_buf`/string buffers are freed at their scope exit).
+- `xiom/serialize/serialize.xi`: `#[borrows_str]` on the same-leaf
+  `json_parse`; `#[owns_str]` on `json_escape`.
+- `xiom/convert/json.xi` and `xiom/log/json.xi`: `#[owns_str]` on their
+  same-leaf `json_escape` variants (all build a new Str via
+  `xiom_str_from_vec`).
+- No attribute was added to `Map.insert` / `JsonObjectBuilder.put` (both
+  retain).
+
+MEASURED (release compiler, XIOM_STDLIB=E:\xiom-lang\stdlib,
+stdlib/tools/json_peak.ps1, MaxMB=512):
+- full probe `p_json_1704_obj`: 1k 4.6 MB; 10k 5.0; 20k 5.5
+  (R4 baseline: 4.7 / 6.6 / 8.6). Delta: -0.1 / -1.6 / -3.1 MB.
+  10k -> 20k is +0.5 MB (~0.05 KB/iter), vs +2.0 MB before R2.
+- minimal `let s = json_stringify(json_string("wave-1704")); s.len()` loop:
+  flat at ~5.0 MB through 20k (the output Str is freed each iteration). The
+  IR contains the guarded `xiom_guard_free` for `s`.
+- literal control `let s = "wave-1704"; s.len()`: no drop/free is emitted
+  (leak-only lock preserved).
+
+ASan (Windows, clang 22.1.8, `--sanitize=address --no-contracts
+--overflow-checks --release`, ASAN_OPTIONS=detect_leaks=0):
+- full probe at 3000 and 10000 iters rc 0; `m375_json_parse_tree_reclaim`
+  rc 0 (`json_tree_reclaim_ok`); `p_json_builder` rc 0; nested R4 probe rc 0
+  (`nested_r4_ok`); 2117 guards fixture rc 0 (`guards=32`). No
+  heap-use-after-free / invalid-free report.
+- literal-empty lock: `let s = json_escape("")` rc 0 (the shared `""` literal
+  is skipped by `emit_free_str_ptr`; before the guard this was an ASan
+  attempting-free-on-non-malloced-address failure).
+
+LOCKS: `feature_regression_tests` 581/581; `tests/soak/run_memory_gates.ps1`
+22/22 GREEN; all 26 `m375_` locks pass, including the R3/R4/2117 JSON
+fixtures. No behavior change to the existing `#[owns_return]` /
+`#[consumes_agg]` / `#[consumes_str]` / `#[borrows_vec]` contracts.
+
+
+## 2026-11-03 -- FIXED (B-05, REL-20261010-1548-bindings-5): guard-heap alloc/free recycling -- confined alloc/free loops stay flat
+
+The visible spin was already fixed (m313: `ffi.free` inside a confined block
+lowers through the arena-aware `xiom_guard_free`), but the accounting was
+not: `xiom_guard_free` NO-OPED every arena pointer, so a balanced alloc/free
+pair retained its whole block until the confined block exited. A loop inside
+ONE `unsafe` block therefore grew the arena without bound even though the
+program freed every allocation.
+
+REPRO (tests/regression/b05_alloc_guard_loop, 30M alloc(8)+write+read+free
+pairs in one confined block, `target/debug/xiom.exe`, XIOM_STDLIB=E:\xiom-lang\stdlib):
+
+| runtime | peak WS | wall | CPU |
+|---|---|---|---|
+| pre-fix (16 B retained/pair) | 156.4 MB @ 10M pairs | 8.46 s | 7.95 s |
+| recycling | 4.6 MB @ 10M pairs (4.6 MB @ 30M) | 0.70 s (2.22 s @ 30M) | 0.62 s |
+
+FIX (`stdlib/runtime/xiom_runtime.c`): every guard block now carries a
+16-byte header (magic + total block size, payload 16-byte aligned) and the
+arena keeps 65 free lists (indices by 16-byte size class up to 1024 B; index
+64 is an exact-size scan for larger blocks). `xiom_guard_alloc` (line 588)
+reuses a matching freed block before bump-allocating; `xiom_guard_free`
+(line 712) validates the header magic and pushes the block back. Free lists
+are reset in `xiom_guard_heap_enter`/`xiom_guard_heap_exit` because they point
+into slabs that are unmapped wholesale at block exit. Oversized (> slab)
+blocks use the same header and recycle through the large list. A repeat free
+of the same block finds `magic == 0` and no-ops; interior/non-block pointers
+are ignored.
+
+LOCKS: new runtime watchdog `b05_alloc_guard_loop_flat` (30M pairs, 20 s cap;
+pre-fix runtime needs ~25 s and 480 MB, so the cap is a real regression gate)
+plus the existing `m313_ffi_free_guard_watchdog` (2/2). `e2e_m59_guard_arena_escape`
+(arena realloc), `e2e_m193_guard_alloc_extern`, `e2e_m109_large_fixed_array`
+green. `tests/soak/run_memory_gates.ps1` 22/22 GREEN. ASan
+(`--sanitize=address`, clang 22.1.8, ASAN_OPTIONS=detect_leaks=0) on a 400k
+alloc/free + Vec + Str probe: rc 0, no use-after-free/invalid-free report.
+`cargo test -p xiom-codegen --test feature_regression_tests` 582/582.
+
+## 2026-11-03 -- FIXED (PULSE-1609, REL-20261010-1609-pulse): portable untyped memset/memcpy/memmove intrinsics (macOS IR verify)
+
+m331 declared `@llvm.memset.p0i8.i64` and unblocked the immediate macOS
+failure, but the TYPED spelling is a typed-pointer-era artifact and newest
+Apple LLVM rejects an unresolved typed intrinsic at IR verify
+(`use of undefined value @llvm.memset.p0i8.i64`). The emission sites also
+live in files owned by several lanes, so a per-site rename would be partial.
+
+FIX: the IR is normalized once at module finalization
+(`crates/xiom-codegen/src/lib.rs:7116`, `normalize_portable_intrinsics`,
+called at line 7101):
+- `@llvm.memcpy.p0i8.p0i8.i64` -> `@llvm.memcpy.p0.p0.i64`
+- `@llvm.memmove.p0i8.p0i8.i64` -> `@llvm.memmove.p0.p0.i64`
+- `@llvm.memset.p0i8.i64` -> `@llvm.memset.p0.i64`
+
+The builtin preamble declares the untyped forms
+(`crates/xiom-codegen/src/emitter.rs:1668-1673`) and
+`hardcoded_declare_names` reserves both spellings so a user extern cannot
+re-introduce the typed name. Argument types stay `i8*` (this codegen still
+emits typed pointers); the untyped names verify in both pointer
+representations.
+
+LOCK (no macOS host needed): `regress_portable_memset_memcpy_intrinsics`
+(`crates/xiom-codegen/tests/feature_regression_tests.rs:1620`) compiles IR
+that exercises a >=16 KiB array zero-init (memset), Vec.insert (memmove) and
+Vec.clone (memcpy), then asserts (a) the IR contains NO `p0i8` substring,
+(b) all three untyped declarations are present, and (c) each intrinsic is
+called in the untyped form. `test_malloc_free_declares` updated for the
+portable declare. Host verification: the emitted IR for
+`tests/regression/m109_large_fixed_array` contains zero `p0i8` and compiles
+to an object with clang 22.1.8 (`clang -c`, rc 0). Full
+`feature_regression_tests` 582/582.
+
+## 2026-11-03 -- FIXED (REL-20261010-1553 follow-up): fn-pointer BY-REFERENCE parameters (three AV/silent-wrong shapes)
+
+Follow-up to the 2026-10-14 m308 entry (which fixed the CONTENT compare inside a
+named `fn(&Str, &Str)` body). Three shapes remained:
+(a) the pre-2026-10-09 L6-34 solution `less(items.get(i).unwrap(), ...)` exited
+0xC0000005; (b) `let f: fn(Int) -> Int = |x| x + 1; f(3)` exited 0xC0000005;
+(c) `find_min_int(&vi, |a, b| a < b)` silently returned index 0.
+
+ROOT CAUSE -> CHANGE MAP
+1. (a) `Vec.get` is VALUE-returning (stdlib/xiom/collections/collections.xi:93)
+   but the checker also admits the value where `fn(&T, &T)` expects a reference.
+   The M20-A1 indirect call forwarded the value and the forwarding thunk
+   inttoptr'd it (`vec_abi.rs` `wrap_fn_ref_env`) -> AV. A fn marker could not
+   tell: `fn_marker_rendered` and `type_from_ast_with_args` lowered every param
+   through `type_from_ast`, which ERASES `&T`.
+   - `lib.rs:2593/3443`: marker params (and the full fn return spelling) go
+     through `type_string_full`, so `fn(&T, &T) -> Bool` survives.
+   - `decl.rs:938/1144`: the FULL marker is now registered per fn-typed param
+     in `IrEmitter::fn_typed_param_markers` (bare + module-qualified), beside
+     the return-only `mono.fn_typed_params` the B-007 thunk wrap uses.
+   - `call.rs:1266` (M20-A1 closure/fn-param call): reads the callee's marker,
+     parses its declared params (`lib.rs:3493`), and for a `&` param compiles a
+     VALUE argument into a slot and passes the slot address
+     (`coerce.rs:19` `materialize_ref_arg_if_needed`). Explicit-borrow /
+     reference-valued / `&T`-returning arguments are detected and pass through
+     unchanged, so m308's `&arr[i]` keeps its semantics. No blind auto-ref.
+2. (b) `track_fn_value_binding` removed `closure_locals` whenever the binding
+   had an annotation (`sig_marker.is_some()`), so the call inttoptr'd the ENV
+   as code. A closure LITERAL always compiles to the uniform ENV (field 0 =
+   fn ptr).
+   - `lib.rs:3714`: `env_src` is true for `Expr::Closure`/`Expr::PipeClosure`
+     (and parenthesized forms / env-valued Idents), regardless of annotation.
+3. (c) `|a, b| ...` (AST `Expr::PipeClosure`) carries no annotations, so its
+   params were untyped i64 slots; the call site passed ADDRESSES (correct for
+   the declared `fn(&Int, &Int)`) and the body compared the addresses.
+   - `call.rs:3802`: for a bare free call, the expected param spellings are
+     pulled from `fn_typed_param_markers` and handed to the argument compile.
+   - `lib.rs:3557` + `expr.rs:5261/5300/5439`: `compile_arg_with_closure_hint`
+     scopes the hint to the closure literal; `PipeClosure` binds a declared
+     `&T` param through a REAL typed pointer slot (`inttoptr` the incoming
+     i64 -> `T*` alloca), records the XIOM type, and value uses auto-deref.
+   The uniform i64 closure ABI is unchanged; only the body's type view changes.
+   `llvm_type_for`'s fn-marker arm strips a leading `&`/`&mut ` before lowering,
+   preserving the previous erased ABI.
+
+REPRODUCE (fixtures added under tests/fixtures/rel1553_fnptr/)
+  xiom run tests/fixtures/rel1553_fnptr/l634_pre.xi          -> "l634 ok", rc 0
+  xiom run tests/fixtures/rel1553_fnptr/annotated_closure.xi -> "annotated closure ok", rc 0
+  xiom run tests/fixtures/rel1553_fnptr/closure_predicate.xi -> "closure predicate ok", rc 0
+Pre-fix: rc 0xC0000005 / 0xC0000005 / printed "idx=0" rc 1.
+
+VERIFY (2026-11-03)
+  cargo test -p xiom-codegen --test e2e_tests e2e_m308_ref_str_cmp   -> 2/2
+  cargo test -p xiom --test ffi_fnptr_abi                           -> 2/2 (m263)
+  cargo test -p xiom-codegen --test e2e_tests e2e_m264_element_arity_and_unit -> 1/1
+  cargo test -p xiom-codegen --test e2e_tests e2e_m361_             -> 6/6
+  cargo test -p xiom-codegen --test e2e_tests fn                    -> 32/32
+  cargo test -p xiom-codegen --test e2e_tests closure               -> 24/24
+  cargo test -p xiom-codegen --test e2e_tests callback              -> 2/2
+  cargo test -p xiom-codegen --test e2e_tests e2e_m375_json_parse_tree_reclaim -> 1/1 (1704)
+  RUST_MIN_STACK=67108864 cargo test -p xiom-codegen --test feature_regression_tests -- --test-threads=1
+      -> 582/582 (2117 locks included)
+Parallel full-suite note: the pre-existing `regress_7f07_build_watch_help`
+spawns `cargo run -p xiom`; if another test/e2e copy still holds
+target/debug/xiom.exe it fails on the Windows file lock, and passes both in
+isolation and in the serial run above (582/582). Not a compiler regression.
+
+ASan: `xiom --sanitize=address --run` exits 0xC0000135 unless the LLVM ASan
+runtime directory is on PATH. With
+`PATH=C:\Program Files\LLVM\lib\clang\22\lib\windows;<...>` and
+`ASAN_OPTIONS=detect_leaks=0`, all three new probes run rc 0 with no
+AddressSanitizer report.
+
+REMAINING: none for this item. The full e2e suite was not run end-to-end
+(2677 tests); the fn/closure/callback families (58 tests), the four acceptance
+fixtures and the full feature suite are green as listed above.
+
+## 2026-11-03 -- checker/diagnostics/stdlib relay sweep (1046-engine, 1549-packages-2, C-PULSE-14, 1549-website-8/9)
+
+Scope: xiom-check + driver diagnostics + stdlib server.xi; codegen untouched.
+
+### REL-20261011-1046-engine (E001 call-argument / field-projection moves)
+
+Reproduced on current HEAD: the m344 coverage is present and green. The
+`--check` fast path intentionally stops before the borrow pass, so the
+reproduction must compile (not `--check`). Evidence:
+
+```
+xiom --strict tests/regression/m344_callinit_move/main.xi
+  -> error[E001]: 22:17: use of moved value 'a'
+     error[E001]: 29:17: use of moved value 'b'; rc 1
+xiom --strict tests/regression/m344_fieldproj_move/main.xi
+  -> error[E001]: 22:17: use of moved value 'a.f'
+     error[E001]: 31:21: use of moved value 'dev.fb'; rc 1
+xiom --strict tests/regression/m344_scalar_field_clean/main.xi -> rc 0
+cargo test -p xiom-codegen --test e2e_tests m344 -> 3/3
+```
+
+No code change. The write-through half of the item text remains superseded by
+m302 (Vec alias bindings deep-copy); the item's remaining ENGINE ASK is a
+confirmation, not compiler work.
+
+### REL-20261010-1549-packages-2 (io fs_read contract in multi-module programs)
+
+NO-REPRO on HEAD, matching m301. A 2-module program (module wrapper around
+`io.read_file_bytes` + missing-file `fs_read`) returns a non-empty Err and
+does not trip the `result is Err => result.value.len() > 0` clause on either
+the failed open or the read path. Contract enforcement is live in this shape:
+a deliberately false multi-module `ensures: result.len() > 0` aborts with
+`contract violated: ensures`.
+
+```
+xiom -o probe.exe tests/temp multi-module fs_read -> rc 0 to build; probe rc 54
+  (= "failed to read file: <path>".len(), i.e. the Err payload is non-empty)
+false-contract control module -> "contract violated: ensures at 4:12", rc 1
+```
+
+No stdlib contract change. The fs_read clause is correct on HEAD.
+
+### C-PULSE-14 stdlib half (server.xi malloc -> Str.from_cstring copy)
+
+Root cause confirmed: `Str.from_cstring`/`from_c_str` are lowered to
+`strlen` + `xiom_str_from_vec` (m211), i.e. they allocate an OWNED copy; the
+temporary `malloc` buffer in `_str_from_byte_span` and
+`_str_lower_from_byte_span` was never freed (~145 B per 6-header parse).
+Fix: `stdlib/xiom/net/server.xi` now declares `fn free` and frees the buffer
+after `Str.from_cstring` returns the copy (same pattern as
+`xiom.string._slice_fast`). The returned Str never aliases the freed buffer.
+
+Regression lock: `tests/fixtures/c_pulse14_server_span_free/main.xi`
+(50,000 parses of a 6-header request, field/header semantics asserted).
+
+```
+xiom -o c_pulse14.exe tests/fixtures/c_pulse14_server_span_free/main.xi -> rc 0
+c_pulse14.exe -> rc 0
+stdlib tools/probes/p_http_parse_alloc.xi -> rc 0 (semantics + allocation gate)
+stdlib tools/probes/p_pulse_shapes.xi -> rc 0
+stdlib tests/smoke/smoke_net_proto.xi -> OK, rc 0
+xiom --sanitize=address -o c_pulse14_asan.exe <fixture> -> rc 0, no ASan report
+```
+
+ASan LSan is not supported on Windows (`detect_leaks is not supported on this
+platform`), so leak counting is not available here; invalid/double-free
+detection is clean and the ownership argument is pinned by the m211 copy
+semantics. The loop-body Vec/Str drop-glue half remains the other agent's.
+
+### REL-20261010-1549-website-8 (W000/exhaustiveness, E001 build behavior, --explain)
+
+(a) REPRODUCED and FIXED. The parser stores BOTH bare (`A`) and qualified
+(`Token.A`) enum-variant patterns as `Pattern::Ident`. `pattern_covers_variant`
+treated every Ident as a binding catch-all, so the first arm covered every
+variant and no non-exhaustive match was ever reported. The matcher now uses
+W004's variant-domain rule (dotted Ident = specific variant; bare Ident =
+specific variant only when it names one of the scrutinee's variants, else a
+catch-all). Also fixed the adjacent dead domains: `Bool` is a scalar
+`CheckedType` (not `Named`) and `Option[Int]`/`Result[A,B]` carry their
+generic spelling, so the scoped type name now strips generic args/module paths
+before the builtin dispatch. Warnings remain W000; `--strict-exhaustive`
+turns them into hard T001 (verified rc 1).
+
+Locks (xiom-check unit tests): `test_nonexhaustive_bare_variant_match_warns`,
+`test_nonexhaustive_qualified_variant_match_is_strict_error`,
+`test_nonexhaustive_bool_match_warns`, `test_nonexhaustive_option_match_warns`,
+`test_nonexhaustive_binding_catch_all_stays_clean`.
+
+```
+xiom --check <missing-variant enum> -> warning[W000] ... variant 'E' not covered
+xiom --check --strict-exhaustive <same> -> error[T001] ...; rc 1
+xiom --check <Option[Int] missing None> -> warning[W000] variant 'None'
+xiom --check <Bool missing false> -> warning[W000] variant 'false'
+```
+
+(b) Decision recorded, no code change: default builds keep E001 as a warning
+(the ABI passes a copy, so the value stays readable); `--strict` is the hard
+gate. Reproduced: returning `&x` -> `warning[E001]`, compiled rc 0; with
+`--strict` -> `error[E001]`, rc 1. docs/error_codes/E001.md now states this.
+
+(c) FIXED. `docs/error_codes/` now exists in the compiler repo and every
+emitted page (L001/P001/T001/E001/C001/W000/W001 + reserved X0010/X0011/X0100)
+is embedded in the binary with `include_str!`; `explain_error` still prefers a
+cwd `docs/error_codes/<code>.md` override, then prints the embedded text.
+Installed archives and checkouts without docs both work.
+
+```
+(cwd = %TEMP%) xiom --explain T001 -> full page, rc 0
+(cwd = %TEMP%) xiom --explain E001 -> full page, rc 0
+(cwd = %TEMP%) xiom --explain NOPE -> Unknown error code, rc 1
+```
+
+(d) VERIFIED: release README (v0.65.3 archive and releases/v0.62.0) carries
+`Copyright (c) 2026 Eleftherios Notas and The XIOM Authors`, has no
+"Foundation" holder, and `0.20.0` appears only as a historical version-history
+row -- no stale current-version claim. No archive change made here.
+
+### REL-20261010-1549-website-9 (optional Gates tracking line)
+
+No compiler code. `docs/SELFHOST_PROGRESS.md:34` already carries the
+`Gates: e2e ... checker ... feature ... robustness ... fuzz ... perf ...
+formatter ... lsp ...` line the website renders. Refreshing the values is a
+release-gate task, not a compiler change.
+
+### Gates (2026-11-03)
+
+```
+cargo test -p xiom-check                                 -> 219 passed
+cargo test -p xiom --test checker_locks                  -> 45 passed
+cargo test -p xiom-codegen --test e2e_tests m344         -> 3 passed
+cargo test -p xiom-codegen --test e2e_tests e2e_m32_e08  -> 1 passed
+cargo build -p xiom --release                            -> ok
+```
+
+No relay mutations were made. Codegen files were not edited.
+
+---
+
+## 2026-11-03 -- FIXED (m396): `let` bindings were reassignable (checker gap)
+
+SPEC (xiom-book `SPEC.md:93`): "`let` cannot be reassigned. `var` can."
+The owner repro `let name = "..."; name = "...";` compiled and printed.
+ROOT CAUSE: the TYPE checker's local table (`add_local`, lib.rs) carried no
+mutability bit; the ownership pass had one but `Stmt::Assign` never consulted
+it. AST destructure also discarded `let (..)` vs `var (..)`.
+
+FIX (type checker, so `--check` and normal compile both enforce it):
+* `local_mutability` + `pattern_bindings` scope stacks (lib.rs 68-73, 430-431),
+  helpers at 1284-1350 (`add_local_with_mutability`, `add_local_immutable`,
+  `add_pattern_local`, `local_mutability`, `place_root_ident`,
+  `global_mutability`).
+* `Stmt::Assign` (7590-7615) walks the place root: `let` local,
+  destructured binding, const and module const are rejected; `var` is legal.
+  Field/index stores whose ROOT is a `let` are rejected too
+  (`let d = ...; d.v = ...`). Message:
+  `cannot assign to immutable binding '<x>' (declared with 'let'; use 'var')`
+  (and `cannot assign to immutable const '<C>'`). Codepoint: T001.
+* Registration: `let` and pattern bindings immutable; `var`, params and
+  `for` variables mutable; `&self` immutable, `&mut self` mutable;
+  by-value `self` and receiver-style methods keep the existing mutable
+  receiver (XIOM's `fn T.m(self)` methods mutate fields; `&self` is the
+  opt-out, per the borrow pass's existing parameter rule).
+* AST/parser preserve destructure mutability: `Stmt::Destructure(..., bool)`
+  (`crates/xiom-ast/src/lib.rs`, `crates/xiom-parser/src/lib.rs`); the
+  ownership pass mirrors the same check.
+* Pattern binding decision: the NAME is immutable (`match o { Some(v) =>
+  v = ... }` is an error), but a field/index store through the binding
+  mutates the ALIASED payload and stays legal. `m148_match_payload_alias`
+  (and the semver/precision-rational payload mutators) lock this alias
+  contract; enforcing root immutability on pattern field stores would break
+  it. `if-let`/`while-let` do not exist in the grammar; `is` bindings use
+  the same pattern rule.
+* Spec-silent decisions kept as-is: ordinary params and `for` variables
+  remain mutable (existing behavior; SPEC only pins `let`/`var`); module
+  `var` remains assignable while module `const` is not.
+
+LOCKS (new, `crates/xiom/tests/checker_locks.rs`):
+`m396_let_reassignment_is_hard_error` (owner snippet + `+=`),
+`m396_let_field_store_is_hard_error`, `m396_const_store_is_hard_error`,
+`m396_destructure_let_is_hard_error`, `m396_match_binding_is_hard_error`,
+`m396_shared_ref_receiver_store_is_hard_error`,
+`m396_mutable_bindings_accept` (var rebind/field store, shadowing,
+`var (a,b)`, params, for variables, `&mut self`). Fixtures under
+`tests/regression/m396_*`.
+
+CORPUS BURN-DOWN (real reassignments changed `let` -> `var`; no semantic
+change because the old checker already allowed the store):
+* pinned `stdlib/` (gitignored checkout; 31 files): async/io, crypto/crypto,
+  debug/debug, ffi/{errno,ffi}, io/{buffer,console,fs,io,pipe},
+  net/{http,socket,websocket}, os/{env,fs_ffi,lock,mmap,os,proc_ffi,process,
+  signal,sync_io,watch}, serialize/{csv,serialize,toml,yaml_lite},
+  simd/{vec4,vec8}, sync/sync, time/time.
+* live sibling `E:\xiom-lang\stdlib` (tracked stdlib repo, same 31 files;
+  uncommitted work there preserved) -- this is the copy e2e/m375 use.
+* regression fixtures: m97 (`light`,`count`), m98 (`i`), m102 (`m`),
+  m131 (`i`), m148 (scalar rebind moved into a `var`; alias field mutation
+  unchanged), m2343 (`d`), m243 (`a: [3]Int` annotation keeps the fixed-array
+  trap), m345 (`ptr`,`size` x2).
+* selfhost-facing pinned stdlib + `tests/regression` corpus were burned down
+  in the selfhost worktree (T3/T6 unaffected).
+
+UPDATE (2026-11-03, deferred-init regression): the first m396 pass rejected
+deferred initialization (`let x: T; ... x = ...`), which produced 119 T001
+errors in stdlib catalog bodies (e.g. `xiom.os.sync_io`, `xiom.os.mmap`,
+receiver fields in `xiom.collections`). FIX: a deferred `let x: T;` (parser
+placeholder `Expr::Int(0)` whose span equals the declaration span) is
+**init-once**: the FIRST bare whole-binding store initializes it and is
+legal; every later store is the immutable-binding error. `let x: T = 0;`
+(initializer literal has its own span) and `let x = <init>` stay immutable
+from the start. The state lives in the type checker (`deferred_init`
+scope stack, `add_deferred_local`, `take_deferred_init`) and is mirrored by
+the ownership pass; catalog bodies are NOT exempted. A field/index store
+through a still-uninitialized deferred root is not an initialization and
+remains an error.
+The 76 deferred declarations that the first pass had changed to `var` were
+restored to `let` in the compiler-pinned `stdlib/` (the catalog corpus now
+proves init-once on the real FFI/OS/IO modules); only declarations that are
+reassigned after initialization remain `var`.
+
+New locks: `m396_deferred_init_accept` (first store compiles/runs),
+`m396_deferred_init_twice_is_hard_error` (second store rejected),
+`m396_initialized_zero_is_immutable` (explicit `= 0` is not deferred),
+`m396_deferred_field_store_is_hard_error` (a field store is not an
+initialization), `m396_stdlib_imports_have_no_immutable_errors` (real
+`xiom.collections`/`xiom.io`/`xiom.os.mmap`/`xiom.os.sync_io` imports ->
+zero T001). Fixtures `tests/regression/m396_deferred_init_*`,
+`m396_initialized_zero_negative`, `m396_deferred_field_store_negative`,
+`m396_stdlib_imports_accept`.
+
+GATES (main, 2026-11-03 after the init-once fix):
+```
+cargo test -p xiom-check                        -> 219 passed
+cargo test -p xiom --test checker_locks         -> 57 passed (12 new m396 locks)
+cargo build -p xiom --release                   -> ok
+RUST_MIN_STACK=64MB cargo test -p xiom-codegen --test feature_regression_tests
+                                                -> 582 passed
+stdlib import compiles: e2e_m16_no_warnings, e2e_m17_zero_warnings,
+  e2e_cross_module_math, e2e_m37_catfix_circular_imports -> all passed, 0 T001
+e2e drop/container/loop groups                  -> 5/5, 7/7, 13/13
+tests/soak/run_memory_gates.ps1                  -> 22/22 GREEN
+full e2e (earlier pass)                          -> 2670 passed, 2 pre-existing
+   benchmark catalog failures (reproduced pre-change).
+```
+
+NOTE (coordination): `stdlib/` in the compiler repo is a gitignored pinned
+checkout; the tracked stdlib fixes live in the sibling `E:\xiom-lang\stdlib`
+repo and need the usual stdlib pin/tag bump before a clean CI checkout sees
+them. No relay mutations were made.
+
+---
+
+## 2026-11-04 -- FIXED (checker/codegen): last playground relay pair
+
+Items: `REL-20261010-1554-playground-2` (silent Int+Str coercion) and
+`REL-20261010-1554-playground-3` (mixed-expression `.to_str()` W005 stub).
+Both were re-probed RED on current HEAD before the fix with the release
+compiler (`XIOM_STDLIB=E:\xiom-lang\stdlib`, because the installed
+`target/release/lib` is a stale v0.64.8 tree missing the current runtime):
+
+```
+p2: use xiom.io; fn main() { io.println(12 + 2.to_string()); }
+    -> compiles, prints "122", exit 0
+p3: use xiom.io; fn main() { io.println((2 + 2.5).to_str()); }
+    -> warning[W005]: unresolved call '@to_str' from @main; exit -1073740791
+```
+
+### playground-2 -- Int+Str is now a hard checker error
+
+`crates/xiom-check/src/lib.rs` (BinOp::Add, ~line 9275): only `Str + Str`
+(and `Str + Char`, a string element) returns Str. A Str mixed with a known
+non-Str operand emits the explicit-conversion error; wildcard/generic
+operands stay deferred (stdlib catalog bodies). The numeric result rule
+(~line 9315) now promotes mixed Int/Float arithmetic to the float operand,
+so `2 + 2.5` is Float64 (previously it typed Int, which also rejected
+`var x: Float64 = 2 + 2.5`). The language still has no implicit conversion;
+`convert.int_to_string` / `convert.float_to_string` are the explicit forms.
+
+### playground-3 -- mixed `.to_str()` prints the float
+
+`crates/xiom-codegen/src/call.rs`:
+* `infer_expr_xiom_type_deep` gained a `Binary` arm (~line 889): comparisons
+  are Bool, Add follows the Str-concat rule, and mixed numeric arithmetic
+  reports the float operand's type. `(2 + 2.5).to_str()` therefore enters
+  the Float64 conversion path instead of falling through to the undefined
+  `@to_str` stub.
+* The float `to_str` path now falls back to the always-declared host runtime
+  `@xiom_double_to_string` when the peeked `convert.float_to_string` was not
+  injected (~lines 2130-2175). The fallback is disabled for `freestanding`,
+  which keeps the pure-XIOM conversion. A general `infer_llvm_type` ==
+  `double`/`float` fallback covers receivers whose XIOM type cannot be
+  inferred deeply.
+
+### Regression locks
+
+* `tests/regression/rel_playground_int_str_reject/main.xi` -- negative:
+  `12 + 2.to_string()` must fail with `cannot add Str and Int` and point at
+  `convert.int_to_string`.
+* `tests/regression/rel_playground_int_str_convert/main.xi` -- positive:
+  explicit `convert.int_to_string(12) + convert.int_to_string(2)` compiles,
+  runs, and prints `122`.
+* `tests/regression/rel_playground_mixed_to_str/main.xi` -- positive:
+  `(2 + 2.5).to_str()` compiles with no W005, runs, and prints `4.5`.
+* Tests in `crates/xiom/tests/checker_locks.rs`:
+  `rel_playground_int_str_addition_is_hard_error`,
+  `rel_playground_explicit_int_to_string_accepts`,
+  `rel_playground_mixed_to_str_prints_float`.
+* Existing concat fixtures updated to the explicit conversion (their codegen
+  coverage is unchanged): `m37_str_int_concat`, `m37_inline_call_concat`,
+  `m37_global_fn_init`, `m37_round7_vec_pop_slot`, `m37_nan_ieee`.
+
+### GATES (main, 2026-11-04)
+
+```
+cargo test -p xiom-check                        -> 219 passed, 0 failed
+cargo test -p xiom --test checker_locks         -> 60 passed, 0 failed
+cargo test -p xiom --test checker_spec_gaps     -> 26 passed, 0 ignored
+RUST_MIN_STACK=67108864 cargo test -p xiom-codegen --test feature_regression_tests
+                                                -> 582 passed, 0 failed
+cargo test -p xiom-codegen --test e2e_tests e2e_m37_
+                                                -> 50 passed, 0 failed
+cargo build -p xiom --release                   -> ok
+```
+
+(`RUST_MIN_STACK=64MB` is rejected by the cargo/rustc 1.88 on this host --
+it requires a byte count; `67108864` is the 64 MB equivalent.)
+
+Release re-probe after the fix:
+
+```
+p2 -> error[T001]: cannot add Str and Int -- convert explicitly with
+      `convert.int_to_string` or `convert.float_to_string`; compile_exit=1
+p3 -> compiled; stdout "4.5"; run_exit=0; no W005
+explicit -> convert.int_to_string probe stdout "122"; run_exit=0
+var x = 2 + 2.5; x.to_str() -> "4.5"; run_exit=0
+var x: Float64 = 2 + 2.5 -> compiles and prints "4.5"
+```
+
+No `E:\xiom-lang\stdlib` changes were needed; no relay mutations were made.
+The selfhost worktree was not touched.

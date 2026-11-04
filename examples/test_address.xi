@@ -16,7 +16,7 @@ type Person = {
 fn main() -> Int {
   var addr = Address{ street: "Main", city: "NYC", zip: 10001 };
   var person = Person{ name: "Alice", age: 30, address: addr };
-  var cloned = person.clone();
+  var _cloned = person.clone();
   
   var addr1 = Address{ street: "A", city: "B", zip: 1 };
   var addr2 = Address{ street: "C", city: "D", zip: 2 };

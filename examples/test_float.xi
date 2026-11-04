@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 fn main() -> Int {
-  var x = 5;
-  var y = 3.14;
-  var z = 1 + 3.14;
+  var _x = 5;
+  var _y = 3.14;
+  var _z = 1 + 3.14;
   return 0;
 }

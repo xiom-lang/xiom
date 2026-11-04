@@ -12,7 +12,7 @@ module s {
   }
 
   pub fn run() -> Int {
-    var x = make(1, 2, 3);
+    var _x = make(1, 2, 3);
     return 1;
   }
 }

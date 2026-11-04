@@ -21,7 +21,7 @@ pub fn conv[T, U](x: T, f: fn(&T) -> U) -> U {
 
 pub fn map_to[T, U](v: &Vec[T], f: fn(&T) -> U) -> Vec[U] {
   let out = Vec[U].new();
-  let i = 0;
+  var i = 0;
   while (i < v.len()) {
     let x: T = v[i];
     out.push(f(&x));

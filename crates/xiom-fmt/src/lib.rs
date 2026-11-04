@@ -721,7 +721,7 @@ fn stmt_span(stmt: &Stmt) -> Option<Span> {
         | Stmt::While(_, _, _, s, _)
         | Stmt::For(_, _, _, s, _)
         | Stmt::Spawn(_, s, _)
-        | Stmt::Destructure(_, _, s)
+        | Stmt::Destructure(_, _, s, _)
         | Stmt::Break(_, s)
         | Stmt::Continue(_, s)
         | Stmt::Defer(_, s)

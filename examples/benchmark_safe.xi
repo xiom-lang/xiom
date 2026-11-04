@@ -106,7 +106,7 @@ module control {
     var total = 0;
     var i = 0;
     while i < limit + 1 {
-      if true { total = total + i; }
+      total = total + i;
       i = i + 1;
     }
     return total;

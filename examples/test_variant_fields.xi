@@ -16,7 +16,7 @@ module bst {
   }
 
   fn test() -> Int {
-    var t = make_node(5, Empty, Empty);
+    var _t = make_node(5, Empty, Empty);
     return 1;
   }
 

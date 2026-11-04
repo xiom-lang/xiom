@@ -4,7 +4,7 @@ use xiom.iter;
 fn min_val(scores: &Vec[Int]) -> Int
   requires: scores.len() > 0;
 {
-  let m = scores[0];
+  var m = scores[0];
   for __i in range(0, scores.len()) {
     let s = scores[__i];
     if s < m { m = s; } }
@@ -14,7 +14,7 @@ fn min_val(scores: &Vec[Int]) -> Int
 fn max_val(scores: &Vec[Int]) -> Int
   requires: scores.len() > 0;
 {
-  let m = scores[0];
+  var m = scores[0];
   for __i in range(0, scores.len()) {
     let s = scores[__i];
     if s > m { m = s; } }

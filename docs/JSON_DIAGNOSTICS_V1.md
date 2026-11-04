@@ -35,8 +35,8 @@ Check-only success is a **status object**, not a diagnostics list:
 
 | Field | Type | Required | Meaning |
 |---|---|---|---|
-| `kind` | string | yes | `lex_error`, `parse_error`, `type_error`, `borrow_error`, `borrow_warning`, `codegen_error`, `warning` (advisory: W000-class checker warnings and the Stage 6 lint wave W002-W008) |
-| `code` | string | yes | stable id: `L001`, `P001`, `T001`, `E001`, `C001`, `W000` (legacy checker warning), `W001` (catalog module collision), `W002` (unconditional recursive cycle), `W003` (unreachable statement after a diverger), `W004` (unreachable match arm), `W006` (shift amount out of range), `W007` (self-comparison always true/false), `W008` (literal integer div/rem by zero) |
+| `kind` | string | yes | `lex_error`, `parse_error`, `type_error`, `borrow_error`, `borrow_warning`, `codegen_error`, `warning` (advisory: W000-class checker warnings, the Stage 6 lint wave W002-W009, and the opt-in tier-3 W010-W015 findings) |
+| `code` | string | yes | stable id: `L001`, `P001`, `T001`, `E001`, `C001`, `W000` (legacy checker warning), `W001` (catalog module collision), `W002` (unconditional recursive cycle), `W003` (unreachable statement after a diverger), `W004` (unreachable match arm), `W006` (shift amount out of range), `W007` (self-comparison always true/false), `W008` (literal integer div/rem by zero), `W009` (top-level name collides with a libc/Winsock symbol), `W010` (unused function parameter, opt-in), `W011` (unused import, opt-in), `W012` (constant condition, opt-in), `W013` (self-assignment, opt-in), `W014` (vacuous integer arithmetic, opt-in), `W015` (unused local binding, opt-in) |
 | `message` | string | yes | human-readable, already localized to English |
 | `line` | number | yes | 1-based source line (0 when not position-specific, e.g. codegen failures) |
 | `col` | number | yes | 1-based Unicode-scalar column |
@@ -48,6 +48,18 @@ Check-only success is a **status object**, not a diagnostics list:
 Unknown fields MUST be ignored by consumers. v1 changes only add optional
 fields or new `kind`/`code` values; removing or renaming a field requires
 `schema_version: 2`.
+
+### Stage 6 tier 3 (`--lint-strict`)
+
+`W010`-`W015` are emitted only when the opt-in `--lint-strict` flag is set
+(owner decision 2026-11-02). They are warning-only: the flag never promotes
+a tier-3 warning to an error, including under `--strict` /
+`--strict-exhaustive`, and default builds emit none of them.
+
+`W009` was already taken by the reserved-system-symbol advisory
+(REL-20261028-0052), so the unused-local lint ships as `W015`; the
+remaining codes keep their planned W010-W014 numbering. The `W005` note
+below still applies.
 
 `W005` is NOT a checker lint: it is the codegen known-gap advisory
 (`warning[W005]: unresolved call ...`, stderr-only, m142 -- unresolved

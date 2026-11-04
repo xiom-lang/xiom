@@ -15,6 +15,6 @@ fn divide(a: Float64, b: Float64) -> Float64
 }
 
 fn main() -> Int {
-  let x = divide(10.0, 2.0);
+  let _x = divide(10.0, 2.0);
   return 0;
 }

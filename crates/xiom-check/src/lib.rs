@@ -17,6 +17,7 @@ pub mod catalog;
 pub mod checkcache;
 pub mod borrow;
 pub mod type_qualify;
+mod tier3;
 
 use types::{CheckedType, FnSig, CheckError};
 use catalog::{ModuleExport, CachedModule, ModuleCatalog};
@@ -61,11 +62,33 @@ pub struct Checker {
     current_return: Option<CheckedType>,
     /// Local variable types
     locals: Vec<HashMap<String, CheckedType>>,
+    /// Binding mutability, scope-matched with `locals` above. `false` for
+    /// `let`/pattern/destructure bindings and immutable receivers; `true`
+    /// for `var`, parameters, `for` variables and `&mut self`.
+    local_mutability: Vec<HashMap<String, bool>>,
+    /// Names bound by a match/`is` PATTERN, scope-matched with `locals`.
+    /// Their NAME is immutable, but a field/index store through them mutates
+    /// the aliased payload (the m148 payload-alias contract), so field
+    /// stores are exempt from the root-immutability rule.
+    pattern_bindings: Vec<HashSet<String>>,
+    /// Deferred `let x: T;` bindings awaiting their FIRST initialization,
+    /// scope-matched with `locals`. The first whole-binding assignment is
+    /// legal and clears the entry; every later assignment is immutable.
+    deferred_init: Vec<HashSet<String>>,
+    /// Active loop nesting depth. `break`/`continue` are only legal at a
+    /// depth > 0 (SPEC: a loop-control statement must target a loop).
+    loop_depth: usize,
+    /// Labels of the loops currently in scope (innermost last). A
+    /// `break @label` / `continue @label` must name one of these.
+    loop_labels: Vec<String>,
     errors: Vec<CheckError>,
     /// S2: Warnings that don't block compilation (e.g. non-exhaustive match).
     warnings: Vec<CheckError>,
     /// S2: When true, non-exhaustive match warnings become hard errors.
     strict_exhaustive: bool,
+    /// Stage 6 tier 3 (opt-in, `--lint-strict`): emit the noisy usage /
+    /// vacuous-shape warnings. NEVER escalates a warning to an error.
+    lint_strict: bool,
     /// Stage 3 Item A FLIP (2026-09-15): catalog-body findings are HARD
     /// ERRORS. The corpus was burned down by the stdlib lane (509/509
     /// per-module import probes, r40 937/937) and the isolated corpus gate
@@ -151,11 +174,16 @@ pub struct Checker {
     /// Module-level `const`/`var` global names -> declared type (so references to
     /// them inside functions resolve instead of erroring "undefined variable").
     global_consts: HashMap<String, CheckedType>,
+    /// Module-level `const`/`var` mutability, matched with `global_consts`.
+    /// `TopDecl::Const` represents BOTH forms; `is_mut` distinguishes them.
+    global_const_mutability: HashMap<String, bool>,
     /// Stage 3 Item A: catalog module path -> module-level const/var types.
     /// Independent catalog modules reuse const names (`_K1`, `_PI`, ...), so
     /// catalog globals are module-scoped; `global_consts` stays the
     /// program-level bare-name map.
     catalog_global_consts: HashMap<String, HashMap<String, CheckedType>>,
+    /// Catalog module path -> const/var name -> mutability.
+    catalog_global_const_mutability: HashMap<String, HashMap<String, bool>>,
     /// Enum variant name -> field name -> field type (for variant constructors)
     variant_fields: HashMap<String, Vec<(String, CheckedType)>>,
     /// Directories to search for external module files
@@ -409,9 +437,15 @@ impl Checker {
             fn_value_types: HashMap::new(),
             current_return: None,
             locals: vec![HashMap::new()],
+            local_mutability: vec![HashMap::new()],
+            pattern_bindings: vec![HashSet::new()],
+            deferred_init: vec![HashSet::new()],
+            loop_depth: 0,
+            loop_labels: Vec::new(),
             errors: Vec::new(),
             warnings: Vec::new(),
             strict_exhaustive: false,
+            lint_strict: false,
             // Stage 3 Item A FLIP LANDED (2026-09-15): the stdlib lane cleared
             // the section-Q/bare-name worklist (509/509 per-module import
             // probes, r40 937/937, isolated corpus clean), closing the
@@ -438,7 +472,9 @@ impl Checker {
             external_enum_modules: Vec::new(),
             enum_variants: HashMap::new(),
             global_consts: HashMap::new(),
+            global_const_mutability: HashMap::new(),
             catalog_global_consts: HashMap::new(),
+            catalog_global_const_mutability: HashMap::new(),
             variant_fields: HashMap::new(),
             source_dirs: Vec::new(),
             catalog: ModuleCatalog::new(Vec::new()),
@@ -1246,16 +1282,111 @@ impl Checker {
 
     fn push_scope(&mut self) {
         self.locals.push(HashMap::new());
+        self.local_mutability.push(HashMap::new());
+        self.pattern_bindings.push(HashSet::new());
+        self.deferred_init.push(HashSet::new());
     }
 
     fn pop_scope(&mut self) {
         self.locals.pop();
+        self.local_mutability.pop();
+        self.pattern_bindings.pop();
+        self.deferred_init.pop();
     }
 
-    fn add_local(&mut self, name: &str, ty: CheckedType) {
+    /// Register a local with an explicit mutability bit. Every binding site
+    /// goes through here so the `let`/`var`/pattern rules have one source.
+    fn add_local_with_mutability(&mut self, name: &str, ty: CheckedType, is_mutable: bool) {
         if let Some(scope) = self.locals.last_mut() {
             scope.insert(name.to_string(), ty);
         }
+        if let Some(scope) = self.local_mutability.last_mut() {
+            scope.insert(name.to_string(), is_mutable);
+        }
+        // A fresh binding (including a shadow) never inherits pending
+        // deferred-init state from an outer/previous binding.
+        if let Some(scope) = self.deferred_init.last_mut() {
+            scope.remove(name);
+        }
+    }
+
+    /// Register a deferred `let x: T;` binding: immutable, but its FIRST
+    /// whole-binding assignment is the initialization.
+    fn add_deferred_local(&mut self, name: &str, ty: CheckedType) {
+        self.add_local_with_mutability(name, ty, false);
+        if let Some(scope) = self.deferred_init.last_mut() {
+            scope.insert(name.to_string());
+        }
+    }
+
+    /// Consume a pending deferred initialization for `name`. Returns true
+    /// exactly once, for the first whole-binding assignment.
+    fn take_deferred_init(&mut self, name: &str) -> bool {
+        for (locals, deferred) in self.locals.iter().zip(self.deferred_init.iter_mut()).rev() {
+            if locals.contains_key(name) {
+                return deferred.remove(name);
+            }
+        }
+        false
+    }
+
+    /// Historical binding form: mutable by default (parameters, `var`,
+    /// `for` variables, receiver fields).
+    fn add_local(&mut self, name: &str, ty: CheckedType) {
+        self.add_local_with_mutability(name, ty, true);
+    }
+
+    /// `let` and destructured bindings: immutable until shadowed, including
+    /// field/index stores through the binding.
+    fn add_local_immutable(&mut self, name: &str, ty: CheckedType) {
+        self.add_local_with_mutability(name, ty, false);
+    }
+
+    /// Match/`is` pattern binding: the NAME is immutable, but a field/index
+    /// store mutates the aliased payload (m148 contract).
+    fn add_pattern_local(&mut self, name: &str, ty: CheckedType) {
+        self.add_local_with_mutability(name, ty, false);
+        if let Some(scope) = self.pattern_bindings.last_mut() {
+            scope.insert(name.to_string());
+        }
+    }
+
+    /// True when `name` is bound by a match/`is` pattern in any live scope.
+    fn is_pattern_binding(&self, name: &str) -> bool {
+        self.pattern_bindings.iter().rev().any(|scope| scope.contains(name))
+    }
+
+    /// Nearest-scope mutability for `name`, or `None` when it is not a local.
+    fn local_mutability(&self, name: &str) -> Option<bool> {
+        for scope in self.local_mutability.iter().rev() {
+            if let Some(is_mutable) = scope.get(name) {
+                return Some(*is_mutable);
+            }
+        }
+        None
+    }
+
+    /// Root identifier of an assignment place (`d`, `d.v`, `d[i]`, `(d)`).
+    fn place_root_ident(expr: &Expr) -> Option<&Ident> {
+        match expr {
+            Expr::Ident(id) => Some(id),
+            Expr::Field(base, _, _) | Expr::Index(base, _, _) => Self::place_root_ident(base),
+            Expr::Paren(inner, _) => Self::place_root_ident(inner),
+            _ => None,
+        }
+    }
+
+    /// Mutability of a module-level global, or `None` when the name is not a
+    /// program/catalog global in scope.
+    fn global_mutability(&self, name: &str) -> Option<bool> {
+        if let Some(is_mutable) = self.global_const_mutability.get(name) {
+            return Some(*is_mutable);
+        }
+        let module = self.current_module.as_deref().unwrap_or("");
+        self.catalog_global_const_mutability
+            .get(module)
+            .and_then(|m| m.get(name))
+            .copied()
     }
 
     /// M18: Bind pattern variables from `is` expressions.
@@ -1267,7 +1398,7 @@ impl Checker {
                 let is_variant = self.enum_variants.contains_key(&id.name)
                     || self.enum_variants.keys().any(|k| k.ends_with(&format!(".{}", id.name)));
                 if !is_variant {
-                    self.add_local(&id.name, CheckedType::Named("_".into()));
+                    self.add_pattern_local(&id.name, CheckedType::Named("_".into()));
                 }
             }
             Pattern::Some(inner, _) | Pattern::Ok(inner, _) | Pattern::Err(inner, _) => {
@@ -1275,7 +1406,7 @@ impl Checker {
             }
             Pattern::Variant(_, fields, _) => {
                 for field in fields {
-                    self.add_local(&field.name, CheckedType::Named("_".into()));
+                    self.add_pattern_local(&field.name, CheckedType::Named("_".into()));
                 }
             }
             Pattern::Or(alts, _) => {
@@ -1554,6 +1685,17 @@ impl Checker {
     }
 
     fn add_pattern_bindings(&mut self, pattern: &Pattern, scrutinee_type: &CheckedType) {
+        // SPEC: one binding name may occur at most once in a pattern tree;
+        // or-pattern alternatives may reuse names only when every alternative
+        // binds the SAME set (so the union the old code registered was never
+        // observable).
+        self.check_pattern_duplicate_bindings(pattern);
+        self.add_pattern_bindings_inner(pattern, scrutinee_type);
+    }
+
+    /// Binding half of [`add_pattern_bindings`]; recursive calls stay here so
+    /// the duplicate scan runs exactly once per top-level pattern tree.
+    fn add_pattern_bindings_inner(&mut self, pattern: &Pattern, scrutinee_type: &CheckedType) {
         self.validate_pattern_for_type(pattern, scrutinee_type);
         if let Pattern::Variant(_name, _, _) = pattern {
         }
@@ -1563,8 +1705,10 @@ impl Checker {
                 if self.enum_variants.contains_key(&name.name) || self.resolve_enum_variant(&name.name).is_some() {
                     return;
                 }
-                // Use scrutinee type for proper guard/binding resolution
-                self.add_local(&name.name, scrutinee_type.clone());
+                // Use scrutinee type for proper guard/binding resolution.
+                // Pattern names are immutable; aggregate field mutation
+                // through the alias stays legal (m148).
+                self.add_pattern_local(&name.name, scrutinee_type.clone());
             }
             Pattern::Variant(name, fields, _) => {
                 // Look up variant field types for correct binding types.
@@ -1599,7 +1743,7 @@ impl Checker {
                     let field_ty = field_types.get(i)
                         .map(|(_, ty)| ty.clone())
                         .unwrap_or(CheckedType::Int);
-                    self.add_local(&field.name, field_ty);
+                    self.add_pattern_local(&field.name, field_ty);
                 }
             }
             Pattern::Ok(inner, _) | Pattern::Err(inner, _) | Pattern::Some(inner, _) => {
@@ -1632,7 +1776,7 @@ impl Checker {
                         || self.resolve_enum_variant(&name.name).is_some())
                     {
                         let bind_ty = payload_ty.unwrap_or_else(|| CheckedType::Named("_".into()));
-                        self.add_local(&name.name, bind_ty);
+                        self.add_pattern_local(&name.name, bind_ty);
                     }
                 } else {
                     // round-14 (tuple payloads): `Some((k, v))` / `Ok((a, b))` --
@@ -1642,12 +1786,12 @@ impl Checker {
                     // saw the container name and fell back to Int for every
                     // element (v compared as Int: "cannot compare Int with Str").
                     let inner_scrutinee = payload_ty.unwrap_or_else(|| scrutinee_type.clone());
-                    self.add_pattern_bindings(inner, &inner_scrutinee);
+                    self.add_pattern_bindings_inner(inner, &inner_scrutinee);
                 }
             }
             Pattern::Or(alts, _) => {
                 for alt in alts {
-                    self.add_pattern_bindings(alt, scrutinee_type);
+                    self.add_pattern_bindings_inner(alt, scrutinee_type);
                 }
             }
             Pattern::Struct(type_name, fields, _) => {
@@ -1660,7 +1804,7 @@ impl Checker {
                         .and_then(|fm| fm.get(&field_name.name))
                         .cloned()
                         .unwrap_or(CheckedType::Int);
-                    self.add_pattern_bindings(sub_pat, &field_ty);
+                    self.add_pattern_bindings_inner(sub_pat, &field_ty);
                 }
             }
             Pattern::Tuple(elements, _) => {
@@ -1673,7 +1817,120 @@ impl Checker {
                 for (i, elem) in elements.iter().enumerate() {
                     let elem_ty = elem_types.get(i).cloned()
                         .unwrap_or_else(|| CheckedType::Int);
-                    self.add_pattern_bindings(elem, &elem_ty);
+                    self.add_pattern_bindings_inner(elem, &elem_ty);
+                }
+            }
+            Pattern::Wildcard(_) | Pattern::None(_) | Pattern::Lit(_) => {}
+        }
+    }
+
+    /// True when an `Ident` pattern is a unit enum variant rather than a
+    /// fresh binding. Mirrors the skip rule in
+    /// [`add_pattern_bindings_inner`].
+    fn pattern_ident_is_variant(&self, name: &str) -> bool {
+        self.enum_variants.contains_key(name) || self.resolve_enum_variant(name).is_some()
+    }
+
+    /// SPEC: duplicate pattern bindings. Collects the names a pattern binds,
+    /// reporting a duplicate within one alternative and requiring every
+    /// `|` alternative to bind the identical set.
+    fn check_pattern_duplicate_bindings(&mut self, pattern: &Pattern) {
+        let mut seen: Vec<(String, Span)> = Vec::new();
+        let mut duplicates: Vec<(String, Span)> = Vec::new();
+        let mut or_mismatches: Vec<Span> = Vec::new();
+        self.collect_pattern_bindings(pattern, &mut seen, &mut duplicates, &mut or_mismatches);
+        for (name, span) in duplicates {
+            self.error(format!("duplicate binding '{}' in pattern", name), span);
+        }
+        for span in or_mismatches {
+            self.error(
+                "or-pattern alternatives must bind the same names".to_string(),
+                span,
+            );
+        }
+    }
+
+    /// Recursive collector for [`check_pattern_duplicate_bindings`]. `seen`
+    /// accumulates the names already bound in the ENCLOSING tree so a nested
+    /// duplicate (e.g. `(x, (x, y))`) is still caught; `out`-style recursive
+    /// calls collect locally so or-alternatives do not contaminate each other.
+    fn collect_pattern_bindings(
+        &self,
+        pattern: &Pattern,
+        seen: &mut Vec<(String, Span)>,
+        duplicates: &mut Vec<(String, Span)>,
+        or_mismatches: &mut Vec<Span>,
+    ) {
+        match pattern {
+            Pattern::Ident(name) => {
+                if self.pattern_ident_is_variant(&name.name) {
+                    return;
+                }
+                if seen.iter().any(|(existing, _)| existing == &name.name) {
+                    duplicates.push((name.name.clone(), name.span));
+                } else {
+                    seen.push((name.name.clone(), name.span));
+                }
+            }
+            Pattern::Variant(_, fields, _) => {
+                for field in fields {
+                    if field.name == "_" {
+                        continue;
+                    }
+                    if seen.iter().any(|(existing, _)| existing == &field.name) {
+                        duplicates.push((field.name.clone(), field.span));
+                    } else {
+                        seen.push((field.name.clone(), field.span));
+                    }
+                }
+            }
+            Pattern::Struct(_, fields, _) => {
+                for (_, sub) in fields {
+                    self.collect_pattern_bindings(sub, seen, duplicates, or_mismatches);
+                }
+            }
+            Pattern::Tuple(elements, _) => {
+                for elem in elements {
+                    self.collect_pattern_bindings(elem, seen, duplicates, or_mismatches);
+                }
+            }
+            Pattern::Some(inner, _) | Pattern::Ok(inner, _) | Pattern::Err(inner, _) => {
+                self.collect_pattern_bindings(inner, seen, duplicates, or_mismatches);
+            }
+            Pattern::Or(alts, span) => {
+                // Each alternative is checked in ITS OWN namespace (names may
+                // repeat across alternatives), then all alternatives must
+                // agree on the bound set. Only the first alternative's names
+                // enter the enclosing tree.
+                let mut first_names: Option<Vec<(String, Span)>> = None;
+                let mut first_set: Option<BTreeSet<String>> = None;
+                for alt in alts {
+                    let mut local: Vec<(String, Span)> = Vec::new();
+                    let mut local_dups: Vec<(String, Span)> = Vec::new();
+                    let mut local_or: Vec<Span> = Vec::new();
+                    self.collect_pattern_bindings(alt, &mut local, &mut local_dups, &mut local_or);
+                    duplicates.extend(local_dups);
+                    or_mismatches.extend(local_or);
+                    let set: BTreeSet<String> = local.iter().map(|(n, _)| n.clone()).collect();
+                    match &first_set {
+                        None => {
+                            first_set = Some(set);
+                            first_names = Some(local);
+                        }
+                        Some(expected) if expected != &set => {
+                            or_mismatches.push(*span);
+                        }
+                        Some(_) => {}
+                    }
+                }
+                if let Some(names) = first_names {
+                    for (name, span) in names {
+                        if seen.iter().any(|(existing, _)| existing == &name) {
+                            duplicates.push((name, span));
+                        } else {
+                            seen.push((name, span));
+                        }
+                    }
                 }
             }
             Pattern::Wildcard(_) | Pattern::None(_) | Pattern::Lit(_) => {}
@@ -2151,6 +2408,13 @@ impl Checker {
         self.strict_exhaustive = enabled;
     }
 
+    /// Stage 6 tier 3: enable the opt-in `--lint-strict` warning family.
+    /// Warning-only by construction -- no tier-3 finding is ever promoted to
+    /// an error, including under `--strict`/`--strict-exhaustive`.
+    pub fn set_lint_strict(&mut self, on: bool) {
+        self.lint_strict = on;
+    }
+
     // -- Type interning helpers (5c-R) ------------------------------------
 
     /// Intern a type name structurally, returning its process-stable TypeId.
@@ -2435,6 +2699,13 @@ impl Checker {
             self.lint_w002_unconditional_cycles(program);
         }
 
+        // Stage 6 tier 3 (opt-in via `--lint-strict`, owner decision
+        // 2026-11-02): usage + vacuous-shape warnings. User-program scope
+        // only; warning-only, never escalated.
+        if self.lint_strict && !self.checking_catalog && !self.corpus_loading {
+            crate::tier3::lint_user_program(self, program);
+        }
+
         // S2: Append warnings to errors for display, but only if there are
         // already real errors (warnings alone don't block compilation).
         // AUDIT FIX (readiness Stage 1): on the SUCCESS path warnings were
@@ -2498,6 +2769,7 @@ impl Checker {
                     Self::infer_global_init_type(&cd.value)
                 };
                 self.global_consts.insert(cd.name.name.clone(), ty);
+                self.global_const_mutability.insert(cd.name.name.clone(), cd.is_mut);
             }
             TopDecl::Module(md) => {
                 for sub in &md.items {
@@ -2525,6 +2797,10 @@ impl Checker {
                     .entry(module_path.to_string())
                     .or_default()
                     .insert(cd.name.name.clone(), ty);
+                self.catalog_global_const_mutability
+                    .entry(module_path.to_string())
+                    .or_default()
+                    .insert(cd.name.name.clone(), cd.is_mut);
             }
             TopDecl::Module(md) => {
                 let new_path = if module_path.is_empty() {
@@ -2538,6 +2814,225 @@ impl Checker {
             }
             _ => {}
         }
+    }
+
+    /// SPEC 2.6: a `const` initializer must be CTFE-evaluable. The predicate
+    /// mirrors the compiler's CTFE folder (`IrEmitter::evaluate_const_init`):
+    /// literals, references to immutable consts/unit variants, unary/binary,
+    /// tuple/array/struct/enum literals, `if`/`match` on const values, and
+    /// calls to user functions or the CTFE builtins with const arguments.
+    /// Only constructs the folder cannot handle are rejected: extern/FFI
+    /// calls, method calls, runtime I/O, `unsafe`, and reads of mutable
+    /// globals.
+    fn is_const_expr(&self, expr: &Expr) -> bool {
+        self.is_const_expr_with_names(expr, &HashSet::new())
+    }
+
+    /// Context-aware form: `names` holds block/pattern bindings that CTFE
+    /// substitutes while evaluating (`v` in `Some(v) => v`, `a` in
+    /// `{ let a = 21; a * 2 }`).
+    fn is_const_expr_with_names(&self, expr: &Expr, names: &HashSet<String>) -> bool {
+        match expr {
+            Expr::Int(..) | Expr::BigInt(..) | Expr::Float(..) | Expr::Str(..)
+            | Expr::Char(..) | Expr::Bool(..) | Expr::None(_) => true,
+            Expr::Ident(id) => names.contains(&id.name) || self.is_const_name(&id.name),
+            Expr::Paren(inner, _)
+            | Expr::Some(inner, _)
+            | Expr::Ok(inner, _)
+            | Expr::Err(inner, _)
+            | Expr::As(inner, _, _)
+            | Expr::ConstBlock(inner, _)
+            | Expr::Comptime(inner, _) => self.is_const_expr_with_names(inner, names),
+            Expr::Unary(op, inner, _) => {
+                matches!(op, UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot)
+                    && self.is_const_expr_with_names(inner, names)
+            }
+            Expr::Binary(left, _, right, _) => {
+                self.is_const_expr_with_names(left, names)
+                    && self.is_const_expr_with_names(right, names)
+            }
+            Expr::Tuple(items, _) | Expr::Array(items, _) => {
+                items.iter().all(|item| self.is_const_expr_with_names(item, names))
+            }
+            Expr::Struct(_, fields, spread, _) => {
+                fields
+                    .iter()
+                    .all(|(_, value)| self.is_const_expr_with_names(value, names))
+                    && spread
+                        .as_ref()
+                        .map_or(true, |base| self.is_const_expr_with_names(base, names))
+            }
+            // User-function calls: CTFE Phase B evaluates pure functions with
+            // const arguments. Extern/FFI and runtime-I/O names are rejected;
+            // a method call (Field callee) is not folded by the engine.
+            Expr::Call(func, args, _) => match func.as_ref() {
+                Expr::Ident(id) => {
+                    self.is_ctfe_callable(&id.name)
+                        && args
+                            .iter()
+                            .all(|arg| self.is_const_expr_with_names(arg, names))
+                }
+                _ => false,
+            },
+            // Turbofish builtins folded by the CTFE engine.
+            Expr::GenericCall(func, _, args, _) => match func.as_ref() {
+                Expr::Ident(id) => {
+                    matches!(
+                        id.name.as_str(),
+                        "sizeof" | "align_of" | "type_id" | "is_signed" | "field_offset"
+                    ) && args
+                        .iter()
+                        .all(|arg| self.is_const_expr_with_names(arg, names))
+                }
+                _ => false,
+            },
+            // `if`/`match` on const values, mirroring eval_block_last and
+            // pattern_matches_const_with_bindings.
+            Expr::If(cond, then_block, elifs, else_block, _) => {
+                self.is_const_expr_with_names(cond, names)
+                    && self.is_const_block_with_names(then_block, names)
+                    && elifs.iter().all(|(elif_cond, elif_block)| {
+                        self.is_const_expr_with_names(elif_cond, names)
+                            && self.is_const_block_with_names(elif_block, names)
+                    })
+                    && else_block
+                        .as_ref()
+                        .map_or(true, |block| self.is_const_block_with_names(block, names))
+            }
+            Expr::Match(scrutinee, arms, _) => {
+                if !self.is_const_expr_with_names(scrutinee, names) {
+                    return false;
+                }
+                arms.iter().all(|arm| {
+                    if arm.guard.is_some() {
+                        return false;
+                    }
+                    let mut arm_names = names.clone();
+                    if !self.collect_const_match_bindings(&arm.pattern, &mut arm_names) {
+                        return false;
+                    }
+                    match &arm.body {
+                        MatchBody::Block(block) => {
+                            self.is_const_block_with_names(block, &arm_names)
+                        }
+                        MatchBody::Expr(body) => {
+                            self.is_const_expr_with_names(body, &arm_names)
+                        }
+                    }
+                })
+            }
+            // `Enum.Variant` -- a qualified unit enum variant is a value known
+            // at compile time (dotted enum literals are part of the spec's
+            // constant-literal list).
+            Expr::Field(obj, field, _) => {
+                if let Expr::Ident(base) = obj.as_ref() {
+                    if let Some(parent) = self.resolve_enum_variant(&field.name) {
+                        let parent_leaf = parent
+                            .rsplit('.')
+                            .next()
+                            .unwrap_or(&parent)
+                            .split("__")
+                            .next()
+                            .unwrap_or("");
+                        let base_leaf = base.name.rsplit('.').next().unwrap_or(&base.name);
+                        if parent_leaf == base_leaf || parent.as_str() == base.name.as_str() {
+                            return true;
+                        }
+                    }
+                }
+                false
+            }
+            // Field/index reads, bare block expressions (the folder only
+            // folds if/match arm blocks), closures, `await`, `unsafe`, and
+            // error-poisoned nodes are not compile-time constants.
+            _ => false,
+        }
+    }
+
+    /// A block the CTFE folder can execute: `let`/`var` with const
+    /// initializers, assignments to those locals, and a const tail.
+    fn is_const_block_with_names(&self, block: &Block, names: &HashSet<String>) -> bool {
+        let mut locals = names.clone();
+        for (index, item) in block.stmts.iter().enumerate() {
+            match item {
+                StmtOrExpr::Stmt(Stmt::Let(name, _, init, _))
+                | StmtOrExpr::Stmt(Stmt::Var(name, _, init, _)) => {
+                    if !self.is_const_expr_with_names(init, &locals) {
+                        return false;
+                    }
+                    locals.insert(name.name.clone());
+                }
+                StmtOrExpr::Stmt(Stmt::Assign(target, rhs, _)) => {
+                    let Expr::Ident(id) = target else {
+                        return false;
+                    };
+                    if !locals.contains(&id.name)
+                        || !self.is_const_expr_with_names(rhs, &locals)
+                    {
+                        return false;
+                    }
+                }
+                StmtOrExpr::Stmt(Stmt::Expr(tail, _)) | StmtOrExpr::Expr(tail) => {
+                    return index + 1 == block.stmts.len()
+                        && self.is_const_expr_with_names(tail, &locals);
+                }
+                _ => return false,
+            }
+        }
+        false
+    }
+
+    /// Pattern shapes the CTFE matcher understands (literal/ident/wildcard,
+    /// enum, struct, tuple). `Variant` and or-patterns are not folded. Names
+    /// bound by the pattern are added to `names` for the arm body.
+    fn collect_const_match_bindings(
+        &self,
+        pattern: &Pattern,
+        names: &mut HashSet<String>,
+    ) -> bool {
+        match pattern {
+            Pattern::Wildcard(_) | Pattern::Lit(_) | Pattern::None(_) => true,
+            Pattern::Ident(id) => {
+                names.insert(id.name.clone());
+                true
+            }
+            Pattern::Some(inner, _) | Pattern::Ok(inner, _) | Pattern::Err(inner, _) => {
+                self.collect_const_match_bindings(inner, names)
+            }
+            Pattern::Struct(_, fields, _) => fields
+                .iter()
+                .all(|(_, sub)| self.collect_const_match_bindings(sub, names)),
+            Pattern::Tuple(elements, _) => elements
+                .iter()
+                .all(|sub| self.collect_const_match_bindings(sub, names)),
+            _ => false,
+        }
+    }
+
+    /// Names CTFE must never try to evaluate: extern/FFI declarations and
+    /// runtime I/O / panic builtins. Everything else is a user function whose
+    /// body the CTFE engine evaluates (falling back to runtime materialization
+    /// if it is not foldable).
+    fn is_ctfe_callable(&self, name: &str) -> bool {
+        if self.extern_fns.contains(name) {
+            return false;
+        }
+        !matches!(
+            name,
+            "panic" | "dbg" | "todo" | "unimplemented"
+                | "print" | "println" | "eprintln" | "eprint"
+                | "read_line" | "readln" | "read" | "write"
+                | "flush" | "open" | "close" | "exit" | "abort"
+        )
+    }
+
+    /// True when `name` denotes a compile-time constant: an immutable
+    /// module-level `const`, or a unit enum variant used as a value.
+    fn is_const_name(&self, name: &str) -> bool {
+        if self.global_mutability(name) == Some(false) {
+            return true;
+        }
+        self.pattern_ident_is_variant(name)
     }
 
     /// Resolve a bare global const/var name: program-level first, then the
@@ -2990,7 +3485,7 @@ impl Checker {
                     }
                 }
             }
-            Stmt::Destructure(_, e, _) => Self::collect_expr_references(e, refs),
+            Stmt::Destructure(_, e, _, _) => Self::collect_expr_references(e, refs),
             Stmt::Break(..) | Stmt::Continue(..) | Stmt::Asm(_) | Stmt::Defer(_, _) => {}
             Stmt::Assert(c, m, _) => {
                 Self::collect_expr_references(c, refs);
@@ -3382,6 +3877,20 @@ impl Checker {
             TopDecl::Const(cd) => {
                 let val_ty = self.check_expr(&cd.value);
                 let decl_ty = CheckedType::from_ast_type(&cd.ty);
+                // SPEC 2.6: `const` is a compile-time binding. An initializer
+                // that calls a function (or otherwise reads runtime state)
+                // can never be evaluated before codegen. `TopDecl::Const`
+                // represents both forms -- `is_mut` distinguishes `var`,
+                // whose initializer is ordinary runtime code.
+                if !cd.is_mut && !self.is_const_expr(&cd.value) {
+                    self.error(
+                        format!(
+                            "const initializer for '{}' is not a constant expression",
+                            cd.name.name
+                        ),
+                        cd.value.span(),
+                    );
+                }
                 // v0.56: Skip type check for zero-initialized globals of complex types
                 // (Array, Map, Vec, etc.) -- the zero is a placeholder, not the real type.
                 let is_zero_default = matches!(&cd.value, Expr::Int(0, _) | Expr::Float(_, _));
@@ -3392,6 +3901,9 @@ impl Checker {
                 // against the placeholder Int is a false positive ("const type
                 // mismatch: declared Int, found FnBox" blocked repro_fn_storage).
                 let is_elided = matches!(&cd.ty, Type::Named(n, _) if n.name == "_");
+                if !is_elided {
+                    self.check_int_literal_range(&cd.value, &decl_ty);
+                }
                 if val_ty != CheckedType::Error && decl_ty != CheckedType::Error && !is_elided {
                     if !is_zero_default || !is_complex_type {
                         if !self.types_compatible(&val_ty, &decl_ty) {
@@ -3917,7 +4429,7 @@ impl Checker {
                             collect_block_struct_names(b, out);
                         }
                         Stmt::Spawn(b, _, _) | Stmt::Defer(b, _) => collect_block_struct_names(b, out),
-                        Stmt::Destructure(_, e, _) => collect_expr_struct_names(e, out),
+                        Stmt::Destructure(_, e, _, _) => collect_expr_struct_names(e, out),
                         _ => {}
                     }
                 }
@@ -4665,7 +5177,7 @@ impl Checker {
                 Stmt::While(c, b, _, _, _) => { collect_expr_names(c, out); collect_block_names(b, out); }
                 Stmt::For(_, e, b, _, _) => { collect_expr_names(e, out); collect_block_names(b, out); }
                 Stmt::Spawn(b, _, _move) => collect_block_names(b, out),
-                Stmt::Destructure(_, e, _) => collect_expr_names(e, out),
+                Stmt::Destructure(_, e, _, _) => collect_expr_names(e, out),
                 Stmt::Break(..) | Stmt::Continue(..) => {},
                 Stmt::Asm(_) => {},
                 Stmt::Defer(b, _) => collect_block_names(b, out),
@@ -6131,6 +6643,10 @@ impl Checker {
         // body/query, not per file: a match in a clean body still lints even
         // when another function errored.
         self.body_tainted = None;
+        // Loop state is per body: a leftover depth from an enclosing item can
+        // never make a top-level `break` legal.
+        self.loop_depth = 0;
+        self.loop_labels.clear();
         self.push_scope();
 
         // R20: owner key for recorded catalog call targets (see field docs).
@@ -6144,10 +6660,42 @@ impl Checker {
             _ => fd.name.name.clone(),
         });
 
-        // Add parameters to scope
-        for param in &fd.params {
+        // Add parameters to scope. Parameters stay mutable (existing
+        // behavior; the SPEC pins only `let`/`var`), except the receiver:
+        // `&self` is immutable, `&mut self` is mutable, and a by-value
+        // `self` keeps the existing mutable receiver semantics (XIOM methods
+        // are written as `fn T.m(self)` and mutate fields in place; the
+        // borrow pass already treats every parameter as mutable).
+        // Receiver-style methods (`fn T.m()` with no `self` param) also keep
+        // the historical mutable receiver.
+        let self_is_mut = match fd.params.iter().find(|p| p.name.name == "self") {
+            Some(p) if p.is_ref_self => p.is_mut_self,
+            _ => true,
+        };
+        // SPEC: parameter names are unique within one signature. The explicit
+        // receiver (`self`) is an ordinary entry in this set, so `self, self`
+        // and a receiver colliding with an earlier parameter are both rejected.
+        let mut seen_params: HashSet<String> = HashSet::new();
+        for (param_idx, param) in fd.params.iter().enumerate() {
+            if !seen_params.insert(param.name.name.clone()) {
+                self.error(
+                    format!("duplicate parameter name '{}'", param.name.name),
+                    param.span,
+                );
+            }
+            if param.name.name == "self" && fd.receiver.is_some() && param_idx != 0 {
+                self.error(
+                    "receiver parameter 'self' must be the first parameter".to_string(),
+                    param.span,
+                );
+            }
             let param_ty = self.checked_type_from_ast_preserve_alias(&param.ty);
-            self.add_local(&param.name.name, param_ty);
+            let is_mutable = if param.name.name == "self" {
+                if param.is_ref_self { param.is_mut_self } else { true }
+            } else {
+                true
+            };
+            self.add_local_with_mutability(&param.name.name, param_ty, is_mutable);
         }
 
         // 5c-E: register const-generic parameters as locals
@@ -6174,7 +6722,7 @@ impl Checker {
         // For methods, inject the receiver's fields into scope (implicit self)
         if let Some(recv) = fd.receiver.as_ref() {
             // Add self as a variable (for match self { ... } in enum methods)
-            self.add_local("self", CheckedType::named(recv.name.clone()));
+            self.add_local_with_mutability("self", CheckedType::named(recv.name.clone()), self_is_mut);
             // 5c.30: track the receiver type for implicit-self method call
             // resolution (G-10: bare `init()` inside `fn GrpcClient.init()`).
             self.current_receiver = Some(recv.name.clone());
@@ -6192,7 +6740,10 @@ impl Checker {
             if let Some(fields) = fields_clone {
                 for (field_name, field_ty) in fields {
                     if !param_names.contains(&field_name) {
-                        self.add_local(&field_name, field_ty);
+                        // Bare receiver-field stores follow the receiver's
+                        // mutability: legal through `&mut self`, rejected
+                        // through `&self`/by-value `self`.
+                        self.add_local_with_mutability(&field_name, field_ty, self_is_mut);
                     }
                 }
             }
@@ -6623,7 +7174,7 @@ impl Checker {
             Stmt::Let(_, _, _, s) | Stmt::Var(_, _, _, s) | Stmt::Assign(_, _, s)
             | Stmt::Return(_, s) | Stmt::Expr(_, s) | Stmt::If(_, _, _, _, s)
             | Stmt::Match(_, _, s) | Stmt::While(_, _, _, s, _) | Stmt::For(_, _, _, s, _)
-            | Stmt::Spawn(_, s, _) | Stmt::Destructure(_, _, s) | Stmt::Break(_, s)
+            | Stmt::Spawn(_, s, _) | Stmt::Destructure(_, _, s, _) | Stmt::Break(_, s)
             | Stmt::Continue(_, s) | Stmt::Defer(_, s) | Stmt::Assert(_, _, s)
             | Stmt::Debugger(s) => *s,
             Stmt::Asm(a) => a.span,
@@ -6923,7 +7474,7 @@ impl Checker {
             }
             Stmt::Spawn(b, _, _) => Self::block_has_flow(b, kinds),
             Stmt::Defer(b, _) => Self::block_has_flow(b, kinds),
-            Stmt::Let(_, _, e, _) | Stmt::Var(_, _, e, _) | Stmt::Destructure(_, e, _) => {
+            Stmt::Let(_, _, e, _) | Stmt::Var(_, _, e, _) | Stmt::Destructure(_, e, _, _) => {
                 Self::expr_has_flow(e, kinds)
             }
             Stmt::Assign(l, r, _) => {
@@ -7050,7 +7601,7 @@ impl Checker {
     fn stmt_certain_calls(stmt: &Stmt, fns: &HashSet<String>) -> Vec<String> {
         match stmt {
             Stmt::Expr(e, _) => Self::expr_certain_calls(e, fns),
-            Stmt::Let(_, _, e, _) | Stmt::Var(_, _, e, _) | Stmt::Destructure(_, e, _) => {
+            Stmt::Let(_, _, e, _) | Stmt::Var(_, _, e, _) | Stmt::Destructure(_, e, _, _) => {
                 Self::expr_certain_calls(e, fns)
             }
             Stmt::Assign(l, r, _) => {
@@ -7337,26 +7888,57 @@ impl Checker {
         }
     }
 
+    /// SPEC: `break`/`continue` must target an enclosing loop; a labeled form
+    /// must name one of the labels currently in scope. Both were silently
+    /// accepted (no-ops) before the 2026-11-03 spec-gap enforcement.
+    fn check_loop_control(&mut self, label: &Option<Ident>, span: Span, keyword: &str) {
+        if self.loop_depth == 0 {
+            self.error(format!("{keyword} outside of a loop"), span);
+            return;
+        }
+        if let Some(lbl) = label {
+            if !self.loop_labels.iter().any(|active| active == &lbl.name) {
+                self.error(
+                    format!("unknown loop label '@{}' for {keyword}", lbl.name),
+                    lbl.span,
+                );
+            }
+        }
+    }
+
     fn check_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::Let(name, ty_annot, value, span) => {
                 let val_ty = self.check_expr(value);
+                // `let x: T;` has no initializer: the parser synthesizes
+                // `Expr::Int(0, <let-token span>)`. An explicit `= 0` has the
+                // literal's own span, so it stays initialized-at-declaration.
+                let is_deferred = matches!(value, Expr::Int(0, vspan) if *vspan == *span);
                 if let Some(annot) = ty_annot {
                     // AUDIT #6 FIX: a `_` WILDCARD annotation must INFER the
                     // value's type -- the old mapping typed it as Int, so
                     // `let x: _ = "s"` bound x: Int silently.
                     if match &**annot { Type::Named(n, _) => n.name == "_", _ => false }
                     {
-                        self.add_local(&name.name, val_ty.clone());
+                        if is_deferred {
+                            self.add_deferred_local(&name.name, val_ty.clone());
+                        } else {
+                            self.add_local_immutable(&name.name, val_ty.clone());
+                        }
                         return;
                     }
                     let annot_ty = self.checked_type_from_ast_preserve_alias(annot);
+                    self.check_int_literal_range(value, &annot_ty);
                     // An uninitialized let/var defaults to the placeholder `Int(0)`.
                     // When a type annotation is present the var is zero-initialized to that
                     // type, so trust the annotation instead of erroring on the placeholder.
                     let is_placeholder = matches!(value, Expr::Int(0, _));
                     if is_placeholder {
-                        self.add_local(&name.name, annot_ty);
+                        if is_deferred {
+                            self.add_deferred_local(&name.name, annot_ty);
+                        } else {
+                            self.add_local_immutable(&name.name, annot_ty);
+                        }
                         return;
                     }
                     // 5c.32: &expr coerces to *T for raw pointer assignments
@@ -7388,7 +7970,11 @@ impl Checker {
                             *span,
                         );
                     }
-                    self.add_local(&name.name, annot_ty);
+                    if is_deferred {
+                        self.add_deferred_local(&name.name, annot_ty);
+                    } else {
+                        self.add_local_immutable(&name.name, annot_ty);
+                    }
                     return;
                 }
                 // BUG 26: Vec-ctor bindings register their FULL generic type
@@ -7398,12 +7984,17 @@ impl Checker {
                 // substitution (first_entry -> Option[Tuple__Int__Str]).
                 // R70: array literals register Vec[elem] (see the helper).
                 let bind_ty = self.inferred_binding_type(value, &val_ty);
-                self.add_local(&name.name, bind_ty);
+                if is_deferred {
+                    self.add_deferred_local(&name.name, bind_ty);
+                } else {
+                    self.add_local_immutable(&name.name, bind_ty);
+                }
             }
             Stmt::Var(name, ty_annot, value, span) => {
                 let val_ty = self.check_expr(value);
                 if let Some(annot) = ty_annot {
                     let annot_ty = self.checked_type_from_ast_preserve_alias(annot);
+                    self.check_int_literal_range(value, &annot_ty);
                     // An uninitialized let/var defaults to the placeholder `Int(0)`.
                     // When a type annotation is present the var is zero-initialized to that
                     // type, so trust the annotation instead of erroring on the placeholder.
@@ -7453,6 +8044,58 @@ impl Checker {
             Stmt::Assign(place, value, span) => {
                 let place_ty = self.check_expr(place);
                 let val_ty = self.check_expr(value);
+                self.check_int_literal_range(value, &place_ty);
+                // SPEC: `let` cannot be reassigned; `var` can. Applies to a
+                // whole-binding store AND to field/index stores whose root is
+                // an immutable binding (`let d = ...; d.v = ...`).
+                if let Some(root) = Self::place_root_ident(place) {
+                    // A field/index store through a PATTERN binding mutates
+                    // the aliased payload (m148), so only a whole-binding
+                    // rebind is rejected for that binding class.
+                    let pattern_field_store = self.is_pattern_binding(&root.name)
+                        && !matches!(place, Expr::Ident(_));
+                    // `let x: T;` is init-once: the FIRST bare `x = ...`
+                    // initializes it; later stores are immutable. A field/
+                    // index store is not an initialization of the root.
+                    let deferred_first = matches!(place, Expr::Ident(_))
+                        && self.take_deferred_init(&root.name);
+                    if let Some(false) = self.local_mutability(&root.name) {
+                        if !pattern_field_store && !deferred_first {
+                            self.error(
+                                format!(
+                                    "cannot assign to immutable binding '{}' (declared with 'let'; use 'var')",
+                                    root.name
+                                ),
+                                *span,
+                            );
+                        }
+                    } else if self.local_mutability(&root.name).is_none()
+                        && self.global_mutability(&root.name) == Some(false)
+                    {
+                        self.error(
+                            format!(
+                                "cannot assign to immutable const '{}'",
+                                root.name
+                            ),
+                            *span,
+                        );
+                    }
+                }
+                // Stage 6 W013: `x = x` (the same place on both sides) is a
+                // typo, never a meaningful store. Warning-only, user scope.
+                if self.lint_strict
+                    && !self.checking_catalog
+                    && Self::same_place_expr(place, value)
+                {
+                    self.warn_coded_at(
+                        "W013",
+                        format!(
+                            "self-assignment: '{}' is assigned to itself",
+                            Self::place_label(place)
+                        ),
+                        *span,
+                    );
+                }
                 let is_bool_int = matches!((&place_ty, &val_ty), (CheckedType::Bool, CheckedType::Int) | (CheckedType::Int, CheckedType::Bool));
                 if !is_bool_int && !self.types_compatible(&place_ty, &val_ty) && place_ty != CheckedType::Error && val_ty != CheckedType::Error {
                     self.error(
@@ -7463,8 +8106,11 @@ impl Checker {
             }
             Stmt::Return(expr, span) => {
                 let ret_ty = expr.as_ref().map(|e| self.check_expr(e)).unwrap_or(CheckedType::Unit);
-                if let Some(expected) = self.current_return.as_ref() {
-                    if !self.types_compatible(&ret_ty, expected) && ret_ty != CheckedType::Error {
+                if let Some(expected) = self.current_return.clone() {
+                    if let Some(e) = expr {
+                        self.check_int_literal_range(e, &expected);
+                    }
+                    if !self.types_compatible(&ret_ty, &expected) && ret_ty != CheckedType::Error {
                         self.error(
                             format!("return type mismatch: expected {}, found {}", expected.name(), ret_ty.name()),
                             *span,
@@ -7477,6 +8123,31 @@ impl Checker {
             }
             Stmt::If(cond, then_block, elifs, else_block, _) => {
                 let cond_ty = self.check_expr(cond);
+                // Stage 6 W012: literal `if true` / `if false` conditions.
+                if self.lint_strict && !self.checking_catalog {
+                    if let Some(value) = Self::bool_literal_value(cond) {
+                        self.warn_coded_at(
+                            "W012",
+                            format!(
+                                "constant condition: this `if` condition is always {value}; the branch is {}",
+                                if value { "always taken" } else { "never taken" }
+                            ),
+                            cond.span(),
+                        );
+                    }
+                    for (elif_cond, _) in elifs {
+                        if let Some(value) = Self::bool_literal_value(elif_cond) {
+                            self.warn_coded_at(
+                                "W012",
+                                format!(
+                                    "constant condition: this `elif` condition is always {value}; the branch is {}",
+                                    if value { "always taken" } else { "never taken" }
+                                ),
+                                elif_cond.span(),
+                            );
+                        }
+                    }
+                }
                 let is_lenient = |ty: &CheckedType| -> bool {
                     matches!(ty, CheckedType::Named(n) if n.starts_with("Tuple") || n == "_" || (n.len() == 1 && n.chars().next().map_or(false, |c| c.is_ascii_uppercase())))
                 };
@@ -7532,14 +8203,34 @@ impl Checker {
                 self.check_match_exhaustiveness(arms, &matched_ty, *span);
                 let _ = matched_ty;
             }
-            Stmt::While(cond, body, _, _, _) => {
+            Stmt::While(cond, body, _, _, label) => {
                 let cond_ty = self.check_expr(cond);
+                // Stage 6 W012: `while false` never runs. `while true` is
+                // deliberately NOT reported (intentional server loops).
+                if self.lint_strict
+                    && !self.checking_catalog
+                    && Self::bool_literal_value(cond) == Some(false)
+                {
+                    self.warn_coded_at(
+                        "W012",
+                        "constant condition: this `while false` loop body never runs".to_string(),
+                        cond.span(),
+                    );
+                }
                 if cond_ty.name() != "Bool" && cond_ty != CheckedType::Error {
                     self.error(format!("while condition must be Bool, found {}", cond_ty.name()), cond.span());
                 }
+                self.loop_depth += 1;
+                if let Some(lbl) = label {
+                    self.loop_labels.push(lbl.name.clone());
+                }
                 self.check_block(body, None);
+                if label.is_some() {
+                    self.loop_labels.pop();
+                }
+                self.loop_depth -= 1;
             }
-            Stmt::For(var, iter, body, _, _) => {
+            Stmt::For(var, iter, body, _, label) => {
                 let iter_ty = self.check_expr(iter);
                 // R70: bind the loop variable to the ITERABLE'S ELEMENT type.
                 // The old unconditional `CheckedType::Int` ("simplified") only
@@ -7570,9 +8261,17 @@ impl Checker {
                     CheckedType::for_loop_element_type(&iter_ty)
                 };
                 self.add_local(&var.name, var_ty);
+                self.loop_depth += 1;
+                if let Some(lbl) = label {
+                    self.loop_labels.push(lbl.name.clone());
+                }
                 self.check_block(body, None);
+                if label.is_some() {
+                    self.loop_labels.pop();
+                }
+                self.loop_depth -= 1;
             }
-            Stmt::Destructure(names, value, _) => {
+            Stmt::Destructure(names, value, _, is_var) => {
                 let val_ty = self.check_expr(value);
                 // BUG 26 #3: bind each name to its ELEMENT type -- previously
                 // every name got the WHOLE tuple ("cannot compare
@@ -7581,13 +8280,15 @@ impl Checker {
                 // Stage 2c slice 2: parse_tuple_elem_types now owns both the
                 // legacy `Tuple__A__B` and parenthesized spellings.
                 let elem_types: Vec<CheckedType> = Self::parse_tuple_elem_types(&val_ty);
+                // `let (a, b)` bindings are immutable; only the explicit
+                // `var (a, b)` form is assignable.
                 if elem_types.len() == names.len() {
                     for (name, ty) in names.iter().zip(elem_types.iter()) {
-                        self.add_local(&name.name, ty.clone());
+                        self.add_local_with_mutability(&name.name, ty.clone(), *is_var);
                     }
                 } else {
                     for name in names {
-                        self.add_local(&name.name, val_ty.clone());
+                        self.add_local_with_mutability(&name.name, val_ty.clone(), *is_var);
                     }
                 }
             }
@@ -7643,8 +8344,8 @@ impl Checker {
                     }
                 }
             }
-            Stmt::Break(..) => {}
-            Stmt::Continue(..) => {}
+            Stmt::Break(label, span) => self.check_loop_control(label, *span, "break"),
+            Stmt::Continue(label, span) => self.check_loop_control(label, *span, "continue"),
             Stmt::Asm(asm) => {
                 // D2 (2026-08-08): inline assembly is unsafe -- requires unsafe context.
                 if self.unsafe_depth == 0 {
@@ -7722,6 +8423,25 @@ impl Checker {
         }
     }
 
+    /// Stage 6 W012: literal Bool value (unwraps parens).
+    fn bool_literal_value(e: &Expr) -> Option<bool> {
+        match e {
+            Expr::Bool(value, _) => Some(*value),
+            Expr::Paren(inner, _) => Self::bool_literal_value(inner),
+            _ => None,
+        }
+    }
+
+    /// Stage 6 W013: human-readable label for a syntactic place expression.
+    fn place_label(e: &Expr) -> String {
+        match e {
+            Expr::Ident(ident) => ident.name.clone(),
+            Expr::Paren(inner, _) => Self::place_label(inner),
+            Expr::Field(obj, field, _) => format!("{}.{}", Self::place_label(obj), field.name),
+            _ => "expression".to_string(),
+        }
+    }
+
     /// Stage 6 W006: literal value of an integer expression (unwraps parens
     /// and unary minus); `None` for anything non-literal. Values past i128
     /// clamp to `i128::MAX` -- out of range for every integer type this lint
@@ -7756,6 +8476,60 @@ impl Checker {
                 _ => None,
             },
             _ => None,
+        }
+    }
+
+    /// SPEC: fixed-width integer literal bounds. Only the explicitly
+    /// width-qualified spellings are range-checked; bare `Int`/`UInt` are the
+    /// default family and keep their existing permissive literal behavior.
+    fn fixed_width_int_bounds(ty: &CheckedType) -> Option<(i128, i128)> {
+        match ty {
+            CheckedType::Int8 => Some((-128, 127)),
+            CheckedType::Int16 => Some((-32_768, 32_767)),
+            CheckedType::Int32 => Some((-2_147_483_648, 2_147_483_647)),
+            CheckedType::Int64 => Some((i64::MIN as i128, i64::MAX as i128)),
+            CheckedType::UInt8 => Some((0, 255)),
+            CheckedType::UInt16 => Some((0, 65_535)),
+            CheckedType::UInt32 => Some((0, 4_294_967_295)),
+            CheckedType::UInt64 => Some((0, u64::MAX as i128)),
+            CheckedType::Named(id) => match id.name() {
+                "Int8" => Some((-128, 127)),
+                "Int16" => Some((-32_768, 32_767)),
+                "Int32" => Some((-2_147_483_648, 2_147_483_647)),
+                "Int64" => Some((i64::MIN as i128, i64::MAX as i128)),
+                "UInt8" => Some((0, 255)),
+                "UInt16" => Some((0, 65_535)),
+                "UInt32" => Some((0, 4_294_967_295)),
+                "UInt64" => Some((0, u64::MAX as i128)),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// SPEC: an integer literal (including unary minus and parentheses) must
+    /// fit the fixed-width type it is checked against. Explicit `as` casts are
+    /// the intentional wrapping form and stay legal.
+    fn check_int_literal_range(&mut self, expr: &Expr, expected: &CheckedType) {
+        let Some((min, max)) = Self::fixed_width_int_bounds(expected) else {
+            return;
+        };
+        if matches!(expr, Expr::As(..)) {
+            return;
+        }
+        if let Some(value) = Self::int_literal_value(expr) {
+            if value < min || value > max {
+                self.error(
+                    format!(
+                        "integer literal {} is out of range for {} (min {}, max {})",
+                        value,
+                        expected.name(),
+                        min,
+                        max
+                    ),
+                    expr.span(),
+                );
+            }
         }
     }
 
@@ -8110,6 +8884,7 @@ impl Checker {
             let arg_ty = self.check_expr(arg);
             if i + param_offset < sig.params.len() {
                 let expected = &sig.params[i + param_offset].1;
+                self.check_int_literal_range(arg, expected);
                                     let is_generic = sig.generics.iter().any(|g| g == &expected.name());
                                     if !is_generic && !self.types_compatible(&arg_ty, expected) && arg_ty != CheckedType::Error {
                     self.error(
@@ -8448,6 +9223,40 @@ impl Checker {
                         *span,
                     );
                 }
+                // Stage 6 W014: vacuous integer arithmetic (`x + 0`, `x - 0`,
+                // `x * 1`, `x / 1`). The zero/one side must be an integer
+                // literal and the OTHER side must be integer-typed; floats are
+                // skipped (`x + 0.0` has real IEEE semantics). `0 - x` and
+                // `0 + x` are intentionally not treated as vacuous.
+                if self.lint_strict && !self.checking_catalog {
+                    let int_zero = |e: &Expr| Self::int_literal_value(e) == Some(0);
+                    let int_one = |e: &Expr| Self::int_literal_value(e) == Some(1);
+                    let vacuous = match op {
+                        // Only the `x op literal` spelling: `0 + x` and
+                        // `1 * x` are NOT reported (exact shape requested).
+                        BinOp::Add => int_zero(right) && Self::is_int_family(&left_ty),
+                        BinOp::Sub => int_zero(right) && Self::is_int_family(&left_ty),
+                        BinOp::Mul => int_one(right) && Self::is_int_family(&left_ty),
+                        BinOp::Div => int_one(right) && Self::is_int_family(&left_ty),
+                        _ => false,
+                    };
+                    if vacuous {
+                        let what = match op {
+                            BinOp::Add => "adding 0",
+                            BinOp::Sub => "subtracting 0",
+                            BinOp::Mul => "multiplying by 1",
+                            BinOp::Div => "dividing by 1",
+                            _ => "this operation",
+                        };
+                        self.warn_coded_at(
+                            "W014",
+                            format!(
+                                "vacuous integer arithmetic: {what} leaves the operand unchanged"
+                            ),
+                            *span,
+                        );
+                    }
+                }
                 match op {
                     BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
                         let is_generic_param = |ty: &CheckedType| -> bool {
@@ -8455,9 +9264,43 @@ impl Checker {
                                 n == "_" || (n.len() == 1 && n.chars().next().map(|c| c.is_uppercase()).unwrap_or(false))
                             } else { false }
                         };
-                        // Str + Str is concatenation (handled by codegen).
-                        if matches!(op, BinOp::Add) && (left_ty == CheckedType::Str || right_ty == CheckedType::Str) {
-                            return CheckedType::Str;
+                        // Str + Str is concatenation (handled by codegen). A
+                        // Str mixed with a NON-Str operand is an implicit
+                        // conversion (SPEC: explicit conversions only):
+                        // `12 + 2.to_string()` used to type as Str and print
+                        // "122". Require `convert.int_to_string` /
+                        // `convert.float_to_string` on the numeric side.
+                        // Char stays concatenable -- it is a string element,
+                        // not a numeric conversion.
+                        if matches!(op, BinOp::Add) {
+                            let left_str = left_ty == CheckedType::Str;
+                            let right_str = right_ty == CheckedType::Str;
+                            if left_str && right_str {
+                                return CheckedType::Str;
+                            }
+                            if left_str || right_str {
+                                let other = if left_str { &right_ty } else { &left_ty };
+                                // Char is a string element, and `_`/generic
+                                // params are unresolved until instantiation
+                                // (stdlib catalog bodies check with wildcards).
+                                let unresolved = matches!(
+                                    other,
+                                    CheckedType::Named(n)
+                                        if n == "_"
+                                            || (n.len() == 1
+                                                && n.chars().next().map_or(false, |c| c.is_uppercase()))
+                                ) || matches!(other, CheckedType::Generic(_));
+                                if !matches!(other, CheckedType::Char) && !unresolved {
+                                    self.error(
+                                        format!(
+                                            "cannot add Str and {} -- convert explicitly with `convert.int_to_string` or `convert.float_to_string`",
+                                            other.name()
+                                        ),
+                                        *span,
+                                    );
+                                }
+                                return CheckedType::Str;
+                            }
                         }
                         let is_ptr_like = |ty: &CheckedType| -> bool {
                             matches!(ty, CheckedType::Named(n) if n.starts_with('*'))
@@ -8469,7 +9312,18 @@ impl Checker {
                         if !right_ty.is_numeric() && !is_generic_param(&right_ty) {
                             self.error(format!("right operand must be numeric, found {}", right_ty.name()), *span);
                         }
-                        left_ty // result type is the left operand type (promotion in Phase 1)
+                        // Mixed Int/Float arithmetic promotes to the FLOAT
+                        // operand (`2 + 2.5` is a Float64 4.5, not an Int).
+                        // The old left-operand rule typed the expression Int,
+                        // so `var x = 2 + 2.5` rejected a Float64 annotation
+                        // and `.to_str()` picked the integer builtin/stub.
+                        if Self::is_float_family(&left_ty) {
+                            left_ty
+                        } else if Self::is_float_family(&right_ty) {
+                            right_ty
+                        } else {
+                            left_ty
+                        }
                     }
                     BinOp::Eq | BinOp::Neq => {
                         // BUG 24 fix: equality operand compatibility. A struct
@@ -9191,6 +10045,7 @@ impl Checker {
                                 let param_idx = i + param_offset;
                                 if param_idx < sig.params.len() {
                                     let expected = &sig.params[param_idx].1;
+                                    self.check_int_literal_range(arg, expected);
                                     let is_generic = sig.generics.iter().any(|g| g == &expected.name());
                                     if !is_generic && !self.types_compatible(&arg_ty, expected) && arg_ty != CheckedType::Error {
                                         self.error(
@@ -9603,6 +10458,7 @@ impl Checker {
                                             let arg_ty = self.check_expr(arg);
                                             if i < param_types.len() {
                                                 let expected = &param_types[i];
+                                                self.check_int_literal_range(arg, expected);
                                                 if !self.fn_arg_compatible(arg, &arg_ty, expected) && arg_ty != CheckedType::Error {
                                                     self.error(
                                                         format!("argument {} type mismatch: expected {}, found {}", i + 1, expected.name(), arg_ty.name()),
@@ -9702,6 +10558,9 @@ impl Checker {
                     if let Some(CheckedType::Fn(param_types, ret)) = local_fn {
                         for (i, arg) in args.iter().enumerate() {
                             let arg_ty = self.check_expr(arg);
+                            if i < param_types.len() {
+                                self.check_int_literal_range(arg, &param_types[i]);
+                            }
                             if i < param_types.len()
                                 && !self.fn_arg_compatible(arg, &arg_ty, &param_types[i])
                                 && arg_ty != CheckedType::Error
@@ -10000,6 +10859,9 @@ impl Checker {
                         for (i, arg_ty) in arg_types.iter().enumerate() {
                             if i < sig.params.len() {
                                 let expected = &sig.params[i].1;
+                                if let Some(arg) = args.get(i) {
+                                    self.check_int_literal_range(arg, expected);
+                                }
                                 let is_generic = sig.generics.iter().any(|g| g == &expected.name());
                                 if !is_generic && !self.types_compatible(arg_ty, expected) && arg_ty != &CheckedType::Error {
                                     self.error(
@@ -10073,6 +10935,7 @@ impl Checker {
                                 let arg_ty = self.check_expr(arg);
                                 if i < sig.params.len() {
                                     let expected = &sig.params[i].1;
+                                    self.check_int_literal_range(arg, expected);
                                     let is_generic = sig.generics.iter().any(|g| g == &expected.name());
                                     if !is_generic && !self.types_compatible(&arg_ty, expected) && arg_ty != CheckedType::Error {
                                         self.error(
@@ -10120,6 +10983,7 @@ impl Checker {
                         let arg_ty = self.check_expr(arg);
                         if i < param_types.len() {
                             let expected = &param_types[i];
+                            self.check_int_literal_range(arg, expected);
                             if !self.fn_arg_compatible(arg, &arg_ty, expected) && arg_ty != CheckedType::Error {
                                 self.error(
                                     format!("argument {} type mismatch: expected {}, found {}",
@@ -10275,6 +11139,21 @@ impl Checker {
                     for (_, fval) in fields { let _ = self.check_expr(fval); }
                     return CheckedType::Named("_".into());
                 }
+                // SPEC: a struct literal names each field at most once. The
+                // spread base (if any) is a value, not a field name, so it is
+                // deliberately excluded from the duplicate scan.
+                let mut seen_field_names: HashSet<&str> = HashSet::new();
+                for (fname, _) in fields {
+                    if !seen_field_names.insert(fname.name.as_str()) {
+                        self.error(
+                            format!(
+                                "duplicate field '{}' in struct literal '{}'",
+                                fname.name, name.name
+                            ),
+                            fname.span,
+                        );
+                    }
+                }
                 let struct_fields = self.get_type(&name.name).cloned();
                 let variant_fields_map = if struct_fields.is_none() {
                     self.variant_fields.get(&name.name).or_else(|| {
@@ -10317,6 +11196,7 @@ impl Checker {
                         for (fname, fval) in fields {
                             let val_ty = self.check_expr(fval);
                             if let Some(expected_ty) = expected.get(&fname.name) {
+                                self.check_int_literal_range(fval, expected_ty);
                                 if !self.types_compatible(&val_ty, expected_ty) && val_ty != CheckedType::Error {
                                     self.error(
                                         format!("field '{}' type mismatch: expected {}, found {}",
@@ -10628,6 +11508,31 @@ impl Checker {
             Expr::Error(_guarantee, _span) => CheckedType::Error,
             Expr::If(cond, then_block, elifs, else_block, _) => {
                 self.check_expr(cond);
+                // Stage 6 W012: literal `if true` / `if false` conditions.
+                if self.lint_strict && !self.checking_catalog {
+                    if let Some(value) = Self::bool_literal_value(cond) {
+                        self.warn_coded_at(
+                            "W012",
+                            format!(
+                                "constant condition: this `if` condition is always {value}; the branch is {}",
+                                if value { "always taken" } else { "never taken" }
+                            ),
+                            cond.span(),
+                        );
+                    }
+                    for (elif_cond, _) in elifs {
+                        if let Some(value) = Self::bool_literal_value(elif_cond) {
+                            self.warn_coded_at(
+                                "W012",
+                                format!(
+                                    "constant condition: this `elif` condition is always {value}; the branch is {}",
+                                    if value { "always taken" } else { "never taken" }
+                                ),
+                                elif_cond.span(),
+                            );
+                        }
+                    }
+                }
                 let then_ty = self.check_block(then_block, None).unwrap_or(CheckedType::Unit);
                 for (econd, eblock) in elifs {
                     self.check_expr(econd);
@@ -10682,19 +11587,30 @@ impl Checker {
     /// from `enum_variants` (both bare and qualified registrations).
     fn match_variant_names(&self, scr_ty: &CheckedType) -> Vec<String> {
         let type_name = match self.resolve_alias(scr_ty) {
-            CheckedType::Named(n) => n.name(),
+            CheckedType::Named(n) => n.name().to_string(),
+            // Bool is a scalar CheckedType, not a Named one: the exhaustiveness
+            // pass still owns its two-value domain (`match b { true => .. }`).
+            CheckedType::Bool => "Bool".to_string(),
             _ => return Vec::new(),
         };
-        let variants: Vec<String> = match type_name {
+        // Strip generic arguments and any module path before the builtin
+        // dispatch: the scrutinee spelling is `Option[Int]` / `Result[A,B]`,
+        // and the old exact-match arms never fired for parameterized forms.
+        let base = type_name.split('[').next().unwrap_or(&type_name).trim().to_string();
+        let leaf = base.rsplit('.').next().unwrap_or(&base).to_string();
+        let variants: Vec<String> = match leaf.as_str() {
             "Option" => vec!["Some".to_string(), "None".to_string()],
             "Result" => vec!["Ok".to_string(), "Err".to_string()],
             "Bool" => vec!["true".to_string(), "false".to_string()],
             _ => {
                 // enum_variants maps variant_name -> parent_enum.
-                // Collect all variants whose parent matches type_name.
+                // Collect all variants whose parent matches the (generic-
+                // stripped) scrutinee base. The module-qualified spelling is
+                // kept when the scrutinee carried one, so two modules' same-
+                // leaf enums do not merge into one variant domain.
                 self.enum_variants.iter()
-                    .filter(|(_, parent)| parent.as_str() == type_name
-                        || parent.ends_with(&format!(".{}", type_name)))
+                    .filter(|(_, parent)| parent.as_str() == base
+                        || parent.ends_with(&format!(".{}", base)))
                     .map(|(variant, _)| variant.clone())
                     .collect()
             }
@@ -10715,23 +11631,38 @@ impl Checker {
     /// `span` is the MATCH expression's span (D2: used to report the actual
     /// location instead of the old hardcoded `0:0`).
     fn check_match_exhaustiveness(&mut self, arms: &[xiom_ast::MatchArm], scr_ty: &CheckedType, span: Span) {
-        let type_name = match self.resolve_alias(scr_ty) {
-            CheckedType::Named(n) => n.name(),
+        let resolved = self.resolve_alias(scr_ty);
+        let type_name = match &resolved {
+            CheckedType::Named(n) => n.name().to_string(),
+            // Bool is scalar-typed but has a closed two-variant domain.
+            CheckedType::Bool => "Bool".to_string(),
             _ => return,
         };
-        let variants = self.match_variant_names(scr_ty);
+        // Diagnostics name the base type (`Token`, `Option`), not its
+        // instantiated spelling (`Option[Int]`).
+        let display_name = type_name
+            .split('[')
+            .next()
+            .unwrap_or(&type_name)
+            .rsplit('.')
+            .next()
+            .unwrap_or(&type_name)
+            .to_string();
+        let variants = self.match_variant_names(&resolved);
         if variants.is_empty() { return; }
         for variant in &variants {
-            let covered = arms.iter().any(|arm| pattern_covers_variant(&arm.pattern, variant));
+            let covered = arms
+                .iter()
+                .any(|arm| pattern_covers_variant(&arm.pattern, variant, &variants));
             if !covered {
                 if self.strict_exhaustive {
                     self.error(
-                        format!("non-exhaustive match: variant '{}' of '{}' not covered", variant, type_name),
+                        format!("non-exhaustive match: variant '{}' of '{}' not covered", variant, display_name),
                         span,
                     );
                 } else {
                     self.warn_at(
-                        format!("non-exhaustive match: variant '{}' of '{}' not covered", variant, type_name),
+                        format!("non-exhaustive match: variant '{}' of '{}' not covered", variant, display_name),
                         span,
                     );
                 }
@@ -11043,6 +11974,8 @@ struct OwnershipInfo {
     state: BorrowState,
     read_borrow_count: u32,
     is_mutable: bool,
+    /// `let x: T;` awaiting its first (initializing) store.
+    deferred_init: bool,
     xiom_type: String,
 }
 
@@ -11105,6 +12038,10 @@ pub struct BorrowChecker {
     /// scope. The bare-local move state stays in `ownership`; this is the
     /// place-granular overlay for Expr::Field/Expr::Index chains.
     moved_places: Vec<HashSet<String>>,
+    /// Active loop depth for the ownership pass's break/continue gate.
+    loop_depth: usize,
+    /// Labels of the active loops (innermost last).
+    loop_labels: Vec<String>,
 }
 
 impl BorrowChecker {
@@ -11118,6 +12055,8 @@ impl BorrowChecker {
             fn_return_types: HashMap::new(),
             struct_field_types: HashMap::new(),
             moved_places: vec![HashSet::new()],
+            loop_depth: 0,
+            loop_labels: Vec::new(),
         }
     }
 
@@ -11180,14 +12119,34 @@ impl BorrowChecker {
         None
     }
 
+    /// Deferred `let x: T;`: immutable, but the first store initializes it.
+    fn add_deferred_local(&mut self, name: &str, xiom_type: &str) {
+        self.add_local(name, false, xiom_type);
+        if let Some(info) = self.find_var_mut(name) {
+            info.deferred_init = true;
+        }
+    }
+
     fn add_local(&mut self, name: &str, is_mutable: bool, xiom_type: &str) {
         if let Some(scope) = self.ownership.last_mut() {
             scope.insert(name.to_string(), OwnershipInfo {
                 state: BorrowState::Owned,
                 read_borrow_count: 0,
                 is_mutable,
+                deferred_init: false,
                 xiom_type: xiom_type.to_string(),
             });
+        }
+    }
+
+    /// Root identifier of an assignment place (mirror of the type checker's
+    /// helper; the two passes must agree on `let` immutability).
+    fn place_root_ident(expr: &Expr) -> Option<&Ident> {
+        match expr {
+            Expr::Ident(id) => Some(id),
+            Expr::Field(base, _, _) | Expr::Index(base, _, _) => Self::place_root_ident(base),
+            Expr::Paren(inner, _) => Self::place_root_ident(inner),
+            _ => None,
         }
     }
 
@@ -11680,13 +12639,23 @@ impl BorrowChecker {
     }
 
     fn check_fn_decl(&mut self, fd: &FnDecl) {
+        self.loop_depth = 0;
+        self.loop_labels.clear();
         self.param_names.clear();
         for param in &fd.params {
             self.param_names.insert(param.name.name.clone());
         }
         self.push_scope();
         for param in &fd.params {
-            self.add_local(&param.name.name, true, &Self::param_type_name(&param.ty));
+            // `self` follows the receiver form: `&self` immutable, `&mut
+            // self` mutable, by-value/receiver-style self mutable (existing
+            // borrow semantics). Ordinary parameters stay mutable.
+            let is_mutable = if param.name.name == "self" {
+                if param.is_ref_self { param.is_mut_self } else { true }
+            } else {
+                true
+            };
+            self.add_local(&param.name.name, is_mutable, &Self::param_type_name(&param.ty));
         }
         // 5c-E: register const-generic parameters (borrow checker)
         for g in &fd.generics {
@@ -11766,10 +12735,28 @@ impl BorrowChecker {
         }
     }
 
+    /// Mirrors the type checker's loop-control gate so `--strict` borrow
+    /// diagnostics cannot disagree about whether a `break` has a target.
+    fn check_loop_control(&mut self, label: &Option<Ident>, span: Span, keyword: &str) {
+        if self.loop_depth == 0 {
+            self.error(format!("{keyword} outside of a loop"), span);
+            return;
+        }
+        if let Some(lbl) = label {
+            if !self.loop_labels.iter().any(|active| active == &lbl.name) {
+                self.error(
+                    format!("unknown loop label '@{}' for {keyword}", lbl.name),
+                    lbl.span,
+                );
+            }
+        }
+    }
+
     fn check_stmt_inner(&mut self, stmt: &Stmt) {
         match stmt {
-            Stmt::Let(name, type_ann, value, _) => {
+            Stmt::Let(name, type_ann, value, span) => {
                 let _ = self.check_expr(value);
+                let is_deferred = matches!(value, Expr::Int(0, vspan) if *vspan == *span);
                 if let Expr::Ident(ident) = value {
                     if self.param_names.contains(&ident.name) {
                         self.read_borrow(&ident.name, ident.span);
@@ -11789,7 +12776,11 @@ impl BorrowChecker {
                     Some(t) => Self::table_type_name(t),
                     None => self.infer_type_from_expr(value),
                 };
-                self.add_local(&name.name, false, &xiom_type);
+                if is_deferred {
+                    self.add_deferred_local(&name.name, &xiom_type);
+                } else {
+                    self.add_local(&name.name, false, &xiom_type);
+                }
             }
             Stmt::Var(name, type_ann, value, _) => {
                 let _ = self.check_expr(value);
@@ -11810,12 +12801,40 @@ impl BorrowChecker {
                 };
                 self.add_local(&name.name, true, &xiom_type);
             }
-            Stmt::Assign(place, value, _) => {
+            Stmt::Assign(place, value, span) => {
                 let _ = self.check_expr(value);
                 if let Expr::Ident(ident) = value {
                     self.move_var(&ident.name, ident.span);
                 } else if matches!(value, Expr::Field(..) | Expr::Index(..)) {
                     self.move_projection(value, value.span());
+                }
+                // Keep the ownership pass consistent with the type checker:
+                // a deferred `let x: T;` accepts its FIRST bare store as the
+                // initialization; later stores (and non-bare stores) are
+                // rejected.
+                let mut deferred_first = false;
+                if let Expr::Ident(root) = place {
+                    if let Some(info) = self.find_var_mut(&root.name) {
+                        if info.deferred_init {
+                            info.deferred_init = false;
+                            deferred_first = true;
+                        }
+                    }
+                }
+                if let Some(root) = Self::place_root_ident(place) {
+                    let is_immutable = !deferred_first && matches!(
+                        self.find_var(&root.name),
+                        Some(info) if !info.is_mutable
+                    );
+                    if is_immutable {
+                        self.error(
+                            format!(
+                                "cannot assign to immutable binding '{}' (declared with 'let'; use 'var')",
+                                root.name
+                            ),
+                            *span,
+                        );
+                    }
                 }
                 self.check_expr(place);
             }
@@ -11862,20 +12881,36 @@ impl BorrowChecker {
                     }
                 }
             }
-            Stmt::While(cond, body, _, _, _) => {
+            Stmt::While(cond, body, _, _, label) => {
                 self.check_expr(cond);
                 self.push_scope();
+                self.loop_depth += 1;
+                if let Some(lbl) = label {
+                    self.loop_labels.push(lbl.name.clone());
+                }
                 self.check_block(body);
+                if label.is_some() {
+                    self.loop_labels.pop();
+                }
+                self.loop_depth -= 1;
                 self.pop_scope();
             }
-            Stmt::For(var, iter, body, _, _) => {
+            Stmt::For(var, iter, body, _, label) => {
                 self.check_expr(iter);
                 self.add_local(&var.name, true, "Int");
                 self.push_scope();
+                self.loop_depth += 1;
+                if let Some(lbl) = label {
+                    self.loop_labels.push(lbl.name.clone());
+                }
                 self.check_block(body);
+                if label.is_some() {
+                    self.loop_labels.pop();
+                }
+                self.loop_depth -= 1;
                 self.pop_scope();
             }
-            Stmt::Destructure(names, value, _) => {
+            Stmt::Destructure(names, value, _, is_var) => {
                 let _ = self.check_expr(value);
                 if let Expr::Ident(ident) = value {
                     if self.param_names.contains(&ident.name) {
@@ -11885,7 +12920,7 @@ impl BorrowChecker {
                     }
                 }
                 for name in names {
-                    self.add_local(&name.name, true, "Int");
+                    self.add_local(&name.name, *is_var, "Int");
                 }
             }
             Stmt::Spawn(body, _, _move) => {
@@ -11893,8 +12928,8 @@ impl BorrowChecker {
                 self.check_block(body);
                 self.pop_scope();
             }
-            Stmt::Break(..) => {}
-            Stmt::Continue(..) => {}
+            Stmt::Break(label, span) => self.check_loop_control(label, *span, "break"),
+            Stmt::Continue(label, span) => self.check_loop_control(label, *span, "continue"),
             Stmt::Asm(_) => {}, // asm is valid in unsafe context
             Stmt::Defer(b, _) => { self.check_block(b); }
             Stmt::Assert(c, m, _) => {
@@ -12157,9 +13192,28 @@ impl Default for BorrowChecker {
 // Free helper for match exhaustiveness -- called from Checker::check_match_exhaustiveness
 // ============================================================================
 
-fn pattern_covers_variant(pattern: &xiom_ast::Pattern, variant: &str) -> bool {
+fn pattern_covers_variant(
+    pattern: &xiom_ast::Pattern,
+    variant: &str,
+    variants: &[String],
+) -> bool {
     match pattern {
-        xiom_ast::Pattern::Wildcard(_) | xiom_ast::Pattern::Ident(_) => true,
+        xiom_ast::Pattern::Wildcard(_) => true,
+        // REL-20261010-1549-website-8(a): the parser stores BOTH bare
+        // (`A`) and qualified (`Token.A`) variant patterns as `Ident`. The
+        // old catch-all arm treated every Ident as a binding, so the first
+        // arm covered every variant and non-exhaustive matches were never
+        // reported. Mirror W004's variant-domain rule: a dotted Ident is a
+        // specific variant; a bare Ident is a variant only when it names one
+        // of the scrutinee's variants, otherwise it is a binding catch-all.
+        xiom_ast::Pattern::Ident(id) => {
+            let leaf = id.name.rsplit('.').next().unwrap_or(&id.name);
+            if id.name.contains('.') || variants.iter().any(|v| v == leaf) {
+                leaf == variant
+            } else {
+                true
+            }
+        }
         xiom_ast::Pattern::Some(_, _) => variant == "Some",
         xiom_ast::Pattern::None(_) => variant == "None",
         xiom_ast::Pattern::Ok(_, _) => variant == "Ok",
@@ -12174,7 +13228,9 @@ fn pattern_covers_variant(pattern: &xiom_ast::Pattern, variant: &str) -> bool {
             xiom_ast::Literal::Bool(b, _) => (*b && variant == "true") || (!*b && variant == "false"),
             _ => false,
         },
-        xiom_ast::Pattern::Or(alts, _) => alts.iter().any(|a| pattern_covers_variant(a, variant)),
+        xiom_ast::Pattern::Or(alts, _) => alts
+            .iter()
+            .any(|a| pattern_covers_variant(a, variant, variants)),
         xiom_ast::Pattern::Struct(..) | xiom_ast::Pattern::Tuple(..) => false,
     }
 }
@@ -12245,6 +13301,123 @@ mod tests {
         assert!(warns.iter().any(|w| w.message.contains("truncates")),
             "literal-truncating cast must warn: {:?}", warns);
     }
+    // REL-20261010-1549-website-8(a): bare and qualified enum-variant
+    // patterns parse as `Pattern::Ident`; exhaustiveness must treat them as
+    // specific variants (W004's rule), not as binding catch-alls. Pre-fix the
+    // first arm covered every variant and no W000/T001 was ever emitted.
+    #[test]
+    fn test_nonexhaustive_bare_variant_match_warns() {
+        let src = "enum Token { A, B, C, D, E } \
+                   fn f(t: Token) -> Int { \
+                     let x = match t { A => 1, B => 2, C => 3, D => 4 }; \
+                     return x; \
+                   } \
+                   fn main() -> Int { return f(A); }";
+        let tokens = Lexer::new(src).tokenize();
+        let program = Parser::new(tokens).parse_program().expect("parse");
+        let mut checker = Checker::new();
+        let _ = checker.check_program(&program);
+        let warns = checker.take_warnings();
+        assert!(
+            warns
+                .iter()
+                .any(|w| w.message.contains("non-exhaustive")
+                    && w.message.contains("variant 'E'")),
+            "missing bare variant must warn W000: {:?}",
+            warns
+        );
+    }
+
+    #[test]
+    fn test_nonexhaustive_qualified_variant_match_is_strict_error() {
+        let src = "enum Token { A, B } \
+                   fn f(t: Token) -> Int { \
+                     let x = match t { Token.A => 1 }; \
+                     return x; \
+                   } \
+                   fn main() -> Int { return f(Token.A); }";
+        let tokens = Lexer::new(src).tokenize();
+        let program = Parser::new(tokens).parse_program().expect("parse");
+        let mut checker = Checker::new();
+        checker.set_strict_exhaustive(true);
+        let result = checker.check_program(&program);
+        assert!(result.is_err(), "missing qualified variant must be a hard error under --strict-exhaustive");
+        let errs = result.err().unwrap();
+        assert!(
+            errs.iter()
+                .any(|e| e.message.contains("non-exhaustive") && e.message.contains("variant 'B'")),
+            "diagnostic must name the uncovered variant: {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn test_nonexhaustive_bool_match_warns() {
+        let src = "fn f(b: Bool) -> Int { \
+                     let x = match b { true => 1 }; \
+                     return x; \
+                   } \
+                   fn main() -> Int { return f(true); }";
+        let tokens = Lexer::new(src).tokenize();
+        let program = Parser::new(tokens).parse_program().expect("parse");
+        let mut checker = Checker::new();
+        let _ = checker.check_program(&program);
+        let warns = checker.take_warnings();
+        assert!(
+            warns
+                .iter()
+                .any(|w| w.message.contains("non-exhaustive")
+                    && w.message.contains("variant 'false'")),
+            "missing Bool variant must warn: {:?}",
+            warns
+        );
+    }
+
+    #[test]
+    fn test_nonexhaustive_option_match_warns() {
+        // The scrutinee spelling is `Option[Int]`; the old exact "Option"
+        // dispatch never saw it, so None was silently uncovered.
+        let src = "fn f(o: Option[Int]) -> Int { \
+                     let x = match o { Some(v) => v }; \
+                     return x; \
+                   } \
+                   fn main() -> Int { return f(Some(1)); }";
+        let tokens = Lexer::new(src).tokenize();
+        let program = Parser::new(tokens).parse_program().expect("parse");
+        let mut checker = Checker::new();
+        let _ = checker.check_program(&program);
+        let warns = checker.take_warnings();
+        assert!(
+            warns
+                .iter()
+                .any(|w| w.message.contains("non-exhaustive")
+                    && w.message.contains("variant 'None'")),
+            "missing Option variant must warn: {:?}",
+            warns
+        );
+    }
+
+    #[test]
+    fn test_nonexhaustive_binding_catch_all_stays_clean() {
+        // A genuine binding (`other`) is still a catch-all: no warning.
+        let src = "enum Token { A, B, C } \
+                   fn f(t: Token) -> Int { \
+                     let x = match t { A => 1, other => 2 }; \
+                     return x; \
+                   } \
+                   fn main() -> Int { return f(A); }";
+        let tokens = Lexer::new(src).tokenize();
+        let program = Parser::new(tokens).parse_program().expect("parse");
+        let mut checker = Checker::new();
+        let _ = checker.check_program(&program);
+        let warns = checker.take_warnings();
+        assert!(
+            !warns.iter().any(|w| w.message.contains("non-exhaustive")),
+            "a binding catch-all must not warn: {:?}",
+            warns
+        );
+    }
+
     fn test_container_arg_context_adaptation() {
         // Nested bare-vs-parameterized (legacy erasure inside args) stays
         // compatible: Option[Result] vs Option[Result[Int, Int]].

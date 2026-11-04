@@ -9,6 +9,55 @@ use xiom_ast::*;
 use crate::llvm_consts::*;
 
 impl IrEmitter {
+    /// REL-20261010-1553: a `fn(&T, ...)` parameter's slot receives the
+    /// pointee ADDRESS, but the checker also accepts a plain value in that
+    /// position (`less(items.get(i).unwrap(), ...)`). When the compiled
+    /// argument is a VALUE, materialize it in a slot and hand over the slot
+    /// address; an argument that is already address-valued (`&x`, a
+    /// reference/pointer-typed local, a `&T`-returning call) passes through
+    /// unchanged, so explicit-borrow call sites keep their semantics.
+    pub(crate) fn materialize_ref_arg_if_needed(
+        &mut self,
+        arg_expr: &Expr,
+        val: String,
+        val_ty: &str,
+        param_xiom: &str,
+    ) -> String {
+        let param = param_xiom.trim();
+        if !param.starts_with('&') {
+            return val;
+        }
+        // Already an address: explicit `&`/`&mut`, or an expression whose
+        // XIOM type is a reference/pointer.
+        if matches!(arg_expr, Expr::Ref(..) | Expr::MutRef(..)) || self.expr_is_pointer(arg_expr) {
+            return val;
+        }
+        // Already the exact pointer representation (e.g. a call that returns
+        // `&T` and compiled to `%struct.T*`).
+        let pointee = param
+            .strip_prefix("&mut ")
+            .or_else(|| param.strip_prefix('&'))
+            .unwrap_or("")
+            .trim();
+        if !pointee.is_empty() {
+            if let Ok(pointee_llvm) = self.llvm_type_for(pointee) {
+                if val_ty == format!("{pointee_llvm}*") {
+                    return val;
+                }
+            }
+        }
+        let slot = self.fresh_tmp();
+        if self.local.loop_depth > 0 {
+            self.local.hoisted_allocas.push((slot.clone(), val_ty.to_string()));
+        } else {
+            self.emitln(&format!("  {slot} = alloca {val_ty}"));
+        }
+        self.emitln(&format!("  store {val_ty} {val}, {val_ty}* {slot}"));
+        let addr = self.fresh_tmp();
+        self.emitln(&format!("  {addr} = ptrtoint {val_ty}* {slot} to i64"));
+        addr
+    }
+
     pub(crate) fn coerce_arg_for_param(&mut self, arg_expr: &Expr, pre_val: &str, pre_ty: &str, param_ty: &str) -> String {
         // m238 (wave-96 block-80 follow-up): a ZERO-LENGTH fixed-array value
         // (`let a: [0]Int = []` -> `[0 x i64]`) fed to a param that lowered

@@ -10,7 +10,7 @@ module test {
     return Counter[T]{ val: initial, count: 0 };
   }
   fn test() -> Int {
-    var cb = Counter.new[Bool](false);
+    var _cb = Counter.new[Bool](false);
     return 1;
   }
   pub fn run() -> Int { return test(); }

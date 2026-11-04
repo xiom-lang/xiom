@@ -1453,7 +1453,7 @@ impl IrEmitter {
                 self.collect_ident_names(target, out);
                 self.collect_ident_names(value, out);
             }
-            Stmt::Destructure(_, e, _) => self.collect_ident_names(e, out),
+            Stmt::Destructure(_, e, _, _) => self.collect_ident_names(e, out),
             Stmt::For(_, iter, body, _, _) => {
                 self.collect_ident_names(iter, out);
                 for stmt in &body.stmts {
@@ -1656,13 +1656,21 @@ impl IrEmitter {
         self.emitln("declare i8* @realloc(i8*, i64)");
         self.emitln("declare i8* @xiom_guard_realloc(i8*, i64, i64)");
         self.emitln("declare void @free(i8*)");
-        self.emitln("declare void @llvm.memcpy.p0i8.p0i8.i64(i8*, i8*, i64, i1)");
-        self.emitln("declare void @llvm.memmove.p0i8.p0i8.i64(i8*, i8*, i64, i1)");
-        // m331 (v0.64.5 quick fix, owner-approved): the four memset emission
-        // sites called `@llvm.memset.p0i8.i64` WITHOUT a declaration -- it
-        // warns under llvm-16 on Linux and blocks the macOS legs at IR
-        // verify (PULSE 1549/1609). Declare it like memcpy/memmove.
-        self.emitln("declare void @llvm.memset.p0i8.i64(i8*, i8, i64, i1)");
+        // REL-20261010-1609-pulse / 1549-pulse-4: emit the PORTABLE untyped
+        // intrinsic names. The typed spellings (`p0i8`) are a
+        // typed-pointer-era artifact; newest Apple LLVM rejects a typed
+        // intrinsic it cannot resolve (macOS arm64 legs died at IR verify
+        // with `use of undefined value @llvm.memset.p0i8.i64`). The untyped
+        // forms verify on typeless (`ptr`) and typed-argument IR alike, and
+        // every emission site is normalized to them in
+        // `normalize_portable_intrinsics`. Argument types stay `i8*` because
+        // this codegen still emits typed pointers.
+        self.emitln("declare void @llvm.memcpy.p0.p0.i64(i8*, i8*, i64, i1)");
+        self.emitln("declare void @llvm.memmove.p0.p0.i64(i8*, i8*, i64, i1)");
+        // m331: previously the four memset emission sites call the intrinsic
+        // with NO declaration (a warning under llvm-16, a hard macOS IR-verify
+        // failure). The untyped declare below is the single portable form.
+        self.emitln("declare void @llvm.memset.p0.i64(i8*, i8, i64, i1)");
         self.emitln("declare i64 @xiom_is_sorted(i8*)");
         self.emitln("declare i64 @xiom_all(i8*, i64, i8*)");
         self.emitln("declare i64 @xiom_none(i8*, i64, i8*)");
@@ -2372,8 +2380,14 @@ impl IrEmitter {
         s.insert("malloc".to_string());
         s.insert("realloc".to_string());
         s.insert("free".to_string());
+        s.insert("llvm.memcpy.p0.p0.i64".to_string());
+        // Old typed spellings stay reserved so a user extern block never
+        // re-introduces a name the portable normalization rewrites.
         s.insert("llvm.memcpy.p0i8.p0i8.i64".to_string());
-  s.insert("llvm.memset.p0i8.i64".to_string());
+        s.insert("llvm.memmove.p0.p0.i64".to_string());
+        s.insert("llvm.memmove.p0i8.p0i8.i64".to_string());
+        s.insert("llvm.memset.p0.i64".to_string());
+        s.insert("llvm.memset.p0i8.i64".to_string());
         s.insert("xiom_is_sorted".to_string());
         s.insert("xiom_all".to_string());
         s.insert("xiom_none".to_string());

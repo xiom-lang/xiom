@@ -9,6 +9,6 @@ fn sq(x: Float64) -> Float64 {
   return x * x;
 }
 fn main() -> Int {
-  let f = sq(3.0);
+  let _f = sq(3.0);
   return add(10, 20);
 }

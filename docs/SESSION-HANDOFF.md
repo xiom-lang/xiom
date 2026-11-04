@@ -34,13 +34,17 @@ v0.64.4 shipped 2026-10-12T13:37Z (tag on `df493530`; release run
   soak gate `vec_rebind_growth` PASS; memory gates 21/21 GREEN; feature
   575/575; check 214/214; e2e drop/container/param/aggregate/str/guard/
   return/unsafe/confined green.
-- **Next: cut v0.65.6** (hotfix), publish, and have orbitdb re-run
-  `scripts/hybrid_crash_test.ps1` for acceptance. No v0.65.6 tag yet.
-- **Benchmark/Stage 6:** REL-20261010-1554-benchmark (t3 trampoline
-  ~220 ms floor) is still acked/open; STAGE6_LINT tier 3 is parked
-  (noise budget). **Selfhost:** T6 19/64, T3 83/83, diff_ast 83/83;
-  apply the qualified-literal parser AST note in the selfhost worktree;
-  then the 100% bootstrap gates.
+- **Release:** holding v0.65.6 until the remaining fixes land (owner
+  decision); orbitdb 1605 is fixed on main, 1716 awaits the release
+  re-run. No v0.65.6 tag yet.
+- **Benchmark/Stage 6:** t3 floor fixed in the stdlib runtime
+  (`sigsetjmp` savemask=0 + handler unblock; 5 ms internal / 8.5 ms wall);
+  pending release re-measure. t8/t9 sanitizer plumbing fixed on the
+  compiler side and relayed to the benchmark lane (t9 LSI 45 -> 50 when
+  wired). STAGE6_LINT tier 3 is opt-in (`--lint-strict`) per the
+  2026-11-02 decision. **Selfhost:** T6 **20/64**, T3 83/83, diff_ast
+  83/83; next: port `coerce.rs val_to_i64`'s `%struct.` boxing branch into
+  `cgb_val_to_i64_push` for `m37_catmod.xi`.
 - **Read next:** `docs/CONTINUATION-PROMPT-2026-11-02-STAGE6-SELFHOST.md`
   (state, acceptance map, P0-P4 work list, exact release process and
   commands, hard stops, definition of done). Post-release memory items:

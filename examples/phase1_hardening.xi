@@ -85,16 +85,16 @@ module error_mod {
 module pipeline {
   use tokenizer.Token; use tokenizer.make_token; use tokenizer.kind_name;
   use tokenizer.is_operator; use tokenizer.get_line; use tokenizer.clone_tok;
-  use ast_types.Span; use ast_types.Expr; use ast_types.AstNode;
+  use ast_types.Span; use ast_types.AstNode;
   use parser_core.advance; use parser_core.make_span; use parser_core.peek_token;
   use checker.max; use checker.min; use checker.identity; use checker.compare_ints;
   use error_mod.make_error;
 
-  pub fn run_tokenizer() -> Int { let tok = make_token(1, 1, 1, "hello"); let name = kind_name(tok.kind); let op = is_operator(tok.kind); return name; }
+  pub fn run_tokenizer() -> Int { let tok = make_token(1, 1, 1, "hello"); let name = kind_name(tok.kind); let _op = is_operator(tok.kind); return name; }
   pub fn run_parser() -> Int { var pos = 0; let val = advance(&mut pos); return val + pos; }
   pub fn run_checker() -> Int { let a = max(10, 20); let b = min(30, 5); let c = identity(42); let d = compare_ints(42, 42); return a + b + c + d; }
   pub fn run_error() -> Int { let err = make_error("syntax error", 1, 10); return err.line; }
-  pub fn run_borrowing(tok: &Token) -> Int { let line = get_line(tok); let kind = peek_token(tok); let owned = clone_tok(tok); return line + owned.kind; }
+  pub fn run_borrowing(tok: &Token) -> Int { let line = get_line(tok); let _kind = peek_token(tok); let owned = clone_tok(tok); return line + owned.kind; }
   pub fn run_control_flow() -> Int { var i = 0; var sum = 0; while i < 5 { sum = sum + i; i = i + 1; } return sum; }
   pub fn run_if_chain(x: Int) -> Int { if x > 10 { return 1; } elif x > 5 { return 2; } elif x > 0 { return 3; } else { return 0; } }
   pub fn run_option_demo() -> Int { let x = Some(42); if (x.is_some) { return x.value; } return 0; }
@@ -103,7 +103,6 @@ module pipeline {
 }
 
 use pipeline.run_tokenizer;
-use error_mod.ParseError as PErr;
 use tokenizer.*;
 
 type BoundedInt = { value: Int; lo: Int; hi: Int; invariant: value >= lo; invariant: value <= hi; }
@@ -123,11 +122,11 @@ fn main() -> Int {
   let flow_val = pipeline.run_control_flow(); out = out + flow_val;
   let chain_val = pipeline.run_if_chain(7); out = out + chain_val;
   let opt_val = pipeline.run_option_demo(); out = out + opt_val;
-  let sp = pipeline.run_span(1, 2);
-  let node = pipeline.make_node(0, 1, 5);
+  let _sp = pipeline.run_span(1, 2);
+  let _node = pipeline.make_node(0, 1, 5);
   let generic_val = wrap(100); out = out + generic_val;
-  let bi = make_bounded(5, 0, 10);
-  let d = safe_divide(10.0, 2.0);
+  let _bi = make_bounded(5, 0, 10);
+  let _d = safe_divide(10.0, 2.0);
   let digit = checker.is_digit(53);
   if (digit) { out = out + 1; }
   let r = safe_divide_result(10.0, 2.0);

@@ -490,7 +490,7 @@ fn walk_stmt<F: FnMut(&mut Ident)>(stmt: &mut Stmt, visit: &mut F) {
             walk_block(b, visit);
         }
         Stmt::Spawn(b, _, _) | Stmt::Defer(b, _) => walk_block(b, visit),
-        Stmt::Destructure(_, e, _) => walk_expr(e, visit),
+        Stmt::Destructure(_, e, _, _) => walk_expr(e, visit),
         Stmt::Asm(asm) => {
             for (_, e) in &mut asm.inputs {
                 walk_expr(e, visit);
@@ -949,7 +949,7 @@ fn cscan_stmt(stmt: &Stmt, out: &mut HashSet<String>) {
             cscan_block(b, out);
         }
         Stmt::Spawn(b, _, _) | Stmt::Defer(b, _) => cscan_block(b, out),
-        Stmt::Destructure(_, e, _) => cscan_expr(e, out),
+        Stmt::Destructure(_, e, _, _) => cscan_expr(e, out),
         Stmt::Asm(asm) => {
             for (_, e) in &asm.inputs {
                 cscan_expr(e, out);

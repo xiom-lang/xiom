@@ -47,6 +47,61 @@ fn resolve_alias_name(types: &TypeContext, ty: &str) -> String {
     cur
 }
 
+/// `Vec[T]` -> `T`.
+fn vec_inner_type(ty: &str) -> Option<&str> {
+    let ty = ty.trim();
+    if ty.starts_with("Vec[") && ty.ends_with(']') {
+        Some(ty[4..ty.len() - 1].trim())
+    } else {
+        None
+    }
+}
+
+/// `Map[K, V]` -> `(K, V)`, splitting only on the top-level comma.
+fn map_kv_types(ty: &str) -> Option<(&str, &str)> {
+    let ty = ty.trim();
+    if !ty.starts_with("Map[") || !ty.ends_with(']') {
+        return None;
+    }
+    let inner = &ty[4..ty.len() - 1];
+    let mut depth = 0usize;
+    for (i, ch) in inner.char_indices() {
+        match ch {
+            '[' | '(' => depth += 1,
+            ']' | ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                return Some((inner[..i].trim(), inner[i + 1..].trim()));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Deterministic symbol for the generated RECURSIVE drop helper (parse-owned
+/// tree: containers + freshly allocated String payloads).
+fn enum_tree_drop_helper_name(enum_key: &str) -> String {
+    enum_tree_helper_name(enum_key, "__xiom_enum_tree_drop_")
+}
+
+/// R4: symbol for the CONTAINER-ONLY helper (builder/stringify-owned tree:
+/// Vec/Map data buffers only; every Str leaf is borrowed and stays alive).
+pub(crate) fn enum_tree_container_drop_helper_name(enum_key: &str) -> String {
+    enum_tree_helper_name(enum_key, "__xiom_enum_tree_containers_")
+}
+
+fn enum_tree_helper_name(enum_key: &str, prefix: &str) -> String {
+    let mut out = String::from(prefix);
+    for ch in enum_key.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+    out
+}
+
 #[derive(Default)]
 struct VecDeclInfo {
     decls: usize,
@@ -69,10 +124,36 @@ struct ScanState {
     /// Locals bound directly from a fresh-payload call (`let r = io.read_at`).
     /// Matching on such a local transfers the payload to the arm binding.
     fresh_payload_locals: HashSet<String>,
+    /// Match-arm payload names bound from a BOXED `Vec` removal
+    /// (`pop`/`remove`/`swap_remove` on an owned `Vec[Vec[T]]`). The Option
+    /// payload is an i64 handle to a malloc'd `%struct.Vec` header, so the
+    /// arm-scope drop must free both the data buffer and the header box.
+    boxed_vec_payload: HashSet<String>,
+    /// Boxed payload name -> removal container name. Reclamation is only
+    /// allowed when the CONTAINER is still a private owned drop candidate
+    /// (single declaration, no escape/move/return); an escaped container may
+    /// share the removed element with a callee copy.
+    boxed_vec_container: HashMap<String, String>,
+    /// Leaf names of `#[owns_str]` functions proven to return a freshly
+    /// allocated Str. A binding from a DIRECT call result is a drop candidate.
+    fresh_str: HashSet<String>,
     /// Leaf names of `#[owns_return]` aggregate functions (frames).
     fresh_aggregate: HashSet<String>,
+    /// Leaf -> enum type for `#[owns_return]` Result/Option<named enum>
+    /// functions (json_parse). A direct `let p = call` binding owns the tree.
+    fresh_enum_tree: HashMap<String, String>,
+    /// Locals bound DIRECTLY from a fresh-enum-tree call.
+    enum_tree_decl: HashMap<String, String>,
     /// Locals bound from a fresh aggregate return; their Vec fields drop.
     aggregate: HashSet<String>,
+    /// Locals bound from a struct LITERAL constructed here that owns at least
+    /// one fresh Vec/Str field. Only these can prove "the aggregate was
+    /// constructed in this function" for field/whole-struct overwrite reclaim.
+    aggregate_literal: HashSet<String>,
+    /// Aggregate literal local -> Vec field names initialized from a fresh
+    /// Vec (ctor / fresh-return call) at the binding. Field overwrite frees
+    /// are restricted to these leaves; a borrowed field is never freed.
+    aggregate_vec_fields: HashMap<String, Vec<String>>,
     /// Fresh-return analysis only: the local being returned transfers
     /// ownership to the caller, so this one return use is not an escape.
     skip_return_local: Option<String>,
@@ -149,6 +230,10 @@ struct ScanState {
     /// `#[borrows_vec]` callees: Vec args may be mutated/read during the call
     /// but are not retained; the caller keeps the drop.
     borrows_vec_callees: Arc<HashSet<String>>,
+    /// `#[borrows_str]` callees: leaf -> by-value Str parameter indices. The
+    /// callee does not retain those arguments, so the caller keeps ownership
+    /// (and the scope-exit drop) of its own Str local.
+    borrows_str_callees: Arc<HashMap<String, Vec<usize>>>,
     /// Fresh aggregate locals that received only contracted + fresh Str
     /// arguments. Their `Vec[Str]` field elements are freed at scope exit.
     str_vec_owned: HashSet<String>,
@@ -174,6 +259,16 @@ pub(crate) struct OwnedLocals {
     pub aggregate: HashSet<String>,
     /// Aggregate local -> freshly-owned Str field names.
     pub aggregate_str: HashMap<String, Vec<String>>,
+    /// Aggregate literal locals provably uniquely owned for field/whole-struct
+    /// overwrite reclamation (single decl, never aliased/moved/returned).
+    pub agg_overwrite: HashSet<String>,
+    /// Aggregate literal local -> fresh Vec field names owned at the binding.
+    pub aggregate_vec_fields: HashMap<String, Vec<String>>,
+    /// Local bound directly from a contracted enum-tree call -> enum type.
+    pub enum_tree: HashMap<String, String>,
+    /// Match-arm payloads bound from a boxed `Vec` removal on an owned
+    /// `Vec[Vec[T]]` container: free the element data AND the header box.
+    pub boxed_vec_payload: HashSet<String>,
     /// Container local -> (element XIOM type, element Vec field names) for
     /// containers whose elements are all owned and never reordered/removed.
     pub elem: HashMap<String, (String, Vec<String>)>,
@@ -200,6 +295,8 @@ pub(crate) fn collect_owned_vec_locals(
     fresh: &HashSet<String>,
     fresh_payload: &HashSet<String>,
     fresh_aggregate: &HashSet<String>,
+    fresh_enum_tree: &HashMap<String, String>,
+    fresh_str: &HashSet<String>,
     trust_unsafe: bool,
     elem_type_vec_fields: &Arc<HashMap<String, Vec<String>>>,
     known_nonretaining: &Arc<HashSet<String>>,
@@ -207,6 +304,7 @@ pub(crate) fn collect_owned_vec_locals(
     byval_vec_readers: &Arc<HashSet<String>>,
     consumes_str_callees: &Arc<HashMap<String, Vec<usize>>>,
     borrows_vec_callees: &Arc<HashSet<String>>,
+    borrows_str_callees: &Arc<HashMap<String, Vec<usize>>>,
     by_value_vec_params: &HashSet<String>,
 ) -> OwnedLocals {
     let mut state = ScanState::default();
@@ -214,6 +312,8 @@ pub(crate) fn collect_owned_vec_locals(
     state.fresh = fresh.clone();
     state.fresh_payload = fresh_payload.clone();
     state.fresh_aggregate = fresh_aggregate.clone();
+    state.fresh_enum_tree = fresh_enum_tree.clone();
+    state.fresh_str = fresh_str.clone();
     state.trust_unsafe = trust_unsafe;
     state.elem_type_vec_fields = elem_type_vec_fields.clone();
     state.known_nonretaining = known_nonretaining.clone();
@@ -221,6 +321,7 @@ pub(crate) fn collect_owned_vec_locals(
     state.byval_vec_readers = byval_vec_readers.clone();
     state.consumes_str_callees = consumes_str_callees.clone();
     state.borrows_vec_callees = borrows_vec_callees.clone();
+    state.borrows_str_callees = borrows_str_callees.clone();
     scan_block(block, &mut state, true);
     // REL-20261028-1641 follow-up: the function body's trailing expression is
     // its IMPLICIT return value. `scan_block` sees it as a plain expression
@@ -279,6 +380,27 @@ pub(crate) fn collect_owned_vec_locals(
                 && !state.moved.contains(&name);
             if owned { Some(name) } else { None }
         })
+        .collect();
+    // Boxed-removal arm payloads are only reclaimed when the SAME proof that
+    // makes the local a Vec candidate holds: single owned binding, no escape,
+    // no move, no return. A leaked payload stays leak-only (never a UAF).
+    let boxed_vec_payload: HashSet<String> = state
+        .boxed_vec_payload
+        .iter()
+        .filter(|name| {
+            vec.contains(*name)
+                && single_decl.contains(*name)
+                && !state.escaping.contains(*name)
+                && !state.moved.contains(*name)
+                && !state.returned.contains(*name)
+                && state.boxed_vec_container.get(*name).map_or(false, |container| {
+                    single_decl.contains(container)
+                        && !state.escaping.contains(container)
+                        && !state.moved.contains(container)
+                        && !state.returned.contains(container)
+                })
+        })
+        .cloned()
         .collect();
     let str = state
         .str_decls
@@ -351,7 +473,30 @@ pub(crate) fn collect_owned_vec_locals(
         .filter(|name| !state.returned.contains(*name))
         .cloned()
         .collect();
+    // Field/whole-struct overwrite reclaim (2117): only a struct literal
+    // CONSTRUCTED here, declared once, and never copied as a whole value,
+    // returned, moved, or field-aliased. `escaping` covers every non-destination
+    // mention (a field read into a binding, a by-value argument, an alias).
+    let agg_overwrite: HashSet<String> = state
+        .aggregate_literal
+        .iter()
+        .filter(|name| {
+            single_decl.contains(*name)
+                && !state.escaping.contains(*name)
+                && !state.moved.contains(*name)
+                && !state.returned.contains(*name)
+        })
+        .cloned()
+        .collect();
+    let aggregate_vec_fields: HashMap<String, Vec<String>> = state
+        .aggregate_vec_fields
+        .into_iter()
+        .filter(|(name, _)| agg_overwrite.contains(name))
+        .collect();
     OwnedLocals {
+        agg_overwrite,
+        aggregate_vec_fields,
+        boxed_vec_payload,
         vec,
         str,
         aggregate: state
@@ -366,6 +511,16 @@ pub(crate) fn collect_owned_vec_locals(
                 !state.returned.contains(n)
                     && !state.moved.contains(n)
                     && !state.aggregate_str_unsafe.contains(n)
+            })
+            .collect(),
+        enum_tree: state
+            .enum_tree_decl
+            .into_iter()
+            .filter(|(name, _)| {
+                single_decl.contains(name)
+                    && !state.escaping.contains(name)
+                    && !state.moved.contains(name)
+                    && !state.returned.contains(name)
             })
             .collect(),
         elem,
@@ -436,6 +591,26 @@ pub(crate) fn is_fresh_str_init(expr: &Expr) -> bool {
         Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => fresh_str_call(func),
         _ => false,
     }
+}
+
+/// `#[owns_str]` call-return provenance: a DIRECT call to a leaf proven to
+/// return a freshly allocated Str. Nothing else (block/if/match wrappers,
+/// field reads, bare identifiers) is accepted, so a borrowed or literal Str
+/// cannot inherit the drop.
+pub(crate) fn is_fresh_str_call(expr: &Expr, fresh: &HashSet<String>) -> bool {
+    match expr {
+        Expr::Paren(inner, _) => is_fresh_str_call(inner, fresh),
+        Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
+            call_leaf(func).map_or(false, |leaf| fresh.contains(leaf))
+        }
+        _ => false,
+    }
+}
+
+/// Fresh Str initializer OR direct `#[owns_str]` call return. Used at a
+/// binding/rebind site to decide whether the local owns a heap buffer.
+pub(crate) fn is_fresh_str_value(expr: &Expr, fresh: &HashSet<String>) -> bool {
+    is_fresh_str_init(expr) || is_fresh_str_call(expr, fresh)
 }
 
 /// Fresh, uniquely owned Vec initializer shapes. Mirrors vec_abi.rs's
@@ -711,6 +886,27 @@ fn struct_literal_owns_vec(fields: &[(Ident, Expr)], state: &mut ScanState) -> b
     owns
 }
 
+/// A direct struct-literal field initializer that yields a freshly allocated
+/// Vec. Bare identifiers/projections are intentionally excluded: the field
+/// store is shallow, so those would alias another owner.
+fn fresh_owned_vec_field(expr: &Expr, state: &ScanState) -> bool {
+    is_fresh_vec_init(expr) || is_fresh_vec_call(expr, &state.fresh)
+}
+
+fn agg_owned_vec_field(state: &ScanState, name: &str, field: &str) -> bool {
+    state
+        .aggregate_vec_fields
+        .get(name)
+        .map_or(false, |fs| fs.iter().any(|f| f == field))
+}
+
+fn agg_owned_str_field(state: &ScanState, name: &str, field: &str) -> bool {
+    state
+        .aggregate_str_fields
+        .get(name)
+        .map_or(false, |fs| fs.iter().any(|f| f == field))
+}
+
 /// Resolve a dotted literal path (`inner.data`) through nested struct
 /// literals.
 fn literal_path_value<'a>(fields: &'a [(Ident, Expr)], path: &str) -> Option<&'a Expr> {
@@ -767,6 +963,14 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
     match stmt {
         Stmt::Let(name, ty, value, _) | Stmt::Var(name, ty, value, _) => {
             state.decl_block.insert(name.name.clone(), state.cur_block);
+            // A whole-value copy (`var out = r`) shares r's field headers.
+            // Transfer ownership to the copy and disarm r's aggregate drops:
+            // the copy is not a drop site, so this is leak-only (never a UAF).
+            if let Expr::Ident(src) = value {
+                if state.aggregate_literal.contains(&src.name) {
+                    state.moved.insert(src.name.clone());
+                }
+            }
             // REL-20261027-1717-engine: a local struct literal that owns a
             // fresh Vec field is an aggregate drop site. The source Vec local
             // is MOVED into the field (do not drop it separately); a fresh
@@ -774,6 +978,15 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
             if let Expr::Struct(_, fields, spread, _) = value {
                 if spread.is_none() {
                     let owns_vec = struct_literal_owns_vec(fields, state);
+                    // 2117: record WHICH Vec fields were freshly initialized
+                    // here. The field store is shallow, so only these leaves
+                    // may be freed on a later field overwrite; a borrowed /
+                    // projected field is never in this list.
+                    let owned_vec_fields: Vec<String> = fields
+                        .iter()
+                        .filter(|(_, fv)| fresh_owned_vec_field(fv, state))
+                        .map(|(fname, _)| fname.name.clone())
+                        .collect();
                     // m375: a struct literal whose Str field is a FRESH Str
                     // owns that buffer. Track the exact field names so the
                     // aggregate drop frees only proven-fresh leaves; a
@@ -782,7 +995,7 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
                     // its own plain-Str drop.
                     let mut owned_str_fields: Vec<String> = Vec::new();
                     for (fname, fval) in fields {
-                        let fresh_field = is_fresh_str_init(fval)
+                        let fresh_field = is_fresh_str_value(fval, &state.fresh_str)
                             || matches!(
                                 fval,
                                 Expr::Ident(id)
@@ -807,10 +1020,23 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
                     if owns_vec || !owned_str_fields.is_empty() {
                         state.aggregate.insert(name.name.clone());
                     }
+                    // 2117 candidate: a literal constructed here with at
+                    // least one freshly owned Vec/Str leaf. This is kept
+                    // separate from `aggregate` (which also covers
+                    // `#[owns_return]` calls) so overwrite reclaim stays
+                    // restricted to values this function actually built.
+                    if !owned_vec_fields.is_empty() || !owned_str_fields.is_empty() {
+                        state.aggregate_literal.insert(name.name.clone());
+                    }
                     if !owned_str_fields.is_empty() {
                         state
                             .aggregate_str_fields
                             .insert(name.name.clone(), owned_str_fields);
+                    }
+                    if !owned_vec_fields.is_empty() {
+                        state
+                            .aggregate_vec_fields
+                            .insert(name.name.clone(), owned_vec_fields);
                     }
                 }
             }
@@ -827,13 +1053,21 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
             if is_fresh_aggregate_call(value, &state.fresh_aggregate) {
                 state.aggregate.insert(name.name.clone());
             }
+            // R3: a local bound DIRECTLY from a contracted enum-tree call
+            // (json_parse) owns the returned tree. Only this provenance is
+            // accepted; `json_string`/`json_get`/match arms stay leak-only.
+            if let Some(enum_name) = fresh_enum_tree_call(value, &state.fresh_enum_tree) {
+                state
+                    .enum_tree_decl
+                    .insert(name.name.clone(), enum_name);
+            }
             let info = state.decls.entry(name.name.clone()).or_insert_with(|| VecDeclInfo {
                 decls: 0,
                 all_fresh: true,
             });
             info.decls += 1;
             info.all_fresh &= fresh;
-            let fresh_str = is_fresh_str_init(value);
+            let fresh_str = is_fresh_str_value(value, &state.fresh_str);
             let sinfo = state
                 .str_decls
                 .entry(name.name.clone())
@@ -876,7 +1110,12 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
                             .aggregate_str_fields
                             .get(&id.name)
                             .map_or(false, |fs| fs.iter().any(|f| f == &field.name))
+                            && !is_fresh_str_value(value, &state.fresh_str)
                         {
+                            // A fresh Str RHS is itself an owned buffer, so
+                            // keeping the exit drop armed is safe (it frees
+                            // the FINAL field). A borrowed/alias RHS still
+                            // disarms the whole exit drop (leak-only).
                             state.aggregate_str_unsafe.insert(id.name.clone());
                         }
                     }
@@ -895,7 +1134,7 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
             // escape.
             let fresh_str_rebind = match place {
                 Expr::Ident(id) => {
-                    is_fresh_str_init(value)
+                    is_fresh_str_value(value, &state.fresh_str)
                         && state
                             .decls
                             .get(&id.name)
@@ -918,14 +1157,55 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
                 }
                 _ => false,
             };
+            // 2117 whole-struct overwrite: a literal-bound aggregate replaced
+            // by a fresh `#[owns_return]` aggregate call. The contract proves
+            // the new value owns every Vec field, so the exit drop stays sound.
+            let agg_whole_rebind = match place {
+                Expr::Ident(id) => {
+                    state.aggregate_literal.contains(&id.name)
+                        && is_fresh_aggregate_call(value, &state.fresh_aggregate)
+                }
+                _ => false,
+            };
+            // 2117 field overwrite: `d.v = fresh`. Only a leaf proven owned at
+            // the literal binding, and only a self-contained fresh RHS. A
+            // whole-value copy of the source is marked moved just below.
+            let agg_field_rebind = match place {
+                Expr::Field(base, field, _) => match base.as_ref() {
+                    Expr::Ident(id) => {
+                        if agg_owned_vec_field(state, &id.name, &field.name) {
+                            is_fresh_vec_init(value) || is_fresh_vec_call(value, &state.fresh)
+                        } else if agg_owned_str_field(state, &id.name, &field.name) {
+                            is_fresh_str_value(value, &state.fresh_str)
+                        } else {
+                            false
+                        }
+                    }
+                    _ => false,
+                },
+                _ => false,
+            };
+            // `d = other` copies the header; transfer ownership to the
+            // destination copy and disarm the source's aggregate drops.
+            if let Expr::Ident(src) = value {
+                if state.aggregate_literal.contains(&src.name) {
+                    state.moved.insert(src.name.clone());
+                }
+            }
             if let Expr::Ident(id) = place {
                 if fresh_str_rebind {
                     state.str_rebind.insert(id.name.clone());
                 } else if fresh_vec_rebind {
                     state.vec_rebind.insert(id.name.clone());
+                } else if agg_whole_rebind {
+                    // The aggregate stays uniquely owned; codegen frees the
+                    // replaced owned fields before the store.
                 } else {
                     state.escaping.insert(id.name.clone());
                 }
+            } else if agg_field_rebind {
+                // Destination store through a private aggregate slot: the
+                // base is neither read nor copied, so it does not escape.
             } else {
                 scan_expr(place, UseCtx::Escape, state);
             }
@@ -971,18 +1251,28 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
         Stmt::Match(scrutinee, arms, _) => {
             // A match on a fresh-payload Result/Option<Vec> call (or a local
             // bound from one) binds an owned Vec. Register the arm binding for
-            // a scope-exit drop.
-            if is_fresh_payload_call(scrutinee, &state.fresh_payload)
+            // a scope-exit drop. The same applies to a BOXED removal payload
+            // (`match outer.pop() { Some(v) => .. }` on an owned Vec[Vec[T]]):
+            // the removed element left the container's len and owns its buffer.
+            let boxed_removal = boxed_vec_removal_container(scrutinee, state);
+            if boxed_removal.is_some()
+                || is_fresh_payload_call(scrutinee, &state.fresh_payload)
                 || is_fresh_payload_local(scrutinee, &state.fresh_payload_locals)
             {
                 for arm in arms {
                     if let Some(name) = payload_binding_name(&arm.pattern) {
-                        let info = state.decls.entry(name).or_insert_with(|| VecDeclInfo {
+                        let info = state.decls.entry(name.clone()).or_insert_with(|| VecDeclInfo {
                             decls: 0,
                             all_fresh: true,
                         });
                         info.decls += 1;
                         info.all_fresh = true;
+                        if let Some(container) = &boxed_removal {
+                            state.boxed_vec_payload.insert(name.clone());
+                            state
+                                .boxed_vec_container
+                                .insert(name, container.clone());
+                        }
                     }
                 }
             }
@@ -1009,7 +1299,7 @@ fn scan_stmt(stmt: &Stmt, state: &mut ScanState) {
             scan_block(body, state, false);
         }
         Stmt::Spawn(body, _, _) => mark_block_mentions(body, state),
-        Stmt::Destructure(_, value, _) => scan_expr(value, UseCtx::Escape, state),
+        Stmt::Destructure(_, value, _, _) => scan_expr(value, UseCtx::Escape, state),
         Stmt::Asm(asm_block) => {
             for (_, expr) in &asm_block.inputs {
                 scan_expr(expr, UseCtx::Escape, state);
@@ -1077,7 +1367,25 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                     }
                 }
             }
-            let safe_read = matches!(field.name.as_str(), "len" | "capacity" | "is_empty");
+            // A header-only use of an owned aggregate field (`d.v.len()`,
+            // `d.v.push(..)`) does not copy the Vec header. SafeBase is only
+            // used for the receiver of a known non-view Vec method, so the
+            // aggregate stays non-escaping and overwrite reclaim is allowed.
+            if ctx == UseCtx::SafeBase {
+                if let Expr::Ident(bid) = base.as_ref() {
+                    if agg_owned_vec_field(state, &bid.name, &field.name) {
+                        scan_expr(base, UseCtx::SafeBase, state);
+                        return;
+                    }
+                }
+            }
+            // Scalar tag reads on an owned Result/Option/Vec local. `is_err`
+            // / `is_ok` / `is_some` / `is_none` read only the discriminant, so
+            // they cannot alias the payload or its buffers.
+            let safe_read = matches!(
+                field.name.as_str(),
+                "len" | "capacity" | "is_empty" | "is_err" | "is_ok" | "is_some" | "is_none"
+            );
             if safe_read && matches!(base.as_ref(), Expr::Ident(_)) {
                 scan_expr(base, UseCtx::SafeBase, state);
             } else {
@@ -1203,7 +1511,7 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                                                 match path.strip_prefix("str:") {
                                                     Some(leaf) => literal_path_value(fields, leaf)
                                                         .map_or(false, |fval| {
-                                                            is_fresh_str_init(fval)
+                                                            is_fresh_str_value(fval, &state.fresh_str)
                                                                 || matches!(
                                                                     fval,
                                                                     Expr::Ident(id)
@@ -1237,7 +1545,7 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                                         .elem_candidate
                                         .get(&rname)
                                         .map_or(false, |t| t == "Str")
-                                        && is_fresh_str_init(inner) =>
+                                        && is_fresh_str_value(inner, &state.fresh_str) =>
                                 {
                                     true
                                 }
@@ -1396,6 +1704,20 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                 }
                 _ => false,
             };
+            // `#[borrows_str]` contract (R2): the callee does not retain a
+            // by-value Str argument (json_parse reads its input and builds a
+            // new tree). The argument stays owned by the caller; only the
+            // listed Str parameter positions take this path.
+            let borrows_str_indices = match func.as_ref() {
+                Expr::Ident(id) => state
+                    .borrows_str_callees
+                    .get(id.name.rsplit('.').next().unwrap_or(&id.name))
+                    .cloned(),
+                Expr::Field(_, method, _) => {
+                    state.borrows_str_callees.get(&method.name).cloned()
+                }
+                _ => None,
+            };
             for (arg_index, arg) in args.iter().enumerate() {
                 if consumed_agg_index == Some(arg_index)
                     || consumed_str_indices.contains(&arg_index)
@@ -1404,6 +1726,16 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
                 }
                 if safe_str_callee {
                     scan_expr(arg, UseCtx::SafeBase, state);
+                    continue;
+                }
+                if borrows_str_indices
+                    .as_ref()
+                    .map_or(false, |idx| idx.contains(&arg_index))
+                {
+                    // Read-only during the call; not retained. The caller's
+                    // Str local keeps its scope-exit drop (a literal/borrowed
+                    // argument has no drop and is never freed).
+                    scan_borrow_arg(arg, state);
                     continue;
                 }
                 if borrows_vec_callee {
@@ -1633,7 +1965,7 @@ fn scan_expr(expr: &Expr, ctx: UseCtx, state: &mut ScanState) {
     }
 }
 
-fn call_leaf(expr: &Expr) -> Option<&str> {
+pub(crate) fn call_leaf(expr: &Expr) -> Option<&str> {
     match expr {
         Expr::Ident(id) => id.name.rsplit('.').next(),
         Expr::Field(_, method, _) => Some(method.name.as_str()),
@@ -1685,6 +2017,20 @@ pub(crate) fn is_fresh_aggregate_call(expr: &Expr, fresh: &HashSet<String>) -> b
     }
 }
 
+/// Call to an `#[owns_return]` Result/Option<named enum> function. Returns
+/// the enum type name. Only a DIRECT call is accepted here: a block/if/match
+/// wrapped call, a literal constructor, or a field access is not provably the
+/// contracted tree.
+fn fresh_enum_tree_call(expr: &Expr, fresh: &HashMap<String, String>) -> Option<String> {
+    match expr {
+        Expr::Paren(inner, _) => fresh_enum_tree_call(inner, fresh),
+        Expr::Call(func, _, _) | Expr::GenericCall(func, _, _, _) => {
+            call_leaf(func).and_then(|leaf| fresh.get(leaf).cloned())
+        }
+        _ => None,
+    }
+}
+
 fn payload_binding_name(pattern: &Pattern) -> Option<String> {
     match pattern {
         Pattern::Ok(inner, _) | Pattern::Some(inner, _) => match inner.as_ref() {
@@ -1693,6 +2039,39 @@ fn payload_binding_name(pattern: &Pattern) -> Option<String> {
         },
         _ => None,
     }
+}
+
+/// `pop`/`remove`/`swap_remove` on a container whose prepass element tag proved
+/// every element is an owned `Vec` header. The result Option payload is a
+/// malloc'd `%struct.Vec` box (a copy of the removed element), and the removed
+/// slot is outside the container's current len, so the arm binding owns it.
+fn boxed_vec_removal_container(expr: &Expr, state: &ScanState) -> Option<String> {
+    let (func, _args) = match expr {
+        Expr::Call(func, args, _) | Expr::GenericCall(func, _, args, _) => (func, args),
+        Expr::Paren(inner, _) => return boxed_vec_removal_container(inner, state),
+        _ => return None,
+    };
+    let Expr::Field(recv, method, _) = func.as_ref() else {
+        return None;
+    };
+    if !matches!(method.name.as_str(), "pop" | "remove" | "swap_remove") {
+        return None;
+    }
+    let Expr::Ident(id) = recv.as_ref() else {
+        return None;
+    };
+    // The element tag must still be VALID: a disqualified container
+    // (`elem_unsafe`) may hold a borrowed header whose buffer this function
+    // must not free.
+    if state.elem_unsafe.contains(&id.name)
+        || !state
+            .elem_candidate
+            .get(&id.name)
+            .map_or(false, |elem| elem.starts_with("Vec["))
+    {
+        return None;
+    }
+    Some(id.name.clone())
 }
 
 fn is_returned_local(expr: &Expr, name: &str) -> bool {
@@ -1897,7 +2276,7 @@ fn mark_stmt_mentions(stmt: &Stmt, state: &mut ScanState) {
             mark_block_mentions(body, state);
         }
         Stmt::Spawn(body, _, _) => mark_block_mentions(body, state),
-        Stmt::Destructure(_, value, _) => mark_expr_mentions(value, state),
+        Stmt::Destructure(_, value, _, _) => mark_expr_mentions(value, state),
         Stmt::Asm(asm_block) => {
             for (_, expr) in &asm_block.inputs {
                 mark_expr_mentions(expr, state);
@@ -2004,10 +2383,14 @@ fn mark_expr_mentions(expr: &Expr, state: &mut ScanState) {
 pub(crate) struct VecDropScope {
     drops: Vec<VecDrop>,
     safe: HashSet<String>,
+    safe_boxed_vec: HashSet<String>,
     safe_str: HashSet<String>,
     safe_aggregate: HashSet<String>,
     safe_aggregate_str: HashMap<String, Vec<String>>,
+    safe_agg_overwrite: HashSet<String>,
+    safe_aggregate_vec_owned: HashMap<String, Vec<String>>,
     safe_aggregate_str_vec: HashSet<String>,
+    safe_enum_tree: HashMap<String, String>,
     safe_elem: HashMap<String, (String, Vec<String>)>,
     safe_str_rebind: HashSet<String>,
     safe_str_rebind_exit: HashSet<String>,
@@ -2032,6 +2415,8 @@ impl IrEmitter {
         let fresh = self.fresh_vec_returns.clone();
         let fresh_payload = self.fresh_payload_returns.clone();
         let fresh_aggregate = self.fresh_aggregate_returns.clone();
+        let fresh_enum_tree = self.fresh_enum_tree_returns.clone();
+        let fresh_str = self.fresh_str_returns.clone();
         // Program-global sets, built once in build_drop_caches(); sharing them
         // by Arc keeps the per-function prepass O(body), not O(catalog). The
         // engine injects ~12k decls; rebuilding/cloning the catalog per
@@ -2042,11 +2427,14 @@ impl IrEmitter {
         let byval_vec_readers = self.byval_vec_readers.clone();
         let consumes_str_callees = self.consumes_str_callees.clone();
         let borrows_vec_callees = self.borrows_vec_callees.clone();
+        let borrows_str_callees = self.borrows_str_callees.clone();
         let owned = collect_owned_vec_locals(
             body,
             &fresh,
             &fresh_payload,
             &fresh_aggregate,
+            &fresh_enum_tree,
+            &fresh_str,
             trust_unsafe,
             &elem_type_vec_fields,
             &known_nonretaining,
@@ -2054,12 +2442,17 @@ impl IrEmitter {
             &byval_vec_readers,
             &consumes_str_callees,
             &borrows_vec_callees,
+            &borrows_str_callees,
             by_value_vec_params,
         );
         self.fctx.vec_drop_safe = owned.vec;
+        self.fctx.boxed_vec_payload_safe = owned.boxed_vec_payload;
         self.fctx.str_drop_safe = owned.str;
         self.fctx.aggregate_drop_safe = owned.aggregate;
         self.fctx.aggregate_str_drop_safe = owned.aggregate_str;
+        self.fctx.agg_overwrite_safe = owned.agg_overwrite;
+        self.fctx.aggregate_vec_owned = owned.aggregate_vec_fields;
+        self.fctx.enum_tree = owned.enum_tree;
         self.fctx.aggregate_str_vec_safe = owned.aggregate_str_vec;
         self.fctx.elem_drop_safe = owned.elem;
         self.fctx.str_rebind_safe = owned.str_rebind;
@@ -2213,13 +2606,17 @@ impl IrEmitter {
     /// Whole-program ownership prepass (m375 / engine Vec leak). Runs before
     /// any function body is compiled so callers can see fresh-return callees.
     pub(crate) fn prepass_fresh_vec_returns(&mut self, program: &Program) {
-        let (vec, payload, aggregate) = crate::fresh_return::collect_fresh_ownership(program);
+        let (vec, payload, aggregate, enum_tree, agg_returns, agg_callees, str_returns) =
+            crate::fresh_return::collect_fresh_ownership(program);
         if std::env::var("XIOM_DEBUG_OWNERSHIP").is_ok() {
             eprintln!(
-                "ownership: vec={} payload={} aggregate={} read_at_vec={} read_at_payload={} make_frame_aggregate={}",
+                "ownership: vec={} payload={} aggregate={} enum_tree={} consumes_agg_returns={} consumes_agg_callees={} read_at_vec={} read_at_payload={} make_frame_aggregate={}",
                 vec.len(),
                 payload.len(),
                 aggregate.len(),
+                enum_tree.len(),
+                agg_returns.len(),
+                agg_callees.len(),
                 vec.contains("read_at"),
                 payload.contains("read_at"),
                 aggregate.contains("make_frame")
@@ -2228,12 +2625,18 @@ impl IrEmitter {
         self.fresh_vec_returns = vec;
         self.fresh_payload_returns = payload;
         self.fresh_aggregate_returns = aggregate;
+        self.fresh_enum_tree_returns = enum_tree;
+        self.fresh_str_returns = str_returns;
+        self.consumes_agg_returns = agg_returns;
+        self.consumes_agg_callees = agg_callees;
         self.retaining_callees = Arc::new(crate::fresh_return::collect_retaining_callees(program));
         self.byval_vec_readers = Arc::new(crate::fresh_return::collect_byval_vec_readers(program));
         self.consumes_str_callees =
             Arc::new(crate::fresh_return::collect_str_consuming_callees(program));
         self.borrows_vec_callees =
             Arc::new(crate::fresh_return::collect_borrows_vec_callees(program));
+        self.borrows_str_callees =
+            Arc::new(crate::fresh_return::collect_borrows_str_callees(program));
     }
 
     /// Build the program-global drop-analysis caches ONCE, after the function
@@ -2259,10 +2662,14 @@ impl IrEmitter {
     pub(crate) fn clear_vec_drops(&mut self) {
         self.fctx.vec_drops.clear();
         self.fctx.vec_drop_safe.clear();
+        self.fctx.boxed_vec_payload_safe.clear();
         self.fctx.str_drop_safe.clear();
         self.fctx.aggregate_drop_safe.clear();
         self.fctx.aggregate_str_drop_safe.clear();
+        self.fctx.agg_overwrite_safe.clear();
+        self.fctx.aggregate_vec_owned.clear();
         self.fctx.aggregate_str_vec_safe.clear();
+        self.fctx.enum_tree.clear();
         self.fctx.elem_drop_safe.clear();
         self.fctx.str_rebind_safe.clear();
         self.fctx.str_rebind_exit.clear();
@@ -2281,10 +2688,14 @@ impl IrEmitter {
         VecDropScope {
             drops: std::mem::take(&mut self.fctx.vec_drops),
             safe: std::mem::take(&mut self.fctx.vec_drop_safe),
+            safe_boxed_vec: std::mem::take(&mut self.fctx.boxed_vec_payload_safe),
             safe_str: std::mem::take(&mut self.fctx.str_drop_safe),
             safe_aggregate: std::mem::take(&mut self.fctx.aggregate_drop_safe),
             safe_aggregate_str: std::mem::take(&mut self.fctx.aggregate_str_drop_safe),
+            safe_agg_overwrite: std::mem::take(&mut self.fctx.agg_overwrite_safe),
+            safe_aggregate_vec_owned: std::mem::take(&mut self.fctx.aggregate_vec_owned),
             safe_aggregate_str_vec: std::mem::take(&mut self.fctx.aggregate_str_vec_safe),
+            safe_enum_tree: std::mem::take(&mut self.fctx.enum_tree),
             safe_elem: std::mem::take(&mut self.fctx.elem_drop_safe),
             safe_str_rebind: std::mem::take(&mut self.fctx.str_rebind_safe),
             safe_str_rebind_exit: std::mem::take(&mut self.fctx.str_rebind_exit),
@@ -2300,10 +2711,14 @@ impl IrEmitter {
     pub(crate) fn resume_vec_drops(&mut self, saved: VecDropScope) {
         self.fctx.vec_drops = saved.drops;
         self.fctx.vec_drop_safe = saved.safe;
+        self.fctx.boxed_vec_payload_safe = saved.safe_boxed_vec;
         self.fctx.str_drop_safe = saved.safe_str;
         self.fctx.aggregate_drop_safe = saved.safe_aggregate;
         self.fctx.aggregate_str_drop_safe = saved.safe_aggregate_str;
+        self.fctx.agg_overwrite_safe = saved.safe_agg_overwrite;
+        self.fctx.aggregate_vec_owned = saved.safe_aggregate_vec_owned;
         self.fctx.aggregate_str_vec_safe = saved.safe_aggregate_str_vec;
+        self.fctx.enum_tree = saved.safe_enum_tree;
         self.fctx.elem_drop_safe = saved.safe_elem;
         self.fctx.str_rebind_safe = saved.safe_str_rebind;
         self.fctx.str_rebind_exit = saved.safe_str_rebind_exit;
@@ -2453,7 +2868,7 @@ impl IrEmitter {
         }
         if llvm_ty != "i8*"
             || !self.fctx.str_drop_safe.contains(name)
-            || !is_fresh_str_init(init)
+            || !is_fresh_str_value(init, &self.fresh_str_returns)
         {
             return;
         }
@@ -2512,16 +2927,43 @@ impl IrEmitter {
         self.emitln(&format!("\n{free_block}:"));
         let ptr = self.fresh_tmp();
         self.emitln(&format!("  {ptr} = load i8*, i8** {slot}"));
-        self.emitln(&format!("  call void @xiom_guard_free(i8* {ptr})"));
+        self.emit_free_str_ptr(&ptr);
         self.emitln(&format!("  br label %{after_block}"));
         self.emitln(&format!("\n{after_block}:"));
+    }
+
+    /// Free an owned Str pointer, skipping null and EMPTY strings. An empty
+    /// Str may be the shared `""` literal (a contracted callee such as
+    /// `json_escape` returns it for empty input); freeing a literal is
+    /// invalid. Skipping empty strings is leak-only and matches the
+    /// enum-tree helper's existing guard. `ptr` is an SSA i8* value, not a
+    /// slot; the caller's code continues in the emitted `after` block.
+    fn emit_free_str_ptr(&mut self, ptr: &str) {
+        let is_null = self.fresh_tmp();
+        let chk = self.fresh_block("strfree_chk");
+        let do_free = self.fresh_block("strfree_do");
+        let after = self.fresh_block("strfree_after");
+        self.emitln(&format!("  {is_null} = icmp eq i8* {ptr}, null"));
+        self.emitln(&format!("  br i1 {is_null}, label %{after}, label %{chk}"));
+        self.emitln(&format!("\n{chk}:"));
+        let len = self.fresh_tmp();
+        let empty = self.fresh_tmp();
+        self.emitln(&format!("  {len} = call i64 @xiom_str_len(i8* {ptr})"));
+        self.emitln(&format!("  {empty} = icmp eq i64 {len}, 0"));
+        self.emitln(&format!("  br i1 {empty}, label %{after}, label %{do_free}"));
+        self.emitln(&format!("\n{do_free}:"));
+        self.emitln(&format!("  call void @xiom_guard_free(i8* {ptr})"));
+        self.emitln(&format!("  br label %{after}"));
+        self.emitln(&format!("\n{after}:"));
     }
 
     /// At a fresh Str binding, start tracking its owned buffer so the first
     /// reassignment can free it. Literal/alias initializers start untracked
     /// (the flag stays false) and arm on the first fresh assignment.
     pub(crate) fn note_str_rebind_binding(&mut self, name: &str, init: &Expr, alloca: &str) {
-        if !self.fctx.str_rebind_safe.contains(name) || !is_fresh_str_init(init) {
+        if !self.fctx.str_rebind_safe.contains(name)
+            || !is_fresh_str_value(init, &self.fresh_str_returns)
+        {
             return;
         }
         let (slot, flag) = self.str_rebind_state(name);
@@ -2545,7 +2987,7 @@ impl IrEmitter {
         if !self.fctx.str_rebind_safe.contains(name) || val_ty != "i8*" {
             return;
         }
-        let fresh = is_fresh_str_init(value)
+        let fresh = is_fresh_str_value(value, &self.fresh_str_returns)
             || matches!(value, Expr::Binary(_, BinOp::Add, _, _));
         let mentions = Self::expr_mentions_any_ident(value, &[name]);
         // Always materialize the state BEFORE deciding to free: the loop body
@@ -2786,6 +3228,203 @@ impl IrEmitter {
         }
     }
 
+    /// 2117: a struct-literal local whose aggregate slot must be hoisted so
+    /// the field GEPs registered for its drop dominate every scope exit.
+    pub(crate) fn agg_overwrite_candidate(&self, name: &str, llvm_ty: &str) -> bool {
+        self.fctx.agg_overwrite_safe.contains(name) && llvm_ty.starts_with("%struct.")
+    }
+
+    /// Resolve the type metadata for a `%struct.X` LLVM type (exact key, then
+    /// a unique dotted-leaf match).
+    fn struct_meta_for(&self, type_name: &str) -> Option<crate::context::TypeMeta> {
+        self.types.type_meta.get(&type_name.to_string()).or_else(|| {
+            self.types
+                .type_meta
+                .entries()
+                .into_iter()
+                .find(|(k, _)| k.ends_with(&format!(".{type_name}")))
+                .map(|(_, meta)| meta)
+        })
+    }
+
+    /// 2117: register the scope-exit drop for a literal-bound aggregate that
+    /// is NOT already covered by the existing `aggregate_drop_safe` machinery
+    /// (that path only sees ctor-valued fields). Only the leaves proven freshly
+    /// owned at the binding are registered; a borrowed field is never freed.
+    pub(crate) fn register_agg_overwrite_drops(
+        &mut self,
+        name: &str,
+        alloca: &str,
+        llvm_ty: &str,
+    ) {
+        if !self.agg_overwrite_candidate(name, llvm_ty) {
+            return;
+        }
+        // The existing aggregate path already registered this binding (it
+        // covers all Vec fields + fresh Str leaves). Never duplicate a drop.
+        if self.fctx.aggregate_drop_safe.contains(name) {
+            return;
+        }
+        let type_name = llvm_ty.trim_start_matches("%struct.").to_string();
+        let Some(meta) = self.struct_meta_for(&type_name) else {
+            return;
+        };
+        let vec_fields = self
+            .fctx
+            .aggregate_vec_owned
+            .get(name)
+            .cloned()
+            .unwrap_or_default();
+        let str_fields = self
+            .fctx
+            .aggregate_str_drop_safe
+            .get(name)
+            .cloned()
+            .unwrap_or_default();
+        for (idx, field) in meta.fields.iter().enumerate() {
+            let fty = self.field_llvm_type(&type_name, idx);
+            if fty == "%struct.Vec" && vec_fields.iter().any(|f| f == &field.0) {
+                let field_ptr = self.fresh_tmp();
+                self.local.entry_prelude.push(format!(
+                    "  {field_ptr} = getelementptr {llvm_ty}, {llvm_ty}* {alloca}, i32 0, i32 {idx}"
+                ));
+                let data_gep = self.fresh_tmp();
+                self.local.entry_prelude.push(format!(
+                    "  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {field_ptr}, i32 0, i32 0"
+                ));
+                let flag = self.fresh_tmp();
+                self.local.hoisted_allocas.push((flag.clone(), "i1".to_string()));
+                self.local.entry_prelude.push(format!("  store i1 false, i1* {flag}"));
+                self.fctx.vec_drops.push(VecDrop::Aggregate {
+                    data_gep,
+                    flag: flag.clone(),
+                    elem_is_str: false,
+                });
+                self.emitln(&format!("  store i1 true, i1* {flag}"));
+            } else if fty == "i8*" && str_fields.iter().any(|f| f == &field.0) {
+                let field_ptr = self.fresh_tmp();
+                self.local.entry_prelude.push(format!(
+                    "  {field_ptr} = getelementptr {llvm_ty}, {llvm_ty}* {alloca}, i32 0, i32 {idx}"
+                ));
+                let flag = self.fresh_tmp();
+                self.local.hoisted_allocas.push((flag.clone(), "i1".to_string()));
+                self.local.entry_prelude.push(format!("  store i1 false, i1* {flag}"));
+                self.fctx.vec_drops.push(VecDrop::Str {
+                    alloca: field_ptr,
+                    flag: flag.clone(),
+                });
+                self.emitln(&format!("  store i1 true, i1* {flag}"));
+            }
+        }
+    }
+
+    /// 2117: before `d.<field> = fresh`, free the OLD owned field data. The
+    /// field pointer is the store destination (already computed); the RHS has
+    /// been materialized. Only a leaf proven owned at the literal binding and
+    /// a self-contained fresh RHS qualify.
+    pub(crate) fn emit_agg_field_free_old(
+        &mut self,
+        agg: &str,
+        field: &str,
+        field_ptr: &str,
+        field_llvm_ty: &str,
+        value: &Expr,
+    ) {
+        if !self.fctx.agg_overwrite_safe.contains(agg) {
+            return;
+        }
+        if field_llvm_ty == "%struct.Vec" {
+            if !self
+                .fctx
+                .aggregate_vec_owned
+                .get(agg)
+                .map_or(false, |fs| fs.iter().any(|f| f == field))
+                || !(is_fresh_vec_init(value)
+                    || is_fresh_vec_call(value, &self.fresh_vec_returns))
+            {
+                return;
+            }
+            let dgp = self.fresh_tmp();
+            let dp = self.fresh_tmp();
+            self.emitln(&format!(
+                "  {dgp} = getelementptr %struct.Vec, %struct.Vec* {field_ptr}, i32 0, i32 0"
+            ));
+            self.emitln(&format!("  {dp} = load i8*, i8** {dgp}"));
+            self.emitln(&format!("  call void @xiom_guard_free(i8* {dp})"));
+        } else if field_llvm_ty == "i8*" {
+            if !self
+                .fctx
+                .aggregate_str_drop_safe
+                .get(agg)
+                .map_or(false, |fs| fs.iter().any(|f| f == field))
+                || !is_fresh_str_value(value, &self.fresh_str_returns)
+            {
+                return;
+            }
+            let dp = self.fresh_tmp();
+            self.emitln(&format!("  {dp} = load i8*, i8** {field_ptr}"));
+            self.emit_free_str_ptr(&dp);
+        }
+    }
+
+    /// 2117: before `d = fresh_aggregate_call`, free the OLD aggregate's owned
+    /// Vec/Str fields. Only the leaves proven owned at the literal binding are
+    /// freed; a borrowed/projected field is left untouched.
+    pub(crate) fn emit_agg_overwrite_free_old(
+        &mut self,
+        name: &str,
+        alloca: &str,
+        llvm_ty: &str,
+        value: &Expr,
+    ) {
+        if !self.fctx.agg_overwrite_safe.contains(name)
+            || !is_fresh_aggregate_call(value, &self.fresh_aggregate_returns)
+            || !llvm_ty.starts_with("%struct.")
+        {
+            return;
+        }
+        let type_name = llvm_ty.trim_start_matches("%struct.").to_string();
+        let Some(meta) = self.struct_meta_for(&type_name) else {
+            return;
+        };
+        let vec_fields = self
+            .fctx
+            .aggregate_vec_owned
+            .get(name)
+            .cloned()
+            .unwrap_or_default();
+        let str_fields = self
+            .fctx
+            .aggregate_str_drop_safe
+            .get(name)
+            .cloned()
+            .unwrap_or_default();
+        for (idx, field) in meta.fields.iter().enumerate() {
+            let fty = self.field_llvm_type(&type_name, idx);
+            if fty == "%struct.Vec" && vec_fields.iter().any(|f| f == &field.0) {
+                let field_ptr = self.fresh_tmp();
+                self.emitln(&format!(
+                    "  {field_ptr} = getelementptr {llvm_ty}, {llvm_ty}* {alloca}, i32 0, i32 {idx}"
+                ));
+                let dgp = self.fresh_tmp();
+                let dp = self.fresh_tmp();
+                self.emitln(&format!(
+                    "  {dgp} = getelementptr %struct.Vec, %struct.Vec* {field_ptr}, i32 0, i32 0"
+                ));
+                self.emitln(&format!("  {dp} = load i8*, i8** {dgp}"));
+                self.emitln(&format!("  call void @xiom_guard_free(i8* {dp})"));
+            } else if fty == "i8*" && str_fields.iter().any(|f| f == &field.0) {
+                let field_ptr = self.fresh_tmp();
+                self.emitln(&format!(
+                    "  {field_ptr} = getelementptr {llvm_ty}, {llvm_ty}* {alloca}, i32 0, i32 {idx}"
+                ));
+                let dp = self.fresh_tmp();
+                self.emitln(&format!("  {dp} = load i8*, i8** {field_ptr}"));
+                self.emit_free_str_ptr(&dp);
+            }
+        }
+    }
+
     /// Register a match-bound Vec payload the prepass proved uniquely owned
     /// (fresh-payload Result/Option, e.g. `match io.read_at(..) { Ok(v) => .. }`).
     /// The payload slot already lives in the arm; the scope drop frees it there.
@@ -2803,6 +3442,618 @@ impl IrEmitter {
             elem,
         });
         self.emitln(&format!("  store i1 true, i1* {flag}"));
+    }
+
+    /// Register a match-arm binding of a BOXED Vec removal payload
+    /// (`pop`/`remove`/`swap_remove` on an owned `Vec[Vec[T]]`). `header_ptr`
+    /// is the `%struct.Vec*` unboxed from the Option payload at the binding.
+    /// The pointer is captured into a hoisted slot so the arm/loop/return drop
+    /// never loads a non-dominating arm value. The drop frees the element's
+    /// data buffer and then the malloc'd header box.
+    pub(crate) fn register_boxed_vec_binding(&mut self, name: &str, header_ptr: &str) {
+        if !self.fctx.vec_drop_safe.contains(name)
+            || !self.fctx.boxed_vec_payload_safe.contains(name)
+        {
+            return;
+        }
+        let header_slot = self.fresh_tmp();
+        self.local
+            .hoisted_allocas
+            .push((header_slot.clone(), "%struct.Vec*".to_string()));
+        self.local
+            .entry_prelude
+            .push(format!("  store %struct.Vec* null, %struct.Vec** {header_slot}"));
+        self.emitln(&format!(
+            "  store %struct.Vec* {header_ptr}, %struct.Vec** {header_slot}"
+        ));
+        let flag = self.fresh_tmp();
+        self.local.hoisted_allocas.push((flag.clone(), "i1".to_string()));
+        self.local.entry_prelude.push(format!("  store i1 false, i1* {flag}"));
+        self.fctx.vec_drops.push(VecDrop::BoxedVec {
+            header_alloca: header_slot,
+            flag: flag.clone(),
+        });
+        self.emitln(&format!("  store i1 true, i1* {flag}"));
+    }
+
+    /// Register a local bound directly from a contracted
+    /// `#[owns_return]` Result/Option<named enum> call (json_parse). The
+    /// Result payload's tree is reclaimed at scope exit by a recursive helper
+    /// generated from the enum metadata. Nothing is registered unless the
+    /// prepass proved this exact provenance and the local is private.
+    pub(crate) fn register_enum_tree_drop(&mut self, name: &str, alloca: &str, llvm_ty: &str) {
+        let Some(enum_name) = self.fctx.enum_tree.get(name).cloned() else {
+            return;
+        };
+        let Some(result_type) = llvm_ty.strip_prefix("%struct.") else {
+            return;
+        };
+        if !(result_type.starts_with("Result__") || result_type.starts_with("Option__")) {
+            return;
+        }
+        let Some(enum_key) = self.resolve_enum_key(&enum_name) else {
+            return;
+        };
+        let Some(meta) = self.types.type_meta.get(&result_type.to_string()) else {
+            return;
+        };
+        let Some(payload_idx) = meta.fields.iter().position(|(n, _)| n == "value") else {
+            return;
+        };
+        let Some(disc_idx) = meta
+            .fields
+            .iter()
+            .position(|(n, _)| n == "discriminant")
+        else {
+            return;
+        };
+        let enum_llvm_ty = format!("%struct.{enum_key}");
+        let helper = enum_tree_drop_helper_name(&enum_key);
+        let flag = self.fresh_tmp();
+        self.local.hoisted_allocas.push((flag.clone(), "i1".to_string()));
+        self.local.entry_prelude.push(format!("  store i1 false, i1* {flag}"));
+        // The binding alloca may be declared inside a nested block, but the
+        // drop is emitted at function exit. Keep an entry-block slot that
+        // holds the binding pointer; the drop loads it only when the flag is
+        // armed, so dominance holds without moving the value alloca.
+        let ptr_slot = self.fresh_tmp();
+        self.local
+            .hoisted_allocas
+            .push((ptr_slot.clone(), format!("{llvm_ty}*")));
+        self.local
+            .entry_prelude
+            .push(format!("  store {llvm_ty}* null, {llvm_ty}** {ptr_slot}"));
+        self.fctx.vec_drops.push(VecDrop::EnumTree {
+            ptr_slot: ptr_slot.clone(),
+            flag: flag.clone(),
+            result_llvm_ty: llvm_ty.to_string(),
+            disc_idx: disc_idx as u32,
+            payload_idx: payload_idx as u32,
+            enum_llvm_ty,
+            helper,
+        });
+        self.emitln(&format!(
+            "  store {llvm_ty}* {alloca}, {llvm_ty}** {ptr_slot}"
+        ));
+        self.emitln(&format!("  store i1 true, i1* {flag}"));
+    }
+
+    /// Resolve a possibly-bare enum name to its registry key (exact first,
+    /// then a unique leaf match). Returns None when ambiguous or unknown.
+    pub(crate) fn resolve_enum_key(&self, name: &str) -> Option<String> {
+        if self.types.enum_variants.contains_key(&name.to_string()) {
+            return Some(name.to_string());
+        }
+        let leaf = name.rsplit('.').next().unwrap_or(name);
+        let mut found: Option<String> = None;
+        for key in self.types.enum_variants.keys() {
+            let key_leaf = key.rsplit('.').next().unwrap_or(&key);
+            if key_leaf == leaf {
+                if found.is_some() {
+                    return None;
+                }
+                found = Some(key);
+            }
+        }
+        found
+    }
+
+    /// Emit one recursive drop helper per contracted enum tree type. Called at
+    /// module end (after every type definition), once per enum, so parallel
+    /// per-function emitters cannot duplicate the definition.
+    pub(crate) fn emit_enum_tree_drop_helpers(&mut self) {
+        // R3: parse-owned trees free containers AND freshly allocated Str
+        // payloads.
+        let mut names: Vec<String> = self.fresh_enum_tree_returns.values().cloned().collect();
+        names.sort();
+        names.dedup();
+        for name in names {
+            let Some(key) = self.resolve_enum_key(&name) else {
+                continue;
+            };
+            if let Some(def) = self.build_enum_tree_drop_helper(&key, true) {
+                self.output.push('\n');
+                self.output.push_str(&def);
+            }
+        }
+        // R4: builder/stringify-owned trees free CONTAINERS only. Literal keys
+        // and borrowed values (`json_string("wave-1704")` stores its argument)
+        // must never be freed.
+        let mut containers: Vec<String> =
+            self.consumes_agg_returns.values().cloned().collect();
+        containers.sort();
+        containers.dedup();
+        for name in containers {
+            let Some(key) = self.resolve_enum_key(&name) else {
+                continue;
+            };
+            if let Some(def) = self.build_enum_tree_drop_helper(&key, false) {
+                self.output.push('\n');
+                self.output.push_str(&def);
+            }
+        }
+    }
+
+    /// Build a tag-aware recursive drop helper from the enum registry:
+    /// discriminant -> variant payload slots. String payloads free their heap
+    /// buffer (skipping the empty literal), Vec[Self] recurses elements before
+    /// freeing the data buffer, and Map[Str, Self] frees each key string and
+    /// recurses each value before freeing both buffers. Every field index and
+    /// element stride comes from `type_meta`, not a hardcoded offset.
+    /// `free_strings` selects the ownership provenance: `true` for R3
+    /// parse-owned trees (String payloads are freshly allocated), `false` for
+    /// R4 builder/stringify-owned trees (String payloads are borrowed; only
+    /// Vec/Map data buffers are owned).
+    fn build_enum_tree_drop_helper(&self, enum_key: &str, free_strings: bool) -> Option<String> {
+        let enum_ty = format!("%struct.{enum_key}");
+        let variants = self.types.enum_variants.get(&enum_key.to_string())?;
+        let meta = self.types.type_meta.get(&enum_key.to_string())?;
+        let vtypes = self.types.enum_variant_field_types.get(&enum_key.to_string());
+        let enum_leaf = enum_key.rsplit('.').next().unwrap_or(enum_key);
+        let helper = if free_strings {
+            enum_tree_drop_helper_name(enum_key)
+        } else {
+            enum_tree_container_drop_helper_name(enum_key)
+        };
+        let mut c = 0usize;
+        let mut out = String::new();
+        out.push_str(&format!(
+            "define internal void @{helper}({enum_ty}* %node) {{\nentry:\n"
+        ));
+        out.push_str(&format!(
+            "  %hdisc = getelementptr {enum_ty}, {enum_ty}* %node, i32 0, i32 0\n"
+        ));
+        out.push_str("  %hdiscv = load i64, i64* %hdisc\n");
+        let mut cases: Vec<(usize, &str)> = Vec::new();
+        for (vi, (variant, decl_fields)) in variants.iter().enumerate() {
+            let declared: Vec<String> = vtypes
+                .as_ref()
+                .and_then(|vts| vts.iter().find(|(v, _)| v == variant))
+                .map(|(_, ts)| ts.clone())
+                .unwrap_or_else(|| {
+                    decl_fields
+                        .iter()
+                        .map(|f| {
+                            meta.fields
+                                .iter()
+                                .find(|(n, _)| n == f)
+                                .map(|(_, t)| t.clone())
+                                .unwrap_or_default()
+                        })
+                        .collect()
+                });
+            let droppable = decl_fields
+                .iter()
+                .zip(declared.iter())
+                .any(|(f, t)| self.enum_field_needs_drop(f, t, enum_leaf, free_strings));
+            if droppable {
+                cases.push((vi, variant.as_str()));
+            }
+        }
+        if cases.is_empty() {
+            out.push_str("  ret void\n}\n");
+            return Some(out);
+        }
+        out.push_str("  switch i64 %hdiscv, label %hdone [\n");
+        for (vi, _) in &cases {
+            out.push_str(&format!("    i64 {vi}, label %hcase{vi}\n"));
+        }
+        out.push_str("  ]\n");
+        for (vi, variant) in &cases {
+            let decl_fields = &variants[*vi].1;
+            let declared: Vec<String> = vtypes
+                .as_ref()
+                .and_then(|vts| vts.iter().find(|(v, _)| v == variant))
+                .map(|(_, ts)| ts.clone())
+                .unwrap_or_else(|| {
+                    decl_fields
+                        .iter()
+                        .map(|f| {
+                            meta.fields
+                                .iter()
+                                .find(|(n, _)| n == f)
+                                .map(|(_, t)| t.clone())
+                                .unwrap_or_default()
+                        })
+                        .collect()
+                });
+            out.push_str(&format!("\nhcase{vi}:\n"));
+            for (fi, fname) in decl_fields.iter().enumerate() {
+                let Some(fidx) = meta.fields.iter().position(|(n, _)| n == fname) else {
+                    continue;
+                };
+                let dty = declared.get(fi).cloned().unwrap_or_default();
+                let fllvm = self.field_llvm_type(enum_key, fidx);
+                self.emit_enum_field_drop(
+                    &mut out,
+                    &mut c,
+                    &enum_ty,
+                    fidx as u32,
+                    &dty,
+                    &fllvm,
+                    enum_leaf,
+                    &helper,
+                    free_strings,
+                );
+            }
+            out.push_str("  br label %hdone\n");
+        }
+        out.push_str("\nhdone:\n  ret void\n}\n");
+        Some(out)
+    }
+
+    fn enum_field_needs_drop(
+        &self,
+        _fname: &str,
+        dty: &str,
+        enum_leaf: &str,
+        free_strings: bool,
+    ) -> bool {
+        let leaf = dty.rsplit('.').next().unwrap_or(dty);
+        if leaf == "Str" {
+            // A builder/stringify-owned String leaf is borrowed (literal key
+            // or `json_string` argument). Only parse-owned trees free it.
+            return free_strings;
+        }
+        if let Some(inner) = vec_inner_type(dty) {
+            let ileaf = inner.rsplit('.').next().unwrap_or(inner);
+            return ileaf == "Str" || ileaf == enum_leaf;
+        }
+        if let Some((k, v)) = map_kv_types(dty) {
+            let kleaf = k.rsplit('.').next().unwrap_or(k);
+            let vleaf = v.rsplit('.').next().unwrap_or(v);
+            return kleaf == "Str" || vleaf == enum_leaf || vleaf.eq_ignore_ascii_case(enum_leaf);
+        }
+        false
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn emit_enum_field_drop(
+        &self,
+        out: &mut String,
+        c: &mut usize,
+        enum_ty: &str,
+        fidx: u32,
+        dty: &str,
+        fllvm: &str,
+        enum_leaf: &str,
+        helper: &str,
+        free_strings: bool,
+    ) {
+        let leaf = dty.rsplit('.').next().unwrap_or(dty);
+        if leaf == "Str" {
+            if free_strings {
+                self.emit_enum_str_free(out, c, enum_ty, fidx, fllvm);
+            }
+            return;
+        }
+        if let Some(inner) = vec_inner_type(dty) {
+            if fllvm != "%struct.Vec" {
+                // A boxed/erased container slot is not this enum's layout;
+                // leave it leak-only instead of guessing a box free.
+                return;
+            }
+            let ileaf = inner.rsplit('.').next().unwrap_or(inner);
+            let recurse = ileaf == enum_leaf;
+            let str_elems = ileaf == "Str";
+            if !recurse && !str_elems {
+                return;
+            }
+            let vec_ptr = format!("%hv{}", *c);
+            *c += 1;
+            out.push_str(&format!(
+                "  {vec_ptr} = getelementptr {enum_ty}, {enum_ty}* %node, i32 0, i32 {fidx}\n"
+            ));
+            // Vec[Str] is always an owned data buffer. Elements are freed only
+            // for parse-owned trees; builder keys/values are borrowed.
+            self.emit_vec_tree_free(
+                out,
+                c,
+                enum_ty,
+                &vec_ptr,
+                recurse,
+                helper,
+                free_strings,
+            );
+            return;
+        }
+        if let Some((k, v)) = map_kv_types(dty) {
+            if fllvm != "%struct.Map" {
+                return;
+            }
+            let kleaf = k.rsplit('.').next().unwrap_or(k);
+            let vleaf = v.rsplit('.').next().unwrap_or(v);
+            let keys_str = kleaf == "Str";
+            let recurse_values = vleaf == enum_leaf;
+            if !keys_str && !recurse_values {
+                return;
+            }
+            let map_ptr = format!("%hm{}", *c);
+            *c += 1;
+            out.push_str(&format!(
+                "  {map_ptr} = getelementptr {enum_ty}, {enum_ty}* %node, i32 0, i32 {fidx}\n"
+            ));
+            let Some(map_meta) = self.types.type_meta.get(&"Map".to_string()) else {
+                return;
+            };
+            let Some(kidx) = map_meta.fields.iter().position(|(n, _)| n == "keys") else {
+                return;
+            };
+            let Some(vidx) = map_meta.fields.iter().position(|(n, _)| n == "values") else {
+                return;
+            };
+            let keys_vec = format!("%hkv{}", *c);
+            *c += 1;
+            out.push_str(&format!(
+                "  {keys_vec} = getelementptr %struct.Map, %struct.Map* {map_ptr}, i32 0, i32 {kidx}\n"
+            ));
+            let values_vec = format!("%hvv{}", *c);
+            *c += 1;
+            out.push_str(&format!(
+                "  {values_vec} = getelementptr %struct.Map, %struct.Map* {map_ptr}, i32 0, i32 {vidx}\n"
+            ));
+            if keys_str {
+                // Parse-owned: free each freshly parsed key. Builder-owned:
+                // keys are borrowed literals; free only the keys buffer.
+                self.emit_vec_tree_free(
+                    out,
+                    c,
+                    enum_ty,
+                    &keys_vec,
+                    false,
+                    helper,
+                    free_strings,
+                );
+            }
+            if recurse_values {
+                self.emit_vec_tree_free(
+                    out,
+                    c,
+                    enum_ty,
+                    &values_vec,
+                    true,
+                    helper,
+                    free_strings,
+                );
+            }
+        }
+    }
+
+    fn emit_enum_str_free(
+        &self,
+        out: &mut String,
+        c: &mut usize,
+        enum_ty: &str,
+        fidx: u32,
+        fllvm: &str,
+    ) {
+        let slot = format!("%hs{}", *c);
+        *c += 1;
+        out.push_str(&format!(
+            "  {slot} = getelementptr {enum_ty}, {enum_ty}* %node, i32 0, i32 {fidx}\n"
+        ));
+        let raw = format!("%hr{}", *c);
+        *c += 1;
+        let after = format!("hstr_after{}", *c);
+        *c += 1;
+        let chk = format!("hstr_chk{}", *c);
+        *c += 1;
+        let freed = format!("hstr_free{}", *c);
+        *c += 1;
+        if fllvm == "i64" {
+            out.push_str(&format!("  {raw} = load i64, i64* {slot}\n"));
+            let isnull = format!("%hn{}", *c);
+            *c += 1;
+            out.push_str(&format!("  {isnull} = icmp eq i64 {raw}, 0\n"));
+            out.push_str(&format!(
+                "  br i1 {isnull}, label %{after}, label %{chk}\n"
+            ));
+            out.push_str(&format!("\n{chk}:\n"));
+            let ptr = format!("%hp{}", *c);
+            *c += 1;
+            out.push_str(&format!("  {ptr} = inttoptr i64 {raw} to i8*\n"));
+            let slen = format!("%hl{}", *c);
+            *c += 1;
+            out.push_str(&format!("  {slen} = call i64 @xiom_str_len(i8* {ptr})\n"));
+            let empty = format!("%he{}", *c);
+            *c += 1;
+            out.push_str(&format!("  {empty} = icmp eq i64 {slen}, 0\n"));
+            out.push_str(&format!(
+                "  br i1 {empty}, label %{after}, label %{freed}\n"
+            ));
+            out.push_str(&format!("\n{freed}:\n"));
+            out.push_str(&format!("  call void @xiom_guard_free(i8* {ptr})\n"));
+            out.push_str(&format!("  br label %{after}\n"));
+            out.push_str(&format!("\n{after}:\n"));
+        } else if fllvm == "i8*" {
+            out.push_str(&format!("  {raw} = load i8*, i8** {slot}\n"));
+            let isnull = format!("%hn{}", *c);
+            *c += 1;
+            out.push_str(&format!("  {isnull} = icmp eq i8* {raw}, null\n"));
+            out.push_str(&format!(
+                "  br i1 {isnull}, label %{after}, label %{chk}\n"
+            ));
+            out.push_str(&format!("\n{chk}:\n"));
+            let slen = format!("%hl{}", *c);
+            *c += 1;
+            out.push_str(&format!("  {slen} = call i64 @xiom_str_len(i8* {raw})\n"));
+            let empty = format!("%he{}", *c);
+            *c += 1;
+            out.push_str(&format!("  {empty} = icmp eq i64 {slen}, 0\n"));
+            out.push_str(&format!(
+                "  br i1 {empty}, label %{after}, label %{freed}\n"
+            ));
+            out.push_str(&format!("\n{freed}:\n"));
+            out.push_str(&format!("  call void @xiom_guard_free(i8* {raw})\n"));
+            out.push_str(&format!("  br label %{after}\n"));
+            out.push_str(&format!("\n{after}:\n"));
+        }
+    }
+
+    /// Emit the element loop (if any) and the data-buffer free for one
+    /// `%struct.Vec*` field.
+    /// - `recurse`: each element is the same enum; call `helper` on it.
+    /// - `!recurse && free_strings`: each element is a parse-owned `Str`.
+    /// - `!recurse && !free_strings`: elements are borrowed (builder keys or
+    ///   literal values); only the data buffer is freed.
+    fn emit_vec_tree_free(
+        &self,
+        out: &mut String,
+        c: &mut usize,
+        enum_ty: &str,
+        vec_ptr: &str,
+        recurse: bool,
+        helper: &str,
+        free_strings: bool,
+    ) {
+        let data = format!("%hvd{}", *c);
+        *c += 1;
+        let len = format!("%hvl{}", *c);
+        *c += 1;
+        let esz = format!("%hve{}", *c);
+        *c += 1;
+        // Vec header field indices come from the same type registry the rest
+        // of the compiler uses; never a hardcoded memory offset.
+        let vec_meta = self.types.type_meta.get(&"Vec".to_string());
+        let field_idx = |name: &str, fallback: u32| -> u32 {
+            vec_meta
+                .as_ref()
+                .and_then(|m| m.fields.iter().position(|(n, _)| n == name))
+                .map(|i| i as u32)
+                .unwrap_or(fallback)
+        };
+        let data_idx = field_idx("data", 0);
+        let len_idx = field_idx("len", 1);
+        let esz_idx = field_idx("elem_size", 3);
+        let data_slot = format!("%hvds{}", *c);
+        *c += 1;
+        out.push_str(&format!(
+            "  {data_slot} = getelementptr %struct.Vec, %struct.Vec* {vec_ptr}, i32 0, i32 {data_idx}\n"
+        ));
+        out.push_str(&format!("  {data} = load i8*, i8** {data_slot}\n"));
+        let len_slot = format!("%hvls{}", *c);
+        *c += 1;
+        out.push_str(&format!(
+            "  {len_slot} = getelementptr %struct.Vec, %struct.Vec* {vec_ptr}, i32 0, i32 {len_idx}\n"
+        ));
+        out.push_str(&format!("  {len} = load i64, i64* {len_slot}\n"));
+        let esz_slot = format!("%hves{}", *c);
+        *c += 1;
+        out.push_str(&format!(
+            "  {esz_slot} = getelementptr %struct.Vec, %struct.Vec* {vec_ptr}, i32 0, i32 {esz_idx}\n"
+        ));
+        out.push_str(&format!("  {esz} = load i64, i64* {esz_slot}\n"));
+        let idx = format!("%hvi{}", *c);
+        *c += 1;
+        let cond = format!("hvc{}", *c);
+        *c += 1;
+        let body = format!("hvb{}", *c);
+        *c += 1;
+        let done = format!("hvd{}", *c);
+        *c += 1;
+        let esz_ok = format!("%hveo{}", *c);
+        *c += 1;
+        // Builder/stringify-owned Vec[Str] or Vec[borrowed]: the elements are
+        // not owned, so only the data buffer is reclaimed. No element walk.
+        if !recurse && !free_strings {
+            out.push_str(&format!("  br label %{done}\n"));
+            out.push_str(&format!("\n{done}:\n"));
+            out.push_str(&format!("  call void @xiom_guard_free(i8* {data})\n"));
+            return;
+        }
+        out.push_str(&format!("  {idx} = alloca i64\n"));
+        out.push_str(&format!("  store i64 0, i64* {idx}\n"));
+        out.push_str(&format!("  {esz_ok} = icmp ne i64 {esz}, 0\n"));
+        out.push_str(&format!(
+            "  br i1 {esz_ok}, label %{cond}, label %{done}\n"
+        ));
+        out.push_str(&format!("\n{cond}:\n"));
+        let i = format!("%hvii{}", *c);
+        *c += 1;
+        let more = format!("%hvm{}", *c);
+        *c += 1;
+        out.push_str(&format!("  {i} = load i64, i64* {idx}\n"));
+        out.push_str(&format!("  {more} = icmp ult i64 {i}, {len}\n"));
+        out.push_str(&format!(
+            "  br i1 {more}, label %{body}, label %{done}\n"
+        ));
+        out.push_str(&format!("\n{body}:\n"));
+        let off = format!("%hvo{}", *c);
+        *c += 1;
+        let ep = format!("%hvp{}", *c);
+        *c += 1;
+        out.push_str(&format!("  {off} = mul i64 {i}, {esz}\n"));
+        out.push_str(&format!(
+            "  {ep} = getelementptr i8, i8* {data}, i64 {off}\n"
+        ));
+        if recurse {
+            let epc = format!("%hvc2{}", *c);
+            *c += 1;
+            out.push_str(&format!("  {epc} = bitcast i8* {ep} to {enum_ty}*\n"));
+            out.push_str(&format!(
+                "  call void @{helper}({enum_ty}* {epc})\n"
+            ));
+        } else {
+            let epc = format!("%hvc2{}", *c);
+            *c += 1;
+            let sp = format!("%hvs{}", *c);
+            *c += 1;
+            out.push_str(&format!("  {epc} = bitcast i8* {ep} to i8**\n"));
+            out.push_str(&format!("  {sp} = load i8*, i8** {epc}\n"));
+            let isnull = format!("%hsn{}", *c);
+            *c += 1;
+            let chk = format!("hsc{}", *c);
+            *c += 1;
+            let freed = format!("hsf{}", *c);
+            *c += 1;
+            let adv = format!("hsa{}", *c);
+            *c += 1;
+            out.push_str(&format!("  {isnull} = icmp eq i8* {sp}, null\n"));
+            out.push_str(&format!(
+                "  br i1 {isnull}, label %{adv}, label %{chk}\n"
+            ));
+            out.push_str(&format!("\n{chk}:\n"));
+            let slen = format!("%hsl{}", *c);
+            *c += 1;
+            out.push_str(&format!("  {slen} = call i64 @xiom_str_len(i8* {sp})\n"));
+            let empty = format!("%hse{}", *c);
+            *c += 1;
+            out.push_str(&format!("  {empty} = icmp eq i64 {slen}, 0\n"));
+            out.push_str(&format!(
+                "  br i1 {empty}, label %{adv}, label %{freed}\n"
+            ));
+            out.push_str(&format!("\n{freed}:\n"));
+            out.push_str(&format!("  call void @xiom_guard_free(i8* {sp})\n"));
+            out.push_str(&format!("  br label %{adv}\n"));
+            out.push_str(&format!("\n{adv}:\n"));
+        }
+        let next = format!("%hvn{}", *c);
+        *c += 1;
+        out.push_str(&format!("  {next} = add i64 {i}, 1\n"));
+        out.push_str(&format!("  store i64 {next}, i64* {idx}\n"));
+        out.push_str(&format!("  br label %{cond}\n"));
+        out.push_str(&format!("\n{done}:\n"));
+        out.push_str(&format!("  call void @xiom_guard_free(i8* {data})\n"));
     }
 
     /// Free each owned element payload of a Vec before its data buffer.
@@ -2849,7 +4100,7 @@ impl IrEmitter {
         if e.elem_is_str {
             let dp = self.fresh_tmp();
             self.emitln(&format!("  {dp} = load i8*, i8** {epc}"));
-            self.emitln(&format!("  call void @xiom_guard_free(i8* {dp})"));
+            self.emit_free_str_ptr(&dp);
         } else if e.elem_is_vec {
             let dgp = self.fresh_tmp();
             let dp = self.fresh_tmp();
@@ -2873,7 +4124,7 @@ impl IrEmitter {
                 if cur_ty == "i8*" {
                     let dp = self.fresh_tmp();
                     self.emitln(&format!("  {dp} = load i8*, i8** {cur}"));
-                    self.emitln(&format!("  call void @xiom_guard_free(i8* {dp})"));
+                    self.emit_free_str_ptr(&dp);
                 } else {
                     let dgp = self.fresh_tmp();
                     let dp = self.fresh_tmp();
@@ -2935,6 +4186,86 @@ impl IrEmitter {
             self.emitln(&format!("  {armed} = load i1, i1* {flag}"));
             self.emitln(&format!("  br i1 {armed}, label %{do_block}, label %{skip_block}"));
             self.emitln(&format!("\n{do_block}:"));
+            if let VecDrop::EnumTree {
+                ptr_slot,
+                result_llvm_ty,
+                disc_idx,
+                payload_idx,
+                enum_llvm_ty,
+                helper,
+                ..
+            } = drop
+            {
+                // Only walk the payload when the Result is Ok/Some. An Err
+                // payload slot is zero-initialized, but the tag check keeps a
+                // non-contracted constructor from ever presenting a bogus
+                // tree to the helper.
+                let binding_ptr = self.fresh_tmp();
+                self.emitln(&format!(
+                    "  {binding_ptr} = load {result_llvm_ty}*, {result_llvm_ty}** {ptr_slot}"
+                ));
+                let disc_slot = self.fresh_tmp();
+                let disc = self.fresh_tmp();
+                let is_ok = self.fresh_tmp();
+                let tree_do = self.fresh_block("enumtree_do");
+                let tree_join = self.fresh_block("enumtree_join");
+                self.emitln(&format!(
+                    "  {disc_slot} = getelementptr {result_llvm_ty}, {result_llvm_ty}* {binding_ptr}, i32 0, i32 {disc_idx}"
+                ));
+                self.emitln(&format!("  {disc} = load i64, i64* {disc_slot}"));
+                self.emitln(&format!("  {is_ok} = icmp eq i64 {disc}, 1"));
+                self.emitln(&format!(
+                    "  br i1 {is_ok}, label %{tree_do}, label %{tree_join}"
+                ));
+                self.emitln(&format!("\n{tree_do}:"));
+                let payload_ptr = self.fresh_tmp();
+                self.emitln(&format!(
+                    "  {payload_ptr} = getelementptr {result_llvm_ty}, {result_llvm_ty}* {binding_ptr}, i32 0, i32 {payload_idx}"
+                ));
+                self.emitln(&format!(
+                    "  call void @{helper}({enum_llvm_ty}* {payload_ptr})"
+                ));
+                self.emitln(&format!("  br label %{tree_join}"));
+                self.emitln(&format!("\n{tree_join}:"));
+                self.emitln(&format!("  store i1 false, i1* {flag}"));
+                self.emitln(&format!("  br label %{skip_block}"));
+                self.emitln(&format!("\n{skip_block}:"));
+                continue;
+            }
+            if let VecDrop::BoxedVec { header_alloca, .. } = drop {
+                // Boxed removal payload: `header_alloca` holds the malloc'd
+                // `%struct.Vec*` (a copy of the removed element header). The
+                // container shrank its len, so this buffer is unreachable from
+                // the container's own exit drop. Free data, then the box.
+                let boxed = self.fresh_tmp();
+                self.emitln(&format!(
+                    "  {boxed} = load %struct.Vec*, %struct.Vec** {header_alloca}"
+                ));
+                let null = self.fresh_tmp();
+                let free_blk = self.fresh_block("boxedvec_free");
+                let done_blk = self.fresh_block("boxedvec_done");
+                self.emitln(&format!("  {null} = icmp eq %struct.Vec* {boxed}, null"));
+                self.emitln(&format!(
+                    "  br i1 {null}, label %{done_blk}, label %{free_blk}"
+                ));
+                self.emitln(&format!("\n{free_blk}:"));
+                let data_gep = self.fresh_tmp();
+                let data_ptr = self.fresh_tmp();
+                self.emitln(&format!(
+                    "  {data_gep} = getelementptr %struct.Vec, %struct.Vec* {boxed}, i32 0, i32 0"
+                ));
+                self.emitln(&format!("  {data_ptr} = load i8*, i8** {data_gep}"));
+                self.emitln(&format!("  call void @xiom_guard_free(i8* {data_ptr})"));
+                let box_i8 = self.fresh_tmp();
+                self.emitln(&format!("  {box_i8} = bitcast %struct.Vec* {boxed} to i8*"));
+                self.emitln(&format!("  call void @xiom_guard_free(i8* {box_i8})"));
+                self.emitln(&format!("  br label %{done_blk}"));
+                self.emitln(&format!("\n{done_blk}:"));
+                self.emitln(&format!("  store i1 false, i1* {flag}"));
+                self.emitln(&format!("  br label %{skip_block}"));
+                self.emitln(&format!("\n{skip_block}:"));
+                continue;
+            }
             let data_ptr = match drop {
                 VecDrop::Vec { alloca, elem, .. } => {
                     let data_gep = self.fresh_tmp();
@@ -2987,10 +4318,18 @@ impl IrEmitter {
                     }
                     data_ptr
                 }
+                VecDrop::BoxedVec { .. } => unreachable!("BoxedVec handled above"),
+                VecDrop::EnumTree { .. } => unreachable!("EnumTree handled above"),
             };
             // Arena-aware: block-fn Vecs live on the guard arena and are
-            // reclaimed wholesale; main-heap Vecs are freed here.
-            self.emitln(&format!("  call void @xiom_guard_free(i8* {data_ptr})"));
+            // reclaimed wholesale; main-heap Vecs are freed here. A Str drop
+            // is guarded against null/empty (an empty literal may be shared).
+            let is_str_ptr = matches!(drop, VecDrop::Str { .. } | VecDrop::Ptr { .. });
+            if is_str_ptr {
+                self.emit_free_str_ptr(&data_ptr);
+            } else {
+                self.emitln(&format!("  call void @xiom_guard_free(i8* {data_ptr})"));
+            }
             self.emitln(&format!("  store i1 false, i1* {flag}"));
             self.emitln(&format!("  br label %{skip_block}"));
             self.emitln(&format!("\n{skip_block}:"));

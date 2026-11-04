@@ -20,7 +20,7 @@ fn make_point(x: Float64, y: Float64) -> Point {
 fn main() -> Int {
   let p1 = make_point(0.0, 0.0);
   let p2 = Point{ x: 3.0, y: 4.0 };
-  let d = distance(&p1, &p2);
+  let _d = distance(&p1, &p2);
   let r = 0;
   return r;
 }

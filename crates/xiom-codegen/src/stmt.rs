@@ -909,6 +909,9 @@ impl IrEmitter {
                     // for the drop dominates every scope exit.
                     || (self.fctx.aggregate_drop_safe.contains(&name.name)
                         && llvm_ty.starts_with("%struct."))
+                    // 2117: same entry-block requirement for a literal
+                    // aggregate registered by the overwrite path.
+                    || self.agg_overwrite_candidate(&name.name, &llvm_ty)
                 {
                     self.local.hoisted_allocas.push((alloca.clone(), llvm_ty.clone()));
                 } else {
@@ -938,6 +941,10 @@ impl IrEmitter {
                 // m375: an `#[owns_return]` aggregate binding (editor frame)
                 // drops each Vec field at the binding's scope exit.
                 self.register_aggregate_drops(&name.name, &alloca, &llvm_ty);
+                self.register_agg_overwrite_drops(&name.name, &alloca, &llvm_ty);
+                // R3 (json_parse): a direct binding from a contracted
+                // Result/Option<named enum> call owns the returned tree.
+                self.register_enum_tree_drop(&name.name, &alloca, &llvm_ty);
                 // m375 removal slice: a provably-dead boxed `remove`/`pop`
                 // result owns its element; free the Vec data + box now.
                 if llvm_ty == "%struct.Option" && self.unused_local(&name.name)
@@ -1409,6 +1416,9 @@ impl IrEmitter {
                     // for the drop dominates every scope exit.
                     || (self.fctx.aggregate_drop_safe.contains(&name.name)
                         && llvm_ty.starts_with("%struct."))
+                    // 2117: same entry-block requirement for a literal
+                    // aggregate registered by the overwrite path.
+                    || self.agg_overwrite_candidate(&name.name, &llvm_ty)
                 {
                     self.local.hoisted_allocas.push((alloca.clone(), llvm_ty.clone()));
                 } else {
@@ -1434,6 +1444,10 @@ impl IrEmitter {
                 // m375: an `#[owns_return]` aggregate binding (editor frame)
                 // drops each Vec field at the binding's scope exit.
                 self.register_aggregate_drops(&name.name, &alloca, &llvm_ty);
+                self.register_agg_overwrite_drops(&name.name, &alloca, &llvm_ty);
+                // R3 (json_parse): a direct binding from a contracted
+                // Result/Option<named enum> call owns the returned tree.
+                self.register_enum_tree_drop(&name.name, &alloca, &llvm_ty);
                 // m375 removal slice: a provably-dead boxed `remove`/`pop`
                 // result owns its element; free the Vec data + box now.
                 if llvm_ty == "%struct.Option" && self.unused_local(&name.name)
@@ -1539,6 +1553,12 @@ impl IrEmitter {
                         // store_val (incl. any owned deep copy) is already
                         // materialized, so a self-alias RHS is safe.
                         self.emit_vec_rebind_free_old(&ident.name);
+                        // 2117: a whole-struct overwrite with a fresh
+                        // #[owns_return] aggregate call frees the OLD owned
+                        // Vec/Str fields before the store (the exit drop then
+                        // frees the FINAL fields). Only literal-bound,
+                        // uniquely-owned destinations qualify.
+                        self.emit_agg_overwrite_free_old(&ident.name, &ptr, &llvm_ty, value);
                         self.emitln(&format!("  store {llvm_ty} {store_val}, {llvm_ty}* {ptr}"));
                         // REL-20261028: free the replaced owned Str buffer and
                         // track the new value (fresh concat/conversion only).
@@ -1575,6 +1595,20 @@ impl IrEmitter {
                         let (rewrapped, rewrap_ty) = self.fn_marker_store_value(
                             field_xiom.as_deref(), value, val.clone(), val_ty.clone());
                         let store_val = self.coerce_value(&rewrapped, &rewrap_ty, &l_elem_ty);
+                        // 2117: free the OLD owned Vec/Str field data before
+                        // storing a fresh value into a uniquely-owned
+                        // literal aggregate's field. The RHS is materialized.
+                        if let Expr::Field(obj, field, _) = place {
+                            if let Expr::Ident(agg) = obj.as_ref() {
+                                self.emit_agg_field_free_old(
+                                    &agg.name,
+                                    &field.name,
+                                    &l_ptr,
+                                    &l_elem_ty,
+                                    value,
+                                );
+                            }
+                        }
                         self.emitln(&format!("  store {l_elem_ty} {store_val}, {l_ptr_ty} {l_ptr}"));
                         return Ok(());
                     }
@@ -3555,11 +3589,26 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                                     // arm owns the payload buffer; the prepass
                                     // named it, so register the arm-scope drop
                                     // before add_local takes the slot string.
-                                    self.register_owned_vec_binding(
-                                        &ident.name,
-                                        &bind_val_inner,
-                                        &bind_ty_inner,
-                                    );
+                                    // Boxed removal payloads (`pop`/`remove`/
+                                    // `swap_remove` of a Vec[Vec[T]] element)
+                                    // own the malloc'd header box too; the
+                                    // standard Vec drop only frees the data.
+                                    if self
+                                        .fctx
+                                        .boxed_vec_payload_safe
+                                        .contains(&ident.name)
+                                    {
+                                        self.register_boxed_vec_binding(
+                                            &ident.name,
+                                            &bind_val_inner,
+                                        );
+                                    } else {
+                                        self.register_owned_vec_binding(
+                                            &ident.name,
+                                            &bind_val_inner,
+                                            &bind_ty_inner,
+                                        );
+                                    }
                                     // m148 (R-2): `bind_val_inner` is the
                                     // payload ADDRESS; register it under the
                                     // struct type (the pointer-receiver local
@@ -3888,7 +3937,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                 // Loop exit
                 self.emitln(&format!("\n{loop_exit}:"));
             }
-            Stmt::Destructure(names, value, _) => {
+            Stmt::Destructure(names, value, _, _) => {
                 // Value sink: use the value's real LLVM type from compile_expr.
                 let (val, llvm_ty) = self.compile_expr(value)?;
                 // m209 (packages relay 2026-10-07) + m299 (REL-20261010-1549
@@ -4275,7 +4324,7 @@ let is_vec = Self::is_llvm_struct_named(&vec_ty, "Vec")
                     }
                 }
             }
-            Stmt::Destructure(_, e, _) => Self::collect_expr_var_refs(e, refs),
+            Stmt::Destructure(_, e, _, _) => Self::collect_expr_var_refs(e, refs),
             Stmt::Break(..) | Stmt::Continue(..) | Stmt::Asm(_) | Stmt::Defer(_, _) => {}
             Stmt::Assert(c, m, _) => {
                 Self::collect_expr_var_refs(c, refs);

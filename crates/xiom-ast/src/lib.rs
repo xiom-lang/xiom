@@ -417,7 +417,11 @@ pub enum Stmt {
     /// `spawn [move] { block }`
     Spawn(Block, Span, /* move */ bool),
     /// `var (a, b) = expr;` / `let (a, b) = expr;`
-    Destructure(Vec<Ident>, Expr, Span),
+    ///
+    /// The final flag is `true` for the explicit `var` form: destructured
+    /// bindings are immutable unless `var` was written (SPEC: `let` cannot be
+    /// reassigned).
+    Destructure(Vec<Ident>, Expr, Span, bool),
     /// `break;` or `break 'label;`
     Break(Option<Ident>, Span),
     /// `continue;` or `continue 'label;`

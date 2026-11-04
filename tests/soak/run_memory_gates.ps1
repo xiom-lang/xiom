@@ -44,6 +44,7 @@ $Gates = @(
     @{ Name = "borrow_vec_leak";        CapMB = 64 },
     @{ Name = "aggregate_vec_leak";     CapMB = 64 },
     @{ Name = "aggregate_return_leak";  CapMB = 64 },
+    @{ Name = "aggregate_field_overwrite"; CapMB = 64 },
     @{ Name = "byval_param_field_move_leak"; CapMB = 64 },
     @{ Name = "container_elem_owned_drop"; CapMB = 64 },
     @{ Name = "container_elem_unsafe_shapes"; CapMB = 64 },

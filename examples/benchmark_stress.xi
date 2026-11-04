@@ -1564,7 +1564,6 @@ module math {
 // ============================================================
 module primes {
 
-  use benchmark.math.is_prime;
   use benchmark.math.power_iter;
 
   // ============================================================
@@ -4922,14 +4921,14 @@ module generics {
     if identity(true) { score = score + 1; }
 
     var p1 = pair(1, "hello");
-    var p2 = pair(true, 3.14);
+    var _p2 = pair(true, 3.14);
 
-    var (i_val, s_val) = pair(42, "test");
+    var (i_val, _s_val) = pair(42, "test");
     if i_val == 42 { score = score + 1; }
 
     if p1.0 == 1 { score = score + 1; }
 
-    var (b_val, f_val) = swap(3.14, true);
+    var (b_val, _f_val) = swap(3.14, true);
     if b_val { score = score + 1; }
 
     var t = triple(10, 20, 30);
@@ -6057,7 +6056,7 @@ module derive {
 
   pub fn Big25.new(val: Int) -> Big25 {
     return Big25{
-      f0: val + 0, f1: val + 1, f2: val + 2, f3: val + 3, f4: val + 4,
+      f0: val, f1: val + 1, f2: val + 2, f3: val + 3, f4: val + 4,
       f5: val + 5, f6: val + 6, f7: val + 7, f8: val + 8, f9: val + 9,
       f10: val + 10, f11: val + 11, f12: val + 12, f13: val + 13, f14: val + 14,
       f15: val + 15, f16: val + 16, f17: val + 17, f18: val + 18, f19: val + 19,
@@ -8094,8 +8093,8 @@ module extreme {
       return -1;
     } else {
       if n == 0 {
-        if n * 1 == 0 {
-          if n + 0 == 0 {
+        if n == 0 {
+          if n == 0 {
             return 0;
           } else {
             return -99;
@@ -9726,7 +9725,7 @@ module serialize {
   }
 
   pub fn int_to_str(n: Int) -> Str {
-    var digits = int_to_digits(n);
+    var _digits = int_to_digits(n);
     // Return string representation - just use len for test
     return "0";
   }

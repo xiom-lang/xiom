@@ -8218,6 +8218,129 @@ fn trapped_under_bounds_checks(code: Option<i32>) -> bool {
     );
 }
 
+// t3-hot-reload trampoline floor (REL-20261010-1554-benchmark): 1M
+// confined-block entries, one indirect call each. A per-entry
+// sigsetjmp(savemask=1) plus trap round-trip costs ~2 us/entry (2 s here);
+// the hot path must stay syscall-free. The wall budget is deliberately
+// generous (load-tolerant) and still catches that regression class.
+#[test] fn e2e_t3_trampoline_floor_budget() {
+    let exe_name = format!(
+        "t3_trampoline_floor_{}{}",
+        std::process::id(),
+        if cfg!(windows) { ".exe" } else { "" }
+    );
+    let exe = project_root().join(&exe_name);
+    let _ = std::fs::remove_file(&exe);
+    let compile = Command::new(xiom_path())
+        .args(["tests/regression/t3_trampoline_floor/main.xi", "-o"])
+        .arg(&exe)
+        .current_dir(project_root())
+        .output()
+        .expect("compile t3 trampoline-floor fixture");
+    assert!(
+        compile.status.success(),
+        "t3 floor fixture must compile: {}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let start = std::time::Instant::now();
+    let run = Command::new(&exe)
+        .output()
+        .expect("run t3 trampoline-floor fixture");
+    let elapsed = start.elapsed();
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "t3 floor fixture failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(
+        elapsed.as_millis() < 1500,
+        "t3 confined-entry floor regressed: 1M entries took {elapsed:?} (budget 1500 ms; a per-entry trap/savemask cost is back)"
+    );
+}
+
+// POSIX savemask=0 safety: the trampoline handler restores the delivered
+// signal's mask on a fault, so a SECOND fault in the same thread is still
+// contained (not a hard kill). Both faults surface as typed diagnostics and
+// the process exits 70 while the fault is unacknowledged.
+#[test] fn e2e_confined_repeat_fault_contained() {
+    let exe_name = format!(
+        "confined_repeat_fault_{}{}",
+        std::process::id(),
+        if cfg!(windows) { ".exe" } else { "" }
+    );
+    let exe = project_root().join(&exe_name);
+    let _ = std::fs::remove_file(&exe);
+    let compile = Command::new(xiom_path())
+        .args(["tests/regression/confined_repeat_fault/main.xi", "-o"])
+        .arg(&exe)
+        .current_dir(project_root())
+        .output()
+        .expect("compile confined repeat-fault fixture");
+    assert!(
+        compile.status.success(),
+        "repeat-fault fixture must compile: {}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe)
+        .env("XIOM_TRACE_FAULT", "1")
+        .output()
+        .expect("run confined repeat-fault fixture");
+    let _ = std::fs::remove_file(&exe);
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert!(
+        stdout.contains("a=42 b=42"),
+        "both confined blocks must complete with the recovered value; stdout:\n{stdout}"
+    );
+    let contained = stderr.matches("[fault] confined block").count();
+    assert!(
+        contained >= 2,
+        "both repeated faults must be contained (got {contained}); stderr:\n{stderr}"
+    );
+    assert_eq!(
+        run.status.code(),
+        Some(70),
+        "contained but unacknowledged repeated faults exit 70; stderr:\n{stderr}"
+    );
+}
+
+// clang only runs the ASan instrumentation pass on functions carrying the
+// `sanitize_address` attribute; it does not set that up for `.ll` inputs.
+// XIOM compiles LLVM IR, so --sanitize=address must tag every define or the
+// build only links the ASan runtime (UAF/redzone checks stay absent).
+#[test] fn e2e_sanitize_address_tags_ir_for_asan() {
+    let out = Command::new(xiom_path())
+        .args(["--emit-ir", "--sanitize=address", "examples/diff_test.xi"])
+        .current_dir(project_root())
+        .output()
+        .expect("xiom --emit-ir --sanitize=address");
+    assert!(
+        out.status.success(),
+        "--emit-ir --sanitize=address failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let ir = String::from_utf8_lossy(&out.stdout);
+    let group = ir
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("attributes #")
+                .and_then(|rest| rest.split_once(" = { sanitize_address }"))
+                .map(|(g, _)| g.to_string())
+        })
+        .expect("`attributes #N = { sanitize_address }` group");
+    let defines: Vec<&str> = ir.lines().filter(|l| l.starts_with("define ")).collect();
+    assert!(!defines.is_empty(), "IR has no function definitions");
+    for line in defines {
+        assert!(
+            line.contains(&format!("#{group}")),
+            "function is not ASan-tagged (group #{group}): {line}"
+        );
+    }
+}
+
 // m310 (REL-20261010-1549-packages-5): a dependency's shipped port.args.json
 // must be applied at CONSUMER build time -- the C source it names (with
 // ${PACKAGE_DIR}) links without a manual --c-source. Red on v0.64.4 and
@@ -12021,4 +12144,54 @@ fn e2e_m1615_nested_enum_payloads() {
         Some(0),
         "m1615: nested enum payloads must bind the inner variant value"
     );
+}
+
+// R3 (json 1704 tree leak): a nested object -> array -> string parse bound
+// directly from json_parse owns the tree and reclaims it at scope exit.
+// Pre-fix the parsed JsonValue tree leaked linearly (~2 KB/iter). Green =
+// compile + run rc 0. The UAF proof is the ASan run recorded in
+// docs/COMPILER_BUGS.md (the fixture is the same source).
+#[test]
+fn e2e_m375_json_parse_tree_reclaim() {
+    // The repo's vendored `stdlib/` is a stale gitignored snapshot; the live
+    // checkout is the sibling `../stdlib`. Skip when it is not present.
+    let stdlib = project_root().parent().unwrap().join("stdlib");
+    if !stdlib.join("xiom").join("serialize").join("json.xi").exists() {
+        eprintln!("skip e2e_m375_json_parse_tree_reclaim: sibling stdlib checkout absent");
+        return;
+    }
+    let src = project_root()
+        .join("tests")
+        .join("regression")
+        .join("m375_json_parse_tree_reclaim.xi");
+    let exe = project_root().join("e2e_m375_json_parse_tree_reclaim.exe");
+    let _ = std::fs::remove_file(&exe);
+    let compile = Command::new(xiom_path())
+        .arg("-o")
+        .arg(&exe)
+        .arg(&src)
+        .env("XIOM_STDLIB", &stdlib)
+        .current_dir(project_root())
+        .output()
+        .expect("spawn xiom for the m375 JSON tree fixture");
+    assert!(
+        compile.status.success(),
+        "m375 JSON tree: fixture must compile; stderr:\n{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let run = Command::new(&exe)
+        .output()
+        .expect("run the m375 JSON tree fixture");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "m375 JSON tree: nested parse loop must not crash (UAF/invalid free); stdout: {stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(
+        stdout.contains("json_tree_reclaim_ok"),
+        "m375 JSON tree: expected the completion marker; stdout: {stdout}"
+    );
+    let _ = std::fs::remove_file(&exe);
 }

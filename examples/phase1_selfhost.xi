@@ -17,8 +17,8 @@ module parser {
 
 module compiler {
     use lexer.make_token; use lexer.is_alpha; use lexer.is_digit;
-    use parser.parse_number; use parser.parse_ident;
-    pub fn compile(source: Int) -> Int {
+    use parser.parse_number;
+    pub fn compile(_source: Int) -> Int {
         let tok = make_token(1, 1, 1); let num = parse_number(tok);
         let alpha_check = is_alpha(65); let digit_check = is_digit(48);
         if alpha_check && digit_check { return num; } return 0;

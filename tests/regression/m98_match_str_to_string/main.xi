@@ -19,7 +19,7 @@ fn Queue.dequeue[T](&mut self) -> Option[T] {
   }
   let front = match self.items.get(0) { Some(v) => v, None => return None };
   let new_items: Vec[T] = Vec[T].new();
-  let i = 1;
+  var i = 1;
   while i < self.items.len() {
     let item = match self.items.get(i) { Some(v) => v, None => { i = i + 1; continue; } };
     new_items.push(item);

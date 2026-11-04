@@ -11,6 +11,7 @@ module m37_nan_ieee
 //    "inf", "-inf", shortest round-trip for finite values).
 
 use xiom.io;
+use xiom.convert;
 
 fn main() -> Int {
   // NaN production: 0.0/0.0
@@ -54,13 +55,14 @@ fn main() -> Int {
   var fnan = f1 / f2;
   if !(fnan != fnan) { return 17; }
 
-  // Str + Float64 concat: formats, never inttoptrs
-  if ("nan? " + nan1) != "nan? nan" { io.println("fail: nan concat"); return 18; }
-  if ("inf: " + pos) != "inf: inf" { return 19; }
-  if ("neg: " + neg) != "neg: -inf" { return 20; }
-  if ("pi? " + 3.14) != "pi? 3.14" { return 21; }
-  if ("z: " + 0.0) != "z: 0" { return 22; }
-  if ("h: " + 0.5) != "h: 0.5" { return 23; }
+  // Float64 -> Str uses the EXPLICIT conversion; the old `Str + Float64`
+  // spelling is rejected by the checker (SPEC: no implicit conversions).
+  if ("nan? " + convert.float_to_string(nan1)) != "nan? nan" { io.println("fail: nan conversion"); return 18; }
+  if ("inf: " + convert.float_to_string(pos)) != "inf: inf" { return 19; }
+  if ("neg: " + convert.float_to_string(neg)) != "neg: -inf" { return 20; }
+  if ("pi? " + convert.float_to_string(3.14)) != "pi? 3.14" { return 21; }
+  if ("z: " + convert.float_to_string(0.0)) != "z: 0" { return 22; }
+  if ("h: " + convert.float_to_string(0.5)) != "h: 0.5" { return 23; }
 
   io.println("nan ok");
   return 0;

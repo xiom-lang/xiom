@@ -10,6 +10,7 @@
 // and the *UInt8 buffer concat-gate (Vec[UInt8].first on an i8* buffer).
 module m37_round7_vec_pop_slot
 use xiom.collections;
+use xiom.convert;
 
 fn main() -> Int {
   // 1. pop on an EMPTY vec must hit the None arm (round-7 ve2).
@@ -73,8 +74,9 @@ fn main() -> Int {
     Some(x) => { if x != 30 { return 16; } }
     None => { return 17; }
   }
-  // 8. Str + Int concat must still work (concat gate must not block it).
-  var s = "y = " + 42;
+  // 8. Explicit Int -> Str conversion in concatenation (the old `Str + Int`
+  // spelling is now a checker error; REL-20261010-1554-playground-2).
+  var s = "y = " + convert.int_to_string(42);
   if s != "y = 42" { return 18; }
   return 0;
 }

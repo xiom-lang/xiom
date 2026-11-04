@@ -57,6 +57,12 @@ pub struct IrEmitter {
     /// exit the arena is discarded wholesale (isolation) and the tail value is
     /// Copy-Out'd to the main heap (requirement i, UAF fix).
     pub guard_heap_depth: u32,
+    /// ASan build (`--sanitize=address`): route `alloc`/`realloc` to libc
+    /// calloc/realloc instead of the guard arena. ASan owns redzones and the
+    /// quarantine; the guard arena's slab reuse masks heap-use-after-free and
+    /// out-of-bounds reads (t8/t9 ladder). Fault containment comes from the
+    /// trampoline/guard page, not the arena, so signal faults stay contained.
+    pub asan: bool,
     /// Leaf names of functions proven to return a freshly owned Vec. A caller
     /// binding such a call may drop it; computed once per program before any
     /// function body is compiled (fresh_return::collect_fresh_ownership).
@@ -67,6 +73,23 @@ pub struct IrEmitter {
     /// Leaf names of `#[owns_return]` aggregate builders (editor frames):
     /// every Vec field of the returned struct is freshly owned by the caller.
     pub fresh_aggregate_returns: HashSet<String>,
+    /// Leaf -> enum type for `#[owns_return]` Result/Option<named enum>
+    /// builders (json_parse). A direct binding owns the returned tree and
+    /// reclaims it with a metadata-generated recursive drop helper.
+    pub fresh_enum_tree_returns: HashMap<String, String>,
+    /// Leaf names of `#[owns_str]` functions returning a freshly allocated
+    /// Str. A direct call-return binding is reclaimed at scope exit; literals
+    /// and borrowed/identity returns are never included (R2).
+    pub fresh_str_returns: HashSet<String>,
+    /// Leaf -> enum type for `#[consumes_agg]` builders whose return is a
+    /// named enum (JsonObjectBuilder.build). A direct call result is a
+    /// CONTAINER-owned tree: Vec/Map data buffers were transferred out of the
+    /// consumed aggregate; Str leaves are borrowed and never freed (R4).
+    pub consumes_agg_returns: HashMap<String, String>,
+    /// Leaf names of `#[consumes_agg]` callees (json_stringify). A by-value
+    /// aggregate argument is consumed; a proven-owned temporary's container
+    /// buffers are reclaimed after the call returns (R4).
+    pub consumes_agg_callees: HashSet<String>,
     /// Function leaves that can retain a by-value aggregate argument
     /// (`&mut` parameter or aggregate-carrying return; REL-2110).
     pub retaining_callees: Arc<HashSet<String>>,
@@ -82,6 +105,10 @@ pub struct IrEmitter {
     /// call but never retain the header. The caller keeps ownership and drops
     /// the buffer (engine per-frame Vulkan UI batches).
     pub borrows_vec_callees: Arc<HashSet<String>>,
+    /// `#[borrows_str]` callees: leaf -> by-value Str parameter indices. The
+    /// callee does not retain those arguments, so the caller keeps the Str
+    /// local (and its scope-exit drop). Literals are never freed (R2).
+    pub borrows_str_callees: Arc<HashMap<String, Vec<usize>>>,
     /// Program-global scalar/void-return callee set (built once after
     /// preassign; shared by Arc so the per-function prepass is O(body)).
     pub known_nonretaining: Arc<HashSet<String>>,
@@ -151,6 +178,18 @@ pub struct IrEmitter {
     /// at final assembly so clang sees them SIZED before any alloca/GEP use
     /// (a trailing definition is too late for the IR parser).
     pub type_decl_splice_offset: usize,
+    /// REL-20261010-1553: registered `fn(P...) -> R` markers for fn-typed
+    /// params, keyed like `mono.fn_typed_params` (bare + module-qualified).
+    /// `fn_typed_params` keeps only the RETURN (the B-007 wrap thunk needs
+    /// it); the by-reference parameter spellings are needed at the call site
+    /// to materialize a value argument's ADDRESS for a `fn(&T, &T)` callee.
+    pub fn_typed_param_markers: HashMap<String, Vec<(usize, String)>>,
+    /// REL-20261010-1553: the declared parameter types of the fn-typed
+    /// parameter an argument position expects, while a closure LITERAL in
+    /// that position is compiled. Pipe closures (`|a, b| ...`) have no
+    /// annotations, so this is the only source of their declared types
+    /// (notably nested `&T`, which must drive auto-deref in the body).
+    pub pending_closure_params: Option<Vec<String>>,
 }
 
 
@@ -176,14 +215,20 @@ impl IrEmitter {
             block_counter: 0,
             str_counter: 0,
             has_llvm_trap_decl: false,
-    guard_heap_depth: 0,
+        guard_heap_depth: 0,
+        asan: false,
             fresh_vec_returns: HashSet::new(),
             fresh_payload_returns: HashSet::new(),
             fresh_aggregate_returns: HashSet::new(),
+            fresh_enum_tree_returns: HashMap::new(),
+            fresh_str_returns: HashSet::new(),
+            consumes_agg_returns: HashMap::new(),
+            consumes_agg_callees: HashSet::new(),
             retaining_callees: Arc::new(HashSet::new()),
             byval_vec_readers: Arc::new(HashSet::new()),
             consumes_str_callees: Arc::new(HashMap::new()),
             borrows_vec_callees: Arc::new(HashSet::new()),
+            borrows_str_callees: Arc::new(HashMap::new()),
             known_nonretaining: Arc::new(HashSet::new()),
             elem_type_vec_fields: Arc::new(HashMap::new()),
             force_main_heap_alloc: false,
@@ -204,6 +249,8 @@ impl IrEmitter {
             mono: MonoContext::default(),
             local: LocalContext::default(),
             ctfe: RefCell::new(CtfeEngine::new()),
+            fn_typed_param_markers: HashMap::new(),
+            pending_closure_params: None,
         }
     }
 
@@ -950,11 +997,12 @@ impl IrEmitter {
         // the literal `@xiom_guard_alloc(i64 128/256/512)` shape (m195/m296/
         // m314/vec_new_initial_capacity). Only zero constants and runtime
         // sizes need the clamp.
-        if self.force_main_heap_alloc {
+        if self.force_main_heap_alloc || self.asan {
             // Zeroed MAIN-heap allocation without a new runtime symbol. The
             // engine UI link path can carry a stale runtime object; libc
             // calloc is always available and keeps the ownership contract
-            // independent of the runtime archive.
+            // independent of the runtime archive. ASan builds also take this
+            // path so ASan (not the guard arena) owns redzones/quarantine.
             if let Ok(n) = size_expr.trim().parse::<i64>() {
                 let size = if n == 0 { 1 } else { n };
                 self.emitln(&format!("  {tmp} = call i8* @calloc(i64 1, i64 {size})"));
@@ -985,6 +1033,13 @@ impl IrEmitter {
     /// VirtualAlloc slab pointer (invalid) and corrupt/crash the process.
     fn emit_realloc(&mut self, old_ptr: &str, old_size: &str, new_size: &str) -> String {
         let tmp = self.fresh_tmp();
+        if self.asan {
+            // ASan build: stay on the main heap so redzones/quarantine cover
+            // the grown buffer. The guard arena is bypassed together with
+            // emit_alloc, so no slab pointer can reach plain realloc.
+            self.emitln(&format!("  {tmp} = call i8* @realloc(i8* {old_ptr}, i64 {new_size})"));
+            return tmp;
+        }
         // Scoped-arena support: the runtime helper falls back to plain
         // realloc when no arena is active, and stays arena-aware when one is.
         // Main-heap pointers grown inside an arena stay on the main heap
@@ -2539,7 +2594,13 @@ impl IrEmitter {
             // B-007: keep a "fn(...)" MARKER for fn-typed fields/elements so
             // closure-valued container elements (Vec[fn()]) can be detected at
             // binding/call time -- the ABI still erases to i64.
-            Type::Fn(params, ret) => format!("fn({}) -> {}", params.iter().map(Self::type_from_ast).collect::<Vec<_>>().join(", "), Self::type_from_ast(ret)),
+            // REL-20261010-1553: keep nested `&T` spellings so the
+            // indirect-call path can see by-reference parameters.
+            Type::Fn(params, ret) => format!(
+                "fn({}) -> {}",
+                params.iter().map(Self::type_string_full).collect::<Vec<_>>().join(", "),
+                Self::type_string_full(ret)
+            ),
             other => Self::type_from_ast(other),
         }
     }
@@ -3383,9 +3444,15 @@ impl IrEmitter {
     /// "Vec" -- the C24-2 record). Static so registration passes can use it.
     pub(crate) fn fn_marker_rendered(ty: &Type) -> Option<String> {
         match ty {
+            // REL-20261010-1553: parameter spellings go through
+            // type_string_full, which KEEPS a nested `&T` / `&mut T`.
+            // type_from_ast erased it, leaving the marker "fn(T, T)" with no
+            // way for the indirect call site to know the callee expects a
+            // slot ADDRESS -- `items.get(i).unwrap()` was forwarded as the
+            // value and the forwarding thunk inttoptr'd it (0xC0000005).
             Type::Fn(params, ret) => Some(format!(
                 "fn({}) -> {}",
-                params.iter().map(Self::type_from_ast).collect::<Vec<_>>().join(", "),
+                params.iter().map(Self::type_string_full).collect::<Vec<_>>().join(", "),
                 Self::type_string_full(ret)
             )),
             _ => None,
@@ -3416,6 +3483,93 @@ impl IrEmitter {
             }
             _ => None,
         }
+    }
+
+    /// REL-20261010-1553: the DECLARED parameter spellings of a fn marker
+    /// (`"fn(&T, &T) -> Bool"` -> `["&T", "&T"]`). Reference spellings are
+    /// preserved by `fn_marker_rendered`, so the indirect-call path can tell
+    /// a by-reference parameter (the callee receives a slot ADDRESS) from a
+    /// by-value one. Returns None for a bare "fn" or a malformed marker.
+    pub(crate) fn fn_marker_param_types(marker: &str) -> Option<Vec<String>> {
+        let sig = marker.trim().strip_prefix("fn(")?;
+        let (params, _) = Self::split_fn_marker_body(sig)?;
+        if params.trim().is_empty() {
+            return Some(Vec::new());
+        }
+        Some(Self::split_top_level_type_params(params))
+    }
+
+    /// REL-20261010-1553: the full marker registered for `param_idx` of the
+    /// fn keyed `key` (bare or module-qualified). Ambiguous same-leaf
+    /// module-qualified twins with DIFFERENT markers yield None (mirrors the
+    /// suffix-resolution determinism rules).
+    pub(crate) fn fn_typed_param_marker_for(&self, key: &str, param_idx: usize) -> Option<String> {
+        let member = |v: &Vec<(usize, String)>| {
+            v.iter()
+                .find(|(idx, _)| *idx == param_idx)
+                .map(|(_, marker)| marker.clone())
+        };
+        if let Some(marker) = self.fn_typed_param_markers.get(key).and_then(member) {
+            return Some(marker);
+        }
+        let suffix = format!(".{key}");
+        let mut found: Option<String> = None;
+        for (k, v) in self.fn_typed_param_markers.iter() {
+            if !k.ends_with(&suffix) {
+                continue;
+            }
+            if let Some(marker) = member(v) {
+                match &found {
+                    None => found = Some(marker),
+                    Some(prev) if *prev == marker => {}
+                    _ => return None,
+                }
+            }
+        }
+        found
+    }
+
+    /// REL-20261010-1553: record the DECLARED XIOM type of an unannotated
+    /// pipe-closure parameter when the expected fn signature is known. Only
+    /// the type tracking changes -- the uniform i64 closure ABI is preserved;
+    /// a `&T` param's slot holds the ADDRESS (auto-deref on value use).
+    pub(crate) fn record_closure_param_expected_type(&mut self, name: &str, ty: Option<&str>) {
+        let Some(ty) = ty.map(str::trim).filter(|t| !t.is_empty()) else {
+            return;
+        };
+        self.local.local_xiom_types.insert(name.to_string(), ty.to_string());
+        if ty.starts_with('&') {
+            self.local.ref_params.insert(name.to_string());
+        } else {
+            self.local.ref_params.remove(name);
+        }
+        if Self::is_signed_xiom_type(ty) {
+            self.local.signed_locals.insert(name.to_string());
+        } else {
+            self.local.signed_locals.remove(name);
+        }
+    }
+
+    /// REL-20261010-1553: compile one call argument, handing a closure
+    /// LITERAL the declared parameter types of the fn-typed parameter it is
+    /// being passed to. The hint is scoped to exactly this compilation (the
+    /// closure arm consumes it) so nested calls in the body are unaffected.
+    pub(crate) fn compile_arg_with_closure_hint(
+        &mut self,
+        arg: &Expr,
+        hint: Option<Vec<String>>,
+    ) -> Result<(String, String), String> {
+        let is_closure_literal = matches!(arg, Expr::PipeClosure(..) | Expr::Closure(..))
+            || matches!(arg, Expr::Paren(inner, _)
+                if matches!(inner.as_ref(), Expr::PipeClosure(..) | Expr::Closure(..)));
+        if !is_closure_literal || hint.is_none() {
+            return self.compile_expr(arg);
+        }
+        let previous = self.pending_closure_params.take();
+        self.pending_closure_params = hint;
+        let result = self.compile_expr(arg);
+        self.pending_closure_params = previous;
+        result
     }
 
     /// m361 item 2 (+ the item-1 ginit shape): the uniform fn-value STORE
@@ -3561,6 +3715,17 @@ impl IrEmitter {
         }
         let env_src = match value {
             Expr::Ident(id) => self.local.closure_locals.contains(&id.name),
+            // REL-20261010-1553: a closure LITERAL always compiles to the
+            // uniform closure ENV (field 0 = fn ptr), including when the
+            // binding carries an annotation (`let f: fn(Int) -> Int =
+            // |x| x + 1`). The old `sig_marker.is_some()` raw branch removed
+            // the env mark and the call inttoptr'd the env as code (AV).
+            Expr::Closure(..) | Expr::PipeClosure(..) => true,
+            Expr::Paren(inner, _) => match inner.as_ref() {
+                Expr::Closure(..) | Expr::PipeClosure(..) => true,
+                Expr::Ident(id) => self.local.closure_locals.contains(&id.name),
+                _ => false,
+            },
             // Vec[fn] element read: the m130 element convention stores an
             // ENV, so the copy is env-valued too (`let h = v[i]; h(a, b)`
             // must load field 0 -- direct-calling the env was an AV).
@@ -5520,7 +5685,22 @@ impl IrEmitter {
                             } else {
                                 Self::split_top_level_type_params(params_str)
                                     .iter()
-                                    .map(|p| self.llvm_type_for(p).unwrap_or_else(|_| "i64".to_string()))
+                                    // REL-20261010-1553: markers may keep a
+                                    // by-reference spelling ("&Int"). The
+                                    // erased fn-value ABI passes these as the
+                                    // same i64 word as the pointee, exactly
+                                    // like the pre-fix "Int" marker, so strip
+                                    // the reference before lowering.
+                                    .map(|p| {
+                                        let erased = p
+                                            .trim()
+                                            .strip_prefix("&mut ")
+                                            .or_else(|| p.trim().strip_prefix('&'))
+                                            .unwrap_or(p)
+                                            .trim();
+                                        self.llvm_type_for(erased)
+                                            .unwrap_or_else(|_| "i64".to_string())
+                                    })
                                     .collect()
                             };
                             let ret_llvm = self.llvm_type_for(ret_str.trim()).unwrap_or_else(|_| "i64".to_string());
@@ -6955,6 +7135,12 @@ impl IrEmitter {
             self.emitln("");
         }
 
+        // R3 (json_parse): one recursive, metadata-generated drop helper per
+        // contracted enum-tree type. Emitted BEFORE the unresolved-symbol
+        // check so the call sites resolve, and at module level so every type
+        // definition and the xiom_guard_free/xiom_str_len declares precede it.
+        self.emit_enum_tree_drop_helpers();
+
         // m142: any called-but-undefined function symbol is a hard error. The
         // pass used to synthesize a `ret 0` stub, which answered unresolved
         // calls (`ptr.is_null()` -> `@ptr.is_null`) with a silently wrong
@@ -7051,7 +7237,28 @@ impl IrEmitter {
         self.flush_contract_counter_decls();
 
         let ir = Self::hoist_static_allocas(&self.output);
+        let ir = Self::normalize_portable_intrinsics(ir);
         Ok(Self::maybe_wrap_fast_exit(ir))
+    }
+
+    /// REL-20261010-1609-pulse (macOS legs): rewrite every typed-pointer
+    /// intrinsic spelling emitted by any call site to the portable untyped
+    /// form. The typed `p0i8` names were valid under typed pointers but are
+    /// unresolved on newest Apple LLVM at IR verify (`use of undefined value
+    /// @llvm.memset.p0i8.i64`), which blocked the macOS arm64/x64 legs. The
+    /// untyped `p0.p0` / `p0` names verify in both pointer representations;
+    /// argument types are left untouched (this codegen emits `i8*`).
+    ///
+    /// Doing it here (module finalization) rather than at each emission site
+    /// keeps the fix total: `call.rs` / `expr.rs` / `stmt.rs` / `coerce.rs`
+    /// also emit the old spelling and are owned by other lanes.
+    fn normalize_portable_intrinsics(ir: String) -> String {
+        if !ir.contains("p0i8") {
+            return ir;
+        }
+        ir.replace("@llvm.memcpy.p0i8.p0i8.i64", "@llvm.memcpy.p0.p0.i64")
+            .replace("@llvm.memmove.p0i8.p0i8.i64", "@llvm.memmove.p0.p0.i64")
+            .replace("@llvm.memset.p0i8.i64", "@llvm.memset.p0.i64")
     }
 
     /// m375 (REL-20261021-1122-orbitdb-2): opt-in fast process exit.
@@ -7501,6 +7708,7 @@ fast:
                 emitter.mono.generic_fn_decls = self.mono.generic_fn_decls.clone();
                 emitter.mono.bare_fn_aliases = self.mono.bare_fn_aliases.clone();
                 emitter.mono.fn_typed_params = self.mono.fn_typed_params.clone();
+                emitter.fn_typed_param_markers = self.fn_typed_param_markers.clone();
                 emitter.mono.prepass_call_types = self.mono.prepass_call_types.clone();
                 *emitter.ctfe.borrow_mut() = (*ctfe_snapshot).clone();
                 emitter.local.constants = (*local_constants).clone();
@@ -10042,7 +10250,7 @@ fast:
                 Stmt::Let(_, _, _, sp) | Stmt::Var(_, _, _, sp) | Stmt::Assign(_, _, sp)
                 | Stmt::Return(_, sp) | Stmt::Expr(_, sp) | Stmt::If(_, _, _, _, sp)
                 | Stmt::Match(_, _, sp) | Stmt::While(_, _, _, sp, _) | Stmt::For(_, _, _, sp, _)
-                | Stmt::Spawn(_, sp, _) | Stmt::Destructure(_, _, sp) | Stmt::Break(_, sp)
+                | Stmt::Spawn(_, sp, _) | Stmt::Destructure(_, _, sp, _) | Stmt::Break(_, sp)
                 | Stmt::Continue(_, sp) | Stmt::Defer(_, sp) | Stmt::Assert(_, _, sp)
                 | Stmt::Debugger(sp) => *sp,
                 Stmt::Asm(a) => a.span,

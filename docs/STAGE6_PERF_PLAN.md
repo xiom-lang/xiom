@@ -623,3 +623,62 @@ intake for the benchmark / incremental / parallel lanes.
   (string round-trips removed, zero IR-byte change). [study 05]
 - Bootstrap-chain budgets: T3 suite 6-13 min uncached; O2 targets (<60 s
   self-compile, within 2x xiom.exe) currently unmeasured. [study 07]
+
+## 2026-11-02 -- t3 trampoline floor CLOSED (P1)
+
+The 2026-10-05 attribution was right about the trampoline, but after the
+handler-install-once fix the remaining cost was the POSIX signal-mask save.
+`xiom_trampoline_call` and `xiom_trap_enter` called `sigsetjmp(..., 1)` on
+every confined-block entry; that is a `sigprocmask` syscall per entry
+(~200 ns). Both paths now use savemask=0, and the fault handler unblocks the
+delivered signal before `siglongjmp` (fault path only), so a second fault in
+the same thread is still contained.
+
+Measured on the official v0.65.5 linux-x64 toolchain (WSL, 11-15 runs):
+- scored t3 (1000 cycles x [2 dl_open + dl_sym + 100 indirect calls + 2
+  dl_close]): 27 ms internal / 31 ms wall -> 5 ms internal / 8.5 ms wall.
+- 2026-11-02 arena run before the fix: 46 ms (Rust 6, C 21).
+- 100k per-call unsafe blocks with dl* hoisted: 21 ms; the same calls inside
+  one unsafe block per cycle: 5 ms; dl* only: 5 ms.
+- `sigsetjmp` microbenchmark: savemask=1 = 21 ms / 100k; savemask=0 = 0.4 ms.
+
+Locks: `e2e_t3_trampoline_floor_budget` (1M entries, 1500 ms budget) and
+`e2e_confined_repeat_fault_contained` (two faults in one thread).
+
+The remaining t3 delta to Rust is the dl* cycle itself (real dlopen/dlsym/
+dlclose work), not codegen. PERF-1 candidate 2 (callee classification) is no
+longer required for t3; keep it only for untrusted hot FFI blocks.
+
+## 2026-11-03 -- Phased runtime performance plan (post-v0.65.6)
+
+Baseline (v0.65.5 arena, 2026-11-02): t1 35 / t2 29 / t3 46 / t4 22 /
+t5 8 ms; Rust 9 / 8 / 6 / - / 6. The 21 ms signal-mask cost is removed in
+v0.65.6; t5 is near parity; t1/t2 are the remaining gaps. Benchmark
+acceptance is already green (systems 42/42); speed is a score lever, not a
+gate.
+
+Phase A (v0.65.6, correctness only; no perf work): mutability init-once, all
+seven checker spec gaps enforced, nested-scope EnumTree drop (done),
+packaging. Do not mix perf experiments into this release.
+
+Phase B (immediately after release; parallel with selfhost phase-8):
+runtime-C/allocator only. Profile t1/t2/t4 on the pinned Linux toolchain and
+split startup vs alloc/zeroing vs string/Vec traffic vs confinement.
+Candidates: xiom_alloc zeroing and size classes, guard-free paths, server
+parse buffers. No emitted-IR changes, so no selfhost parity debt. Instrument
+the compile-time budgets (<60 s self-compile, within 2x xiom.exe) for the
+selfhost lane.
+
+Phase C (after selfhost parity, or with an explicit port in the same batch):
+IR/codegen performance. t2 trampoline fast path (PERF-1 candidate 2,
+untrusted hot blocks), calling convention/data layout, and the tier-fork A/B
+decision. Every IR change must be ported to the selfhost and the diff
+baseline renewed.
+
+Phase D: re-measure the arena with the same flags and 7-run medians; keep
+t8/t9 safety as a separate lane; ship as v0.65.7 or later.
+
+rustc study: high value for drop/borrow/definite-init semantics and
+selfhost architecture; medium for compile-time; low direct value for
+runtime speed. Use it to keep semantics and the selfhost faithful, not as a
+prerequisite for runtime tuning.

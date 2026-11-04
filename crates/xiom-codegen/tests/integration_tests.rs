@@ -308,7 +308,7 @@ fn main() -> Int { return 0; }";
     let ir = compile(src).unwrap();
     assert!(ir.contains("declare i8* @malloc(i64)"), "should declare malloc");
     assert!(ir.contains("declare void @free(i8*)"), "should declare free");
-    assert!(ir.contains("declare void @llvm.memcpy.p0i8.p0i8.i64(i8*, i8*, i64, i1)"), "should declare memcpy");
+    assert!(ir.contains("declare void @llvm.memcpy.p0.p0.i64(i8*, i8*, i64, i1)"), "should declare memcpy in the portable untyped form");
 }
 
 // ========================================================================

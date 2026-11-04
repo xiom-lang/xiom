@@ -46,10 +46,12 @@ fn main() -> Int {
     None => { return 9; }
   }
 
-  // Option[Int] scalar rebind inside the arm does not leak out.
+  // Option[Int] scalar rebind inside the arm does not leak out. The
+  // pattern name itself is immutable, so rebind it into a `var` local
+  // (the match binding remains the read-only source).
   var s = Some(5);
   match s {
-    Some(v) => { v = 6; }
+    Some(v0) => { var v = v0; v = 6; }
     None => { }
   }
   match s {

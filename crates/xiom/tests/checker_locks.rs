@@ -43,6 +43,29 @@ fn run_on(name: &str) -> (String, Option<i32>, PathBuf) {
     )
 }
 
+/// Stage 6 tier 3: compile with the opt-in `--lint-strict` flag. Same
+/// contract as `run_on` plus the flag; the caller owns the executable.
+fn run_strict_on(name: &str) -> (String, Option<i32>, PathBuf) {
+    let exe = std::env::temp_dir().join(format!(
+        "xiom_check_strict_{}_{}{}",
+        name,
+        std::process::id(),
+        if cfg!(windows) { ".exe" } else { "" }
+    ));
+    let output = Command::new(xiom_bin())
+        .arg("--lint-strict")
+        .arg(fixture(name))
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .unwrap_or_else(|e| panic!("failed to spawn '{}': {e}", xiom_bin()));
+    (
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+        output.status.code(),
+        exe,
+    )
+}
+
 /// m150 (R-5 benchmark relay): `--check`-only helper. The R-5 false positive
 /// was a check-phase finding, and its full relay shape currently stops at
 /// codegen on a separate pre-existing C001, so the positive lock must not
@@ -870,5 +893,419 @@ fn m0052_reserved_system_symbol_silent_for_normal_names() {
     assert!(
         !stderr.contains("warning[W009]"),
         "`recv_bytes` must not trigger W009, got:\n{stderr}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Stage 6 tier 3 (--lint-strict, owner decision 2026-11-02): opt-in,
+// warning-only. Each test proves the positive fixture warns ONLY under the
+// flag, the default build stays silent, and the negative fixture stays silent
+// under the flag. Every compile exits 0.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn m390_w015_unused_local_is_flag_gated() {
+    let (stderr, code, exe) = run_strict_on("m390_w015_unused_local");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(code, Some(0), "W015 must not block the build. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("warning[W015]"),
+        "expected warning[W015] in stderr, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("unused local binding"),
+        "expected the unused-local message, got:\n{stderr}"
+    );
+
+    let (default_stderr, default_code, default_exe) = run_on("m390_w015_unused_local");
+    let _ = std::fs::remove_file(&default_exe);
+    assert_eq!(default_code, Some(0), "default build must succeed. stderr:\n{default_stderr}");
+    assert!(
+        !default_stderr.contains("warning[W015]"),
+        "tier 3 is opt-in: default builds must stay silent, got:\n{default_stderr}"
+    );
+
+    let (guard_stderr, guard_code, guard_exe) = run_strict_on("m390_w015_guard");
+    let _ = std::fs::remove_file(&guard_exe);
+    assert_eq!(guard_code, Some(0), "guard fixture must compile. stderr:\n{guard_stderr}");
+    assert!(
+        !guard_stderr.contains("warning[W015]"),
+        "used/_prefixed locals must stay silent, got:\n{guard_stderr}"
+    );
+}
+
+#[test]
+fn m391_w010_unused_param_is_flag_gated() {
+    let (stderr, code, exe) = run_strict_on("m391_w010_unused_param");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(code, Some(0), "W010 must not block the build. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("warning[W010]"),
+        "expected warning[W010] in stderr, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("unused function parameter"),
+        "expected the unused-parameter message, got:\n{stderr}"
+    );
+
+    let (default_stderr, default_code, default_exe) = run_on("m391_w010_unused_param");
+    let _ = std::fs::remove_file(&default_exe);
+    assert_eq!(default_code, Some(0), "default build must succeed. stderr:\n{default_stderr}");
+    assert!(
+        !default_stderr.contains("warning[W010]"),
+        "tier 3 is opt-in: default builds must stay silent, got:\n{default_stderr}"
+    );
+
+    let (guard_stderr, guard_code, guard_exe) = run_strict_on("m391_w010_guard");
+    let _ = std::fs::remove_file(&guard_exe);
+    assert_eq!(guard_code, Some(0), "guard fixture must compile. stderr:\n{guard_stderr}");
+    assert!(
+        !guard_stderr.contains("warning[W010]"),
+        "_prefixed params and method params must stay silent, got:\n{guard_stderr}"
+    );
+}
+
+#[test]
+fn m392_w011_unused_import_is_flag_gated() {
+    let (stderr, code, exe) = run_strict_on("m392_w011_unused_import");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(code, Some(0), "W011 must not block the build. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("warning[W011]"),
+        "expected warning[W011] in stderr, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("unused import"),
+        "expected the unused-import message, got:\n{stderr}"
+    );
+
+    let (default_stderr, default_code, default_exe) = run_on("m392_w011_unused_import");
+    let _ = std::fs::remove_file(&default_exe);
+    assert_eq!(default_code, Some(0), "default build must succeed. stderr:\n{default_stderr}");
+    assert!(
+        !default_stderr.contains("warning[W011]"),
+        "tier 3 is opt-in: default builds must stay silent, got:\n{default_stderr}"
+    );
+
+    let (guard_stderr, guard_code, guard_exe) = run_strict_on("m392_w011_guard");
+    let _ = std::fs::remove_file(&guard_exe);
+    assert_eq!(guard_code, Some(0), "guard fixture must compile. stderr:\n{guard_stderr}");
+    assert!(
+        !guard_stderr.contains("warning[W011]"),
+        "referenced imports must stay silent, got:\n{guard_stderr}"
+    );
+}
+
+#[test]
+fn m393_w012_constant_condition_is_flag_gated() {
+    let (stderr, code, exe) = run_strict_on("m393_w012_constant_cond");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(code, Some(0), "W012 must not block the build. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("warning[W012]"),
+        "expected warning[W012] in stderr, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("constant condition"),
+        "expected the constant-condition message, got:\n{stderr}"
+    );
+
+    let (default_stderr, default_code, default_exe) = run_on("m393_w012_constant_cond");
+    let _ = std::fs::remove_file(&default_exe);
+    assert_eq!(default_code, Some(0), "default build must succeed. stderr:\n{default_stderr}");
+    assert!(
+        !default_stderr.contains("warning[W012]"),
+        "tier 3 is opt-in: default builds must stay silent, got:\n{default_stderr}"
+    );
+
+    let (guard_stderr, guard_code, guard_exe) = run_strict_on("m393_w012_guard");
+    let _ = std::fs::remove_file(&guard_exe);
+    assert_eq!(guard_code, Some(0), "guard fixture must compile. stderr:\n{guard_stderr}");
+    assert!(
+        !guard_stderr.contains("warning[W012]"),
+        "variable conditions and `while true` must stay silent, got:\n{guard_stderr}"
+    );
+}
+
+#[test]
+fn m394_w013_self_assignment_is_flag_gated() {
+    let (stderr, code, exe) = run_strict_on("m394_w013_self_assign");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(code, Some(0), "W013 must not block the build. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("warning[W013]"),
+        "expected warning[W013] in stderr, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("self-assignment"),
+        "expected the self-assignment message, got:\n{stderr}"
+    );
+
+    let (default_stderr, default_code, default_exe) = run_on("m394_w013_self_assign");
+    let _ = std::fs::remove_file(&default_exe);
+    assert_eq!(default_code, Some(0), "default build must succeed. stderr:\n{default_stderr}");
+    assert!(
+        !default_stderr.contains("warning[W013]"),
+        "tier 3 is opt-in: default builds must stay silent, got:\n{default_stderr}"
+    );
+
+    let (guard_stderr, guard_code, guard_exe) = run_strict_on("m394_w013_guard");
+    let _ = std::fs::remove_file(&guard_exe);
+    assert_eq!(guard_code, Some(0), "guard fixture must compile. stderr:\n{guard_stderr}");
+    assert!(
+        !guard_stderr.contains("warning[W013]"),
+        "distinct places and computed updates must stay silent, got:\n{guard_stderr}"
+    );
+}
+
+#[test]
+fn m395_w014_vacuous_arith_is_flag_gated() {
+    let (stderr, code, exe) = run_strict_on("m395_w014_vacuous_arith");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(code, Some(0), "W014 must not block the build. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("warning[W014]"),
+        "expected warning[W014] in stderr, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("vacuous integer arithmetic"),
+        "expected the vacuous-arithmetic message, got:\n{stderr}"
+    );
+
+    let (default_stderr, default_code, default_exe) = run_on("m395_w014_vacuous_arith");
+    let _ = std::fs::remove_file(&default_exe);
+    assert_eq!(default_code, Some(0), "default build must succeed. stderr:\n{default_stderr}");
+    assert!(
+        !default_stderr.contains("warning[W014]"),
+        "tier 3 is opt-in: default builds must stay silent, got:\n{default_stderr}"
+    );
+
+    let (guard_stderr, guard_code, guard_exe) = run_strict_on("m395_w014_guard");
+    let _ = std::fs::remove_file(&guard_exe);
+    assert_eq!(guard_code, Some(0), "guard fixture must compile. stderr:\n{guard_stderr}");
+    assert!(
+        !guard_stderr.contains("warning[W014]"),
+        "asymmetric literals and float operands must stay silent, got:\n{guard_stderr}"
+    );
+}
+
+/// m396 (SPEC.md: "`let` cannot be reassigned. `var` can."): a `let` local is
+/// immutable, including the compound-assignment desugaring. This is the
+/// owner's exact repro plus `+=`.
+#[test]
+fn m396_let_reassignment_is_hard_error() {
+    let (stderr, code) = check_on("m396_let_reassign_negative");
+    assert_ne!(code, Some(0), "let reassignment must fail --check. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("cannot assign to immutable binding 'name'"),
+        "expected the immutable-let message for 'name', got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("(declared with 'let'; use 'var')"),
+        "expected the use-'var' hint, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("cannot assign to immutable binding 'n'"),
+        "compound assignment must get the same check, got:\n{stderr}"
+    );
+}
+
+/// m396: a field/index store whose ROOT is a `let` binding is rejected.
+#[test]
+fn m396_let_field_store_is_hard_error() {
+    let (stderr, code) = check_on("m396_let_field_store_negative");
+    assert_ne!(code, Some(0), "field store through let must fail. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("cannot assign to immutable binding 'p'"),
+        "expected the immutable-let message for 'p', got:\n{stderr}"
+    );
+}
+
+/// m396: module-level `const` (and module `const`) cannot be assigned.
+#[test]
+fn m396_const_store_is_hard_error() {
+    let (stderr, code) = check_on("m396_const_store_negative");
+    assert_ne!(code, Some(0), "const store must fail. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("cannot assign to immutable const 'LIMIT'"),
+        "expected the immutable-const message, got:\n{stderr}"
+    );
+}
+
+/// m396: `let (a, b)` bindings are immutable (only `var (a, b)` is assignable).
+#[test]
+fn m396_destructure_let_is_hard_error() {
+    let (stderr, code) = check_on("m396_destructure_let_negative");
+    assert_ne!(code, Some(0), "destructured let store must fail. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("cannot assign to immutable binding 'a'"),
+        "expected the immutable-let message for 'a', got:\n{stderr}"
+    );
+}
+
+/// m396: match/if-let/`is` pattern bindings are immutable; the pattern
+/// grammar has no explicit `var` form.
+#[test]
+fn m396_match_binding_is_hard_error() {
+    let (stderr, code) = check_on("m396_match_binding_negative");
+    assert_ne!(code, Some(0), "pattern-binding store must fail. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("cannot assign to immutable binding 'v'"),
+        "expected the immutable-let message for 'v', got:\n{stderr}"
+    );
+}
+
+/// m396: `&self` is immutable; only `&mut self` may store through the
+/// receiver.
+#[test]
+fn m396_shared_ref_receiver_store_is_hard_error() {
+    let (stderr, code) = check_on("m396_shared_ref_self_negative");
+    assert_ne!(code, Some(0), "&self receiver store must fail. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("cannot assign to immutable binding 'self'"),
+        "expected the immutable-let message for 'self', got:\n{stderr}"
+    );
+}
+
+/// m396: the legal forms stay green (var rebind/field store, shadowing,
+/// `var (a, b)`, params, for variables, `&mut self`).
+#[test]
+fn m396_mutable_bindings_accept() {
+    let (stderr, code, exe) = run_on("m396_mutable_bindings_accept");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(code, Some(0), "legal mutable forms must compile. stderr:\n{stderr}");
+    assert!(
+        !stderr.contains("cannot assign to immutable"),
+        "no immutability diagnostic is allowed here, got:\n{stderr}"
+    );
+}
+
+/// m396: `let x: T;` is init-once. The first whole-binding assignment is
+/// the initialization and must compile/run; this is the stdlib deferred-init
+/// shape (`let rc: Int32; ... rc = ...`).
+#[test]
+fn m396_deferred_init_accept() {
+    let (stderr, code, exe) = run_on("m396_deferred_init_accept");
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(code, Some(0), "deferred init must compile. stderr:\n{stderr}");
+    assert!(
+        !stderr.contains("cannot assign to immutable"),
+        "the first deferred store must not be rejected, got:\n{stderr}"
+    );
+}
+
+/// m396: deferred init is ONCE. The second assignment must be rejected.
+#[test]
+fn m396_deferred_init_twice_is_hard_error() {
+    let (stderr, code) = check_on("m396_deferred_init_twice_negative");
+    assert_ne!(code, Some(0), "second store after deferred init must fail. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("cannot assign to immutable binding 'x'"),
+        "expected the immutable-let message for 'x', got:\n{stderr}"
+    );
+}
+
+/// m396: `let x: T = 0;` is initialized at declaration -- an explicit zero is
+/// NOT a deferred-init placeholder.
+#[test]
+fn m396_initialized_zero_is_immutable() {
+    let (stderr, code) = check_on("m396_initialized_zero_negative");
+    assert_ne!(code, Some(0), "explicit `= 0` binding must be immutable. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("cannot assign to immutable binding 'x'"),
+        "expected the immutable-let message for 'x', got:\n{stderr}"
+    );
+}
+
+/// m396: a field store is not an initialization of a deferred `let`; only the
+/// first bare whole-binding store consumes the init-once state.
+#[test]
+fn m396_deferred_field_store_is_hard_error() {
+    let (stderr, code) = check_on("m396_deferred_field_store_negative");
+    assert_ne!(code, Some(0), "field store before deferred init must fail. stderr:\n{stderr}");
+    assert!(
+        stderr.contains("cannot assign to immutable binding 'p'"),
+        "expected the immutable-let message for 'p', got:\n{stderr}"
+    );
+}
+
+/// m396 regression lock: the real stdlib modules that carry deferred
+/// `let x: T;` FFI/OS initializations (and `xiom.collections` receiver
+/// fields) import cleanly -- zero T001.
+#[test]
+fn m396_stdlib_imports_have_no_immutable_errors() {
+    let (stderr, code) = check_on("m396_stdlib_imports_accept");
+    assert_eq!(code, Some(0), "stdlib import check must succeed. stderr:\n{stderr}");
+    assert!(
+        !stderr.contains("cannot assign to immutable"),
+        "stdlib catalog bodies must have no immutable-binding errors, got:\n{stderr}"
+    );
+}
+
+/// REL-20261010-1554-playground-2: `Int + Str` is an implicit conversion and
+/// must be a hard checker error (SPEC 9: conversions are explicit). The old
+/// behavior compiled `12 + 2.to_string()` and printed "122".
+#[test]
+fn rel_playground_int_str_addition_is_hard_error() {
+    let (stderr, code) = check_on("rel_playground_int_str_reject");
+    assert_ne!(
+        code,
+        Some(0),
+        "Int + Str must fail the checker. stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("cannot add Str and Int"),
+        "expected the mixed Str/Int error, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("convert.int_to_string"),
+        "the diagnostic must point at the explicit conversion, got:\n{stderr}"
+    );
+}
+
+/// REL-20261010-1554-playground-2 positive control: explicit
+/// `convert.int_to_string` is accepted, compiles, and concatenates.
+#[test]
+fn rel_playground_explicit_int_to_string_accepts() {
+    let (stderr, code, exe) = run_on("rel_playground_int_str_convert");
+    let run = std::process::Command::new(&exe).output();
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(
+        code,
+        Some(0),
+        "explicit convert.int_to_string must compile. stderr:\n{stderr}"
+    );
+    let run = run.expect("run explicit-conversion probe");
+    assert_eq!(run.status.code(), Some(0), "explicit conversion probe must exit 0");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout).trim(),
+        "122",
+        "explicit conversions must concatenate to the expected Str"
+    );
+}
+
+/// REL-20261010-1554-playground-3: `(2 + 2.5)` promotes to Float64 and
+/// `.to_str()` must print "4.5" instead of falling through to the W005
+/// `@to_str` stub (empty render / 0xC0000409).
+#[test]
+fn rel_playground_mixed_to_str_prints_float() {
+    let (stderr, code, exe) = run_on("rel_playground_mixed_to_str");
+    let run = std::process::Command::new(&exe).output();
+    let _ = std::fs::remove_file(&exe);
+    assert_eq!(
+        code,
+        Some(0),
+        "mixed-expression .to_str() must compile. stderr:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("W005"),
+        "the mixed-expression .to_str() must not use the W005 stub, got:\n{stderr}"
+    );
+    let run = run.expect("run mixed-expression to_str probe");
+    assert_eq!(run.status.code(), Some(0), "mixed-expression probe must exit 0");
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout).trim(),
+        "4.5",
+        "mixed Int/Float .to_str() must print the Float64 text"
     );
 }

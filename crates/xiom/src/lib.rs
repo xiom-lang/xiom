@@ -168,6 +168,10 @@ pub struct CompileConfig {
     pub overflow_checks: bool,
     /// S2: Promote non-exhaustive match warnings to hard errors
     pub strict_exhaustive: bool,
+    /// Stage 6 tier 3: emit opt-in noise lints (unused locals/params/imports,
+    /// constant conditions, self-assignment, vacuous integer arithmetic).
+    /// Warning-only; default false so default builds stay warning-clean.
+    pub lint_strict: bool,
     pub max_recursion_depth: u32,
     pub dump_contracts: bool,
     pub verify: bool,
@@ -251,6 +255,7 @@ impl Default for CompileConfig {
             keep_debug_checks: false,
             overflow_checks: false,
             strict_exhaustive: false,
+            lint_strict: false,
             max_recursion_depth: 500,
             dump_contracts: false,
             verify: false,
@@ -733,6 +738,7 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
     // Stage 3: Type Check
     let mut checker = Checker::new();
     checker.set_strict_exhaustive(config.strict_exhaustive);
+    checker.set_lint_strict(config.lint_strict);
     // D1: register `impl Trait[Args]` blocks from the UNEXPANDED program so
     // `Trait[Args].method()` static calls can dispatch. Must happen before
     // expand_impl_blocks erases the impl declarations.
@@ -903,6 +909,7 @@ pub fn compile_with_diagnostics(config: &CompileConfig, source_paths: &[String])
 
     // Stage 5: Codegen (IR emission)
     let mut emitter = IrEmitter::new();
+    emitter.asan = matches!(config.sanitize.as_deref(), Some("address"));
     emitter.set_target_triple(config.target.triple());
     emitter.set_freestanding(config.freestanding || config.target.is_freestanding());
     emitter.set_check_contracts(config.check_contracts || config.runtime_contracts);
@@ -1134,6 +1141,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
 
     // Stage 3: Type Check
     checker.set_strict_exhaustive(config.strict_exhaustive);
+    checker.set_lint_strict(config.lint_strict);
     if let Some(primary) = effective_sources.first() {
         let file_path = Path::new(primary);
         let project_root = find_project_root(file_path);
@@ -1497,6 +1505,7 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
     // Stage 5: Codegen
     timing_mark("borrow");
     let mut emitter = IrEmitter::new();
+    emitter.asan = matches!(config.sanitize.as_deref(), Some("address"));
     // m166: trust `#[unsafe_direct]` on the injected stdlib decls.
     emitter.set_catalog_fn_keys(injected_fn_keys);
     emitter.set_check_contracts(config.check_contracts || config.runtime_contracts);
@@ -1570,6 +1579,19 @@ pub fn compile(config: &CompileConfig, source_paths: &[String]) -> Result<(), Ve
         }
     };
     timing_mark("codegen");
+
+    // --sanitize=address: clang does not run the ASan instrumentation pass on
+    // `.ll` inputs (only the C/C++ frontends set it up); it instruments the
+    // functions that carry the `sanitize_address` function attribute. XIOM
+    // compiles LLVM IR, so tag every defined function. Without this,
+    // `--sanitize=address` only links the ASan runtime: double-free /
+    // invalid-free are caught by the interceptors while heap-use-after-free
+    // and redzone writes stay silent (the t8/t9 ladder zero-score class).
+    let llvm_ir = if matches!(config.sanitize.as_deref(), Some("address")) {
+        add_asan_function_attributes(&llvm_ir)
+    } else {
+        llvm_ir
+    };
 
     if config.diagnostics_json {
         println!(r#"{{"schema_version":1,"status":"ok"}}"#);
@@ -2760,11 +2782,38 @@ fn add_dllexport_to_main(ir: &str) -> String {
         .replace("define void @main(", "define dllexport void @main(")
 }
 
+/// Tag every defined function with `sanitize_address` so clang's ASan pass
+/// instruments the generated LLVM IR. clang only sets up the pass from the
+/// C/C++ frontends; for `.ll` inputs it links the runtime but leaves loads
+/// and stores unchecked unless the function carries the attribute.
+fn add_asan_function_attributes(ir: &str) -> String {
+    let mut group = 0usize;
+    while ir.contains(&format!("attributes #{group} ")) {
+        group += 1;
+    }
+    let mut out = String::with_capacity(ir.len() + 64);
+    for line in ir.lines() {
+        if line.starts_with("define ") {
+            if let Some(pos) = line.rfind(" {") {
+                out.push_str(&line[..pos]);
+                out.push_str(&format!(" #{group}"));
+                out.push_str(&line[pos..]);
+                out.push('\n');
+                continue;
+            }
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out.push('\n');
+    out.push_str(&format!("attributes #{group} = {{ sanitize_address }}\n"));
+    out
+}
+
 /// M12: Fix IR type mismatch: inttoptr i64 %X to i8* followed by store i8 %X, i8** %Y
 /// Inttoptr produces i8* but codegen may emit store i8 (expecting non-pointer).
 /// Only fix when the store target is i8** (pointer-to-pointer), not i8* (raw byte pointer).
-fn fix_inttoptr_store_mismatch(ir: &str) -> String {
-    use std::collections::HashSet;
+fn fix_inttoptr_store_mismatch(ir: &str) -> String {    use std::collections::HashSet;
     // Collect all registers defined by inttoptr to i8*
     let mut i8p_regs: HashSet<String> = HashSet::new();
     for line in ir.lines() {
@@ -3049,19 +3098,73 @@ pub fn is_newer(src: &std::path::Path, dst: &std::path::Path) -> bool {
     true
 }
 
+/// Built-in error-code reference, embedded at compile time so installed
+/// toolchains and release archives can use `--explain` without a
+/// `docs/error_codes/` directory (REL-20261010-1549-website-8(c)).
+fn builtin_error_doc(code: &str) -> Option<&'static str> {
+    Some(match code {
+        "L001" => include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/error_codes/L001.md"
+        )),
+        "P001" => include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/error_codes/P001.md"
+        )),
+        "T001" => include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/error_codes/T001.md"
+        )),
+        "E001" => include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/error_codes/E001.md"
+        )),
+        "C001" => include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/error_codes/C001.md"
+        )),
+        "W000" => include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/error_codes/W000.md"
+        )),
+        "W001" => include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/error_codes/W001.md"
+        )),
+        "X0010" => include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/error_codes/X0010.md"
+        )),
+        "X0011" => include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/error_codes/X0011.md"
+        )),
+        "X0100" => include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/error_codes/X0100.md"
+        )),
+        _ => return None,
+    })
+}
+
 /// 5c-R: Display the error code reference for `--explain <code>`.
-/// Reads from `docs/error_codes/{code}.md` relative to the project root.
+/// Prefers `docs/error_codes/{code}.md` in the current directory (a checkout
+/// can add or override pages), then falls back to the text embedded in the
+/// binary so installed users and release archives always get an answer.
 pub fn explain_error(code: &str) -> bool {
     let root = std::env::current_dir().unwrap_or_default();
     let path = root.join("docs").join("error_codes").join(format!("{code}.md"));
-    match std::fs::read_to_string(&path) {
-        Ok(content) => {
+    let content = std::fs::read_to_string(&path)
+        .ok()
+        .or_else(|| builtin_error_doc(code).map(str::to_string));
+    match content {
+        Some(content) => {
             println!("{content}");
             println!("--");
             println!("For the full error-code index: docs/error_codes/README.md");
             true
         }
-        Err(_) => {
+        None => {
             eprintln!("Unknown error code: {code}");
             eprintln!("Available codes are listed in docs/error_codes/README.md");
             eprintln!("Run: xiom --explain T001  (for type errors)");
@@ -3975,5 +4078,34 @@ mod tests {
         assert!(pos("H/lib") < pos("H/stdlib"));
         assert!(pos("H/stdlib") < pos("M/stdlib"),
             "baked checkout path is the last fallback");
+    }
+}
+
+#[cfg(test)]
+mod asan_ir_tests {
+    use super::add_asan_function_attributes;
+
+    #[test]
+    fn sanitize_address_tags_every_define() {
+        let ir = "target triple = \"x86_64-pc-linux-gnu\"\n\
+                  define i64 @main() {\n\
+                  entry:\n\
+                  ret i64 0\n\
+                  }\n\
+                  define void @helper() alwaysinline {\n\
+                  ret void\n\
+                  }\n";
+        let tagged = add_asan_function_attributes(ir);
+        assert!(tagged.contains("attributes #0 = { sanitize_address }"));
+        assert!(tagged.contains("define i64 @main() #0 {"));
+        assert!(tagged.contains("define void @helper() alwaysinline #0 {"));
+    }
+
+    #[test]
+    fn picks_an_unused_attribute_group() {
+        let ir = "define i64 @main() {\nret i64 0\n}\nattributes #0 = { noinline }\n";
+        let tagged = add_asan_function_attributes(ir);
+        assert!(tagged.contains("define i64 @main() #1 {"));
+        assert!(tagged.contains("attributes #1 = { sanitize_address }"));
     }
 }

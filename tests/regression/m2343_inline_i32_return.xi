@@ -36,7 +36,7 @@ fn main() -> Int {
   if q <= 0 { return 2; }
 
   // Declared form stays correct.
-  let d: Int32;
+  var d: Int32;
   unsafe { d = strcmp(&a as *UInt8, &b as *UInt8); }
   if d >= 0 { return 3; }
 

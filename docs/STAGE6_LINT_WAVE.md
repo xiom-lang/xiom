@@ -4,7 +4,9 @@ Copyright (c) 2026 Eleftherios Notas and The XIOM Authors
 SPDX-License-Identifier: MIT OR Apache-2.0
 
 **Status:** LANDED -- tier 1 (W002/W003/W004) and tier 2 (W006/W007/W008);
-tier 3 is parked pending the noise-budget decision.
+tier 3 is **opt-in** (`--lint-strict`) per the 2026-11-02 owner decision, with
+a measured noise report before any default-on change. Default builds stay
+warning-clean.
 **Owner probe that queued it:** 2026-09-25, playground -- two mutually
 recursive functions that call each other before printing are reported by the
 runner as "Program ran with no output". Diagnosis: not a compiler bug; the
@@ -99,15 +101,145 @@ codes.
 - **W007 self-comparison that is always true/false** (`x == x`, `x != x`)
   for NON-float types only; NaN makes it meaningful for floats.
 
-## Tier 3 -- deferred (needs a noise-budget decision)
+## Tier 3 -- opt-in (`--lint-strict`), measured
 
-- Unused locals / parameters / imports. Highest user value, noisiest; needs
-  a usage analysis and a decision on default-on vs opt-in.
-- Constant conditions (`if true`, `while false`), self-assignment (`x = x`),
-  vacuous arithmetic (`x + 0`). Mostly typos; can ride the same plumbing
-  once tier 1 proves the noise level.
-- `while true` with no exit (W003-family): intentional server loops are
-  common, so this needs a phrasing/opt-in decision before it ships.
+**DECISION (owner, 2026-11-02): opt-in, measure first.** LANDED as a
+boolean `--lint-strict` flag (`crates/xiom/src/cli.rs` -> `main.rs` ->
+`CompileConfig::lint_strict` -> `Checker::set_lint_strict`). Default builds
+emit no tier-3 warnings; the flag is warning-only and never promotes a
+finding to an error, including under `--strict` / `--strict-exhaustive`.
+There is no suppression syntax in this batch -- the flag is the gate.
+
+| Code | Lint | Rule |
+|---|---|---|
+| `W010` | unused function parameter | `_`-prefixed names, methods/impls and extern/FFI signatures are skipped |
+| `W011` | unused import | only a `use` whose leaf/alias has zero references anywhere in the module body; glob and `pub use` are skipped |
+| `W012` | constant condition | literal `if true/false`, literal `elif`, and `while false`; **not** `while true` |
+| `W013` | self-assignment | the same syntactic place on both sides (`x = x`, `self.n = self.n`) |
+| `W014` | vacuous integer arithmetic | `x + 0`, `x - 0`, `x * 1`, `x / 1`; the literal side must be an integer literal and the other side integer-typed; floats skipped; `0 + x`/`0 - x`/`1 * x` are not reported |
+| `W015` | unused local binding | lexical per-scope usage analysis with shadowing; `_`-prefixed names and bindings used inside a nested closure are ignored; a binding whose scope ends before a later lexical use is still reported |
+
+`W009` was already the reserved-system-symbol advisory
+(REL-20261028-0052), so the unused-local lint uses `W015` -- the only
+renumbering from the original plan. `W005` remains the codegen advisory.
+
+**Correctness contract.** The usage walker resolves each identifier through
+the live lexical scope stack (innermost binding wins), so a use before a
+same-scope declaration resolves outward and can never mark a not-yet-visible
+binding as used. Bindings are checked when their scope pops. Match/pattern
+bindings and closure parameters are registered for shadowing but are not
+warned; a binding referenced from a nested closure counts as used.
+
+### Measured noise and triage (2026-11-03, `examples/*.xi`, 61 files)
+
+Command: `xiom --check --lint-strict examples/*.xi` (the phase-1 set is
+included by the glob; compile-only, no codegen). Counts are the clean
+stderr stream (one line per warning). Tier-3 only; the two pre-existing
+tier-1 `W004` warnings are listed separately and were not part of this
+cleanup.
+
+| Code | Before (2026-11-02) | After (2026-11-03) |
+|---|---:|---:|
+| `W010` | 1 | 0 |
+| `W011` | 4 | 0 |
+| `W012` | 3 | 0 |
+| `W013` | 1 | 0 |
+| `W014` | 8 | 0 |
+| `W015` | 30 | 0 |
+| **tier-3 total** | **47** | **0** |
+| pre-existing `W004` (tier 1, not tier 3) | 2 | 2 |
+
+Files with at least one tier-3 warning: 21 of 61 before, 0 of 61 after.
+
+The 47 findings were all accidental corpus noise, not intentional lint
+hits; the lint implementation was not changed and no suppression syntax
+was added:
+
+- `W010` -- `phase1_selfhost.xi` `compile(source)` did not use `source`;
+  renamed the parameter to `_source`.
+- `W011` -- removed genuinely unreferenced imports: `is_prime`
+  (`benchmark_stress.xi`), `parse_ident` (`phase1_selfhost.xi`), and
+  `Expr` plus the `PErr` alias (`phase1_hardening.xi`).
+- `W012` -- dropped `if true` wrappers in `benchmark_safe.xi` and
+  `benchmark_selfhost.xi` (the body statements remain).
+- `W013` -- removed the `marker = marker;` typo in `concat_debug.xi` and
+  the now-dead `marker` local.
+- `W014` -- dropped `+ 0` / `* 1` in `Big25.new` and `deep_if_nested`
+  (`benchmark_stress.xi`, `concat_debug.xi`) and in the `&Int` readers
+  (`phase1_ownership.xi`, `stress_borrow_10level.xi`).
+- `W015` -- deleted or `_`-prefixed intentional test scaffolding locals
+  in `benchmark_stress.xi`, `concat_debug.xi`, `demo_float.xi`,
+  `phase1_contracts.xi`, `phase1_derive.xi`, `phase1_full.xi`,
+  `phase1_hardening.xi`, `stress_float_matrix.xi`, `test_address.xi`,
+  `test_bst_exact.xi`, `test_counter_bool.xi`, `test_float.xi`,
+  `test_node.xi`, `test_reverse.xi`, `test_user.xi`, and
+  `test_variant_fields.xi`. The underscore form preserves the original
+  construction/coverage intent.
+
+**Files changed:** `examples/benchmark_safe.xi`,
+`examples/benchmark_selfhost.xi`, `examples/benchmark_stress.xi`,
+`examples/concat_debug.xi`, `examples/demo_float.xi`,
+`examples/phase1_contracts.xi`, `examples/phase1_derive.xi`,
+`examples/phase1_full.xi`, `examples/phase1_hardening.xi`,
+`examples/phase1_ownership.xi`, `examples/phase1_selfhost.xi`,
+`examples/stress_borrow_10level.xi`, `examples/stress_float_matrix.xi`,
+`examples/test_address.xi`, `examples/test_bst_exact.xi`,
+`examples/test_counter_bool.xi`, `examples/test_float.xi`,
+`examples/test_node.xi`, `examples/test_reverse.xi`,
+`examples/test_user.xi`, `examples/test_variant_fields.xi`, plus
+`docs/JSON_DIAGNOSTICS_V1.md` and this document. No checker, codegen,
+selfhost, or stdlib source was changed; `--lint-strict` remains opt-in.
+
+**Remaining intentional sites:** none. The only corpus warnings left are
+the two pre-existing tier-1 `W004` unreachable-arm findings
+(`examples/benchmark_stress.xi:3144` and `examples/concat_debug.xi:8574`),
+which are outside tier 3 and predate `--lint-strict`. Three files
+(`benchmark_stress.xi`, `concat_dbg.xi`, `concat_debug.xi`) still exit
+non-zero for pre-existing *type* errors, independent of the lint flag; the
+lint adds no errors and no non-zero exits.
+
+### Verification (2026-11-03)
+
+- `xiom --check --lint-strict examples/*.xi` (61 files, one invocation per
+  file): tier-3 total 0; the only output is the two pre-existing `W004`
+  lines above.
+- Default `--check` on the 21 touched files: 19 are zero-warning/exit 0;
+  `benchmark_stress.xi` and `concat_debug.xi` retain only their pre-existing
+  `W004` + type errors (unchanged counts).
+- `cargo test -p xiom --test checker_locks`: 52 passed on the verified
+  build.
+- `cargo test -p xiom-check catalog_corpus_is_clean`: passed on the
+  verified build.
+- `cargo test -p xiom-codegen --test e2e_tests warnings`:
+  `e2e_m16_no_warnings` and `e2e_m17_zero_warnings` passed on the verified
+  build.
+- Spot e2e for the touched examples (demo_float, ownership, derive,
+  contracts, full, hardening, selfhost_sim, stress_borrow_10level,
+  stress_float_matrix): 9 passed.
+
+The checker/codegen/selfhost trees were not edited by this triage. A
+separate in-flight strict-`let` init-once fix in `crates/xiom-check` can
+transiently affect catalog-body and zero-warning e2e results; final re-runs
+of `checker_locks`, `catalog_corpus_is_clean`, and the zero-warning e2e
+gates are deferred to that owner.
+
+### Default-on recommendation (post-triage; owner decides)
+
+After the corpus cleanup the measured tier-3 noise is zero (47 -> 0 over
+61 files, 21 -> 0 noisy files), and every finding was a real code defect
+or intentional scaffold, not a lint false positive. Default-on for
+`W010`-`W015` as warning-only lints is therefore defensible: on the
+measured corpus it would add no output at all, and warning-only means it
+cannot break builds.
+
+Suggested rollout if the owner approves: flip all six to default-on in a
+separate change (keep `--lint-strict` accepted as a compatibility no-op or
+retain it as the gate for any future noisier tier), then re-run the
+61-file corpus plus the full e2e and `catalog_corpus_is_clean` to confirm
+zero user-code output. If a more conservative step is preferred, enable
+`W011`/`W012`/`W013`/`W014` first and leave `W015` opt-in for one wave:
+`W015` is the only family whose correctness depends on conservative
+usage-walking, and it is the largest former noise source (30 of 47).
 
 ## Plumbing checklist (per lint)
 

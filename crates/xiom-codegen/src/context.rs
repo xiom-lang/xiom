@@ -365,6 +365,44 @@ pub enum VecDrop {
         /// string before the field's data buffer.
         elem_is_str: bool,
     },
+    /// Match-arm binding of a boxed `Vec` removal payload (`pop` / `remove` /
+    /// `swap_remove` on an owned `Vec[Vec[T]]`). The Option payload is an i64
+    /// handle to a malloc'd `%struct.Vec` header: a shallow copy of the
+    /// removed element, no longer reachable from the container (len shrunk, so
+    /// the container's element loop never touches it). The drop frees the
+    /// element's data buffer AND the header box. `header_alloca` is a hoisted
+    /// `%struct.Vec*` slot written at the binding, so every drop site is
+    /// dominated by the entry-block alloca.
+    BoxedVec {
+        header_alloca: String,
+        flag: String,
+    },
+    /// A local bound DIRECTLY from a contracted `#[owns_return]`
+    /// Result/Option<named enum> call (json_parse). At scope exit the Ok
+    /// payload's tree is reclaimed by a metadata-generated recursive helper:
+    /// String payloads free their heap buffer, Vec/Map payloads recurse into
+    /// their elements before freeing the container data. The drop is attached
+    /// by PROVENANCE only (this call shape); enum values from literals,
+    /// `json_string`, `json_get`, match arms, or any other source stay
+    /// leak-only. The Result discriminant is checked at drop time so an Err
+    /// (whose payload slot is zero-initialized) is never walked.
+    EnumTree {
+        /// Hoisted slot holding the binding's `%struct.Result__...` pointer.
+        /// The binding alloca can live inside a nested block; the exit drop
+        /// loads this entry-block pointer so it dominates the GEP uses.
+        ptr_slot: String,
+        flag: String,
+        /// LLVM type of the Result binding (`%struct.Result__JsonValue__Str`).
+        result_llvm_ty: String,
+        /// Field index of the discriminant ("discriminant") in the Result.
+        disc_idx: u32,
+        /// Field index of the Ok payload ("value") in the Result layout.
+        payload_idx: u32,
+        /// LLVM type of the payload enum (`%struct.JsonValue`).
+        enum_llvm_ty: String,
+        /// Module-level recursive drop helper symbol.
+        helper: String,
+    },
 }
 
 impl VecDrop {
@@ -373,7 +411,9 @@ impl VecDrop {
             VecDrop::Vec { flag, .. }
             | VecDrop::Str { flag, .. }
             | VecDrop::Ptr { flag, .. }
-            | VecDrop::Aggregate { flag, .. } => flag,
+            | VecDrop::Aggregate { flag, .. }
+            | VecDrop::BoxedVec { flag, .. }
+            | VecDrop::EnumTree { flag, .. } => flag,
         }
     }
 }
@@ -455,6 +495,10 @@ pub struct FunctionContext {
     /// m368: local names proven OWNED AND PRIVATE for the current function by
     /// the AST prepass (`vec_drop::collect_owned_vec_locals`).
     pub vec_drop_safe: HashSet<String>,
+    /// Subset of `vec_drop_safe` whose binding is a BOXED `Vec` removal payload
+    /// (`pop`/`remove`/`swap_remove` on an owned `Vec[Vec[T]]`): the drop frees
+    /// the element data buffer and the malloc'd header box.
+    pub boxed_vec_payload_safe: HashSet<String>,
     /// By-value `Vec[T]` parameters of the current function. vec_abi deep-
     /// copies them at the call boundary, so a local bound from one owns its
     /// buffer and can be dropped (m375 / REL-20261030-2357-engine).
@@ -493,6 +537,19 @@ pub struct FunctionContext {
     /// m375: aggregate local -> freshly-owned Str field names to free at
     /// scope exit. Only leaves proven fresh at the binding are listed.
     pub aggregate_str_drop_safe: HashMap<String, Vec<String>>,
+    /// 2117: struct-literal locals that are provably uniquely owned (single
+    /// declaration, never copied as a whole value, returned, moved, or
+    /// field-aliased). Only their overwrite sites may free the replaced
+    /// owned field data.
+    pub agg_overwrite_safe: HashSet<String>,
+    /// 2117: aggregate local -> Vec field names proven freshly owned at the
+    /// literal binding. A field overwrite/whole-struct overwrite frees only
+    /// these leaves; a borrowed/projected field is never freed.
+    pub aggregate_vec_owned: HashMap<String, Vec<String>>,
+    /// A local bound DIRECTLY from a contracted `#[owns_return]`
+    /// Result/Option<named enum> call -> the enum type name. Reclaimed as a
+    /// recursive tree at scope exit (R3 / json_parse).
+    pub enum_tree: HashMap<String, String>,
     /// Fresh aggregates whose owned `Vec[Str]` fields were populated only by
     /// `#[consumes_str]` calls with fresh Str args (Map/Set put). The field
     /// elements are freed before the field buffers at scope exit.

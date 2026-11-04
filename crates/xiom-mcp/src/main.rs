@@ -743,6 +743,7 @@ fn tool_compile_and_fix(params: &Value) -> Result<String, String> {
         jobs: 0,
         script_mode: false,
         strict_exhaustive: false,
+        lint_strict: false,
         cache: false,
         lto: false,
         parallel_codegen: false,

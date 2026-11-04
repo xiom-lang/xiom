@@ -930,8 +930,17 @@ impl IrEmitter {
                     (i, Self::fn_type_return_xiom(&m).unwrap_or_else(|| "Int".to_string()))
                 }))
                 .collect();
+            // REL-20261010-1553: keep the FULL marker per fn-typed param.
+            // `fn_typed_params` stores only the return (needed by the B-007
+            // wrap thunk); the call site also needs the declared parameter
+            // spellings -- notably nested `&T`, which decides whether a value
+            // argument must be materialized into a slot and passed by address.
+            let fn_param_markers: Vec<(usize, String)> = fd.params.iter().enumerate()
+                .filter_map(|(i, p)| self.fn_marker_of_type(&p.ty).map(|m| (i, m)))
+                .collect();
             if !fn_param_indices.is_empty() {
                 self.mono.fn_typed_params.insert(key.clone(), fn_param_indices.clone());
+                self.fn_typed_param_markers.insert(key.clone(), fn_param_markers.clone());
                 // m272 (fn-value ABI regression, m81 class): m261's
                 // module-local precedence resolves a bare call to the
                 // MODULE-QUALIFIED key ("alpha.apply"), so the fn-typed-param
@@ -942,6 +951,7 @@ impl IrEmitter {
                 if fd.receiver.is_none() {
                     if let Some(ref module) = self.local.current_module {
                         let qualified = format!("{module}.{key}");
+                        self.fn_typed_param_markers.entry(qualified.clone()).or_insert(fn_param_markers);
                         self.mono.fn_typed_params.entry(qualified).or_insert(fn_param_indices);
                     }
                 }
@@ -1129,6 +1139,12 @@ impl IrEmitter {
                     }))
                     .collect();
                 if !fn_param_indices.is_empty() {
+                    // REL-20261010-1553: full per-param markers alongside
+                    // the return-only table (call-site by-ref detection).
+                    let fn_param_markers: Vec<(usize, String)> = fd.params.iter().enumerate()
+                        .filter_map(|(i, p)| self.fn_marker_of_type(&p.ty).map(|m| (i, m)))
+                        .collect();
+                    self.fn_typed_param_markers.insert(fd.name.name.clone(), fn_param_markers);
                     self.mono.fn_typed_params.insert(fd.name.name.clone(), fn_param_indices);
                 }
                 if let Some(rt) = &fd.return_type {
@@ -2824,7 +2840,7 @@ impl IrEmitter {
 
     fn collect_calls_stmt<'a>(stmt: &'a Stmt, out: &mut Vec<(&'a Expr, &'a Vec<Expr>)>) {
         match stmt {
-            Stmt::Let(_, _, init, _) | Stmt::Var(_, _, init, _) | Stmt::Destructure(_, init, _) => {
+            Stmt::Let(_, _, init, _) | Stmt::Var(_, _, init, _) | Stmt::Destructure(_, init, _, _) => {
                 Self::collect_calls_expr(init, out);
             }
             Stmt::Assign(l, r, _) => {

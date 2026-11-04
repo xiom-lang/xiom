@@ -15,6 +15,6 @@ type Address = {
 
 fn main() -> Int {
   var addr = Address{ street: "Main", city: "NYC", zip: 10001 };
-  var person = Person{ name: "Alice", age: 30, address: addr };
+  var _person = Person{ name: "Alice", age: 30, address: addr };
   return 0;
 }

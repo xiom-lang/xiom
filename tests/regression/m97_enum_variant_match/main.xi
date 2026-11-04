@@ -23,8 +23,8 @@ fn TrafficLight.instruction(self) -> Str {
 }
 
 fn main() -> Int {
-  let light = TrafficLight.Red;
-  let count = 0;
+  var light = TrafficLight.Red;
+  var count = 0;
   while count < 3 {
     io.println(light.instruction().to_str());
     light = light.next();

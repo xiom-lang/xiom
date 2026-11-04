@@ -29,7 +29,7 @@ module structures {
 
   fn test() -> Int {
     var t: BST[Int] = BST.new[Int]();
-    var t2 = t.insert(5);
+    var _t2 = t.insert(5);
     return 1;
   }
 

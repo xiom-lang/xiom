@@ -50,11 +50,54 @@ pub(crate) fn collect_fresh_vec_returns(program: &Program) -> HashSet<String> {
 /// All ownership sets, computed once per program.
 pub(crate) fn collect_fresh_ownership(
     program: &Program,
-) -> (HashSet<String>, HashSet<String>, HashSet<String>) {
+) -> (
+    HashSet<String>,
+    HashSet<String>,
+    HashSet<String>,
+    HashMap<String, String>,
+    HashMap<String, String>,
+    HashSet<String>,
+    HashSet<String>,
+) {
     let vec = collect_fresh_vec_returns(program);
     let payload = collect_fresh_payload_returns(program, &vec);
     let aggregate = collect_fresh_aggregate_returns(program);
-    (vec, payload, aggregate)
+    let enum_tree = collect_fresh_enum_tree_returns(program);
+    let agg_returns = collect_consumes_agg_returns(program);
+    let agg_callees = collect_consumes_agg_callees(program);
+    let str_returns = collect_fresh_str_returns(program);
+    (vec, payload, aggregate, enum_tree, agg_returns, agg_callees, str_returns)
+}
+
+/// `#[owns_str]` contract (R2): the function returns a freshly allocated `Str`
+/// buffer, so a caller binding the DIRECT call result owns it and may free it
+/// at scope exit. This is provenance-only: a literal, borrowed, or identity
+/// (`to_str`/`to_string`) return is never in the set, and a same-leaf function
+/// without the attribute rejects the whole leaf (conservative).
+fn collect_fresh_str_returns(program: &Program) -> HashSet<String> {
+    let mut groups: HashMap<String, Vec<&FnDecl>> = HashMap::new();
+    collect_fn_groups(&program.items, &mut groups);
+    for fns in groups.values_mut() {
+        fns.retain(|fd| fn_returns_str(fd));
+    }
+    groups.retain(|_, fns| !fns.is_empty());
+    groups
+        .into_iter()
+        .filter_map(|(leaf, fns)| {
+            if fns.iter().all(|fd| fn_has_owns_str(fd)) {
+                Some(leaf)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn fn_returns_str(fd: &FnDecl) -> bool {
+    match fd.return_type.as_ref() {
+        Some(Type::Named(id, _)) => id.name == "Str" || id.name.ends_with(".Str"),
+        _ => false,
+    }
 }
 
 /// Aggregate builders (`#[owns_return]` on a named-struct return). The caller
@@ -71,6 +114,143 @@ fn collect_fresh_aggregate_returns(program: &Program) -> HashSet<String> {
         .into_iter()
         .filter_map(|(leaf, fns)| {
             if fns.iter().all(|fd| fn_has_owns_return(fd)) {
+                Some(leaf)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// `#[owns_return]` Result/Option<named enum> returns. The Ok payload is a
+/// freshly built enum tree whose recursive ownership follows the enum
+/// metadata (String payload, Vec/Map container payloads). The caller may bind
+/// the Result directly and reclaim the tree at scope exit; no other binding
+/// shape is trusted (a match arm or `json_get` stays leak-only).
+///
+/// All same-leaf functions must carry the contract AND name the same enum, or
+/// the leaf is rejected (fresh_return's conservative same-leaf rule).
+fn collect_fresh_enum_tree_returns(program: &Program) -> HashMap<String, String> {
+    let mut enum_leaves: HashSet<String> = HashSet::new();
+    collect_enum_leaves(&program.items, &mut enum_leaves);
+    let mut groups: HashMap<String, Vec<&FnDecl>> = HashMap::new();
+    collect_fn_groups(&program.items, &mut groups);
+    groups
+        .into_iter()
+        .filter_map(|(leaf, fns)| {
+            if fns.is_empty() || !fns.iter().all(|fd| fn_has_owns_return(fd)) {
+                return None;
+            }
+            let mut names: HashSet<String> = HashSet::new();
+            for fd in &fns {
+                names.insert(fn_returns_payload_enum(fd, &enum_leaves)?);
+            }
+            if names.len() != 1 {
+                return None;
+            }
+            Some((leaf, names.into_iter().next().unwrap()))
+        })
+        .collect()
+}
+
+fn collect_enum_leaves(items: &[TopDecl], out: &mut HashSet<String>) {
+    for item in items {
+        match item {
+            TopDecl::Enum(ed) => {
+                out.insert(ed.name.name.clone());
+                // A module-qualified enum leaf is the same type in the
+                // compiler's same-leaf unification model.
+                out.insert(ed.name.name.rsplit('.').next().unwrap_or(&ed.name.name).to_string());
+            }
+            TopDecl::Module(module) => collect_enum_leaves(&module.items, out),
+            _ => {}
+        }
+    }
+}
+
+fn fn_returns_payload_enum(fd: &FnDecl, enums: &HashSet<String>) -> Option<String> {
+    let ok = match fd.return_type.as_ref() {
+        Some(Type::Result(ok, _)) | Some(Type::Option(ok)) => ok.as_ref(),
+        _ => return None,
+    };
+    let Type::Named(id, args) = ok else { return None };
+    if !args.is_empty() {
+        return None;
+    }
+    let leaf = id.name.rsplit('.').next().unwrap_or(&id.name);
+    if enums.contains(&id.name) || enums.contains(leaf) {
+        Some(id.name.clone())
+    } else {
+        None
+    }
+}
+
+/// `#[consumes_agg]` / `#[consumes_self]` contract (R4): the function consumes
+/// a by-value aggregate and either transfers its owned CONTAINER buffers into
+/// a returned named enum (builder `build(self)`) or discards them (serializer
+/// `json_stringify(v)`). This is a distinct contract from `#[owns_return]`:
+/// a tree produced/consumed here owns only its Vec/Map data buffers. Its Str
+/// leaves are BORROWED (literal keys, borrowed values) and must never be
+/// freed; a parse-owned tree keeps the R3 String-freeing helper instead.
+pub(crate) fn fn_has_consumes_agg(fd: &FnDecl) -> bool {
+    fd.attributes
+        .iter()
+        .any(|a| matches!(a.name.name.as_str(), "consumes_agg" | "consumes_self"))
+}
+
+/// Leaf -> enum type for contracted aggregate-consuming builders whose return
+/// is a named enum (R4). A direct call result is a CONTAINER-owned tree: the
+/// Vec/Map buffers were transferred out of the consumed aggregate. All
+/// same-leaf functions must carry the contract AND name the same enum.
+fn collect_consumes_agg_returns(program: &Program) -> HashMap<String, String> {
+    let mut enum_leaves: HashSet<String> = HashSet::new();
+    collect_enum_leaves(&program.items, &mut enum_leaves);
+    let mut groups: HashMap<String, Vec<&FnDecl>> = HashMap::new();
+    collect_fn_groups(&program.items, &mut groups);
+    groups
+        .into_iter()
+        .filter_map(|(leaf, fns)| {
+            if fns.is_empty() || !fns.iter().all(|fd| fn_has_consumes_agg(fd)) {
+                return None;
+            }
+            let mut names: HashSet<String> = HashSet::new();
+            for fd in &fns {
+                names.insert(fn_returns_named_enum(fd, &enum_leaves)?);
+            }
+            if names.len() != 1 {
+                return None;
+            }
+            Some((leaf, names.into_iter().next().unwrap()))
+        })
+        .collect()
+}
+
+fn fn_returns_named_enum(fd: &FnDecl, enums: &HashSet<String>) -> Option<String> {
+    let Type::Named(id, args) = fd.return_type.as_ref()? else {
+        return None;
+    };
+    if !args.is_empty() {
+        return None;
+    }
+    let leaf = id.name.rsplit('.').next().unwrap_or(&id.name);
+    if enums.contains(&id.name) || enums.contains(leaf) {
+        Some(id.name.clone())
+    } else {
+        None
+    }
+}
+
+/// Leaf names of `#[consumes_agg]` callees. A by-value aggregate argument to
+/// one of these is consumed during the call; the caller may reclaim a
+/// PROVEN-OWNED temporary's container buffers after it returns. A variable
+/// argument stays leak-only (there is no move proof at the call site).
+pub(crate) fn collect_consumes_agg_callees(program: &Program) -> HashSet<String> {
+    let mut groups: HashMap<String, Vec<&FnDecl>> = HashMap::new();
+    collect_fn_groups(&program.items, &mut groups);
+    groups
+        .into_iter()
+        .filter_map(|(leaf, fns)| {
+            if !fns.is_empty() && fns.iter().all(|fd| fn_has_consumes_agg(fd)) {
                 Some(leaf)
             } else {
                 None
@@ -302,6 +482,54 @@ pub(crate) fn fn_has_borrows_vec(fd: &FnDecl) -> bool {
         .any(|a| a.name.name.as_str() == "borrows_vec")
 }
 
+pub(crate) fn fn_has_owns_str(fd: &FnDecl) -> bool {
+    fd.attributes
+        .iter()
+        .any(|a| a.name.name.as_str() == "owns_str")
+}
+
+/// `#[borrows_str]` contract (R2): the callee does NOT retain a by-value `Str`
+/// argument (`json_parse(s)` only reads the input bytes and builds a new tree).
+/// The caller keeps ownership of the argument and frees it at its own scope
+/// exit; a borrowed/literal argument has no drop and is never freed. Returns
+/// leaf -> the parameter indices that are by-value `Str`. A leaf is only
+/// accepted when EVERY same-leaf function carries the attribute and agrees on
+/// those positions (conservative).
+pub(crate) fn collect_borrows_str_callees(
+    program: &Program,
+) -> HashMap<String, Vec<usize>> {
+    let mut groups: HashMap<String, Vec<&FnDecl>> = HashMap::new();
+    collect_fn_groups(&program.items, &mut groups);
+    let mut out = HashMap::new();
+    for (leaf, fns) in groups {
+        if fns.is_empty()
+            || !fns
+                .iter()
+                .all(|fd| fd.attributes.iter().any(|a| a.name.name.as_str() == "borrows_str"))
+        {
+            continue;
+        }
+        let indices: Vec<usize> = fns[0]
+            .params
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| is_str_param_type(&p.ty))
+            .map(|(i, _)| i)
+            .collect();
+        if indices.is_empty() {
+            continue;
+        }
+        if fns.iter().all(|fd| {
+            indices
+                .iter()
+                .all(|&i| fd.params.get(i).map_or(false, |p| is_str_param_type(&p.ty)))
+        }) {
+            out.insert(leaf, indices);
+        }
+    }
+    out
+}
+
 /// Leaf names of functions with the `#[borrows_vec]` contract: the callee may
 /// MUTATE a `Vec` parameter through a `&mut` reference (or read a by-value
 /// header) during the call, but it does NOT retain the header/data anywhere.
@@ -349,7 +577,13 @@ pub(crate) fn fn_owns_return_transfer(fd: &FnDecl) -> bool {
     match fd.return_type.as_ref() {
         Some(Type::Vec(_)) => true,
         Some(Type::Named(id, _)) => is_named_struct_type(id),
-        Some(Type::Result(ok, _)) | Some(Type::Option(ok)) => is_vec_type(ok.as_ref()),
+        // Result/Option<Vec> (io.read_at) and Result/Option<named enum>
+        // (json_parse tree). Str is a separate payload and is deliberately
+        // excluded: `#[owns_str]` has its own collector and does NOT grant the
+        // force_main_heap_alloc/trust_unsafe side effects.
+        Some(Type::Result(ok, _)) | Some(Type::Option(ok)) => {
+            is_vec_type(ok.as_ref()) || type_is_named_aggregate(ok.as_ref())
+        }
         _ => false,
     }
 }
@@ -366,6 +600,13 @@ fn is_vec_type(ty: &Type) -> bool {
     match ty {
         Type::Vec(_) => true,
         Type::Named(id, args) => id.name == "Vec" && !args.is_empty(),
+        _ => false,
+    }
+}
+
+fn type_is_named_aggregate(ty: &Type) -> bool {
+    match ty {
+        Type::Named(id, _) => is_named_struct_type(id),
         _ => false,
     }
 }
@@ -493,7 +734,7 @@ fn collect_stmt_returns<'a>(stmt: &'a Stmt, out: &mut Vec<&'a Expr>) {
         Stmt::While(_, block, _, _, _) | Stmt::For(_, _, block, _, _) => {
             collect_block_returns(block, out)
         }
-        Stmt::Destructure(_, expr, _) => collect_expr_returns(expr, out),
+        Stmt::Destructure(_, expr, _, _) => collect_expr_returns(expr, out),
         Stmt::Assert(expr, _, _) => collect_expr_returns(expr, out),
     }
 }
@@ -595,7 +836,7 @@ fn stmt_has_nested_return(stmt: &Stmt) -> bool {
         Stmt::Spawn(block, _, _) => block_has_nested_return(block),
         Stmt::Defer(block, _) => block_has_nested_return(block),
         Stmt::Assign(_, expr, _) => expr_has_nested_return(expr),
-        Stmt::Destructure(_, expr, _) => expr_has_nested_return(expr),
+        Stmt::Destructure(_, expr, _, _) => expr_has_nested_return(expr),
         Stmt::Assert(expr, _, _) => expr_has_nested_return(expr),
         Stmt::Asm(_) => false,
     }
@@ -784,7 +1025,7 @@ fn stmt_uses_params_unsafely(stmt: &Stmt, params: &HashSet<String>) -> bool {
         Stmt::Spawn(block, _, _) | Stmt::Defer(block, _) => {
             block_uses_params_unsafely(block, params)
         }
-        Stmt::Destructure(_, expr, _) => expr_uses_params_unsafely(expr, params),
+        Stmt::Destructure(_, expr, _, _) => expr_uses_params_unsafely(expr, params),
         Stmt::Assert(expr, msg, _) => {
             expr_uses_params_unsafely(expr, params)
                 || msg

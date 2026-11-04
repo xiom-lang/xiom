@@ -1370,7 +1370,7 @@ impl Parser {
 
     fn parse_let_stmt(&mut self) -> Result<Stmt, ParseError> {
         let span = self.advance().span;
-        if self.peek_kind() == &TokenKind::LParen { return self.parse_destructure(span); }
+        if self.peek_kind() == &TokenKind::LParen { return self.parse_destructure(span, false); }
         let name = self.parse_ident()?;
         let ty = if self.skip(TokenKind::Colon) { Some(Box::new(self.parse_type()?)) } else { None };
         // Allow `let x: T;` without initializer (defaults to zero); assigned later.
@@ -1383,7 +1383,7 @@ impl Parser {
 
     fn parse_var_stmt(&mut self) -> Result<Stmt, ParseError> {
         let span = self.advance().span;
-        if self.peek_kind() == &TokenKind::LParen { return self.parse_destructure(span); }
+        if self.peek_kind() == &TokenKind::LParen { return self.parse_destructure(span, true); }
         let name = self.parse_ident()?;
         let ty = if self.skip(TokenKind::Colon) { Some(Box::new(self.parse_type()?)) } else { None };
         // Allow `var x: Type;` without explicit initialization (defaults to zero)
@@ -1494,13 +1494,13 @@ impl Parser {
         None
     }
 
-    fn parse_destructure(&mut self, span: Span) -> Result<Stmt, ParseError> {
+    fn parse_destructure(&mut self, span: Span, is_var: bool) -> Result<Stmt, ParseError> {
         self.advance();
         let mut names = Vec::new(); names.push(self.parse_ident()?);
         while self.skip(TokenKind::Comma) { names.push(self.parse_ident()?); }
         self.expect_kind(TokenKind::RParen, "')'")?; self.expect_kind(TokenKind::Eq, "'='")?;
         let value = self.parse_expr()?; self.expect_kind(TokenKind::Semicolon, "';'")?;
-        Ok(Stmt::Destructure(names, value, span))
+        Ok(Stmt::Destructure(names, value, span, is_var))
     }
 
     fn parse_return_stmt(&mut self) -> Result<Stmt, ParseError> {

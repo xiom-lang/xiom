@@ -1608,6 +1608,53 @@ fn main() -> Int {
     );
 }
 
+/// REL-20261010-1609-pulse (macOS legs): NO emitted IR may use the
+/// typed-pointer intrinsic spelling (`p0i8`). Newest Apple LLVM rejects it at
+/// verify (`use of undefined value @llvm.memset.p0i8.i64`), which blocked the
+/// macOS arm64/x64 legs before any host code can run. Every call site is
+/// normalized to the portable untyped form at module finalization, so this
+/// lock needs no macOS host: it asserts the spelling, the call, and the
+/// matching declaration on generated IR that exercises memset, memcpy and
+/// memmove.
+#[test]
+fn regress_portable_memset_memcpy_intrinsics() {
+    let src = r#"
+fn main() -> Int {
+  var buf: [20000]UInt8;
+  buf[0] = 1;
+  var v = Vec[Int].new();
+  v.push(10); v.push(20);
+  v.insert(0, 5);
+  var c = v.clone();
+  return buf[0] as Int + c.len();
+}"#;
+    let ir = compile(src).unwrap();
+    assert!(
+        !ir.contains("p0i8"),
+        "typed intrinsic spelling must never reach the IR (macOS verify):\n{}",
+        ir.lines().filter(|l| l.contains("llvm.mem")).collect::<Vec<_>>().join("\n")
+    );
+    for decl in [
+        "declare void @llvm.memset.p0.i64(i8*, i8, i64, i1)",
+        "declare void @llvm.memcpy.p0.p0.i64(i8*, i8*, i64, i1)",
+        "declare void @llvm.memmove.p0.p0.i64(i8*, i8*, i64, i1)",
+    ] {
+        assert!(ir.contains(decl), "missing portable declaration `{decl}`");
+    }
+    assert!(
+        ir.contains("call void @llvm.memset.p0.i64("),
+        "large-array zero-init must call the portable memset"
+    );
+    assert!(
+        ir.contains("call void @llvm.memcpy.p0.p0.i64("),
+        "Vec.clone must call the portable memcpy"
+    );
+    assert!(
+        ir.contains("call void @llvm.memmove.p0.p0.i64("),
+        "Vec.insert must call the portable memmove"
+    );
+}
+
 /// G-28: E001 false-move on extern out-params - Place-model (5c-R) already
 /// resolved this. The pattern `&local as *T` + extern write-back must NOT
 /// trigger "use of moved value". Locking with a regression.
@@ -8656,6 +8703,152 @@ fn main() -> Int { return use_v(4); }
     );
 }
 
+// 2117: a struct literal built HERE with a fresh-return Vec field is a
+// uniquely-owned aggregate. Reassigning the field frees the replaced data at
+// the assignment; the scope-exit field drop frees the final data.
+#[test]
+fn m375_aggregate_field_overwrite_frees_replaced_data() {
+    let source = r#"
+type Holder = { v: Vec[Int]; n: Int; }
+#[owns_return]
+fn mk(n: Int) -> Vec[Int] {
+  var b = Vec[Int].new();
+  var i = 0;
+  while i < n { b.push(i); i = i + 1; }
+  return b;
+}
+fn use_field(iters: Int) -> Int {
+  var d = Holder{ v: mk(8); n: 0 };
+  var i = 0;
+  while i < iters { d.v = mk(8); i = i + 1; }
+  return 0;
+}
+fn main() -> Int { return use_field(4); }
+"#;
+    let ir = compile(source).expect("2117: fresh aggregate field overwrite must compile");
+    let body = ir
+        .split("define i64 @use_field(")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("use_field body");
+    assert!(
+        body.matches("call void @xiom_guard_free").count() >= 2,
+        "the replaced field data AND the final field data must be freed:\n{ir}"
+    );
+    assert!(
+        body.contains("getelementptr %struct.Vec, %struct.Vec*"),
+        "the field overwrite must free through the Vec field header:\n{ir}"
+    );
+}
+
+// 2117 negative: the engine trace-ring shape. `var out = r` shallow-copies the
+// aggregate, so `out.v` is not a uniquely-owned literal and must stay
+// leak-only (never free a header a live alias may reference).
+#[test]
+fn m375_aggregate_field_overwrite_copy_stays_leak_only() {
+    let source = r#"
+type Holder = { v: Vec[Int]; n: Int; }
+#[owns_return]
+fn mk(n: Int) -> Vec[Int] {
+  var b = Vec[Int].new();
+  var i = 0;
+  while i < n { b.push(i); i = i + 1; }
+  return b;
+}
+fn use_ring(iters: Int) -> Int {
+  var r = Holder{ v: mk(8); n: 0 };
+  var out = r;
+  var i = 0;
+  while i < iters { out.v = mk(8); i = i + 1; }
+  return 0;
+}
+fn main() -> Int { return use_ring(4); }
+"#;
+    let ir = compile(source).expect("2117: trace-ring copy must compile");
+    let body = ir
+        .split("define i64 @use_ring(")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("use_ring body");
+    assert!(
+        !body.contains("call void @xiom_guard_free"),
+        "a whole-value copy must not be registered for field overwrite reclaim:\n{ir}"
+    );
+}
+
+// 2117 negative: `let x = d.v` reads a Vec field header into a binding, so the
+// aggregate is alias-escaped and the field overwrite must not free the old
+// data. Only the copy's own exit drop may appear.
+#[test]
+fn m375_aggregate_field_overwrite_field_alias_stays_leak_only() {
+    let source = r#"
+type Holder = { v: Vec[Int]; n: Int; }
+#[owns_return]
+fn mk(n: Int) -> Vec[Int] {
+  var b = Vec[Int].new();
+  var i = 0;
+  while i < n { b.push(i); i = i + 1; }
+  return b;
+}
+fn use_alias(iters: Int) -> Int {
+  var d = Holder{ v: mk(8); n: 0 };
+  var x = d.v;
+  var i = 0;
+  while i < iters { d.v = mk(8); i = i + 1; }
+  return 0;
+}
+fn main() -> Int { return use_alias(4); }
+"#;
+    let ir = compile(source).expect("2117: field-alias case must compile");
+    let body = ir
+        .split("define i64 @use_alias(")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("use_alias body");
+    assert!(
+        body.matches("call void @xiom_guard_free").count() <= 1,
+        "the aliased aggregate's field must stay leak-only (at most the copy's own drop):\n{ir}"
+    );
+}
+
+// 2117: whole-struct overwrite with a fresh #[owns_return] aggregate call
+// frees the OLD aggregate's owned fields before the store; the exit drop then
+// frees the final fields.
+#[test]
+fn m375_aggregate_whole_overwrite_frees_replaced_data() {
+    let source = r#"
+type Holder = { v: Vec[Int]; n: Int; }
+#[owns_return]
+fn mk(n: Int) -> Vec[Int] {
+  var b = Vec[Int].new();
+  var i = 0;
+  while i < n { b.push(i); i = i + 1; }
+  return b;
+}
+#[owns_return]
+fn make(n: Int) -> Holder {
+  return Holder{ v: mk(n); n: n };
+}
+fn use_whole(iters: Int) -> Int {
+  var d = Holder{ v: mk(8); n: 0 };
+  var i = 0;
+  while i < iters { d = make(8); i = i + 1; }
+  return 0;
+}
+fn main() -> Int { return use_whole(4); }
+"#;
+    let ir = compile(source).expect("2117: whole-struct overwrite must compile");
+    let body = ir
+        .split("define i64 @use_whole(")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("use_whole body");
+    assert!(
+        body.matches("call void @xiom_guard_free").count() >= 2,
+        "the replaced aggregate's field AND the final field must be freed:\n{ir}"
+    );
+}
+
 #[test]
 fn m1552_by_ref_fn_value_still_compiles() {
     let source = r#"
@@ -8672,3 +8865,76 @@ fn main() -> Int {
         "a real fn(&T) must still bind and be callable with &expr"
     );
 }
+
+// R3 (json 1704 tree leak): a local bound directly from a contracted
+// `#[owns_return]` Result<named enum> call owns the tree. The drop helper is
+// generated from the enum metadata (String leaf + Vec/Map recursion) and is
+// attached by PROVENANCE only.
+#[test]
+fn m375_enum_tree_parse_local_is_reclaimed() {
+    let source = r#"
+pub enum Node { Leaf, Text(value: Str), Items(items: Vec[Node]) }
+#[owns_return]
+fn parse_node(s: Str) -> Result[Node, Str] {
+  if s.len() == 0 { return Err("empty"); }
+  return Ok(Node.Text("x"));
+}
+fn main() -> Int {
+  let p = parse_node("a");
+  if p.is_err { return 1; }
+  return 0;
+}
+"#;
+    let ir = compile(source).expect("R3: contracted enum-tree parse must compile");
+    assert!(
+        ir.contains("define internal void @__xiom_enum_tree_drop_"),
+        "a metadata-generated recursive drop helper must be emitted:\n{ir}"
+    );
+    let main_body = ir
+        .split("define i64 @main(")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("main body");
+    assert!(
+        main_body.contains("call void @__xiom_enum_tree_drop_"),
+        "the direct parse local must be reclaimed at scope exit:\n{ir}"
+    );
+    assert!(
+        ir.contains("@xiom_guard_free"),
+        "the helper must free through the arena-aware guard free:\n{ir}"
+    );
+}
+
+#[test]
+fn m375_enum_tree_non_parse_value_stays_leak_only() {
+    // Provenance lock: an enum value built by a NON-contracted function
+    // (`json_string("literal")` / `json_get` shape) must never be registered
+    // for the tree drop, even though a contracted parse exists in the program.
+    let source = r#"
+pub enum Node { Leaf, Text(value: Str), Items(items: Vec[Node]) }
+#[owns_return]
+fn parse_node(s: Str) -> Result[Node, Str] {
+  if s.len() == 0 { return Err("empty"); }
+  return Ok(Node.Text("x"));
+}
+fn make_text() -> Node {
+  return Node.Text("literal");
+}
+fn main() -> Int {
+  let n = make_text();
+  if n.is_err { return 1; }
+  return 0;
+}
+"#;
+    let ir = compile(source).expect("R3: literal enum value must still compile");
+    let main_body = ir
+        .split("define i64 @main(")
+        .nth(1)
+        .and_then(|rest| rest.split("\ndefine ").next())
+        .expect("main body");
+    assert!(
+        !main_body.contains("__xiom_enum_tree_drop_"),
+        "a non-contracted enum value must stay leak-only:\n{ir}"
+    );
+}
+
