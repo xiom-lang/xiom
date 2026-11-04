@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "tag": "v0.65.6",
+  "summary": "Memory-heavy Vec, JSON, and aggregate paths reclaim their allocations, the checker enforces init-once bindings and seven spec rules, and optional tier-3 lint ships with a clean corpus.",
+  "highlights": [
+    {
+      "kind": "fix",
+      "title": "Vec, JSON, and aggregate memory reclamation",
+      "text": "Rebinding an owned Vec now frees the data pointer read from the current header, so a push that reallocates before the rebind can no longer double-free. JSON parse trees, builder containers, and scratch buffers are reclaimed under ownership and borrow contracts while literal keys and borrowed string leaves stay untouched. A provably unique aggregate field or whole-struct overwrite now frees its old payload; aliased and trace-ring shapes stay leak-only."
+    },
+    {
+      "kind": "language",
+      "title": "Init-once bindings and all seven spec rules",
+      "text": "The checker now enforces let and const immutability as init-once: a deferred let may be initialized once, while a reassignment of an initialized binding, const, or field is rejected. Seven audited spec gaps are hard diagnostics with positive controls and no ignored tests: loop control placement, duplicate parameters, duplicate struct fields, duplicate pattern bindings, CTFE-evaluable const initializers, fixed-width integer bounds, and init-once mutability."
+    },
+    {
+      "kind": "tooling",
+      "title": "Opt-in tier-3 lint with a clean corpus",
+      "text": "Tier-3 warnings W010 through W015 are available behind the opt-in strict lint flag and stay off by default. The example and regression corpus was triaged to zero tier-3 findings, so a strict run is clean without changing default builds."
+    },
+    {
+      "kind": "compiler",
+      "title": "Sanitizer tagging and relay correctness fixes",
+      "text": "Address sanitizer builds now tag generated IR and bypass the guard arena, and the guarded allocator recycles freed blocks instead of retaining them until block exit. By-reference function parameters are enforced, the macOS typed memset lowering is fixed, the HTTP server frees its parse buffers, and W000, exhaustiveness, the explain flag, Int plus Str, and mixed to_str conversions behave consistently."
+    },
+    {
+      "kind": "fix",
+      "title": "Faster confined blocks and recycled guard allocations",
+      "text": "The POSIX confinement trampoline no longer saves the signal mask on every confined entry, cutting the t3-hot-reload floor from 27 ms to 5 ms internal against peer Rust at 6 ms. Freed guard-arena blocks are recycled through size-bucketed free lists, so a balanced alloc and free loop inside one confined block stays flat."
+    },
+    {
+      "kind": "fix",
+      "title": "Ownership contracts reclaim JSON and server buffers",
+      "text": "JSON parse and render carry ownership and borrow contracts so parse trees, builder containers and scratch buffers are reclaimed while literal keys and borrowed leaves stay untouched. The string builder to Str method borrows its buffer, and the HTTP server frees each parsed field scratch buffer after copying."
+    }
+  ],
+  "breaking": [],
+  "known_issues": [
+    "The libc user-symbol mangling change is deferred to a later release.",
+    "The C-PULSE aggregate-return residual is deferred: loop-body and container drops are reclaimed, but an unconsumed returned aggregate can still retain memory.",
+    "Four formatter smoke programs still corrupt the heap in a build and finish cycle; this regression predates this release and is under investigation.",
+    "macOS and BSD event-loop support still returns an explicit error until the kqueue backend lands."
+  ],
+  "docs": [
+    {
+      "title": "Contracts guide",
+      "url": "https://docs.xiom-lang.org/latest/contracts/"
+    }
+  ],
+  "full_changelog": "https://github.com/xiom-lang/xiom/releases/tag/v0.65.6"
+}
