@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "tag": "v0.65.7",
+  "summary": "String lifetime and comparison handling, nested aggregate reuse, clearer diagnostics, and a recorded stdlib identity make this toolchain more predictable and easier to audit.",
+  "highlights": [
+    {
+      "kind": "language",
+      "title": "Str lifetimes, comparators, and tuple patterns",
+      "text": "Returned Str values keep their ownership across match arms, so a fresh string is not freed while it is still in use. Str comparators behind function-typed parameters compare contents even when passed by value, and tuple patterns over Option and Result bind every nested element."
+    },
+    {
+      "kind": "fix",
+      "title": "Nested aggregates and aggregate returns reclaim memory",
+      "text": "Copying, modifying, and writing back a nested aggregate field no longer emits an invalid vector extractvalue, so a module-level Vec of struct values compiles. Aggregate returns through Option and Result free their owned payload containers, and large allocations request transparent huge pages on Linux."
+    },
+    {
+      "kind": "tooling",
+      "title": "Clearer diagnostics and a recorded stdlib identity",
+      "text": "Windows build and check failures now report a diagnostic instead of exiting silently. Every release archive carries a stdlib commit file with the exact bundled commit, and the release publishes a top-level stdlib identity asset that is checksummed with the other downloads."
+    },
+    {
+      "kind": "fix",
+      "title": "HTTP/1.1 and WebSocket framing hardening",
+      "text": "Strict Content-Length and Transfer-Encoding checks, CTL/NUL rejection, RSV/opcode/control-frame checks, valid close codes/reasons and UTF-8 text, and no negative consumed frame lengths. The request-smuggling shapes and the remote WebSocket crash are closed."
+    },
+    {
+      "kind": "fix",
+      "title": "THP large allocations and owned Int formatting",
+      "text": "Large xiom_alloc blocks hint 2 MiB transparent huge pages before zeroing on Linux x86_64. convert.to_string uses the owned + concat so the slice temporary is freed instead of retained."
+    },
+    {
+      "kind": "stdlib",
+      "title": "Contract tail retired",
+      "text": "The public API has 0 EX-0 exemptions: 276 uncovered functions carry per-function EX-1..EX-5 records, coverage is 6,716/6,992 (96.1%), and the ownership map and sign-off policy are in docs."
+    }
+  ],
+  "breaking": [],
+  "known_issues": [
+    "The libc user-symbol mangling change is deferred to a later release.",
+    "Selfhost phase 8 remains incomplete; no bootstrap binary ships in this release.",
+    "Tier-3 lint stays opt-in; making it default-on is a separate decision."
+  ],
+  "docs": [
+    {
+      "title": "Contracts guide",
+      "url": "https://docs.xiom-lang.org/latest/contracts/"
+    }
+  ],
+  "full_changelog": "https://github.com/xiom-lang/xiom/releases/tag/v0.65.7"
+}
